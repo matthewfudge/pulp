@@ -12,9 +12,8 @@ All dependencies must be compatible with MIT licensing. No copyleft (GPL, LGPL, 
 
 | Name | Version | License | How Used | Subsystem | Added |
 |------|---------|---------|----------|-----------|-------|
-| — | — | — | — | — | — |
-
-*Dependencies are added as implementation begins. This table is updated with every new dependency.*
+| Catch2 | 3.7.1 | BSL-1.0 | Unit testing framework | test | 2026-03-24 |
+| CHOC | main | ISC | JS engine abstraction, MIDI utilities, audio helpers | multiple | 2026-03-24 |
 
 ## Format SDKs (Obtained by Developers)
 
