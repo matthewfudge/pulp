@@ -29,3 +29,8 @@ catch_discover_tests(pulp-test-audio)
 add_executable(pulp-test-midi test_midi.cpp)
 target_link_libraries(pulp-test-midi PRIVATE pulp::midi Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-midi)
+
+# State tests
+add_executable(pulp-test-state test_state.cpp)
+target_link_libraries(pulp-test-state PRIVATE pulp::state Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-state)
