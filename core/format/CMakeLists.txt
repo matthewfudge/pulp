@@ -8,12 +8,11 @@ target_include_directories(pulp-format
 )
 
 target_sources(pulp-format PRIVATE
-    src/placeholder.cpp
+    src/format.cpp
 )
 
-# Placeholder source to make the library valid
-file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
-    "// pulp-format: placeholder — replaced in Phase 2+\nnamespace pulp::format {}\n"
+file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/format.cpp
+    "// pulp-format: processor interface and format adapters\n#include <pulp/format/format.hpp>\nnamespace pulp::format {}\n"
 )
 
 target_link_libraries(pulp-format PUBLIC pulp::audio pulp::midi pulp::state)

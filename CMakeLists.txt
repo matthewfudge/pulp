@@ -48,6 +48,22 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
+# ── Third-Party Dependencies ────────────────────────────────────────────────
+include(FetchContent)
+
+# CHOC: header-only C++ utilities (ISC license)
+# Used for: JS engine abstraction, MIDI utilities
+FetchContent_Declare(
+    choc
+    GIT_REPOSITORY https://github.com/Tracktion/choc.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(choc)
+
+# VST3 SDK (MIT license) — format adapter headers
+# SDK is fetched separately via explore/vst3-sdk worktree or manual setup
+# For now, format adapters compile against our own adapter interfaces
+
 # ── Core Subsystems ─────────────────────────────────────────────────────────
 # Order matters: dependencies first
 add_subdirectory(core/platform)
