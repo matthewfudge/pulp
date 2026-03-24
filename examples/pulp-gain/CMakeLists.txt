@@ -6,3 +6,10 @@ add_executable(pulp-gain-test test_pulp_gain.cpp)
 target_link_libraries(pulp-gain-test PRIVATE pulp::format Catch2::Catch2WithMain)
 target_include_directories(pulp-gain-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 catch_discover_tests(pulp-gain-test)
+
+# Standalone application
+add_executable(PulpGain main.cpp
+    ${CMAKE_SOURCE_DIR}/core/format/src/standalone.cpp
+)
+target_link_libraries(PulpGain PRIVATE pulp::format pulp::audio pulp::midi)
+target_include_directories(PulpGain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
