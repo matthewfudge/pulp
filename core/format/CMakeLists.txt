@@ -25,3 +25,12 @@ if(PULP_HAS_VST3)
     target_link_libraries(pulp-format PRIVATE vst3-sdk)
     target_compile_definitions(pulp-format PRIVATE PULP_VST3=1)
 endif()
+
+# CLAP adapter
+if(PULP_HAS_CLAP)
+    target_sources(pulp-format PRIVATE
+        src/clap_adapter.cpp
+    )
+    target_link_libraries(pulp-format PRIVATE clap)
+    target_compile_definitions(pulp-format PRIVATE PULP_CLAP=1)
+endif()
