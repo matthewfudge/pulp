@@ -5,7 +5,7 @@
 add_subdirectory(pulp-gain)
 
 # Phase 4: PulpTone (oscillator synth + musical typing)
-# add_subdirectory(pulp-tone)
+add_subdirectory(pulp-tone)
 
 # Phase 5: PulpEffect (filter with parameters and state)
 # add_subdirectory(pulp-effect)
