@@ -24,3 +24,8 @@ catch_discover_tests(pulp-test-events)
 add_executable(pulp-test-audio test_audio.cpp)
 target_link_libraries(pulp-test-audio PRIVATE pulp::audio Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-audio)
+
+# MIDI tests
+add_executable(pulp-test-midi test_midi.cpp)
+target_link_libraries(pulp-test-midi PRIVATE pulp::midi Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-midi)
