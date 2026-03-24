@@ -1,7 +1,21 @@
-# Pulp test suite — uses Catch2
-# Phase 1: stub, Catch2 integration added in Phase 2
+# Pulp test suite — Catch2
 
-# Placeholder test that validates the build system works
+# Build check (no Catch2 dependency)
 add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
 add_test(NAME build-check COMMAND pulp-test-build-check)
+
+# Platform tests
+add_executable(pulp-test-platform test_platform.cpp)
+target_link_libraries(pulp-test-platform PRIVATE pulp::platform Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-platform)
+
+# Runtime tests
+add_executable(pulp-test-runtime test_runtime.cpp)
+target_link_libraries(pulp-test-runtime PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-runtime)
+
+# Events tests
+add_executable(pulp-test-events test_events.cpp)
+target_link_libraries(pulp-test-events PRIVATE pulp::events Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-events)
