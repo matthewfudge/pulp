@@ -76,6 +76,19 @@ public:
     virtual void on_attached() {}
     virtual void on_detached() {}
 
+    // ── Accessibility ────────────────────────────────────────────────────
+
+    enum class AccessRole { none, slider, toggle, label, group, meter, image };
+
+    void set_access_role(AccessRole role) { access_role_ = role; }
+    AccessRole access_role() const { return access_role_; }
+
+    void set_access_label(std::string label) { access_label_ = std::move(label); }
+    const std::string& access_label() const { return access_label_; }
+
+    void set_access_value(std::string value) { access_value_ = std::move(value); }
+    const std::string& access_value() const { return access_value_; }
+
     // ── Identity ─────────────────────────────────────────────────────────
 
     void set_id(std::string id) { id_ = std::move(id); }
@@ -88,6 +101,9 @@ private:
     View* parent_ = nullptr;
     std::vector<std::unique_ptr<View>> children_;
     std::string id_;
+    AccessRole access_role_ = AccessRole::none;
+    std::string access_label_;
+    std::string access_value_;
     bool visible_ = true;
 };
 

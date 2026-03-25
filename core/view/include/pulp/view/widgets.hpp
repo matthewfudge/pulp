@@ -14,8 +14,11 @@ namespace pulp::view {
 
 class Label : public View {
 public:
-    Label() = default;
-    explicit Label(std::string text) : text_(std::move(text)) {}
+    Label() { set_access_role(AccessRole::label); }
+    explicit Label(std::string text) : text_(std::move(text)) {
+        set_access_role(AccessRole::label);
+        set_access_label(text_);
+    }
 
     void set_text(std::string text) { text_ = std::move(text); }
     const std::string& text() const { return text_; }
@@ -35,7 +38,7 @@ private:
 
 class Knob : public View {
 public:
-    Knob() = default;
+    Knob() { set_access_role(AccessRole::slider); }
 
     void set_value(float v) { value_ = std::clamp(v, 0.0f, 1.0f); }
     float value() const { return value_; }
@@ -65,7 +68,7 @@ class Fader : public View {
 public:
     enum class Orientation { vertical, horizontal };
 
-    Fader() = default;
+    Fader() { set_access_role(AccessRole::slider); }
 
     void set_value(float v) { value_ = std::clamp(v, 0.0f, 1.0f); }
     float value() const { return value_; }
@@ -89,7 +92,7 @@ private:
 
 class Toggle : public View {
 public:
-    Toggle() = default;
+    Toggle() { set_access_role(AccessRole::toggle); }
 
     void set_on(bool v) { on_ = v; }
     bool is_on() const { return on_; }
@@ -111,7 +114,7 @@ class Meter : public View {
 public:
     enum class Orientation { vertical, horizontal };
 
-    Meter() = default;
+    Meter() { set_access_role(AccessRole::meter); }
 
     // Set levels directly (normalized 0-1)
     void set_level(float rms, float peak);

@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/view/view.hpp>
+#include <pulp/view/widgets.hpp>
 
 using namespace pulp::view;
 using Catch::Matchers::WithinAbs;
@@ -123,6 +124,36 @@ TEST_CASE("View theme resolution", "[view][theme]") {
     auto c3 = child_ptr->resolve_color("text.primary");
     auto expected3 = Theme::dark().color("text.primary").value();
     REQUIRE(c3 == expected3);
+}
+
+TEST_CASE("View accessibility defaults", "[view][a11y]") {
+    Knob knob;
+    REQUIRE(knob.access_role() == View::AccessRole::slider);
+
+    Fader fader;
+    REQUIRE(fader.access_role() == View::AccessRole::slider);
+
+    Toggle toggle;
+    REQUIRE(toggle.access_role() == View::AccessRole::toggle);
+
+    Label label("Gain");
+    REQUIRE(label.access_role() == View::AccessRole::label);
+    REQUIRE(label.access_label() == "Gain");
+
+    Meter meter;
+    REQUIRE(meter.access_role() == View::AccessRole::meter);
+
+    View plain;
+    REQUIRE(plain.access_role() == View::AccessRole::none);
+}
+
+TEST_CASE("View accessibility can be overridden", "[view][a11y]") {
+    Knob knob;
+    knob.set_access_label("Filter Cutoff");
+    knob.set_access_value("1200 Hz");
+
+    REQUIRE(knob.access_label() == "Filter Cutoff");
+    REQUIRE(knob.access_value() == "1200 Hz");
 }
 
 TEST_CASE("Flex layout column", "[view][layout]") {
