@@ -9,6 +9,12 @@ target_include_directories(pulp-canvas
 
 target_sources(pulp-canvas PRIVATE
     src/recording_canvas.cpp
+    src/svg.cpp
+)
+
+# nanosvg (zlib license) for SVG loading
+target_include_directories(pulp-canvas PRIVATE
+    ${CMAKE_SOURCE_DIR}/external/nanosvg
 )
 
 # Platform-specific rendering backends
