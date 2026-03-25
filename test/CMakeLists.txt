@@ -34,3 +34,8 @@ catch_discover_tests(pulp-test-midi)
 add_executable(pulp-test-state test_state.cpp)
 target_link_libraries(pulp-test-state PRIVATE pulp::state Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-state)
+
+# Headless adapter tests
+add_executable(pulp-test-headless test_headless.cpp)
+target_link_libraries(pulp-test-headless PRIVATE pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-headless)
