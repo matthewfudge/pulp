@@ -9,6 +9,7 @@
 #include <pulp/runtime/log.hpp>
 #include <memory>
 #include <array>
+#include <limits>
 
 namespace pulp::format::au {
 
@@ -122,13 +123,81 @@ struct AUBridge {
 
 // ── Required property overrides ────────────────────────────────────────────
 
-- (NSTimeInterval)latency { return 0.0; }
-- (NSTimeInterval)tailTime { return 0.0; }
+- (NSTimeInterval)latency {
+    if (!_bridge.processor) return 0.0;
+    int samples = _bridge.processor->latency_samples();
+    return samples > 0 ? static_cast<double>(samples) / _bridge.sample_rate : 0.0;
+}
+
+- (NSTimeInterval)tailTime {
+    if (!_bridge.processor) return 0.0;
+    auto tail = _bridge.processor->descriptor().tail_samples;
+    if (tail < 0) return std::numeric_limits<double>::infinity();
+    return tail > 0 ? static_cast<double>(tail) / _bridge.sample_rate : 0.0;
+}
+
 - (BOOL)supportsUserPresets { return NO; }
 - (BOOL)canProcessInPlace { return YES; }
 
 - (AUParameterTree *)parameterTree {
-    return [AUParameterTree createTreeWithChildren:@[]];
+    auto params = _bridge.store.all_params();
+    NSMutableArray<AUParameter *> *auParams = [NSMutableArray new];
+
+    for (const auto& p : params) {
+        AUParameterAddress address = static_cast<AUParameterAddress>(p.id);
+        NSString *identifier = [NSString stringWithFormat:@"param_%u", p.id];
+        NSString *name = [NSString stringWithUTF8String:p.name.c_str()];
+
+        // Map units
+        AudioUnitParameterUnit unit = kAudioUnitParameterUnit_Generic;
+        if (p.unit == "dB") unit = kAudioUnitParameterUnit_Decibels;
+        else if (p.unit == "Hz") unit = kAudioUnitParameterUnit_Hertz;
+        else if (p.unit == "%") unit = kAudioUnitParameterUnit_Percent;
+        else if (p.range.step >= 1.0f && p.range.min == 0.0f && p.range.max == 1.0f)
+            unit = kAudioUnitParameterUnit_Boolean;
+
+        AUParameter *auParam = [AUParameterTree createParameterWithIdentifier:identifier
+            name:name address:address min:p.range.min max:p.range.max
+            unit:unit unitName:nil
+            flags:kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable
+            valueStrings:nil dependentParameters:nil];
+        auParam.value = p.range.default_value;
+        [auParams addObject:auParam];
+    }
+
+    AUParameterTree *tree = [AUParameterTree createTreeWithChildren:auParams];
+
+    // Wire parameter changes from host to StateStore
+    __weak typeof(self) weakSelf = self;
+    tree.implementorValueObserver = ^(AUParameter *param, AUValue value) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_bridge.store.set_value(
+            static_cast<pulp::state::ParamID>(param.address), value);
+    };
+
+    tree.implementorValueProvider = ^AUValue(AUParameter *param) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return 0.0f;
+        return strongSelf->_bridge.store.get_value(
+            static_cast<pulp::state::ParamID>(param.address));
+    };
+
+    tree.implementorStringFromValueCallback = ^NSString *(AUParameter *param, const AUValue *value) {
+        AUValue v = value ? *value : param.value;
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) {
+            auto* info = strongSelf->_bridge.store.info(
+                static_cast<pulp::state::ParamID>(param.address));
+            if (info && info->to_string) {
+                auto str = info->to_string(v);
+                return [NSString stringWithUTF8String:str.c_str()];
+            }
+        }
+        return [NSString stringWithFormat:@"%.2f", v];
+    };
+
+    return tree;
 }
 
 - (BOOL)shouldBypassEffect { return NO; }

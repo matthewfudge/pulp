@@ -75,28 +75,23 @@ tresult PLUGIN_API PulpVst3Processor::initialize(FUnknown* context) {
         int32 step_count = 0;
         if (param.range.step >= 1.0f && param.range.min == 0.0f && param.range.max == 1.0f) {
             step_count = 1;
-            // If the parameter is named "Bypass", mark it as the bypass parameter
             if (param.name == "Bypass") {
                 flags |= ParameterInfo::kIsBypass;
             }
         }
 
-        // Convert param name to UTF-16 for VST3
-        String128 title;
-        UString(title, 128).fromAscii(param.name.c_str());
+        // Build ParameterInfo with unit assignment
+        Steinberg::Vst::ParameterInfo pinfo{};
+        pinfo.id = static_cast<ParamID>(param.id);
+        Steinberg::UString(pinfo.title, 128).fromAscii(param.name.c_str());
+        Steinberg::UString(pinfo.units, 128).fromAscii(param.unit.c_str());
+        pinfo.stepCount = step_count;
+        pinfo.defaultNormalizedValue = static_cast<ParamValue>(
+            param.range.normalize(param.range.default_value));
+        pinfo.flags = flags;
+        pinfo.unitId = static_cast<Steinberg::Vst::UnitID>(param.group_id);
 
-        String128 units;
-        UString(units, 128).fromAscii(param.unit.c_str());
-
-        float default_normalized = param.range.normalize(param.range.default_value);
-
-        parameters.addParameter(
-            title,
-            units,
-            step_count,
-            static_cast<ParamValue>(default_normalized),
-            flags,
-            static_cast<ParamID>(param.id));
+        parameters.addParameter(pinfo);
     }
 
     runtime::log_info("VST3: initialized '{}' with {} parameters",
