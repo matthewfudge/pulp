@@ -141,8 +141,40 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
         }
     }
 
+    // Snapshot parameter values to detect plugin-side changes
+    auto all_params = self->store.all_params();
+    self->param_snapshot.resize(all_params.size());
+    for (std::size_t i = 0; i < all_params.size(); ++i) {
+        self->param_snapshot[i] = self->store.get_value(all_params[i].id);
+    }
+
     // Process!
     self->processor->process(output_view, input_view, midi_in, midi_out, ctx);
+
+    // Emit output parameter events for any values the plugin changed,
+    // so the host can record automation
+    auto* out_events = process->out_events;
+    if (out_events) {
+        for (std::size_t i = 0; i < all_params.size(); ++i) {
+            float current = self->store.get_value(all_params[i].id);
+            if (current != self->param_snapshot[i]) {
+                clap_event_param_value_t ev{};
+                ev.header.size = sizeof(ev);
+                ev.header.type = CLAP_EVENT_PARAM_VALUE;
+                ev.header.time = 0;
+                ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+                ev.header.flags = 0;
+                ev.param_id = all_params[i].id;
+                ev.cookie = nullptr;
+                ev.note_id = -1;
+                ev.port_index = -1;
+                ev.channel = -1;
+                ev.key = -1;
+                ev.value = static_cast<double>(current);
+                out_events->try_push(out_events, &ev.header);
+            }
+        }
+    }
 
     return CLAP_PROCESS_CONTINUE;
 }

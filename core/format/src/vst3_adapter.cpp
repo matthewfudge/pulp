@@ -145,6 +145,18 @@ tresult PLUGIN_API PulpVst3Processor::setActive(TBool state) {
     return SingleComponentEffect::setActive(state);
 }
 
+uint32 PLUGIN_API PulpVst3Processor::getLatencySamples() {
+    if (!processor_) return 0;
+    return static_cast<uint32>(processor_->latency_samples());
+}
+
+uint32 PLUGIN_API PulpVst3Processor::getTailSamples() {
+    if (!processor_) return 0;
+    auto tail = processor_->descriptor().tail_samples;
+    if (tail < 0) return Steinberg::Vst::kInfiniteTail;
+    return static_cast<uint32>(tail);
+}
+
 tresult PLUGIN_API PulpVst3Processor::process(ProcessData& data) {
     if (!processor_) return kInternalError;
 
@@ -237,8 +249,37 @@ tresult PLUGIN_API PulpVst3Processor::process(ProcessData& data) {
         }
     }
 
+    // Snapshot parameter values before processing so we can detect
+    // plugin-side changes and report them to the host for automation recording
+    auto all_params = store_.all_params();
+    param_snapshot_.resize(all_params.size());
+    for (std::size_t i = 0; i < all_params.size(); ++i) {
+        param_snapshot_[i] = store_.get_value(all_params[i].id);
+    }
+
     // Process!
     processor_->process(output_view, input_view, midi_in, midi_out, ctx);
+
+    // Write parameter output changes — lets the host record automation
+    // from parameter changes made by the plugin during process()
+    if (data.outputParameterChanges) {
+        for (std::size_t i = 0; i < all_params.size(); ++i) {
+            float current = store_.get_value(all_params[i].id);
+            if (current != param_snapshot_[i]) {
+                int32 index = 0;
+                auto* queue = data.outputParameterChanges->addParameterData(
+                    static_cast<ParamID>(all_params[i].id), index);
+                if (queue) {
+                    int32 pt_index = 0;
+                    float normalized = store_.get_normalized(all_params[i].id);
+                    queue->addPoint(0, static_cast<ParamValue>(normalized), pt_index);
+                }
+                // Sync to VST3 parameter system too
+                setParamNormalized(static_cast<ParamID>(all_params[i].id),
+                                   static_cast<ParamValue>(store_.get_normalized(all_params[i].id)));
+            }
+        }
+    }
 
     // Write MIDI output
     if (data.outputEvents && !midi_out.empty()) {

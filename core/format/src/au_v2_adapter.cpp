@@ -254,7 +254,11 @@ public:
         return tail > 0 ? static_cast<Float64>(tail) / GetSampleRate() : 0.0;
     }
 
-    Float64 GetLatency() override { return 0.0; }
+    Float64 GetLatency() override {
+        if (!processor_) return 0.0;
+        int latency = processor_->latency_samples();
+        return latency > 0 ? static_cast<Float64>(latency) / GetSampleRate() : 0.0;
+    }
 
 private:
     std::unique_ptr<Processor> processor_;

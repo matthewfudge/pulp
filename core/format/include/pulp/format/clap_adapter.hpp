@@ -25,6 +25,9 @@ struct PulpClapPlugin {
     // Pre-allocated buffers — no heap allocation on audio thread
     float* output_ptrs[kMaxChannels] = {};
     const float* input_ptrs[kMaxChannels] = {};
+
+    // Parameter snapshot for detecting plugin-side changes during process
+    std::vector<float> param_snapshot;
 };
 
 // CLAP entry point and factory

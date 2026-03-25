@@ -212,12 +212,34 @@ inline const clap_plugin_note_ports_t note_ports_ext = {
     .count = note_ports_count, .get = note_ports_get,
 };
 
+// ── Latency extension ───────────────────────────────────────────────────
+inline uint32_t latency_get(const clap_plugin_t* plugin) {
+    auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!self->processor) return 0;
+    return static_cast<uint32_t>(self->processor->latency_samples());
+}
+
+inline const clap_plugin_latency_t latency_ext = { .get = latency_get };
+
+// ── Tail extension ──────────────────────────────────────────────────────
+inline uint32_t tail_get(const clap_plugin_t* plugin) {
+    auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!self->processor) return 0;
+    auto tail = self->processor->descriptor().tail_samples;
+    if (tail < 0) return UINT32_MAX; // infinite tail
+    return static_cast<uint32_t>(tail);
+}
+
+inline const clap_plugin_tail_t tail_ext = { .get = tail_get };
+
 // ── Extension dispatch ─────────────────────────────────────────────────
 inline const void* get_extension(const clap_plugin_t*, const char* id) {
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audio_ports_ext;
     if (strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &note_ports_ext;
     if (strcmp(id, CLAP_EXT_PARAMS) == 0) return &params_ext;
     if (strcmp(id, CLAP_EXT_STATE) == 0) return &state_ext;
+    if (strcmp(id, CLAP_EXT_LATENCY) == 0) return &latency_ext;
+    if (strcmp(id, CLAP_EXT_TAIL) == 0) return &tail_ext;
     return nullptr;
 }
 

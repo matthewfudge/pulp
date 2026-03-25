@@ -47,6 +47,9 @@ public:
 
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
 
+    Steinberg::uint32 PLUGIN_API getLatencySamples() override;
+    Steinberg::uint32 PLUGIN_API getTailSamples() override;
+
     Steinberg::tresult PLUGIN_API process(
         Steinberg::Vst::ProcessData& data) override;
 
@@ -64,6 +67,9 @@ private:
     // Working buffers
     std::vector<float*> input_ptrs_;
     std::vector<float*> output_ptrs_;
+
+    // Parameter output: snapshot values before process to detect plugin-side changes
+    std::vector<float> param_snapshot_;
 };
 
 } // namespace pulp::format::vst3

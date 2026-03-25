@@ -90,6 +90,10 @@ public:
     virtual void prepare(const PrepareContext& context) = 0;
     virtual void release() {}
 
+    // Latency in samples introduced by this processor (default 0).
+    // Override for plugins that buffer or lookahead (e.g., compressors, linear-phase EQs).
+    virtual int latency_samples() const { return 0; }
+
     // Processing — called on the real-time audio thread
     // Main bus only — covers the vast majority of plugins.
     virtual void process(
