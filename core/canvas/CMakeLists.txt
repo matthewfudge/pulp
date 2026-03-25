@@ -8,12 +8,7 @@ target_include_directories(pulp-canvas
 )
 
 target_sources(pulp-canvas PRIVATE
-    src/placeholder.cpp
-)
-
-# Placeholder source to make the library valid
-file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
-    "// pulp-canvas: placeholder — replaced in Phase 2+\nnamespace pulp::canvas {}\n"
+    src/recording_canvas.cpp
 )
 
 target_link_libraries(pulp-canvas PUBLIC pulp::runtime)

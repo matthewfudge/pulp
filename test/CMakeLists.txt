@@ -64,6 +64,11 @@ add_executable(pulp-test-theme test_theme.cpp)
 target_link_libraries(pulp-test-theme PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-theme)
 
+# Canvas tests
+add_executable(pulp-test-canvas test_canvas.cpp)
+target_link_libraries(pulp-test-canvas PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-canvas)
+
 # View and layout tests
 add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
