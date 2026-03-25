@@ -12,6 +12,7 @@ All dependencies must be compatible with MIT licensing. No copyleft (GPL, LGPL, 
 
 | Name | Version | License | How Used | Subsystem | Added |
 |------|---------|---------|----------|-----------|-------|
+| AudioUnitSDK | 1.4.0 | Apache-2.0 | AU v2 plugin format adapter (AUEffectBase, factory) | pulp-format | 2026-03-24 |
 | Catch2 | 3.7.1 | BSL-1.0 | Unit testing framework | test | 2026-03-24 |
 | CHOC | main | ISC | JS engine abstraction, MIDI utilities, audio helpers | multiple | 2026-03-24 |
 | CLAP | 1.2.2 | MIT | CLAP plugin format headers | pulp-format | 2026-03-24 |
