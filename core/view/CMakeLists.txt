@@ -36,9 +36,12 @@ if(APPLE)
     target_sources(pulp-view PRIVATE
         platform/mac/window_host_mac.mm
         platform/mac/plugin_view_host_mac.mm
+        platform/mac/screenshot_mac.mm
     )
     target_link_libraries(pulp-view PRIVATE
         "-framework CoreServices"
         "-framework Cocoa"
+        "-framework ImageIO"
+        "-framework UniformTypeIdentifiers"
     )
 endif()
