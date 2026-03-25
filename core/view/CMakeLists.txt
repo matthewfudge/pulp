@@ -15,6 +15,7 @@ target_sources(pulp-view PRIVATE
     src/widget_bridge.cpp
     src/hot_reload.cpp
     src/inspector.cpp
+    src/sdl_window_host.cpp
 )
 
 # CHOC headers (JS engine, utilities)
@@ -23,6 +24,12 @@ target_include_directories(pulp-view PUBLIC
 )
 
 target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state)
+
+# SDL3 for cross-platform windowing
+if(PULP_HAS_SDL3)
+    target_link_libraries(pulp-view PRIVATE SDL3::SDL3-static)
+    target_compile_definitions(pulp-view PRIVATE PULP_HAS_SDL3=1)
+endif()
 
 # Platform-specific window host and frameworks
 if(APPLE)

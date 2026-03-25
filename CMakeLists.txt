@@ -73,6 +73,20 @@ if(PULP_ENABLE_GPU)
     message(STATUS "Pulp: WebGPU (Dawn) enabled")
 endif()
 
+# SDL3 — cross-platform windowing, input, GPU context (zlib license)
+FetchContent_Declare(
+    SDL3
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG release-3.2.12
+    GIT_SHALLOW TRUE
+)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SDL3)
+set(PULP_HAS_SDL3 TRUE)
+message(STATUS "Pulp: SDL3 enabled")
+
 # VST3 SDK (MIT license) — cloned into external/vst3sdk/
 set(VST3_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vst3sdk")
 if(EXISTS "${VST3_SDK_DIR}/pluginterfaces")
