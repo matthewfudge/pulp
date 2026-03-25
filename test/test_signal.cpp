@@ -338,3 +338,127 @@ TEST_CASE("Oscillator triangle output", "[signal][osc]") {
     float rms = std::sqrt(sum_sq / 4410.0f);
     REQUIRE(rms > 0.2f); // Triangle RMS ≈ 1/sqrt(3) ≈ 0.577
 }
+
+// ── SVF ──────────────────────────────────────────────────────────────────────
+
+TEST_CASE("SVF lowpass attenuates high frequencies", "[signal][svf]") {
+    Svf filter;
+    filter.set_sample_rate(44100.0f);
+    filter.set_frequency(200.0f);
+    filter.set_resonance(0.707f);
+    filter.set_mode(Svf::Mode::lowpass);
+
+    float sum_sq = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 10000.0f * i / 44100.0f);
+        float output = filter.process(input);
+        if (i > 100) sum_sq += output * output;
+    }
+    float rms = std::sqrt(sum_sq / 4310.0f);
+    REQUIRE(rms < 0.01f);
+}
+
+TEST_CASE("SVF highpass passes high frequencies", "[signal][svf]") {
+    Svf filter;
+    filter.set_sample_rate(44100.0f);
+    filter.set_frequency(200.0f);
+    filter.set_resonance(0.707f);
+    filter.set_mode(Svf::Mode::highpass);
+
+    float sum_sq = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 5000.0f * i / 44100.0f);
+        float output = filter.process(input);
+        if (i > 200) sum_sq += output * output;
+    }
+    float rms = std::sqrt(sum_sq / 4210.0f);
+    REQUIRE(rms > 0.5f);
+}
+
+// ── WaveShaper ───────────────────────────────────────────────────────────────
+
+TEST_CASE("WaveShaper tanh clips", "[signal][waveshaper]") {
+    WaveShaper ws;
+    ws.set_curve(WaveShaper::Curve::tanh_clip);
+    ws.set_drive(5.0f);
+
+    float out = ws.process(1.0f);
+    REQUIRE(out > 0.9f);
+    REQUIRE(out < 1.0f); // tanh(5) ≈ 0.9999
+}
+
+TEST_CASE("WaveShaper hard clip", "[signal][waveshaper]") {
+    WaveShaper ws;
+    ws.set_curve(WaveShaper::Curve::hard_clip);
+    ws.set_drive(3.0f);
+
+    REQUIRE_THAT(ws.process(1.0f), WithinAbs(1.0, 0.001));
+    REQUIRE_THAT(ws.process(-1.0f), WithinAbs(-1.0, 0.001));
+}
+
+TEST_CASE("WaveShaper fold", "[signal][waveshaper]") {
+    WaveShaper ws;
+    ws.set_curve(WaveShaper::Curve::fold);
+    ws.set_drive(2.0f);
+
+    float out = ws.process(0.75f); // 0.75 * 2 = 1.5, folds to 0.5
+    REQUIRE(out > -1.0f);
+    REQUIRE(out < 1.0f);
+}
+
+// ── NoiseGate ────────────────────────────────────────────────────────────────
+
+TEST_CASE("NoiseGate attenuates quiet signals", "[signal][gate]") {
+    NoiseGate gate;
+    gate.set_sample_rate(44100.0f);
+    gate.set_params({-30.0f, 10.0f, 0.1f, 10.0f, -80.0f});
+
+    // Process a quiet signal well below threshold
+    float quiet = 0.001f; // -60 dBFS
+    float out = 0;
+    for (int i = 0; i < 1000; ++i)
+        out = gate.process(quiet);
+
+    REQUIRE(std::abs(out) < std::abs(quiet)); // Should be attenuated
+}
+
+TEST_CASE("NoiseGate passes loud signals", "[signal][gate]") {
+    NoiseGate gate;
+    gate.set_sample_rate(44100.0f);
+    gate.set_params({-30.0f, 10.0f, 0.1f, 10.0f, -80.0f});
+
+    float loud = 0.5f; // -6 dBFS, well above threshold
+    float out = gate.process(loud);
+    REQUIRE_THAT(out, WithinAbs(loud, 0.01));
+}
+
+// ── Panner ───────────────────────────────────────────────────────────────────
+
+TEST_CASE("Panner center", "[signal][panner]") {
+    Panner pan;
+    pan.set_pan(0.0f); // Center
+
+    auto result = pan.process(1.0f);
+    REQUIRE_THAT(result.left, WithinAbs(result.right, 0.01));
+    // Equal power: at center both should be ~0.707
+    REQUIRE(result.left > 0.6f);
+    REQUIRE(result.right > 0.6f);
+}
+
+TEST_CASE("Panner hard left", "[signal][panner]") {
+    Panner pan;
+    pan.set_pan(-1.0f);
+
+    auto result = pan.process(1.0f);
+    REQUIRE_THAT(result.left, WithinAbs(1.0, 0.01));
+    REQUIRE_THAT(result.right, WithinAbs(0.0, 0.01));
+}
+
+TEST_CASE("Panner hard right", "[signal][panner]") {
+    Panner pan;
+    pan.set_pan(1.0f);
+
+    auto result = pan.process(1.0f);
+    REQUIRE_THAT(result.left, WithinAbs(0.0, 0.01));
+    REQUIRE_THAT(result.right, WithinAbs(1.0, 0.01));
+}

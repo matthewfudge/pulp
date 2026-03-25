@@ -8,3 +8,8 @@
 #include <pulp/signal/delay_line.hpp>
 #include <pulp/signal/gain.hpp>
 #include <pulp/signal/compressor.hpp>
+#include <pulp/signal/svf.hpp>
+#include <pulp/signal/waveshaper.hpp>
+#include <pulp/signal/oversampling.hpp>
+#include <pulp/signal/noise_gate.hpp>
+#include <pulp/signal/panner.hpp>
