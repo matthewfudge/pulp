@@ -71,6 +71,13 @@ if(PULP_ENABLE_GPU)
     FetchContent_MakeAvailable(webgpu)
     set(PULP_HAS_WEBGPU TRUE)
     message(STATUS "Pulp: WebGPU (Dawn) enabled")
+
+    # Skia Graphite — GPU-accelerated 2D rendering (BSD-3-Clause)
+    # Pre-built via skia-builder (https://github.com/olilarkin/skia-builder)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/FindSkia.cmake)
+    if(SKIA_FOUND)
+        set(PULP_HAS_SKIA TRUE)
+    endif()
 endif()
 
 # SDL3 — cross-platform windowing, input, GPU context (zlib license)

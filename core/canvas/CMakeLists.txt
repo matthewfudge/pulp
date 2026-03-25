@@ -30,3 +30,16 @@ if(APPLE)
 endif()
 
 target_link_libraries(pulp-canvas PUBLIC pulp::runtime)
+
+# Skia Graphite GPU rendering backend
+if(PULP_HAS_SKIA)
+    target_sources(pulp-canvas PRIVATE
+        src/skia_canvas.cpp
+    )
+    target_link_libraries(pulp-canvas PUBLIC skia::skia)
+    if(TARGET skia::dawn)
+        target_link_libraries(pulp-canvas PUBLIC skia::dawn)
+    endif()
+    target_compile_definitions(pulp-canvas PUBLIC PULP_HAS_SKIA=1)
+    target_include_directories(pulp-canvas PRIVATE ${SKIA_INCLUDE_DIRS})
+endif()
