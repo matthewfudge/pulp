@@ -176,11 +176,11 @@ if(PULP_BUILD_TESTS)
     add_subdirectory(test)
 endif()
 
+# ── CMake Module Path (for pulp_add_plugin, pulp_add_app) ──────────────────
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake")
+include(PulpUtils)
+
 # ── Examples ────────────────────────────────────────────────────────────────
 if(PULP_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
-
-# ── CMake Module Path (for pulp_add_plugin, pulp_add_app) ──────────────────
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake")
-include(PulpUtils)

@@ -50,16 +50,30 @@ function(pulp_add_plugin target)
         set(PLUGIN_CATEGORY "Effect")
     endif()
 
-    # ── Core object library ──────────────────────────────────────────────
-    # Shared processor code compiled once, linked into each format target
-    add_library(${target}_Core OBJECT ${PLUGIN_SOURCES})
-    target_link_libraries(${target}_Core PUBLIC pulp::format)
-    target_include_directories(${target}_Core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    target_compile_definitions(${target}_Core PRIVATE
-        PULP_PLUGIN_NAME="${PLUGIN_PLUGIN_NAME}"
-        PULP_BUNDLE_ID="${PLUGIN_BUNDLE_ID}"
-        PULP_PLUGIN_VERSION="${PLUGIN_VERSION}"
-    )
+    # ── Core library ────────────────────────────────────────────────────
+    # For header-only processors (no SOURCES), create INTERFACE library.
+    # For compiled processors, create OBJECT library.
+    if(PLUGIN_SOURCES)
+        add_library(${target}_Core OBJECT ${PLUGIN_SOURCES})
+        target_link_libraries(${target}_Core PUBLIC pulp::format)
+        target_include_directories(${target}_Core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+        set(_PULP_CORE_OBJECTS "${PULP_${target}_CORE_OBJECTS}")
+    else()
+        add_library(${target}_Core INTERFACE)
+        target_link_libraries(${target}_Core INTERFACE pulp::format)
+        target_include_directories(${target}_Core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+        set(_PULP_CORE_OBJECTS "")
+    endif()
+    # Store for format target functions (CMake doesn't propagate local vars to functions)
+    set(_PULP_CORE_OBJECTS "${_PULP_CORE_OBJECTS}" PARENT_SCOPE)
+    set(PULP_${target}_CORE_OBJECTS "${_PULP_CORE_OBJECTS}" CACHE INTERNAL "")
+    if(PLUGIN_SOURCES)
+        target_compile_definitions(${target}_Core PRIVATE
+            PULP_PLUGIN_NAME="${PLUGIN_PLUGIN_NAME}"
+            PULP_BUNDLE_ID="${PLUGIN_BUNDLE_ID}"
+            PULP_PLUGIN_VERSION="${PLUGIN_VERSION}"
+        )
+    endif()
 
     # ── VST3 ─────────────────────────────────────────────────────────────
     if("VST3" IN_LIST PLUGIN_FORMATS AND PULP_HAS_VST3)
@@ -114,13 +128,13 @@ function(_pulp_add_vst3 target name bundle_id version manufacturer category)
     endif()
 
     add_library(${target}_VST3 MODULE
-        $<TARGET_OBJECTS:${target}_Core>
+        ${PULP_${target}_CORE_OBJECTS}
         ${vst3_entry}
         ${vst3_platform_src}
         ${VST3_SDK_DIR}/public.sdk/source/main/pluginfactory.cpp
         ${VST3_SDK_DIR}/public.sdk/source/main/moduleinit.cpp
     )
-    target_link_libraries(${target}_VST3 PRIVATE pulp::format vst3-sdk)
+    target_link_libraries(${target}_VST3 PRIVATE ${target}_Core pulp::format vst3-sdk)
     target_include_directories(${target}_VST3 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     # VST3 bundle structure
@@ -167,11 +181,11 @@ function(_pulp_add_clap target name bundle_id version manufacturer category)
     endif()
 
     add_library(${target}_CLAP MODULE
-        $<TARGET_OBJECTS:${target}_Core>
+        ${PULP_${target}_CORE_OBJECTS}
         ${clap_entry}
         ${CMAKE_SOURCE_DIR}/core/format/src/clap_adapter.cpp
     )
-    target_link_libraries(${target}_CLAP PRIVATE pulp::format clap)
+    target_link_libraries(${target}_CLAP PRIVATE ${target}_Core pulp::format clap)
     target_include_directories(${target}_CLAP PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     set_target_properties(${target}_CLAP PROPERTIES
@@ -198,10 +212,11 @@ function(_pulp_add_au target name bundle_id version manufacturer category plugin
     endif()
 
     add_library(${target}_AU MODULE
-        $<TARGET_OBJECTS:${target}_Core>
+        ${PULP_${target}_CORE_OBJECTS}
         ${au_entry}
     )
     target_link_libraries(${target}_AU PRIVATE
+        ${target}_Core
         pulp::format
         ausdk
         "-framework AudioToolbox"
@@ -256,11 +271,11 @@ function(_pulp_add_standalone target name)
     endif()
 
     add_executable(${target}_Standalone
-        $<TARGET_OBJECTS:${target}_Core>
+        ${PULP_${target}_CORE_OBJECTS}
         ${standalone_entry}
         ${CMAKE_SOURCE_DIR}/core/format/src/standalone.cpp
     )
-    target_link_libraries(${target}_Standalone PRIVATE pulp::format pulp::audio pulp::midi)
+    target_link_libraries(${target}_Standalone PRIVATE ${target}_Core pulp::format pulp::audio pulp::midi)
     target_include_directories(${target}_Standalone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(${target}_Standalone PROPERTIES
         OUTPUT_NAME "${name}"
