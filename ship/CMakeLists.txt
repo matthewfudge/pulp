@@ -7,13 +7,14 @@ target_include_directories(pulp-ship
         $<INSTALL_INTERFACE:include>
 )
 
+# Cross-platform sources
+target_sources(pulp-ship PRIVATE
+    src/appcast.cpp
+)
+
 if(APPLE)
     target_sources(pulp-ship PRIVATE
         platform/mac/codesign_mac.mm
     )
     target_link_libraries(pulp-ship PRIVATE "-framework Security")
-else()
-    file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
-        "// pulp-ship: platform backend pending\nnamespace pulp::ship {}\n")
-    target_sources(pulp-ship PRIVATE src/placeholder.cpp)
 endif()

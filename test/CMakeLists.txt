@@ -5,6 +5,11 @@ add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
 add_test(NAME build-check COMMAND pulp-test-build-check)
 
+# Appcast/auto-update tests
+add_executable(pulp-test-appcast test_appcast.cpp)
+target_link_libraries(pulp-test-appcast PRIVATE pulp::ship Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-appcast)
+
 # Codesign tests
 add_executable(pulp-test-codesign test_codesign.cpp)
 target_link_libraries(pulp-test-codesign PRIVATE pulp::ship Catch2::Catch2WithMain)
