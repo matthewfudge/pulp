@@ -1,0 +1,108 @@
+# Module Reference
+
+Each Pulp subsystem is a separate CMake library under `core/`. This page lists every module, its purpose, maturity, and key public headers.
+
+## runtime
+
+**Status**: stable
+**Dependencies**: none (std:: only)
+**Headers**: `pulp/runtime/runtime.hpp`, `pulp/runtime/spsc_queue.hpp`, `pulp/runtime/seqlock.hpp`, `pulp/runtime/triple_buffer.hpp`, `pulp/runtime/log.hpp`, `pulp/runtime/assert.hpp`, `pulp/runtime/scope_guard.hpp`
+
+Lock-free synchronization primitives, logging, and assertions. Provides `SeqLock<T>`, `TripleBuffer<T>`, `SPSCQueue<T>`, `ScopeGuard`. The foundation layer with no internal dependencies.
+
+## events
+
+**Status**: usable
+**Dependencies**: runtime
+**Headers**: `pulp/events/events.hpp`, `pulp/events/event_loop.hpp`, `pulp/events/timer.hpp`
+
+Event loop (constructible, not singleton), timers, and async dispatch. Used by UI and host integration layers.
+
+## audio
+
+**Status**: usable
+**Dependencies**: runtime
+**Headers**: `pulp/audio/audio.hpp`, `pulp/audio/buffer.hpp`, `pulp/audio/device.hpp`, `pulp/audio/audio_file.hpp`
+
+Audio buffer types, device I/O (CoreAudio on macOS), and audio file reading/writing. `BufferView<T>` is the primary buffer abstraction used throughout the framework.
+
+## midi
+
+**Status**: usable
+**Dependencies**: runtime
+**Headers**: `pulp/midi/midi.hpp`, `pulp/midi/buffer.hpp`, `pulp/midi/message.hpp`, `pulp/midi/device.hpp`, `pulp/midi/midi_file.hpp`
+
+MIDI message types, buffer management, device I/O (CoreMIDI on macOS), and MIDI file reading/writing. `MidiBuffer` is the primary MIDI container.
+
+## signal
+
+**Status**: usable
+**Dependencies**: runtime
+**Headers**: `pulp/signal/signal.hpp`, and individual algorithm headers
+
+DSP algorithm library. Includes:
+
+- Oscillators (sine, saw, square, triangle, noise)
+- Filters: biquad, SVF, ladder, Linkwitz-Riley
+- Effects: delay line, chorus, phaser, reverb, waveshaper, compressor, noise gate
+- Utilities: gain, panner, ADSR, smoothed value, oversampling, FFT, windowing
+
+Each algorithm is a standalone class with no framework coupling beyond `runtime`.
+
+## state
+
+**Status**: stable
+**Dependencies**: runtime
+**Headers**: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`
+
+Thread-safe parameter system. `ParamValue` uses relaxed atomics for lock-free audio-thread reads. `StateStore` manages parameter registration, value access, gesture tracking, change notification, and binary state serialization. Supports modulation offsets (for CLAP per-voice modulation).
+
+## format
+
+**Status**: usable
+**Dependencies**: state, audio, midi
+**Headers**: `pulp/format/processor.hpp`, `pulp/format/headless.hpp`, `pulp/format/clap_entry.hpp`, `pulp/format/vst3_entry.hpp`, `pulp/format/au_v2_entry.hpp`
+
+Plugin format adapters. `Processor` is the central interface that plugin developers implement. Format adapters wrap it for VST3, AU v2, CLAP, and standalone. `HeadlessHost` enables processing without a DAW for testing and batch work.
+
+Supports effects, instruments, and MIDI effects. Multi-bus (sidechain) support is available. Transport context (tempo, time signature, position) is passed via `ProcessContext`.
+
+## platform
+
+**Status**: usable
+**Dependencies**: none
+**Headers**: `pulp/platform/platform.hpp`, `pulp/platform/detect.hpp`, `pulp/platform/file_dialog.hpp`, `pulp/platform/popup_menu.hpp`, `pulp/platform/clipboard.hpp`, `pulp/platform/native_handle.hpp`
+
+Platform detection, native file dialogs, popup menus, clipboard access, and native window handle management. macOS implementation is primary; other platforms have stubs.
+
+## canvas
+
+**Status**: experimental
+**Dependencies**: platform
+**Headers**: `pulp/canvas/canvas.hpp`, `pulp/canvas/cg_canvas.hpp`, `pulp/canvas/skia_canvas.hpp`, `pulp/canvas/svg.hpp`, `pulp/canvas/effects.hpp`
+
+2D drawing abstraction with CoreGraphics and Skia backends. Provides SVG rendering support and post-processing effects (blur, shadow, bloom, color adjustment).
+
+## render
+
+**Status**: experimental
+**Dependencies**: canvas
+**Headers**: `pulp/render/gpu_surface.hpp`, `pulp/render/skia_surface.hpp`
+
+GPU surface management. Creates Dawn (WebGPU) GPU contexts and Skia Graphite rendering surfaces. Metal backend on macOS.
+
+## view
+
+**Status**: experimental
+**Dependencies**: render, events, state
+**Headers**: `pulp/view/view.hpp`, `pulp/view/widgets.hpp`, `pulp/view/theme.hpp`, `pulp/view/script_engine.hpp`, `pulp/view/hot_reload.hpp`, `pulp/view/inspector.hpp`, `pulp/view/animation.hpp`, `pulp/view/audio_bridge.hpp`, `pulp/view/auto_ui.hpp`, `pulp/view/drag_drop.hpp`, `pulp/view/screenshot.hpp`, `pulp/view/window_host.hpp`
+
+Widget system with JS scripting (QuickJS), theme/design tokens, hot-reload, drag-and-drop, animation, screenshot capture, audio visualization bridge, automatic UI generation, and a component inspector. SDL window host available.
+
+## osc
+
+**Status**: experimental
+**Dependencies**: none
+**Headers**: `pulp/osc/osc.hpp`
+
+Open Sound Control messaging. Standalone module with no internal dependencies.

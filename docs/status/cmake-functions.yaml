@@ -1,0 +1,45 @@
+# Pulp CMake function status
+# Vocabulary: stable, usable, experimental, partial, planned, unsupported
+
+functions:
+  - name: pulp_add_plugin
+    status: usable
+    summary: Create plugin targets for multiple formats from a single declaration.
+    required:
+      - FORMATS
+    optional:
+      - PLUGIN_NAME
+      - BUNDLE_ID
+      - MANUFACTURER
+      - VERSION
+      - CATEGORY
+      - PLUGIN_CODE
+      - MANUFACTURER_CODE
+      - SOURCES
+      - PROCESSOR_FACTORY
+    creates:
+      - ${target}_Core
+      - ${target}_VST3
+      - ${target}_AU
+      - ${target}_CLAP
+      - ${target}_Standalone
+      - pulp-install-${target}
+    docs: reference/cmake.md#pulp_add_plugin
+
+  - name: pulp_add_app
+    status: partial
+    summary: Create a standalone application target with basic metadata.
+    optional:
+      - APP_NAME
+      - BUNDLE_ID
+      - VERSION
+    docs: reference/cmake.md#pulp_add_app
+
+  - name: pulp_add_binary_data
+    status: usable
+    summary: Embed binary assets as C++ arrays in a static library.
+    required:
+      - SOURCES
+    optional:
+      - NAMESPACE
+    docs: reference/cmake.md#pulp_add_binary_data

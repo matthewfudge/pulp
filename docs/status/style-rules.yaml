@@ -1,0 +1,55 @@
+# Pulp style rules — machine-readable summary
+# For human-readable detail, see:
+#   docs/policies/code-style.md
+#   docs/policies/agent-contribution-rules.md
+
+rules:
+  - id: public_headers_only
+    status: active
+    summary: Consumer-facing docs and examples must include only from include/ directories, never from src/.
+    docs: policies/code-style.md
+
+  - id: audio_thread_no_alloc
+    status: active
+    summary: No heap allocation, locks, exceptions, or I/O on the audio thread.
+    docs: policies/code-style.md
+
+  - id: module_dependency_direction
+    status: active
+    summary: Dependencies flow downward. Higher-level subsystems depend on lower-level ones, never the reverse.
+    docs: policies/code-style.md
+
+  - id: platform_isolation
+    status: active
+    summary: Platform-specific code belongs in core/platform/ or behind ifdef guards. No platform leakage into public headers.
+    docs: policies/code-style.md
+
+  - id: docs_update_required_for_public_changes
+    status: active
+    summary: Public behavior changes require updates to the relevant docs in docs/.
+    docs: policies/agent-contribution-rules.md
+
+  - id: support_manifest_update_required
+    status: active
+    summary: Support-level changes require updates to YAML manifests in docs/status/.
+    docs: policies/agent-contribution-rules.md
+
+  - id: tests_required_for_new_behavior
+    status: active
+    summary: New public behavior needs tests. Bug fixes should add a regression test when practical.
+    docs: policies/code-style.md
+
+  - id: build_hygiene
+    status: active
+    summary: Configure and build must not modify tracked source files. Generated files belong in build outputs.
+    docs: policies/code-style.md
+
+  - id: no_juce_names
+    status: active
+    summary: No class names, module names, API names, or naming patterns from JUCE. Clean-room discipline required.
+    docs: policies/agent-contribution-rules.md
+
+  - id: clean_commits
+    status: active
+    summary: Commits on main are clean and purposeful. No WIP, fix, stuff, or misc commits.
+    docs: policies/agent-contribution-rules.md

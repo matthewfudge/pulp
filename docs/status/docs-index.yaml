@@ -1,0 +1,62 @@
+# Pulp documentation index
+# Used by `pulp docs` CLI commands to resolve slugs to file paths
+
+docs:
+  # Concepts
+  - slug: overview
+    path: concepts/overview.md
+    kind: concept
+    summary: What Pulp is, what it does today, how it is organized
+
+  - slug: architecture
+    path: concepts/architecture.md
+    kind: concept
+    summary: Subsystem dependencies, thread model, build system, GPU stack
+
+  # Guides
+  - slug: getting-started
+    path: guides/getting-started.md
+    kind: guide
+    summary: Build your first plugin step by step
+
+  - slug: build
+    path: guides/build.md
+    kind: guide
+    summary: Build requirements, options, and platform notes
+
+  - slug: testing
+    path: guides/testing.md
+    kind: guide
+    summary: Running tests, validation, writing new tests
+
+  - slug: examples
+    path: guides/examples.md
+    kind: guide
+    summary: Walkthroughs of all example plugins
+
+  # Reference
+  - slug: cli
+    path: reference/cli.md
+    kind: reference
+    summary: CLI commands and usage
+
+  - slug: cmake
+    path: reference/cmake.md
+    kind: reference
+    summary: CMake functions for plugins and apps
+
+  - slug: modules
+    path: reference/modules.md
+    kind: reference
+    summary: All subsystems with status and key headers
+
+  # Policies
+  - slug: code-style
+    path: policies/code-style.md
+    kind: policy
+    summary: Coding standards and architectural rules
+
+  - slug: agent-rules
+    path: policies/agent-contribution-rules.md
+    kind: policy
+    summary: Contribution rules for AI agents and automated tools

@@ -1,0 +1,75 @@
+# Pulp module status
+# Vocabulary: stable, usable, experimental, partial, planned, unsupported
+
+modules:
+  - name: runtime
+    summary: Lock-free primitives, logging, assertions
+    status: stable
+    dependencies: []
+    docs: reference/modules.md#runtime
+
+  - name: events
+    summary: Event loop, timers, async dispatch
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#events
+
+  - name: audio
+    summary: Audio buffers, device I/O, file I/O
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#audio
+
+  - name: midi
+    summary: MIDI messages, buffers, device I/O, file I/O
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#midi
+
+  - name: signal
+    summary: DSP algorithms -- filters, oscillators, effects
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#signal
+
+  - name: state
+    summary: Thread-safe parameters, state serialization
+    status: stable
+    dependencies: [runtime]
+    docs: reference/modules.md#state
+
+  - name: format
+    summary: Plugin format adapters (VST3, AU, CLAP, standalone, headless)
+    status: usable
+    dependencies: [state, audio, midi]
+    docs: reference/modules.md#format
+
+  - name: platform
+    summary: Platform detection, native dialogs, clipboard
+    status: usable
+    dependencies: []
+    docs: reference/modules.md#platform
+
+  - name: canvas
+    summary: 2D drawing abstraction (CoreGraphics, Skia), SVG, effects
+    status: experimental
+    dependencies: [platform]
+    docs: reference/modules.md#canvas
+
+  - name: render
+    summary: GPU surface management (Dawn, Skia Graphite)
+    status: experimental
+    dependencies: [canvas]
+    docs: reference/modules.md#render
+
+  - name: view
+    summary: Widgets, themes, JS scripting, hot-reload, inspector
+    status: experimental
+    dependencies: [render, events, state]
+    docs: reference/modules.md#view
+
+  - name: osc
+    summary: Open Sound Control messaging
+    status: experimental
+    dependencies: []
+    docs: reference/modules.md#osc

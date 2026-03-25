@@ -1,0 +1,93 @@
+# Pulp support matrix
+# Vocabulary: stable, usable, experimental, partial, planned, unsupported
+
+platforms:
+  macos:
+    status: usable
+    notes: Primary development platform. ARM64 and x86_64.
+  windows:
+    status: partial
+    notes: Build stubs exist. Not yet validated end-to-end.
+  linux:
+    status: partial
+    notes: Build stubs exist. Not yet validated end-to-end.
+  ios:
+    status: planned
+  web:
+    status: planned
+
+formats:
+  vst3:
+    macos: usable
+    windows: partial
+    linux: partial
+  au_v2:
+    macos: usable
+    windows: unsupported
+    linux: unsupported
+  clap:
+    macos: usable
+    windows: partial
+    linux: partial
+  standalone:
+    macos: usable
+    windows: partial
+    linux: partial
+  auv3:
+    macos: planned
+    ios: planned
+  lv2:
+    linux: planned
+  aax:
+    macos: planned
+    windows: planned
+
+audio_io:
+  coreaudio:
+    status: usable
+    platform: macos
+  wasapi:
+    status: planned
+    platform: windows
+  alsa:
+    status: planned
+    platform: linux
+
+midi_io:
+  coremidi:
+    status: usable
+    platform: macos
+  win32_midi:
+    status: planned
+    platform: windows
+  alsa_midi:
+    status: planned
+    platform: linux
+
+rendering:
+  dawn_metal:
+    status: experimental
+    platform: macos
+  skia_graphite:
+    status: experimental
+    platform: macos
+  dawn_d3d12:
+    status: planned
+    platform: windows
+  dawn_vulkan:
+    status: planned
+    platform: linux
+
+subsystems:
+  runtime: stable
+  events: usable
+  audio: usable
+  midi: usable
+  signal: usable
+  state: stable
+  format: usable
+  platform: usable
+  canvas: experimental
+  render: experimental
+  view: experimental
+  osc: experimental

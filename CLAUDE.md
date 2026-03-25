@@ -1,10 +1,116 @@
-# Pulp — Development Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What Is This
 
 Pulp is a cross-platform audio plugin and application framework. MIT-licensed. C++20 core, Swift on Apple, JS-scripted GPU UIs via Dawn/Skia/QuickJS. See `VISION.md` for the full picture.
 
-This file defines how we build it.
+---
+
+## Build & Test Commands
+
+```bash
+# Configure (first time or after CMakeLists.txt changes)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+# Build everything
+cmake --build build -j$(sysctl -n hw.ncpu)
+
+# Run all tests
+ctest --test-dir build --output-on-failure
+
+# Run tests matching a pattern
+ctest --test-dir build -R "Knob"
+
+# Run a single test binary directly
+./build/test/pulp-test-state
+
+# Build a specific target
+cmake --build build --target pulp-test-state
+
+# Sanitizer build (ASan/TSan/UBSan)
+cmake -S . -B build -DPULP_SANITIZER=address
+```
+
+**External SDKs** (not committed, cloned at configure time or manually):
+- VST3 SDK → `external/vst3sdk` (MIT, `git clone --depth 1 --branch v3.7.12`)
+- AudioUnitSDK → `external/AudioUnitSDK` (Apache 2.0, `git clone --depth 1`)
+- CLAP → fetched automatically via CMake FetchContent
+- Skia → pre-built binaries in `external/skia-build/`
+
+**CLI tool:**
+```bash
+./build/tools/cli/pulp build       # configure + build
+./build/tools/cli/pulp test        # run test suite
+./build/tools/cli/pulp validate    # run format validators (auval, clap-validator)
+./build/tools/cli/pulp ship sign --identity "Developer ID Application: ..."
+./build/tools/cli/pulp ship package --version 1.0.0
+./build/tools/cli/pulp ship check  # show signing status
+```
+
+**Known issue:** PulpSynth CLAP build fails with missing `pulp/signal/oscillator.hpp` include path — exclude with `ctest -E PulpSynth`.
+
+---
+
+## Architecture
+
+### Plugin Flow
+
+A Pulp plugin is a `Processor` subclass. Format adapters (VST3, AU, CLAP) wrap it:
+
+```
+Developer writes:
+  MyPlugin : Processor
+    ├── descriptor()        → plugin metadata, bus config
+    ├── define_parameters() → register params in StateStore
+    ├── prepare()           → allocate resources at given sample rate
+    └── process()           → real-time audio callback
+
+Format adapters translate:
+  VST3: PulpVst3Processor (SingleComponentEffect) ↔ Processor
+  AU v2: PulpAUEffect (AUEffectBase) ↔ Processor
+  AU v3: PulpAudioUnit (AUAudioUnit) ↔ Processor
+  CLAP: PulpClapPlugin (clap_plugin_t) ↔ Processor
+```
+
+### Thread Model
+
+- **Audio thread**: reads params via `std::atomic<float>` (relaxed), processes buffers, pushes meter data via `TripleBuffer`
+- **UI thread**: reads meter data, polls param changes via `Binding::poll()`, updates widgets
+- **Main thread**: plugin init, state serialization, file I/O
+
+Sync primitives (in `core/runtime/`):
+- `std::atomic` — single independent values (parameters)
+- `SeqLock<T>` — coherent multi-field reads (transport state)
+- `TripleBuffer<T>` — latest-value publication (meter data, large config swaps)
+- `SpscQueue<T>` (CHOC FIFO) — ordered event streams (MIDI, UI commands)
+
+### Parameter System
+
+`StateStore` holds all params as atomic `ParamValue` objects. Format adapters sync bidirectionally:
+- Host → plugin: adapters write to StateStore in process()
+- Plugin → host: adapters snapshot values before process(), emit output events for any changes after
+- UI → host: `Binding` wraps a param with gesture begin/end for undo grouping
+- CLAP modulation: `get_modulated()` returns base + mod_offset
+
+### Subsystem Map
+
+| Subsystem | Path | Purpose |
+|-----------|------|---------|
+| platform | `core/platform/` | OS detection, types |
+| runtime | `core/runtime/` | Logging, assert, SeqLock, TripleBuffer, SpscQueue |
+| events | `core/events/` | EventLoop, Timer |
+| audio | `core/audio/` | BufferView (non-owning channel pointer wrapper) |
+| midi | `core/midi/` | MidiEvent, MidiBuffer (via choc::midi) |
+| state | `core/state/` | ParamValue, ParamInfo, StateStore, Binding, serialization |
+| signal | `core/signal/` | 22 DSP processors (oscillator, filter, compressor, reverb, etc.) |
+| format | `core/format/` | Processor interface, VST3/AU/CLAP adapters, standalone |
+| canvas | `core/canvas/` | 2D drawing API, RecordingCanvas, CoreGraphics/Skia backends |
+| view | `core/view/` | View hierarchy, widgets, themes, JS bridge, AudioBridge |
+| render | `core/render/` | WebGPU/Dawn surface, Skia Graphite context |
+| osc | `core/osc/` | OSC 1.0 sender/receiver over UDP |
+| ship | `ship/` | Codesign, notarization, DMG/PKG creation, appcast |
 
 ---
 

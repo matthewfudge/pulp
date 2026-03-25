@@ -1,6 +1,8 @@
 // pulp — CLI tool for the Pulp audio plugin framework
 // Wraps common build/test/status operations
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -407,6 +409,493 @@ static int cmd_ship(const std::vector<std::string>& args) {
     return 0;
 }
 
+// ── Docs helpers ────────────────────────────────────────────────────────────
+
+static std::string read_file_contents(const fs::path& path) {
+    std::ifstream f(path);
+    if (!f.is_open()) return {};
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+// Trim leading/trailing whitespace from a string
+static std::string trim(const std::string& s) {
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return {};
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
+// Case-insensitive substring search
+static bool icontains(const std::string& haystack, const std::string& needle) {
+    if (needle.empty()) return true;
+    auto it = std::search(
+        haystack.begin(), haystack.end(),
+        needle.begin(), needle.end(),
+        [](char a, char b) { return std::tolower(a) == std::tolower(b); });
+    return it != haystack.end();
+}
+
+// Simple YAML line parser: returns value after "key: " on a line like "  key: value"
+static std::string yaml_value(const std::string& line, const std::string& key) {
+    auto pos = line.find(key + ":");
+    if (pos == std::string::npos) return {};
+    auto val_start = pos + key.size() + 1;
+    if (val_start >= line.size()) return {};
+    return trim(line.substr(val_start));
+}
+
+// ── pulp docs ───────────────────────────────────────────────────────────────
+
+static int docs_index(const fs::path& docs_dir) {
+    auto index_path = docs_dir / "status" / "docs-index.yaml";
+    std::string content = read_file_contents(index_path);
+    if (content.empty()) {
+        std::cerr << "Error: docs index not found at " << index_path.string() << "\n";
+        std::cerr << "Hint: the docs/ tree may not be set up yet.\n";
+        return 1;
+    }
+
+    std::cout << "Available Documentation\n";
+    std::cout << "=======================\n\n";
+
+    std::istringstream stream(content);
+    std::string line;
+    std::string slug, path, kind;
+
+    auto flush_entry = [&]() {
+        if (!slug.empty()) {
+            std::cout << "  " << slug;
+            if (!kind.empty()) std::cout << " (" << kind << ")";
+            std::cout << "\n";
+            if (!path.empty()) std::cout << "    -> docs/" << path << "\n";
+        }
+        slug.clear(); path.clear(); kind.clear();
+    };
+
+    while (std::getline(stream, line)) {
+        auto s = yaml_value(line, "slug");
+        if (!s.empty()) {
+            flush_entry();
+            slug = s;
+        }
+        auto p = yaml_value(line, "path");
+        if (!p.empty()) path = p;
+        auto k = yaml_value(line, "kind");
+        if (!k.empty()) kind = k;
+    }
+    flush_entry();
+
+    std::cout << "\nUse `pulp docs open <slug>` to read a doc.\n";
+    return 0;
+}
+
+static int docs_search(const fs::path& docs_dir, const std::string& query) {
+    if (query.empty()) {
+        std::cerr << "Usage: pulp docs search <query>\n";
+        return 1;
+    }
+    if (!fs::exists(docs_dir)) {
+        std::cerr << "Error: docs/ directory not found.\n";
+        return 1;
+    }
+
+    int match_count = 0;
+    for (auto& entry : fs::recursive_directory_iterator(docs_dir)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() != ".md") continue;
+
+        std::ifstream f(entry.path());
+        if (!f.is_open()) continue;
+
+        std::string line;
+        int line_num = 0;
+        bool file_printed = false;
+        int matches_in_file = 0;
+
+        while (std::getline(f, line)) {
+            ++line_num;
+            if (icontains(line, query)) {
+                if (!file_printed) {
+                    auto rel = fs::relative(entry.path(), docs_dir);
+                    std::cout << "\ndocs/" << rel.string() << ":\n";
+                    file_printed = true;
+                }
+                // Print up to 5 matches per file
+                if (matches_in_file < 5) {
+                    // Truncate long lines for display
+                    std::string display = line;
+                    if (display.size() > 120) display = display.substr(0, 117) + "...";
+                    std::cout << "  " << line_num << ": " << trim(display) << "\n";
+                }
+                ++matches_in_file;
+                ++match_count;
+            }
+        }
+        if (matches_in_file > 5) {
+            std::cout << "  ... and " << (matches_in_file - 5) << " more matches\n";
+        }
+    }
+
+    if (match_count == 0) {
+        std::cout << "No matches for \"" << query << "\" in docs/\n";
+    } else {
+        std::cout << "\n" << match_count << " match(es) found.\n";
+    }
+    return 0;
+}
+
+static int docs_open(const fs::path& docs_dir, const std::string& slug) {
+    if (slug.empty()) {
+        std::cerr << "Usage: pulp docs open <slug>\n";
+        return 1;
+    }
+
+    auto index_path = docs_dir / "status" / "docs-index.yaml";
+    std::string index_content = read_file_contents(index_path);
+    if (index_content.empty()) {
+        std::cerr << "Error: docs index not found at " << index_path.string() << "\n";
+        return 1;
+    }
+
+    // Find the path for the given slug
+    std::istringstream stream(index_content);
+    std::string line;
+    std::string current_slug, current_path;
+    bool found = false;
+
+    while (std::getline(stream, line)) {
+        auto s = yaml_value(line, "slug");
+        if (!s.empty()) {
+            // Check if previous entry matched
+            if (current_slug == slug && !current_path.empty()) {
+                found = true;
+                break;
+            }
+            current_slug = s;
+            current_path.clear();
+        }
+        auto p = yaml_value(line, "path");
+        if (!p.empty()) current_path = p;
+    }
+    // Check last entry
+    if (!found && current_slug == slug && !current_path.empty()) {
+        found = true;
+    }
+
+    if (!found) {
+        std::cerr << "Error: no doc found for slug \"" << slug << "\"\n";
+        std::cerr << "Run `pulp docs index` to see available docs.\n";
+        return 1;
+    }
+
+    auto file_path = docs_dir / current_path;
+    std::string content = read_file_contents(file_path);
+    if (content.empty()) {
+        std::cerr << "Error: file not found at " << file_path.string() << "\n";
+        return 1;
+    }
+
+    std::cout << content;
+    return 0;
+}
+
+static int docs_show_support(const fs::path& docs_dir, const std::string& thing) {
+    if (thing.empty()) {
+        std::cerr << "Usage: pulp docs show support <thing>\n";
+        return 1;
+    }
+
+    auto matrix_path = docs_dir / "status" / "support-matrix.yaml";
+    std::string content = read_file_contents(matrix_path);
+    if (content.empty()) {
+        std::cerr << "Error: support matrix not found at " << matrix_path.string() << "\n";
+        return 1;
+    }
+
+    // Search for lines containing the query in the support matrix
+    std::istringstream stream(content);
+    std::string line;
+    bool found = false;
+    bool in_section = false;
+    std::string section_name;
+
+    while (std::getline(stream, line)) {
+        std::string trimmed = trim(line);
+
+        // Track top-level sections (lines ending with ':' and not starting with '-')
+        if (!trimmed.empty() && trimmed.back() == ':' && trimmed.front() != '-'
+            && line.find_first_not_of(' ') == 0) {
+            section_name = trimmed.substr(0, trimmed.size() - 1);
+            in_section = false;
+        }
+
+        if (icontains(trimmed, thing)) {
+            if (!found) {
+                std::cout << "Support info for \"" << thing << "\":\n\n";
+                found = true;
+            }
+            if (!section_name.empty()) {
+                std::cout << "[" << section_name << "]\n";
+                section_name.clear();
+            }
+            std::cout << "  " << trimmed << "\n";
+
+            // Print subsequent indented lines (details of this entry)
+            auto current_indent = line.find_first_not_of(' ');
+            in_section = true;
+            std::streampos pos = stream.tellg();
+            std::string next;
+            while (std::getline(stream, next)) {
+                auto next_indent = next.find_first_not_of(' ');
+                if (next_indent != std::string::npos && next_indent > current_indent) {
+                    std::cout << "  " << trim(next) << "\n";
+                } else {
+                    // Put it back by seeking
+                    stream.seekg(pos);
+                    // Re-read to restore position properly
+                    stream.clear();
+                    stream.seekg(pos);
+                    break;
+                }
+                pos = stream.tellg();
+            }
+        }
+    }
+
+    if (!found) {
+        std::cerr << "No support info found for \"" << thing << "\"\n";
+        std::cerr << "Check docs/status/support-matrix.yaml for available entries.\n";
+        return 1;
+    }
+    return 0;
+}
+
+static int docs_show_command(const fs::path& docs_dir, const std::string& name) {
+    if (name.empty()) {
+        std::cerr << "Usage: pulp docs show command <name>\n";
+        return 1;
+    }
+
+    auto cmd_path = docs_dir / "status" / "cli-commands.yaml";
+    std::string content = read_file_contents(cmd_path);
+    if (content.empty()) {
+        std::cerr << "Error: CLI commands manifest not found at " << cmd_path.string() << "\n";
+        return 1;
+    }
+
+    std::istringstream stream(content);
+    std::string line;
+    bool found = false;
+    bool in_entry = false;
+
+    while (std::getline(stream, line)) {
+        auto n = yaml_value(line, "name");
+        if (!n.empty()) {
+            if (in_entry) break;  // We already printed our match, stop at next entry
+            if (n == name) {
+                found = true;
+                in_entry = true;
+                std::cout << "Command: " << n << "\n";
+            }
+            continue;
+        }
+        if (in_entry) {
+            std::string trimmed = trim(line);
+            if (trimmed.empty() || trimmed == "-") continue;
+            std::cout << "  " << trimmed << "\n";
+        }
+    }
+
+    if (!found) {
+        std::cerr << "No command found for \"" << name << "\"\n";
+        std::cerr << "Check docs/status/cli-commands.yaml for available commands.\n";
+        return 1;
+    }
+
+    std::cout << "\nSee also: docs/reference/cli.md\n";
+    return 0;
+}
+
+static int docs_show_cmake(const fs::path& docs_dir, const std::string& name) {
+    if (name.empty()) {
+        std::cerr << "Usage: pulp docs show cmake <name>\n";
+        return 1;
+    }
+
+    auto cmake_path = docs_dir / "status" / "cmake-functions.yaml";
+    std::string content = read_file_contents(cmake_path);
+    if (content.empty()) {
+        std::cerr << "Error: CMake functions manifest not found at " << cmake_path.string() << "\n";
+        return 1;
+    }
+
+    std::istringstream stream(content);
+    std::string line;
+    bool found = false;
+    bool in_entry = false;
+
+    while (std::getline(stream, line)) {
+        auto n = yaml_value(line, "name");
+        if (!n.empty()) {
+            if (in_entry) break;
+            if (n == name) {
+                found = true;
+                in_entry = true;
+                std::cout << "CMake function: " << n << "\n";
+            }
+            continue;
+        }
+        if (in_entry) {
+            std::string trimmed = trim(line);
+            if (trimmed.empty() || trimmed == "-") continue;
+            std::cout << "  " << trimmed << "\n";
+        }
+    }
+
+    if (!found) {
+        std::cerr << "No CMake function found for \"" << name << "\"\n";
+        std::cerr << "Check docs/status/cmake-functions.yaml for available functions.\n";
+        return 1;
+    }
+
+    std::cout << "\nSee also: docs/reference/cmake.md\n";
+    return 0;
+}
+
+static int docs_show_style(const fs::path& docs_dir) {
+    auto style_path = docs_dir / "status" / "style-rules.yaml";
+    std::string content = read_file_contents(style_path);
+    if (content.empty()) {
+        std::cerr << "Error: style rules not found at " << style_path.string() << "\n";
+        return 1;
+    }
+
+    std::cout << "Style Rules\n";
+    std::cout << "===========\n\n";
+
+    std::istringstream stream(content);
+    std::string line;
+    while (std::getline(stream, line)) {
+        std::string trimmed = trim(line);
+        if (trimmed.empty()) continue;
+        // Print rule entries readably
+        auto id = yaml_value(line, "id");
+        auto rule = yaml_value(line, "rule");
+        auto severity = yaml_value(line, "severity");
+        if (!id.empty()) {
+            std::cout << "\n[" << id << "]\n";
+        } else if (!rule.empty()) {
+            std::cout << "  Rule: " << rule << "\n";
+        } else if (!severity.empty()) {
+            std::cout << "  Severity: " << severity << "\n";
+        } else {
+            // Print other key-value pairs
+            auto colon = trimmed.find(':');
+            if (colon != std::string::npos && trimmed.front() != '-' && trimmed.front() != '#') {
+                auto key = trim(trimmed.substr(0, colon));
+                auto val = trim(trimmed.substr(colon + 1));
+                if (!key.empty() && !val.empty()) {
+                    std::cout << "  " << key << ": " << val << "\n";
+                }
+            }
+        }
+    }
+
+    std::cout << "\nFull details:\n";
+    std::cout << "  docs/policies/code-style.md\n";
+    std::cout << "  docs/policies/agent-contribution-rules.md\n";
+    return 0;
+}
+
+static int cmd_docs(const std::vector<std::string>& args) {
+    auto root = find_project_root();
+    if (root.empty()) {
+        std::cerr << "Error: not in a Pulp project directory\n";
+        return 1;
+    }
+
+    auto docs_dir = root / "docs";
+
+    if (args.empty()) {
+        std::cout << "pulp docs — local documentation reader\n\n";
+        std::cout << "Subcommands:\n";
+        std::cout << "  index                    List available docs\n";
+        std::cout << "  search <query>           Search docs for a string\n";
+        std::cout << "  open <slug>              Print a doc by slug\n";
+        std::cout << "  show support <thing>     Look up support status\n";
+        std::cout << "  show command <name>      Look up a CLI command\n";
+        std::cout << "  show cmake <name>        Look up a CMake function\n";
+        std::cout << "  show style               Show code style rules\n";
+        return 0;
+    }
+
+    std::string sub = args[0];
+
+    if (sub == "index") {
+        return docs_index(docs_dir);
+    }
+
+    if (sub == "search") {
+        std::string query;
+        for (size_t i = 1; i < args.size(); ++i) {
+            if (!query.empty()) query += " ";
+            query += args[i];
+        }
+        return docs_search(docs_dir, query);
+    }
+
+    if (sub == "open") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: pulp docs open <slug>\n";
+            return 1;
+        }
+        return docs_open(docs_dir, args[1]);
+    }
+
+    if (sub == "show") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: pulp docs show <support|command|cmake|style> [name]\n";
+            return 1;
+        }
+        std::string show_sub = args[1];
+
+        if (show_sub == "support") {
+            if (args.size() < 3) {
+                std::cerr << "Usage: pulp docs show support <thing>\n";
+                return 1;
+            }
+            return docs_show_support(docs_dir, args[2]);
+        }
+        if (show_sub == "command") {
+            if (args.size() < 3) {
+                std::cerr << "Usage: pulp docs show command <name>\n";
+                return 1;
+            }
+            return docs_show_command(docs_dir, args[2]);
+        }
+        if (show_sub == "cmake") {
+            if (args.size() < 3) {
+                std::cerr << "Usage: pulp docs show cmake <name>\n";
+                return 1;
+            }
+            return docs_show_cmake(docs_dir, args[2]);
+        }
+        if (show_sub == "style") {
+            return docs_show_style(docs_dir);
+        }
+
+        std::cerr << "Unknown show topic: " << show_sub << "\n";
+        std::cerr << "Available: support, command, cmake, style\n";
+        return 1;
+    }
+
+    std::cerr << "Unknown docs subcommand: " << sub << "\n";
+    std::cerr << "Run `pulp docs` for usage.\n";
+    return 1;
+}
+
 static void print_usage() {
     std::cout << "pulp — Pulp audio plugin framework CLI\n\n";
     std::cout << "Usage: pulp <command> [options]\n\n";
@@ -416,6 +905,7 @@ static void print_usage() {
     std::cout << "  status   Show project status and info\n";
     std::cout << "  validate Run plugin format validators (clap-validator, auval)\n";
     std::cout << "  ship     Sign, package, and check plugins\n";
+    std::cout << "  docs     Browse local documentation\n";
     std::cout << "  clean    Remove build directory\n";
     std::cout << "  help     Show this help\n";
     std::cout << "\nExamples:\n";
@@ -425,6 +915,8 @@ static void print_usage() {
     std::cout << "  pulp test -R Knob       # Run tests matching 'Knob'\n";
     std::cout << "  pulp ship sign --identity \"Developer ID Application: Foo\"\n";
     std::cout << "  pulp ship package --version 1.0.0\n";
+    std::cout << "  pulp docs index         # List available docs\n";
+    std::cout << "  pulp docs open cli      # Read a doc by slug\n";
     std::cout << "  pulp status             # Show project info\n";
 }
 
@@ -446,6 +938,7 @@ int main(int argc, char* argv[]) {
     if (command == "status")   return cmd_status(args);
     if (command == "validate") return cmd_validate(args);
     if (command == "ship")     return cmd_ship(args);
+    if (command == "docs")     return cmd_docs(args);
     if (command == "clean")    return cmd_clean(args);
     if (command == "help" || command == "--help" || command == "-h") {
         print_usage();

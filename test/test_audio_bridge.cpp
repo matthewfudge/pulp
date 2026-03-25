@@ -42,8 +42,9 @@ TEST_CASE("AudioBridge pop_latest drains queue", "[view][bridge]") {
     // Should get the LAST pushed value
     REQUIRE_THAT(out.peak[0], WithinAbs(0.3, 0.001));
 
-    // Queue should be empty now
-    REQUIRE_FALSE(bridge.pop_latest_meter(out));
+    // TripleBuffer always has a latest value after first push — verify it's still 0.3
+    REQUIRE(bridge.pop_latest_meter(out));
+    REQUIRE_THAT(out.peak[0], WithinAbs(0.3, 0.001));
 }
 
 TEST_CASE("AudioBridge analyze_and_push", "[view][bridge]") {

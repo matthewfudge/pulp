@@ -1,0 +1,81 @@
+# Pulp CLI command status
+# Vocabulary: stable, usable, experimental, partial, planned, unsupported
+
+commands:
+  - name: build
+    status: usable
+    summary: Configure and build the project. Auto-detects CMake reconfiguration needs.
+    args:
+      - name: extra_args
+        kind: passthrough
+        description: Passed through to cmake --build (e.g., --target, -j)
+    docs: reference/cli.md#build
+
+  - name: test
+    status: usable
+    summary: Run the test suite via CTest. Builds first if needed.
+    args:
+      - name: extra_args
+        kind: passthrough
+        description: Passed through to ctest (e.g., -R for filtering)
+    docs: reference/cli.md#test
+
+  - name: status
+    status: usable
+    summary: Show project root, git info, build state, source counts, SDK availability.
+    docs: reference/cli.md#status
+
+  - name: validate
+    status: usable
+    summary: Run plugin format validators (clap-validator, auval) on built plugins.
+    docs: reference/cli.md#validate
+
+  - name: ship
+    status: experimental
+    summary: Signing and packaging subcommands (sign, package, check). macOS only.
+    subcommands:
+      - name: sign
+        summary: Code-sign all built plugin bundles
+        args:
+          - name: --identity
+            required: true
+          - name: --entitlements
+            required: false
+      - name: package
+        summary: Create .pkg installers
+        args:
+          - name: --version
+            required: false
+      - name: check
+        summary: Check signing status of built plugins
+    docs: reference/cli.md#ship
+
+  - name: docs
+    status: usable
+    summary: Browse local documentation and status manifests.
+    subcommands:
+      - name: index
+        summary: List available docs
+      - name: search
+        summary: Search docs for a string
+      - name: open
+        summary: Print a doc by slug
+      - name: show support
+        summary: Look up support status
+      - name: show command
+        summary: Look up a CLI command
+      - name: show cmake
+        summary: Look up a CMake function
+      - name: show style
+        summary: Show code style rules
+    docs: reference/cli.md#docs
+
+  - name: clean
+    status: usable
+    summary: Remove the build directory.
+    docs: reference/cli.md#clean
+
+  - name: help
+    status: usable
+    summary: Print usage information.
+    docs: reference/cli.md#help
