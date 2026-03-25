@@ -93,3 +93,33 @@ if(APPLE AND PULP_HAS_AUSDK)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.au"
     )
 endif()
+
+# ── Validation Tests ──────────────────────────────────────────────────────
+
+# auval — validates AU instrument
+if(APPLE AND PULP_HAS_AUSDK)
+    add_test(
+        NAME auval-PulpTone
+        COMMAND ${CMAKE_COMMAND} -E env
+            bash -c "cp -R ${CMAKE_BINARY_DIR}/AU/PulpTone.component ~/Library/Audio/Plug-Ins/Components/ && auval -v aumu PTon Pulp 2>&1 | tee /dev/stderr | grep -q 'PASS'"
+    )
+    set_tests_properties(auval-PulpTone PROPERTIES
+        LABELS "validation;au"
+        TIMEOUT 30
+    )
+endif()
+
+# pluginval — validates VST3 instrument
+if(PULP_HAS_VST3)
+    find_program(PLUGINVAL pluginval)
+    if(PLUGINVAL)
+        add_test(
+            NAME pluginval-PulpTone-VST3
+            COMMAND ${PLUGINVAL} --validate ${CMAKE_BINARY_DIR}/VST3/PulpTone.vst3 --strictness-level 5 --timeout-ms 10000
+        )
+        set_tests_properties(pluginval-PulpTone-VST3 PROPERTIES
+            LABELS "validation;vst3"
+            TIMEOUT 30
+        )
+    endif()
+endif()
