@@ -11,4 +11,16 @@ target_sources(pulp-canvas PRIVATE
     src/recording_canvas.cpp
 )
 
+# Platform-specific rendering backends
+if(APPLE)
+    target_sources(pulp-canvas PRIVATE
+        platform/mac/cg_canvas.mm
+    )
+    target_link_libraries(pulp-canvas PRIVATE
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Foundation"
+    )
+endif()
+
 target_link_libraries(pulp-canvas PUBLIC pulp::runtime)

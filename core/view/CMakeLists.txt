@@ -23,7 +23,13 @@ target_include_directories(pulp-view PUBLIC
 
 target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state)
 
-# Platform frameworks for CHOC FileWatcher
+# Platform-specific window host and frameworks
 if(APPLE)
-    target_link_libraries(pulp-view PRIVATE "-framework CoreServices")
+    target_sources(pulp-view PRIVATE
+        platform/mac/window_host_mac.mm
+    )
+    target_link_libraries(pulp-view PRIVATE
+        "-framework CoreServices"
+        "-framework Cocoa"
+    )
 endif()
