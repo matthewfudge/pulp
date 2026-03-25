@@ -79,13 +79,13 @@ struct AUBridge {
     _bridge.processor->define_parameters(_bridge.store);
 
     auto desc = _bridge.processor->descriptor();
-    _bridge.input_channels = desc.default_input_channels;
-    _bridge.output_channels = desc.default_output_channels;
+    _bridge.input_channels = desc.default_input_channels();
+    _bridge.output_channels = desc.default_output_channels();
 
     // Create buses
     AVAudioFormat *format = [[AVAudioFormat alloc]
         initStandardFormatWithSampleRate:48000.0
-        channels:static_cast<AVAudioChannelCount>(std::max(desc.default_output_channels, 1))];
+        channels:static_cast<AVAudioChannelCount>(std::max(desc.default_output_channels(), 1))];
 
     NSMutableArray *outBusses = [NSMutableArray new];
     NSMutableArray *inBusses = [NSMutableArray new];
@@ -94,10 +94,10 @@ struct AUBridge {
     if (!_outputBus) return nil;
     [outBusses addObject:_outputBus];
 
-    if (desc.default_input_channels > 0) {
+    if (desc.default_input_channels() > 0) {
         AVAudioFormat *inFormat = [[AVAudioFormat alloc]
             initStandardFormatWithSampleRate:48000.0
-            channels:static_cast<AVAudioChannelCount>(desc.default_input_channels)];
+            channels:static_cast<AVAudioChannelCount>(desc.default_input_channels())];
         _inputBus = [[AUAudioUnitBus alloc] initWithFormat:inFormat error:outError];
         if (!_inputBus) return nil;
         [inBusses addObject:_inputBus];
@@ -111,7 +111,7 @@ struct AUBridge {
     self.maximumFramesToRender = 512;
 
     pulp::runtime::log_info("AU: initialized '{}' (in:{} out:{})",
-        desc.name, desc.default_input_channels, desc.default_output_channels);
+        desc.name, desc.default_input_channels(), desc.default_output_channels());
     return self;
 }
 

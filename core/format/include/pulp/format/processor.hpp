@@ -5,6 +5,7 @@
 #include <pulp/state/store.hpp>
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace pulp::format {
 
@@ -15,6 +16,13 @@ enum class PluginCategory {
     MidiEffect,  // MIDI processor (receives MIDI, produces MIDI)
 };
 
+// Audio bus description — for multi-bus plugins (sidechain, aux, etc.)
+struct BusInfo {
+    std::string name;
+    int default_channels = 2;
+    bool optional = false;  // true for sidechain buses that can be deactivated
+};
+
 // Plugin metadata — declared once, immutable
 struct PluginDescriptor {
     std::string name;
@@ -23,13 +31,24 @@ struct PluginDescriptor {
     std::string version;       // "1.0.0"
     PluginCategory category = PluginCategory::Effect;
 
-    int default_input_channels = 2;
-    int default_output_channels = 2;
+    // Bus configuration — defaults to single stereo in/out for compatibility.
+    // Override input_buses/output_buses for multi-bus (sidechain, aux).
+    std::vector<BusInfo> input_buses = {{"Main In", 2, false}};
+    std::vector<BusInfo> output_buses = {{"Main Out", 2, false}};
+
     bool accepts_midi = false;
     bool produces_midi = false;
 
     // Tail time in samples (0 = no tail, -1 = infinite)
     int tail_samples = 0;
+
+    // Convenience: channel count of the first (main) bus
+    int default_input_channels() const {
+        return input_buses.empty() ? 0 : input_buses[0].default_channels;
+    }
+    int default_output_channels() const {
+        return output_buses.empty() ? 0 : output_buses[0].default_channels;
+    }
 };
 
 // Prepare context — passed once before processing starts
@@ -72,6 +91,7 @@ public:
     virtual void release() {}
 
     // Processing — called on the real-time audio thread
+    // Main bus only — covers the vast majority of plugins.
     virtual void process(
         audio::BufferView<float>& audio_output,
         const audio::BufferView<const float>& audio_input,

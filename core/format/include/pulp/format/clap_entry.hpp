@@ -65,8 +65,8 @@ inline uint32_t audio_ports_count(const clap_plugin_t* plugin, bool is_input) {
     auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
     auto desc = self->processor ? self->processor->descriptor() : g_desc;
     if (is_input)
-        return desc.default_input_channels > 0 ? 1 : 0;
-    return desc.default_output_channels > 0 ? 1 : 0;
+        return desc.default_input_channels() > 0 ? 1 : 0;
+    return desc.default_output_channels() > 0 ? 1 : 0;
 }
 
 inline bool audio_ports_get(const clap_plugin_t* plugin, uint32_t index, bool is_input,
@@ -75,7 +75,7 @@ inline bool audio_ports_get(const clap_plugin_t* plugin, uint32_t index, bool is
     auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
     auto desc = self->processor ? self->processor->descriptor() : g_desc;
 
-    int channels = is_input ? desc.default_input_channels : desc.default_output_channels;
+    int channels = is_input ? desc.default_input_channels() : desc.default_output_channels();
     if (channels == 0) return false;
 
     info->id = is_input ? 0 : 1;

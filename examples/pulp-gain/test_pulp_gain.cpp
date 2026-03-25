@@ -40,8 +40,8 @@ TEST_CASE("PulpGain descriptor", "[pulpgain]") {
     auto desc = proc.descriptor();
     REQUIRE(desc.name == "PulpGain");
     REQUIRE(desc.category == format::PluginCategory::Effect);
-    REQUIRE(desc.default_input_channels == 2);
-    REQUIRE(desc.default_output_channels == 2);
+    REQUIRE(desc.default_input_channels() == 2);
+    REQUIRE(desc.default_output_channels() == 2);
     REQUIRE_FALSE(desc.accepts_midi);
 }
 

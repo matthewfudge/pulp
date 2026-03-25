@@ -37,8 +37,8 @@ TEST_CASE("PulpTone descriptor", "[pulptone]") {
     REQUIRE(desc.name == "PulpTone");
     REQUIRE(desc.category == format::PluginCategory::Instrument);
     REQUIRE(desc.accepts_midi);
-    REQUIRE(desc.default_output_channels == 2);
-    REQUIRE(desc.default_input_channels == 0);
+    REQUIRE(desc.default_output_channels() == 2);
+    REQUIRE(desc.default_input_channels() == 0);
 }
 
 TEST_CASE("PulpTone parameters", "[pulptone]") {

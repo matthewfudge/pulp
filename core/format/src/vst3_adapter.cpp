@@ -42,13 +42,13 @@ tresult PLUGIN_API PulpVst3Processor::initialize(FUnknown* context) {
     );
 
     // Add audio buses based on processor descriptor
-    if (desc.default_input_channels > 0) {
+    if (desc.default_input_channels() > 0) {
         addAudioInput(STR16("Audio In"),
-            desc.default_input_channels == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo);
+            desc.default_input_channels() == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo);
     }
-    if (desc.default_output_channels > 0) {
+    if (desc.default_output_channels() > 0) {
         addAudioOutput(STR16("Audio Out"),
-            desc.default_output_channels == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo);
+            desc.default_output_channels() == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo);
     }
 
     // Add event buses for MIDI

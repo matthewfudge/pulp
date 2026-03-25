@@ -86,8 +86,8 @@ public:
             .bundle_id = "com.pulp.effect",
             .version = "1.0.0",
             .category = format::PluginCategory::Effect,
-            .default_input_channels = 2,
-            .default_output_channels = 2,
+            .input_buses = {{"Audio In", 2}},
+            .output_buses = {{"Audio Out", 2}},
         };
     }
 

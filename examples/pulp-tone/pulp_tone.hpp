@@ -27,8 +27,8 @@ public:
             .bundle_id = "com.pulp.tone",
             .version = "1.0.0",
             .category = format::PluginCategory::Instrument,
-            .default_input_channels = 0,
-            .default_output_channels = 2,
+            .input_buses = {},
+            .output_buses = {{"Audio Out", 2}},
             .accepts_midi = true,
             .produces_midi = false,
             .tail_samples = -1, // Infinite tail (synth)
