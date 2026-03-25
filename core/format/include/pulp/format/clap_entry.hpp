@@ -60,30 +60,28 @@ inline void init_descriptor() {
     };
 }
 
-// ── Audio ports extension ──────────────────────────────────────────────
+// ── Audio ports extension (multi-bus) ──────────────────────────────────
 inline uint32_t audio_ports_count(const clap_plugin_t* plugin, bool is_input) {
     auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
     auto desc = self->processor ? self->processor->descriptor() : g_desc;
-    if (is_input)
-        return desc.default_input_channels() > 0 ? 1 : 0;
-    return desc.default_output_channels() > 0 ? 1 : 0;
+    return static_cast<uint32_t>(is_input ? desc.input_buses.size() : desc.output_buses.size());
 }
 
 inline bool audio_ports_get(const clap_plugin_t* plugin, uint32_t index, bool is_input,
                             clap_audio_port_info_t* info) {
-    if (index != 0) return false;
     auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
     auto desc = self->processor ? self->processor->descriptor() : g_desc;
+    auto& buses = is_input ? desc.input_buses : desc.output_buses;
 
-    int channels = is_input ? desc.default_input_channels() : desc.default_output_channels();
-    if (channels == 0) return false;
+    if (index >= buses.size()) return false;
+    auto& bus = buses[index];
 
-    info->id = is_input ? 0 : 1;
-    strncpy(info->name, is_input ? "Audio In" : "Audio Out", CLAP_NAME_SIZE);
-    info->channel_count = channels;
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->port_type = channels == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
-    info->in_place_pair = is_input ? 1 : 0;
+    info->id = static_cast<clap_id>((is_input ? 0 : 100) + index);
+    strncpy(info->name, bus.name.c_str(), CLAP_NAME_SIZE);
+    info->channel_count = bus.default_channels;
+    info->flags = (index == 0) ? CLAP_AUDIO_PORT_IS_MAIN : 0;
+    info->port_type = bus.default_channels == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+    info->in_place_pair = CLAP_INVALID_ID;
     return true;
 }
 

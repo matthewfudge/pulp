@@ -41,14 +41,22 @@ tresult PLUGIN_API PulpVst3Processor::initialize(FUnknown* context) {
         }
     );
 
-    // Add audio buses based on processor descriptor
-    if (desc.default_input_channels() > 0) {
-        addAudioInput(STR16("Audio In"),
-            desc.default_input_channels() == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo);
+    // Add audio buses from descriptor (supports multi-bus: main, sidechain, aux)
+    for (const auto& bus : desc.input_buses) {
+        Steinberg::Vst::String128 busName;
+        Steinberg::UString(busName, 128).fromAscii(bus.name.c_str());
+        addAudioInput(busName,
+            bus.default_channels == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo,
+            bus.optional ? Steinberg::Vst::BusTypes::kAux : Steinberg::Vst::BusTypes::kMain,
+            bus.optional ? 0 : Steinberg::Vst::BusInfo::kDefaultActive);
     }
-    if (desc.default_output_channels() > 0) {
-        addAudioOutput(STR16("Audio Out"),
-            desc.default_output_channels() == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo);
+    for (const auto& bus : desc.output_buses) {
+        Steinberg::Vst::String128 busName;
+        Steinberg::UString(busName, 128).fromAscii(bus.name.c_str());
+        addAudioOutput(busName,
+            bus.default_channels == 1 ? SpeakerArr::kMono : SpeakerArr::kStereo,
+            bus.optional ? Steinberg::Vst::BusTypes::kAux : Steinberg::Vst::BusTypes::kMain,
+            bus.optional ? 0 : Steinberg::Vst::BusInfo::kDefaultActive);
     }
 
     // Add event buses for MIDI
