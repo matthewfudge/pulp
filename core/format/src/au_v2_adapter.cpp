@@ -200,6 +200,9 @@ public:
         }
 
         // Sync AU parameter values → Pulp StateStore
+        // Note: reads all params each buffer. For typical plugin param counts
+        // (<50) the overhead is negligible. For plugins with 100+ params,
+        // consider AUParameterListener or a dirty-flag bitset.
         for (const auto& param : store_.all_params()) {
             auto au_id = static_cast<AudioUnitParameterID>(param.id);
             float value = GetParameter(au_id);

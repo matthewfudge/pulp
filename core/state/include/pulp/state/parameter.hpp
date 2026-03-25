@@ -49,6 +49,14 @@ struct ParamInfo {
 // Thread-safe parameter value
 // Audio thread reads via atomic. UI thread writes via atomic.
 // No locks. No allocation.
+//
+// Memory ordering: relaxed is correct here because each parameter is
+// independent — there's no ordering dependency between reading param A
+// and param B. The audio thread reads the latest value of each param
+// individually. For coherent multi-field reads (e.g., transport state),
+// use SeqLock<T> instead. Relaxed atomics are safe on both x86 (TSO
+// gives acquire/release for free) and ARM (each load/store is atomic,
+// reordering between independent params is harmless).
 class ParamValue {
 public:
     ParamValue() = default;
