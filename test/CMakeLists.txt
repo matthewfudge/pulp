@@ -74,6 +74,11 @@ add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-view)
 
+# Audio bridge tests
+add_executable(pulp-test-audio-bridge test_audio_bridge.cpp)
+target_link_libraries(pulp-test-audio-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-audio-bridge)
+
 # Widget tests
 add_executable(pulp-test-widgets test_widgets.cpp)
 target_link_libraries(pulp-test-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
