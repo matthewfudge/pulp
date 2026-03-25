@@ -210,6 +210,9 @@ include(PulpUtils)
 # ── CLI Tool ───────────────────────────────────────────────────────────────
 add_subdirectory(tools/cli)
 
+# ── MCP Server ─────────────────────────────────────────────────────────────
+add_subdirectory(tools/mcp)
+
 # ── Examples ────────────────────────────────────────────────────────────────
 if(PULP_BUILD_EXAMPLES)
     add_subdirectory(examples)
