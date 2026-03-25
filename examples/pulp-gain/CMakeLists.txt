@@ -60,6 +60,30 @@ if(PULP_HAS_VST3)
     endif()
 endif()
 
+# CLAP plugin bundle
+if(PULP_HAS_CLAP)
+    add_library(PulpGain_CLAP MODULE
+        clap_entry.cpp
+        ${CMAKE_SOURCE_DIR}/core/format/src/clap_adapter.cpp
+    )
+    target_link_libraries(PulpGain_CLAP PRIVATE pulp::format clap)
+    target_include_directories(PulpGain_CLAP PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    set_target_properties(PulpGain_CLAP PROPERTIES
+        OUTPUT_NAME "PulpGain"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/CLAP"
+        PREFIX ""
+        SUFFIX ".clap"
+    )
+
+    if(APPLE)
+        set_target_properties(PulpGain_CLAP PROPERTIES
+            BUNDLE TRUE
+            BUNDLE_EXTENSION "clap"
+        )
+    endif()
+endif()
+
 # Audio Unit component bundle (macOS)
 if(APPLE)
     add_library(PulpGain_AU MODULE
