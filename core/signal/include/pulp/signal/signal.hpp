@@ -13,3 +13,9 @@
 #include <pulp/signal/oversampling.hpp>
 #include <pulp/signal/noise_gate.hpp>
 #include <pulp/signal/panner.hpp>
+#include <pulp/signal/chorus.hpp>
+#include <pulp/signal/phaser.hpp>
+#include <pulp/signal/reverb.hpp>
+#include <pulp/signal/ladder_filter.hpp>
+#include <pulp/signal/linkwitz_riley.hpp>
+#include <pulp/signal/windowing.hpp>

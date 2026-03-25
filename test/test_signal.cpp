@@ -462,3 +462,143 @@ TEST_CASE("Panner hard right", "[signal][panner]") {
     REQUIRE_THAT(result.left, WithinAbs(0.0, 0.01));
     REQUIRE_THAT(result.right, WithinAbs(1.0, 0.01));
 }
+
+// ── Chorus ───────────────────────────────────────────────────────────────────
+
+TEST_CASE("Chorus produces stereo output", "[signal][chorus]") {
+    Chorus chorus;
+    chorus.prepare(44100.0f);
+    chorus.set_rate(1.0f);
+    chorus.set_depth(0.5f);
+    chorus.set_mix(0.5f);
+
+    float sum_l = 0, sum_r = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 440.0f * i / 44100.0f);
+        auto out = chorus.process(input);
+        sum_l += out.left * out.left;
+        sum_r += out.right * out.right;
+    }
+    REQUIRE(sum_l > 0);
+    REQUIRE(sum_r > 0);
+    // Left and right should differ (stereo widening)
+    REQUIRE(std::abs(sum_l - sum_r) > 0.01f);
+}
+
+// ── Phaser ───────────────────────────────────────────────────────────────────
+
+TEST_CASE("Phaser modifies signal", "[signal][phaser]") {
+    Phaser phaser;
+    phaser.set_sample_rate(44100.0f);
+    phaser.set_rate(1.0f);
+    phaser.set_depth(0.8f);
+    phaser.set_mix(1.0f);
+
+    float sum_in = 0, sum_diff = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 440.0f * i / 44100.0f);
+        float output = phaser.process(input);
+        sum_in += input * input;
+        sum_diff += (output - input) * (output - input);
+    }
+    // Output should differ from input (phase cancellation effects)
+    REQUIRE(sum_diff > 0.01f);
+}
+
+// ── Reverb ───────────────────────────────────────────────────────────────────
+
+TEST_CASE("Reverb produces decay tail", "[signal][reverb]") {
+    Reverb reverb;
+    reverb.prepare(44100.0f);
+    reverb.set_decay(1.0f);
+    reverb.set_mix(1.0f);
+
+    // Feed an impulse
+    auto out = reverb.process(1.0f);
+    (void)out;
+
+    // Feed silence and check for decay tail
+    float energy = 0;
+    for (int i = 0; i < 4410; ++i) {
+        auto s = reverb.process(0.0f);
+        energy += s.left * s.left + s.right * s.right;
+    }
+    REQUIRE(energy > 0.001f); // Should have reverb tail
+}
+
+// ── LadderFilter ─────────────────────────────────────────────────────────────
+
+TEST_CASE("LadderFilter lowpass behavior", "[signal][ladder]") {
+    LadderFilter ladder;
+    ladder.set_sample_rate(44100.0f);
+    ladder.set_frequency(200.0f);
+    ladder.set_resonance(0.3f);
+
+    // High frequency should be attenuated
+    float sum_sq = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 10000.0f * i / 44100.0f);
+        float output = ladder.process(input);
+        if (i > 200) sum_sq += output * output;
+    }
+    float rms = std::sqrt(sum_sq / 4210.0f);
+    REQUIRE(rms < 0.05f); // 24dB/oct should heavily attenuate
+}
+
+// ── LinkwitzRiley ────────────────────────────────────────────────────────────
+
+TEST_CASE("LinkwitzRiley splits into low and high bands", "[signal][lr]") {
+    LinkwitzRiley lr;
+    lr.set_frequency(1000.0f, 44100.0f);
+
+    // 200Hz signal should be mostly in the low band
+    float low_energy = 0, high_energy = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 200.0f * i / 44100.0f);
+        auto split = lr.process(input);
+        if (i > 200) { // Skip transient
+            low_energy += split.low * split.low;
+            high_energy += split.high * split.high;
+        }
+    }
+    REQUIRE(low_energy > high_energy * 10.0f); // Low band should dominate
+
+    // 5kHz signal should be mostly in the high band
+    lr.reset();
+    low_energy = 0; high_energy = 0;
+    for (int i = 0; i < 4410; ++i) {
+        float input = std::sin(2.0f * 3.14159f * 5000.0f * i / 44100.0f);
+        auto split = lr.process(input);
+        if (i > 200) {
+            low_energy += split.low * split.low;
+            high_energy += split.high * split.high;
+        }
+    }
+    REQUIRE(high_energy > low_energy * 10.0f); // High band should dominate
+}
+
+// ── WindowFunction ───────────────────────────────────────────────────────────
+
+TEST_CASE("WindowFunction Hann", "[signal][window]") {
+    auto w = WindowFunction::generate(256, WindowFunction::Type::hann);
+    REQUIRE(w.size() == 256);
+    REQUIRE_THAT(w[0], WithinAbs(0.0, 0.001));
+    REQUIRE_THAT(w[128], WithinAbs(1.0, 0.001)); // Peak at center
+    REQUIRE_THAT(w[255], WithinAbs(0.0, 0.001));
+}
+
+TEST_CASE("WindowFunction Blackman", "[signal][window]") {
+    auto w = WindowFunction::generate(512, WindowFunction::Type::blackman);
+    REQUIRE(w.size() == 512);
+    REQUIRE(w[256] > 0.9f); // Near peak
+    REQUIRE(w[0] < 0.01f);  // Near zero at edges
+}
+
+TEST_CASE("WindowFunction apply", "[signal][window]") {
+    auto w = WindowFunction::generate(4, WindowFunction::Type::rectangular);
+    float buf[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    WindowFunction::apply(buf, w);
+    // Rectangular window should not change values
+    REQUIRE_THAT(buf[0], WithinAbs(1.0, 0.001));
+    REQUIRE_THAT(buf[3], WithinAbs(4.0, 0.001));
+}
