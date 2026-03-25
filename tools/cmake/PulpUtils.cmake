@@ -103,6 +103,48 @@ function(pulp_add_plugin target)
         _pulp_add_standalone(${target} "${PLUGIN_PLUGIN_NAME}")
     endif()
 
+    # ── Install targets ────────────────────────────────────────────────
+    # Platform-appropriate install locations for each format
+    if(APPLE)
+        set(_vst3_dir "$ENV{HOME}/Library/Audio/Plug-Ins/VST3")
+        set(_clap_dir "$ENV{HOME}/Library/Audio/Plug-Ins/CLAP")
+        set(_au_dir "$ENV{HOME}/Library/Audio/Plug-Ins/Components")
+    elseif(WIN32)
+        set(_vst3_dir "$ENV{COMMONPROGRAMFILES}/VST3")
+        set(_clap_dir "$ENV{COMMONPROGRAMFILES}/CLAP")
+    elseif(UNIX)
+        set(_vst3_dir "$ENV{HOME}/.vst3")
+        set(_clap_dir "$ENV{HOME}/.clap")
+    endif()
+
+    # Custom install target: pulp-install-<target>
+    set(_install_commands "")
+    if(TARGET ${target}_VST3 AND DEFINED _vst3_dir)
+        list(APPEND _install_commands
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/VST3/${PLUGIN_PLUGIN_NAME}.vst3"
+                "${_vst3_dir}/${PLUGIN_PLUGIN_NAME}.vst3")
+    endif()
+    if(TARGET ${target}_CLAP AND DEFINED _clap_dir)
+        list(APPEND _install_commands
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/CLAP/${PLUGIN_PLUGIN_NAME}.clap"
+                "${_clap_dir}/${PLUGIN_PLUGIN_NAME}.clap")
+    endif()
+    if(TARGET ${target}_AU AND DEFINED _au_dir)
+        list(APPEND _install_commands
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/AU/${PLUGIN_PLUGIN_NAME}.component"
+                "${_au_dir}/${PLUGIN_PLUGIN_NAME}.component")
+    endif()
+
+    if(_install_commands)
+        add_custom_target(pulp-install-${target}
+            ${_install_commands}
+            COMMENT "Installing ${PLUGIN_PLUGIN_NAME} to system plugin folders"
+        )
+    endif()
+
     message(STATUS "Pulp plugin: ${target} (formats: ${PLUGIN_FORMATS})")
 endfunction()
 
@@ -315,8 +357,67 @@ function(pulp_add_app target)
 endfunction()
 
 # ── pulp_add_binary_data ────────────────────────────────────────────────
-# Embed binary assets as C++ arrays (images, fonts, etc.)
+# Embed binary assets as C++ arrays.
+# Usage:
+#   pulp_add_binary_data(MyResources
+#       SOURCES logo.png preset.json font.ttf
+#       NAMESPACE myresources
+#   )
+# Generates a header with:
+#   namespace myresources { extern const unsigned char logo_png[]; extern const size_t logo_png_size; }
 function(pulp_add_binary_data target)
-    cmake_parse_arguments(DATA "" "" "SOURCES" ${ARGN})
+    cmake_parse_arguments(DATA "" "NAMESPACE" "SOURCES" ${ARGN})
+
+    if(NOT DATA_NAMESPACE)
+        set(DATA_NAMESPACE "${target}")
+    endif()
+
+    set(generated_cpp "${CMAKE_CURRENT_BINARY_DIR}/${target}_data.cpp")
+    set(generated_hpp "${CMAKE_CURRENT_BINARY_DIR}/${target}_data.hpp")
+
+    # Generate the embedding source at configure time
+    set(cpp_content "#include \"${target}_data.hpp\"\n\n")
+    set(hpp_content "#pragma once\n#include <cstddef>\n\nnamespace ${DATA_NAMESPACE} {\n\n")
+
+    foreach(source_file ${DATA_SOURCES})
+        get_filename_component(file_name "${source_file}" NAME)
+        string(MAKE_C_IDENTIFIER "${file_name}" var_name)
+        get_filename_component(abs_path "${source_file}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # Read file as hex at configure time
+        file(READ "${abs_path}" file_hex HEX)
+        string(LENGTH "${file_hex}" hex_len)
+        math(EXPR byte_count "${hex_len} / 2")
+
+        # Convert hex pairs to C array initializer
+        set(hex_list "")
+        set(i 0)
+        while(i LESS hex_len)
+            string(SUBSTRING "${file_hex}" ${i} 2 hex_byte)
+            string(APPEND hex_list "0x${hex_byte},")
+            math(EXPR i "${i} + 2")
+            math(EXPR mod "(${i} / 2) % 16")
+            if(mod EQUAL 0)
+                string(APPEND hex_list "\n    ")
+            endif()
+        endwhile()
+
+        string(APPEND hpp_content "extern const unsigned char ${var_name}[];\n")
+        string(APPEND hpp_content "extern const size_t ${var_name}_size;\n\n")
+
+        string(APPEND cpp_content "namespace ${DATA_NAMESPACE} {\n")
+        string(APPEND cpp_content "const unsigned char ${var_name}[] = {\n    ${hex_list}\n};\n")
+        string(APPEND cpp_content "const size_t ${var_name}_size = ${byte_count};\n")
+        string(APPEND cpp_content "} // namespace ${DATA_NAMESPACE}\n\n")
+    endforeach()
+
+    string(APPEND hpp_content "} // namespace ${DATA_NAMESPACE}\n")
+
+    file(WRITE "${generated_cpp}" "${cpp_content}")
+    file(WRITE "${generated_hpp}" "${hpp_content}")
+
+    add_library(${target} STATIC "${generated_cpp}")
+    target_include_directories(${target} PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
+
     message(STATUS "Pulp binary data: ${target} (${DATA_SOURCES})")
 endfunction()
