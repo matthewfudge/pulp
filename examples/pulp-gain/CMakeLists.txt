@@ -109,6 +109,18 @@ endif()
 # ── Validation Tests ────────────────────────────────────────────────────────
 # These run format-specific validators as CTest tests
 
+# CLAP dlopen test
+if(PULP_HAS_CLAP AND APPLE)
+    add_test(
+        NAME clap-dlopen-PulpGain
+        COMMAND bash -c "python3 -c \"import ctypes; ctypes.CDLL('${CMAKE_BINARY_DIR}/CLAP/PulpGain.clap/Contents/MacOS/PulpGain'); print('OK')\""
+    )
+    set_tests_properties(clap-dlopen-PulpGain PROPERTIES
+        LABELS "validation;clap"
+        TIMEOUT 10
+    )
+endif()
+
 if(APPLE AND PULP_HAS_AUSDK)
     # auval test — validates the AU component
     # Checks for "PASS" in output (auval may still fail on legacy OpenAComponent timing test)

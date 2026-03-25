@@ -96,6 +96,18 @@ endif()
 
 # ── Validation Tests ──────────────────────────────────────────────────────
 
+# CLAP dlopen test
+if(PULP_HAS_CLAP AND APPLE)
+    add_test(
+        NAME clap-dlopen-PulpTone
+        COMMAND bash -c "python3 -c \"import ctypes; ctypes.CDLL('${CMAKE_BINARY_DIR}/CLAP/PulpTone.clap/Contents/MacOS/PulpTone'); print('OK')\""
+    )
+    set_tests_properties(clap-dlopen-PulpTone PROPERTIES
+        LABELS "validation;clap"
+        TIMEOUT 10
+    )
+endif()
+
 # auval — validates AU instrument
 if(APPLE AND PULP_HAS_AUSDK)
     add_test(
