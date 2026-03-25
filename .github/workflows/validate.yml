@@ -1,0 +1,54 @@
+name: Plugin Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-macos:
+    runs-on: macos-14
+    name: Validate Plugins (macOS ARM64)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone VST3 SDK
+        run: |
+          git clone --depth 1 --branch v3.7.12 \
+            https://github.com/steinbergmedia/vst3sdk.git \
+            external/vst3sdk
+          cd external/vst3sdk && git submodule update --init --recursive --depth 1
+
+      - name: Clone AudioUnitSDK
+        run: |
+          git clone --depth 1 \
+            https://github.com/apple/AudioUnitSDK.git \
+            external/AudioUnitSDK
+
+      - name: Configure and Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+
+      - name: Run Unit Tests
+        run: ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
+
+      - name: Validate AU plugins (auval)
+        run: |
+          echo "AU validation requires plugin installation — skipping in CI"
+          echo "Run 'pulp build --install && pulp validate' locally for full AU validation"
+
+      - name: Validate CLAP plugins (dlopen)
+        run: ctest --test-dir build -L clap --output-on-failure
+
+      - name: Validate VST3 plugins
+        run: ctest --test-dir build -L vst3 --output-on-failure
+
+      - name: Check codesigning (unsigned expected in CI)
+        run: |
+          for plugin in build/CLAP/*.clap; do
+            echo "Checking $(basename $plugin)..."
+            codesign --verify "$plugin" 2>&1 || echo "Not signed (expected in CI)"
+          done
