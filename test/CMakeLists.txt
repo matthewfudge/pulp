@@ -84,6 +84,11 @@ add_executable(pulp-test-widgets test_widgets.cpp)
 target_link_libraries(pulp-test-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-widgets)
 
+# Widget bridge tests
+add_executable(pulp-test-widget-bridge test_widget_bridge.cpp)
+target_link_libraries(pulp-test-widget-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-widget-bridge)
+
 # Golden-file audio tests (uses HeadlessHost + PulpGain)
 add_executable(pulp-test-golden test_golden_audio.cpp)
 target_link_libraries(pulp-test-golden PRIVATE pulp::format Catch2::Catch2WithMain)

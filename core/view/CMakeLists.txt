@@ -12,6 +12,7 @@ target_sources(pulp-view PRIVATE
     src/theme.cpp
     src/view.cpp
     src/widgets.cpp
+    src/widget_bridge.cpp
 )
 
 # CHOC headers (JS engine, utilities)
@@ -19,4 +20,4 @@ target_include_directories(pulp-view PUBLIC
     $<BUILD_INTERFACE:${choc_SOURCE_DIR}>
 )
 
-target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events)
+target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state)
