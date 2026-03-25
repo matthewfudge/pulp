@@ -103,11 +103,17 @@ public:
     state::StateStore& state() { return *state_store_; }
     const state::StateStore& state() const { return *state_store_; }
 
-    // Framework sets this during initialization
+    // Sidechain access — set by format adapters before process() when available.
+    // Returns nullptr if no sidechain is connected or the bus is inactive.
+    const audio::BufferView<const float>* sidechain_input() const { return sidechain_; }
+
+    // Framework sets these during initialization / processing
     void set_state_store(state::StateStore* store) { state_store_ = store; }
+    void set_sidechain(const audio::BufferView<const float>* sc) { sidechain_ = sc; }
 
 private:
     state::StateStore* state_store_ = nullptr;
+    const audio::BufferView<const float>* sidechain_ = nullptr;
 };
 
 // Factory function type — plugins provide this
