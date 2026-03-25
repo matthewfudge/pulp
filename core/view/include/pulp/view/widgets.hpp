@@ -38,7 +38,7 @@ private:
 
 class Knob : public View {
 public:
-    Knob() { set_access_role(AccessRole::slider); }
+    Knob() { set_access_role(AccessRole::slider); set_focusable(true); }
 
     void set_value(float v) { value_ = std::clamp(v, 0.0f, 1.0f); }
     float value() const { return value_; }
@@ -68,7 +68,7 @@ class Fader : public View {
 public:
     enum class Orientation { vertical, horizontal };
 
-    Fader() { set_access_role(AccessRole::slider); }
+    Fader() { set_access_role(AccessRole::slider); set_focusable(true); }
 
     void set_value(float v) { value_ = std::clamp(v, 0.0f, 1.0f); }
     float value() const { return value_; }
@@ -92,7 +92,7 @@ private:
 
 class Toggle : public View {
 public:
-    Toggle() { set_access_role(AccessRole::toggle); }
+    Toggle() { set_access_role(AccessRole::toggle); set_focusable(true); }
 
     void set_on(bool v) { on_ = v; }
     bool is_on() const { return on_; }

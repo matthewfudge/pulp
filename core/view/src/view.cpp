@@ -20,6 +20,87 @@ void View::paint_all(canvas::Canvas& canvas) {
     canvas.restore();
 }
 
+void View::simulate_click(Point root_pos) {
+    auto* target = hit_test(root_pos);
+    if (!target) return;
+
+    // Convert to target's local coordinates
+    Point local = root_pos;
+    View* v = target;
+    while (v && v != this) {
+        local.x -= v->bounds().x;
+        local.y -= v->bounds().y;
+        v = v->parent();
+    }
+
+    target->on_mouse_down(local);
+    target->on_mouse_up(local);
+}
+
+void View::simulate_drag(Point start, Point end, int steps) {
+    auto* target = hit_test(start);
+    if (!target) return;
+
+    target->on_mouse_down(start);
+    for (int i = 1; i <= steps; ++i) {
+        float t = static_cast<float>(i) / steps;
+        Point p = {start.x + (end.x - start.x) * t,
+                   start.y + (end.y - start.y) * t};
+        target->on_mouse_drag(p);
+    }
+    target->on_mouse_up(end);
+}
+
+static void collect_focusable(View& root, std::vector<View*>& out) {
+    if (root.focusable()) out.push_back(&root);
+    for (size_t i = 0; i < root.child_count(); ++i)
+        collect_focusable(*root.child_at(i), out);
+}
+
+View* View::focus_next(View& root, View* current) {
+    std::vector<View*> focusable;
+    collect_focusable(root, focusable);
+    if (focusable.empty()) return nullptr;
+
+    if (!current) {
+        focusable[0]->set_focus(true);
+        return focusable[0];
+    }
+
+    current->set_focus(false);
+    for (size_t i = 0; i < focusable.size(); ++i) {
+        if (focusable[i] == current) {
+            auto* next = focusable[(i + 1) % focusable.size()];
+            next->set_focus(true);
+            return next;
+        }
+    }
+    focusable[0]->set_focus(true);
+    return focusable[0];
+}
+
+View* View::focus_prev(View& root, View* current) {
+    std::vector<View*> focusable;
+    collect_focusable(root, focusable);
+    if (focusable.empty()) return nullptr;
+
+    if (!current) {
+        focusable.back()->set_focus(true);
+        return focusable.back();
+    }
+
+    current->set_focus(false);
+    for (size_t i = 0; i < focusable.size(); ++i) {
+        if (focusable[i] == current) {
+            auto* prev = focusable[(i + focusable.size() - 1) % focusable.size()];
+            prev->set_focus(true);
+            return prev;
+        }
+    }
+    focusable.back()->set_focus(true);
+    return focusable.back();
+}
+
 void View::set_bounds(Rect r) {
     if (bounds_ == r) return;
     bounds_ = r;

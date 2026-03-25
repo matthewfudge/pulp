@@ -126,6 +126,86 @@ TEST_CASE("View theme resolution", "[view][theme]") {
     REQUIRE(c3 == expected3);
 }
 
+TEST_CASE("View simulate_click dispatches to target", "[view][events]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+
+    bool clicked = false;
+
+    class ClickView : public View {
+    public:
+        bool& clicked_ref;
+        ClickView(bool& c) : clicked_ref(c) {}
+        void on_mouse_down(Point) override { clicked_ref = true; }
+    };
+
+    auto child = std::make_unique<ClickView>(clicked);
+    child->set_bounds({50, 50, 100, 100});
+    root.add_child(std::move(child));
+
+    root.simulate_click({75, 75}); // Inside child
+    REQUIRE(clicked);
+}
+
+TEST_CASE("View simulate_drag calls drag sequence", "[view][events]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+
+    int drag_count = 0;
+
+    class DragView : public View {
+    public:
+        int& count;
+        DragView(int& c) : count(c) {}
+        void on_mouse_drag(Point) override { ++count; }
+    };
+
+    auto child = std::make_unique<DragView>(drag_count);
+    child->set_bounds({0, 0, 200, 200});
+    root.add_child(std::move(child));
+
+    root.simulate_drag({10, 10}, {190, 190}, 5);
+    REQUIRE(drag_count == 5);
+}
+
+TEST_CASE("View keyboard focus traversal", "[view][focus]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+
+    auto k1 = std::make_unique<Knob>();
+    k1->set_id("k1");
+    auto* k1_ptr = k1.get();
+
+    auto k2 = std::make_unique<Knob>();
+    k2->set_id("k2");
+    auto* k2_ptr = k2.get();
+
+    auto label = std::make_unique<Label>("not focusable");
+
+    root.add_child(std::move(k1));
+    root.add_child(std::move(label));
+    root.add_child(std::move(k2));
+
+    // Focus first
+    auto* focused = View::focus_next(root, nullptr);
+    REQUIRE(focused == k1_ptr);
+    REQUIRE(k1_ptr->has_focus());
+
+    // Tab to next
+    focused = View::focus_next(root, focused);
+    REQUIRE(focused == k2_ptr);
+    REQUIRE(k2_ptr->has_focus());
+    REQUIRE_FALSE(k1_ptr->has_focus());
+
+    // Wrap around
+    focused = View::focus_next(root, focused);
+    REQUIRE(focused == k1_ptr);
+
+    // Shift-Tab backward
+    focused = View::focus_prev(root, focused);
+    REQUIRE(focused == k2_ptr);
+}
+
 TEST_CASE("View accessibility defaults", "[view][a11y]") {
     Knob knob;
     REQUIRE(knob.access_role() == View::AccessRole::slider);

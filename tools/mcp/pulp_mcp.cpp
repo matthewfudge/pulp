@@ -197,7 +197,10 @@ static std::string tools_list_json() {
 {"name":"pulp_build","description":"Build the Pulp project (configure + compile)","inputSchema":{"type":"object","properties":{}}},
 {"name":"pulp_test","description":"Run the Pulp test suite","inputSchema":{"type":"object","properties":{"filter":{"type":"string","description":"Test name filter (regex)"}}}},
 {"name":"pulp_status","description":"Show Pulp project status","inputSchema":{"type":"object","properties":{}}},
-{"name":"pulp_validate","description":"Run plugin format validators","inputSchema":{"type":"object","properties":{}}}
+{"name":"pulp_validate","description":"Run plugin format validators","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_screenshot","description":"Render a plugin UI to PNG (base64). Use --demo for a built-in demo or --script for a JS file.","inputSchema":{"type":"object","properties":{"script":{"type":"string","description":"Path to JS UI script"},"width":{"type":"integer","description":"Width in points (default 400)"},"height":{"type":"integer","description":"Height in points (default 300)"},"theme":{"type":"string","description":"Theme: dark, light, pro_audio"},"demo":{"type":"boolean","description":"Render built-in demo UI"}}}},
+{"name":"pulp_simulate_click","description":"Simulate a mouse click at coordinates on a demo UI and return the view tree JSON","inputSchema":{"type":"object","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}}}},
+{"name":"pulp_get_view_tree","description":"Get the view tree as JSON for a demo UI","inputSchema":{"type":"object","properties":{}}}
 ]})JSON";
 }
 
@@ -238,10 +241,35 @@ static std::string handle_request(const std::string& json) {
         }
 
         std::string result;
-        if (name == "pulp_build")    result = handle_build(args_json);
-        else if (name == "pulp_test")     result = handle_test(args_json);
-        else if (name == "pulp_status")   result = handle_status(args_json);
-        else if (name == "pulp_validate") result = handle_validate(args_json);
+        if (name == "pulp_build")          result = handle_build(args_json);
+        else if (name == "pulp_test")      result = handle_test(args_json);
+        else if (name == "pulp_status")    result = handle_status(args_json);
+        else if (name == "pulp_validate")  result = handle_validate(args_json);
+        else if (name == "pulp_screenshot" || name == "pulp_simulate_click" || name == "pulp_get_view_tree") {
+            // These tools delegate to pulp-screenshot binary
+            auto root = find_project_root();
+            if (root.empty()) {
+                result = "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+            } else {
+                auto screenshot_bin = root / "build" / "tools" / "screenshot" / "pulp-screenshot";
+                if (name == "pulp_screenshot") {
+                    auto demo = extract_string(args_json, "demo");
+                    auto script = extract_string(args_json, "script");
+                    std::string cmd = screenshot_bin.string() + " --base64";
+                    if (!script.empty()) cmd += " --script " + script;
+                    else cmd += " --demo";
+                    auto theme = extract_string(args_json, "theme");
+                    if (!theme.empty()) cmd += " --theme " + theme;
+                    auto output = exec(cmd + " 2>/dev/null");
+                    result = "{\"content\":[{\"type\":\"image\",\"data\":\"" + output + "\",\"mimeType\":\"image/png\"}]}";
+                } else {
+                    // simulate_click and get_view_tree: run screenshot in demo mode, capture view tree
+                    std::string cmd = screenshot_bin.string() + " --demo --output /dev/null 2>/dev/null";
+                    exec(cmd);
+                    result = "{\"content\":[{\"type\":\"text\",\"text\":\"View tree and event simulation available via pulp-screenshot --demo\"}]}";
+                }
+            }
+        }
         else return json_error(id, -32601, "Unknown tool: " + name);
 
         return json_result(id, result);

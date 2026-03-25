@@ -76,6 +76,31 @@ public:
     virtual void on_attached() {}
     virtual void on_detached() {}
 
+    // ── Synthetic events (for headless testing, no window needed) ────────
+
+    // Mouse simulation — coordinates in local space
+    virtual void on_mouse_down(Point pos) { (void)pos; }
+    virtual void on_mouse_up(Point pos) { (void)pos; }
+    virtual void on_mouse_drag(Point pos) { (void)pos; }
+    virtual void on_key_press(int key_code) { (void)key_code; }
+
+    // Dispatch a synthetic click to the deepest view at the given point
+    void simulate_click(Point root_pos);
+
+    // Dispatch a synthetic drag from start to end
+    void simulate_drag(Point start, Point end, int steps = 10);
+
+    // ── Keyboard focus ───────────────────────────────────────────────────
+
+    bool focusable() const { return focusable_; }
+    void set_focusable(bool f) { focusable_ = f; }
+    bool has_focus() const { return has_focus_; }
+    void set_focus(bool f) { has_focus_ = f; }
+
+    // Move focus to next/previous focusable widget
+    static View* focus_next(View& root, View* current);
+    static View* focus_prev(View& root, View* current);
+
     // ── Accessibility ────────────────────────────────────────────────────
 
     enum class AccessRole { none, slider, toggle, label, group, meter, image };
@@ -105,6 +130,8 @@ private:
     std::string access_label_;
     std::string access_value_;
     bool visible_ = true;
+    bool focusable_ = false;
+    bool has_focus_ = false;
 };
 
 } // namespace pulp::view

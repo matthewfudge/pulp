@@ -213,6 +213,9 @@ add_subdirectory(tools/cli)
 # ── MCP Server ─────────────────────────────────────────────────────────────
 add_subdirectory(tools/mcp)
 
+# ── Screenshot Tool ────────────────────────────────────────────────────────
+add_subdirectory(tools/screenshot)
+
 # ── Examples ────────────────────────────────────────────────────────────────
 if(PULP_BUILD_EXAMPLES)
     add_subdirectory(examples)
