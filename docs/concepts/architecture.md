@@ -5,24 +5,22 @@
 Pulp's subsystems form a directed acyclic graph. Lower-level subsystems do not depend on higher-level ones.
 
 ```
-                      platform (leaf — no deps)
-                          ^
-                       runtime
-                     ^  ^  ^  ^
-                    /  /    \  \
-          events --+  /      \  +-- osc
-                     /        \
-    canvas ---------+          +--- state
-      ^  ^                      ^  ^
-      |   \               ____/  /
-      |    +-- render     /     /
-      |                  /     /
-      +---- view -------+    /
-                 \           /
-          audio --+-- format
-          midi ---+
+platform              (leaf — no dependencies)
+    ^
+ runtime              (depends on: platform)
+    ^
+    +------+------+------+------+------+
+    |      |      |      |      |      |
+ events  state  audio  midi  canvas   osc
+           ^      ^     ^      ^
+           |      |     |      |
+           +--+---+-----+      +--- render  (depends on: runtime, canvas)
+              |
+           format                            (depends on: state, audio, midi)
+              |
+           view                              (depends on: canvas, events, state)
 
-    signal (header-only, no link dependencies)
+ signal                                      (header-only, no link dependencies)
 ```
 
 Key rules:
