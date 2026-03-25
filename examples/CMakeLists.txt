@@ -10,6 +10,9 @@ add_subdirectory(pulp-tone)
 # Phase 5: PulpEffect (filter with parameters and state)
 add_subdirectory(pulp-effect)
 
+# Phase 5: PulpCompressor (sidechain compressor validating multi-bus)
+add_subdirectory(pulp-compressor)
+
 # Phase 6: PulpDrums (generative drum sequencer with GPU UI)
 # add_subdirectory(pulp-drums)
 
