@@ -1,0 +1,108 @@
+name: Sanitizer Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  asan:
+    runs-on: macos-14
+    name: AddressSanitizer (macOS ARM64)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Clone VST3 SDK
+        run: |
+          git clone --depth 1 --branch v3.7.12 \
+            https://github.com/steinbergmedia/vst3sdk.git \
+            external/vst3sdk
+          cd external/vst3sdk && git submodule update --init --recursive --depth 1
+
+      - name: Configure with ASan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test with ASan
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1"  # leak detection off (Catch2 false positives)
+        run: ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
+
+  tsan:
+    runs-on: macos-14
+    name: ThreadSanitizer (macOS ARM64)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Clone VST3 SDK
+        run: |
+          git clone --depth 1 --branch v3.7.12 \
+            https://github.com/steinbergmedia/vst3sdk.git \
+            external/vst3sdk
+          cd external/vst3sdk && git submodule update --init --recursive --depth 1
+
+      - name: Configure with TSan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread" \
+            -DCMAKE_C_FLAGS="-fsanitize=thread" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test with TSan
+        env:
+          TSAN_OPTIONS: "halt_on_error=1"
+        run: ctest --test-dir build --output-on-failure -j1  # TSan needs serial execution
+
+  ubsan:
+    runs-on: macos-14
+    name: UndefinedBehaviorSanitizer (macOS ARM64)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Clone VST3 SDK
+        run: |
+          git clone --depth 1 --branch v3.7.12 \
+            https://github.com/steinbergmedia/vst3sdk.git \
+            external/vst3sdk
+          cd external/vst3sdk && git submodule update --init --recursive --depth 1
+
+      - name: Configure with UBSan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all" \
+            -DCMAKE_C_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test with UBSan
+        run: ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)

@@ -48,6 +48,9 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
+# ── Sanitizers (optional) ──────────────────────────────────────────────────
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/Sanitizers.cmake)
+
 # ── Third-Party Dependencies ────────────────────────────────────────────────
 include(FetchContent)
 
