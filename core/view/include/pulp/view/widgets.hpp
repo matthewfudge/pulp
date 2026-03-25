@@ -1,9 +1,11 @@
 #pragma once
 
 #include <pulp/view/view.hpp>
+#include <pulp/view/audio_bridge.hpp>
 #include <string>
 #include <cmath>
 #include <functional>
+#include <array>
 
 namespace pulp::view {
 
@@ -100,6 +102,38 @@ public:
 private:
     bool on_ = false;
     std::string label_;
+};
+
+// ── Meter ────────────────────────────────────────────────────────────────────
+// Audio level meter with peak hold
+
+class Meter : public View {
+public:
+    enum class Orientation { vertical, horizontal };
+
+    Meter() = default;
+
+    // Set levels directly (normalized 0-1)
+    void set_level(float rms, float peak);
+
+    // Update from MeterBallistics (call once per frame with dt)
+    void update(float raw_peak, float raw_rms, float dt);
+
+    void set_orientation(Orientation o) { orientation_ = o; }
+    Orientation orientation() const { return orientation_; }
+
+    // Ballistics accessors for testing
+    float display_rms() const { return ballistics_.display_rms; }
+    float display_peak() const { return ballistics_.display_peak; }
+    float held_peak() const { return ballistics_.held_peak; }
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    Orientation orientation_ = Orientation::vertical;
+    MeterBallistics ballistics_;
+    float current_rms_ = 0;
+    float current_peak_ = 0;
 };
 
 } // namespace pulp::view

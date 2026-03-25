@@ -163,4 +163,83 @@ void Toggle::paint(canvas::Canvas& canvas) {
     }
 }
 
+// ── Meter ────────────────────────────────────────────────────────────────────
+
+void Meter::set_level(float rms, float peak) {
+    current_rms_ = std::clamp(rms, 0.0f, 1.0f);
+    current_peak_ = std::clamp(peak, 0.0f, 1.0f);
+    ballistics_.display_rms = current_rms_;
+    ballistics_.display_peak = current_peak_;
+}
+
+void Meter::update(float raw_peak, float raw_rms, float dt) {
+    ballistics_.update(raw_peak, raw_rms, dt);
+}
+
+void Meter::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+    bool vert = orientation_ == Orientation::vertical;
+
+    // Background
+    auto bg = resolve_color("control.track", canvas::Color::rgba(30, 30, 30));
+    canvas.set_fill_color(bg);
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 2.0f);
+
+    float meter_length = vert ? b.height : b.width;
+
+    // RMS fill (main body)
+    auto rms_color = resolve_color("accent.success", canvas::Color::rgba(80, 200, 80));
+    float rms_level = ballistics_.display_rms;
+
+    // Color changes at different levels
+    if (rms_level > 0.9f)
+        rms_color = resolve_color("accent.error", canvas::Color::rgba(240, 60, 60));
+    else if (rms_level > 0.7f)
+        rms_color = resolve_color("accent.warning", canvas::Color::rgba(240, 180, 60));
+
+    canvas.set_fill_color(rms_color);
+    float fill = rms_level * meter_length;
+
+    if (vert) {
+        canvas.fill_rect(1, b.height - fill, b.width - 2, fill);
+    } else {
+        canvas.fill_rect(0, 1, fill, b.height - 2);
+    }
+
+    // Peak indicator line
+    float peak_level = ballistics_.display_peak;
+    if (peak_level > 0.01f) {
+        auto peak_color = resolve_color("control.thumb", canvas::Color::rgba(255, 255, 255));
+        canvas.set_stroke_color(peak_color);
+        canvas.set_line_width(1.0f);
+
+        float peak_pos = peak_level * meter_length;
+        if (vert) {
+            float y = b.height - peak_pos;
+            canvas.stroke_line(1, y, b.width - 1, y);
+        } else {
+            canvas.stroke_line(peak_pos, 1, peak_pos, b.height - 1);
+        }
+    }
+
+    // Held peak indicator
+    float held = ballistics_.held_peak;
+    if (held > 0.01f) {
+        auto held_color = canvas::Color::rgba(255, 100, 100);
+        if (held > 0.9f)
+            held_color = resolve_color("accent.error", canvas::Color::rgba(255, 50, 50));
+
+        canvas.set_stroke_color(held_color);
+        canvas.set_line_width(2.0f);
+
+        float held_pos = held * meter_length;
+        if (vert) {
+            float y = b.height - held_pos;
+            canvas.stroke_line(0, y, b.width, y);
+        } else {
+            canvas.stroke_line(held_pos, 0, held_pos, b.height);
+        }
+    }
+}
+
 } // namespace pulp::view

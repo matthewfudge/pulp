@@ -126,6 +126,59 @@ TEST_CASE("Toggle renders switch", "[view][widget]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) >= 1);
 }
 
+TEST_CASE("Meter set_level", "[view][widget]") {
+    Meter meter;
+    meter.set_bounds({0, 0, 12, 200});
+    meter.set_level(0.5f, 0.8f);
+
+    REQUIRE_THAT(meter.display_rms(), WithinAbs(0.5, 0.01));
+    REQUIRE_THAT(meter.display_peak(), WithinAbs(0.8, 0.01));
+}
+
+TEST_CASE("Meter renders with levels", "[view][widget]") {
+    Meter meter;
+    meter.set_bounds({0, 0, 12, 200});
+    meter.set_level(0.6f, 0.85f);
+
+    RecordingCanvas canvas;
+    meter.paint(canvas);
+
+    // Background + RMS fill = 2 rects, peak line + held peak = 2 lines
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) >= 1);
+}
+
+TEST_CASE("Meter horizontal orientation", "[view][widget]") {
+    Meter meter;
+    meter.set_orientation(Meter::Orientation::horizontal);
+    meter.set_bounds({0, 0, 200, 12});
+    meter.set_level(0.4f, 0.7f);
+
+    RecordingCanvas canvas;
+    meter.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rect) == 1);
+}
+
+TEST_CASE("Meter update with ballistics", "[view][widget]") {
+    Meter meter;
+    meter.set_bounds({0, 0, 12, 200});
+
+    // Sudden peak
+    meter.update(0.9f, 0.5f, 1.0f / 60.0f);
+    REQUIRE(meter.display_peak() > 0);
+    REQUIRE(meter.display_rms() > 0);
+
+    // Decay
+    for (int i = 0; i < 10; ++i) {
+        meter.update(0.0f, 0.0f, 1.0f / 60.0f);
+    }
+    REQUIRE(meter.display_peak() < 0.9f);
+    REQUIRE(meter.held_peak() > 0.8f); // Still held
+}
+
 TEST_CASE("View paint_all paints children", "[view][widget]") {
     View root;
     root.set_bounds({0, 0, 300, 200});
