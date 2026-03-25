@@ -5,6 +5,11 @@ add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
 add_test(NAME build-check COMMAND pulp-test-build-check)
 
+# Signal/DSP tests
+add_executable(pulp-test-signal test_signal.cpp)
+target_link_libraries(pulp-test-signal PRIVATE pulp::signal Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-signal)
+
 # Platform tests
 add_executable(pulp-test-platform test_platform.cpp)
 target_link_libraries(pulp-test-platform PRIVATE pulp::platform Catch2::Catch2WithMain)
