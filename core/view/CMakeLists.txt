@@ -8,12 +8,12 @@ target_include_directories(pulp-view
 )
 
 target_sources(pulp-view PRIVATE
-    src/placeholder.cpp
+    src/script_engine.cpp
 )
 
-# Placeholder source to make the library valid
-file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
-    "// pulp-view: placeholder — replaced in Phase 2+\nnamespace pulp::view {}\n"
+# CHOC headers (JS engine, utilities)
+target_include_directories(pulp-view PUBLIC
+    $<BUILD_INTERFACE:${choc_SOURCE_DIR}>
 )
 
 target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events)
