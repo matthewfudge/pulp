@@ -1,6 +1,6 @@
 #pragma once
 
-#include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
+#include <pulp/runtime/triple_buffer.hpp>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -65,27 +65,23 @@ struct MeterBallistics {
 // ── Audio→UI Bridge ──────────────────────────────────────────────────────────
 
 // Lock-free bridge for sending audio data from the audio thread to the UI.
-// The audio thread pushes MeterData; the UI thread pops the latest.
+// Uses TripleBuffer instead of FIFO: the audio thread always publishes the
+// latest meter data without risk of overflow, and the UI thread always reads
+// the most recent value. No data loss regardless of UI thread stalls.
 class AudioBridge {
 public:
-    AudioBridge() {
-        meter_fifo_.reset(16);
-    }
+    AudioBridge() = default;
 
-    // Called from audio thread: push new meter data
+    // Called from audio thread: publish new meter data
     void push_meter(const MeterData& data) {
-        meter_fifo_.push(data);
+        meter_buf_.write(data);
     }
 
-    // Called from UI thread: get latest meter data (drains queue, keeps last)
+    // Called from UI thread: get latest meter data
+    // Returns true if data is available (always true after first push)
     bool pop_latest_meter(MeterData& out) {
-        bool got_any = false;
-        MeterData temp;
-        while (meter_fifo_.pop(temp)) {
-            out = temp;
-            got_any = true;
-        }
-        return got_any;
+        out = meter_buf_.read();
+        return out.num_channels > 0;
     }
 
     // Convenience: compute peak and RMS from a buffer and push
@@ -110,7 +106,7 @@ public:
     }
 
 private:
-    choc::fifo::SingleReaderSingleWriterFIFO<MeterData> meter_fifo_;
+    runtime::TripleBuffer<MeterData> meter_buf_;
 };
 
 } // namespace pulp::view
