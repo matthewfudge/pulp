@@ -71,35 +71,27 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
         }
     }
 
-    // Build audio buffer views
+    // Build audio buffer views (no allocation — uses pre-allocated arrays)
     int in_channels = 0, out_channels = 0;
-    std::vector<float*> in_ptrs, out_ptrs;
-    std::vector<const float*> in_const_ptrs;
 
     if (process->audio_inputs_count > 0) {
         auto& bus = process->audio_inputs[0];
-        in_channels = static_cast<int>(bus.channel_count);
-        in_ptrs.resize(in_channels);
-        in_const_ptrs.resize(in_channels);
-        for (int ch = 0; ch < in_channels; ++ch) {
-            in_ptrs[ch] = bus.data32[ch];
-            in_const_ptrs[ch] = bus.data32[ch];
-        }
+        in_channels = std::min(static_cast<int>(bus.channel_count), kMaxChannels);
+        for (int ch = 0; ch < in_channels; ++ch)
+            self->input_ptrs[ch] = bus.data32[ch];
     }
 
     if (process->audio_outputs_count > 0) {
         auto& bus = process->audio_outputs[0];
-        out_channels = static_cast<int>(bus.channel_count);
-        out_ptrs.resize(out_channels);
-        for (int ch = 0; ch < out_channels; ++ch) {
-            out_ptrs[ch] = bus.data32[ch];
-        }
+        out_channels = std::min(static_cast<int>(bus.channel_count), kMaxChannels);
+        for (int ch = 0; ch < out_channels; ++ch)
+            self->output_ptrs[ch] = bus.data32[ch];
     }
 
     audio::BufferView<const float> input_view(
-        in_const_ptrs.data(), in_channels, num_samples);
+        self->input_ptrs, in_channels, num_samples);
     audio::BufferView<float> output_view(
-        out_ptrs.data(), out_channels, num_samples);
+        self->output_ptrs, out_channels, num_samples);
 
     // Build MIDI from CLAP note events
     midi::MidiBuffer midi_in, midi_out;

@@ -9,6 +9,8 @@
 
 namespace pulp::format::clap_adapter {
 
+static constexpr int kMaxChannels = 8;
+
 // CLAP plugin instance — wraps a Pulp Processor
 struct PulpClapPlugin {
     clap_plugin_t plugin;
@@ -19,6 +21,10 @@ struct PulpClapPlugin {
     // Audio working state
     double sample_rate = 48000.0;
     int max_buffer_size = 512;
+
+    // Pre-allocated buffers — no heap allocation on audio thread
+    float* output_ptrs[kMaxChannels] = {};
+    const float* input_ptrs[kMaxChannels] = {};
 };
 
 // CLAP entry point and factory

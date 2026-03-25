@@ -122,6 +122,11 @@ tresult PLUGIN_API PulpVst3Processor::setupProcessing(ProcessSetup& setup) {
     ctx.output_channels = 2;
 
     processor_->prepare(ctx);
+
+    // Pre-allocate buffer pointer arrays for real-time safety
+    input_ptrs_.resize(ctx.input_channels);
+    output_ptrs_.resize(ctx.output_channels);
+
     return SingleComponentEffect::setupProcessing(setup);
 }
 
