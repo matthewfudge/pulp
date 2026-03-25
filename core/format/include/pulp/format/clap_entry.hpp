@@ -180,9 +180,34 @@ inline const clap_plugin_params_t params_ext = {
     .text_to_value = params_text_to_value, .flush = params_flush,
 };
 
+// ── Note ports extension (for instruments) ─────────────────────────────
+inline uint32_t note_ports_count(const clap_plugin_t*, bool is_input) {
+    if (is_input && g_desc.accepts_midi) return 1;
+    if (!is_input && g_desc.produces_midi) return 1;
+    return 0;
+}
+
+inline bool note_ports_get(const clap_plugin_t*, uint32_t index, bool is_input,
+                            clap_note_port_info_t* info) {
+    if (index != 0) return false;
+    if (is_input && !g_desc.accepts_midi) return false;
+    if (!is_input && !g_desc.produces_midi) return false;
+
+    info->id = is_input ? 0 : 1;
+    strncpy(info->name, is_input ? "Note In" : "Note Out", CLAP_NAME_SIZE);
+    info->supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
+    return true;
+}
+
+inline const clap_plugin_note_ports_t note_ports_ext = {
+    .count = note_ports_count, .get = note_ports_get,
+};
+
 // ── Extension dispatch ─────────────────────────────────────────────────
 inline const void* get_extension(const clap_plugin_t*, const char* id) {
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audio_ports_ext;
+    if (strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &note_ports_ext;
     if (strcmp(id, CLAP_EXT_PARAMS) == 0) return &params_ext;
     if (strcmp(id, CLAP_EXT_STATE) == 0) return &state_ext;
     return nullptr;
