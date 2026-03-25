@@ -242,4 +242,105 @@ void Meter::paint(canvas::Canvas& canvas) {
     }
 }
 
+// ── XYPad ────────────────────────────────────────────────────────────────────
+
+void XYPad::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+
+    // Background
+    auto bg = resolve_color("bg.surface", canvas::Color::rgba(40, 40, 55));
+    canvas.set_fill_color(bg);
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 4.0f);
+
+    // Grid lines
+    auto grid = resolve_color("control.border", canvas::Color::rgba(60, 60, 75));
+    canvas.set_stroke_color(grid);
+    canvas.set_line_width(0.5f);
+    canvas.stroke_line(b.width * 0.5f, 0, b.width * 0.5f, b.height);
+    canvas.stroke_line(0, b.height * 0.5f, b.width, b.height * 0.5f);
+
+    // Crosshair position
+    float cx = x_ * b.width;
+    float cy = (1.0f - y_) * b.height; // Y is inverted (0=bottom, 1=top)
+
+    // Crosshair lines
+    auto hair_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+    canvas.set_stroke_color(hair_color);
+    canvas.set_line_width(1.0f);
+    canvas.stroke_line(cx, 0, cx, b.height);
+    canvas.stroke_line(0, cy, b.width, cy);
+
+    // Thumb dot
+    auto thumb = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+    canvas.set_fill_color(thumb);
+    canvas.fill_circle(cx, cy, 5.0f);
+
+    // Labels
+    auto text_color = resolve_color("text.secondary", canvas::Color::rgba(150, 150, 150));
+    canvas.set_fill_color(text_color);
+    canvas.set_font("Inter", 9.0f);
+
+    if (!x_label_.empty()) {
+        canvas.set_text_align(canvas::TextAlign::center);
+        canvas.fill_text(x_label_, b.width * 0.5f, b.height - 2);
+    }
+    if (!y_label_.empty()) {
+        canvas.set_text_align(canvas::TextAlign::left);
+        canvas.fill_text(y_label_, 2, 10);
+    }
+}
+
+// ── WaveformView ─────────────────────────────────────────────────────────────
+
+void WaveformView::set_data(const float* samples, size_t count) {
+    samples_.assign(samples, samples + count);
+}
+
+void WaveformView::set_data(std::vector<float> samples) {
+    samples_ = std::move(samples);
+}
+
+void WaveformView::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+
+    // Background
+    auto bg = resolve_color("bg.surface", canvas::Color::rgba(30, 30, 40));
+    canvas.set_fill_color(bg);
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 2.0f);
+
+    if (samples_.empty()) return;
+
+    // Center line
+    auto center_color = resolve_color("control.border", canvas::Color::rgba(50, 50, 60));
+    canvas.set_stroke_color(center_color);
+    canvas.set_line_width(0.5f);
+    float cy = b.height * 0.5f;
+    canvas.stroke_line(0, cy, b.width, cy);
+
+    // Waveform
+    auto wave_color = resolve_color("accent.primary", canvas::Color::rgba(100, 180, 250));
+    canvas.set_stroke_color(wave_color);
+    canvas.set_line_width(1.0f);
+
+    float samples_per_pixel = static_cast<float>(samples_.size()) / b.width;
+
+    for (float px = 0; px < b.width - 1; px += 1.0f) {
+        size_t idx0 = static_cast<size_t>(px * samples_per_pixel);
+        size_t idx1 = static_cast<size_t>((px + 1) * samples_per_pixel);
+        if (idx0 >= samples_.size()) break;
+        if (idx1 >= samples_.size()) idx1 = samples_.size() - 1;
+
+        // Find min/max in this pixel's range for accurate display
+        float min_val = samples_[idx0], max_val = samples_[idx0];
+        for (size_t i = idx0; i <= idx1; ++i) {
+            min_val = std::min(min_val, samples_[i]);
+            max_val = std::max(max_val, samples_[i]);
+        }
+
+        float y0 = cy - min_val * cy;
+        float y1 = cy - max_val * cy;
+        canvas.stroke_line(px, y0, px, y1);
+    }
+}
+
 } // namespace pulp::view

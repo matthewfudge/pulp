@@ -179,6 +179,69 @@ TEST_CASE("Meter update with ballistics", "[view][widget]") {
     REQUIRE(meter.held_peak() > 0.8f); // Still held
 }
 
+TEST_CASE("XYPad value clamping", "[view][widget]") {
+    XYPad pad;
+    pad.set_x(0.3f);
+    pad.set_y(0.7f);
+    REQUIRE_THAT(pad.x_value(), WithinAbs(0.3, 0.001));
+    REQUIRE_THAT(pad.y_value(), WithinAbs(0.7, 0.001));
+
+    pad.set_x(1.5f);
+    REQUIRE_THAT(pad.x_value(), WithinAbs(1.0, 0.001));
+    pad.set_y(-0.5f);
+    REQUIRE_THAT(pad.y_value(), WithinAbs(0.0, 0.001));
+}
+
+TEST_CASE("XYPad renders crosshair", "[view][widget]") {
+    XYPad pad;
+    pad.set_bounds({0, 0, 100, 100});
+    pad.set_x(0.5f);
+    pad.set_y(0.5f);
+    pad.set_x_label("Freq");
+    pad.set_y_label("Res");
+
+    RecordingCanvas canvas;
+    pad.paint(canvas);
+
+    // Background + grid lines + crosshair lines + thumb + labels
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) >= 4); // 2 grid + 2 crosshair
+    REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_text) >= 2);
+}
+
+TEST_CASE("WaveformView renders waveform", "[view][widget]") {
+    WaveformView waveform;
+    waveform.set_bounds({0, 0, 200, 60});
+
+    // Generate sine wave
+    std::vector<float> data(200);
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] = std::sin(2.0f * 3.14159f * i / data.size());
+    }
+    waveform.set_data(std::move(data));
+
+    REQUIRE(waveform.sample_count() == 200);
+
+    RecordingCanvas canvas;
+    waveform.paint(canvas);
+
+    // Background + center line + many waveform lines
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) > 10);
+}
+
+TEST_CASE("WaveformView empty renders background only", "[view][widget]") {
+    WaveformView waveform;
+    waveform.set_bounds({0, 0, 200, 60});
+
+    RecordingCanvas canvas;
+    waveform.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) == 0); // No waveform
+}
+
 TEST_CASE("View paint_all paints children", "[view][widget]") {
     View root;
     root.set_bounds({0, 0, 300, 200});

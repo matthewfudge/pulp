@@ -136,4 +136,45 @@ private:
     float current_peak_ = 0;
 };
 
+// ── XYPad ────────────────────────────────────────────────────────────────────
+// 2D parameter control surface (e.g., filter frequency × resonance)
+
+class XYPad : public View {
+public:
+    XYPad() = default;
+
+    void set_x(float v) { x_ = std::clamp(v, 0.0f, 1.0f); }
+    void set_y(float v) { y_ = std::clamp(v, 0.0f, 1.0f); }
+    float x_value() const { return x_; }
+    float y_value() const { return y_; }
+
+    void set_x_label(std::string l) { x_label_ = std::move(l); }
+    void set_y_label(std::string l) { y_label_ = std::move(l); }
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    float x_ = 0.5f, y_ = 0.5f;
+    std::string x_label_, y_label_;
+};
+
+// ── WaveformView ─────────────────────────────────────────────────────────────
+// Displays audio waveform data
+
+class WaveformView : public View {
+public:
+    WaveformView() = default;
+
+    // Set waveform data (normalized -1 to 1)
+    void set_data(const float* samples, size_t count);
+    void set_data(std::vector<float> samples);
+
+    size_t sample_count() const { return samples_.size(); }
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    std::vector<float> samples_;
+};
+
 } // namespace pulp::view
