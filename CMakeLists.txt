@@ -60,6 +60,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(choc)
 
+# WebGPU (Dawn) — cross-platform GPU abstraction (BSD-3-Clause)
+# Uses eliemichel/WebGPU-distribution for CMake-friendly integration
+if(PULP_ENABLE_GPU)
+    FetchContent_Declare(
+        webgpu
+        GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution.git
+        GIT_TAG main
+    )
+    FetchContent_MakeAvailable(webgpu)
+    set(PULP_HAS_WEBGPU TRUE)
+    message(STATUS "Pulp: WebGPU (Dawn) enabled")
+endif()
+
 # VST3 SDK (MIT license) — cloned into external/vst3sdk/
 set(VST3_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vst3sdk")
 if(EXISTS "${VST3_SDK_DIR}/pluginterfaces")

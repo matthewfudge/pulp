@@ -8,12 +8,13 @@ target_include_directories(pulp-render
 )
 
 target_sources(pulp-render PRIVATE
-    src/placeholder.cpp
-)
-
-# Placeholder source to make the library valid
-file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
-    "// pulp-render: placeholder — replaced in Phase 2+\nnamespace pulp::render {}\n"
+    src/gpu_surface_dawn.cpp
 )
 
 target_link_libraries(pulp-render PUBLIC pulp::runtime)
+
+# Link WebGPU if available
+if(PULP_HAS_WEBGPU)
+    target_link_libraries(pulp-render PUBLIC webgpu)
+    target_compile_definitions(pulp-render PUBLIC PULP_HAS_WEBGPU=1)
+endif()

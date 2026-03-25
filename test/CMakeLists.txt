@@ -54,6 +54,13 @@ if(PULP_HAS_CLAP)
     catch_discover_tests(pulp-test-clap-entry)
 endif()
 
+# GPU surface tests
+if(PULP_ENABLE_GPU)
+    add_executable(pulp-test-gpu-surface test_gpu_surface.cpp)
+    target_link_libraries(pulp-test-gpu-surface PRIVATE pulp::render Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-gpu-surface)
+endif()
+
 # Script engine tests
 add_executable(pulp-test-script test_script_engine.cpp)
 target_link_libraries(pulp-test-script PRIVATE pulp::view Catch2::Catch2WithMain)

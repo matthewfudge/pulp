@@ -17,6 +17,7 @@ All dependencies must be compatible with MIT licensing. No copyleft (GPL, LGPL, 
 | CHOC | main | ISC | JS engine abstraction, MIDI utilities, audio helpers | multiple | 2026-03-24 |
 | CLAP | 1.2.2 | MIT | CLAP plugin format headers | pulp-format | 2026-03-24 |
 | VST3 SDK | 3.7.12 | MIT | VST3 plugin format (pluginterfaces + base) | pulp-format | 2026-03-24 |
+| wgpu-native | 24.0.3.1 | Apache-2.0/MIT | WebGPU GPU abstraction (pre-built binary) | pulp-render | 2026-03-25 |
 
 ## Format SDKs (Obtained by Developers)
 
