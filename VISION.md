@@ -345,7 +345,7 @@ Every phase ships a validation example that proves the framework works. These ex
 
 **PulpEffect** — A filter effect (lowpass/highpass/bandpass) with cutoff, resonance, and mix parameters. Loads in a DAW as VST3, AU, and CLAP. Parameters automate. State saves and restores. Validates the format adapters and parameter system end-to-end.
 
-**PulpDrums** — A generative drum sequencer MIDI effect inspired by topographic rhythm maps. Three voices (kick, snare, hi-hat), density and chaos controls, pattern morphing. Outputs MIDI — drop it before a drum instrument in your DAW. The first example with a full GPU-rendered UI: knobs, a pattern grid, real-time metering, design tokens. Validates the rendering engine, JS scripting, hot-reload, MIDI output, audio visualization, and the component inspector.
+**PulpDrums** — A generative drum sequencer MIDI effect inspired by topographic rhythm maps. Four voices (kick, snare, hi-hat, clap), density and chaos controls, pattern morphing. Outputs MIDI — drop it before a drum instrument in your DAW. The first example with a full GPU-rendered UI: knobs, a pattern grid, real-time metering, design tokens. Validates the rendering engine, JS scripting, hot-reload, MIDI output, audio visualization, and the component inspector.
 
 **PulpSynth** — A macro oscillator synthesizer with multiple oscillator models, modulation, and a full preset system. GPU UI with the design token system applied. Exposes CLI and MCP server interfaces so AI agents can adjust parameters, compare presets, and process audio programmatically. Validates the complete plugin-as-tool workflow.
 
@@ -355,6 +355,60 @@ Every phase ships a validation example that proves the framework works. These ex
 
 ## Status
 
-Phase 0 is complete. The specification is written — 18 documents, 9,400+ lines covering architecture, capability matrix, contamination analysis, phased roadmap, validation plan, and more.
+*This document describes both what Pulp does today and where it is headed. The vision sections above describe the full architecture. This section describes what is real right now.*
 
-Phase 1 is underway. Follow the repo for updates.
+### What works today
+
+**Core framework (stable/usable):**
+- C++20 cross-platform core on macOS (ARM64 + x86_64)
+- Three plugin formats: VST3, Audio Unit v2, CLAP — validated with auval and clap-validator
+- Standalone application host with CoreAudio and CoreMIDI
+- Thread-safe parameter system with state serialization (StateStore, ParamValue, Binding)
+- Lock-free runtime primitives: SeqLock, TripleBuffer, SPSCQueue
+- 19 DSP processors in the signal library (oscillator, biquad, SVF, ladder filter, compressor, reverb, delay, chorus, phaser, and more)
+- Headless processing for testing and batch audio
+- Event loop and timer system
+- OSC 1.0 sender/receiver over UDP
+
+**GPU rendering (experimental):**
+- Dawn/Metal WebGPU surface on macOS
+- Skia Graphite 2D rendering
+- Canvas abstraction with CoreGraphics and Skia backends
+- View hierarchy with flex layout
+- 7 widgets (knob, slider, button, toggle, label, meter, XY pad)
+- JS scripting via QuickJS with hot-reload
+- SDL3 windowing
+
+**Tooling (usable):**
+- `pulp` CLI: build, test, validate, status, clean, ship, docs
+- Code signing and notarization (macOS)
+- DMG/PKG packaging
+- Appcast generation with Ed25519 signing
+- Local-first documentation system with YAML manifests
+- Docs consistency CI check
+- GitHub Pages docs site
+
+**7 example projects:**
+- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, UI Preview
+
+### What is not yet implemented
+
+These items from the vision above are planned but do not exist in the codebase today:
+
+- AUv3, LV2, AAX format adapters
+- Windows and Linux audio/MIDI I/O (WASAPI, ALSA, JACK)
+- iOS and Web/WASM targets
+- D3D12 and Vulkan GPU backends
+- SwiftUI UI path
+- Plugin-as-CLI and MCP server interfaces
+- Musical Typing, Waveform Editor, Preset Browser, Diagnostic Reporter components
+- `pulp create`, `pulp inspect`, `pulp design`, `pulp audit` CLI commands
+- Design token export (JSON, CSS, C++ headers, shader uniforms)
+- WebView embedding
+- Multi-window support
+- Accessibility system
+- MIDI 2.0 UMP / MPE
+- Windows/Linux CI matrix
+- PulpSampler example
+
+See [docs/reference/capabilities.md](docs/reference/capabilities.md) for the detailed current capability matrix and [docs/status/support-matrix.yaml](docs/status/support-matrix.yaml) for machine-readable status.

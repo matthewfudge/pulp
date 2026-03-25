@@ -20,7 +20,7 @@ All dependencies must be compatible with MIT licensing. No copyleft (GPL, LGPL, 
 | SDL3 | 3.2.12 | zlib | Cross-platform windowing, input, GPU context | pulp-view | 2026-03-25 |
 | Skia Graphite + Dawn | m144 | BSD-3-Clause | GPU 2D rendering + WebGPU (pre-built via skia-builder) | pulp-canvas, pulp-render | 2026-03-25 |
 | VST3 SDK | 3.7.12 | MIT | VST3 plugin format (pluginterfaces + base) | pulp-format | 2026-03-24 |
-| wgpu-native | 24.0.3.1 | Apache-2.0/MIT | WebGPU GPU abstraction (pre-built binary) | pulp-render | 2026-03-25 |
+| WebGPU-distribution | 0.2.1 | MIT | WebGPU C API wrapper for Dawn (FetchContent) | pulp-render | 2026-03-25 |
 
 ## Format SDKs (Obtained by Developers)
 
@@ -28,9 +28,9 @@ These SDKs are not bundled but are required for specific plugin format support:
 
 | SDK | License | Required For | Bundled? |
 |-----|---------|-------------|----------|
-| VST3 SDK | MIT | VST3 format | Will bundle |
-| AudioUnit SDK | Apache-2.0 | AU/AUv3 format | Will bundle |
-| CLAP | MIT | CLAP format | Will bundle |
-| LV2 SDK | ISC | LV2 format | Will bundle |
-| AAX SDK | Proprietary (Avid) | AAX format | Developer obtains independently |
-| ASIO SDK | Proprietary (Steinberg) | ASIO audio I/O | Developer obtains independently |
+| VST3 SDK | MIT | VST3 format | Cloned at configure time (`git clone --depth 1`) |
+| AudioUnit SDK | Apache-2.0 | AU v2 format | Cloned at configure time (`git clone --depth 1`) |
+| CLAP | MIT | CLAP format | FetchContent (automatic) |
+| LV2 SDK | ISC | LV2 format (planned) | Not yet used |
+| AAX SDK | Proprietary (Avid) | AAX format (planned) | Developer obtains independently |
+| ASIO SDK | Proprietary (Steinberg) | ASIO audio I/O (planned) | Developer obtains independently |
