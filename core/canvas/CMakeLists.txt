@@ -10,6 +10,7 @@ target_include_directories(pulp-canvas
 target_sources(pulp-canvas PRIVATE
     src/recording_canvas.cpp
     src/svg.cpp
+    src/effects.cpp
 )
 
 # nanosvg (zlib license) for SVG loading

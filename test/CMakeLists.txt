@@ -30,6 +30,11 @@ add_executable(pulp-test-svg test_svg.cpp)
 target_link_libraries(pulp-test-svg PRIVATE pulp::canvas Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-svg)
 
+# Effects tests
+add_executable(pulp-test-effects test_effects.cpp)
+target_link_libraries(pulp-test-effects PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-effects)
+
 # Signal/DSP tests
 add_executable(pulp-test-signal test_signal.cpp)
 target_link_libraries(pulp-test-signal PRIVATE pulp::signal Catch2::Catch2WithMain)
