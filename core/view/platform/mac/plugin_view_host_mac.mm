@@ -11,9 +11,74 @@
 @property (nonatomic, assign) pulp::view::View* rootView;
 @end
 
+// ── Accessibility element wrapping a Pulp View ──────────────────────────────
+
+@interface PulpAccessibilityElement : NSAccessibilityElement
+@property (nonatomic, assign) pulp::view::View* pulpView;
+@property (nonatomic, assign) PulpPluginView* hostView;
+@end
+
+@implementation PulpAccessibilityElement
+- (NSAccessibilityRole)accessibilityRole {
+    if (!_pulpView) return NSAccessibilityGroupRole;
+    using AR = pulp::view::View::AccessRole;
+    auto role = _pulpView->access_role();
+    if (role == AR::slider) return NSAccessibilitySliderRole;
+    if (role == AR::toggle) return NSAccessibilityCheckBoxRole;
+    if (role == AR::label)  return NSAccessibilityStaticTextRole;
+    if (role == AR::meter)  return NSAccessibilityLevelIndicatorRole;
+    if (role == AR::group)  return NSAccessibilityGroupRole;
+    if (role == AR::image)  return NSAccessibilityImageRole;
+    return NSAccessibilityGroupRole;
+}
+
+- (NSString*)accessibilityLabel {
+    if (!_pulpView || _pulpView->access_label().empty()) return nil;
+    return [NSString stringWithUTF8String:_pulpView->access_label().c_str()];
+}
+
+- (id)accessibilityValue {
+    if (!_pulpView || _pulpView->access_value().empty()) return nil;
+    return [NSString stringWithUTF8String:_pulpView->access_value().c_str()];
+}
+
+- (NSRect)accessibilityFrame {
+    if (!_pulpView || !_hostView) return NSZeroRect;
+    auto b = _pulpView->bounds();
+    NSRect localRect = NSMakeRect(b.x, b.y, b.width, b.height);
+    return [_hostView convertRect:localRect toView:nil];
+}
+
+- (BOOL)isAccessibilityElement { return YES; }
+@end
+
 @implementation PulpPluginView
 
 - (BOOL)isFlipped { return YES; }
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityGroupRole; }
+- (NSString*)accessibilityLabel { return @"Plugin UI"; }
+
+- (NSArray*)accessibilityChildren {
+    if (!self.rootView) return @[];
+    NSMutableArray* children = [NSMutableArray array];
+    [self collectAccessibleChildren:self.rootView into:children];
+    return children;
+}
+
+- (void)collectAccessibleChildren:(pulp::view::View*)view into:(NSMutableArray*)array {
+    if (!view || !view->visible()) return;
+    if (view->access_role() != pulp::view::View::AccessRole::none) {
+        PulpAccessibilityElement* elem = [PulpAccessibilityElement new];
+        elem.pulpView = view;
+        elem.hostView = self;
+        [elem setAccessibilityParent:self];
+        [array addObject:elem];
+    }
+    for (size_t i = 0; i < view->child_count(); ++i) {
+        [self collectAccessibleChildren:view->child_at(i) into:array];
+    }
+}
 
 - (void)drawRect:(NSRect)dirtyRect {
     CGContextRef ctx = [[NSGraphicsContext currentContext] CGContext];
