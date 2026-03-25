@@ -20,6 +20,9 @@ Thumbs.db
 
 # Dependencies (fetched at build time)
 /external/*/
+# Exception: vendored deps committed to repo
+!/external/nanosvg/
+!/external/skia-build/
 
 # Node (for web/WASM builds)
 node_modules/

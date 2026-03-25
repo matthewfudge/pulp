@@ -1,0 +1,70 @@
+Skia Build Summary for mac (gpu)
+Configuration: Release
+Variant: gpu
+Architectures: x86_64, arm64
+
+GN Arguments:
+
+For x86_64:
+cc = "clang"
+cxx = "clang++"
+skia_use_metal = true
+skia_use_dawn = true
+target_os = "mac"
+extra_cflags_c = ["-Wno-error"]
+skia_use_system_libjpeg_turbo = false
+skia_use_system_libpng = false
+skia_use_system_zlib = false
+skia_use_system_expat = false
+skia_use_system_icu = false
+skia_use_system_harfbuzz = false
+skia_use_system_libwebp = false
+skia_use_libwebp_decode = true
+skia_use_libwebp_encode = false
+skia_use_xps = false
+skia_use_dng_sdk = false
+skia_use_expat = true
+skia_use_gl = true
+skia_use_icu = true
+skia_use_libgrapheme = false
+skia_enable_graphite = true
+skia_enable_svg = true
+skia_enable_skottie = true
+skia_enable_pdf = false
+skia_enable_skparagraph = true
+is_debug = false
+is_official_build = true
+target_cpu = "x86_64"
+variant = "gpu"
+
+For arm64:
+cc = "clang"
+cxx = "clang++"
+skia_use_metal = true
+skia_use_dawn = true
+target_os = "mac"
+extra_cflags_c = ["-Wno-error"]
+skia_use_system_libjpeg_turbo = false
+skia_use_system_libpng = false
+skia_use_system_zlib = false
+skia_use_system_expat = false
+skia_use_system_icu = false
+skia_use_system_harfbuzz = false
+skia_use_system_libwebp = false
+skia_use_libwebp_decode = true
+skia_use_libwebp_encode = false
+skia_use_xps = false
+skia_use_dng_sdk = false
+skia_use_expat = true
+skia_use_gl = true
+skia_use_icu = true
+skia_use_libgrapheme = false
+skia_enable_graphite = true
+skia_enable_svg = true
+skia_enable_skottie = true
+skia_enable_pdf = false
+skia_enable_skparagraph = true
+is_debug = false
+is_official_build = true
+target_cpu = "arm64"
+variant = "gpu"
