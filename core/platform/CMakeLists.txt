@@ -10,3 +10,16 @@ target_include_directories(pulp-platform
 target_sources(pulp-platform PRIVATE
     src/platform.cpp
 )
+
+# Platform-specific UI services
+if(APPLE)
+    target_sources(pulp-platform PRIVATE
+        platform/mac/clipboard_mac.mm
+        platform/mac/file_dialog_mac.mm
+        platform/mac/popup_menu_mac.mm
+    )
+    target_link_libraries(pulp-platform PRIVATE
+        "-framework Cocoa"
+        "-framework UniformTypeIdentifiers"
+    )
+endif()

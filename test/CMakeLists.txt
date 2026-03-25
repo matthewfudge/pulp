@@ -10,6 +10,11 @@ add_executable(pulp-test-signal test_signal.cpp)
 target_link_libraries(pulp-test-signal PRIVATE pulp::signal Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-signal)
 
+# Clipboard tests
+add_executable(pulp-test-clipboard test_clipboard.cpp)
+target_link_libraries(pulp-test-clipboard PRIVATE pulp::platform Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-clipboard)
+
 # Platform tests
 add_executable(pulp-test-platform test_platform.cpp)
 target_link_libraries(pulp-test-platform PRIVATE pulp::platform Catch2::Catch2WithMain)
