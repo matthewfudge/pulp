@@ -95,6 +95,11 @@ add_executable(pulp-test-headless test_headless.cpp)
 target_link_libraries(pulp-test-headless PRIVATE pulp::format Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-headless)
 
+# Diagnostic reporter tests
+add_executable(pulp-test-diagnostic test_diagnostic_reporter.cpp)
+target_link_libraries(pulp-test-diagnostic PRIVATE pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-diagnostic)
+
 # CLAP entry point macro test
 if(PULP_HAS_CLAP)
     add_executable(pulp-test-clap-entry test_clap_entry.cpp
