@@ -72,18 +72,27 @@ rendering:
   dawn_metal:
     status: experimental
     platform: macos
+    notes: Device bootstrap and presentable surface infrastructure exist. On-screen path not yet default in view hosts.
   skia_graphite:
     status: experimental
     platform: macos
+    notes: Offscreen Graphite rendering works. Present-to-surface path defined but view hosts still use CoreGraphics by default.
   dawn_metal_ios:
     status: experimental
     platform: ios
+    notes: CAMetalLayer helper exists. Not yet wired as active render path.
   dawn_d3d12:
     status: experimental
     platform: windows
+    notes: Dawn supports D3D12. Not yet integrated with Pulp surface model.
   dawn_vulkan:
     status: experimental
     platform: linux
+    notes: Dawn supports Vulkan. Not yet integrated with Pulp surface model.
+  coregraphics_fallback:
+    status: usable
+    platform: macos
+    notes: Current default render path for all macOS view hosts. Production-ready.
 
 subsystems:
   runtime: stable
