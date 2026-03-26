@@ -357,10 +357,12 @@ add_executable(pulp-test-identity test_identity.cpp)
 target_link_libraries(pulp-test-identity PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-identity)
 
-# WebView tests
-add_executable(pulp-test-webview test_web_view.cpp)
-target_link_libraries(pulp-test-webview PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-webview)
+# WebView tests (requires PULP_BUILD_WEBVIEW — WebViewPanel::create is only compiled when ON)
+if(PULP_BUILD_WEBVIEW)
+    add_executable(pulp-test-webview test_web_view.cpp)
+    target_link_libraries(pulp-test-webview PRIVATE pulp::view Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-webview)
+endif()
 
 # MIDI 2.0 UMP/MPE tests
 add_executable(pulp-test-ump-mpe test_ump_mpe.cpp)
