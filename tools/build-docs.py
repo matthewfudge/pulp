@@ -465,6 +465,9 @@ a:hover {{ text-decoration: underline; }}
 </style>
 </head>
 <body>
+<div style="background:#f9e154;color:#1e1e2e;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;">
+  ⚠️ Alpha — This project is under active development. APIs, docs, and features may change without notice.
+</div>
 <header class="header">
   <div class="header-left">
     <h1>PULP</h1>
