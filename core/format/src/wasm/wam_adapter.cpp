@@ -197,53 +197,8 @@ WamDescriptorData WamProcessorBridge::descriptor() const {
     return WamDescriptorData::from_processor(processor_->descriptor());
 }
 
-// ── Emscripten exports (WASM interop) ───────────────────────────────────
-
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#include <emscripten/bind.h>
-
-static std::unique_ptr<WamProcessorBridge> g_wam_bridge;
-
-extern "C" {
-
-EMSCRIPTEN_KEEPALIVE
-bool wam_initialize(double sample_rate, int max_block_size) {
-    if (!g_wam_bridge) return false;
-    return g_wam_bridge->initialize(sample_rate, max_block_size);
-}
-
-EMSCRIPTEN_KEEPALIVE
-void wam_process(const float* input, float* output,
-                 int num_channels, int num_frames) {
-    if (g_wam_bridge) g_wam_bridge->process(input, output, num_channels, num_frames);
-}
-
-EMSCRIPTEN_KEEPALIVE
-float wam_get_param(const char* id) {
-    if (!g_wam_bridge) return 0.0f;
-    return g_wam_bridge->get_parameter_value(id);
-}
-
-EMSCRIPTEN_KEEPALIVE
-void wam_set_param(const char* id, float value) {
-    if (g_wam_bridge) g_wam_bridge->set_parameter_value(id, value);
-}
-
-EMSCRIPTEN_KEEPALIVE
-void wam_schedule_midi(uint8_t status, uint8_t data1, uint8_t data2, int offset) {
-    if (g_wam_bridge) g_wam_bridge->schedule_midi(status, data1, data2, offset);
-}
-
-EMSCRIPTEN_KEEPALIVE
-const char* wam_get_descriptor_json() {
-    static std::string json_cache;
-    if (g_wam_bridge) json_cache = g_wam_bridge->descriptor().to_json();
-    return json_cache.c_str();
-}
-
-} // extern "C"
-
-#endif // __EMSCRIPTEN__
-
 } // namespace pulp::format::wam
+
+// Emscripten exports are provided by per-plugin entry point files
+// (e.g., pulp_gain_wasm.cpp) which create a WamProcessorBridge
+// and expose the wam_init/wam_process/wam_set_param/etc. C exports.
