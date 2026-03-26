@@ -360,55 +360,70 @@ Every phase ships a validation example that proves the framework works. These ex
 ### What works today
 
 **Core framework (stable/usable):**
-- C++20 cross-platform core on macOS (ARM64 + x86_64)
-- Three plugin formats: VST3, Audio Unit v2, CLAP — validated with auval and clap-validator
-- Standalone application host with CoreAudio and CoreMIDI
+- C++20 cross-platform core on macOS, Windows, Linux, iOS
+- Four plugin formats: VST3, AU v2, AUv3, CLAP — validated with auval and clap-validator
+- LV2 format adapter with TTL manifest generation (Linux)
+- Standalone application host with CoreAudio/CoreMIDI (macOS), WASAPI/Win32 MIDI (Windows), ALSA/JACK (Linux)
+- iOS audio session management (AVAudioSession) and AUv3 support
 - Thread-safe parameter system with state serialization (StateStore, ParamValue, Binding)
 - Lock-free runtime primitives: SeqLock, TripleBuffer, SPSCQueue
-- 19 DSP processors in the signal library (oscillator, biquad, SVF, ladder filter, compressor, reverb, delay, chorus, phaser, and more)
+- 30+ DSP processors in the signal library (oscillator, biquad, SVF, ladder filter, compressor, reverb, delay, chorus, phaser, FIR, TPT, filter design, FFT, convolver, and more)
 - Headless processing for testing and batch audio
+- Plugin-as-CLI interface (batch processing, headless rendering)
+- MCP server per-plugin interface (AI agent parameter control)
 - Event loop and timer system
 - OSC 1.0 sender/receiver over UDP
+- Python bindings (HeadlessHost via pybind11)
+- Node.js bindings (HeadlessHost via Node-API)
 
 **GPU rendering (experimental):**
-- Dawn/Metal WebGPU surface on macOS
+- Dawn/Metal WebGPU surface on macOS and iOS
 - Skia Graphite 2D rendering
 - Canvas abstraction with CoreGraphics and Skia backends
 - View hierarchy with flex layout
-- 7 widgets (knob, slider, button, toggle, label, meter, XY pad)
+- Widgets: knob, fader, toggle, label, meter, XY pad, waveform, spectrum, text editor, combo box, list box, tab panel, scroll view, tooltip, progress bar, call-out box, modal, tree view, preset browser
 - JS scripting via QuickJS with hot-reload
 - SDL3 windowing
+- Post-processing effects (blur, shadow, bloom, color adjust)
+- NSAccessibility / VoiceOver support
+- Drag-and-drop support
 
 **Tooling (usable):**
-- `pulp` CLI: build, test, validate, status, clean, ship, docs
-- Code signing and notarization (macOS)
-- DMG/PKG packaging
+- `pulp` CLI: build, test, validate, status, clean, ship, docs, create, inspect, audit, add
+- Code signing and notarization (macOS), Authenticode stubs (Windows)
+- DMG/PKG packaging (macOS), NSIS installer (Windows), .deb/.tar.gz (Linux)
 - Appcast generation with Ed25519 signing
+- Auto-generated parameter UI (generic editor from parameter definitions)
 - Local-first documentation system with YAML manifests
 - Docs consistency CI check
 - GitHub Pages docs site
+- Three-platform CI matrix (macOS, Windows, Linux)
 
-**7 example projects:**
-- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, UI Preview
+**Application framework:**
+- MenuBar, Toolbar, KeyMapping (keyboard shortcut manager)
+- Application settings persistence
+- Preset management (save/load/delete/rename, factory vs user, JSON format)
+- Design token export (JSON, CSS, C++ headers, shader uniforms, OKLCH)
+- Undo/redo system (named actions, transactions, max history)
+
+**8 example projects:**
+- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, UI Preview
 
 ### What is not yet implemented
 
 These items from the vision above are planned but do not exist in the codebase today:
 
-- AUv3, LV2, AAX format adapters
-- Windows and Linux audio/MIDI I/O (WASAPI, ALSA, JACK)
-- iOS and Web/WASM targets
-- D3D12 and Vulkan GPU backends
-- SwiftUI UI path
-- Plugin-as-CLI and MCP server interfaces
-- Musical Typing, Waveform Editor, Preset Browser, Diagnostic Reporter components
-- `pulp create`, `pulp inspect`, `pulp design`, `pulp audit` CLI commands
-- Design token export (JSON, CSS, C++ headers, shader uniforms)
-- WebView embedding
-- Multi-window support
-- Accessibility system
+- AAX format adapter (requires Avid SDK)
+- Web/WASM target (Emscripten build pipeline, Web Audio/MIDI, WebCLAP)
+- D3D12 and Vulkan GPU rendering validation (Dawn supports them; not yet runtime-tested)
+- Musical Typing component
+- Audio Device Selector component
+- `pulp design` CLI command (AI-driven design session)
+- WebView embedding (Monaco editor, docs panels)
+- Multi-window support (floating palettes, inspectors)
 - MIDI 2.0 UMP / MPE
-- Windows/Linux CI matrix
-- PulpSampler example
+- ASIO audio I/O (Windows, requires Steinberg SDK)
+- Plugin hosting (pulp-host: scanner, plugin slot, signal graph)
+- WebGPU compute shaders for audio (additive synthesis, FFT, ML inference)
 
 See [docs/reference/capabilities.md](docs/reference/capabilities.md) for the detailed current capability matrix and [docs/status/support-matrix.yaml](docs/status/support-matrix.yaml) for machine-readable status.

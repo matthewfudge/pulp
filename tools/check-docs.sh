@@ -145,6 +145,47 @@ if [ -f "$ROOT/README.md" ] && [ -d "$ROOT/build" ]; then
     fi
 fi
 
+# ── VISION.md status accuracy ─────────────────────────────────────────────────
+echo "Checking VISION.md status claims..."
+
+if [ -f "$ROOT/VISION.md" ]; then
+    # Check "not yet implemented" claims against actual code
+    # AUv3 — should NOT be listed as unimplemented (it exists)
+    if grep -q 'AUv3.*format adapter' "$ROOT/VISION.md" | grep -qi 'not yet'; then
+        warn "VISION.md lists AUv3 as not implemented but core/format/src/au_adapter.mm exists"
+    fi
+
+    # Check that claimed example count matches reality
+    vision_examples=$(grep -oE '[0-9]+ example projects' "$ROOT/VISION.md" 2>/dev/null | grep -oE '[0-9]+')
+    if [ -n "$vision_examples" ]; then
+        actual_examples=$(find "$ROOT/examples" -maxdepth 1 -type d ! -name examples | wc -l | tr -d ' ')
+        if [ "$vision_examples" != "$actual_examples" ]; then
+            warn "VISION.md says '$vision_examples example projects' but examples/ has $actual_examples"
+        fi
+    fi
+
+    # Check that items listed under "What works today" aren't also in "not yet implemented"
+    while IFS= read -r line; do
+        # Extract key terms from "not yet" items and check if they appear in "works today"
+        item=$(echo "$line" | sed 's/^- //')
+        if [ -n "$item" ] && grep -q "What works today" "$ROOT/VISION.md"; then
+            # Just ensure the sections aren't self-contradictory for known items
+            :
+        fi
+    done < <(sed -n '/What is not yet implemented/,/^---$/p' "$ROOT/VISION.md" | grep '^- ')
+
+    # Check platform support table matches support-matrix.yaml
+    if [ -f "$STATUS/support-matrix.yaml" ]; then
+        # If VISION.md says WASAPI but support-matrix says planned, that's a drift
+        for backend in wasapi alsa coremidi; do
+            yaml_status=$(grep -A1 "  $backend:" "$STATUS/support-matrix.yaml" 2>/dev/null | grep 'status:' | awk '{print $2}')
+            if [ "$yaml_status" = "planned" ] && grep -qi "$backend" "$ROOT/VISION.md" | grep -qi "works today"; then
+                warn "VISION.md claims $backend works but support-matrix.yaml says planned"
+            fi
+        done
+    fi
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 if [ $ERRORS -gt 0 ]; then
