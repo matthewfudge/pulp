@@ -246,6 +246,16 @@ add_executable(pulp-test-undo-manager test_undo_manager.cpp)
 target_link_libraries(pulp-test-undo-manager PRIVATE pulp::state Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-undo-manager)
 
+# BufferingReader tests
+add_executable(pulp-test-buffering-reader test_buffering_reader.cpp)
+target_link_libraries(pulp-test-buffering-reader PRIVATE pulp::audio Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-buffering-reader)
+
+# AudioWorkgroup tests
+add_executable(pulp-test-workgroup test_workgroup.cpp)
+target_link_libraries(pulp-test-workgroup PRIVATE pulp::audio Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-workgroup)
+
 # Golden-file audio tests (uses HeadlessHost + PulpGain)
 add_executable(pulp-test-golden test_golden_audio.cpp)
 target_link_libraries(pulp-test-golden PRIVATE pulp::format Catch2::Catch2WithMain)
