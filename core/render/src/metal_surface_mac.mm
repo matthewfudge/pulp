@@ -32,7 +32,7 @@
         layer.device = MTLCreateSystemDefaultDevice();
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly = YES;
-        layer.contentsScale = self.window.backingScaleFactor ?: [NSScreen mainScreen].backingScaleFactor;
+        layer.contentsScale = self.window ? self.window.backingScaleFactor : [NSScreen mainScreen].backingScaleFactor;
 
         // Size the drawable to match the view
         CGSize size = [self convertSizeToBacking:frame.size];
@@ -51,13 +51,13 @@
     // Update drawable size on resize (accounting for Retina scale)
     CGSize backing = [self convertSizeToBacking:newSize];
     self.metalLayer.drawableSize = backing;
-    self.metalLayer.contentsScale = self.window.backingScaleFactor ?: [NSScreen mainScreen].backingScaleFactor;
+    self.metalLayer.contentsScale = self.window ? self.window.backingScaleFactor : [NSScreen mainScreen].backingScaleFactor;
 }
 
 - (void)viewDidChangeBackingProperties {
     [super viewDidChangeBackingProperties];
     // Handle Retina scale changes (e.g., dragging between displays)
-    CGFloat scale = self.window.backingScaleFactor ?: [NSScreen mainScreen].backingScaleFactor;
+    CGFloat scale = self.window ? self.window.backingScaleFactor : [NSScreen mainScreen].backingScaleFactor;
     self.metalLayer.contentsScale = scale;
     CGSize backing = [self convertSizeToBacking:self.bounds.size];
     self.metalLayer.drawableSize = backing;

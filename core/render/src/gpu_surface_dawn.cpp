@@ -50,18 +50,17 @@ public:
             adapter_opts.compatibleSurface = surface_;
         }
 
-        wgpu::Adapter adapter;
         instance_.RequestAdapter(
             &adapter_opts,
             wgpu::CallbackMode::WaitAnyOnly,
-            [&adapter](wgpu::RequestAdapterStatus status, wgpu::Adapter result, wgpu::StringView) {
+            [this](wgpu::RequestAdapterStatus status, wgpu::Adapter result, wgpu::StringView) {
                 if (status == wgpu::RequestAdapterStatus::Success) {
-                    adapter = std::move(result);
+                    adapter_ = std::move(result);
                 }
             });
         instance_.ProcessEvents();
 
-        if (!adapter) {
+        if (!adapter_) {
             runtime::log_error("GpuSurface: no suitable GPU adapter found");
             return false;
         }
@@ -76,7 +75,7 @@ public:
                     std::string(message.data, message.length));
             });
 
-        adapter.RequestDevice(
+        adapter_.RequestDevice(
             &device_desc,
             wgpu::CallbackMode::WaitAnyOnly,
             [this](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView) {
@@ -108,12 +107,13 @@ public:
         width_ = width;
         height_ = height;
         if (surface_ && device_) {
+            // Reconfigure with the format/mode selected during initial configure
             wgpu::SurfaceConfiguration surface_config{};
             surface_config.device = device_;
-            surface_config.format = wgpu::TextureFormat::BGRA8Unorm;
+            surface_config.format = preferred_format_;
             surface_config.width = width_;
             surface_config.height = height_;
-            surface_config.presentMode = wgpu::PresentMode::Fifo;
+            surface_config.presentMode = preferred_mode_;
             surface_config.usage = wgpu::TextureUsage::RenderAttachment;
             surface_.Configure(&surface_config);
         }
@@ -188,23 +188,59 @@ private:
     }
 
     void configure_surface(const Config& config) {
+        // Query surface capabilities — do not assume format or present mode
+        wgpu::SurfaceCapabilities caps;
+        surface_.GetCapabilities(adapter_, &caps);
+
+        // Select preferred format (BGRA8Unorm if available, else first supported)
+        preferred_format_ = wgpu::TextureFormat::BGRA8Unorm;
+        if (caps.formatCount > 0) {
+            preferred_format_ = caps.formats[0]; // first is preferred
+            for (size_t i = 0; i < caps.formatCount; ++i) {
+                if (caps.formats[i] == wgpu::TextureFormat::BGRA8Unorm) {
+                    preferred_format_ = wgpu::TextureFormat::BGRA8Unorm;
+                    break;
+                }
+            }
+        }
+
+        // Select present mode (Fifo/vsync if available, else first supported)
+        wgpu::PresentMode preferred_mode = config.vsync
+            ? wgpu::PresentMode::Fifo : wgpu::PresentMode::Immediate;
+        bool mode_found = false;
+        for (size_t i = 0; i < caps.presentModeCount; ++i) {
+            if (caps.presentModes[i] == preferred_mode) {
+                mode_found = true;
+                break;
+            }
+        }
+        if (!mode_found && caps.presentModeCount > 0) {
+            preferred_mode = caps.presentModes[0];
+        }
+        preferred_mode_ = preferred_mode;
+
         wgpu::SurfaceConfiguration surface_config{};
         surface_config.device = device_;
-        surface_config.format = wgpu::TextureFormat::BGRA8Unorm;
+        surface_config.format = preferred_format_;
         surface_config.width = config.width;
         surface_config.height = config.height;
-        surface_config.presentMode = config.vsync
-            ? wgpu::PresentMode::Fifo : wgpu::PresentMode::Immediate;
+        surface_config.presentMode = preferred_mode_;
         surface_config.usage = wgpu::TextureUsage::RenderAttachment;
         surface_.Configure(&surface_config);
+
+        runtime::log_info("GpuSurface: configured surface (format: {}, mode: {})",
+            static_cast<int>(preferred_format_), static_cast<int>(preferred_mode));
     }
 
     wgpu::Instance instance_;
+    wgpu::Adapter adapter_;
     wgpu::Device device_;
     wgpu::Queue queue_;
     wgpu::Surface surface_;
     wgpu::Texture current_texture_;
 
+    wgpu::TextureFormat preferred_format_ = wgpu::TextureFormat::BGRA8Unorm;
+    wgpu::PresentMode preferred_mode_ = wgpu::PresentMode::Fifo;
     uint32_t width_ = 0, height_ = 0;
     bool initialized_ = false;
 };
