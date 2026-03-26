@@ -24,8 +24,14 @@ public:
         uint32_t height = 300;
     };
 
+    struct Options {
+        Size size = {400, 300};
+        bool use_gpu = false;  ///< Use GPU rendering (Dawn/Skia Graphite) instead of CoreGraphics
+    };
+
     // Create a plugin view host for the given view tree
     static std::unique_ptr<PluginViewHost> create(View& root, Size size);
+    static std::unique_ptr<PluginViewHost> create(View& root, const Options& options);
 
     virtual ~PluginViewHost() = default;
 
