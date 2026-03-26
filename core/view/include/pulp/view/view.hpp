@@ -1,6 +1,7 @@
 #pragma once
 
 #include <pulp/view/geometry.hpp>
+#include <pulp/view/input_events.hpp>
 #include <pulp/view/theme.hpp>
 #include <pulp/canvas/canvas.hpp>
 #include <vector>
@@ -76,9 +77,20 @@ public:
     virtual void on_attached() {}
     virtual void on_detached() {}
 
-    // ── Synthetic events (for headless testing, no window needed) ────────
+    // ── Input events (rich, with modifiers and pointer ID) ──────────────
 
-    // Mouse simulation — coordinates in local space
+    /// Mouse down with full event context.
+    virtual void on_mouse_event(const MouseEvent& event) { (void)event; }
+    /// Key event with modifiers and up/down state.
+    /// Return true if handled (prevents propagation to parent).
+    virtual bool on_key_event(const KeyEvent& event) { (void)event; return false; }
+    /// Text input from keyboard/IME (separate from key events).
+    virtual void on_text_input(const TextInputEvent& event) { (void)event; }
+    /// Called when this view gains or loses focus.
+    virtual void on_focus_changed(bool gained) { (void)gained; }
+
+    // ── Legacy event handlers (kept for backward compatibility) ──────────
+
     virtual void on_mouse_down(Point pos) { (void)pos; }
     virtual void on_mouse_up(Point pos) { (void)pos; }
     virtual void on_mouse_drag(Point pos) { (void)pos; }
