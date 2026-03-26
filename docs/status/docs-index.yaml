@@ -49,6 +49,16 @@ docs:
     kind: guide
     summary: macOS signing, notarization, entitlements, auval, deployment
 
+  - slug: platform-windows
+    path: guides/platforms/windows.md
+    kind: guide
+    summary: Windows WASAPI audio, Win32 MIDI, Authenticode signing, NSIS installer
+
+  - slug: platform-linux
+    path: guides/platforms/linux.md
+    kind: guide
+    summary: Linux ALSA/JACK audio, ALSA MIDI, LV2 format, Vulkan, packaging
+
   - slug: module-runtime
     path: guides/modules/runtime.md
     kind: guide
