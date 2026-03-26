@@ -169,8 +169,27 @@ public:
     }
 
 private:
+    // ── Texture lifetime contract ──────────────────────────────────────
+    //
+    // The current surface texture acquired in begin_frame() is per-frame only.
+    // It MUST remain alive through:
+    //   1. SkiaSurface::begin_frame() — wraps it as a Graphite BackendTexture
+    //   2. Skia drawing commands recorded into it
+    //   3. SkiaSurface::end_frame() — context->submit() flushes work to the GPU
+    //   4. GpuSurface::end_frame() — surface_.Present() presents to screen
+    //
+    // After present, current_texture_ is set to nullptr. It must NOT be:
+    //   - cached across frames
+    //   - used after end_frame()
+    //   - stored in any long-lived data structure
+    //
+    // Skia's WrapBackendTexture retains the WGPUTexture for the duration
+    // of the SkSurface, and the per-frame SkSurface (frame_surface_) is
+    // released in SkiaSurface::end_frame() before present.
+
     void create_native_surface(void* native_layer) {
 #ifdef __APPLE__
+        // macOS/iOS: CAMetalLayer* → Metal surface via Dawn
         wgpu::SurfaceDescriptor surface_desc{};
         wgpu::SurfaceSourceMetalLayer metal_source{};
         metal_source.layer = native_layer;
@@ -182,6 +201,31 @@ private:
         } else {
             runtime::log_warn("GpuSurface: failed to create Metal surface");
         }
+#elif defined(_WIN32)
+        // Windows: HWND → D3D12/Vulkan surface via Dawn
+        wgpu::SurfaceDescriptor surface_desc{};
+        wgpu::SurfaceSourceWindowsHWND hwnd_source{};
+        hwnd_source.hinstance = GetModuleHandle(nullptr);
+        hwnd_source.hwnd = native_layer;  // caller passes HWND as void*
+        surface_desc.nextInChain = &hwnd_source;
+
+        surface_ = instance_.CreateSurface(&surface_desc);
+        if (surface_) {
+            runtime::log_info("GpuSurface: created D3D12 surface from HWND");
+        } else {
+            runtime::log_warn("GpuSurface: failed to create Windows surface");
+        }
+#elif defined(__linux__)
+        // Linux: native_layer is platform-dependent.
+        // The caller must pass the correct handle type:
+        //   - X11: pack Display* and Window into a NativeLinuxSurface struct
+        //   - Wayland: pack wl_display* and wl_surface* similarly
+        //   - XCB: pack xcb_connection_t* and xcb_window_t similarly
+        //
+        // For now, log that Linux surface creation requires platform integration.
+        // SDL3 windowing will provide the native handles via SDL_GetWindowProperties().
+        (void)native_layer;
+        runtime::log_warn("GpuSurface: Linux surface creation requires platform-specific handle — use SDL3 integration");
 #else
         (void)native_layer;
 #endif
