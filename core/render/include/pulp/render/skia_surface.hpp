@@ -7,9 +7,19 @@
 
 namespace pulp::render {
 
-// Skia Graphite rendering surface
-// Connects a GpuSurface (WebGPU device) to Skia's GPU rendering
-// Provides an SkCanvas for each frame via the render callback
+/// Skia Graphite rendering surface.
+///
+/// Connects a GpuSurface (WebGPU device) to Skia's GPU 2D rendering.
+/// When GpuSurface has a presentable surface, SkiaSurface renders into the
+/// swapchain texture each frame (zero-copy presentation). When offscreen,
+/// it renders into a standalone GPU texture.
+///
+/// Usage:
+///   gpu->begin_frame();                    // acquire swapchain texture
+///   auto* canvas = skia->begin_frame();    // get Skia canvas targeting that texture
+///   root_view.paint_all(*canvas);
+///   skia->end_frame();                     // submit Graphite recording
+///   gpu->end_frame();                      // present to native surface
 class SkiaSurface {
 public:
     struct Config {
@@ -18,22 +28,27 @@ public:
         float scale_factor = 1.0f;  // HiDPI
     };
 
-    // Create a Skia Graphite surface backed by the given GPU device
+    /// Create a Skia Graphite surface.
+    /// The GpuSurface reference is retained — SkiaSurface queries it each frame
+    /// for the current swapchain texture when on-screen presentation is active.
     static std::unique_ptr<SkiaSurface> create(GpuSurface& gpu, const Config& config);
 
     virtual ~SkiaSurface() = default;
 
-    // Begin a frame: returns a Canvas to draw into
-    // The canvas is valid until end_frame() is called
+    /// Begin a frame: returns a Canvas to draw into.
+    /// If GpuSurface has a presentable surface, the canvas targets the current
+    /// swapchain texture. Otherwise, it targets an offscreen render target.
+    /// The canvas is valid until end_frame() is called.
     virtual canvas::Canvas* begin_frame() = 0;
 
-    // End a frame: submits all drawing commands to the GPU
+    /// End a frame: submits the Graphite recording to the GPU.
+    /// Actual presentation is handled by GpuSurface::end_frame().
     virtual void end_frame() = 0;
 
-    // Resize the surface
+    /// Resize the surface
     virtual void resize(uint32_t width, uint32_t height, float scale = 1.0f) = 0;
 
-    // Check if Skia rendering is available
+    /// Check if Skia rendering is available
     virtual bool is_available() const = 0;
 };
 

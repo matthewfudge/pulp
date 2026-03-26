@@ -12,8 +12,17 @@ target_sources(pulp-render PRIVATE
     src/skia_surface.cpp
 )
 
-# iOS Metal surface for Dawn rendering
-if(PULP_IOS)
+# Apple Metal surface helpers for Dawn rendering
+if(PULP_MACOS OR (APPLE AND NOT PULP_IOS))
+    target_sources(pulp-render PRIVATE
+        src/metal_surface_mac.mm
+    )
+    target_link_libraries(pulp-render PRIVATE
+        "-framework Cocoa"
+        "-framework Metal"
+        "-framework QuartzCore"
+    )
+elseif(PULP_IOS)
     target_sources(pulp-render PRIVATE
         src/metal_surface_ios.mm
     )
