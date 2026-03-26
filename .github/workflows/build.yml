@@ -14,8 +14,8 @@ jobs:
         include:
           - os: macos-14
             name: macOS (ARM64)
-          # - os: windows-latest
-          #   name: Windows (x64)
+          - os: windows-latest
+            name: Windows (x64)
           - os: ubuntu-latest
             name: Linux (x64)
 
@@ -66,6 +66,16 @@ jobs:
             build/VST3/*.vst3
             build/CLAP/*.clap
             build/AU/*.component
+          retention-days: 7
+
+      - name: Upload plugin bundles (Windows)
+        if: success() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-${{ matrix.os }}
+          path: |
+            build/VST3/**/*.vst3
+            build/CLAP/**/*.clap
           retention-days: 7
 
       - name: Upload plugin bundles (Linux)

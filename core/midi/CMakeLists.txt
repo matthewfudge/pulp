@@ -25,6 +25,13 @@ if(APPLE AND NOT IOS)
         "-framework CoreMIDI"
         "-framework CoreFoundation"
     )
+elseif(WIN32)
+    target_sources(pulp-midi PRIVATE
+        platform/win/winmidi_device.cpp
+    )
+    target_link_libraries(pulp-midi PRIVATE
+        winmm
+    )
 elseif(UNIX AND NOT APPLE)
     target_sources(pulp-midi PRIVATE
         platform/linux/alsa_midi_device.cpp

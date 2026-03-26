@@ -20,6 +20,7 @@ if(APPLE)
 elseif(WIN32)
     target_sources(pulp-ship PRIVATE
         platform/win/codesign_win.cpp
+        platform/win/installer_win.cpp
     )
 elseif(UNIX)
     target_sources(pulp-ship PRIVATE
