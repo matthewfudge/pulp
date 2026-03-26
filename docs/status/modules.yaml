@@ -27,7 +27,7 @@ modules:
     docs: reference/modules.md#midi
 
   - name: signal
-    summary: DSP algorithms -- filters, oscillators, effects
+    summary: 30+ DSP algorithms -- filters, oscillators, effects, math, interpolation
     status: usable
     dependencies: []
     docs: reference/modules.md#signal

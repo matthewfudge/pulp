@@ -104,7 +104,7 @@ Sync primitives (in `core/runtime/`):
 | audio | `core/audio/` | BufferView (non-owning channel pointer wrapper) |
 | midi | `core/midi/` | MidiEvent, MidiBuffer (via choc::midi) |
 | state | `core/state/` | ParamValue, ParamInfo, StateStore, Binding, serialization |
-| signal | `core/signal/` | 22 DSP processors (oscillator, filter, compressor, reverb, etc.) |
+| signal | `core/signal/` | 30+ DSP processors, math, interpolation, filter design |
 | format | `core/format/` | Processor interface, VST3/AU/CLAP adapters, standalone |
 | canvas | `core/canvas/` | 2D drawing API, RecordingCanvas, CoreGraphics/Skia backends |
 | view | `core/view/` | View hierarchy, widgets, themes, JS bridge, AudioBridge |
