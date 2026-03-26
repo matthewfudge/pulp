@@ -28,6 +28,15 @@ public:
             if (processor_) {
                 processor_->set_state_store(&store_);
                 processor_->define_parameters(store_);
+
+                // Set default values in the AU parameter system at construction time.
+                // This ensures auval can read defaults before Initialize() is called,
+                // and that parameters start with the correct values.
+                for (const auto& param : store_.all_params()) {
+                    Globals()->SetParameter(
+                        static_cast<AudioUnitParameterID>(param.id),
+                        param.range.default_value);
+                }
             }
         }
     }
@@ -100,11 +109,13 @@ public:
                 GetOutput(0)->GetStreamFormat().mChannelsPerFrame);
             processor_->prepare(ctx);
 
-            // Sync host → store: preserve any values the host set before Initialize
+            // Sync AU parameter system → Pulp store.
+            // At this point, Globals() has either the defaults (set in constructor)
+            // or values the host set before Initialize. Either way, sync them.
             for (const auto& param : store_.all_params()) {
                 auto au_id = static_cast<AudioUnitParameterID>(param.id);
-                float host_val = Globals()->GetParameter(au_id);
-                store_.set_value(param.id, host_val);
+                float value = Globals()->GetParameter(au_id);
+                store_.set_value(param.id, value);
             }
         }
 
