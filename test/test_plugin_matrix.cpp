@@ -1,8 +1,8 @@
 #include "test_matrix.hpp"
 #include "pulp_gain.hpp"
 
-// Test matrix exercises PulpGain across sample rates, buffer sizes, and edge cases.
-// This pattern can be extended to all example plugins.
+// PulpGain matrix tests. Other plugins have their own matrix test files
+// to avoid enum collision (each plugin defines param IDs in its namespace).
 
 using namespace pulp;
 using namespace pulp::test;

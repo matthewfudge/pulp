@@ -262,6 +262,27 @@ target_link_libraries(pulp-test-matrix PRIVATE pulp::format Catch2::Catch2WithMa
 target_include_directories(pulp-test-matrix PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain)
 catch_discover_tests(pulp-test-matrix)
 
+# Per-plugin matrix tests (separate TUs to avoid enum collisions)
+add_executable(pulp-test-matrix-effect test_matrix_effect.cpp)
+target_link_libraries(pulp-test-matrix-effect PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-matrix-effect PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-effect)
+catch_discover_tests(pulp-test-matrix-effect)
+
+add_executable(pulp-test-matrix-compressor test_matrix_compressor.cpp)
+target_link_libraries(pulp-test-matrix-compressor PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-matrix-compressor PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-compressor)
+catch_discover_tests(pulp-test-matrix-compressor)
+
+add_executable(pulp-test-matrix-tone test_matrix_tone.cpp)
+target_link_libraries(pulp-test-matrix-tone PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
+target_include_directories(pulp-test-matrix-tone PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
+catch_discover_tests(pulp-test-matrix-tone)
+
+add_executable(pulp-test-matrix-drums test_matrix_drums.cpp)
+target_link_libraries(pulp-test-matrix-drums PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
+target_include_directories(pulp-test-matrix-drums PRIVATE ${CMAKE_SOURCE_DIR}/examples/PulpDrums)
+catch_discover_tests(pulp-test-matrix-drums)
+
 # Golden-file audio tests (uses HeadlessHost + PulpGain)
 add_executable(pulp-test-golden test_golden_audio.cpp)
 target_link_libraries(pulp-test-golden PRIVATE pulp::format Catch2::Catch2WithMain)
