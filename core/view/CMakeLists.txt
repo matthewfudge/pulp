@@ -71,4 +71,12 @@ if(APPLE)
             )
         endif()
     endif()
+elseif(WIN32)
+    target_sources(pulp-view PRIVATE
+        platform/win/accessibility_win.cpp
+    )
+elseif(UNIX)
+    target_sources(pulp-view PRIVATE
+        platform/linux/accessibility_linux.cpp
+    )
 endif()
