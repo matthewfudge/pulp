@@ -211,6 +211,11 @@ add_executable(pulp-test-preset-manager test_preset_manager.cpp)
 target_link_libraries(pulp-test-preset-manager PRIVATE pulp::state Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-preset-manager)
 
+# Waveform editor tests
+add_executable(pulp-test-waveform-editor test_waveform_editor.cpp)
+target_link_libraries(pulp-test-waveform-editor PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-waveform-editor)
+
 # Preset browser UI tests
 add_executable(pulp-test-preset-browser test_preset_browser.cpp)
 target_link_libraries(pulp-test-preset-browser PRIVATE pulp::view Catch2::Catch2WithMain)
