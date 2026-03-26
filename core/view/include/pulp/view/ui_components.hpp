@@ -1,0 +1,240 @@
+#pragma once
+
+/// @file ui_components.hpp
+/// Additional UI components: ComboBox, Tooltip, ProgressBar, CallOutBox,
+/// TabPanel, ListBox, ScrollView.
+
+#include <pulp/view/view.hpp>
+#include <pulp/view/input_events.hpp>
+#include <pulp/canvas/canvas.hpp>
+#include <functional>
+#include <string>
+#include <vector>
+#include <memory>
+
+namespace pulp::view {
+
+// ── ComboBox ─────────────────────────────────────────────────────────────
+
+/// Drop-down selector for enumerated parameters.
+///
+/// @code
+/// ComboBox combo;
+/// combo.set_items({"Sine", "Saw", "Square", "Triangle"});
+/// combo.set_selected(0);
+/// combo.on_change = [&](int index) { set_waveform(index); };
+/// @endcode
+class ComboBox : public View {
+public:
+    ComboBox() {
+        set_focusable(true);
+        set_access_role(AccessRole::slider);
+    }
+
+    void set_items(std::vector<std::string> items) { items_ = std::move(items); }
+    const std::vector<std::string>& items() const { return items_; }
+
+    int selected() const { return selected_; }
+    void set_selected(int index);
+
+    const std::string& selected_text() const;
+
+    /// Called when selection changes.
+    std::function<void(int index)> on_change;
+
+    void paint(canvas::Canvas& canvas) override;
+    void on_mouse_event(const MouseEvent& event) override;
+    bool on_key_event(const KeyEvent& event) override;
+
+private:
+    std::vector<std::string> items_;
+    int selected_ = 0;
+    bool open_ = false;
+    static const std::string empty_string_;
+};
+
+// ── Tooltip ──────────────────────────────────────────────────────────────
+
+/// Hover tooltip that displays text near a target view.
+/// Attach to any view via set_tooltip().
+class Tooltip : public View {
+public:
+    explicit Tooltip(std::string text = {}) : text_(std::move(text)) {
+        set_visible(false);
+    }
+
+    void set_text(std::string text) { text_ = std::move(text); }
+    const std::string& text() const { return text_; }
+
+    /// Show the tooltip near a given position.
+    void show_at(Point position);
+
+    /// Hide the tooltip.
+    void hide();
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    std::string text_;
+};
+
+// ── ProgressBar ──────────────────────────────────────────────────────────
+
+/// Visual progress indicator for long-running operations.
+class ProgressBar : public View {
+public:
+    /// Set progress value (0.0 to 1.0). Values < 0 show indeterminate state.
+    void set_progress(float value) { progress_ = value; }
+    float progress() const { return progress_; }
+
+    /// Optional label shown inside the bar.
+    void set_label(std::string label) { label_ = std::move(label); }
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    float progress_ = 0.0f;
+    std::string label_;
+};
+
+// ── CallOutBox ───────────────────────────────────────────────────────────
+
+/// Floating alert/notification box.
+///
+/// @code
+/// auto alert = CallOutBox::confirm("Delete preset?",
+///     [&] { delete_preset(); },
+///     [&] { /* cancel */ });
+/// root.add_child(std::move(alert));
+/// @endcode
+class CallOutBox : public View {
+public:
+    CallOutBox() = default;
+
+    void set_message(std::string msg) { message_ = std::move(msg); }
+    const std::string& message() const { return message_; }
+
+    /// Called when the user confirms (OK/Yes).
+    std::function<void()> on_confirm;
+    /// Called when the user cancels (Cancel/No) or presses Escape.
+    std::function<void()> on_cancel;
+
+    /// Auto-dismiss after N seconds (0 = no auto-dismiss).
+    float auto_dismiss_seconds = 0;
+
+    /// Create a confirmation dialog with OK/Cancel buttons.
+    static std::unique_ptr<CallOutBox> confirm(
+        const std::string& message,
+        std::function<void()> on_ok,
+        std::function<void()> on_cancel = {});
+
+    /// Create a notification that auto-dismisses.
+    static std::unique_ptr<CallOutBox> notify(
+        const std::string& message,
+        float duration_seconds = 3.0f);
+
+    void paint(canvas::Canvas& canvas) override;
+    bool on_key_event(const KeyEvent& event) override;
+
+private:
+    std::string message_;
+};
+
+// ── TabPanel ─────────────────────────────────────────────────────────────
+
+/// Tabbed container that shows one child at a time.
+///
+/// @code
+/// TabPanel tabs;
+/// tabs.add_tab("Basic", std::move(basic_panel));
+/// tabs.add_tab("Advanced", std::move(advanced_panel));
+/// tabs.set_active_tab(0);
+/// @endcode
+class TabPanel : public View {
+public:
+    struct Tab {
+        std::string title;
+        std::unique_ptr<View> content;
+    };
+
+    void add_tab(std::string title, std::unique_ptr<View> content);
+    void set_active_tab(int index);
+    int active_tab() const { return active_; }
+    int tab_count() const { return static_cast<int>(tabs_.size()); }
+
+    /// Called when the active tab changes.
+    std::function<void(int index)> on_tab_change;
+
+    void paint(canvas::Canvas& canvas) override;
+    void on_mouse_event(const MouseEvent& event) override;
+
+private:
+    std::vector<Tab> tabs_;
+    int active_ = 0;
+    float tab_height_ = 32.0f;
+};
+
+// ── ScrollView ───────────────────────────────────────────────────────────
+
+/// Scrollable container that clips and scrolls its content.
+class ScrollView : public View {
+public:
+    enum class Direction { vertical, horizontal, both };
+
+    void set_direction(Direction d) { direction_ = d; }
+    void set_content_size(Size size) { content_size_ = size; }
+
+    float scroll_x() const { return scroll_x_; }
+    float scroll_y() const { return scroll_y_; }
+    void set_scroll(float x, float y);
+
+    void paint(canvas::Canvas& canvas) override;
+
+    // Scroll via mouse wheel or touch drag
+    void on_mouse_event(const MouseEvent& event) override;
+
+private:
+    Direction direction_ = Direction::vertical;
+    Size content_size_{0, 0};
+    float scroll_x_ = 0, scroll_y_ = 0;
+};
+
+// ── ListBox ──────────────────────────────────────────────────────────────
+
+/// Scrollable list of selectable items.
+///
+/// @code
+/// ListBox list;
+/// list.set_items({"Item 1", "Item 2", "Item 3"});
+/// list.on_select = [&](int index) { handle_selection(index); };
+/// @endcode
+class ListBox : public View {
+public:
+    ListBox() { set_focusable(true); }
+
+    void set_items(std::vector<std::string> items) { items_ = std::move(items); }
+    const std::vector<std::string>& items() const { return items_; }
+
+    int selected() const { return selected_; }
+    void set_selected(int index);
+
+    float row_height() const { return row_height_; }
+    void set_row_height(float h) { row_height_ = h; }
+
+    /// Called when an item is selected.
+    std::function<void(int index)> on_select;
+    /// Called when an item is double-clicked.
+    std::function<void(int index)> on_activate;
+
+    void paint(canvas::Canvas& canvas) override;
+    void on_mouse_event(const MouseEvent& event) override;
+    bool on_key_event(const KeyEvent& event) override;
+
+private:
+    std::vector<std::string> items_;
+    int selected_ = -1;
+    float row_height_ = 24.0f;
+    float scroll_offset_ = 0.0f;
+};
+
+} // namespace pulp::view
