@@ -1125,6 +1125,7 @@ static void print_usage() {
     std::cout << "pulp — Pulp audio plugin framework CLI\n\n";
     std::cout << "Usage: pulp <command> [options]\n\n";
     std::cout << "Commands:\n";
+    std::cout << "  create   Scaffold a new plugin project from templates\n";
     std::cout << "  build    Build the project (configure + compile)\n";
     std::cout << "  test     Run the test suite\n";
     std::cout << "  status   Show project status and info\n";
@@ -1165,6 +1166,21 @@ int main(int argc, char* argv[]) {
     if (command == "ship")     return cmd_ship(args);
     if (command == "docs")     return cmd_docs(args);
     if (command == "clean")    return cmd_clean(args);
+    if (command == "create") {
+        auto root = find_project_root();
+        if (root.empty()) {
+            std::cerr << "Error: not in a Pulp project directory\n";
+            return 1;
+        }
+        auto script = root / "tools" / "create-project.py";
+        if (!fs::exists(script)) {
+            std::cerr << "Error: create script not found at " << script.string() << "\n";
+            return 1;
+        }
+        std::string cmd = "python3 \"" + script.string() + "\"";
+        for (auto& arg : args) cmd += " \"" + arg + "\"";
+        return run(cmd);
+    }
     if (command == "help" || command == "--help" || command == "-h") {
         print_usage();
         return 0;
