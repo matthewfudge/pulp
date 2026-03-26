@@ -10,6 +10,8 @@ target_include_directories(pulp-render
 target_sources(pulp-render PRIVATE
     src/gpu_surface_dawn.cpp
     src/skia_surface.cpp
+    src/render_loop.cpp
+    src/sdl3_surface.cpp
 )
 
 # Apple Metal surface helpers for Dawn rendering
@@ -34,6 +36,17 @@ elseif(PULP_IOS)
 endif()
 
 target_link_libraries(pulp-render PUBLIC pulp::runtime pulp::canvas)
+
+# SDL3 for cross-platform surface extraction
+if(PULP_HAS_SDL3)
+    target_link_libraries(pulp-render PRIVATE SDL3::SDL3-static)
+    target_compile_definitions(pulp-render PRIVATE PULP_HAS_SDL3=1)
+endif()
+
+# CVDisplayLink for macOS render loop
+if(APPLE AND NOT PULP_IOS)
+    target_link_libraries(pulp-render PRIVATE "-framework CoreVideo")
+endif()
 
 # Link WebGPU if available
 if(PULP_HAS_WEBGPU)
