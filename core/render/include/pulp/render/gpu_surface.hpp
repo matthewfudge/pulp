@@ -26,11 +26,12 @@ public:
         uint32_t height = 600;
         bool vsync = true;
 
-        /// Opaque pointer to a platform native layer for on-screen rendering.
-        /// On macOS: CAMetalLayer* (from an NSView with wantsLayer=YES)
-        /// On iOS:   CAMetalLayer* (from a UIView with +layerClass override)
+        /// Opaque platform-specific handle for on-screen rendering.
+        /// On macOS/iOS: CAMetalLayer*
+        /// On Windows:   HWND
+        /// On Linux:     platform-dependent (X11 Window, wl_surface*, etc.)
         /// nullptr = offscreen-only mode (no presentation)
-        void* native_layer = nullptr;
+        void* native_surface_handle = nullptr;
     };
 
     virtual ~GpuSurface() = default;

@@ -42,12 +42,12 @@ GpuSurface::Config config{};
 config.width = 800;
 config.height = 600;
 config.vsync = true;
-config.native_layer = (__bridge void*)metalLayer;  // CAMetalLayer*
+config.native_surface_handle = (__bridge void*)metalLayer;  // CAMetalLayer*
 
 gpu->initialize(config);
 
-// For offscreen-only mode, leave native_layer as nullptr:
-// config.native_layer = nullptr;  // default
+// For offscreen-only mode, leave native_surface_handle as nullptr:
+// config.native_surface_handle = nullptr;  // default
 ```
 
 ### Frame Lifecycle
@@ -56,7 +56,7 @@ gpu->initialize(config);
 2. Draw commands are recorded via SkiaSurface / Skia Graphite Recorder
 3. `end_frame()` — submits GPU work and presents to the native surface
 
-When `native_layer` is null, `begin_frame()` always succeeds and `end_frame()` only processes events (no presentation).
+When `native_surface_handle` is null, `begin_frame()` always succeeds and `end_frame()` only processes events (no presentation).
 
 ### has_surface()
 
@@ -96,7 +96,7 @@ The macOS render surface uses an `NSView` backed by `CAMetalLayer`. The view:
 - Sets `wantsLayer = YES` and assigns a `CAMetalLayer` as its layer
 - Configures the Metal device, BGRA8 pixel format, and `contentsScale` for Retina
 - Handles resize via `setFrameSize:` and scale changes via `viewDidChangeBackingProperties`
-- Provides the `CAMetalLayer` handle to `GpuSurface::Config::native_layer`
+- Provides the `CAMetalLayer` handle to `GpuSurface::Config::native_surface_handle`
 
 ### iOS
 
@@ -113,9 +113,39 @@ The iOS render surface uses a `UIView` with `+layerClass` returning `CAMetalLaye
 | GpuSurface presentable surface (macOS) | Infrastructure exists, not yet default render path |
 | GpuSurface presentable surface (iOS) | Infrastructure exists, not yet wired to view hosts |
 | Skia Graphite offscreen rendering | Works (tested) |
-| Skia Graphite → on-screen present | Requires GpuSurface with native_layer; not yet default |
+| Skia Graphite → on-screen present | Requires GpuSurface with native_surface_handle; not yet default |
 | CoreGraphics fallback (macOS) | Works and is the current default render path |
 | View host GPU integration | Planned — view hosts currently use CoreGraphics only |
+
+## Cross-Platform GPU Rendering Model
+
+The same core rendering pipeline applies across macOS, iOS, Windows, and Linux. Only native surface creation and frame driving differ per platform.
+
+**Shared architecture (all platforms):**
+
+1. **One Dawn device/queue** — `GpuSurface` creates and owns the Dawn instance, adapter, device, and queue. There is exactly one device per render context. `SkiaSurface` borrows this device; it does not create its own.
+
+2. **Platform-specific surface creation** — The platform host creates a native view or window and passes a handle to `GpuSurface::Config::native_surface_handle`. On macOS/iOS this is a `CAMetalLayer*`, on Windows an `HWND`, on Linux a handle extracted from SDL3 (X11, Wayland, or XCB). `GpuSurface` uses this to create a Dawn surface for on-screen presentation.
+
+3. **Per-frame rendering flow:**
+   - `GpuSurface::begin_frame()` — acquires the current presentable texture from the surface
+   - `SkiaSurface::begin_frame()` — wraps that texture as a Skia Graphite `BackendTexture` and returns a `Canvas`
+   - **Draw** — the view tree paints into the canvas
+   - `SkiaSurface::end_frame()` — snaps the Graphite recording and submits GPU work on the shared device/queue
+   - `GpuSurface::end_frame()` — presents the rendered frame to the native surface
+
+4. **Resize and DPI** — The platform host detects size and scale changes and calls `GpuSurface::resize()` + `SkiaSurface::resize()` before the next frame acquire. `GpuSurface` reconfigures the Dawn surface with the new dimensions. Format and present mode are selected from `Surface::GetCapabilities()`, not hardcoded.
+
+5. **Frame driving** — Each platform uses its own mechanism to pace frames. macOS uses `CVDisplayLink` (vsync-accurate). Windows and Linux use Dawn's `PresentMode::Fifo` for natural frame pacing. The platform host owns the frame loop; the render module does not assume a specific driver.
+
+**Responsibility boundaries:**
+
+| Layer | Owns | Does not own |
+|-------|------|-------------|
+| **Platform host** | Native view/window, resize/DPI events, frame loop | GPU device, Metal/D3D12/Vulkan objects |
+| **GpuSurface** | Dawn device/queue/surface, acquire/present, reconfigure | Widget trees, paint traversal, layout |
+| **SkiaSurface** | Graphite context/recorder, per-frame texture wrapping | Surface lifecycle, presentation policy |
+| **View** | Layout, input, paint traversal | Native views, GPU objects |
 
 ## GPU Backends
 

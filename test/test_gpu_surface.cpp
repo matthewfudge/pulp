@@ -19,7 +19,7 @@ TEST_CASE("GpuSurface offscreen initialization", "[render][gpu]") {
     GpuSurface::Config config;
     config.width = 800;
     config.height = 600;
-    config.native_layer = nullptr;  // offscreen mode
+    config.native_surface_handle = nullptr;  // offscreen mode
 
     bool ok = surface->initialize(config);
     if (!ok) {
@@ -102,7 +102,7 @@ TEST_CASE("GpuSurface has_surface false without native layer", "[render][gpu]") 
     if (!surface) return;
 
     GpuSurface::Config config{};
-    config.native_layer = nullptr;
+    config.native_surface_handle = nullptr;
 
     if (!surface->initialize(config)) return;
 

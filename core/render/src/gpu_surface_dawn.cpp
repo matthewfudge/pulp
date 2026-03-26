@@ -39,8 +39,8 @@ public:
         }
 
         // Create native surface from platform layer (if provided)
-        if (config.native_layer) {
-            create_native_surface(config.native_layer);
+        if (config.native_surface_handle) {
+            create_native_surface(config.native_surface_handle);
         }
 
         // Request adapter (compatible with surface if we have one)
@@ -187,12 +187,12 @@ private:
     // of the SkSurface, and the per-frame SkSurface (frame_surface_) is
     // released in SkiaSurface::end_frame() before present.
 
-    void create_native_surface(void* native_layer) {
+    void create_native_surface(void* native_handle) {
 #ifdef __APPLE__
         // macOS/iOS: CAMetalLayer* → Metal surface via Dawn
         wgpu::SurfaceDescriptor surface_desc{};
         wgpu::SurfaceSourceMetalLayer metal_source{};
-        metal_source.layer = native_layer;
+        metal_source.layer = native_handle;
         surface_desc.nextInChain = &metal_source;
 
         surface_ = instance_.CreateSurface(&surface_desc);
@@ -206,7 +206,7 @@ private:
         wgpu::SurfaceDescriptor surface_desc{};
         wgpu::SurfaceSourceWindowsHWND hwnd_source{};
         hwnd_source.hinstance = GetModuleHandle(nullptr);
-        hwnd_source.hwnd = native_layer;  // caller passes HWND as void*
+        hwnd_source.hwnd = native_handle;  // caller passes HWND as void*
         surface_desc.nextInChain = &hwnd_source;
 
         surface_ = instance_.CreateSurface(&surface_desc);
@@ -224,10 +224,10 @@ private:
         //
         // For now, log that Linux surface creation requires platform integration.
         // SDL3 windowing will provide the native handles via SDL_GetWindowProperties().
-        (void)native_layer;
+        (void)native_handle;
         runtime::log_warn("GpuSurface: Linux surface creation requires platform-specific handle — use SDL3 integration");
 #else
-        (void)native_layer;
+        (void)native_handle;
 #endif
     }
 

@@ -287,7 +287,7 @@ private:
         render::GpuSurface::Config gpu_config{};
         gpu_config.width = static_cast<uint32_t>(width);
         gpu_config.height = static_cast<uint32_t>(height);
-        gpu_config.native_layer = (__bridge void*)metal_view_.metalLayer;
+        gpu_config.native_surface_handle = (__bridge void*)metal_view_.metalLayer;
 
         if (!gpu_surface_->initialize(gpu_config)) {
             gpu_surface_.reset();
