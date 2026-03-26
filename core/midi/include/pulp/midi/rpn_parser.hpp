@@ -49,7 +49,7 @@ public:
     /// Process a MIDI event. Non-CC events are ignored.
     void process(const MidiEvent& event) {
         auto msg = event.message;
-        if (!msg.isControllerMessage()) return;
+        if (!msg.isController()) return;
 
         uint8_t channel = msg.getChannel0to15();
         uint8_t cc = msg.getControllerNumber();

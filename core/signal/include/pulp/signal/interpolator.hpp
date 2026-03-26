@@ -44,21 +44,18 @@ struct Interpolator {
     /// Slightly different character than Hermite — no overshoot guarantee
     /// but mathematically exact for polynomials up to degree 3.
     static float lagrange(float frac, float ym1, float y0, float y1, float y2) {
+        // Nodes at x = -1, 0, 1, 2. Evaluate at x = frac (in [0,1]).
         float d = frac;
-        float dm1 = d - 1.0f;
-        float dm2 = d - 2.0f;
-        float dp1 = d + 1.0f;
+        // L_{-1}(d) = d(d-1)(d-2) / ((-1-0)(-1-1)(-1-2)) = d(d-1)(d-2) / (-1)(-2)(-3) = -d(d-1)(d-2)/6
+        float L0 = -d * (d - 1.0f) * (d - 2.0f) / 6.0f;
+        // L_0(d) = (d+1)(d-1)(d-2) / ((0+1)(0-1)(0-2)) = (d+1)(d-1)(d-2) / (1)(-1)(-2) = (d+1)(d-1)(d-2)/2
+        float L1 = (d + 1.0f) * (d - 1.0f) * (d - 2.0f) / 2.0f;
+        // L_1(d) = (d+1)d(d-2) / ((1+1)(1-0)(1-2)) = (d+1)d(d-2) / (2)(1)(-1) = -(d+1)d(d-2)/2
+        float L2 = -(d + 1.0f) * d * (d - 2.0f) / 2.0f;
+        // L_2(d) = (d+1)d(d-1) / ((2+1)(2-0)(2-1)) = (d+1)d(d-1) / (3)(2)(1) = (d+1)d(d-1)/6
+        float L3 = (d + 1.0f) * d * (d - 1.0f) / 6.0f;
 
-        return (-dm1 * dm2 * d * ym1
-                + dp1 * dm1 * dm2 * y0
-                - dp1 * d * dm2 * y1
-                + dp1 * d * dm1 * y2) / 6.0f;
-
-        // Lagrange basis:
-        // L_{-1} = d(d-1)(d-2) / (-1)(-2)(-3) = -d(d-1)(d-2)/6
-        // L_0    = (d+1)(d-1)(d-2) / (1)(-1)(-2) = (d+1)(d-1)(d-2)/2
-        // L_1    = (d+1)d(d-2) / (2)(1)(-1) = -(d+1)d(d-2)/2
-        // L_2    = (d+1)d(d-1) / (3)(2)(1) = (d+1)d(d-1)/6
+        return L0 * ym1 + L1 * y0 + L2 * y1 + L3 * y2;
     }
 
     /// Windowed-sinc interpolation (6-point).
