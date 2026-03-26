@@ -214,6 +214,15 @@ function(_pulp_add_vst3 target name bundle_id version manufacturer category)
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/${target}_Info.plist.vst3")
     endif()
 
+    # Write PkgInfo so Finder treats the .vst3 as an opaque bundle (not a folder)
+    if(APPLE)
+        add_custom_command(TARGET ${target}_VST3 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E echo "BNDL????" >
+                "$<TARGET_BUNDLE_DIR:${target}_VST3>/Contents/PkgInfo"
+            COMMENT "Writing PkgInfo into ${name}.vst3 bundle"
+        )
+    endif()
+
     # Copy moduleinfo.json if available
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/moduleinfo.json")
         add_custom_command(TARGET ${target}_VST3 POST_BUILD
@@ -313,6 +322,13 @@ function(_pulp_add_au target name bundle_id version manufacturer category plugin
         set_target_properties(${target}_AU PROPERTIES
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/${target}_Info.plist.au")
     endif()
+
+    # Write PkgInfo so Finder treats the .component as an opaque bundle (not a folder)
+    add_custom_command(TARGET ${target}_AU POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "BNDL????" >
+            "$<TARGET_BUNDLE_DIR:${target}_AU>/Contents/PkgInfo"
+        COMMENT "Writing PkgInfo into ${name}.component bundle"
+    )
 endfunction()
 
 # ── Internal: AUv3 app extension target ────────────────────────────────
