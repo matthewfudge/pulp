@@ -21,6 +21,7 @@ target_sources(pulp-view PRIVATE
     src/ui_components.cpp
     src/design_export.cpp
     src/app_framework.cpp
+    src/web_view.cpp
 )
 
 # CHOC headers (JS engine, utilities)
@@ -60,6 +61,7 @@ if(APPLE)
             "-framework Cocoa"
             "-framework ImageIO"
             "-framework UniformTypeIdentifiers"
+            "-framework WebKit"
         )
         # GPU rendering: link render module and Metal for CAMetalLayer-backed window host
         if(PULP_HAS_SKIA)
