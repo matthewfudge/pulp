@@ -210,6 +210,7 @@ add_subdirectory(core/format)
 add_subdirectory(core/canvas)
 add_subdirectory(core/view)
 add_subdirectory(core/osc)
+add_subdirectory(core/host)
 
 # ── Optional Subsystems ────────────────────────────────────────────────────
 if(PULP_ENABLE_GPU)

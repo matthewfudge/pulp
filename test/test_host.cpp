@@ -1,0 +1,146 @@
+#include <catch2/catch_test_macros.hpp>
+#include <pulp/host/scanner.hpp>
+#include <pulp/host/plugin_slot.hpp>
+#include <pulp/host/signal_graph.hpp>
+
+using namespace pulp::host;
+
+// ── Scanner tests ───────────────────────────────────────────────────────
+
+TEST_CASE("PluginScanner default paths", "[host][scanner]") {
+    SECTION("VST3 paths are non-empty on all platforms") {
+        auto paths = PluginScanner::default_paths(PluginFormat::VST3);
+#ifdef __APPLE__
+        REQUIRE(paths.size() >= 2); // user + system
+#elif defined(_WIN32)
+        REQUIRE(paths.size() >= 1);
+#elif defined(__linux__)
+        REQUIRE(paths.size() >= 2);
+#endif
+    }
+
+    SECTION("CLAP paths") {
+        auto paths = PluginScanner::default_paths(PluginFormat::CLAP);
+        REQUIRE_FALSE(paths.empty());
+    }
+}
+
+TEST_CASE("PluginScanner bundle detection", "[host][scanner]") {
+    REQUIRE(PluginScanner::is_plugin_bundle("MyPlugin.vst3", PluginFormat::VST3));
+    REQUIRE(PluginScanner::is_plugin_bundle("MyPlugin.clap", PluginFormat::CLAP));
+    REQUIRE(PluginScanner::is_plugin_bundle("MyPlugin.component", PluginFormat::AudioUnit));
+    REQUIRE(PluginScanner::is_plugin_bundle("MyPlugin.lv2", PluginFormat::LV2));
+    REQUIRE_FALSE(PluginScanner::is_plugin_bundle("MyPlugin.dll", PluginFormat::VST3));
+}
+
+TEST_CASE("PluginScanner scan runs without crash", "[host][scanner]") {
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_lv2 = false; // LV2 not typical in test environments
+    auto plugins = scanner.scan(opts);
+    // May find real plugins on the system — just verify no crash
+    REQUIRE(plugins.size() >= 0);
+}
+
+// ── PluginSlot tests ────────────────────────────────────────────────────
+
+TEST_CASE("PluginSlot load returns nullptr for stub", "[host][slot]") {
+    PluginInfo info;
+    info.name = "TestPlugin";
+    info.path = "/nonexistent/path.vst3";
+    info.format = PluginFormat::VST3;
+
+    auto slot = PluginSlot::load(info);
+    REQUIRE(slot == nullptr); // Stub always returns nullptr
+}
+
+// ── SignalGraph tests ───────────────────────────────────────────────────
+
+TEST_CASE("SignalGraph add and remove nodes", "[host][graph]") {
+    SignalGraph graph;
+
+    auto input = graph.add_input_node(2, "Input");
+    auto output = graph.add_output_node(2, "Output");
+
+    REQUIRE(graph.nodes().size() == 2);
+    REQUIRE(graph.node(input) != nullptr);
+    REQUIRE(graph.node(input)->name == "Input");
+    REQUIRE(graph.node(output)->type == NodeType::AudioOutput);
+
+    REQUIRE(graph.remove_node(input));
+    REQUIRE(graph.nodes().size() == 1);
+    REQUIRE(graph.node(input) == nullptr);
+}
+
+TEST_CASE("SignalGraph connections", "[host][graph]") {
+    SignalGraph graph;
+    auto a = graph.add_input_node(2);
+    auto b = graph.add_gain_node("Gain");
+    auto c = graph.add_output_node(2);
+
+    REQUIRE(graph.connect(a, 0, b, 0));
+    REQUIRE(graph.connect(b, 0, c, 0));
+    REQUIRE(graph.connections().size() == 2);
+
+    // Duplicate connection should fail
+    REQUIRE_FALSE(graph.connect(a, 0, b, 0));
+
+    // Disconnect
+    REQUIRE(graph.disconnect(a, 0, b, 0));
+    REQUIRE(graph.connections().size() == 1);
+}
+
+TEST_CASE("SignalGraph cycle detection", "[host][graph]") {
+    SignalGraph graph;
+    auto a = graph.add_input_node(2);
+    auto b = graph.add_gain_node();
+    auto c = graph.add_gain_node();
+
+    graph.connect(a, 0, b, 0);
+    graph.connect(b, 0, c, 0);
+
+    // c→a would create a cycle
+    REQUIRE(graph.would_create_cycle(c, a));
+    REQUIRE_FALSE(graph.connect(c, 0, a, 0));
+
+    // a→c is fine (already implied by existing path, but direct is ok)
+    REQUIRE_FALSE(graph.would_create_cycle(a, c));
+}
+
+TEST_CASE("SignalGraph topological sort", "[host][graph]") {
+    SignalGraph graph;
+    auto a = graph.add_input_node(2, "A");
+    auto b = graph.add_gain_node("B");
+    auto c = graph.add_output_node(2, "C");
+
+    graph.connect(a, 0, b, 0);
+    graph.connect(b, 0, c, 0);
+
+    auto order = graph.processing_order();
+    REQUIRE(order.size() == 3);
+    // A must come before B, B before C
+    auto pos_a = std::find(order.begin(), order.end(), a) - order.begin();
+    auto pos_b = std::find(order.begin(), order.end(), b) - order.begin();
+    auto pos_c = std::find(order.begin(), order.end(), c) - order.begin();
+    REQUIRE(pos_a < pos_b);
+    REQUIRE(pos_b < pos_c);
+}
+
+TEST_CASE("SignalGraph clear", "[host][graph]") {
+    SignalGraph graph;
+    graph.add_input_node(2);
+    graph.add_output_node(2);
+    graph.clear();
+    REQUIRE(graph.nodes().empty());
+    REQUIRE(graph.connections().empty());
+}
+
+TEST_CASE("SignalGraph MIDI nodes", "[host][graph]") {
+    SignalGraph graph;
+    auto midi_in = graph.add_midi_input_node("Keys");
+    auto midi_out = graph.add_midi_output_node("Out");
+
+    REQUIRE(graph.node(midi_in)->type == NodeType::MidiInput);
+    REQUIRE(graph.node(midi_out)->type == NodeType::MidiOutput);
+    REQUIRE(graph.connect(midi_in, 0, midi_out, 0));
+}

@@ -366,3 +366,8 @@ catch_discover_tests(pulp-test-webview)
 add_executable(pulp-test-ump-mpe test_ump_mpe.cpp)
 target_link_libraries(pulp-test-ump-mpe PRIVATE pulp::midi Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-ump-mpe)
+
+# Plugin hosting tests (scanner, signal graph)
+add_executable(pulp-test-host test_host.cpp)
+target_link_libraries(pulp-test-host PRIVATE pulp::host Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-host)
