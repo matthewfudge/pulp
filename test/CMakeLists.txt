@@ -226,6 +226,11 @@ add_executable(pulp-test-fast-math test_fast_math.cpp)
 target_link_libraries(pulp-test-fast-math PRIVATE pulp::signal Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-fast-math)
 
+# Polynomial/Matrix math tests
+add_executable(pulp-test-poly-math test_poly_math.cpp)
+target_link_libraries(pulp-test-poly-math PRIVATE pulp::signal Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-poly-math)
+
 # Preset browser UI tests
 add_executable(pulp-test-preset-browser test_preset_browser.cpp)
 target_link_libraries(pulp-test-preset-browser PRIVATE pulp::view Catch2::Catch2WithMain)

@@ -29,3 +29,4 @@
 #include <pulp/signal/interpolator.hpp>
 #include <pulp/signal/filter_design.hpp>
 #include <pulp/signal/fast_math.hpp>
+#include <pulp/signal/poly_math.hpp>
