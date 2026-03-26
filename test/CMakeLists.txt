@@ -391,3 +391,11 @@ target_include_directories(pulp-test-clap-webview PRIVATE
     ${CMAKE_SOURCE_DIR}/core/format/include
 )
 catch_discover_tests(pulp-test-clap-webview)
+
+# Web demo plugin tests (PulpPluck, PulpChorus)
+add_executable(pulp-test-web-demos test_web_demos.cpp)
+target_link_libraries(pulp-test-web-demos PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-web-demos PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/web-demos
+)
+catch_discover_tests(pulp-test-web-demos)

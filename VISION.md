@@ -389,8 +389,8 @@ Every phase ships a validation example that proves the framework works. These ex
 - Design token export (JSON, CSS, C++ headers, shader uniforms, OKLCH)
 - Undo/redo system (named actions, transactions, max history)
 
-**9 example projects:**
-- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, UI Preview, GPU Demo
+**10 example projects:**
+- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, UI Preview, GPU Demo, Web Demos (PulpPluck + PulpChorus)
 
 ### What is not yet implemented
 
