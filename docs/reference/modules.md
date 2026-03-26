@@ -53,9 +53,9 @@ Each algorithm is a standalone header-only class with no framework coupling.
 
 **Status**: stable
 **Dependencies**: runtime
-**Headers**: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`
+**Headers**: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`, `pulp/state/preset_manager.hpp`
 
-Thread-safe parameter system. `ParamValue` uses relaxed atomics for lock-free audio-thread reads. `StateStore` manages parameter registration, value access, gesture tracking, change notification, and binary state serialization. Supports modulation offsets (for CLAP per-voice modulation).
+Thread-safe parameter system. `ParamValue` uses relaxed atomics for lock-free audio-thread reads. `StateStore` manages parameter registration, value access, gesture tracking, change notification, and binary state serialization. Supports modulation offsets (for CLAP per-voice modulation). `PresetManager` provides built-in preset save/load/delete/rename/import with factory vs user separation, JSON file format, and platform-standard storage locations.
 
 ## format
 
@@ -93,11 +93,13 @@ GPU surface management. Creates Dawn (WebGPU) GPU contexts and Skia Graphite ren
 
 ## view
 
-**Status**: experimental
+**Status**: usable
 **Dependencies**: canvas, events, state
-**Headers**: `pulp/view/view.hpp`, `pulp/view/widgets.hpp`, `pulp/view/theme.hpp`, `pulp/view/script_engine.hpp`, `pulp/view/hot_reload.hpp`, `pulp/view/inspector.hpp`, `pulp/view/animation.hpp`, `pulp/view/audio_bridge.hpp`, `pulp/view/auto_ui.hpp`, `pulp/view/drag_drop.hpp`, `pulp/view/screenshot.hpp`, `pulp/view/window_host.hpp`
+**Headers**: `pulp/view/view.hpp`, `pulp/view/widgets.hpp`, `pulp/view/theme.hpp`, `pulp/view/script_engine.hpp`, `pulp/view/hot_reload.hpp`, `pulp/view/inspector.hpp`, `pulp/view/animation.hpp`, `pulp/view/audio_bridge.hpp`, `pulp/view/auto_ui.hpp`, `pulp/view/drag_drop.hpp`, `pulp/view/screenshot.hpp`, `pulp/view/window_host.hpp`, `pulp/view/input_events.hpp`, `pulp/view/text_editor.hpp`, `pulp/view/ui_components.hpp`, `pulp/view/modal.hpp`, `pulp/view/param_attachment.hpp`, `pulp/view/app_framework.hpp`, `pulp/view/design_export.hpp`
 
 Widget system with JS scripting (QuickJS), theme/design tokens, hot-reload, drag-and-drop, animation, screenshot capture, audio visualization bridge, automatic UI generation, and a component inspector. SDL window host available.
+
+Phase 14 additions: rich input events (MouseEvent/KeyEvent with modifiers and pointer IDs), full TextEditor widget (selection, clipboard, undo/redo, numeric/password modes), UI components (ComboBox, TabPanel, ListBox, ScrollView, Tooltip, ProgressBar, CallOutBox), modal overlay, parameter attachment helpers, application framework (KeyMapping, MenuBar, Toolbar, AppSettings), and design token export (JSON, CSS, C++, OKLCH, WGSL).
 
 ## osc
 
