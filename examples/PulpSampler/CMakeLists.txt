@@ -1,0 +1,29 @@
+# PulpSampler — audio file sampler with MIDI triggering and ADSR
+# CLAP only for now (like PulpSynth/PulpDrums)
+
+if(PULP_HAS_CLAP)
+    # CLAP plugin
+    add_library(PulpSampler_CLAP MODULE clap_entry.cpp)
+    target_link_libraries(PulpSampler_CLAP PRIVATE pulp::format pulp::signal clap)
+    target_include_directories(PulpSampler_CLAP PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(PulpSampler_CLAP PROPERTIES
+        BUNDLE TRUE
+        BUNDLE_EXTENSION "clap"
+        OUTPUT_NAME PulpSampler
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/CLAP"
+    )
+    if(APPLE)
+        set_target_properties(PulpSampler_CLAP PROPERTIES
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.pulp.sampler"
+            MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
+        )
+    endif()
+endif()
+
+# Test
+if(PULP_BUILD_TESTS)
+    add_executable(pulp-sampler-test test_pulp_sampler.cpp)
+    target_link_libraries(pulp-sampler-test PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
+    target_include_directories(pulp-sampler-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    catch_discover_tests(pulp-sampler-test)
+endif()

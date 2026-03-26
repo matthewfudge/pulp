@@ -22,5 +22,5 @@ add_subdirectory(PulpDrums)
 # Phase 7: PulpSynth (macro oscillator with DSP library)
 add_subdirectory(PulpSynth)
 
-# Phase 9: PulpSampler (YouTube audio sampler)
-# add_subdirectory(pulp-sampler)
+# Phase 17: PulpSampler (audio file sampler with MIDI + ADSR)
+add_subdirectory(PulpSampler)
