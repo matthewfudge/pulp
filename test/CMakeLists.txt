@@ -109,6 +109,13 @@ if(PULP_HAS_CLAP)
     catch_discover_tests(pulp-test-clap-entry)
 endif()
 
+# NSIS installer script generation tests (cross-platform — pure string output)
+add_executable(pulp-test-nsis-installer test_nsis_installer.cpp
+    ${CMAKE_SOURCE_DIR}/ship/platform/win/installer_win.cpp
+)
+target_link_libraries(pulp-test-nsis-installer PRIVATE pulp::ship Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-nsis-installer)
+
 # GPU surface tests
 if(PULP_ENABLE_GPU)
     add_executable(pulp-test-gpu-surface test_gpu_surface.cpp)
