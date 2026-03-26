@@ -2,11 +2,16 @@
 # Used by `pulp docs` CLI commands to resolve slugs to file paths
 
 docs:
-  # Concepts
+  # About
+  - slug: vision
+    path: concepts/vision.md
+    kind: concept
+    summary: Why Pulp exists, what it is, the full architecture and design decisions
+
   - slug: overview
     path: concepts/overview.md
     kind: concept
-    summary: What Pulp is, what it does today, how it is organized
+    summary: What Pulp does today — formats, platforms, features, test coverage
 
   - slug: architecture
     path: concepts/architecture.md

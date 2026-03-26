@@ -2,9 +2,13 @@
 
 ## What Is Pulp
 
-Pulp is a cross-platform framework for building audio plugins and applications. It is MIT-licensed with no royalties, revenue thresholds, or copyleft obligations.
+Pulp is a new MIT-licensed, cross-platform framework for building audio plugins and apps that is meant to feel modern from the ground up: modular, GPU-first, AI-friendly, and native on each platform rather than stuck in older framework assumptions.
 
-Pulp targets six plugin formats: VST3, Audio Unit v2, AUv3, CLAP, LV2, and WAMv2/WebCLAP (browser). macOS, Windows, and Linux are supported as build and deployment targets. Plugins can also run in web browsers via WebAssembly.
+The big idea is C++ at the core for audio and plugin formats, a native GPU UI layer with JS/TS for fast hot-reloadable interfaces, and a Swift-native path on Apple where that makes sense. It is designed so the same project can target major plugin formats and platforms, while also working well with CI, CLIs, and AI agents.
+
+In plain terms: it is an attempt to build the audio framework you would make today if you wanted JUCE-like reach, much more permissive licensing, better architecture, faster UI iteration, and tooling that fits how people actually build software now.
+
+See the [Vision](vision.html) page for the full architecture, design decisions, and roadmap.
 
 ## What It Does Today
 

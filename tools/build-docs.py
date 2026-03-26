@@ -234,7 +234,8 @@ def parse_docs_index(path: Path) -> list[dict]:
 # ── Navigation ────────────────────────────────────────────────────────────────
 
 NAV_SECTIONS = [
-    ('Overview', [
+    ('About', [
+        ('vision', 'Vision'),
         ('overview', 'Overview'),
         ('architecture', 'Architecture'),
     ]),
