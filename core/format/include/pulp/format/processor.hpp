@@ -170,6 +170,16 @@ public:
         midi::MidiBuffer& midi_out,
         const ProcessContext& context) = 0;
 
+    /// Editor support. By default, all processors have an auto-generated editor
+    /// built from their parameter definitions (using AutoUi). Override these to
+    /// customize or disable the editor.
+
+    /// Whether this processor has a GUI editor. Default true (AutoUi).
+    virtual bool has_editor() const { return true; }
+
+    /// Preferred editor window size in logical pixels.
+    virtual std::pair<uint32_t, uint32_t> editor_size() const { return {400, 300}; }
+
     /// Access the parameter state store.
     /// Use state().get_value(id) to read parameter values in process().
     state::StateStore& state() { return *state_store_; }

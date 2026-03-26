@@ -253,7 +253,8 @@ function(_pulp_add_clap target name bundle_id version manufacturer category)
         ${clap_entry}
         ${CMAKE_SOURCE_DIR}/core/format/src/clap_adapter.cpp
     )
-    target_link_libraries(${target}_CLAP PRIVATE ${target}_Core pulp::format clap)
+    target_link_libraries(${target}_CLAP PRIVATE ${target}_Core pulp::format pulp::view clap)
+    target_compile_definitions(${target}_CLAP PRIVATE PULP_CLAP_GUI=1)
     target_include_directories(${target}_CLAP PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     set_target_properties(${target}_CLAP PROPERTIES

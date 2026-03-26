@@ -13,6 +13,9 @@
 #include <pulp/format/registry.hpp>
 #include <pulp/format/clap_adapter.hpp>
 #include <pulp/runtime/log.hpp>
+#ifdef PULP_CLAP_GUI
+#include <pulp/view/auto_ui.hpp>
+#endif
 #include <clap/clap.h>
 #include <cstring>
 #include <cstdio>
@@ -232,8 +235,166 @@ inline uint32_t tail_get(const clap_plugin_t* plugin) {
 
 inline const clap_plugin_tail_t tail_ext = { .get = tail_get };
 
+// ── GUI extension (only in plugin targets that define PULP_CLAP_GUI) ──
+
+#ifdef PULP_CLAP_GUI
+
+inline bool gui_is_api_supported(const clap_plugin_t*, const char* api, bool is_floating) {
+    if (is_floating) return false;
+#ifdef __APPLE__
+    return strcmp(api, CLAP_WINDOW_API_COCOA) == 0;
+#elif defined(_WIN32)
+    return strcmp(api, CLAP_WINDOW_API_WIN32) == 0;
+#elif defined(__linux__)
+    return strcmp(api, CLAP_WINDOW_API_X11) == 0;
+#else
+    (void)api;
+    return false;
+#endif
+}
+
+inline bool gui_get_preferred_api(const clap_plugin_t*, const char** api, bool* is_floating) {
+    *is_floating = false;
+#ifdef __APPLE__
+    *api = CLAP_WINDOW_API_COCOA;
+#elif defined(_WIN32)
+    *api = CLAP_WINDOW_API_WIN32;
+#elif defined(__linux__)
+    *api = CLAP_WINDOW_API_X11;
+#else
+    return false;
+#endif
+    return true;
+}
+
+inline bool gui_create(const clap_plugin_t* plugin, const char*, bool) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!p->processor || !p->processor->has_editor()) return false;
+
+    // Build AutoUi from the processor's parameters
+    p->editor_root = view::AutoUi::build(p->store);
+    if (!p->editor_root) return false;
+
+    auto [w, h] = p->processor->editor_size();
+    view::PluginViewHost::Options opts;
+    opts.size = {w, h};
+    opts.use_gpu = false;  // Start with CoreGraphics; GPU opt-in later
+
+    p->editor_host = view::PluginViewHost::create(*p->editor_root, opts);
+    return p->editor_host != nullptr;
+}
+
+inline void gui_destroy(const clap_plugin_t* plugin) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    p->editor_host.reset();
+    p->editor_root.reset();
+    p->editor_visible = false;
+}
+
+inline bool gui_set_scale(const clap_plugin_t*, double) {
+    return false;  // Cocoa uses logical pixels — no explicit scaling needed
+}
+
+inline bool gui_get_size(const clap_plugin_t* plugin, uint32_t* width, uint32_t* height) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!p->processor) return false;
+    auto [w, h] = p->processor->editor_size();
+    *width = w;
+    *height = h;
+    return true;
+}
+
+inline bool gui_can_resize(const clap_plugin_t*) { return false; }
+
+inline bool gui_get_resize_hints(const clap_plugin_t*, clap_gui_resize_hints_t*) {
+    return false;
+}
+
+inline bool gui_adjust_size(const clap_plugin_t*, uint32_t*, uint32_t*) {
+    return false;
+}
+
+inline bool gui_set_size(const clap_plugin_t* plugin, uint32_t width, uint32_t height) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (p->editor_host) {
+        p->editor_host->set_size(width, height);
+        return true;
+    }
+    return false;
+}
+
+inline bool gui_set_parent(const clap_plugin_t* plugin, const clap_window_t* window) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!p->editor_host) return false;
+
+#ifdef __APPLE__
+    if (strcmp(window->api, CLAP_WINDOW_API_COCOA) == 0) {
+        p->editor_host->attach_to_parent(window->cocoa);
+        return true;
+    }
+#elif defined(_WIN32)
+    if (strcmp(window->api, CLAP_WINDOW_API_WIN32) == 0) {
+        p->editor_host->attach_to_parent(window->win32);
+        return true;
+    }
+#elif defined(__linux__)
+    if (strcmp(window->api, CLAP_WINDOW_API_X11) == 0) {
+        p->editor_host->attach_to_parent(reinterpret_cast<void*>(window->x11));
+        return true;
+    }
+#endif
+    return false;
+}
+
+inline bool gui_set_transient(const clap_plugin_t*, const clap_window_t*) {
+    return false;  // No floating window support
+}
+
+inline void gui_suggest_title(const clap_plugin_t*, const char*) {
+    // No-op for embedded windows
+}
+
+inline bool gui_show(const clap_plugin_t* plugin) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (p->editor_host) {
+        p->editor_visible = true;
+        p->editor_host->repaint();
+        return true;
+    }
+    return false;
+}
+
+inline bool gui_hide(const clap_plugin_t* plugin) {
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    p->editor_visible = false;
+    return true;
+}
+
+inline const clap_plugin_gui_t gui_ext = {
+    .is_api_supported = gui_is_api_supported,
+    .get_preferred_api = gui_get_preferred_api,
+    .create = gui_create,
+    .destroy = gui_destroy,
+    .set_scale = gui_set_scale,
+    .get_size = gui_get_size,
+    .can_resize = gui_can_resize,
+    .get_resize_hints = gui_get_resize_hints,
+    .adjust_size = gui_adjust_size,
+    .set_size = gui_set_size,
+    .set_parent = gui_set_parent,
+    .set_transient = gui_set_transient,
+    .suggest_title = gui_suggest_title,
+    .show = gui_show,
+    .hide = gui_hide,
+};
+
+#endif // PULP_CLAP_GUI
+
 // ── Extension dispatch ─────────────────────────────────────────────────
 inline const void* get_extension(const clap_plugin_t*, const char* id) {
+#ifdef PULP_CLAP_GUI
+    if (strcmp(id, CLAP_EXT_GUI) == 0) return &gui_ext;
+#endif
     if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &audio_ports_ext;
     if (strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &note_ports_ext;
     if (strcmp(id, CLAP_EXT_PARAMS) == 0) return &params_ext;

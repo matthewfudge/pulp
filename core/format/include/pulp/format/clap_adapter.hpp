@@ -8,6 +8,12 @@
 #include <pulp/state/preset_manager.hpp>
 #include <clap/clap.h>
 
+// View includes only when building plugin targets (not the shared format lib)
+#ifdef PULP_CLAP_GUI
+#include <pulp/view/plugin_view_host.hpp>
+#include <pulp/view/view.hpp>
+#endif
+
 namespace pulp::format::clap_adapter {
 
 static constexpr int kMaxChannels = 8;
@@ -32,6 +38,14 @@ struct PulpClapPlugin {
 
     // Preset management (optional — set by plugins that provide presets)
     std::unique_ptr<state::PresetManager> preset_manager;
+
+    // Editor state (created on GUI create, destroyed on GUI destroy)
+    // Only available in plugin targets that link pulp::view
+#ifdef PULP_CLAP_GUI
+    std::unique_ptr<view::View> editor_root;
+    std::unique_ptr<view::PluginViewHost> editor_host;
+#endif
+    bool editor_visible = false;
 };
 
 // CLAP entry point and factory
