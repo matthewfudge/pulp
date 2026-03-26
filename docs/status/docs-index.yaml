@@ -144,6 +144,16 @@ docs:
     kind: guide
     summary: UI Preview — standalone app for view/widget rendering pipeline
 
+  - slug: example-screenshots
+    path: examples/screenshots.md
+    kind: guide
+    summary: Example plugin screenshots — visual documentation and capture script
+
+  - slug: gpu-validation
+    path: guides/gpu-validation-checklist.md
+    kind: guide
+    summary: GPU rendering validation — verified vs experimental per platform
+
   # Reference
   - slug: cli
     path: reference/cli.md
