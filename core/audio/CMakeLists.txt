@@ -41,4 +41,22 @@ elseif(UNIX AND NOT APPLE)
     )
     find_package(ALSA REQUIRED)
     target_link_libraries(pulp-audio PRIVATE ALSA::ALSA)
+
+    # Optional JACK support — preferred when available (lower latency, inter-app routing)
+    # Also works with PipeWire's JACK compatibility layer
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(JACK QUIET jack)
+    endif()
+    if(JACK_FOUND)
+        target_sources(pulp-audio PRIVATE
+            platform/linux/jack_device.cpp
+        )
+        target_include_directories(pulp-audio PRIVATE ${JACK_INCLUDE_DIRS})
+        target_link_libraries(pulp-audio PRIVATE ${JACK_LIBRARIES})
+        target_compile_definitions(pulp-audio PRIVATE PULP_HAS_JACK=1)
+        message(STATUS "Pulp: JACK audio support enabled")
+    else()
+        message(STATUS "Pulp: JACK not found — ALSA-only audio")
+    endif()
 endif()

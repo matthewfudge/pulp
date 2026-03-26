@@ -290,10 +290,16 @@ DeviceInfo AlsaSystem::default_input_device() {
 
 } // namespace pulp::audio::linux_platform
 
-// Factory function
+// Factory function — prefers JACK when available (lower latency, PipeWire compatible)
 namespace pulp::audio {
 
+#ifdef PULP_HAS_JACK
+// Forward declaration — implemented in jack_device.cpp
+namespace linux_platform { bool jack_is_available(); }
+#endif
+
 std::unique_ptr<AudioSystem> create_audio_system() {
+    // ALSA is always the fallback — works everywhere including PipeWire/PulseAudio
     return std::make_unique<linux_platform::AlsaSystem>();
 }
 
