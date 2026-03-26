@@ -356,6 +356,15 @@ target_link_libraries(pulp-test-golden-effect PRIVATE pulp::format Catch2::Catch
 target_include_directories(pulp-test-golden-effect PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-effect)
 catch_discover_tests(pulp-test-golden-effect)
 
+# Negative-path tests (NaN, Inf, extreme sample rates, edge cases)
+add_executable(pulp-test-negative-path test_negative_path.cpp)
+target_link_libraries(pulp-test-negative-path PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-negative-path PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/pulp-gain
+    ${CMAKE_SOURCE_DIR}/examples/pulp-tone
+)
+catch_discover_tests(pulp-test-negative-path)
+
 # iOS foundation tests (platform detection, safe area geometry, touch events)
 add_executable(pulp-test-ios-foundation test_ios_foundation.cpp)
 target_link_libraries(pulp-test-ios-foundation PRIVATE pulp::view pulp::platform Catch2::Catch2WithMain)
