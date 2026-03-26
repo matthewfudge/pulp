@@ -234,6 +234,12 @@ if(PULP_BUILD_PYTHON)
     add_subdirectory(bindings/python)
 endif()
 
+# ── Node.js Bindings ──────────────────────────────────────────────────────
+option(PULP_BUILD_NODEJS "Build Node.js bindings via Node-API" OFF)
+if(PULP_BUILD_NODEJS)
+    add_subdirectory(bindings/nodejs)
+endif()
+
 # ── Examples ────────────────────────────────────────────────────────────────
 if(PULP_BUILD_EXAMPLES)
     add_subdirectory(examples)
