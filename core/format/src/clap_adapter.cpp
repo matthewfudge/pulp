@@ -21,9 +21,9 @@ bool clap_init(const clap_plugin_t* plugin) {
     self->processor->define_parameters(self->store);
 
     // Create PresetManager from plugin descriptor
-    auto& desc = self->processor->descriptor();
+    auto desc = self->processor->descriptor();
     self->preset_manager = std::make_unique<state::PresetManager>(
-        self->store, desc.vendor, desc.name);
+        self->store, desc.manufacturer, desc.name);
 
     runtime::log_info("CLAP: initialized '{}'", desc.name);
     return true;
