@@ -29,6 +29,11 @@ docs:
     kind: guide
     summary: Running tests, validation, writing new tests
 
+  - slug: parameters
+    path: guides/parameters.md
+    kind: guide
+    summary: State and parameter system — ParamValue, StateStore, Binding, serialization
+
   - slug: docs-maintenance
     path: guides/docs-maintenance.md
     kind: guide
