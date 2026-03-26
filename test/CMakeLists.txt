@@ -211,6 +211,11 @@ add_executable(pulp-test-preset-manager test_preset_manager.cpp)
 target_link_libraries(pulp-test-preset-manager PRIVATE pulp::state Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-preset-manager)
 
+# Preset browser UI tests
+add_executable(pulp-test-preset-browser test_preset_browser.cpp)
+target_link_libraries(pulp-test-preset-browser PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-preset-browser)
+
 # DSP expansion tests (FIR, Ballistics, LogRamp, ProcessorChain, LookupTable, TPT)
 add_executable(pulp-test-dsp-expansion test_dsp_expansion.cpp)
 target_link_libraries(pulp-test-dsp-expansion PRIVATE pulp::signal Catch2::Catch2WithMain)
