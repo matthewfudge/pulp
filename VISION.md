@@ -52,18 +52,18 @@ Pulp's primary UI path uses native GPU rendering — WebGPU via Dawn, with Skia 
 
 What you get:
 
-- **Hot-reload** — change a color, a layout, a widget style, and see it instantly. No recompile.
-- **Cross-platform from one codebase** — same JS UI runs on macOS (Metal), Windows (D3D12), Linux (Vulkan), iOS (Metal), and the web (WebGPU).
-- **Platform-adaptive JS engine** — QuickJS, V8, or JavaScriptCore, selected per platform for the best balance of startup time and performance.
-- **Themeable widgets designed for audio** — knobs, faders, meters, toggles, and controls that understand audio UX conventions.
-- **Audio visualization built in** — lock-free queues from the audio thread, STFT abstractions, metering ballistics, waveform and spectral display primitives.
-- **Post-processing effects** — bloom, blur, CRT simulation, and other GPU shader effects on the UI.
-- **Native integration where it matters** — file dialogs, message boxes, and popup menus use the platform's native UI. Or render your own.
-- **Multi-window support** — floating palettes, inspectors, custom popups, multi-monitor workflows.
-- **Accessible by default** — cross-platform accessibility built into the widget system.
-- **WebView support** — for embedding web content (Monaco editor, documentation panels) when you actually want a browser context.
+- **Hot-reload** — tweak a color, rearrange a layout, restyle a widget — see the result instantly without recompiling C++.
+- **One UI, every platform** — the same JS UI renders through Metal on macOS/iOS, D3D12 on Windows, Vulkan on Linux, and WebGPU in browsers.
+- **JS engine per platform** — QuickJS for fast cold-start in plugins, with V8 or JavaScriptCore available where throughput matters more.
+- **Audio-native widget library** — rotary knobs, linear faders, level meters, toggles, and parameter controls built around the conventions plugin users expect.
+- **Real-time visualization pipeline** — lock-free data flow from the audio thread, built-in metering ballistics, FFT/STFT helpers, waveform and spectrum display widgets.
+- **GPU shader effects on UI** — apply blur, glow, shadow, color grading, or custom post-processing passes to any layer of the interface.
+- **Platform-native where appropriate** — file pickers, alert dialogs, and context menus delegate to the OS rather than re-implementing them in the GPU layer.
+- **Multiple windows** — detachable palettes, floating inspectors, custom popovers, and multi-display layouts.
+- **Accessibility from the start** — every widget exposes roles, labels, and values to platform screen readers (VoiceOver, Narrator, Orca).
+- **Optional WebView embedding** — for cases where you genuinely want browser content (code editors, documentation panels, HTML previews).
 
-This is the developer experience of the web — hot-reload, JS/TS, CSS-like theming — without the browser runtime baggage.
+The result is the rapid iteration loop of web development — JS/TS, token-based theming, instant feedback — running on a native GPU renderer with none of the overhead of an embedded browser.
 
 ### The Design Workflow
 
@@ -92,19 +92,15 @@ The boundary is clean: C++ owns the real-time audio thread (no ARC, no allocatio
 
 ### Plugins as CLIs and MCP Servers
 
-Every Pulp plugin compiles to a command-line tool and exposes an MCP (Model Context Protocol) server. This means any AI agent — Claude Code, Codex, a custom script — can:
+Every Pulp plugin compiles to a command-line tool and exposes an MCP (Model Context Protocol) server. This gives AI agents and automation scripts direct access to the plugin's capabilities:
 
-- **Query a plugin's parameters and current state**
-- **Adjust parameters programmatically and hear the results**
-- **Process audio files through the plugin**
-- **Send MIDI notes and control changes**
-- **Capture screenshots of the UI at any state**
-- **Validate expected behavior automatically**
-- **Compare A/B settings**
+- **Read and write parameters** — inspect the full parameter tree, change values, observe the effect
+- **Run audio through the processing chain** — feed WAV files in, get processed audio out, no DAW required
+- **Drive MIDI input** — trigger notes, send CCs, test instrument behavior programmatically
+- **Screenshot the UI** — capture the rendered interface at any parameter state for visual regression
+- **Automate testing workflows** — CI pipelines can load, configure, process, and verify plugin output end-to-end
 
-The CLI is useful on its own — batch processing, headless rendering, integration testing, CI validation. The MCP server extends it for AI agent workflows. This transforms plugin development from a manual, GUI-driven workflow into something that can be scripted, automated, and iterated upon by AI.
-
-The plugin, the CLI, and the MCP server are the same binary. No separate tooling to maintain.
+The CLI stands on its own for batch processing, headless rendering, and CI validation. The MCP server layers on top for AI-driven workflows. One binary serves all three roles — plugin, CLI, and MCP server — so there's nothing extra to build or maintain.
 
 ### Web and WASM
 
@@ -116,14 +112,9 @@ Use cases: interactive web demos, browser-based audio tools, embeddable plugin p
 
 ### WebGPU Compute for Audio
 
-WebGPU isn't just for graphics. Compute shaders provide direct access to GPU parallel processing:
+Since Pulp already uses Dawn for rendering, the GPU compute pipeline is available for audio workloads too. Compute shaders open up massively parallel DSP that would be impractical on the CPU alone — thousands of oscillator partials for additive synthesis, GPU-side FFTs for spectral processing, waveguide mesh networks for physical modeling, or neural network inference for learned audio effects.
 
-- **Additive synthesis** — summing thousands of partials in parallel
-- **FFT-based processing** — spectral analysis and resynthesis on the GPU
-- **Physical modeling** — large-scale waveguide networks and modal synthesis
-- **ML inference** — running trained models for amp simulation, source separation, generative audio
-
-This is exploration territory — pushing boundaries. But the architecture enables it from day one. The cross-platform nature of WebGPU means these compute workloads run on Vulkan, Metal, and D3D12 backends without code changes.
+This is forward-looking work, not a launch feature. But the plumbing is already in place: Dawn abstracts across Metal, Vulkan, and D3D12, so a compute kernel written once deploys everywhere the renderer does.
 
 ### Modular, Not Monolithic
 
@@ -259,21 +250,13 @@ The audio development ecosystem needs permissive infrastructure. AGPL forces sou
 
 ### Why C++20?
 
-Concepts for plugin interfaces (compile-time validation without virtual function overhead). `std::span`, `std::filesystem`, `std::jthread` where they fit. No parallel standard library — use what the language provides, add only what's missing.
+C++20 gives us the language features that make a modern plugin framework practical: `std::span` for non-owning buffer views, `std::jthread` for RAII-managed background threads, `<format>` for logging, and designated initializers for readable plugin descriptors. We lean on the standard library rather than reinventing it.
 
 ### Why GPU Rendering with JS, Not Web Views?
 
-Web views (WKWebView, WebView2) have real advantages: hot-reload, familiar tooling. But the runtime implications are hard to ignore:
+Embedding a browser engine in a plugin is tempting — you get hot-reload, familiar tooling, and a massive ecosystem. But every DAW developer who's opened Activity Monitor after loading a few web-view plugins knows the cost. Each instance brings its own renderer process, its own caches written to disk, its own tens of megabytes of idle memory. The C++ ↔ JavaScript bridge requires serialization across process boundaries. Real-time audio visualization has to cross that bridge on every frame. And you inherit the browser's security model — content security policies, cross-origin restrictions — designed for untrusted web content, not for a knob that lives inside your DAW.
 
-- **Cache pollution** — web views dump cache files per-plugin into system locations
-- **Process explosion** — open a web view plugin on Windows, watch your DAW spawn a constellation of subprocesses
-- **Bridging pain** — communicating between the web view and your C++ DSP is confusing and error-prone
-- **Visualization bottlenecks** — getting real-time audio data to a browser frontend efficiently is hard
-- **First-load jank** — unavoidable flicker when the web view initializes
-- **Memory overhead** — 50–100MB+ idle, even for simple UIs
-- **Security sandboxing** — CORS, CSP, and other web policies that make no sense in a plugin
-
-Pulp sidesteps all of this with native GPU rendering driven by a JS scripting layer — the developer experience of the web without the browser runtime baggage.
+Pulp takes a different path: native GPU rendering (WebGPU via Dawn, Skia Graphite for 2D) with an embedded JS engine (QuickJS) running in-process. No browser. No IPC. No subprocess tree. Your UI code is JavaScript, so you get hot-reload and rapid iteration. But the rendering is native GPU at full frame rate, the JS engine shares the plugin's address space, and audio data flows to visualization widgets through lock-free queues — no serialization, no bridge latency.
 
 ### Why Plugins as CLIs and MCP Servers?
 
