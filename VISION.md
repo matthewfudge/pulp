@@ -296,11 +296,35 @@ ASIO on Windows supported when developers provide the Steinberg SDK independentl
 
 ## What Pulp Is Not
 
-Pulp is not a fork of any existing framework. This is a clean-room design informed by experience, implemented independently from specification.
+Pulp is not a fork of any existing framework. It is a clean-room implementation informed by experience with existing tools, built independently from specification.
 
 Pulp is not a wrapper. It implements audio I/O, MIDI, plugin formats, rendering, and UI from the ground up — using permissively-licensed format SDKs (VST3 under MIT, AudioUnit under Apache 2.0, CLAP under MIT).
 
-Pulp is not finished. This is the beginning of a serious, phased engineering effort. The architecture is specified. The roadmap is defined. The work is starting.
+Pulp is not finished, and it is not yet competitive with mature frameworks on all fronts. It is an alpha-stage project that works well enough to ship real plugins but still has rough edges, missing features, and architecture that is evolving.
+
+---
+
+## Inspiration and Acknowledgements
+
+Pulp didn't emerge in a vacuum. It draws on years of experience building plugins with existing tools, and on studying projects that got specific things right. Being honest about that matters.
+
+**iPlug2** and the upcoming **iPlug3** by Oli Larkin are the closest peers in terms of ambition — multi-format, multi-platform, permissively licensed, with serious GPU rendering. iPlug3 in particular has converged on a very similar rendering stack (Dawn/Skia/QuickJS). Pulp will almost certainly be less mature and less battle-tested than iPlug3 for the foreseeable future. The projects share architectural conclusions because those conclusions are correct, not because one copied the other. We study iPlug2/3 for patterns and architecture inspiration — never for code.
+
+**Visage** (Oli Larkin's GPU UI framework) informed our thinking about Metal view embedding, multi-touch on iOS, keyboard handling in DAW hosts, and the general shape of a GPU-accelerated widget system. We reference the Visage source for patterns and have documented which patterns we studied and how we reimplemented them independently.
+
+**JUCE** is the dominant framework that Pulp is designed to be an alternative to. Years of building plugins with JUCE — and maintaining projects like [JUCE-Plugin-Starter](https://github.com/niclamusic/JUCE-Plugin-Starter) and the juce-dev tooling — taught us what works, what doesn't, and what we'd change if starting over. Pulp follows strict clean-room rules: we never reference JUCE source during implementation. But the experience of using JUCE daily is what made Pulp's requirements clear.
+
+**WebCLAP** (the [WebCLAP organization](https://github.com/WebCLAP)) defined the approach for running CLAP plugins in WebAssembly. Pulp's WCLAP support follows their spec directly. The [signalsmith-clap-cpp](https://github.com/geraintluff/signalsmith-clap-cpp) examples by Geraint Luff showed how the WASI SDK build pipeline works in practice and how the draft CLAP webview extension enables plugin UIs in the browser.
+
+**WAMv2** (the [Web Audio Modules](https://www.webaudiomodules.com) standard) defined how audio plugins work in browsers. Pulp's WAMv2 adapter follows their API specification.
+
+**CLAP** by the [Clever Audio](https://cleveraudio.org) team is the plugin format Pulp leans on most heavily for new features — modulation, per-note control, presets, the webview extension. The CLAP community's openness and willingness to evolve the spec is a big part of why Pulp exists.
+
+**CHOC** by Tracktion provides battle-tested header-only utilities (JS engine abstraction, MIDI, audio file I/O, WebView, threading) that Pulp uses extensively rather than reinventing.
+
+**Dawn** (Google's WebGPU implementation) and **Skia** (Google's 2D rendering engine) are the foundation of Pulp's GPU rendering stack. The [skia-builder](https://github.com/niclamusic/skia-builder) pre-built binaries make this practical for a small project.
+
+The honest positioning: Pulp is a learning project that became a real framework. It started as an exercise in understanding what a modern audio framework would look like if you designed it today with AI tools, GPU rendering, and permissive licensing as first-class concerns. It is less mature than JUCE, less battle-tested than iPlug2, and probably less technically sophisticated than iPlug3. What it offers is a different set of priorities: MIT licensing without asterisks, a codebase that was built with AI-assisted development from day one, and an architecture that treats the browser as a first-class deployment target alongside native DAWs.
 
 ---
 
