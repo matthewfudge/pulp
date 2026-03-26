@@ -4,57 +4,45 @@
 #include <pulp/format/processor.hpp>
 #include <pulp/state/store.hpp>
 
+using namespace pulp;
 using namespace pulp::format;
 using namespace pulp::format::lv2_adapter;
 using Catch::Matchers::ContainsSubstring;
 
-// Test processor for LV2 adapter tests
-class TestLv2Processor : public Processor {
-public:
-    PluginDescriptor descriptor() const override {
-        return {
-            .name = "TestLv2",
-            .manufacturer = "Pulp",
-            .bundle_id = "com.pulp.test-lv2",
-            .version = "1.0.0",
-            .category = PluginCategory::Effect,
-            .input_buses = {{"Audio In", 2}},
-            .output_buses = {{"Audio Out", 2}},
-            .accepts_midi = false,
-            .produces_midi = false,
-        };
-    }
+// Helper: build a test descriptor and store without needing a Processor subclass
+static PluginDescriptor make_effect_desc() {
+    PluginDescriptor desc;
+    desc.name = "TestLv2";
+    desc.manufacturer = "Pulp";
+    desc.bundle_id = "com.pulp.test-lv2";
+    desc.version = "1.0.0";
+    desc.category = PluginCategory::Effect;
+    desc.input_buses = {{"Audio In", 2}};
+    desc.output_buses = {{"Audio Out", 2}};
+    desc.accepts_midi = false;
+    desc.produces_midi = false;
+    return desc;
+}
 
-    void define_parameters(state::StateStore& store) override {
-        store.add_parameter({
-            .id = 1,
-            .name = "Gain",
-            .unit = "dB",
-            .range = {-60.0f, 24.0f, 0.0f, 0.1f},
-        });
-        store.add_parameter({
-            .id = 2,
-            .name = "Mix",
-            .unit = "%",
-            .range = {0.0f, 100.0f, 100.0f},
-        });
-    }
-
-    void prepare(const PrepareContext&) override {}
-
-    void process(
-        audio::BufferView<float>&,
-        const audio::BufferView<const float>&,
-        midi::MidiBuffer&,
-        midi::MidiBuffer&,
-        const ProcessContext&) override {}
-};
+static void add_test_params(state::StateStore& store) {
+    store.add_parameter({
+        .id = 1,
+        .name = "Gain",
+        .unit = "dB",
+        .range = {-60.0f, 24.0f, 0.0f, 0.1f},
+    });
+    store.add_parameter({
+        .id = 2,
+        .name = "Mix",
+        .unit = "%",
+        .range = {0.0f, 100.0f, 100.0f},
+    });
+}
 
 TEST_CASE("LV2 TTL generation produces valid plugin.ttl", "[format][lv2]") {
-    TestLv2Processor proc;
+    auto desc = make_effect_desc();
     state::StateStore store;
-    proc.define_parameters(store);
-    auto desc = proc.descriptor();
+    add_test_params(store);
 
     auto ttl = generate_plugin_ttl(desc, store, "http://pulp.audio/plugins/test-lv2");
 
@@ -117,10 +105,9 @@ TEST_CASE("LV2 manifest.ttl generation", "[format][lv2]") {
 }
 
 TEST_CASE("LV2 TTL port indices are sequential", "[format][lv2]") {
-    TestLv2Processor proc;
+    auto desc = make_effect_desc();
     state::StateStore store;
-    proc.define_parameters(store);
-    auto desc = proc.descriptor();
+    add_test_params(store);
 
     auto ttl = generate_plugin_ttl(desc, store, "http://pulp.audio/plugins/test");
 

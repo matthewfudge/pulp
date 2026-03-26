@@ -12,6 +12,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Required on Linux: static libraries linked into shared objects (.clap, .so) need PIC
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # ── Platform Detection ──────────────────────────────────────────────────────
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")

@@ -60,11 +60,11 @@ inline LV2_Handle instantiate(
     auto desc = inst->processor->descriptor();
     inst->num_audio_inputs = 0;
     for (const auto& bus : desc.input_buses) {
-        inst->num_audio_inputs += bus.channel_count;
+        inst->num_audio_inputs += bus.default_channels;
     }
     inst->num_audio_outputs = 0;
     for (const auto& bus : desc.output_buses) {
-        inst->num_audio_outputs += bus.channel_count;
+        inst->num_audio_outputs += bus.default_channels;
     }
 
     // Prepare the processor

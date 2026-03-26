@@ -150,10 +150,12 @@ add_executable(pulp-test-theme test_theme.cpp)
 target_link_libraries(pulp-test-theme PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-theme)
 
-# Screenshot tests
-add_executable(pulp-test-screenshot test_screenshot.cpp)
-target_link_libraries(pulp-test-screenshot PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-screenshot)
+# Screenshot tests (macOS only — uses CoreGraphics bitmap context)
+if(APPLE)
+    add_executable(pulp-test-screenshot test_screenshot.cpp)
+    target_link_libraries(pulp-test-screenshot PRIVATE pulp::view Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-screenshot)
+endif()
 
 # Canvas tests
 add_executable(pulp-test-canvas test_canvas.cpp)

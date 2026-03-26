@@ -57,7 +57,7 @@ std::string generate_plugin_ttl(const PluginDescriptor& desc,
 
     // Audio input ports
     for (const auto& bus : desc.input_buses) {
-        for (int ch = 0; ch < bus.channel_count; ++ch) {
+        for (int ch = 0; ch < bus.default_channels; ++ch) {
             if (port_index > 0) ttl << " ,\n";
             else ttl << "    lv2:port\n";
             ttl << "    [\n";
@@ -72,7 +72,7 @@ std::string generate_plugin_ttl(const PluginDescriptor& desc,
 
     // Audio output ports
     for (const auto& bus : desc.output_buses) {
-        for (int ch = 0; ch < bus.channel_count; ++ch) {
+        for (int ch = 0; ch < bus.default_channels; ++ch) {
             if (port_index > 0) ttl << " ,\n";
             else ttl << "    lv2:port\n";
             ttl << "    [\n";
@@ -86,7 +86,7 @@ std::string generate_plugin_ttl(const PluginDescriptor& desc,
     }
 
     // Control ports for parameters
-    auto params = store.all_parameters();
+    auto params = store.all_params();
     for (const auto& param : params) {
         ttl << " ,\n";
         ttl << "    [\n";
