@@ -303,9 +303,15 @@ private:
         gpu_surface_ = render::GpuSurface::create_dawn();
         if (!gpu_surface_) return;
 
+        // Configure GpuSurface at PHYSICAL pixel dimensions to match
+        // the CAMetalLayer's drawableSize (which is logical * scale)
+        CGFloat scale = metal_view_.metalLayer.contentsScale;
+        uint32_t phys_w = static_cast<uint32_t>(width * scale);
+        uint32_t phys_h = static_cast<uint32_t>(height * scale);
+
         render::GpuSurface::Config gpu_config{};
-        gpu_config.width = static_cast<uint32_t>(width);
-        gpu_config.height = static_cast<uint32_t>(height);
+        gpu_config.width = phys_w;
+        gpu_config.height = phys_h;
         gpu_config.native_surface_handle = (__bridge void*)metal_view_.metalLayer;
 
         if (!gpu_surface_->initialize(gpu_config)) {
@@ -313,7 +319,9 @@ private:
             return;
         }
 
-        CGFloat scale = metal_view_.metalLayer.contentsScale;
+        // SkiaSurface uses logical dimensions + scale factor.
+        // The scale transform maps logical coordinates (800x550) to
+        // physical pixels (1600x1100) in the GPU texture.
         render::SkiaSurface::Config skia_config{};
         skia_config.width = static_cast<uint32_t>(width);
         skia_config.height = static_cast<uint32_t>(height);
@@ -326,12 +334,14 @@ private:
         width_ = width;
         height_ = height;
 
+        CGFloat scale = metal_view_.metalLayer.contentsScale;
+        uint32_t phys_w = static_cast<uint32_t>(width * scale);
+        uint32_t phys_h = static_cast<uint32_t>(height * scale);
+
         if (gpu_surface_) {
-            gpu_surface_->resize(static_cast<uint32_t>(width),
-                                  static_cast<uint32_t>(height));
+            gpu_surface_->resize(phys_w, phys_h);
         }
         if (skia_surface_) {
-            CGFloat scale = metal_view_.metalLayer.contentsScale;
             skia_surface_->resize(static_cast<uint32_t>(width),
                                    static_cast<uint32_t>(height),
                                    static_cast<float>(scale));
