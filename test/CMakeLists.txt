@@ -381,3 +381,13 @@ target_include_directories(pulp-test-wam-wclap PRIVATE
     ${CMAKE_SOURCE_DIR}/core/format/include
 )
 catch_discover_tests(pulp-test-wam-wclap)
+
+# CLAP webview extension tests
+add_executable(pulp-test-clap-webview test_clap_webview.cpp
+    ${CMAKE_SOURCE_DIR}/core/format/src/wasm/clap_webview.cpp
+)
+target_link_libraries(pulp-test-clap-webview PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-clap-webview PRIVATE
+    ${CMAKE_SOURCE_DIR}/core/format/include
+)
+catch_discover_tests(pulp-test-clap-webview)
