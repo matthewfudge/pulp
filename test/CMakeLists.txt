@@ -211,6 +211,11 @@ add_executable(pulp-test-preset-manager test_preset_manager.cpp)
 target_link_libraries(pulp-test-preset-manager PRIVATE pulp::state Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-preset-manager)
 
+# DSP expansion tests (FIR, Ballistics, LogRamp, ProcessorChain, LookupTable, TPT)
+add_executable(pulp-test-dsp-expansion test_dsp_expansion.cpp)
+target_link_libraries(pulp-test-dsp-expansion PRIVATE pulp::signal Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-dsp-expansion)
+
 # Golden-file audio tests (uses HeadlessHost + PulpGain)
 add_executable(pulp-test-golden test_golden_audio.cpp)
 target_link_libraries(pulp-test-golden PRIVATE pulp::format Catch2::Catch2WithMain)
