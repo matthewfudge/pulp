@@ -12,7 +12,25 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkRRect.h"
 
+// Platform font manager
+#ifdef __APPLE__
+#include "include/ports/SkFontMgr_mac_ct.h"
+#endif
+
 namespace pulp::canvas {
+
+// Lazily create a platform-appropriate font manager
+static sk_sp<SkFontMgr> get_font_manager() {
+    static sk_sp<SkFontMgr> mgr;
+    if (!mgr) {
+#ifdef __APPLE__
+        mgr = SkFontMgr_New_CoreText(nullptr);
+#else
+        mgr = SkFontMgr::RefEmpty();
+#endif
+    }
+    return mgr;
+}
 
 static SkColor to_sk_color(Color c) {
     return SkColorSetARGB(c.a, c.r, c.g, c.b);
@@ -118,8 +136,8 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     SkFont font;
     font.setSize(font_size_);
 
-    // Try to find the requested typeface
-    auto mgr = SkFontMgr::RefEmpty();
+    // Use platform font manager to find the requested typeface
+    auto mgr = get_font_manager();
     if (mgr) {
         auto typeface = mgr->matchFamilyStyle(font_family_.c_str(), SkFontStyle::Normal());
         if (typeface) font.setTypeface(std::move(typeface));
