@@ -20,3 +20,9 @@
 #include <pulp/signal/linkwitz_riley.hpp>
 #include <pulp/signal/windowing.hpp>
 #include <pulp/signal/fft.hpp>
+#include <pulp/signal/fir_filter.hpp>
+#include <pulp/signal/ballistics_filter.hpp>
+#include <pulp/signal/log_ramped_value.hpp>
+#include <pulp/signal/processor_chain.hpp>
+#include <pulp/signal/lookup_table.hpp>
+#include <pulp/signal/tpt_filter.hpp>
