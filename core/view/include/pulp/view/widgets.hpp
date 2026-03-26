@@ -49,6 +49,9 @@ public:
     // Display format: called with normalized value to produce display text
     void set_format(std::function<std::string(float)> fmt) { format_ = std::move(fmt); }
 
+    /// Called when the value changes (from user interaction or programmatic).
+    std::function<void(float)> on_change;
+
     void paint(canvas::Canvas& canvas) override;
 
     // Arc range in radians (default: 270-degree sweep)
@@ -79,6 +82,9 @@ public:
     void set_label(std::string text) { label_ = std::move(text); }
     const std::string& label() const { return label_; }
 
+    /// Called when the value changes.
+    std::function<void(float)> on_change;
+
     void paint(canvas::Canvas& canvas) override;
 
 private:
@@ -99,6 +105,9 @@ public:
 
     void set_label(std::string text) { label_ = std::move(text); }
     const std::string& label() const { return label_; }
+
+    /// Called when the toggle state changes.
+    std::function<void(bool)> on_toggle;
 
     void paint(canvas::Canvas& canvas) override;
 

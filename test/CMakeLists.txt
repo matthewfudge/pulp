@@ -206,6 +206,11 @@ add_executable(pulp-test-design-export test_design_export.cpp)
 target_link_libraries(pulp-test-design-export PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-design-export)
 
+# Parameter attachment tests
+add_executable(pulp-test-param-attachment test_param_attachment.cpp)
+target_link_libraries(pulp-test-param-attachment PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-param-attachment)
+
 # App framework tests (KeyMapping, MenuBar, Toolbar, AppSettings)
 add_executable(pulp-test-app-framework test_app_framework.cpp)
 target_link_libraries(pulp-test-app-framework PRIVATE pulp::view Catch2::Catch2WithMain)
