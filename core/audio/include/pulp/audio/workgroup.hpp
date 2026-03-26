@@ -10,6 +10,7 @@
 #include <os/workgroup.h>
 #include <pthread.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <mach/thread_policy.h>
 #endif
 
@@ -65,10 +66,12 @@ public:
         }
 
         // Fallback: set real-time thread priority via Mach
-        return set_realtime_priority();
+        joined_ = set_realtime_priority();
+        return joined_;
 #else
         // Other platforms: best-effort high priority
-        return set_high_priority();
+        joined_ = set_high_priority();
+        return joined_;
 #endif
     }
 
