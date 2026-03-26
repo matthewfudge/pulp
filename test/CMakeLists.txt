@@ -221,6 +221,11 @@ add_executable(pulp-test-waveform-editor test_waveform_editor.cpp)
 target_link_libraries(pulp-test-waveform-editor PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-waveform-editor)
 
+# FastMath approximation tests
+add_executable(pulp-test-fast-math test_fast_math.cpp)
+target_link_libraries(pulp-test-fast-math PRIVATE pulp::signal Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-fast-math)
+
 # Preset browser UI tests
 add_executable(pulp-test-preset-browser test_preset_browser.cpp)
 target_link_libraries(pulp-test-preset-browser PRIVATE pulp::view Catch2::Catch2WithMain)
