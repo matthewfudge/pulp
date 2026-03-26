@@ -14,12 +14,14 @@ namespace pulp::render {
 class DawnGpuSurface : public GpuSurface {
 public:
     ~DawnGpuSurface() override {
-        // Release in reverse order
+        // Release in reverse order — native instance last (owns the backend)
         current_texture_ = nullptr;
         surface_ = nullptr;
         queue_ = nullptr;
         device_ = nullptr;
+        adapter_ = nullptr;
         instance_ = nullptr;
+        native_instance_.reset();
     }
 
     bool initialize(const Config& config) override {
@@ -30,9 +32,21 @@ public:
         const DawnProcTable& procs = dawn::native::GetProcs();
         dawnProcSetProcs(&procs);
 
-        // Create instance
-        wgpu::InstanceDescriptor instance_desc{};
-        instance_ = wgpu::CreateInstance(&instance_desc);
+        // Create Dawn native instance — must stay alive for the lifetime of
+        // all adapters and devices created from it. The wgpu::Instance wrapper
+        // does not retain ownership of the native instance.
+        //
+        // Enable TimedWaitAny so Skia Graphite's timed waits work correctly.
+        wgpu::InstanceDescriptor inst_desc{};
+        wgpu::InstanceFeatureName required_features[] = {
+            wgpu::InstanceFeatureName::TimedWaitAny,
+        };
+        inst_desc.requiredFeatureCount = 1;
+        inst_desc.requiredFeatures = required_features;
+
+        native_instance_ = std::make_unique<dawn::native::Instance>(
+            reinterpret_cast<const WGPUInstanceDescriptor*>(&inst_desc));
+        instance_ = wgpu::Instance(native_instance_->Get());
         if (!instance_) {
             runtime::log_error("GpuSurface: failed to create Dawn instance");
             return false;
@@ -52,7 +66,7 @@ public:
 
         instance_.RequestAdapter(
             &adapter_opts,
-            wgpu::CallbackMode::WaitAnyOnly,
+            wgpu::CallbackMode::AllowProcessEvents,
             [this](wgpu::RequestAdapterStatus status, wgpu::Adapter result, wgpu::StringView) {
                 if (status == wgpu::RequestAdapterStatus::Success) {
                     adapter_ = std::move(result);
@@ -77,7 +91,7 @@ public:
 
         adapter_.RequestDevice(
             &device_desc,
-            wgpu::CallbackMode::WaitAnyOnly,
+            wgpu::CallbackMode::AllowProcessEvents,
             [this](wgpu::RequestDeviceStatus status, wgpu::Device result, wgpu::StringView) {
                 if (status == wgpu::RequestDeviceStatus::Success) {
                     device_ = std::move(result);
@@ -276,6 +290,8 @@ private:
             static_cast<int>(preferred_format_), static_cast<int>(preferred_mode));
     }
 
+    // Native instance must outlive all adapters/devices created from it
+    std::unique_ptr<dawn::native::Instance> native_instance_;
     wgpu::Instance instance_;
     wgpu::Adapter adapter_;
     wgpu::Device device_;
