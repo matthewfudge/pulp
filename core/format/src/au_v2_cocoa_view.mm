@@ -134,21 +134,35 @@ static const char kOwnershipKey = 0;
 namespace pulp::format::au {
 
 bool fill_cocoa_view_info(void* outData) {
-    auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
+    @autoreleasepool {
+        if (!outData) return false;
+        auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
-    // Get the bundle containing the PulpAUCocoaViewFactory class
-    Class factoryClass = NSClassFromString(@"PulpAUCocoaViewFactory");
-    if (!factoryClass) return false;
+        // Get the bundle containing the PulpAUCocoaViewFactory class
+        Class factoryClass = NSClassFromString(@"PulpAUCocoaViewFactory");
+        if (!factoryClass) return false;
 
-    NSBundle* classBundle = [NSBundle bundleForClass:factoryClass];
-    if (!classBundle) return false;
+        NSBundle* classBundle = [NSBundle bundleForClass:factoryClass];
+        if (!classBundle) return false;
 
-    CFBundleRef bundle = (__bridge CFBundleRef)classBundle;
-    info->mCocoaAUViewBundleLocation = CFBundleCopyBundleURL(bundle);
-    info->mCocoaAUViewClass[0] = CFStringCreateCopy(kCFAllocatorDefault,
-        CFSTR("PulpAUCocoaViewFactory"));
+        // Defensive: CFBundleCopyBundleURL can crash in sandboxed XPC hosts
+        // (Logic Pro's AUHostingServiceXPC) due to PAC signature validation.
+        // Wrap in @try to prevent taking down the host process.
+        @try {
+            CFBundleRef bundle = (__bridge CFBundleRef)classBundle;
+            if (!bundle) return false;
 
-    return true;
+            CFURLRef url = CFBundleCopyBundleURL(bundle);
+            if (!url) return false;
+
+            info->mCocoaAUViewBundleLocation = url;
+            info->mCocoaAUViewClass[0] = CFStringCreateCopy(kCFAllocatorDefault,
+                CFSTR("PulpAUCocoaViewFactory"));
+            return true;
+        } @catch (NSException*) {
+            return false;
+        }
+    }
 }
 
 } // namespace pulp::format::au

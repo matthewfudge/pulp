@@ -100,10 +100,11 @@ public:
                 GetOutput(0)->GetStreamFormat().mChannelsPerFrame);
             processor_->prepare(ctx);
 
+            // Sync host → store: preserve any values the host set before Initialize
             for (const auto& param : store_.all_params()) {
-                Globals()->SetParameter(
-                    static_cast<AudioUnitParameterID>(param.id),
-                    param.range.default_value);
+                auto au_id = static_cast<AudioUnitParameterID>(param.id);
+                float host_val = Globals()->GetParameter(au_id);
+                store_.set_value(param.id, host_val);
             }
         }
 
