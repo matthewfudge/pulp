@@ -61,7 +61,6 @@ if(APPLE)
             "-framework Cocoa"
             "-framework ImageIO"
             "-framework UniformTypeIdentifiers"
-            "-framework WebKit"
         )
         # GPU rendering: link render module and Metal for CAMetalLayer-backed window host
         if(PULP_HAS_SKIA)
