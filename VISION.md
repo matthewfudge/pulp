@@ -320,11 +320,11 @@ Oli Larkin and Matt Tytel are industry veterans building tools with decades of e
 
 ### Standards and Specs
 
-**[CLAP](https://cleveraudio.org)** is the plugin format Pulp leans on most heavily. The community's openness and willingness to evolve the spec is a big part of why Pulp exists.
+**[CLAP](https://cleveraudio.org)** is the plugin format Pulp leans on most heavily for new capabilities — modulation, per-note control, presets, the webview extension.
 
 **[WebCLAP](https://github.com/WebCLAP)** defined how CLAP plugins run in WebAssembly. **[signalsmith-clap-cpp](https://github.com/geraintluff/signalsmith-clap-cpp)** by Geraint Luff showed how the WASI SDK build pipeline and CLAP webview extension work in practice.
 
-**[WAMv2](https://www.webaudiomodules.com)** defined web audio plugin standards. **[CHOC](https://github.com/Tracktion/choc)** by Tracktion provides battle-tested utilities we use extensively. **[Dawn](https://dawn.googlesource.com/dawn)** and **[Skia](https://skia.org)** are the GPU rendering foundation.
+**[WAMv2](https://www.webaudiomodules.com)** defined web audio plugin standards. **[CHOC](https://github.com/Tracktion/choc)** by Tracktion provides battle-tested utilities we use extensively. **[Dawn](https://dawn.googlesource.com/dawn)** and **[Skia](https://skia.org)** are the GPU rendering foundation. Oli Larkin's [skia-builder](https://github.com/niclamusic/skia-builder) pre-built binaries make the Skia/Dawn stack practical for a project this size.
 
 ### Why This Exists
 
