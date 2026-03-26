@@ -357,7 +357,9 @@ private:
         }
 
         if (frame_ok_count_++ == 0) {
-            fprintf(stderr, "[gpu-host] first successful frame\n");
+            CGFloat scale = metal_view_.metalLayer.contentsScale;
+            fprintf(stderr, "[gpu-host] first frame: logical=%.0fx%.0f gpu=%ux%u scale=%.1f\n",
+                width_, height_, gpu_surface_->width(), gpu_surface_->height(), scale);
         }
 
         {
