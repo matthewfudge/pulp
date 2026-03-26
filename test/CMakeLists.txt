@@ -351,3 +351,51 @@ catch_discover_tests(pulp-test-golden)
 add_executable(pulp-test-ios-foundation test_ios_foundation.cpp)
 target_link_libraries(pulp-test-ios-foundation PRIVATE pulp::view pulp::platform Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-ios-foundation)
+
+# Identity/UUID tests
+add_executable(pulp-test-identity test_identity.cpp)
+target_link_libraries(pulp-test-identity PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-identity)
+
+# WebView tests
+add_executable(pulp-test-webview test_web_view.cpp)
+target_link_libraries(pulp-test-webview PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-webview)
+
+# MIDI 2.0 UMP/MPE tests
+add_executable(pulp-test-ump-mpe test_ump_mpe.cpp)
+target_link_libraries(pulp-test-ump-mpe PRIVATE pulp::midi Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-ump-mpe)
+
+# Plugin hosting tests (scanner, signal graph)
+add_executable(pulp-test-host test_host.cpp)
+target_link_libraries(pulp-test-host PRIVATE pulp::host Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-host)
+
+# WAMv2 + WebCLAP format adapter tests
+add_executable(pulp-test-wam-wclap test_wam_wclap.cpp
+    ${CMAKE_SOURCE_DIR}/core/format/src/wasm/wam_adapter.cpp
+)
+target_link_libraries(pulp-test-wam-wclap PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-wam-wclap PRIVATE
+    ${CMAKE_SOURCE_DIR}/core/format/include
+)
+catch_discover_tests(pulp-test-wam-wclap)
+
+# CLAP webview extension tests
+add_executable(pulp-test-clap-webview test_clap_webview.cpp
+    ${CMAKE_SOURCE_DIR}/core/format/src/wasm/clap_webview.cpp
+)
+target_link_libraries(pulp-test-clap-webview PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-clap-webview PRIVATE
+    ${CMAKE_SOURCE_DIR}/core/format/include
+)
+catch_discover_tests(pulp-test-clap-webview)
+
+# Web demo plugin tests (PulpPluck, PulpChorus)
+add_executable(pulp-test-web-demos test_web_demos.cpp)
+target_link_libraries(pulp-test-web-demos PRIVATE pulp::format Catch2::Catch2WithMain)
+target_include_directories(pulp-test-web-demos PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/web-demos
+)
+catch_discover_tests(pulp-test-web-demos)

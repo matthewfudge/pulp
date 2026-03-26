@@ -199,7 +199,133 @@ private:
     std::function<void()> close_callback_;
 };
 
+// ── IOSGpuWindowHost (GPU rendering via Dawn/Skia Graphite) ─────────────
+
+#ifdef PULP_HAS_SKIA
+#include <pulp/render/gpu_surface.hpp>
+#include <pulp/render/skia_surface.hpp>
+
+class IOSGpuWindowHost : public WindowHost {
+public:
+    IOSGpuWindowHost(View& root, const WindowOptions& options)
+        : root_(root) {
+        (void)options;
+    }
+
+    ~IOSGpuWindowHost() override {
+        skia_surface_.reset();
+        gpu_surface_.reset();
+    }
+
+    void show() override {}
+    void hide() override {}
+    bool is_visible() const override { return window_ != nil && !window_.isHidden; }
+
+    void repaint() override {
+        needs_repaint_ = true;
+    }
+
+    void set_close_callback(std::function<void()> cb) override {
+        close_callback_ = std::move(cb);
+    }
+
+    void run_event_loop() override {
+        @autoreleasepool {
+            UIWindowScene *scene = nil;
+            for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+                if ([s isKindOfClass:[UIWindowScene class]]) {
+                    scene = (UIWindowScene *)s;
+                    break;
+                }
+            }
+
+            if (scene) {
+                window_ = [[UIWindow alloc] initWithWindowScene:scene];
+            } else {
+                window_ = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+            }
+
+            // Create Metal-backed view
+            metal_view_ = [[PulpMetalView alloc] initWithFrame:window_.bounds];
+            metal_view_.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            metal_view_.multipleTouchEnabled = YES;
+
+            CGFloat scale = UIScreen.mainScreen.scale;
+            CGSize bounds = window_.bounds.size;
+            uint32_t pw = static_cast<uint32_t>(bounds.width * scale);
+            uint32_t ph = static_cast<uint32_t>(bounds.height * scale);
+
+            // Initialize GPU surface with Metal layer
+            render::GpuSurface::Config gpu_config;
+            gpu_config.width = pw;
+            gpu_config.height = ph;
+            gpu_config.native_surface_handle = (__bridge void*)[metal_view_ metalLayer];
+
+            gpu_surface_ = std::make_unique<render::GpuSurface>();
+            if (!gpu_surface_->initialize(gpu_config)) {
+                runtime::log_error("iOS GPU: GpuSurface init failed, falling back to CPU");
+                gpu_surface_.reset();
+            } else {
+                // Initialize Skia surface sharing Dawn device
+                render::SkiaSurface::Config skia_config;
+                skia_config.width = pw;
+                skia_config.height = ph;
+                skia_config.dawn_device = gpu_surface_->dawn_device_handle();
+                skia_config.dawn_queue = gpu_surface_->dawn_queue_handle();
+                skia_config.dawn_instance = gpu_surface_->dawn_instance_handle();
+
+                skia_surface_ = std::make_unique<render::SkiaSurface>();
+                if (!skia_surface_->initialize(skia_config)) {
+                    runtime::log_error("iOS GPU: SkiaSurface init failed");
+                    skia_surface_.reset();
+                    gpu_surface_.reset();
+                }
+            }
+
+            UIViewController *vc = [[UIViewController alloc] init];
+            vc.view = metal_view_;
+            window_.rootViewController = vc;
+            [window_ makeKeyAndVisible];
+
+            runtime::log_info("iOS GPU: window host ready ({}x{} physical)", pw, ph);
+        }
+    }
+
+private:
+    View& root_;
+    UIWindow* window_ = nil;
+    PulpMetalView* metal_view_ = nil;
+    std::unique_ptr<render::GpuSurface> gpu_surface_;
+    std::unique_ptr<render::SkiaSurface> skia_surface_;
+    std::function<void()> close_callback_;
+    bool needs_repaint_ = false;
+
+    void render_frame() {
+        if (!gpu_surface_ || !skia_surface_) return;
+        if (!gpu_surface_->begin_frame()) return;
+
+        auto* canvas = skia_surface_->begin_frame(gpu_surface_->current_texture_handle());
+        if (canvas) {
+            // Paint the view tree
+            auto b = root_.bounds();
+            root_.set_bounds({0, 0, b.width, b.height});
+            root_.layout_children();
+            // TODO: wrap SkCanvas in SkiaCanvas adapter and call root_.paint_all()
+        }
+
+        skia_surface_->end_frame();
+        gpu_surface_->end_frame();
+    }
+};
+
+#endif // PULP_HAS_SKIA
+
 std::unique_ptr<WindowHost> WindowHost::create(View& root, const WindowOptions& options) {
+#ifdef PULP_HAS_SKIA
+    if (options.use_gpu) {
+        return std::make_unique<IOSGpuWindowHost>(root, options);
+    }
+#endif
     return std::make_unique<IOSWindowHost>(root, options);
 }
 

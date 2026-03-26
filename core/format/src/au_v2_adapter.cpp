@@ -53,6 +53,14 @@ public:
                         AUEventListenerNotify(nullptr, nullptr, &event);
                     }
                 );
+
+                // Set defaults in AU parameter system at construction time
+                // so auval can read them before Initialize() is called.
+                for (const auto& param : store_.all_params()) {
+                    Globals()->SetParameter(
+                        static_cast<AudioUnitParameterID>(param.id),
+                        param.range.default_value);
+                }
             }
         }
     }
@@ -165,11 +173,11 @@ public:
             ctx.output_channels = static_cast<int>(GetNumberOfChannels());
             processor_->prepare(ctx);
 
-            // Set initial parameter values from defaults
+            // Sync AU → store: preserve any values the host set before Initialize
             for (const auto& param : store_.all_params()) {
-                Globals()->SetParameter(
-                    static_cast<AudioUnitParameterID>(param.id),
-                    param.range.default_value);
+                auto au_id = static_cast<AudioUnitParameterID>(param.id);
+                float value = Globals()->GetParameter(au_id);
+                store_.set_value(param.id, value);
             }
         }
 
@@ -289,6 +297,9 @@ public:
         }
         return noErr;
     }
+
+    // CocoaUI disabled — crashes in Logic Pro's sandboxed XPC host (PAC exception
+    // in CFBundleCopyBundleURL). Will re-enable when a safe approach is validated.
 
     // ── Component info ──────────────────────────────────────────────────
 

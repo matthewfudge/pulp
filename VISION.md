@@ -389,16 +389,16 @@ Every phase ships a validation example that proves the framework works. These ex
 - Design token export (JSON, CSS, C++ headers, shader uniforms, OKLCH)
 - Undo/redo system (named actions, transactions, max history)
 
-**8 example projects:**
-- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, UI Preview
+**11 example projects:**
+- PulpGain (reference), PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, PulpPluck, UI Preview, GPU Demo, Web Demos
 
 ### What is not yet implemented
 
 These items from the vision above are planned but do not exist in the codebase today:
 
 - AAX format adapter (requires Avid SDK)
-- Web/WASM target (Emscripten build pipeline, Web Audio/MIDI, WebCLAP)
-- D3D12 and Vulkan GPU rendering validation (Dawn supports them; not yet runtime-tested)
+- Web/WASM target runtime validation (build pipeline exists, awaiting end-to-end test)
+- D3D12 and Vulkan GPU rendering runtime validation (surface creation implemented, awaiting hardware test)
 - Musical Typing component
 - Audio Device Selector component
 - `pulp design` CLI command (AI-driven design session)
