@@ -187,11 +187,115 @@ private:
     PulpPluginUIView* view_ = nil;
 };
 
-// On iOS, the factory creates an iOS host; on macOS it creates a Mac host.
-// The macOS factory is in plugin_view_host_mac.mm — the linker picks the
-// correct one based on the platform target.
+// ── GPU-accelerated iOS plugin view host ─────────────────────────────────
+
+#ifdef PULP_HAS_SKIA
+#include <pulp/render/gpu_surface.hpp>
+#include <pulp/render/skia_surface.hpp>
+#import <QuartzCore/CAMetalLayer.h>
+#import <Metal/Metal.h>
+
+// Metal-backed UIView for GPU rendering in AUv3 hosts
+@interface PulpMetalPluginView : UIView
+@end
+
+@implementation PulpMetalPluginView
++ (Class)layerClass { return [CAMetalLayer class]; }
+- (CAMetalLayer *)metalLayer { return (CAMetalLayer *)self.layer; }
+@end
+
+class IOSGpuPluginViewHost : public PluginViewHost {
+public:
+    IOSGpuPluginViewHost(View& root, const Options& opts)
+        : root_(root), size_(opts.size) {
+        @autoreleasepool {
+            CGRect frame = CGRectMake(0, 0, opts.size.width, opts.size.height);
+            metal_view_ = [[PulpMetalPluginView alloc] initWithFrame:frame];
+            metal_view_.multipleTouchEnabled = YES;
+
+            CGFloat scale = UIScreen.mainScreen.scale;
+            uint32_t pw = static_cast<uint32_t>(opts.size.width * scale);
+            uint32_t ph = static_cast<uint32_t>(opts.size.height * scale);
+
+            CAMetalLayer* layer = [metal_view_ metalLayer];
+            layer.device = MTLCreateSystemDefaultDevice();
+            layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+            layer.drawableSize = CGSizeMake(pw, ph);
+            layer.contentsScale = scale;
+
+            render::GpuSurface::Config gpu_cfg;
+            gpu_cfg.width = pw;
+            gpu_cfg.height = ph;
+            gpu_cfg.native_surface_handle = (__bridge void*)layer;
+
+            gpu_surface_ = std::make_unique<render::GpuSurface>();
+            if (gpu_surface_->initialize(gpu_cfg)) {
+                render::SkiaSurface::Config skia_cfg;
+                skia_cfg.width = pw;
+                skia_cfg.height = ph;
+                skia_cfg.dawn_device = gpu_surface_->dawn_device_handle();
+                skia_cfg.dawn_queue = gpu_surface_->dawn_queue_handle();
+                skia_cfg.dawn_instance = gpu_surface_->dawn_instance_handle();
+
+                skia_surface_ = std::make_unique<render::SkiaSurface>();
+                if (!skia_surface_->initialize(skia_cfg)) {
+                    skia_surface_.reset();
+                    gpu_surface_.reset();
+                }
+            } else {
+                gpu_surface_.reset();
+            }
+        }
+    }
+
+    NativeViewHandle native_handle() override { return (__bridge void*)metal_view_; }
+
+    void attach_to_parent(NativeViewHandle parent) override {
+        @autoreleasepool {
+            UIView* pv = (__bridge UIView*)parent;
+            if (pv && metal_view_) [pv addSubview:metal_view_];
+        }
+    }
+
+    void detach() override {
+        @autoreleasepool { [metal_view_ removeFromSuperview]; }
+    }
+
+    void repaint() override { /* TODO: trigger render via CADisplayLink */ }
+
+    void set_size(uint32_t w, uint32_t h) override {
+        size_ = {w, h};
+        @autoreleasepool {
+            metal_view_.frame = CGRectMake(0, 0, w, h);
+            CGFloat scale = UIScreen.mainScreen.scale;
+            [metal_view_ metalLayer].drawableSize = CGSizeMake(w * scale, h * scale);
+        }
+    }
+
+    Size get_size() const override { return size_; }
+
+private:
+    View& root_;
+    Size size_;
+    PulpMetalPluginView* metal_view_ = nil;
+    std::unique_ptr<render::GpuSurface> gpu_surface_;
+    std::unique_ptr<render::SkiaSurface> skia_surface_;
+};
+
+#endif // PULP_HAS_SKIA
+
+// Factory functions
 std::unique_ptr<PluginViewHost> PluginViewHost::create(View& root, Size size) {
     return std::make_unique<IOSPluginViewHost>(root, size);
+}
+
+std::unique_ptr<PluginViewHost> PluginViewHost::create(View& root, const Options& options) {
+#ifdef PULP_HAS_SKIA
+    if (options.use_gpu) {
+        return std::make_unique<IOSGpuPluginViewHost>(root, options);
+    }
+#endif
+    return std::make_unique<IOSPluginViewHost>(root, options.size);
 }
 
 } // namespace pulp::view
