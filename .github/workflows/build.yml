@@ -14,8 +14,8 @@ jobs:
         include:
           - os: macos-14
             name: macOS (ARM64)
-          # - os: windows-latest
-          #   name: Windows (x64)
+          - os: windows-latest
+            name: Windows (x64)
           # - os: ubuntu-latest
           #   name: Linux (x64)
 
@@ -31,6 +31,7 @@ jobs:
             https://github.com/steinbergmedia/vst3sdk.git \
             external/vst3sdk
           cd external/vst3sdk && git submodule update --init --recursive --depth 1
+        shell: bash
 
       - name: Clone AudioUnitSDK (macOS)
         if: runner.os == 'macOS'
@@ -47,10 +48,11 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest --output-on-failure -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+        run: ctest --output-on-failure -C Release -j4
+        shell: bash
 
-      - name: Upload plugin bundles
-        if: success()
+      - name: Upload plugin bundles (macOS)
+        if: success() && runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: plugins-${{ matrix.os }}
@@ -58,4 +60,14 @@ jobs:
             build/VST3/*.vst3
             build/CLAP/*.clap
             build/AU/*.component
+          retention-days: 7
+
+      - name: Upload plugin bundles (Windows)
+        if: success() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-${{ matrix.os }}
+          path: |
+            build/VST3/**/*.vst3
+            build/CLAP/**/*.clap
           retention-days: 7

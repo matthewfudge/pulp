@@ -25,6 +25,13 @@ if(APPLE AND NOT IOS)
         "-framework CoreMIDI"
         "-framework CoreFoundation"
     )
+elseif(WIN32)
+    target_sources(pulp-midi PRIVATE
+        platform/win/winmidi_device.cpp
+    )
+    target_link_libraries(pulp-midi PRIVATE
+        winmm
+    )
 else()
     target_sources(pulp-midi PRIVATE src/placeholder.cpp)
     file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp

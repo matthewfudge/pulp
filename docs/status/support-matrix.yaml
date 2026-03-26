@@ -6,8 +6,8 @@ platforms:
     status: usable
     notes: Primary development platform. ARM64 and x86_64.
   windows:
-    status: partial
-    notes: Build stubs exist. Not yet validated end-to-end.
+    status: experimental
+    notes: WASAPI audio, Win32 MIDI, NSIS installer, Authenticode signing. CI enabled.
   linux:
     status: partial
     notes: Build stubs exist. Not yet validated end-to-end.
@@ -47,7 +47,7 @@ audio_io:
     status: usable
     platform: macos
   wasapi:
-    status: planned
+    status: experimental
     platform: windows
   alsa:
     status: planned
@@ -58,7 +58,7 @@ midi_io:
     status: usable
     platform: macos
   win32_midi:
-    status: planned
+    status: experimental
     platform: windows
   alsa_midi:
     status: planned
@@ -72,7 +72,7 @@ rendering:
     status: experimental
     platform: macos
   dawn_d3d12:
-    status: planned
+    status: experimental
     platform: windows
   dawn_vulkan:
     status: planned

@@ -30,10 +30,11 @@ if(APPLE AND NOT IOS)
     )
 elseif(WIN32)
     target_sources(pulp-audio PRIVATE
-        src/placeholder.cpp
+        platform/win/wasapi_device.cpp
     )
-    file(WRITE ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
-        "// pulp-audio: WASAPI backend — Phase 4+\nnamespace pulp::audio {}\n"
+    target_link_libraries(pulp-audio PRIVATE
+        ole32
+        winmm
     )
 elseif(UNIX AND NOT APPLE)
     target_sources(pulp-audio PRIVATE
