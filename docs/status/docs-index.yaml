@@ -34,6 +34,21 @@ docs:
     kind: guide
     summary: State and parameter system — ParamValue, StateStore, Binding, serialization
 
+  - slug: shipping
+    path: guides/shipping.md
+    kind: guide
+    summary: End-to-end signing, notarization, packaging, and distribution
+
+  - slug: testing-advanced
+    path: guides/testing-advanced.md
+    kind: guide
+    summary: HeadlessHost API, golden-file testing, sanitizer builds, format validation
+
+  - slug: platform-macos
+    path: guides/platforms/macos.md
+    kind: guide
+    summary: macOS signing, notarization, entitlements, auval, deployment
+
   - slug: module-runtime
     path: guides/modules/runtime.md
     kind: guide
