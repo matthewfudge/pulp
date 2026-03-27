@@ -224,6 +224,11 @@ add_executable(pulp-test-text-input test_text_input.cpp)
 target_link_libraries(pulp-test-text-input PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-text-input)
 
+# CanvasWidget tests (JS-driven custom drawing)
+add_executable(pulp-test-canvas-widget test_canvas_widget.cpp)
+target_link_libraries(pulp-test-canvas-widget PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-canvas-widget)
+
 # ScrollView tests
 add_executable(pulp-test-scroll-view test_scroll_view.cpp)
 target_link_libraries(pulp-test-scroll-view PRIVATE pulp::view Catch2::Catch2WithMain)
