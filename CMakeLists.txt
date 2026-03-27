@@ -251,7 +251,9 @@ add_subdirectory(tools/mcp)
 add_subdirectory(tools/screenshot)
 
 # ── Design Tool ───────────────────────────────────────────────────────────
-add_subdirectory(tools/design)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/design/CMakeLists.txt)
+    add_subdirectory(tools/design)
+endif()
 
 # ── Python Bindings ────────────────────────────────────────────────────────
 option(PULP_BUILD_PYTHON "Build Python bindings via pybind11" OFF)
