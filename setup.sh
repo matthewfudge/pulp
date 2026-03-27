@@ -199,7 +199,7 @@ else
     [ -L "$VST3_DIR" ] && rm "$VST3_DIR"
     info "Cloning VST3 SDK (MIT license)..."
     dry "git clone --depth 1 --recursive https://github.com/steinbergmedia/vst3sdk.git $VST3_DIR" || \
-        git clone --depth 1 --recursive --branch v3.7.12 \
+        git clone --depth 1 --recursive --branch v3.7.12_build_20 \
             https://github.com/steinbergmedia/vst3sdk.git "$VST3_DIR"
     info "VST3 SDK ready"
 fi
