@@ -337,8 +337,29 @@ If it's not tested, it doesn't work. Every subsystem has tests. Every feature ha
 | Format validation | Plugin loads correctly | CLAP dlopen, VST3 load tests; auval/pluginval/clap-validator for local use | Every PR touching format code |
 | Audio golden-files | DSP output matches reference | Custom harness (bit-exact or tolerance) | Every PR touching signal code |
 | Visual regression | UI renders correctly | Screenshot comparison | Every PR touching view/render code |
+| UI interaction | Widgets respond correctly | Headless simulate_click/type + assertions | Every PR touching view/widget code |
 | Build matrix | Builds on all platforms | GitHub Actions CI | Every PR |
 | DAW compatibility | Plugin works in real DAWs | Manual + automated (future) | Before releases |
+
+### Automated Testing Process
+
+**When modifying view/widget/input code, you MUST:**
+
+1. Write or update automated headless tests that verify the behavior
+2. Run `ctest --test-dir build --output-on-failure` and verify all tests pass
+3. Only show the user visual results AFTER automated tests confirm correctness
+
+**Headless UI testing pattern:**
+```cpp
+// Create widget, simulate input, verify state — no window needed
+TextEditor editor;
+editor.on_focus_changed(true);
+TextInputEvent te; te.text = "hello";
+editor.on_text_input(te);
+REQUIRE(editor.text() == "hello");
+```
+
+Use `simulate_click()`, `simulate_drag()`, and direct `on_text_input()`/`on_key_event()` calls to test widget interaction without a window. Use screenshot rendering (`render_to_file()`) to verify visual output in CI.
 
 ### Platform-Specific Testing Tools
 
