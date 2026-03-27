@@ -681,6 +681,315 @@ static int cmd_doctor(const std::vector<std::string>& args) {
     return fail_count > 0 ? 1 : 0;
 }
 
+// Forward declarations for helpers defined later
+static std::string read_file_contents(const fs::path& path);
+
+// ── New / Create ────────────────────────────────────────────────────────────
+
+static std::string replace_all_str(const std::string& str,
+                                    const std::string& from,
+                                    const std::string& to) {
+    std::string result = str;
+    size_t pos = 0;
+    while ((pos = result.find(from, pos)) != std::string::npos) {
+        result.replace(pos, from.length(), to);
+        pos += to.length();
+    }
+    return result;
+}
+
+static std::string to_class_name(const std::string& name) {
+    std::string result;
+    bool capitalize = true;
+    for (char c : name) {
+        if (c == ' ' || c == '-' || c == '_') { capitalize = true; continue; }
+        if (capitalize) { result += static_cast<char>(std::toupper(c)); capitalize = false; }
+        else result += c;
+    }
+    return result;
+}
+
+static std::string to_lower_name(const std::string& name) {
+    std::string result;
+    for (char c : name) {
+        if (c == ' ' || c == '_') result += '-';
+        else if (std::isalnum(c)) result += static_cast<char>(std::tolower(c));
+    }
+    return result;
+}
+
+static std::string to_namespace_name(const std::string& name) {
+    std::string result;
+    for (char c : name) {
+        if (c == ' ' || c == '-') result += '_';
+        else if (std::isalnum(c)) result += static_cast<char>(std::tolower(c));
+    }
+    return result;
+}
+
+static std::string make_plugin_code(const std::string& class_name) {
+    std::string clean;
+    for (char c : class_name) if (std::isalpha(c)) clean += c;
+    if (clean.size() >= 4) return clean.substr(0, 4);
+    return (clean + "xxxx").substr(0, 4);
+}
+
+static std::string make_mfr_code(const std::string& mfr) {
+    std::string clean;
+    for (char c : mfr) if (std::isalpha(c)) clean += c;
+    if (clean.size() >= 4) return clean.substr(0, 4);
+    return (clean + "xxxx").substr(0, 4);
+}
+
+static std::string make_vst3_uid() {
+    std::string result;
+    std::srand(static_cast<unsigned>(std::time(nullptr)));
+    for (int i = 0; i < 16; ++i) {
+        char buf[8];
+        std::snprintf(buf, sizeof(buf), "0x%02X", std::rand() % 256);
+        if (i > 0) result += ", ";
+        result += buf;
+    }
+    return result;
+}
+
+static std::string expand_template_str(const std::string& tmpl,
+                                        const std::vector<std::pair<std::string,std::string>>& vars) {
+    std::string result = tmpl;
+    for (auto& [key, val] : vars) {
+        result = replace_all_str(result, "{{" + key + "}}", val);
+    }
+    return result;
+}
+
+static int cmd_new(const std::vector<std::string>& args) {
+    auto root = find_project_root();
+    if (root.empty()) {
+        std::cerr << "Error: not in a Pulp project directory.\n";
+        std::cerr << "Run this from within a Pulp checkout.\n";
+        return 1;
+    }
+
+    // Parse args
+    std::string name, type = "effect", manufacturer = "Pulp", output_path;
+    bool no_build = false;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "--type" && i + 1 < args.size()) { type = args[++i]; continue; }
+        if (args[i] == "--manufacturer" && i + 1 < args.size()) { manufacturer = args[++i]; continue; }
+        if (args[i] == "--output" && i + 1 < args.size()) { output_path = args[++i]; continue; }
+        if (args[i] == "--no-build") { no_build = true; continue; }
+        if (args[i] == "--help" || args[i] == "-h") {
+            std::cout << "pulp new — create a new plugin project\n\n";
+            std::cout << "Usage: pulp new <name> [options]\n\n";
+            std::cout << "Options:\n";
+            std::cout << "  --type <effect|instrument>  Plugin type (default: effect)\n";
+            std::cout << "  --manufacturer <name>       Manufacturer (default: Pulp)\n";
+            std::cout << "  --output <dir>              Output directory\n";
+            std::cout << "  --no-build                  Skip build after scaffolding\n";
+            return 0;
+        }
+        if (name.empty() && args[i][0] != '-') { name = args[i]; continue; }
+    }
+
+    if (name.empty()) {
+        std::cerr << "Usage: pulp new <name> [--type effect|instrument] [--manufacturer Name]\n";
+        return 1;
+    }
+
+    if (type != "effect" && type != "instrument") {
+        std::cerr << "Error: --type must be 'effect' or 'instrument'\n";
+        return 1;
+    }
+
+    // Quick doctor check
+    std::cout << "Checking environment...\n";
+    auto checks = run_doctor_checks(root);
+    bool env_ok = true;
+    for (auto& c : checks) {
+        if (!c.passed) {
+            std::cout << "  \xe2\x9c\x97 " << c.name;
+            if (!c.fix.empty()) std::cout << " — fix: " << c.fix;
+            std::cout << "\n";
+            env_ok = false;
+        }
+    }
+    if (!env_ok) {
+        std::cerr << "\nEnvironment issues found. Run `pulp doctor --fix` first.\n";
+        return 1;
+    }
+    std::cout << "  \xe2\x9c\x93 Environment OK\n\n";
+
+    // Compute names
+    std::string class_name = to_class_name(name);
+    std::string lower_name = to_lower_name(name);
+    std::string ns = to_namespace_name(name);
+    std::string factory = ns;
+    std::string plugin_code = make_plugin_code(class_name);
+    std::string mfr_code = make_mfr_code(manufacturer);
+    std::string bundle_id = "com." + to_namespace_name(manufacturer) + "." + ns;
+    std::string header_name = replace_all_str(lower_name, "-", "_") + ".hpp";
+
+    // Determine formats based on platform
+    std::string formats;
+#ifdef __APPLE__
+    formats = "VST3 AU CLAP Standalone";
+#elif defined(_WIN32)
+    formats = "VST3 CLAP Standalone";
+#else
+    formats = "VST3 CLAP LV2 Standalone";
+#endif
+
+    // Output directory
+    fs::path out_dir;
+    if (!output_path.empty()) {
+        out_dir = fs::path(output_path);
+        if (!out_dir.is_absolute()) out_dir = fs::current_path() / out_dir;
+    } else {
+        out_dir = root / "examples" / lower_name;
+    }
+
+    if (fs::exists(out_dir)) {
+        std::cerr << "Error: " << out_dir.string() << " already exists\n";
+        return 1;
+    }
+
+    // Use underscored lower name for C++ filenames (hyphens illegal in identifiers)
+    std::string lower_name_underscored = replace_all_str(lower_name, "-", "_");
+
+    // Template variables
+    std::vector<std::pair<std::string,std::string>> vars = {
+        {"PLUGIN_NAME", name},
+        {"CLASS_NAME", class_name},
+        {"LOWER_NAME", lower_name_underscored},
+        {"NAMESPACE", ns},
+        {"FACTORY_NAME", factory},
+        {"HEADER_NAME", header_name},
+        {"TARGET_NAME", class_name},
+        {"MANUFACTURER", manufacturer},
+        {"MANUFACTURER_CODE", mfr_code},
+        {"BUNDLE_ID", bundle_id},
+        {"VERSION", "1.0.0"},
+        {"PLUGIN_CODE", plugin_code},
+        {"FORMATS", formats},
+        {"DESCRIPTION", "A Pulp audio " + type},
+        {"VST3_UID", make_vst3_uid()},
+    };
+
+    // Read and expand templates
+    auto template_dir = root / "tools" / "templates" / type;
+    if (!fs::exists(template_dir)) {
+        std::cerr << "Error: template directory not found at " << template_dir.string() << "\n";
+        return 1;
+    }
+
+    fs::create_directories(out_dir);
+    std::cout << "Creating " << name << " (" << type << ") at " << out_dir.string() << "\n\n";
+
+    struct FileMapping { std::string tmpl; std::string output; };
+    std::string test_name = "test_" + replace_all_str(lower_name, "-", "_") + ".cpp";
+    std::vector<FileMapping> file_map = {
+        {"processor.hpp.template", header_name},
+        {"CMakeLists.txt.template", "CMakeLists.txt"},
+        {"clap_entry.cpp.template", "clap_entry.cpp"},
+        {"vst3_entry.cpp.template", "vst3_entry.cpp"},
+        {"au_v2_entry.cpp.template", "au_v2_entry.cpp"},
+        {"test.cpp.template", test_name},
+    };
+
+    for (auto& [tmpl, outfile] : file_map) {
+        auto tmpl_path = template_dir / tmpl;
+        if (!fs::exists(tmpl_path)) continue;
+        auto content = read_file_contents(tmpl_path);
+        auto expanded = expand_template_str(content, vars);
+        std::ofstream f(out_dir / outfile);
+        f << expanded;
+        std::cout << "  Created " << outfile << "\n";
+    }
+
+    // Standalone main.cpp
+    if (formats.find("Standalone") != std::string::npos) {
+        std::ofstream f(out_dir / "main.cpp");
+        f << "#include \"" << header_name << "\"\n";
+        f << "#include <pulp/format/format.hpp>\n\n";
+        f << "int main(int argc, char* argv[]) {\n";
+        f << "    return pulp::format::run_standalone(" << ns << "::create_" << factory << ", argc, argv);\n";
+        f << "}\n";
+        std::cout << "  Created main.cpp\n";
+    }
+
+    // Add to examples/CMakeLists.txt
+    auto examples_cmake = root / "examples" / "CMakeLists.txt";
+    auto rel_dir = lower_name;
+    bool in_examples = (out_dir.parent_path() == root / "examples");
+
+    if (in_examples && fs::exists(examples_cmake)) {
+        std::string cmake_content = read_file_contents(examples_cmake);
+        std::string add_line = "\n# " + name + " (generated by pulp new)\n"
+                               "add_subdirectory(" + rel_dir + ")\n";
+        std::ofstream f(examples_cmake, std::ios::app);
+        f << add_line;
+        std::cout << "  Added to examples/CMakeLists.txt\n";
+    }
+
+    std::cout << "\n";
+
+    if (no_build) {
+        std::cout << "Scaffolding complete. Run `pulp build` to build.\n";
+        return 0;
+    }
+
+    // Build
+    std::cout << "Building...\n";
+    int rc = run("cmake -S " + root.string() + " -B " + (root / "build").string()
+                 + " -DCMAKE_BUILD_TYPE=Debug 2>&1 | tail -5");
+    if (rc != 0) {
+        std::cerr << "Configure failed.\n";
+        return rc;
+    }
+
+    rc = run("cmake --build " + (root / "build").string() + " --target " + class_name + "-test 2>&1 | tail -10");
+    if (rc != 0) {
+        std::cerr << "Build failed.\n";
+        return rc;
+    }
+
+    // Test — run the test binary directly since ctest may not have discovered new tests yet
+    std::cout << "\nRunning tests...\n";
+    auto test_binary = root / "build" / "examples" / lower_name / (class_name + "-test");
+    if (fs::exists(test_binary)) {
+        rc = run(test_binary.string());
+    } else {
+        rc = run("ctest --test-dir " + (root / "build").string() + " -R \"" + name + "\" --output-on-failure");
+    }
+    if (rc != 0) {
+        std::cerr << "Tests failed.\n";
+        return rc;
+    }
+
+    std::string test_filter = replace_all_str(lower_name, "-", "_");
+
+    // Success report
+    std::cout << "\n  \xe2\x9c\x93 " << name << " is ready!\n\n";
+    std::cout << "  Source:     " << out_dir.string() << "\n";
+
+    auto build_dir = root / "build";
+    for (auto fmt : {"VST3", "CLAP", "AU"}) {
+        auto fmt_dir = build_dir / fmt;
+        if (!fs::exists(fmt_dir)) continue;
+        for (auto& entry : fs::directory_iterator(fmt_dir)) {
+            if (entry.path().stem().string() == class_name) {
+                std::cout << "  " << fmt << ":       " << entry.path().string() << "\n";
+            }
+        }
+    }
+
+    std::cout << "\n  Next steps:\n";
+    std::cout << "    pulp build              # rebuild after changes\n";
+    std::cout << "    pulp test -R " << test_filter << "  # run tests\n";
+    std::cout << "    pulp validate           # validate plugin formats\n";
+    return 0;
+}
+
 // ── Docs helpers ────────────────────────────────────────────────────────────
 
 static std::string read_file_contents(const fs::path& path) {
@@ -1397,7 +1706,8 @@ static void print_usage() {
     std::cout << "pulp — Pulp audio plugin framework CLI\n\n";
     std::cout << "Usage: pulp <command> [options]\n\n";
     std::cout << "Commands:\n";
-    std::cout << "  create   Scaffold a new plugin project from templates\n";
+    std::cout << "  new      Create a new plugin project (scaffold + build + test)\n";
+    std::cout << "  create   Scaffold a new plugin project from templates (Python)\n";
     std::cout << "  inspect  Launch the component inspector\n";
     std::cout << "  design   AI-powered style design (natural language -> token diffs)\n";
     std::cout << "  audit    License and clean-room audit\n";
@@ -1411,6 +1721,8 @@ static void print_usage() {
     std::cout << "  clean    Remove build directory\n";
     std::cout << "  help     Show this help\n";
     std::cout << "\nExamples:\n";
+    std::cout << "  pulp new MyPlugin       # Create a new effect plugin\n";
+    std::cout << "  pulp new MySynth --type instrument  # Create an instrument\n";
     std::cout << "  pulp doctor             # Check environment for issues\n";
     std::cout << "  pulp doctor --fix       # Auto-fix issues where possible\n";
     std::cout << "  pulp build              # Build all targets\n";
@@ -1438,6 +1750,7 @@ int main(int argc, char* argv[]) {
     for (int i = 2; i < argc; ++i)
         args.push_back(argv[i]);
 
+    if (command == "new")      return cmd_new(args);
     if (command == "build")    return cmd_build(args);
     if (command == "test")     return cmd_test(args);
     if (command == "status")   return cmd_status(args);

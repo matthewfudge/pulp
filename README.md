@@ -94,6 +94,17 @@ cmake -B build && cmake --build build
 ctest --test-dir build
 ```
 
+### Create a New Plugin
+
+After building, use `pulp new` to scaffold a plugin project:
+
+```bash
+./build/tools/cli/pulp new "My Gain"                    # effect (default)
+./build/tools/cli/pulp new "My Synth" --type instrument  # instrument
+```
+
+This checks your environment, scaffolds from templates, builds, runs tests, and reports artifact locations. Formats are platform-gated (macOS gets VST3+AU+CLAP+Standalone by default).
+
 ### Environment Diagnosis
 
 After building, use `pulp doctor` to check your environment:

@@ -1,0 +1,121 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.1.0)'
+        required: true
+
+jobs:
+  build-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin-arm64
+            artifact: pulp
+          - os: macos-13
+            platform: darwin-x64
+            artifact: pulp
+          - os: ubuntu-latest
+            platform: linux-x64
+            artifact: pulp
+          - os: windows-latest
+            platform: windows-x64
+            artifact: pulp.exe
+
+    runs-on: ${{ matrix.os }}
+    name: CLI ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Configure (CLI only)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPULP_BUILD_TESTS=OFF
+        shell: bash
+
+      - name: Build CLI
+        run: cmake --build build --target pulp-cli --config Release
+        shell: bash
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip build/tools/cli/pulp
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd build/tools/cli
+          tar czf ../../../pulp-${{ matrix.platform }}.tar.gz pulp
+        shell: bash
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd build/tools/cli/Release
+          Compress-Archive -Path pulp.exe -DestinationPath ../../../../pulp-${{ matrix.platform }}.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulp-${{ matrix.platform }}
+          path: pulp-${{ matrix.platform }}.*
+
+  release:
+    needs: build-cli
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Pulp CLI ${{ steps.version.outputs.tag }}
+          body: |
+            ## Install
+
+            **macOS / Linux:**
+            ```bash
+            curl -fsSL https://generouscorp.com/pulp/install.sh | sh
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://generouscorp.com/pulp/install.ps1 | iex
+            ```
+
+            Or download the binary for your platform below.
+          files: |
+            artifacts/**/*
+          draft: false
+          prerelease: false

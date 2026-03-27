@@ -17,7 +17,8 @@ TEST_CASE("{{PLUGIN_NAME}} processes audio") {
         in.channel(1)[i] = 0.5f;
     }
 
-    auto iv = in.view();
+    const float* in_ptrs[] = {in.channel(0).data(), in.channel(1).data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 2, 512);
     auto ov = out.view();
     host.process(ov, iv);
 

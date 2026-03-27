@@ -76,6 +76,28 @@ commands:
         summary: Generate API reference from public headers (Doxygen)
     docs: reference/cli.md#docs
 
+  - name: new
+    status: usable
+    summary: Create a new plugin project from templates. Checks environment, scaffolds, builds, and tests.
+    args:
+      - name: name
+        kind: positional
+        required: true
+        description: Plugin name (e.g., "My Gain")
+      - name: --type
+        kind: option
+        description: Plugin type — effect or instrument (default: effect)
+      - name: --manufacturer
+        kind: option
+        description: Manufacturer name (default: Pulp)
+      - name: --output
+        kind: option
+        description: Output directory (default: examples/<name>/)
+      - name: --no-build
+        kind: flag
+        description: Skip build after scaffolding
+    docs: reference/cli.md#new
+
   - name: doctor
     status: usable
     summary: Diagnose environment issues. Checks compiler, CMake, git-lfs, external SDKs, platform deps.

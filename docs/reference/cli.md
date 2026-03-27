@@ -59,6 +59,32 @@ Checks:
 
 Prints a summary with pass/fail/skip counts.
 
+### new
+
+**Status**: usable
+
+Create a new plugin project from templates. Checks environment, scaffolds source files, builds, and runs tests.
+
+```bash
+pulp new "My Gain"                              # effect plugin (default)
+pulp new "My Synth" --type instrument           # instrument plugin
+pulp new "My FX" --manufacturer "Acme Audio"    # custom manufacturer
+pulp new "My FX" --output ~/projects/my-fx      # custom output directory
+pulp new "My FX" --no-build                     # scaffold only, skip build
+```
+
+What it does:
+1. Runs `pulp doctor` checks (fails fast if environment is broken)
+2. Scaffolds source files from templates (processor, format entries, test, CMakeLists.txt)
+3. Adds the project to `examples/CMakeLists.txt`
+4. Configures, builds the test target, and runs tests
+5. Reports plugin artifact locations
+
+Default formats are platform-gated:
+- **macOS**: VST3, AU, CLAP, Standalone
+- **Linux**: VST3, CLAP, LV2, Standalone
+- **Windows**: VST3, CLAP, Standalone
+
 ### doctor
 
 **Status**: usable
