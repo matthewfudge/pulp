@@ -24,45 +24,56 @@ const std::string& ComboBox::selected_text() const {
 
 void ComboBox::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
-    auto bg = resolve_color("combo_bg", canvas::Color::hex(0x1a1a2e));
-    auto border = resolve_color("border", canvas::Color::hex(0x3a3a5a));
+    auto bg = resolve_color("bg.surface", canvas::Color::rgba(30, 30, 46));
+    auto border_c = resolve_color("control.border", canvas::Color::rgba(80, 80, 100));
+    auto text_c = resolve_color("text.primary", canvas::Color::rgba(220, 220, 230));
 
+    float base_h = open_ ? std::min(b.height, 28.0f) : b.height;
+
+    // Background
     canvas.set_fill_color(bg);
-    canvas.fill_rounded_rect(b.x, b.y, b.width, b.height, 4);
-    canvas.set_stroke_color(border);
+    canvas.fill_rounded_rect(0, 0, b.width, base_h, 4);
+    canvas.set_stroke_color(border_c);
     canvas.set_line_width(1);
-    canvas.stroke_rounded_rect(b.x, b.y, b.width, b.height, 4);
+    canvas.stroke_rounded_rect(0, 0, b.width, base_h, 4);
 
     // Selected text
-    canvas.set_font("system", 13);
-    canvas.set_fill_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
-    canvas.fill_text(selected_text(), b.x + 8, b.y + b.height / 2 + 4);
+    canvas.set_font("Inter", 12);
+    canvas.set_fill_color(text_c);
+    canvas.set_text_align(canvas::TextAlign::left);
+    canvas.fill_text(selected_text(), 8, base_h / 2 + 4);
 
     // Dropdown arrow
-    float ax = b.x + b.width - 16;
-    float ay = b.y + b.height / 2;
-    canvas.set_stroke_color(resolve_color("text_muted", canvas::Color::hex(0x808090)));
+    float ax = b.width - 16;
+    float ay = base_h / 2;
+    auto arrow_c = resolve_color("text.secondary", canvas::Color::rgba(150, 150, 170));
+    canvas.set_stroke_color(arrow_c);
     canvas.set_line_width(1.5f);
     canvas.stroke_line(ax - 3, ay - 2, ax, ay + 2);
     canvas.stroke_line(ax, ay + 2, ax + 3, ay - 2);
 
-    // Open dropdown (simplified — renders inline below)
-    if (open_) {
-        float y = b.y + b.height;
-        canvas.set_fill_color(resolve_color("surface", canvas::Color::hex(0x16213e)));
-        float dropdown_h = static_cast<float>(items_.size()) * 24.0f;
-        canvas.fill_rounded_rect(b.x, y, b.width, dropdown_h, 4);
-        canvas.set_stroke_color(border);
-        canvas.stroke_rounded_rect(b.x, y, b.width, dropdown_h, 4);
+    // Dropdown menu when open
+    if (open_ && !items_.empty()) {
+        float item_h = 24.0f;
+        float dropdown_y = base_h + 2;
+        float dropdown_h = std::min(static_cast<float>(items_.size()) * item_h, b.height - dropdown_y);
+        auto dropdown_bg = resolve_color("bg.elevated", canvas::Color::rgba(45, 45, 60));
+        auto accent = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+
+        canvas.set_fill_color(dropdown_bg);
+        canvas.fill_rounded_rect(0, dropdown_y, b.width, dropdown_h, 4);
+        canvas.set_stroke_color(border_c);
+        canvas.stroke_rounded_rect(0, dropdown_y, b.width, dropdown_h, 4);
 
         for (int i = 0; i < static_cast<int>(items_.size()); ++i) {
-            float item_y = y + static_cast<float>(i) * 24.0f;
+            float iy = dropdown_y + static_cast<float>(i) * item_h;
+            if (iy + item_h > b.height) break; // Don't draw outside bounds
             if (i == selected_) {
-                canvas.set_fill_color(resolve_color("accent", canvas::Color::hex(0xe94560)));
-                canvas.fill_rect(b.x + 1, item_y, b.width - 2, 24);
+                canvas.set_fill_color(accent);
+                canvas.fill_rect(1, iy, b.width - 2, item_h);
             }
-            canvas.set_fill_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
-            canvas.fill_text(items_[static_cast<size_t>(i)], b.x + 8, item_y + 16);
+            canvas.set_fill_color(text_c);
+            canvas.fill_text(items_[static_cast<size_t>(i)], 8, iy + 16);
         }
     }
 }
@@ -70,10 +81,10 @@ void ComboBox::paint(canvas::Canvas& canvas) {
 void ComboBox::on_mouse_event(const MouseEvent& event) {
     if (!event.is_down) return;
     auto b = local_bounds();
+    float base_h = open_ ? std::min(b.height, 28.0f) : b.height;
 
     if (open_) {
-        // Click in dropdown area
-        float dropdown_top = b.y + b.height;
+        float dropdown_top = base_h + 2;
         if (event.position.y >= dropdown_top) {
             int index = static_cast<int>((event.position.y - dropdown_top) / 24.0f);
             if (index >= 0 && index < static_cast<int>(items_.size())) {

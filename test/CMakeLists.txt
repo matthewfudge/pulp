@@ -224,6 +224,11 @@ add_executable(pulp-test-text-input test_text_input.cpp)
 target_link_libraries(pulp-test-text-input PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-text-input)
 
+# ComboBox dropdown interaction tests
+add_executable(pulp-test-combo-dropdown test_combo_dropdown.cpp)
+target_link_libraries(pulp-test-combo-dropdown PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-combo-dropdown)
+
 # Panel widget tests (styled containers)
 add_executable(pulp-test-panel test_panel.cpp)
 target_link_libraries(pulp-test-panel PRIVATE pulp::view Catch2::Catch2WithMain)
