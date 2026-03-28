@@ -242,6 +242,23 @@ public:
     float transform_origin_x() const { return origin_x_; }
     float transform_origin_y() const { return origin_y_; }
 
+    /// CSS filter: blur(px) — per-element blur
+    void set_filter_blur(float radius) { filter_blur_ = radius; }
+    float filter_blur() const { return filter_blur_; }
+
+    /// Background gradient (CSS background: linear-gradient / radial-gradient)
+    void set_background_gradient_linear(float x0, float y0, float x1, float y1,
+                                         const std::vector<Color>& colors,
+                                         const std::vector<float>& positions) {
+        bg_gradient_colors_ = colors;
+        bg_gradient_positions_ = positions;
+        bg_gradient_type_ = 1;  // linear
+        bg_grad_x0_ = x0; bg_grad_y0_ = y0;
+        bg_grad_x1_ = x1; bg_grad_y1_ = y1;
+    }
+    void clear_background_gradient() { bg_gradient_type_ = 0; }
+    bool has_background_gradient() const { return bg_gradient_type_ > 0; }
+
     /// Text overflow: ellipsis (CSS text-overflow: ellipsis)
     void set_text_overflow_ellipsis(bool e) { text_ellipsis_ = e; }
     bool text_overflow_ellipsis() const { return text_ellipsis_; }
@@ -285,6 +302,11 @@ private:
     float rotation_deg_ = 0;
     float skew_x_ = 0, skew_y_ = 0;
     float origin_x_ = 0.5f, origin_y_ = 0.5f;  // transform-origin (normalized)
+    float filter_blur_ = 0;
+    int bg_gradient_type_ = 0;  // 0=none, 1=linear, 2=radial
+    float bg_grad_x0_ = 0, bg_grad_y0_ = 0, bg_grad_x1_ = 0, bg_grad_y1_ = 1;
+    std::vector<Color> bg_gradient_colors_;
+    std::vector<float> bg_gradient_positions_;
     bool text_ellipsis_ = false;
     CursorStyle cursor_ = CursorStyle::default_;
 };

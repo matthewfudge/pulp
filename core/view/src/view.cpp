@@ -67,8 +67,22 @@ void View::paint_all(canvas::Canvas& canvas) {
         }
     }
 
+    // Paint background gradient if set (CSS background: linear-gradient)
+    if (bg_gradient_type_ > 0 && !bg_gradient_colors_.empty()) {
+        canvas.set_fill_gradient_linear(
+            bg_grad_x0_ * bounds_.width, bg_grad_y0_ * bounds_.height,
+            bg_grad_x1_ * bounds_.width, bg_grad_y1_ * bounds_.height,
+            bg_gradient_colors_.data(), bg_gradient_positions_.data(),
+            static_cast<int>(bg_gradient_colors_.size()));
+        if (corner_radius_ > 0)
+            canvas.fill_rounded_rect(0, 0, bounds_.width, bounds_.height, corner_radius_);
+        else
+            canvas.fill_rect(0, 0, bounds_.width, bounds_.height);
+        canvas.clear_fill_gradient();
+    }
+
     // Paint background if set
-    if (has_bg_) {
+    if (has_bg_ && bg_gradient_type_ == 0) {
         canvas.set_fill_color(bg_color_);
         if (corner_radius_ > 0)
             canvas.fill_rounded_rect(0, 0, bounds_.width, bounds_.height, corner_radius_);

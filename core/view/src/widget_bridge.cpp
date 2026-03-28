@@ -5,6 +5,8 @@
 #include <pulp/view/text_editor.hpp>
 #include <pulp/view/canvas_widget.hpp>
 #include <cmath>
+#include <sstream>
+#include <unordered_map>
 
 namespace pulp::view {
 
@@ -853,17 +855,135 @@ void WidgetBridge::register_api() {
 
     // ── Visual properties (CSS Box Model) ─────────────────────────────
 
-    auto parseHexColor = [](const std::string& hex) -> canvas::Color {
+    // CSS Color Level 4 parser — accepts hex, rgb(), rgba(), hsl(), hsla(), named, transparent
+    auto parseColor = [](const std::string& str) -> canvas::Color {
         canvas::Color c{255,255,255,255};
-        if (hex.size() >= 7 && hex[0] == '#') {
-            c.r = static_cast<uint8_t>(std::stoul(hex.substr(1,2), nullptr, 16));
-            c.g = static_cast<uint8_t>(std::stoul(hex.substr(3,2), nullptr, 16));
-            c.b = static_cast<uint8_t>(std::stoul(hex.substr(5,2), nullptr, 16));
-            if (hex.size() >= 9)
-                c.a = static_cast<uint8_t>(std::stoul(hex.substr(7,2), nullptr, 16));
+        if (str.empty()) return c;
+
+        // transparent
+        if (str == "transparent") return {0, 0, 0, 0};
+
+        // Hex: #RGB, #RRGGBB, #RRGGBBAA
+        if (str[0] == '#') {
+            if (str.size() == 4) {  // #RGB → #RRGGBB
+                c.r = static_cast<uint8_t>(std::stoul(std::string(2, str[1]), nullptr, 16));
+                c.g = static_cast<uint8_t>(std::stoul(std::string(2, str[2]), nullptr, 16));
+                c.b = static_cast<uint8_t>(std::stoul(std::string(2, str[3]), nullptr, 16));
+            } else if (str.size() >= 7) {
+                c.r = static_cast<uint8_t>(std::stoul(str.substr(1,2), nullptr, 16));
+                c.g = static_cast<uint8_t>(std::stoul(str.substr(3,2), nullptr, 16));
+                c.b = static_cast<uint8_t>(std::stoul(str.substr(5,2), nullptr, 16));
+                if (str.size() >= 9)
+                    c.a = static_cast<uint8_t>(std::stoul(str.substr(7,2), nullptr, 16));
+            }
+            return c;
         }
-        return c;
+
+        // rgb(r, g, b) / rgba(r, g, b, a)
+        if (str.substr(0, 4) == "rgb(" || str.substr(0, 5) == "rgba(") {
+            auto inner = str.substr(str.find('(') + 1);
+            inner = inner.substr(0, inner.find(')'));
+            float vals[4] = {0, 0, 0, 1};
+            int n = 0;
+            std::istringstream ss(inner);
+            std::string tok;
+            while (std::getline(ss, tok, ',') && n < 4) {
+                while (!tok.empty() && tok[0] == ' ') tok.erase(0, 1);
+                vals[n++] = std::stof(tok);
+            }
+            c.r = static_cast<uint8_t>(std::clamp(vals[0], 0.0f, 255.0f));
+            c.g = static_cast<uint8_t>(std::clamp(vals[1], 0.0f, 255.0f));
+            c.b = static_cast<uint8_t>(std::clamp(vals[2], 0.0f, 255.0f));
+            c.a = static_cast<uint8_t>(std::clamp(vals[3] * 255.0f, 0.0f, 255.0f));
+            return c;
+        }
+
+        // hsl(h, s%, l%) / hsla(h, s%, l%, a)
+        if (str.substr(0, 4) == "hsl(" || str.substr(0, 5) == "hsla(") {
+            auto inner = str.substr(str.find('(') + 1);
+            inner = inner.substr(0, inner.find(')'));
+            float vals[4] = {0, 0, 0, 1};
+            int n = 0;
+            std::istringstream ss(inner);
+            std::string tok;
+            while (std::getline(ss, tok, ',') && n < 4) {
+                while (!tok.empty() && tok[0] == ' ') tok.erase(0, 1);
+                if (tok.back() == '%') tok.pop_back();
+                vals[n++] = std::stof(tok);
+            }
+            float h = std::fmod(vals[0], 360.0f) / 360.0f;
+            float s = vals[1] / 100.0f;
+            float l = vals[2] / 100.0f;
+            // HSL to RGB conversion
+            auto hue2rgb = [](float p, float q, float t) {
+                if (t < 0) t += 1; if (t > 1) t -= 1;
+                if (t < 1.0f/6) return p + (q - p) * 6 * t;
+                if (t < 1.0f/2) return q;
+                if (t < 2.0f/3) return p + (q - p) * (2.0f/3 - t) * 6;
+                return p;
+            };
+            float r, g, b;
+            if (s == 0) { r = g = b = l; }
+            else {
+                float q = l < 0.5f ? l * (1 + s) : l + s - l * s;
+                float p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1.0f/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1.0f/3);
+            }
+            c.r = static_cast<uint8_t>(r * 255); c.g = static_cast<uint8_t>(g * 255);
+            c.b = static_cast<uint8_t>(b * 255);
+            c.a = static_cast<uint8_t>(std::clamp(vals[3] * 255.0f, 0.0f, 255.0f));
+            return c;
+        }
+
+        // Named colors (common subset)
+        static const std::unordered_map<std::string, uint32_t> named = {
+            {"black", 0x000000}, {"white", 0xFFFFFF}, {"red", 0xFF0000},
+            {"green", 0x008000}, {"blue", 0x0000FF}, {"yellow", 0xFFFF00},
+            {"cyan", 0x00FFFF}, {"magenta", 0xFF00FF}, {"orange", 0xFFA500},
+            {"purple", 0x800080}, {"pink", 0xFFC0CB}, {"gray", 0x808080},
+            {"grey", 0x808080}, {"silver", 0xC0C0C0}, {"gold", 0xFFD700},
+            {"navy", 0x000080}, {"teal", 0x008080}, {"maroon", 0x800000},
+            {"olive", 0x808000}, {"lime", 0x00FF00}, {"aqua", 0x00FFFF},
+            {"fuchsia", 0xFF00FF}, {"coral", 0xFF7F50}, {"salmon", 0xFA8072},
+            {"tomato", 0xFF6347}, {"crimson", 0xDC143C}, {"indigo", 0x4B0082},
+            {"violet", 0xEE82EE}, {"turquoise", 0x40E0D0}, {"tan", 0xD2B48C},
+            {"khaki", 0xF0E68C}, {"plum", 0xDDA0DD}, {"orchid", 0xDA70D6},
+            {"chocolate", 0xD2691E}, {"sienna", 0xA0522D}, {"peru", 0xCD853F},
+            {"linen", 0xFAF0E6}, {"ivory", 0xFFFFF0}, {"beige", 0xF5F5DC},
+            {"wheat", 0xF5DEB3}, {"snow", 0xFFFAFA}, {"azure", 0xF0FFFF},
+            {"mintcream", 0xF5FFFA}, {"honeydew", 0xF0FFF0}, {"aliceblue", 0xF0F8FF},
+            {"lavender", 0xE6E6FA}, {"mistyrose", 0xFFE4E1}, {"seashell", 0xFFF5EE},
+            {"cornsilk", 0xFFF8DC}, {"papayawhip", 0xFFEFD5}, {"blanchedalmond", 0xFFEBCD},
+            {"bisque", 0xFFE4C4}, {"moccasin", 0xFFE4B5}, {"oldlace", 0xFDF5E6},
+            {"floralwhite", 0xFFFAF0}, {"ghostwhite", 0xF8F8FF}, {"whitesmoke", 0xF5F5F5},
+            {"gainsboro", 0xDCDCDC}, {"lightgray", 0xD3D3D3}, {"darkgray", 0xA9A9A9},
+            {"dimgray", 0x696969}, {"lightslategray", 0x778899}, {"slategray", 0x708090},
+            {"darkslategray", 0x2F4F4F},
+            {"lightcoral", 0xF08080}, {"indianred", 0xCD5C5C}, {"firebrick", 0xB22222},
+            {"darkred", 0x8B0000}, {"orangered", 0xFF4500}, {"darkorange", 0xFF8C00},
+            {"lightgreen", 0x90EE90}, {"limegreen", 0x32CD32}, {"forestgreen", 0x228B22},
+            {"darkgreen", 0x006400}, {"springgreen", 0x00FF7F}, {"seagreen", 0x2E8B57},
+            {"lightblue", 0xADD8E6}, {"skyblue", 0x87CEEB}, {"deepskyblue", 0x00BFFF},
+            {"dodgerblue", 0x1E90FF}, {"royalblue", 0x4169E1}, {"steelblue", 0x4682B4},
+            {"cornflowerblue", 0x6495ED}, {"mediumblue", 0x0000CD}, {"darkblue", 0x00008B},
+            {"midnightblue", 0x191970}, {"slateblue", 0x6A5ACD}, {"mediumpurple", 0x9370DB},
+            {"blueviolet", 0x8A2BE2}, {"darkviolet", 0x9400D3}, {"darkorchid", 0x9932CC},
+            {"darkmagenta", 0x8B008B}, {"deeppink", 0xFF1493}, {"hotpink", 0xFF69B4},
+            {"mediumvioletred", 0xC71585}, {"palevioletred", 0xDB7093},
+        };
+        auto it = named.find(str);
+        if (it != named.end()) {
+            uint32_t v = it->second;
+            c.r = (v >> 16) & 0xFF; c.g = (v >> 8) & 0xFF; c.b = v & 0xFF; c.a = 255;
+            return c;
+        }
+
+        return c;  // default white
     };
+    // Alias for backward compatibility
+    auto parseHexColor = parseColor;
 
     engine_.register_function("setBackground", [this, parseHexColor](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -1026,6 +1146,62 @@ void WidgetBridge::register_api() {
         else if (c == "text") v->set_cursor(View::CursorStyle::text);
         else if (c == "grab") v->set_cursor(View::CursorStyle::grab);
         else v->set_cursor(View::CursorStyle::default_);
+        return choc::value::Value();
+    });
+
+    // setFilter(id, "blur(4px)") — CSS filter property
+    engine_.register_function("setFilter", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto filter = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        // Parse "blur(Npx)"
+        if (filter.substr(0, 5) == "blur(") {
+            auto inner = filter.substr(5, filter.find(')') - 5);
+            v->set_filter_blur(std::stof(inner));
+        }
+        return choc::value::Value();
+    });
+
+    // setBackgroundGradient(id, "linear-gradient(to right, #ff0000, #0000ff)")
+    engine_.register_function("setBackgroundGradient", [this, parseColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto gradient = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v || gradient.empty()) return choc::value::Value();
+
+        // Simple parser for "linear-gradient(to right, color1, color2, ...)"
+        if (gradient.substr(0, 16) == "linear-gradient(") {
+            auto inner = gradient.substr(16, gradient.size() - 17);
+            // Parse direction
+            float x0 = 0, y0 = 0, x1 = 0, y1 = 1;  // default: to bottom
+            size_t color_start = 0;
+            if (inner.substr(0, 8) == "to right") { x0=0; y0=0; x1=1; y1=0; color_start = inner.find(',') + 1; }
+            else if (inner.substr(0, 9) == "to bottom") { x0=0; y0=0; x1=0; y1=1; color_start = inner.find(',') + 1; }
+            else if (inner.substr(0, 7) == "to left") { x0=1; y0=0; x1=0; y1=0; color_start = inner.find(',') + 1; }
+            else if (inner.substr(0, 6) == "to top") { x0=0; y0=1; x1=0; y1=0; color_start = inner.find(',') + 1; }
+
+            // Parse color stops
+            std::vector<canvas::Color> colors;
+            std::vector<float> positions;
+            std::string colorStr = inner.substr(color_start);
+            std::istringstream ss(colorStr);
+            std::string tok;
+            int count = 0;
+            std::vector<std::string> tokens;
+            while (std::getline(ss, tok, ',')) {
+                while (!tok.empty() && tok[0] == ' ') tok.erase(0, 1);
+                while (!tok.empty() && tok.back() == ' ') tok.pop_back();
+                if (!tok.empty()) tokens.push_back(tok);
+            }
+            for (size_t i = 0; i < tokens.size(); ++i) {
+                colors.push_back(parseColor(tokens[i]));
+                positions.push_back(tokens.size() > 1 ? static_cast<float>(i) / (tokens.size() - 1) : 0);
+            }
+            if (!colors.empty()) {
+                v->set_background_gradient_linear(x0, y0, x1, y1, colors, positions);
+            }
+        }
         return choc::value::Value();
     });
 
