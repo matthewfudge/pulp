@@ -108,6 +108,10 @@ createCombo("harmony-selector", "color-section");
 setItems("harmony-selector", ["Monochromatic", "Analogous", "Complementary", "Split Comp.", "None"]);
 setFlex("harmony-selector", "height", 26);
 
+createCombo("mode-selector", "color-section");
+setItems("mode-selector", ["Dark", "Light"]);
+setFlex("mode-selector", "height", 26);
+
 createRow("hue-row", "color-section");
 setFlex("hue-row", "gap", 8);
 setFlex("hue-row", "align_items", "center");
@@ -122,11 +126,24 @@ setFlex("accent-hue", "flex_grow", 1);
 setFlex("accent-hue", "height", 20);
 setValue("accent-hue", 0.65);
 
+// Token search field
+createRow("token-search-row", "left-panel");
+setFlex("token-search-row", "height", 28);
+setFlex("token-search-row", "flex_shrink", 0);
+setFlex("token-search-row", "padding_left", 10);
+setFlex("token-search-row", "padding_right", 10);
+setFlex("token-search-row", "padding_top", 6);
+
+createTextEditor("token-search", "token-search-row");
+setPlaceholder("token-search", "\u{1F50D} Search tokens...");
+setFlex("token-search", "flex_grow", 1);
+setFlex("token-search", "height", 24);
+
 // Token browser header
 createRow("token-header", "left-panel");
-setFlex("token-header", "height", 30);
-setFlex("token-header", "padding", 10);
-setFlex("token-header", "padding_bottom", 6);
+setFlex("token-header", "height", 24);
+setFlex("token-header", "flex_shrink", 0);
+setFlex("token-header", "padding_left", 10);
 setFlex("token-header", "align_items", "center");
 
 createLabel("tokens-title", "TOKENS", "token-header");
@@ -275,6 +292,16 @@ on("harmony-selector", "select", function(idx) {
     var diff = PaletteSystem.toThemeDiff(palette);
     applyTokenDiff(diff);
     updateTokenSwatches();
+    layout();
+});
+
+// Dark/Light mode handler
+on("mode-selector", "select", function(idx) {
+    var mode = idx === 0 ? "dark" : "light";
+    setTheme(mode);
+    buildShadeRamps();
+    updateTokenSwatches();
+    pushThemeSnapshot();
     layout();
 });
 
