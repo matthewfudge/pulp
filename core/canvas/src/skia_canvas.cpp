@@ -202,6 +202,117 @@ Canvas::TextMetrics SkiaCanvas::measure_text_full(const std::string& text) {
     return m;
 }
 
+// ── GPU SDF Shape Primitives ─────────────────────────────────────────────────
+
+static const char* kSDFShapeSkSL = R"(
+    uniform float2 resolution;
+    uniform float shapeType;  // 0=rect, 1=circle, 2=rounded_rect, 3=arc, 4=diamond
+    uniform float cornerRadius;
+    uniform float strokeWidth;
+    uniform float arcStart;
+    uniform float arcSweep;
+    uniform half4 fillColor;
+    uniform half4 strokeColor;
+
+    // SDF for a box centered at origin
+    float sdBox(float2 p, float2 b) {
+        float2 d = abs(p) - b;
+        return length(max(d, float2(0.0))) + min(max(d.x, d.y), 0.0);
+    }
+
+    // SDF for a circle centered at origin
+    float sdCircle(float2 p, float r) {
+        return length(p) - r;
+    }
+
+    // SDF for rounded box
+    float sdRoundBox(float2 p, float2 b, float r) {
+        float2 q = abs(p) - b + float2(r);
+        return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - r;
+    }
+
+    // SDF for diamond (rotated square)
+    float sdDiamond(float2 p, float s) {
+        float2 q = abs(p);
+        return (q.x + q.y - s) * 0.7071;
+    }
+
+    half4 main(float2 coord) {
+        float2 center = resolution * 0.5;
+        float2 p = coord - center;
+        float2 halfSize = center - float2(2.0);  // 2px padding for AA
+        float r = min(halfSize.x, halfSize.y);
+        float d;
+
+        if (shapeType < 0.5) {
+            d = sdBox(p, halfSize);  // rect
+        } else if (shapeType < 1.5) {
+            d = sdCircle(p, r);  // circle
+        } else if (shapeType < 2.5) {
+            d = sdRoundBox(p, halfSize, cornerRadius);  // rounded rect
+        } else if (shapeType < 3.5) {
+            // Arc: use circle SDF with angle masking
+            float angle = atan2(p.y, p.x);
+            float halfSweep = arcSweep * 0.5;
+            float midAngle = arcStart + halfSweep;
+            float angleDiff = angle - midAngle;
+            // Normalize to [-PI, PI]
+            angleDiff = angleDiff - 6.2832 * floor((angleDiff + 3.1416) / 6.2832);
+            float arcDist = abs(angleDiff) - halfSweep;
+            float ringDist = abs(length(p) - r * 0.8) - strokeWidth * 0.5;
+            d = max(ringDist, arcDist * r * 0.5);
+        } else {
+            d = sdDiamond(p, r);  // diamond
+        }
+
+        // Render: filled or stroked with AA
+        float aa = 1.0;  // AA width in pixels
+        if (strokeWidth > 0.0 && shapeType < 2.5) {
+            // Stroked
+            float sd = abs(d) - strokeWidth * 0.5;
+            float alpha = 1.0 - smoothstep(-aa, aa, sd);
+            return strokeColor * half(alpha);
+        } else {
+            // Filled
+            float alpha = 1.0 - smoothstep(-aa, aa, d);
+            return fillColor * half(alpha);
+        }
+    }
+)";
+
+void SkiaCanvas::draw_sdf_shape(SDFShape shape, float x, float y, float w, float h,
+                                 const SDFStyle& style) {
+    if (!canvas_) { Canvas::draw_sdf_shape(shape, x, y, w, h, style); return; }
+
+    static auto effectResult = SkRuntimeEffect::MakeForShader(SkString(kSDFShapeSkSL));
+    if (!effectResult.effect) {
+        Canvas::draw_sdf_shape(shape, x, y, w, h, style);
+        return;
+    }
+
+    auto effect = effectResult.effect;
+    SkRuntimeShaderBuilder builder(effect);
+    builder.uniform("resolution") = SkV2{w, h};
+    builder.uniform("shapeType") = static_cast<float>(shape);
+    builder.uniform("cornerRadius") = style.corner_radius;
+    builder.uniform("strokeWidth") = style.stroke_width;
+    builder.uniform("arcStart") = style.arc_start;
+    builder.uniform("arcSweep") = style.arc_sweep;
+    builder.uniform("fillColor") = SkV4{
+        style.fill_color.r / 255.0f, style.fill_color.g / 255.0f,
+        style.fill_color.b / 255.0f, style.fill_color.a / 255.0f};
+    builder.uniform("strokeColor") = SkV4{
+        style.stroke_color.r / 255.0f, style.stroke_color.g / 255.0f,
+        style.stroke_color.b / 255.0f, style.stroke_color.a / 255.0f};
+
+    auto shader = builder.makeShader();
+    if (!shader) { Canvas::draw_sdf_shape(shape, x, y, w, h, style); return; }
+
+    SkPaint paint;
+    paint.setShader(std::move(shader));
+    canvas_->drawRect(SkRect::MakeXYWH(x, y, w, h), paint);
+}
+
 // ── Blur backdrop ────────────────────────────────────────────────────────────
 
 void SkiaCanvas::draw_blurred_backdrop(float x, float y, float w, float h,

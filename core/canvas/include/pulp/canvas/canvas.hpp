@@ -139,6 +139,42 @@ public:
         return m;
     }
 
+    // ── SDF Shape Primitives (GPU-accelerated) ─────────────────────────
+    /// Draw an SDF shape with anti-aliased edges via GPU shader.
+    enum class SDFShape { rect, circle, rounded_rect, arc, diamond };
+
+    struct SDFStyle {
+        Color fill_color{100, 255, 100, 255};
+        Color stroke_color{100, 255, 100, 255};
+        float stroke_width = 0;       ///< 0 = filled, >0 = stroked
+        float corner_radius = 0;      ///< For rounded_rect
+        float arc_start = 0;          ///< For arc (radians)
+        float arc_sweep = 4.712f;     ///< For arc (radians, default 270°)
+    };
+
+    virtual void draw_sdf_shape(SDFShape shape, float x, float y, float w, float h,
+                                const SDFStyle& style) {
+        // CPU fallback: use existing rect/rounded_rect
+        if (style.stroke_width > 0) {
+            set_stroke_color(style.stroke_color);
+            set_line_width(style.stroke_width);
+            if (shape == SDFShape::circle)
+                stroke_rounded_rect(x, y, w, h, std::min(w, h) * 0.5f);
+            else if (shape == SDFShape::rounded_rect)
+                stroke_rounded_rect(x, y, w, h, style.corner_radius);
+            else
+                stroke_rounded_rect(x, y, w, h, 0);
+        } else {
+            set_fill_color(style.fill_color);
+            if (shape == SDFShape::circle)
+                fill_rounded_rect(x, y, w, h, std::min(w, h) * 0.5f);
+            else if (shape == SDFShape::rounded_rect)
+                fill_rounded_rect(x, y, w, h, style.corner_radius);
+            else
+                fill_rounded_rect(x, y, w, h, 0);
+        }
+    }
+
     // ── Blur / Backdrop filter ─────────────────────────────────────────
     /// Save a blurred snapshot of the current canvas content as a backdrop.
     /// Call before painting the overlay content.

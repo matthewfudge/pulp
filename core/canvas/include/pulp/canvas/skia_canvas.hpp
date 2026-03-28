@@ -63,6 +63,8 @@ public:
     void draw_waveform(const float* samples, size_t count,
                        float x, float y, float width, float height,
                        const WaveformStyle& style) override;
+    void draw_sdf_shape(SDFShape shape, float x, float y, float w, float h,
+                        const SDFStyle& style) override;
     void draw_blurred_backdrop(float x, float y, float w, float h,
                                float blur_radius, float corner_radius,
                                Color tint) override;
