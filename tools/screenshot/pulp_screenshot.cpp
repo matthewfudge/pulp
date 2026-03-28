@@ -89,8 +89,11 @@ int main(int argc, char* argv[]) {
     else root.set_theme(Theme::dark());
 
     root.flex().direction = FlexDirection::column;
-    root.flex().padding = 16;
-    root.flex().gap = 8;
+    // Only set padding/gap for demo mode — scripts manage their own layout
+    if (demo) {
+        root.flex().padding = 16;
+        root.flex().gap = 8;
+    }
 
     // Set up scripting
     ScriptEngine engine;
@@ -109,6 +112,15 @@ int main(int argc, char* argv[]) {
         engine.evaluate("setValue('mix', 0.8)");
         engine.evaluate("setValue('volume', 0.7)");
     } else {
+        // Load library JS files from the same directory
+        auto js_dir = std::filesystem::path(script_path).parent_path();
+        for (auto& lib : {"oklch.js"}) {
+            auto lib_path = js_dir / lib;
+            if (std::filesystem::exists(lib_path)) {
+                bridge.load_script(read_file(lib_path.string()));
+            }
+        }
+
         auto code = read_file(script_path);
         if (code.empty()) {
             std::cerr << "Error: could not read " << script_path << "\n";

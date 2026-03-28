@@ -121,92 +121,129 @@ void WidgetBridge::restore_values(const std::unordered_map<std::string, float>& 
 }
 
 void WidgetBridge::register_api() {
-    // createKnob(id, x, y, w, h) -> creates a Knob widget
-    engine_.register_function("createKnob", [this](choc::javascript::ArgumentList args) {
-        auto id = args.get<std::string>(0, "");
-        auto x = args.get<double>(1, 0);
-        auto y = args.get<double>(2, 0);
-        auto w = args.get<double>(3, 48);
-        auto h = args.get<double>(4, 48);
+    // Helper: detect if arg[1] is a parent ID (string) or x position (number)
+    // Old API: createKnob(id, x, y, w, h) — 5 args, arg[1] is number
+    // New API: createKnob(id, parentId) — 2 args, arg[1] is string
+    auto isNewApi = [](choc::javascript::ArgumentList& args) -> bool {
+        if (args.numArgs <= 2) return true; // Only id + optional parent
+        // If 3+ args and arg[2] looks numeric, it's old API (id, x, y, ...)
+        auto test = args.get<std::string>(1, "");
+        // If the string is a registered widget ID or empty, it's new API
+        // If it parses as "0" or similar number, it's old API
+        if (test.empty()) return true;
+        if (test[0] >= '0' && test[0] <= '9') return false;
+        if (test[0] == '-') return false;
+        return true; // Starts with a letter = parent ID
+    };
 
+    // createKnob(id, parentId) OR createKnob(id, x, y, w, h)
+    engine_.register_function("createKnob", [this, isNewApi](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
         auto knob = std::make_unique<Knob>();
-        knob->set_bounds({static_cast<float>(x), static_cast<float>(y),
-                         static_cast<float>(w), static_cast<float>(h)});
-        knob->set_label(id);
         knob->set_id(id);
+        knob->set_label(id);
 
-        auto* ptr = knob.get();
-        widgets_[id] = ptr;
-        root_.add_child(std::move(knob));
-
+        if (isNewApi(args)) {
+            auto pid = args.get<std::string>(1, "");
+            auto* ptr = knob.get();
+            widgets_[id] = ptr;
+            wire_callbacks(id, ptr);
+            resolve_parent(pid)->add_child(std::move(knob));
+        } else {
+            knob->set_bounds({(float)args.get<double>(1,0), (float)args.get<double>(2,0),
+                             (float)args.get<double>(3,48), (float)args.get<double>(4,48)});
+            widgets_[id] = knob.get();
+            root_.add_child(std::move(knob));
+        }
         return choc::value::createString(id);
     });
 
-    // createFader(id, x, y, w, h, orientation) -> creates a Fader widget
-    engine_.register_function("createFader", [this](choc::javascript::ArgumentList args) {
+    // createFader(id, orientation, parentId) OR createFader(id, x, y, w, h, orientation)
+    engine_.register_function("createFader", [this, isNewApi](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
-        auto x = args.get<double>(1, 0);
-        auto y = args.get<double>(2, 0);
-        auto w = args.get<double>(3, 24);
-        auto h = args.get<double>(4, 200);
-        auto horiz = args.get<std::string>(5, "vertical");
-
         auto fader = std::make_unique<Fader>();
-        fader->set_bounds({static_cast<float>(x), static_cast<float>(y),
-                          static_cast<float>(w), static_cast<float>(h)});
-        fader->set_label(id);
         fader->set_id(id);
-        if (horiz == "horizontal")
-            fader->set_orientation(Fader::Orientation::horizontal);
 
-        auto* ptr = fader.get();
-        widgets_[id] = ptr;
-        root_.add_child(std::move(fader));
-
+        if (isNewApi(args)) {
+            auto orient = args.get<std::string>(1, "vertical");
+            auto pid = args.get<std::string>(2, "");
+            if (orient == "horizontal") fader->set_orientation(Fader::Orientation::horizontal);
+            auto* ptr = fader.get();
+            widgets_[id] = ptr;
+            wire_callbacks(id, ptr);
+            resolve_parent(pid)->add_child(std::move(fader));
+        } else {
+            fader->set_bounds({(float)args.get<double>(1,0), (float)args.get<double>(2,0),
+                              (float)args.get<double>(3,24), (float)args.get<double>(4,200)});
+            auto orient = args.get<std::string>(5, "vertical");
+            if (orient == "horizontal") fader->set_orientation(Fader::Orientation::horizontal);
+            fader->set_label(id);
+            widgets_[id] = fader.get();
+            root_.add_child(std::move(fader));
+        }
         return choc::value::createString(id);
     });
 
-    // createToggle(id, x, y, w, h) -> creates a Toggle widget
-    engine_.register_function("createToggle", [this](choc::javascript::ArgumentList args) {
+    // createToggle(id, parentId) OR createToggle(id, x, y, w, h)
+    engine_.register_function("createToggle", [this, isNewApi](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
-        auto x = args.get<double>(1, 0);
-        auto y = args.get<double>(2, 0);
-        auto w = args.get<double>(3, 50);
-        auto h = args.get<double>(4, 30);
-
         auto toggle = std::make_unique<Toggle>();
-        toggle->set_bounds({static_cast<float>(x), static_cast<float>(y),
-                           static_cast<float>(w), static_cast<float>(h)});
-        toggle->set_label(id);
         toggle->set_id(id);
 
-        auto* ptr = toggle.get();
-        widgets_[id] = ptr;
-        root_.add_child(std::move(toggle));
-
+        if (isNewApi(args)) {
+            auto pid = args.get<std::string>(1, "");
+            auto* ptr = toggle.get();
+            widgets_[id] = ptr;
+            wire_callbacks(id, ptr);
+            resolve_parent(pid)->add_child(std::move(toggle));
+        } else {
+            toggle->set_bounds({(float)args.get<double>(1,0), (float)args.get<double>(2,0),
+                               (float)args.get<double>(3,50), (float)args.get<double>(4,30)});
+            toggle->set_label(id);
+            widgets_[id] = toggle.get();
+            root_.add_child(std::move(toggle));
+        }
         return choc::value::createString(id);
     });
 
-    // createLabel(id, text, x, y, w, h) -> creates a Label widget
-    engine_.register_function("createLabel", [this](choc::javascript::ArgumentList args) {
+    // createLabel(id, text, parentId) OR createLabel(id, text, x, y, w, h)
+    engine_.register_function("createLabel", [this, isNewApi](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
         auto text = args.get<std::string>(1, "");
-        auto x = args.get<double>(2, 0);
-        auto y = args.get<double>(3, 0);
-        auto w = args.get<double>(4, 100);
-        auto h = args.get<double>(5, 20);
+
+        // For Label: old API is (id, text, x, y, w, h) — arg[2] is number
+        // New API is (id, text, parentId) — arg[2] is string or absent
+        bool old = false;
+        if (args.numArgs >= 4) {
+            auto test = args.get<std::string>(2, "");
+            if (!test.empty() && (test[0] >= '0' && test[0] <= '9')) old = true;
+        }
 
         auto label = std::make_unique<Label>(text);
-        label->set_bounds({static_cast<float>(x), static_cast<float>(y),
-                          static_cast<float>(w), static_cast<float>(h)});
         label->set_id(id);
 
-        auto* ptr = label.get();
-        widgets_[id] = ptr;
-        root_.add_child(std::move(label));
-
+        if (old) {
+            label->set_bounds({(float)args.get<double>(2,0), (float)args.get<double>(3,0),
+                              (float)args.get<double>(4,100), (float)args.get<double>(5,20)});
+            widgets_[id] = label.get();
+            root_.add_child(std::move(label));
+        } else {
+            auto pid = args.get<std::string>(2, "");
+            widgets_[id] = label.get();
+            resolve_parent(pid)->add_child(std::move(label));
+        }
         return choc::value::createString(id);
     });
+
+    // Keep old-API registration paths below for backward compat
+    // (The above replacements handle both APIs)
+
+    // ── OLD createFader removed (replaced above) ──
+    // Skip re-registering — the lambda above handles both APIs
+
+    // Continue with other registrations...
+    // (Old createFader/Toggle/Label registrations removed — replaced with
+    // dual-API versions above that detect parent ID vs absolute positioning)
 
     // setValue(id, value) -> set widget normalized value
     engine_.register_function("setValue", [this](choc::javascript::ArgumentList args) {
