@@ -235,6 +235,14 @@ function buildShadeRamps() {
             setFlex(shadeId, "height", 18);
             setBackground(shadeId, ramp[steps[s]].hex);
             setBorder(shadeId, APP_BORDER, 0, 2);
+            // Click to show color info
+            registerClick(shadeId);
+            (function(hex, name, step) {
+                on(shadeId, "click", function() {
+                    setText("status-text", name + " " + step + ": " + hex);
+                    layout();
+                });
+            })(ramp[steps[s]].hex, paletteNames[p], steps[s]);
         }
     }
 }
