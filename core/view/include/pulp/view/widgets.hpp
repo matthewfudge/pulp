@@ -201,6 +201,25 @@ private:
     std::string label_;
 };
 
+// ── Icon ────────────────────────────────────────────────────────────────────
+// Simple vector icons drawn with canvas strokes
+
+class Icon : public View {
+public:
+    enum class Type { image_upload, send, search, close };
+
+    Icon() {}
+    explicit Icon(Type t) : type_(t) {}
+
+    void set_type(Type t) { type_ = t; }
+    Type type() const { return type_; }
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    Type type_ = Type::image_upload;
+};
+
 // ── Meter ────────────────────────────────────────────────────────────────────
 // Audio level meter with peak hold
 

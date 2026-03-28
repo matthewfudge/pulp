@@ -206,6 +206,22 @@ void WidgetBridge::register_api() {
         return choc::value::createString(id);
     });
 
+    // createIcon(id, type, parentId) — type: "image_upload", "send", "search", "close"
+    engine_.register_function("createIcon", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto type_str = args.get<std::string>(1, "image_upload");
+        auto pid = args.get<std::string>(2, "");
+        auto icon = std::make_unique<Icon>();
+        icon->set_id(id);
+        if (type_str == "send") icon->set_type(Icon::Type::send);
+        else if (type_str == "search") icon->set_type(Icon::Type::search);
+        else if (type_str == "close") icon->set_type(Icon::Type::close);
+        else icon->set_type(Icon::Type::image_upload);
+        widgets_[id] = icon.get();
+        resolve_parent(pid)->add_child(std::move(icon));
+        return choc::value::createString(id);
+    });
+
     // createCheckbox(id, parentId)
     engine_.register_function("createCheckbox", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");

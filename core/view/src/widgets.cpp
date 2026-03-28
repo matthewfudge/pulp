@@ -372,6 +372,60 @@ void ToggleButton::on_mouse_down(Point) {
     if (on_toggle) on_toggle(on_);
 }
 
+// ── Icon ────────────────────────────────────────────────────────────────────
+
+void Icon::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+    float cx = b.width * 0.5f;
+    float cy = b.height * 0.5f;
+    float s = std::min(b.width, b.height) * 0.35f; // icon scale
+
+    auto color = resolve_color("text.secondary", canvas::Color::rgba(160, 160, 180));
+    canvas.set_stroke_color(color);
+    canvas.set_line_width(1.5f);
+
+    switch (type_) {
+        case Type::image_upload: {
+            // Image frame: rounded rect with mountain/sun inside
+            float r = s * 1.1f;
+            canvas.stroke_rounded_rect(cx - r, cy - r, r * 2, r * 2, 3);
+            // Mountain triangle
+            canvas.stroke_line(cx - r * 0.6f, cy + r * 0.5f, cx - r * 0.1f, cy - r * 0.1f);
+            canvas.stroke_line(cx - r * 0.1f, cy - r * 0.1f, cx + r * 0.3f, cy + r * 0.3f);
+            canvas.stroke_line(cx + r * 0.3f, cy + r * 0.3f, cx + r * 0.6f, cy - r * 0.2f);
+            // Sun dot
+            canvas.set_fill_color(color);
+            canvas.fill_circle(cx + r * 0.4f, cy - r * 0.4f, 2);
+            break;
+        }
+        case Type::send: {
+            // Paper plane: triangle pointing right
+            canvas.set_fill_color(canvas::Color::rgba(255, 255, 255));
+            float ps = s * 1.2f;
+            canvas.stroke_line(cx - ps * 0.6f, cy - ps * 0.7f, cx + ps * 0.8f, cy);
+            canvas.stroke_line(cx + ps * 0.8f, cy, cx - ps * 0.6f, cy + ps * 0.7f);
+            canvas.stroke_line(cx - ps * 0.6f, cy + ps * 0.7f, cx - ps * 0.3f, cy);
+            canvas.stroke_line(cx - ps * 0.3f, cy, cx - ps * 0.6f, cy - ps * 0.7f);
+            // Inner fold line
+            canvas.stroke_line(cx - ps * 0.3f, cy, cx + ps * 0.8f, cy);
+            break;
+        }
+        case Type::search: {
+            // Magnifying glass
+            float r = s * 0.6f;
+            canvas.stroke_circle(cx - s * 0.15f, cy - s * 0.15f, r);
+            canvas.stroke_line(cx + r * 0.5f, cy + r * 0.5f, cx + s, cy + s);
+            break;
+        }
+        case Type::close: {
+            // X mark
+            canvas.stroke_line(cx - s * 0.5f, cy - s * 0.5f, cx + s * 0.5f, cy + s * 0.5f);
+            canvas.stroke_line(cx + s * 0.5f, cy - s * 0.5f, cx - s * 0.5f, cy + s * 0.5f);
+            break;
+        }
+    }
+}
+
 // ── Meter ────────────────────────────────────────────────────────────────────
 
 void Meter::set_level(float rms, float peak) {

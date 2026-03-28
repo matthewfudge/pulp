@@ -821,6 +821,8 @@ setFlex("right-tabs", "flex_shrink", 0);
 setFlex("right-tabs", "align_items", "center");
 setFlex("right-tabs", "justify_content", "center");
 setFlex("right-tabs", "gap", 0);
+setFlex("right-tabs", "padding_left", 10);
+setFlex("right-tabs", "padding_right", 10);
 setBackground("right-tabs", APP_PANEL);
 setBorder("right-tabs", APP_BORDER, 1, 0);
 
@@ -996,9 +998,9 @@ setBackground("upload-btn", APP_PANEL);
 setBorder("upload-btn", APP_BORDER, 1, 6);
 setFlex("upload-btn", "justify_content", "center");
 setFlex("upload-btn", "align_items", "center");
-createLabel("upload-icon", "\uD83D\uDDBC", "upload-btn");
-setFontSize("upload-icon", 16);
-setTextColor("upload-icon", APP_TEXT_DIM);
+createIcon("upload-icon", "image_upload", "upload-btn");
+setFlex("upload-icon", "width", 20);
+setFlex("upload-icon", "height", 20);
 
 createTextEditor("chat-input", "chat-input-row");
 setPlaceholder("chat-input", "Describe a style...");
@@ -1013,8 +1015,9 @@ setBackground("send-btn", APP_ACCENT);
 setBorder("send-btn", APP_ACCENT, 0, 6);
 setFlex("send-btn", "justify_content", "center");
 setFlex("send-btn", "align_items", "center");
-createLabel("send-icon", "\u27A4", "send-btn");
-setFontSize("send-icon", 16);
+createIcon("send-icon", "send", "send-btn");
+setFlex("send-icon", "width", 20);
+setFlex("send-icon", "height", 20);
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BAR (28px, full width)
