@@ -83,19 +83,18 @@ for (var tb = 0; tb < toolbarBtns.length; tb++) {
 createRow("main-area");
 setFlex("main-area", "flex_grow", 1);
 
-// ── LEFT PANEL (Token Browser) ───────────────────────────────────
-createCol("left-panel", "main-area");
+// ── LEFT PANEL (Token Browser — scrollable) ─────────────────────
+createScrollView("left-panel", "main-area");
 setFlex("left-panel", "width", 310);
 setFlex("left-panel", "min_width", 260);
 setFlex("left-panel", "flex_shrink", 0);
-setFlex("left-panel", "padding", 0);
 setBackground("left-panel", APP_SURFACE);
 setBorder("left-panel", APP_BORDER, 1, 0);
+setScrollContentSize("left-panel", 310, 1000);
 
-// Color System section (height: title 14 + combo 26 + hue 24 + 5 ramps*38 + gaps + padding)
+// Color System section
 createCol("color-section", "left-panel");
 setFlex("color-section", "height", 340);
-setFlex("color-section", "flex_shrink", 0);
 setFlex("color-section", "padding", 10);
 setFlex("color-section", "gap", 6);
 
@@ -128,14 +127,19 @@ setValue("accent-hue", 0.65);
 
 // Token search field
 createRow("token-search-row", "left-panel");
-setFlex("token-search-row", "height", 28);
-setFlex("token-search-row", "flex_shrink", 0);
+setFlex("token-search-row", "height", 32);
 setFlex("token-search-row", "padding_left", 10);
 setFlex("token-search-row", "padding_right", 10);
 setFlex("token-search-row", "padding_top", 6);
+setFlex("token-search-row", "align_items", "center");
+setFlex("token-search-row", "gap", 0);
+
+createIcon("search-icon", "search", "token-search-row");
+setFlex("search-icon", "width", 24);
+setFlex("search-icon", "height", 24);
 
 createTextEditor("token-search", "token-search-row");
-setPlaceholder("token-search", "\u{1F50D} Search tokens...");
+setPlaceholder("token-search", "Search tokens...");
 setFlex("token-search", "flex_grow", 1);
 setFlex("token-search", "height", 24);
 
@@ -150,10 +154,9 @@ createLabel("tokens-title", "TOKENS", "token-header");
 setFontSize("tokens-title", 10);
 setTextColor("tokens-title", APP_TEXT_DIM);
 
-// Token list (scrollable)
-createScrollView("token-list", "left-panel");
-setFlex("token-list", "flex_grow", 1);
-setScrollContentSize("token-list", 310, 800);
+// Token list (inside left-panel scroll, no nested scroll needed)
+createCol("token-list", "left-panel");
+setFlex("token-list", "height", 500);
 
 // Token groups
 var tokenGroups = [
@@ -199,6 +202,23 @@ for (var g = 0; g < tokenGroups.length; g++) {
         setFlex(tid + "-name", "flex_grow", 1);
     }
 }
+
+// Token search filtering
+on("token-search", "change", function(query) {
+    query = (query || "").toLowerCase();
+    for (var g = 0; g < tokenGroups.length; g++) {
+        var group = tokenGroups[g];
+        var anyVisible = false;
+        for (var t = 0; t < group.tokens.length; t++) {
+            var tid = "tok-" + g + "-" + t;
+            var visible = query.length === 0 || group.tokens[t].toLowerCase().indexOf(query) >= 0;
+            setVisible(tid, visible);
+            if (visible) anyVisible = true;
+        }
+        setVisible("tg-" + g, anyVisible || query.length === 0);
+    }
+    layout();
+});
 
 // ── Apply token colors to swatches ───────────────────────────────
 function updateTokenSwatches() {
