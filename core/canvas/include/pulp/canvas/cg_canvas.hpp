@@ -40,6 +40,7 @@ public:
     void stroke_line(float x0, float y0, float x1, float y1) override;
     void stroke_path(const Point2D* points, size_t count) override;
     void fill_path(const Point2D* points, size_t count) override;
+    void set_opacity(float alpha) override;
 
     void set_font(const std::string& family, float size) override;
     void set_text_align(TextAlign align) override;

@@ -111,6 +111,10 @@ public:
         (void)points; (void)count; // Default: no-op, subclass should override
     }
 
+    // ── Opacity ───────────────────────────────────────────────────────────
+    /// Set global alpha for subsequent drawing operations (0.0-1.0).
+    virtual void set_opacity(float alpha) { (void)alpha; }
+
     // ── Text ─────────────────────────────────────────────────────────────
     virtual void set_font(const std::string& family, float size) = 0;
     virtual void set_text_align(TextAlign align) = 0;

@@ -224,6 +224,11 @@ add_executable(pulp-test-text-input test_text_input.cpp)
 target_link_libraries(pulp-test-text-input PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-text-input)
 
+# W3C Layout parity tests (flexbox, box model, visual properties)
+add_executable(pulp-test-layout-w3c test_layout_w3c.cpp)
+target_link_libraries(pulp-test-layout-w3c PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-layout-w3c)
+
 # CanvasWidget tests (JS-driven custom drawing)
 add_executable(pulp-test-canvas-widget test_canvas_widget.cpp)
 target_link_libraries(pulp-test-canvas-widget PRIVATE pulp::view Catch2::Catch2WithMain)

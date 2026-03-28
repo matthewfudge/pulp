@@ -58,18 +58,36 @@ enum class FlexDirection { row, column };
 // Flex alignment
 enum class FlexAlign { start, center, end, stretch };
 
+/// Justify content modes (main axis space distribution)
+enum class FlexJustify {
+    start,          ///< Pack items to start (default)
+    center,         ///< Center items
+    end_,           ///< Pack items to end
+    space_between,  ///< Equal space between items, no space at edges
+    space_around,   ///< Equal space around each item
+    space_evenly,   ///< Equal space between items AND at edges
+};
+
 // Flex layout properties for a view
 struct FlexStyle {
     FlexDirection direction = FlexDirection::column;
     FlexAlign align_items = FlexAlign::stretch;
-    FlexAlign justify_content = FlexAlign::start;
+    FlexJustify justify_content = FlexJustify::start;
     float gap = 0;
     float padding = 0;
-    float flex_grow = 0;    // 0 = fixed size, >0 = share remaining space
+    float padding_top = -1;     ///< Per-side padding (-1 = use uniform `padding`)
+    float padding_right = -1;
+    float padding_bottom = -1;
+    float padding_left = -1;
+    float flex_grow = 0;        ///< 0 = fixed size, >0 = share remaining space
+    float flex_shrink = 1;      ///< 1 = shrink proportionally if overflow
     float min_width = 0;
     float min_height = 0;
     float preferred_width = 0;
     float preferred_height = 0;
+    float max_width = 0;        ///< 0 = no maximum
+    float max_height = 0;       ///< 0 = no maximum
+    bool flex_wrap = false;     ///< Wrap to next line when main axis overflows
 };
 
 } // namespace pulp::view

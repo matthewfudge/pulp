@@ -156,6 +156,29 @@ public:
     void set_id(std::string id) { id_ = std::move(id); }
     const std::string& id() const { return id_; }
 
+    // ── Visual properties (CSS Box Model) ────────────────────────────────
+
+    /// Opacity (0.0 = transparent, 1.0 = opaque). Applied as layer alpha.
+    void set_opacity(float o) { opacity_ = std::clamp(o, 0.0f, 1.0f); }
+    float opacity() const { return opacity_; }
+
+    /// Background color (optional — if set, painted before children)
+    void set_background_color(Color c) { bg_color_ = c; has_bg_ = true; }
+    void clear_background_color() { has_bg_ = false; }
+    bool has_background_color() const { return has_bg_; }
+
+    /// Border (optional — painted on top of background)
+    void set_border(Color c, float width, float radius = 0) {
+        border_color_ = c; border_width_ = width; corner_radius_ = radius; has_border_ = true;
+    }
+    void clear_border() { has_border_ = false; }
+    float corner_radius() const { return corner_radius_; }
+
+    /// Overflow mode
+    enum class Overflow { hidden, visible };
+    void set_overflow(Overflow o) { overflow_ = o; }
+    Overflow overflow() const { return overflow_; }
+
 private:
     Rect bounds_{};
     FlexStyle flex_{};
@@ -171,6 +194,16 @@ private:
     bool has_focus_ = false;
     bool hovered_ = false;
     FrameClock* frame_clock_ = nullptr;
+
+    // Visual properties
+    float opacity_ = 1.0f;
+    Color bg_color_{};
+    bool has_bg_ = false;
+    Color border_color_{};
+    float border_width_ = 0;
+    float corner_radius_ = 0;
+    bool has_border_ = false;
+    Overflow overflow_ = Overflow::hidden;
 };
 
 } // namespace pulp::view

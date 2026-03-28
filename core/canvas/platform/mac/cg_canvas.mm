@@ -163,6 +163,10 @@ void CoreGraphicsCanvas::fill_path(const Point2D* points, size_t count) {
     CGContextFillPath(ctx_);
 }
 
+void CoreGraphicsCanvas::set_opacity(float alpha) {
+    CGContextSetAlpha(ctx_, alpha);
+}
+
 void CoreGraphicsCanvas::set_font(const std::string& family, float size) {
     font_family_ = family;
     font_size_ = size;

@@ -1,0 +1,209 @@
+// W3C Flexbox parity tests — validates layout engine against CSS spec behavior
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/view/view.hpp>
+#include <pulp/view/widgets.hpp>
+#include <pulp/view/theme.hpp>
+#include <pulp/canvas/canvas.hpp>
+
+using namespace pulp::view;
+using pulp::canvas::RecordingCanvas;
+
+// Helper: create a view with fixed preferred size
+static std::unique_ptr<View> make_box(float w, float h) {
+    auto v = std::make_unique<View>();
+    v->flex().preferred_width = w;
+    v->flex().preferred_height = h;
+    return v;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// justify-content
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: justify-content start (default)", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 300, 50});
+    root.flex().direction = FlexDirection::row;
+    root.flex().justify_content = FlexJustify::start;
+    root.add_child(make_box(50, 50));
+    root.add_child(make_box(50, 50));
+    root.layout_children();
+
+    REQUIRE(root.child_at(0)->bounds().x == 0.0f);
+    REQUIRE(root.child_at(1)->bounds().x == 50.0f);
+}
+
+TEST_CASE("Layout: justify-content center", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 300, 50});
+    root.flex().direction = FlexDirection::row;
+    root.flex().justify_content = FlexJustify::center;
+    root.add_child(make_box(50, 50));
+    root.add_child(make_box(50, 50));
+    root.layout_children();
+
+    // 300 - 100 = 200 free space, centered → start at 100
+    REQUIRE(root.child_at(0)->bounds().x == 100.0f);
+    REQUIRE(root.child_at(1)->bounds().x == 150.0f);
+}
+
+TEST_CASE("Layout: justify-content end", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 300, 50});
+    root.flex().direction = FlexDirection::row;
+    root.flex().justify_content = FlexJustify::end_;
+    root.add_child(make_box(50, 50));
+    root.add_child(make_box(50, 50));
+    root.layout_children();
+
+    // 300 - 100 = 200 free → start at 200
+    REQUIRE(root.child_at(0)->bounds().x == 200.0f);
+    REQUIRE(root.child_at(1)->bounds().x == 250.0f);
+}
+
+TEST_CASE("Layout: justify-content space-between", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 300, 50});
+    root.flex().direction = FlexDirection::row;
+    root.flex().justify_content = FlexJustify::space_between;
+    root.add_child(make_box(50, 50));
+    root.add_child(make_box(50, 50));
+    root.add_child(make_box(50, 50));
+    root.layout_children();
+
+    // 300 - 150 = 150 free, 2 gaps → 75 each
+    REQUIRE(root.child_at(0)->bounds().x == 0.0f);
+    REQUIRE_THAT(root.child_at(1)->bounds().x, Catch::Matchers::WithinAbs(125.0f, 1.0f));
+    REQUIRE_THAT(root.child_at(2)->bounds().x, Catch::Matchers::WithinAbs(250.0f, 1.0f));
+}
+
+TEST_CASE("Layout: justify-content space-evenly", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 400, 50});
+    root.flex().direction = FlexDirection::row;
+    root.flex().justify_content = FlexJustify::space_evenly;
+    root.add_child(make_box(50, 50));
+    root.add_child(make_box(50, 50));
+    root.layout_children();
+
+    // 400 - 100 = 300 free, 3 slots → 100 each
+    REQUIRE_THAT(root.child_at(0)->bounds().x, Catch::Matchers::WithinAbs(100.0f, 1.0f));
+    REQUIRE_THAT(root.child_at(1)->bounds().x, Catch::Matchers::WithinAbs(250.0f, 1.0f));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// max-width / max-height
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: max-width constrains growth", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 500, 50});
+    root.flex().direction = FlexDirection::row;
+
+    auto child = make_box(0, 50);
+    child->flex().flex_grow = 1;
+    child->flex().max_width = 200;
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    REQUIRE(root.child_at(0)->bounds().width <= 200.0f);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// flex-shrink
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: flex-shrink prevents overflow", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 100, 50});
+    root.flex().direction = FlexDirection::row;
+
+    // Two 80px children in a 100px container — must shrink
+    auto c1 = make_box(80, 50);
+    c1->flex().flex_shrink = 1;
+    auto c2 = make_box(80, 50);
+    c2->flex().flex_shrink = 1;
+    root.add_child(std::move(c1));
+    root.add_child(std::move(c2));
+    root.layout_children();
+
+    // Both should shrink to fit
+    float total = root.child_at(0)->bounds().width + root.child_at(1)->bounds().width;
+    REQUIRE(total <= 100.0f);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Per-side padding
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: per-side padding", "[layout][w3c]") {
+    View root;
+    root.set_bounds({0, 0, 300, 200});
+    root.flex().direction = FlexDirection::column;
+    root.flex().padding_top = 10;
+    root.flex().padding_left = 20;
+    root.flex().padding_bottom = 30;
+    root.flex().padding_right = 40;
+
+    auto child = make_box(0, 50);
+    child->flex().flex_grow = 1;
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    // Child should be inset by padding
+    REQUIRE(root.child_at(0)->bounds().x == 20.0f);
+    REQUIRE(root.child_at(0)->bounds().y == 10.0f);
+    // Width = 300 - 20 - 40 = 240 (stretch)
+    REQUIRE_THAT(root.child_at(0)->bounds().width, Catch::Matchers::WithinAbs(240.0f, 1.0f));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Visual properties
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("View: opacity default is 1.0", "[view][w3c]") {
+    View v;
+    REQUIRE(v.opacity() == 1.0f);
+}
+
+TEST_CASE("View: set_opacity clamps to 0-1", "[view][w3c]") {
+    View v;
+    v.set_opacity(-0.5f);
+    REQUIRE(v.opacity() == 0.0f);
+    v.set_opacity(2.0f);
+    REQUIRE(v.opacity() == 1.0f);
+    v.set_opacity(0.5f);
+    REQUIRE(v.opacity() == 0.5f);
+}
+
+TEST_CASE("View: background color", "[view][w3c]") {
+    View v;
+    REQUIRE_FALSE(v.has_background_color());
+    v.set_background_color(Color::rgba(255, 0, 0));
+    REQUIRE(v.has_background_color());
+    v.clear_background_color();
+    REQUIRE_FALSE(v.has_background_color());
+}
+
+TEST_CASE("View: border", "[view][w3c]") {
+    View v;
+    v.set_border(Color::rgba(0, 255, 0), 2.0f, 8.0f);
+    REQUIRE(v.corner_radius() == 8.0f);
+}
+
+TEST_CASE("View: overflow default is hidden", "[view][w3c]") {
+    View v;
+    REQUIRE(v.overflow() == View::Overflow::hidden);
+}
+
+TEST_CASE("View: paint_all with background renders without crash", "[view][w3c]") {
+    RecordingCanvas rc;
+    View v;
+    v.set_bounds({0, 0, 100, 50});
+    v.set_background_color(Color::rgba(30, 30, 46));
+    v.set_border(Color::rgba(80, 80, 100), 1.0f, 4.0f);
+    v.set_opacity(0.8f);
+    v.paint_all(rc);
+    REQUIRE(rc.commands().size() > 0);
+}
