@@ -946,6 +946,57 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // setTranslate(id, x, y) — CSS transform: translate()
+    engine_.register_function("setTranslate", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto x = static_cast<float>(args.get<double>(1, 0));
+        auto y = static_cast<float>(args.get<double>(2, 0));
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_translate(x, y);
+        return choc::value::Value();
+    });
+
+    // setRotation(id, degrees) — CSS transform: rotate()
+    engine_.register_function("setRotation", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto deg = static_cast<float>(args.get<double>(1, 0));
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_rotation(deg);
+        return choc::value::Value();
+    });
+
+    // setTransformOrigin(id, x, y) — CSS transform-origin (0-1 normalized)
+    engine_.register_function("setTransformOrigin", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto x = static_cast<float>(args.get<double>(1, 0.5));
+        auto y = static_cast<float>(args.get<double>(2, 0.5));
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_transform_origin(x, y);
+        return choc::value::Value();
+    });
+
+    // defineKeyframes(name, [{offset, value}...]) — CSS @keyframes
+    engine_.register_function("defineKeyframes", [this](choc::javascript::ArgumentList args) {
+        auto name = args.get<std::string>(0, "");
+        // Store keyframe definitions for later use by setAnimation
+        // For now just acknowledge — actual keyframe storage is per-animation
+        (void)name;
+        return choc::value::Value();
+    });
+
+    // setAnimation(id, property, duration, iterations, direction, keyframes_json)
+    // Simplified: animate a single property with keyframes
+    engine_.register_function("setAnimation", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto prop = args.get<std::string>(1, "");
+        auto duration = static_cast<float>(args.get<double>(2, 1.0));
+        auto iterations = static_cast<float>(args.get<double>(3, 1.0));
+        auto direction = args.get<std::string>(4, "normal");
+        (void)id; (void)prop; (void)duration; (void)iterations; (void)direction;
+        // TODO: create KeyframeAnimation, attach to view, drive in frame clock
+        return choc::value::Value();
+    });
+
     // setScale(id, scale) — CSS transform: scale()
     engine_.register_function("setScale", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");

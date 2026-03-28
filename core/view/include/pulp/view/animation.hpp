@@ -212,4 +212,110 @@ private:
     EasingFunction ease_ = easing::ease_out_quad;
 };
 
+// ── Keyframe Animation (CSS @keyframes equivalent) ──────────────────────────
+
+/// A single keyframe: offset (0-1) and value
+struct Keyframe {
+    float offset;  ///< 0.0 = start, 1.0 = end
+    float value;
+};
+
+/// Multi-step keyframe animation with iteration, direction, fill mode
+class KeyframeAnimation {
+public:
+    enum class Direction { normal, reverse, alternate };
+    enum class FillMode { none, forwards, backwards, both };
+
+    KeyframeAnimation() = default;
+
+    void set_keyframes(std::vector<Keyframe> kf) {
+        keyframes_ = std::move(kf);
+        std::sort(keyframes_.begin(), keyframes_.end(),
+            [](const Keyframe& a, const Keyframe& b) { return a.offset < b.offset; });
+    }
+
+    void set_duration(float seconds) { duration_ = seconds; }
+    void set_iterations(float count) { iterations_ = count; }  // 0 = infinite
+    void set_direction(Direction d) { direction_ = d; }
+    void set_fill_mode(FillMode f) { fill_ = f; }
+    void set_easing(EasingFunction e) { ease_ = e; }
+
+    void start() { elapsed_ = 0; running_ = true; completed_iterations_ = 0; }
+    void stop() { running_ = false; }
+    void pause() { running_ = false; }
+    void resume() { running_ = true; }
+    bool is_running() const { return running_; }
+    bool is_finished() const { return finished_; }
+
+    /// Advance by dt seconds, return current interpolated value
+    float advance(float dt) {
+        if (!running_ || keyframes_.size() < 2 || duration_ <= 0) return value_;
+
+        elapsed_ += dt;
+        float iteration_progress = elapsed_ / duration_;
+
+        if (iterations_ > 0 && iteration_progress >= iterations_) {
+            finished_ = true;
+            running_ = false;
+            iteration_progress = iterations_;
+        }
+
+        // Current iteration number and progress within it
+        float iter_num = std::floor(iteration_progress);
+        float t = iteration_progress - iter_num;
+        completed_iterations_ = static_cast<int>(iter_num);
+
+        // Direction
+        bool reversed = false;
+        if (direction_ == Direction::reverse) reversed = true;
+        else if (direction_ == Direction::alternate) reversed = (static_cast<int>(iter_num) % 2) == 1;
+
+        if (reversed) t = 1.0f - t;
+
+        // Apply easing
+        t = ease_(std::clamp(t, 0.0f, 1.0f));
+
+        // Interpolate between keyframes
+        value_ = interpolate(t);
+
+        // Fill mode
+        if (finished_) {
+            if (fill_ == FillMode::forwards || fill_ == FillMode::both)
+                value_ = interpolate(reversed ? 0.0f : 1.0f);
+        }
+
+        return value_;
+    }
+
+    float value() const { return value_; }
+
+private:
+    float interpolate(float t) const {
+        if (keyframes_.empty()) return 0;
+        if (t <= keyframes_.front().offset) return keyframes_.front().value;
+        if (t >= keyframes_.back().offset) return keyframes_.back().value;
+
+        for (size_t i = 1; i < keyframes_.size(); ++i) {
+            if (t <= keyframes_[i].offset) {
+                float local_t = (t - keyframes_[i-1].offset) /
+                               (keyframes_[i].offset - keyframes_[i-1].offset);
+                return keyframes_[i-1].value + local_t * (keyframes_[i].value - keyframes_[i-1].value);
+            }
+        }
+        return keyframes_.back().value;
+    }
+
+    std::vector<Keyframe> keyframes_;
+    float duration_ = 1.0f;
+    float iterations_ = 1.0f;  ///< 0 = infinite
+    float elapsed_ = 0;
+    float value_ = 0;
+    int completed_iterations_ = 0;
+    bool running_ = false;
+    bool finished_ = false;
+    Direction direction_ = Direction::normal;
+    FillMode fill_ = FillMode::none;
+    EasingFunction ease_ = easing::linear;
+};
+
 } // namespace pulp::view

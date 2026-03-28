@@ -224,9 +224,23 @@ public:
     void set_overflow(Overflow o) { overflow_ = o; }
     Overflow overflow() const { return overflow_; }
 
-    /// Transform: scale (CSS transform: scale())
+    /// CSS transform properties
     void set_scale(float s) { scale_ = s; }
     float scale() const { return scale_; }
+
+    void set_translate(float x, float y) { translate_x_ = x; translate_y_ = y; }
+    float translate_x() const { return translate_x_; }
+    float translate_y() const { return translate_y_; }
+
+    void set_rotation(float deg) { rotation_deg_ = deg; }
+    float rotation() const { return rotation_deg_; }
+
+    void set_skew(float x_deg, float y_deg) { skew_x_ = x_deg; skew_y_ = y_deg; }
+
+    /// Transform origin (0-1 normalized, default 0.5,0.5 = center)
+    void set_transform_origin(float x, float y) { origin_x_ = x; origin_y_ = y; }
+    float transform_origin_x() const { return origin_x_; }
+    float transform_origin_y() const { return origin_y_; }
 
     /// Text overflow: ellipsis (CSS text-overflow: ellipsis)
     void set_text_overflow_ellipsis(bool e) { text_ellipsis_ = e; }
@@ -267,6 +281,10 @@ private:
     BoxShadow shadow_{};
     bool has_shadow_ = false;
     float scale_ = 1.0f;
+    float translate_x_ = 0, translate_y_ = 0;
+    float rotation_deg_ = 0;
+    float skew_x_ = 0, skew_y_ = 0;
+    float origin_x_ = 0.5f, origin_y_ = 0.5f;  // transform-origin (normalized)
     bool text_ellipsis_ = false;
     CursorStyle cursor_ = CursorStyle::default_;
 };

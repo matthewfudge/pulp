@@ -360,6 +360,102 @@ TEST_CASE("View: paint_all with background renders without crash", "[view][w3c]"
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CSS Transforms Level 1
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Transform: translate offsets rendering position", "[layout][transform]") {
+    View v;
+    v.set_bounds({10, 20, 100, 50});
+    v.set_translate(5, 10);
+    REQUIRE(v.translate_x() == 5.0f);
+    REQUIRE(v.translate_y() == 10.0f);
+    // Bounds unchanged — translate is visual only
+    REQUIRE(v.bounds().x == 10.0f);
+}
+
+TEST_CASE("Transform: rotation stores degrees", "[layout][transform]") {
+    View v;
+    v.set_rotation(45);
+    REQUIRE(v.rotation() == 45.0f);
+}
+
+TEST_CASE("Transform: origin default is center", "[layout][transform]") {
+    View v;
+    REQUIRE(v.transform_origin_x() == 0.5f);
+    REQUIRE(v.transform_origin_y() == 0.5f);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CSS Animations Level 1
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("KeyframeAnimation: basic linear interpolation", "[animation]") {
+    KeyframeAnimation anim;
+    anim.set_keyframes({{0.0f, 0.0f}, {1.0f, 100.0f}});
+    anim.set_duration(1.0f);
+    anim.set_iterations(1);
+    anim.set_fill_mode(KeyframeAnimation::FillMode::forwards);
+    anim.start();
+
+    // Advance to 50%
+    anim.advance(0.5f);
+    REQUIRE(anim.value() == 50.0f);
+
+    // Advance to 100% — fill: forwards retains final value
+    anim.advance(0.5f);
+    REQUIRE(anim.value() == 100.0f);
+    REQUIRE(anim.is_finished());
+}
+
+TEST_CASE("KeyframeAnimation: infinite iterations", "[animation]") {
+    KeyframeAnimation anim;
+    anim.set_keyframes({{0.0f, 0.0f}, {1.0f, 360.0f}});
+    anim.set_duration(1.0f);
+    anim.set_iterations(0);  // infinite
+    anim.start();
+
+    // Advance past 2 full iterations
+    anim.advance(2.5f);
+    REQUIRE(anim.is_running());
+    REQUIRE(!anim.is_finished());
+}
+
+TEST_CASE("KeyframeAnimation: alternate direction", "[animation]") {
+    KeyframeAnimation anim;
+    anim.set_keyframes({{0.0f, 0.0f}, {1.0f, 100.0f}});
+    anim.set_duration(1.0f);
+    anim.set_iterations(2);
+    anim.set_direction(KeyframeAnimation::Direction::alternate);
+    anim.start();
+
+    // First iteration goes 0→100
+    anim.advance(0.5f);
+    float v1 = anim.value();
+    REQUIRE(v1 == 50.0f);
+
+    // Second iteration goes 100→0
+    anim.advance(1.0f);
+    float v2 = anim.value();
+    REQUIRE(v2 == 50.0f);  // Halfway back
+}
+
+TEST_CASE("KeyframeAnimation: multi-step keyframes", "[animation]") {
+    KeyframeAnimation anim;
+    anim.set_keyframes({{0.0f, 0.0f}, {0.5f, 200.0f}, {1.0f, 100.0f}});
+    anim.set_duration(1.0f);
+    anim.set_iterations(1);
+    anim.start();
+
+    // At 25%: interpolate between 0→200 at t=0.5 local
+    anim.advance(0.25f);
+    REQUIRE(anim.value() == 100.0f);
+
+    // At 75%: interpolate between 200→100 at t=0.5 local
+    anim.advance(0.5f);
+    REQUIRE(anim.value() == 150.0f);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CSS Grid Layout Level 1
 // ═══════════════════════════════════════════════════════════════════
 

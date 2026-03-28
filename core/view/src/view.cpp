@@ -11,13 +11,31 @@ void View::paint_all(canvas::Canvas& canvas) {
     canvas.save();
     canvas.translate(bounds_.x, bounds_.y);
 
-    // CSS transform: scale() — scale around center
-    if (scale_ != 1.0f) {
-        float cx = bounds_.width * 0.5f;
-        float cy = bounds_.height * 0.5f;
-        canvas.translate(cx, cy);
-        canvas.scale(scale_, scale_);
-        canvas.translate(-cx, -cy);
+    // CSS transforms: translate, rotate, scale, skew — around transform-origin
+    bool has_transform = (scale_ != 1.0f || rotation_deg_ != 0 ||
+                          translate_x_ != 0 || translate_y_ != 0 ||
+                          skew_x_ != 0 || skew_y_ != 0);
+    if (has_transform) {
+        float ox = bounds_.width * origin_x_;
+        float oy = bounds_.height * origin_y_;
+        canvas.translate(ox, oy);
+
+        // Apply translate
+        if (translate_x_ != 0 || translate_y_ != 0)
+            canvas.translate(translate_x_, translate_y_);
+
+        // Apply rotation
+        if (rotation_deg_ != 0)
+            canvas.rotate(rotation_deg_ * 3.14159265f / 180.0f);
+
+        // Apply scale
+        if (scale_ != 1.0f)
+            canvas.scale(scale_, scale_);
+
+        // Skew via scale hack (true skew needs matrix — approximate for now)
+        // TODO: add canvas.skew() for proper CSS skew()
+
+        canvas.translate(-ox, -oy);
     }
 
     // Clip only if overflow is hidden (default)
