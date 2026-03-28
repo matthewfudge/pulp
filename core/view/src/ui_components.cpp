@@ -98,14 +98,17 @@ void ComboBox::paint(canvas::Canvas& canvas) {
                 }
 
                 int hov = *hover_ptr;
-                if (i == sel) {
+                // Highlight: hover takes priority for background, check marks selected
+                if (i == hov) {
                     c.set_fill_color(accent_c);
                     c.fill_rect(abs_x + 1, iy, dd_w - 2, item_h);
-                    c.set_fill_color(canvas::Color::rgba(255, 255, 255));
+                }
+                // Check glyph only for the selected item
+                if (i == sel) {
+                    auto check_color = (i == hov) ? canvas::Color::rgba(255, 255, 255)
+                                                  : accent_c;
+                    c.set_fill_color(check_color);
                     c.fill_text("\xe2\x9c\x93", abs_x + 6, iy + 16);
-                } else if (i == hov) {
-                    c.set_fill_color(hover_bg);
-                    c.fill_rect(abs_x + 1, iy, dd_w - 2, item_h);
                 }
 
                 c.set_fill_color(text);

@@ -27,7 +27,8 @@ static void install_app_menu(NSString* appName) {
     [NSApp setMainMenu:menuBar];
 
     NSMenu* appMenu = [[NSMenu alloc] init];
-    [appMenu addItemWithTitle:[@"Quit " stringByAppendingString:appName]
+    (void)appName;  // available for override if needed
+    [appMenu addItemWithTitle:@"Quit"
                        action:@selector(terminate:)
                 keyEquivalent:@"q"];
     [appItem setSubmenu:appMenu];
