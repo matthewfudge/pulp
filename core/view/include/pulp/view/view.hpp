@@ -35,6 +35,12 @@ public:
     FlexStyle& flex() { return flex_; }
     const FlexStyle& flex() const { return flex_; }
 
+    GridStyle& grid() { return grid_; }
+    const GridStyle& grid() const { return grid_; }
+
+    void set_layout_mode(LayoutMode m) { layout_mode_ = m; }
+    LayoutMode layout_mode() const { return layout_mode_; }
+
     // ── Child management ─────────────────────────────────────────────────
 
     void add_child(std::unique_ptr<View> child);
@@ -234,6 +240,8 @@ public:
 private:
     Rect bounds_{};
     FlexStyle flex_{};
+    GridStyle grid_{};
+    LayoutMode layout_mode_ = LayoutMode::flex;
     Theme theme_;
     View* parent_ = nullptr;
     std::vector<std::unique_ptr<View>> children_;

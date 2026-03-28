@@ -358,3 +358,113 @@ TEST_CASE("View: paint_all with background renders without crash", "[view][w3c]"
     v.paint_all(rc);
     REQUIRE(rc.commands().size() > 0);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// CSS Grid Layout Level 1
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Grid: parse_template '1fr 2fr auto 100px'", "[layout][grid]") {
+    auto tracks = GridStyle::parse_template("1fr 2fr auto 100");
+    REQUIRE(tracks.size() == 4);
+    REQUIRE(tracks[0].type == GridTrack::Type::fr);
+    REQUIRE(tracks[0].value == 1.0f);
+    REQUIRE(tracks[1].type == GridTrack::Type::fr);
+    REQUIRE(tracks[1].value == 2.0f);
+    REQUIRE(tracks[2].type == GridTrack::Type::auto_);
+    REQUIRE(tracks[3].type == GridTrack::Type::fixed);
+    REQUIRE(tracks[3].value == 100.0f);
+}
+
+TEST_CASE("Grid: 3-column layout with fr units", "[layout][grid]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+    root.set_layout_mode(LayoutMode::grid);
+    root.grid().template_columns = GridStyle::parse_template("1fr 1fr 1fr");
+
+    auto a = make_box(0, 0); auto* ap = a.get();
+    auto b = make_box(0, 0); auto* bp = b.get();
+    auto c = make_box(0, 0); auto* cp = c.get();
+    root.add_child(std::move(a));
+    root.add_child(std::move(b));
+    root.add_child(std::move(c));
+    root.layout_children();
+
+    // Each column should be 100px wide (300 / 3)
+    REQUIRE(ap->bounds().width == 100.0f);
+    REQUIRE(bp->bounds().width == 100.0f);
+    REQUIRE(cp->bounds().width == 100.0f);
+    // Positioned left to right
+    REQUIRE(ap->bounds().x == 0.0f);
+    REQUIRE(bp->bounds().x == 100.0f);
+    REQUIRE(cp->bounds().x == 200.0f);
+}
+
+TEST_CASE("Grid: mixed fixed + fr columns", "[layout][grid]") {
+    View root;
+    root.set_bounds({0, 0, 400, 100});
+    root.set_layout_mode(LayoutMode::grid);
+    root.grid().template_columns = GridStyle::parse_template("100 1fr 2fr");
+
+    auto a = make_box(0, 0); auto* ap = a.get();
+    auto b = make_box(0, 0); auto* bp = b.get();
+    auto c = make_box(0, 0); auto* cp = c.get();
+    root.add_child(std::move(a));
+    root.add_child(std::move(b));
+    root.add_child(std::move(c));
+    root.layout_children();
+
+    // 100px fixed, then 300px remaining split 1:2 = 100px + 200px
+    REQUIRE(ap->bounds().width == 100.0f);
+    REQUIRE(bp->bounds().width == 100.0f);
+    REQUIRE(cp->bounds().width == 200.0f);
+}
+
+TEST_CASE("Grid: column gap", "[layout][grid]") {
+    View root;
+    root.set_bounds({0, 0, 320, 100});
+    root.set_layout_mode(LayoutMode::grid);
+    root.grid().template_columns = GridStyle::parse_template("1fr 1fr 1fr");
+    root.grid().column_gap = 10;
+
+    auto a = make_box(0, 0); auto* ap = a.get();
+    auto b = make_box(0, 0); auto* bp = b.get();
+    auto c = make_box(0, 0); auto* cp = c.get();
+    root.add_child(std::move(a));
+    root.add_child(std::move(b));
+    root.add_child(std::move(c));
+    root.layout_children();
+
+    // 320 - 20 (2 gaps) = 300, split 3 ways = 100 each
+    REQUIRE(ap->bounds().width == 100.0f);
+    REQUIRE(bp->bounds().x == 110.0f);  // 100 + 10 gap
+    REQUIRE(cp->bounds().x == 220.0f);  // 100 + 10 + 100 + 10
+}
+
+TEST_CASE("Grid: auto row wrapping with 2 columns", "[layout][grid]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+    root.set_layout_mode(LayoutMode::grid);
+    root.grid().template_columns = GridStyle::parse_template("1fr 1fr");
+
+    // 4 children = 2 rows of 2
+    auto a = make_box(0, 0); auto* ap = a.get();
+    auto b = make_box(0, 0); auto* bp = b.get();
+    auto c = make_box(0, 0); auto* cp = c.get();
+    auto d = make_box(0, 0); auto* dp = d.get();
+    root.add_child(std::move(a));
+    root.add_child(std::move(b));
+    root.add_child(std::move(c));
+    root.add_child(std::move(d));
+    root.layout_children();
+
+    // Row 1: a at (0,0), b at (100,0)
+    REQUIRE(ap->bounds().x == 0.0f);
+    REQUIRE(bp->bounds().x == 100.0f);
+    REQUIRE(ap->bounds().y == bp->bounds().y);
+
+    // Row 2: c at (0,30), d at (100,30) — default auto row height 30
+    REQUIRE(cp->bounds().x == 0.0f);
+    REQUIRE(dp->bounds().x == 100.0f);
+    REQUIRE(cp->bounds().y > 0.0f);
+    REQUIRE(cp->bounds().y == dp->bounds().y);
+}

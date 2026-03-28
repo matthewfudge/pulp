@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace pulp::view {
 
@@ -51,6 +53,9 @@ struct Rect {
         return x == r.x && y == r.y && width == r.width && height == r.height;
     }
 };
+
+// Layout mode
+enum class LayoutMode { flex, grid };
 
 // Flex layout direction
 enum class FlexDirection { row, column };
@@ -130,6 +135,34 @@ struct FlexStyle {
         if (flex_basis >= 0) return flex_basis;
         return is_row ? preferred_width : preferred_height;
     }
+};
+
+/// Grid track size: fixed px, fractional (fr), or auto
+struct GridTrack {
+    enum class Type { fixed, fr, auto_ };
+    Type type = Type::auto_;
+    float value = 1.0f;  ///< px for fixed, fraction for fr, ignored for auto
+
+    static GridTrack fixed_px(float px) { return {Type::fixed, px}; }
+    static GridTrack fractional(float fr) { return {Type::fr, fr}; }
+    static GridTrack auto_size() { return {Type::auto_, 0}; }
+};
+
+/// Grid layout properties (CSS Grid Level 1 subset)
+struct GridStyle {
+    std::vector<GridTrack> template_columns;  ///< grid-template-columns
+    std::vector<GridTrack> template_rows;     ///< grid-template-rows
+    float column_gap = 0;                     ///< grid-column-gap
+    float row_gap = 0;                        ///< grid-row-gap
+
+    // Per-child grid placement
+    int grid_column_start = 0;  ///< 0 = auto placement
+    int grid_column_end = 0;    ///< 0 = span 1
+    int grid_row_start = 0;
+    int grid_row_end = 0;
+
+    /// Parse "1fr 2fr auto 100px" into track list
+    static std::vector<GridTrack> parse_template(const std::string& tmpl);
 };
 
 } // namespace pulp::view

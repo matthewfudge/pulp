@@ -426,6 +426,51 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // createGrid(id, parentId) — creates a grid container (CSS display: grid)
+    engine_.register_function("createGrid", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto v = std::make_unique<View>();
+        v->set_id(id);
+        v->set_layout_mode(LayoutMode::grid);
+        widgets_[id] = v.get();
+        resolve_parent(pid)->add_child(std::move(v));
+        return choc::value::createString(id);
+    });
+
+    // setGrid(id, property, value) — set grid container properties
+    engine_.register_function("setGrid", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto key = args.get<std::string>(1, "");
+        auto* v = widget(id);
+        if (!v) return choc::value::Value();
+
+        if (key == "template_columns") {
+            auto tmpl = args.get<std::string>(2, "");
+            v->grid().template_columns = GridStyle::parse_template(tmpl);
+        } else if (key == "template_rows") {
+            auto tmpl = args.get<std::string>(2, "");
+            v->grid().template_rows = GridStyle::parse_template(tmpl);
+        } else if (key == "column_gap") {
+            v->grid().column_gap = static_cast<float>(args.get<double>(2, 0));
+        } else if (key == "row_gap") {
+            v->grid().row_gap = static_cast<float>(args.get<double>(2, 0));
+        } else if (key == "gap") {
+            float g = static_cast<float>(args.get<double>(2, 0));
+            v->grid().column_gap = g;
+            v->grid().row_gap = g;
+        } else if (key == "column_start") {
+            v->grid().grid_column_start = static_cast<int>(args.get<double>(2, 0));
+        } else if (key == "column_end") {
+            v->grid().grid_column_end = static_cast<int>(args.get<double>(2, 0));
+        } else if (key == "row_start") {
+            v->grid().grid_row_start = static_cast<int>(args.get<double>(2, 0));
+        } else if (key == "row_end") {
+            v->grid().grid_row_end = static_cast<int>(args.get<double>(2, 0));
+        }
+        return choc::value::Value();
+    });
+
     // registerClick(id) — enables "click" event dispatch for any widget
     engine_.register_function("registerClick", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");

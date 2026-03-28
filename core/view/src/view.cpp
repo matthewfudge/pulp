@@ -1,6 +1,7 @@
 #include <pulp/view/view.hpp>
 #include <algorithm>
 #include <numeric>
+#include <sstream>
 
 namespace pulp::view {
 
@@ -293,6 +294,170 @@ void View::simulate_hover(Point root_pos) {
     if (target) target->set_hovered(true);
 }
 
+// ── Grid template parsing ────────────────────────────────────────────────────
+
+std::vector<GridTrack> GridStyle::parse_template(const std::string& tmpl) {
+    std::vector<GridTrack> tracks;
+    std::istringstream ss(tmpl);
+    std::string token;
+    while (ss >> token) {
+        if (token.back() == 'r' && token.size() > 2 && token[token.size()-2] == 'f') {
+            // "1fr", "2.5fr"
+            float val = std::stof(token.substr(0, token.size() - 2));
+            tracks.push_back(GridTrack::fractional(val));
+        } else if (token == "auto") {
+            tracks.push_back(GridTrack::auto_size());
+        } else {
+            // "100px" or "100" — treat as fixed pixels
+            float val = std::stof(token);
+            tracks.push_back(GridTrack::fixed_px(val));
+        }
+    }
+    return tracks;
+}
+
+// ── Grid layout algorithm ───────────────────────────────────────────────────
+
+static void layout_grid(View& parent) {
+    auto area = parent.local_bounds();
+    auto& gs = parent.grid();
+    auto& fs = parent.flex();
+
+    // Padding
+    float pt = fs.padding_top >= 0 ? fs.padding_top : fs.padding;
+    float pr = fs.padding_right >= 0 ? fs.padding_right : fs.padding;
+    float pb = fs.padding_bottom >= 0 ? fs.padding_bottom : fs.padding;
+    float pl = fs.padding_left >= 0 ? fs.padding_left : fs.padding;
+    area = {area.x + pl, area.y + pt, area.width - pl - pr, area.height - pt - pb};
+
+    auto& cols = gs.template_columns;
+    auto& rows = gs.template_rows;
+    float col_gap = gs.column_gap;
+    float row_gap = gs.row_gap;
+
+    if (cols.empty()) return;  // No grid definition
+
+    // Resolve column widths
+    int num_cols = static_cast<int>(cols.size());
+    std::vector<float> col_widths(static_cast<size_t>(num_cols), 0);
+    float total_fixed_w = 0;
+    float total_fr_w = 0;
+    float total_col_gaps = num_cols > 1 ? col_gap * (num_cols - 1) : 0;
+
+    for (int i = 0; i < num_cols; ++i) {
+        if (cols[static_cast<size_t>(i)].type == GridTrack::Type::fixed) {
+            col_widths[static_cast<size_t>(i)] = cols[static_cast<size_t>(i)].value;
+            total_fixed_w += cols[static_cast<size_t>(i)].value;
+        } else if (cols[static_cast<size_t>(i)].type == GridTrack::Type::fr) {
+            total_fr_w += cols[static_cast<size_t>(i)].value;
+        }
+    }
+
+    float remaining_w = area.width - total_fixed_w - total_col_gaps;
+    if (remaining_w < 0) remaining_w = 0;
+
+    for (int i = 0; i < num_cols; ++i) {
+        auto& t = cols[static_cast<size_t>(i)];
+        if (t.type == GridTrack::Type::fr && total_fr_w > 0) {
+            col_widths[static_cast<size_t>(i)] = remaining_w * (t.value / total_fr_w);
+        } else if (t.type == GridTrack::Type::auto_) {
+            // Auto: share remaining equally among auto tracks
+            col_widths[static_cast<size_t>(i)] = remaining_w / std::max(1.0f, static_cast<float>(num_cols));
+        }
+    }
+
+    // Collect visible children
+    std::vector<View*> children;
+    for (size_t i = 0; i < parent.child_count(); ++i) {
+        auto* child = parent.child_at(i);
+        if (child->visible()) children.push_back(child);
+    }
+
+    // Auto-place children in grid cells
+    int num_rows_needed = rows.empty()
+        ? static_cast<int>((children.size() + static_cast<size_t>(num_cols) - 1) / static_cast<size_t>(num_cols))
+        : static_cast<int>(rows.size());
+
+    // Resolve row heights
+    std::vector<float> row_heights(static_cast<size_t>(num_rows_needed), 0);
+    float total_fixed_h = 0;
+    float total_fr_h = 0;
+    float total_row_gaps = num_rows_needed > 1 ? row_gap * (num_rows_needed - 1) : 0;
+
+    for (int i = 0; i < num_rows_needed; ++i) {
+        if (i < static_cast<int>(rows.size())) {
+            auto& t = rows[static_cast<size_t>(i)];
+            if (t.type == GridTrack::Type::fixed) {
+                row_heights[static_cast<size_t>(i)] = t.value;
+                total_fixed_h += t.value;
+            } else if (t.type == GridTrack::Type::fr) {
+                total_fr_h += t.value;
+            }
+        }
+    }
+
+    float remaining_h = area.height - total_fixed_h - total_row_gaps;
+    if (remaining_h < 0) remaining_h = 0;
+
+    for (int i = 0; i < num_rows_needed; ++i) {
+        if (i < static_cast<int>(rows.size())) {
+            auto& t = rows[static_cast<size_t>(i)];
+            if (t.type == GridTrack::Type::fr && total_fr_h > 0) {
+                row_heights[static_cast<size_t>(i)] = remaining_h * (t.value / total_fr_h);
+            } else if (t.type == GridTrack::Type::auto_) {
+                row_heights[static_cast<size_t>(i)] = 30.0f;  // Default auto row height
+            }
+        } else {
+            // Implicit rows (auto-generated) — use auto height
+            row_heights[static_cast<size_t>(i)] = 30.0f;
+        }
+    }
+
+    // Position children in cells
+    for (size_t ci = 0; ci < children.size(); ++ci) {
+        auto* child = children[ci];
+        auto& child_grid = child->grid();
+
+        int col, row_idx;
+        if (child_grid.grid_column_start > 0) {
+            col = child_grid.grid_column_start - 1;  // CSS is 1-based
+        } else {
+            col = static_cast<int>(ci) % num_cols;
+        }
+        if (child_grid.grid_row_start > 0) {
+            row_idx = child_grid.grid_row_start - 1;
+        } else {
+            row_idx = static_cast<int>(ci) / num_cols;
+        }
+
+        if (col >= num_cols) col = num_cols - 1;
+        if (row_idx >= num_rows_needed) row_idx = num_rows_needed - 1;
+
+        // Compute position from column/row offsets
+        float x = area.x;
+        for (int c = 0; c < col; ++c)
+            x += col_widths[static_cast<size_t>(c)] + col_gap;
+
+        float y = area.y;
+        for (int r = 0; r < row_idx; ++r)
+            y += row_heights[static_cast<size_t>(r)] + row_gap;
+
+        float w = col_widths[static_cast<size_t>(col)];
+        float h = row_heights[static_cast<size_t>(row_idx)];
+
+        // Handle column/row span
+        int col_end = child_grid.grid_column_end > 0 ? child_grid.grid_column_end - 1 : col + 1;
+        int row_end = child_grid.grid_row_end > 0 ? child_grid.grid_row_end - 1 : row_idx + 1;
+        for (int c = col + 1; c < col_end && c < num_cols; ++c)
+            w += col_widths[static_cast<size_t>(c)] + col_gap;
+        for (int r = row_idx + 1; r < row_end && r < num_rows_needed; ++r)
+            h += row_heights[static_cast<size_t>(r)] + row_gap;
+
+        child->set_bounds({x, y, w, h});
+        child->layout_children();
+    }
+}
+
 float View::intrinsic_height() const {
     // Containers: sum visible children's heights + gaps (CSS auto height behavior)
     if (children_.empty()) return 0;
@@ -321,6 +486,12 @@ float View::intrinsic_height() const {
 
 void View::layout_children() {
     if (children_.empty()) return;
+
+    // Dispatch to grid layout if layout mode is grid
+    if (layout_mode_ == LayoutMode::grid) {
+        layout_grid(*this);
+        return;
+    }
 
     auto area = local_bounds();
 
