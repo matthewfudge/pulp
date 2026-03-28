@@ -30,6 +30,9 @@ public:
     // Hot reload support: clear all JS-created widgets
     void clear();
 
+    // Forward a key event to JS (called by host for global shortcuts)
+    void forward_key_event(int key_code, uint16_t modifiers, bool is_down);
+
     // Snapshot widget values for preservation across hot reload
     void snapshot_values(std::unordered_map<std::string, float>& out) const;
 

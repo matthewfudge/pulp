@@ -119,6 +119,7 @@ private:
     int selection_end_ = 0;      ///< Selection active end (= caret)
     float font_size_ = 13.0f;
     float scroll_offset_ = 0.0f; ///< Horizontal scroll for single-line
+    float caret_blink_time_ = 0.0f; ///< Accumulated time for caret blinking
 
     // Undo history: (text, caret_position) pairs
     std::vector<std::pair<std::string, int>> undo_history_;

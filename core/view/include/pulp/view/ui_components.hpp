@@ -202,8 +202,9 @@ public:
     void on_mouse_enter() override;
     void on_mouse_leave() override;
 
-    // Scroll via mouse wheel or touch drag
+    // Scroll via mouse wheel, touch drag, or scrollbar drag
     void on_mouse_event(const MouseEvent& event) override;
+    void on_mouse_drag(Point pos) override;
 
     // Animation accessors for testing
     float bar_opacity() const { return bar_opacity_.value(); }
@@ -221,6 +222,11 @@ private:
     ValueAnimation smooth_scroll_y_{0.0f};
     ValueAnimation bar_opacity_{0.0f};      // fade in/out on hover
     ValueAnimation bar_width_{4.0f};        // narrow when idle, wide on hover
+
+    // Scrollbar drag state
+    bool dragging_v_bar_ = false;
+    bool dragging_h_bar_ = false;
+    float drag_offset_ = 0;  // offset from top of thumb where drag started
 };
 
 // ── ListBox ──────────────────────────────────────────────────────────────

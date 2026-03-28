@@ -177,6 +177,9 @@ public:
     /// Generic click callback (fires on mouse-down, if set).
     std::function<void()> on_click;
 
+    /// Global click callback (fires on any view click with widget id). Set on root.
+    std::function<void(const std::string& id, uint16_t modifiers)> on_global_click;
+
     /// Overflow mode
     enum class Overflow { hidden, visible };
     void set_overflow(Overflow o) { overflow_ = o; }

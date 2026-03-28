@@ -1,6 +1,7 @@
 #include <pulp/view/text_editor.hpp>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace pulp::view {
 
@@ -187,6 +188,7 @@ bool TextEditor::is_word_char(char c) const {
 // ── Event handling ───────────────────────────────────────────────────────
 
 void TextEditor::on_mouse_event(const MouseEvent& event) {
+    caret_blink_time_ = 0;  // reset blink on click
     if (!event.is_down) return;
 
     int pos = char_index_at_x(event.position.x);
@@ -293,6 +295,7 @@ bool TextEditor::on_key_event(const KeyEvent& event) {
 }
 
 void TextEditor::on_text_input(const TextInputEvent& event) {
+    caret_blink_time_ = 0;  // reset blink on input
     if (event.text.empty()) return;
 
     if (numeric_only) {
@@ -363,13 +366,18 @@ void TextEditor::paint(canvas::Canvas& canvas) {
         canvas.fill_text(display, text_x, text_y);
     }
 
-    // Caret (blinking would require timer — simplified to always-on when focused)
+    // Caret with blinking (530ms on, 530ms off)
     if (has_focus()) {
-        float char_w = font_size_ * 0.6f;
-        float caret_x = text_x + static_cast<float>(caret_position_) * char_w;
-        canvas.set_stroke_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
-        canvas.set_line_width(1.5f);
-        canvas.stroke_line(caret_x, b.y + 4, caret_x, b.y + b.height - 4);
+        caret_blink_time_ += 1.0f / 60.0f;  // approximate frame time
+        bool caret_visible = std::fmod(caret_blink_time_, 1.06f) < 0.53f;
+        // Always visible in headless (no frame clock) or during selection
+        if (caret_visible || !frame_clock() || has_selection()) {
+            float char_w = font_size_ * 0.6f;
+            float caret_x = text_x + static_cast<float>(caret_position_) * char_w;
+            canvas.set_stroke_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
+            canvas.set_line_width(1.5f);
+            canvas.stroke_line(caret_x, b.y + 4, caret_x, b.y + b.height - 4);
+        }
     }
 }
 

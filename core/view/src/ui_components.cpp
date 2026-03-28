@@ -364,6 +364,103 @@ void ScrollView::on_mouse_event(const MouseEvent& event) {
         scroll_by(event.scroll_delta_x * sensitivity, event.scroll_delta_y * sensitivity);
         return;
     }
+
+    auto b = local_bounds();
+    float bar_w = bar_width_.value();
+
+    // Vertical scrollbar hit zone (right edge)
+    bool in_v_bar = direction_ != Direction::horizontal &&
+                    content_size_.height > b.height &&
+                    event.position.x >= b.x + b.width - bar_w - 6;
+
+    // Horizontal scrollbar hit zone (bottom edge)
+    bool in_h_bar = direction_ != Direction::vertical &&
+                    content_size_.width > b.width &&
+                    event.position.y >= b.y + b.height - bar_w - 6;
+
+    if (event.is_down && event.button == MouseButton::left) {
+        if (in_v_bar) {
+            float ratio = b.height / content_size_.height;
+            float bar_h = std::max(20.0f, b.height * ratio);
+            float max_scroll = content_size_.height - b.height;
+            float sy = smooth_scroll_y_.value();
+            float bar_y = b.y + (max_scroll > 0 ? (sy / max_scroll) * (b.height - bar_h) : 0);
+
+            if (event.position.y >= bar_y && event.position.y <= bar_y + bar_h) {
+                // Clicked on thumb — start drag
+                dragging_v_bar_ = true;
+                drag_offset_ = event.position.y - bar_y;
+            } else {
+                // Clicked on track — jump to position
+                float click_ratio = (event.position.y - b.y - bar_h * 0.5f) / (b.height - bar_h);
+                click_ratio = std::clamp(click_ratio, 0.0f, 1.0f);
+                target_scroll_y_ = click_ratio * max_scroll;
+                clamp_scroll_targets();
+                smooth_scroll_y_.animate_to(target_scroll_y_, 0.1f);
+            }
+            return;
+        }
+        if (in_h_bar) {
+            float ratio = b.width / content_size_.width;
+            float bar_w_px = std::max(20.0f, b.width * ratio);
+            float max_scroll = content_size_.width - b.width;
+            float sx = smooth_scroll_x_.value();
+            float bar_x = b.x + (max_scroll > 0 ? (sx / max_scroll) * (b.width - bar_w_px) : 0);
+
+            if (event.position.x >= bar_x && event.position.x <= bar_x + bar_w_px) {
+                dragging_h_bar_ = true;
+                drag_offset_ = event.position.x - bar_x;
+            } else {
+                float click_ratio = (event.position.x - b.x - bar_w_px * 0.5f) / (b.width - bar_w_px);
+                click_ratio = std::clamp(click_ratio, 0.0f, 1.0f);
+                target_scroll_x_ = click_ratio * max_scroll;
+                clamp_scroll_targets();
+                smooth_scroll_x_.animate_to(target_scroll_x_, 0.1f);
+            }
+            return;
+        }
+    }
+
+    // Mouse up — stop dragging
+    if (!event.is_down) {
+        dragging_v_bar_ = false;
+        dragging_h_bar_ = false;
+        return;
+    }
+}
+
+void ScrollView::on_mouse_drag(Point pos) {
+    auto b = local_bounds();
+
+    if (dragging_v_bar_) {
+        float ratio = b.height / content_size_.height;
+        float bar_h = std::max(20.0f, b.height * ratio);
+        float max_scroll = content_size_.height - b.height;
+        float track_h = b.height - bar_h;
+        if (track_h > 0) {
+            float bar_top = pos.y - drag_offset_;
+            float scroll_ratio = (bar_top - b.y) / track_h;
+            scroll_ratio = std::clamp(scroll_ratio, 0.0f, 1.0f);
+            target_scroll_y_ = scroll_ratio * max_scroll;
+            clamp_scroll_targets();
+            smooth_scroll_y_.set(target_scroll_y_);  // immediate, no animation during drag
+        }
+    }
+
+    if (dragging_h_bar_) {
+        float ratio = b.width / content_size_.width;
+        float bar_w_px = std::max(20.0f, b.width * ratio);
+        float max_scroll = content_size_.width - b.width;
+        float track_w = b.width - bar_w_px;
+        if (track_w > 0) {
+            float bar_left = pos.x - drag_offset_;
+            float scroll_ratio = (bar_left - b.x) / track_w;
+            scroll_ratio = std::clamp(scroll_ratio, 0.0f, 1.0f);
+            target_scroll_x_ = scroll_ratio * max_scroll;
+            clamp_scroll_targets();
+            smooth_scroll_x_.set(target_scroll_x_);
+        }
+    }
 }
 
 // ── ListBox ──────────────────────────────────────────────────────────────

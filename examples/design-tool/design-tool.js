@@ -775,14 +775,61 @@ setFontSize("status-schema", 10);
 setTextColor("status-schema", APP_TEXT_DIM);
 
 // ═══════════════════════════════════════════════════════════════════
+// Inspector: Cmd+click detection
+// ═══════════════════════════════════════════════════════════════════
+enableInspectClick();
+on("__inspect__", "click", function(widgetId) {
+    // Populate inspector with widget info
+    setText("insp-type-v", widgetId ? "View" : "—");
+    setText("insp-id-v", widgetId || "—");
+    setText("insp-bounds-v", "—");  // bounds not accessible from JS yet
+    switchTab("inspector");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Global keyboard shortcuts (Cmd+Z undo, Cmd+Shift+Z redo)
+// ═══════════════════════════════════════════════════════════════════
+on("__global__", "keydown", function(evt) {
+    if (!evt) return;
+    var cmd = (evt.mods & 0x18) !== 0;  // kModMeta | kModCmd
+    var shift = (evt.mods & 0x01) !== 0;
+    // 'z' key = 122 ASCII or platform key code
+    if (cmd && evt.key === 122) {
+        if (shift) {
+            // Redo
+            if (historyIndex < themeHistory.length - 1) {
+                historyIndex++;
+                applyTokenDiff(themeHistory[historyIndex]);
+                updateTokenSwatches();
+                setText("status-text", "Redo (" + historyIndex + "/" + (themeHistory.length - 1) + ")");
+                layout();
+            }
+        } else {
+            // Undo
+            if (historyIndex > 0) {
+                historyIndex--;
+                applyTokenDiff(themeHistory[historyIndex]);
+                updateTokenSwatches();
+                setText("status-text", "Undo (" + historyIndex + "/" + (themeHistory.length - 1) + ")");
+                layout();
+            }
+        }
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // Chat logic
 // ═══════════════════════════════════════════════════════════════════
 
 function addChatMessage(role, text) {
     var id = "msg-" + (msgCount++);
-    // Estimate height: role(12) + gap(4) + text lines(~14 per line) + padding(16)
+    // Capture theme snapshot for this message
+    var snapshot = getThemeJson();
+
+    // Estimate height: role(12) + gap(4) + text(~14/line) + restore btn(16) + padding(16)
     var lineCount = Math.ceil(text.length / 30);
-    var msgHeight = 12 + 4 + lineCount * 14 + 16;
+    var hasRestore = (role === "assistant");
+    var msgHeight = 12 + 4 + lineCount * 14 + (hasRestore ? 20 : 0) + 16;
 
     createCol(id, "chat-messages");
     setFlex(id, "height", msgHeight);
@@ -795,10 +842,35 @@ function addChatMessage(role, text) {
         setBackground(id, APP_PANEL);
     }
 
-    createLabel(id + "-role", role === "user" ? "You" : "Designer", id);
+    // Role label row with optional restore button
+    createRow(id + "-header", id);
+    setFlex(id + "-header", "height", 12);
+    setFlex(id + "-header", "align_items", "center");
+    setFlex(id + "-header", "justify_content", "space-between");
+
+    createLabel(id + "-role", role === "user" ? "You" : "Designer", id + "-header");
     setFontSize(id + "-role", 9);
     setTextColor(id + "-role", APP_TEXT_DIM);
-    setFlex(id + "-role", "height", 12);
+    setFlex(id + "-role", "width", 60);
+
+    if (hasRestore) {
+        var restoreId = id + "-restore";
+        createLabel(restoreId, "Restore", id + "-header");
+        setFontSize(restoreId, 8);
+        setTextColor(restoreId, APP_ACCENT);
+        setFlex(restoreId, "width", 44);
+        registerClick(restoreId);
+        // Capture snapshot in closure
+        (function(snap, rid) {
+            on(rid, "click", function() {
+                applyTokenDiff(snap);
+                updateTokenSwatches();
+                buildShadeRamps();
+                setText("status-text", "Restored snapshot");
+                layout();
+            });
+        })(snapshot, restoreId);
+    }
 
     createLabel(id + "-text", text, id);
     setFontSize(id + "-text", 11);

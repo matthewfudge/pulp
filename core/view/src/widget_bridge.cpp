@@ -377,6 +377,18 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // enableInspectClick() — sets up Cmd+click detection on all registered widgets
+    engine_.register_function("enableInspectClick", [this](choc::javascript::ArgumentList) {
+        root_.on_global_click = [this](const std::string& id, uint16_t mods) {
+            // Check for Cmd modifier (kModCmd = 0x10, kModMeta = 0x08)
+            bool cmd = (mods & (0x10 | 0x08)) != 0;
+            if (cmd) {
+                engine_.evaluate("__dispatch__('__inspect__', 'click', '" + id + "')");
+            }
+        };
+        return choc::value::Value();
+    });
+
     // removeWidget(id)
     engine_.register_function("removeWidget", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -771,6 +783,13 @@ void WidgetBridge::register_api() {
         char buf[4096]; while (fgets(buf, sizeof(buf), p)) r += buf; pclose(p);
         return choc::value::createString(r);
     });
+}
+
+void WidgetBridge::forward_key_event(int key_code, uint16_t modifiers, bool is_down) {
+    if (!is_down) return;
+    engine_.evaluate("__dispatch__('__global__', 'keydown', {"
+        "key:" + std::to_string(key_code) +
+        ",mods:" + std::to_string(modifiers) + "})");
 }
 
 } // namespace pulp::view
