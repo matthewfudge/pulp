@@ -724,10 +724,34 @@ setFlex("chat-input-row", "height", 32);
 setFlex("chat-input-row", "flex_shrink", 0);
 setFlex("chat-input-row", "gap", 6);
 
+// Upload button (camera icon placeholder)
+createCol("upload-btn", "chat-input-row");
+setFlex("upload-btn", "width", 28);
+setFlex("upload-btn", "height", 28);
+setBackground("upload-btn", APP_PANEL);
+setBorder("upload-btn", APP_BORDER, 1, 6);
+setFlex("upload-btn", "justify_content", "center");
+setFlex("upload-btn", "align_items", "center");
+createLabel("upload-icon", "\u25A3", "upload-btn");
+setFontSize("upload-icon", 14);
+setTextColor("upload-icon", APP_TEXT_DIM);
+
 createTextEditor("chat-input", "chat-input-row");
 setPlaceholder("chat-input", "Describe a style...");
 setFlex("chat-input", "flex_grow", 1);
 setFlex("chat-input", "height", 28);
+
+// Send button (arrow icon placeholder)
+createCol("send-btn", "chat-input-row");
+setFlex("send-btn", "width", 28);
+setFlex("send-btn", "height", 28);
+setBackground("send-btn", APP_ACCENT);
+setBorder("send-btn", APP_ACCENT, 0, 6);
+setFlex("send-btn", "justify_content", "center");
+setFlex("send-btn", "align_items", "center");
+createLabel("send-icon", "\u25B6", "send-btn");
+setFontSize("send-icon", 12);
+setFlex("send-icon", "height", 14);
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BAR (28px, full width)
@@ -831,6 +855,16 @@ on("chat-input", "return", function(text) {
     addChatMessage("assistant", "Applied " + count + " token changes");
     setText("status-text", count + " tokens modified");
     layout();
+});
+
+// Send button triggers same as return key
+registerClick("send-btn");
+on("send-btn", "click", function() {
+    var text = getText("chat-input");
+    if (text && text.length > 0) {
+        // Trigger the return handler by dispatching manually
+        __dispatch__("chat-input", "return", text);
+    }
 });
 
 // Preset handler
