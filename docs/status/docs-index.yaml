@@ -104,6 +104,11 @@ docs:
     kind: guide
     summary: OSC 1.0 sender/receiver over UDP
 
+  - slug: docs-site
+    path: guides/docs-site.md
+    kind: guide
+    summary: How the docs site at generouscorp.com/pulp is built, deployed, and configured
+
   - slug: docs-maintenance
     path: guides/docs-maintenance.md
     kind: guide
