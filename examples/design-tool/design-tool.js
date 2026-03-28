@@ -344,6 +344,7 @@ createCol("preview-area", "preview-scroll");
 setFlex("preview-area", "height", 1600);
 setFlex("preview-area", "flex_shrink", 0);
 setFlex("preview-area", "padding", 12);
+setFlex("preview-area", "padding_right", 24);  // extra space for scrollbar
 setFlex("preview-area", "gap", 10);
 
 // Foundations section: bg swatches + text hierarchy

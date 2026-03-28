@@ -68,9 +68,11 @@ void ComboBox::paint(canvas::Canvas& canvas) {
         float dd_w = b.width;
         float dd_h = static_cast<float>(items_.size()) * item_h;
         int sel = selected_;
+        int* hover_ptr = &hover_index_;  // live pointer for dynamic hover tracking
         auto items_copy = items_;
         auto dropdown_bg = resolve_color("bg.elevated", canvas::Color::rgba(45, 45, 60));
         auto accent_c = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+        auto hover_bg = canvas::Color::rgba(60, 60, 80);
         auto border = border_c;
         auto text = text_c;
 
@@ -95,11 +97,15 @@ void ComboBox::paint(canvas::Canvas& canvas) {
                     continue;
                 }
 
+                int hov = *hover_ptr;
                 if (i == sel) {
                     c.set_fill_color(accent_c);
                     c.fill_rect(abs_x + 1, iy, dd_w - 2, item_h);
                     c.set_fill_color(canvas::Color::rgba(255, 255, 255));
                     c.fill_text("\xe2\x9c\x93", abs_x + 6, iy + 16);
+                } else if (i == hov) {
+                    c.set_fill_color(hover_bg);
+                    c.fill_rect(abs_x + 1, iy, dd_w - 2, item_h);
                 }
 
                 c.set_fill_color(text);
@@ -146,9 +152,22 @@ void ComboBox::close_dropdown() {
 }
 
 void ComboBox::on_mouse_event(const MouseEvent& event) {
-    if (!event.is_down) return;
     auto b = local_bounds();
-    float header_h = std::min(b.height, 28.0f); // Closed display height
+    float header_h = std::min(b.height, 28.0f);
+
+    // Track hover on mouse move (even without button down)
+    if (open_ && !event.is_down && !event.is_wheel) {
+        float dropdown_top = header_h + 2;
+        if (event.position.y >= dropdown_top) {
+            hover_index_ = static_cast<int>((event.position.y - dropdown_top) / 24.0f);
+            if (hover_index_ >= static_cast<int>(items_.size())) hover_index_ = -1;
+        } else {
+            hover_index_ = -1;
+        }
+        return;
+    }
+
+    if (!event.is_down) return;
 
     if (open_) {
         float dropdown_top = header_h + 2;
@@ -517,9 +536,9 @@ void ScrollView::on_mouse_event(const MouseEvent& event) {
         if (direction_ == Direction::vertical) dx = 0;
         if (direction_ == Direction::horizontal) dy = 0;
         scroll_by(dx, dy);
-        // Show scrollbar while scrolling
-        bar_opacity_.set(0.8f);
-        bar_width_.set(8.0f);
+        // Show scrollbar while scrolling (will fade when we add animation timer)
+        bar_opacity_.set(0.6f);
+        bar_width_.set(6.0f);
         return;
     }
 

@@ -249,8 +249,20 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 - (void)mouseMoved:(NSEvent*)event {
     if (!self.rootView) return;
     auto pt = [self localPoint:event];
+
+    // ComboBox dropdown hover tracking
+    if (pulp::view::ComboBox::active_popup_) {
+        auto* combo = pulp::view::ComboBox::active_popup_;
+        float cx = 0, cy = 0;
+        auto* v = static_cast<pulp::view::View*>(combo);
+        while (v) { cx += v->bounds().x; cy += v->bounds().y; v = v->parent(); }
+        pulp::view::MouseEvent me;
+        me.position = {pt.x - cx, pt.y - cy};
+        me.is_down = false;
+        combo->on_mouse_event(me);
+    }
+
     self.rootView->simulate_hover(pt);
-    [self startAnimationTimerIfNeeded];
     [self setNeedsDisplay:YES];
 }
 

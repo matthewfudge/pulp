@@ -63,9 +63,12 @@ private:
 
     std::vector<std::string> items_;
     int selected_ = 0;
+    int hover_index_ = -1;  ///< Currently hovered item in dropdown (-1 = none)
     bool open_ = false;
 
+public:
     static ComboBox* active_popup_;
+private:
     static const std::string empty_string_;
 };
 
