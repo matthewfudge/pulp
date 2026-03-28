@@ -392,9 +392,10 @@ void ScrollView::scroll_by(float dx, float dy) {
     target_scroll_x_ += dx;
     target_scroll_y_ += dy;
     clamp_scroll_targets();
-    float dur = resolve_dimension("motion.duration.normal", 0.15f);
-    smooth_scroll_x_.animate_to(target_scroll_x_, dur, easing::ease_out_cubic);
-    smooth_scroll_y_.animate_to(target_scroll_y_, dur, easing::ease_out_cubic);
+    // Use immediate set — animation requires a running frame timer
+    // which may not exist in all host configurations
+    smooth_scroll_x_.set(target_scroll_x_);
+    smooth_scroll_y_.set(target_scroll_y_);
 }
 
 void ScrollView::on_mouse_enter() {
