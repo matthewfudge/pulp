@@ -471,10 +471,10 @@ createScrollView("preview-scroll", "center-panel");
 setFlex("preview-scroll", "flex_grow", 1);
 setBackground("preview-scroll", APP_PANEL);
 setBorder("preview-scroll", APP_BORDER, 1, 4);
-setScrollContentSize("preview-scroll", 500, 1600);
+setScrollContentSize("preview-scroll", 500, 1900);
 
 createCol("preview-area", "preview-scroll");
-setFlex("preview-area", "height", 1600);
+setFlex("preview-area", "height", 1900);
 setFlex("preview-area", "flex_shrink", 0);
 setFlex("preview-area", "padding", 12);
 setFlex("preview-area", "padding_right", 24);  // extra space for scrollbar
@@ -961,6 +961,50 @@ for (var ei = 0; ei < effectNames.length; ei++) {
     createLabel(eid + "-l", effectNames[ei], eid);
     setFontSize(eid + "-l", 10);
 }
+
+// ── GPU Showcase ─────────────────────────────────────────────────
+createLabel("showcase-header", "GPU Showcase", "preview-area");
+setFontSize("showcase-header", 11);
+setTextColor("showcase-header", APP_TEXT_DIM);
+
+// XY Pad for touch/mouse interaction demo
+createRow("showcase-row", "preview-area");
+setFlex("showcase-row", "gap", 8);
+setFlex("showcase-row", "height", 80);
+
+createXYPad("xy-demo", "showcase-row");
+setFlex("xy-demo", "width", 80);
+setFlex("xy-demo", "height", 80);
+setLabel("xy-demo", "XY Pad");
+
+// Spectrum analyzer
+createSpectrum("spectrum-demo", "showcase-row");
+setFlex("spectrum-demo", "flex_grow", 1);
+setFlex("spectrum-demo", "height", 80);
+
+// Generate some spectrum data
+var specData = [];
+for (var si = 0; si < 64; si++) {
+    var freq = si / 64;
+    specData.push(Math.exp(-freq * 3) * 0.8 + Math.random() * 0.1);
+}
+setSpectrumData("spectrum-demo", specData);
+
+// Second waveform with different data
+createLabel("waveform2-header", "Audio Waveform", "preview-area");
+setFontSize("waveform2-header", 11);
+setTextColor("waveform2-header", APP_TEXT_DIM);
+
+createWaveform("waveform2", "preview-area");
+setFlex("waveform2", "height", 60);
+
+var wave2 = [];
+for (var w2 = 0; w2 < 512; w2++) {
+    wave2.push(Math.sin(2 * Math.PI * 5 * w2 / 512) * 0.5 *
+               Math.exp(-w2 / 256) +
+               Math.sin(2 * Math.PI * 13 * w2 / 512) * 0.2);
+}
+setWaveformData("waveform2", wave2);
 
 // ── RIGHT PANEL (Inspector + Chat) ──────────────────────────────
 createCol("right-panel", "main-area");
