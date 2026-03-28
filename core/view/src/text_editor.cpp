@@ -345,14 +345,14 @@ void TextEditor::paint(canvas::Canvas& canvas) {
     float text_x = b.x + 6 - scroll_offset_;
     float text_y = b.y + b.height / 2 + font_size_ * 0.35f;
 
-    // Selection highlight
+    // Selection highlight (using measured text widths for tight selection)
     if (has_selection()) {
         int start = std::min(selection_start_, selection_end_);
         int end = std::max(selection_start_, selection_end_);
-        // Approximate character width (monospace assumption for simplicity)
-        float char_w = font_size_ * 0.6f;
-        float sel_x = text_x + static_cast<float>(start) * char_w;
-        float sel_w = static_cast<float>(end - start) * char_w;
+        // Measure actual text width for accurate selection bounds
+        float sel_x = text_x + canvas.measure_text(display.substr(0, static_cast<size_t>(start)));
+        float sel_w = canvas.measure_text(display.substr(static_cast<size_t>(start),
+                                                          static_cast<size_t>(end - start)));
         canvas.set_fill_color(resolve_color("selection", canvas::Color::rgba(65, 105, 225, 128)));
         canvas.fill_rect(sel_x, b.y + 2, sel_w, b.height - 4);
     }
@@ -372,8 +372,7 @@ void TextEditor::paint(canvas::Canvas& canvas) {
         bool caret_visible = std::fmod(caret_blink_time_, 1.06f) < 0.53f;
         // Always visible in headless (no frame clock) or during selection
         if (caret_visible || !frame_clock() || has_selection()) {
-            float char_w = font_size_ * 0.6f;
-            float caret_x = text_x + static_cast<float>(caret_position_) * char_w;
+            float caret_x = text_x + canvas.measure_text(display.substr(0, static_cast<size_t>(caret_position_)));
             canvas.set_stroke_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
             canvas.set_line_width(1.5f);
             canvas.stroke_line(caret_x, b.y + 4, caret_x, b.y + b.height - 4);
