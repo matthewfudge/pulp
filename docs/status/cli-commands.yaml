@@ -76,9 +76,9 @@ commands:
         summary: Generate API reference from public headers (Doxygen)
     docs: reference/cli.md#docs
 
-  - name: create
+  - name: new
     status: usable
-    summary: Create a new plugin project from templates. Checks environment, scaffolds, builds, and tests.
+    summary: Create a new plugin project from templates. Checks environment, scaffolds, builds, and tests. (Alias: create)
     args:
       - name: name
         kind: positional
@@ -86,7 +86,7 @@ commands:
         description: Plugin name (e.g., "My Gain")
       - name: --type
         kind: option
-        description: Plugin type — effect or instrument (default: effect)
+        description: "Plugin type: effect, instrument, app, bare (default: effect)"
       - name: --manufacturer
         kind: option
         description: Manufacturer name (default: Pulp)
@@ -96,7 +96,30 @@ commands:
       - name: --no-build
         kind: flag
         description: Skip build after scaffolding
-    docs: reference/cli.md#create
+      - name: --no-interactive
+        kind: flag
+        description: Non-interactive mode for CI/scripting (alias: --ci)
+    docs: reference/cli.md#new
+
+  - name: run
+    status: usable
+    summary: Launch a standalone Pulp application from the build directory.
+    args:
+      - name: target
+        kind: positional
+        required: false
+        description: Target name (default: first standalone binary found)
+    docs: reference/cli.md#run
+
+  - name: upgrade
+    status: usable
+    summary: Update the Pulp CLI binary to the latest or a specific version.
+    args:
+      - name: version
+        kind: positional
+        required: false
+        description: Version to install (default: latest)
+    docs: reference/cli.md#upgrade
 
   - name: doctor
     status: usable

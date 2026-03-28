@@ -59,26 +59,28 @@ Checks:
 
 Prints a summary with pass/fail/skip counts.
 
-### create
+### new
 
 **Status**: usable
 
-Create a new plugin project from templates. Checks environment, scaffolds source files, builds, and runs tests.
+Create a new plugin project from templates. Checks environment, scaffolds source files, builds, and runs tests. (`create` is an alias.)
 
 ```bash
-pulp create "My Gain"                              # effect plugin (default)
-pulp create "My Synth" --type instrument           # instrument plugin
-pulp create "My Gain" --template gain              # gain template with UI script
-pulp create "My FX" --manufacturer "Acme Audio"    # custom manufacturer
-pulp create "My FX" --output ~/projects/my-fx      # custom output directory
-pulp create "My FX" --no-build                     # scaffold only, skip build
+pulp new "My Gain"                              # effect plugin (default)
+pulp new "My Synth" --type instrument           # instrument plugin
+pulp new "My App" --type app                    # standalone audio application
+pulp new "My Project" --type bare               # minimal skeleton
+pulp new "My FX" --manufacturer "Acme Audio"    # custom manufacturer
+pulp new "My FX" --output ~/projects/my-fx      # custom output directory
+pulp new "My FX" --no-build                     # scaffold only, skip build
+pulp new "My FX" --no-interactive               # CI/scripting mode (no prompts)
 ```
 
-The `--template` flag selects a named template directory (`tools/templates/<name>/`). Templates can include a `ui/` directory with JS scripts that are scaffolded alongside the C++ source. Available templates: `effect` (default), `instrument`, `gain`.
+Available types: `effect` (default), `instrument`, `app`, `bare`. Templates are in `tools/templates/<type>/`.
 
 What it does:
 1. Runs `pulp doctor` checks (fails fast if environment is broken)
-2. Scaffolds source files from templates (processor, format entries, test, CMakeLists.txt, optional UI scripts)
+2. Scaffolds source files from templates (processor, format entries, test, CMakeLists.txt)
 3. Adds the project to `examples/CMakeLists.txt`
 4. Configures, builds the test target, and runs tests
 5. Reports plugin artifact locations
@@ -87,6 +89,21 @@ Default formats are platform-gated:
 - **macOS**: VST3, AU, CLAP, Standalone
 - **Linux**: VST3, CLAP, LV2, Standalone
 - **Windows**: VST3, CLAP, Standalone
+- **app/bare**: Standalone only
+
+### run
+
+**Status**: usable
+
+Launch a standalone Pulp application from the build directory.
+
+```bash
+pulp run                    # find and launch first standalone binary
+pulp run PulpGain           # launch a specific target
+pulp run MyApp -- --arg1    # pass arguments to the launched binary
+```
+
+Searches `build/examples/` for executable binaries, skipping test binaries.
 
 ### doctor
 
@@ -164,6 +181,19 @@ pulp docs check                   # Validate docs consistency
 | `show style` | Display style rules from `style-rules.yaml` with links to policy docs |
 | `check` | Validate docs consistency: manifest links, index completeness, status vocabulary, module dependencies vs CMake |
 
+### upgrade
+
+**Status**: usable
+
+Update the Pulp CLI binary to the latest (or a specific) version.
+
+```bash
+pulp upgrade              # upgrade to latest release
+pulp upgrade 0.2.0        # install specific version
+```
+
+Downloads the release from GitHub, replaces the current binary, and verifies. Requires `curl`.
+
 ### clean
 
 **Status**: usable
@@ -182,8 +212,16 @@ Print usage information.
 pulp help
 ```
 
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-color` | Disable color output (also respects `NO_COLOR` env var) |
+
+Color output is auto-detected based on TTY. Non-TTY environments (pipes, CI) get plain text automatically.
+
 ## Caveats
 
 - The CLI finds the project root by walking up from the current directory looking for a directory with both `CMakeLists.txt` and `core/`.
 - The `ship` subcommands are macOS-specific (they use `codesign` and `pkgbuild`).
-- There is no `pulp create` scaffolding command yet.
+- `pulp upgrade` requires internet access and `curl` (macOS/Linux) or PowerShell (Windows).
