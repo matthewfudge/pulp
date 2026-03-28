@@ -255,8 +255,13 @@ float View::resolve_dimension(const std::string& name, float fallback) const {
 void View::set_hovered(bool h) {
     if (hovered_ == h) return;
     hovered_ = h;
-    if (h) on_mouse_enter();
-    else on_mouse_leave();
+    if (h) {
+        on_mouse_enter();
+        if (on_hover_enter) on_hover_enter();
+    } else {
+        on_mouse_leave();
+        if (on_hover_leave) on_hover_leave();
+    }
 }
 
 FrameClock* View::frame_clock() const {
@@ -277,6 +282,32 @@ void View::simulate_hover(Point root_pos) {
     // Set hover on the hit target
     auto* target = hit_test(root_pos);
     if (target) target->set_hovered(true);
+}
+
+float View::intrinsic_height() const {
+    // Containers: sum visible children's heights + gaps (CSS auto height behavior)
+    if (children_.empty()) return 0;
+
+    bool is_col = flex_.direction == FlexDirection::column;
+    if (!is_col) return 0;  // Row containers don't auto-height from children
+
+    float total = 0;
+    float gap = flex_.effective_gap(flex_.direction);
+    int count = 0;
+    for (auto& child : children_) {
+        if (!child->visible_) continue;
+        auto& cf = child->flex();
+        float h = cf.preferred_height;
+        if (h <= 0) h = child->intrinsic_height();
+        total += h + cf.margin_t() + cf.margin_b();
+        if (count > 0) total += gap;
+        ++count;
+    }
+
+    // Add padding
+    float pt = flex_.padding_top >= 0 ? flex_.padding_top : flex_.padding;
+    float pb = flex_.padding_bottom >= 0 ? flex_.padding_bottom : flex_.padding;
+    return total + pt + pb;
 }
 
 void View::layout_children() {

@@ -169,9 +169,8 @@ var tokenGroups = [
 for (var g = 0; g < tokenGroups.length; g++) {
     var group = tokenGroups[g];
     var gid = "tg-" + g;
-    var groupHeight = 4 + 18 + 2 + group.tokens.length * 26; // padding_top + title + gap + tokens*(height+gap)
+    // No fixed height — let flex layout compute from visible children (CSS auto height)
     createCol(gid, "token-list");
-    setFlex(gid, "height", groupHeight);
     setFlex(gid, "padding_left", 10);
     setFlex(gid, "padding_right", 10);
     setFlex(gid, "padding_top", 4);

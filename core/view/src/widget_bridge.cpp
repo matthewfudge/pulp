@@ -411,6 +411,21 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // registerHover(id) — enables "mouseenter"/"mouseleave" JS callbacks (CSS :hover)
+    engine_.register_function("registerHover", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto it = widgets_.find(id);
+        if (it != widgets_.end()) {
+            it->second->on_hover_enter = [this, id]() {
+                engine_.evaluate("__dispatch__('" + id + "', 'mouseenter', 0)");
+            };
+            it->second->on_hover_leave = [this, id]() {
+                engine_.evaluate("__dispatch__('" + id + "', 'mouseleave', 0)");
+            };
+        }
+        return choc::value::Value();
+    });
+
     // registerClick(id) — enables "click" event dispatch for any widget
     engine_.register_function("registerClick", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");

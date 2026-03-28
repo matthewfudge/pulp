@@ -70,7 +70,7 @@ public:
     /// Intrinsic content size (override in widgets that know their natural size).
     /// Returns 0 if no intrinsic size (use preferred_width/height instead).
     virtual float intrinsic_width() const { return 0; }
-    virtual float intrinsic_height() const { return 0; }
+    virtual float intrinsic_height() const;  // default: sum of visible children for containers
 
     // ── Painting ──────────────────────────────────────────────────────────
 
@@ -195,6 +195,10 @@ public:
 
     /// Generic click callback (fires on mouse-down, if set).
     std::function<void()> on_click;
+
+    /// Hover callbacks (CSS :hover equivalent). Fired by set_hovered().
+    std::function<void()> on_hover_enter;
+    std::function<void()> on_hover_leave;
 
     // ── Overlay painting ────────────────────────────────────────────────
     /// Deferred overlay paint callback. If set, called after the entire view
