@@ -311,6 +311,7 @@ void TextEditor::on_text_input(const TextInputEvent& event) {
 }
 
 void TextEditor::on_focus_changed(bool gained) {
+    View::on_focus_changed(gained);  // sets has_focus_ for border rendering
     if (gained && select_on_focus) {
         select_all();
     }
