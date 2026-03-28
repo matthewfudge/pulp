@@ -793,11 +793,20 @@ void WidgetBridge::register_api() {
     });
 
     // Shell exec (for Claude CLI)
+    // Ensures PATH includes common tool locations (homebrew, npm global, etc.)
     engine_.register_function("exec", [](choc::javascript::ArgumentList args) {
         auto cmd = args.get<std::string>(0, "");
         if (cmd.empty()) return choc::value::createString("");
-        std::string r; FILE* p = popen(cmd.c_str(), "r"); if (!p) return choc::value::createString("");
-        char buf[4096]; while (fgets(buf, sizeof(buf), p)) r += buf; pclose(p);
+        // Prepend common tool paths that GUI apps miss
+        auto full_cmd = std::string(
+            "export PATH=\"$HOME/.local/bin:$HOME/.npm-global/bin:"
+            "/opt/homebrew/bin:/usr/local/bin:$PATH\"; ") + cmd;
+        std::string r;
+        FILE* p = popen(full_cmd.c_str(), "r");
+        if (!p) return choc::value::createString("");
+        char buf[4096];
+        while (fgets(buf, sizeof(buf), p)) r += buf;
+        pclose(p);
         return choc::value::createString(r);
     });
 }
