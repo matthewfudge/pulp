@@ -90,7 +90,7 @@ setFlex("left-panel", "min_width", 260);
 setFlex("left-panel", "flex_shrink", 0);
 setBackground("left-panel", APP_SURFACE);
 setBorder("left-panel", APP_BORDER, 1, 0);
-setScrollContentSize("left-panel", 310, 1000);
+setScrollContentSize("left-panel", 310, 1200);
 
 // Color System section
 createCol("color-section", "left-panel");
@@ -338,10 +338,11 @@ createScrollView("preview-scroll", "center-panel");
 setFlex("preview-scroll", "flex_grow", 1);
 setBackground("preview-scroll", APP_PANEL);
 setBorder("preview-scroll", APP_BORDER, 1, 4);
-setScrollContentSize("preview-scroll", 500, 1400);
+setScrollContentSize("preview-scroll", 500, 1600);
 
 createCol("preview-area", "preview-scroll");
-setFlex("preview-area", "height", 1400);
+setFlex("preview-area", "height", 1600);
+setFlex("preview-area", "flex_shrink", 0);
 setFlex("preview-area", "padding", 12);
 setFlex("preview-area", "gap", 10);
 

@@ -375,8 +375,7 @@ void TextEditor::paint(canvas::Canvas& canvas) {
     if (has_focus()) {
         caret_blink_time_ += 1.0f / 60.0f;  // approximate frame time
         bool caret_visible = std::fmod(caret_blink_time_, 1.06f) < 0.53f;
-        // Always visible in headless (no frame clock) or during selection
-        if (caret_visible || !frame_clock() || has_selection()) {
+        if (caret_visible || has_selection()) {
             float caret_x = text_x + canvas.measure_text(display.substr(0, static_cast<size_t>(caret_position_)));
             canvas.set_stroke_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
             canvas.set_line_width(1.5f);
