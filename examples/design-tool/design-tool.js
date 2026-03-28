@@ -277,13 +277,146 @@ function buildShadeRamps() {
             (function(hex, name, step) {
                 on(shadeId, "click", function() {
                     setText("status-text", name + " " + step + ": " + hex);
-                    layout();
+                    showColorPicker(hex);
                 });
             })(ramp[steps[s]].hex, paletteNames[p], steps[s]);
         }
     }
 }
 buildShadeRamps();
+
+// ── Color Picker Popup ───────────────────────────────────────────
+// Hidden panel that shows OKLCH values when a swatch is clicked.
+// Appears over the left panel content.
+
+var pickerVisible = false;
+var pickerColor = { L: 0, C: 0, H: 0, hex: '#000000' };
+
+createCol("color-picker", "");
+setFlex("color-picker", "width", 280);
+setFlex("color-picker", "height", 200);
+setFlex("color-picker", "padding", 12);
+setFlex("color-picker", "gap", 8);
+setBackground("color-picker", APP_PANEL);
+setBorder("color-picker", APP_BORDER, 1, 8);
+setBoxShadow("color-picker", 0, 4, 12, 0, "#00000060");
+setVisible("color-picker", false);
+
+// Color preview swatch
+createCol("picker-preview", "color-picker");
+setFlex("picker-preview", "height", 40);
+setBorder("picker-preview", APP_BORDER, 1, 6);
+
+// OKLCH values row
+createRow("picker-values", "color-picker");
+setFlex("picker-values", "height", 16);
+setFlex("picker-values", "gap", 12);
+setFlex("picker-values", "align_items", "center");
+
+createLabel("picker-l-label", "L: 0.00", "picker-values");
+setFontSize("picker-l-label", 10);
+setFlex("picker-l-label", "width", 60);
+
+createLabel("picker-c-label", "C: 0.000", "picker-values");
+setFontSize("picker-c-label", 10);
+setFlex("picker-c-label", "width", 70);
+
+createLabel("picker-h-label", "H: 0.0", "picker-values");
+setFontSize("picker-h-label", 10);
+setFlex("picker-h-label", "width", 60);
+
+// Hex value
+createRow("picker-hex-row", "color-picker");
+setFlex("picker-hex-row", "height", 20);
+setFlex("picker-hex-row", "align_items", "center");
+
+createLabel("picker-hex", "#000000", "picker-hex-row");
+setFontSize("picker-hex", 12);
+
+// H slider
+createRow("picker-h-row", "color-picker");
+setFlex("picker-h-row", "height", 20);
+setFlex("picker-h-row", "gap", 6);
+setFlex("picker-h-row", "align_items", "center");
+
+createLabel("picker-h-lbl", "H", "picker-h-row");
+setFontSize("picker-h-lbl", 10);
+setFlex("picker-h-lbl", "width", 14);
+
+createFader("picker-h-fader", "horizontal", "picker-h-row");
+setFlex("picker-h-fader", "flex_grow", 1);
+setFlex("picker-h-fader", "height", 16);
+
+// C slider
+createRow("picker-c-row", "color-picker");
+setFlex("picker-c-row", "height", 20);
+setFlex("picker-c-row", "gap", 6);
+setFlex("picker-c-row", "align_items", "center");
+
+createLabel("picker-c-lbl", "C", "picker-c-row");
+setFontSize("picker-c-lbl", 10);
+setFlex("picker-c-lbl", "width", 14);
+
+createFader("picker-c-fader", "horizontal", "picker-c-row");
+setFlex("picker-c-fader", "flex_grow", 1);
+setFlex("picker-c-fader", "height", 16);
+
+// L slider
+createRow("picker-l-row", "color-picker");
+setFlex("picker-l-row", "height", 20);
+setFlex("picker-l-row", "gap", 6);
+setFlex("picker-l-row", "align_items", "center");
+
+createLabel("picker-l-lbl", "L", "picker-l-row");
+setFontSize("picker-l-lbl", 10);
+setFlex("picker-l-lbl", "width", 14);
+
+createFader("picker-l-fader", "horizontal", "picker-l-row");
+setFlex("picker-l-fader", "flex_grow", 1);
+setFlex("picker-l-fader", "height", 16);
+
+function showColorPicker(hex) {
+    var oklch = OklchEngine.hexToOklch(hex);
+    pickerColor = { L: oklch.L, C: oklch.C, H: oklch.H, hex: hex };
+
+    setBackground("picker-preview", hex);
+    setText("picker-l-label", "L: " + oklch.L.toFixed(2));
+    setText("picker-c-label", "C: " + oklch.C.toFixed(3));
+    setText("picker-h-label", "H: " + oklch.H.toFixed(1));
+    setText("picker-hex", hex);
+    setValue("picker-h-fader", oklch.H / 360);
+    setValue("picker-c-fader", Math.min(oklch.C / 0.4, 1));
+    setValue("picker-l-fader", oklch.L);
+
+    setVisible("color-picker", true);
+    pickerVisible = true;
+    layout();
+}
+
+function hideColorPicker() {
+    setVisible("color-picker", false);
+    pickerVisible = false;
+    layout();
+}
+
+function updatePickerFromSliders() {
+    var h = getValue("picker-h-fader") * 360;
+    var c = getValue("picker-c-fader") * 0.4;
+    var l = getValue("picker-l-fader");
+    var mapped = OklchEngine.gamutMap(l, c, h);
+    var hex = OklchEngine.oklchToHex(mapped.L, mapped.C, mapped.H);
+
+    pickerColor = { L: mapped.L, C: mapped.C, H: mapped.H, hex: hex };
+    setBackground("picker-preview", hex);
+    setText("picker-l-label", "L: " + mapped.L.toFixed(2));
+    setText("picker-c-label", "C: " + mapped.C.toFixed(3));
+    setText("picker-h-label", "H: " + mapped.H.toFixed(1));
+    setText("picker-hex", hex);
+}
+
+on("picker-h-fader", "change", function() { updatePickerFromSliders(); });
+on("picker-c-fader", "change", function() { updatePickerFromSliders(); });
+on("picker-l-fader", "change", function() { updatePickerFromSliders(); });
 
 // ── Accent hue slider handler ────────────────────────────────────
 on("accent-hue", "change", function(val) {
