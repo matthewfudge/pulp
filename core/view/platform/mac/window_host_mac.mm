@@ -161,6 +161,11 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 
         // Generic click callback (used by registerClick for labels, tabs, etc.)
         if (_dragTarget->on_click) _dragTarget->on_click();
+
+        // Global click for inspector (Cmd+click detection)
+        if (self.rootView->on_global_click) {
+            self.rootView->on_global_click(_dragTarget->id(), me.modifiers);
+        }
     }
     [self setNeedsDisplay:YES];
 }
