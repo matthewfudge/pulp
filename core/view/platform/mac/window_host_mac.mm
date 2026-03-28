@@ -71,6 +71,8 @@ static void install_app_menu(NSString* appName) {
 }
 
 - (void)scrollWheel:(NSEvent*)event {
+    printf("SCROLL: dx=%.1f dy=%.1f\n", event.scrollingDeltaX, event.scrollingDeltaY);
+    fflush(stdout);
     if (!self.rootView) return;
     auto pt = [self localPoint:event];
     auto* target = self.rootView->hit_test(pt);

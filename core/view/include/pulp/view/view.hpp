@@ -75,7 +75,7 @@ public:
     // ── Painting ──────────────────────────────────────────────────────────
 
     // Paint this view and all children into a canvas
-    void paint_all(canvas::Canvas& canvas);
+    virtual void paint_all(canvas::Canvas& canvas);
 
     // ── Lifecycle (override in subclasses) ────────────────────────────────
 

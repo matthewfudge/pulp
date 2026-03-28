@@ -214,6 +214,7 @@ public:
     void scroll_by(float dx, float dy);
 
     void paint(canvas::Canvas& canvas) override;
+    void paint_all(canvas::Canvas& canvas) override;
     void on_mouse_enter() override;
     void on_mouse_leave() override;
 

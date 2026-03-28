@@ -430,16 +430,57 @@ void ScrollView::layout_children() {
     set_bounds(saved);  // restore actual bounds for painting/clipping
 }
 
-void ScrollView::paint(canvas::Canvas& canvas) {
-    auto b = local_bounds();
+void ScrollView::paint_all(canvas::Canvas& canvas) {
+    if (!visible()) return;
+
+    // Call base View::paint_all which handles background, border, opacity.
+    // But we override to inject scroll offset for children.
+    // Since View::paint_all paints children without offset, we need custom logic.
+
+    auto b = bounds();
+    canvas.save();
+    canvas.translate(b.x, b.y);
+
+    // Clip to viewport
+    canvas.clip_rect(0, 0, b.width, b.height);
+
+    if (opacity() < 1.0f)
+        canvas.set_opacity(opacity());
+
+    // Background (re-implement from View since we can't call base partially)
+    if (has_background_color()) {
+        // Use the view's internal bg painting
+    }
+    // Let the base paint handle bg/border via paint() call path
+    // Actually just call paint() for scrollbar drawing, and handle children ourselves
+
+    // Paint background + border via a minimal approach
+    // (View::paint_all does this but also paints children without scroll offset)
+    paint(canvas);  // This draws scrollbars + any ScrollView-specific visuals
+
     float sx = smooth_scroll_x_.value();
     float sy = smooth_scroll_y_.value();
 
+    // Paint children WITH scroll offset applied
     canvas.save();
-    canvas.clip_rect(b.x, b.y, b.width, b.height);
+    canvas.clip_rect(0, 0, b.width, b.height);
     canvas.translate(-sx, -sy);
-    // Children paint themselves via paint_all
+    for (size_t i = 0; i < child_count(); ++i) {
+        child_at(i)->paint_all(canvas);
+    }
     canvas.restore();
+
+    if (opacity() < 1.0f)
+        canvas.set_opacity(1.0f);
+
+    canvas.restore();
+}
+
+void ScrollView::paint(canvas::Canvas& canvas) {
+    // Only draw scrollbar indicators here — children are painted by paint_all with scroll offset
+    auto b = local_bounds();
+    float sx = smooth_scroll_x_.value();
+    float sy = smooth_scroll_y_.value();
 
     float opacity = bar_opacity_.value();
     float width = bar_width_.value();
