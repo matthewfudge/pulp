@@ -510,8 +510,12 @@ void ScrollView::paint(canvas::Canvas& canvas) {
 
 void ScrollView::on_mouse_event(const MouseEvent& event) {
     if (event.is_wheel) {
-        float sensitivity = 30.0f;
+        // macOS trackpad provides pixel-level deltas, just use them directly
+        float sensitivity = 1.0f;
         scroll_by(event.scroll_delta_x * sensitivity, event.scroll_delta_y * sensitivity);
+        // Make scrollbar visible during scrolling
+        bar_opacity_.set(1.0f);
+        bar_width_.set(8.0f);
         return;
     }
 
