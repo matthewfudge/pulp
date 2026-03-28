@@ -158,6 +158,9 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 
         // Legacy path (Knob, Fader, Toggle)
         _dragTarget->on_mouse_down(local);
+
+        // Generic click callback (used by registerClick for labels, tabs, etc.)
+        if (_dragTarget->on_click) _dragTarget->on_click();
     }
     [self setNeedsDisplay:YES];
 }

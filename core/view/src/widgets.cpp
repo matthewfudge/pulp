@@ -343,7 +343,7 @@ void Checkbox::paint(canvas::Canvas& canvas) {
     float size = std::min(b.width, b.height);
     float cx = b.width * 0.5f;
     float cy = b.height * 0.5f;
-    float r = size * 0.4f;
+    float r = size * 0.35f;  // smaller radius to avoid clipping at bounds edge
 
     if (checked_) {
         // Filled circle
@@ -415,28 +415,35 @@ void Icon::paint(canvas::Canvas& canvas) {
 
     switch (type_) {
         case Type::image_upload: {
-            // Image frame: rounded rect with mountain/sun inside
-            float r = s * 1.1f;
-            canvas.stroke_rounded_rect(cx - r, cy - r, r * 2, r * 2, 3);
-            // Mountain triangle
-            canvas.stroke_line(cx - r * 0.6f, cy + r * 0.5f, cx - r * 0.1f, cy - r * 0.1f);
-            canvas.stroke_line(cx - r * 0.1f, cy - r * 0.1f, cx + r * 0.3f, cy + r * 0.3f);
-            canvas.stroke_line(cx + r * 0.3f, cy + r * 0.3f, cx + r * 0.6f, cy - r * 0.2f);
-            // Sun dot
-            canvas.set_fill_color(color);
-            canvas.fill_circle(cx + r * 0.4f, cy - r * 0.4f, 2);
+            // Landscape image icon: rounded rect with mountain + sun
+            float r = s * 1.0f;
+            canvas.stroke_rounded_rect(cx - r, cy - r, r * 2, r * 2, r * 0.25f);
+            // Mountain (two triangles forming landscape)
+            float base_y = cy + r * 0.55f;
+            // Small mountain (left)
+            canvas.stroke_line(cx - r * 0.5f, base_y, cx - r * 0.15f, cy + r * 0.05f);
+            canvas.stroke_line(cx - r * 0.15f, cy + r * 0.05f, cx + r * 0.15f, base_y);
+            // Large mountain (right, overlapping)
+            canvas.stroke_line(cx - r * 0.1f, base_y, cx + r * 0.25f, cy - r * 0.25f);
+            canvas.stroke_line(cx + r * 0.25f, cy - r * 0.25f, cx + r * 0.6f, base_y);
+            // Sun circle (upper right)
+            canvas.stroke_circle(cx + r * 0.4f, cy - r * 0.4f, r * 0.18f);
             break;
         }
         case Type::send: {
-            // Paper plane: triangle pointing right
-            canvas.set_fill_color(canvas::Color::rgba(255, 255, 255));
-            float ps = s * 1.2f;
-            canvas.stroke_line(cx - ps * 0.6f, cy - ps * 0.7f, cx + ps * 0.8f, cy);
-            canvas.stroke_line(cx + ps * 0.8f, cy, cx - ps * 0.6f, cy + ps * 0.7f);
-            canvas.stroke_line(cx - ps * 0.6f, cy + ps * 0.7f, cx - ps * 0.3f, cy);
-            canvas.stroke_line(cx - ps * 0.3f, cy, cx - ps * 0.6f, cy - ps * 0.7f);
-            // Inner fold line
-            canvas.stroke_line(cx - ps * 0.3f, cy, cx + ps * 0.8f, cy);
+            // Paper plane icon pointing upper-right (matching original HTML)
+            float ps = s * 1.0f;
+            canvas.set_stroke_color(canvas::Color::rgba(255, 255, 255));
+            canvas.set_line_width(1.5f);
+            // Triangle body pointing upper-right
+            float tx = cx + ps * 0.6f, ty = cy - ps * 0.6f;  // tip (upper right)
+            float bl = cx - ps * 0.6f, bt = cy + ps * 0.1f;   // bottom left
+            float br = cx - ps * 0.1f, bb = cy + ps * 0.6f;   // bottom right
+            canvas.stroke_line(tx, ty, bl, bt);     // tip to bottom-left
+            canvas.stroke_line(bl, bt, br, bb);     // bottom-left to bottom-right
+            canvas.stroke_line(br, bb, tx, ty);     // bottom-right to tip
+            // Inner fold
+            canvas.stroke_line(bl, bt, cx + ps * 0.1f, cy + ps * 0.1f);
             break;
         }
         case Type::search: {
