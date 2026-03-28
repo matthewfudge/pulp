@@ -94,7 +94,7 @@ setBorder("left-panel", APP_BORDER, 1, 0);
 
 // Color System section (height: title 14 + combo 26 + hue 24 + 5 ramps*38 + gaps + padding)
 createCol("color-section", "left-panel");
-setFlex("color-section", "height", 310);
+setFlex("color-section", "height", 340);
 setFlex("color-section", "flex_shrink", 0);
 setFlex("color-section", "padding", 10);
 setFlex("color-section", "gap", 6);
@@ -308,6 +308,7 @@ on("mode-selector", "select", function(idx) {
 // ── CENTER PANEL (Preview) ───────────────────────────────────────
 createCol("center-panel", "main-area");
 setFlex("center-panel", "flex_grow", 1);
+setFlex("center-panel", "min_width", 350);
 setFlex("center-panel", "padding", 20);
 setFlex("center-panel", "gap", 12);
 setBackground("center-panel", APP_BG);
@@ -837,10 +838,11 @@ setFlex("tab-inspector", "height", 28);
 setFlex("tab-inspector", "padding", 8);
 setTextColor("tab-inspector", APP_TEXT_DIM);
 
-// Full-width underline indicator (matches original HTML styling)
+// Underline indicator — use width not flex_grow to avoid vertical expansion
 createCol("tab-inspector-line", "tab-inspector-col");
 setFlex("tab-inspector-line", "height", 2);
-setFlex("tab-inspector-line", "flex_grow", 1);
+setFlex("tab-inspector-line", "width", 120);
+setFlex("tab-inspector-line", "flex_shrink", 0);
 
 createCol("tab-chat-col", "right-tabs");
 setFlex("tab-chat-col", "flex_grow", 1);
@@ -857,7 +859,8 @@ setTextColor("tab-chat", APP_ACCENT);
 
 createCol("tab-chat-line", "tab-chat-col");
 setFlex("tab-chat-line", "height", 2);
-setFlex("tab-chat-line", "flex_grow", 1);
+setFlex("tab-chat-line", "width", 120);
+setFlex("tab-chat-line", "flex_shrink", 0);
 setBackground("tab-chat-line", APP_ACCENT);
 
 // Inspector content area (hidden by default)
@@ -936,8 +939,12 @@ function switchTab(tab) {
 // Tab switching via registerClick + on() click events
 registerClick("tab-inspector-col");
 registerClick("tab-chat-col");
+registerClick("tab-inspector");
+registerClick("tab-chat");
 on("tab-inspector-col", "click", function() { switchTab("inspector"); });
 on("tab-chat-col", "click", function() { switchTab("chat"); });
+on("tab-inspector", "click", function() { switchTab("inspector"); });
+on("tab-chat", "click", function() { switchTab("chat"); });
 
 // Chat content area
 createCol("chat-area", "right-panel");
@@ -989,8 +996,8 @@ setBackground("upload-btn", APP_PANEL);
 setBorder("upload-btn", APP_BORDER, 1, 6);
 setFlex("upload-btn", "justify_content", "center");
 setFlex("upload-btn", "align_items", "center");
-createLabel("upload-icon", "\u25A3", "upload-btn");
-setFontSize("upload-icon", 14);
+createLabel("upload-icon", "\uD83D\uDDBC", "upload-btn");
+setFontSize("upload-icon", 16);
 setTextColor("upload-icon", APP_TEXT_DIM);
 
 createTextEditor("chat-input", "chat-input-row");
@@ -1006,9 +1013,8 @@ setBackground("send-btn", APP_ACCENT);
 setBorder("send-btn", APP_ACCENT, 0, 6);
 setFlex("send-btn", "justify_content", "center");
 setFlex("send-btn", "align_items", "center");
-createLabel("send-icon", "\u25B6", "send-btn");
-setFontSize("send-icon", 12);
-setFlex("send-icon", "height", 14);
+createLabel("send-icon", "\u27A4", "send-btn");
+setFontSize("send-icon", 16);
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BAR (28px, full width)
