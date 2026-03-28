@@ -94,7 +94,8 @@ public:
     /// Text input from keyboard/IME (separate from key events).
     virtual void on_text_input(const TextInputEvent& event) { (void)event; }
     /// Called when this view gains or loses focus.
-    virtual void on_focus_changed(bool gained) { (void)gained; }
+    /// Default implementation updates has_focus_ state. Subclasses should call base.
+    virtual void on_focus_changed(bool gained) { has_focus_ = gained; }
 
     // ── Legacy event handlers (kept for backward compatibility) ──────────
 

@@ -857,7 +857,7 @@ setFlex("tab-inspector-col", "gap", 0);
 createLabel("tab-inspector", "INSPECTOR", "tab-inspector-col");
 setFontSize("tab-inspector", 11);
 setFlex("tab-inspector", "height", 28);
-setFlex("tab-inspector", "padding", 8);
+setTextAlign("tab-inspector", "center");
 setTextColor("tab-inspector", APP_TEXT_DIM);
 
 // Underline indicator — use width not flex_grow to avoid vertical expansion
@@ -876,7 +876,7 @@ setFlex("tab-chat-col", "gap", 0);
 createLabel("tab-chat", "CHAT", "tab-chat-col");
 setFontSize("tab-chat", 11);
 setFlex("tab-chat", "height", 28);
-setFlex("tab-chat", "padding", 8);
+setTextAlign("tab-chat", "center");
 setTextColor("tab-chat", APP_ACCENT);
 
 createCol("tab-chat-line", "tab-chat-col");
@@ -946,14 +946,14 @@ function switchTab(tab) {
         setTextColor("tab-chat", APP_ACCENT);
         setBackground("tab-chat-line", APP_ACCENT);
         setTextColor("tab-inspector", APP_TEXT_DIM);
-        setBackground("tab-inspector-line", "transparent");
+        setBackground("tab-inspector-line", APP_PANEL);  // hide by matching background
     } else {
         setVisible("chat-area", false);
         setVisible("inspector-area", true);
         setTextColor("tab-inspector", APP_ACCENT);
         setBackground("tab-inspector-line", APP_ACCENT);
         setTextColor("tab-chat", APP_TEXT_DIM);
-        setBackground("tab-chat-line", "transparent");
+        setBackground("tab-chat-line", APP_PANEL);  // hide by matching background
     }
     layout();
 }
