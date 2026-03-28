@@ -56,22 +56,26 @@ setFlex("preset-selector", "height", 26);
 createCol("toolbar-spacer", "toolbar");
 setFlex("toolbar-spacer", "flex_grow", 1);
 
-createLabel("undo-btn", "Undo", "toolbar");
-setFontSize("undo-btn", 11);
-setFlex("undo-btn", "width", 36);
+// Toolbar action buttons with pill styling
+var toolbarBtns = [
+    { id: "undo-btn", label: "Undo", width: 44 },
+    { id: "redo-btn", label: "Redo", width: 44 },
+    { id: "import-btn", label: "Import", width: 52 },
+    { id: "export-btn", label: "Export", width: 52, accent: true }
+];
+for (var tb = 0; tb < toolbarBtns.length; tb++) {
+    var btn = toolbarBtns[tb];
+    createCol(btn.id + "-pill", "toolbar");
+    setFlex(btn.id + "-pill", "width", btn.width);
+    setFlex(btn.id + "-pill", "height", 26);
+    setFlex(btn.id + "-pill", "justify_content", "center");
+    setFlex(btn.id + "-pill", "align_items", "center");
+    setBorder(btn.id + "-pill", APP_BORDER, 1, 4);
 
-createLabel("redo-btn", "Redo", "toolbar");
-setFontSize("redo-btn", 11);
-setFlex("redo-btn", "width", 36);
-
-createLabel("import-btn", "Import", "toolbar");
-setFontSize("import-btn", 11);
-setFlex("import-btn", "width", 48);
-
-createLabel("export-btn", "Export", "toolbar");
-setFontSize("export-btn", 11);
-setFlex("export-btn", "width", 48);
-setTextColor("export-btn", APP_ACCENT);
+    createLabel(btn.id, btn.label, btn.id + "-pill");
+    setFontSize(btn.id, 11);
+    if (btn.accent) setTextColor(btn.id, APP_ACCENT);
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN AREA (3 columns: left 310px | center flex | right 272px)
@@ -967,8 +971,8 @@ on("preset-selector", "select", function(idx) {
 // ═══════════════════════════════════════════════════════════════════
 // Export/Import buttons
 // ═══════════════════════════════════════════════════════════════════
-registerClick("export-btn");
-on("export-btn", "click", function() {
+registerClick("export-btn-pill");
+on("export-btn-pill", "click", function() {
     var json = getThemeJson();
     var path = "/tmp/pulp-theme-export.json";
     exec("cat > " + path + " << 'PULPEOF'\n" + json + "\nPULPEOF");
@@ -976,8 +980,8 @@ on("export-btn", "click", function() {
     layout();
 });
 
-registerClick("import-btn");
-on("import-btn", "click", function() {
+registerClick("import-btn-pill");
+on("import-btn-pill", "click", function() {
     var path = "/tmp/pulp-theme-export.json";
     var json = exec("cat " + path + " 2>/dev/null");
     if (json && json.length > 10) {
@@ -1004,8 +1008,8 @@ function pushThemeSnapshot() {
 }
 pushThemeSnapshot();
 
-registerClick("undo-btn");
-on("undo-btn", "click", function() {
+registerClick("undo-btn-pill");
+on("undo-btn-pill", "click", function() {
     if (historyIndex > 0) {
         historyIndex--;
         applyTokenDiff(themeHistory[historyIndex]);
@@ -1015,8 +1019,8 @@ on("undo-btn", "click", function() {
     }
 });
 
-registerClick("redo-btn");
-on("redo-btn", "click", function() {
+registerClick("redo-btn-pill");
+on("redo-btn-pill", "click", function() {
     if (historyIndex < themeHistory.length - 1) {
         historyIndex++;
         applyTokenDiff(themeHistory[historyIndex]);
