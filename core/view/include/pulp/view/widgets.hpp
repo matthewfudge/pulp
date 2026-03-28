@@ -153,6 +153,50 @@ private:
     ValueAnimation hover_opacity_;
 };
 
+// ── Checkbox ────────────────────────────────────────────────────────────────
+// Circular checkbox with check glyph
+
+class Checkbox : public View {
+public:
+    Checkbox() { set_access_role(AccessRole::toggle); set_focusable(true); }
+
+    void set_checked(bool v) { checked_ = v; }
+    bool is_checked() const { return checked_; }
+
+    std::function<void(bool)> on_change;
+
+    void paint(canvas::Canvas& canvas) override;
+    void on_mouse_down(Point pos) override;
+
+private:
+    bool checked_ = false;
+};
+
+// ── ToggleButton ────────────────────────────────────────────────────────────
+// Full-width rounded button that toggles on/off
+
+class ToggleButton : public View {
+public:
+    ToggleButton() { set_access_role(AccessRole::toggle); set_focusable(true); }
+
+    void set_on(bool v) { on_ = v; }
+    bool is_on() const { return on_; }
+
+    void set_label(std::string text) { label_ = std::move(text); }
+    const std::string& label() const { return label_; }
+
+    std::function<void(bool)> on_toggle;
+
+    void paint(canvas::Canvas& canvas) override;
+    void on_mouse_down(Point pos) override;
+
+    float intrinsic_height() const override { return 36.0f; }
+
+private:
+    bool on_ = false;
+    std::string label_;
+};
+
 // ── Meter ────────────────────────────────────────────────────────────────────
 // Audio level meter with peak hold
 

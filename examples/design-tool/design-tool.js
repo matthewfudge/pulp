@@ -428,7 +428,7 @@ setTextColor("btn-disabled-label", APP_TEXT_DIM);
 
 // Toggles + checkbox row
 createRow("toggle-row", "preview-area");
-setFlex("toggle-row", "gap", 12);
+setFlex("toggle-row", "gap", 10);
 setFlex("toggle-row", "height", 28);
 setFlex("toggle-row", "align_items", "center");
 
@@ -439,7 +439,7 @@ setValue("t1", 1);
 
 createLabel("toggle-on-label", "Enabled", "toggle-row");
 setFontSize("toggle-on-label", 11);
-setFlex("toggle-on-label", "width", 54);
+setFlex("toggle-on-label", "width", 50);
 
 createToggle("t2", "toggle-row");
 setFlex("t2", "width", 36);
@@ -447,7 +447,23 @@ setFlex("t2", "height", 20);
 
 createLabel("toggle-off-label", "Disabled", "toggle-row");
 setFontSize("toggle-off-label", 11);
-setFlex("toggle-off-label", "width", 56);
+setFlex("toggle-off-label", "width", 52);
+
+// Checkbox
+createCheckbox("cb1", "toggle-row");
+setFlex("cb1", "width", 22);
+setFlex("cb1", "height", 22);
+setValue("cb1", 1);
+
+// Toggle button row
+createRow("toggle-btn-row", "preview-area");
+setFlex("toggle-btn-row", "height", 32);
+setFlex("toggle-btn-row", "gap", 8);
+
+createToggleButton("tb1", "toggle-btn-row");
+setLabel("tb1", "Toggle");
+setFlex("tb1", "flex_grow", 1);
+setFlex("tb1", "height", 28);
 
 // Text input + Placeholder + Combo preview
 createRow("input-row", "preview-area");

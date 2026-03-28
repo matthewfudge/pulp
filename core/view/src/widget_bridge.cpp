@@ -206,6 +206,32 @@ void WidgetBridge::register_api() {
         return choc::value::createString(id);
     });
 
+    // createCheckbox(id, parentId)
+    engine_.register_function("createCheckbox", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto cb = std::make_unique<Checkbox>(); cb->set_id(id);
+        auto* ptr = cb.get(); widgets_[id] = ptr;
+        cb->on_change = [this, id](bool v) {
+            engine_.evaluate("__dispatch__('" + id + "', 'change', " + std::string(v?"1":"0") + ")");
+        };
+        resolve_parent(pid)->add_child(std::move(cb));
+        return choc::value::createString(id);
+    });
+
+    // createToggleButton(id, parentId)
+    engine_.register_function("createToggleButton", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto tb = std::make_unique<ToggleButton>(); tb->set_id(id);
+        auto* ptr = tb.get(); widgets_[id] = ptr;
+        tb->on_toggle = [this, id](bool v) {
+            engine_.evaluate("__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")");
+        };
+        resolve_parent(pid)->add_child(std::move(tb));
+        return choc::value::createString(id);
+    });
+
     // createLabel(id, text, parentId) OR createLabel(id, text, x, y, w, h)
     engine_.register_function("createLabel", [this, isNewApi](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -259,6 +285,10 @@ void WidgetBridge::register_api() {
             fader->set_value(static_cast<float>(value));
         else if (auto* toggle = dynamic_cast<Toggle*>(it->second))
             toggle->set_on(value > 0.5);
+        else if (auto* cb = dynamic_cast<Checkbox*>(it->second))
+            cb->set_checked(value > 0.5);
+        else if (auto* tb = dynamic_cast<ToggleButton*>(it->second))
+            tb->set_on(value > 0.5);
 
         return choc::value::Value();
     });
@@ -567,6 +597,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_label(text);
         else if (auto* f = dynamic_cast<Fader*>(v)) f->set_label(text);
         else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_label(text);
+        else if (auto* tb = dynamic_cast<ToggleButton*>(v)) tb->set_label(text);
         else if (auto* l = dynamic_cast<Label*>(v)) l->set_text(text);
         return choc::value::Value();
     });

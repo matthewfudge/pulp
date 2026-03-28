@@ -298,6 +298,71 @@ void Toggle::paint(canvas::Canvas& canvas) {
     }
 }
 
+// ── Checkbox ────────────────────────────────────────────────────────────────
+
+void Checkbox::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+    float size = std::min(b.width, b.height);
+    float cx = b.width * 0.5f;
+    float cy = b.height * 0.5f;
+    float r = size * 0.4f;
+
+    if (checked_) {
+        // Filled circle
+        auto fill = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        canvas.set_fill_color(fill);
+        canvas.fill_rounded_rect(cx - r, cy - r, r * 2, r * 2, r);
+        // Check glyph (simple checkmark using lines)
+        canvas.set_stroke_color(canvas::Color::rgba(30, 30, 40));
+        canvas.set_line_width(2.0f);
+        canvas.stroke_line(cx - r * 0.35f, cy, cx - r * 0.05f, cy + r * 0.3f);
+        canvas.stroke_line(cx - r * 0.05f, cy + r * 0.3f, cx + r * 0.4f, cy - r * 0.3f);
+    } else {
+        // Stroked circle
+        auto border = resolve_color("control.border", canvas::Color::rgba(80, 80, 100));
+        canvas.set_stroke_color(border);
+        canvas.set_line_width(1.5f);
+        canvas.stroke_rounded_rect(cx - r, cy - r, r * 2, r * 2, r);
+    }
+}
+
+void Checkbox::on_mouse_down(Point) {
+    checked_ = !checked_;
+    if (on_change) on_change(checked_);
+}
+
+// ── ToggleButton ────────────────────────────────────────────────────────────
+
+void ToggleButton::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+
+    auto bg = on_ ? resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255))
+                  : resolve_color("bg.surface", canvas::Color::rgba(50, 50, 60));
+    auto border = resolve_color("control.border", canvas::Color::rgba(80, 80, 100));
+
+    canvas.set_fill_color(bg);
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 6);
+    if (!on_) {
+        canvas.set_stroke_color(border);
+        canvas.set_line_width(1);
+        canvas.stroke_rounded_rect(0, 0, b.width, b.height, 6);
+    }
+
+    if (!label_.empty()) {
+        auto text_color = on_ ? canvas::Color::rgba(255, 255, 255)
+                              : resolve_color("text.primary", canvas::Color::rgba(200, 200, 210));
+        canvas.set_fill_color(text_color);
+        canvas.set_font("Inter", 13);
+        canvas.set_text_align(canvas::TextAlign::center);
+        canvas.fill_text(label_, b.width * 0.5f, b.height * 0.5f + 4.5f);
+    }
+}
+
+void ToggleButton::on_mouse_down(Point) {
+    on_ = !on_;
+    if (on_toggle) on_toggle(on_);
+}
+
 // ── Meter ────────────────────────────────────────────────────────────────────
 
 void Meter::set_level(float rms, float peak) {
