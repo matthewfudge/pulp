@@ -1,10 +1,10 @@
 # Pulp CLI installer for Windows
 #
 # Usage:
-#   irm https://generouscorp.com/pulp/install.ps1 | iex
+#   irm https://www.generouscorp.com/pulp/install.ps1 | iex
 #
 # Or with options:
-#   $env:PULP_VERSION = "0.1.0"; irm https://generouscorp.com/pulp/install.ps1 | iex
+#   $env:PULP_VERSION = "0.1.0"; irm https://www.generouscorp.com/pulp/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 

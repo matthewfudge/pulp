@@ -1,5 +1,5 @@
 # Pulp CLI installer for Windows
-# Usage: irm https://generouscorp.com/pulp/install.ps1 | iex
+# Usage: irm https://www.generouscorp.com/pulp/install.ps1 | iex
 #
 # Environment variables:
 #   PULP_VERSION      — install a specific version (default: latest)

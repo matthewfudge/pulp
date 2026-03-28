@@ -2,10 +2,10 @@
 # Pulp CLI installer — one-liner install for macOS and Linux
 #
 # Usage:
-#   curl -fsSL https://generouscorp.com/pulp/install.sh | sh
+#   curl -fsSL https://www.generouscorp.com/pulp/install.sh | sh
 #
 # Or with options:
-#   curl -fsSL https://generouscorp.com/pulp/install.sh | sh -s -- --version 0.1.0
+#   curl -fsSL https://www.generouscorp.com/pulp/install.sh | sh -s -- --version 0.1.0
 #
 # Environment variables:
 #   PULP_INSTALL_DIR  — install directory (default: ~/.pulp/bin)
@@ -30,7 +30,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Pulp CLI Installer"
             echo ""
-            echo "Usage: curl -fsSL https://generouscorp.com/pulp/install.sh | sh"
+            echo "Usage: curl -fsSL https://www.generouscorp.com/pulp/install.sh | sh"
             echo ""
             echo "Options:"
             echo "  --version <ver>    Install specific version (default: latest)"
@@ -67,7 +67,7 @@ case "$OS" in
         ;;
     *)
         echo "Error: unsupported OS: $OS"
-        echo "For Windows, use: irm https://generouscorp.com/pulp/install.ps1 | iex"
+        echo "For Windows, use: irm https://www.generouscorp.com/pulp/install.ps1 | iex"
         exit 1
         ;;
 esac
