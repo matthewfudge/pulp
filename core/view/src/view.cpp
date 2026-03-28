@@ -66,13 +66,14 @@ void View::paint_all(canvas::Canvas& canvas) {
         child->paint_all(canvas);
     }
 
-    // Focus ring (painted on top of everything)
-    if (has_focus_ && focusable_) {
-        auto ring_color = resolve_color("accent.primary", Color::rgba(100, 150, 255));
-        ring_color.a = 128;
-        canvas.set_stroke_color(ring_color);
-        canvas.set_line_width(2.0f);
-        canvas.stroke_rounded_rect(0, 0, bounds_.width, bounds_.height, corner_radius_ > 0 ? corner_radius_ : 4.0f);
+    // Focus ring — only show on text input widgets, not sliders/toggles/meters
+    // Matches CSS :focus-visible behavior (keyboard focus on text inputs)
+    if (has_focus_ && focusable_ &&
+        access_role_ != AccessRole::slider &&
+        access_role_ != AccessRole::toggle &&
+        access_role_ != AccessRole::meter) {
+        // TextEditor handles its own focus border, so skip the generic ring
+        // for views that paint their own focus state
     }
 
     // Reset opacity
