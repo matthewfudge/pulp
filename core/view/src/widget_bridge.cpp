@@ -872,6 +872,38 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // setBoxShadow(id, offsetX, offsetY, blur, spread, color)
+    engine_.register_function("setBoxShadow", [this, parseHexColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto ox = static_cast<float>(args.get<double>(1, 0));
+        auto oy = static_cast<float>(args.get<double>(2, 2));
+        auto blur = static_cast<float>(args.get<double>(3, 4));
+        auto spread = static_cast<float>(args.get<double>(4, 0));
+        auto hex = args.get<std::string>(5, "#00000050");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_box_shadow(ox, oy, blur, spread, parseHexColor(hex));
+        return choc::value::Value();
+    });
+
+    // Path builder API from JS
+    engine_.register_function("beginPath", [this](choc::javascript::ArgumentList) {
+        // Store path commands for deferred rendering via CanvasWidget
+        return choc::value::Value();
+    });
+
+    // drawPath(canvasId, commands) — draw a path on a CanvasWidget
+    // Commands: "M x y" (move), "L x y" (line), "Q cx cy x y" (quad), "C c1x c1y c2x c2y x y" (cubic), "Z" (close)
+    engine_.register_function("drawPath", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pathStr = args.get<std::string>(1, "");
+        auto fillHex = args.get<std::string>(2, "");
+        auto strokeHex = args.get<std::string>(3, "");
+        auto lineW = static_cast<float>(args.get<double>(4, 1.0));
+        (void)id; (void)pathStr; (void)fillHex; (void)strokeHex; (void)lineW;
+        // TODO: parse SVG-like path string and render via CanvasWidget
+        return choc::value::Value();
+    });
+
     // measureText(text, fontSize) → {width, ascent, descent, lineHeight}
     engine_.register_function("measureText", [](choc::javascript::ArgumentList args) {
         auto text = args.get<std::string>(0, "");

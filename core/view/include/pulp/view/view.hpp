@@ -179,6 +179,19 @@ public:
     void clear_border() { has_border_ = false; }
     float corner_radius() const { return corner_radius_; }
 
+    /// Box shadow (CSS-like: offset, blur, spread, color)
+    struct BoxShadow {
+        float offset_x = 0, offset_y = 2;
+        float blur = 4;
+        float spread = 0;
+        Color color{0, 0, 0, 80};
+    };
+    void set_box_shadow(float ox, float oy, float blur, float spread, Color c) {
+        shadow_ = {ox, oy, blur, spread, c}; has_shadow_ = true;
+    }
+    void clear_box_shadow() { has_shadow_ = false; }
+    bool has_box_shadow() const { return has_shadow_; }
+
     /// Generic click callback (fires on mouse-down, if set).
     std::function<void()> on_click;
 
@@ -225,6 +238,8 @@ private:
     float corner_radius_ = 0;
     bool has_border_ = false;
     Overflow overflow_ = Overflow::hidden;
+    BoxShadow shadow_{};
+    bool has_shadow_ = false;
 };
 
 } // namespace pulp::view
