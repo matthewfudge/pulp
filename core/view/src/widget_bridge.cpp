@@ -1,13 +1,28 @@
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/animation.hpp>
 #include <pulp/view/frame_clock.hpp>
+#include <pulp/view/ui_components.hpp>
+#include <pulp/view/text_editor.hpp>
+#include <pulp/view/canvas_widget.hpp>
 #include <cmath>
 
 namespace pulp::view {
 
+static const char* kJSPreamble = R"(
+var __callbacks__ = {};
+function __dispatch__(id, eventName, value) {
+    var key = id + ':' + eventName;
+    if (__callbacks__[key]) __callbacks__[key](value);
+}
+function on(id, eventName, fn) {
+    __callbacks__[id + ':' + eventName] = fn;
+}
+)";
+
 WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& store)
     : engine_(engine), root_(root), store_(store) {
     register_api();
+    engine_.evaluate(kJSPreamble);
 }
 
 void WidgetBridge::load_script(const std::string& code) {
@@ -48,6 +63,60 @@ void WidgetBridge::sync_from_store() {
                 }
             }
         }
+    }
+}
+
+View* WidgetBridge::resolve_parent(const std::string& parent_id) {
+    if (parent_id.empty()) return &root_;
+    auto it = widgets_.find(parent_id);
+    return it != widgets_.end() ? it->second : &root_;
+}
+
+void WidgetBridge::wire_callbacks(const std::string& id, View* w) {
+    if (auto* k = dynamic_cast<Knob*>(w)) {
+        k->on_change = [this, id](float v) {
+            engine_.evaluate("__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")");
+        };
+    } else if (auto* f = dynamic_cast<Fader*>(w)) {
+        f->on_change = [this, id](float v) {
+            engine_.evaluate("__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")");
+        };
+    } else if (auto* t = dynamic_cast<Toggle*>(w)) {
+        t->on_toggle = [this, id](bool v) {
+            engine_.evaluate("__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")");
+        };
+    }
+}
+
+void WidgetBridge::clear() {
+    std::vector<std::string> ids;
+    ids.reserve(widgets_.size());
+    for (auto& [id, _] : widgets_) ids.push_back(id);
+    for (auto& id : ids) {
+        auto it = widgets_.find(id);
+        if (it != widgets_.end()) {
+            View* w = it->second;
+            if (auto* p = w->parent()) p->remove_child(w);
+        }
+    }
+    widgets_.clear();
+}
+
+void WidgetBridge::snapshot_values(std::unordered_map<std::string, float>& out) const {
+    for (auto& [id, view] : widgets_) {
+        if (auto* k = dynamic_cast<Knob*>(view)) out[id] = k->value();
+        else if (auto* f = dynamic_cast<Fader*>(view)) out[id] = f->value();
+        else if (auto* t = dynamic_cast<Toggle*>(view)) out[id] = t->is_on() ? 1.0f : 0.0f;
+    }
+}
+
+void WidgetBridge::restore_values(const std::unordered_map<std::string, float>& snapshot) {
+    for (auto& [id, val] : snapshot) {
+        auto it = widgets_.find(id);
+        if (it == widgets_.end()) continue;
+        if (auto* k = dynamic_cast<Knob*>(it->second)) k->set_value(val);
+        else if (auto* f = dynamic_cast<Fader*>(it->second)) f->set_value(val);
+        else if (auto* t = dynamic_cast<Toggle*>(it->second)) t->set_on(val > 0.5f);
     }
 }
 
@@ -270,6 +339,388 @@ void WidgetBridge::register_api() {
             widgets_.erase(it);
         }
         return choc::value::Value();
+    });
+
+    // ═══════════════════════════════════════════════════════════════
+    // Extended API: containers, layout, all widgets, themes, canvas
+    // ═══════════════════════════════════════════════════════════════
+
+    engine_.register_function("createRow", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto v = std::make_unique<View>(); v->set_id(id);
+        v->flex().direction = FlexDirection::row;
+        widgets_[id] = v.get();
+        resolve_parent(pid)->add_child(std::move(v));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createCol", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto v = std::make_unique<View>(); v->set_id(id);
+        v->flex().direction = FlexDirection::column;
+        widgets_[id] = v.get();
+        resolve_parent(pid)->add_child(std::move(v));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createPanel", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto p = std::make_unique<Panel>(); p->set_id(id);
+        widgets_[id] = p.get();
+        resolve_parent(pid)->add_child(std::move(p));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("setFlex", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto key = args.get<std::string>(1, "");
+        View* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        auto& f = v->flex();
+        auto val = args.get<double>(2, 0);
+        if (key == "direction") f.direction = (args.get<std::string>(2,"col")=="row") ? FlexDirection::row : FlexDirection::column;
+        else if (key == "gap") f.gap = (float)val;
+        else if (key == "padding") f.padding = (float)val;
+        else if (key == "padding_top") f.padding_top = (float)val;
+        else if (key == "padding_right") f.padding_right = (float)val;
+        else if (key == "padding_bottom") f.padding_bottom = (float)val;
+        else if (key == "padding_left") f.padding_left = (float)val;
+        else if (key == "flex_grow") f.flex_grow = (float)val;
+        else if (key == "flex_shrink") f.flex_shrink = (float)val;
+        else if (key == "flex_wrap") f.flex_wrap = val > 0;
+        else if (key == "width") f.preferred_width = (float)val;
+        else if (key == "height") f.preferred_height = (float)val;
+        else if (key == "min_width") f.min_width = (float)val;
+        else if (key == "min_height") f.min_height = (float)val;
+        else if (key == "max_width") f.max_width = (float)val;
+        else if (key == "max_height") f.max_height = (float)val;
+        else if (key == "align_items") {
+            auto a = args.get<std::string>(2,"stretch");
+            if (a=="start") f.align_items=FlexAlign::start;
+            else if (a=="center") f.align_items=FlexAlign::center;
+            else if (a=="end") f.align_items=FlexAlign::end;
+            else f.align_items=FlexAlign::stretch;
+        }
+        else if (key == "justify_content") {
+            auto j = args.get<std::string>(2,"start");
+            if (j=="center") f.justify_content=FlexJustify::center;
+            else if (j=="end") f.justify_content=FlexJustify::end_;
+            else if (j=="space-between"||j=="space_between") f.justify_content=FlexJustify::space_between;
+            else if (j=="space-around"||j=="space_around") f.justify_content=FlexJustify::space_around;
+            else if (j=="space-evenly"||j=="space_evenly") f.justify_content=FlexJustify::space_evenly;
+            else f.justify_content=FlexJustify::start;
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("layout", [this](choc::javascript::ArgumentList) {
+        root_.layout_children();
+        return choc::value::Value();
+    });
+
+    engine_.register_function("createMeter", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto o = args.get<std::string>(1, "vertical");
+        auto pid = args.get<std::string>(2, "");
+        auto m = std::make_unique<Meter>(); m->set_id(id);
+        if (o == "horizontal") m->set_orientation(Meter::Orientation::horizontal);
+        widgets_[id] = m.get(); resolve_parent(pid)->add_child(std::move(m));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createXYPad", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto p = std::make_unique<XYPad>(); p->set_id(id);
+        widgets_[id] = p.get(); resolve_parent(pid)->add_child(std::move(p));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createWaveform", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto w = std::make_unique<WaveformView>(); w->set_id(id);
+        widgets_[id] = w.get(); resolve_parent(pid)->add_child(std::move(w));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createSpectrum", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto s = std::make_unique<SpectrumView>(); s->set_id(id);
+        widgets_[id] = s.get(); resolve_parent(pid)->add_child(std::move(s));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createCombo", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto c = std::make_unique<ComboBox>(); c->set_id(id);
+        auto* ptr = c.get(); widgets_[id] = ptr;
+        c->on_change = [this, id](int idx) {
+            engine_.evaluate("__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")");
+        };
+        resolve_parent(pid)->add_child(std::move(c));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createProgress", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto p = std::make_unique<ProgressBar>(); p->set_id(id);
+        widgets_[id] = p.get(); resolve_parent(pid)->add_child(std::move(p));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createScrollView", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto s = std::make_unique<ScrollView>(); s->set_id(id);
+        widgets_[id] = s.get(); resolve_parent(pid)->add_child(std::move(s));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createTextEditor", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto ed = std::make_unique<TextEditor>(); ed->set_id(id);
+        auto* ptr = ed.get(); widgets_[id] = ptr;
+        ed->on_return = [this, id](const std::string& text) {
+            std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
+            engine_.evaluate("__dispatch__('" + id + "', 'return', '" + e + "')");
+        };
+        ed->on_change = [this, id](const std::string& text) {
+            std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
+            engine_.evaluate("__dispatch__('" + id + "', 'change', '" + e + "')");
+        };
+        resolve_parent(pid)->add_child(std::move(ed));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("createCanvas", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto c = std::make_unique<CanvasWidget>(); c->set_id(id);
+        widgets_[id] = c.get(); resolve_parent(pid)->add_child(std::move(c));
+        return choc::value::createString(id);
+    });
+
+    // Property setters
+    engine_.register_function("setLabel", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto text = args.get<std::string>(1, "");
+        auto* v = widget(id);
+        if (auto* k = dynamic_cast<Knob*>(v)) k->set_label(text);
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_label(text);
+        else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_label(text);
+        else if (auto* l = dynamic_cast<Label*>(v)) l->set_text(text);
+        return choc::value::Value();
+    });
+
+    // setStyle — placeholder until KnobStyle/ToggleStyle enums added to main widgets
+    engine_.register_function("setStyle", [](choc::javascript::ArgumentList) {
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setItems", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        if (auto* c = dynamic_cast<ComboBox*>(widget(id))) {
+            std::vector<std::string> items;
+            if (args.numArgs > 1 && args[1]) {
+                auto& arr = *args[1];
+                for (uint32_t i = 0; i < arr.size(); ++i)
+                    items.push_back(std::string(arr[i].toString()));
+            }
+            c->set_items(std::move(items));
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setFontSize", [this](choc::javascript::ArgumentList args) {
+        if (auto* l = dynamic_cast<Label*>(widget(args.get<std::string>(0, ""))))
+            l->set_font_size(static_cast<float>(args.get<double>(1, 14)));
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setProgress", [this](choc::javascript::ArgumentList args) {
+        if (auto* p = dynamic_cast<ProgressBar*>(widget(args.get<std::string>(0, ""))))
+            p->set_progress(static_cast<float>(args.get<double>(1, 0)));
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setMeterLevel", [this](choc::javascript::ArgumentList args) {
+        if (auto* m = dynamic_cast<Meter*>(widget(args.get<std::string>(0, ""))))
+            m->set_level(static_cast<float>(args.get<double>(1, 0)),
+                        static_cast<float>(args.get<double>(2, 0)));
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setXY", [this](choc::javascript::ArgumentList args) {
+        if (auto* p = dynamic_cast<XYPad*>(widget(args.get<std::string>(0, "")))) {
+            p->set_x(static_cast<float>(args.get<double>(1, .5)));
+            p->set_y(static_cast<float>(args.get<double>(2, .5)));
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setWaveformData", [this](choc::javascript::ArgumentList args) {
+        if (auto* w = dynamic_cast<WaveformView*>(widget(args.get<std::string>(0, "")))) {
+            if (args.numArgs > 1 && args[1]) {
+                auto& a = *args[1]; std::vector<float> d(a.size());
+                for (uint32_t i = 0; i < a.size(); ++i) d[i] = static_cast<float>(a[i].getWithDefault<double>(0));
+                w->set_data(std::move(d));
+            }
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setSpectrumData", [this](choc::javascript::ArgumentList args) {
+        if (auto* s = dynamic_cast<SpectrumView*>(widget(args.get<std::string>(0, "")))) {
+            if (args.numArgs > 1 && args[1]) {
+                auto& a = *args[1]; std::vector<float> d(a.size());
+                for (uint32_t i = 0; i < a.size(); ++i) d[i] = static_cast<float>(a[i].getWithDefault<double>(0));
+                s->set_spectrum(std::move(d));
+            }
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setPlaceholder", [this](choc::javascript::ArgumentList args) {
+        if (auto* e = dynamic_cast<TextEditor*>(widget(args.get<std::string>(0, ""))))
+            e->placeholder = args.get<std::string>(1, "");
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setText", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto t = args.get<std::string>(1, "");
+        auto* v = widget(id);
+        if (auto* e = dynamic_cast<TextEditor*>(v)) e->set_text(t);
+        else if (auto* l = dynamic_cast<Label*>(v)) l->set_text(t);
+        return choc::value::Value();
+    });
+
+    engine_.register_function("getText", [this](choc::javascript::ArgumentList args) {
+        auto* v = widget(args.get<std::string>(0, ""));
+        if (auto* e = dynamic_cast<TextEditor*>(v)) return choc::value::createString(e->text());
+        if (auto* l = dynamic_cast<Label*>(v)) return choc::value::createString(l->text());
+        return choc::value::createString("");
+    });
+
+    engine_.register_function("setPanelStyle", [this](choc::javascript::ArgumentList args) {
+        if (auto* p = dynamic_cast<Panel*>(widget(args.get<std::string>(0, "")))) {
+            if (args.numArgs > 1) p->set_background_token(args.get<std::string>(1, "bg.surface"));
+            if (args.numArgs > 2) p->set_border_token(args.get<std::string>(2, "control.border"));
+            if (args.numArgs > 3) p->set_corner_radius(static_cast<float>(args.get<double>(3, 8)));
+            if (args.numArgs > 4) p->set_border_width(static_cast<float>(args.get<double>(4, 1)));
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setScrollContentSize", [this](choc::javascript::ArgumentList args) {
+        if (auto* s = dynamic_cast<ScrollView*>(widget(args.get<std::string>(0, ""))))
+            s->set_content_size({static_cast<float>(args.get<double>(1,0)),
+                                static_cast<float>(args.get<double>(2,0))});
+        return choc::value::Value();
+    });
+
+    // ── Visual properties (CSS Box Model) ─────────────────────────────
+
+    auto parseHexColor = [](const std::string& hex) -> canvas::Color {
+        canvas::Color c{255,255,255,255};
+        if (hex.size() >= 7 && hex[0] == '#') {
+            c.r = static_cast<uint8_t>(std::stoul(hex.substr(1,2), nullptr, 16));
+            c.g = static_cast<uint8_t>(std::stoul(hex.substr(3,2), nullptr, 16));
+            c.b = static_cast<uint8_t>(std::stoul(hex.substr(5,2), nullptr, 16));
+            if (hex.size() >= 9)
+                c.a = static_cast<uint8_t>(std::stoul(hex.substr(7,2), nullptr, 16));
+        }
+        return c;
+    };
+
+    engine_.register_function("setBackground", [this, parseHexColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto hex = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v && !hex.empty()) v->set_background_color(parseHexColor(hex));
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setBorder", [this, parseHexColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto hex = args.get<std::string>(1, "");
+        auto width = args.get<double>(2, 1.0);
+        auto radius = args.get<double>(3, 0.0);
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v && !hex.empty()) v->set_border(parseHexColor(hex), (float)width, (float)radius);
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setOpacity", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto alpha = args.get<double>(1, 1.0);
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_opacity((float)alpha);
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setTextColor", [this, parseHexColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto hex = args.get<std::string>(1, "");
+        auto* v = widget(id);
+        if (!v || hex.empty()) return choc::value::Value();
+        // Set a custom text color token override on the view's theme
+        auto theme = v->theme();
+        theme.colors["text.primary"] = parseHexColor(hex);
+        v->set_theme(theme);
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setOverflow", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto mode = args.get<std::string>(1, "hidden");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_overflow(mode == "visible" ? View::Overflow::visible : View::Overflow::hidden);
+        return choc::value::Value();
+    });
+
+    // Canvas drawing
+    engine_.register_function("canvasClear", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, ""))))
+            c->clear_commands();
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasRect", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_rect;
+            cmd.x=(float)args.get<double>(1,0); cmd.y=(float)args.get<double>(2,0);
+            cmd.w=(float)args.get<double>(3,0); cmd.h=(float)args.get<double>(4,0);
+            auto h = args.get<std::string>(5,"#fff");
+            if (h.size()>=7) { cmd.color.r=(uint8_t)std::stoul(h.substr(1,2),0,16);
+                cmd.color.g=(uint8_t)std::stoul(h.substr(3,2),0,16);
+                cmd.color.b=(uint8_t)std::stoul(h.substr(5,2),0,16); cmd.color.a=255; }
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // Theme control
+    engine_.register_function("setTheme", [this](choc::javascript::ArgumentList args) {
+        auto n = args.get<std::string>(0, "dark");
+        root_.set_theme(n=="light" ? Theme::light() : n=="pro_audio" ? Theme::pro_audio() : Theme::dark());
+        return choc::value::Value();
+    });
+
+    engine_.register_function("applyTokenDiff", [this](choc::javascript::ArgumentList args) {
+        auto json = args.get<std::string>(0, "");
+        if (!json.empty()) { auto d = Theme::from_json(json); auto c = root_.theme(); c.apply_overrides(d); root_.set_theme(c); }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("getThemeJson", [this](choc::javascript::ArgumentList) {
+        return choc::value::createString(root_.theme().to_json());
+    });
+
+    // Shell exec (for Claude CLI)
+    engine_.register_function("exec", [](choc::javascript::ArgumentList args) {
+        auto cmd = args.get<std::string>(0, "");
+        if (cmd.empty()) return choc::value::createString("");
+        std::string r; FILE* p = popen(cmd.c_str(), "r"); if (!p) return choc::value::createString("");
+        char buf[4096]; while (fgets(buf, sizeof(buf), p)) r += buf; pclose(p);
+        return choc::value::createString(r);
     });
 }
 
