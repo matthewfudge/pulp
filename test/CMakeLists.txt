@@ -477,3 +477,6 @@ target_include_directories(pulp-test-showcase PRIVATE
     ${CMAKE_SOURCE_DIR}/tools/design
 )
 catch_discover_tests(pulp-test-showcase)
+
+# Web-compat test suite (Phase 6: CSS parsing, layout, events, visual regression)
+add_subdirectory(web-compat)
