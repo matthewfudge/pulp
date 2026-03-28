@@ -51,6 +51,7 @@ private:
     std::vector<std::string> items_;
     int selected_ = 0;
     bool open_ = false;
+    float closed_height_ = 0;  ///< Original height before dropdown expansion
     static const std::string empty_string_;
 };
 

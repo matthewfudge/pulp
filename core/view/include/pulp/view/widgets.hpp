@@ -56,6 +56,8 @@ public:
     void paint(canvas::Canvas& canvas) override;
     void on_mouse_enter() override;
     void on_mouse_leave() override;
+    void on_mouse_down(Point pos) override;
+    void on_mouse_drag(Point pos) override;
 
     // Animation accessors for testing
     float hover_glow() const { return hover_glow_.value(); }
@@ -70,6 +72,8 @@ private:
     std::string label_;
     std::function<std::string(float)> format_;
     ValueAnimation hover_glow_{0.0f};
+    float drag_start_y_ = 0;
+    float drag_start_value_ = 0;
 };
 
 // ── Fader ────────────────────────────────────────────────────────────────────
@@ -96,6 +100,8 @@ public:
     void paint(canvas::Canvas& canvas) override;
     void on_mouse_enter() override;
     void on_mouse_leave() override;
+    void on_mouse_event(const MouseEvent& event) override;
+    void on_mouse_drag(Point pos) override;
 
     // Animation accessors for testing
     float hover_scale() const { return hover_thumb_scale_.value(); }
@@ -106,6 +112,7 @@ private:
     Orientation orientation_ = Orientation::vertical;
     std::string label_;
     ValueAnimation hover_thumb_scale_{1.0f};
+    bool dragging_ = false;
 };
 
 // ── Toggle ───────────────────────────────────────────────────────────────────

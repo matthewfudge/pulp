@@ -16,6 +16,21 @@ void Knob::on_mouse_leave() {
     hover_glow_.animate_to(0.0f, dur, easing::ease_out_quad);
 }
 
+void Knob::on_mouse_down(Point pos) {
+    drag_start_y_ = pos.y;
+    drag_start_value_ = value_;
+}
+
+void Knob::on_mouse_drag(Point pos) {
+    // Drag up to increase, down to decrease. 150px = full range.
+    float delta = (drag_start_y_ - pos.y) / 150.0f;
+    float new_val = std::clamp(drag_start_value_ + delta, 0.0f, 1.0f);
+    if (new_val != value_) {
+        value_ = new_val;
+        if (on_change) on_change(value_);
+    }
+}
+
 void Knob::advance_animations(float dt) {
     hover_glow_.advance(dt);
 }
@@ -30,6 +45,37 @@ void Fader::on_mouse_enter() {
 void Fader::on_mouse_leave() {
     float dur = resolve_dimension("motion.duration.fast", 0.08f);
     hover_thumb_scale_.animate_to(1.0f, dur, easing::ease_out_quad);
+}
+
+void Fader::on_mouse_event(const MouseEvent& event) {
+    if (!event.is_down) { dragging_ = false; return; }
+    dragging_ = true;
+    auto b = local_bounds();
+    float new_val;
+    if (orientation_ == Orientation::horizontal) {
+        new_val = std::clamp(event.position.x / b.width, 0.0f, 1.0f);
+    } else {
+        new_val = std::clamp(1.0f - event.position.y / b.height, 0.0f, 1.0f);
+    }
+    if (new_val != value_) {
+        value_ = new_val;
+        if (on_change) on_change(value_);
+    }
+}
+
+void Fader::on_mouse_drag(Point pos) {
+    if (!dragging_) return;
+    auto b = local_bounds();
+    float new_val;
+    if (orientation_ == Orientation::horizontal) {
+        new_val = std::clamp(pos.x / b.width, 0.0f, 1.0f);
+    } else {
+        new_val = std::clamp(1.0f - pos.y / b.height, 0.0f, 1.0f);
+    }
+    if (new_val != value_) {
+        value_ = new_val;
+        if (on_change) on_change(value_);
+    }
 }
 
 void Fader::advance_animations(float dt) {

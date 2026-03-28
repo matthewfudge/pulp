@@ -28,7 +28,7 @@ void ComboBox::paint(canvas::Canvas& canvas) {
     auto border_c = resolve_color("control.border", canvas::Color::rgba(80, 80, 100));
     auto text_c = resolve_color("text.primary", canvas::Color::rgba(220, 220, 230));
 
-    float base_h = open_ ? std::min(b.height, 28.0f) : b.height;
+    float base_h = closed_height_ > 0 ? closed_height_ : b.height;
 
     // Background
     canvas.set_fill_color(bg);
@@ -41,7 +41,7 @@ void ComboBox::paint(canvas::Canvas& canvas) {
     canvas.set_font("Inter", 12);
     canvas.set_fill_color(text_c);
     canvas.set_text_align(canvas::TextAlign::left);
-    canvas.fill_text(selected_text(), 8, base_h / 2 + 4);
+    canvas.fill_text(selected_text(), 8, base_h * 0.5f + 4);
 
     // Dropdown arrow
     float ax = b.width - 16;
@@ -56,7 +56,7 @@ void ComboBox::paint(canvas::Canvas& canvas) {
     if (open_ && !items_.empty()) {
         float item_h = 24.0f;
         float dropdown_y = base_h + 2;
-        float dropdown_h = std::min(static_cast<float>(items_.size()) * item_h, b.height - dropdown_y);
+        float dropdown_h = static_cast<float>(items_.size()) * item_h;
         auto dropdown_bg = resolve_color("bg.elevated", canvas::Color::rgba(45, 45, 60));
         auto accent = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
 
@@ -67,7 +67,7 @@ void ComboBox::paint(canvas::Canvas& canvas) {
 
         for (int i = 0; i < static_cast<int>(items_.size()); ++i) {
             float iy = dropdown_y + static_cast<float>(i) * item_h;
-            if (iy + item_h > b.height) break; // Don't draw outside bounds
+            // Items render within the expanded bounds
             if (i == selected_) {
                 canvas.set_fill_color(accent);
                 canvas.fill_rect(1, iy, b.width - 2, item_h);
@@ -81,7 +81,7 @@ void ComboBox::paint(canvas::Canvas& canvas) {
 void ComboBox::on_mouse_event(const MouseEvent& event) {
     if (!event.is_down) return;
     auto b = local_bounds();
-    float base_h = open_ ? std::min(b.height, 28.0f) : b.height;
+    float base_h = closed_height_ > 0 ? closed_height_ : 26.0f;
 
     if (open_) {
         float dropdown_top = base_h + 2;
@@ -92,8 +92,18 @@ void ComboBox::on_mouse_event(const MouseEvent& event) {
             }
         }
         open_ = false;
+        // Restore original height
+        flex().preferred_height = closed_height_;
+        set_overflow(Overflow::hidden);
+        if (parent()) parent()->layout_children();
     } else {
+        // Save closed height and expand
+        closed_height_ = b.height > 0 ? b.height : 26.0f;
+        float dropdown_h = static_cast<float>(items_.size()) * 24.0f;
+        flex().preferred_height = closed_height_ + 2 + dropdown_h;
+        set_overflow(Overflow::visible);
         open_ = true;
+        if (parent()) parent()->layout_children();
     }
 }
 
