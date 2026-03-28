@@ -196,8 +196,129 @@ cp -R build/AU/MyGain.component ~/Library/Audio/Plug-Ins/Components/
 
 Restart your DAW to scan the new plugins.
 
+## Step 6: Add a UI with Your First Knob
+
+Pulp UIs are defined in JavaScript and hot-reloaded. Create a `ui/main.js` file next to your plugin source:
+
+```js
+// ui/main.js — Gain plugin UI
+
+const root = createCol("root");
+setFlex("root", "padding", 24);
+setFlex("root", "gap", 16);
+setFlex("root", "align_items", "center");
+setBackground("root", "#1a1a2e");
+
+// Title
+const title = createLabel("title", "MyGain", "root");
+setFontSize("title", 18);
+setFontWeight("title", 700);
+setTextColor("title", "#e0e0e0");
+
+// Gain knob bound to parameter
+const knob = createKnob("gain-knob", "root");
+setFlex("gain-knob", "width", 80);
+setFlex("gain-knob", "height", 80);
+setValue("gain-knob", getParam("Gain"));
+setLabel("gain-knob", "Gain");
+
+on("gain-knob", "change", (v) => {
+    setParam("Gain", v);
+});
+
+// Value readout
+const readout = createLabel("readout", "0.0 dB", "root");
+setFontSize("readout", 14);
+setTextColor("readout", "#888888");
+
+on("gain-knob", "change", (v) => {
+    const db = -60 + v * 84; // map 0..1 to -60..+24 dB
+    setText("readout", db.toFixed(1) + " dB");
+});
+```
+
+Wire the UI into your plugin by adding the JS path to your CMakeLists.txt:
+
+```cmake
+pulp_add_plugin(MyGain
+    FORMATS VST3 AU CLAP Standalone
+    PLUGIN_NAME "MyGain"
+    BUNDLE_ID "com.mycompany.mygain"
+    MANUFACTURER "MyCompany"
+    PLUGIN_CODE "MyGn"
+    MANUFACTURER_CODE "MyCo"
+    UI_SCRIPT "ui/main.js"
+)
+```
+
+Rebuild and launch the standalone:
+
+```bash
+pulp build
+./build/MyGain
+```
+
+You should see a window with a centered knob labeled "Gain" and a dB readout below it.
+
+## Step 7: Hot-Reload
+
+With the standalone running, edit `ui/main.js` — changes appear instantly. No rebuild needed.
+
+Try changing the background color or adding a second knob. The HotReloader watches the `ui/` directory and re-evaluates your script whenever a file changes. Widget state (parameter bindings) is preserved across reloads.
+
+```bash
+# Terminal output when a reload happens:
+# [pulp] hot-reload: ui/main.js changed, reloading...
+# [pulp] hot-reload: 3 widgets restored
+```
+
+This makes UI iteration as fast as web development. Edit, save, see.
+
+## Step 8: Apply a Theme
+
+Pulp has three built-in themes: `dark` (default), `light`, and `pro_audio`. Switch themes from JS:
+
+```js
+setTheme("pro_audio");
+```
+
+Or define a custom theme in JSON and load it:
+
+```json
+{
+    "colors": {
+        "background": "#0d1117",
+        "surface": "#161b22",
+        "accent": "#58a6ff",
+        "on_surface": "#c9d1d9",
+        "primary": "#58a6ff"
+    },
+    "dimensions": {
+        "corner_radius_sm": 4,
+        "corner_radius_md": 8,
+        "spacing_sm": 8,
+        "spacing_md": 12
+    }
+}
+```
+
+Save this as `ui/theme.json` and load it from your script:
+
+```js
+// Themes cascade — child views inherit parent tokens
+setBackground("root", getThemeColor("background"));
+setTextColor("title", getThemeColor("on_surface"));
+```
+
+Design tokens resolve by walking up the view tree: child → parent → root → built-in fallback. This lets you override tokens for specific sections of your UI without affecting the rest.
+
 ## Next Steps
 
-- See `docs/guides/examples.md` for walkthroughs of all example plugins
-- See `docs/reference/cmake.md` for full `pulp_add_plugin()` documentation
-- See `docs/reference/cli.md` for all CLI commands
+- **[From React/CSS Guide](from-react-css.md)** — mapping your web skills to Pulp
+- **[Cookbook](cookbook.md)** — 10 recipes for common UI patterns
+- **[API Reference](../reference/js-bridge.md)** — all 110+ JS bridge functions
+- **[Design Tokens Guide](design-tokens.md)** — deep dive into theming
+- **[Custom Rendering Guide](custom-rendering.md)** — Canvas, SDF, and WebGPU drawing
+- **[Examples Gallery](examples.md)** — walkthroughs of all example plugins
+- **[CMake Reference](../reference/cmake.md)** — full `pulp_add_plugin()` documentation
+- **[CLI Reference](../reference/cli.md)** — all CLI commands
