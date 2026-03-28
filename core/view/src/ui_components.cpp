@@ -28,7 +28,7 @@ void ComboBox::paint(canvas::Canvas& canvas) {
     auto border_c = resolve_color("control.border", canvas::Color::rgba(80, 80, 100));
     auto text_c = resolve_color("text.primary", canvas::Color::rgba(220, 220, 230));
 
-    float base_h = b.height;
+    float base_h = std::min(b.height, 28.0f);
 
     // Background
     canvas.set_fill_color(bg);
@@ -148,9 +148,10 @@ void ComboBox::close_dropdown() {
 void ComboBox::on_mouse_event(const MouseEvent& event) {
     if (!event.is_down) return;
     auto b = local_bounds();
+    float header_h = std::min(b.height, 28.0f); // Closed display height
 
     if (open_) {
-        float dropdown_top = b.height + 2;
+        float dropdown_top = header_h + 2;
         if (event.position.y >= dropdown_top) {
             int index = static_cast<int>((event.position.y - dropdown_top) / 24.0f);
             if (index >= 0 && index < static_cast<int>(items_.size())) {
