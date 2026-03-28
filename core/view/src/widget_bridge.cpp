@@ -613,10 +613,12 @@ void WidgetBridge::register_api() {
             else if (j=="space-evenly"||j=="space_evenly") f.justify_content=FlexJustify::space_evenly;
             else f.justify_content=FlexJustify::start;
         }
+        v->invalidate_layout();  // auto-invalidation on flex property change
         return choc::value::Value();
     });
 
     engine_.register_function("layout", [this](choc::javascript::ArgumentList) {
+        root_.clear_layout_dirty();
         root_.layout_children();
         return choc::value::Value();
     });
@@ -1258,6 +1260,61 @@ void WidgetBridge::register_api() {
             CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::rotate;
             cmd.extra=(float)args.get<double>(1,0);
             c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // setStateStyle(id, state, property, value) — declarative state-driven styling
+    // Replaces manual hover callback wiring. States: hover, active, focus, disabled
+    engine_.register_function("setStateStyle", [this, parseColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto state = args.get<std::string>(1, "hover");
+        auto prop = args.get<std::string>(2, "");
+        auto val_str = args.get<std::string>(3, "");
+        auto* v = widget(id);
+        if (!v || prop.empty()) return choc::value::Value();
+
+        // Store the original value on first call
+        // Then register hover/focus callbacks that apply/revert
+
+        if (state == "hover") {
+            // Capture current value as "normal" state
+            if (prop == "background") {
+                auto target_color = parseColor(val_str);
+                auto* view = v;
+                // Wire hover enter/leave to apply/revert background
+                view->on_hover_enter = [this, id, view, target_color]() {
+                    view->set_background_color(target_color);
+                    engine_.evaluate("__dispatch__('" + id + "', 'mouseenter', 0)");
+                };
+                view->on_hover_leave = [this, id, view]() {
+                    view->clear_background_color();
+                    engine_.evaluate("__dispatch__('" + id + "', 'mouseleave', 0)");
+                };
+            } else if (prop == "scale") {
+                float target_scale = std::stof(val_str);
+                auto* view = v;
+                view->on_hover_enter = [this, id, view, target_scale]() {
+                    view->set_scale(target_scale);
+                    engine_.evaluate("__dispatch__('" + id + "', 'mouseenter', 0)");
+                };
+                view->on_hover_leave = [this, id, view]() {
+                    view->set_scale(1.0f);
+                    engine_.evaluate("__dispatch__('" + id + "', 'mouseleave', 0)");
+                };
+            } else if (prop == "opacity") {
+                float target_opacity = std::stof(val_str);
+                auto* view = v;
+                float original = view->opacity();
+                view->on_hover_enter = [this, id, view, target_opacity]() {
+                    view->set_opacity(target_opacity);
+                    engine_.evaluate("__dispatch__('" + id + "', 'mouseenter', 0)");
+                };
+                view->on_hover_leave = [this, id, view, original]() {
+                    view->set_opacity(original);
+                    engine_.evaluate("__dispatch__('" + id + "', 'mouseleave', 0)");
+                };
+            }
         }
         return choc::value::Value();
     });

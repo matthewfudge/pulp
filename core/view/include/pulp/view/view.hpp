@@ -147,6 +147,11 @@ public:
     /// CSS :disabled equivalent — blocks input, reduces opacity
     bool enabled() const { return enabled_; }
     void set_enabled(bool e) { enabled_ = e; }
+
+    /// Mark layout as needing recalculation (auto-invalidation)
+    void invalidate_layout() { layout_dirty_ = true; }
+    bool layout_dirty() const { return layout_dirty_; }
+    void clear_layout_dirty() { layout_dirty_ = false; }
     bool has_focus() const { return has_focus_; }
     void set_focus(bool f) { has_focus_ = f; }
 
@@ -299,6 +304,7 @@ private:
     bool visible_ = true;
     bool focusable_ = false;
     bool enabled_ = true;
+    bool layout_dirty_ = false;
     bool has_focus_ = false;
     bool hovered_ = false;
     FrameClock* frame_clock_ = nullptr;
