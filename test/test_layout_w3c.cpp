@@ -197,6 +197,157 @@ TEST_CASE("View: overflow default is hidden", "[view][w3c]") {
     REQUIRE(v.overflow() == View::Overflow::hidden);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13.1: margin
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: margin adds space around child", "[layout][w3c][margin]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+    root.flex().direction = FlexDirection::row;
+
+    auto child = make_box(50, 50);
+    child->flex().margin = 10;
+    auto* cp = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    // Child should be offset by margin on all sides
+    REQUIRE(cp->bounds().x == 10);
+    REQUIRE(cp->bounds().y == 10);
+}
+
+TEST_CASE("Layout: per-side margin overrides uniform", "[layout][w3c][margin]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+    root.flex().direction = FlexDirection::row;
+
+    auto child = make_box(50, 50);
+    child->flex().margin = 5;
+    child->flex().margin_left = 20;
+    auto* cp = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    REQUIRE(cp->bounds().x == 20);  // margin_left overrides
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13.1: align-self
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: align-self center overrides parent stretch", "[layout][w3c][align-self]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+    root.flex().direction = FlexDirection::row;
+    root.flex().align_items = FlexAlign::stretch;
+
+    auto child = make_box(50, 30);
+    child->flex().align_self = FlexAlign::center;
+    auto* cp = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    // Should be vertically centered, not stretched
+    REQUIRE(cp->bounds().height == 30);
+    REQUIRE(cp->bounds().y == 35.0f);  // (100-30)/2
+}
+
+TEST_CASE("Layout: align-self auto inherits parent", "[layout][w3c][align-self]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+    root.flex().direction = FlexDirection::row;
+    root.flex().align_items = FlexAlign::stretch;
+
+    auto child = make_box(50, 30);
+    child->flex().align_self = FlexAlign::auto_;
+    auto* cp = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    // auto = inherit stretch from parent
+    REQUIRE(cp->bounds().height == 100);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13.1: flex-basis
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: flex-basis overrides preferred width", "[layout][w3c][flex-basis]") {
+    View root;
+    root.set_bounds({0, 0, 300, 100});
+    root.flex().direction = FlexDirection::row;
+
+    auto child = make_box(50, 50);
+    child->flex().flex_basis = 100;  // Override preferred_width of 50
+    auto* cp = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    REQUIRE(cp->bounds().width == 100);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13.1: order
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: order changes rendering sequence", "[layout][w3c][order]") {
+    View root;
+    root.set_bounds({0, 0, 300, 50});
+    root.flex().direction = FlexDirection::row;
+
+    auto a = make_box(50, 50); a->set_id("a"); a->flex().order = 2;
+    auto b = make_box(50, 50); b->set_id("b"); b->flex().order = 1;
+    auto* ap = a.get();
+    auto* bp = b.get();
+    root.add_child(std::move(a));
+    root.add_child(std::move(b));
+    root.layout_children();
+
+    // b (order=1) should come before a (order=2)
+    REQUIRE(bp->bounds().x < ap->bounds().x);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13.1: directional gap
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: column_gap for row direction", "[layout][w3c][gap]") {
+    View root;
+    root.set_bounds({0, 0, 300, 50});
+    root.flex().direction = FlexDirection::row;
+    root.flex().gap = 5;
+    root.flex().column_gap = 20;  // overrides gap for row direction
+
+    auto a = make_box(50, 50);
+    auto b = make_box(50, 50);
+    auto* bp = b.get();
+    root.add_child(std::move(a));
+    root.add_child(std::move(b));
+    root.layout_children();
+
+    REQUIRE(bp->bounds().x == 70);  // 50 + 20 gap
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 13.1: intrinsic sizing with Label
+// ═══════════════════════════════════════════════════════════════════
+
+TEST_CASE("Layout: Label intrinsic height in column", "[layout][w3c][intrinsic]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+    root.flex().direction = FlexDirection::column;
+
+    auto label = std::make_unique<Label>("Hello");
+    label->set_font_size(14);
+    auto* lp = label.get();
+    root.add_child(std::move(label));
+    root.layout_children();
+
+    // Label should get intrinsic height (14 * 1.4 = 19.6)
+    REQUIRE(lp->bounds().height == 19.6f);
+}
+
 TEST_CASE("View: paint_all with background renders without crash", "[view][w3c]") {
     RecordingCanvas rc;
     View v;
