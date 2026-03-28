@@ -416,6 +416,19 @@ void ScrollView::advance_animations(float dt) {
     bar_width_.advance(dt);
 }
 
+void ScrollView::layout_children() {
+    // Temporarily expand bounds to content_size for child layout,
+    // then restore. This prevents children from squishing when the
+    // ScrollView is smaller than its content.
+    auto saved = bounds();
+    auto content_bounds = saved;
+    if (content_size_.width > 0) content_bounds.width = std::max(saved.width, content_size_.width);
+    if (content_size_.height > 0) content_bounds.height = std::max(saved.height, content_size_.height);
+    set_bounds(content_bounds);
+    View::layout_children();  // call base with expanded bounds
+    set_bounds(saved);  // restore actual bounds for painting/clipping
+}
+
 void ScrollView::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
     float sx = smooth_scroll_x_.value();

@@ -139,11 +139,15 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
         auto local = toLocal(pt, _dragTarget, self.rootView);
 
         // Focus: click on focusable view gives it keyboard focus
+        // Click on non-focusable view blurs the current focus
         if (_dragTarget->focusable()) {
             if (_focusedView && _focusedView != _dragTarget)
                 _focusedView->on_focus_changed(false);
             _focusedView = _dragTarget;
             _focusedView->on_focus_changed(true);
+        } else if (_focusedView) {
+            _focusedView->on_focus_changed(false);
+            _focusedView = nullptr;
         }
 
         // Rich event path (ComboBox, etc.)

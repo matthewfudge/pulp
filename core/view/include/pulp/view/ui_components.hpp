@@ -217,6 +217,10 @@ public:
     void on_mouse_enter() override;
     void on_mouse_leave() override;
 
+    /// Layout children using content_size instead of view bounds.
+    /// This prevents children from squishing when the ScrollView shrinks.
+    void layout_children() override;
+
     // Scroll via mouse wheel, touch drag, or scrollbar drag
     void on_mouse_event(const MouseEvent& event) override;
     void on_mouse_drag(Point pos) override;

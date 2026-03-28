@@ -64,8 +64,8 @@ public:
 
     // ── Layout ───────────────────────────────────────────────────────────
 
-    // Perform flex layout on children
-    void layout_children();
+    // Perform flex layout on children (virtual so ScrollView can override)
+    virtual void layout_children();
 
     /// Intrinsic content size (override in widgets that know their natural size).
     /// Returns 0 if no intrinsic size (use preferred_width/height instead).
