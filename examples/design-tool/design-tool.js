@@ -315,8 +315,57 @@ setTextColor("chrome-title", APP_TEXT_DIM);
 // Preview content area
 createCol("preview-area", "plugin-chrome");
 setFlex("preview-area", "flex_grow", 1);
-setFlex("preview-area", "padding", 16);
-setFlex("preview-area", "gap", 16);
+setFlex("preview-area", "padding", 12);
+setFlex("preview-area", "gap", 10);
+
+// Foundations section: bg swatches + text hierarchy
+createLabel("foundations-header", "Foundations", "preview-area");
+setFontSize("foundations-header", 11);
+setTextColor("foundations-header", APP_TEXT_DIM);
+setFlex("foundations-header", "height", 16);
+
+// Background swatches row
+createRow("bg-swatches", "preview-area");
+setFlex("bg-swatches", "gap", 6);
+setFlex("bg-swatches", "height", 32);
+setFlex("bg-swatches", "align_items", "center");
+
+var bgTokens = ["bg.primary", "bg.secondary", "bg.surface", "bg.elevated"];
+var bgLabels = ["Primary", "Secondary", "Surface", "Elevated"];
+for (var bi = 0; bi < bgTokens.length; bi++) {
+    var bsId = "bg-sw-" + bi;
+    createCol(bsId, "bg-swatches");
+    setFlex(bsId, "flex_grow", 1);
+    setFlex(bsId, "height", 28);
+    setBorder(bsId, APP_BORDER, 1, 4);
+    setFlex(bsId, "padding", 4);
+    setFlex(bsId, "justify_content", "center");
+    // Color from theme
+    var themeColors = JSON.parse(getThemeJson()).colors || {};
+    if (themeColors[bgTokens[bi]]) setBackground(bsId, themeColors[bgTokens[bi]]);
+    createLabel(bsId + "-l", bgLabels[bi], bsId);
+    setFontSize(bsId + "-l", 8);
+    setFlex(bsId + "-l", "height", 10);
+}
+
+// Text hierarchy row
+createRow("text-hierarchy", "preview-area");
+setFlex("text-hierarchy", "gap", 16);
+setFlex("text-hierarchy", "height", 24);
+setFlex("text-hierarchy", "align_items", "center");
+
+createLabel("th-heading", "Heading", "text-hierarchy");
+setFontSize("th-heading", 16);
+setFlex("th-heading", "width", 80);
+
+createLabel("th-body", "Body text", "text-hierarchy");
+setFontSize("th-body", 12);
+setFlex("th-body", "width", 80);
+
+createLabel("th-caption", "Caption", "text-hierarchy");
+setFontSize("th-caption", 9);
+setTextColor("th-caption", APP_TEXT_DIM);
+setFlex("th-caption", "width", 60);
 
 // Controls section: knobs
 createLabel("controls-header", "Controls", "preview-area");
@@ -325,32 +374,32 @@ setTextColor("controls-header", APP_TEXT_DIM);
 setFlex("controls-header", "height", 16);
 
 createRow("knob-row", "preview-area");
-setFlex("knob-row", "gap", 20);
-setFlex("knob-row", "height", 80);
+setFlex("knob-row", "gap", 16);
+setFlex("knob-row", "height", 64);
 setFlex("knob-row", "align_items", "center");
 
 createKnob("k1", "knob-row");
 setLabel("k1", "Gain");
-setFlex("k1", "width", 64);
-setFlex("k1", "height", 80);
+setFlex("k1", "width", 56);
+setFlex("k1", "height", 64);
 setValue("k1", 0.4);
 
 createKnob("k2", "knob-row");
 setLabel("k2", "Freq");
-setFlex("k2", "width", 64);
-setFlex("k2", "height", 80);
+setFlex("k2", "width", 56);
+setFlex("k2", "height", 64);
 setValue("k2", 0.6);
 
 createKnob("k3", "knob-row");
 setLabel("k3", "Res");
-setFlex("k3", "width", 64);
-setFlex("k3", "height", 80);
+setFlex("k3", "width", 56);
+setFlex("k3", "height", 64);
 setValue("k3", 0.8);
 
 createKnob("k4", "knob-row");
 setLabel("k4", "Mix");
-setFlex("k4", "width", 64);
-setFlex("k4", "height", 80);
+setFlex("k4", "width", 56);
+setFlex("k4", "height", 64);
 setValue("k4", 1.0);
 
 // Fader
@@ -450,7 +499,7 @@ setTextColor("data-header", APP_TEXT_DIM);
 setFlex("data-header", "height", 16);
 
 createWaveform("waveform", "preview-area");
-setFlex("waveform", "height", 80);
+setFlex("waveform", "height", 60);
 
 var waveData = [];
 for (var i = 0; i < 512; i++) {
@@ -462,7 +511,7 @@ setWaveformData("waveform", waveData);
 // Meters
 createRow("meter-row", "preview-area");
 setFlex("meter-row", "gap", 4);
-setFlex("meter-row", "height", 60);
+setFlex("meter-row", "height", 48);
 
 createMeter("m1", "vertical", "meter-row");
 setFlex("m1", "width", 12);
@@ -796,8 +845,12 @@ on("preset-selector", "select", function(idx) {
         { theme: "dark", accent: "#FF00FF" }
     ];
     var p = presets[idx];
+    currentAccent = p.accent;
     setTheme(p.theme);
     setText("theme-name-label", ["Default Dark","Light","Pro Audio","Violet","Amber","Ocean","Neon"][idx]);
+    buildShadeRamps();
+    updateTokenSwatches();
+    pushThemeSnapshot();
     layout();
 });
 
