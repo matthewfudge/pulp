@@ -1884,12 +1884,149 @@ on("preset-selector", "select", function(idx) {
 // ═══════════════════════════════════════════════════════════════════
 // Export/Import buttons
 // ═══════════════════════════════════════════════════════════════════
+// D4: Multi-format export
+var exportFormats = ["JSON", "CSS Vars", "OKLCH"];
+var activeExportFormat = 0;
+
+function generateExport(formatIdx) {
+    var json = getThemeJson();
+    var theme = JSON.parse(json);
+    var colors = theme.colors || {};
+    if (formatIdx === 0) return json;
+    if (formatIdx === 1) {
+        var css = ":root {\n";
+        for (var k in colors) css += "  --pulp-" + k.replace(/\./g, "-") + ": " + colors[k] + ";\n";
+        css += "}\n";
+        return css;
+    }
+    if (formatIdx === 2) {
+        var oklch = "/* OKLCH Color Tokens */\n:root {\n";
+        for (var k in colors) {
+            var o = OklchEngine.hexToOklch(colors[k]);
+            oklch += "  --pulp-" + k.replace(/\./g, "-") + ": oklch(" + (o.L*100).toFixed(1) + "% " + o.C.toFixed(3) + " " + o.H.toFixed(1) + ");\n";
+        }
+        oklch += "}\n";
+        return oklch;
+    }
+    return json;
+}
+
+// Export popup overlay
+createCol("export-popup", "");
+setPosition("export-popup", "absolute");
+setFlex("export-popup", "width", 480);
+setFlex("export-popup", "height", 400);
+setFlex("export-popup", "padding", 16);
+setFlex("export-popup", "gap", 10);
+setBackground("export-popup", APP_PANEL);
+setBorder("export-popup", APP_BORDER, 1, 10);
+setBoxShadow("export-popup", 0, 16, 48, 0, "#000000c0");
+setZIndex("export-popup", 150);
+setVisible("export-popup", false);
+
+// Export header
+createRow("exp-header", "export-popup");
+setFlex("exp-header", "height", 24);
+setFlex("exp-header", "align_items", "center");
+createLabel("exp-title", "Export Theme", "exp-header");
+setFontSize("exp-title", 14);
+setFlex("exp-title", "flex_grow", 1);
+
+createCol("exp-close", "exp-header");
+setFlex("exp-close", "width", 22);
+setFlex("exp-close", "height", 22);
+setFlex("exp-close", "justify_content", "center");
+setFlex("exp-close", "align_items", "center");
+createLabel("exp-close-lbl", "x", "exp-close");
+setFontSize("exp-close-lbl", 12);
+registerClick("exp-close");
+on("exp-close", "click", function() { setVisible("export-popup", false); layout(); });
+
+// Format tabs
+createRow("exp-tabs", "export-popup");
+setFlex("exp-tabs", "height", 26);
+setFlex("exp-tabs", "gap", 2);
+for (var ef = 0; ef < exportFormats.length; ef++) {
+    var efId = "exp-tab-" + ef;
+    createCol(efId, "exp-tabs");
+    setFlex(efId, "flex_grow", 1);
+    setFlex(efId, "height", 26);
+    setFlex(efId, "justify_content", "center");
+    setFlex(efId, "align_items", "center");
+    setBorder(efId, ef === 0 ? APP_ACCENT : APP_BORDER, 1, 4);
+    createLabel(efId + "-lbl", exportFormats[ef], efId);
+    setFontSize(efId + "-lbl", 10);
+    setTextColor(efId + "-lbl", ef === 0 ? APP_ACCENT : APP_TEXT_DIM);
+    registerClick(efId);
+    (function(idx) {
+        on("exp-tab-" + idx, "click", function() {
+            activeExportFormat = idx;
+            for (var i = 0; i < exportFormats.length; i++) {
+                setBorder("exp-tab-" + i, i === idx ? APP_ACCENT : APP_BORDER, 1, 4);
+                setTextColor("exp-tab-" + i + "-lbl", i === idx ? APP_ACCENT : APP_TEXT_DIM);
+            }
+            setText("exp-code", generateExport(idx));
+        });
+    })(ef);
+}
+
+// Code preview (scrollable text)
+createScrollView("exp-code-scroll", "export-popup");
+setFlex("exp-code-scroll", "flex_grow", 1);
+setBackground("exp-code-scroll", APP_BG);
+setBorder("exp-code-scroll", APP_BORDER, 1, 4);
+setScrollContentSize("exp-code-scroll", 440, 1200);
+
+createLabel("exp-code", "", "exp-code-scroll");
+setFontSize("exp-code", 10);
+setFlex("exp-code", "padding", 8);
+setFlex("exp-code", "width", 440);
+
+// Action buttons
+createRow("exp-actions", "export-popup");
+setFlex("exp-actions", "height", 28);
+setFlex("exp-actions", "gap", 8);
+setFlex("exp-actions", "justify_content", "flex-end");
+
+createCol("exp-copy-btn", "exp-actions");
+setFlex("exp-copy-btn", "width", 80);
+setFlex("exp-copy-btn", "height", 28);
+setFlex("exp-copy-btn", "justify_content", "center");
+setFlex("exp-copy-btn", "align_items", "center");
+setBorder("exp-copy-btn", APP_BORDER, 1, 4);
+createLabel("exp-copy-lbl", "Copy", "exp-copy-btn");
+setFontSize("exp-copy-lbl", 10);
+registerClick("exp-copy-btn");
+on("exp-copy-btn", "click", function() {
+    var code = generateExport(activeExportFormat);
+    exec("echo " + JSON.stringify(code) + " | pbcopy");
+    setText("status-text", "Copied to clipboard");
+});
+
+createCol("exp-save-btn", "exp-actions");
+setFlex("exp-save-btn", "width", 80);
+setFlex("exp-save-btn", "height", 28);
+setFlex("exp-save-btn", "justify_content", "center");
+setFlex("exp-save-btn", "align_items", "center");
+setBackground("exp-save-btn", APP_ACCENT);
+setBorder("exp-save-btn", APP_ACCENT, 0, 4);
+createLabel("exp-save-lbl", "Save", "exp-save-btn");
+setFontSize("exp-save-lbl", 10);
+registerClick("exp-save-btn");
+on("exp-save-btn", "click", function() {
+    var code = generateExport(activeExportFormat);
+    var ext = [".json", ".css", ".css"][activeExportFormat];
+    var path = "/tmp/pulp-theme" + ext;
+    exec("cat > " + path + " << 'PULPEOF'\n" + code + "\nPULPEOF");
+    setText("status-text", "Saved to " + path);
+});
+
 registerClick("export-btn-pill");
 on("export-btn-pill", "click", function() {
-    var json = getThemeJson();
-    var path = "/tmp/pulp-theme-export.json";
-    exec("cat > " + path + " << 'PULPEOF'\n" + json + "\nPULPEOF");
-    setText("status-text", "Exported to " + path);
+    setText("exp-code", generateExport(activeExportFormat));
+    setTop("export-popup", 60);
+    setLeft("export-popup", 200);
+    setVisible("export-popup", true);
     layout();
 });
 
