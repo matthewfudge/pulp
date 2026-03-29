@@ -1468,6 +1468,144 @@ static int cmd_create(const std::vector<std::string>& args) {
     return 0;
 }
 
+// ── Cache ───────────────────────────────────────────────────────────────────
+
+static int cmd_cache(const std::vector<std::string>& args) {
+    auto home = pulp_home();
+    if (home.empty()) {
+        std::cerr << "Error: could not determine home directory.\n";
+        return 1;
+    }
+
+    auto cache_dir = home / "cache";
+
+    if (args.empty()) {
+        std::cout << "pulp cache — manage the Pulp asset cache (~/.pulp/cache/)\n\n";
+        std::cout << "Subcommands:\n";
+        std::cout << "  status           Show cache contents and sizes\n";
+        std::cout << "  fetch skia       Download Skia GPU rendering binaries\n";
+        std::cout << "  clean            Remove all cached assets\n";
+        return 0;
+    }
+
+    std::string sub = args[0];
+
+    if (sub == "status") {
+        std::cout << "Pulp Cache\n";
+        std::cout << "==========\n\n";
+        std::cout << "Location: " << home.string() << "\n\n";
+
+        // SDK versions
+        auto sdk_base = home / "sdk";
+        if (fs::exists(sdk_base)) {
+            std::cout << "SDKs:\n";
+            for (auto& entry : fs::directory_iterator(sdk_base)) {
+                if (entry.is_directory()) {
+                    std::cout << "  v" << entry.path().filename().string();
+                    if (fs::exists(entry.path() / "version.txt"))
+                        std::cout << " (complete)";
+                    else
+                        std::cout << " (incomplete)";
+                    std::cout << "\n";
+                }
+            }
+        } else {
+            std::cout << "SDKs: none cached\n";
+        }
+
+        // Cache assets
+        if (fs::exists(cache_dir)) {
+            std::cout << "\nAssets:\n";
+            bool any = false;
+            for (auto& entry : fs::directory_iterator(cache_dir)) {
+                any = true;
+                auto size = fs::file_size(entry.path());
+                std::string size_str;
+                if (size > 1024 * 1024)
+                    size_str = std::to_string(size / (1024 * 1024)) + " MB";
+                else if (size > 1024)
+                    size_str = std::to_string(size / 1024) + " KB";
+                else
+                    size_str = std::to_string(size) + " B";
+                std::cout << "  " << entry.path().filename().string()
+                          << " (" << size_str << ")\n";
+            }
+            if (!any) std::cout << "  (empty)\n";
+        } else {
+            std::cout << "\nAssets: none cached\n";
+        }
+
+        return 0;
+    }
+
+    if (sub == "fetch") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: pulp cache fetch <asset>\n";
+            std::cerr << "Available assets: skia\n";
+            return 1;
+        }
+
+        std::string asset = args[1];
+        if (asset != "skia") {
+            std::cerr << "Unknown asset: " << asset << "\n";
+            std::cerr << "Available assets: skia\n";
+            return 1;
+        }
+
+        auto platform = detect_platform();
+        std::string skia_tarball = "skia-" + platform + ".tar.gz";
+        auto skia_cache = cache_dir / skia_tarball;
+
+        if (fs::exists(skia_cache)) {
+            std::cout << "Skia binaries already cached at " << skia_cache.string() << "\n";
+            return 0;
+        }
+
+        fs::create_directories(cache_dir);
+
+        // Download Skia binaries from the Pulp release
+        std::string url = "https://github.com/" + std::string(PULP_GITHUB_REPO)
+                        + "/releases/download/v" + std::string(PULP_SDK_VERSION)
+                        + "/" + skia_tarball;
+
+        std::cout << "Downloading Skia binaries for " << platform << "...\n";
+
+        std::string download_cmd;
+#ifdef _WIN32
+        download_cmd = "powershell -Command \"Invoke-WebRequest -Uri '" + url
+                     + "' -OutFile '" + skia_cache.string() + "'\"";
+#else
+        download_cmd = "curl -fSL -o " + skia_cache.string() + " " + url;
+#endif
+
+        int rc = run_with_spinner(download_cmd, "Downloading Skia");
+        if (rc != 0) {
+            std::cerr << "Error: failed to download Skia binaries.\n";
+            std::cerr << "  URL: " << url << "\n";
+            std::cerr << "  Skia may not be available for this platform/version.\n";
+            fs::remove(skia_cache);
+            return 1;
+        }
+
+        print_ok("Skia binaries cached at " + skia_cache.string());
+        return 0;
+    }
+
+    if (sub == "clean") {
+        if (fs::exists(cache_dir)) {
+            fs::remove_all(cache_dir);
+            std::cout << "Cache cleared.\n";
+        } else {
+            std::cout << "Cache already empty.\n";
+        }
+        return 0;
+    }
+
+    std::cerr << "Unknown cache subcommand: " << sub << "\n";
+    std::cerr << "Run `pulp cache` for usage.\n";
+    return 1;
+}
+
 // ── Upgrade ─────────────────────────────────────────────────────────────────
 
 static int cmd_upgrade(const std::vector<std::string>& args) {
@@ -2422,24 +2560,25 @@ static void print_usage() {
     std::cout << "pulp — Pulp audio plugin framework CLI\n\n";
     std::cout << "Usage: pulp <command> [options]\n\n";
     std::cout << "Commands:\n";
-    std::cout << "  new      Create a new plugin project (scaffold + build + test)\n";
-    std::cout << "  inspect  Launch the component inspector\n";
-    std::cout << "  design   AI-powered style design (natural language -> token diffs)\n";
-    std::cout << "  audit    License and clean-room audit\n";
+    std::cout << "  create   Create a new plugin project (scaffold + build + test)\n";
     std::cout << "  build    Build the project (configure + compile)\n";
     std::cout << "  run      Launch a standalone Pulp application\n";
     std::cout << "  test     Run the test suite\n";
     std::cout << "  status   Show project status and info\n";
     std::cout << "  validate Run plugin format validators (clap-validator, auval)\n";
     std::cout << "  ship     Sign, package, and check plugins\n";
+    std::cout << "  cache    Manage SDK and asset cache (~/.pulp/)\n";
     std::cout << "  docs     Browse local documentation\n";
     std::cout << "  doctor   Diagnose environment issues (--fix, --ci, --dry-run)\n";
     std::cout << "  upgrade  Update the Pulp CLI to the latest version\n";
     std::cout << "  clean    Remove build directory\n";
+    std::cout << "  inspect  Launch the component inspector\n";
+    std::cout << "  design   AI-powered style design (natural language -> token diffs)\n";
+    std::cout << "  audit    License and clean-room audit\n";
     std::cout << "  help     Show this help\n";
     std::cout << "\nExamples:\n";
-    std::cout << "  pulp new MyPlugin          # Create a new effect plugin\n";
-    std::cout << "  pulp new MySynth --type instrument  # Create an instrument\n";
+    std::cout << "  pulp create MyPlugin              # Create a new effect plugin\n";
+    std::cout << "  pulp create MySynth --type instrument  # Create an instrument\n";
     std::cout << "  pulp doctor             # Check environment for issues\n";
     std::cout << "  pulp doctor --fix       # Auto-fix issues where possible\n";
     std::cout << "  pulp build              # Build all targets\n";
@@ -2447,10 +2586,9 @@ static void print_usage() {
     std::cout << "  pulp test               # Run all tests\n";
     std::cout << "  pulp test -R Knob       # Run tests matching 'Knob'\n";
     std::cout << "  pulp validate           # Validate built plugins\n";
-    std::cout << "  pulp ship sign --identity \"Developer ID Application: Foo\"\n";
-    std::cout << "  pulp ship package --version 1.0.0\n";
+    std::cout << "  pulp cache status       # Show cached SDKs and assets\n";
+    std::cout << "  pulp cache fetch skia   # Download Skia GPU binaries\n";
     std::cout << "  pulp docs index         # List available docs\n";
-    std::cout << "  pulp docs open cli      # Read a doc by slug\n";
     std::cout << "  pulp status             # Show project info\n";
 }
 
@@ -2547,7 +2685,8 @@ int main(int argc, char* argv[]) {
         for (auto& arg : args) cmd += " " + arg;
         return run(cmd);
     }
-    if (command == "create" || command == "new") return cmd_create(args);
+    if (command == "cache")    return cmd_cache(args);
+    if (command == "create") return cmd_create(args);
     if (command == "help" || command == "--help" || command == "-h") {
         print_usage();
         return 0;
