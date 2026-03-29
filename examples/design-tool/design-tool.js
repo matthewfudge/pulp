@@ -775,24 +775,86 @@ createCol("tp-custom", "token-popup");
 setFlex("tp-custom", "gap", 4);
 setVisible("tp-custom", false);
 
-var tpHclFaders = [
-    { id: "tp-h-fader", label: "H" },
-    { id: "tp-c-fader", label: "C" },
-    { id: "tp-l-fader", label: "L" }
-];
-for (var hf = 0; hf < tpHclFaders.length; hf++) {
-    var hfRow = "tp-hcl-" + hf;
-    createRow(hfRow, "tp-custom");
-    setFlex(hfRow, "height", 20);
-    setFlex(hfRow, "gap", 6);
-    setFlex(hfRow, "align_items", "center");
-    createLabel(tpHclFaders[hf].id + "-lbl", tpHclFaders[hf].label, hfRow);
-    setFontSize(tpHclFaders[hf].id + "-lbl", 10);
-    setFlex(tpHclFaders[hf].id + "-lbl", "width", 14);
-    createFader(tpHclFaders[hf].id, "horizontal", hfRow);
-    setFlex(tpHclFaders[hf].id, "flex_grow", 1);
-    setFlex(tpHclFaders[hf].id, "height", 16);
+// D2: Gamut triangle canvas — rendered as grid of colored rectangles
+var GAMUT_W = 50;  // columns (lightness steps)
+var GAMUT_H = 30;  // rows (chroma steps)
+var GAMUT_MAX_C = 0.4;
+var gamutHue = 0;
+
+createCanvas("tp-gamut", "tp-custom");
+setFlex("tp-gamut", "width", 250);
+setFlex("tp-gamut", "height", 120);
+
+function renderGamutTriangle(hue) {
+    gamutHue = hue;
+    canvasClear("tp-gamut");
+    var cellW = 250 / GAMUT_W;
+    var cellH = 120 / GAMUT_H;
+    for (var gx = 0; gx < GAMUT_W; gx++) {
+        var L = gx / (GAMUT_W - 1);
+        for (var gy = 0; gy < GAMUT_H; gy++) {
+            var C = (1 - gy / (GAMUT_H - 1)) * GAMUT_MAX_C;
+            if (OklchEngine.isInGamut(L, C, hue)) {
+                var hex = OklchEngine.oklchToHex(L, C, hue);
+                canvasRect("tp-gamut", gx * cellW, gy * cellH, cellW + 0.5, cellH + 0.5, hex);
+            } else {
+                canvasRect("tp-gamut", gx * cellW, gy * cellH, cellW + 0.5, cellH + 0.5, '#1e1e22');
+            }
+        }
+    }
 }
+
+// Gamut click handler — map click position to L,C and apply
+registerClick("tp-gamut");
+on("tp-gamut", "click", function() {
+    // Use the current fader values as approximation since we can't get click position
+    // The real interaction needs drag-to-JS (future C++ bridge addition)
+    // For now, the H fader + L/C faders below provide the interaction
+});
+
+// H (hue) fader
+createRow("tp-hue-row", "tp-custom");
+setFlex("tp-hue-row", "height", 20);
+setFlex("tp-hue-row", "gap", 6);
+setFlex("tp-hue-row", "align_items", "center");
+createLabel("tp-h-fader-lbl", "H", "tp-hue-row");
+setFontSize("tp-h-fader-lbl", 10);
+setFlex("tp-h-fader-lbl", "width", 14);
+createFader("tp-h-fader", "horizontal", "tp-hue-row");
+setFlex("tp-h-fader", "flex_grow", 1);
+setFlex("tp-h-fader", "height", 16);
+
+// C (chroma) fader
+createRow("tp-chroma-row", "tp-custom");
+setFlex("tp-chroma-row", "height", 20);
+setFlex("tp-chroma-row", "gap", 6);
+setFlex("tp-chroma-row", "align_items", "center");
+createLabel("tp-c-fader-lbl", "C", "tp-chroma-row");
+setFontSize("tp-c-fader-lbl", 10);
+setFlex("tp-c-fader-lbl", "width", 14);
+createFader("tp-c-fader", "horizontal", "tp-chroma-row");
+setFlex("tp-c-fader", "flex_grow", 1);
+setFlex("tp-c-fader", "height", 16);
+
+// L (lightness) fader
+createRow("tp-light-row", "tp-custom");
+setFlex("tp-light-row", "height", 20);
+setFlex("tp-light-row", "gap", 6);
+setFlex("tp-light-row", "align_items", "center");
+createLabel("tp-l-fader-lbl", "L", "tp-light-row");
+setFontSize("tp-l-fader-lbl", 10);
+setFlex("tp-l-fader-lbl", "width", 14);
+createFader("tp-l-fader", "horizontal", "tp-light-row");
+setFlex("tp-l-fader", "flex_grow", 1);
+setFlex("tp-l-fader", "height", 16);
+
+// OKLCH value display
+createRow("tp-oklch-vals", "tp-custom");
+setFlex("tp-oklch-vals", "height", 16);
+setFlex("tp-oklch-vals", "gap", 8);
+createLabel("tp-oklch-display", "L: 0.50  C: 0.100  H: 180", "tp-oklch-vals");
+setFontSize("tp-oklch-display", 9);
+setTextColor("tp-oklch-display", APP_TEXT_DIM);
 
 function onTpHclChange() {
     if (!tokenEditState.activeToken) return;
@@ -801,7 +863,10 @@ function onTpHclChange() {
     var l = getValue("tp-l-fader");
     var mapped = OklchEngine.gamutMap(l, c, h);
     var hex = OklchEngine.oklchToHex(mapped.L, mapped.C, mapped.H);
+    setText("tp-oklch-display", "L: " + mapped.L.toFixed(2) + "  C: " + mapped.C.toFixed(3) + "  H: " + mapped.H.toFixed(1));
     applyTokenColor(tokenEditState.activeToken, hex);
+    // Redraw gamut triangle if hue changed
+    if (Math.abs(h - gamutHue) > 1) renderGamutTriangle(h);
 }
 on("tp-h-fader", "change", function() { onTpHclChange(); });
 on("tp-c-fader", "change", function() { onTpHclChange(); });
@@ -811,6 +876,11 @@ on("tp-custom-toggle", "click", function() {
     tpCustomOpen = !tpCustomOpen;
     setVisible("tp-custom", tpCustomOpen);
     setText("tp-custom-lbl", tpCustomOpen ? "Custom color  v" : "Custom color  >");
+    if (tpCustomOpen && tokenEditState.activeToken) {
+        var hex = (JSON.parse(getThemeJson()).colors || {})[tokenEditState.activeToken] || '#808080';
+        var oklch = OklchEngine.hexToOklch(hex);
+        renderGamutTriangle(oklch.H);
+    }
     layout();
 });
 
@@ -829,12 +899,14 @@ function updatePopupState(tokenName) {
     var themeColors = JSON.parse(getThemeJson()).colors || {};
     var hex = themeColors[tokenName] || '#000000';
     setText("tp-hex-input", hex);
-    // Sync HCL faders
+    // D2: Sync HCL faders and gamut triangle
     if (tpCustomOpen) {
         var oklch = OklchEngine.hexToOklch(hex);
         setValue("tp-h-fader", oklch.H / 360);
         setValue("tp-c-fader", Math.min(oklch.C / 0.4, 1));
         setValue("tp-l-fader", oklch.L);
+        setText("tp-oklch-display", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
+        if (Math.abs(oklch.H - gamutHue) > 1) renderGamutTriangle(oklch.H);
     }
     // Undo/redo button opacity
     var h = tokenHistory(tokenName);
@@ -922,11 +994,44 @@ setFlex("center-panel", "padding", 20);
 setFlex("center-panel", "gap", 12);
 setBackground("center-panel", APP_BG);
 
-// Preview content area (scrollable, flush to top)
+// D7: Plugin chrome title bar
+createCol("plugin-chrome", "center-panel");
+setFlex("plugin-chrome", "height", 32);
+setFlex("plugin-chrome", "flex_shrink", 0);
+setBackground("plugin-chrome", APP_SURFACE);
+setBorder("plugin-chrome", APP_BORDER, 1, 10);
+setFlex("plugin-chrome", "padding_left", 12);
+setFlex("plugin-chrome", "padding_right", 12);
+setFlex("plugin-chrome", "direction", "row");
+setFlex("plugin-chrome", "align_items", "center");
+setFlex("plugin-chrome", "gap", 6);
+
+// Traffic light dots
+var trafficColors = ["#FF5F57", "#FFBD2E", "#28C840"];
+for (var tl = 0; tl < 3; tl++) {
+    var tlId = "traffic-" + tl;
+    createCol(tlId, "plugin-chrome");
+    setFlex(tlId, "width", 10);
+    setFlex(tlId, "height", 10);
+    setBackground(tlId, trafficColors[tl]);
+    setBorder(tlId, trafficColors[tl], 0, 5);
+}
+
+createCol("chrome-spacer", "plugin-chrome");
+setFlex("chrome-spacer", "flex_grow", 1);
+
+createLabel("chrome-title", "Plugin Preview", "plugin-chrome");
+setFontSize("chrome-title", 11);
+setTextColor("chrome-title", APP_TEXT_DIM);
+
+createCol("chrome-spacer2", "plugin-chrome");
+setFlex("chrome-spacer2", "flex_grow", 1);
+
+// Preview content area (scrollable)
 createScrollView("preview-scroll", "center-panel");
 setFlex("preview-scroll", "flex_grow", 1);
 setBackground("preview-scroll", APP_PANEL);
-setBorder("preview-scroll", APP_BORDER, 1, 4);
+setBorder("preview-scroll", APP_BORDER, 0, 0);
 setScrollContentSize("preview-scroll", 500, 1900);
 
 createCol("preview-area", "preview-scroll");
