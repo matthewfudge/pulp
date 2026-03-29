@@ -213,37 +213,61 @@ setBackground("left-panel", APP_SURFACE);
 setBorder("left-panel", APP_BORDER, 1, 0);
 setScrollContentSize("left-panel", 310, 1200);
 
-// Color System section
+// Issue 9: Color System section matching HTML reference
 createCol("color-section", "left-panel");
-setFlex("color-section", "height", 340);
 setFlex("color-section", "padding", 10);
 setFlex("color-section", "gap", 6);
 
 createLabel("cs-title", "COLOR SYSTEM", "color-section");
 setFontSize("cs-title", 10);
-setTextColor("cs-title", APP_TEXT_DIM);
+setTextColor("cs-title", APP_ACCENT);
 setFlex("cs-title", "height", 14);
 
-createCombo("harmony-selector", "color-section");
+// Harmony selector row
+createRow("harmony-row", "color-section");
+setFlex("harmony-row", "height", 22);
+setFlex("harmony-row", "gap", 6);
+setFlex("harmony-row", "align_items", "center");
+createLabel("harmony-lbl", "Harmony", "harmony-row");
+setFontSize("harmony-lbl", 9);
+setTextColor("harmony-lbl", APP_TEXT_DIM);
+setFlex("harmony-lbl", "width", 52);
+createCombo("harmony-selector", "harmony-row");
 setItems("harmony-selector", ["Monochromatic", "Analogous", "Complementary", "Split Comp.", "None"]);
-setFlex("harmony-selector", "height", 26);
+setFlex("harmony-selector", "flex_grow", 1);
+setFlex("harmony-selector", "height", 22);
 
-createCombo("mode-selector", "color-section");
+// Mode selector row
+createRow("mode-row", "color-section");
+setFlex("mode-row", "height", 22);
+setFlex("mode-row", "gap", 6);
+setFlex("mode-row", "align_items", "center");
+createLabel("mode-lbl", "Mode", "mode-row");
+setFontSize("mode-lbl", 9);
+setTextColor("mode-lbl", APP_TEXT_DIM);
+setFlex("mode-lbl", "width", 52);
+createCombo("mode-selector", "mode-row");
 setItems("mode-selector", ["Dark", "Light"]);
-setFlex("mode-selector", "height", 26);
+setFlex("mode-selector", "flex_grow", 1);
+setFlex("mode-selector", "height", 22);
 
+// Issue 9: 5 palette rows — each with base color dot + name + 11-shade mini ramp
+// (shade ramps are built dynamically by buildShadeRamps below)
+
+// Hue fader (compact)
 createRow("hue-row", "color-section");
-setFlex("hue-row", "gap", 8);
+setFlex("hue-row", "gap", 6);
 setFlex("hue-row", "align_items", "center");
-setFlex("hue-row", "height", 24);
+setFlex("hue-row", "height", 22);
 
 createLabel("hue-label", "Hue", "hue-row");
-setFontSize("hue-label", 10);
-setFlex("hue-label", "width", 30);
+setFontSize("hue-label", 9);
+setTextColor("hue-label", APP_TEXT_DIM);
+setFlex("hue-label", "width", 26);
 
 createFader("accent-hue", "horizontal", "hue-row");
 setFlex("accent-hue", "flex_grow", 1);
-setFlex("accent-hue", "height", 20);
+setFlex("accent-hue", "height", 18);
 setValue("accent-hue", 0.65);
 
 // Token search field
@@ -407,37 +431,49 @@ updateTokenSwatches();
 var paletteNames = ["Accent", "Neutral", "Success", "Warning", "Error"];
 var paletteKeys  = ["accent", "neutral", "success", "warning", "error"];
 
+// Issue 9: Build shade ramps with base color dot + name + mini ramp (HTML reference style)
 function buildShadeRamps() {
     var palette = PaletteSystem.create(currentAccent, currentHarmony);
     var steps = ShadeGenerator.STEPS;
 
     for (var p = 0; p < paletteNames.length; p++) {
         var rampId = "ramp-" + p;
-        // Remove old ramp if it exists (on rebuild)
         removeWidget(rampId);
 
-        createCol(rampId, "color-section");
-        setFlex(rampId, "height", 36);
-        setFlex(rampId, "gap", 2);
+        // Palette row: dot + name + shade ramp
+        createRow(rampId, "color-section");
+        setFlex(rampId, "height", 24);
+        setFlex(rampId, "gap", 6);
+        setFlex(rampId, "align_items", "center");
 
-        createLabel(rampId + "-title", paletteNames[p], rampId);
-        setFontSize(rampId + "-title", 9);
-        setTextColor(rampId + "-title", APP_TEXT_DIM);
-        setFlex(rampId + "-title", "height", 12);
-
-        createRow(rampId + "-row", rampId);
-        setFlex(rampId + "-row", "gap", 2);
-        setFlex(rampId + "-row", "height", 20);
-
+        // Base color dot (shade 500)
         var ramp = palette[paletteKeys[p]];
+        var dotId = rampId + "-dot";
+        createCol(dotId, rampId);
+        setFlex(dotId, "width", 14);
+        setFlex(dotId, "height", 14);
+        setBackground(dotId, ramp[500].hex);
+        setBorder(dotId, ramp[500].hex, 0, 7);
+
+        // Palette name
+        var nameId = rampId + "-name";
+        createLabel(nameId, paletteNames[p], rampId);
+        setFontSize(nameId, 10);
+        setFlex(nameId, "width", 52);
+
+        // Mini shade ramp (11 tiny swatches)
+        createRow(rampId + "-row", rampId);
+        setFlex(rampId + "-row", "flex_grow", 1);
+        setFlex(rampId + "-row", "gap", 1);
+        setFlex(rampId + "-row", "height", 16);
+
         for (var s = 0; s < steps.length; s++) {
             var shadeId = rampId + "-s" + s;
             createCol(shadeId, rampId + "-row");
             setFlex(shadeId, "flex_grow", 1);
-            setFlex(shadeId, "height", 18);
+            setFlex(shadeId, "height", 14);
             setBackground(shadeId, ramp[steps[s]].hex);
             setBorder(shadeId, APP_BORDER, 0, 2);
-            // Click to show color info
             registerClick(shadeId);
             (function(hex, name, step) {
                 on(shadeId, "click", function() {
@@ -447,7 +483,6 @@ function buildShadeRamps() {
             })(ramp[steps[s]].hex, paletteNames[p], steps[s]);
         }
     }
-    // D1: sync popup palette when ramps rebuild
     if (tokenEditState.activeToken) rebuildPopupPalette();
 }
 buildShadeRamps();
@@ -1018,45 +1053,12 @@ on("mode-selector", "select", function(idx) {
 // ── CENTER PANEL (Preview) ───────────────────────────────────────
 createCol("center-panel", "main-area");
 setFlex("center-panel", "flex_grow", 1);
-setFlex("center-panel", "min_width", 350);
-setFlex("center-panel", "padding", 20);
-setFlex("center-panel", "gap", 12);
+setFlex("center-panel", "min_width", 420);  // Issue 5: prevent scrollbar behind content
+setFlex("center-panel", "padding", 16);
+setFlex("center-panel", "gap", 8);
 setBackground("center-panel", APP_BG);
 
-// D7: Plugin chrome title bar
-createCol("plugin-chrome", "center-panel");
-setFlex("plugin-chrome", "height", 32);
-setFlex("plugin-chrome", "flex_shrink", 0);
-setBackground("plugin-chrome", APP_SURFACE);
-setBorder("plugin-chrome", APP_BORDER, 1, 10);
-setFlex("plugin-chrome", "padding_left", 12);
-setFlex("plugin-chrome", "padding_right", 12);
-setFlex("plugin-chrome", "direction", "row");
-setFlex("plugin-chrome", "align_items", "center");
-setFlex("plugin-chrome", "gap", 6);
-
-// Traffic light dots
-var trafficColors = ["#FF5F57", "#FFBD2E", "#28C840"];
-for (var tl = 0; tl < 3; tl++) {
-    var tlId = "traffic-" + tl;
-    createCol(tlId, "plugin-chrome");
-    setFlex(tlId, "width", 10);
-    setFlex(tlId, "height", 10);
-    setBackground(tlId, trafficColors[tl]);
-    setBorder(tlId, trafficColors[tl], 0, 5);
-}
-
-createCol("chrome-spacer", "plugin-chrome");
-setFlex("chrome-spacer", "flex_grow", 1);
-
-createLabel("chrome-title", "Plugin Preview", "plugin-chrome");
-setFontSize("chrome-title", 11);
-setTextColor("chrome-title", APP_TEXT_DIM);
-
-createCol("chrome-spacer2", "plugin-chrome");
-setFlex("chrome-spacer2", "flex_grow", 1);
-
-// Preview content area (scrollable)
+// Preview content area (scrollable, flush to top — no chrome title bar)
 createScrollView("preview-scroll", "center-panel");
 setFlex("preview-scroll", "flex_grow", 1);
 setBackground("preview-scroll", APP_PANEL);
@@ -1600,6 +1602,7 @@ setWaveformData("waveform2", wave2);
 // ── RIGHT PANEL (Inspector + Chat) ──────────────────────────────
 createCol("right-panel", "main-area");
 setFlex("right-panel", "width", 272);
+setFlex("right-panel", "min_width", 250);  // Issue 8: prevent scrollbar overlap
 setFlex("right-panel", "flex_shrink", 0);
 setBackground("right-panel", APP_SURFACE);
 setBorder("right-panel", APP_BORDER, 1, 0);
@@ -1780,7 +1783,7 @@ setFlex("chat-input-row", "height", 32);
 setFlex("chat-input-row", "flex_shrink", 0);
 setFlex("chat-input-row", "gap", 6);
 
-// Upload button (camera icon placeholder)
+// Upload button with hover state (Issue 3)
 createCol("upload-btn", "chat-input-row");
 setFlex("upload-btn", "width", 28);
 setFlex("upload-btn", "height", 28);
@@ -1791,6 +1794,19 @@ setFlex("upload-btn", "align_items", "center");
 createIcon("upload-icon", "image_upload", "upload-btn");
 setFlex("upload-icon", "width", 20);
 setFlex("upload-icon", "height", 20);
+registerHover("upload-btn");
+on("upload-btn", "mouseenter", function() { setBorder("upload-btn", APP_ACCENT, 1, 6); });
+on("upload-btn", "mouseleave", function() { setBorder("upload-btn", APP_BORDER, 1, 6); });
+// Issue 2: image upload via file dialog
+var uploadedImagePath = "";
+registerClick("upload-btn");
+on("upload-btn", "click", function() {
+    var path = showOpenDialog("Select Reference Image", "Images", "png,jpg,jpeg,gif,webp");
+    if (path && path.length > 0) {
+        uploadedImagePath = path;
+        showToast("Image: " + path.split("/").pop());
+    }
+});
 
 createTextEditor("chat-input", "chat-input-row");
 setPlaceholder("chat-input", "Describe a style...");
@@ -1808,6 +1824,10 @@ setFlex("send-btn", "align_items", "center");
 createIcon("send-icon", "send", "send-btn");
 setFlex("send-icon", "width", 20);
 setFlex("send-icon", "height", 20);
+// Issue 3: hover state for send button
+registerHover("send-btn");
+on("send-btn", "mouseenter", function() { setOpacity("send-btn", 0.8); });
+on("send-btn", "mouseleave", function() { setOpacity("send-btn", 1.0); });
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BAR (28px, full width)
@@ -1875,13 +1895,29 @@ setTextColor("status-schema", APP_TEXT_DIM);
 // ═══════════════════════════════════════════════════════════════════
 // Inspector: Cmd+click detection
 // ═══════════════════════════════════════════════════════════════════
+// Issue 6: Cmd+click inspector with chat context scoping
+var inspectedComponent = null;
+
 enableInspectClick();
 on("__inspect__", "click", function(widgetId) {
-    // Populate inspector with widget info
     setText("insp-type-v", widgetId ? "View" : "—");
     setText("insp-id-v", widgetId || "—");
-    setText("insp-bounds-v", "—");  // bounds not accessible from JS yet
+    setText("insp-bounds-v", "—");
+    inspectedComponent = widgetId || null;
+    // Update chat context label
+    if (inspectedComponent) {
+        setText("context-label", "Editing: " + inspectedComponent);
+        setTextColor("context-label", APP_ACCENT);
+    }
     switchTab("inspector");
+});
+
+// Clear context button — add near context label
+registerClick("context-label");
+on("context-label", "click", function() {
+    inspectedComponent = null;
+    setText("context-label", "Editing: All Components");
+    setTextColor("context-label", APP_TEXT_DIM);
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1919,64 +1955,69 @@ on("__global__", "keydown", function(evt) {
 // Chat logic
 // ═══════════════════════════════════════════════════════════════════
 
+// Issue 8: Track cumulative chat height for proper scroll sizing
+var chatTotalHeight = 60; // start after welcome/hint messages
+
 function addChatMessage(role, text) {
     var id = "msg-" + (msgCount++);
-    // Capture theme snapshot for this message
     var snapshot = getThemeJson();
-
-    // Estimate height: role(12) + gap(4) + text(~14/line) + restore btn(16) + padding(16)
-    var lineCount = Math.ceil(text.length / 30);
     var hasRestore = (role === "assistant");
-    var msgHeight = 12 + 4 + lineCount * 14 + (hasRestore ? 20 : 0) + 16;
+
+    // Issue 8: Better height estimation — wider chars-per-line for 230px width
+    var charsPerLine = 25;
+    var lineCount = Math.max(1, Math.ceil(text.length / charsPerLine));
+    var msgHeight = 16 + lineCount * 16 + (hasRestore ? 24 : 0) + 20;
 
     createCol(id, "chat-messages");
     setFlex(id, "height", msgHeight);
-    setFlex(id, "padding", 8);
+    setFlex(id, "flex_shrink", 0);  // Issue 8: prevent squishing
+    setFlex(id, "padding", 10);
+    setFlex(id, "padding_right", 16);  // Issue 8: clear scrollbar
     setFlex(id, "gap", 4);
-    setBorder(id, APP_BORDER, 1, 6);
+    setBorder(id, APP_BORDER, 1, 8);
     if (role === "user") {
         setBackground(id, "#2a2a3c");
     } else {
         setBackground(id, APP_PANEL);
     }
 
-    // Role label row with optional restore button
+    // Role label row
     createRow(id + "-header", id);
-    setFlex(id + "-header", "height", 12);
+    setFlex(id + "-header", "height", 16);
+    setFlex(id + "-header", "flex_shrink", 0);
     setFlex(id + "-header", "align_items", "center");
     setFlex(id + "-header", "justify_content", "space-between");
 
     createLabel(id + "-role", role === "user" ? "You" : "Designer", id + "-header");
     setFontSize(id + "-role", 9);
     setTextColor(id + "-role", APP_TEXT_DIM);
-    setFlex(id + "-role", "width", 60);
 
     if (hasRestore) {
         var restoreId = id + "-restore";
         createLabel(restoreId, "Restore", id + "-header");
-        setFontSize(restoreId, 8);
+        setFontSize(restoreId, 9);
         setTextColor(restoreId, APP_ACCENT);
-        setFlex(restoreId, "width", 44);
         registerClick(restoreId);
-        // Capture snapshot in closure
         (function(snap, rid) {
             on(rid, "click", function() {
                 applyTokenDiff(snap);
                 updateTokenSwatches();
                 buildShadeRamps();
-                setText("status-text", "Restored snapshot");
+                showToast("Restored snapshot");
                 layout();
             });
         })(snapshot, restoreId);
     }
 
+    // Issue 1: multi-line label for wrapping
     createLabel(id + "-text", text, id);
-    setFontSize(id + "-text", 11);
-    setFlex(id + "-text", "height", lineCount * 14);
+    setFontSize(id + "-text", 12);
+    setFlex(id + "-text", "flex_grow", 1);
+    setMultiLine(id + "-text", 1);
 
-    // Update scroll content size to fit all messages
-    var totalHeight = (msgCount + 1) * (msgHeight + 8) + 60;
-    setScrollContentSize("chat-messages", 252, totalHeight);
+    // Update scroll to fit all messages
+    chatTotalHeight += msgHeight + 8;
+    setScrollContentSize("chat-messages", 230, chatTotalHeight);
     layout();
 }
 
@@ -1992,13 +2033,29 @@ on("chat-input", "return", function(text) {
     var modelIdx = 0;
     try { modelIdx = getValue("model-selector"); } catch(e) {}
     var model = modelIdx > 0.5 ? "claude-opus-4-6" : "claude-sonnet-4-6";
-    var prompt = "You are a design token expert for audio plugin UIs.\n";
-    prompt += "Modify design tokens to achieve the requested style.\n\n";
+    // Issue 7: prompt supports styles AND colors, scoped by inspector context
+    var scope = inspectedComponent ? "\nScope: ONLY modify tokens related to '" + inspectedComponent + "'" : "";
+    var prompt = "You are a design system expert for audio plugin UIs.\n";
+    prompt += "Modify the theme to achieve the requested look. Be creative and bold.\n";
+    prompt += "You can change ANY colors in the theme — backgrounds, text, accents, controls, effects.\n";
+    prompt += "Make dramatic, visible changes that transform the overall feel.\n\n";
     prompt += "## Current Theme\n" + themeJson + "\n\n";
-    prompt += "## RULES\n1. Output ONLY JSON. No markdown.\n";
-    prompt += "2. Include ONLY tokens that CHANGE (5-12 colors typically).\n";
-    prompt += "3. Do NOT change dimensions unless asked.\n\n";
-    prompt += '## Request\n"' + text + '"\n\n## Output\n';
+    prompt += "## Available Token Names\n";
+    for (var gi = 0; gi < tokenGroups.length; gi++) {
+        prompt += tokenGroups[gi].name + ": " + tokenGroups[gi].tokens.join(", ") + "\n";
+    }
+    prompt += "\n## RULES\n";
+    prompt += "1. Output ONLY valid JSON. No markdown, no explanation.\n";
+    prompt += '2. Format: {"colors": {"token.name": "#hexcolor", ...}}\n';
+    prompt += "3. Change 5-30 tokens to create a cohesive, dramatic transformation.\n";
+    prompt += "4. Use the exact token names listed above.\n";
+    prompt += scope + "\n\n";
+    // Issue 2: include reference image if uploaded
+    if (uploadedImagePath && uploadedImagePath.length > 0) {
+        prompt += "## Reference Image\nThe user uploaded a reference image at: " + uploadedImagePath + "\n";
+        prompt += "Use this as visual inspiration for the color scheme.\n\n";
+    }
+    prompt += '## Request\n"' + text + '"\n\n## JSON Output\n';
 
     var tmpFile = "/tmp/pulp-design-prompt.txt";
     exec("cat > " + tmpFile + " << 'PULPEOF'\n" + prompt + "\nPULPEOF");

@@ -86,8 +86,8 @@ int main(int argc, char* argv[]) {
     opts.title = "Pulp Style Designer";
     opts.width = 1100;
     opts.height = 700;
-    opts.min_width = 900;
-    opts.min_height = 550;
+    opts.min_width = 1000;  // Issue 5: prevent scrollbar overlap
+    opts.min_height = 600;
     opts.resizable = true;
 
     auto window = WindowHost::create(root, opts);
