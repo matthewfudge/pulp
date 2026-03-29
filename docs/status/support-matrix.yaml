@@ -177,6 +177,57 @@ css_parity:
   transitions:
     status: partial
     notes: Transition duration stored as theme dimension token. Full CSS transition shorthand parsed in JS prelude.
+  calc_expressions:
+    status: usable
+    notes: >
+      calc(), min(), max(), clamp() expression evaluator with nested function support,
+      arithmetic operators (+, -, *, /), and mixed-unit operands. Proper operator
+      precedence (multiply/divide before add/subtract).
+  unit_resolution:
+    status: usable
+    notes: >
+      resolveLength() converts em (parent font-size), rem (root font-size),
+      % (parent dimension), vw/vh/vmin/vmax (viewport), ch (approximate) to px.
+      resolveCSSLength() provides unified calc-aware API.
+  selectors:
+    status: usable
+    notes: >
+      Enhanced selector engine: tag, .class, #id, descendant (space), child (>),
+      :first-child, :last-child, :nth-child(An+B with odd/even/2n+1), :nth-last-child,
+      :only-child, :empty, :checked, :disabled, :not(selector), :hover, :focus, :active.
+  dom_api:
+    status: usable
+    notes: >
+      closest(selector), matches(selector), contains(node), innerHTML get/set with
+      HTML parser, outerHTML, querySelector/querySelectorAll on elements,
+      append/prepend/before/after/replaceWith (DOM4), classList.replace(),
+      focus()/blur(), cloneNode. createDocumentFragment not yet implemented.
+  media_queries:
+    status: usable
+    notes: >
+      matchMedia() with min-width, max-width, min-height, max-height, orientation
+      (landscape/portrait). window.innerWidth/innerHeight dynamic via getRootSize().
+  aspect_ratio:
+    status: usable
+    notes: CSS aspect-ratio property (16/9 shorthand or single number).
+  visibility:
+    status: usable
+    notes: CSS visibility hidden (preserves layout space, sets opacity to 0).
+  pointer_events_css:
+    status: usable
+    notes: CSS pointer-events none/auto. View.hit_testable_ flag skips in hit_test.
+  outline:
+    status: usable
+    notes: CSS outline property (width, color). Parsed from shorthand "2px solid blue".
+  white_space:
+    status: usable
+    notes: CSS white-space (normal/nowrap/pre). Maps to Label multi_line flag.
+  text_shadow:
+    status: partial
+    notes: CSS text-shadow parsed (offset, blur, color). Bridge stub — rendering planned.
+  font_family:
+    status: partial
+    notes: CSS font-family property parsed. Bridge stub — font selection planned.
 
 widgets:
   image_view:

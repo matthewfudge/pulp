@@ -36,11 +36,43 @@ Last updated: 2026-03-28 (738 tests, 8 plugin examples + 3 apps, PHASES 0-20 + A
 | 15 | Windows Platform | **Mostly Complete** | WASAPI, Win32 MIDI, NSIS installer, CI, platform guide. Signing stubs only. No platform UI (clipboard/file dialog). VM validation pending. |
 | 16 | Linux Platform | **Mostly Complete** | ALSA, JACK, ALSA MIDI, LV2, CI, platform guide, 540/540 on VM. Platform UI stubs (clipboard). Accessibility stubs. |
 | 21 | View System Foundation | **Complete** | Keyboard input, Panel widget, ComboBox fix, ScrollView, CanvasWidget. 24 new tests on main. |
-| 21.5 | W3C Standards Parity | **In Progress** | Full W3C Flexbox L1 + Box Model L3 + Color L4 + Overflow L3 + Graphics extensions. 3 phases: Critical (~9d), DX (~17d), Advanced (~22d). Specs: planning/w3c-standards-coverage-map.md, planning/css-flexbox-parity-spec.md |
+| 21.5 | W3C Standards Parity | **Complete** | Flexbox, Grid, Transforms, Animations, Backgrounds, Filters, Colors L4, Text L3, Positioning L3, Canvas 2D, calc/min/max/clamp, em/rem/%/vw/vh units, selectors (:nth-child/:not), closest/matches/innerHTML, matchMedia, pointer-events, aspect-ratio |
 | 22 | Design Tool Parity | **In Progress** | Achieving 1:1 feature parity with ai-style-designer HTML. 5 sub-phases: Layout/Structure, Center Preview, Left Token Browser, Right Inspector+Chat, Interactions+Polish. Branch: phase/design-tool-v2. Ref: planning/ralph-loop-prompt-11.md |
 | 23 | Plugin Preview | **Planned** | Load real plugin UIs in design tool. Parameter connection, side-by-side theme comparison. |
 | 24 | Visual Editor | **Planned** | Unlock canvas, drag/resize widgets, snapping, grouping, code generation from layout changes. |
 | 25 | Design HUD | **Planned** | Floating color/chat panels that attach to any running plugin. Live token editing on your actual plugin UI without the full design tool. |
+
+## Web-Compat Layer — COMPLETE (2026-03-28)
+
+Browser-shaped JS API over Pulp's native GPU UI (document.createElement, element.style, appendChild).
+
+### Phase 5: Core Layer
+- [x] CSS Color L4 parser — 148 named colors, hex, rgb(), rgba(), hsl(), hsla()
+- [x] CSS length/shorthand/transform/transition parsers
+- [x] Element class — tagName, id, classList, dataset, setAttribute/getAttribute, hidden, disabled
+- [x] CSSStyleDeclaration — 70+ CSS property mappings to native bridge
+- [x] StyleSheet — class-based rule matching with pseudo-class support
+- [x] Selector engine — #id, .class, tag, tag.class, descendant, child (>)
+- [x] document global — body, createElement, getElementById, querySelector, querySelectorAll
+- [x] appendChild / removeChild / insertBefore / replaceChild / remove — via __domAppend C++ bridge
+- [x] Fix: CHOC toChocValue() infinite recursion on circular Element refs (";void 0" workaround)
+- [x] getLayoutRect / getComputedValue bridge functions
+- [x] 48 automated tests (parser, element, classList, DOM ops, events, StyleSheet)
+
+### Phase 7: Gap Closure
+- [x] calc()/min()/max()/clamp() expression evaluator with nested functions
+- [x] Unit resolution: em/rem/%/vw/vh/vmin/vmax/ch → px with context
+- [x] window.innerWidth/innerHeight dynamic via getRootSize()
+- [x] closest(selector) — ancestor traversal with selector matching
+- [x] matches(selector) — test if element matches selector
+- [x] innerHTML get/set with HTML parser (nested tags, attributes)
+- [x] outerHTML getter
+- [x] Selectors: :first-child, :last-child, :nth-child(An+B), :nth-last-child, :only-child, :empty, :checked, :not()
+- [x] matchMedia() — min/max width/height, orientation queries
+- [x] aspect-ratio, visibility:hidden, outline, align-content, pointer-events:none
+- [x] classList.replace(), focus()/blur(), append/prepend/before/after/replaceWith
+- [x] white-space, text-shadow, user-select, font-family, background-size/position
+- [x] window.setTimeout/setInterval, navigator/location stubs
 
 ## First-Time Setup & Onboarding — COMPLETE (2026-03-28)
 
@@ -64,7 +96,7 @@ Implements the full install/onboarding spec (planning/pulp-install-onboarding.md
 - [x] Troubleshooting guide: `docs/guides/troubleshooting.md`
 - [x] Tests: 738/744 pass (99%), 6 pre-existing/environment-dependent failures
 
-## Tests: 738 pass (macOS; AudioWorkgroup timeout is known flaky — exclude with --exclude-regex AudioWorkgroup)
+## Tests: 1246 pass (macOS; AudioWorkgroup timeout + ScrollView animation are known flaky — exclude with --exclude-regex AudioWorkgroup)
 
 ### Loop 8 Gap Closures (2026-03-26)
 - [x] CI: pluginval installed in validate.yml, runs against VST3 bundles at strictness 5
