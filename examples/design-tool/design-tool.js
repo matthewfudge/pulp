@@ -179,8 +179,45 @@ for (var sp = 0; sp < stateNames.length; sp++) {
             }
             activeState = idx;
             setText("status-text", "State: " + stateNames[idx]);
+            // #50: Apply state overrides to preview components
+            applyStateToPreview(idx);
         });
     })(sp);
+}
+
+// #50: Apply state overrides to preview components
+function applyStateToPreview(stateIdx) {
+    // 0=Default, 1=Hover, 2=Focus, 3=Disabled, 4=Error
+    // Reset all to default first
+    setOpacity("btn-normal", 1); setOpacity("btn-hover", 1);
+    setOpacity("btn-action", 1); setOpacity("btn-disabled", 0.5);
+    setBackground("btn-normal", "#3a3a4c");
+    setBackground("btn-hover", "#4a4a5c");
+    setBorder("btn-normal", APP_BORDER, 1, 6);
+    setBorder("btn-hover", APP_BORDER, 1, 6);
+    setBorder("btn-action", APP_ACCENT, 0, 6);
+    setEnabled("btn-disabled", false);
+
+    if (stateIdx === 1) { // Hover
+        setBackground("btn-normal", "#4a4a5c");
+        setBackground("btn-hover", "#5a5a6c");
+        setBorder("btn-normal", APP_ACCENT, 1, 6);
+        setBorder("btn-action", APP_ACCENT, 1, 6);
+    } else if (stateIdx === 2) { // Focus
+        setBorder("btn-normal", APP_ACCENT, 2, 6);
+        setBorder("btn-hover", APP_ACCENT, 2, 6);
+        setBorder("btn-action", APP_ACCENT, 2, 6);
+    } else if (stateIdx === 3) { // Disabled
+        setOpacity("btn-normal", 0.4);
+        setOpacity("btn-hover", 0.4);
+        setOpacity("btn-action", 0.4);
+        setOpacity("btn-disabled", 0.4);
+    } else if (stateIdx === 4) { // Error
+        setBorder("btn-normal", "#e94560", 1, 6);
+        setBorder("btn-hover", "#e94560", 1, 6);
+        setBackground("btn-action", "#e94560");
+    }
+    layout();
 }
 
 // Spacer
@@ -2149,9 +2186,27 @@ setFlex("model-row", "flex_shrink", 0);
 setFlex("model-row", "align_items", "center");
 setFlex("model-row", "justify_content", "space-between");
 
-createLabel("context-label", "Editing: All Components", "model-row");
-setFontSize("context-label", 9);
-setTextColor("context-label", APP_TEXT_DIM);
+// #51: Context badge with accent styling
+createCol("context-badge", "model-row");
+setFlex("context-badge", "height", 20);
+setFlex("context-badge", "padding_left", 8);
+setFlex("context-badge", "padding_right", 8);
+setFlex("context-badge", "justify_content", "center");
+setFlex("context-badge", "align_items", "center");
+setFlex("context-badge", "direction", "row");
+setFlex("context-badge", "gap", 4);
+setBackground("context-badge", '#2a2040');
+setBorder("context-badge", APP_ACCENT, 1, 10);
+createLabel("context-label", "Editing: All Components", "context-badge");
+setFontSize("context-label", 8);
+setTextColor("context-label", APP_ACCENT);
+// Clear button (x) — visible when component selected
+createLabel("context-clear", "x", "context-badge");
+setFontSize("context-clear", 9);
+setTextColor("context-clear", APP_TEXT_DIM);
+setVisible("context-clear", false);
+registerClick("context-clear");
+registerClick("context-badge");
 
 createCombo("model-selector", "model-row");
 setItems("model-selector", ["Sonnet 4.6", "Opus 4.6"]);
@@ -2179,16 +2234,17 @@ setFlex("chat-input-row", "flex_shrink", 0);
 setFlex("chat-input-row", "gap", 6);
 
 // Upload button with hover state (Issue 3)
+// #49: Upload button with proper icon sizing
 createCol("upload-btn", "chat-input-row");
-setFlex("upload-btn", "width", 28);
-setFlex("upload-btn", "height", 28);
+setFlex("upload-btn", "width", 32);
+setFlex("upload-btn", "height", 32);
 setBackground("upload-btn", APP_PANEL);
-setBorder("upload-btn", APP_BORDER, 1, 6);
+setBorder("upload-btn", APP_BORDER, 1, 8);
 setFlex("upload-btn", "justify_content", "center");
 setFlex("upload-btn", "align_items", "center");
 createIcon("upload-icon", "image_upload", "upload-btn");
-setFlex("upload-icon", "width", 20);
-setFlex("upload-icon", "height", 20);
+setFlex("upload-icon", "width", 16);
+setFlex("upload-icon", "height", 16);
 registerHover("upload-btn");
 on("upload-btn", "mouseenter", function() { setBorder("upload-btn", APP_ACCENT, 1, 6); });
 on("upload-btn", "mouseleave", function() { setBorder("upload-btn", APP_BORDER, 1, 6); });
@@ -2208,17 +2264,17 @@ setPlaceholder("chat-input", "Describe a style...");
 setFlex("chat-input", "flex_grow", 1);
 setFlex("chat-input", "height", 28);
 
-// Send button (arrow icon placeholder)
+// #49: Send button with proper icon sizing
 createCol("send-btn", "chat-input-row");
-setFlex("send-btn", "width", 28);
-setFlex("send-btn", "height", 28);
+setFlex("send-btn", "width", 32);
+setFlex("send-btn", "height", 32);
 setBackground("send-btn", APP_ACCENT);
-setBorder("send-btn", APP_ACCENT, 0, 6);
+setBorder("send-btn", APP_ACCENT, 0, 8);
 setFlex("send-btn", "justify_content", "center");
 setFlex("send-btn", "align_items", "center");
 createIcon("send-icon", "send", "send-btn");
-setFlex("send-icon", "width", 20);
-setFlex("send-icon", "height", 20);
+setFlex("send-icon", "width", 16);
+setFlex("send-icon", "height", 16);
 // Issue 3: hover state for send button
 registerHover("send-btn");
 on("send-btn", "mouseenter", function() { setOpacity("send-btn", 0.8); });
@@ -2302,17 +2358,23 @@ on("__inspect__", "click", function(widgetId) {
     // Update chat context label
     if (inspectedComponent) {
         setText("context-label", "Editing: " + inspectedComponent);
-        setTextColor("context-label", APP_ACCENT);
+        setVisible("context-clear", true);
     }
     switchTab("inspector");
 });
 
-// Clear context button — add near context label
-registerClick("context-label");
-on("context-label", "click", function() {
+// Clear context — click x or the badge itself
+on("context-clear", "click", function() {
     inspectedComponent = null;
     setText("context-label", "Editing: All Components");
-    setTextColor("context-label", APP_TEXT_DIM);
+    setVisible("context-clear", false);
+});
+on("context-badge", "click", function() {
+    if (inspectedComponent) {
+        inspectedComponent = null;
+        setText("context-label", "Editing: All Components");
+        setVisible("context-clear", false);
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════════
