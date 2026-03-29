@@ -224,40 +224,56 @@ void Knob::paint(canvas::Canvas& canvas) {
     float cy = b.height * 0.5f;
     float radius = std::min(cx, cy) * 0.8f;
 
-    // Hover glow ring (drawn behind everything)
-    float glow = hover_glow_.value();
-    if (glow > 0.01f) {
-        auto accent = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
-        canvas.set_stroke_color(canvas::Color::rgba(accent.r, accent.g, accent.b,
-                                static_cast<uint8_t>(40 * glow)));
-        canvas.set_line_width(6.0f);
-        canvas.stroke_arc(cx, cy, radius + 2.0f, start_angle, end_angle);
+    // ── Custom shader path: replaces body/track/fill, keeps labels/glow ──
+    if (!custom_sksl_.empty()) {
+        canvas::Canvas::ShaderUniforms u;
+        u.value = value_;
+        u.time = 0; // TODO: wire to FrameClock elapsed
+        u.accent_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+        u.bg_color = resolve_color("bg.primary", canvas::Color::rgba(30, 30, 46));
+        u.track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
+        u.fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        u.thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+        canvas.draw_with_sksl(custom_sksl_, 0, 0, b.width, b.height, u);
+        // Fall through to draw labels and value text on top of the shader
+    } else {
+        // ── Default C++ paint path ──────────────────────────────────────
+
+        // Hover glow ring (drawn behind everything)
+        float glow = hover_glow_.value();
+        if (glow > 0.01f) {
+            auto accent = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+            canvas.set_stroke_color(canvas::Color::rgba(accent.r, accent.g, accent.b,
+                                    static_cast<uint8_t>(40 * glow)));
+            canvas.set_line_width(6.0f);
+            canvas.stroke_arc(cx, cy, radius + 2.0f, start_angle, end_angle);
+        }
+
+        // Track (background arc)
+        auto track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
+        canvas.set_stroke_color({track_color.r, track_color.g, track_color.b, track_color.a});
+        canvas.set_line_width(3.0f);
+        canvas.set_line_cap(canvas::LineCap::round);
+        canvas.stroke_arc(cx, cy, radius, start_angle, end_angle);
+
+        // Value arc
+        float value_angle = start_angle + value_ * (end_angle - start_angle);
+        auto fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        canvas.set_stroke_color({fill_color.r, fill_color.g, fill_color.b, fill_color.a});
+        canvas.stroke_arc(cx, cy, radius, start_angle, value_angle);
+
+        // Thumb indicator line
+        float thumb_x = cx + radius * 0.6f * std::cos(value_angle);
+        float thumb_y = cy + radius * 0.6f * std::sin(value_angle);
+        float inner_x = cx + radius * 0.3f * std::cos(value_angle);
+        float inner_y = cy + radius * 0.3f * std::sin(value_angle);
+        auto thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+        canvas.set_stroke_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
+        canvas.set_line_width(2.0f);
+        canvas.stroke_line(inner_x, inner_y, thumb_x, thumb_y);
     }
 
-    // Track (background arc)
-    auto track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
-    canvas.set_stroke_color({track_color.r, track_color.g, track_color.b, track_color.a});
-    canvas.set_line_width(3.0f);
-    canvas.set_line_cap(canvas::LineCap::round);
-    canvas.stroke_arc(cx, cy, radius, start_angle, end_angle);
-
-    // Value arc
-    float value_angle = start_angle + value_ * (end_angle - start_angle);
-    auto fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
-    canvas.set_stroke_color({fill_color.r, fill_color.g, fill_color.b, fill_color.a});
-    canvas.stroke_arc(cx, cy, radius, start_angle, value_angle);
-
-    // Thumb indicator line
-    float thumb_x = cx + radius * 0.6f * std::cos(value_angle);
-    float thumb_y = cy + radius * 0.6f * std::sin(value_angle);
-    float inner_x = cx + radius * 0.3f * std::cos(value_angle);
-    float inner_y = cy + radius * 0.3f * std::sin(value_angle);
-    auto thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
-    canvas.set_stroke_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
-    canvas.set_line_width(2.0f);
-    canvas.stroke_line(inner_x, inner_y, thumb_x, thumb_y);
-
-    // Label below
+    // Label below (always drawn, even with shader)
     if (!label_.empty()) {
         auto text_color = resolve_color("text.secondary", canvas::Color::rgba(150, 150, 150));
         canvas.set_fill_color({text_color.r, text_color.g, text_color.b, text_color.a});
@@ -266,7 +282,7 @@ void Knob::paint(canvas::Canvas& canvas) {
         canvas.fill_text(label_, cx, b.height - 6);
     }
 
-    // Value text in center
+    // Value text in center (always drawn, even with shader)
     if (format_) {
         auto text_color = resolve_color("text.primary", canvas::Color::rgba(200, 200, 200));
         canvas.set_fill_color({text_color.r, text_color.g, text_color.b, text_color.a});

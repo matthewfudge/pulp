@@ -2033,7 +2033,7 @@ void WidgetBridge::register_api() {
     });
 
     // compileShader(sksl_code) → {success: bool, error: string}
-    // Validates SkSL shader code without applying it
+    // Validates SkSL shader code by actually compiling via SkRuntimeEffect
     engine_.register_function("compileShader", [](choc::javascript::ArgumentList args) {
         auto code = args.get<std::string>(0, "");
         auto result = choc::value::createObject("");
@@ -2042,11 +2042,33 @@ void WidgetBridge::register_api() {
             result.addMember("error", choc::value::createString("Empty shader code"));
             return result;
         }
-        // For now, return success — actual SkRuntimeEffect compilation
-        // would require Skia headers which aren't available in the bridge
-        result.addMember("success", choc::value::createBool(true));
-        result.addMember("error", choc::value::createString(""));
+        auto error = canvas::Canvas::compile_sksl(code);
+        result.addMember("success", choc::value::createBool(error.empty()));
+        result.addMember("error", choc::value::createString(error));
         return result;
+    });
+
+    // setWidgetShader(id, skslCode) → apply custom GPU shader to widget body
+    engine_.register_function("setWidgetShader", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto sksl = args.get<std::string>(1, "");
+        auto* v = widget(id);
+        if (!v) return choc::value::Value();
+        if (auto* k = dynamic_cast<Knob*>(v)) k->set_custom_shader(sksl);
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_custom_shader(sksl);
+        else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_custom_shader(sksl);
+        return choc::value::Value();
+    });
+
+    // clearWidgetShader(id) → remove custom shader, restore default paint
+    engine_.register_function("clearWidgetShader", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto* v = widget(id);
+        if (!v) return choc::value::Value();
+        if (auto* k = dynamic_cast<Knob*>(v)) k->clear_custom_shader();
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->clear_custom_shader();
+        else if (auto* t = dynamic_cast<Toggle*>(v)) t->clear_custom_shader();
+        return choc::value::Value();
     });
 
     // measureText(text, fontSize) → {width, ascent, descent, lineHeight}
