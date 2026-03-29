@@ -131,6 +131,48 @@ setItems("preset-selector", ["Default Dark", "Light", "Pro Audio", "Violet", "Am
 setFlex("preset-selector", "width", 120);
 setFlex("preset-selector", "height", 26);
 
+// D3: State scrubber pills
+var stateNames = ["Default", "Hover", "Focus", "Disabled", "Error"];
+var activeState = 0;
+createRow("state-pills", "toolbar");
+setFlex("state-pills", "height", 26);
+setFlex("state-pills", "gap", 2);
+setFlex("state-pills", "align_items", "center");
+setFlex("state-pills", "padding_left", 8);
+setFlex("state-pills", "padding_right", 8);
+setBorder("state-pills", APP_BORDER, 1, 4);
+
+for (var sp = 0; sp < stateNames.length; sp++) {
+    var spId = "state-pill-" + sp;
+    createCol(spId, "state-pills");
+    setFlex(spId, "height", 22);
+    setFlex(spId, "padding_left", 8);
+    setFlex(spId, "padding_right", 8);
+    setFlex(spId, "justify_content", "center");
+    setFlex(spId, "align_items", "center");
+    if (sp === 0) {
+        setBackground(spId, '#2a2040');
+        setBorder(spId, "transparent", 0, 4);
+    } else {
+        setBorder(spId, "transparent", 0, 4);
+    }
+    createLabel(spId + "-lbl", stateNames[sp], spId);
+    setFontSize(spId + "-lbl", 10);
+    setTextColor(spId + "-lbl", sp === 0 ? APP_ACCENT : APP_TEXT_DIM);
+    registerClick(spId);
+    (function(idx) {
+        on("state-pill-" + idx, "click", function() {
+            // Update pill visuals
+            for (var si = 0; si < stateNames.length; si++) {
+                setBackground("state-pill-" + si, si === idx ? '#2a2040' : 'transparent');
+                setTextColor("state-pill-" + si + "-lbl", si === idx ? APP_ACCENT : APP_TEXT_DIM);
+            }
+            activeState = idx;
+            setText("status-text", "State: " + stateNames[idx]);
+        });
+    })(sp);
+}
+
 // Spacer
 createCol("toolbar-spacer", "toolbar");
 setFlex("toolbar-spacer", "flex_grow", 1);
@@ -1132,45 +1174,46 @@ createRow("card-grid-top", "preview-area");
 setFlex("card-grid-top", "gap", 8);
 setFlex("card-grid-top", "height", 56);
 
-createCol("card-1", "card-grid-top");
-setFlex("card-1", "flex_grow", 1);
-setBackground("card-1", APP_PANEL);
-setBorder("card-1", APP_BORDER, 1, 8);
-setFlex("card-1", "padding", 8);
-createLabel("card-1-label", "Panel A", "card-1");
-setFontSize("card-1-label", 10);
-setFlex("card-1-label", "height", 14);
-
-createCol("card-2", "card-grid-top");
-setFlex("card-2", "flex_grow", 1);
-setBackground("card-2", APP_PANEL);
-setBorder("card-2", APP_BORDER, 1, 8);
-setFlex("card-2", "padding", 8);
-createLabel("card-2-label", "Panel B", "card-2");
-setFontSize("card-2-label", 10);
-setFlex("card-2-label", "height", 14);
-
-createRow("card-grid-bot", "preview-area");
-setFlex("card-grid-bot", "gap", 8);
-setFlex("card-grid-bot", "height", 56);
-
-createCol("card-3", "card-grid-bot");
-setFlex("card-3", "flex_grow", 1);
-setBackground("card-3", APP_ACCENT);
-setBorder("card-3", APP_ACCENT, 0, 8);
-setFlex("card-3", "padding", 8);
-createLabel("card-3-label", "Accent", "card-3");
-setFontSize("card-3-label", 10);
-setFlex("card-3-label", "height", 14);
-
-createCol("card-4", "card-grid-bot");
-setFlex("card-4", "flex_grow", 1);
-setBackground("card-4", "#8b3a3a");
-setBorder("card-4", "#8b3a3a", 0, 8);
-setFlex("card-4", "padding", 8);
-createLabel("card-4-label", "Error", "card-4");
-setFontSize("card-4-label", 10);
-setFlex("card-4-label", "height", 14);
+// D3: Card grid matching HTML reference — Empty, Loading, Ready (OK badge), Error (! badge)
+var cardDefs = [
+    { id: "card-1", label: "Empty", bg: APP_PANEL, border: APP_BORDER, badge: null },
+    { id: "card-2", label: "Loading", bg: APP_PANEL, border: APP_BORDER, badge: null, loading: true },
+    { id: "card-3", label: "Ready", bg: APP_PANEL, border: '#4CAF50', badge: "OK", badgeColor: '#4CAF50' },
+    { id: "card-4", label: "Error", bg: '#3a2020', border: '#e94560', badge: "!", badgeColor: '#e94560' }
+];
+var cardRows = [["card-grid-top", [0, 1]], ["card-grid-bot", [2, 3]]];
+for (var cr = 0; cr < cardRows.length; cr++) {
+    var crId = cardRows[cr][0];
+    createRow(crId, "preview-area");
+    setFlex(crId, "gap", 8);
+    setFlex(crId, "height", 56);
+    var indices = cardRows[cr][1];
+    for (var ci = 0; ci < indices.length; ci++) {
+        var cd = cardDefs[indices[ci]];
+        createCol(cd.id, crId);
+        setFlex(cd.id, "flex_grow", 1);
+        setBackground(cd.id, cd.bg);
+        setBorder(cd.id, cd.border, 1, 8);
+        setFlex(cd.id, "padding", 8);
+        setFlex(cd.id, "justify_content", "center");
+        setFlex(cd.id, "align_items", "center");
+        createLabel(cd.id + "-label", cd.label, cd.id);
+        setFontSize(cd.id + "-label", 10);
+        setTextColor(cd.id + "-label", cd.loading ? APP_TEXT_DIM : APP_TEXT);
+        if (cd.badge) {
+            // Badge in top-right corner
+            createCol(cd.id + "-badge", cd.id);
+            setFlex(cd.id + "-badge", "width", 22);
+            setFlex(cd.id + "-badge", "height", 16);
+            setFlex(cd.id + "-badge", "justify_content", "center");
+            setFlex(cd.id + "-badge", "align_items", "center");
+            setBackground(cd.id + "-badge", cd.badgeColor);
+            setBorder(cd.id + "-badge", cd.badgeColor, 0, 4);
+            createLabel(cd.id + "-badge-lbl", cd.badge, cd.id + "-badge");
+            setFontSize(cd.id + "-badge-lbl", 8);
+        }
+    }
+}
 
 // ── Progress + Spinner ───────────────────────────────────────────
 createRow("progress-row", "preview-area");
