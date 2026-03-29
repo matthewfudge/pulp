@@ -2573,8 +2573,9 @@ static void print_usage() {
     std::cout << "  upgrade  Update the Pulp CLI to the latest version\n";
     std::cout << "  clean    Remove build directory\n";
     std::cout << "  inspect  Launch the component inspector\n";
-    std::cout << "  design   AI-powered style design (natural language -> token diffs)\n";
-    std::cout << "  audit    License and clean-room audit\n";
+    std::cout << "  design          AI-powered style design (natural language -> token diffs)\n";
+    std::cout << "  import-design   Import designs from Figma/Stitch/v0/Pencil\n";
+    std::cout << "  audit           License and clean-room audit\n";
     std::cout << "  help     Show this help\n";
     std::cout << "\nExamples:\n";
     std::cout << "  pulp create MyPlugin              # Create a new effect plugin\n";
@@ -2683,6 +2684,21 @@ int main(int argc, char* argv[]) {
         }
         std::string cmd = screenshot_bin.string() + " --demo";
         for (auto& arg : args) cmd += " " + arg;
+        return run(cmd);
+    }
+    if (command == "import-design") {
+        auto root = find_project_root();
+        if (root.empty()) {
+            std::cerr << "Error: not in a Pulp project directory\n";
+            return 1;
+        }
+        auto import_bin = root / "build" / "tools" / "import-design" / "pulp-import-design";
+        if (!fs::exists(import_bin)) {
+            std::cerr << "Error: pulp-import-design not built. Run `pulp build` first.\n";
+            return 1;
+        }
+        std::string cmd = import_bin.string();
+        for (auto& arg : args) cmd += " \"" + arg + "\"";
         return run(cmd);
     }
     if (command == "cache")    return cmd_cache(args);
