@@ -1,8 +1,113 @@
 #include <pulp/view/widgets.hpp>
 #include <pulp/view/animation.hpp>
+#include <choc/text/choc_JSON.h>
 #include <cmath>
+#include <string>
 
 namespace pulp::view {
+
+// ── Schema renderer — interprets declarative JSON widget definitions ─────────
+
+static void render_schema(canvas::Canvas& canvas, const std::string& json,
+                          float w, float h, float value, View& view) {
+    try {
+        auto schema = choc::json::parse(json);
+        if (!schema.isObject() || !schema.hasObjectMember("elements")) return;
+
+        auto elements = schema["elements"];
+        float cx = w * 0.5f, cy = h * 0.5f;
+        float r = std::min(cx, cy) * 0.9f;
+
+        for (uint32_t i = 0; i < elements.size(); ++i) {
+            auto el = elements[i];
+            auto type = el["type"].getWithDefault(std::string(""));
+
+            // Resolve color: token name → theme color
+            auto resolveColor = [&](const std::string& key, canvas::Color fallback) -> canvas::Color {
+                if (!el.hasObjectMember(key)) return fallback;
+                auto tok = el[key].getWithDefault(std::string(""));
+                return view.resolve_color(tok, fallback);
+            };
+
+            // Resolve dimension: percentage of widget size or absolute px
+            auto resolveDim = [&](const std::string& key, float fallback) -> float {
+                if (!el.hasObjectMember(key)) return fallback;
+                auto s = el[key].getWithDefault(std::string(""));
+                if (s.back() == '%') return std::stof(s) / 100.0f * std::min(w, h) * 0.5f;
+                return std::stof(s);
+            };
+
+            // Resolve angle with optional value binding
+            auto resolveAngle = [&](const std::string& key, float fallback) -> float {
+                if (!el.hasObjectMember(key)) return fallback;
+                auto v = el[key];
+                if (v.isFloat() || v.isInt32() || v.isInt64())
+                    return static_cast<float>(v.getWithDefault(0.0));
+                if (v.isObject() && v.hasObjectMember("bind")) {
+                    auto bind = v["bind"].getWithDefault(std::string(""));
+                    if (bind == "value") {
+                        auto range = v["range"];
+                        float lo = range.size() > 0 ? static_cast<float>(range[0].getWithDefault(0.0)) : 0;
+                        float hi = range.size() > 1 ? static_cast<float>(range[1].getWithDefault(270.0)) : 270;
+                        return lo + value * (hi - lo);
+                    }
+                }
+                return fallback;
+            };
+
+            auto lineW = static_cast<float>(el.hasObjectMember("width")
+                ? el["width"].getWithDefault(3.0) : 3.0);
+
+            if (type == "arc") {
+                auto color = resolveColor("color", {100, 150, 255, 255});
+                auto radius = resolveDim("radius", r);
+                auto start = resolveAngle("startAngle", -135.0f);
+                auto sweep = resolveAngle("sweepAngle", 270.0f);
+                float startRad = start * 3.14159f / 180.0f;
+                float endRad = (start + sweep) * 3.14159f / 180.0f;
+                canvas.set_stroke_color(color);
+                canvas.set_line_width(lineW);
+                canvas.set_line_cap(canvas::LineCap::round);
+                canvas.stroke_arc(cx, cy, radius, startRad, endRad);
+            } else if (type == "circle") {
+                auto color = resolveColor("color", {100, 150, 255, 255});
+                auto radius = resolveDim("radius", r * 0.3f);
+                canvas.set_fill_color(color);
+                canvas.fill_circle(cx, cy, radius);
+            } else if (type == "line") {
+                auto color = resolveColor("color", {220, 220, 220, 255});
+                // Line from inner to outer at value angle
+                float angle = resolveAngle("angle", -135.0f + value * 270.0f);
+                float angleRad = angle * 3.14159f / 180.0f;
+                float innerR = resolveDim("innerRadius", r * 0.3f);
+                float outerR = resolveDim("outerRadius", r);
+                canvas.set_stroke_color(color);
+                canvas.set_line_width(lineW);
+                canvas.stroke_line(cx + innerR * std::cos(angleRad), cy + innerR * std::sin(angleRad),
+                                   cx + outerR * std::cos(angleRad), cy + outerR * std::sin(angleRad));
+            } else if (type == "rect") {
+                auto color = resolveColor("color", {60, 60, 80, 255});
+                auto rr = resolveDim("cornerRadius", 0);
+                canvas.set_fill_color(color);
+                if (rr > 0) canvas.fill_rounded_rect(0, 0, w, h, rr);
+                else canvas.fill_rect(0, 0, w, h);
+            } else if (type == "text") {
+                auto color = resolveColor("color", {200, 200, 200, 255});
+                auto text = el.hasObjectMember("text") ? el["text"].getWithDefault(std::string("")) : "";
+                auto size = static_cast<float>(el.hasObjectMember("fontSize")
+                    ? el["fontSize"].getWithDefault(11.0) : 11.0);
+                canvas.set_fill_color(color);
+                canvas.set_font("Inter", size);
+                canvas.set_text_align(canvas::TextAlign::center);
+                canvas.fill_text(text, cx, cy);
+            }
+        }
+    } catch (...) {
+        // Invalid JSON — draw error indicator
+        canvas.set_fill_color({200, 50, 50, 200});
+        canvas.fill_rect(0, 0, w, h);
+    }
+}
 
 // ── Knob animation ──────────────────────────────────────────────────────────
 
@@ -224,8 +329,13 @@ void Knob::paint(canvas::Canvas& canvas) {
     float cy = b.height * 0.5f;
     float radius = std::min(cx, cy) * 0.8f;
 
+    // ── Declarative schema path: JSON defines appearance as data ──────────
+    if (!widget_schema_.empty()) {
+        render_schema(canvas, widget_schema_, b.width, b.height, value_, *this);
+        // Fall through to draw labels on top
+    }
     // ── Custom shader path: replaces body/track/fill, keeps labels/glow ──
-    if (!custom_sksl_.empty()) {
+    else if (!custom_sksl_.empty()) {
         canvas::Canvas::ShaderUniforms u;
         u.value = value_;
         u.time = 0; // TODO: wire to FrameClock elapsed

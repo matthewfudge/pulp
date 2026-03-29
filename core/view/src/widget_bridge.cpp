@@ -2071,6 +2071,25 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // setWidgetSchema(id, schemaJSON) → apply declarative widget schema
+    engine_.register_function("setWidgetSchema", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto json = args.get<std::string>(1, "");
+        auto* v = widget(id);
+        if (!v) return choc::value::Value();
+        if (auto* k = dynamic_cast<Knob*>(v)) k->set_widget_schema(json);
+        return choc::value::Value();
+    });
+
+    // clearWidgetSchema(id) → remove schema, restore default paint
+    engine_.register_function("clearWidgetSchema", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto* v = widget(id);
+        if (!v) return choc::value::Value();
+        if (auto* k = dynamic_cast<Knob*>(v)) k->set_widget_schema("");
+        return choc::value::Value();
+    });
+
     // measureText(text, fontSize) → {width, ascent, descent, lineHeight}
     engine_.register_function("measureText", [](choc::javascript::ArgumentList args) {
         auto text = args.get<std::string>(0, "");
