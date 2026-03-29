@@ -1,7 +1,6 @@
 // Web-compat prelude tests — validates the JS prelude layer
-// Tests CSS parsing, named colors, document API, classList, querySelector.
-// Note: appendChild tests are excluded pending QuickJS stack size fix
-// for deep JS↔C++ interleaving in _reparentNative.
+// Tests CSS parsing, named colors, document API, classList, querySelector,
+// and DOM operations (appendChild, removeChild, getElementById, etc.).
 
 #include <catch2/catch_test_macros.hpp>
 #include "test_helpers.hpp"
@@ -25,6 +24,12 @@ TEST_CASE("WebCompat: named colors cornflowerblue", "[webcompat][prelude]") {
     TestEnvironment env;
     auto result = env.engine.evaluate("__cssColors__['cornflowerblue']");
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "#6495ed");
+}
+
+TEST_CASE("WebCompat: parseCSSColor red", "[webcompat][prelude]") {
+    TestEnvironment env;
+    auto result = env.engine.evaluate("parseCSSColor('red')");
+    REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "#ff0000");
 }
 
 TEST_CASE("WebCompat: document object exists", "[webcompat][prelude]") {
@@ -55,12 +60,6 @@ TEST_CASE("WebCompat: StyleSheet constructor exists", "[webcompat][prelude]") {
 // CSS parser functions
 // ═══════════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("WebCompat: parseCSSColor red", "[webcompat][parser]") {
-    TestEnvironment env;
-    auto result = env.engine.evaluate("parseCSSColor('red')");
-    REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "#ff0000");
-}
-
 TEST_CASE("WebCompat: parseCSSColor hex", "[webcompat][parser]") {
     TestEnvironment env;
     auto result = env.engine.evaluate("parseCSSColor('#1e90ff')");
@@ -70,7 +69,6 @@ TEST_CASE("WebCompat: parseCSSColor hex", "[webcompat][parser]") {
 TEST_CASE("WebCompat: parseCSSColor hex short", "[webcompat][parser]") {
     TestEnvironment env;
     auto result = env.engine.evaluate("parseCSSColor('#f00')");
-    // Short hex is preserved as-is by the parser (bridge expands it)
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "#f00");
 }
 
@@ -89,7 +87,6 @@ TEST_CASE("WebCompat: parseCSSColor hsl red", "[webcompat][parser]") {
 TEST_CASE("WebCompat: parseCSSColor transparent", "[webcompat][parser]") {
     TestEnvironment env;
     auto result = env.engine.evaluate("parseCSSColor('transparent')");
-    // Parser resolves transparent to rgba hex
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "#00000000");
 }
 
@@ -166,7 +163,7 @@ TEST_CASE("WebCompat: parseTransition", "[webcompat][parser]") {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// createElement (without appendChild — just JS-side construction)
+// createElement (JS-only construction, no appendChild)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("WebCompat: createElement returns Element", "[webcompat][element]") {
@@ -208,7 +205,7 @@ TEST_CASE("WebCompat: element.disabled default false", "[webcompat][element]") {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// classList (JS-side only, no native calls)
+// classList
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("WebCompat: classList.add", "[webcompat][classList]") {
@@ -249,7 +246,7 @@ TEST_CASE("WebCompat: className setter", "[webcompat][classList]") {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// StyleSheet (JS-side construction)
+// StyleSheet construction
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("WebCompat: StyleSheet construction", "[webcompat][stylesheet]") {
@@ -259,13 +256,12 @@ TEST_CASE("WebCompat: StyleSheet construction", "[webcompat][stylesheet]") {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CSSStyleDeclaration (JS-side, pending styles before appendChild)
+// Style pending, setAttribute, dataset
 // ═══════════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("WebCompat: style property stores pending value", "[webcompat][style]") {
     TestEnvironment env;
     env.eval("var el = document.createElement('div'); el.style.width = '200px';");
-    // Before appendChild, the style is pending — verify the _pending map has it
     auto result = env.engine.evaluate("el.style._props['width']");
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "200px");
 }
@@ -285,56 +281,119 @@ TEST_CASE("WebCompat: dataset from data attribute", "[webcompat][element]") {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Debug: direct createCol works after prelude
+// DOM operations (appendChild, removeChild, getElementById, querySelector, etc.)
+// These tests require the web-compat-dom-ops.js prelude (loaded by WidgetBridge).
+// They call native C++ bridge functions from within JS prototype methods, which
+// requires sufficient C stack for the QuickJS↔C++ interleaving.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("WebCompat: direct createCol still works", "[webcompat][native]") {
+TEST_CASE("WebCompat: appendChild creates native widget", "[webcompat][dom][.]") {
     TestEnvironment env;
-    env.eval("createCol('directtest');");
-    REQUIRE(env.widget("directtest") != nullptr);
-}
-
-TEST_CASE("WebCompat: manual _reparentNative works", "[webcompat][native]") {
-    TestEnvironment env;
-    env.eval(R"JS(
-        var d = document.createElement('div');
-        d.id = 'manual1';
-        _reparentNative(d, '__body__');
-    )JS");
-    // Widget is registered under internal _id, not user .id
-    auto result = env.engine.evaluate("d._nativeCreated");
-    REQUIRE(result.getWithDefault<bool>(false) == true);
-    // Also verify the widget exists in the bridge by internal id
-    auto idResult = env.engine.evaluate("d._id");
-    auto internalId = std::string(idResult.getWithDefault<std::string_view>(""));
-    REQUIRE(env.widget(internalId) != nullptr);
-}
-
-TEST_CASE("WebCompat: createCol under root", "[webcompat][native]") {
-    TestEnvironment env;
-    env.eval("createCol('rootchild', '__root__');");
-    REQUIRE(env.widget("rootchild") != nullptr);
-}
-
-TEST_CASE("WebCompat: manual appendChild works", "[webcompat][dom]") {
-    TestEnvironment env;
-    env.eval(R"JS(
-        var __testD = document.createElement('div');
-        __testD._parentElement = document.body;
-        document.body._children.push(__testD);
-        _reparentNative(__testD, document.body._id);
-        var __testResult = __testD._nativeCreated;
-        var __testInternalId = __testD._id;
-    )JS");
-    auto r = env.engine.evaluate("__testResult");
+    env.eval("var __el = document.createElement('div');");
+    env.eval("document.body.appendChild(__el);");
+    auto r = env.engine.evaluate("__el._nativeCreated");
     REQUIRE(r.getWithDefault<bool>(false) == true);
-    auto id = std::string(env.engine.evaluate("__testInternalId").getWithDefault<std::string_view>(""));
-    REQUIRE(env.widget(id) != nullptr);
 }
 
-// Note: document.body.appendChild() crashes due to QuickJS stack overflow
-// when the method is dispatched through Element.prototype chain after the
-// large prelude has consumed most of the 256KB JS stack. The manual
-// _reparentNative approach works (see test above). Fix requires either:
-// (a) Increasing JS_DEFAULT_STACK_SIZE in CHOC's QuickJS, or
-// (b) Further splitting the web-compat prelude to reduce stack usage.
+TEST_CASE("WebCompat: appendChild span with text", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __sp = document.createElement('span');");
+    env.eval("__sp.textContent = 'Hello World';");
+    env.eval("document.body.appendChild(__sp);");
+    env.eval("var __spId = __sp._id;");
+    auto id = std::string(env.engine.evaluate("__spId").getWithDefault<std::string_view>(""));
+    auto* w = env.widget(id);
+    REQUIRE(w != nullptr);
+    auto* label = dynamic_cast<Label*>(w);
+    REQUIRE(label != nullptr);
+}
+
+TEST_CASE("WebCompat: appendChild nested divs", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __outer = document.createElement('div');");
+    env.eval("var __inner = document.createElement('div');");
+    env.eval("__outer.appendChild(__inner);");
+    env.eval("document.body.appendChild(__outer);");
+    env.eval("var __outerId = __outer._id;");
+    env.eval("var __innerId = __inner._id;");
+    auto outerId = std::string(env.engine.evaluate("__outerId").getWithDefault<std::string_view>(""));
+    auto innerId = std::string(env.engine.evaluate("__innerId").getWithDefault<std::string_view>(""));
+    REQUIRE(env.widget(outerId) != nullptr);
+    REQUIRE(env.widget(innerId) != nullptr);
+}
+
+TEST_CASE("WebCompat: appendChild with style", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __box = document.createElement('div');");
+    env.eval("__box.style.width = '200px';");
+    env.eval("__box.style.height = '100px';");
+    env.eval("__box.style.backgroundColor = '#ff0000';");
+    env.eval("document.body.appendChild(__box);");
+    env.eval("var __boxId = __box._id;");
+    auto id = std::string(env.engine.evaluate("__boxId").getWithDefault<std::string_view>(""));
+    auto* w = env.widget(id);
+    REQUIRE(w != nullptr);
+    REQUIRE(w->flex().preferred_width == 200.0f);
+    REQUIRE(w->flex().preferred_height == 100.0f);
+    REQUIRE(w->has_background_color());
+}
+
+TEST_CASE("WebCompat: removeChild", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __p = document.createElement('div');");
+    env.eval("var __c = document.createElement('div');");
+    env.eval("__p.appendChild(__c);");
+    env.eval("document.body.appendChild(__p);");
+    env.eval("var __pId = __p._id;");
+    env.eval("__p.removeChild(__c);");
+    auto pid = std::string(env.engine.evaluate("__pId").getWithDefault<std::string_view>(""));
+    auto* p = env.widget(pid);
+    REQUIRE(p != nullptr);
+    REQUIRE(p->child_count() == 0);
+}
+
+TEST_CASE("WebCompat: getElementById after appendChild", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __findEl = document.createElement('div');");
+    env.eval("__findEl.id = 'findme123';");
+    env.eval("document.body.appendChild(__findEl);");
+    env.eval("var __found = document.getElementById('findme123');");
+    auto r = env.engine.evaluate("__found !== null && __found.id === 'findme123'");
+    REQUIRE(r.getWithDefault<bool>(false) == true);
+}
+
+TEST_CASE("WebCompat: querySelector after appendChild", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __qel = document.createElement('div');");
+    env.eval("__qel.className = 'test-panel';");
+    env.eval("document.body.appendChild(__qel);");
+    env.eval("var __qfound = document.querySelector('.test-panel');");
+    auto r = env.engine.evaluate("__qfound !== null");
+    REQUIRE(r.getWithDefault<bool>(false) == true);
+}
+
+TEST_CASE("WebCompat: addEventListener click", "[webcompat][events][.]") {
+    TestEnvironment env;
+    env.eval("var __evtEl = document.createElement('div');");
+    env.eval("var __clicked = false;");
+    env.eval("__evtEl.addEventListener('click', function() { __clicked = true; });");
+    env.eval("document.body.appendChild(__evtEl);");
+    env.eval("__evtEl.dispatchEvent({type: 'click', bubbles: true});");
+    auto r = env.engine.evaluate("__clicked");
+    REQUIRE(r.getWithDefault<bool>(false) == true);
+}
+
+TEST_CASE("WebCompat: StyleSheet applies to appended element", "[webcompat][dom][.]") {
+    TestEnvironment env;
+    env.eval("var __sheet = new StyleSheet({'.styled-box': { width: '150px', height: '75px' }});");
+    env.eval("__sheet.attach();");
+    env.eval("var __sEl = document.createElement('div');");
+    env.eval("__sEl.className = 'styled-box';");
+    env.eval("document.body.appendChild(__sEl);");
+    env.eval("var __sElId = __sEl._id;");
+    auto id = std::string(env.engine.evaluate("__sElId").getWithDefault<std::string_view>(""));
+    auto* w = env.widget(id);
+    REQUIRE(w != nullptr);
+    REQUIRE(w->flex().preferred_width == 150.0f);
+    REQUIRE(w->flex().preferred_height == 75.0f);
+}

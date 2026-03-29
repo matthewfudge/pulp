@@ -7,9 +7,33 @@
 
 namespace pulp::view {
 
+// ── QuickJS stack size increase ─────────────────────────────────────────────
+// The web-compat prelude + deep JS↔C++ interleaving during DOM operations
+// (appendChild → _reparentNative → native bridge → back to JS) exhausts
+// QuickJS's default 256KB JS stack. We increase it to 1MB.
+//
+// CHOC's Context::pimpl is private, but we need the JSRuntime* to call
+// JS_SetMaxStackSize. Since script_engine.cpp includes the full QuickJS
+// implementation, we have access to quickjs::QuickJSContext (which has a
+// public JSRuntime* runtime member). We access it through the Context's
+// known single-member layout: { unique_ptr<Pimpl> pimpl }.
+
+static void set_quickjs_stack_size(choc::javascript::Context& ctx, size_t size) {
+    // Context has exactly one member: unique_ptr<Pimpl> pimpl
+    // Mirror that layout to access the pointer
+    struct ContextLayout {
+        std::unique_ptr<choc::javascript::Context::Pimpl> pimpl;
+    };
+    auto& layout = reinterpret_cast<ContextLayout&>(ctx);
+    auto* qjctx = static_cast<choc::javascript::quickjs::QuickJSContext*>(layout.pimpl.get());
+    if (qjctx && qjctx->runtime)
+        JS_SetMaxStackSize(qjctx->runtime, size);
+}
+
 ScriptEngine::ScriptEngine()
     : context_(choc::javascript::createQuickJSContext())
 {
+    set_quickjs_stack_size(context_, 1024 * 1024);  // 1MB (up from 256KB)
     setup_console();
 }
 

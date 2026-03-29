@@ -326,67 +326,8 @@ Object.defineProperty(Element.prototype, "previousSibling", {
     }
 });
 
-Element.prototype.appendChild = function(child) {
-    if (!(child instanceof Element)) return child;
-    // Remove from old parent
-    if (child._parentElement) child._parentElement.removeChild(child);
-    child._parentElement = this;
-    this._children.push(child);
-    // Ensure both native widgets exist
-    this._ensureNative();
-    child._ensureNative();
-    // Reparent native: remove from old location, add to new
-    removeWidget(child._id);
-    // Re-create under this parent by calling the appropriate create fn
-    _reparentNative(child, this._id);
-    // Apply pending text
-    if (child._textContent) setText(child._id, child._textContent);
-    // Re-apply styles
-    child.style._flushAll();
-    child._reapplyStylesheets();
-    layout();
-    return child;
-};
-
-Element.prototype.removeChild = function(child) {
-    var idx = this._children.indexOf(child);
-    if (idx < 0) return child;
-    this._children.splice(idx, 1);
-    child._parentElement = null;
-    if (child._nativeCreated) removeWidget(child._id);
-    child._nativeCreated = false;
-    return child;
-};
-
-Element.prototype.insertBefore = function(newChild, refChild) {
-    if (!refChild) return this.appendChild(newChild);
-    if (newChild._parentElement) newChild._parentElement.removeChild(newChild);
-    var idx = this._children.indexOf(refChild);
-    if (idx < 0) return this.appendChild(newChild);
-    newChild._parentElement = this;
-    this._children.splice(idx, 0, newChild);
-    this._ensureNative();
-    newChild._ensureNative();
-    removeWidget(newChild._id);
-    _reparentNative(newChild, this._id);
-    if (newChild._textContent) setText(newChild._id, newChild._textContent);
-    newChild.style._flushAll();
-    newChild._reapplyStylesheets();
-    layout();
-    return newChild;
-};
-
-Element.prototype.replaceChild = function(newChild, oldChild) {
-    var idx = this._children.indexOf(oldChild);
-    if (idx < 0) return oldChild;
-    this.insertBefore(newChild, oldChild);
-    this.removeChild(oldChild);
-    return oldChild;
-};
-
-Element.prototype.remove = function() {
-    if (this._parentElement) this._parentElement.removeChild(this);
-};
+// appendChild, removeChild, insertBefore, replaceChild, remove are defined in
+// web-compat-dom-ops.js (loaded separately to avoid QuickJS bytecode stack issues)
 
 Element.prototype.cloneNode = function(deep) {
     var clone = new Element(this.tagName.toLowerCase());

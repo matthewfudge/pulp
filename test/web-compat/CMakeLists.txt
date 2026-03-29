@@ -59,6 +59,12 @@ target_include_directories(pulp-test-web-compat-prelude PRIVATE ${WEBCOMPAT_INCL
 target_compile_definitions(pulp-test-web-compat-prelude PRIVATE
     PULP_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}/test"
 )
+# Increase stack size to 16MB for deep QuickJS↔C++ interleaving in DOM tests
+if(APPLE)
+    target_link_options(pulp-test-web-compat-prelude PRIVATE -Wl,-stack_size,0x1000000)
+elseif(UNIX)
+    target_link_options(pulp-test-web-compat-prelude PRIVATE -Wl,-z,stacksize=16777216)
+endif()
 catch_discover_tests(pulp-test-web-compat-prelude)
 
 # Visual reftest runner (screenshot comparison against baselines)

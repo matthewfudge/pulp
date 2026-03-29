@@ -8,6 +8,7 @@ set(PULP_JS_PRELUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
+    ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
 )
 set(PULP_JS_EMBEDDED_HEADER ${CMAKE_CURRENT_BINARY_DIR}/web_compat_preludes_gen.hpp)
 
@@ -19,6 +20,7 @@ add_custom_command(
         -DFILE3=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
         -DFILE4=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
         -DFILE5=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
+        -DFILE6=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
         -DOUTPUT_FILE=${PULP_JS_EMBEDDED_HEADER}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.cmake
     DEPENDS ${PULP_JS_PRELUDES} ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.cmake

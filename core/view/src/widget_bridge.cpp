@@ -33,6 +33,7 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     engine_.evaluate(preludes::web_compat_element);
     engine_.evaluate(preludes::web_compat_style_decl);
     engine_.evaluate(preludes::web_compat_document);
+    engine_.evaluate(preludes::web_compat_dom_ops);
 }
 
 void WidgetBridge::load_script(const std::string& code) {
