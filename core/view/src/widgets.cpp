@@ -513,6 +513,37 @@ void Icon::paint(canvas::Canvas& canvas) {
     }
 }
 
+// ── ImageView ────────────────────────────────────────────────────────────────
+
+void ImageView::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+
+    if (path_.empty()) {
+        // Placeholder: gray rect with "IMG" text
+        canvas.set_fill_color(resolve_color("bg.surface", canvas::Color::rgba(50, 50, 60)));
+        canvas.fill_rounded_rect(0, 0, b.width, b.height, 4);
+        canvas.set_fill_color(resolve_color("text.secondary", canvas::Color::rgba(120, 120, 140)));
+        canvas.set_font("Inter", 10);
+        canvas.set_text_align(canvas::TextAlign::center);
+        canvas.fill_text("IMG", b.width * 0.5f, b.height * 0.5f + 3);
+        return;
+    }
+
+    // TODO: Load image via Skia SkData::MakeFromFileName + SkImages::DeferredFromEncodedData
+    // For now render path as text placeholder
+    canvas.set_fill_color(resolve_color("bg.surface", canvas::Color::rgba(50, 50, 60)));
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 4);
+    canvas.set_fill_color(resolve_color("text.secondary", canvas::Color::rgba(120, 120, 140)));
+    canvas.set_font("Inter", 9);
+    canvas.set_text_align(canvas::TextAlign::center);
+
+    // Show filename
+    auto name = path_;
+    auto slash = name.rfind('/');
+    if (slash != std::string::npos) name = name.substr(slash + 1);
+    canvas.fill_text(name, b.width * 0.5f, b.height * 0.5f + 3);
+}
+
 // ── Meter ────────────────────────────────────────────────────────────────────
 
 void Meter::set_level(float rms, float peak) {

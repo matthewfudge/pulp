@@ -263,6 +263,23 @@ private:
     Type type_ = Type::image_upload;
 };
 
+// ── ImageView ───────────────────────────────────────────────────────────────
+// Displays an image loaded from a file path
+
+class ImageView : public View {
+public:
+    ImageView() {}
+
+    void set_image_path(const std::string& path) { path_ = path; loaded_ = false; }
+    const std::string& image_path() const { return path_; }
+
+    void paint(canvas::Canvas& canvas) override;
+
+private:
+    std::string path_;
+    bool loaded_ = false;
+};
+
 // ── Meter ────────────────────────────────────────────────────────────────────
 // Audio level meter with peak hold
 

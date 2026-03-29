@@ -688,6 +688,14 @@ void ListBox::paint(canvas::Canvas& canvas) {
 }
 
 void ListBox::on_mouse_event(const MouseEvent& event) {
+    // Scroll wheel support
+    if (event.is_wheel) {
+        float total_h = static_cast<float>(items_.size()) * row_height_;
+        float max_scroll = std::max(0.0f, total_h - local_bounds().height);
+        scroll_offset_ = std::clamp(scroll_offset_ + event.scroll_delta_y, 0.0f, max_scroll);
+        return;
+    }
+
     if (!event.is_down) return;
     int index = static_cast<int>((event.position.y + scroll_offset_) / row_height_);
     if (index >= 0 && index < static_cast<int>(items_.size())) {
@@ -702,10 +710,12 @@ bool ListBox::on_key_event(const KeyEvent& event) {
     if (!event.is_down) return false;
     if (event.key == KeyCode::up && selected_ > 0) {
         set_selected(selected_ - 1);
+        ensure_visible(selected_);
         return true;
     }
     if (event.key == KeyCode::down && selected_ < static_cast<int>(items_.size()) - 1) {
         set_selected(selected_ + 1);
+        ensure_visible(selected_);
         return true;
     }
     if (event.key == KeyCode::enter && selected_ >= 0 && on_activate) {
@@ -713,6 +723,19 @@ bool ListBox::on_key_event(const KeyEvent& event) {
         return true;
     }
     return false;
+}
+
+void ListBox::ensure_visible(int index) {
+    if (index < 0) return;
+    float item_top = static_cast<float>(index) * row_height_;
+    float item_bottom = item_top + row_height_;
+    float view_h = local_bounds().height;
+
+    if (item_top < scroll_offset_) {
+        scroll_offset_ = item_top;
+    } else if (item_bottom > scroll_offset_ + view_h) {
+        scroll_offset_ = item_bottom - view_h;
+    }
 }
 
 } // namespace pulp::view

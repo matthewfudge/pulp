@@ -224,6 +224,25 @@ void WidgetBridge::register_api() {
         return choc::value::createString(id);
     });
 
+    // createImage(id, parentId) — HTML <img> equivalent
+    engine_.register_function("createImage", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto img = std::make_unique<ImageView>(); img->set_id(id);
+        widgets_[id] = img.get();
+        resolve_parent(pid)->add_child(std::move(img));
+        return choc::value::createString(id);
+    });
+
+    // setImageSource(id, path) — set image file path
+    engine_.register_function("setImageSource", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto path = args.get<std::string>(1, "");
+        if (auto* img = dynamic_cast<ImageView*>(widget(id)))
+            img->set_image_path(path);
+        return choc::value::Value();
+    });
+
     // createCheckbox(id, parentId)
     engine_.register_function("createCheckbox", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -676,6 +695,53 @@ void WidgetBridge::register_api() {
         auto s = std::make_unique<ScrollView>(); s->set_id(id);
         widgets_[id] = s.get(); resolve_parent(pid)->add_child(std::move(s));
         return choc::value::createString(id);
+    });
+
+    engine_.register_function("createListBox", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
+        auto lb = std::make_unique<ListBox>(); lb->set_id(id);
+        auto* ptr = lb.get(); widgets_[id] = ptr;
+        lb->on_select = [this, id](int idx) {
+            engine_.evaluate("__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")");
+        };
+        lb->on_activate = [this, id](int idx) {
+            engine_.evaluate("__dispatch__('" + id + "', 'activate', " + std::to_string(idx) + ")");
+        };
+        resolve_parent(pid)->add_child(std::move(lb));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("setListItems", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto* v = widget(id); if (!v) return choc::value::Value{};
+        if (auto* lb = dynamic_cast<ListBox*>(v)) {
+            std::vector<std::string> items;
+            if (args.numArgs > 1 && args[1]) {
+                auto& arr = *args[1];
+                for (uint32_t i = 0; i < arr.size(); ++i)
+                    items.push_back(std::string(arr[i].getString()));
+            }
+            lb->set_items(std::move(items));
+        }
+        return choc::value::Value{};
+    });
+
+    engine_.register_function("setListSelected", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto* v = widget(id); if (!v) return choc::value::Value{};
+        if (auto* lb = dynamic_cast<ListBox*>(v)) {
+            lb->set_selected(args.get<int>(1, 0));
+            lb->ensure_visible(lb->selected());
+        }
+        return choc::value::Value{};
+    });
+
+    engine_.register_function("setListRowHeight", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto* v = widget(id); if (!v) return choc::value::Value{};
+        if (auto* lb = dynamic_cast<ListBox*>(v))
+            lb->set_row_height(static_cast<float>(args.get<double>(1, 24.0)));
+        return choc::value::Value{};
     });
 
     engine_.register_function("createTextEditor", [this](choc::javascript::ArgumentList args) {

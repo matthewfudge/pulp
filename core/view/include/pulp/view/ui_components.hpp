@@ -283,6 +283,9 @@ public:
     void on_mouse_event(const MouseEvent& event) override;
     bool on_key_event(const KeyEvent& event) override;
 
+    /// Scroll to make the given item index visible in the viewport.
+    void ensure_visible(int index);
+
 private:
     std::vector<std::string> items_;
     int selected_ = -1;
