@@ -12,6 +12,85 @@ var currentHarmony = 'monochromatic';
 var msgCount = 0;
 
 // ═══════════════════════════════════════════════════════════════════
+// D1: Per-token edit state
+// ═══════════════════════════════════════════════════════════════════
+var tokenEditState = {
+    history: {},       // { "bg.primary": { original, stack: [hex...], cursor: 0 } }
+    modified: {},      // { "bg.primary": true }
+    activeToken: null,
+    activeSwatchId: null
+};
+
+function tokenHistory(name) {
+    if (!tokenEditState.history[name]) {
+        var themeColors = JSON.parse(getThemeJson()).colors || {};
+        tokenEditState.history[name] = {
+            original: themeColors[name] || '#000000',
+            stack: [themeColors[name] || '#000000'],
+            cursor: 0
+        };
+    }
+    return tokenEditState.history[name];
+}
+
+function pushTokenEdit(name, hex) {
+    var h = tokenHistory(name);
+    h.stack = h.stack.slice(0, h.cursor + 1);
+    h.stack.push(hex);
+    h.cursor = h.stack.length - 1;
+    tokenEditState.modified[name] = (hex !== h.original);
+    if (!tokenEditState.modified[name]) delete tokenEditState.modified[name];
+}
+
+function applyTokenColor(name, hex) {
+    var swatchId = null;
+    for (var g = 0; g < tokenGroups.length; g++) {
+        for (var t = 0; t < tokenGroups[g].tokens.length; t++) {
+            if (tokenGroups[g].tokens[t] === name) {
+                swatchId = "tok-" + g + "-" + t + "-sw";
+                break;
+            }
+        }
+        if (swatchId) break;
+    }
+    pushTokenEdit(name, hex);
+    var obj = { colors: {} };
+    obj.colors[name] = hex;
+    applyTokenDiff(JSON.stringify(obj));
+    pushThemeSnapshot();
+    // Flash: briefly show accent color on swatch
+    if (swatchId) setBackground(swatchId, APP_ACCENT);
+    layout();
+    updateTokenSwatches();
+    updateModifiedCount();
+    updateAllTokenNameDisplays();
+    if (tokenEditState.activeToken) updatePopupState(tokenEditState.activeToken);
+    layout();
+}
+
+function updateModifiedCount() {
+    var n = 0;
+    for (var k in tokenEditState.modified) n++;
+    setText("status-text", n > 0 ? n + " token" + (n === 1 ? "" : "s") + " modified" : "0 tokens modified");
+}
+
+function updateAllTokenNameDisplays() {
+    for (var g = 0; g < tokenGroups.length; g++) {
+        for (var t = 0; t < tokenGroups[g].tokens.length; t++) {
+            var name = tokenGroups[g].tokens[t];
+            var labelId = "tok-" + g + "-" + t + "-name";
+            if (tokenEditState.modified[name]) {
+                setText(labelId, name + " *");
+                setTextColor(labelId, APP_ACCENT);
+            } else {
+                setText(labelId, name);
+                setTextColor(labelId, APP_TEXT);
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // App colors (matching original --app-* CSS variables)
 // ═══════════════════════════════════════════════════════════════════
 var APP_BG      = '#18181f';
@@ -199,6 +278,31 @@ for (var g = 0; g < tokenGroups.length; g++) {
         createLabel(tid + "-name", group.tokens[t], tid);
         setFontSize(tid + "-name", 11);
         setFlex(tid + "-name", "flex_grow", 1);
+
+        // D1: hex input field
+        var hexId = tid + "-hex";
+        createTextEditor(hexId, tid);
+        setPlaceholder(hexId, "#000000");
+        setFlex(hexId, "width", 58);
+        setFlex(hexId, "height", 18);
+        setFontSize(hexId, 9);
+
+        // D1: click swatch → open token popup
+        registerClick(swatchId);
+        (function(tokenName, sid, gi, ti) {
+            on(sid, 'click', function() {
+                openTokenPopup(tokenName, sid, gi, ti);
+            });
+        })(group.tokens[t], swatchId, g, t);
+
+        // D1: hex input → apply on Enter
+        (function(tokenName, hid) {
+            on(hid, 'return', function(text) {
+                var hex = text.trim();
+                if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+                applyTokenColor(tokenName, hex);
+            });
+        })(group.tokens[t], hexId);
     }
 }
 
@@ -228,9 +332,11 @@ function updateTokenSwatches() {
         var group = tokenGroups[g];
         for (var t = 0; t < group.tokens.length; t++) {
             var swatchId = "tok-" + g + "-" + t + "-sw";
+            var hexId = "tok-" + g + "-" + t + "-hex";
             var tokenName = group.tokens[t];
             if (colors[tokenName]) {
                 setBackground(swatchId, colors[tokenName]);
+                setText(hexId, colors[tokenName]);
             }
         }
     }
@@ -281,6 +387,8 @@ function buildShadeRamps() {
             })(ramp[steps[s]].hex, paletteNames[p], steps[s]);
         }
     }
+    // D1: sync popup palette when ramps rebuild
+    if (tokenEditState.activeToken) rebuildPopupPalette();
 }
 buildShadeRamps();
 
@@ -416,6 +524,302 @@ function updatePickerFromSliders() {
 on("picker-h-fader", "change", function() { updatePickerFromSliders(); });
 on("picker-c-fader", "change", function() { updatePickerFromSliders(); });
 on("picker-l-fader", "change", function() { updatePickerFromSliders(); });
+
+// ═══════════════════════════════════════════════════════════════════
+// D1: Token Palette Picker Popup
+// ═══════════════════════════════════════════════════════════════════
+var TOKEN_POPUP_W = 280;
+
+// Click-outside backdrop
+createCol("tp-backdrop", "");
+setPosition("tp-backdrop", "absolute");
+setTop("tp-backdrop", 0);
+setLeft("tp-backdrop", 0);
+setFlex("tp-backdrop", "width", 9999);
+setFlex("tp-backdrop", "height", 9999);
+setZIndex("tp-backdrop", 99);
+setVisible("tp-backdrop", false);
+registerClick("tp-backdrop");
+on("tp-backdrop", "click", function() { closeTokenPopup(); });
+
+// Popup container
+createCol("token-popup", "");
+setPosition("token-popup", "absolute");
+setFlex("token-popup", "width", TOKEN_POPUP_W);
+setFlex("token-popup", "padding", 10);
+setFlex("token-popup", "gap", 6);
+setBackground("token-popup", APP_PANEL);
+setBorder("token-popup", APP_BORDER, 1, 8);
+setBoxShadow("token-popup", 0, 8, 24, 0, "#000000a0");
+setZIndex("token-popup", 100);
+setVisible("token-popup", false);
+
+// Header row: token name + close
+createRow("tp-header", "token-popup");
+setFlex("tp-header", "height", 22);
+setFlex("tp-header", "align_items", "center");
+createLabel("tp-token-name", "—", "tp-header");
+setFontSize("tp-token-name", 11);
+setTextColor("tp-token-name", APP_ACCENT);
+setFlex("tp-token-name", "flex_grow", 1);
+
+createCol("tp-close", "tp-header");
+setFlex("tp-close", "width", 20);
+setFlex("tp-close", "height", 20);
+setFlex("tp-close", "justify_content", "center");
+setFlex("tp-close", "align_items", "center");
+createLabel("tp-close-lbl", "x", "tp-close");
+setFontSize("tp-close-lbl", 11);
+registerClick("tp-close");
+on("tp-close", "click", function() { closeTokenPopup(); });
+
+// Undo / Redo / Reset row
+createRow("tp-undo-row", "token-popup");
+setFlex("tp-undo-row", "height", 22);
+setFlex("tp-undo-row", "gap", 4);
+
+var tpUndoBtns = ["Undo", "Redo", "Reset"];
+for (var ub = 0; ub < tpUndoBtns.length; ub++) {
+    var ubId = "tp-btn-" + ub;
+    createCol(ubId, "tp-undo-row");
+    setFlex(ubId, "flex_grow", 1);
+    setFlex(ubId, "height", 22);
+    setFlex(ubId, "justify_content", "center");
+    setFlex(ubId, "align_items", "center");
+    setBorder(ubId, APP_BORDER, 1, 4);
+    createLabel(ubId + "-lbl", tpUndoBtns[ub], ubId);
+    setFontSize(ubId + "-lbl", 9);
+    registerClick(ubId);
+}
+
+on("tp-btn-0", "click", function() { // Undo
+    if (!tokenEditState.activeToken) return;
+    var h = tokenHistory(tokenEditState.activeToken);
+    if (h.cursor > 0) {
+        h.cursor--;
+        var hex = h.stack[h.cursor];
+        var obj = { colors: {} };
+        obj.colors[tokenEditState.activeToken] = hex;
+        applyTokenDiff(JSON.stringify(obj));
+        pushThemeSnapshot();
+        tokenEditState.modified[tokenEditState.activeToken] = (hex !== h.original);
+        if (!tokenEditState.modified[tokenEditState.activeToken])
+            delete tokenEditState.modified[tokenEditState.activeToken];
+        updateTokenSwatches();
+        updateModifiedCount();
+        updateAllTokenNameDisplays();
+        updatePopupState(tokenEditState.activeToken);
+        layout();
+    }
+});
+
+on("tp-btn-1", "click", function() { // Redo
+    if (!tokenEditState.activeToken) return;
+    var h = tokenHistory(tokenEditState.activeToken);
+    if (h.cursor < h.stack.length - 1) {
+        h.cursor++;
+        var hex = h.stack[h.cursor];
+        var obj = { colors: {} };
+        obj.colors[tokenEditState.activeToken] = hex;
+        applyTokenDiff(JSON.stringify(obj));
+        pushThemeSnapshot();
+        tokenEditState.modified[tokenEditState.activeToken] = (hex !== h.original);
+        if (!tokenEditState.modified[tokenEditState.activeToken])
+            delete tokenEditState.modified[tokenEditState.activeToken];
+        updateTokenSwatches();
+        updateModifiedCount();
+        updateAllTokenNameDisplays();
+        updatePopupState(tokenEditState.activeToken);
+        layout();
+    }
+});
+
+on("tp-btn-2", "click", function() { // Reset
+    if (!tokenEditState.activeToken) return;
+    var h = tokenHistory(tokenEditState.activeToken);
+    var orig = h.original;
+    h.stack = [orig];
+    h.cursor = 0;
+    delete tokenEditState.modified[tokenEditState.activeToken];
+    var obj = { colors: {} };
+    obj.colors[tokenEditState.activeToken] = orig;
+    applyTokenDiff(JSON.stringify(obj));
+    pushThemeSnapshot();
+    updateTokenSwatches();
+    updateModifiedCount();
+    updateAllTokenNameDisplays();
+    updatePopupState(tokenEditState.activeToken);
+    layout();
+});
+
+// Hex input in popup
+createRow("tp-hex-row", "token-popup");
+setFlex("tp-hex-row", "height", 24);
+setFlex("tp-hex-row", "gap", 6);
+setFlex("tp-hex-row", "align_items", "center");
+createLabel("tp-hex-lbl", "Hex", "tp-hex-row");
+setFontSize("tp-hex-lbl", 10);
+setTextColor("tp-hex-lbl", APP_TEXT_DIM);
+createTextEditor("tp-hex-input", "tp-hex-row");
+setFlex("tp-hex-input", "flex_grow", 1);
+setFlex("tp-hex-input", "height", 22);
+setFontSize("tp-hex-input", 11);
+on("tp-hex-input", "return", function(text) {
+    var hex = text.trim();
+    if (!tokenEditState.activeToken) return;
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+    applyTokenColor(tokenEditState.activeToken, hex);
+});
+
+// 5 palette shade grids
+createCol("tp-palettes", "token-popup");
+setFlex("tp-palettes", "gap", 4);
+
+for (var pp = 0; pp < paletteNames.length; pp++) {
+    var ppId = "tp-pal-" + pp;
+    createCol(ppId, "tp-palettes");
+    setFlex(ppId, "gap", 1);
+
+    createLabel(ppId + "-title", paletteNames[pp].toUpperCase(), ppId);
+    setFontSize(ppId + "-title", 8);
+    setTextColor(ppId + "-title", APP_TEXT_DIM);
+    setFlex(ppId + "-title", "height", 12);
+
+    createRow(ppId + "-row", ppId);
+    setFlex(ppId + "-row", "gap", 2);
+    setFlex(ppId + "-row", "height", 18);
+
+    for (var ps = 0; ps < ShadeGenerator.STEPS.length; ps++) {
+        var psId = ppId + "-s" + ps;
+        createCol(psId, ppId + "-row");
+        setFlex(psId, "flex_grow", 1);
+        setFlex(psId, "height", 18);
+        setBorder(psId, APP_BORDER, 0, 2);
+        registerClick(psId);
+        (function(palIdx, shadeIdx) {
+            on("tp-pal-" + palIdx + "-s" + shadeIdx, "click", function() {
+                if (!tokenEditState.activeToken) return;
+                var palette = PaletteSystem.create(currentAccent, currentHarmony);
+                var pKey = paletteKeys[palIdx];
+                var hex = palette[pKey][ShadeGenerator.STEPS[shadeIdx]].hex;
+                applyTokenColor(tokenEditState.activeToken, hex);
+            });
+        })(pp, ps);
+    }
+}
+
+// Custom HCL section (expandable)
+var tpCustomOpen = false;
+createRow("tp-custom-toggle", "token-popup");
+setFlex("tp-custom-toggle", "height", 22);
+setFlex("tp-custom-toggle", "align_items", "center");
+registerClick("tp-custom-toggle");
+createLabel("tp-custom-lbl", "Custom color  >", "tp-custom-toggle");
+setFontSize("tp-custom-lbl", 10);
+setTextColor("tp-custom-lbl", APP_TEXT_DIM);
+
+createCol("tp-custom", "token-popup");
+setFlex("tp-custom", "gap", 4);
+setVisible("tp-custom", false);
+
+var tpHclFaders = [
+    { id: "tp-h-fader", label: "H" },
+    { id: "tp-c-fader", label: "C" },
+    { id: "tp-l-fader", label: "L" }
+];
+for (var hf = 0; hf < tpHclFaders.length; hf++) {
+    var hfRow = "tp-hcl-" + hf;
+    createRow(hfRow, "tp-custom");
+    setFlex(hfRow, "height", 20);
+    setFlex(hfRow, "gap", 6);
+    setFlex(hfRow, "align_items", "center");
+    createLabel(tpHclFaders[hf].id + "-lbl", tpHclFaders[hf].label, hfRow);
+    setFontSize(tpHclFaders[hf].id + "-lbl", 10);
+    setFlex(tpHclFaders[hf].id + "-lbl", "width", 14);
+    createFader(tpHclFaders[hf].id, "horizontal", hfRow);
+    setFlex(tpHclFaders[hf].id, "flex_grow", 1);
+    setFlex(tpHclFaders[hf].id, "height", 16);
+}
+
+function onTpHclChange() {
+    if (!tokenEditState.activeToken) return;
+    var h = getValue("tp-h-fader") * 360;
+    var c = getValue("tp-c-fader") * 0.4;
+    var l = getValue("tp-l-fader");
+    var mapped = OklchEngine.gamutMap(l, c, h);
+    var hex = OklchEngine.oklchToHex(mapped.L, mapped.C, mapped.H);
+    applyTokenColor(tokenEditState.activeToken, hex);
+}
+on("tp-h-fader", "change", function() { onTpHclChange(); });
+on("tp-c-fader", "change", function() { onTpHclChange(); });
+on("tp-l-fader", "change", function() { onTpHclChange(); });
+
+on("tp-custom-toggle", "click", function() {
+    tpCustomOpen = !tpCustomOpen;
+    setVisible("tp-custom", tpCustomOpen);
+    setText("tp-custom-lbl", tpCustomOpen ? "Custom color  v" : "Custom color  >");
+    layout();
+});
+
+// ── Popup open/close/update functions ───────────────────────────
+function rebuildPopupPalette() {
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    for (var pp = 0; pp < paletteKeys.length; pp++) {
+        var ramp = palette[paletteKeys[pp]];
+        for (var ps = 0; ps < ShadeGenerator.STEPS.length; ps++) {
+            setBackground("tp-pal-" + pp + "-s" + ps, ramp[ShadeGenerator.STEPS[ps]].hex);
+        }
+    }
+}
+
+function updatePopupState(tokenName) {
+    var themeColors = JSON.parse(getThemeJson()).colors || {};
+    var hex = themeColors[tokenName] || '#000000';
+    setText("tp-hex-input", hex);
+    // Sync HCL faders
+    if (tpCustomOpen) {
+        var oklch = OklchEngine.hexToOklch(hex);
+        setValue("tp-h-fader", oklch.H / 360);
+        setValue("tp-c-fader", Math.min(oklch.C / 0.4, 1));
+        setValue("tp-l-fader", oklch.L);
+    }
+    // Undo/redo button opacity
+    var h = tokenHistory(tokenName);
+    setOpacity("tp-btn-0", h.cursor > 0 ? 1.0 : 0.3);
+    setOpacity("tp-btn-1", h.cursor < h.stack.length - 1 ? 1.0 : 0.3);
+    setOpacity("tp-btn-2", tokenEditState.modified[tokenName] ? 1.0 : 0.3);
+}
+
+function openTokenPopup(tokenName, swatchId, gIdx, tIdx) {
+    tokenHistory(tokenName);
+    tokenEditState.activeToken = tokenName;
+    tokenEditState.activeSwatchId = swatchId;
+    setText("tp-token-name", tokenName);
+    rebuildPopupPalette();
+    updatePopupState(tokenName);
+    layout();
+    var rect = getLayoutRect(swatchId);
+    var popX = rect.right + 4;
+    var popY = rect.y;
+    // Clamp to window
+    if (popX + TOKEN_POPUP_W > 1100) popX = rect.x - TOKEN_POPUP_W - 4;
+    if (popY + 380 > 700) popY = 700 - 380 - 8;
+    if (popX < 4) popX = 4;
+    if (popY < 4) popY = 4;
+    setTop("token-popup", popY);
+    setLeft("token-popup", popX);
+    setVisible("tp-backdrop", true);
+    setVisible("token-popup", true);
+    layout();
+}
+
+function closeTokenPopup() {
+    tokenEditState.activeToken = null;
+    tokenEditState.activeSwatchId = null;
+    setVisible("token-popup", false);
+    setVisible("tp-backdrop", false);
+    layout();
+}
 
 // ── Accent hue slider handler ────────────────────────────────────
 on("accent-hue", "change", function(val) {
