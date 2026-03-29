@@ -154,19 +154,19 @@ setBorder("state-pills", APP_BORDER, 1, 4);
 for (var sp = 0; sp < stateNames.length; sp++) {
     var spId = "state-pill-" + sp;
     createCol(spId, "state-pills");
-    setFlex(spId, "height", 22);
-    setFlex(spId, "padding_left", 8);
-    setFlex(spId, "padding_right", 8);
+    setFlex(spId, "height", 24);
+    setFlex(spId, "padding_left", 12);
+    setFlex(spId, "padding_right", 12);
     setFlex(spId, "justify_content", "center");
     setFlex(spId, "align_items", "center");
     if (sp === 0) {
         setBackground(spId, '#2a2040');
-        setBorder(spId, "transparent", 0, 4);
+        setBorder(spId, APP_ACCENT, 1, 4);
     } else {
         setBorder(spId, "transparent", 0, 4);
     }
     createLabel(spId + "-lbl", stateNames[sp], spId);
-    setFontSize(spId + "-lbl", 10);
+    setFontSize(spId + "-lbl", 11);
     setTextColor(spId + "-lbl", sp === 0 ? APP_ACCENT : APP_TEXT_DIM);
     registerClick(spId);
     (function(idx) {
@@ -174,6 +174,7 @@ for (var sp = 0; sp < stateNames.length; sp++) {
             // Update pill visuals
             for (var si = 0; si < stateNames.length; si++) {
                 setBackground("state-pill-" + si, si === idx ? '#2a2040' : 'transparent');
+                setBorder("state-pill-" + si, si === idx ? APP_ACCENT : "transparent", si === idx ? 1 : 0, 4);
                 setTextColor("state-pill-" + si + "-lbl", si === idx ? APP_ACCENT : APP_TEXT_DIM);
             }
             activeState = idx;
@@ -546,10 +547,21 @@ function buildShadeRamps() {
             on(gamutId, "pointermove", onGamutPointer);
         })(p, paletteKeys[p]);
 
-        // H slider
+        // H slider — rainbow hue gradient bar + fader below
+        var hGradId = rampId + "-h-grad";
+        createCanvas(hGradId, editorId);
+        setFlex(hGradId, "height", 12);
+        setBorder(hGradId, APP_BORDER, 0, 6);
+        // Draw rainbow hue gradient (red → orange → yellow → green → cyan → blue → violet → pink)
+        var hGradW = 260;
+        for (var hg = 0; hg < 48; hg++) {
+            var hueVal = (hg / 48) * 360;
+            canvasRect(hGradId, (hg / 48) * hGradW, 0, (hGradW / 48) + 1, 12, OklchEngine.oklchToHex(0.65, 0.25, hueVal));
+        }
+        // H fader (interactive)
         var hRowId = rampId + "-h-row";
         createRow(hRowId, editorId);
-        setFlex(hRowId, "height", 20);
+        setFlex(hRowId, "height", 16);
         setFlex(hRowId, "gap", 6);
         setFlex(hRowId, "align_items", "center");
         createLabel(rampId + "-h-lbl", "H", hRowId);
@@ -559,10 +571,15 @@ function buildShadeRamps() {
         setFlex(rampId + "-h-fdr", "flex_grow", 1);
         setFlex(rampId + "-h-fdr", "height", 14);
 
-        // C slider
+        // C slider — chroma gradient bar (gray to saturated) + fader below
+        var cGradId = rampId + "-c-grad";
+        createCanvas(cGradId, editorId);
+        setFlex(cGradId, "height", 12);
+        setBorder(cGradId, APP_BORDER, 0, 6);
+        // C fader (interactive)
         var cRowId = rampId + "-c-row";
         createRow(cRowId, editorId);
-        setFlex(cRowId, "height", 20);
+        setFlex(cRowId, "height", 16);
         setFlex(cRowId, "gap", 6);
         setFlex(cRowId, "align_items", "center");
         createLabel(rampId + "-c-lbl", "C", cRowId);
@@ -598,6 +615,7 @@ function buildShadeRamps() {
             var base = ramp[500];
             var oklch = OklchEngine.hexToOklch(base.hex);
             renderPaletteGamut(p, oklch.H, oklch.L, oklch.C);
+            renderChromaGradient(p, oklch.H);
             setValue(rampId + "-h-fdr", oklch.H / 360);
             setValue(rampId + "-c-fdr", Math.min(oklch.C / 0.4, 1));
             setText(rampId + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
@@ -624,6 +642,7 @@ function buildShadeRamps() {
                     var base = pal[pKey][500];
                     var oklch = OklchEngine.hexToOklch(base.hex);
                     renderPaletteGamut(idx, oklch.H, oklch.L, oklch.C);
+                    renderChromaGradient(idx, oklch.H);
                     setValue("ramp-" + idx + "-h-fdr", oklch.H / 360);
                     setValue("ramp-" + idx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                     setText("ramp-" + idx + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
@@ -646,6 +665,7 @@ function buildShadeRamps() {
                         expandedPalette = paletteIdx;
                         setVisible("ramp-" + paletteIdx + "-editor", true);
                         renderPaletteGamut(paletteIdx, oklch.H, oklch.L, oklch.C);
+                        renderChromaGradient(paletteIdx, oklch.H);
                         setValue("ramp-" + paletteIdx + "-h-fdr", oklch.H / 360);
                         setValue("ramp-" + paletteIdx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                         setText("ramp-" + paletteIdx + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
@@ -661,8 +681,9 @@ function buildShadeRamps() {
                 var h = getValue("ramp-" + idx + "-h-fdr") * 360;
                 var c = getValue("ramp-" + idx + "-c-fdr") * 0.4;
                 var mapped = OklchEngine.gamutMap(0.55, c, h);
-                // Redraw gamut with dot at current position
+                // Redraw gamut with dot + update C gradient for new hue
                 renderPaletteGamut(idx, h, mapped.L, mapped.C);
+                renderChromaGradient(idx, h);
                 setText("ramp-" + idx + "-oklch", "L: " + mapped.L.toFixed(2) + "  C: " + mapped.C.toFixed(3) + "  H: " + h.toFixed(1));
                 // Update the palette base color
                 if (pKey === "accent") {
@@ -698,6 +719,19 @@ function buildShadeRamps() {
 }
 
 // Render gamut triangle for a specific palette editor
+// Render chroma gradient for a palette editor (gray → saturated at current hue)
+function renderChromaGradient(paletteIdx, hue) {
+    var cGradId = "ramp-" + paletteIdx + "-c-grad";
+    canvasClear(cGradId);
+    var w = 260;
+    var steps = 32;
+    for (var cs = 0; cs < steps; cs++) {
+        var c = (cs / steps) * 0.4;
+        var hex = OklchEngine.oklchToHex(0.6, c, hue);
+        canvasRect(cGradId, (cs / steps) * w, 0, (w / steps) + 1, 12, hex);
+    }
+}
+
 // fullRedraw=true renders the color grid; false only redraws dot overlay
 var gamutCache = {};  // cache hue → avoid full redraw during drag
 
@@ -779,6 +813,32 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
 }
 
 buildShadeRamps();
+
+// "Generate Opposite Mode" button below palette rows
+createCol("gen-opposite-btn", "color-section");
+setFlex("gen-opposite-btn", "height", 32);
+setFlex("gen-opposite-btn", "justify_content", "center");
+setFlex("gen-opposite-btn", "align_items", "center");
+setBackground("gen-opposite-btn", APP_ACCENT);
+setBorder("gen-opposite-btn", APP_ACCENT, 0, 6);
+createLabel("gen-opposite-lbl", "Generate Opposite Mode", "gen-opposite-btn");
+setFontSize("gen-opposite-lbl", 11);
+setTextColor("gen-opposite-lbl", "#ffffff");
+registerClick("gen-opposite-btn");
+on("gen-opposite-btn", "click", function() {
+    // Toggle dark/light mode
+    var currentMode = 0;
+    try { currentMode = getValue("mode-selector"); } catch(e) {}
+    var newIdx = currentMode > 0.5 ? 0 : 1;
+    setSelected("mode-selector", newIdx);
+    var mode = newIdx === 0 ? "dark" : "light";
+    setTheme(mode);
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+    buildShadeRamps();
+    updateTokenSwatches();
+    showToast("Switched to " + (newIdx === 0 ? "Dark" : "Light") + " mode");
+});
 
 // ── Color Picker (legacy — hidden, replaced by inline palette editor)
 var pickerVisible = false;
@@ -1694,10 +1754,20 @@ setFlex("prog1", "flex_grow", 1);
 setFlex("prog1", "height", 6);
 setProgress("prog1", 0.65);
 
-createLabel("spinner-label", "\u25CB Loading...", "progress-row");
-setFontSize("spinner-label", 10);
-setTextColor("spinner-label", APP_TEXT_DIM);
-setFlex("spinner-label", "width", 80);
+createLabel("spinner-label", "\u25E0 Loading...", "progress-row");
+setFontSize("spinner-label", 11);
+setTextColor("spinner-label", APP_ACCENT);
+setFlex("spinner-label", "width", 90);
+
+// Animate spinner character rotation
+var spinnerFrames = ["\u25DC", "\u25DD", "\u25DE", "\u25DF"];
+var spinnerIdx = 0;
+function tickSpinner() {
+    spinnerIdx = (spinnerIdx + 1) % spinnerFrames.length;
+    setText("spinner-label", spinnerFrames[spinnerIdx] + " Loading...");
+    __requestFrame__(tickSpinner);
+}
+__requestFrame__(tickSpinner);
 
 // ── Tab Bar (General / Audio / MIDI / About) ─────────────────────
 createLabel("tabs-header", "Tabs", "preview-area");
@@ -1822,6 +1892,10 @@ for (var ci = 0; ci < ctxItems.length; ci++) {
         setFlex(cid, "align_items", "center");
         createLabel(cid + "-l", ctxItems[ci], cid);
         setFontSize(cid + "-l", 11);
+        if (ctxItems[ci] === "Paste") {
+            setBackground(cid, APP_ACCENT + "22");
+            setTextColor(cid + "-l", APP_ACCENT);
+        }
         if (ctxItems[ci] === "Delete") setTextColor(cid + "-l", "#f38ba8");
     }
 }
