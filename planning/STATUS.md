@@ -74,6 +74,22 @@ Browser-shaped JS API over Pulp's native GPU UI (document.createElement, element
 - [x] white-space, text-shadow, user-select, font-family, background-size/position
 - [x] window.setTimeout/setInterval, navigator/location stubs
 
+### Phase 8: Full W3C Gap Closure (36 items)
+- [x] Events: stopImmediatePropagation, CustomEvent, dblclick, wheel, scroll, contextmenu
+- [x] window.addEventListener for global events
+- [x] Per-side borders: border-top/right/bottom/left (width + color)
+- [x] Per-corner border-radius: border-top-left-radius etc. (4 independent corners)
+- [x] Attribute selectors: [attr], [attr="val"], [attr~=], [attr^=], [attr$=], [attr*=]
+- [x] :first-of-type, :last-of-type, :nth-of-type(An+B)
+- [x] createDocumentFragment() with child transfer on appendChild
+- [x] <option> element support in <select> (syncs to native ComboBox)
+- [x] animation-* CSS properties: name, duration, timing-function, delay, iteration-count, direction, fill-mode
+- [x] animation shorthand parsing
+- [x] flex-flow, place-items, place-content, box-sizing, inset shorthands
+- [x] CSS logical properties: margin-inline, margin-block, padding-inline, padding-block
+- [x] -webkit-line-clamp / line-clamp, background-repeat
+- [x] W3C spec coverage doc: docs/reference/w3c-coverage.md (16 specs, property-by-property)
+
 ## First-Time Setup & Onboarding — COMPLETE (2026-03-28)
 
 Implements the full install/onboarding spec (planning/pulp-install-onboarding.md, Phases F1-F6).

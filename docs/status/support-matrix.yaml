@@ -192,16 +192,42 @@ css_parity:
   selectors:
     status: usable
     notes: >
-      Enhanced selector engine: tag, .class, #id, descendant (space), child (>),
-      :first-child, :last-child, :nth-child(An+B with odd/even/2n+1), :nth-last-child,
-      :only-child, :empty, :checked, :disabled, :not(selector), :hover, :focus, :active.
+      Full selector engine: tag, .class, #id, descendant (space), child (>),
+      :first-child, :last-child, :nth-child(An+B), :nth-last-child, :only-child,
+      :empty, :checked, :disabled, :not(selector), :hover, :focus, :active,
+      :first-of-type, :last-of-type, :nth-of-type(An+B),
+      attribute selectors [attr], [attr="val"], [attr~=], [attr^=], [attr$=], [attr*=].
   dom_api:
     status: usable
     notes: >
       closest(selector), matches(selector), contains(node), innerHTML get/set with
       HTML parser, outerHTML, querySelector/querySelectorAll on elements,
       append/prepend/before/after/replaceWith (DOM4), classList.replace(),
-      focus()/blur(), cloneNode. createDocumentFragment not yet implemented.
+      focus()/blur(), cloneNode, createDocumentFragment(), <option> sync for <select>.
+  events:
+    status: usable
+    notes: >
+      click, dblclick, mousedown/up, mouseenter/leave, wheel, scroll, contextmenu,
+      keydown/keyup, input/change, focus/blur, pointer events (L2), gesture events.
+      stopPropagation, stopImmediatePropagation, preventDefault. CustomEvent constructor.
+      window.addEventListener for global events. Capture + bubble event flow.
+  per_side_borders:
+    status: usable
+    notes: >
+      Per-side borders (border-top/right/bottom/left with individual width + color).
+      Per-corner border-radius (border-top-left-radius etc., 4 independent corners).
+  animation_properties:
+    status: usable
+    notes: >
+      CSS animation-* properties parsed: name, duration, timing-function, delay,
+      iteration-count (including infinite), direction, fill-mode. animation shorthand.
+      Execution via FrameClock animate() bridge.
+  css_shorthands:
+    status: usable
+    notes: >
+      flex-flow, place-items, place-content, inset, box-sizing (parsed),
+      margin-inline/block, padding-inline/block (CSS logical properties),
+      -webkit-line-clamp, background-repeat (parsed).
   media_queries:
     status: usable
     notes: >
