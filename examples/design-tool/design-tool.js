@@ -702,56 +702,54 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
         // Background
         canvasRect(gamutId, 0, 0, w, h, '#1e1e22');
 
-        // Precompute boundary for clipping
+        // Precompute boundary
         var boundary = [];
-        for (var bx = 0; bx <= 100; bx++) {
-            var bL = bx / 100;
+        var bSteps = 200;
+        for (var bx = 0; bx <= bSteps; bx++) {
+            var bL = bx / bSteps;
             var blo = 0, bhi = 0.4;
-            for (var bbi = 0; bbi < 14; bbi++) {
+            for (var bbi = 0; bbi < 16; bbi++) {
                 var bmid = (blo + bhi) / 2;
                 if (OklchEngine.isInGamut(bL, bmid, hue)) blo = bmid; else bhi = bmid;
             }
             boundary.push(blo);
         }
 
-        // Clip to gamut boundary path, then fill with colored columns
-        canvasSave(gamutId);
-        canvasBeginPath(gamutId);
-        canvasMoveTo(gamutId, 0, h);  // bottom-left
-        for (var cx = 0; cx <= 100; cx++) {
-            var cL = cx / 100;
-            var cy = (1 - boundary[cx] / 0.4) * h;
-            canvasLineTo(gamutId, cL * w, cy);
-        }
-        canvasLineTo(gamutId, w, h);  // bottom-right
-        canvasClosePath(gamutId);
-        // Fill clipped region with colored rects (clipping makes edges smooth)
-        canvasFillPath(gamutId);  // fills with current fill color as base
-
-        // Now draw color grid inside the clipped shape
-        var cols = 100;
-        var rows = 40;
-        var cellW = w / cols;
-        var cellH = h / rows;
+        // Draw color grid
+        var cols = 100, rows = 40;
+        var cellW = w / cols, cellH = h / rows;
         for (var gx = 0; gx < cols; gx++) {
             var L = gx / (cols - 1);
-            var maxC = boundary[gx];
+            var bIdx = Math.round(L * bSteps);
+            var maxC = boundary[bIdx];
             for (var gy = 0; gy < rows; gy++) {
                 var C = (1 - gy / (rows - 1)) * 0.4;
-                if (C <= maxC + 0.01) {
-                    canvasRect(gamutId, gx * cellW, gy * cellH, cellW + 1, cellH + 1, OklchEngine.oklchToHex(L, Math.min(C, maxC), hue));
+                if (C <= maxC) {
+                    canvasRect(gamutId, gx * cellW, gy * cellH, cellW + 1, cellH + 1, OklchEngine.oklchToHex(L, C, hue));
                 }
             }
         }
-        canvasRestore(gamutId);
 
-        // Smooth boundary line on top
-        canvasSetStrokeColor(gamutId, '#ffffff25');
-        canvasSetLineWidth(gamutId, 1.5);
+        // Mask out-of-gamut area with background-colored path overlay
+        // This fills ABOVE the jagged edge with the dark background, creating smooth edges
+        canvasSetFillColor(gamutId, '#1e1e22');
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, 0);  // top-left
+        canvasLineTo(gamutId, w, 0);  // top-right
+        canvasLineTo(gamutId, w, (1 - boundary[bSteps] / 0.4) * h);  // right boundary point
+        for (var mx = bSteps; mx >= 0; mx--) {
+            canvasLineTo(gamutId, (mx / bSteps) * w, (1 - boundary[mx] / 0.4) * h);
+        }
+        canvasClosePath(gamutId);
+        canvasFillPath(gamutId);
+
+        // Smooth boundary stroke
+        canvasSetStrokeColor(gamutId, '#ffffff20');
+        canvasSetLineWidth(gamutId, 1);
         canvasBeginPath(gamutId);
         canvasMoveTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
-        for (var bx2 = 1; bx2 <= 100; bx2++) {
-            canvasLineTo(gamutId, (bx2 / 100) * w, (1 - boundary[bx2] / 0.4) * h);
+        for (var bx2 = 1; bx2 <= bSteps; bx2++) {
+            canvasLineTo(gamutId, (bx2 / bSteps) * w, (1 - boundary[bx2] / 0.4) * h);
         }
         canvasStrokePath(gamutId);
     }
@@ -1312,14 +1310,16 @@ on("accent-hue", "change", function(val) {
 // Harmony selector handler
 on("harmony-selector", "select", function(idx) {
     var modes = ["monochromatic", "analogous", "complementary", "splitComplementary", "none"];
-    currentHarmony = modes[idx];
-    buildShadeRamps();
-
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    var diff = PaletteSystem.toThemeDiff(palette);
-    applyTokenDiff(diff);
-    updateTokenSwatches();
-    layout();
+    if (idx >= 0 && idx < modes.length) {
+        currentHarmony = modes[idx];
+        expandedPalette = -1;  // collapse any expanded editor
+        buildShadeRamps();
+        var palette = PaletteSystem.create(currentAccent, currentHarmony);
+        var diff = PaletteSystem.toThemeDiff(palette);
+        applyTokenDiff(diff);
+        updateTokenSwatches();
+        layout();
+    }
 });
 
 // Dark/Light mode handler
