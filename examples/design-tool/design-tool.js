@@ -307,9 +307,10 @@ for (var g = 0; g < tokenGroups.length; g++) {
     setFlex(gid, "padding_top", 4);
     setFlex(gid, "gap", 2);
 
+    // D7: Styled group headers — uppercase, accent colored
     createLabel(gid + "-title", group.name, gid);
-    setFontSize(gid + "-title", 10);
-    setTextColor(gid + "-title", APP_TEXT_DIM);
+    setFontSize(gid + "-title", 9);
+    setTextColor(gid + "-title", APP_ACCENT);
     setFlex(gid + "-title", "height", 18);
 
     for (var t = 0; t < group.tokens.length; t++) {
