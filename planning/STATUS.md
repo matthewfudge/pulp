@@ -1,6 +1,6 @@
 # Pulp — Status Tracker
 
-Last updated: 2026-03-26 (647 tests, 8 plugin examples + 3 apps, PHASES 0-20 + Apple render + plugin editors + host + WASM demos)
+Last updated: 2026-03-28 (738 tests, 8 plugin examples + 3 apps, PHASES 0-20 + Apple render + plugin editors + host + WASM demos + first-time setup)
 
 ## Web Plugin Formats — COMPLETE
 - [x] WAMv2 adapter (WamProcessorBridge + wam-plugin.js) — 10 tests
@@ -42,20 +42,29 @@ Last updated: 2026-03-26 (647 tests, 8 plugin examples + 3 apps, PHASES 0-20 + A
 | 24 | Visual Editor | **Planned** | Unlock canvas, drag/resize widgets, snapping, grouping, code generation from layout changes. |
 | 25 | Design HUD | **Planned** | Floating color/chat panels that attach to any running plugin. Live token editing on your actual plugin UI without the full design tool. |
 
-## Touch → JS Bridge (2026-03-28)
-- [x] P0: Fix iOS pointer identity — stable UITouch→ID map in window_host_ios.mm + plugin_view_host_ios.mm
-- [x] P1: Pipe clientX/clientY through JS bridge — _makeEvent() receives full coordinate data
-- [x] P2: W3C PointerEvent API — pointerdown/pointermove/pointerup/pointercancel with pointerId, pointerType, isPrimary
-- [x] P2b: Pointer capture — setPointerCapture/releasePointerCapture, gotpointercapture/lostpointercapture
-- [x] P3: Apple Pencil — pressure, altitudeAngle, azimuthAngle, pointerType="pen"
-- [x] P4: Gesture events — gesturestart/gesturechange/gestureend, macOS magnifyWithEvent/rotateWithEvent
-- [x] P5: Coalesced/predicted touches — JS API structure (getCoalescedEvents/getPredictedEvents)
-- [x] P6: iPadOS hover — UIHoverGestureRecognizer for trackpad/mouse on iPadOS 13+
-- [x] touch-action CSS property
-- [x] 10 new headless tests (pointer types, stylus data, gesture events, pointer capture)
-- [x] Docs: js-bridge.md, support-matrix.yaml updated
+## First-Time Setup & Onboarding — COMPLETE (2026-03-28)
 
-## Tests: 1218 pass (macOS; AudioWorkgroup timeout is known flaky — exclude with --exclude-regex AudioWorkgroup)
+Implements the full install/onboarding spec (planning/pulp-install-onboarding.md, Phases F1-F6).
+
+- [x] `pulp new` command (primary, `create` still works) — effect, instrument, app, bare templates
+- [x] `--no-interactive` / `--ci` flags on `pulp new`
+- [x] `pulp run` command — finds and launches standalone binaries
+- [x] `pulp upgrade` command — self-update with binary replacement
+- [x] Color output system — `--no-color` flag, `NO_COLOR` env var, TTY detection
+- [x] Animated build spinner — braille frames with elapsed time, output captured to temp file
+- [x] Windows VS Build Tools detection via vswhere.exe in `pulp doctor`
+- [x] Linux distro-aware package commands (apt/dnf/pacman/zypper) in `pulp doctor`
+- [x] MSVC portability — `_isatty`, `_popen`, `GetModuleFileNameA`, `<windows.h>`
+- [x] `PULP_BUILD_TESTS` guards on all example CMakeLists (clean `PULP_BUILD_TESTS=OFF` configure)
+- [x] Install scripts: `tools/install/install.sh` + `install.ps1`, hosted via GitHub Pages
+- [x] Local release script: `tools/scripts/release-cli-local.sh` (macOS + SSH VMs)
+- [x] Cloud release pipeline: `.github/workflows/release-cli.yml` (4-platform matrix)
+- [x] Pre-built CLI binaries: macOS arm64 (75K), Linux arm64 (92K), Windows x64 (119K)
+- [x] VS Build Tools 2022 installed on win2 VM for local Windows builds
+- [x] Troubleshooting guide: `docs/guides/troubleshooting.md`
+- [x] Tests: 738/744 pass (99%), 6 pre-existing/environment-dependent failures
+
+## Tests: 738 pass (macOS; AudioWorkgroup timeout is known flaky — exclude with --exclude-regex AudioWorkgroup)
 
 ### Loop 8 Gap Closures (2026-03-26)
 - [x] CI: pluginval installed in validate.yml, runs against VST3 bundles at strictness 5

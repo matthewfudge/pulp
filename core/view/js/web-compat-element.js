@@ -326,8 +326,9 @@ Object.defineProperty(Element.prototype, "previousSibling", {
     }
 });
 
-// appendChild, removeChild, insertBefore, replaceChild, remove are defined in
-// web-compat-dom-ops.js (loaded separately to avoid QuickJS bytecode stack issues)
+// appendChild, removeChild, insertBefore, replaceChild, remove are bound
+// in web-compat-dom-ops.js (a small file that stays under QuickJS's
+// compilation stack limit)
 
 Element.prototype.cloneNode = function(deep) {
     var clone = new Element(this.tagName.toLowerCase());

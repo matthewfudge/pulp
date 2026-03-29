@@ -55,4 +55,4 @@ TESTING:
 - Events: headless event dispatch tests
 
 EACH ITERATION: build, test, commit.
-COMPLETION: Output 'TEXT POSITIONING EVENTS COMPLETE'" --completion-promise "TEXT POSITIONING EVENTS COMPLETE" --max-iterations 25
+COMPLETION: Output 'TEXT POSITIONING EVENTS COMPLETE'" --completion-promise "TEXT POSITIONING EVENTS COMPLETE" --max-iterations 120

@@ -287,7 +287,7 @@ TEST_CASE("WebCompat: dataset from data attribute", "[webcompat][element]") {
 // requires sufficient C stack for the QuickJS↔C++ interleaving.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("WebCompat: appendChild creates native widget", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: appendChild creates native widget", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __el = document.createElement('div');");
     env.eval("document.body.appendChild(__el);");
@@ -295,7 +295,7 @@ TEST_CASE("WebCompat: appendChild creates native widget", "[webcompat][dom][.]")
     REQUIRE(r.getWithDefault<bool>(false) == true);
 }
 
-TEST_CASE("WebCompat: appendChild span with text", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: appendChild span with text", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __sp = document.createElement('span');");
     env.eval("__sp.textContent = 'Hello World';");
@@ -308,7 +308,7 @@ TEST_CASE("WebCompat: appendChild span with text", "[webcompat][dom][.]") {
     REQUIRE(label != nullptr);
 }
 
-TEST_CASE("WebCompat: appendChild nested divs", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: appendChild nested divs", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __outer = document.createElement('div');");
     env.eval("var __inner = document.createElement('div');");
@@ -322,7 +322,7 @@ TEST_CASE("WebCompat: appendChild nested divs", "[webcompat][dom][.]") {
     REQUIRE(env.widget(innerId) != nullptr);
 }
 
-TEST_CASE("WebCompat: appendChild with style", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: appendChild with style", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __box = document.createElement('div');");
     env.eval("__box.style.width = '200px';");
@@ -338,7 +338,7 @@ TEST_CASE("WebCompat: appendChild with style", "[webcompat][dom][.]") {
     REQUIRE(w->has_background_color());
 }
 
-TEST_CASE("WebCompat: removeChild", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: removeChild", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __p = document.createElement('div');");
     env.eval("var __c = document.createElement('div');");
@@ -352,7 +352,7 @@ TEST_CASE("WebCompat: removeChild", "[webcompat][dom][.]") {
     REQUIRE(p->child_count() == 0);
 }
 
-TEST_CASE("WebCompat: getElementById after appendChild", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: getElementById after appendChild", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __findEl = document.createElement('div');");
     env.eval("__findEl.id = 'findme123';");
@@ -362,7 +362,7 @@ TEST_CASE("WebCompat: getElementById after appendChild", "[webcompat][dom][.]") 
     REQUIRE(r.getWithDefault<bool>(false) == true);
 }
 
-TEST_CASE("WebCompat: querySelector after appendChild", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: querySelector after appendChild", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __qel = document.createElement('div');");
     env.eval("__qel.className = 'test-panel';");
@@ -372,7 +372,7 @@ TEST_CASE("WebCompat: querySelector after appendChild", "[webcompat][dom][.]") {
     REQUIRE(r.getWithDefault<bool>(false) == true);
 }
 
-TEST_CASE("WebCompat: addEventListener click", "[webcompat][events][.]") {
+TEST_CASE("WebCompat: addEventListener click", "[webcompat][events]") {
     TestEnvironment env;
     env.eval("var __evtEl = document.createElement('div');");
     env.eval("var __clicked = false;");
@@ -383,7 +383,7 @@ TEST_CASE("WebCompat: addEventListener click", "[webcompat][events][.]") {
     REQUIRE(r.getWithDefault<bool>(false) == true);
 }
 
-TEST_CASE("WebCompat: StyleSheet applies to appended element", "[webcompat][dom][.]") {
+TEST_CASE("WebCompat: StyleSheet applies to appended element", "[webcompat][dom]") {
     TestEnvironment env;
     env.eval("var __sheet = new StyleSheet({'.styled-box': { width: '150px', height: '75px' }});");
     env.eval("__sheet.attach();");

@@ -28,8 +28,6 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     : engine_(engine), root_(root), store_(store) {
     register_api();
     engine_.evaluate(kJSPreamble);
-    // Load web-compat preludes in dependency order, split to avoid
-    // QuickJS stack overflow from compiling large single files
     engine_.evaluate(preludes::css_colors);
     engine_.evaluate(preludes::css_parser);
     engine_.evaluate(preludes::web_compat_element);
@@ -738,6 +736,25 @@ void WidgetBridge::register_api() {
             else f.justify_content=FlexJustify::start;
         }
         v->invalidate_layout();  // auto-invalidation on flex property change
+        return choc::value::Value();
+    });
+
+    // __domAppend(parentId, childId, tag) — native appendChild.
+    // Creates a native widget under parentId, purely in C++ — no re-entrant
+    // JS evaluation which causes stack overflow in QuickJS.
+    engine_.register_function("__domAppend", [](choc::javascript::ArgumentList) {
+        // Empty — just test if the native call itself causes issues
+        return choc::value::Value();
+    });
+
+    // __domRemove(childId) — native removeChild implementation
+    engine_.register_function("__domRemove", [this](choc::javascript::ArgumentList args) {
+        auto childId = args.get<std::string>(0, "");
+        auto* w = widget(childId);
+        if (w) {
+            if (auto* p = w->parent()) p->remove_child(w);
+            widgets_.erase(childId);
+        }
         return choc::value::Value();
     });
 

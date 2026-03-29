@@ -61,7 +61,7 @@ target_compile_definitions(pulp-test-web-compat-prelude PRIVATE
 )
 # Increase stack size to 16MB for deep QuickJS↔C++ interleaving in DOM tests
 if(APPLE)
-    target_link_options(pulp-test-web-compat-prelude PRIVATE -Wl,-stack_size,0x1000000)
+    target_link_options(pulp-test-web-compat-prelude PRIVATE -Wl,-stack_size,0x2000000)
 elseif(UNIX)
     target_link_options(pulp-test-web-compat-prelude PRIVATE -Wl,-z,stacksize=16777216)
 endif()
@@ -92,3 +92,14 @@ if(APPLE)
     )
     catch_discover_tests(pulp-test-web-compat-fixture)
 endif()
+
+# Minimal appendChild reproduction test
+add_executable(pulp-test-minimal-append test_minimal_append.cpp)
+target_link_libraries(pulp-test-minimal-append PRIVATE pulp::view Catch2::Catch2WithMain)
+target_include_directories(pulp-test-minimal-append PRIVATE ${WEBCOMPAT_INCLUDE_DIR})
+if(APPLE)
+    target_link_options(pulp-test-minimal-append PRIVATE -Wl,-stack_size,0x2000000)
+elseif(UNIX)
+    target_link_options(pulp-test-minimal-append PRIVATE -Wl,-z,stacksize=16777216)
+endif()
+catch_discover_tests(pulp-test-minimal-append)

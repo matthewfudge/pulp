@@ -34,4 +34,4 @@ TESTING:
 - Screenshot: animated spinner, hover scale transitions
 
 EACH ITERATION: build, test, screenshot, commit.
-COMPLETION: Output 'TRANSFORMS AND ANIMATIONS COMPLETE'" --completion-promise "TRANSFORMS AND ANIMATIONS COMPLETE" --max-iterations 20
+COMPLETION: Output 'TRANSFORMS AND ANIMATIONS COMPLETE'" --completion-promise "TRANSFORMS AND ANIMATIONS COMPLETE" --max-iterations 120

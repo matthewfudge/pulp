@@ -42,4 +42,4 @@ TESTING:
 - Dialog: show/hide with backdrop
 
 EACH ITERATION: build, test, screenshot, commit.
-COMPLETION: Output 'CANVAS AND WIDGETS COMPLETE'" --completion-promise "CANVAS AND WIDGETS COMPLETE" --max-iterations 20
+COMPLETION: Output 'CANVAS AND WIDGETS COMPLETE'" --completion-promise "CANVAS AND WIDGETS COMPLETE" --max-iterations 120

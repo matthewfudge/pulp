@@ -99,6 +99,116 @@ rendering:
     platform: macos
     notes: Current default render path for all macOS view hosts. Production-ready.
 
+css_parity:
+  grid_layout:
+    status: usable
+    notes: >
+      CSS Grid Layout Level 1: LayoutMode::grid, template columns/rows with fr/px/auto
+      units, column/row gaps, auto-placement, grid item spanning (grid-column/grid-row).
+      JS bridge: createGrid, setGrid.
+  flexbox:
+    status: usable
+    notes: >
+      Full flexbox: direction, wrap, grow/shrink/basis, gap, row-gap/column-gap,
+      justify-content (start/center/end/space-between/space-around/space-evenly),
+      align-items, align-self, order, margin, padding shorthand expansion.
+  transforms:
+    status: usable
+    notes: >
+      CSS Transforms Level 1: translate(x,y), rotate(deg), scale(s), skew(x,y).
+      Transform origin (normalized 0–1). Composited in paint_all. JS bridge:
+      setTranslate, setRotation, setScale, setTransformOrigin.
+  animations:
+    status: usable
+    notes: >
+      FrameClock-driven animation system. ValueAnimation with easing curves
+      (ease-in/out/in-out, cubic, spring). Motion tokens for consistent timing.
+      Widget-level animations: knob hover glow, toggle slide, fader thumb scale,
+      scroll bar fade, tooltip opacity. JS bridge: animate, defineKeyframes,
+      setAnimation, setMotionToken.
+  backgrounds_borders:
+    status: usable
+    notes: >
+      CSS Backgrounds Level 3: background-color, linear-gradient (4 directions +
+      multi-stop). Border: width, color, radius (per-corner planned). Box shadow:
+      offset, blur, spread, color. JS bridge: setBackground, setBorder,
+      setBackgroundGradient, setBoxShadow.
+  filters:
+    status: usable
+    notes: >
+      CSS Filter Effects Level 1: blur(px). Applied per-element in paint_all.
+      JS bridge: setFilter("blur(4px)").
+  colors:
+    status: usable
+    notes: >
+      CSS Color Level 4: #RGB, #RRGGBB, #RRGGBBAA, rgb(), rgba(), hsl(), hsla(),
+      100+ named CSS colors. Full parseColor() in C++ bridge and JS prelude.
+  text:
+    status: usable
+    notes: >
+      CSS Text Level 3: text-transform (uppercase/lowercase/capitalize),
+      text-decoration (underline/line-through/overline), text-align (left/center/right),
+      text-overflow (ellipsis/clip), font-size, font-weight, font-style, letter-spacing,
+      line-height, multi-line labels. JS bridge: setTextTransform, setTextDecoration,
+      setTextAlign, setTextOverflow, setFontSize, setFontWeight, setFontStyle.
+  positioning:
+    status: usable
+    notes: >
+      CSS Positioned Layout Level 3: position (static/relative/absolute/fixed/sticky),
+      top/right/bottom/left offsets, z-index. Applied during layout_children.
+      JS bridge: setPosition, setTop/Right/Bottom/Left, setZIndex.
+  canvas_2d:
+    status: usable
+    notes: >
+      25 draw command types on CanvasWidget: fillRect, strokeRect, fillRoundedRect,
+      strokeRoundedRect, fillCircle, strokeCircle, strokeLine, fillText, setFont,
+      setFillColor, setStrokeColor, setLineWidth, beginPath, moveTo, lineTo,
+      quadTo, cubicTo, closePath, fillPath, strokePath, save, restore, translate,
+      scale, rotate, clipRect. Full JS canvas bridge API.
+  opacity:
+    status: usable
+    notes: Per-element opacity (0.0–1.0) applied as layer alpha in paint_all.
+  overflow:
+    status: usable
+    notes: Overflow hidden/visible clipping on container views.
+  cursor:
+    status: usable
+    notes: CSS cursor property with 7 styles (default, pointer, crosshair, text, grab, grabbing, not-allowed).
+  transitions:
+    status: partial
+    notes: Transition duration stored as theme dimension token. Full CSS transition shorthand parsed in JS prelude.
+
+widgets:
+  image_view:
+    status: usable
+    notes: ImageWidget with placeholder rendering, JS bridge createImage/setImageSource.
+  list_box:
+    status: usable
+    notes: >
+      Virtualized ListBox with scroll wheel support, auto-scroll on keyboard navigation.
+      JS bridge: createListBox, setListItems, setListSelected, setListRowHeight.
+  combo_box:
+    status: usable
+    notes: Dropdown with global click-outside dismiss, keyboard navigation, hover tracking.
+  scroll_view:
+    status: usable
+    notes: ScrollView with smooth scroll animation, bar fade-in/out, content size management.
+  text_editor:
+    status: usable
+    notes: >
+      Full text editor: selection (click/double/triple), clipboard (Cmd+C/X/V/A),
+      undo/redo (Cmd+Z/Shift+Z), numeric-only, password mode, multi-line,
+      placeholder, IME composition with marked text.
+  tree_view:
+    status: usable
+    notes: Hierarchical tree with expand/collapse, indent levels.
+  progress_bar:
+    status: usable
+    notes: Progress indicator with animated fill.
+  tooltip:
+    status: usable
+    notes: Fade-in/out tooltip attached to any view.
+
 js_authoring:
   web_compat_layer:
     status: usable
@@ -107,6 +217,50 @@ js_authoring:
       StyleSheet, querySelector/querySelectorAll, getBoundingClientRect, getComputedStyle.
       148 named CSS colors, shorthand expansion, transform/transition parsing.
       No DOM/CSSOM — pure JS shim over native widget bridge.
+
+documentation:
+  getting_started:
+    status: usable
+    notes: Setup, first plugin, UI scripting, hot-reload, themes.
+  migration_guide:
+    status: usable
+    notes: React/CSS side-by-side mapping tables for developers coming from web.
+  api_reference:
+    status: usable
+    notes: All 111+ JS bridge functions documented with signatures and examples.
+  cookbook:
+    status: usable
+    notes: 10 practical recipes for common UI patterns.
+  starter_template:
+    status: usable
+    notes: Gain plugin template with UI script, --template CLI flag.
+  component_showcase:
+    status: usable
+    notes: Every widget type demonstrated in one JS file.
+  design_token_guide:
+    status: usable
+    notes: Theme system, inheritance, custom tokens, export formats.
+  custom_rendering_guide:
+    status: usable
+    notes: Three layers — JS canvas to GPU shaders.
+
+testing:
+  web_compat_validation:
+    status: usable
+    notes: >
+      424 browser-style validation tests: CSS value/color/shorthand/calc parsing (157),
+      computed style + layout tests for flex/grid/position/nested (135),
+      event tests for click/hover/keyboard/focus/bubbling/selectors (81),
+      visual reftests and screenshot regression (46).
+  unit_tests:
+    status: usable
+    notes: 1230+ Catch2 tests across all subsystems. CI on every PR.
+  format_validation:
+    status: usable
+    notes: CLAP dlopen tests, VST3 load tests, auval for AU.
+  audio_golden_files:
+    status: usable
+    notes: DSP output compared against reference files with tolerance.
 
 platform_maturity:
   cursor_management:
@@ -186,7 +340,7 @@ subsystems:
   state: stable
   format: usable
   platform: usable
-  canvas: experimental
+  canvas: usable
   render: experimental
   view: usable
   osc: experimental

@@ -51,19 +51,26 @@ modules:
     docs: reference/modules.md#platform
 
   - name: canvas
-    summary: 2D drawing abstraction (CoreGraphics, Skia), SVG, effects
-    status: experimental
+    summary: 2D drawing abstraction (CoreGraphics, Skia), RecordingCanvas, Canvas 2D API (25 draw commands), path builder, gradients, clipping
+    status: usable
     dependencies: [runtime]
     docs: reference/modules.md#canvas
 
   - name: render
-    summary: GPU surface management (Dawn, Skia Graphite)
+    summary: GPU surface management (Dawn, Skia Graphite) — Metal, D3D12, Vulkan backends
     status: experimental
     dependencies: [runtime, canvas]
     docs: reference/modules.md#render
 
   - name: view
-    summary: Widgets, themes, JS scripting, web-compat layer, hot-reload, inspector, text editor with IME, UI components, app framework, design export, FrameClock animation, motion tokens, cursor management, Tab focus traversal, VoiceOver accessibility, context menus, keyboard shortcuts, file dialogs
+    summary: >
+      Full widget toolkit with CSS parity: flexbox, grid layout, transforms, animations,
+      backgrounds/gradients, filters, colors (CSS L4), text styling, positioned layout, z-index,
+      Canvas 2D (25 commands), ImageView, ListBox (virtualized), ComboBox, ScrollView, TextEditor
+      with IME, TreeView, ProgressBar, Tooltip. Web-compat JS prelude (document/Element/style/events/
+      StyleSheet/querySelector). FrameClock animation with motion tokens. Hot-reload, inspector,
+      app framework, design export. Platform: cursor management, Tab focus, VoiceOver accessibility,
+      context menus, keyboard shortcuts, file dialogs. Pointer events, gestures, Apple Pencil.
     status: usable
     dependencies: [canvas, events, state]
     docs: reference/modules.md#view

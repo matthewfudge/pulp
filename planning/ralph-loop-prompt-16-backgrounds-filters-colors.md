@@ -56,4 +56,4 @@ TESTING:
 - Per-corner radius: visual test
 
 EACH ITERATION: build, test, screenshot, commit.
-COMPLETION: Output 'BACKGROUNDS FILTERS COLORS COMPLETE'" --completion-promise "BACKGROUNDS FILTERS COLORS COMPLETE" --max-iterations 25
+COMPLETION: Output 'BACKGROUNDS FILTERS COLORS COMPLETE'" --completion-promise "BACKGROUNDS FILTERS COLORS COMPLETE" --max-iterations 120

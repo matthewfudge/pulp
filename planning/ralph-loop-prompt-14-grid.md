@@ -29,4 +29,4 @@ FILES TO MODIFY:
 - test/test_layout_w3c.cpp (tests)
 
 EACH ITERATION: build, test, screenshot, commit.
-COMPLETION: Output 'GRID LAYOUT COMPLETE' when all properties work." --completion-promise "GRID LAYOUT COMPLETE" --max-iterations 20
+COMPLETION: Output 'GRID LAYOUT COMPLETE' when all properties work." --completion-promise "GRID LAYOUT COMPLETE" --max-iterations 120
