@@ -65,9 +65,11 @@ int main(int argc, char* argv[]) {
     std::string input_file;
     std::string output_file = "ui.js";
     std::string tokens_file = "tokens.json";
+    std::string export_format = "w3c";
     bool dry_run = false;
     bool include_tokens = true;
     bool include_comments = true;
+    bool export_tokens_mode = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--from") == 0 && i + 1 < argc) {
@@ -84,10 +86,44 @@ int main(int argc, char* argv[]) {
             include_tokens = false;
         } else if (std::strcmp(argv[i], "--no-comments") == 0) {
             include_comments = false;
+        } else if (std::strcmp(argv[i], "--export-tokens") == 0) {
+            export_tokens_mode = true;
+        } else if (std::strcmp(argv[i], "--format") == 0 && i + 1 < argc) {
+            export_format = argv[++i];
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             print_usage();
             return 0;
         }
+    }
+
+    // Export-tokens mode: read a Pulp theme JSON and export as W3C tokens
+    if (export_tokens_mode) {
+        if (input_file.empty()) {
+            // No input = export the built-in dark theme
+            auto theme = Theme::dark();
+            auto w3c = export_w3c_tokens(theme);
+            if (dry_run) {
+                std::cout << w3c;
+                return 0;
+            }
+            if (!write_file(tokens_file, w3c)) return 1;
+            std::cout << "Exported " << (theme.colors.size() + theme.dimensions.size() + theme.strings.size())
+                      << " tokens → " << tokens_file << "\n";
+            return 0;
+        }
+        // Read theme JSON → export as W3C
+        auto content = read_file(input_file);
+        if (content.empty()) return 1;
+        auto theme = Theme::from_json(content);
+        auto w3c = export_w3c_tokens(theme);
+        if (dry_run) {
+            std::cout << w3c;
+            return 0;
+        }
+        if (!write_file(tokens_file, w3c)) return 1;
+        std::cout << "Exported " << (theme.colors.size() + theme.dimensions.size() + theme.strings.size())
+                  << " tokens → " << tokens_file << "\n";
+        return 0;
     }
 
     if (source_str.empty()) {

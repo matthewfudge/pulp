@@ -4,6 +4,7 @@
 #include <pulp/view/ui_components.hpp>
 #include <pulp/view/text_editor.hpp>
 #include <pulp/view/canvas_widget.hpp>
+#include <pulp/view/design_import.hpp>
 #include <pulp/platform/popup_menu.hpp>
 #include <pulp/platform/file_dialog.hpp>
 #include <pulp/platform/clipboard.hpp>
@@ -2081,6 +2082,23 @@ void WidgetBridge::register_api() {
 
     engine_.register_function("getThemeJson", [this](choc::javascript::ArgumentList) {
         return choc::value::createString(root_.theme().to_json());
+    });
+
+    // importDesignTokens(w3cJson) — parse W3C Design Tokens JSON and apply to theme
+    engine_.register_function("importDesignTokens", [this](choc::javascript::ArgumentList args) {
+        auto json = args.get<std::string>(0, "");
+        if (!json.empty()) {
+            auto imported = parse_w3c_tokens(json);
+            auto current = root_.theme();
+            current.apply_overrides(imported);
+            root_.set_theme(current);
+        }
+        return choc::value::Value();
+    });
+
+    // exportDesignTokens() — export current theme as W3C Design Tokens JSON
+    engine_.register_function("exportDesignTokens", [this](choc::javascript::ArgumentList) {
+        return choc::value::createString(export_w3c_tokens(root_.theme()));
     });
 
     // Shell exec (for Claude CLI)

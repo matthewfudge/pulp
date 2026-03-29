@@ -2686,7 +2686,7 @@ int main(int argc, char* argv[]) {
         for (auto& arg : args) cmd += " " + arg;
         return run(cmd);
     }
-    if (command == "import-design") {
+    if (command == "import-design" || command == "export-tokens") {
         auto root = find_project_root();
         if (root.empty()) {
             std::cerr << "Error: not in a Pulp project directory\n";
@@ -2698,6 +2698,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         std::string cmd = import_bin.string();
+        if (command == "export-tokens") cmd += " --export-tokens";
         for (auto& arg : args) cmd += " \"" + arg + "\"";
         return run(cmd);
     }
