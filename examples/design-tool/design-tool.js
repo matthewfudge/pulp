@@ -457,18 +457,20 @@ function buildShadeRamps() {
 
         var ramp = palette[paletteKeys[p]];
 
-        // Base color dot
+        // Base color dot (clickable to expand)
         var dotId = rampId + "-dot";
         createCol(dotId, rowId);
         setFlex(dotId, "width", 14);
         setFlex(dotId, "height", 14);
         setBackground(dotId, ramp[500].hex);
         setBorder(dotId, ramp[500].hex, 0, 7);
+        registerClick(dotId);
 
-        // Name
+        // Name (clickable to expand)
         createLabel(rampId + "-name", paletteNames[p], rowId);
         setFontSize(rampId + "-name", 10);
         setFlex(rampId + "-name", "width", 52);
+        registerClick(rampId + "-name");
 
         // Mini ramp
         createRow(rampId + "-row", rowId);
@@ -555,13 +557,19 @@ function buildShadeRamps() {
             setText(rampId + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
         }
 
-        // Click row → toggle expand
+        // Click row/dot/name → toggle expand (deferred to avoid use-after-free
+        // since buildShadeRamps calls removeWidget on the clicked view)
         (function(idx) {
-            on("ramp-" + idx + "-header", "click", function() {
+            var toggleExpand = function() {
                 expandedPalette = (expandedPalette === idx) ? -1 : idx;
-                buildShadeRamps();
-                layout();
-            });
+                __requestFrame__(function() {
+                    buildShadeRamps();
+                    layout();
+                });
+            };
+            on("ramp-" + idx + "-header", "click", toggleExpand);
+            on("ramp-" + idx + "-dot", "click", toggleExpand);
+            on("ramp-" + idx + "-name", "click", toggleExpand);
         })(p);
 
         // H/C slider change handlers (rebuild ramp on change)
