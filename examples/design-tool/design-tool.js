@@ -505,45 +505,34 @@ function buildShadeRamps() {
         registerPointer(gamutId);
         (function(idx, pKey) {
             // Handle both pointerdown and pointermove (drag) on gamut
+            var dragCount = 0;
             function onGamutPointer(evt) {
                 var gw = 270, gh = 130;
-                var x = evt.offsetX;
-                var y = evt.offsetY;
-                // Map to OKLCH: X=Lightness, Y=Chroma (inverted)
+                var x = evt.offsetX, y = evt.offsetY;
                 var L = Math.max(0, Math.min(1, x / gw));
                 var C = Math.max(0, Math.min(0.4, (1 - y / gh) * 0.4));
                 var h = getValue("ramp-" + idx + "-h-fdr") * 360;
-                // Clamp to gamut boundary
                 var mapped = OklchEngine.gamutMap(L, C, h);
-                // Update faders
                 setValue("ramp-" + idx + "-c-fdr", Math.min(mapped.C / 0.4, 1));
-                // Redraw gamut with new dot position
+                // Full gamut redraw (cached — skips grid if hue unchanged)
                 renderPaletteGamut(idx, h, mapped.L, mapped.C);
                 setText("ramp-" + idx + "-oklch", "L: " + mapped.L.toFixed(2) + "  C: " + mapped.C.toFixed(3) + "  H: " + h.toFixed(1));
-                // Update palette and preview
-                if (pKey === "accent") {
-                    currentAccent = OklchEngine.oklchToHex(mapped.L, mapped.C, h);
-                }
-                var palette = PaletteSystem.create(currentAccent, currentHarmony);
-                if (pKey !== "accent") {
-                    palette[pKey] = ShadeGenerator.generateRamp(mapped.L, mapped.C, h);
-                }
-                var diff = PaletteSystem.toThemeDiff(palette);
-                applyTokenDiff(diff);
-                updateTokenSwatches();
-                // Update mini ramp + large shades
-                var rampData = palette[pKey];
-                var stepsArr = ShadeGenerator.STEPS;
-                for (var ss = 0; ss < stepsArr.length; ss++) {
-                    setBackground("ramp-" + idx + "-s" + ss, rampData[stepsArr[ss]].hex);
-                }
-                setBackground("ramp-" + idx + "-dot", rampData[500].hex);
-                var stepIdxs = [0, 2, 4, 5, 7, 9];
-                for (var ls = 0; ls < 6; ls++) {
-                    setBackground("ramp-" + idx + "-lg-" + ls, rampData[stepsArr[stepIdxs[ls]]].hex);
+                // Throttle palette rebuild during drag (every 3rd event)
+                dragCount++;
+                if (dragCount % 3 === 0 || evt.type === 'pointerdown') {
+                    if (pKey === "accent") currentAccent = OklchEngine.oklchToHex(mapped.L, mapped.C, h);
+                    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+                    if (pKey !== "accent") palette[pKey] = ShadeGenerator.generateRamp(mapped.L, mapped.C, h);
+                    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+                    updateTokenSwatches();
+                    var rampData = palette[pKey]; var stepsArr = ShadeGenerator.STEPS;
+                    for (var ss = 0; ss < stepsArr.length; ss++) setBackground("ramp-" + idx + "-s" + ss, rampData[stepsArr[ss]].hex);
+                    setBackground("ramp-" + idx + "-dot", rampData[500].hex);
+                    var si2 = [0,2,4,5,7,9];
+                    for (var ls = 0; ls < 6; ls++) setBackground("ramp-" + idx + "-lg-" + ls, rampData[stepsArr[si2[ls]]].hex);
                 }
             }
-            on(gamutId, "pointerdown", onGamutPointer);
+            on(gamutId, "pointerdown", function(e) { dragCount = 0; onGamutPointer(e); });
             on(gamutId, "pointermove", onGamutPointer);
         })(p, paletteKeys[p]);
 
@@ -699,57 +688,84 @@ function buildShadeRamps() {
 }
 
 // Render gamut triangle for a specific palette editor
-// Draws the OKLCH gamut filled with color, plus a position dot
-function renderPaletteGamut(paletteIdx, hue, dotL, dotC) {
+// fullRedraw=true renders the color grid; false only redraws dot overlay
+var gamutCache = {};  // cache hue → avoid full redraw during drag
+
+function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
     var gamutId = "ramp-" + paletteIdx + "-gamut";
-    canvasClear(gamutId);
     var w = 270, h = 130;
-    // Background
-    canvasRect(gamutId, 0, 0, w, h, '#1e1e22');
-    // Draw OKLCH gamut: X = Lightness (0-1), Y = Chroma (0.4 top to 0 bottom)
-    var cols = 180;
-    var rows = 80;
-    var cellW = w / cols;
-    var cellH = h / rows;
-    for (var gx = 0; gx < cols; gx++) {
-        var L = gx / (cols - 1);
-        for (var gy = 0; gy < rows; gy++) {
-            var C = (1 - gy / (rows - 1)) * 0.4;
-            if (OklchEngine.isInGamut(L, C, hue)) {
-                canvasRect(gamutId, gx * cellW, gy * cellH, cellW + 1, cellH + 1, OklchEngine.oklchToHex(L, C, hue));
+
+    // Full redraw: render the entire color grid (expensive)
+    if (fullRedraw !== false || gamutCache[paletteIdx] !== hue) {
+        gamutCache[paletteIdx] = hue;
+        canvasClear(gamutId);
+        // Background
+        canvasRect(gamutId, 0, 0, w, h, '#1e1e22');
+
+        // Precompute boundary for clipping
+        var boundary = [];
+        for (var bx = 0; bx <= 100; bx++) {
+            var bL = bx / 100;
+            var blo = 0, bhi = 0.4;
+            for (var bbi = 0; bbi < 14; bbi++) {
+                var bmid = (blo + bhi) / 2;
+                if (OklchEngine.isInGamut(bL, bmid, hue)) blo = bmid; else bhi = bmid;
+            }
+            boundary.push(blo);
+        }
+
+        // Clip to gamut boundary path, then fill with colored columns
+        canvasSave(gamutId);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, h);  // bottom-left
+        for (var cx = 0; cx <= 100; cx++) {
+            var cL = cx / 100;
+            var cy = (1 - boundary[cx] / 0.4) * h;
+            canvasLineTo(gamutId, cL * w, cy);
+        }
+        canvasLineTo(gamutId, w, h);  // bottom-right
+        canvasClosePath(gamutId);
+        // Fill clipped region with colored rects (clipping makes edges smooth)
+        canvasFillPath(gamutId);  // fills with current fill color as base
+
+        // Now draw color grid inside the clipped shape
+        var cols = 100;
+        var rows = 40;
+        var cellW = w / cols;
+        var cellH = h / rows;
+        for (var gx = 0; gx < cols; gx++) {
+            var L = gx / (cols - 1);
+            var maxC = boundary[gx];
+            for (var gy = 0; gy < rows; gy++) {
+                var C = (1 - gy / (rows - 1)) * 0.4;
+                if (C <= maxC + 0.01) {
+                    canvasRect(gamutId, gx * cellW, gy * cellH, cellW + 1, cellH + 1, OklchEngine.oklchToHex(L, Math.min(C, maxC), hue));
+                }
             }
         }
-    }
-    // Draw smooth gamut boundary line using canvas path
-    canvasSetStrokeColor(gamutId, '#ffffff30');
-    canvasSetLineWidth(gamutId, 1.5);
-    canvasBeginPath(gamutId);
-    var firstBoundary = true;
-    for (var bx = 0; bx <= cols; bx++) {
-        var bL = bx / cols;
-        var blo = 0, bhi = 0.4;
-        for (var bbi = 0; bbi < 14; bbi++) {
-            var bmid = (blo + bhi) / 2;
-            if (OklchEngine.isInGamut(bL, bmid, hue)) blo = bmid; else bhi = bmid;
-        }
-        var by = (1 - blo / 0.4) * h;
-        if (firstBoundary) { canvasMoveTo(gamutId, bL * w, by); firstBoundary = false; }
-        else canvasLineTo(gamutId, bL * w, by);
-    }
-    canvasStrokePath(gamutId);
+        canvasRestore(gamutId);
 
-    // Draw position dot with crosshair lines
+        // Smooth boundary line on top
+        canvasSetStrokeColor(gamutId, '#ffffff25');
+        canvasSetLineWidth(gamutId, 1.5);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
+        for (var bx2 = 1; bx2 <= 100; bx2++) {
+            canvasLineTo(gamutId, (bx2 / 100) * w, (1 - boundary[bx2] / 0.4) * h);
+        }
+        canvasStrokePath(gamutId);
+    }
+
+    // Draw dot + crosshair (always, even during drag-only updates)
     if (dotL !== undefined && dotC !== undefined) {
         var dx = dotL * w;
         var dy = (1 - dotC / 0.4) * h;
-        // Crosshair lines (subtle)
-        canvasSetStrokeColor(gamutId, '#ffffff18');
-        canvasSetLineWidth(gamutId, 0.5);
-        canvasStrokeLine(gamutId, dx, 0, dx, h, '#ffffff18', 0.5);
-        canvasStrokeLine(gamutId, 0, dy, w, dy, '#ffffff18', 0.5);
-        // Dot: shadow → white ring → color fill (matching HTML style)
+        // Crosshair lines
+        canvasStrokeLine(gamutId, dx, 0, dx, h, '#ffffff15', 0.5);
+        canvasStrokeLine(gamutId, 0, dy, w, dy, '#ffffff15', 0.5);
+        // Dot: shadow → white ring → color center
         canvasFillCircle(gamutId, dx, dy, 9, '#00000040');
-        canvasFillCircle(gamutId, dx, dy, 7, '#ffffffcc');
+        canvasFillCircle(gamutId, dx, dy, 7, '#ffffffdd');
         canvasFillCircle(gamutId, dx, dy, 4, OklchEngine.oklchToHex(dotL, dotC, hue));
     }
 }
