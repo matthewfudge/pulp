@@ -2575,6 +2575,7 @@ static void print_usage() {
     std::cout << "  inspect  Launch the component inspector\n";
     std::cout << "  design          AI-powered style design (natural language -> token diffs)\n";
     std::cout << "  import-design   Import designs from Figma/Stitch/v0/Pencil\n";
+    std::cout << "  export-tokens   Export theme as W3C Design Tokens\n";
     std::cout << "  audit           License and clean-room audit\n";
     std::cout << "  help     Show this help\n";
     std::cout << "\nExamples:\n";
