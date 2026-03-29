@@ -1100,6 +1100,16 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // setSelected(id, index) — set ComboBox selected index without firing on_change
+    engine_.register_function("setSelected", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto idx = args.get<int>(1, 0);
+        if (auto* c = dynamic_cast<ComboBox*>(widget(id))) {
+            c->set_selected(idx);
+        }
+        return choc::value::Value();
+    });
+
     // Typography properties
     engine_.register_function("setFontWeight", [this](choc::javascript::ArgumentList args) {
         auto* v = widget(args.get<std::string>(0, ""));

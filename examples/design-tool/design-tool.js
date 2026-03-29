@@ -731,9 +731,9 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
             }
         }
 
-        // Mask out-of-gamut area with background-colored path overlay
-        // This fills ABOVE the jagged edge with the dark background, creating smooth edges
-        canvasSetFillColor(gamutId, APP_SURFACE);
+        // Mask out-of-gamut area — paint the dark background over the jagged edges
+        // using a path that covers everything ABOVE the smooth gamut boundary
+        canvasSetFillColor(gamutId, '#1e1e26');
         canvasBeginPath(gamutId);
         canvasMoveTo(gamutId, 0, 0);  // top-left
         canvasLineTo(gamutId, w, 0);  // top-right
@@ -1309,11 +1309,14 @@ on("accent-hue", "change", function(val) {
 });
 
 // Harmony selector handler
+var harmonyHandlerActive = false;
 on("harmony-selector", "select", function(idx) {
+    if (harmonyHandlerActive) return;  // prevent re-entry
+    harmonyHandlerActive = true;
     var modes = ["monochromatic", "analogous", "complementary", "splitComplementary", "none"];
     if (idx >= 0 && idx < modes.length) {
         currentHarmony = modes[idx];
-        expandedPalette = -1;  // collapse any expanded editor
+        expandedPalette = -1;
         buildShadeRamps();
         var palette = PaletteSystem.create(currentAccent, currentHarmony);
         var diff = PaletteSystem.toThemeDiff(palette);
@@ -1321,6 +1324,7 @@ on("harmony-selector", "select", function(idx) {
         updateTokenSwatches();
         layout();
     }
+    harmonyHandlerActive = false;
 });
 
 // Dark/Light mode handler
