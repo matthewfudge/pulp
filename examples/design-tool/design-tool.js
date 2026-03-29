@@ -501,6 +501,7 @@ function buildShadeRamps() {
         createCanvas(gamutId, editorId);
         setFlex(gamutId, "width", 270);
         setFlex(gamutId, "height", 130);
+        setBackground(gamutId, APP_SURFACE);  // opaque bg prevents content bleed-through
         // Enable pointer events for drag interaction on the gamut
         registerPointer(gamutId);
         (function(idx, pKey) {
@@ -700,7 +701,7 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
         gamutCache[paletteIdx] = hue;
         canvasClear(gamutId);
         // Background
-        canvasRect(gamutId, 0, 0, w, h, '#1e1e22');
+        canvasRect(gamutId, 0, 0, w, h, APP_SURFACE);
 
         // Precompute boundary
         var boundary = [];
@@ -732,7 +733,7 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
 
         // Mask out-of-gamut area with background-colored path overlay
         // This fills ABOVE the jagged edge with the dark background, creating smooth edges
-        canvasSetFillColor(gamutId, '#1e1e22');
+        canvasSetFillColor(gamutId, APP_SURFACE);
         canvasBeginPath(gamutId);
         canvasMoveTo(gamutId, 0, 0);  // top-left
         canvasLineTo(gamutId, w, 0);  // top-right
@@ -1143,7 +1144,7 @@ function renderGamutTriangle(hue) {
         }
         // Out-of-gamut area (dark background above the gamut boundary)
         if (h - gamutH > 0) {
-            canvasRect("tp-gamut", gx * colW, 0, colW + 0.5, h - gamutH, '#1e1e22');
+            canvasRect("tp-gamut", gx * colW, 0, colW + 0.5, h - gamutH, APP_SURFACE);
         }
     }
 }
