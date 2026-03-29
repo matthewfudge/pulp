@@ -340,6 +340,13 @@ for (var g = 0; g < tokenGroups.length; g++) {
         setFlex(hexId, "height", 18);
         setFontSize(hexId, 9);
 
+        // D7: hover highlight on token row
+        registerHover(tid);
+        (function(rowId) {
+            on(rowId, 'mouseenter', function() { setBackground(rowId, '#ffffff08'); });
+            on(rowId, 'mouseleave', function() { setBackground(rowId, 'transparent'); });
+        })(tid);
+
         // D1: click swatch → open token popup
         registerClick(swatchId);
         (function(tokenName, sid, gi, ti) {
@@ -788,18 +795,40 @@ setFlex("tp-gamut", "height", 120);
 function renderGamutTriangle(hue) {
     gamutHue = hue;
     canvasClear("tp-gamut");
-    var cellW = 250 / GAMUT_W;
-    var cellH = 120 / GAMUT_H;
-    for (var gx = 0; gx < GAMUT_W; gx++) {
-        var L = gx / (GAMUT_W - 1);
-        for (var gy = 0; gy < GAMUT_H; gy++) {
-            var C = (1 - gy / (GAMUT_H - 1)) * GAMUT_MAX_C;
-            if (OklchEngine.isInGamut(L, C, hue)) {
-                var hex = OklchEngine.oklchToHex(L, C, hue);
-                canvasRect("tp-gamut", gx * cellW, gy * cellH, cellW + 0.5, cellH + 0.5, hex);
-            } else {
-                canvasRect("tp-gamut", gx * cellW, gy * cellH, cellW + 0.5, cellH + 0.5, '#1e1e22');
-            }
+    var w = 250, h = 120;
+    // Use gradient strips: one vertical gradient per lightness column
+    var cols = 60;
+    var colW = w / cols;
+    for (var gx = 0; gx < cols; gx++) {
+        var L = gx / (cols - 1);
+        // Find max in-gamut chroma at this lightness via binary search
+        var maxC = 0;
+        var lo = 0, hi = GAMUT_MAX_C;
+        for (var bi = 0; bi < 16; bi++) {
+            var mid = (lo + hi) / 2;
+            if (OklchEngine.isInGamut(L, mid, hue)) lo = mid;
+            else hi = mid;
+        }
+        maxC = lo;
+        // Draw gradient strip from maxC (top, saturated) to 0 (bottom, gray)
+        var topHex = OklchEngine.oklchToHex(L, maxC, hue);
+        var botHex = OklchEngine.oklchToHex(L, 0, hue);
+        var gamutH = (maxC / GAMUT_MAX_C) * h;
+        // Gradient fill for in-gamut area
+        if (gamutH > 1) {
+            canvasSetLinearGradient("tp-gamut", gx * colW, h - gamutH, gx * colW, h, topHex, botHex);
+            canvasBeginPath("tp-gamut");
+            canvasMoveTo("tp-gamut", gx * colW, h - gamutH);
+            canvasLineTo("tp-gamut", gx * colW + colW + 0.5, h - gamutH);
+            canvasLineTo("tp-gamut", gx * colW + colW + 0.5, h);
+            canvasLineTo("tp-gamut", gx * colW, h);
+            canvasClosePath("tp-gamut");
+            canvasFillPath("tp-gamut");
+            canvasClearGradient("tp-gamut");
+        }
+        // Out-of-gamut area (dark background above the gamut boundary)
+        if (h - gamutH > 0) {
+            canvasRect("tp-gamut", gx * colW, 0, colW + 0.5, h - gamutH, '#1e1e22');
         }
     }
 }
@@ -1798,6 +1827,48 @@ setFontSize("status-text", 10);
 setTextColor("status-text", APP_TEXT_DIM);
 
 createLabel("status-schema", "pulp-theme/v1", "status-bar");
+
+// ═══════════════════════════════════════════════════════════════════
+// D7: Toast notification system
+// ═══════════════════════════════════════════════════════════════════
+createCol("toast-overlay", "");
+setPosition("toast-overlay", "absolute");
+setFlex("toast-overlay", "width", 200);
+setFlex("toast-overlay", "height", 30);
+setFlex("toast-overlay", "justify_content", "center");
+setFlex("toast-overlay", "align_items", "center");
+setBackground("toast-overlay", APP_PANEL);
+setBorder("toast-overlay", APP_BORDER, 1, 6);
+setBoxShadow("toast-overlay", 0, 4, 16, 0, "#00000060");
+setZIndex("toast-overlay", 200);
+setOpacity("toast-overlay", 0);
+setVisible("toast-overlay", false);
+
+createLabel("toast-text", "", "toast-overlay");
+setFontSize("toast-text", 10);
+
+var toastTimer = 0;
+function showToast(msg) {
+    setText("toast-text", msg);
+    setTop("toast-overlay", 650);
+    setLeft("toast-overlay", 450);
+    setVisible("toast-overlay", true);
+    setOpacity("toast-overlay", 1);
+    toastTimer = 60; // ~60 frames at 60fps = 1 second
+    function fadeToast() {
+        toastTimer--;
+        if (toastTimer <= 0) {
+            setOpacity("toast-overlay", 0);
+            setVisible("toast-overlay", false);
+            return;
+        }
+        if (toastTimer < 15) {
+            setOpacity("toast-overlay", toastTimer / 15);
+        }
+        __requestFrame__(fadeToast);
+    }
+    __requestFrame__(fadeToast);
+}
 setFontSize("status-schema", 10);
 setTextColor("status-schema", APP_TEXT_DIM);
 
@@ -2120,7 +2191,7 @@ registerClick("exp-copy-btn");
 on("exp-copy-btn", "click", function() {
     var code = generateExport(activeExportFormat);
     exec("echo " + JSON.stringify(code) + " | pbcopy");
-    setText("status-text", "Copied to clipboard");
+    showToast("Copied to clipboard");
 });
 
 createCol("exp-save-btn", "exp-actions");
@@ -2138,7 +2209,7 @@ on("exp-save-btn", "click", function() {
     var ext = [".json", ".css", ".css"][activeExportFormat];
     var path = "/tmp/pulp-theme" + ext;
     exec("cat > " + path + " << 'PULPEOF'\n" + code + "\nPULPEOF");
-    setText("status-text", "Saved to " + path);
+    showToast("Saved to " + path);
 });
 
 registerClick("export-btn-pill");
