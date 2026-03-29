@@ -277,14 +277,24 @@ setTextColor("tokens-title", APP_TEXT_DIM);
 
 // Token list (inside left-panel scroll, no nested scroll needed)
 createCol("token-list", "left-panel");
-setFlex("token-list", "height", 500);
+setFlex("token-list", "height", 800);
 
 // Token groups
+// D5: Expanded token registry (50+ semantic tokens matching HTML reference)
 var tokenGroups = [
     { name: "Background", tokens: ["bg.primary", "bg.secondary", "bg.surface", "bg.elevated"] },
-    { name: "Text", tokens: ["text.primary", "text.secondary", "text.disabled"] },
+    { name: "Text", tokens: ["text.primary", "text.secondary", "text.disabled", "text.link"] },
     { name: "Accent", tokens: ["accent.primary", "accent.secondary", "accent.success", "accent.warning", "accent.error"] },
-    { name: "Controls", tokens: ["control.track", "control.fill", "control.thumb", "control.border"] }
+    { name: "Controls", tokens: ["control.track", "control.fill", "control.thumb", "control.border"] },
+    { name: "Knob", tokens: ["knob.arc", "knob.arc.bg", "knob.thumb"] },
+    { name: "Slider", tokens: ["slider.track", "slider.fill", "slider.thumb"] },
+    { name: "Meter", tokens: ["meter.green", "meter.yellow", "meter.red"] },
+    { name: "Waveform", tokens: ["waveform.line", "waveform.fill", "waveform.grid"] },
+    { name: "Cards", tokens: ["card.empty", "card.loading", "card.ready", "card.error"] },
+    { name: "Overlay", tokens: ["overlay.bg", "modal.bg", "modal.border", "tooltip.bg", "tooltip.text"] },
+    { name: "Tabs", tokens: ["tab.active", "tab.inactive"] },
+    { name: "Effects", tokens: ["divider", "focus.ring", "progress.track", "progress.fill", "spinner"] },
+    { name: "Gradient", tokens: ["gradient.start", "gradient.end"] }
 ];
 
 for (var g = 0; g < tokenGroups.length; g++) {
