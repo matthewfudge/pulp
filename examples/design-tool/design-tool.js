@@ -485,6 +485,8 @@ function buildShadeRamps() {
             setFlex(shadeId, "height", 14);
             setBackground(shadeId, ramp[steps[s]].hex);
             setBorder(shadeId, APP_BORDER, 0, 2);
+            // Click shade → expand this palette with that shade's color
+            registerClick(shadeId);
         }
 
         // Expanded editor section (hidden unless this palette is expanded)
@@ -586,6 +588,27 @@ function buildShadeRamps() {
             };
             on("ramp-" + idx + "-dot", "click", toggleExpand);
             on("ramp-" + idx + "-name", "click", toggleExpand);
+            // Shade clicks also expand + position dot at that shade's color
+            for (var si = 0; si < ShadeGenerator.STEPS.length; si++) {
+                (function(paletteIdx, shadeStep) {
+                    on("ramp-" + paletteIdx + "-s" + shadeStep, "click", function() {
+                        var pal = PaletteSystem.create(currentAccent, currentHarmony);
+                        var shade = pal[paletteKeys[paletteIdx]][ShadeGenerator.STEPS[shadeStep]];
+                        var oklch = OklchEngine.hexToOklch(shade.hex);
+                        // Expand if not already
+                        if (expandedPalette >= 0 && expandedPalette !== paletteIdx) {
+                            setVisible("ramp-" + expandedPalette + "-editor", false);
+                        }
+                        expandedPalette = paletteIdx;
+                        setVisible("ramp-" + paletteIdx + "-editor", true);
+                        renderPaletteGamut(paletteIdx, oklch.H, oklch.L, oklch.C);
+                        setValue("ramp-" + paletteIdx + "-h-fdr", oklch.H / 360);
+                        setValue("ramp-" + paletteIdx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
+                        setText("ramp-" + paletteIdx + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
+                        layout();
+                    });
+                })(idx, si);
+            }
         })(p);
 
         // H/C slider change handlers — update gamut, dot, accent, and preview
@@ -639,8 +662,8 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC) {
     // Background
     canvasRect(gamutId, 0, 0, w, h, '#1e1e22');
     // Draw OKLCH gamut: X = Lightness (0-1), Y = Chroma (0.4 top to 0 bottom)
-    var cols = 120;
-    var rows = 50;
+    var cols = 180;
+    var rows = 80;
     var cellW = w / cols;
     var cellH = h / rows;
     for (var gx = 0; gx < cols; gx++) {
@@ -652,14 +675,37 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC) {
             }
         }
     }
-    // Draw position dot if L/C provided
+    // Draw smooth gamut boundary line using canvas path
+    canvasSetStrokeColor(gamutId, '#ffffff30');
+    canvasSetLineWidth(gamutId, 1.5);
+    canvasBeginPath(gamutId);
+    var firstBoundary = true;
+    for (var bx = 0; bx <= cols; bx++) {
+        var bL = bx / cols;
+        var blo = 0, bhi = 0.4;
+        for (var bbi = 0; bbi < 14; bbi++) {
+            var bmid = (blo + bhi) / 2;
+            if (OklchEngine.isInGamut(bL, bmid, hue)) blo = bmid; else bhi = bmid;
+        }
+        var by = (1 - blo / 0.4) * h;
+        if (firstBoundary) { canvasMoveTo(gamutId, bL * w, by); firstBoundary = false; }
+        else canvasLineTo(gamutId, bL * w, by);
+    }
+    canvasStrokePath(gamutId);
+
+    // Draw position dot with crosshair lines
     if (dotL !== undefined && dotC !== undefined) {
         var dx = dotL * w;
         var dy = (1 - dotC / 0.4) * h;
-        // White circle outline
-        canvasFillCircle(gamutId, dx, dy, 10, '#00000050');
-        canvasFillCircle(gamutId, dx, dy, 8, '#ffffff');
-        canvasFillCircle(gamutId, dx, dy, 5, OklchEngine.oklchToHex(dotL, dotC, hue));
+        // Crosshair lines (subtle)
+        canvasSetStrokeColor(gamutId, '#ffffff18');
+        canvasSetLineWidth(gamutId, 0.5);
+        canvasStrokeLine(gamutId, dx, 0, dx, h, '#ffffff18', 0.5);
+        canvasStrokeLine(gamutId, 0, dy, w, dy, '#ffffff18', 0.5);
+        // Dot: shadow → white ring → color fill (matching HTML style)
+        canvasFillCircle(gamutId, dx, dy, 9, '#00000040');
+        canvasFillCircle(gamutId, dx, dy, 7, '#ffffffcc');
+        canvasFillCircle(gamutId, dx, dy, 4, OklchEngine.oklchToHex(dotL, dotC, hue));
     }
 }
 
