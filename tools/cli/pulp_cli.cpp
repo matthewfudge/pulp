@@ -33,6 +33,11 @@
 
 namespace fs = std::filesystem;
 
+// ── SDK Constants ───────────────────────────────────────────────────────────
+
+static const char* PULP_SDK_VERSION = "0.1.0";
+static const char* PULP_GITHUB_REPO = "danielraffel/pulp";
+
 // ── Color / Terminal ────────────────────────────────────────────────────────
 
 static bool g_color_enabled = true;
@@ -166,27 +171,218 @@ static fs::path find_project_root() {
     return {};
 }
 
+// ── Standalone Project Detection ────────────────────────────────────────────
+
+// Check if we're in a standalone project (has pulp.toml but no core/)
+static fs::path find_standalone_root() {
+    auto dir = fs::current_path();
+    while (!dir.empty()) {
+        if (fs::exists(dir / "pulp.toml") && !fs::exists(dir / "core")) {
+            return dir;
+        }
+        auto parent = dir.parent_path();
+        if (parent == dir) break;
+        dir = parent;
+    }
+    return {};
+}
+
+// ── SDK Cache ──────────────────────────────────────────────────────────────
+
+static fs::path pulp_home() {
+    const char* home = std::getenv("HOME");
+#ifdef _WIN32
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
+    if (!home) return {};
+    return fs::path(home) / ".pulp";
+}
+
+static fs::path sdk_cache_path(const std::string& version) {
+    return pulp_home() / "sdk" / version;
+}
+
+static std::string detect_platform() {
+#ifdef __APPLE__
+    #if defined(__aarch64__) || defined(__arm64__)
+        return "darwin-arm64";
+    #else
+        return "darwin-x64";
+    #endif
+#elif defined(_WIN32)
+    return "windows-x64";
+#elif defined(__linux__)
+    #if defined(__aarch64__)
+        return "linux-arm64";
+    #else
+        return "linux-x64";
+    #endif
+#else
+    return "unknown";
+#endif
+}
+
+// Download and cache the Pulp SDK for the given version.
+// Returns the SDK root path on success, empty path on failure.
+static fs::path ensure_sdk(const std::string& version) {
+    auto sdk_dir = sdk_cache_path(version);
+
+    // Already cached?
+    if (fs::exists(sdk_dir / "version.txt")) {
+        return sdk_dir;
+    }
+
+    auto platform = detect_platform();
+    if (platform == "unknown") {
+        std::cerr << "Error: unsupported platform for SDK download.\n";
+        return {};
+    }
+
+    std::string ext = (platform.find("windows") != std::string::npos) ? "tar.gz" : "tar.gz";
+    std::string tarball = "pulp-sdk-" + platform + ".tar.gz";
+    std::string url = "https://github.com/" + std::string(PULP_GITHUB_REPO)
+                    + "/releases/download/v" + version + "/" + tarball;
+
+    std::cout << "Downloading Pulp SDK v" << version << " (" << platform << ")...\n";
+
+    // Create cache directory
+    fs::create_directories(sdk_dir);
+
+    std::string tmp_dir = "/tmp/pulp-sdk-download-" + version;
+#ifdef _WIN32
+    tmp_dir = std::string(std::getenv("TEMP") ? std::getenv("TEMP") : ".") + "\\pulp-sdk-download-" + version;
+#endif
+
+    // Download
+    std::string download_cmd;
+#ifdef _WIN32
+    download_cmd = "powershell -Command \"Invoke-WebRequest -Uri '" + url
+                 + "' -OutFile '" + tmp_dir + "\\" + tarball + "'\"";
+#else
+    download_cmd = "mkdir -p " + tmp_dir + " && curl -fSL -o " + tmp_dir + "/" + tarball + " " + url;
+#endif
+
+    int rc = run_with_spinner(download_cmd, "Downloading SDK");
+    if (rc != 0) {
+        std::cerr << "Error: failed to download SDK from:\n  " << url << "\n";
+        std::cerr << "Check your internet connection or download manually.\n";
+        fs::remove_all(sdk_dir);
+        run("rm -rf " + tmp_dir);
+        return {};
+    }
+
+    // Extract
+    std::string extract_cmd;
+#ifdef _WIN32
+    extract_cmd = "tar -xzf \"" + tmp_dir + "\\" + tarball + "\" -C \"" + tmp_dir + "\"";
+#else
+    extract_cmd = "tar -xzf " + tmp_dir + "/" + tarball + " -C " + tmp_dir;
+#endif
+
+    rc = run_with_spinner(extract_cmd, "Extracting SDK");
+    if (rc != 0) {
+        std::cerr << "Error: failed to extract SDK archive.\n";
+        fs::remove_all(sdk_dir);
+        run("rm -rf " + tmp_dir);
+        return {};
+    }
+
+    // Move extracted SDK into cache location
+    // The archive extracts to pulp-sdk/ directory
+    auto extracted = fs::path(tmp_dir) / "pulp-sdk";
+    if (!fs::exists(extracted)) {
+        // Try without subdirectory (flat extraction)
+        extracted = fs::path(tmp_dir);
+    }
+
+    try {
+        // Copy all files from extracted dir to sdk_dir
+        for (auto& entry : fs::directory_iterator(extracted)) {
+            auto dest = sdk_dir / entry.path().filename();
+            if (entry.is_directory()) {
+                fs::copy(entry.path(), dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+            } else {
+                fs::copy_file(entry.path(), dest, fs::copy_options::overwrite_existing);
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error installing SDK to cache: " << e.what() << "\n";
+        fs::remove_all(sdk_dir);
+        run("rm -rf " + tmp_dir);
+        return {};
+    }
+
+    run("rm -rf " + tmp_dir);
+
+    if (!fs::exists(sdk_dir / "version.txt")) {
+        std::cerr << "Error: SDK installation incomplete — version.txt not found.\n";
+        fs::remove_all(sdk_dir);
+        return {};
+    }
+
+    print_ok("SDK v" + version + " cached at " + sdk_dir.string());
+    return sdk_dir;
+}
+
+// Read SDK version from pulp.toml
+static std::string read_sdk_version(const fs::path& project_root) {
+    auto toml_path = project_root / "pulp.toml";
+    if (!fs::exists(toml_path)) return PULP_SDK_VERSION;
+
+    std::ifstream f(toml_path);
+    std::string line;
+    while (std::getline(f, line)) {
+        // Look for: sdk_version = "0.1.0"
+        auto pos = line.find("sdk_version");
+        if (pos != std::string::npos) {
+            auto q1 = line.find('"', pos);
+            auto q2 = line.find('"', q1 + 1);
+            if (q1 != std::string::npos && q2 != std::string::npos) {
+                return line.substr(q1 + 1, q2 - q1 - 1);
+            }
+        }
+    }
+    return PULP_SDK_VERSION;
+}
+
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 static int cmd_build(const std::vector<std::string>& args) {
     auto root = find_project_root();
-    if (root.empty()) {
+    auto standalone_root = find_standalone_root();
+
+    if (root.empty() && standalone_root.empty()) {
         std::cerr << "Error: not in a Pulp project directory\n";
         return 1;
     }
 
-    auto build_dir = root / "build";
+    // Standalone project mode: set CMAKE_PREFIX_PATH to SDK
+    auto project_root = root.empty() ? standalone_root : root;
+    auto build_dir = project_root / "build";
     bool needs_configure = !fs::exists(build_dir / "CMakeCache.txt");
 
     // Check if CMakeLists.txt is newer than CMakeCache
     if (!needs_configure && fs::exists(build_dir / "CMakeCache.txt")) {
-        auto cmake_time = fs::last_write_time(root / "CMakeLists.txt");
+        auto cmake_time = fs::last_write_time(project_root / "CMakeLists.txt");
         auto cache_time = fs::last_write_time(build_dir / "CMakeCache.txt");
         if (cmake_time > cache_time) needs_configure = true;
     }
 
     if (needs_configure) {
-        int rc = run_with_spinner("cmake -B " + build_dir.string() + " -S " + root.string(), "Configuring");
+        std::string configure_cmd = "cmake -B " + build_dir.string() + " -S " + project_root.string();
+
+        // Standalone projects need CMAKE_PREFIX_PATH to find the SDK
+        if (root.empty() && !standalone_root.empty()) {
+            auto version = read_sdk_version(standalone_root);
+            auto sdk_dir = ensure_sdk(version);
+            if (sdk_dir.empty()) {
+                std::cerr << "Error: could not obtain Pulp SDK v" << version << "\n";
+                return 1;
+            }
+            configure_cmd += " -DCMAKE_PREFIX_PATH=" + sdk_dir.string();
+        }
+
+        int rc = run_with_spinner(configure_cmd, "Configuring");
         if (rc != 0) return rc;
     }
 
@@ -202,12 +398,15 @@ static int cmd_build(const std::vector<std::string>& args) {
 
 static int cmd_test(const std::vector<std::string>& args) {
     auto root = find_project_root();
-    if (root.empty()) {
+    auto standalone_root = find_standalone_root();
+    auto project_root = root.empty() ? standalone_root : root;
+
+    if (project_root.empty()) {
         std::cerr << "Error: not in a Pulp project directory\n";
         return 1;
     }
 
-    auto build_dir = root / "build";
+    auto build_dir = project_root / "build";
     if (!fs::exists(build_dir / "CMakeCache.txt")) {
         std::cout << "Build directory not found, building first...\n";
         int rc = cmd_build({});
@@ -926,11 +1125,7 @@ static std::string expand_template_str(const std::string& tmpl,
 
 static int cmd_create(const std::vector<std::string>& args) {
     auto root = find_project_root();
-    if (root.empty()) {
-        std::cerr << "Error: not in a Pulp project directory.\n";
-        std::cerr << "Run this from within a Pulp checkout.\n";
-        return 1;
-    }
+    bool standalone_mode = root.empty();
 
     // Parse args
     std::string name, type = "effect", manufacturer = "Pulp", output_path, tmpl;
@@ -944,8 +1139,8 @@ static int cmd_create(const std::vector<std::string>& args) {
         if (args[i] == "--no-build") { no_build = true; continue; }
         if (args[i] == "--no-interactive" || args[i] == "--ci") { ci_mode = true; continue; }
         if (args[i] == "--help" || args[i] == "-h") {
-            std::cout << "pulp new — create a new plugin project\n\n";
-            std::cout << "Usage: pulp new <name> [options]\n\n";
+            std::cout << "pulp create — create a new plugin project\n\n";
+            std::cout << "Usage: pulp create <name> [options]\n\n";
             std::cout << "Options:\n";
             std::cout << "  --type <effect|instrument|app|bare>  Plugin type (default: effect)\n";
             std::cout << "  --template <name>           Use named template (e.g. gain)\n";
@@ -953,13 +1148,15 @@ static int cmd_create(const std::vector<std::string>& args) {
             std::cout << "  --output <dir>              Output directory\n";
             std::cout << "  --no-build                  Skip build after scaffolding\n";
             std::cout << "  --no-interactive, --ci      Non-interactive mode (use defaults)\n";
+            std::cout << "\nWorks both inside a Pulp repo (contributor mode) and outside\n";
+            std::cout << "(standalone mode — downloads SDK automatically).\n";
             return 0;
         }
-        if (name.empty() && args[i][0] != '-') { name = args[i]; continue; }
+        if (name.empty() && !args[i].empty() && args[i][0] != '-') { name = args[i]; continue; }
     }
 
     if (name.empty()) {
-        std::cerr << "Usage: pulp new <name> [--type effect|instrument] [--template gain] [--manufacturer Name]\n";
+        std::cerr << "Usage: pulp create <name> [--type effect|instrument] [--template gain] [--manufacturer Name]\n";
         return 1;
     }
 
@@ -976,9 +1173,28 @@ static int cmd_create(const std::vector<std::string>& args) {
         if (!ci_mode) std::cout << msg;
     };
 
-    // Quick doctor check
+    // For standalone mode, ensure we have the SDK before doctor checks
+    fs::path sdk_dir;
+    std::string sdk_version = PULP_SDK_VERSION;
+    fs::path templates_base;
+
+    if (standalone_mode) {
+        log("Standalone mode — fetching SDK...\n");
+        sdk_dir = ensure_sdk(sdk_version);
+        if (sdk_dir.empty()) {
+            std::cerr << "Error: could not obtain Pulp SDK. Check your internet connection.\n";
+            return 1;
+        }
+        templates_base = sdk_dir / "templates";
+        // Fall back to local templates if SDK doesn't have them
+        // (e.g., SDK not yet released, running from source build)
+    } else {
+        templates_base = root / "tools" / "templates";
+    }
+
+    // Quick doctor check (system-level only for standalone)
     log("Checking environment...\n");
-    auto checks = run_doctor_checks(root);
+    auto checks = run_doctor_checks(standalone_mode ? fs::path{} : root);
     bool env_ok = true;
     for (auto& c : checks) {
         if (!c.passed) {
@@ -1023,6 +1239,8 @@ static int cmd_create(const std::vector<std::string>& args) {
     if (!output_path.empty()) {
         out_dir = fs::path(output_path);
         if (!out_dir.is_absolute()) out_dir = fs::current_path() / out_dir;
+    } else if (standalone_mode) {
+        out_dir = fs::current_path() / lower_name;
     } else {
         out_dir = root / "examples" / lower_name;
     }
@@ -1054,19 +1272,33 @@ static int cmd_create(const std::vector<std::string>& args) {
                         type == "bare" ? "A minimal Pulp project" :
                         "A Pulp audio " + type},
         {"VST3_UID", make_vst3_uid()},
+        {"SDK_VERSION", sdk_version},
     };
 
-    // Read and expand templates
-    auto template_dir = root / "tools" / "templates" / template_key;
-    if (!fs::exists(template_dir)) {
-        std::cerr << "Error: template directory not found at " << template_dir.string() << "\n";
+    // Determine template directories
+    // For standalone: CMakeLists.txt comes from standalone/<type>, other files from <type>
+    // For in-repo: all files come from <type> as before
+    auto source_template_dir = templates_base / template_key;
+    auto cmake_template_dir = standalone_mode
+        ? templates_base / "standalone" / template_key
+        : source_template_dir;
+
+    // Fall back: if standalone templates aren't available, use source templates
+    // with a note that the CMakeLists.txt needs adjustment
+    if (standalone_mode && !fs::exists(cmake_template_dir)) {
+        cmake_template_dir = source_template_dir;
+    }
+
+    if (!fs::exists(source_template_dir)) {
+        std::cerr << "Error: template directory not found at " << source_template_dir.string() << "\n";
         if (!tmpl.empty())
             std::cerr << "Available templates: effect, instrument, gain\n";
         return 1;
     }
 
     fs::create_directories(out_dir);
-    log("Creating " + name + " (" + type + ") at " + out_dir.string() + "\n\n");
+    log("Creating " + name + " (" + type + ")"
+        + (standalone_mode ? " [standalone]" : "") + " at " + out_dir.string() + "\n\n");
 
     struct FileMapping { std::string tmpl; std::string output; };
     std::string test_name = "test_" + replace_all_str(lower_name, "-", "_") + ".cpp";
@@ -1079,8 +1311,11 @@ static int cmd_create(const std::vector<std::string>& args) {
         {"test.cpp.template", test_name},
     };
 
-    for (auto& [tmpl, outfile] : file_map) {
-        auto tmpl_path = template_dir / tmpl;
+    for (auto& [tmpl_file, outfile] : file_map) {
+        // CMakeLists.txt comes from cmake_template_dir, others from source_template_dir
+        auto tmpl_path = (tmpl_file == "CMakeLists.txt.template")
+            ? cmake_template_dir / tmpl_file
+            : source_template_dir / tmpl_file;
         if (!fs::exists(tmpl_path)) continue;
         auto content = read_file_contents(tmpl_path);
         auto expanded = expand_template_str(content, vars);
@@ -1101,7 +1336,7 @@ static int cmd_create(const std::vector<std::string>& args) {
     }
 
     // Copy UI script directory if template includes one
-    auto ui_template_dir = template_dir / "ui";
+    auto ui_template_dir = source_template_dir / "ui";
     if (fs::exists(ui_template_dir)) {
         auto ui_out_dir = out_dir / "ui";
         fs::create_directories(ui_out_dir);
@@ -1115,18 +1350,28 @@ static int cmd_create(const std::vector<std::string>& args) {
         }
     }
 
-    // Add to examples/CMakeLists.txt
-    auto examples_cmake = root / "examples" / "CMakeLists.txt";
-    auto rel_dir = lower_name;
-    bool in_examples = (out_dir.parent_path() == root / "examples");
+    // Generate pulp.toml for standalone projects
+    if (standalone_mode) {
+        std::ofstream f(out_dir / "pulp.toml");
+        f << "[pulp]\n";
+        f << "sdk_version = \"" << sdk_version << "\"\n";
+        log("  Created pulp.toml\n");
+    }
 
-    if (in_examples && fs::exists(examples_cmake)) {
-        std::string cmake_content = read_file_contents(examples_cmake);
-        std::string add_line = "\n# " + name + " (generated by pulp new)\n"
-                               "add_subdirectory(" + rel_dir + ")\n";
-        std::ofstream f(examples_cmake, std::ios::app);
-        f << add_line;
-        log("  Added to examples/CMakeLists.txt\n");
+    // Add to examples/CMakeLists.txt (in-repo mode only)
+    if (!standalone_mode) {
+        auto examples_cmake = root / "examples" / "CMakeLists.txt";
+        auto rel_dir = lower_name;
+        bool in_examples = (out_dir.parent_path() == root / "examples");
+
+        if (in_examples && fs::exists(examples_cmake)) {
+            std::string cmake_content = read_file_contents(examples_cmake);
+            std::string add_line = "\n# " + name + " (generated by pulp create)\n"
+                                   "add_subdirectory(" + rel_dir + ")\n";
+            std::ofstream f(examples_cmake, std::ios::app);
+            f << add_line;
+            log("  Added to examples/CMakeLists.txt\n");
+        }
     }
 
     log("\n");
@@ -1138,30 +1383,58 @@ static int cmd_create(const std::vector<std::string>& args) {
 
     // Build
     log("Building...\n");
-    int rc = run("cmake -S " + root.string() + " -B " + (root / "build").string()
-                 + " -DCMAKE_BUILD_TYPE=Debug 2>&1 | tail -5");
-    if (rc != 0) {
-        std::cerr << "Configure failed.\n";
-        return rc;
-    }
+    if (standalone_mode) {
+        // Standalone: configure with CMAKE_PREFIX_PATH pointing to SDK
+        std::string configure_cmd = "cmake -S " + out_dir.string()
+            + " -B " + (out_dir / "build").string()
+            + " -DCMAKE_BUILD_TYPE=Debug"
+            + " -DCMAKE_PREFIX_PATH=" + sdk_dir.string();
+        int rc = run_with_spinner(configure_cmd, "Configuring");
+        if (rc != 0) {
+            std::cerr << "Configure failed.\n";
+            return rc;
+        }
 
-    rc = run("cmake --build " + (root / "build").string() + " --target " + class_name + "-test 2>&1 | tail -10");
-    if (rc != 0) {
-        std::cerr << "Build failed.\n";
-        return rc;
-    }
+        rc = run_with_spinner("cmake --build " + (out_dir / "build").string()
+                              + " --target " + class_name + "-test", "Building");
+        if (rc != 0) {
+            std::cerr << "Build failed.\n";
+            return rc;
+        }
 
-    // Test — run the test binary directly since ctest may not have discovered new tests yet
-    log("\nRunning tests...\n");
-    auto test_binary = root / "build" / "examples" / lower_name / (class_name + "-test");
-    if (fs::exists(test_binary)) {
-        rc = run(test_binary.string());
+        // Test
+        log("\nRunning tests...\n");
+        rc = run("ctest --test-dir " + (out_dir / "build").string() + " --output-on-failure");
+        if (rc != 0) {
+            std::cerr << "Tests failed.\n";
+            return rc;
+        }
     } else {
-        rc = run("ctest --test-dir " + (root / "build").string() + " -R \"" + name + "\" --output-on-failure");
-    }
-    if (rc != 0) {
-        std::cerr << "Tests failed.\n";
-        return rc;
+        int rc = run("cmake -S " + root.string() + " -B " + (root / "build").string()
+                     + " -DCMAKE_BUILD_TYPE=Debug 2>&1 | tail -5");
+        if (rc != 0) {
+            std::cerr << "Configure failed.\n";
+            return rc;
+        }
+
+        rc = run("cmake --build " + (root / "build").string() + " --target " + class_name + "-test 2>&1 | tail -10");
+        if (rc != 0) {
+            std::cerr << "Build failed.\n";
+            return rc;
+        }
+
+        // Test — run the test binary directly since ctest may not have discovered new tests yet
+        log("\nRunning tests...\n");
+        auto test_binary = root / "build" / "examples" / lower_name / (class_name + "-test");
+        if (fs::exists(test_binary)) {
+            rc = run(test_binary.string());
+        } else {
+            rc = run("ctest --test-dir " + (root / "build").string() + " -R \"" + name + "\" --output-on-failure");
+        }
+        if (rc != 0) {
+            std::cerr << "Tests failed.\n";
+            return rc;
+        }
     }
 
     std::string test_filter = replace_all_str(lower_name, "-", "_");
@@ -1170,7 +1443,11 @@ static int cmd_create(const std::vector<std::string>& args) {
     std::cout << "\n  \xe2\x9c\x93 " << name << " is ready!\n\n";
     std::cout << "  Source:     " << out_dir.string() << "\n";
 
-    auto build_dir = root / "build";
+    if (standalone_mode) {
+        std::cout << "  SDK:        " << sdk_dir.string() << "\n";
+    }
+
+    auto build_dir = standalone_mode ? (out_dir / "build") : (root / "build");
     for (auto fmt : {"VST3", "CLAP", "AU"}) {
         auto fmt_dir = build_dir / fmt;
         if (!fs::exists(fmt_dir)) continue;
@@ -1182,10 +1459,151 @@ static int cmd_create(const std::vector<std::string>& args) {
     }
 
     std::cout << "\n  Next steps:\n";
+    if (standalone_mode) {
+        std::cout << "    cd " << lower_name << "\n";
+    }
     std::cout << "    pulp build              # rebuild after changes\n";
     std::cout << "    pulp test -R " << test_filter << "  # run tests\n";
     std::cout << "    pulp validate           # validate plugin formats\n";
     return 0;
+}
+
+// ── Cache ───────────────────────────────────────────────────────────────────
+
+static int cmd_cache(const std::vector<std::string>& args) {
+    auto home = pulp_home();
+    if (home.empty()) {
+        std::cerr << "Error: could not determine home directory.\n";
+        return 1;
+    }
+
+    auto cache_dir = home / "cache";
+
+    if (args.empty()) {
+        std::cout << "pulp cache — manage the Pulp asset cache (~/.pulp/cache/)\n\n";
+        std::cout << "Subcommands:\n";
+        std::cout << "  status           Show cache contents and sizes\n";
+        std::cout << "  fetch skia       Download Skia GPU rendering binaries\n";
+        std::cout << "  clean            Remove all cached assets\n";
+        return 0;
+    }
+
+    std::string sub = args[0];
+
+    if (sub == "status") {
+        std::cout << "Pulp Cache\n";
+        std::cout << "==========\n\n";
+        std::cout << "Location: " << home.string() << "\n\n";
+
+        // SDK versions
+        auto sdk_base = home / "sdk";
+        if (fs::exists(sdk_base)) {
+            std::cout << "SDKs:\n";
+            for (auto& entry : fs::directory_iterator(sdk_base)) {
+                if (entry.is_directory()) {
+                    std::cout << "  v" << entry.path().filename().string();
+                    if (fs::exists(entry.path() / "version.txt"))
+                        std::cout << " (complete)";
+                    else
+                        std::cout << " (incomplete)";
+                    std::cout << "\n";
+                }
+            }
+        } else {
+            std::cout << "SDKs: none cached\n";
+        }
+
+        // Cache assets
+        if (fs::exists(cache_dir)) {
+            std::cout << "\nAssets:\n";
+            bool any = false;
+            for (auto& entry : fs::directory_iterator(cache_dir)) {
+                any = true;
+                auto size = fs::file_size(entry.path());
+                std::string size_str;
+                if (size > 1024 * 1024)
+                    size_str = std::to_string(size / (1024 * 1024)) + " MB";
+                else if (size > 1024)
+                    size_str = std::to_string(size / 1024) + " KB";
+                else
+                    size_str = std::to_string(size) + " B";
+                std::cout << "  " << entry.path().filename().string()
+                          << " (" << size_str << ")\n";
+            }
+            if (!any) std::cout << "  (empty)\n";
+        } else {
+            std::cout << "\nAssets: none cached\n";
+        }
+
+        return 0;
+    }
+
+    if (sub == "fetch") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: pulp cache fetch <asset>\n";
+            std::cerr << "Available assets: skia\n";
+            return 1;
+        }
+
+        std::string asset = args[1];
+        if (asset != "skia") {
+            std::cerr << "Unknown asset: " << asset << "\n";
+            std::cerr << "Available assets: skia\n";
+            return 1;
+        }
+
+        auto platform = detect_platform();
+        std::string skia_tarball = "skia-" + platform + ".tar.gz";
+        auto skia_cache = cache_dir / skia_tarball;
+
+        if (fs::exists(skia_cache)) {
+            std::cout << "Skia binaries already cached at " << skia_cache.string() << "\n";
+            return 0;
+        }
+
+        fs::create_directories(cache_dir);
+
+        // Download Skia binaries from the Pulp release
+        std::string url = "https://github.com/" + std::string(PULP_GITHUB_REPO)
+                        + "/releases/download/v" + std::string(PULP_SDK_VERSION)
+                        + "/" + skia_tarball;
+
+        std::cout << "Downloading Skia binaries for " << platform << "...\n";
+
+        std::string download_cmd;
+#ifdef _WIN32
+        download_cmd = "powershell -Command \"Invoke-WebRequest -Uri '" + url
+                     + "' -OutFile '" + skia_cache.string() + "'\"";
+#else
+        download_cmd = "curl -fSL -o " + skia_cache.string() + " " + url;
+#endif
+
+        int rc = run_with_spinner(download_cmd, "Downloading Skia");
+        if (rc != 0) {
+            std::cerr << "Error: failed to download Skia binaries.\n";
+            std::cerr << "  URL: " << url << "\n";
+            std::cerr << "  Skia may not be available for this platform/version.\n";
+            fs::remove(skia_cache);
+            return 1;
+        }
+
+        print_ok("Skia binaries cached at " + skia_cache.string());
+        return 0;
+    }
+
+    if (sub == "clean") {
+        if (fs::exists(cache_dir)) {
+            fs::remove_all(cache_dir);
+            std::cout << "Cache cleared.\n";
+        } else {
+            std::cout << "Cache already empty.\n";
+        }
+        return 0;
+    }
+
+    std::cerr << "Unknown cache subcommand: " << sub << "\n";
+    std::cerr << "Run `pulp cache` for usage.\n";
+    return 1;
 }
 
 // ── Upgrade ─────────────────────────────────────────────────────────────────
@@ -1410,7 +1828,7 @@ static int cmd_run(const std::vector<std::string>& args) {
         }
         if (binary.empty()) {
             std::cerr << "Error: no standalone binary found in build/examples/\n";
-            std::cerr << "  Create one with: pulp new MyApp --type app\n";
+            std::cerr << "  Create one with: pulp create MyApp --type app\n";
             std::cerr << "  Or build an existing project: pulp build\n";
             return 1;
         }
@@ -2142,24 +2560,25 @@ static void print_usage() {
     std::cout << "pulp — Pulp audio plugin framework CLI\n\n";
     std::cout << "Usage: pulp <command> [options]\n\n";
     std::cout << "Commands:\n";
-    std::cout << "  new      Create a new plugin project (scaffold + build + test)\n";
-    std::cout << "  inspect  Launch the component inspector\n";
-    std::cout << "  design   AI-powered style design (natural language -> token diffs)\n";
-    std::cout << "  audit    License and clean-room audit\n";
+    std::cout << "  create   Create a new plugin project (scaffold + build + test)\n";
     std::cout << "  build    Build the project (configure + compile)\n";
     std::cout << "  run      Launch a standalone Pulp application\n";
     std::cout << "  test     Run the test suite\n";
     std::cout << "  status   Show project status and info\n";
     std::cout << "  validate Run plugin format validators (clap-validator, auval)\n";
     std::cout << "  ship     Sign, package, and check plugins\n";
+    std::cout << "  cache    Manage SDK and asset cache (~/.pulp/)\n";
     std::cout << "  docs     Browse local documentation\n";
     std::cout << "  doctor   Diagnose environment issues (--fix, --ci, --dry-run)\n";
     std::cout << "  upgrade  Update the Pulp CLI to the latest version\n";
     std::cout << "  clean    Remove build directory\n";
+    std::cout << "  inspect  Launch the component inspector\n";
+    std::cout << "  design   AI-powered style design (natural language -> token diffs)\n";
+    std::cout << "  audit    License and clean-room audit\n";
     std::cout << "  help     Show this help\n";
     std::cout << "\nExamples:\n";
-    std::cout << "  pulp new MyPlugin          # Create a new effect plugin\n";
-    std::cout << "  pulp new MySynth --type instrument  # Create an instrument\n";
+    std::cout << "  pulp create MyPlugin              # Create a new effect plugin\n";
+    std::cout << "  pulp create MySynth --type instrument  # Create an instrument\n";
     std::cout << "  pulp doctor             # Check environment for issues\n";
     std::cout << "  pulp doctor --fix       # Auto-fix issues where possible\n";
     std::cout << "  pulp build              # Build all targets\n";
@@ -2167,10 +2586,9 @@ static void print_usage() {
     std::cout << "  pulp test               # Run all tests\n";
     std::cout << "  pulp test -R Knob       # Run tests matching 'Knob'\n";
     std::cout << "  pulp validate           # Validate built plugins\n";
-    std::cout << "  pulp ship sign --identity \"Developer ID Application: Foo\"\n";
-    std::cout << "  pulp ship package --version 1.0.0\n";
+    std::cout << "  pulp cache status       # Show cached SDKs and assets\n";
+    std::cout << "  pulp cache fetch skia   # Download Skia GPU binaries\n";
     std::cout << "  pulp docs index         # List available docs\n";
-    std::cout << "  pulp docs open cli      # Read a doc by slug\n";
     std::cout << "  pulp status             # Show project info\n";
 }
 
@@ -2267,7 +2685,8 @@ int main(int argc, char* argv[]) {
         for (auto& arg : args) cmd += " " + arg;
         return run(cmd);
     }
-    if (command == "create" || command == "new") return cmd_create(args);
+    if (command == "cache")    return cmd_cache(args);
+    if (command == "create") return cmd_create(args);
     if (command == "help" || command == "--help" || command == "-h") {
         print_usage();
         return 0;
