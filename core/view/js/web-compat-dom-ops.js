@@ -1,19 +1,16 @@
-// DOM manipulation methods
+// DOM manipulation methods — small file for QuickJS compilation limit
 
 Element.prototype.appendChild = function(child) {
-    console.log("appendChild ENTER");
-    if (!(child instanceof Element)) { console.log("not Element"); return child; }
-    console.log("appendChild: instanceof OK");
+    if (!(child instanceof Element)) return child;
     if (child._parentElement) child._parentElement.removeChild(child);
-    console.log("appendChild: removeChild OK");
     child._parentElement = this;
     this._children.push(child);
-    console.log("appendChild: push OK, calling _ensureNative");
     this._ensureNative();
-    console.log("appendChild: _ensureNative OK, calling __domAppend");
     __domAppend(this._id, child._id, child.tagName.toLowerCase());
-    console.log("appendChild: __domAppend OK");
     child._nativeCreated = true;
+    if (child._textContent) setText(child._id, child._textContent);
+    child.style._flushAll();
+    child._reapplyStylesheets();
     return child;
 };
 
@@ -41,6 +38,9 @@ Element.prototype.insertBefore = function(newChild, refChild) {
     this._ensureNative();
     __domAppend(this._id, newChild._id, newChild.tagName.toLowerCase());
     newChild._nativeCreated = true;
+    if (newChild._textContent) setText(newChild._id, newChild._textContent);
+    newChild.style._flushAll();
+    newChild._reapplyStylesheets();
     return newChild;
 };
 

@@ -24,6 +24,56 @@ function on(id, eventName, fn) {
 }
 )";
 
+static const char* kDomOpsInit =
+    "Element.prototype.appendChild = function(child) {"
+    "  if (!(child instanceof Element)) return child;"
+    "  if (child._parentElement) child._parentElement.removeChild(child);"
+    "  child._parentElement = this;"
+    "  this._children.push(child);"
+    "  this._ensureNative();"
+    "  __domAppend(this._id, child._id, child.tagName.toLowerCase());"
+    "  child._nativeCreated = true;"
+    "  if (child._textContent) setText(child._id, child._textContent);"
+    "  child.style._flushAll();"
+    "  child._reapplyStylesheets();"
+    "  return child;"
+    "};"
+    "Element.prototype.removeChild = function(child) {"
+    "  var idx = this._children.indexOf(child);"
+    "  if (idx < 0) return child;"
+    "  this._children.splice(idx, 1);"
+    "  child._parentElement = null;"
+    "  if (child._nativeCreated) __domRemove(child._id);"
+    "  child._nativeCreated = false;"
+    "  return child;"
+    "};"
+    "Element.prototype.remove = function() {"
+    "  if (this._parentElement) this._parentElement.removeChild(this);"
+    "};"
+    "Element.prototype.insertBefore = function(newChild, refChild) {"
+    "  if (!refChild) return this.appendChild(newChild);"
+    "  var idx = this._children.indexOf(refChild);"
+    "  if (idx < 0) return this.appendChild(newChild);"
+    "  if (newChild._parentElement) newChild._parentElement.removeChild(newChild);"
+    "  newChild._parentElement = this;"
+    "  this._children.splice(idx, 0, newChild);"
+    "  this._ensureNative();"
+    "  __domAppend(this._id, newChild._id, newChild.tagName.toLowerCase());"
+    "  newChild._nativeCreated = true;"
+    "  if (newChild._textContent) setText(newChild._id, newChild._textContent);"
+    "  newChild.style._flushAll();"
+    "  newChild._reapplyStylesheets();"
+    "  return newChild;"
+    "};"
+    "Element.prototype.replaceChild = function(newChild, oldChild) {"
+    "  var idx = this._children.indexOf(oldChild);"
+    "  if (idx < 0) return oldChild;"
+    "  this.removeChild(oldChild);"
+    "  this.appendChild(newChild);"
+    "  return oldChild;"
+    "};";
+static bool s_dom_ops_loaded = false;
+
 WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& store)
     : engine_(engine), root_(root), store_(store) {
     register_api();
@@ -33,11 +83,18 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     engine_.evaluate(preludes::web_compat_element);
     engine_.evaluate(preludes::web_compat_style_decl);
     engine_.evaluate(preludes::web_compat_document);
-    engine_.evaluate(preludes::web_compat_dom_ops);
+    s_dom_ops_loaded = false;
 }
 
 void WidgetBridge::load_script(const std::string& code) {
-    engine_.evaluate(code);
+    if (!s_dom_ops_loaded) {
+        s_dom_ops_loaded = true;
+        engine_.evaluate(kDomOpsInit);
+    }
+    // Append ";void 0" so the eval result is undefined, not the last
+    // expression value. Elements have circular references (_parentElement
+    // ↔ _children) which cause infinite recursion in CHOC's toChocValue().
+    engine_.evaluate(code + "\n;void 0");
 }
 
 View* WidgetBridge::widget(const std::string& id) {
@@ -742,8 +799,33 @@ void WidgetBridge::register_api() {
     // __domAppend(parentId, childId, tag) — native appendChild.
     // Creates a native widget under parentId, purely in C++ — no re-entrant
     // JS evaluation which causes stack overflow in QuickJS.
-    engine_.register_function("__domAppend", [](choc::javascript::ArgumentList) {
-        // Empty — just test if the native call itself causes issues
+    engine_.register_function("__domAppend", [this](choc::javascript::ArgumentList args) {
+        auto parentId = args.get<std::string>(0, "");
+        auto childId = args.get<std::string>(1, "");
+        auto tag = args.get<std::string>(2, "div");
+        auto* existing = widget(childId);
+        if (existing) {
+            if (auto* p = existing->parent()) p->remove_child(existing);
+            widgets_.erase(childId);
+        }
+        // Create the appropriate widget type based on HTML tag
+        std::unique_ptr<View> child;
+        if (tag == "span" || tag == "p" || tag == "label" ||
+            tag == "h1" || tag == "h2" || tag == "h3" ||
+            tag == "h4" || tag == "h5" || tag == "h6") {
+            auto lbl = std::make_unique<Label>();
+            lbl->set_id(childId);
+            child = std::move(lbl);
+        } else {
+            auto v = std::make_unique<View>();
+            v->set_id(childId);
+            if (tag == "div" || tag == "section" || tag == "article" || tag == "aside" ||
+                tag == "header" || tag == "footer" || tag == "nav" || tag == "main")
+                v->flex().direction = FlexDirection::column;
+            child = std::move(v);
+        }
+        widgets_[childId] = child.get();
+        resolve_parent(parentId)->add_child(std::move(child));
         return choc::value::Value();
     });
 
