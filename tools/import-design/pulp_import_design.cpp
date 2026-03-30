@@ -304,6 +304,12 @@ int main(int argc, char* argv[]) {
 
     std::cout << ")\n";
 
+    // Screenshot naming convention: {design-name}-{source}-render.png
+    auto design_name = fs::path(output_file).stem().string();
+    auto source_lower = std::string(design_source_name(*source));
+    std::transform(source_lower.begin(), source_lower.end(), source_lower.begin(),
+        [](unsigned char c) { return std::tolower(c); });
+
     // ── Validation: render generated JS and compare with reference ──────
     if (validate) {
         std::cout << "Validating render...\n";
@@ -331,8 +337,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        // Save rendered screenshot
-        auto rendered_path = output_file + ".png";
+        auto rendered_path = design_name + "-" + source_lower + "-render.png";
         {
             std::ofstream f(rendered_path, std::ios::binary);
             f.write(reinterpret_cast<const char*>(rendered_png.data()),
@@ -361,7 +366,7 @@ int main(int argc, char* argv[]) {
             // Always generate diff image when reference is provided
             // Use --diff path if given, otherwise auto-generate alongside render
             auto actual_diff_path = diff_output.empty()
-                ? (output_file + ".diff.png") : diff_output;
+                ? (design_name + "-" + source_lower + "-diff.png") : diff_output;
             {
                 auto ref_bytes = [&]() -> std::vector<uint8_t> {
                     std::ifstream f(reference_image, std::ios::binary);
@@ -406,7 +411,7 @@ int main(int argc, char* argv[]) {
 
         // Validation results if available
         if (validate && !reference_image.empty()) {
-            auto result = compare_screenshot_files(reference_image, output_file + ".png");
+            auto result = compare_screenshot_files(reference_image, design_name + "-" + source_lower + "-render.png");
             dbg << "  \"validation\": {\n";
             dbg << "    \"reference\": \"" << reference_image << "\",\n";
             dbg << "    \"similarity_pct\": " << static_cast<int>(result.similarity * 100) << ",\n";

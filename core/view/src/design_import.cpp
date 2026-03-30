@@ -806,7 +806,7 @@ static float compute_node_height(const IRNode& node) {
 
     // Text/label: font-dependent height
     if (node.type == "text" || node.type == "label")
-        return node.style.font_size.value_or(14.0f) + 4.0f;
+        return node.style.font_size.value_or(14.0f) * 1.4f;
 
     // Container with children: compute recursively
     if (!node.children.empty())
@@ -881,6 +881,9 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setLabel('" << id << "', ' ');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
             emit_style(id);
+            // Per-knob stroke color from child ellipse (used by minimal paint path)
+            if (!stroke_color.empty())
+                ss << ind << "setBorder('" << id << "', '" << stroke_color << "', 2.5, " << (shape_w * 0.5f) << ");\n";
             // Labels below knob — center-aligned, Yoga-positioned
             if (!label_text.empty()) {
                 std::string lbl_id = id + "_lbl";
@@ -987,7 +990,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         ss << ind << "createLabel('" << id << "', '" << node.text_content << "', " << pid << ");\n";
 
         float font_h = node.style.font_size.value_or(14.0f);
-        float label_h = std::max(font_h + 4.0f, kMinLabelHeight);
+        float label_h = std::max(font_h * 1.4f, kMinLabelHeight);
         ss << ind << "setFlex('" << id << "', 'height', " << label_h << ");\n";
 
         if (node.style.font_size)
@@ -1065,8 +1068,23 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         ss << "\n";
 
         // Recurse children
-        for (auto& child : node.children)
+        // For space_between rows, right-align the last text child
+        bool is_space_between = is_row && node.layout.justify == LayoutAlign::space_between;
+        std::string last_text_child_id;
+        for (auto& child : node.children) {
+            // Capture the var_counter before generation to reconstruct this child's ID
+            if (is_space_between && (child.type == "text" || child.type == "label")) {
+                std::string child_id = sanitize_var(child.name.empty() ? child.type : child.name);
+                child_id += std::to_string(var_counter);  // counter value before this child runs
+                last_text_child_id = child_id;
+            }
             generate_native_node(ss, child, opts, depth + 1, var_counter, id);
+        }
+        // Right-align the last label in space_between rows
+        if (!last_text_child_id.empty()) {
+            std::string child_ind = indent(depth + 1, opts.indent_spaces);
+            ss << child_ind << "setTextAlign('" << last_text_child_id << "', 'right');\n\n";
+        }
 
         return;
     }

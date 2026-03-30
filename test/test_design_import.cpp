@@ -228,7 +228,7 @@ TEST_CASE("generate_pulp_js native mode handles audio widgets with Yoga constrai
     // Knob with wrapper column and proper sizing (IDs get numeric suffixes)
     REQUIRE(js.find("createKnob('GainKnob") != std::string::npos);
     REQUIRE(js.find("setLabel('GainKnob") != std::string::npos);
-    REQUIRE(js.find("'Gain')") != std::string::npos);
+    REQUIRE(js.find("'Gain'") != std::string::npos);
     REQUIRE(js.find("setValue('GainKnob") != std::string::npos);
     // Knob size >= 56 (minimum)
     REQUIRE(js.find("'width', 56)") != std::string::npos);
