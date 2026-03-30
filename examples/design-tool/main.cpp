@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include <dispatch/dispatch.h>
 
 using namespace pulp::view;
 using namespace pulp::state;
@@ -109,9 +110,22 @@ int main(int argc, char* argv[]) {
         window->repaint();
     });
 
+    // Poll hot-reload on a GCD timer (main thread, every 300ms)
+    auto* reload_timer = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(reload_timer,
+        dispatch_time(DISPATCH_TIME_NOW, 0),
+        300 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
+    auto* reloader_ptr = &reloader;
+    dispatch_source_set_event_handler(reload_timer, ^{
+        reloader_ptr->poll_reload();
+    });
+    dispatch_resume(reload_timer);
+
     std::cout << "Hot reload watching: " << js_path.parent_path().string() << "\n";
     std::cout << "Opening window...\n";
 
     window->run_event_loop();
+    dispatch_source_cancel(reload_timer);
     return 0;
 }

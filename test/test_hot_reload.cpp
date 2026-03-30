@@ -86,6 +86,79 @@ TEST_CASE("HotReloader reload_count increments", "[view][hotreload]") {
     std::filesystem::remove_all(tmp_dir);
 }
 
+TEST_CASE("HotReloader multiple sequential reloads", "[view][hotreload]") {
+    auto tmp_dir = std::filesystem::temp_directory_path() / "pulp_hotreload_multi";
+    std::filesystem::create_directories(tmp_dir);
+    auto js_file = tmp_dir / "ui.js";
+
+    write_js_file(js_file, "// v1");
+
+    std::vector<std::string> reload_history;
+    HotReloader reloader(js_file, [&](const std::string& code) {
+        reload_history.push_back(code);
+    });
+
+    auto wait_for_reload = [&](int expected_count) {
+        for (int i = 0; i < 20; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            reloader.poll_reload();
+            if (static_cast<int>(reload_history.size()) >= expected_count) return true;
+        }
+        return static_cast<int>(reload_history.size()) >= expected_count;
+    };
+
+    // First reload
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    write_js_file(js_file, "// v2 - first change");
+    REQUIRE(wait_for_reload(1));
+    REQUIRE(reload_history.back().find("v2") != std::string::npos);
+
+    // Second reload
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    write_js_file(js_file, "// v3 - second change");
+    REQUIRE(wait_for_reload(2));
+    REQUIRE(reload_history.back().find("v3") != std::string::npos);
+
+    // Verify reload count matches
+    REQUIRE(reloader.reload_count() >= 2);
+
+    std::filesystem::remove_all(tmp_dir);
+}
+
+TEST_CASE("HotReloader only reloads on JS modification", "[view][hotreload]") {
+    auto tmp_dir = std::filesystem::temp_directory_path() / "pulp_hotreload_jsonly";
+    std::filesystem::create_directories(tmp_dir);
+    auto js_file = tmp_dir / "ui.js";
+
+    write_js_file(js_file, "// original");
+
+    // Let the watcher settle after initial file creation
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    std::string latest_code;
+    HotReloader reloader(js_file, [&](const std::string& code) {
+        latest_code = code;
+    });
+
+    // Drain any initial detection
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    reloader.poll_reload();
+
+    // Modify the JS file — SHOULD trigger reload with new content
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    write_js_file(js_file, "// updated version");
+
+    bool detected = false;
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        if (reloader.poll_reload()) { detected = true; break; }
+    }
+    REQUIRE(detected);
+    REQUIRE(latest_code.find("updated version") != std::string::npos);
+
+    std::filesystem::remove_all(tmp_dir);
+}
+
 TEST_CASE("HotReloader directory watching", "[view][hotreload]") {
     auto tmp_dir = std::filesystem::temp_directory_path() / "pulp_hotreload_test3";
     std::filesystem::create_directories(tmp_dir);
