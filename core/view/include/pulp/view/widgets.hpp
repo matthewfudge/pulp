@@ -83,9 +83,17 @@ private:
 // ── Knob ─────────────────────────────────────────────────────────────────────
 // Rotary control for audio parameters (gain, frequency, etc.)
 
+/// Rendering style for audio widgets.
+/// `standard` = interactive widget (arcs, thumbs, fills).
+/// `minimal` = design-preview mode (simple shapes matching design tools).
+enum class WidgetRenderStyle { standard, minimal };
+
 class Knob : public View {
 public:
     Knob() { set_access_role(AccessRole::slider); set_focusable(true); }
+
+    void set_render_style(WidgetRenderStyle s) { render_style_ = s; }
+    WidgetRenderStyle render_style() const { return render_style_; }
 
     void set_value(float v) { value_ = std::clamp(v, 0.0f, 1.0f); }
     float value() const { return value_; }
@@ -138,6 +146,7 @@ private:
     std::string custom_sksl_;     // SkSL source for GPU shader body
     std::string widget_schema_;   // JSON declarative schema
     std::string lottie_json_;     // Lottie animation JSON
+    WidgetRenderStyle render_style_ = WidgetRenderStyle::standard;
     float lottie_time_ = 0;       // Current playback position (0-1)
 
 public:
@@ -155,6 +164,9 @@ public:
     enum class Orientation { vertical, horizontal };
 
     Fader() { set_access_role(AccessRole::slider); set_focusable(true); }
+
+    void set_render_style(WidgetRenderStyle s) { render_style_ = s; }
+    WidgetRenderStyle render_style() const { return render_style_; }
 
     void set_value(float v) { value_ = std::clamp(v, 0.0f, 1.0f); }
     float value() const { return value_; }
@@ -182,6 +194,12 @@ public:
     void clear_custom_shader() { custom_sksl_.clear(); }
     bool has_custom_shader() const { return !custom_sksl_.empty(); }
     const std::string& custom_shader() const { return custom_sksl_; }
+    void set_widget_schema(std::string json) { widget_schema_ = std::move(json); }
+    const std::string& widget_schema() const { return widget_schema_; }
+    void set_lottie_json(std::string json) { lottie_json_ = std::move(json); }
+    const std::string& lottie_json() const { return lottie_json_; }
+    void set_lottie_time(float t) { lottie_time_ = std::clamp(t, 0.0f, 1.0f); }
+    float lottie_time() const { return lottie_time_; }
 
 private:
     float value_ = 0.0f;
@@ -190,6 +208,10 @@ private:
     ValueAnimation hover_thumb_scale_{1.0f};
     bool dragging_ = false;
     std::string custom_sksl_;
+    std::string widget_schema_;
+    std::string lottie_json_;
+    float lottie_time_ = 0.0f;
+    WidgetRenderStyle render_style_ = WidgetRenderStyle::standard;
 };
 
 // ── Toggle ───────────────────────────────────────────────────────────────────
@@ -224,6 +246,12 @@ public:
     void clear_custom_shader() { custom_sksl_.clear(); }
     bool has_custom_shader() const { return !custom_sksl_.empty(); }
     const std::string& custom_shader() const { return custom_sksl_; }
+    void set_widget_schema(std::string json) { widget_schema_ = std::move(json); }
+    const std::string& widget_schema() const { return widget_schema_; }
+    void set_lottie_json(std::string json) { lottie_json_ = std::move(json); }
+    const std::string& lottie_json() const { return lottie_json_; }
+    void set_lottie_time(float t) { lottie_time_ = std::clamp(t, 0.0f, 1.0f); }
+    float lottie_time() const { return lottie_time_; }
 
 private:
     bool on_ = false;
@@ -231,6 +259,9 @@ private:
     ValueAnimation thumb_position_;
     ValueAnimation hover_opacity_;
     std::string custom_sksl_;
+    std::string widget_schema_;
+    std::string lottie_json_;
+    float lottie_time_ = 0.0f;
 };
 
 // ── Checkbox ────────────────────────────────────────────────────────────────
@@ -322,6 +353,9 @@ public:
 
     Meter() { set_access_role(AccessRole::meter); }
 
+    void set_render_style(WidgetRenderStyle s) { render_style_ = s; }
+    WidgetRenderStyle render_style() const { return render_style_; }
+
     // Set levels directly (normalized 0-1)
     void set_level(float rms, float peak);
 
@@ -343,6 +377,7 @@ private:
     MeterBallistics ballistics_;
     float current_rms_ = 0;
     float current_peak_ = 0;
+    WidgetRenderStyle render_style_ = WidgetRenderStyle::standard;
 };
 
 // ── XYPad ────────────────────────────────────────────────────────────────────

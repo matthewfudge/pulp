@@ -78,7 +78,6 @@ static const char* kDomOpsInit =
     "  this.appendChild(newChild);"
     "  return oldChild;"
     "};";
-static bool s_dom_ops_loaded = false;
 
 WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& store)
     : engine_(engine), root_(root), store_(store) {
@@ -89,12 +88,11 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     engine_.evaluate(preludes::web_compat_element);
     engine_.evaluate(preludes::web_compat_style_decl);
     engine_.evaluate(preludes::web_compat_document);
-    s_dom_ops_loaded = false;
 }
 
 void WidgetBridge::load_script(const std::string& code) {
-    if (!s_dom_ops_loaded) {
-        s_dom_ops_loaded = true;
+    if (!dom_ops_loaded_) {
+        dom_ops_loaded_ = true;
         engine_.evaluate(kDomOpsInit);
     }
     // Append ";void 0" so the eval result is undefined, not the last
@@ -165,6 +163,8 @@ void WidgetBridge::wire_callbacks(const std::string& id, View* w) {
 }
 
 void WidgetBridge::clear() {
+    pending_frame_ids_.clear();
+    shortcuts_.clear();
     std::vector<std::string> ids;
     ids.reserve(widgets_.size());
     for (auto& [id, _] : widgets_) ids.push_back(id);
@@ -193,6 +193,32 @@ void WidgetBridge::restore_values(const std::unordered_map<std::string, float>& 
         if (auto* k = dynamic_cast<Knob*>(it->second)) k->set_value(val);
         else if (auto* f = dynamic_cast<Fader*>(it->second)) f->set_value(val);
         else if (auto* t = dynamic_cast<Toggle*>(it->second)) t->set_on(val > 0.5f);
+    }
+}
+
+void WidgetBridge::poll_async_results() {
+    std::vector<AsyncExecResult> pending;
+    {
+        std::lock_guard<std::mutex> lock(async_exec_mutex_);
+        pending.swap(async_exec_results_);
+    }
+
+    auto escape_js_string = [](const std::string& input) {
+        std::string escaped;
+        escaped.reserve(input.size());
+        for (char c : input) {
+            if (c == '\\') escaped += "\\\\";
+            else if (c == '\'') escaped += "\\'";
+            else if (c == '\n') escaped += "\\n";
+            else if (c == '\r') continue;
+            else escaped += c;
+        }
+        return escaped;
+    };
+
+    for (const auto& result : pending) {
+        engine_.evaluate("__dispatch__('" + result.callback_id + "', 'result', '" +
+                         escape_js_string(result.output) + "')");
     }
 }
 
@@ -1086,6 +1112,19 @@ void WidgetBridge::register_api() {
 
     // setStyle — placeholder until KnobStyle/ToggleStyle enums added to main widgets
     engine_.register_function("setStyle", [](choc::javascript::ArgumentList) {
+        return choc::value::Value();
+    });
+
+    // setWidgetStyle(id, "standard"|"minimal") — switch rendering mode
+    // "minimal" draws simple shapes matching design tools (circles, thin tracks)
+    engine_.register_function("setWidgetStyle", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto style_str = args.get<std::string>(1, "standard");
+        auto style = (style_str == "minimal") ? WidgetRenderStyle::minimal : WidgetRenderStyle::standard;
+        auto* v = widget(id);
+        if (auto* k = dynamic_cast<Knob*>(v)) k->set_render_style(style);
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_render_style(style);
+        else if (auto* m = dynamic_cast<Meter*>(v)) m->set_render_style(style);
         return choc::value::Value();
     });
 
@@ -2079,6 +2118,8 @@ void WidgetBridge::register_api() {
         auto* v = widget(id);
         if (!v) return choc::value::Value();
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_widget_schema(json);
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_widget_schema(json);
+        else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_widget_schema(json);
         return choc::value::Value();
     });
 
@@ -2090,6 +2131,8 @@ void WidgetBridge::register_api() {
         if (!v) return choc::value::Value();
         // Store Lottie JSON for JS-side rendering or future Skottie integration
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_lottie_json(json);
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_lottie_json(json);
+        else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_lottie_json(json);
         return choc::value::Value();
     });
 
@@ -2100,6 +2143,8 @@ void WidgetBridge::register_api() {
         auto* v = widget(id);
         if (!v) return choc::value::Value();
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_lottie_time(t);
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_lottie_time(t);
+        else if (auto* tg = dynamic_cast<Toggle*>(v)) tg->set_lottie_time(t);
         return choc::value::Value();
     });
 
@@ -2109,7 +2154,65 @@ void WidgetBridge::register_api() {
         auto* v = widget(id);
         if (!v) return choc::value::Value();
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_widget_schema("");
+        else if (auto* f = dynamic_cast<Fader*>(v)) f->set_widget_schema("");
+        else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_widget_schema("");
         return choc::value::Value();
+    });
+
+    // saveStylePreset(name, object) → persist style payload as JSON under temp storage
+    engine_.register_function("saveStylePreset", [](choc::javascript::ArgumentList args) {
+        auto name = args.get<std::string>(0, "");
+        if (name.empty() || args.numArgs < 2 || !args[1]) return choc::value::createBool(false);
+
+        std::string safe_name;
+        safe_name.reserve(name.size());
+        for (char c : name) {
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') || c == '-' || c == '_') {
+                safe_name.push_back(c);
+            } else if (c == ' ') {
+                safe_name.push_back('_');
+            }
+        }
+        if (safe_name.empty()) return choc::value::createBool(false);
+
+        auto dir = std::filesystem::temp_directory_path() / "pulp-style-presets";
+        std::filesystem::create_directories(dir);
+
+        std::ofstream out(dir / (safe_name + ".json"));
+        if (!out.is_open()) return choc::value::createBool(false);
+        out << choc::json::toString(*args[1], true);
+        return choc::value::createBool(true);
+    });
+
+    // loadStylePreset(name) → load persisted JSON object or null
+    engine_.register_function("loadStylePreset", [](choc::javascript::ArgumentList args) {
+        auto name = args.get<std::string>(0, "");
+        if (name.empty()) return choc::value::Value();
+
+        std::string safe_name;
+        safe_name.reserve(name.size());
+        for (char c : name) {
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') || c == '-' || c == '_') {
+                safe_name.push_back(c);
+            } else if (c == ' ') {
+                safe_name.push_back('_');
+            }
+        }
+        if (safe_name.empty()) return choc::value::Value();
+
+        auto path = std::filesystem::temp_directory_path() / "pulp-style-presets" / (safe_name + ".json");
+        if (!std::filesystem::exists(path)) return choc::value::Value();
+
+        std::ifstream in(path);
+        std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (json.empty()) return choc::value::Value();
+        try {
+            return choc::json::parse(json);
+        } catch (...) {
+            return choc::value::Value();
+        }
     });
 
     // measureText(text, fontSize) → {width, ascent, descent, lineHeight}
@@ -2231,7 +2334,7 @@ void WidgetBridge::register_api() {
 
     // execAsync(cmd, callbackId) — non-blocking shell command
     // Runs cmd on a background thread, dispatches result to JS via
-    // __dispatch__(callbackId, 'result', stdout) when complete.
+    // __dispatch__(callbackId, 'result', stdout) when poll_async_results() runs.
     engine_.register_function("execAsync", [this](choc::javascript::ArgumentList args) {
         auto cmd = args.get<std::string>(0, "");
         auto cbId = args.get<std::string>(1, "");
@@ -2239,9 +2342,7 @@ void WidgetBridge::register_api() {
         auto full_cmd = std::string(
             "export PATH=\"$HOME/.local/bin:$HOME/.npm-global/bin:"
             "/opt/homebrew/bin:/usr/local/bin:$PATH\"; ") + cmd;
-        // Capture engine pointer for callback
-        auto* eng = &engine_;
-        std::thread([full_cmd, cbId, eng]() {
+        std::thread([this, full_cmd, cbId]() {
             std::string r;
             FILE* p = popen(full_cmd.c_str(), "r");
             if (p) {
@@ -2249,21 +2350,8 @@ void WidgetBridge::register_api() {
                 while (fgets(buf, sizeof(buf), p)) r += buf;
                 pclose(p);
             }
-            // Escape single quotes in result for JS string
-            std::string escaped;
-            for (char c : r) {
-                if (c == '\'') escaped += "\\'";
-                else if (c == '\n') escaped += "\\n";
-                else if (c == '\r') continue;
-                else escaped += c;
-            }
-            // Dispatch result back to JS on next evaluate
-            // Note: this is called from a background thread — the JS engine
-            // is not thread-safe. The caller must poll for results.
-            // For safety, write result to a temp file and let JS poll it.
-            std::string tmpPath = "/tmp/pulp-async-" + cbId + ".txt";
-            FILE* f = fopen(tmpPath.c_str(), "w");
-            if (f) { fwrite(r.c_str(), 1, r.size(), f); fclose(f); }
+            std::lock_guard<std::mutex> lock(async_exec_mutex_);
+            async_exec_results_.push_back({cbId, std::move(r)});
         }).detach();
         return choc::value::Value();
     });
@@ -2372,10 +2460,8 @@ void WidgetBridge::register_api() {
     // JS side stores callbacks in __frameCallbacks__ map, passes ID to C++.
     // C++ stores pending IDs and invokes them on next frame via __invokeFrame__.
     // Shared pending frame callback IDs (static so lambdas can capture pointer)
-    static std::vector<int>* s_pending_frames = new std::vector<int>();
-    static bool frame_preamble_loaded = false;
-    if (!frame_preamble_loaded) {
-        frame_preamble_loaded = true;
+    if (!frame_preamble_loaded_) {
+        frame_preamble_loaded_ = true;
         engine_.evaluate(
             "var __frameCallbacks__ = {};"
             "var __frameNextId__ = 1;"
@@ -2386,22 +2472,22 @@ void WidgetBridge::register_api() {
         );
     }
 
-    engine_.register_function("__requestFrame__", [](choc::javascript::ArgumentList args) {
+    engine_.register_function("__requestFrame__", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<int>(0, 0);
-        if (id > 0) s_pending_frames->push_back(id);
+        if (id > 0) pending_frame_ids_.push_back(id);
         return choc::value::createInt32(id);
     });
 
-    engine_.register_function("__cancelFrame__", [](choc::javascript::ArgumentList args) {
+    engine_.register_function("__cancelFrame__", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<int>(0, 0);
-        auto it = std::find(s_pending_frames->begin(), s_pending_frames->end(), id);
-        if (it != s_pending_frames->end()) s_pending_frames->erase(it);
+        auto it = std::find(pending_frame_ids_.begin(), pending_frame_ids_.end(), id);
+        if (it != pending_frame_ids_.end()) pending_frame_ids_.erase(it);
         return choc::value::Value();
     });
 
     engine_.register_function("__flushFrames__", [this](choc::javascript::ArgumentList) {
-        auto ids = *s_pending_frames;
-        s_pending_frames->clear();
+        auto ids = pending_frame_ids_;
+        pending_frame_ids_.clear();
         for (auto id : ids) {
             engine_.evaluate("__invokeFrame__(" + std::to_string(id) + ")");
         }

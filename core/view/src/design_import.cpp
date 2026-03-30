@@ -800,6 +800,12 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         if (opts.include_comments && !label_text.empty())
             ss << ind << "// " << label_text << "\n";
 
+        // Helper: emit setWidgetStyle if preview mode
+        auto emit_style = [&](const std::string& wid) {
+            if (opts.preview_mode)
+                ss << ind << "setWidgetStyle('" << wid << "', 'minimal');\n";
+        };
+
         // Create a wrapper column for the widget + value label
         std::string col_id = id + "_col";
         ss << ind << "createCol('" << col_id << "', " << pid << ");\n";
@@ -818,6 +824,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             if (!label_text.empty())
                 ss << ind << "setLabel('" << id << "', '" << label_text << "');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
+            emit_style(id);
             if (!value_text.empty()) {
                 std::string val_id = id + "_val";
                 ss << ind << "createLabel('" << val_id << "', '" << value_text << "', '" << col_id << "');\n";
@@ -849,6 +856,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             // Fader label overlaps track when rendered inside bounds — use separate label
             ss << ind << "setLabel('" << id << "', ' ');\n";  // Clear built-in label
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
+            emit_style(id);
             if (!label_text.empty()) {
                 std::string lbl_id = id + "_lbl";
                 ss << ind << "createLabel('" << lbl_id << "', '" << label_text << "', '" << col_id << "');\n";
@@ -876,6 +884,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setFlex('" << id << "', 'width', " << widget_w << ");\n";
             ss << ind << "setFlex('" << id << "', 'height', " << shape_h << ");\n";
             ss << ind << "setMeterLevel('" << id << "', -6);\n";
+            emit_style(id);
             // Meter has no setLabel — always add a separate label
             if (!label_text.empty()) {
                 std::string lbl_id = id + "_lbl";

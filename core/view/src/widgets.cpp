@@ -346,6 +346,16 @@ void Knob::paint(canvas::Canvas& canvas) {
         u.thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
         canvas.draw_with_sksl(custom_sksl_, 0, 0, b.width, b.height, u);
         // Fall through to draw labels and value text on top of the shader
+    } else if (render_style_ == WidgetRenderStyle::minimal) {
+        // ── Minimal/design-preview: simple circle outline (matches design tools) ──
+        auto fill_bg = resolve_color("bg.surface", canvas::Color::rgba(49, 50, 68));
+        canvas.set_fill_color(fill_bg);
+        canvas.fill_circle(cx, cy, radius);
+
+        auto stroke_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        canvas.set_stroke_color(stroke_color);
+        canvas.set_line_width(2.5f);
+        canvas.stroke_circle(cx, cy, radius);
     } else {
         // ── Default C++ paint path ──────────────────────────────────────
 
@@ -411,44 +421,71 @@ void Fader::paint(canvas::Canvas& canvas) {
     float track_length = vert ? b.height : b.width;
     float track_width = vert ? b.width : b.height;
 
-    // Track
-    auto track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
-    canvas.set_fill_color({track_color.r, track_color.g, track_color.b, track_color.a});
-
-    float track_thick = 4.0f;
-    if (vert) {
-        float tx = (b.width - track_thick) * 0.5f;
-        canvas.fill_rounded_rect(tx, 0, track_thick, track_length, 2.0f);
+    if (!widget_schema_.empty()) {
+        render_schema(canvas, widget_schema_, b.width, b.height, value_, *this);
+    } else if (!custom_sksl_.empty()) {
+        canvas::Canvas::ShaderUniforms u;
+        u.value = value_;
+        u.time = 0;
+        u.accent_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+        u.bg_color = resolve_color("bg.primary", canvas::Color::rgba(30, 30, 46));
+        u.track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
+        u.fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        u.thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+        canvas.draw_with_sksl(custom_sksl_, 0, 0, b.width, b.height, u);
+    } else if (render_style_ == WidgetRenderStyle::minimal) {
+        // ── Minimal: thin track only, no fill, no thumb (matches design tools) ──
+        auto track_color = resolve_color("control.track", canvas::Color::rgba(69, 71, 90));
+        canvas.set_fill_color(track_color);
+        float track_thick = vert ? std::min(b.width * 0.4f, 6.0f) : std::min(b.height * 0.4f, 6.0f);
+        if (vert) {
+            float tx = (b.width - track_thick) * 0.5f;
+            canvas.fill_rounded_rect(tx, 0, track_thick, track_length, track_thick * 0.5f);
+        } else {
+            float ty = (b.height - track_thick) * 0.5f;
+            canvas.fill_rounded_rect(0, ty, track_length, track_thick, track_thick * 0.5f);
+        }
     } else {
-        float ty = (b.height - track_thick) * 0.5f;
-        canvas.fill_rounded_rect(0, ty, track_length, track_thick, 2.0f);
-    }
 
-    // Fill (value portion)
-    auto fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
-    canvas.set_fill_color({fill_color.r, fill_color.g, fill_color.b, fill_color.a});
+        // Track
+        auto track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
+        canvas.set_fill_color({track_color.r, track_color.g, track_color.b, track_color.a});
 
-    if (vert) {
-        float fill_height = value_ * track_length;
-        float tx = (b.width - track_thick) * 0.5f;
-        canvas.fill_rounded_rect(tx, track_length - fill_height, track_thick, fill_height, 2.0f);
-    } else {
-        float fill_width = value_ * track_length;
-        float ty = (b.height - track_thick) * 0.5f;
-        canvas.fill_rounded_rect(0, ty, fill_width, track_thick, 2.0f);
-    }
+        float track_thick = 4.0f;
+        if (vert) {
+            float tx = (b.width - track_thick) * 0.5f;
+            canvas.fill_rounded_rect(tx, 0, track_thick, track_length, 2.0f);
+        } else {
+            float ty = (b.height - track_thick) * 0.5f;
+            canvas.fill_rounded_rect(0, ty, track_length, track_thick, 2.0f);
+        }
 
-    // Thumb (with hover scale animation)
-    auto thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
-    canvas.set_fill_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
+        // Fill (value portion)
+        auto fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        canvas.set_fill_color({fill_color.r, fill_color.g, fill_color.b, fill_color.a});
 
-    float thumb_radius = std::min(track_width * 0.35f, 8.0f) * hover_thumb_scale_.value();
-    if (vert) {
-        float thumb_y = track_length - value_ * track_length;
-        canvas.fill_circle(b.width * 0.5f, thumb_y, thumb_radius);
-    } else {
-        float thumb_x = value_ * track_length;
-        canvas.fill_circle(thumb_x, b.height * 0.5f, thumb_radius);
+        if (vert) {
+            float fill_height = value_ * track_length;
+            float tx = (b.width - track_thick) * 0.5f;
+            canvas.fill_rounded_rect(tx, track_length - fill_height, track_thick, fill_height, 2.0f);
+        } else {
+            float fill_width = value_ * track_length;
+            float ty = (b.height - track_thick) * 0.5f;
+            canvas.fill_rounded_rect(0, ty, fill_width, track_thick, 2.0f);
+        }
+
+        // Thumb (with hover scale animation)
+        auto thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+        canvas.set_fill_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
+
+        float thumb_radius = std::min(track_width * 0.35f, 8.0f) * hover_thumb_scale_.value();
+        if (vert) {
+            float thumb_y = track_length - value_ * track_length;
+            canvas.fill_circle(b.width * 0.5f, thumb_y, thumb_radius);
+        } else {
+            float thumb_x = value_ * track_length;
+            canvas.fill_circle(thumb_x, b.height * 0.5f, thumb_radius);
+        }
     }
 
     // Label
@@ -475,33 +512,48 @@ void Toggle::paint(canvas::Canvas& canvas) {
     float sx = (b.width - switch_w) * 0.5f;
     float sy = (b.height - switch_h) * 0.5f;
 
-    // Track — blend color based on animated thumb position
-    float t = thumb_position_.value();
-    auto on_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
-    auto off_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
-    auto bg_color = canvas::Color::rgba(
-        static_cast<uint8_t>(off_color.r + (on_color.r - off_color.r) * t),
-        static_cast<uint8_t>(off_color.g + (on_color.g - off_color.g) * t),
-        static_cast<uint8_t>(off_color.b + (on_color.b - off_color.b) * t),
-        255);
-    canvas.set_fill_color(bg_color);
-    canvas.fill_rounded_rect(sx, sy, switch_w, switch_h, switch_h * 0.5f);
+    if (!widget_schema_.empty()) {
+        render_schema(canvas, widget_schema_, b.width, b.height, on_ ? 1.0f : 0.0f, *this);
+    } else if (!custom_sksl_.empty()) {
+        canvas::Canvas::ShaderUniforms u;
+        u.value = on_ ? 1.0f : 0.0f;
+        u.time = 0;
+        u.accent_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+        u.bg_color = resolve_color("bg.primary", canvas::Color::rgba(30, 30, 46));
+        u.track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
+        u.fill_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
+        u.thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+        canvas.draw_with_sksl(custom_sksl_, 0, 0, b.width, b.height, u);
+    } else {
 
-    // Hover highlight on track
-    float hov = hover_opacity_.value();
-    if (hov > 0.01f) {
-        canvas.set_fill_color(canvas::Color::rgba(255, 255, 255, static_cast<uint8_t>(15 * hov)));
+        // Track — blend color based on animated thumb position
+        float t = thumb_position_.value();
+        auto on_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
+        auto off_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
+        auto bg_color = canvas::Color::rgba(
+            static_cast<uint8_t>(off_color.r + (on_color.r - off_color.r) * t),
+            static_cast<uint8_t>(off_color.g + (on_color.g - off_color.g) * t),
+            static_cast<uint8_t>(off_color.b + (on_color.b - off_color.b) * t),
+            255);
+        canvas.set_fill_color(bg_color);
         canvas.fill_rounded_rect(sx, sy, switch_w, switch_h, switch_h * 0.5f);
-    }
 
-    // Thumb circle — position animated between off and on
-    auto thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
-    canvas.set_fill_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
-    float thumb_r = switch_h * 0.4f;
-    float off_x = sx + switch_h * 0.5f;
-    float on_x = sx + switch_w - switch_h * 0.5f;
-    float thumb_x = off_x + (on_x - off_x) * t;
-    canvas.fill_circle(thumb_x, sy + switch_h * 0.5f, thumb_r);
+        // Hover highlight on track
+        float hov = hover_opacity_.value();
+        if (hov > 0.01f) {
+            canvas.set_fill_color(canvas::Color::rgba(255, 255, 255, static_cast<uint8_t>(15 * hov)));
+            canvas.fill_rounded_rect(sx, sy, switch_w, switch_h, switch_h * 0.5f);
+        }
+
+        // Thumb circle — position animated between off and on
+        auto thumb_color = resolve_color("control.thumb", canvas::Color::rgba(220, 220, 220));
+        canvas.set_fill_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
+        float thumb_r = switch_h * 0.4f;
+        float off_x = sx + switch_h * 0.5f;
+        float on_x = sx + switch_w - switch_h * 0.5f;
+        float thumb_x = off_x + (on_x - off_x) * t;
+        canvas.fill_circle(thumb_x, sy + switch_h * 0.5f, thumb_r);
+    }
 
     // Label
     if (!label_.empty()) {
@@ -686,6 +738,23 @@ void Meter::update(float raw_peak, float raw_rms, float dt) {
 void Meter::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
     bool vert = orientation_ == Orientation::vertical;
+
+    if (render_style_ == WidgetRenderStyle::minimal) {
+        // ── Minimal: gradient bar (green→red) matching design tool appearance ──
+        auto green = resolve_color("accent.success", canvas::Color::rgba(166, 227, 161));
+        auto red = resolve_color("accent.error", canvas::Color::rgba(243, 139, 168));
+        // Simple two-stop vertical gradient approximation
+        for (int y = 0; y < static_cast<int>(b.height); ++y) {
+            float t = static_cast<float>(y) / b.height;
+            uint8_t r = static_cast<uint8_t>(red.r * t + green.r * (1.0f - t));
+            uint8_t g = static_cast<uint8_t>(red.g * t + green.g * (1.0f - t));
+            uint8_t bl = static_cast<uint8_t>(red.b * t + green.b * (1.0f - t));
+            canvas.set_fill_color(canvas::Color::rgba(r, g, bl));
+            canvas.fill_rect(0, static_cast<float>(y), b.width, 1);
+        }
+        // Round corners by clipping (approximate with rounded rect overlay)
+        return;
+    }
 
     // Background
     auto bg = resolve_color("control.track", canvas::Color::rgba(30, 30, 30));

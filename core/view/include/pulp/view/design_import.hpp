@@ -158,6 +158,7 @@ struct CodeGenOptions {
     CodeGenMode mode = CodeGenMode::native;  // Native by default (better Yoga compat)
     bool include_tokens = true;       // Generate token assignments
     bool include_comments = true;     // Generate inline comments
+    bool preview_mode = false;        // Use minimal widget style (design preview)
     std::string root_variable = "root";
     int indent_spaces = 2;
 };
