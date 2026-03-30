@@ -187,6 +187,10 @@ commands:
         kind: option
         required: false
         description: Replay a saved model response without invoking AI
+      - name: --capture-backend
+        kind: option
+        required: false
+        description: "Screenshot backend (skia or coregraphics); skia renders widget SkSL offscreen"
       - name: --provider
         kind: option
         required: false

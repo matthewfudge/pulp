@@ -46,6 +46,7 @@ struct Options {
     uint32_t width = 1100;
     uint32_t height = 700;
     float scale = 2.0f;
+    ScreenshotBackend capture_backend = ScreenshotBackend::skia;
     bool debug_json = true;
 };
 
@@ -156,6 +157,7 @@ void print_usage() {
     std::cerr << "  --width <px>                 Render width (default: 1100)\n";
     std::cerr << "  --height <px>                Render height (default: 700)\n";
     std::cerr << "  --scale <factor>             Render scale (default: 2.0)\n";
+    std::cerr << "  --capture-backend <name>     Screenshot backend: skia or coregraphics (default: skia)\n";
 }
 
 std::string run_command_capture(const std::string& command, int& exit_code) {
@@ -193,6 +195,26 @@ std::string now_stamp() {
     return buf;
 }
 
+const char* backend_flag_name(ScreenshotBackend backend) {
+    switch (backend) {
+        case ScreenshotBackend::coregraphics: return "coregraphics";
+        case ScreenshotBackend::skia: return "skia";
+        default: return "default";
+    }
+}
+
+const char* backend_report_name(ScreenshotBackend backend) {
+    switch (backend) {
+        case ScreenshotBackend::coregraphics: return "coregraphics-headless";
+        case ScreenshotBackend::skia: return "skia-headless";
+        default: return "unknown";
+    }
+}
+
+bool backend_supports_widget_sksl(ScreenshotBackend backend) {
+    return backend == ScreenshotBackend::skia;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -216,6 +238,15 @@ int main(int argc, char* argv[]) {
         else if (arg == "--width" && i + 1 < argc) opts.width = static_cast<uint32_t>(std::stoul(argv[++i]));
         else if (arg == "--height" && i + 1 < argc) opts.height = static_cast<uint32_t>(std::stoul(argv[++i]));
         else if (arg == "--scale" && i + 1 < argc) opts.scale = std::stof(argv[++i]);
+        else if (arg == "--capture-backend" && i + 1 < argc) {
+            auto value = std::string(argv[++i]);
+            if (value == "coregraphics") opts.capture_backend = ScreenshotBackend::coregraphics;
+            else if (value == "skia") opts.capture_backend = ScreenshotBackend::skia;
+            else {
+                std::cerr << "Unknown capture backend: " << value << "\n";
+                return 1;
+            }
+        }
         else if (arg == "--help" || arg == "-h") {
             print_usage();
             return 0;
@@ -287,7 +318,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto before_png = render_to_png(root, opts.width, opts.height, opts.scale);
+    auto before_png = render_to_png(root, opts.width, opts.height, opts.scale, opts.capture_backend);
     if (before_png.empty() || !write_binary_file(before_path, before_png)) {
         std::cerr << "Error: failed to render before screenshot\n";
         return 1;
@@ -347,7 +378,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto after_png = render_to_png(root, opts.width, opts.height, opts.scale);
+    auto after_png = render_to_png(root, opts.width, opts.height, opts.scale, opts.capture_backend);
     if (after_png.empty() || !write_binary_file(after_path, after_png)) {
         std::cerr << "Error: failed to render after screenshot\n";
         return 1;
@@ -382,10 +413,16 @@ int main(int argc, char* argv[]) {
     report << "{\n";
     report << "  \"tool\": \"pulp-design-debug\",\n";
     report << "  \"script\": \"" << json_escape(opts.script_path.string()) << "\",\n";
-    report << "  \"render_backend\": \"coregraphics-headless\",\n";
+    report << "  \"render_backend\": \"" << backend_report_name(opts.capture_backend) << "\",\n";
+    report << "  \"requested_capture_backend\": \"" << backend_flag_name(opts.capture_backend) << "\",\n";
     report << "  \"sksl_gpu_supported\": false,\n";
+    report << "  \"widget_sksl_render_supported\": " << (backend_supports_widget_sksl(opts.capture_backend) ? "true" : "false") << ",\n";
     report << "  \"warnings\": [\n";
-    report << "    \"Headless design-debug currently renders through CoreGraphicsCanvas, not the live Skia GPU path. Use this report to validate prompt/response/apply flow and visual diffs, but judge final widget SkSL quality in the interactive design tool.\"\n";
+    if (opts.capture_backend == ScreenshotBackend::skia) {
+        report << "    \"This run used the offscreen Skia backend, so widget SkSL is rendered in the artifact images. It still does not prove final live GPU presentation parity. Use the interactive design tool for final visual QA.\"\n";
+    } else {
+        report << "    \"This run used the CoreGraphics headless backend. Widget SkSL is not faithfully rendered here; use this report to validate prompt/response/apply flow and visual diffs, but judge final widget shader quality with Skia-backed capture or the interactive design tool.\"\n";
+    }
     report << "  ],\n";
     report << "  \"provider\": \"" << json_escape(opts.provider) << "\",\n";
     report << "  \"model\": \"" << json_escape(opts.model) << "\",\n";

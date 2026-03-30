@@ -23,6 +23,8 @@ Each run writes an artifact bundle under `planning/screenshots/design-debug/` by
 
 The JSON report includes:
 - provider, model, reasoning effort
+- requested capture backend and actual render backend
+- whether widget SkSL was rendered in the artifact images
 - target widget id and bounds
 - the exact AI command used
 - screenshot diff stats
@@ -88,27 +90,44 @@ That metadata is preserved in the debug report so you can compare:
 - `gpt-5.4` vs another Codex/OpenAI model
 - `low` vs `xhigh` reasoning effort
 
-## Current Limitation
+## Capture Backends
 
-`pulp design-debug` currently renders through the headless CoreGraphics path.
-The report makes this explicit:
+The debug tool supports two render paths:
+
+- `--capture-backend skia` (default)
+- `--capture-backend coregraphics`
+
+The default Skia path makes the harness much more useful for widget restyling,
+because widget SkSL actually renders in the screenshots. The report makes this explicit:
 
 ```json
 {
-  "render_backend": "coregraphics-headless",
-  "sksl_gpu_supported": false
+  "render_backend": "skia-headless",
+  "requested_capture_backend": "skia",
+  "sksl_gpu_supported": false,
+  "widget_sksl_render_supported": true
 }
 ```
+
+The CoreGraphics path is still available, but it does not faithfully render
+custom widget SkSL and is mainly useful as a baseline/comparison path.
+
+## Current Limitation
+
+Even with Skia capture, the harness still renders offscreen rather than through
+the final live GPU presentation path used by the interactive app.
 
 This means the harness is very good for:
 - validating prompt construction
 - validating provider/model/reasoning metadata
 - validating JSON parsing and apply flow
+- validating widget SkSL shape/material changes in before/after screenshots
 - comparing token/dimension/widget-look diffs
 - publishing deterministic before/after/report bundles
 
-It is not yet the source of truth for final live SkSL quality. For shader fidelity,
-judge the result in the interactive GPU-backed `pulp design` app.
+It is still not the final source of truth for live GPU presentation parity.
+For final shader fidelity, judge the result in the interactive GPU-backed
+`pulp design` app.
 
 ## Testing
 

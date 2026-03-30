@@ -1,0 +1,30 @@
+{
+  "tool": "pulp-design-debug",
+  "script": "/Users/danielraffel/Code/pulp/examples/design-tool/design-tool.js",
+  "render_backend": "skia-headless",
+  "requested_capture_backend": "skia",
+  "sksl_gpu_supported": false,
+  "widget_sksl_render_supported": true,
+  "warnings": [
+    "This run used the offscreen Skia backend, so widget SkSL is rendered in the artifact images. It still does not prove final live GPU presentation parity. Use the interactive design tool for final visual QA."
+  ],
+  "provider": "codex",
+  "model": "gpt-5.4",
+  "reasoning_effort": "low",
+  "target": "k1",
+  "target_found": true,
+  "target_bounds": {"x": 0, "y": 0, "width": 56, "height": 64},
+  "prompt": "make the gain knob look like a precision analyzer control with restrained chrome",
+  "prompt_file": "planning/screenshots/design-debug/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt",
+  "response_file": "planning/screenshots/design-debug/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-response.txt",
+  "before_image": "planning/screenshots/design-debug/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-before.png",
+  "after_image": "planning/screenshots/design-debug/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-after.png",
+  "diff_image": "planning/screenshots/design-debug/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-diff.png",
+  "similarity_pct": 99,
+  "diff_pixels": 15447,
+  "total_pixels": 3080000,
+  "mean_error": 0.643519,
+  "apply_summary": "Applied 6 colors + 6 styles + 1 widget looks: knob.arc, knob.arc.bg, knob.thumb, control.border, control.fill, focus.ring",
+  "debug_state": {"target":"k1","provider":"codex","model":"gpt-5.4","reasoningEffort":"low","requestText":"make the gain knob look like a precision analyzer control with restrained chrome","responseLength":701,"changedColors":["knob.arc","knob.arc.bg","knob.thumb","control.border","control.fill","focus.ring"],"changedDimensions":["dimensions.knobArcWidth","dimensions.knobSize","dimensions.borderWidth","dimensions.shadowBlur","dimensions.shadowAlpha","dimensions.cornerRadius"],"widgetLookIds":["k1"],"widgetLookCount":1,"summary":"Applied 6 colors + 6 styles + 1 widget looks: knob.arc, knob.arc.bg, knob.thumb, control.border, control.fill, focus.ring","status":"ok","error":"","promptLength":6813},
+  "ai_command": "cat '/var/folders/59/k170j7fj3tn25mdtnj_vbmsc0000gn/T/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt' | codex exec - --model 'gpt-5.4' --skip-git-repo-check --sandbox read-only --color never --ephemeral -c model_reasoning_effort='low' -o '/var/folders/59/k170j7fj3tn25mdtnj_vbmsc0000gn/T/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt.out.txt' >/dev/null; __pulp_status=$?; if [ -f '/var/folders/59/k170j7fj3tn25mdtnj_vbmsc0000gn/T/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt.out.txt' ]; then cat '/var/folders/59/k170j7fj3tn25mdtnj_vbmsc0000gn/T/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt.out.txt'; fi; rm -f '/var/folders/59/k170j7fj3tn25mdtnj_vbmsc0000gn/T/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt' '/var/folders/59/k170j7fj3tn25mdtnj_vbmsc0000gn/T/20260330-163817-k1-gpt-5-4-make-the-gain-knob-look-like-a-precision-analyze-prompt.txt.out.txt'; exit $__pulp_status"
+}

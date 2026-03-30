@@ -517,9 +517,10 @@ ai_shader_design:
       `pulp design-debug` runs the design chat pipeline headlessly and emits
       before/after/diff screenshots plus a JSON report containing provider/model/
       reasoning-effort metadata, target bounds, prompt/response files, and
-      screenshot diff statistics. Supports replaying saved responses. Current
-      limitation: the headless backend is CoreGraphics, not the live Skia GPU path,
-      so report artifacts validate prompt/JSON/apply flow rather than final SkSL fidelity.
+      screenshot diff statistics. Supports replaying saved responses. The default
+      Skia backend renders widget SkSL offscreen (`render_backend: skia-headless`,
+      `widget_sksl_render_supported: true`). Remaining limitation: this still does
+      not prove final live GPU presentation parity in the interactive app.
 
 design_import:
   figma_adapter:

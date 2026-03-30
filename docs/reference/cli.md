@@ -235,7 +235,7 @@ and a reasoning-effort selector for Codex/OpenAI models.
 
 **Status**: experimental
 
-Run the headless before/after/diff harness for design-chat prompts. This is the
+Run the before/after/diff harness for design-chat prompts. This is the
 automation/debug companion to `pulp design`.
 
 ```bash
@@ -264,19 +264,25 @@ Useful flags:
 - `--provider claude|codex`
 - `--model <name>`
 - `--reasoning-effort low|medium|high|xhigh`
+- `--capture-backend skia|coregraphics`
 - `--response-file <json-or-text>` to replay a saved model response without calling AI
 - `--script <path>` to load a custom design-tool JS file
 - `--output-dir <dir>` to redirect artifact output
 - `--width`, `--height`, `--scale` to control the render size
 - `--ai-cli <template>` to override the local AI command template
 
-Important limitation:
-- `pulp design-debug` currently renders through the headless CoreGraphics path and
-  writes `render_backend: "coregraphics-headless"` with `sksl_gpu_supported: false`
-  into the report. This makes it useful for validating prompt construction,
-  provider/model metadata, JSON responses, applied token/widget diffs, and screenshot
-  comparisons. It is not yet authoritative for final GPU SkSL fidelity. Judge final
-  shader quality in the interactive `pulp design` app.
+Backend behavior:
+- The default `--capture-backend skia` path renders through an offscreen Skia surface,
+  so widget SkSL is present in the `before`/`after` images and the report records
+  `render_backend: "skia-headless"` with `widget_sksl_render_supported: true`.
+- `--capture-backend coregraphics` is still available for comparison, but it does not
+  faithfully render custom widget SkSL.
+
+Remaining limitation:
+- Even with `skia` capture, `pulp design-debug` still validates an offscreen Skia path,
+  not the final live GPU presentation path used by the interactive app. Use it as the
+  source of truth for prompt/response/apply flow and shader-shape validation, then do
+  final visual QA in `pulp design`.
 
 ### import-design
 

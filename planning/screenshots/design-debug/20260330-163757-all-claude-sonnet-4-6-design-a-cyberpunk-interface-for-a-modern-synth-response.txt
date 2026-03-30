@@ -1,0 +1,83 @@
+```json
+{
+  "colors": {
+    "bg.primary": "#0a0a12",
+    "bg.secondary": "#0f0f1a",
+    "bg.surface": "#141428",
+    "bg.elevated": "#1a1a35",
+    "accent.primary": "#00ffe7",
+    "accent.secondary": "#ff00aa",
+    "accent.success": "#00ff88",
+    "accent.warning": "#ffaa00",
+    "accent.error": "#ff0055",
+    "text.primary": "#e0f0ff",
+    "text.secondary": "#7ab8d4",
+    "text.disabled": "#2a3a4a",
+    "control.track": "#1a1a35",
+    "control.fill": "#00ffe7",
+    "control.thumb": "#ff00aa",
+    "control.border": "#00ffe740",
+    "knob.arc": "#00ffe7",
+    "knob.arc.bg": "#0f2030",
+    "knob.thumb": "#ff00aa",
+    "meter.green": "#00ff88",
+    "meter.yellow": "#ffaa00",
+    "meter.red": "#ff0055",
+    "focus.ring": "#00ffe7",
+    "gradient.start": "#00ffe720",
+    "gradient.end": "#ff00aa20",
+    "tab.active": "#00ffe7",
+    "tab.inactive": "#1a1a35",
+    "tooltip.bg": "#0a0a20",
+    "tooltip.text": "#00ffe7"
+  },
+  "dimensions": {
+    "cornerRadius": 2,
+    "borderWidth": 1,
+    "shadowBlur": 16,
+    "shadowAlpha": 0.9,
+    "knobArcWidth": 5,
+    "knobSize": 56,
+    "headingSize": 16,
+    "bodySize": 12,
+    "labelSize": 9
+  },
+  "widgetLooks": {
+    "k1": {
+      "family": "modular_neon",
+      "preset": "led_ring_knob",
+      "params": { "gloss": 0.85, "metalness": 0.3, "rim": 0.9, "noise": 0.01, "bevel": 0.4, "trackWidth": 0.045, "bodyRadius": 0.32, "depth": 0.7 }
+    },
+    "k2": {
+      "family": "modular_neon",
+      "preset": "led_ring_knob",
+      "params": { "gloss": 0.85, "metalness": 0.3, "rim": 0.9, "noise": 0.01, "bevel": 0.4, "trackWidth": 0.045, "bodyRadius": 0.32, "depth": 0.7 }
+    },
+    "k3": {
+      "family": "modular_neon",
+      "preset": "led_ring_knob",
+      "params": { "gloss": 0.75, "metalness": 0.2, "rim": 1.0, "noise": 0.02, "bevel": 0.3, "trackWidth": 0.05, "bodyRadius": 0.30, "depth": 0.8 }
+    },
+    "k4": {
+      "family": "modular_neon",
+      "preset": "led_ring_knob",
+      "params": { "gloss": 0.75, "metalness": 0.2, "rim": 1.0, "noise": 0.02, "bevel": 0.3, "trackWidth": 0.05, "bodyRadius": 0.30, "depth": 0.8 }
+    },
+    "slider1": {
+      "family": "modular_neon",
+      "preset": "modular_fader",
+      "params": { "gloss": 0.9, "metalness": 0.15, "rim": 0.95, "noise": 0.005, "bevel": 0.2, "depth": 0.6 }
+    },
+    "t1": {
+      "family": "modular_neon",
+      "preset": "illuminated_toggle",
+      "params": { "gloss": 0.8, "rim": 0.85, "depth": 0.5 }
+    },
+    "t2": {
+      "family": "modular_neon",
+      "preset": "illuminated_toggle",
+      "params": { "gloss": 0.8, "rim": 0.85, "depth": 0.5 }
+    }
+  }
+}
+```

@@ -56,11 +56,12 @@ pulp design-debug --prompt "make the gain knob look like macOS 7" --target k1
 
 Use this when you want reproducible before/after/diff screenshots plus JSON metadata
 for AI-driven restyling runs. The report captures provider/model/reasoning-effort,
-request text, token changes, widget look ids, and screenshot diff metrics.
+request text, token changes, widget look ids, screenshot diff metrics, and the
+render backend used for the capture.
 
-The current limitation is that `pulp design-debug` renders through the headless
-CoreGraphics path, not the live GPU Skia path, so it is best used for pipeline
-verification rather than final shader-fidelity judgment.
+The default `--capture-backend skia` path renders widget SkSL offscreen, which makes
+it useful for shader-aware pipeline verification. The remaining limitation is that
+it still does not prove final live GPU presentation parity in the interactive app.
 
 ## Writing Tests
 

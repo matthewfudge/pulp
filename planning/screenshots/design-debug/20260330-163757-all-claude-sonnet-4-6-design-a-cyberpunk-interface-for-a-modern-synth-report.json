@@ -1,0 +1,29 @@
+{
+  "tool": "pulp-design-debug",
+  "script": "/Users/danielraffel/Code/pulp/examples/design-tool/design-tool.js",
+  "render_backend": "skia-headless",
+  "requested_capture_backend": "skia",
+  "sksl_gpu_supported": false,
+  "widget_sksl_render_supported": true,
+  "warnings": [
+    "This run used the offscreen Skia backend, so widget SkSL is rendered in the artifact images. It still does not prove final live GPU presentation parity. Use the interactive design tool for final visual QA."
+  ],
+  "provider": "claude",
+  "model": "claude-sonnet-4-6",
+  "reasoning_effort": "",
+  "target": "all",
+  "target_found": false,
+  "target_bounds": {"x": 0, "y": 0, "width": 0, "height": 0},
+  "prompt": "design a cyberpunk interface for a modern synth plugin",
+  "prompt_file": "planning/screenshots/design-debug/20260330-163757-all-claude-sonnet-4-6-design-a-cyberpunk-interface-for-a-modern-synth-prompt.txt",
+  "response_file": "planning/screenshots/design-debug/20260330-163757-all-claude-sonnet-4-6-design-a-cyberpunk-interface-for-a-modern-synth-response.txt",
+  "before_image": "planning/screenshots/design-debug/20260330-163757-all-claude-sonnet-4-6-design-a-cyberpunk-interface-for-a-modern-synth-before.png",
+  "after_image": "planning/screenshots/design-debug/20260330-163757-all-claude-sonnet-4-6-design-a-cyberpunk-interface-for-a-modern-synth-after.png",
+  "diff_image": "planning/screenshots/design-debug/20260330-163757-all-claude-sonnet-4-6-design-a-cyberpunk-interface-for-a-modern-synth-diff.png",
+  "similarity_pct": 96,
+  "diff_pixels": 103579,
+  "total_pixels": 3080000,
+  "mean_error": 4.89286,
+  "apply_summary": "Applied 29 colors + 9 styles + 7 widget looks",
+  "debug_state": {"target":"all","provider":"claude","model":"claude-sonnet-4-6","reasoningEffort":"","requestText":"design a cyberpunk interface for a modern synth plugin","responseLength":2599,"changedColors":["bg.primary","bg.secondary","bg.surface","bg.elevated","accent.primary","accent.secondary","accent.success","accent.warning","accent.error","text.primary","text.secondary","text.disabled","control.track","control.fill","control.thumb","control.border","knob.arc","knob.arc.bg","knob.thumb","meter.green","meter.yellow","meter.red","focus.ring","gradient.start","gradient.end","tab.active","tab.inactive","tooltip.bg","tooltip.text"],"changedDimensions":["cornerRadius","borderWidth","shadowBlur","shadowAlpha","knobArcWidth","knobSize","headingSize","bodySize","labelSize"],"widgetLookIds":["k1","k2","k3","k4","slider1","t1","t2"],"widgetLookCount":7,"summary":"Applied 29 colors + 9 styles + 7 widget looks","status":"ok","error":"","promptLength":6725}
+}
