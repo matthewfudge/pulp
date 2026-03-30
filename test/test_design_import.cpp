@@ -354,6 +354,66 @@ TEST_CASE("W3C token round-trip preserves colors", "[view][import]") {
     REQUIRE(restored.colors["bg.primary"].b == original.colors["bg.primary"].b);
 }
 
+TEST_CASE("parse_w3c_tokens resolves aliases", "[view][import]") {
+    auto json = R"({
+        "color": {
+            "$type": "color",
+            "blue": { "$value": "#3B82F6" },
+            "primary": { "$value": "{color.blue}" },
+            "accent": { "$value": "{color.primary}" }
+        },
+        "spacing": {
+            "$type": "dimension",
+            "base": { "$value": "8" },
+            "md": { "$value": "{spacing.base}" },
+            "lg": { "$value": "16" }
+        }
+    })";
+
+    auto theme = parse_w3c_tokens(json);
+
+    // Direct values
+    REQUIRE(theme.colors.count("color.blue") == 1);
+    REQUIRE(theme.colors["color.blue"].r == 0x3B);
+
+    // Single alias: primary → blue
+    REQUIRE(theme.colors.count("color.primary") == 1);
+    REQUIRE(theme.colors["color.primary"].r == 0x3B);
+    REQUIRE(theme.colors["color.primary"].g == 0x82);
+
+    // Chained alias: accent → primary → blue
+    REQUIRE(theme.colors.count("color.accent") == 1);
+    REQUIRE(theme.colors["color.accent"].r == 0x3B);
+
+    // Dimension alias: md → base
+    REQUIRE(theme.dimensions["spacing.md"] == 8.0f);
+    REQUIRE(theme.dimensions["spacing.lg"] == 16.0f);
+}
+
+TEST_CASE("parse_w3c_tokens inherits group $type", "[view][import]") {
+    auto json = R"({
+        "color": {
+            "$type": "color",
+            "bg": { "$value": "#1E1E2E" },
+            "text": { "$value": "#CDD6F4" }
+        },
+        "size": {
+            "$type": "dimension",
+            "sm": { "$value": "4" },
+            "md": { "$value": "8" }
+        }
+    })";
+
+    auto theme = parse_w3c_tokens(json);
+
+    // Tokens inherit $type from parent group
+    REQUIRE(theme.colors.count("color.bg") == 1);
+    REQUIRE(theme.colors.count("color.text") == 1);
+    REQUIRE(theme.dimensions.count("size.sm") == 1);
+    REQUIRE(theme.dimensions["size.sm"] == 4.0f);
+    REQUIRE(theme.dimensions["size.md"] == 8.0f);
+}
+
 // ── IR ↔ Theme conversion ───────────────────────────────────────────────
 
 TEST_CASE("ir_tokens_to_theme converts token maps to Theme", "[view][import]") {

@@ -1085,11 +1085,24 @@ Theme parse_w3c_tokens(const std::string& json) {
     Theme theme;
     auto root = choc::json::parse(json);
 
-    // W3C Design Tokens Format:
-    // Top-level groups with $type, or nested tokens with $value/$type
-    std::function<void(const choc::value::ValueView&, const std::string&)> walk;
-    walk = [&](const choc::value::ValueView& obj, const std::string& prefix) {
+    // W3C/DTCG Design Tokens Format:
+    // - Top-level groups with $type (inherited by children)
+    // - Nested tokens with $value/$type
+    // - Alias references: { "$value": "{color.primary}" } resolve to other tokens
+    // - $description stored but not used in Theme (available for documentation)
+
+    // First pass: collect all raw token values (including unresolved aliases)
+    struct RawToken { std::string type; std::string value; };
+    std::unordered_map<std::string, RawToken> raw_tokens;
+
+    std::function<void(const choc::value::ValueView&, const std::string&, const std::string&)> walk;
+    walk = [&](const choc::value::ValueView& obj, const std::string& prefix,
+               const std::string& inherited_type) {
         if (!obj.isObject()) return;
+
+        // Group-level $type applies to all children without their own $type
+        auto group_type = get_string(obj, "$type", "");
+        if (group_type.empty()) group_type = inherited_type;
 
         for (uint32_t i = 0; i < obj.size(); ++i) {
             auto member = obj.getObjectMemberAt(i);
@@ -1102,47 +1115,71 @@ Theme parse_w3c_tokens(const std::string& json) {
             // Leaf token: has $value
             if (val.isObject() && val.hasObjectMember("$value")) {
                 auto type_str = get_string(val, "$type", "");
+                if (type_str.empty()) type_str = group_type;  // Inherit from group
                 auto value_str = std::string(val["$value"].toString());
-
-                if (type_str == "color") {
-                    // Parse hex color → Theme::colors
-                    if (!value_str.empty() && value_str[0] == '#') {
-                        auto c = parse_hex_color_str(value_str);
-                        theme.colors[full_name] = c;
-                    }
-                } else if (type_str == "dimension") {
-                    // Parse "8px" or "1.5rem" → float
-                    float v = 0;
-                    try { v = std::stof(value_str); } catch (...) {}
-                    theme.dimensions[full_name] = v;
-                } else if (type_str == "fontFamily" || type_str == "string") {
-                    theme.strings[full_name] = value_str;
-                } else if (type_str == "number") {
-                    float v = 0;
-                    try { v = std::stof(value_str); } catch (...) {}
-                    theme.dimensions[full_name] = v;
-                } else {
-                    // Try to infer type from value
-                    if (!value_str.empty() && value_str[0] == '#') {
-                        auto c = parse_hex_color_str(value_str);
-                        theme.colors[full_name] = c;
-                    } else {
-                        try {
-                            float v = std::stof(value_str);
-                            theme.dimensions[full_name] = v;
-                        } catch (...) {
-                            theme.strings[full_name] = value_str;
-                        }
-                    }
-                }
+                raw_tokens[full_name] = { type_str, value_str };
             } else if (val.isObject()) {
-                // Nested group — recurse
-                walk(val, full_name);
+                // Nested group — recurse with inherited type
+                walk(val, full_name, group_type);
             }
         }
     };
 
-    walk(root, "");
+    walk(root, "", "");
+
+    // Second pass: resolve aliases (values like "{color.primary}" → look up target)
+    // Supports up to 10 levels of chained aliases to prevent infinite loops
+    auto resolve_value = [&](const std::string& value) -> std::string {
+        std::string resolved = value;
+        for (int depth = 0; depth < 10; ++depth) {
+            // Check for alias pattern: {reference.path}
+            if (resolved.size() > 2 && resolved.front() == '{' && resolved.back() == '}') {
+                auto ref = resolved.substr(1, resolved.size() - 2);
+                auto it = raw_tokens.find(ref);
+                if (it != raw_tokens.end()) {
+                    resolved = it->second.value;
+                    continue;  // May be another alias
+                }
+            }
+            break;  // Not an alias or resolved
+        }
+        return resolved;
+    };
+
+    // Third pass: store resolved values into Theme
+    for (auto& [name, token] : raw_tokens) {
+        auto value_str = resolve_value(token.value);
+        auto& type_str = token.type;
+
+        if (type_str == "color") {
+            if (!value_str.empty() && value_str[0] == '#') {
+                theme.colors[name] = parse_hex_color_str(value_str);
+            }
+        } else if (type_str == "dimension") {
+            float v = 0;
+            try { v = std::stof(value_str); } catch (...) {}
+            theme.dimensions[name] = v;
+        } else if (type_str == "fontFamily" || type_str == "string") {
+            theme.strings[name] = value_str;
+        } else if (type_str == "number") {
+            float v = 0;
+            try { v = std::stof(value_str); } catch (...) {}
+            theme.dimensions[name] = v;
+        } else {
+            // Infer type from resolved value
+            if (!value_str.empty() && value_str[0] == '#') {
+                theme.colors[name] = parse_hex_color_str(value_str);
+            } else {
+                try {
+                    float v = std::stof(value_str);
+                    theme.dimensions[name] = v;
+                } catch (...) {
+                    theme.strings[name] = value_str;
+                }
+            }
+        }
+    }
+
     return theme;
 }
 

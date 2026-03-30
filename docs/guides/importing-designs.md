@@ -124,6 +124,51 @@ Token mapping:
 - Spacing/sizing values → `theme.dimensions["name"]`
 - Font families → `theme.strings["name"]`
 
+### Token Aliases
+
+W3C Design Tokens support **aliases** — tokens that reference other tokens. Pulp resolves these automatically:
+
+```json
+{
+  "color": {
+    "$type": "color",
+    "blue": { "$value": "#3B82F6" },
+    "primary": { "$value": "{color.blue}" },
+    "accent": { "$value": "{color.primary}" }
+  }
+}
+```
+
+In this example, `color.accent` → `color.primary` → `color.blue` → `#3B82F6`. Chained aliases are resolved up to 10 levels deep.
+
+### Group Type Inheritance
+
+A group can set `$type` which applies to all children that don't specify their own:
+
+```json
+{
+  "spacing": {
+    "$type": "dimension",
+    "sm": { "$value": "4" },
+    "md": { "$value": "8" },
+    "lg": { "$value": "16" }
+  }
+}
+```
+
+All three tokens inherit `"dimension"` type from the `spacing` group — no need to repeat `"$type"` on each token.
+
+### Compatibility
+
+The W3C parser handles tokens from:
+- **Tokens Studio** (Figma plugin) exports
+- **Specify** design token pipelines
+- **Figma Variables** (via MCP `get_variable_defs`)
+- **Stitch Design Systems** (via MCP `list_design_systems`)
+- **Pencil Variables** (via MCP `get_variables`)
+- Any tool exporting [DTCG format](https://design-tokens.github.io/community-group/format/)
+- Font families → `theme.strings["name"]`
+
 ### Round-Trip
 
 Tokens can flow bidirectionally:
