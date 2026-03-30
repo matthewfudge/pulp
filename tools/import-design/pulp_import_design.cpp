@@ -33,12 +33,17 @@ static void print_usage() {
     std::cout << "  --dry-run         Show generated code without writing files\n";
     std::cout << "  --no-tokens       Skip token extraction\n";
     std::cout << "  --no-comments     Omit comments from generated code\n";
+    std::cout << "  --web-compat      Use DOM API instead of native Pulp API\n";
+    std::cout << "  --validate        Render generated JS and validate layout\n";
+    std::cout << "  --reference <png> Compare render against a reference screenshot\n";
+    std::cout << "  --diff <png>      Save visual diff image\n";
+    std::cout << "  --render-size WxH Render dimensions (default: 340x280)\n";
     std::cout << "  --help            Show this help\n\n";
     std::cout << "Examples:\n";
     std::cout << "  pulp import-design --from figma --file design.json\n";
     std::cout << "  pulp import-design --from v0 --file component.tsx --output my-ui.js\n";
     std::cout << "  pulp import-design --from pencil --file design.json --dry-run\n";
-    std::cout << "  pulp import-design --from stitch --file screen.html --tokens theme.json\n";
+    std::cout << "  pulp import-design --from pencil --file design.json --validate --reference source.png\n";
 }
 
 static std::string read_file(const std::string& path) {
