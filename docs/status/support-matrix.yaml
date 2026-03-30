@@ -507,8 +507,19 @@ ai_shader_design:
     notes: >
       setAICli/getAICli configures AI CLI command at runtime.
       Default: Claude. Swappable to Gemini/Codex CLI. execAsync enables
-      non-blocking shell-backed chat flows in local tools.
+      non-blocking shell-backed chat flows in local tools. Design workflows now
+      carry provider/model/reasoning-effort metadata and expand command templates
+      with {prompt_file}, {model}, {provider}, {reasoning_effort}, and {output_file}.
       Full navigator.gpu pipeline API not exposed — Canvas 2D + shaders is the design.
+  design_debug_harness:
+    status: experimental
+    notes: >
+      `pulp design-debug` runs the design chat pipeline headlessly and emits
+      before/after/diff screenshots plus a JSON report containing provider/model/
+      reasoning-effort metadata, target bounds, prompt/response files, and
+      screenshot diff statistics. Supports replaying saved responses. Current
+      limitation: the headless backend is CoreGraphics, not the live Skia GPU path,
+      so report artifacts validate prompt/JSON/apply flow rather than final SkSL fidelity.
 
 design_import:
   figma_adapter:

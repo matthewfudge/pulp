@@ -217,6 +217,125 @@ TEST_CASE("Design tool: palette dots stay circular", "[design-tool]") {
     REQUIRE_THAT(accent_dot->bounds().height, Catch::Matchers::WithinAbs(14.0f, 1.0f));
 }
 
+TEST_CASE("Design tool: inspect click updates and clears chat context badge", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    load_design_tool(root, engine, bridge);
+
+    auto* context_label = dynamic_cast<Label*>(bridge.widget("context-label"));
+    auto* context_clear = bridge.widget("context-clear");
+    REQUIRE(context_label != nullptr);
+    REQUIRE(context_clear != nullptr);
+    REQUIRE(context_label->text() == "Editing: All");
+    REQUIRE_FALSE(context_clear->visible());
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('__inspect__', 'click', 'k1');"));
+    root.layout_children();
+    REQUIRE(context_label->text() == "Editing: k1");
+    REQUIRE(context_clear->visible());
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('context-clear', 'click', 0);"));
+    root.layout_children();
+    REQUIRE(context_label->text() == "Editing: All");
+    REQUIRE_FALSE(context_clear->visible());
+}
+
+TEST_CASE("Design tool: debug prompt builder includes target and audio-plugin family guidance", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    engine.evaluate("setDesignDebugTarget('k1')");
+    auto prompt = engine.invoke("buildDesignChatPrompt", std::string("make the gain knob look like macOS 7")).toString();
+    REQUIRE(prompt.find("Current target = k1") != std::string::npos);
+    REQUIRE(prompt.find("precision_analyzer") != std::string::npos);
+    REQUIRE(prompt.find("Never emit shaderBody or shader unless explicitly asked") != std::string::npos);
+}
+
+TEST_CASE("Design tool: AI provider selector switches model options and effort visibility", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    auto* effort_selector = bridge.widget("effort-selector");
+    REQUIRE(effort_selector != nullptr);
+    REQUIRE_FALSE(effort_selector->visible());
+
+    engine.evaluate("setDesignDebugAIConfig('codex', 'gpt-5.4', 'xhigh');");
+    root.layout_children();
+
+    REQUIRE(effort_selector->visible());
+    REQUIRE(engine.evaluate("getSelectedAIProvider()").toString() == "codex");
+    REQUIRE(engine.evaluate("getSelectedAIModel()").toString() == "gpt-5.4");
+    REQUIRE(engine.evaluate("getSelectedAIReasoningEffort()").toString() == "xhigh");
+}
+
+TEST_CASE("Design tool: debug state captures applied widget look metadata", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    engine.evaluate("setDesignDebugTarget('k1')");
+    engine.evaluate("lastChatRequestText = 'make the gain knob look like macOS 7'");
+    auto summary = engine.invoke("applyDesignChatResponse", std::string(R"({"widgetLooks":{"k1":{"preset":"macos7_knob","params":{"gloss":0.92,"metalness":0.35,"rim":0.28}}}})")).toString();
+    REQUIRE(summary.find("widget looks") != std::string::npos);
+
+    auto debug_json = engine.invoke("getDesignDebugStateJson").toString();
+    REQUIRE(debug_json.find("\"target\":\"k1\"") != std::string::npos);
+    REQUIRE(debug_json.find("\"widgetLookIds\":[\"k1\"]") != std::string::npos);
+    REQUIRE(debug_json.find("\"widgetLookCount\":1") != std::string::npos);
+    REQUIRE(debug_json.find("\"status\":\"ok\"") != std::string::npos);
+}
+
 TEST_CASE("Design tool: token search compacts the list and hides non-matching groups", "[design-tool]") {
     auto js_path = find_js_file("design-tool.js");
     if (js_path.empty()) {

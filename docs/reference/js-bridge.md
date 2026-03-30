@@ -436,6 +436,25 @@ view `FrameClock` when the host is actively rendering.
 `setWidgetLottie` currently stores animation state for tool workflows; native
 Skottie rendering is still partial.
 
+### AI CLI Templates
+
+`setAICli(command)` accepts a shell command template. The design tool and
+`pulp design-debug` expand these placeholders before execution:
+
+- `{prompt_file}`: temp file containing the full structured prompt
+- `{model}`: selected provider-specific model id
+- `{provider}`: provider id such as `claude` or `codex`
+- `{reasoning_effort}`: selected effort (`low`, `medium`, `high`, `xhigh`) when supported
+- `{output_file}`: optional temp file for CLIs that write their result to disk
+
+The current built-in defaults are:
+- Claude: `cat {prompt_file} | claude --print --model {model}`
+- Codex: `cat {prompt_file} | codex exec - --model {model} ... -c model_reasoning_effort={reasoning_effort} -o {output_file}`
+
+`execAsync()` is the non-blocking shell path used by the interactive design tool
+chat. The headless `pulp design-debug` harness uses the same prompt builder and
+command-template expansion so provider/model metadata stays aligned across both tools.
+
 ## Color Format
 
 All color parameters accept CSS Color Level 4 syntax:

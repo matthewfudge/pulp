@@ -17,7 +17,7 @@ ctest --test-dir build -R clap-dlopen   # CLAP load tests
 
 ## Test Count
 
-The current branch has 1321 registered tests covering:
+The current branch has 1326 registered tests covering:
 
 - Unit tests for subsystems (runtime, state, audio, midi, signal, format, events, canvas, render, view, osc)
 - Golden-file audio comparison tests
@@ -45,6 +45,22 @@ This runs:
 - **AU**: `auval` on macOS if the component is installed
 
 Validation is separate from unit tests. Unit tests verify internal behavior; validation verifies that the built plugin binary loads and behaves correctly from the host's perspective.
+
+## Design Tool Debugging
+
+The design tool has its own headless harness:
+
+```bash
+pulp design-debug --prompt "make the gain knob look like macOS 7" --target k1
+```
+
+Use this when you want reproducible before/after/diff screenshots plus JSON metadata
+for AI-driven restyling runs. The report captures provider/model/reasoning-effort,
+request text, token changes, widget look ids, and screenshot diff metrics.
+
+The current limitation is that `pulp design-debug` renders through the headless
+CoreGraphics path, not the live GPU Skia path, so it is best used for pipeline
+verification rather than final shader-fidelity judgment.
 
 ## Writing Tests
 

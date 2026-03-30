@@ -116,6 +116,8 @@ Browser-shaped JS API over Pulp's native GPU UI (document.createElement, element
 - [x] 10.x guardrail: raw SkSL kept as a developer escape hatch; recommended AI/chat workflow is preset + params or declarative schema, not shader text generation
 - [x] 10.x preset coverage: expanded built-in premium looks for Mac/classic, Bakelite/vintage, LED/cyberpunk, analog slider, and illuminated toggle directions
 - [x] 10.x style routing: audio-plugin family cues (precision analyzer, heritage hardware, retro character, modular neon, mastering lab, console strip) normalize to deterministic per-widget presets
+- [x] 10.x debug harness: `pulp design-debug` emits before/after/diff screenshots plus JSON reports with provider/model/reasoning-effort metadata, target bounds, prompt/response capture, and diff stats
+- [x] 10.x caveat documented: headless debug renders through CoreGraphics and is useful for prompt/response/apply validation, not final live GPU SkSL fidelity
 
 ### Phase 11: Design Import Pipeline — COMPLETE (2026-03-30)
 - [x] 11.1: CLI `pulp import-design` — --from (figma/stitch/v0/pencil), --file, --url, --frame, --screen, --output, --tokens, --dry-run, --validate, --reference, --diff, --debug

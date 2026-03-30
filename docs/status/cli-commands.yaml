@@ -153,6 +153,70 @@ commands:
     summary: Remove the build directory.
     docs: reference/cli.md#clean
 
+  - name: design
+    status: experimental
+    summary: Launch the local AI-powered design tool for token and style iteration.
+    args:
+      - name: script
+        kind: positional
+        required: false
+        description: Optional path to a design-tool JS file to load instead of the default example
+    docs: reference/cli.md#design
+
+  - name: design-debug
+    status: experimental
+    summary: Headless before/after/diff runner for design-chat prompts with provider/model metadata capture.
+    args:
+      - name: --prompt
+        kind: option
+        required: true
+        description: Natural-language restyling request to evaluate
+      - name: --target
+        kind: option
+        required: false
+        description: Target widget id or all (default: all)
+      - name: --script
+        kind: option
+        required: false
+        description: Path to the design-tool JS file to load
+      - name: --output-dir
+        kind: option
+        required: false
+        description: Artifact directory for prompt, response, screenshots, diff, and report
+      - name: --response-file
+        kind: option
+        required: false
+        description: Replay a saved model response without invoking AI
+      - name: --provider
+        kind: option
+        required: false
+        description: "AI provider metadata and command routing (claude, codex)"
+      - name: --model
+        kind: option
+        required: false
+        description: Provider-specific model id captured in the JSON report
+      - name: --reasoning-effort
+        kind: option
+        required: false
+        description: Optional reasoning effort for supported models
+      - name: --ai-cli
+        kind: option
+        required: false
+        description: Override the AI CLI template
+      - name: --width
+        kind: option
+        required: false
+        description: Render width in pixels
+      - name: --height
+        kind: option
+        required: false
+        description: Render height in pixels
+      - name: --scale
+        kind: option
+        required: false
+        description: Render scale factor
+    docs: reference/cli.md#design-debug
+
   - name: import-design
     status: experimental
     summary: Import designs from Figma, Stitch, v0, or Pencil into Pulp web-compat JS.

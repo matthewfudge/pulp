@@ -2574,6 +2574,7 @@ static void print_usage() {
     std::cout << "  clean    Remove build directory\n";
     std::cout << "  inspect  Launch the component inspector\n";
     std::cout << "  design          AI-powered style design (natural language -> token diffs)\n";
+    std::cout << "  design-debug    Headless before/after/diff runner for design chat prompts\n";
     std::cout << "  import-design   Import designs from Figma/Stitch/v0/Pencil\n";
     std::cout << "  export-tokens   Export theme as W3C Design Tokens\n";
     std::cout << "  audit           License and clean-room audit\n";
@@ -2663,12 +2664,39 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: not in a Pulp project directory\n";
             return 1;
         }
-        auto design_bin = root / "build" / "tools" / "design" / "pulp-design";
-        if (!fs::exists(design_bin)) {
-            std::cerr << "Error: pulp-design not built. Run `pulp build` first.\n";
+        std::vector<fs::path> candidates = {
+            root / "build" / "tools" / "design" / "pulp-design",
+            root / "build" / "examples" / "design-tool" / "pulp-design-tool",
+        };
+
+        fs::path design_bin;
+        for (const auto& candidate : candidates) {
+            if (fs::exists(candidate)) {
+                design_bin = candidate;
+                break;
+            }
+        }
+
+        if (design_bin.empty()) {
+            std::cerr << "Error: design tool not built. Run `pulp build` first.\n";
             return 1;
         }
         std::string cmd = design_bin.string();
+        for (auto& arg : args) cmd += " \"" + arg + "\"";
+        return run(cmd);
+    }
+    if (command == "design-debug") {
+        auto root = find_project_root();
+        if (root.empty()) {
+            std::cerr << "Error: not in a Pulp project directory\n";
+            return 1;
+        }
+        auto debug_bin = root / "build" / "tools" / "design" / "pulp-design-debug";
+        if (!fs::exists(debug_bin)) {
+            std::cerr << "Error: pulp-design-debug not built. Run `pulp build` first.\n";
+            return 1;
+        }
+        std::string cmd = debug_bin.string();
         for (auto& arg : args) cmd += " \"" + arg + "\"";
         return run(cmd);
     }

@@ -212,6 +212,100 @@ pulp docs check                   # Validate docs consistency
 | `show style` | Display style rules from `style-rules.yaml` with links to policy docs |
 | `check` | Validate docs consistency: manifest links, index completeness, status vocabulary, module dependencies vs CMake |
 
+### design
+
+**Status**: experimental
+
+Launch the local AI-powered design tool used for token, shader, and style iteration.
+
+```bash
+pulp design
+pulp design path/to/design-tool.js
+```
+
+The CLI resolves the built design tool from the repo build directory. If the canonical
+`build/tools/design/pulp-design` binary is not present yet, it falls back to the current
+example-host build output in `build/examples/design-tool/pulp-design-tool`.
+
+The design tool chat now supports provider/model-aware local execution in the UI.
+The current app exposes a provider selector (`Claude`, `Codex`), a model selector,
+and a reasoning-effort selector for Codex/OpenAI models.
+
+### design-debug
+
+**Status**: experimental
+
+Run the headless before/after/diff harness for design-chat prompts. This is the
+automation/debug companion to `pulp design`.
+
+```bash
+pulp design-debug --prompt "make the gain knob look like macOS 7" --target k1
+pulp design-debug --prompt "design a cyberpunk interface for a modern synth plugin" --target all --provider claude --model claude-sonnet-4-6
+pulp design-debug --prompt "make the gain knob look like a precision analyzer control" --target k1 --provider codex --model gpt-5.4 --reasoning-effort xhigh
+pulp design-debug --prompt "warm analog EQ" --target all --response-file saved-response.json
+```
+
+Artifacts are written by default under `planning/screenshots/design-debug/`:
+- `*-before.png`
+- `*-after.png`
+- `*-diff.png`
+- `*-prompt.txt`
+- `*-response.txt`
+- `*-report.json`
+
+The JSON report records:
+- `provider`, `model`, `reasoning_effort`
+- `target` and `target_bounds`
+- `debug_state` from the design tool (`changedColors`, `changedDimensions`, `widgetLookIds`, summary, request text)
+- the exact `ai_command` used for local execution
+- screenshot-diff stats (`similarity_pct`, `diff_pixels`, `mean_error`)
+
+Useful flags:
+- `--provider claude|codex`
+- `--model <name>`
+- `--reasoning-effort low|medium|high|xhigh`
+- `--response-file <json-or-text>` to replay a saved model response without calling AI
+- `--script <path>` to load a custom design-tool JS file
+- `--output-dir <dir>` to redirect artifact output
+- `--width`, `--height`, `--scale` to control the render size
+- `--ai-cli <template>` to override the local AI command template
+
+Important limitation:
+- `pulp design-debug` currently renders through the headless CoreGraphics path and
+  writes `render_backend: "coregraphics-headless"` with `sksl_gpu_supported: false`
+  into the report. This makes it useful for validating prompt construction,
+  provider/model metadata, JSON responses, applied token/widget diffs, and screenshot
+  comparisons. It is not yet authoritative for final GPU SkSL fidelity. Judge final
+  shader quality in the interactive `pulp design` app.
+
+### import-design
+
+**Status**: experimental
+
+Import designs from Figma, Stitch, v0, or Pencil source files into generated Pulp UI code.
+
+```bash
+pulp import-design --from figma --file frame.json
+pulp import-design --from figma --url 'https://figma.com/design/...' --frame 'Plugin UI'
+pulp import-design --from stitch --file screen.html --screen 'Main'
+pulp import-design --from v0 --url 'https://v0.dev/t/abc123' --output ui.js
+pulp import-design --from pencil --file ui.json --output ui.js --tokens tokens.json
+pulp import-design --from v0 --file card.tsx --dry-run
+```
+
+Supports `--url` (fetches via curl), `--frame` (Figma frame selection), and `--screen` (Stitch screen selection). See [Design Import API Reference](design-import.md) for the full flag list.
+
+### export-tokens
+
+**Status**: experimental
+
+Export a theme as W3C Design Tokens JSON.
+
+```bash
+pulp export-tokens --file theme.json --tokens tokens.json
+pulp export-tokens --dry-run
+```
+
 ### upgrade
 
 **Status**: usable

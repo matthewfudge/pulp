@@ -368,10 +368,10 @@ setFlex("toolbar-file-group", "flex_shrink", 0);
 
 // Toolbar action buttons with pill styling
 var toolbarBtns = [
-    { id: "undo-btn", label: "Undo", width: 60, group: "toolbar-history-group" },
-    { id: "redo-btn", label: "Redo", width: 60, group: "toolbar-history-group" },
-    { id: "import-btn", label: "Import", width: 68, group: "toolbar-file-group" },
-    { id: "export-btn", label: "Export", width: 70, group: "toolbar-file-group", accent: true }
+    { id: "undo-btn", label: "Undo", width: 68, group: "toolbar-history-group" },
+    { id: "redo-btn", label: "Redo", width: 68, group: "toolbar-history-group" },
+    { id: "import-btn", label: "Import", width: 78, group: "toolbar-file-group" },
+    { id: "export-btn", label: "Export", width: 82, group: "toolbar-file-group", accent: true }
 ];
 for (var tb = 0; tb < toolbarBtns.length; tb++) {
     var btn = toolbarBtns[tb];
@@ -413,6 +413,7 @@ createScrollView("left-panel", "main-area");
 setFlex("left-panel", "width", 310);
 setFlex("left-panel", "min_width", 260);
 setFlex("left-panel", "flex_shrink", 0);
+setFlex("left-panel", "padding_right", 12);
 setBackground("left-panel", APP_SURFACE);
 setBorder("left-panel", APP_BORDER, 1, 0);
 setScrollContentSize("left-panel", 310, 900);
@@ -420,6 +421,7 @@ setScrollContentSize("left-panel", 310, 900);
 // Issue 9: Color System section matching HTML reference
 createCol("color-section", "left-panel");
 setFlex("color-section", "padding", 10);
+setFlex("color-section", "padding_right", 18);
 setFlex("color-section", "gap", 6);
 setFlex("color-section", "height", 386);
 setFlex("color-section", "flex_shrink", 0);
@@ -547,6 +549,7 @@ setFlex("token-search-row", "height", 32);
 setFlex("token-search-row", "flex_shrink", 0);
 setFlex("token-search-row", "padding_left", 10);
 setFlex("token-search-row", "padding_right", 10);
+setFlex("token-search-row", "padding_right", 18);
 setFlex("token-search-row", "padding_top", 6);
 setFlex("token-search-row", "align_items", "center");
 setFlex("token-search-row", "gap", 0);
@@ -565,6 +568,7 @@ createRow("token-header", "left-panel");
 setFlex("token-header", "height", 24);
 setFlex("token-header", "flex_shrink", 0);
 setFlex("token-header", "padding_left", 10);
+setFlex("token-header", "padding_right", 18);
 setFlex("token-header", "align_items", "center");
 
 createLabel("tokens-title", "TOKENS", "token-header");
@@ -1180,14 +1184,14 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
         canvasClear(gamutId);
         canvasRect(gamutId, 0, 0, w, h, APP_SURFACE);
 
-        var bSteps = 360;
+        var bSteps = 720;
         var boundary = computeGamutBoundary(hue, bSteps);
         gamutBoundaryCache[paletteIdx] = boundary;
 
         // Render the gamut with per-column gradients and the exact boundary
         // height. This removes the stepped/pixelated top edge from the old
         // cell-grid renderer and tracks the HTML reference more closely.
-        var cols = 270;
+        var cols = 360;
         var colW = w / cols;
         for (var gx = 0; gx < cols; gx++) {
             var L = gx / (cols - 1);
@@ -1212,8 +1216,10 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
             }
         }
 
-        canvasSetStrokeColor(gamutId, '#ffffff2a');
-        canvasSetLineWidth(gamutId, 1.15);
+        canvasSetLineJoin(gamutId, "round");
+        canvasSetLineCap(gamutId, "round");
+        canvasSetStrokeColor(gamutId, '#ffffff12');
+        canvasSetLineWidth(gamutId, 2.4);
         canvasBeginPath(gamutId);
         canvasMoveTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
         for (var bx2 = 1; bx2 <= bSteps; bx2++) {
@@ -1221,8 +1227,17 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
         }
         canvasStrokePath(gamutId);
 
+        canvasSetStrokeColor(gamutId, '#ffffff33');
+        canvasSetLineWidth(gamutId, 1.05);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
+        for (var bx2a = 1; bx2a <= bSteps; bx2a++) {
+            canvasLineTo(gamutId, (bx2a / bSteps) * w, (1 - boundary[bx2a] / 0.4) * h);
+        }
+        canvasStrokePath(gamutId);
+
         canvasSetStrokeColor(gamutId, '#ffffff10');
-        canvasSetLineWidth(gamutId, 0.75);
+        canvasSetLineWidth(gamutId, 0.8);
         canvasBeginPath(gamutId);
         canvasMoveTo(gamutId, 0, h);
         canvasLineTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
@@ -1682,8 +1697,9 @@ function renderGamutTriangle(hue) {
     canvasClear("tp-gamut");
     var w = 250, h = 120;
     // Use gradient strips: one vertical gradient per lightness column
-    var cols = 60;
+    var cols = 120;
     var colW = w / cols;
+    var boundary = [];
     for (var gx = 0; gx < cols; gx++) {
         var L = gx / (cols - 1);
         // Find max in-gamut chroma at this lightness via binary search
@@ -1695,6 +1711,7 @@ function renderGamutTriangle(hue) {
             else hi = mid;
         }
         maxC = lo;
+        boundary.push(maxC);
         // Draw gradient strip from maxC (top, saturated) to 0 (bottom, gray)
         var topHex = OklchEngine.oklchToHex(L, maxC, hue);
         var botHex = OklchEngine.oklchToHex(L, 0, hue);
@@ -1716,6 +1733,24 @@ function renderGamutTriangle(hue) {
             canvasRect("tp-gamut", gx * colW, 0, colW + 0.5, h - gamutH, APP_SURFACE);
         }
     }
+    canvasSetLineJoin("tp-gamut", "round");
+    canvasSetLineCap("tp-gamut", "round");
+    canvasSetStrokeColor("tp-gamut", '#ffffff14');
+    canvasSetLineWidth("tp-gamut", 2.0);
+    canvasBeginPath("tp-gamut");
+    canvasMoveTo("tp-gamut", 0, h - ((boundary[0] || 0) / GAMUT_MAX_C) * h);
+    for (var bx = 1; bx < boundary.length; bx++) {
+        canvasLineTo("tp-gamut", (bx / (cols - 1)) * w, h - (boundary[bx] / GAMUT_MAX_C) * h);
+    }
+    canvasStrokePath("tp-gamut");
+    canvasSetStrokeColor("tp-gamut", '#ffffff30');
+    canvasSetLineWidth("tp-gamut", 0.95);
+    canvasBeginPath("tp-gamut");
+    canvasMoveTo("tp-gamut", 0, h - ((boundary[0] || 0) / GAMUT_MAX_C) * h);
+    for (var bx2 = 1; bx2 < boundary.length; bx2++) {
+        canvasLineTo("tp-gamut", (bx2 / (cols - 1)) * w, h - (boundary[bx2] / GAMUT_MAX_C) * h);
+    }
+    canvasStrokePath("tp-gamut");
 }
 
 // Gamut click handler — map click position to L,C and apply
@@ -2647,47 +2682,75 @@ setFlex("chat-area", "flex_grow", 1);
 setFlex("chat-area", "padding", 10);
 setFlex("chat-area", "gap", 8);
 
-// Model selector
-createRow("model-row", "chat-area");
-setFlex("model-row", "height", 24);
+// AI provider / model selector
+createCol("model-row", "chat-area");
+setFlex("model-row", "height", 48);
 setFlex("model-row", "flex_shrink", 0);
-setFlex("model-row", "align_items", "center");
-setFlex("model-row", "justify_content", "space-between");
+setFlex("model-row", "gap", 4);
+
+createRow("model-top-row", "model-row");
+setFlex("model-top-row", "height", 22);
+setFlex("model-top-row", "align_items", "center");
+setFlex("model-top-row", "justify_content", "space-between");
 
 // #51: Context badge with accent styling
 // Chat context badge
-createRow("context-badge", "model-row");
+createRow("context-badge", "model-top-row");
 setFlex("context-badge", "height", 22);
-setFlex("context-badge", "width", 150);
+setFlex("context-badge", "width", 136);
 setFlex("context-badge", "flex_shrink", 0);
 setFlex("context-badge", "padding_left", 8);
-setFlex("context-badge", "padding_right", 8);
+setFlex("context-badge", "padding_right", 6);
 setFlex("context-badge", "align_items", "center");
-setFlex("context-badge", "gap", 4);
+setFlex("context-badge", "gap", 6);
 setBackground("context-badge", '#2a2040');
-setBorder("context-badge", APP_ACCENT, 1, 10);
+setBorder("context-badge", '#9f7aea', 1, 11);
 createLabel("context-label", "Editing: All", "context-badge");
 setFontSize("context-label", 9);
 setTextColor("context-label", APP_ACCENT);
 setFlex("context-label", "flex_grow", 1);
 setFlex("context-label", "height", 14);
-createLabel("context-clear", "x", "context-badge");
-setFontSize("context-clear", 10);
-setTextColor("context-clear", APP_TEXT_DIM);
-setFlex("context-clear", "width", 12);
+setTextOverflow("context-label", "ellipsis");
+createCol("context-clear", "context-badge");
+setFlex("context-clear", "width", 14);
 setFlex("context-clear", "height", 14);
+setFlex("context-clear", "justify_content", "center");
+setFlex("context-clear", "align_items", "center");
+setBackground("context-clear", "#ffffff0c");
+setBorder("context-clear", "#ffffff12", 1, 7);
+createIcon("context-clear-icon", "close", "context-clear");
+setFlex("context-clear-icon", "width", 9);
+setFlex("context-clear-icon", "height", 9);
+setPointerEvents("context-clear-icon", "none");
 setVisible("context-clear", false);
 registerClick("context-clear");
 registerClick("context-badge");
 
-createCombo("model-selector", "model-row");
+createCombo("provider-selector", "model-top-row");
+setItems("provider-selector", ["Claude", "Codex"]);
+setFlex("provider-selector", "width", 84);
+setFlex("provider-selector", "height", 22);
+
+createRow("model-bottom-row", "model-row");
+setFlex("model-bottom-row", "height", 22);
+setFlex("model-bottom-row", "align_items", "center");
+setFlex("model-bottom-row", "gap", 6);
+
+createCombo("model-selector", "model-bottom-row");
 setItems("model-selector", ["Sonnet 4.6", "Opus 4.6"]);
-setFlex("model-selector", "width", 100);
+setFlex("model-selector", "flex_grow", 1);
 setFlex("model-selector", "height", 22);
+
+createCombo("effort-selector", "model-bottom-row");
+setItems("effort-selector", ["Default", "Low", "Medium", "High", "xHigh"]);
+setFlex("effort-selector", "width", 74);
+setFlex("effort-selector", "height", 22);
+setVisible("effort-selector", false);
 
 // Chat messages (scrollable)
 createScrollView("chat-messages", "chat-area");
 setFlex("chat-messages", "flex_grow", 1);
+setFlex("chat-messages", "padding_right", 10);
 setScrollContentSize("chat-messages", 236, 400);  // #61: narrower to clear scrollbar
 
 createLabel("welcome-msg", "Describe a visual style and the preview will update live.", "chat-messages");
@@ -2768,18 +2831,40 @@ function shellQuote(s) {
     return "'" + String(s || "").split("'").join("'\\''") + "'";
 }
 
-function buildAiCliCommand(promptFile, model) {
+function buildAiCliCommand(promptFile, model, provider, reasoningEffort) {
     var aiCli = "";
     try { aiCli = getAICli(); } catch (e) {}
-    if (!aiCli || aiCli.length === 0) aiCli = "claude --print --model {model}";
+    var bridgeDefaultCli = "claude --print --model {model}";
+    if (!provider || provider.length === 0) provider = "claude";
+    if (!aiCli || aiCli.length === 0 || (provider === "codex" && aiCli === bridgeDefaultCli)) {
+        if (provider === "codex") {
+            aiCli = "codex exec - --model {model} --skip-git-repo-check --sandbox read-only --color never --ephemeral";
+            if (reasoningEffort && reasoningEffort.length > 0) {
+                aiCli += " -c model_reasoning_effort={reasoning_effort}";
+            }
+            aiCli += " -o {output_file} >/dev/null";
+        } else {
+            aiCli = bridgeDefaultCli;
+        }
+    }
 
     var usesPromptFile = aiCli.indexOf("{prompt_file}") >= 0;
     var usesModel = aiCli.indexOf("{model}") >= 0;
+    var usesProvider = aiCli.indexOf("{provider}") >= 0;
+    var usesReasoningEffort = aiCli.indexOf("{reasoning_effort}") >= 0;
+    var usesOutputFile = aiCli.indexOf("{output_file}") >= 0;
+    var outputFile = promptFile + ".out.txt";
     var cmd = aiCli;
     if (usesPromptFile) cmd = cmd.split("{prompt_file}").join(shellQuote(promptFile));
     if (usesModel) cmd = cmd.split("{model}").join(shellQuote(model));
+    if (usesProvider) cmd = cmd.split("{provider}").join(shellQuote(provider || ""));
+    if (usesReasoningEffort) cmd = cmd.split("{reasoning_effort}").join(shellQuote(reasoningEffort || ""));
+    if (usesOutputFile) cmd = cmd.split("{output_file}").join(shellQuote(outputFile));
     if (!usesPromptFile) {
         cmd = "cat " + shellQuote(promptFile) + " | " + cmd;
+    }
+    if (usesOutputFile) {
+        return cmd + "; __pulp_status=$?; if [ -f " + shellQuote(outputFile) + " ]; then cat " + shellQuote(outputFile) + "; fi; rm -f " + shellQuote(promptFile) + " " + shellQuote(outputFile) + "; exit $__pulp_status";
     }
     return cmd + "; rm -f " + shellQuote(promptFile);
 }
@@ -2978,23 +3063,32 @@ var inspectedComponent = null;
 
 function clearInspectedComponent() {
     inspectedComponent = null;
-    setText("context-label", "Editing: All Components");
+    setText("context-label", "Editing: All");
     setVisible("context-clear", false);
+    lastDesignDebugState.target = "all";
 }
 
-enableInspectClick();
-on("__inspect__", "click", function(widgetId) {
+function setDesignDebugTarget(widgetId) {
     setText("insp-type-v", widgetId ? "View" : "—");
     setText("insp-id-v", widgetId || "—");
     setText("insp-bounds-v", "—");
     inspectedComponent = widgetId || null;
-    // Update chat context label
     if (inspectedComponent) {
         setText("context-label", "Editing: " + inspectedComponent);
         setVisible("context-clear", true);
+        lastDesignDebugState.target = inspectedComponent;
     } else {
         clearInspectedComponent();
     }
+}
+
+function getDesignDebugStateJson() {
+    return JSON.stringify(lastDesignDebugState);
+}
+
+enableInspectClick();
+on("__inspect__", "click", function(widgetId) {
+    setDesignDebugTarget(widgetId || null);
     if (activeTab === "inspector") {
         switchTab("inspector");
     }
@@ -3115,6 +3209,22 @@ var chatRequestPending = false;
 var chatRequestCounter = 0;
 var widgetLookState = {};
 var lastChatRequestText = "";
+var lastDesignDebugState = {
+    target: "all",
+    provider: "claude",
+    model: "claude-sonnet-4-6",
+    reasoningEffort: "",
+    requestText: "",
+    responseLength: 0,
+    changedColors: [],
+    changedDimensions: [],
+    widgetLookIds: [],
+    widgetLookCount: 0,
+    summary: "",
+    status: "idle",
+    error: "",
+    promptLength: 0
+};
 var widgetKindById = {
     k1: "knob",
     k2: "knob",
@@ -3124,9 +3234,105 @@ var widgetKindById = {
     t1: "toggle",
     t2: "toggle"
 };
+var aiProviderOptions = [
+    { id: "claude", label: "Claude" },
+    { id: "codex", label: "Codex" }
+];
+var aiModelOptions = {
+    claude: [
+        { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+        { id: "claude-opus-4-6", label: "Opus 4.6" }
+    ],
+    codex: [
+        { id: "gpt-5.4", label: "GPT-5.4" },
+        { id: "gpt-5.4-pro", label: "GPT-5.4 Pro" },
+        { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+        { id: "gpt-5.2-codex", label: "GPT-5.2 Codex" }
+    ]
+};
+var aiProviderIndex = 0;
+var aiModelIndexByProvider = { claude: 0, codex: 0 };
+var aiReasoningEffortIndex = 0;
+var aiReasoningEffortValues = ["", "low", "medium", "high", "xhigh"];
 function clamp01(value) {
     return Math.max(0, Math.min(1, Number(value)));
 }
+
+function getSelectedAIProvider() {
+    var idx = Math.max(0, Math.min(aiProviderOptions.length - 1, Math.round(aiProviderIndex)));
+    return aiProviderOptions[idx].id;
+}
+
+function getSelectedAIModel() {
+    var provider = getSelectedAIProvider();
+    var options = aiModelOptions[provider] || aiModelOptions.claude;
+    var idx = Math.max(0, Math.min(options.length - 1, Math.round(aiModelIndexByProvider[provider] || 0)));
+    return options[idx].id;
+}
+
+function getSelectedAIReasoningEffort() {
+    var idx = Math.max(0, Math.min(aiReasoningEffortValues.length - 1, Math.round(aiReasoningEffortIndex)));
+    return aiReasoningEffortValues[idx];
+}
+
+function refreshAISelectors() {
+    var provider = aiProviderOptions[aiProviderIndex].id;
+    setValue("provider-selector", aiProviderIndex);
+    var modelOptions = aiModelOptions[provider] || aiModelOptions.claude;
+    var modelLabels = [];
+    for (var i = 0; i < modelOptions.length; i++) modelLabels.push(modelOptions[i].label);
+    setItems("model-selector", modelLabels);
+    setValue("model-selector", aiModelIndexByProvider[provider] || 0);
+    var showEffort = provider === "codex";
+    setVisible("effort-selector", showEffort);
+    setValue("effort-selector", aiReasoningEffortIndex);
+    lastDesignDebugState.provider = provider;
+    lastDesignDebugState.model = modelOptions[Math.max(0, aiModelIndexByProvider[provider] || 0)].id;
+    lastDesignDebugState.reasoningEffort = showEffort ? aiReasoningEffortValues[aiReasoningEffortIndex] : "";
+}
+
+function setDesignDebugAIConfig(providerId, modelId, reasoningEffort) {
+    for (var i = 0; i < aiProviderOptions.length; i++) {
+        if (aiProviderOptions[i].id === providerId) {
+            aiProviderIndex = i;
+            break;
+        }
+    }
+    var provider = aiProviderOptions[aiProviderIndex].id;
+    var modelOptions = aiModelOptions[provider] || aiModelOptions.claude;
+    for (var mi = 0; mi < modelOptions.length; mi++) {
+        if (modelOptions[mi].id === modelId) {
+            aiModelIndexByProvider[provider] = mi;
+            break;
+        }
+    }
+    for (var ei = 0; ei < aiReasoningEffortValues.length; ei++) {
+        if (aiReasoningEffortValues[ei] === (reasoningEffort || "")) {
+            aiReasoningEffortIndex = ei;
+            break;
+        }
+    }
+    refreshAISelectors();
+}
+
+on("provider-selector", "select", function(idx) {
+    aiProviderIndex = Math.max(0, Math.min(aiProviderOptions.length - 1, Math.round(idx)));
+    refreshAISelectors();
+    layout();
+});
+
+on("model-selector", "select", function(idx) {
+    var provider = getSelectedAIProvider();
+    aiModelIndexByProvider[provider] = Math.max(0, Math.round(idx));
+    lastDesignDebugState.model = getSelectedAIModel();
+});
+
+on("effort-selector", "select", function(idx) {
+    aiReasoningEffortIndex = Math.max(0, Math.min(aiReasoningEffortValues.length - 1, Math.round(idx)));
+    lastDesignDebugState.reasoningEffort = getSelectedAIReasoningEffort();
+});
+
+refreshAISelectors();
 
 function numericParam(params, key, fallback, minValue, maxValue) {
     var raw = params && params[key] !== undefined ? Number(params[key]) : fallback;
@@ -3918,12 +4124,23 @@ function applyWidgetLook(widgetId, spec) {
 
 function applyDesignChatResponse(response) {
     chatRequestPending = false;
+    lastDesignDebugState.requestText = lastChatRequestText || "";
+    lastDesignDebugState.target = inspectedComponent || "all";
+    lastDesignDebugState.responseLength = response ? response.length : 0;
+    lastDesignDebugState.changedColors = [];
+    lastDesignDebugState.changedDimensions = [];
+    lastDesignDebugState.widgetLookIds = [];
+    lastDesignDebugState.widgetLookCount = 0;
+    lastDesignDebugState.summary = "";
+    lastDesignDebugState.status = "error";
+    lastDesignDebugState.error = "";
 
     if (!response || response.length === 0) {
         addChatMessage("assistant", "No response from Claude");
         setText("status-text", "Error");
         layout();
-        return;
+        lastDesignDebugState.error = "No response from Claude";
+        return "No response from Claude";
     }
 
     var jsonStart = response.indexOf("{");
@@ -3932,12 +4149,19 @@ function applyDesignChatResponse(response) {
         addChatMessage("assistant", "No JSON in response");
         setText("status-text", "Error");
         layout();
-        return;
+        lastDesignDebugState.error = "No JSON in response";
+        return "No JSON in response";
     }
 
     var jsonDiff = response.substring(jsonStart, jsonEnd + 1);
     var diffObj = {};
-    try { diffObj = JSON.parse(jsonDiff); } catch(e) {}
+    try { diffObj = JSON.parse(jsonDiff); } catch(e) {
+        addChatMessage("assistant", "Invalid JSON in response");
+        setText("status-text", "Error");
+        layout();
+        lastDesignDebugState.error = "Invalid JSON in response";
+        return "Invalid JSON in response";
+    }
 
     if (diffObj.colors) {
         applyTokenDiff(JSON.stringify({ colors: diffObj.colors }));
@@ -3946,8 +4170,10 @@ function applyDesignChatResponse(response) {
 
     var dimChanges = diffObj.dimensions || {};
     var dimCount = 0;
+    var dimNames = [];
     for (var dk in dimChanges) {
         dimCount++;
+        dimNames.push(dk);
         var dv = dimChanges[dk];
         if (dk === "cornerRadius") {
             setBorder("btn-normal", APP_BORDER, 1, dv);
@@ -3964,18 +4190,28 @@ function applyDesignChatResponse(response) {
     }
 
     var widgetLookCount = 0;
+    var widgetLookIds = [];
     if (diffObj.widgetLooks) {
         for (var widgetId in diffObj.widgetLooks) {
-            if (applyWidgetLook(widgetId, diffObj.widgetLooks[widgetId])) widgetLookCount++;
+            if (applyWidgetLook(widgetId, diffObj.widgetLooks[widgetId])) {
+                widgetLookCount++;
+                widgetLookIds.push(widgetId);
+            }
         }
     }
 
     if (diffObj.widgetShader && inspectedComponent) {
-        if (applyWidgetLook(inspectedComponent, { shader: diffObj.widgetShader })) widgetLookCount++;
+        if (applyWidgetLook(inspectedComponent, { shader: diffObj.widgetShader })) {
+            widgetLookCount++;
+            widgetLookIds.push(inspectedComponent);
+        }
     }
 
     if (diffObj.widgetSchema && inspectedComponent) {
-        if (applyWidgetLook(inspectedComponent, { schema: diffObj.widgetSchema })) widgetLookCount++;
+        if (applyWidgetLook(inspectedComponent, { schema: diffObj.widgetSchema })) {
+            widgetLookCount++;
+            widgetLookIds.push(inspectedComponent);
+        }
     }
 
     var diffColors = diffObj.colors || {};
@@ -3991,7 +4227,15 @@ function applyDesignChatResponse(response) {
     updateTokenSwatches();
     updateModifiedCount();
     setText("status-text", (changedNames.length + dimCount + widgetLookCount) + " changes by AI");
+    lastDesignDebugState.changedColors = changedNames;
+    lastDesignDebugState.changedDimensions = dimNames;
+    lastDesignDebugState.widgetLookIds = widgetLookIds;
+    lastDesignDebugState.widgetLookCount = widgetLookCount;
+    lastDesignDebugState.summary = summary;
+    lastDesignDebugState.status = "ok";
+    lastDesignDebugState.error = "";
     layout();
+    return summary;
 }
 
 on("__design-chat__", "result", function(response) {
@@ -4005,32 +4249,12 @@ on("__design-chat__", "result", function(response) {
     }
 });
 
-function submitChat(text) {
-    if (chatRequestPending) return;
-    if (!text || text.length === 0) {
-        if (uploadedImagePath && uploadedImagePath.length > 0) {
-            showToast("Add a message before sending the image");
-        }
-        return;
-    }
-
-    var userText = uploadedImageName ? (text + " [image attached: " + uploadedImageName + "]") : text;
-    lastChatRequestText = text;
-    addChatMessage("user", userText);
-    setText("chat-input", "");
-    setText("status-text", "Generating...");
-    chatRequestPending = true;
-    // #58: Show typing indicator
-    addChatMessage("assistant", "...");
-    layout();
-
+function buildDesignChatPrompt(text) {
     var themeJson = getThemeJson();
-    // D6: Use model selector value
-    var modelIdx = 0;
-    try { modelIdx = getValue("model-selector"); } catch(e) {}
-    var model = modelIdx > 0.5 ? "claude-opus-4-6" : "claude-sonnet-4-6";
-    // #59: Prompt supports BOTH colors AND styles
     var scope = inspectedComponent ? "\nScope: ONLY modify tokens related to '" + inspectedComponent + "'" : "";
+    var provider = getSelectedAIProvider();
+    var model = getSelectedAIModel();
+    var reasoningEffort = getSelectedAIReasoningEffort();
     var prompt = "You are a design system expert for audio plugin UIs.\n";
     prompt += "Modify the theme to achieve the requested look. Be creative and bold.\n";
     prompt += "You can change colors, style properties, and widget looks using built-in rendering presets plus material parameters.\n\n";
@@ -4096,10 +4320,43 @@ function submitChat(text) {
         prompt += "Extract the visual mood, colors, and style from this image and apply them.\n\n";
     }
     prompt += '## Request\n"' + text + '"\n\n## JSON Output\n';
+    lastChatRequestText = text || "";
+    lastDesignDebugState.provider = provider;
+    lastDesignDebugState.model = model;
+    lastDesignDebugState.reasoningEffort = reasoningEffort;
+    lastDesignDebugState.requestText = text || "";
+    lastDesignDebugState.target = inspectedComponent || "all";
+    lastDesignDebugState.promptLength = prompt.length;
+    return prompt;
+}
+
+function submitChat(text) {
+    if (chatRequestPending) return;
+    if (!text || text.length === 0) {
+        if (uploadedImagePath && uploadedImagePath.length > 0) {
+            showToast("Add a message before sending the image");
+        }
+        return;
+    }
+
+    var userText = uploadedImageName ? (text + " [image attached: " + uploadedImageName + "]") : text;
+    lastChatRequestText = text;
+    addChatMessage("user", userText);
+    setText("chat-input", "");
+    setText("status-text", "Generating...");
+    chatRequestPending = true;
+    // #58: Show typing indicator
+    addChatMessage("assistant", "...");
+    layout();
+
+    var provider = getSelectedAIProvider();
+    var model = getSelectedAIModel();
+    var reasoningEffort = getSelectedAIReasoningEffort();
+    var prompt = buildDesignChatPrompt(text);
 
     var tmpFile = "/tmp/pulp-design-prompt-" + (chatRequestCounter++) + ".txt";
     exec("cat > " + tmpFile + " << 'PULPEOF'\n" + prompt + "\nPULPEOF");
-    execAsync(buildAiCliCommand(tmpFile, model), "__design-chat__");
+    execAsync(buildAiCliCommand(tmpFile, model, provider, reasoningEffort), "__design-chat__");
     clearUploadedImage();
     updateChatInputSizing("");
 }

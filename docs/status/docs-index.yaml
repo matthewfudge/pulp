@@ -119,6 +119,11 @@ docs:
     kind: guide
     summary: Importing UI structure and design tokens from Figma, Stitch, v0, and Pencil
 
+  - slug: design-debugging
+    path: guides/design-debugging.md
+    kind: guide
+    summary: Headless before/after/diff harness for design chat prompts, provider/model metadata, and debug artifact bundles
+
   - slug: web-compat-guide
     path: guides/web-compat.md
     kind: guide
