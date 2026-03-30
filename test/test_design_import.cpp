@@ -414,6 +414,85 @@ TEST_CASE("parse_w3c_tokens inherits group $type", "[view][import]") {
     REQUIRE(theme.dimensions["size.md"] == 8.0f);
 }
 
+TEST_CASE("parse_w3c_tokens handles composite typography tokens", "[view][import]") {
+    auto json = R"({
+        "heading": {
+            "$type": "typography",
+            "$value": {
+                "fontFamily": "Inter",
+                "fontSize": "24",
+                "fontWeight": "700",
+                "lineHeight": "1.2"
+            }
+        }
+    })";
+
+    auto theme = parse_w3c_tokens(json);
+
+    REQUIRE(theme.strings.count("heading.fontFamily") == 1);
+    REQUIRE(theme.strings["heading.fontFamily"] == "Inter");
+    REQUIRE(theme.dimensions["heading.fontSize"] == 24.0f);
+    REQUIRE(theme.dimensions["heading.fontWeight"] == 700.0f);
+    REQUIRE(theme.dimensions["heading.lineHeight"] == 1.2f);
+}
+
+TEST_CASE("parse_w3c_tokens handles composite shadow tokens", "[view][import]") {
+    auto json = R"({
+        "shadow": {
+            "$type": "shadow",
+            "card": {
+                "$value": {
+                    "color": "#00000040",
+                    "offsetX": "0",
+                    "offsetY": "4",
+                    "blur": "8",
+                    "spread": "0"
+                }
+            }
+        }
+    })";
+
+    auto theme = parse_w3c_tokens(json);
+
+    REQUIRE(theme.colors.count("shadow.card.color") == 1);
+    REQUIRE(theme.dimensions["shadow.card.offsetY"] == 4.0f);
+    REQUIRE(theme.dimensions["shadow.card.blur"] == 8.0f);
+}
+
+TEST_CASE("parse_w3c_tokens evaluates math expressions", "[view][import]") {
+    auto json = R"({
+        "spacing": {
+            "$type": "dimension",
+            "base": { "$value": "8" },
+            "double": { "$value": "8 * 2" },
+            "half": { "$value": "8 / 2" },
+            "sum": { "$value": "4 + 12" }
+        }
+    })";
+
+    auto theme = parse_w3c_tokens(json);
+
+    REQUIRE(theme.dimensions["spacing.base"] == 8.0f);
+    REQUIRE(theme.dimensions["spacing.double"] == 16.0f);
+    REQUIRE(theme.dimensions["spacing.half"] == 4.0f);
+    REQUIRE(theme.dimensions["spacing.sum"] == 16.0f);
+}
+
+TEST_CASE("parse_w3c_tokens resolves alias then evaluates math", "[view][import]") {
+    auto json = R"({
+        "spacing": {
+            "$type": "dimension",
+            "base": { "$value": "8" },
+            "lg": { "$value": "{spacing.base} * 2" }
+        }
+    })";
+
+    auto theme = parse_w3c_tokens(json);
+
+    // {spacing.base} resolves to "8", then "8 * 2" evaluates to 16
+    REQUIRE(theme.dimensions["spacing.lg"] == 16.0f);
+}
+
 // ── IR ↔ Theme conversion ───────────────────────────────────────────────
 
 TEST_CASE("ir_tokens_to_theme converts token maps to Theme", "[view][import]") {

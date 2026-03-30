@@ -1091,6 +1091,48 @@ Theme parse_w3c_tokens(const std::string& json) {
     // - Alias references: { "$value": "{color.primary}" } resolve to other tokens
     // - $description stored but not used in Theme (available for documentation)
 
+    // Evaluate simple math expressions: "8 * 2" → "16", "{spacing.base} * 2" after alias resolution
+    auto eval_math = [](const std::string& expr) -> std::string {
+        // Only handle simple "number op number" patterns
+        auto trim = [](const std::string& s) -> std::string {
+            auto a = s.find_first_not_of(" \t");
+            auto b = s.find_last_not_of(" \t");
+            return (a == std::string::npos) ? "" : s.substr(a, b - a + 1);
+        };
+        std::string s = trim(expr);
+        // Strip trailing units (px, rem, em)
+        std::string unit;
+        for (auto& u : {"px", "rem", "em"}) {
+            if (s.size() > 2 && s.substr(s.size() - std::strlen(u)) == u) {
+                unit = u;
+                s = trim(s.substr(0, s.size() - std::strlen(u)));
+                break;
+            }
+        }
+        // Find operator
+        for (char op : {'*', '+', '-', '/'}) {
+            auto pos = s.find(op);
+            if (pos != std::string::npos && pos > 0 && pos < s.size() - 1) {
+                try {
+                    float a = std::stof(trim(s.substr(0, pos)));
+                    float b = std::stof(trim(s.substr(pos + 1)));
+                    float result = 0;
+                    if (op == '*') result = a * b;
+                    else if (op == '+') result = a + b;
+                    else if (op == '-') result = a - b;
+                    else if (op == '/' && b != 0) result = a / b;
+                    // Return as clean number string
+                    if (result == std::floor(result))
+                        return std::to_string(static_cast<int>(result));
+                    std::ostringstream oss;
+                    oss << result;
+                    return oss.str();
+                } catch (...) {}
+            }
+        }
+        return expr;  // Not a math expression, return as-is
+    };
+
     // First pass: collect all raw token values (including unresolved aliases)
     struct RawToken { std::string type; std::string value; };
     std::unordered_map<std::string, RawToken> raw_tokens;
@@ -1115,9 +1157,52 @@ Theme parse_w3c_tokens(const std::string& json) {
             // Leaf token: has $value
             if (val.isObject() && val.hasObjectMember("$value")) {
                 auto type_str = get_string(val, "$type", "");
-                if (type_str.empty()) type_str = group_type;  // Inherit from group
-                auto value_str = std::string(val["$value"].toString());
-                raw_tokens[full_name] = { type_str, value_str };
+                if (type_str.empty()) type_str = group_type;
+
+                auto dollar_val = val["$value"];
+
+                // Composite tokens: typography, shadow, border have object $value
+                if (dollar_val.isObject()) {
+                    if (type_str == "typography") {
+                        // Flatten: typography.fontFamily, typography.fontSize, etc.
+                        if (dollar_val.hasObjectMember("fontFamily"))
+                            raw_tokens[full_name + ".fontFamily"] = { "fontFamily", std::string(dollar_val["fontFamily"].toString()) };
+                        if (dollar_val.hasObjectMember("fontSize"))
+                            raw_tokens[full_name + ".fontSize"] = { "dimension", std::string(dollar_val["fontSize"].toString()) };
+                        if (dollar_val.hasObjectMember("fontWeight"))
+                            raw_tokens[full_name + ".fontWeight"] = { "number", std::string(dollar_val["fontWeight"].toString()) };
+                        if (dollar_val.hasObjectMember("lineHeight"))
+                            raw_tokens[full_name + ".lineHeight"] = { "number", std::string(dollar_val["lineHeight"].toString()) };
+                        if (dollar_val.hasObjectMember("letterSpacing"))
+                            raw_tokens[full_name + ".letterSpacing"] = { "dimension", std::string(dollar_val["letterSpacing"].toString()) };
+                    } else if (type_str == "shadow") {
+                        // Flatten shadow: offsetX, offsetY, blur, spread, color
+                        if (dollar_val.hasObjectMember("color"))
+                            raw_tokens[full_name + ".color"] = { "color", std::string(dollar_val["color"].toString()) };
+                        if (dollar_val.hasObjectMember("offsetX"))
+                            raw_tokens[full_name + ".offsetX"] = { "dimension", std::string(dollar_val["offsetX"].toString()) };
+                        if (dollar_val.hasObjectMember("offsetY"))
+                            raw_tokens[full_name + ".offsetY"] = { "dimension", std::string(dollar_val["offsetY"].toString()) };
+                        if (dollar_val.hasObjectMember("blur"))
+                            raw_tokens[full_name + ".blur"] = { "dimension", std::string(dollar_val["blur"].toString()) };
+                        if (dollar_val.hasObjectMember("spread"))
+                            raw_tokens[full_name + ".spread"] = { "dimension", std::string(dollar_val["spread"].toString()) };
+                    } else if (type_str == "border") {
+                        if (dollar_val.hasObjectMember("color"))
+                            raw_tokens[full_name + ".color"] = { "color", std::string(dollar_val["color"].toString()) };
+                        if (dollar_val.hasObjectMember("width"))
+                            raw_tokens[full_name + ".width"] = { "dimension", std::string(dollar_val["width"].toString()) };
+                        if (dollar_val.hasObjectMember("style"))
+                            raw_tokens[full_name + ".style"] = { "string", std::string(dollar_val["style"].toString()) };
+                    } else {
+                        // Unknown composite — store as string
+                        raw_tokens[full_name] = { type_str, choc::json::toString(dollar_val) };
+                    }
+                } else {
+                    // Simple scalar $value
+                    auto value_str = std::string(dollar_val.toString());
+                    raw_tokens[full_name] = { type_str, value_str };
+                }
             } else if (val.isObject()) {
                 // Nested group — recurse with inherited type
                 walk(val, full_name, group_type);
@@ -1127,28 +1212,33 @@ Theme parse_w3c_tokens(const std::string& json) {
 
     walk(root, "", "");
 
-    // Second pass: resolve aliases (values like "{color.primary}" → look up target)
+    // Second pass: resolve aliases (values like "{color.primary}" or "{spacing.base} * 2")
+    // Handles both whole-value aliases and partial aliases embedded in expressions
     // Supports up to 10 levels of chained aliases to prevent infinite loops
     auto resolve_value = [&](const std::string& value) -> std::string {
         std::string resolved = value;
         for (int depth = 0; depth < 10; ++depth) {
-            // Check for alias pattern: {reference.path}
-            if (resolved.size() > 2 && resolved.front() == '{' && resolved.back() == '}') {
-                auto ref = resolved.substr(1, resolved.size() - 2);
-                auto it = raw_tokens.find(ref);
-                if (it != raw_tokens.end()) {
-                    resolved = it->second.value;
-                    continue;  // May be another alias
-                }
+            // Find any {reference.path} pattern in the string
+            auto open = resolved.find('{');
+            auto close = resolved.find('}');
+            if (open == std::string::npos || close == std::string::npos || close <= open)
+                break;
+
+            auto ref = resolved.substr(open + 1, close - open - 1);
+            auto it = raw_tokens.find(ref);
+            if (it != raw_tokens.end()) {
+                // Replace {ref} with resolved value
+                resolved = resolved.substr(0, open) + it->second.value + resolved.substr(close + 1);
+                continue;  // May contain more aliases
             }
-            break;  // Not an alias or resolved
+            break;  // Reference not found
         }
         return resolved;
     };
 
-    // Third pass: store resolved values into Theme
+    // Third pass: resolve aliases, evaluate math, store into Theme
     for (auto& [name, token] : raw_tokens) {
-        auto value_str = resolve_value(token.value);
+        auto value_str = eval_math(resolve_value(token.value));
         auto& type_str = token.type;
 
         if (type_str == "color") {
