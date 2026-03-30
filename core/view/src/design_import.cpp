@@ -193,10 +193,8 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
     if (obj.hasObjectMember("layout"))
         node.layout = parse_ir_layout(obj["layout"]);
 
-    // Audio widget detection
-    node.audio_widget = detect_audio_widget(node.name);
-    if (node.audio_widget == AudioWidgetType::none && !node.type.empty())
-        node.audio_widget = detect_audio_widget(node.type);
+    // Audio widget detection is deferred until after children are parsed
+    // (see below) — containers with child frames shouldn't be widgets
 
     if (obj.hasObjectMember("label"))
         node.audio_label = get_string(obj, "label");
@@ -325,6 +323,33 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
         auto children = obj["children"];
         for (uint32_t i = 0; i < children.size(); ++i)
             node.children.push_back(parse_ir_node(children[static_cast<int>(i)]));
+    }
+
+    // Audio widget detection (deferred until after children are parsed)
+    // Rule: a node is an audio widget ONLY if:
+    //   1. Its name matches an audio widget pattern (knob, fader, meter, etc.)
+    //   2. AND it doesn't have child frames/groups (containers aren't widgets)
+    //   A node with only shape children (ellipse/rectangle) + text is a widget.
+    //   A node with child frames (like "KnobRow" containing 4 knob frames) is a container.
+    {
+        auto detected = detect_audio_widget(node.name);
+        if (detected == AudioWidgetType::none && !node.type.empty())
+            detected = detect_audio_widget(node.type);
+
+        if (detected != AudioWidgetType::none) {
+            // Check if this node has child frames — if so, it's a container, not a widget
+            bool has_child_containers = false;
+            for (auto& child : node.children) {
+                if (child.type == "frame" || child.type == "group" ||
+                    !child.children.empty()) {
+                    has_child_containers = true;
+                    break;
+                }
+            }
+            // Only assign widget type if it's a leaf or has only shapes+text
+            if (!has_child_containers)
+                node.audio_widget = detected;
+        }
     }
 
     // For audio widgets: extract dimensions from child shapes
