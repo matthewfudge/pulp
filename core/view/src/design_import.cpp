@@ -366,16 +366,17 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
         }
     }
 
-    // For audio widgets: extract dimensions from child shapes
+    // For audio widgets: extract child shape dimensions into attributes
+    // The frame's own width/height is for the column container.
+    // The child shape's width/height is for the widget itself.
     if (node.audio_widget != AudioWidgetType::none && !node.children.empty()) {
         for (auto& child : node.children) {
-            // Child ellipse/rectangle = the visual shape of the widget
             if (child.type == "ellipse" || child.type == "rectangle") {
-                if (child.style.width && !node.style.width)
-                    node.style.width = child.style.width;
-                if (child.style.height && !node.style.height)
-                    node.style.height = child.style.height;
-                break;  // Use first shape child
+                if (child.style.width)
+                    node.attributes["shape_width"] = std::to_string(static_cast<int>(*child.style.width));
+                if (child.style.height)
+                    node.attributes["shape_height"] = std::to_string(static_cast<int>(*child.style.height));
+                break;
             }
         }
     }
@@ -857,14 +858,19 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         ss << ind << "setFlex('" << col_id << "', 'gap', 4);\n";
 
         if (wtype == AudioWidgetType::knob) {
-            float w = node.style.width.value_or(kMinKnobSize);
-            float h = node.style.height.value_or(kMinKnobSize);
-            float col_h = h + 20 + (value_text.empty() ? 0 : 16);
+            // shape_width/height = child ellipse size (widget), frame width = column container
+            float shape_w = kMinKnobSize, shape_h = kMinKnobSize;
+            if (node.attributes.count("shape_width"))
+                shape_w = std::stof(node.attributes.at("shape_width"));
+            if (node.attributes.count("shape_height"))
+                shape_h = std::stof(node.attributes.at("shape_height"));
+            float frame_w = node.style.width.value_or(shape_w + 20);
+            float col_h = shape_h + 20 + (value_text.empty() ? 0 : 16);
             ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
-            ss << ind << "setFlex('" << col_id << "', 'min_width', " << (w + 8) << ");\n";
+            ss << ind << "setFlex('" << col_id << "', 'min_width', " << frame_w << ");\n";
             ss << ind << "createKnob('" << id << "', '" << col_id << "');\n";
-            ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
-            ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
+            ss << ind << "setFlex('" << id << "', 'width', " << shape_w << ");\n";
+            ss << ind << "setFlex('" << id << "', 'height', " << shape_h << ");\n";
             // Clear built-in label — use separate Yoga-positioned labels for exact placement
             ss << ind << "setLabel('" << id << "', ' ');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
@@ -886,17 +892,14 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             }
         }
         else if (wtype == AudioWidgetType::fader) {
-            // Frame width = column width, shape dimensions = widget size
+            // shape_width/height from child rectangle, frame width for column
             float frame_w = node.style.width.value_or(kMinFaderWidth);
-            float shape_w = frame_w;  // default to frame width
+            float shape_w = frame_w;
             float shape_h = kMinFaderHeight;
-            for (auto& c : node.children) {
-                if (c.type == "rectangle") {
-                    if (c.style.width) shape_w = *c.style.width;
-                    if (c.style.height) shape_h = *c.style.height;
-                    break;
-                }
-            }
+            if (node.attributes.count("shape_width"))
+                shape_w = std::stof(node.attributes.at("shape_width"));
+            if (node.attributes.count("shape_height"))
+                shape_h = std::stof(node.attributes.at("shape_height"));
             // Use frame width for column, but ensure widget is at least usable
             float widget_w = std::max(shape_w, 6.0f);
             float col_h = shape_h + 20;
@@ -921,13 +924,10 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             float frame_w = node.style.width.value_or(kMinMeterWidth);
             float shape_w = frame_w;
             float shape_h = kMinMeterHeight;
-            for (auto& c : node.children) {
-                if (c.type == "rectangle") {
-                    if (c.style.width) shape_w = *c.style.width;
-                    if (c.style.height) shape_h = *c.style.height;
-                    break;
-                }
-            }
+            if (node.attributes.count("shape_width"))
+                shape_w = std::stof(node.attributes.at("shape_width"));
+            if (node.attributes.count("shape_height"))
+                shape_h = std::stof(node.attributes.at("shape_height"));
             float widget_w = std::max(shape_w, 8.0f);
             float col_h = shape_h + 20;
             ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
