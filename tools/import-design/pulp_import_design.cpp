@@ -86,6 +86,8 @@ int main(int argc, char* argv[]) {
     bool export_tokens_mode = false;
     bool validate = false;           // --validate: render + compare after import
     bool use_web_compat = false;     // --web-compat: use DOM API instead of native
+    bool debug_json = false;         // --debug: output JSON report with all metrics
+    std::string debug_output;        // --debug-output: path for JSON report
     int render_width = 340;
     int render_height = 280;
 
@@ -125,6 +127,11 @@ int main(int argc, char* argv[]) {
                 render_width = std::stoi(sz.substr(0, x));
                 render_height = std::stoi(sz.substr(x + 1));
             }
+        } else if (std::strcmp(argv[i], "--debug") == 0) {
+            debug_json = true;
+        } else if (std::strcmp(argv[i], "--debug-output") == 0 && i + 1 < argc) {
+            debug_output = argv[++i];
+            debug_json = true;
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             print_usage();
             return 0;
@@ -326,6 +333,74 @@ int main(int argc, char* argv[]) {
                     std::cout << "Diff image → " << diff_output << "\n";
                 }
             }
+        }
+    }
+
+    // ── Debug JSON report ────────────────────────────────────────────────
+    if (debug_json) {
+        auto t_end = std::chrono::steady_clock::now();
+        auto ms_total = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
+
+        std::ostringstream dbg;
+        dbg << "{\n";
+        dbg << "  \"source\": \"" << design_source_name(*source) << "\",\n";
+        dbg << "  \"input_file\": \"" << input_file << "\",\n";
+        dbg << "  \"output_file\": \"" << output_file << "\",\n";
+        dbg << "  \"mode\": \"" << (use_web_compat ? "web_compat" : "native") << "\",\n";
+        dbg << "  \"elements\": {\n";
+        dbg << "    \"total\": " << node_count << ",\n";
+        dbg << "    \"containers\": " << container_count << ",\n";
+        dbg << "    \"widgets\": " << widget_count << ",\n";
+        dbg << "    \"labels\": " << text_count << "\n";
+        dbg << "  },\n";
+        dbg << "  \"tokens\": {\n";
+        dbg << "    \"colors\": " << ir.tokens.colors.size() << ",\n";
+        dbg << "    \"dimensions\": " << ir.tokens.dimensions.size() << ",\n";
+        dbg << "    \"strings\": " << ir.tokens.strings.size() << "\n";
+        dbg << "  },\n";
+        dbg << "  \"timing_ms\": " << ms_total << ",\n";
+        dbg << "  \"render_size\": \"" << render_width << "x" << render_height << "\",\n";
+        dbg << "  \"js_bytes\": " << js.size() << ",\n";
+
+        // Validation results if available
+        if (validate && !reference_image.empty()) {
+            auto result = compare_screenshot_files(reference_image, output_file + ".png");
+            dbg << "  \"validation\": {\n";
+            dbg << "    \"reference\": \"" << reference_image << "\",\n";
+            dbg << "    \"similarity_pct\": " << static_cast<int>(result.similarity * 100) << ",\n";
+            dbg << "    \"diff_pixels\": " << result.diff_pixels << ",\n";
+            dbg << "    \"total_pixels\": " << result.total_pixels << ",\n";
+            dbg << "    \"mean_error\": " << result.mean_error << ",\n";
+            dbg << "    \"pass\": " << (result.passes(0.70f) ? "true" : "false") << "\n";
+            dbg << "  },\n";
+        }
+
+        // List unprocessed/unsupported elements
+        dbg << "  \"gaps\": [\n";
+        bool first_gap = true;
+        std::function<void(const IRNode&)> find_gaps = [&](const IRNode& n) {
+            // Shapes that aren't audio widgets (not translated to Pulp widgets)
+            if ((n.type == "ellipse" || n.type == "rectangle" || n.type == "path" ||
+                 n.type == "polygon" || n.type == "line") &&
+                n.audio_widget == AudioWidgetType::none) {
+                if (!first_gap) dbg << ",\n";
+                first_gap = false;
+                dbg << "    {\"type\": \"" << n.type << "\", \"name\": \"" << n.name
+                    << "\", \"reason\": \"shape not mapped to widget\"}";
+            }
+            for (auto& c : n.children) find_gaps(c);
+        };
+        find_gaps(ir.root);
+        dbg << "\n  ]\n";
+
+        dbg << "}\n";
+
+        auto report = dbg.str();
+        if (!debug_output.empty()) {
+            write_file(debug_output, report);
+            std::cout << "Debug report → " << debug_output << "\n";
+        } else {
+            std::cout << "\n" << report;
         }
     }
 
