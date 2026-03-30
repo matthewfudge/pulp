@@ -233,9 +233,10 @@ TEST_CASE("generate_pulp_js native mode handles audio widgets with Yoga constrai
     // Knob size >= 56 (minimum)
     REQUIRE(js.find("'width', 56)") != std::string::npos);
 
-    // Fader with min width >= 40
+    // Fader with min width >= 40, label as separate element
     REQUIRE(js.find("createFader('MixFader") != std::string::npos);
-    REQUIRE(js.find("'Mix')") != std::string::npos);
+    REQUIRE(js.find("createLabel('MixFader") != std::string::npos);  // Separate label
+    REQUIRE(js.find("'Mix'") != std::string::npos);
     REQUIRE(js.find("'width', 40)") != std::string::npos);
 
     // Meter with separate label (no built-in setLabel for Meter)

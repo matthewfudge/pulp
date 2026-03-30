@@ -633,10 +633,24 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
     // Audio widgets use native widget API
     if (node.audio_widget != AudioWidgetType::none) {
         auto wtype = node.audio_widget;
-        if (opts.include_comments && !node.audio_label.empty())
-            ss << ind << "// " << node.audio_label << "\n";
 
-        // Create a wrapper column for the widget + label
+        // Extract label and value text from child text nodes (if present)
+        // This avoids duplicating labels that the widget already renders
+        std::string label_text = node.audio_label;
+        std::string value_text;
+        for (auto& child : node.children) {
+            if (child.type == "text" || child.type == "label") {
+                if (label_text.empty() && !child.text_content.empty())
+                    label_text = child.text_content;
+                else if (!child.text_content.empty() && child.text_content != label_text)
+                    value_text = child.text_content;
+            }
+        }
+
+        if (opts.include_comments && !label_text.empty())
+            ss << ind << "// " << label_text << "\n";
+
+        // Create a wrapper column for the widget + value label
         std::string col_id = id + "_col";
         ss << ind << "createCol('" << col_id << "', " << pid << ");\n";
         ss << ind << "setFlex('" << col_id << "', 'align_items', 'center');\n";
@@ -645,15 +659,22 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         if (wtype == AudioWidgetType::knob) {
             float w = node.style.width.value_or(kMinKnobSize);
             float h = node.style.height.value_or(kMinKnobSize);
-            float col_h = h + 20; // space for label
+            float col_h = h + 20 + (value_text.empty() ? 0 : 16);
             ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
             ss << ind << "setFlex('" << col_id << "', 'min_width', " << (w + 8) << ");\n";
             ss << ind << "createKnob('" << id << "', '" << col_id << "');\n";
             ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
             ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
-            if (!node.audio_label.empty())
-                ss << ind << "setLabel('" << id << "', '" << node.audio_label << "');\n";
+            if (!label_text.empty())
+                ss << ind << "setLabel('" << id << "', '" << label_text << "');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
+            if (!value_text.empty()) {
+                std::string val_id = id + "_val";
+                ss << ind << "createLabel('" << val_id << "', '" << value_text << "', '" << col_id << "');\n";
+                ss << ind << "setFlex('" << val_id << "', 'height', " << kMinSmallLabelHeight << ");\n";
+                ss << ind << "setFontSize('" << val_id << "', 10);\n";
+                ss << ind << "setTextColor('" << val_id << "', '#6c7086');\n";
+            }
         }
         else if (wtype == AudioWidgetType::fader) {
             float w = std::max(node.style.width.value_or(kMinFaderWidth), kMinFaderWidth);
@@ -664,9 +685,16 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "createFader('" << id << "', 'vertical', '" << col_id << "');\n";
             ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
             ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
-            if (!node.audio_label.empty())
-                ss << ind << "setLabel('" << id << "', '" << node.audio_label << "');\n";
+            // Fader label overlaps track when rendered inside bounds — use separate label
+            ss << ind << "setLabel('" << id << "', ' ');\n";  // Clear built-in label
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
+            if (!label_text.empty()) {
+                std::string lbl_id = id + "_lbl";
+                ss << ind << "createLabel('" << lbl_id << "', '" << label_text << "', '" << col_id << "');\n";
+                ss << ind << "setFlex('" << lbl_id << "', 'height', " << kMinLabelHeight << ");\n";
+                ss << ind << "setFontSize('" << lbl_id << "', 11);\n";
+                ss << ind << "setTextColor('" << lbl_id << "', '#a6adc8');\n";
+            }
         }
         else if (wtype == AudioWidgetType::meter) {
             float w = std::max(node.style.width.value_or(kMinMeterWidth), kMinMeterWidth);
@@ -678,10 +706,10 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
             ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
             ss << ind << "setMeterLevel('" << id << "', -6);\n";
-            // Meter has no setLabel — add a separate label
-            if (!node.audio_label.empty()) {
+            // Meter has no setLabel — always add a separate label
+            if (!label_text.empty()) {
                 std::string lbl_id = id + "_lbl";
-                ss << ind << "createLabel('" << lbl_id << "', '" << node.audio_label << "', '" << col_id << "');\n";
+                ss << ind << "createLabel('" << lbl_id << "', '" << label_text << "', '" << col_id << "');\n";
                 ss << ind << "setFlex('" << lbl_id << "', 'height', " << kMinLabelHeight << ");\n";
                 ss << ind << "setFontSize('" << lbl_id << "', 11);\n";
                 ss << ind << "setTextColor('" << lbl_id << "', '#a6adc8');\n";

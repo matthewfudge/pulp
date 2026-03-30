@@ -79,6 +79,7 @@ int main(int argc, char* argv[]) {
     bool include_comments = true;
     bool export_tokens_mode = false;
     bool validate = false;           // --validate: render + compare after import
+    bool use_web_compat = false;     // --web-compat: use DOM API instead of native
     int render_width = 340;
     int render_height = 280;
 
@@ -101,6 +102,8 @@ int main(int argc, char* argv[]) {
             export_tokens_mode = true;
         } else if (std::strcmp(argv[i], "--format") == 0 && i + 1 < argc) {
             export_format = argv[++i];
+        } else if (std::strcmp(argv[i], "--web-compat") == 0) {
+            use_web_compat = true;
         } else if (std::strcmp(argv[i], "--validate") == 0) {
             validate = true;
         } else if (std::strcmp(argv[i], "--reference") == 0 && i + 1 < argc) {
@@ -193,6 +196,7 @@ int main(int argc, char* argv[]) {
 
     // Generate Pulp JS
     CodeGenOptions opts;
+    opts.mode = use_web_compat ? CodeGenMode::web_compat : CodeGenMode::native;
     opts.include_tokens = include_tokens;
     opts.include_comments = include_comments;
     auto js = generate_pulp_js(ir, opts);
