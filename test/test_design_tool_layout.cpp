@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <stdexcept>
 
 using namespace pulp::view;
 namespace fs = std::filesystem;
@@ -38,6 +39,21 @@ static std::string find_js_file(const std::string& name) {
     return {};
 }
 
+static void load_design_tool(View& root, ScriptEngine& engine, WidgetBridge& bridge) {
+    auto oklch_path = find_js_file("oklch.js");
+    if (!oklch_path.empty()) {
+        bridge.load_script(read_file(oklch_path));
+    }
+
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        throw std::runtime_error("design-tool.js not found");
+    }
+
+    bridge.load_script(read_file(js_path));
+    root.layout_children();
+}
+
 TEST_CASE("Design tool: JS creates three-column layout", "[design-tool]") {
     auto js_path = find_js_file("design-tool.js");
     if (js_path.empty()) {
@@ -50,33 +66,26 @@ TEST_CASE("Design tool: JS creates three-column layout", "[design-tool]") {
     root.flex().direction = FlexDirection::column;
     root.set_bounds({0, 0, 1100, 700});
 
-    state::StateStore store;
+    pulp::state::StateStore store;
     ScriptEngine engine;
     WidgetBridge bridge(engine, root, store);
 
-    // Load oklch.js first
-    auto oklch_path = find_js_file("oklch.js");
-    if (!oklch_path.empty()) {
-        bridge.load_script(read_file(oklch_path));
-    }
+    load_design_tool(root, engine, bridge);
 
-    // Load main JS
-    bridge.load_script(read_file(js_path));
-    root.layout_children();
-
-    // Should have: toolbar, main-area, status-bar as top-level children
-    REQUIRE(root.child_count() >= 3);
+    auto* toolbar = bridge.widget("toolbar");
+    auto* main_area = bridge.widget("main-area");
+    auto* status = bridge.widget("status-bar");
+    REQUIRE(toolbar != nullptr);
+    REQUIRE(main_area != nullptr);
+    REQUIRE(status != nullptr);
 
     // Toolbar should be 44px tall
-    auto* toolbar = root.child_at(0);
     REQUIRE_THAT(toolbar->bounds().height, Catch::Matchers::WithinAbs(44.0f, 1.0f));
 
     // Status bar should be 28px tall
-    auto* status = root.child_at(root.child_count() - 1);
     REQUIRE_THAT(status->bounds().height, Catch::Matchers::WithinAbs(28.0f, 1.0f));
 
     // Main area should fill remaining space
-    auto* main_area = root.child_at(1);
     REQUIRE(main_area->bounds().height > 600.0f);
 }
 
@@ -92,14 +101,11 @@ TEST_CASE("Design tool: left panel is 310px, right panel is 272px", "[design-too
     root.flex().direction = FlexDirection::column;
     root.set_bounds({0, 0, 1100, 700});
 
-    state::StateStore store;
+    pulp::state::StateStore store;
     ScriptEngine engine;
     WidgetBridge bridge(engine, root, store);
 
-    auto oklch_path = find_js_file("oklch.js");
-    if (!oklch_path.empty()) bridge.load_script(read_file(oklch_path));
-    bridge.load_script(read_file(js_path));
-    root.layout_children();
+    load_design_tool(root, engine, bridge);
 
     // Main area is child 1, should be a row with 3 children
     auto* main_area = root.child_at(1);
@@ -130,14 +136,11 @@ TEST_CASE("Design tool: toolbar has space-between layout", "[design-tool]") {
     root.flex().direction = FlexDirection::column;
     root.set_bounds({0, 0, 1100, 700});
 
-    state::StateStore store;
+    pulp::state::StateStore store;
     ScriptEngine engine;
     WidgetBridge bridge(engine, root, store);
 
-    auto oklch_path = find_js_file("oklch.js");
-    if (!oklch_path.empty()) bridge.load_script(read_file(oklch_path));
-    bridge.load_script(read_file(js_path));
-    root.layout_children();
+    load_design_tool(root, engine, bridge);
 
     auto* toolbar = root.child_at(0);
     REQUIRE(toolbar->child_count() >= 2);
@@ -152,7 +155,7 @@ TEST_CASE("Design tool: toolbar has space-between layout", "[design-tool]") {
     REQUIRE(right_edge > 1000.0f); // Near the right side of 1100px
 }
 
-TEST_CASE("Design tool: plugin chrome has traffic lights", "[design-tool]") {
+TEST_CASE("Design tool: help badges exist for color system controls", "[design-tool]") {
     auto js_path = find_js_file("design-tool.js");
     if (js_path.empty()) {
         SKIP("design-tool.js not found");
@@ -164,25 +167,173 @@ TEST_CASE("Design tool: plugin chrome has traffic lights", "[design-tool]") {
     root.flex().direction = FlexDirection::column;
     root.set_bounds({0, 0, 1100, 700});
 
-    state::StateStore store;
+    pulp::state::StateStore store;
     ScriptEngine engine;
     WidgetBridge bridge(engine, root, store);
 
-    auto oklch_path = find_js_file("oklch.js");
-    if (!oklch_path.empty()) bridge.load_script(read_file(oklch_path));
-    bridge.load_script(read_file(js_path));
+    load_design_tool(root, engine, bridge);
+
+    auto* template_help = bridge.widget("template-help");
+    auto* harmony_help = bridge.widget("harmony-help");
+    auto* mode_help = bridge.widget("mode-help");
+
+    REQUIRE(template_help != nullptr);
+    REQUIRE(harmony_help != nullptr);
+    REQUIRE(mode_help != nullptr);
+    REQUIRE_THAT(template_help->bounds().width, Catch::Matchers::WithinAbs(18.0f, 1.0f));
+    REQUIRE_THAT(template_help->bounds().height, Catch::Matchers::WithinAbs(18.0f, 1.0f));
+
+    auto* help_modal = bridge.widget("help-modal");
+    REQUIRE(help_modal != nullptr);
+    REQUIRE_FALSE(help_modal->visible());
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('template-help', 'click', 0);"));
+    root.layout_children();
+    REQUIRE(help_modal->visible());
+}
+
+TEST_CASE("Design tool: palette dots stay circular", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    load_design_tool(root, engine, bridge);
+
+    auto* accent_dot = bridge.widget("ramp-0-dot");
+    REQUIRE(accent_dot != nullptr);
+    REQUIRE_THAT(accent_dot->bounds().width, Catch::Matchers::WithinAbs(14.0f, 1.0f));
+    REQUIRE_THAT(accent_dot->bounds().height, Catch::Matchers::WithinAbs(14.0f, 1.0f));
+}
+
+TEST_CASE("Design tool: token search compacts the list and hides non-matching groups", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    auto* token_list = bridge.widget("token-list");
+    auto* background_group = bridge.widget("tg-0");
+    auto* accent_group = bridge.widget("tg-2");
+    REQUIRE(token_list != nullptr);
+    REQUIRE(background_group != nullptr);
+    REQUIRE(accent_group != nullptr);
+
+    const float initial_height = token_list->bounds().height;
+    REQUIRE(initial_height > 300.0f);
+
+    engine.evaluate("setText('token-search', 'accent'); updateTokenFilterLayout('accent'); layout();");
     root.layout_children();
 
-    // Find the traffic light views by walking the tree
-    auto* tl_close = bridge.widget("tl-close");
-    auto* tl_min = bridge.widget("tl-min");
-    auto* tl_max = bridge.widget("tl-max");
+    REQUIRE_FALSE(background_group->visible());
+    REQUIRE(accent_group->visible());
+    REQUIRE(token_list->bounds().height < initial_height);
+}
 
-    REQUIRE(tl_close != nullptr);
-    REQUIRE(tl_min != nullptr);
-    REQUIRE(tl_max != nullptr);
+TEST_CASE("Design tool: palette rows keep mini ramps when collapsed and gamut editor when expanded", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
 
-    // They should be 12x12
-    REQUIRE_THAT(tl_close->bounds().width, Catch::Matchers::WithinAbs(12.0f, 1.0f));
-    REQUIRE_THAT(tl_close->bounds().height, Catch::Matchers::WithinAbs(12.0f, 1.0f));
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    auto* mini_ramp = bridge.widget("ramp-0-row");
+    auto* first_swatch = bridge.widget("ramp-0-s0");
+    auto* editor = bridge.widget("ramp-0-editor");
+    REQUIRE(mini_ramp != nullptr);
+    REQUIRE(first_swatch != nullptr);
+    REQUIRE(editor != nullptr);
+
+    REQUIRE(mini_ramp->bounds().width > 80.0f);
+    REQUIRE(first_swatch->bounds().width > 6.0f);
+    REQUIRE_FALSE(editor->visible());
+
+    engine.evaluate("expandedPalette = 0; buildShadeRamps(); layout();");
+    root.layout_children();
+
+    auto* expanded_editor = bridge.widget("ramp-0-editor");
+    auto* gamut = bridge.widget("ramp-0-gamut");
+    REQUIRE(expanded_editor != nullptr);
+    REQUIRE(gamut != nullptr);
+    REQUIRE(expanded_editor->visible());
+    REQUIRE(expanded_editor->bounds().height > 250.0f);
+    REQUIRE_THAT(gamut->bounds().height, Catch::Matchers::WithinAbs(130.0f, 2.0f));
+}
+
+TEST_CASE("Design tool: brand/style cues resolve to deterministic audio-plugin presets", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    REQUIRE(engine.evaluate("inferFallbackPreset('k1', 'give this the FabFilter precision analyzer vibe')").toString() == "precision_knob");
+    REQUIRE(engine.evaluate("inferFallbackPreset('k1', 'make it feel like Moog studio hardware')").toString() == "heritage_knob");
+    REQUIRE(engine.evaluate("inferFallbackPreset('slider1', 'make this feel like a Waves console strip')").toString() == "console_slider");
+    REQUIRE(engine.evaluate("inferFallbackPreset('t1', 'give it an Arturia Pigments cyberpunk glow')").toString() == "illuminated_toggle");
+}
+
+TEST_CASE("Design tool: family-only widget look specs resolve to concrete presets", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    REQUIRE(engine.evaluate("applyWidgetLook('k1', { family: 'precision_analyzer' })").getWithDefault<bool>(false));
+    REQUIRE(engine.evaluate("widgetLookState.k1.preset").toString() == "precision_knob");
+
+    REQUIRE(engine.evaluate("applyWidgetLook('slider1', { family: 'console_strip' })").getWithDefault<bool>(false));
+    REQUIRE(engine.evaluate("widgetLookState.slider1.preset").toString() == "console_slider");
 }

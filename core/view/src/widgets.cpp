@@ -1,5 +1,6 @@
 #include <pulp/view/widgets.hpp>
 #include <pulp/view/animation.hpp>
+#include <pulp/view/frame_clock.hpp>
 #include <choc/text/choc_JSON.h>
 #include <cmath>
 #include <string>
@@ -328,6 +329,7 @@ void Knob::paint(canvas::Canvas& canvas) {
     float cx = b.width * 0.5f;
     float cy = b.height * 0.5f;
     float radius = std::min(cx, cy) * 0.8f;
+    float shader_time = frame_clock() ? frame_clock()->time() : 0.0f;
 
     // ── Declarative schema path: JSON defines appearance as data ──────────
     if (!widget_schema_.empty()) {
@@ -338,7 +340,7 @@ void Knob::paint(canvas::Canvas& canvas) {
     else if (!custom_sksl_.empty()) {
         canvas::Canvas::ShaderUniforms u;
         u.value = value_;
-        u.time = 0; // TODO: wire to FrameClock elapsed
+        u.time = shader_time;
         u.accent_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
         u.bg_color = resolve_color("bg.primary", canvas::Color::rgba(30, 30, 46));
         u.track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
@@ -419,6 +421,7 @@ void Knob::paint(canvas::Canvas& canvas) {
 
 void Fader::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
+    float shader_time = frame_clock() ? frame_clock()->time() : 0.0f;
 
     bool vert = orientation_ == Orientation::vertical;
     float track_length = vert ? b.height : b.width;
@@ -429,7 +432,7 @@ void Fader::paint(canvas::Canvas& canvas) {
     } else if (!custom_sksl_.empty()) {
         canvas::Canvas::ShaderUniforms u;
         u.value = value_;
-        u.time = 0;
+        u.time = shader_time;
         u.accent_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
         u.bg_color = resolve_color("bg.primary", canvas::Color::rgba(30, 30, 46));
         u.track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));
@@ -509,6 +512,7 @@ void Fader::paint(canvas::Canvas& canvas) {
 
 void Toggle::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
+    float shader_time = frame_clock() ? frame_clock()->time() : 0.0f;
 
     float switch_w = std::min(b.width, 40.0f);
     float switch_h = std::min(b.height * 0.6f, 20.0f);
@@ -520,7 +524,7 @@ void Toggle::paint(canvas::Canvas& canvas) {
     } else if (!custom_sksl_.empty()) {
         canvas::Canvas::ShaderUniforms u;
         u.value = on_ ? 1.0f : 0.0f;
-        u.time = 0;
+        u.time = shader_time;
         u.accent_color = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
         u.bg_color = resolve_color("bg.primary", canvas::Color::rgba(30, 30, 46));
         u.track_color = resolve_color("control.track", canvas::Color::rgba(60, 60, 60));

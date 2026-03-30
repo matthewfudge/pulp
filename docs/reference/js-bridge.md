@@ -358,6 +358,12 @@ canvasRotate(id, radians)        // Rotate drawing
 setTheme("dark")                  // Built-in: "dark", "light", "pro_audio"
 getThemeJson()                    // Returns full theme as JSON string
 applyTokenDiff(jsonString)        // Apply partial theme overrides from JSON
+importDesignTokens(w3cJson)       // Apply W3C Design Tokens JSON to the current theme
+exportDesignTokens()              // Export current theme as W3C Design Tokens JSON
+saveStylePreset(name, object)     // Persist a style payload as JSON
+loadStylePreset(name)             // Load a saved style payload object
+setAICli(command)                 // Override the AI CLI command used by JS tools
+getAICli()                        // Read the current AI CLI command
 ```
 
 ## Layout & Geometry
@@ -402,7 +408,33 @@ setUserSelect(id, "none"|"text")      // CSS user-select
 ```js
 compileShader(skslCode)           // Validate SkSL shader — returns { success, error }
 exec(command)                     // Run shell command — returns output string
+execAsync(command, callbackId)    // Run shell command in background, dispatches callbackId:result later
 ```
+
+## Widget Styling Extensions
+
+```js
+setWidgetShader(id, skslCode)     // Apply custom SkSL body shader to Knob/Fader/Toggle
+clearWidgetShader(id)             // Remove custom shader and restore default paint
+setWidgetSchema(id, schemaJson)   // Apply declarative widget schema to Knob/Fader/Toggle
+clearWidgetSchema(id)             // Remove widget schema override
+setWidgetLottie(id, lottieJson)   // Store Lottie JSON on Knob/Fader/Toggle
+seekWidgetLottie(id, time01)      // Scrub stored Lottie state to a normalized time
+```
+
+These APIs are intended for the design tool and other style-system workflows.
+The recommended restyling path is preset/material or declarative-schema driven.
+The built-in design-tool workflow also routes higher-level audio-plugin style
+families (for example precision analyzer, heritage hardware, retro character,
+modular neon, mastering lab, and console strip) into deterministic per-widget
+presets before applying SkSL.
+`setWidgetShader` remains available as a lower-level developer escape hatch when
+you need direct SkSL control. Widget shaders receive the standard widget uniforms
+(`resolution`, `value`, `time`, token colors), and `time` is driven from the
+view `FrameClock` when the host is actively rendering.
+
+`setWidgetLottie` currently stores animation state for tool workflows; native
+Skottie rendering is still partial.
 
 ## Color Format
 

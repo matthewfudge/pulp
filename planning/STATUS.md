@@ -1,6 +1,6 @@
 # Pulp — Status Tracker
 
-Last updated: 2026-03-28 (738 tests, 8 plugin examples + 3 apps, PHASES 0-20 + Apple render + plugin editors + host + WASM demos + first-time setup)
+Last updated: 2026-03-30 (1303 tests, 8 plugin examples + 3 apps, PHASES 0-20 + Phase 11 design import + Apple render + plugin editors + host + WASM demos + first-time setup)
 
 ## Web Plugin Formats — COMPLETE
 - [x] WAMv2 adapter (WamProcessorBridge + wam-plugin.js) — 10 tests
@@ -37,6 +37,7 @@ Last updated: 2026-03-28 (738 tests, 8 plugin examples + 3 apps, PHASES 0-20 + A
 | 16 | Linux Platform | **Mostly Complete** | ALSA, JACK, ALSA MIDI, LV2, CI, platform guide, 540/540 on VM. Platform UI stubs (clipboard). Accessibility stubs. |
 | 21 | View System Foundation | **Complete** | Keyboard input, Panel widget, ComboBox fix, ScrollView, CanvasWidget. 24 new tests on main. |
 | 21.5 | W3C Standards Parity | **Complete** | Flexbox, Grid, Transforms, Animations, Backgrounds, Filters, Colors L4, Text L3, Positioning L3, Canvas 2D, calc/min/max/clamp, em/rem/%/vw/vh units, selectors (:nth-child/:not), closest/matches/innerHTML, matchMedia, pointer-events, aspect-ratio |
+| 21.6 | Design Import Pipeline | **Complete** | Figma/Stitch/v0/Pencil → IR → Pulp JS. W3C tokens, Figma Variables sync, Stitch DS sync. CLI + Claude skill. 34 tests. |
 | 22 | Design Tool Parity | **In Progress** | Achieving 1:1 feature parity with ai-style-designer HTML. 5 sub-phases: Layout/Structure, Center Preview, Left Token Browser, Right Inspector+Chat, Interactions+Polish. Branch: phase/design-tool-v2. Ref: planning/ralph-loop-prompt-11.md |
 | 23 | Plugin Preview | **Planned** | Load real plugin UIs in design tool. Parameter connection, side-by-side theme comparison. |
 | 24 | Visual Editor | **Planned** | Unlock canvas, drag/resize widgets, snapping, grouping, code generation from layout changes. |
@@ -104,13 +105,33 @@ Browser-shaped JS API over Pulp's native GPU UI (document.createElement, element
 - [x] WebGPU shader access: applyShader(canvasId, skslCode), getGPUInfo()
 - [x] w3c-coverage.md expanded to 29 specs: added WebGPU (#27), Font Loading (#28), DnD (#29)
 
-### Phase 10: AI-Driven GPU Shader Design System — COMPLETE (2026-03-29)
+### Phase 10: AI-Driven GPU Shader Design System — COMPLETE (2026-03-29, refined 2026-03-30)
 - [x] 10.0: Yoga layout engine (MIT, Meta v3.2.1) — correct CSS Flexbox L1: margin:auto, flex-wrap, absolute positioning
 - [x] 10.1: Shader engine — RuntimeEffectCache (process-lifetime), draw_with_sksl on Canvas, Knob/Fader/Toggle body-layer shaders
 - [x] 10.2: Declarative widget schema — Rive-inspired JSON (elements, value binding, color tokens, percentage dims)
 - [x] 10.3: Lottie animation bridge — setWidgetLottie/seekWidgetLottie, Skottie libs available
 - [x] 10.4: Web Animations API — element.animate(keyframes, options) with play/pause/cancel
 - [x] 10.5: W3C Design Tokens import/export + model-agnostic AI CLI (Claude/Gemini/Codex)
+- [x] 10.x quality gate: preset/material-first widget restyling path, FrameClock-backed shader `time`, higher-quality linear-space preset shading
+- [x] 10.x guardrail: raw SkSL kept as a developer escape hatch; recommended AI/chat workflow is preset + params or declarative schema, not shader text generation
+- [x] 10.x preset coverage: expanded built-in premium looks for Mac/classic, Bakelite/vintage, LED/cyberpunk, analog slider, and illuminated toggle directions
+- [x] 10.x style routing: audio-plugin family cues (precision analyzer, heritage hardware, retro character, modular neon, mastering lab, console strip) normalize to deterministic per-widget presets
+
+### Phase 11: Design Import Pipeline — COMPLETE (2026-03-30)
+- [x] 11.1: CLI `pulp import-design` — --from (figma/stitch/v0/pencil), --file, --url, --frame, --screen, --output, --tokens, --dry-run, --validate, --reference, --diff, --debug
+- [x] 11.1: CLI `pulp export-tokens` — W3C Design Tokens JSON export from theme
+- [x] 11.1: Source adapters — Figma JSON, Stitch HTML+JSON, v0 TSX+JSON, Pencil JSON (all with IR fallback)
+- [x] 11.1: Normalized IR — IRNode/IRStyle/IRLayout/IRTokens structs, audio widget detection (knob/fader/meter/xypad/waveform/spectrum)
+- [x] 11.1: Code generator — native mode (createCol/createKnob/setFlex) + web-compat mode (document.createElement/style)
+- [x] 11.2: Claude skill `/import-design` — MCP-aware flow for Figma, Stitch, Pencil, v0
+- [x] 11.3: W3C Design Tokens — parse/export with group $type inheritance, alias resolution, cycle detection, math expressions, composite types (typography/shadow/border)
+- [x] 11.3: Figma Variables sync — parse_figma_variables/export_figma_variables (slash↔dot path conversion)
+- [x] 11.3: Stitch Design System sync — parse_stitch_design_system/export_stitch_design_system (colors/fonts/roundness/spacing)
+- [x] 11.3: Token round-trip — W3C, Figma Variables, Stitch all verified bidirectional
+- [x] 11.4: Documentation — docs/guides/importing-designs.md, docs/reference/design-import.md, cli-commands.yaml, support-matrix.yaml (12 entries)
+- [x] 11.4: Project templates — from-figma, from-v0 (pulp create --template)
+- [x] 11.4: Headless validation — render + screenshot comparison (--validate --reference --diff), 70% similarity threshold
+- [x] Tests: 34 test cases, 205 assertions (adapters, codegen, tokens, aliases, cycle detection, Figma/Stitch sync, E2E pipeline)
 
 ## First-Time Setup & Onboarding — COMPLETE (2026-03-28)
 

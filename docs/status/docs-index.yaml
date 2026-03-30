@@ -114,6 +114,16 @@ docs:
     kind: guide
     summary: How docs stay consistent with code across tools and branches
 
+  - slug: importing-designs
+    path: guides/importing-designs.md
+    kind: guide
+    summary: Importing UI structure and design tokens from Figma, Stitch, v0, and Pencil
+
+  - slug: web-compat-guide
+    path: guides/web-compat.md
+    kind: guide
+    summary: Web-style authoring model, DOM/CSS compatibility layer, and native runtime guardrails
+
   - slug: formats
     path: guides/formats.md
     kind: guide
@@ -219,6 +229,16 @@ docs:
     path: reference/js-bridge.md
     kind: reference
     summary: All 111 JS bridge functions — widget creation, layout, styling, events, canvas, animation
+
+  - slug: design-import
+    path: reference/design-import.md
+    kind: reference
+    summary: CLI and pipeline reference for design import adapters, IR, validation, and token sync
+
+  - slug: w3c-coverage
+    path: reference/w3c-coverage.md
+    kind: reference
+    summary: Property-by-property W3C coverage matrix for the web-compat layer
 
   - slug: cmake
     path: reference/cmake.md

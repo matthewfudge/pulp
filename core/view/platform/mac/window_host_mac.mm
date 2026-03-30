@@ -10,6 +10,7 @@
 #include <pulp/canvas/cg_canvas.hpp>
 #import <Cocoa/Cocoa.h>
 #include <atomic>
+#include <iostream>
 
 #ifdef PULP_HAS_SKIA
 #include <pulp/render/gpu_surface.hpp>
@@ -52,6 +53,11 @@ static void install_app_menu(NSString* appName) {
 - (BOOL)isFlipped { return NO; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent*)e { (void)e; return YES; }
+
+- (void)clearInteractionState {
+    _dragTarget = nullptr;
+    _focusedView = nullptr;
+}
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
@@ -141,149 +147,217 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 }
 
 - (void)mouseDown:(NSEvent*)event {
-    if (!self.rootView) return;
-    auto pt = [self localPoint:event];
+    @try {
+        try {
+            if (!self.rootView) return;
+            if (self.window.firstResponder != self) {
+                [self.window makeFirstResponder:self];
+            }
+            auto pt = [self localPoint:event];
 
-    // Check if click is inside an active ComboBox dropdown overlay.
-    // The dropdown renders as a paint overlay with no view backing, so
-    // normal hit_test finds the view BEHIND the dropdown. Route the click
-    // to the ComboBox instead so it can process the dropdown item selection.
-    if (pulp::view::ComboBox::active_popup_) {
-        auto* combo = pulp::view::ComboBox::active_popup_;
-        // Compute dropdown bounds in root coordinates
-        float abs_x = 0, abs_y = 0;
-        pulp::view::View* v = combo;
-        while (v) { abs_x += v->bounds().x; abs_y += v->bounds().y; v = v->parent(); }
-        float base_h = std::min(combo->local_bounds().height, 28.0f);
-        float dd_top = abs_y + base_h + 2;
-        float dd_w = combo->local_bounds().width;
-        float dd_h = static_cast<float>(combo->items().size()) * 24.0f;
-        if (pt.x >= abs_x && pt.x <= abs_x + dd_w &&
-            pt.y >= dd_top && pt.y <= dd_top + dd_h) {
-            // Click is inside dropdown — route to ComboBox
-            _dragTarget = combo;
-            auto local = toLocal(pt, combo, self.rootView);
+        // Check if click is inside an active ComboBox dropdown overlay.
+        // The dropdown renders as a paint overlay with no view backing, so
+        // normal hit_test finds the view behind the dropdown. Route the click
+        // to the ComboBox instead so it can process the dropdown item selection.
+        if (pulp::view::ComboBox::active_popup_) {
+            auto* combo = pulp::view::ComboBox::active_popup_;
+            float abs_x = 0, abs_y = 0;
+            pulp::view::View* v = combo;
+            while (v) { abs_x += v->bounds().x; abs_y += v->bounds().y; v = v->parent(); }
+            float base_h = std::min(combo->local_bounds().height, 28.0f);
+            float dd_top = abs_y + base_h + 2;
+            float dd_w = combo->dropdown_width_hint();
+            float dd_h = static_cast<float>(combo->items().size()) * 24.0f;
+            if (pt.x >= abs_x && pt.x <= abs_x + dd_w &&
+                pt.y >= dd_top && pt.y <= dd_top + dd_h) {
+                _dragTarget = combo;
+                auto local = toLocal(pt, combo, self.rootView);
+                pulp::view::MouseEvent me;
+                me.position = local;
+                me.window_position = pt;
+                me.button = pulp::view::MouseButton::left;
+                me.is_down = true;
+                me.click_count = 1;
+                combo->on_mouse_event(me);
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+
+        _dragTarget = self.rootView->hit_test(pt);
+        pulp::view::ComboBox::notify_global_click(_dragTarget);
+
+        if (_dragTarget) {
+            auto local = toLocal(pt, _dragTarget, self.rootView);
+
+            if (_dragTarget->focusable()) {
+                if (_focusedView && _focusedView != _dragTarget)
+                    _focusedView->on_focus_changed(false);
+                _focusedView = _dragTarget;
+                _focusedView->on_focus_changed(true);
+            } else if (_focusedView) {
+                _focusedView->on_focus_changed(false);
+                _focusedView = nullptr;
+            }
+
             pulp::view::MouseEvent me;
             me.position = local;
             me.window_position = pt;
             me.button = pulp::view::MouseButton::left;
+            me.modifiers = modifiersFromNSFlags(event.modifierFlags);
             me.is_down = true;
-            me.click_count = 1;
-            combo->on_mouse_event(me);
+            me.click_count = static_cast<int>(event.clickCount);
+            _dragTarget->on_mouse_event(me);
+            _dragTarget->on_mouse_down(local);
+        }
             [self setNeedsDisplay:YES];
-            return;
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost mouseDown error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost mouseDown error: unknown exception\n";
         }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost mouseDown NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
     }
-
-    _dragTarget = self.rootView->hit_test(pt);
-
-    // Close any open popup if click is outside it
-    pulp::view::ComboBox::notify_global_click(_dragTarget);
-
-    if (_dragTarget) {
-        auto local = toLocal(pt, _dragTarget, self.rootView);
-
-        // Focus: click on focusable view gives it keyboard focus
-        // Click on non-focusable view blurs the current focus
-        if (_dragTarget->focusable()) {
-            if (_focusedView && _focusedView != _dragTarget)
-                _focusedView->on_focus_changed(false);
-            _focusedView = _dragTarget;
-            _focusedView->on_focus_changed(true);
-        } else if (_focusedView) {
-            _focusedView->on_focus_changed(false);
-            _focusedView = nullptr;
-        }
-
-        // Rich event path (ComboBox, etc.)
-        pulp::view::MouseEvent me;
-        me.position = local;
-        me.window_position = pt;
-        me.button = pulp::view::MouseButton::left;
-        me.modifiers = modifiersFromNSFlags(event.modifierFlags);
-        me.is_down = true;
-        me.click_count = static_cast<int>(event.clickCount);
-        _dragTarget->on_mouse_event(me);
-
-        // Legacy path (Knob, Fader, Toggle)
-        _dragTarget->on_mouse_down(local);
-
-        // Generic click callback (used by registerClick for labels, tabs, etc.)
-        if (_dragTarget->on_click) _dragTarget->on_click();
-
-        // Global click for inspector (Cmd+click detection)
-        if (self.rootView->on_global_click) {
-            self.rootView->on_global_click(_dragTarget->id(), me.modifiers);
-        }
-    }
-    [self setNeedsDisplay:YES];
 }
 
 - (void)mouseDragged:(NSEvent*)event {
-    if (!_dragTarget || !self.rootView) return;
-    auto pt = [self localPoint:event];
-    auto local = toLocal(pt, _dragTarget, self.rootView);
-    _dragTarget->on_mouse_drag(local);
-    if (_dragTarget->on_drag) _dragTarget->on_drag(local);
-    [self setNeedsDisplay:YES];
+    @try {
+        try {
+            if (!_dragTarget || !self.rootView) return;
+            auto pt = [self localPoint:event];
+            auto local = toLocal(pt, _dragTarget, self.rootView);
+            _dragTarget->on_mouse_drag(local);
+            if (_dragTarget->on_drag) _dragTarget->on_drag(local);
+            [self setNeedsDisplay:YES];
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost mouseDragged error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost mouseDragged error: unknown exception\n";
+        }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost mouseDragged NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
+    }
 }
 
 - (void)mouseUp:(NSEvent*)event {
-    if (_dragTarget) {
-        auto pt = [self localPoint:event];
-        _dragTarget->on_mouse_up(pt);
-        _dragTarget = nullptr;
+    @try {
+        try {
+            if (_dragTarget) {
+                auto pt = [self localPoint:event];
+                auto local = toLocal(pt, _dragTarget, self.rootView);
+                auto released_target = self.rootView ? self.rootView->hit_test(pt) : nullptr;
+                auto click_handler = _dragTarget->on_click;
+                auto global_click = self.rootView ? self.rootView->on_global_click : std::function<void(const std::string&, uint16_t)>{};
+                auto clicked_id = _dragTarget->id();
+                auto modifiers = modifiersFromNSFlags(event.modifierFlags);
+                _dragTarget->on_mouse_up(local);
+                if (released_target == _dragTarget && (click_handler || global_click)) {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        @try {
+                            try {
+                                if (click_handler) click_handler();
+                                if (global_click) global_click(clicked_id, modifiers);
+                                [self setNeedsDisplay:YES];
+                            } catch (const std::exception& e) {
+                                std::cerr << "MacWindowHost deferred click error: " << e.what() << "\n";
+                            } catch (...) {
+                                std::cerr << "MacWindowHost deferred click error: unknown exception\n";
+                            }
+                        } @catch (NSException* exception) {
+                            std::cerr << "MacWindowHost deferred click NSException: "
+                                      << [[exception name] UTF8String] << " - "
+                                      << [[exception reason] UTF8String] << "\n";
+                        }
+                    });
+                }
+                _dragTarget = nullptr;
+            }
+            [self setNeedsDisplay:YES];
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost mouseUp error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost mouseUp error: unknown exception\n";
+        }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost mouseUp NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
     }
-    [self setNeedsDisplay:YES];
 }
 
 - (void)rightMouseDown:(NSEvent*)event {
-    if (!self.rootView) return;
-    auto pt = [self localPoint:event];
-    auto* target = self.rootView->hit_test(pt);
-    if (target && target->on_context_menu) {
-        auto local = toLocal(pt, target, self.rootView);
-        target->on_context_menu(local);
+    @try {
+        try {
+            if (!self.rootView) return;
+            auto pt = [self localPoint:event];
+            auto* target = self.rootView->hit_test(pt);
+            if (target && target->on_context_menu) {
+                auto local = toLocal(pt, target, self.rootView);
+                target->on_context_menu(local);
+            }
+            [self setNeedsDisplay:YES];
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost rightMouseDown error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost rightMouseDown error: unknown exception\n";
+        }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost rightMouseDown NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
     }
-    [self setNeedsDisplay:YES];
 }
 
 // ── Keyboard input ───────────────────────────────────────────────
 
 - (void)keyDown:(NSEvent*)event {
-    auto key = keyCodeFromNS(event.keyCode);
-    auto mods = modifiersFromNSFlags(event.modifierFlags);
+    @try {
+        try {
+            auto key = keyCodeFromNS(event.keyCode);
+            auto mods = modifiersFromNSFlags(event.modifierFlags);
 
-    // Tab / Shift+Tab: cycle keyboard focus through focusable views
-    if (key == pulp::view::KeyCode::tab && self.rootView) {
-        auto* old = _focusedView;
-        pulp::view::View* next = nullptr;
-        if (mods & pulp::view::kModShift)
-            next = pulp::view::View::focus_prev(*self.rootView, _focusedView);
-        else
-            next = pulp::view::View::focus_next(*self.rootView, _focusedView);
-        if (next && next != old) {
-            if (old) old->on_focus_changed(false);
-            _focusedView = next;
-            _focusedView->on_focus_changed(true);
+        if (key == pulp::view::KeyCode::tab && self.rootView) {
+            auto* old = _focusedView;
+            pulp::view::View* next = nullptr;
+            if (mods & pulp::view::kModShift)
+                next = pulp::view::View::focus_prev(*self.rootView, _focusedView);
+            else
+                next = pulp::view::View::focus_next(*self.rootView, _focusedView);
+            if (next && next != old) {
+                if (old) old->on_focus_changed(false);
+                _focusedView = next;
+                _focusedView->on_focus_changed(true);
+            }
+            [self setNeedsDisplay:YES];
+            return;
         }
-        [self setNeedsDisplay:YES];
-        return;
-    }
 
-    // Let NSTextInputClient handle text insertion
-    [self interpretKeyEvents:@[event]];
+        [self interpretKeyEvents:@[event]];
 
-    // Forward as KeyEvent to focused view (for navigation, Enter, Backspace, etc.)
-    if (_focusedView) {
-        pulp::view::KeyEvent ke;
-        ke.key = key;
-        ke.modifiers = mods;
-        ke.is_down = true;
-        ke.is_repeat = event.isARepeat;
-        _focusedView->on_key_event(ke);
-        [self startAnimationTimerIfNeeded];
-        [self setNeedsDisplay:YES];
+            if (_focusedView) {
+                pulp::view::KeyEvent ke;
+                ke.key = key;
+                ke.modifiers = mods;
+                ke.is_down = true;
+                ke.is_repeat = event.isARepeat;
+                _focusedView->on_key_event(ke);
+                [self startAnimationTimerIfNeeded];
+                [self setNeedsDisplay:YES];
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost keyDown error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost keyDown error: unknown exception\n";
+        }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost keyDown NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
     }
 }
 
@@ -382,54 +456,75 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 - (void)doCommandBySelector:(SEL)sel { (void)sel; }
 
 - (void)mouseMoved:(NSEvent*)event {
-    if (!self.rootView) return;
-    auto pt = [self localPoint:event];
+    @try {
+        try {
+            if (!self.rootView) return;
+            auto pt = [self localPoint:event];
 
-    // ComboBox dropdown hover tracking
-    if (pulp::view::ComboBox::active_popup_) {
-        auto* combo = pulp::view::ComboBox::active_popup_;
-        float cx = 0, cy = 0;
-        auto* v = static_cast<pulp::view::View*>(combo);
-        while (v) { cx += v->bounds().x; cy += v->bounds().y; v = v->parent(); }
-        pulp::view::MouseEvent me;
-        me.position = {pt.x - cx, pt.y - cy};
-        me.is_down = false;
-        combo->on_mouse_event(me);
-    }
+            if (pulp::view::ComboBox::active_popup_) {
+                auto* combo = pulp::view::ComboBox::active_popup_;
+                float cx = 0, cy = 0;
+                auto* v = static_cast<pulp::view::View*>(combo);
+                while (v) { cx += v->bounds().x; cy += v->bounds().y; v = v->parent(); }
+                pulp::view::MouseEvent me;
+                me.position = {pt.x - cx, pt.y - cy};
+                me.is_down = false;
+                combo->on_mouse_event(me);
+            }
 
-    self.rootView->simulate_hover(pt);
+            self.rootView->simulate_hover(pt);
 
-    // Update cursor based on hovered view's cursor style
-    auto* target = self.rootView->hit_test(pt);
-    if (target) {
-        switch (target->cursor()) {
-            case pulp::view::View::CursorStyle::pointer:
-                [[NSCursor pointingHandCursor] set]; break;
-            case pulp::view::View::CursorStyle::crosshair:
-                [[NSCursor crosshairCursor] set]; break;
-            case pulp::view::View::CursorStyle::text:
-                [[NSCursor IBeamCursor] set]; break;
-            case pulp::view::View::CursorStyle::grab:
-                [[NSCursor openHandCursor] set]; break;
-            case pulp::view::View::CursorStyle::grabbing:
-                [[NSCursor closedHandCursor] set]; break;
-            case pulp::view::View::CursorStyle::not_allowed:
-                [[NSCursor operationNotAllowedCursor] set]; break;
-            default:
-                [[NSCursor arrowCursor] set]; break;
+            auto* target = self.rootView->hit_test(pt);
+            if (target) {
+                switch (target->cursor()) {
+                    case pulp::view::View::CursorStyle::pointer:
+                        [[NSCursor pointingHandCursor] set]; break;
+                    case pulp::view::View::CursorStyle::crosshair:
+                        [[NSCursor crosshairCursor] set]; break;
+                    case pulp::view::View::CursorStyle::text:
+                        [[NSCursor IBeamCursor] set]; break;
+                    case pulp::view::View::CursorStyle::grab:
+                        [[NSCursor openHandCursor] set]; break;
+                    case pulp::view::View::CursorStyle::grabbing:
+                        [[NSCursor closedHandCursor] set]; break;
+                    case pulp::view::View::CursorStyle::not_allowed:
+                        [[NSCursor operationNotAllowedCursor] set]; break;
+                    default:
+                        [[NSCursor arrowCursor] set]; break;
+                }
+            }
+
+            [self setNeedsDisplay:YES];
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost mouseMoved error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost mouseMoved error: unknown exception\n";
         }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost mouseMoved NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
     }
-
-    [self setNeedsDisplay:YES];
 }
 
 - (void)mouseExited:(NSEvent*)event {
     (void)event;
-    if (!self.rootView) return;
-    // Clear all hover states
-    self.rootView->simulate_hover({-1, -1});
-    [self startAnimationTimerIfNeeded];
-    [self setNeedsDisplay:YES];
+    @try {
+        try {
+            if (!self.rootView) return;
+            self.rootView->simulate_hover({-1, -1});
+            [self startAnimationTimerIfNeeded];
+            [self setNeedsDisplay:YES];
+        } catch (const std::exception& e) {
+            std::cerr << "MacWindowHost mouseExited error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "MacWindowHost mouseExited error: unknown exception\n";
+        }
+    } @catch (NSException* exception) {
+        std::cerr << "MacWindowHost mouseExited NSException: "
+                  << [[exception name] UTF8String] << " - "
+                  << [[exception reason] UTF8String] << "\n";
+    }
 }
 
 // ── Trackpad gestures (P4: pinch/rotate) ───────────────────────────
@@ -510,7 +605,7 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 - (BOOL)hasActiveAnimations:(pulp::view::View*)view {
     if (!view) return NO;
     if (auto* k = dynamic_cast<pulp::view::Knob*>(view))
-        if (k->hover_glow() > 0.01f || k->hover_glow() < 0.99f) return YES;
+        if (k->hover_glow() > 0.01f && k->hover_glow() < 0.99f) return YES;
     if (auto* t = dynamic_cast<pulp::view::Toggle*>(view))
         if (t->thumb_position() > 0.01f && t->thumb_position() < 0.99f) return YES;
     if (auto* f = dynamic_cast<pulp::view::Fader*>(view))
@@ -554,9 +649,9 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 
 #ifdef PULP_HAS_SKIA
 
-@interface PulpMetalView : NSView
+@interface PulpMetalView : PulpView
 @property (nonatomic, readonly) CAMetalLayer* metalLayer;
-@property (nonatomic, assign) pulp::view::View* rootView;
+@property (nonatomic, copy) dispatch_block_t repaintBlock;
 // C++ render state is managed by MacGpuWindowHost, not the view
 @end
 
@@ -570,7 +665,7 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
         CAMetalLayer* layer = [CAMetalLayer layer];
         layer.device = MTLCreateSystemDefaultDevice();
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        layer.framebufferOnly = YES;
+        layer.framebufferOnly = NO;
         CGFloat scale = self.window ? self.window.backingScaleFactor
                                     : [NSScreen mainScreen].backingScaleFactor;
         layer.contentsScale = scale;
@@ -583,7 +678,14 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
     return self;
 }
 
-- (BOOL)isFlipped { return YES; }
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+}
+
+- (void)setNeedsDisplay:(BOOL)needsDisplay {
+    [super setNeedsDisplay:needsDisplay];
+    if (needsDisplay && self.repaintBlock) self.repaintBlock();
+}
 
 - (void)setFrameSize:(NSSize)newSize {
     [super setFrameSize:newSize];
@@ -640,6 +742,7 @@ public:
     MacWindowHost(View& root, const WindowOptions& options)
         : root_(root) {
         @autoreleasepool {
+            root_.set_frame_clock(&frame_clock_);
             NSRect frame = NSMakeRect(100, 100, options.width, options.height);
             NSWindowStyleMask style = NSWindowStyleMaskTitled
                 | NSWindowStyleMaskClosable
@@ -656,7 +759,7 @@ public:
 
             view_ = [[PulpView alloc] initWithFrame:frame];
             view_.rootView = &root_;
-            view_.frameClock = root_.frame_clock();
+            view_.frameClock = &frame_clock_;
             [window_ setContentView:view_];
 
             delegate_ = [[PulpWindowDelegate alloc] init];
@@ -664,12 +767,15 @@ public:
         }
     }
 
-    ~MacWindowHost() override = default;
+    ~MacWindowHost() override {
+        root_.set_frame_clock(nullptr);
+    }
 
     void show() override { [window_ makeKeyAndOrderFront:nil]; }
     void hide() override { [window_ orderOut:nil]; }
     bool is_visible() const override { return [window_ isVisible]; }
     void repaint() override { [view_ setNeedsDisplay:YES]; }
+    void invalidate_input_state() override { [view_ clearInteractionState]; }
 
     void set_close_callback(std::function<void()> cb) override {
         close_callback_ = std::move(cb);
@@ -689,6 +795,7 @@ public:
 
 private:
     View& root_;
+    FrameClock frame_clock_;
     NSWindow* window_ = nil;
     PulpView* view_ = nil;
     PulpWindowDelegate* delegate_ = nil;
@@ -704,6 +811,7 @@ public:
     MacGpuWindowHost(View& root, const WindowOptions& options)
         : root_(root) {
         @autoreleasepool {
+            root_.set_frame_clock(&frame_clock_);
             NSRect frame = NSMakeRect(100, 100, options.width, options.height);
             NSWindowStyleMask style = NSWindowStyleMaskTitled
                 | NSWindowStyleMaskClosable
@@ -720,6 +828,10 @@ public:
             // Create CAMetalLayer-backed view
             metal_view_ = [[PulpMetalView alloc] initWithFrame:frame];
             metal_view_.rootView = &root_;
+            metal_view_.frameClock = &frame_clock_;
+            metal_view_.repaintBlock = ^{
+                needs_repaint_.store(true, std::memory_order_relaxed);
+            };
             [window_ setContentView:metal_view_];
 
             delegate_ = [[PulpWindowDelegate alloc] init];
@@ -738,6 +850,7 @@ public:
         skia_surface_.reset();
         gpu_surface_.reset();
         metal_view_.rootView = nullptr;
+        root_.set_frame_clock(nullptr);
     }
 
     void show() override { [window_ makeKeyAndOrderFront:nil]; }
@@ -746,6 +859,10 @@ public:
 
     void repaint() override {
         needs_repaint_ = true;
+    }
+
+    void invalidate_input_state() override {
+        [metal_view_ clearInteractionState];
     }
 
     void set_close_callback(std::function<void()> cb) override {
@@ -763,6 +880,7 @@ public:
             start_display_link();
 
             show();
+            [window_ makeFirstResponder:metal_view_];
             [NSApp activateIgnoringOtherApps:YES];
             [NSApp run];
         }
@@ -770,6 +888,7 @@ public:
 
 private:
     View& root_;
+    FrameClock frame_clock_;
     NSWindow* window_ = nil;
     PulpMetalView* metal_view_ = nil;
     PulpWindowDelegate* delegate_ = nil;
@@ -779,9 +898,49 @@ private:
     std::unique_ptr<render::SkiaSurface> skia_surface_;
     CVDisplayLinkRef display_link_ = nullptr;
     std::atomic<bool> needs_repaint_{true};
+    std::atomic<bool> continuous_frames_{false};
     int frame_fail_count_ = 0;
     int frame_ok_count_ = 0;
     float width_ = 0, height_ = 0;
+
+    static bool view_needs_continuous_frames(View* view) {
+        if (!view) return false;
+
+        if (auto* k = dynamic_cast<Knob*>(view)) {
+            if ((k->hover_glow() > 0.01f && k->hover_glow() < 0.99f) || k->shader_uses_time())
+                return true;
+        }
+        if (auto* t = dynamic_cast<Toggle*>(view)) {
+            if ((t->thumb_position() > 0.01f && t->thumb_position() < 0.99f) || t->shader_uses_time())
+                return true;
+        }
+        if (auto* f = dynamic_cast<Fader*>(view)) {
+            if (f->hover_scale() > 1.01f || f->shader_uses_time())
+                return true;
+        }
+        if (auto* sv = dynamic_cast<ScrollView*>(view)) {
+            if (sv->scroll_x() != 0.0f || sv->scroll_y() != 0.0f) {
+                // Keep existing behavior conservative: just recurse into children.
+            }
+        }
+
+        for (size_t i = 0; i < view->child_count(); ++i) {
+            if (view_needs_continuous_frames(view->child_at(i))) return true;
+        }
+        return false;
+    }
+
+    static void advance_widget_animations(View* view, float dt) {
+        if (!view) return;
+        if (auto* k = dynamic_cast<Knob*>(view)) k->advance_animations(dt);
+        else if (auto* t = dynamic_cast<Toggle*>(view)) t->advance_animations(dt);
+        else if (auto* f = dynamic_cast<Fader*>(view)) f->advance_animations(dt);
+        else if (auto* sv = dynamic_cast<ScrollView*>(view)) sv->advance_animations(dt);
+        else if (auto* tip = dynamic_cast<Tooltip*>(view)) tip->advance_animations(dt);
+
+        for (size_t i = 0; i < view->child_count(); ++i)
+            advance_widget_animations(view->child_at(i), dt);
+    }
 
     void init_gpu(float width, float height) {
         width_ = width;
@@ -872,10 +1031,15 @@ private:
             pulp::view::View::paint_overlays(*canvas);
         }
 
+        continuous_frames_.store(
+            view_needs_continuous_frames(&root_) || frame_clock_.has_active_subscribers(),
+            std::memory_order_relaxed);
+
         skia_surface_->end_frame();   // submit Graphite recording
         gpu_surface_->end_frame();    // present to Metal surface
 
-        needs_repaint_ = false;
+        needs_repaint_.store(continuous_frames_.load(std::memory_order_relaxed),
+                             std::memory_order_relaxed);
     }
 
     // CVDisplayLink callback — fires on the display's vsync
@@ -884,9 +1048,21 @@ private:
         CVOptionFlags, CVOptionFlags*, void* context)
     {
         auto* self = static_cast<MacGpuWindowHost*>(context);
-        if (self->needs_repaint_.load(std::memory_order_relaxed)) {
+        if (self->needs_repaint_.load(std::memory_order_relaxed) ||
+            self->continuous_frames_.load(std::memory_order_relaxed)) {
             // Dispatch rendering to the main thread (required for Cocoa + Metal)
             dispatch_async(dispatch_get_main_queue(), ^{
+                bool animate = view_needs_continuous_frames(&self->root_);
+                bool tick_subscribers = self->frame_clock_.has_active_subscribers();
+                if (!self->needs_repaint_.load(std::memory_order_relaxed) && !animate && !tick_subscribers) {
+                    self->continuous_frames_.store(false, std::memory_order_relaxed);
+                    return;
+                }
+                self->frame_clock_.tick(1.0f / 60.0f);
+                advance_widget_animations(&self->root_, 1.0f / 60.0f);
+                if (animate || tick_subscribers) {
+                    self->needs_repaint_.store(true, std::memory_order_relaxed);
+                }
                 self->render_frame();
             });
         }

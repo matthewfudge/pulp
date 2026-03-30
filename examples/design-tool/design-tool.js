@@ -105,10 +105,12 @@ function updateAllTokenNameDisplays() {
 var APP_BG      = '#18181f';
 var APP_SURFACE = '#1e1e26';
 var APP_PANEL   = '#242429';
+var APP_PANEL_RAISED = '#2a2a31';
 var APP_BORDER  = '#2e2e36';
 var APP_TEXT    = '#d4d4dc';
 var APP_TEXT_DIM = '#808090';
 var APP_ACCENT  = '#aa88ff';
+var APP_ACCENT_HOVER = '#bf9fff';
 
 // ═══════════════════════════════════════════════════════════════════
 // Root: vertical column (toolbar → main → status bar)
@@ -123,55 +125,90 @@ setBackground("", APP_BG);
 createRow("toolbar");
 setFlex("toolbar", "height", 44);
 setFlex("toolbar", "flex_shrink", 0);
+setFlex("toolbar", "gap", 8);
 setFlex("toolbar", "padding_left", 12);
 setFlex("toolbar", "padding_right", 12);
 setFlex("toolbar", "align_items", "center");
-setFlex("toolbar", "justify_content", "space-between");
 setBackground("toolbar", APP_SURFACE);
 setBorder("toolbar", APP_BORDER, 1, 0);
 
-// Toolbar items — all flex_shrink:0 to prevent Yoga compression
-createLabel("theme-name-label", "Default Dark", "toolbar");
+function createToolbarSeparator(id) {
+    createCol(id, "toolbar");
+    setFlex(id, "width", 1);
+    setFlex(id, "height", 18);
+    setFlex(id, "flex_shrink", 0);
+    setBackground(id, APP_BORDER);
+}
+
+createRow("toolbar-title-group", "toolbar");
+setFlex("toolbar-title-group", "height", 28);
+setFlex("toolbar-title-group", "align_items", "center");
+setFlex("toolbar-title-group", "flex_shrink", 0);
+
+createLabel("theme-name-label", "Default Dark", "toolbar-title-group");
 setFontSize("theme-name-label", 12);
-setFlex("theme-name-label", "width", 80);
+setFlex("theme-name-label", "width", 132);
 setFlex("theme-name-label", "flex_shrink", 0);
 setFlex("theme-name-label", "height", 26);
+setTextOverflow("theme-name-label", "ellipsis");
 
-createCombo("preset-selector", "toolbar");
+createToolbarSeparator("toolbar-sep-1");
+
+createRow("toolbar-preset-group", "toolbar");
+setFlex("toolbar-preset-group", "height", 28);
+setFlex("toolbar-preset-group", "align_items", "center");
+setFlex("toolbar-preset-group", "gap", 6);
+setFlex("toolbar-preset-group", "flex_shrink", 0);
+
+createLabel("toolbar-preset-label", "Preset", "toolbar-preset-group");
+setFontSize("toolbar-preset-label", 10);
+setTextColor("toolbar-preset-label", APP_TEXT_DIM);
+setFlex("toolbar-preset-label", "width", 34);
+setFlex("toolbar-preset-label", "height", 14);
+setFlex("toolbar-preset-label", "flex_shrink", 0);
+
+createCombo("preset-selector", "toolbar-preset-group");
 setItems("preset-selector", ["Default Dark", "Light", "Pro Audio", "Violet", "Amber", "Ocean", "Neon"]);
-setFlex("preset-selector", "width", 110);
+setFlex("preset-selector", "width", 118);
 setFlex("preset-selector", "height", 26);
 setFlex("preset-selector", "flex_shrink", 0);
+
+createToolbarSeparator("toolbar-sep-2");
 
 // State scrubber pills
 var stateNames = ["Default", "Hover", "Focus", "Disabled", "Error"];
 var activeState = 0;
-createRow("state-pills", "toolbar");
-setFlex("state-pills", "height", 26);
-setFlex("state-pills", "width", 300);  // Yoga: explicit width for 5 pills
-setFlex("state-pills", "flex_shrink", 0);
-setFlex("state-pills", "gap", 1);
-setFlex("state-pills", "align_items", "center");
-setFlex("state-pills", "padding_left", 4);
-setFlex("state-pills", "padding_right", 4);
-setBorder("state-pills", APP_BORDER, 1, 4);
+createRow("toolbar-state-group", "toolbar");
+setFlex("toolbar-state-group", "height", 28);
+setFlex("toolbar-state-group", "align_items", "center");
+setFlex("toolbar-state-group", "flex_shrink", 0);
 
+createRow("state-pills", "toolbar-state-group");
+setFlex("state-pills", "height", 26);
+setFlex("state-pills", "width", 294);
+setFlex("state-pills", "flex_shrink", 0);
+setFlex("state-pills", "gap", 2);
+setFlex("state-pills", "align_items", "center");
+setFlex("state-pills", "padding_left", 2);
+setFlex("state-pills", "padding_right", 2);
+setBackground("state-pills", APP_PANEL);
+setBorder("state-pills", APP_BORDER, 1, 6);
+
+var stateWidths = [60, 52, 52, 68, 50];
 for (var sp = 0; sp < stateNames.length; sp++) {
     var spId = "state-pill-" + sp;
     createCol(spId, "state-pills");
-    setFlex(spId, "height", 22);
-    setFlex(spId, "width", 56);
+    setFlex(spId, "height", 20);
+    setFlex(spId, "width", stateWidths[sp]);
     setFlex(spId, "flex_shrink", 0);
     setFlex(spId, "justify_content", "center");
     setFlex(spId, "align_items", "center");
     if (sp === 0) {
         setBackground(spId, '#2a2040');
-        setBorder(spId, APP_ACCENT, 1, 4);
-    } else {
-        setBorder(spId, "transparent", 0, 4);
     }
+    setBorder(spId, "transparent", 0, 4);
     createLabel(spId + "-lbl", stateNames[sp], spId);
-    setFontSize(spId + "-lbl", 11);
+    setFontSize(spId + "-lbl", 10);
     setTextColor(spId + "-lbl", sp === 0 ? APP_ACCENT : APP_TEXT_DIM);
     registerClick(spId);
     (function(idx) {
@@ -179,7 +216,7 @@ for (var sp = 0; sp < stateNames.length; sp++) {
             // Update pill visuals
             for (var si = 0; si < stateNames.length; si++) {
                 setBackground("state-pill-" + si, si === idx ? '#2a2040' : 'transparent');
-                setBorder("state-pill-" + si, si === idx ? APP_ACCENT : "transparent", si === idx ? 1 : 0, 4);
+                setBorder("state-pill-" + si, "transparent", 0, 4);
                 setTextColor("state-pill-" + si + "-lbl", si === idx ? APP_ACCENT : APP_TEXT_DIM);
             }
             activeState = idx;
@@ -229,27 +266,55 @@ function applyStateToPreview(stateIdx) {
 createCol("toolbar-spacer", "toolbar");
 setFlex("toolbar-spacer", "flex_grow", 1);
 
+createRow("toolbar-history-group", "toolbar");
+setFlex("toolbar-history-group", "height", 28);
+setFlex("toolbar-history-group", "align_items", "center");
+setFlex("toolbar-history-group", "gap", 8);
+setFlex("toolbar-history-group", "flex_shrink", 0);
+
+createToolbarSeparator("toolbar-sep-3");
+
+createRow("toolbar-file-group", "toolbar");
+setFlex("toolbar-file-group", "height", 28);
+setFlex("toolbar-file-group", "align_items", "center");
+setFlex("toolbar-file-group", "gap", 8);
+setFlex("toolbar-file-group", "flex_shrink", 0);
+
 // Toolbar action buttons with pill styling
 var toolbarBtns = [
-    { id: "undo-btn", label: "Undo", width: 44 },
-    { id: "redo-btn", label: "Redo", width: 44 },
-    { id: "import-btn", label: "Import", width: 52 },
-    { id: "export-btn", label: "Export", width: 52, accent: true }
+    { id: "undo-btn", label: "Undo", width: 60, group: "toolbar-history-group" },
+    { id: "redo-btn", label: "Redo", width: 60, group: "toolbar-history-group" },
+    { id: "import-btn", label: "Import", width: 68, group: "toolbar-file-group" },
+    { id: "export-btn", label: "Export", width: 70, group: "toolbar-file-group", accent: true }
 ];
 for (var tb = 0; tb < toolbarBtns.length; tb++) {
     var btn = toolbarBtns[tb];
-    createCol(btn.id + "-pill", "toolbar");
+    createCol(btn.id + "-pill", btn.group);
     setFlex(btn.id + "-pill", "width", btn.width);
     setFlex(btn.id + "-pill", "height", 26);
     setFlex(btn.id + "-pill", "flex_shrink", 0);
     setFlex(btn.id + "-pill", "justify_content", "center");
     setFlex(btn.id + "-pill", "align_items", "center");
-    setBorder(btn.id + "-pill", APP_BORDER, 1, 4);
+    setBackground(btn.id + "-pill", btn.accent ? APP_ACCENT : APP_PANEL);
+    setBorder(btn.id + "-pill", btn.accent ? APP_ACCENT : APP_BORDER, 1, 6);
 
     createLabel(btn.id, btn.label, btn.id + "-pill");
-    setFontSize(btn.id, 11);
-    if (btn.accent) setTextColor(btn.id, APP_ACCENT);
+    setFontSize(btn.id, 10);
+    setTextColor(btn.id, btn.accent ? "#ffffff" : APP_TEXT_DIM);
 }
+
+registerHover("undo-btn-pill");
+registerHover("redo-btn-pill");
+registerHover("import-btn-pill");
+registerHover("export-btn-pill");
+on("undo-btn-pill", "mouseenter", function() { setBorder("undo-btn-pill", APP_ACCENT, 1, 6); setBackground("undo-btn-pill", APP_PANEL_RAISED); setTextColor("undo-btn", APP_TEXT); });
+on("undo-btn-pill", "mouseleave", function() { setBorder("undo-btn-pill", APP_BORDER, 1, 6); setBackground("undo-btn-pill", APP_PANEL); setTextColor("undo-btn", APP_TEXT_DIM); });
+on("redo-btn-pill", "mouseenter", function() { setBorder("redo-btn-pill", APP_ACCENT, 1, 6); setBackground("redo-btn-pill", APP_PANEL_RAISED); setTextColor("redo-btn", APP_TEXT); });
+on("redo-btn-pill", "mouseleave", function() { setBorder("redo-btn-pill", APP_BORDER, 1, 6); setBackground("redo-btn-pill", APP_PANEL); setTextColor("redo-btn", APP_TEXT_DIM); });
+on("import-btn-pill", "mouseenter", function() { setBorder("import-btn-pill", APP_ACCENT, 1, 6); setBackground("import-btn-pill", APP_PANEL_RAISED); setTextColor("import-btn", APP_TEXT); });
+on("import-btn-pill", "mouseleave", function() { setBorder("import-btn-pill", APP_BORDER, 1, 6); setBackground("import-btn-pill", APP_PANEL); setTextColor("import-btn", APP_TEXT_DIM); });
+on("export-btn-pill", "mouseenter", function() { setBorder("export-btn-pill", APP_ACCENT_HOVER, 1, 6); setBackground("export-btn-pill", APP_ACCENT_HOVER); });
+on("export-btn-pill", "mouseleave", function() { setBorder("export-btn-pill", APP_ACCENT, 1, 6); setBackground("export-btn-pill", APP_ACCENT); });
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN AREA (3 columns: left 310px | center flex | right 272px)
@@ -264,13 +329,14 @@ setFlex("left-panel", "min_width", 260);
 setFlex("left-panel", "flex_shrink", 0);
 setBackground("left-panel", APP_SURFACE);
 setBorder("left-panel", APP_BORDER, 1, 0);
-setScrollContentSize("left-panel", 310, 2500);  // color-section(700) + search(60) + tokens(1700)
+setScrollContentSize("left-panel", 310, 900);
 
 // Issue 9: Color System section matching HTML reference
 createCol("color-section", "left-panel");
 setFlex("color-section", "padding", 10);
 setFlex("color-section", "gap", 6);
-setFlex("color-section", "height", 700);  // Yoga: room for palettes + expanded editor
+setFlex("color-section", "height", 386);
+setFlex("color-section", "flex_shrink", 0);
 
 createLabel("cs-title", "COLOR SYSTEM", "color-section");
 setFontSize("cs-title", 10);
@@ -285,18 +351,28 @@ setFlex("template-row", "align_items", "center");
 createLabel("template-lbl", "Template", "template-row");
 setFontSize("template-lbl", 9);
 setTextColor("template-lbl", APP_TEXT_DIM);
-setFlex("template-lbl", "width", 52);
+setFlex("template-lbl", "width", 58);
+setFlex("template-lbl", "flex_shrink", 0);
+setTextOverflow("template-lbl", "ellipsis");
 createCombo("template-selector", "template-row");
 setItems("template-selector", ["Audio Studio", "Tailwind 4"]);
-setFlex("template-selector", "width", 180);
+setFlex("template-selector", "width", 200);
+setFlex("template-selector", "flex_grow", 1);
 setFlex("template-selector", "height", 22);
 // #56: ? info button
 createLabel("template-help", "?", "template-row");
-setFontSize("template-help", 9);
+setFontSize("template-help", 10);
 setTextColor("template-help", APP_TEXT_DIM);
+setTextAlign("template-help", "center");
+setFlex("template-help", "width", 18);
+setFlex("template-help", "height", 18);
+setFlex("template-help", "flex_shrink", 0);
+setBackground("template-help", "#ffffff08");
+setBorder("template-help", APP_BORDER, 1, 9);
+setCursor("template-help", "pointer");
 registerClick("template-help");
 on("template-help", "click", function() {
-    showToast("Template: base color palette preset (Audio Studio or Tailwind)");
+    showHelpModal("Template", "Choose the base palette preset the designer starts from. Audio Studio follows the native reference palette; Tailwind biases the ramps toward utility-style web tokens.");
 });
 
 // Harmony selector row
@@ -307,17 +383,27 @@ setFlex("harmony-row", "align_items", "center");
 createLabel("harmony-lbl", "Harmony", "harmony-row");
 setFontSize("harmony-lbl", 9);
 setTextColor("harmony-lbl", APP_TEXT_DIM);
-setFlex("harmony-lbl", "width", 52);
+setFlex("harmony-lbl", "width", 58);
+setFlex("harmony-lbl", "flex_shrink", 0);
+setTextOverflow("harmony-lbl", "ellipsis");
 createCombo("harmony-selector", "harmony-row");
 setItems("harmony-selector", ["Monochromatic", "Analogous", "Complementary", "Split Comp.", "None"]);
-setFlex("harmony-selector", "width", 180);
+setFlex("harmony-selector", "width", 200);
+setFlex("harmony-selector", "flex_grow", 1);
 setFlex("harmony-selector", "height", 22);
 createLabel("harmony-help", "?", "harmony-row");
-setFontSize("harmony-help", 9);
+setFontSize("harmony-help", 10);
 setTextColor("harmony-help", APP_TEXT_DIM);
+setTextAlign("harmony-help", "center");
+setFlex("harmony-help", "width", 18);
+setFlex("harmony-help", "height", 18);
+setFlex("harmony-help", "flex_shrink", 0);
+setBackground("harmony-help", "#ffffff08");
+setBorder("harmony-help", APP_BORDER, 1, 9);
+setCursor("harmony-help", "pointer");
 registerClick("harmony-help");
 on("harmony-help", "click", function() {
-    showToast("Harmony: how semantic colors relate to the accent hue");
+    showHelpModal("Harmony", "Controls how the non-accent semantic ramps relate to the accent hue. Use this to keep warning, success, and error colors either tightly coordinated or intentionally separated.");
 });
 
 // Mode selector row
@@ -328,17 +414,26 @@ setFlex("mode-row", "align_items", "center");
 createLabel("mode-lbl", "Mode", "mode-row");
 setFontSize("mode-lbl", 9);
 setTextColor("mode-lbl", APP_TEXT_DIM);
-setFlex("mode-lbl", "width", 52);
+setFlex("mode-lbl", "width", 58);
+setFlex("mode-lbl", "flex_shrink", 0);
 createCombo("mode-selector", "mode-row");
 setItems("mode-selector", ["Dark", "Light"]);
-setFlex("mode-selector", "width", 180);
+setFlex("mode-selector", "width", 200);
+setFlex("mode-selector", "flex_grow", 1);
 setFlex("mode-selector", "height", 22);
 createLabel("mode-help", "?", "mode-row");
-setFontSize("mode-help", 9);
+setFontSize("mode-help", 10);
 setTextColor("mode-help", APP_TEXT_DIM);
+setTextAlign("mode-help", "center");
+setFlex("mode-help", "width", 18);
+setFlex("mode-help", "height", 18);
+setFlex("mode-help", "flex_shrink", 0);
+setBackground("mode-help", "#ffffff08");
+setBorder("mode-help", APP_BORDER, 1, 9);
+setCursor("mode-help", "pointer");
 registerClick("mode-help");
 on("mode-help", "click", function() {
-    showToast("Mode: dark assigns light shades to text, light inverts");
+    showHelpModal("Mode", "Dark mode maps lighter shades to text and surfaces over dark backgrounds. Light mode inverts the relationship so semantic ramps still read correctly.");
 });
 
 // Issue 9: 5 palette rows — each with base color dot + name + 11-shade mini ramp
@@ -363,6 +458,7 @@ setValue("accent-hue", 0.65);
 // Token search field
 createRow("token-search-row", "left-panel");
 setFlex("token-search-row", "height", 32);
+setFlex("token-search-row", "flex_shrink", 0);
 setFlex("token-search-row", "padding_left", 10);
 setFlex("token-search-row", "padding_right", 10);
 setFlex("token-search-row", "padding_top", 6);
@@ -391,7 +487,8 @@ setTextColor("tokens-title", APP_TEXT_DIM);
 
 // Token list (inside left-panel scroll, no nested scroll needed)
 createCol("token-list", "left-panel");
-setFlex("token-list", "height", 1700);  // Yoga: fits all 13 token groups
+setFlex("token-list", "height", 0);
+setFlex("token-list", "flex_shrink", 0);
 
 // Token groups
 // D5: Expanded token registry (50+ semantic tokens matching HTML reference)
@@ -411,6 +508,99 @@ var tokenGroups = [
     { name: "Gradient", tokens: ["gradient.start", "gradient.end"] }
 ];
 
+var TOKEN_GROUP_TITLE_HEIGHT = 18;
+var TOKEN_ROW_HEIGHT = 24;
+var TOKEN_GROUP_GAP = 2;
+var TOKEN_GROUP_TOP_PADDING = 4;
+var TOKEN_GROUP_BOTTOM_PADDING = 4;
+var TOKEN_SECTION_STATIC_HEIGHT = 32 + 24 + 24;
+var PALETTE_COLLAPSED_HEIGHT = 28;
+var PALETTE_EXPANDED_HEIGHT = 320;
+var PALETTE_EDITOR_HEIGHT = 286;
+var COLOR_SECTION_FIXED_HEIGHT = 14 + 22 + 22 + 22 + 22 + 32 + 26;
+var COLOR_SECTION_CHILD_GAP = 6;
+var currentTokenListHeight = 0;
+
+function showHelpModal(title, msg) {
+    var size = getRootSize();
+    setFlex("help-modal", "width", size.width);
+    setFlex("help-modal", "height", size.height);
+    setTop("help-modal", 0);
+    setLeft("help-modal", 0);
+    setText("help-modal-title", title);
+    setText("help-modal-body", msg);
+    setPointerEvents("help-modal", "auto");
+    setVisible("help-modal", true);
+    setOpacity("help-modal", 1);
+    layout();
+}
+
+function hideHelpModal() {
+    setOpacity("help-modal", 0);
+    setVisible("help-modal", false);
+    setPointerEvents("help-modal", "none");
+    layout();
+}
+
+function updateColorSectionLayout() {
+    if (typeof paletteNames === "undefined") return 386;
+    var paletteHeight = paletteNames.length * PALETTE_COLLAPSED_HEIGHT;
+    if (expandedPalette >= 0) {
+        paletteHeight += (PALETTE_EXPANDED_HEIGHT - PALETTE_COLLAPSED_HEIGHT);
+    }
+    var childCount = 1 + 3 + 1 + paletteNames.length + 1 + 1;
+    var total = 20 + COLOR_SECTION_FIXED_HEIGHT + paletteHeight + ((childCount - 1) * COLOR_SECTION_CHILD_GAP);
+    setFlex("color-section", "height", total);
+    return total;
+}
+
+function updateLeftPanelScrollMetrics() {
+    var contentHeight = updateColorSectionLayout() + TOKEN_SECTION_STATIC_HEIGHT + currentTokenListHeight + 24;
+    setScrollContentSize("left-panel", 310, Math.max(contentHeight, 900));
+}
+
+function applyPaletteExpandedLayout(idx, expanded) {
+    var rampId = "ramp-" + idx;
+    var editorId = rampId + "-editor";
+    setVisible(editorId, expanded);
+    setFlex(editorId, "height", expanded ? PALETTE_EDITOR_HEIGHT : 0);
+    setFlex(editorId, "min_height", expanded ? PALETTE_EDITOR_HEIGHT : 0);
+    setFlex(rampId, "height", expanded ? PALETTE_EXPANDED_HEIGHT : PALETTE_COLLAPSED_HEIGHT);
+}
+
+function updateTokenFilterLayout(query) {
+    query = (query || "").toLowerCase();
+    var totalHeight = 0;
+    for (var g = 0; g < tokenGroups.length; g++) {
+        var group = tokenGroups[g];
+        var visibleRows = 0;
+        for (var t = 0; t < group.tokens.length; t++) {
+            var tid = "tok-" + g + "-" + t;
+            var visible = query.length === 0 || group.tokens[t].toLowerCase().indexOf(query) >= 0;
+            setVisible(tid, visible);
+            if (visible) visibleRows++;
+        }
+
+        var groupVisible = query.length === 0 || visibleRows > 0;
+        var groupId = "tg-" + g;
+        setVisible(groupId, groupVisible);
+        if (!groupVisible) {
+            setFlex(groupId, "height", 0);
+            continue;
+        }
+
+        var rowCount = query.length === 0 ? group.tokens.length : visibleRows;
+        var groupHeight = TOKEN_GROUP_TOP_PADDING + TOKEN_GROUP_BOTTOM_PADDING + TOKEN_GROUP_TITLE_HEIGHT +
+            (rowCount * TOKEN_ROW_HEIGHT) + (rowCount * TOKEN_GROUP_GAP);
+        setFlex(groupId, "height", groupHeight);
+        totalHeight += groupHeight;
+    }
+
+    currentTokenListHeight = totalHeight + 8;
+    setFlex("token-list", "height", currentTokenListHeight);
+    updateLeftPanelScrollMetrics();
+}
+
 for (var g = 0; g < tokenGroups.length; g++) {
     var group = tokenGroups[g];
     var gid = "tg-" + g;
@@ -418,6 +608,7 @@ for (var g = 0; g < tokenGroups.length; g++) {
     var groupHeight = 18 + (group.tokens.length * 28) + 8;  // title + rows + padding
     createCol(gid, "token-list");
     setFlex(gid, "height", groupHeight);
+    setFlex(gid, "flex_shrink", 0);
     setFlex(gid, "padding_left", 10);
     setFlex(gid, "padding_right", 10);
     setFlex(gid, "padding_top", 4);
@@ -433,6 +624,7 @@ for (var g = 0; g < tokenGroups.length; g++) {
         var tid = "tok-" + g + "-" + t;
         createRow(tid, gid);
         setFlex(tid, "height", 24);
+        setFlex(tid, "flex_shrink", 0);
         setFlex(tid, "gap", 6);
         setFlex(tid, "align_items", "center");
 
@@ -484,18 +676,7 @@ for (var g = 0; g < tokenGroups.length; g++) {
 
 // Token search filtering
 on("token-search", "change", function(query) {
-    query = (query || "").toLowerCase();
-    for (var g = 0; g < tokenGroups.length; g++) {
-        var group = tokenGroups[g];
-        var anyVisible = false;
-        for (var t = 0; t < group.tokens.length; t++) {
-            var tid = "tok-" + g + "-" + t;
-            var visible = query.length === 0 || group.tokens[t].toLowerCase().indexOf(query) >= 0;
-            setVisible(tid, visible);
-            if (visible) anyVisible = true;
-        }
-        setVisible("tg-" + g, anyVisible || query.length === 0);
-    }
+    updateTokenFilterLayout(query);
     layout();
 });
 
@@ -538,12 +719,14 @@ function buildShadeRamps() {
         // Container for palette row + editor
         createCol(rampId, "color-section");
         setFlex(rampId, "gap", 4);
-        setFlex(rampId, "height", 28);  // Yoga needs explicit height (collapsed state)
+        setFlex(rampId, "height", PALETTE_COLLAPSED_HEIGHT);
+        setFlex(rampId, "flex_shrink", 0);
 
         // Palette row: dot + name + shade ramp (clickable to expand)
         var rowId = rampId + "-header";
         createRow(rowId, rampId);
         setFlex(rowId, "height", 24);
+        setFlex(rowId, "flex_shrink", 0);
         setFlex(rowId, "gap", 6);
         setFlex(rowId, "align_items", "center");
         registerClick(rowId);
@@ -555,6 +738,12 @@ function buildShadeRamps() {
         createCol(dotId, rowId);
         setFlex(dotId, "width", 14);
         setFlex(dotId, "height", 14);
+        setFlex(dotId, "min_width", 14);
+        setFlex(dotId, "min_height", 14);
+        setFlex(dotId, "max_width", 14);
+        setFlex(dotId, "max_height", 14);
+        setFlex(dotId, "flex_grow", 0);
+        setFlex(dotId, "flex_shrink", 0);
         setBackground(dotId, ramp[500].hex);
         setBorder(dotId, ramp[500].hex, 0, 7);
         registerClick(dotId);
@@ -562,22 +751,26 @@ function buildShadeRamps() {
         // Name (clickable to expand)
         createLabel(rampId + "-name", paletteNames[p], rowId);
         setFontSize(rampId + "-name", 10);
-        setFlex(rampId + "-name", "width", 52);
+        setTextColor(rampId + "-name", APP_TEXT_DIM);
+        setFlex(rampId + "-name", "min_width", 64);
+        setFlex(rampId + "-name", "flex_grow", 1);
+        setTextOverflow(rampId + "-name", "ellipsis");
         registerClick(rampId + "-name");
 
         // Mini ramp
         createRow(rampId + "-row", rowId);
-        setFlex(rampId + "-row", "flex_grow", 1);
+        setFlex(rampId + "-row", "width", 98);
+        setFlex(rampId + "-row", "flex_shrink", 0);
         setFlex(rampId + "-row", "gap", 1);
-        setFlex(rampId + "-row", "height", 16);
+        setFlex(rampId + "-row", "height", 12);
 
         for (var s = 0; s < steps.length; s++) {
             var shadeId = rampId + "-s" + s;
             createCol(shadeId, rampId + "-row");
-            setFlex(shadeId, "flex_grow", 1);
-            setFlex(shadeId, "height", 14);
+            setFlex(shadeId, "width", 8);
+            setFlex(shadeId, "height", 12);
             setBackground(shadeId, ramp[steps[s]].hex);
-            setBorder(shadeId, APP_BORDER, 0, 2);
+            setBorder(shadeId, APP_BORDER, 0, 1);
             // Click shade → expand this palette with that shade's color
             registerClick(shadeId);
         }
@@ -585,22 +778,42 @@ function buildShadeRamps() {
         // Expanded editor section (hidden unless this palette is expanded)
         var editorId = rampId + "-editor";
         createCol(editorId, rampId);
-        setFlex(editorId, "gap", 6);
+        setFlex(editorId, "gap", 4);
         setFlex(editorId, "padding_left", 4);
-        setVisible(editorId, p === expandedPalette);
+        setFlex(editorId, "padding_top", 2);
+        setFlex(editorId, "padding_bottom", 2);
+        setFlex(editorId, "flex_shrink", 0);
+        applyPaletteExpandedLayout(p, p === expandedPalette);
 
         // Gamut triangle canvas (draggable for dot positioning)
+        var gamutWrapId = rampId + "-gamut-wrap";
+        createCol(gamutWrapId, editorId);
+        setPosition(gamutWrapId, "relative");
+        setFlex(gamutWrapId, "width", 270);
+        setFlex(gamutWrapId, "height", 130);
+        setFlex(gamutWrapId, "flex_shrink", 0);
+
         var gamutId = rampId + "-gamut";
-        createCanvas(gamutId, editorId);
+        createCanvas(gamutId, gamutWrapId);
         setFlex(gamutId, "width", 270);
         setFlex(gamutId, "height", 130);
-        setBackground(gamutId, APP_SURFACE);  // opaque bg prevents content bleed-through
-        // Enable pointer events for drag interaction on the gamut
-        registerPointer(gamutId);
+        setBackground(gamutId, APP_SURFACE);
+        setPointerEvents(gamutId, "none");
+
+        var gamutOverlayId = rampId + "-gamut-overlay";
+        createCanvas(gamutOverlayId, gamutWrapId);
+        setPosition(gamutOverlayId, "absolute");
+        setTop(gamutOverlayId, 0);
+        setLeft(gamutOverlayId, 0);
+        setFlex(gamutOverlayId, "width", 270);
+        setFlex(gamutOverlayId, "height", 130);
+        registerPointer(gamutOverlayId);
         (function(idx, pKey) {
             // Handle both pointerdown and pointermove (drag) on gamut
             var dragCount = 0;
+            var dragging = false;
             function onGamutPointer(evt) {
+                if (evt.type === "pointermove" && !dragging) return;
                 var gw = 270, gh = 130;
                 var x = evt.offsetX, y = evt.offsetY;
                 var L = Math.max(0, Math.min(1, x / gw));
@@ -608,8 +821,7 @@ function buildShadeRamps() {
                 var h = getValue("ramp-" + idx + "-h-fdr") * 360;
                 var mapped = OklchEngine.gamutMap(L, C, h);
                 setValue("ramp-" + idx + "-c-fdr", Math.min(mapped.C / 0.4, 1));
-                // Full gamut redraw (cached — skips grid if hue unchanged)
-                renderPaletteGamut(idx, h, mapped.L, mapped.C);
+                renderPaletteGamut(idx, h, mapped.L, mapped.C, evt.type === 'pointerdown');
                 setText("ramp-" + idx + "-oklch", "L: " + mapped.L.toFixed(2) + "  C: " + mapped.C.toFixed(3) + "  H: " + h.toFixed(1));
                 // Throttle palette rebuild during drag (every 3rd event)
                 dragCount++;
@@ -626,8 +838,21 @@ function buildShadeRamps() {
                     for (var ls = 0; ls < 6; ls++) setBackground("ramp-" + idx + "-lg-" + ls, rampData[stepsArr[si2[ls]]].hex);
                 }
             }
-            on(gamutId, "pointerdown", function(e) { dragCount = 0; onGamutPointer(e); });
-            on(gamutId, "pointermove", onGamutPointer);
+            on(gamutOverlayId, "pointerdown", function(e) {
+                dragging = true;
+                dragCount = 0;
+                nativeSetPointerCapture(gamutOverlayId, e && e.pointerId ? e.pointerId : 0);
+                onGamutPointer(e);
+            });
+            on(gamutOverlayId, "pointermove", onGamutPointer);
+            on(gamutOverlayId, "pointerup", function(e) {
+                dragging = false;
+                nativeReleasePointerCapture(gamutOverlayId, e && e.pointerId ? e.pointerId : 0);
+            });
+            on(gamutOverlayId, "pointercancel", function(e) {
+                dragging = false;
+                nativeReleasePointerCapture(gamutOverlayId, e && e.pointerId ? e.pointerId : 0);
+            });
         })(p, paletteKeys[p]);
 
         // H — rainbow gradient bar (visual) above fader with label
@@ -678,6 +903,7 @@ function buildShadeRamps() {
         createRow(rampId + "-shades", editorId);
         setFlex(rampId + "-shades", "gap", 3);
         setFlex(rampId + "-shades", "height", 32);
+        setFlex(rampId + "-shades", "flex_shrink", 0);
         for (var ls = 0; ls < 6; ls++) {
             var lsId = rampId + "-lg-" + ls;
             var stepIdx = [0, 2, 4, 5, 7, 9][ls];
@@ -715,19 +941,16 @@ function buildShadeRamps() {
             var toggleExpand = function() {
                 if (expandedPalette === idx) {
                     // Collapse — shrink container back
-                    setVisible("ramp-" + idx + "-editor", false);
-                    setFlex("ramp-" + idx, "height", 28);
+                    applyPaletteExpandedLayout(idx, false);
                     expandedPalette = -1;
                 } else {
                     // Collapse previous
                     if (expandedPalette >= 0) {
-                        setVisible("ramp-" + expandedPalette + "-editor", false);
-                        setFlex("ramp-" + expandedPalette, "height", 28);
+                        applyPaletteExpandedLayout(expandedPalette, false);
                     }
                     // Expand — grow container for editor content
                     expandedPalette = idx;
-                    setFlex("ramp-" + idx, "height", 320);  // Yoga: room for gamut+sliders+shades
-                    setVisible("ramp-" + idx + "-editor", true);
+                    applyPaletteExpandedLayout(idx, true);
                     // Render gamut triangle for this palette
                     var pal = PaletteSystem.create(currentAccent, currentHarmony);
                     var pKey = paletteKeys[idx];
@@ -739,8 +962,10 @@ function buildShadeRamps() {
                     setValue("ramp-" + idx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                     setText("ramp-" + idx + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
                 }
+                updateLeftPanelScrollMetrics();
                 layout();
             };
+            on(rowId, "click", toggleExpand);
             on("ramp-" + idx + "-dot", "click", toggleExpand);
             on("ramp-" + idx + "-name", "click", toggleExpand);
             // Shade clicks also expand + position dot at that shade's color
@@ -752,17 +977,16 @@ function buildShadeRamps() {
                         var oklch = OklchEngine.hexToOklch(shade.hex);
                         // Expand if not already
                         if (expandedPalette >= 0 && expandedPalette !== paletteIdx) {
-                            setVisible("ramp-" + expandedPalette + "-editor", false);
-                            setFlex("ramp-" + expandedPalette, "height", 28);
+                            applyPaletteExpandedLayout(expandedPalette, false);
                         }
                         expandedPalette = paletteIdx;
-                        setFlex("ramp-" + paletteIdx, "height", 320);
-                        setVisible("ramp-" + paletteIdx + "-editor", true);
+                        applyPaletteExpandedLayout(paletteIdx, true);
                         renderPaletteGamut(paletteIdx, oklch.H, oklch.L, oklch.C);
                         renderChromaGradient(paletteIdx, oklch.H);
                         setValue("ramp-" + paletteIdx + "-h-fdr", oklch.H / 360);
                         setValue("ramp-" + paletteIdx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                         setText("ramp-" + paletteIdx + "-oklch", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
+                        updateLeftPanelScrollMetrics();
                         layout();
                     });
                 })(idx, si);
@@ -809,6 +1033,8 @@ function buildShadeRamps() {
             on("ramp-" + idx + "-c-fdr", "change", onPaletteSliderChange);
         })(p, paletteKeys[p]);
     }
+    updateColorSectionLayout();
+    updateLeftPanelScrollMetrics();
     if (tokenEditState.activeToken) rebuildPopupPalette();
 }
 
@@ -828,6 +1054,35 @@ function renderChromaGradient(paletteIdx, hue) {
 
 // fullRedraw=true renders the color grid; false only redraws dot overlay
 var gamutCache = {};  // cache hue → avoid full redraw during drag
+var gamutBoundaryCache = {};
+
+function computeGamutBoundary(hue, steps) {
+    var boundary = [];
+    for (var bx = 0; bx <= steps; bx++) {
+        var L = bx / steps;
+        var lo = 0, hi = 0.4;
+        for (var bi = 0; bi < 16; bi++) {
+            var mid = (lo + hi) / 2;
+            if (OklchEngine.isInGamut(L, mid, hue)) lo = mid; else hi = mid;
+        }
+        boundary.push(lo);
+    }
+    return boundary;
+}
+
+function renderPaletteGamutOverlay(paletteIdx, hue, dotL, dotC) {
+    var overlayId = "ramp-" + paletteIdx + "-gamut-overlay";
+    var w = 270, h = 130;
+    canvasClear(overlayId);
+    if (dotL === undefined || dotC === undefined) return;
+    var dx = dotL * w;
+    var dy = (1 - dotC / 0.4) * h;
+    canvasStrokeLine(overlayId, dx, 0, dx, h, '#ffffff15', 0.5);
+    canvasStrokeLine(overlayId, 0, dy, w, dy, '#ffffff15', 0.5);
+    canvasFillCircle(overlayId, dx, dy, 9, '#00000040');
+    canvasFillCircle(overlayId, dx, dy, 7, '#ffffffdd');
+    canvasFillCircle(overlayId, dx, dy, 4, OklchEngine.oklchToHex(dotL, dotC, hue));
+}
 
 function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
     var gamutId = "ramp-" + paletteIdx + "-gamut";
@@ -837,73 +1092,62 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
     if (fullRedraw !== false || gamutCache[paletteIdx] !== hue) {
         gamutCache[paletteIdx] = hue;
         canvasClear(gamutId);
-        // Background
         canvasRect(gamutId, 0, 0, w, h, APP_SURFACE);
 
-        // Precompute boundary
-        var boundary = [];
-        var bSteps = 200;
-        for (var bx = 0; bx <= bSteps; bx++) {
-            var bL = bx / bSteps;
-            var blo = 0, bhi = 0.4;
-            for (var bbi = 0; bbi < 16; bbi++) {
-                var bmid = (blo + bhi) / 2;
-                if (OklchEngine.isInGamut(bL, bmid, hue)) blo = bmid; else bhi = bmid;
-            }
-            boundary.push(blo);
-        }
+        var bSteps = 360;
+        var boundary = computeGamutBoundary(hue, bSteps);
+        gamutBoundaryCache[paletteIdx] = boundary;
 
-        // Draw color grid — high resolution for smooth edges
-        var cols = 135, rows = 65;
-        var cellW = w / cols, cellH = h / rows;
+        // Render the gamut with per-column gradients and the exact boundary
+        // height. This removes the stepped/pixelated top edge from the old
+        // cell-grid renderer and tracks the HTML reference more closely.
+        var cols = 270;
+        var colW = w / cols;
         for (var gx = 0; gx < cols; gx++) {
             var L = gx / (cols - 1);
-            var bIdx = Math.round(L * bSteps);
-            var maxC = boundary[bIdx];
-            for (var gy = 0; gy < rows; gy++) {
-                var C = (1 - gy / (rows - 1)) * 0.4;
-                if (C <= maxC) {
-                    canvasRect(gamutId, gx * cellW, gy * cellH, cellW + 1, cellH + 1, OklchEngine.oklchToHex(L, C, hue));
-                }
+            var boundaryIdx = Math.min(bSteps, Math.max(0, Math.round((gx / (cols - 1)) * bSteps)));
+            var maxC = boundary[boundaryIdx];
+            var topY = (1 - maxC / 0.4) * h;
+            if (topY > 0.35) {
+                canvasRect(gamutId, gx * colW, 0, colW + 0.55, topY + 0.35, APP_SURFACE);
+            }
+            if (maxC > 0.001) {
+                var topHex = OklchEngine.oklchToHex(L, Math.max(0.015, maxC * 0.96), hue);
+                var bottomHex = OklchEngine.oklchToHex(L, 0.0001, hue);
+                canvasSetLinearGradient(gamutId, gx * colW, topY, gx * colW, h, topHex, bottomHex);
+                canvasBeginPath(gamutId);
+                canvasMoveTo(gamutId, gx * colW, topY);
+                canvasLineTo(gamutId, gx * colW + colW + 0.75, topY);
+                canvasLineTo(gamutId, gx * colW + colW + 0.75, h);
+                canvasLineTo(gamutId, gx * colW, h);
+                canvasClosePath(gamutId);
+                canvasFillPath(gamutId);
+                canvasClearGradient(gamutId);
             }
         }
 
-        // Mask out-of-gamut area — paint the dark background over the jagged edges
-        // using a path that covers everything ABOVE the smooth gamut boundary
-        canvasSetFillColor(gamutId, '#1e1e26');
-        canvasBeginPath(gamutId);
-        canvasMoveTo(gamutId, 0, 0);  // top-left
-        canvasLineTo(gamutId, w, 0);  // top-right
-        canvasLineTo(gamutId, w, (1 - boundary[bSteps] / 0.4) * h);  // right boundary point
-        for (var mx = bSteps; mx >= 0; mx--) {
-            canvasLineTo(gamutId, (mx / bSteps) * w, (1 - boundary[mx] / 0.4) * h);
-        }
-        canvasClosePath(gamutId);
-        canvasFillPath(gamutId);
-
-        // Smooth boundary stroke
-        canvasSetStrokeColor(gamutId, '#ffffff20');
-        canvasSetLineWidth(gamutId, 1);
+        canvasSetStrokeColor(gamutId, '#ffffff2a');
+        canvasSetLineWidth(gamutId, 1.15);
         canvasBeginPath(gamutId);
         canvasMoveTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
         for (var bx2 = 1; bx2 <= bSteps; bx2++) {
             canvasLineTo(gamutId, (bx2 / bSteps) * w, (1 - boundary[bx2] / 0.4) * h);
         }
         canvasStrokePath(gamutId);
+
+        canvasSetStrokeColor(gamutId, '#ffffff10');
+        canvasSetLineWidth(gamutId, 0.75);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, h);
+        canvasLineTo(gamutId, 0, (1 - boundary[0] / 0.4) * h);
+        for (var bx3 = 1; bx3 <= bSteps; bx3++) {
+            canvasLineTo(gamutId, (bx3 / bSteps) * w, (1 - boundary[bx3] / 0.4) * h);
+        }
+        canvasLineTo(gamutId, w, h);
+        canvasStrokePath(gamutId);
     }
 
-    // Draw dot + crosshair (always, even during drag-only updates)
-    if (dotL !== undefined && dotC !== undefined) {
-        var dx = dotL * w;
-        var dy = (1 - dotC / 0.4) * h;
-        // Crosshair lines
-        canvasStrokeLine(gamutId, dx, 0, dx, h, '#ffffff15', 0.5);
-        canvasStrokeLine(gamutId, 0, dy, w, dy, '#ffffff15', 0.5);
-        // Dot: shadow → white ring → color center
-        canvasFillCircle(gamutId, dx, dy, 9, '#00000040');
-        canvasFillCircle(gamutId, dx, dy, 7, '#ffffffdd');
-        canvasFillCircle(gamutId, dx, dy, 4, OklchEngine.oklchToHex(dotL, dotC, hue));
-    }
+    renderPaletteGamutOverlay(paletteIdx, hue, dotL, dotC);
 }
 
 buildShadeRamps();
@@ -980,6 +1224,9 @@ on("palette-load-btn", "click", function() {
         showToast("No saved palette found");
     }
 });
+
+updateTokenFilterLayout("");
+updateLeftPanelScrollMetrics();
 
 // ── Color Picker (legacy — hidden, replaced by inline palette editor)
 var pickerVisible = false;
@@ -1566,8 +1813,9 @@ on("harmony-selector", "select", function(idx) {
         }
         // Close any expanded editor since palette changed
         if (expandedPalette >= 0) {
-            setVisible("ramp-" + expandedPalette + "-editor", false);
+            applyPaletteExpandedLayout(expandedPalette, false);
             expandedPalette = -1;
+            updateLeftPanelScrollMetrics();
         }
         layout();
     }
@@ -1591,8 +1839,9 @@ on("mode-selector", "select", function(idx) {
         setBackground("ramp-" + p + "-dot", ramp[500].hex);
     }
     if (expandedPalette >= 0) {
-        setVisible("ramp-" + expandedPalette + "-editor", false);
+        applyPaletteExpandedLayout(expandedPalette, false);
         expandedPalette = -1;
+        updateLeftPanelScrollMetrics();
     }
     pushThemeSnapshot();
     layout();
@@ -1601,6 +1850,7 @@ on("mode-selector", "select", function(idx) {
 // ── CENTER PANEL (Preview) ───────────────────────────────────────
 createCol("center-panel", "main-area");
 setFlex("center-panel", "flex_grow", 1);
+setFlex("center-panel", "flex_shrink", 1);
 setFlex("center-panel", "min_width", 420);  // Issue 5: prevent scrollbar behind content
 setFlex("center-panel", "padding", 16);
 setFlex("center-panel", "gap", 8);
@@ -2164,7 +2414,9 @@ setWaveformData("waveform2", wave2);
 // ── RIGHT PANEL (Inspector + Chat) ──────────────────────────────
 createCol("right-panel", "main-area");
 setFlex("right-panel", "width", 272);
-setFlex("right-panel", "min_width", 250);  // Issue 8: prevent scrollbar overlap
+setFlex("right-panel", "min_width", 272);
+setFlex("right-panel", "max_width", 272);
+setFlex("right-panel", "flex_grow", 0);
 setFlex("right-panel", "flex_shrink", 0);
 setBackground("right-panel", APP_SURFACE);
 setBorder("right-panel", APP_BORDER, 1, 0);
@@ -2362,8 +2614,38 @@ setTextColor("hint-msg", APP_TEXT_DIM);
 setFlex("hint-msg", "height", 16);
 
 // Chat input area
+createRow("chat-attachment-row", "chat-area");
+setFlex("chat-attachment-row", "height", 0);
+setFlex("chat-attachment-row", "gap", 6);
+setFlex("chat-attachment-row", "align_items", "center");
+setFlex("chat-attachment-row", "padding_left", 6);
+setFlex("chat-attachment-row", "padding_right", 6);
+setFlex("chat-attachment-row", "flex_shrink", 0);
+setBackground("chat-attachment-row", APP_PANEL);
+setBorder("chat-attachment-row", APP_BORDER, 1, 6);
+setVisible("chat-attachment-row", false);
+
+createLabel("chat-attachment-label", "", "chat-attachment-row");
+setFontSize("chat-attachment-label", 9);
+setTextColor("chat-attachment-label", APP_TEXT_DIM);
+setFlex("chat-attachment-label", "flex_grow", 1);
+setTextOverflow("chat-attachment-label", "ellipsis");
+
+createCol("chat-attachment-clear", "chat-attachment-row");
+setFlex("chat-attachment-clear", "width", 16);
+setFlex("chat-attachment-clear", "height", 16);
+setFlex("chat-attachment-clear", "justify_content", "center");
+setFlex("chat-attachment-clear", "align_items", "center");
+setBorder("chat-attachment-clear", APP_BORDER, 1, 8);
+createLabel("chat-attachment-clear-label", "x", "chat-attachment-clear");
+setFontSize("chat-attachment-clear-label", 9);
+setTextColor("chat-attachment-clear-label", APP_TEXT_DIM);
+setPointerEvents("chat-attachment-clear-label", "none");
+registerClick("chat-attachment-clear");
+
 createRow("chat-input-row", "chat-area");
-setFlex("chat-input-row", "height", 32);
+setFlex("chat-input-row", "height", 36);
+setFlex("chat-input-row", "align_items", "center");
 setFlex("chat-input-row", "flex_shrink", 0);
 setFlex("chat-input-row", "gap", 6);
 
@@ -2373,46 +2655,115 @@ createCol("upload-btn", "chat-input-row");
 setFlex("upload-btn", "width", 32);
 setFlex("upload-btn", "height", 32);
 setBackground("upload-btn", APP_PANEL);
-setBorder("upload-btn", APP_BORDER, 1, 8);
+setBorder("upload-btn", APP_BORDER, 1, 6);
 setFlex("upload-btn", "justify_content", "center");
 setFlex("upload-btn", "align_items", "center");
 createIcon("upload-icon", "image_upload", "upload-btn");
 setFlex("upload-icon", "width", 16);
 setFlex("upload-icon", "height", 16);
+setPointerEvents("upload-icon", "none");
 registerHover("upload-btn");
-on("upload-btn", "mouseenter", function() { setBorder("upload-btn", APP_ACCENT, 1, 6); });
-on("upload-btn", "mouseleave", function() { setBorder("upload-btn", APP_BORDER, 1, 6); });
+on("upload-btn", "mouseenter", function() { setBorder("upload-btn", APP_ACCENT, 1, 6); setBackground("upload-btn", APP_PANEL_RAISED); });
+on("upload-btn", "mouseleave", function() { setBorder("upload-btn", APP_BORDER, 1, 6); setBackground("upload-btn", APP_PANEL); });
 // Issue 2: image upload via file dialog
 var uploadedImagePath = "";
+var uploadedImageName = "";
+
+function clearUploadedImage() {
+    uploadedImagePath = "";
+    uploadedImageName = "";
+    setText("chat-attachment-label", "");
+    setVisible("chat-attachment-row", false);
+    setFlex("chat-attachment-row", "height", 0);
+    layout();
+}
+
+function shellQuote(s) {
+    return "'" + String(s || "").split("'").join("'\\''") + "'";
+}
+
+function buildAiCliCommand(promptFile, model) {
+    var aiCli = "";
+    try { aiCli = getAICli(); } catch (e) {}
+    if (!aiCli || aiCli.length === 0) aiCli = "claude --print --model {model}";
+
+    var usesPromptFile = aiCli.indexOf("{prompt_file}") >= 0;
+    var usesModel = aiCli.indexOf("{model}") >= 0;
+    var cmd = aiCli;
+    if (usesPromptFile) cmd = cmd.split("{prompt_file}").join(shellQuote(promptFile));
+    if (usesModel) cmd = cmd.split("{model}").join(shellQuote(model));
+    if (!usesPromptFile) {
+        cmd = "cat " + shellQuote(promptFile) + " | " + cmd;
+    }
+    return cmd + "; rm -f " + shellQuote(promptFile);
+}
+
+function setUploadedImage(path) {
+    uploadedImagePath = path || "";
+    var parts = uploadedImagePath.split("/");
+    uploadedImageName = parts.length > 0 ? parts[parts.length - 1] : uploadedImagePath;
+    if (!uploadedImagePath) {
+        clearUploadedImage();
+        return;
+    }
+    setText("chat-attachment-label", uploadedImageName);
+    setVisible("chat-attachment-row", true);
+    setFlex("chat-attachment-row", "height", 22);
+    layout();
+}
+
+on("chat-attachment-clear", "click", function() {
+    clearUploadedImage();
+});
+
+function updateChatInputSizing(text) {
+    var value = text || "";
+    var explicitLines = value.split("\n");
+    var wrappedLines = 0;
+    for (var li = 0; li < explicitLines.length; li++) {
+        wrappedLines += Math.max(1, Math.ceil(explicitLines[li].length / 34));
+    }
+    var visibleLines = Math.max(1, Math.min(5, wrappedLines));
+    var editorHeight = Math.max(32, 14 + visibleLines * 16);
+    setFlex("chat-input", "height", editorHeight);
+    setFlex("chat-input-row", "height", Math.max(36, editorHeight));
+    layout();
+}
+
 registerClick("upload-btn");
 on("upload-btn", "click", function() {
     var path = showOpenDialog("Select Reference Image", "Images", "png,jpg,jpeg,gif,webp");
     if (path && path.length > 0) {
-        uploadedImagePath = path;
-        showToast("Image: " + path.split("/").pop());
+        setUploadedImage(path);
+        showToast("Attached " + uploadedImageName);
     }
 });
 
 createTextEditor("chat-input", "chat-input-row");
 setPlaceholder("chat-input", "Describe a style...");
+setMultiLine("chat-input", 1);
 setFlex("chat-input", "flex_grow", 1);
-setFlex("chat-input", "height", 28);
+setFlex("chat-input", "height", 32);
+on("chat-input", "change", function(text) {
+    updateChatInputSizing(text);
+});
 
 // #49: Send button with proper icon sizing
 createCol("send-btn", "chat-input-row");
 setFlex("send-btn", "width", 32);
 setFlex("send-btn", "height", 32);
 setBackground("send-btn", APP_ACCENT);
-setBorder("send-btn", APP_ACCENT, 0, 8);
+setBorder("send-btn", APP_ACCENT, 1, 6);
 setFlex("send-btn", "justify_content", "center");
 setFlex("send-btn", "align_items", "center");
 createIcon("send-icon", "send", "send-btn");
 setFlex("send-icon", "width", 16);
 setFlex("send-icon", "height", 16);
+setPointerEvents("send-icon", "none");
 // Issue 3: hover state for send button
 registerHover("send-btn");
-on("send-btn", "mouseenter", function() { setOpacity("send-btn", 0.8); });
-on("send-btn", "mouseleave", function() { setOpacity("send-btn", 1.0); });
+on("send-btn", "mouseenter", function() { setBackground("send-btn", APP_ACCENT_HOVER); setBorder("send-btn", APP_ACCENT_HOVER, 1, 6); });
+on("send-btn", "mouseleave", function() { setBackground("send-btn", APP_ACCENT); setBorder("send-btn", APP_ACCENT, 1, 6); });
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BAR (28px, full width)
@@ -2452,6 +2803,62 @@ setVisible("toast-overlay", false);
 createLabel("toast-text", "", "toast-overlay");
 setFontSize("toast-text", 10);
 
+createCol("help-modal", "");
+setPosition("help-modal", "absolute");
+setFlex("help-modal", "width", 1100);
+setFlex("help-modal", "height", 700);
+setFlex("help-modal", "justify_content", "center");
+setFlex("help-modal", "align_items", "center");
+setBackground("help-modal", "#00000088");
+setZIndex("help-modal", 210);
+setOpacity("help-modal", 0);
+setVisible("help-modal", false);
+setPointerEvents("help-modal", "none");
+registerClick("help-modal");
+
+createCol("help-card", "help-modal");
+setFlex("help-card", "width", 340);
+setFlex("help-card", "min_height", 144);
+setFlex("help-card", "padding", 16);
+setFlex("help-card", "gap", 10);
+setBackground("help-card", APP_PANEL);
+setBorder("help-card", APP_BORDER, 1, 12);
+setBoxShadow("help-card", 0, 12, 32, 0, "#00000088");
+
+createRow("help-card-header", "help-card");
+setFlex("help-card-header", "height", 24);
+setFlex("help-card-header", "align_items", "center");
+setFlex("help-card-header", "justify_content", "space-between");
+setFlex("help-card-header", "gap", 8);
+
+createLabel("help-modal-title", "Help", "help-card-header");
+setFontSize("help-modal-title", 14);
+setTextColor("help-modal-title", APP_TEXT);
+setFlex("help-modal-title", "flex_grow", 1);
+setTextOverflow("help-modal-title", "ellipsis");
+
+createCol("help-modal-close-btn", "help-card-header");
+setFlex("help-modal-close-btn", "width", 52);
+setFlex("help-modal-close-btn", "height", 24);
+setFlex("help-modal-close-btn", "justify_content", "center");
+setFlex("help-modal-close-btn", "align_items", "center");
+setBackground("help-modal-close-btn", APP_SURFACE);
+setBorder("help-modal-close-btn", APP_BORDER, 1, 8);
+registerClick("help-modal-close-btn");
+
+createLabel("help-modal-close-label", "Close", "help-modal-close-btn");
+setFontSize("help-modal-close-label", 10);
+setTextColor("help-modal-close-label", APP_TEXT_DIM);
+
+createLabel("help-modal-body", "", "help-card");
+setFontSize("help-modal-body", 11);
+setTextColor("help-modal-body", APP_TEXT_DIM);
+setMultiLine("help-modal-body", 1);
+setFlex("help-modal-body", "flex_grow", 1);
+
+on("help-modal", "click", function() { hideHelpModal(); });
+on("help-modal-close-btn", "click", function() { hideHelpModal(); });
+
 var toastTimer = 0;
 function showToast(msg) {
     setText("toast-text", msg);
@@ -2483,6 +2890,12 @@ setTextColor("status-schema", APP_TEXT_DIM);
 // Issue 6: Cmd+click inspector with chat context scoping
 var inspectedComponent = null;
 
+function clearInspectedComponent() {
+    inspectedComponent = null;
+    setText("context-label", "Editing: All Components");
+    setVisible("context-clear", false);
+}
+
 enableInspectClick();
 on("__inspect__", "click", function(widgetId) {
     setText("insp-type-v", widgetId ? "View" : "—");
@@ -2493,21 +2906,21 @@ on("__inspect__", "click", function(widgetId) {
     if (inspectedComponent) {
         setText("context-label", "Editing: " + inspectedComponent);
         setVisible("context-clear", true);
+    } else {
+        clearInspectedComponent();
     }
-    switchTab("inspector");
+    if (activeTab === "inspector") {
+        switchTab("inspector");
+    }
 });
 
 // Clear context — click x or the badge itself
 on("context-clear", "click", function() {
-    inspectedComponent = null;
-    setText("context-label", "Editing: All Components");
-    setVisible("context-clear", false);
+    clearInspectedComponent();
 });
 on("context-badge", "click", function() {
     if (inspectedComponent) {
-        inspectedComponent = null;
-        setText("context-label", "Editing: All Components");
-        setVisible("context-clear", false);
+        clearInspectedComponent();
     }
 });
 
@@ -2612,56 +3025,813 @@ function addChatMessage(role, text) {
     layout();
 }
 
-on("chat-input", "return", function(text) {
-    if (!text || text.length === 0) return;
-    addChatMessage("user", text);
-    setText("chat-input", "");
-    setText("status-text", "Generating...");
-    // #58: Show typing indicator
-    addChatMessage("assistant", "...");
-    layout();
+var chatRequestPending = false;
+var chatRequestCounter = 0;
+var widgetLookState = {};
+var lastChatRequestText = "";
+var widgetKindById = {
+    k1: "knob",
+    k2: "knob",
+    k3: "knob",
+    k4: "knob",
+    slider1: "fader",
+    t1: "toggle",
+    t2: "toggle"
+};
+function clamp01(value) {
+    return Math.max(0, Math.min(1, Number(value)));
+}
 
-    var themeJson = getThemeJson();
-    // D6: Use model selector value
-    var modelIdx = 0;
-    try { modelIdx = getValue("model-selector"); } catch(e) {}
-    var model = modelIdx > 0.5 ? "claude-opus-4-6" : "claude-sonnet-4-6";
-    // #59: Prompt supports BOTH colors AND styles
-    var scope = inspectedComponent ? "\nScope: ONLY modify tokens related to '" + inspectedComponent + "'" : "";
-    var prompt = "You are a design system expert for audio plugin UIs.\n";
-    prompt += "Modify the theme to achieve the requested look. Be creative and bold.\n";
-    prompt += "You can change colors AND style properties to create dramatic transformations.\n\n";
-    prompt += "## Current Theme\n" + themeJson + "\n\n";
-    prompt += "## Available Color Tokens (hex values)\n";
-    for (var gi = 0; gi < tokenGroups.length; gi++) {
-        prompt += tokenGroups[gi].name + ": " + tokenGroups[gi].tokens.join(", ") + "\n";
-    }
-    prompt += "\n## Available Style Properties (numeric values)\n";
-    prompt += "dimensions.cornerRadius (0-24): border radius for panels/buttons\n";
-    prompt += "dimensions.borderWidth (0-4): border thickness\n";
-    prompt += "dimensions.shadowBlur (0-20): shadow blur radius\n";
-    prompt += "dimensions.shadowAlpha (0-1): shadow opacity\n";
-    prompt += "dimensions.knobArcWidth (2-8): knob arc stroke width\n";
-    prompt += "dimensions.knobSize (32-80): knob diameter\n";
-    prompt += "dimensions.headingSize (12-36): heading font size\n";
-    prompt += "dimensions.bodySize (10-16): body font size\n";
-    prompt += "dimensions.labelSize (8-12): label font size\n";
-    prompt += "\n## RULES\n";
-    prompt += "1. Output ONLY valid JSON. No markdown, no explanation.\n";
-    prompt += '2. Format: {"colors": {"token.name": "#hex", ...}, "dimensions": {"prop": number, ...}}\n';
-    prompt += "3. Change 5-30 tokens. Include BOTH colors and dimensions for dramatic effect.\n";
-    prompt += "4. Use the exact token/property names listed above.\n";
-    prompt += "5. Be bold — if asked for 'cyberpunk', make it look like cyberpunk. If 'warm analog', make it warm.\n";
-    prompt += scope + "\n\n";
-    if (uploadedImagePath && uploadedImagePath.length > 0) {
-        prompt += "## Reference Image\nThe user uploaded a reference image at: " + uploadedImagePath + "\n";
-        prompt += "Extract the visual mood, colors, and style from this image and apply them.\n\n";
-    }
-    prompt += '## Request\n"' + text + '"\n\n## JSON Output\n';
+function numericParam(params, key, fallback, minValue, maxValue) {
+    var raw = params && params[key] !== undefined ? Number(params[key]) : fallback;
+    if (!isFinite(raw)) raw = fallback;
+    if (minValue !== undefined) raw = Math.max(minValue, raw);
+    if (maxValue !== undefined) raw = Math.min(maxValue, raw);
+    return raw;
+}
 
-    var tmpFile = "/tmp/pulp-design-prompt.txt";
-    exec("cat > " + tmpFile + " << 'PULPEOF'\n" + prompt + "\nPULPEOF");
-    var response = exec("cat " + tmpFile + " | claude --print --model " + model + " 2>/dev/null");
+function shaderFloat(value) {
+    var rounded = Math.round(Number(value) * 10000) / 10000;
+    if (!isFinite(rounded)) rounded = 0;
+    return rounded.toFixed(4);
+}
+
+function mergeParams(base, overrides) {
+    var merged = {};
+    var key;
+    if (base) {
+        for (key in base) merged[key] = base[key];
+    }
+    if (overrides) {
+        for (key in overrides) merged[key] = overrides[key];
+    }
+    return merged;
+}
+
+function mergeWidgetMaterialSpec(spec) {
+    if (!spec || !spec.material) return spec;
+    var material = spec.material;
+    var merged = {};
+    for (var key in spec) merged[key] = spec[key];
+    delete merged.material;
+    merged.params = merged.params || {};
+
+    if (typeof material === "string") {
+        merged.preset = merged.preset || material;
+        return merged;
+    }
+
+    if (material.preset && !merged.preset) merged.preset = material.preset;
+    if (material.family && !merged.family) merged.family = material.family;
+    if (material.styleFamily && !merged.family) merged.family = material.styleFamily;
+    if (material.params) {
+        for (var paramKey in material.params) {
+            merged.params[paramKey] = material.params[paramKey];
+        }
+    }
+    if (material.body && material.body.bevel && material.body.bevel.width !== undefined) {
+        merged.params.bevel = material.body.bevel.width;
+    }
+    if (material.body && material.body.rim && material.body.rim.opacity !== undefined) {
+        merged.params.rim = material.body.rim.opacity;
+    }
+    if (material.effects && material.effects.highlight && material.effects.highlight.intensity !== undefined) {
+        merged.params.gloss = material.effects.highlight.intensity;
+    }
+    if (material.effects && material.effects.noise && material.effects.noise.intensity !== undefined) {
+        merged.params.noise = material.effects.noise.intensity;
+    }
+    return merged;
+}
+
+function buildMacos7KnobShader(params) {
+    var gloss = shaderFloat(numericParam(params, "gloss", 0.82, 0.05, 1.0));
+    var metalness = shaderFloat(numericParam(params, "metalness", 0.72, 0.0, 1.0));
+    var rim = shaderFloat(numericParam(params, "rim", 0.22, 0.0, 1.0));
+    var noise = shaderFloat(numericParam(params, "noise", 0.022, 0.0, 0.08));
+    var bevel = shaderFloat(numericParam(params, "bevel", 0.90, 0.0, 1.5));
+    var bodyRadius = shaderFloat(numericParam(params, "bodyRadius", 0.34, 0.28, 0.40));
+    var trackWidth = shaderFloat(numericParam(params, "trackWidth", 0.028, 0.012, 0.060));
+    var trackInner = shaderFloat(Number(bodyRadius) + 0.040);
+    var trackOuter = shaderFloat(Number(trackInner) + Number(trackWidth));
+    return [
+        "uniform float2 resolution;",
+        "uniform float value;",
+        "uniform float time;",
+        "layout(color) uniform float4 accentColor;",
+        "layout(color) uniform float4 bgColor;",
+        "layout(color) uniform float4 trackColor;",
+        "layout(color) uniform float4 fillColor;",
+        "layout(color) uniform float4 thumbColor;",
+        "float hash21(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123); }",
+        "float ringMask(float2 p, float innerR, float outerR, float aa) {",
+        "  float d = length(p);",
+        "  float outer = 1.0 - smoothstep(outerR - aa, outerR + aa, d);",
+        "  float inner = 1.0 - smoothstep(innerR - aa, innerR + aa, d);",
+        "  return clamp(outer - inner, 0.0, 1.0);",
+        "}",
+        "float3 toLinear(float3 c) {",
+        "  return pow(clamp(c, float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0)), float3(2.2, 2.2, 2.2));",
+        "}",
+        "float3 toSrgb(float3 c) {",
+        "  return pow(max(c, float3(0.0, 0.0, 0.0)), float3(0.454545, 0.454545, 0.454545));",
+        "}",
+        "half4 main(float2 coord) {",
+        "  float size = max(min(resolution.x, resolution.y), 1.0);",
+        "  float2 p = (coord - resolution * 0.5) / size;",
+        "  float r = length(p);",
+        "  float aa = max(1.5 / size, 0.0025);",
+        "  float bodyRadius = " + bodyRadius + ";",
+        "  float body = 1.0 - smoothstep(bodyRadius - aa, bodyRadius + aa, r);",
+        "  float ring = ringMask(p, " + trackInner + ", " + trackOuter + ", aa * 1.2);",
+        "  float shadow = (1.0 - smoothstep(bodyRadius + 0.02, bodyRadius + 0.10, length(p - float2(0.0, 0.025)))) * 0.30;",
+        "  float normR = clamp(r / max(bodyRadius, 0.0001), 0.0, 1.0);",
+        "  float nz = sqrt(max(1.0 - normR * normR, 0.0));",
+        "  float2 nxy = p / max(bodyRadius, 0.0001);",
+        "  float3 N = normalize(float3(nxy.x, nxy.y, nz));",
+        "  float3 L = normalize(float3(-0.42, -0.70, 0.58));",
+        "  float3 V = float3(0.0, 0.0, 1.0);",
+        "  float3 H = normalize(L + V);",
+        "  float gloss = " + gloss + ";",
+        "  float diff = max(dot(N, L), 0.0);",
+        "  float spec = pow(max(dot(N, H), 0.0), mix(18.0, 140.0, gloss));",
+        "  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) * " + rim + ";",
+        "  float bevelMask = smoothstep(bodyRadius * 0.68, bodyRadius, r) * " + bevel + ";",
+        "  float bevelLight = clamp(0.65 - 0.55 * nxy.y - 0.32 * nxy.x, 0.0, 1.0);",
+        "  float centerLift = 1.0 - smoothstep(0.0, bodyRadius * 0.96, r);",
+        "  float brushed = sin((atan(p.y, p.x) + 3.14159265) * 42.0 + time * 0.05);",
+        "  float grain = (hash21(coord + float2(time * 7.0, time * 13.0)) - 0.5) * " + noise + ";",
+        "  float metalness = " + metalness + ";",
+        "  float3 bgLin = toLinear(bgColor.rgb);",
+        "  float3 trackLin = toLinear(trackColor.rgb);",
+        "  float3 fillLin = toLinear(fillColor.rgb);",
+        "  float3 accentLin = toLinear(accentColor.rgb);",
+        "  float3 thumbLin = toLinear(thumbColor.rgb);",
+        "  float3 faceBase = mix(bgLin * 0.74 + fillLin * 0.04, float3(0.88, 0.90, 0.95), metalness * 0.78);",
+        "  float3 face = faceBase * (0.34 + diff * 0.52 + centerLift * 0.16);",
+        "  face += spec * mix(float3(0.45, 0.47, 0.52), float3(1.08, 1.08, 1.04), metalness);",
+        "  face += fres * float3(0.22, 0.24, 0.30);",
+        "  face = mix(face, face + (bevelLight - 0.5) * 0.36, clamp(bevelMask, 0.0, 1.0));",
+        "  face *= 1.0 + grain + brushed * " + noise + " * metalness * 0.65;",
+        "  float angle = atan(-p.y, p.x);",
+        "  float start = 2.35619449;",
+        "  float sweep = 4.71238898;",
+        "  if (angle < start) angle += 6.283185307;",
+        "  float t = clamp((angle - start) / sweep, 0.0, 1.0);",
+        "  float active = step(t, clamp(value, 0.0, 1.0));",
+        "  float grooveShade = clamp(0.52 + 0.32 * (-nxy.y * 0.7 - nxy.x * 0.25), 0.0, 1.0);",
+        "  float3 grooveColor = mix(trackLin * 0.42, bgLin * 0.28, 0.35) * grooveShade;",
+        "  float3 activeColor = mix(fillLin * 0.84, accentLin * 1.06, 0.35) * (0.82 + spec * 0.30);",
+        "  float indicatorAngle = start + sweep * clamp(value, 0.0, 1.0);",
+        "  float2 dir = float2(cos(indicatorAngle), -sin(indicatorAngle));",
+        "  float2 perp = float2(-dir.y, dir.x);",
+        "  float2 rel = p - dir * (bodyRadius * 0.54);",
+        "  float notchLen = bodyRadius * 0.18;",
+        "  float notchHalfWidth = max(aa * 2.0, 0.010);",
+        "  float notchDist = max(abs(dot(rel, dir)) - notchLen * 0.5, abs(dot(rel, perp)) - notchHalfWidth);",
+        "  float notch = body * (1.0 - smoothstep(0.0, aa * 2.2, notchDist));",
+        "  float3 notchColor = mix(float3(0.96, 0.97, 1.00), thumbLin * 1.04, 0.55);",
+        "  float alpha = max(shadow, max(body, ring));",
+        "  float3 colorLin = bgLin * shadow * 0.35;",
+        "  colorLin = mix(colorLin, face, body);",
+        "  colorLin = mix(colorLin, grooveColor, ring * 0.94);",
+        "  colorLin = mix(colorLin, activeColor, ring * active);",
+        "  colorLin = mix(colorLin, notchColor, notch);",
+        "  float3 outColor = toSrgb(colorLin);",
+        "  return half4(half3(outColor) * half(alpha), half(alpha));",
+        "}"
+    ].join("\n");
+}
+
+function buildGlassFaderShader(params) {
+    var gloss = shaderFloat(numericParam(params, "gloss", 0.68, 0.0, 1.0));
+    var noise = shaderFloat(numericParam(params, "noise", 0.012, 0.0, 0.05));
+    var depth = shaderFloat(numericParam(params, "depth", 0.32, 0.0, 1.0));
+    return [
+        "uniform float2 resolution;",
+        "uniform float value;",
+        "uniform float time;",
+        "layout(color) uniform float4 trackColor;",
+        "layout(color) uniform float4 fillColor;",
+        "layout(color) uniform float4 thumbColor;",
+        "float hash21(float2 p) { return fract(sin(dot(p, float2(91.7, 173.3))) * 47453.5453); }",
+        "float3 toLinear(float3 c) { return pow(clamp(c, float3(0.0,0.0,0.0), float3(1.0,1.0,1.0)), float3(2.2,2.2,2.2)); }",
+        "float3 toSrgb(float3 c) { return pow(max(c, float3(0.0,0.0,0.0)), float3(0.454545,0.454545,0.454545)); }",
+        "half4 main(float2 coord) {",
+        "  float2 uv = coord / resolution;",
+        "  float aa = max(1.25 / max(resolution.y, 1.0), 0.003);",
+        "  float capsule = 1.0 - smoothstep(0.23 - aa, 0.23 + aa, abs(uv.y - 0.5));",
+        "  float fill = step(uv.x, clamp(value, 0.0, 1.0)) * capsule;",
+        "  float thumb = 1.0 - smoothstep(0.055, 0.085, length(uv - float2(clamp(value, 0.0, 1.0), 0.5)));",
+        "  float highlight = pow(max(1.0 - abs(uv.y - 0.33) * 4.2, 0.0), mix(1.3, 3.2, " + gloss + "));",
+        "  float grain = (hash21(coord + float2(time * 5.0, 0.0)) - 0.5) * " + noise + ";",
+        "  float3 trackLin = toLinear(trackColor.rgb);",
+        "  float3 fillLin = toLinear(fillColor.rgb);",
+        "  float3 thumbLin = toLinear(thumbColor.rgb);",
+        "  float3 base = trackLin * (0.58 + " + depth + " * 0.22);",
+        "  base += highlight * mix(trackLin * 0.15, float3(0.22, 0.24, 0.28), " + gloss + ");",
+        "  base *= 1.0 + grain;",
+        "  float3 active = mix(fillLin * 0.75, fillLin * 1.08, highlight * 0.75);",
+        "  float3 thumbColorLin = mix(thumbLin * 0.82, float3(0.96, 0.97, 1.0), highlight * 0.45);",
+        "  float3 colorLin = base;",
+        "  colorLin = mix(colorLin, active, fill);",
+        "  colorLin = mix(colorLin, thumbColorLin, thumb);",
+        "  float alpha = max(capsule, thumb);",
+        "  return half4(half3(toSrgb(colorLin)) * half(alpha), half(alpha));",
+        "}"
+    ].join("\n");
+}
+
+function buildCapsuleToggleShader(params) {
+    var gloss = shaderFloat(numericParam(params, "gloss", 0.56, 0.0, 1.0));
+    var rim = shaderFloat(numericParam(params, "rim", 0.16, 0.0, 1.0));
+    var noise = shaderFloat(numericParam(params, "noise", 0.010, 0.0, 0.04));
+    return [
+        "uniform float2 resolution;",
+        "uniform float value;",
+        "uniform float time;",
+        "layout(color) uniform float4 accentColor;",
+        "layout(color) uniform float4 trackColor;",
+        "layout(color) uniform float4 thumbColor;",
+        "float hash21(float2 p) { return fract(sin(dot(p, float2(53.1, 127.9))) * 15153.5453); }",
+        "float3 toLinear(float3 c) { return pow(clamp(c, float3(0.0,0.0,0.0), float3(1.0,1.0,1.0)), float3(2.2,2.2,2.2)); }",
+        "float3 toSrgb(float3 c) { return pow(max(c, float3(0.0,0.0,0.0)), float3(0.454545,0.454545,0.454545)); }",
+        "half4 main(float2 coord) {",
+        "  float2 uv = coord / resolution;",
+        "  float2 p = uv - float2(0.5, 0.5);",
+        "  float2 q = abs(p) - float2(0.22, 0.18);",
+        "  float dist = length(max(q, float2(0.0, 0.0))) + min(max(q.x, q.y), 0.0);",
+        "  float aa = max(1.25 / max(min(resolution.x, resolution.y), 1.0), 0.003);",
+        "  float capsule = 1.0 - smoothstep(0.0, aa * 2.4, dist);",
+        "  float t = clamp(value, 0.0, 1.0);",
+        "  float thumbX = mix(0.28, 0.72, t);",
+        "  float thumb = 1.0 - smoothstep(0.10, 0.145, length(uv - float2(thumbX, 0.5)));",
+        "  float highlight = pow(max(1.0 - abs(uv.y - 0.34) * 4.4, 0.0), mix(1.2, 3.0, " + gloss + "));",
+        "  float edge = smoothstep(0.08, 0.24, abs(p.x)) * " + rim + ";",
+        "  float grain = (hash21(coord + float2(time * 3.0, time * 9.0)) - 0.5) * " + noise + ";",
+        "  float3 trackLin = toLinear(trackColor.rgb);",
+        "  float3 accentLin = toLinear(accentColor.rgb);",
+        "  float3 thumbLin = toLinear(thumbColor.rgb);",
+        "  float3 base = mix(trackLin * 0.72, accentLin * 0.92, t);",
+        "  base += highlight * mix(trackLin * 0.12, float3(0.14, 0.15, 0.18), " + gloss + ");",
+        "  base += edge * float3(0.10, 0.10, 0.12);",
+        "  base *= 1.0 + grain;",
+        "  float3 thumbColorLin = mix(thumbLin * 0.82, float3(0.96, 0.97, 0.99), highlight * 0.5);",
+        "  float alpha = max(capsule, thumb);",
+        "  float3 colorLin = mix(base, thumbColorLin, thumb);",
+        "  return half4(half3(toSrgb(colorLin)) * half(alpha), half(alpha));",
+        "}"
+    ].join("\n");
+}
+
+function buildBakeliteKnobShader(params) {
+    return buildMacos7KnobShader(mergeParams({
+        gloss: 0.28,
+        metalness: 0.10,
+        rim: 0.10,
+        noise: 0.035,
+        bevel: 0.62,
+        bodyRadius: 0.345,
+        trackWidth: 0.024
+    }, params || {}));
+}
+
+function buildLedRingKnobShader(params) {
+    return buildMacos7KnobShader(mergeParams({
+        gloss: 0.96,
+        metalness: 0.35,
+        rim: 0.42,
+        noise: 0.010,
+        bevel: 0.48,
+        bodyRadius: 0.325,
+        trackWidth: 0.040
+    }, params || {}));
+}
+
+function buildAnalogSliderShader(params) {
+    return buildGlassFaderShader(mergeParams({
+        gloss: 0.24,
+        noise: 0.024,
+        depth: 0.18
+    }, params || {}));
+}
+
+function buildIlluminatedToggleShader(params) {
+    return buildCapsuleToggleShader(mergeParams({
+        gloss: 0.82,
+        rim: 0.34,
+        noise: 0.008
+    }, params || {}));
+}
+
+function buildPrecisionKnobShader(params) {
+    return buildMacos7KnobShader(mergeParams({
+        gloss: 0.58,
+        metalness: 0.46,
+        rim: 0.07,
+        noise: 0.006,
+        bevel: 0.44,
+        bodyRadius: 0.332,
+        trackWidth: 0.022
+    }, params || {}));
+}
+
+function buildHeritageKnobShader(params) {
+    return buildMacos7KnobShader(mergeParams({
+        gloss: 0.78,
+        metalness: 0.68,
+        rim: 0.18,
+        noise: 0.020,
+        bevel: 1.02,
+        bodyRadius: 0.346,
+        trackWidth: 0.028
+    }, params || {}));
+}
+
+function buildRetroKnobShader(params) {
+    return buildBakeliteKnobShader(mergeParams({
+        gloss: 0.34,
+        metalness: 0.08,
+        rim: 0.08,
+        noise: 0.040,
+        bevel: 0.54,
+        bodyRadius: 0.350,
+        trackWidth: 0.022
+    }, params || {}));
+}
+
+function buildMasteringKnobShader(params) {
+    return buildMacos7KnobShader(mergeParams({
+        gloss: 0.46,
+        metalness: 0.30,
+        rim: 0.05,
+        noise: 0.004,
+        bevel: 0.30,
+        bodyRadius: 0.324,
+        trackWidth: 0.020
+    }, params || {}));
+}
+
+function buildPrecisionFaderShader(params) {
+    return buildGlassFaderShader(mergeParams({
+        gloss: 0.28,
+        noise: 0.004,
+        depth: 0.10
+    }, params || {}));
+}
+
+function buildModularFaderShader(params) {
+    return buildGlassFaderShader(mergeParams({
+        gloss: 0.88,
+        noise: 0.010,
+        depth: 0.40
+    }, params || {}));
+}
+
+function buildConsoleSliderShader(params) {
+    return buildAnalogSliderShader(mergeParams({
+        gloss: 0.30,
+        noise: 0.020,
+        depth: 0.24
+    }, params || {}));
+}
+
+function buildPrecisionToggleShader(params) {
+    return buildCapsuleToggleShader(mergeParams({
+        gloss: 0.30,
+        rim: 0.06,
+        noise: 0.004
+    }, params || {}));
+}
+
+function buildHeritageToggleShader(params) {
+    return buildCapsuleToggleShader(mergeParams({
+        gloss: 0.56,
+        rim: 0.14,
+        noise: 0.015
+    }, params || {}));
+}
+
+var shaderPresetLibrary = {
+    macos7_knob: function(widgetId, params) { return buildMacos7KnobShader(params || {}); },
+    bakelite_knob: function(widgetId, params) { return buildBakeliteKnobShader(params || {}); },
+    led_ring_knob: function(widgetId, params) { return buildLedRingKnobShader(params || {}); },
+    precision_knob: function(widgetId, params) { return buildPrecisionKnobShader(params || {}); },
+    heritage_knob: function(widgetId, params) { return buildHeritageKnobShader(params || {}); },
+    retro_knob: function(widgetId, params) { return buildRetroKnobShader(params || {}); },
+    mastering_knob: function(widgetId, params) { return buildMasteringKnobShader(params || {}); },
+    glass_fader: function(widgetId, params) { return buildGlassFaderShader(params || {}); },
+    analog_slider: function(widgetId, params) { return buildAnalogSliderShader(params || {}); },
+    precision_fader: function(widgetId, params) { return buildPrecisionFaderShader(params || {}); },
+    modular_fader: function(widgetId, params) { return buildModularFaderShader(params || {}); },
+    console_slider: function(widgetId, params) { return buildConsoleSliderShader(params || {}); },
+    capsule_toggle: function(widgetId, params) { return buildCapsuleToggleShader(params || {}); },
+    illuminated_toggle: function(widgetId, params) { return buildIlluminatedToggleShader(params || {}); },
+    precision_toggle: function(widgetId, params) { return buildPrecisionToggleShader(params || {}); },
+    heritage_toggle: function(widgetId, params) { return buildHeritageToggleShader(params || {}); }
+};
+
+var presetAliasMap = {
+    "mac_os_7": "macos7_knob",
+    "macos7": "macos7_knob",
+    "system7_knob": "macos7_knob",
+    "classic_mac_knob": "macos7_knob",
+    "vintage_bakelite_knob": "bakelite_knob",
+    "bakelite": "bakelite_knob",
+    "cyberpunk_knob": "led_ring_knob",
+    "neon_knob": "led_ring_knob",
+    "led_knob": "led_ring_knob",
+    "fabfilter_knob": "precision_knob",
+    "precision_eq_knob": "precision_knob",
+    "hardware_knob": "heritage_knob",
+    "mastering_knob": "mastering_knob",
+    "eventide_knob": "retro_knob",
+    "soundtoys_knob": "retro_knob",
+    "analog_fader": "analog_slider",
+    "vintage_slider": "analog_slider",
+    "precision_fader": "precision_fader",
+    "neon_fader": "modular_fader",
+    "console_fader": "console_slider",
+    "neon_toggle": "illuminated_toggle",
+    "led_toggle": "illuminated_toggle",
+    "glow_toggle": "illuminated_toggle",
+    "precision_toggle": "precision_toggle",
+    "hardware_toggle": "heritage_toggle"
+};
+
+var audioPluginStyleFamilies = {
+    precision_analyzer: {
+        description: "FabFilter-style precision, disciplined chrome, analyzer-centric clarity",
+        keywords: ["fabfilter", "pro-q", "precision", "analyzer", "surgical", "clean", "transparent", "metering"],
+        presets: { knob: "precision_knob", fader: "precision_fader", toggle: "precision_toggle" }
+    },
+    heritage_hardware: {
+        description: "UA / Softube / Brainworx / Moog hardware with metal, bakelite, and premium studio heft",
+        keywords: ["universal audio", "uad", "softube", "brainworx", "moog", "hardware", "studio hardware", "metal", "platinum"],
+        presets: { knob: "heritage_knob", fader: "analog_slider", toggle: "heritage_toggle" }
+    },
+    retro_character: {
+        description: "Soundtoys / Eventide character, chunky labels, playful retro personality",
+        keywords: ["soundtoys", "eventide", "retro", "character", "playful", "chunky", "vintage fx", "warm vintage"],
+        presets: { knob: "retro_knob", fader: "analog_slider", toggle: "capsule_toggle" }
+    },
+    modular_neon: {
+        description: "Arturia Pigments / Massive X neon modular with vivid accents and futuristic gloss",
+        keywords: ["arturia", "pigments", "massive x", "native instruments", "cyberpunk", "neon", "modular", "sci-fi", "glow", "led"],
+        presets: { knob: "led_ring_knob", fader: "modular_fader", toggle: "illuminated_toggle" }
+    },
+    mastering_lab: {
+        description: "Voxengo / mastering utility aesthetic with restrained surfaces and technical focus",
+        keywords: ["voxengo", "mastering", "lab", "utility", "technical", "dense", "analysis", "measurement"],
+        presets: { knob: "mastering_knob", fader: "precision_fader", toggle: "precision_toggle" }
+    },
+    console_strip: {
+        description: "Waves / Slate / console-strip workflow with vertical signal-flow pragmatism",
+        keywords: ["waves", "slate", "console", "channel strip", "strip", "mixer", "desk", "rack"],
+        presets: { knob: "heritage_knob", fader: "console_slider", toggle: "heritage_toggle" }
+    }
+};
+
+var styleFamilyAliasMap = {
+    "precision": "precision_analyzer",
+    "fabfilter": "precision_analyzer",
+    "clean_precision": "precision_analyzer",
+    "heritage": "heritage_hardware",
+    "hardware": "heritage_hardware",
+    "analog_hardware": "heritage_hardware",
+    "retro": "retro_character",
+    "character": "retro_character",
+    "modular": "modular_neon",
+    "cyberpunk": "modular_neon",
+    "neon": "modular_neon",
+    "mastering": "mastering_lab",
+    "lab": "mastering_lab",
+    "console": "console_strip",
+    "channel_strip": "console_strip"
+};
+
+function normalizeStyleFamily(familyId) {
+    var raw = String(familyId || "").trim();
+    if (!raw) return "";
+    if (audioPluginStyleFamilies[raw]) return raw;
+    var normalized = raw.toLowerCase().replace(/[\s\-]+/g, "_");
+    return styleFamilyAliasMap[normalized] || normalized;
+}
+
+function scoreStyleFamily(text, family) {
+    var score = 0;
+    var keywords = family.keywords || [];
+    for (var i = 0; i < keywords.length; i++) {
+        if (text.indexOf(keywords[i]) >= 0) score += keywords[i].length > 8 ? 2 : 1;
+    }
+    return score;
+}
+
+function detectStyleFamily(requestText) {
+    var text = String(requestText || "").toLowerCase();
+    var bestFamily = "";
+    var bestScore = 0;
+    for (var familyId in audioPluginStyleFamilies) {
+        var score = scoreStyleFamily(text, audioPluginStyleFamilies[familyId]);
+        if (score > bestScore) {
+            bestScore = score;
+            bestFamily = familyId;
+        }
+    }
+    return bestFamily;
+}
+
+function presetForFamily(familyId, widgetId) {
+    var normalizedFamily = normalizeStyleFamily(familyId);
+    if (!normalizedFamily || !audioPluginStyleFamilies[normalizedFamily]) return "";
+    var kind = widgetKindForId(widgetId);
+    var presets = audioPluginStyleFamilies[normalizedFamily].presets || {};
+    return presets[kind] || "";
+}
+
+function normalizePresetId(presetId) {
+    var raw = String(presetId || "").trim();
+    if (!raw) return "";
+    if (shaderPresetLibrary[raw]) return raw;
+    var normalized = raw.toLowerCase().replace(/[\s\-]+/g, "_");
+    return presetAliasMap[normalized] || normalized;
+}
+
+function buildShaderPreset(presetId, widgetId, params) {
+    var normalizedPresetId = normalizePresetId(presetId);
+    var preset = shaderPresetLibrary[normalizedPresetId];
+    if (!preset) return "";
+    if (typeof preset === "function") return preset(widgetId, params || {});
+    return preset;
+}
+var schemaPresetLibrary = {
+    notched_knob: JSON.stringify({
+        type: "knob",
+        elements: [
+            { type: "arc", radius: "42%", width: 4, startAngle: -135, sweepAngle: 270, color: "control.track" },
+            { type: "arc", radius: "42%", width: 4, startAngle: -135, sweepAngle: { bind: "value", range: [0, 270] }, color: "accent.primary" },
+            { type: "circle", radius: "30%", color: "bg.surface" },
+            { type: "line", innerRadius: "14%", outerRadius: "34%", width: 3, angle: { bind: "value", range: [-135, 135] }, color: "control.thumb" }
+        ]
+    }),
+    minimal_toggle: JSON.stringify({
+        type: "toggle",
+        elements: [
+            { type: "rect", cornerRadius: "18", color: "control.track" },
+            { type: "circle", radius: "18%", color: "control.thumb" }
+        ]
+    })
+};
+
+function widgetKindForId(widgetId) {
+    return widgetKindById[widgetId] || "generic";
+}
+
+function compactShaderError(error) {
+    if (!error) return "Unknown shader error";
+    var singleLine = String(error).replace(/\s+/g, " ").trim();
+    if (singleLine.length > 220) singleLine = singleLine.substring(0, 217) + "...";
+    return singleLine;
+}
+
+function inferFallbackPreset(widgetId, requestText) {
+    var kind = widgetKindForId(widgetId);
+    var text = (requestText || "").toLowerCase();
+    var familyPreset = presetForFamily(detectStyleFamily(text), widgetId);
+    if (familyPreset) return familyPreset;
+
+    if (kind === "knob") {
+        if (text.indexOf("mac") >= 0 || text.indexOf("os 7") >= 0 || text.indexOf("classic") >= 0) return "macos7_knob";
+        if (text.indexOf("bakelite") >= 0 || text.indexOf("analog") >= 0 || text.indexOf("warm") >= 0) return "bakelite_knob";
+        if (text.indexOf("vintage") >= 0) return "retro_knob";
+        if (text.indexOf("gloss") >= 0 || text.indexOf("glass") >= 0) return "heritage_knob";
+        return "macos7_knob";
+    }
+    if (kind === "fader") {
+        if (text.indexOf("glass") >= 0 || text.indexOf("modern") >= 0) return "glass_fader";
+        if (text.indexOf("analog") >= 0 || text.indexOf("vintage") >= 0 || text.indexOf("warm") >= 0) return "analog_slider";
+        return "precision_fader";
+    }
+    if (kind === "toggle") {
+        if (text.indexOf("illuminated") >= 0 || text.indexOf("glow") >= 0 || text.indexOf("led") >= 0) return "illuminated_toggle";
+        if (text.indexOf("hardware") >= 0 || text.indexOf("console") >= 0) return "heritage_toggle";
+        return "capsule_toggle";
+    }
+    return familyPreset;
+}
+
+function buildWidgetShaderFromBody(widgetId, shaderBody) {
+    var body = String(shaderBody || "").trim();
+    if (!body) return "";
+    var kind = widgetKindForId(widgetId);
+    if (kind === "knob") {
+        return [
+            "uniform float2 resolution;",
+            "uniform float value;",
+            "uniform float time;",
+            "layout(color) uniform float4 accentColor;",
+            "layout(color) uniform float4 bgColor;",
+            "layout(color) uniform float4 trackColor;",
+            "layout(color) uniform float4 fillColor;",
+            "layout(color) uniform float4 thumbColor;",
+            "float ringMask(float2 p, float r0, float r1) {",
+            "  float d = length(p);",
+            "  float outer = 1.0 - smoothstep(r1 - 0.012, r1 + 0.012, d);",
+            "  float inner = 1.0 - smoothstep(r0 - 0.012, r0 + 0.012, d);",
+            "  return clamp(outer - inner, 0.0, 1.0);",
+            "}",
+            "float sdDiamond(float2 p, float s) {",
+            "  float2 q = abs(p);",
+            "  return (q.x + q.y - s) * 0.7071;",
+            "}",
+            "half4 main(float2 coord) {",
+            "  float2 uv = coord / resolution;",
+            "  float2 p = uv - float2(0.5);",
+            "  p.y *= resolution.y / max(resolution.x, 1.0);",
+            "  float r = length(p);",
+            body,
+            "}"
+        ].join("\n");
+    }
+    if (kind === "fader") {
+        return [
+            "uniform float2 resolution;",
+            "uniform float value;",
+            "uniform float time;",
+            "layout(color) uniform float4 accentColor;",
+            "layout(color) uniform float4 bgColor;",
+            "layout(color) uniform float4 trackColor;",
+            "layout(color) uniform float4 fillColor;",
+            "layout(color) uniform float4 thumbColor;",
+            "half4 main(float2 coord) {",
+            "  float2 uv = coord / resolution;",
+            "  float2 p = uv - float2(0.5);",
+            body,
+            "}"
+        ].join("\n");
+    }
+    if (kind === "toggle") {
+        return [
+            "uniform float2 resolution;",
+            "uniform float value;",
+            "uniform float time;",
+            "layout(color) uniform float4 accentColor;",
+            "layout(color) uniform float4 bgColor;",
+            "layout(color) uniform float4 trackColor;",
+            "layout(color) uniform float4 fillColor;",
+            "layout(color) uniform float4 thumbColor;",
+            "float sdDiamond(float2 p, float s) {",
+            "  float2 q = abs(p);",
+            "  return (q.x + q.y - s) * 0.7071;",
+            "}",
+            "half4 main(float2 coord) {",
+            "  float2 uv = coord / resolution;",
+            "  float2 p = uv - float2(0.5);",
+            body,
+            "}"
+        ].join("\n");
+    }
+    return [
+        "uniform float2 resolution;",
+        "uniform float value;",
+        "uniform float time;",
+        "layout(color) uniform float4 accentColor;",
+        "layout(color) uniform float4 bgColor;",
+        "layout(color) uniform float4 trackColor;",
+        "layout(color) uniform float4 fillColor;",
+        "layout(color) uniform float4 thumbColor;",
+        "half4 main(float2 coord) {",
+        "  float2 uv = coord / resolution;",
+        body,
+        "}"
+    ].join("\n");
+}
+
+function extractShaderBody(shaderText) {
+    var shader = String(shaderText || "");
+    var match = shader.match(/main\s*\(\s*float2\s+\w+\s*\)\s*\{([\s\S]*)\}\s*$/);
+    return match ? match[1].trim() : "";
+}
+
+function tryApplyCompiledShader(widgetId, shaderSource, statePreset) {
+    if (!shaderSource || shaderSource.length === 0) return false;
+    var compiled = compileShader(shaderSource);
+    if (compiled && compiled.success) {
+        clearWidgetSchema(widgetId);
+        setWidgetShader(widgetId, shaderSource);
+        widgetLookState[widgetId] = { kind: "shader", preset: statePreset || "custom" };
+        return true;
+    }
+    return compiled || { success: false, error: "Shader compilation failed" };
+}
+
+function applyPresetFallback(widgetId, fallbackPreset, compileError) {
+    var normalizedFallback = normalizePresetId(fallbackPreset);
+    if (!normalizedFallback || !shaderPresetLibrary[normalizedFallback]) return false;
+    var presetShader = buildShaderPreset(normalizedFallback, widgetId, {});
+    var compiled = compileShader(presetShader);
+    if (!compiled || !compiled.success) return false;
+    clearWidgetSchema(widgetId);
+    setWidgetShader(widgetId, presetShader);
+    widgetLookState[widgetId] = { kind: "shader", preset: normalizedFallback };
+    var note = "Custom shader failed for " + widgetId + "; applied " + normalizedFallback + " fallback.";
+    if (compileError) note += " " + compactShaderError(compileError);
+    addChatMessage("assistant", note);
+    return true;
+}
+
+function clearWidgetLook(widgetId) {
+    clearWidgetShader(widgetId);
+    clearWidgetSchema(widgetId);
+    delete widgetLookState[widgetId];
+}
+
+function applyWidgetLook(widgetId, spec) {
+    if (!widgetId || !spec) return false;
+    if (spec === "default") {
+        clearWidgetLook(widgetId);
+        return true;
+    }
+
+    if (typeof spec === "string") {
+        spec = { preset: spec };
+    }
+
+    spec = mergeWidgetMaterialSpec(spec);
+    var normalizedPreset = normalizePresetId(spec.preset);
+    var normalizedFamily = normalizeStyleFamily(spec.family || spec.styleFamily);
+    var familyPreset = presetForFamily(normalizedFamily, widgetId);
+
+    if (spec.reset) {
+        clearWidgetLook(widgetId);
+        return true;
+    }
+
+    if (spec.schemaPreset && schemaPresetLibrary[spec.schemaPreset]) {
+        clearWidgetShader(widgetId);
+        setWidgetSchema(widgetId, schemaPresetLibrary[spec.schemaPreset]);
+        widgetLookState[widgetId] = { kind: "schema", preset: spec.schemaPreset };
+        return true;
+    }
+
+    var fallbackPreset = spec.fallbackPreset || inferFallbackPreset(widgetId, lastChatRequestText);
+    if (!normalizedPreset && familyPreset) normalizedPreset = familyPreset;
+
+    if (normalizedPreset && shaderPresetLibrary[normalizedPreset]) {
+        var presetShader = buildShaderPreset(normalizedPreset, widgetId, spec.params || {});
+        var compiledPreset = compileShader(presetShader);
+        if (compiledPreset && compiledPreset.success) {
+            clearWidgetSchema(widgetId);
+            setWidgetShader(widgetId, presetShader);
+            widgetLookState[widgetId] = {
+                kind: "shader",
+                preset: normalizedPreset,
+                family: normalizedFamily,
+                params: spec.params || {}
+            };
+            return true;
+        }
+        return false;
+    }
+
+    if (spec.shaderBody && spec.shaderBody.length > 0) {
+        var wrappedShader = buildWidgetShaderFromBody(widgetId, spec.shaderBody);
+        var wrappedResult = tryApplyCompiledShader(widgetId, wrappedShader, "custom-body");
+        if (wrappedResult === true) return true;
+        if (applyPresetFallback(widgetId, fallbackPreset, wrappedResult.error)) return true;
+        addChatMessage("assistant", "Shader compile failed for " + widgetId + ": " + compactShaderError(wrappedResult.error));
+        return false;
+    }
+
+    if (spec.shader && spec.shader.length > 0) {
+        var compiled = tryApplyCompiledShader(widgetId, spec.shader, "custom");
+        if (compiled === true) return true;
+
+        var extractedBody = extractShaderBody(spec.shader);
+        if (extractedBody && extractedBody.length > 0) {
+            var recoveredShader = buildWidgetShaderFromBody(widgetId, extractedBody);
+            var recoveredResult = tryApplyCompiledShader(widgetId, recoveredShader, "custom-body");
+            if (recoveredResult === true) return true;
+            compiled = recoveredResult;
+        }
+
+        if (applyPresetFallback(widgetId, fallbackPreset, compiled.error)) return true;
+        if (compiled && compiled.error) addChatMessage("assistant", "Shader compile failed for " + widgetId + ": " + compactShaderError(compiled.error));
+        return false;
+    }
+
+    if (spec.schema) {
+        clearWidgetShader(widgetId);
+        setWidgetSchema(widgetId, JSON.stringify(spec.schema));
+        widgetLookState[widgetId] = { kind: "schema", preset: "custom" };
+        return true;
+    }
+
+    return false;
+}
+
+function applyDesignChatResponse(response) {
+    chatRequestPending = false;
 
     if (!response || response.length === 0) {
         addChatMessage("assistant", "No response from Claude");
@@ -2683,21 +3853,21 @@ on("chat-input", "return", function(text) {
     var diffObj = {};
     try { diffObj = JSON.parse(jsonDiff); } catch(e) {}
 
-    // Apply color changes via theme diff
     if (diffObj.colors) {
         applyTokenDiff(JSON.stringify({ colors: diffObj.colors }));
     }
     pushThemeSnapshot();
 
-    // #59: Apply dimension/style changes directly to preview widgets
     var dimChanges = diffObj.dimensions || {};
     var dimCount = 0;
     for (var dk in dimChanges) {
         dimCount++;
         var dv = dimChanges[dk];
         if (dk === "cornerRadius") {
-            setBorderRadius("btn-normal", dv); setBorderRadius("btn-hover", dv);
-            setBorderRadius("btn-action", dv); setBorderRadius("btn-disabled", dv);
+            setBorder("btn-normal", APP_BORDER, 1, dv);
+            setBorder("btn-hover", APP_BORDER, 1, dv);
+            setBorder("btn-action", APP_ACCENT, 0, dv);
+            setBorder("btn-disabled", APP_BORDER, 1, dv);
         } else if (dk === "headingSize") {
             setFontSize("heading-text", dv);
         } else if (dk === "bodySize") {
@@ -2705,33 +3875,158 @@ on("chat-input", "return", function(text) {
         } else if (dk === "labelSize") {
             setFontSize("caption-text", dv);
         }
-        // Store dimension in status for user visibility
     }
 
-    // Change summary
+    var widgetLookCount = 0;
+    if (diffObj.widgetLooks) {
+        for (var widgetId in diffObj.widgetLooks) {
+            if (applyWidgetLook(widgetId, diffObj.widgetLooks[widgetId])) widgetLookCount++;
+        }
+    }
+
+    if (diffObj.widgetShader && inspectedComponent) {
+        if (applyWidgetLook(inspectedComponent, { shader: diffObj.widgetShader })) widgetLookCount++;
+    }
+
+    if (diffObj.widgetSchema && inspectedComponent) {
+        if (applyWidgetLook(inspectedComponent, { schema: diffObj.widgetSchema })) widgetLookCount++;
+    }
+
     var diffColors = diffObj.colors || {};
     var changedNames = [];
     for (var ck in diffColors) changedNames.push(ck);
     var summary = "Applied " + changedNames.length + " colors";
     if (dimCount > 0) summary += " + " + dimCount + " styles";
+    if (widgetLookCount > 0) summary += " + " + widgetLookCount + " widget looks";
     if (changedNames.length > 0 && changedNames.length <= 6) {
         summary += ": " + changedNames.join(", ");
     }
     addChatMessage("assistant", summary);
     updateTokenSwatches();
     updateModifiedCount();
-    setText("status-text", (changedNames.length + dimCount) + " changes by AI");
+    setText("status-text", (changedNames.length + dimCount + widgetLookCount) + " changes by AI");
     layout();
+}
+
+on("__design-chat__", "result", function(response) {
+    try {
+        applyDesignChatResponse(response);
+    } catch (e) {
+        chatRequestPending = false;
+        addChatMessage("assistant", "Chat apply failed: " + String(e));
+        setText("status-text", "Chat error");
+        layout();
+    }
+});
+
+function submitChat(text) {
+    if (chatRequestPending) return;
+    if (!text || text.length === 0) {
+        if (uploadedImagePath && uploadedImagePath.length > 0) {
+            showToast("Add a message before sending the image");
+        }
+        return;
+    }
+
+    var userText = uploadedImageName ? (text + " [image attached: " + uploadedImageName + "]") : text;
+    lastChatRequestText = text;
+    addChatMessage("user", userText);
+    setText("chat-input", "");
+    setText("status-text", "Generating...");
+    chatRequestPending = true;
+    // #58: Show typing indicator
+    addChatMessage("assistant", "...");
+    layout();
+
+    var themeJson = getThemeJson();
+    // D6: Use model selector value
+    var modelIdx = 0;
+    try { modelIdx = getValue("model-selector"); } catch(e) {}
+    var model = modelIdx > 0.5 ? "claude-opus-4-6" : "claude-sonnet-4-6";
+    // #59: Prompt supports BOTH colors AND styles
+    var scope = inspectedComponent ? "\nScope: ONLY modify tokens related to '" + inspectedComponent + "'" : "";
+    var prompt = "You are a design system expert for audio plugin UIs.\n";
+    prompt += "Modify the theme to achieve the requested look. Be creative and bold.\n";
+    prompt += "You can change colors, style properties, and widget looks using built-in rendering presets plus material parameters.\n\n";
+    prompt += "## Current Theme\n" + themeJson + "\n\n";
+    prompt += "## Available Color Tokens (hex values)\n";
+    for (var gi = 0; gi < tokenGroups.length; gi++) {
+        prompt += tokenGroups[gi].name + ": " + tokenGroups[gi].tokens.join(", ") + "\n";
+    }
+    prompt += "\n## Available Style Properties (numeric values)\n";
+    prompt += "dimensions.cornerRadius (0-24): border radius for panels/buttons\n";
+    prompt += "dimensions.borderWidth (0-4): border thickness\n";
+    prompt += "dimensions.shadowBlur (0-20): shadow blur radius\n";
+    prompt += "dimensions.shadowAlpha (0-1): shadow opacity\n";
+    prompt += "dimensions.knobArcWidth (2-8): knob arc stroke width\n";
+    prompt += "dimensions.knobSize (32-80): knob diameter\n";
+    prompt += "dimensions.headingSize (12-36): heading font size\n";
+    prompt += "dimensions.bodySize (10-16): body font size\n";
+    prompt += "dimensions.labelSize (8-12): label font size\n";
+    prompt += "\n## Widget Targets For Material Restyling\n";
+    prompt += "k1, k2, k3, k4 = knobs\n";
+    prompt += "slider1 = fader\n";
+    prompt += "t1, t2 = toggles\n";
+    if (inspectedComponent) {
+        prompt += "Current target = " + inspectedComponent + "\n";
+    }
+    prompt += "\n## Audio Plugin Style Families\n";
+    prompt += "precision_analyzer = FabFilter-style precision, restrained chrome, analyzer-forward clarity\n";
+    prompt += "heritage_hardware = UA / Softube / Brainworx / Moog metal-and-bakelite studio hardware\n";
+    prompt += "retro_character = Soundtoys / Eventide chunky retro character and playful personality\n";
+    prompt += "modular_neon = Arturia Pigments / Massive X vivid modular neon and futuristic gloss\n";
+    prompt += "mastering_lab = Voxengo-style technical mastering utility with restrained surfaces\n";
+    prompt += "console_strip = Waves / Slate console-strip pragmatism and channel-strip grouping\n";
+    prompt += "\n## Built-in Material Look Presets\n";
+    prompt += "precision_knob, heritage_knob, retro_knob, mastering_knob, macos7_knob, bakelite_knob, led_ring_knob\n";
+    prompt += "precision_fader, glass_fader, analog_slider, modular_fader, console_slider\n";
+    prompt += "precision_toggle, heritage_toggle, capsule_toggle, illuminated_toggle\n";
+    prompt += "notched_knob = declarative schema knob with bolder indicator\n";
+    prompt += "minimal_toggle = declarative schema toggle simplification\n";
+    prompt += "default = clear any custom shader/schema for a widget\n";
+    prompt += "Prefer family + preset for brand/style requests: FabFilter -> precision_analyzer, Arturia/NI cyberpunk -> modular_neon, Soundtoys/Eventide -> retro_character, UA/Softube/Moog/Brainworx -> heritage_hardware, Waves/Slate -> console_strip, Voxengo/mastering -> mastering_lab.\n";
+    prompt += "\n## Widget Look Contract\n";
+    prompt += "Use widgetLooks when the request asks for a material or physical look change, not just color token changes.\n";
+    prompt += "Prefer preset + params. The renderer is deterministic and higher quality than free-form shader code.\n";
+    prompt += "You may use family to express the high-level audio-plugin aesthetic, and the runtime will map that deterministically per widget kind.\n";
+    prompt += "Available params for preset/material overrides: gloss (0-1), metalness (0-1), rim (0-1), noise (0-0.08), bevel (0-1.5), trackWidth (0.012-0.06), bodyRadius (0.28-0.40), depth (0-1).\n";
+    prompt += "Use schemaPreset only when a simple declarative look is enough.\n";
+    prompt += "Make the change materially different: body treatment, gloss, bevel, depth, rim, notch, track, or thumb treatment.\n";
+    prompt += "Do NOT output raw SkSL shader code unless the user explicitly asks for shader source.\n";
+    prompt += "\nUse widgetLooks ONLY when the request asks for a material change in shape, gloss, body treatment, track treatment, or other non-color styling.\n";
+    prompt += "\n## RULES\n";
+    prompt += "1. Output ONLY valid JSON. No markdown, no explanation.\n";
+    prompt += '2. Format: {"colors": {"token.name": "#hex", ...}, "dimensions": {"prop": number, ...}, "widgetLooks": {"widgetId": {"family": "precision_analyzer"|"heritage_hardware"|"retro_character"|"modular_neon"|"mastering_lab"|"console_strip", "preset": "precision_knob"|"heritage_knob"|"retro_knob"|"mastering_knob"|"macos7_knob"|"bakelite_knob"|"led_ring_knob"|"precision_fader"|"glass_fader"|"analog_slider"|"modular_fader"|"console_slider"|"precision_toggle"|"heritage_toggle"|"capsule_toggle"|"illuminated_toggle"|"default", "params": {"gloss": 0.8, "metalness": 0.7, "rim": 0.2, "noise": 0.02, "bevel": 0.9}, "material": {"family": "heritage_hardware", "preset": "heritage_knob", "params": {...}}, "schemaPreset": "notched_knob"|"minimal_toggle"}}}\n';
+    prompt += "3. Change 5-30 tokens. Include BOTH colors and dimensions for dramatic effect.\n";
+    prompt += "4. Use the exact token/property names listed above.\n";
+    prompt += "5. Be bold — if asked for 'cyberpunk', make it look like cyberpunk. If 'warm analog', make it warm.\n";
+    prompt += "6. When a specific control is targeted and the request is about its physical look, include widgetLooks for that control.\n";
+    prompt += "7. Prefer family + preset first, then material params, then schemaPreset.\n";
+    prompt += "8. Never return empty widgetLooks for a targeted control restyle request.\n";
+    prompt += "9. Never emit shaderBody or shader unless explicitly asked for shader source by the user.\n";
+    prompt += scope + "\n\n";
+    if (uploadedImagePath && uploadedImagePath.length > 0) {
+        prompt += "## Reference Image\nThe user uploaded a reference image at: " + uploadedImagePath + "\n";
+        prompt += "Extract the visual mood, colors, and style from this image and apply them.\n\n";
+    }
+    prompt += '## Request\n"' + text + '"\n\n## JSON Output\n';
+
+    var tmpFile = "/tmp/pulp-design-prompt-" + (chatRequestCounter++) + ".txt";
+    exec("cat > " + tmpFile + " << 'PULPEOF'\n" + prompt + "\nPULPEOF");
+    execAsync(buildAiCliCommand(tmpFile, model), "__design-chat__");
+    clearUploadedImage();
+    updateChatInputSizing("");
+}
+
+on("chat-input", "return", function(text) {
+    submitChat(text);
 });
 
 // Send button triggers same as return key
 registerClick("send-btn");
 on("send-btn", "click", function() {
     var text = getText("chat-input");
-    if (text && text.length > 0) {
-        // Trigger the return handler by dispatching manually
-        __dispatch__("chat-input", "return", text);
-    }
+    submitChat(text);
 });
 
 // Preset handler
@@ -2762,8 +4057,9 @@ on("preset-selector", "select", function(idx) {
         setBackground("ramp-" + pp + "-dot", ramp[500].hex);
     }
     if (expandedPalette >= 0) {
-        setVisible("ramp-" + expandedPalette + "-editor", false);
+        applyPaletteExpandedLayout(expandedPalette, false);
         expandedPalette = -1;
+        updateLeftPanelScrollMetrics();
     }
     pushThemeSnapshot();
     layout();

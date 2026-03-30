@@ -130,6 +130,7 @@ public:
     void clear_custom_shader() { custom_sksl_.clear(); }
     bool has_custom_shader() const { return !custom_sksl_.empty(); }
     const std::string& custom_shader() const { return custom_sksl_; }
+    bool shader_uses_time() const { return custom_sksl_.find("time") != std::string::npos; }
 
     // Declarative widget schema: JSON defining appearance as data (Rive-inspired)
     void set_widget_schema(std::string json) { widget_schema_ = std::move(json); }
@@ -194,6 +195,7 @@ public:
     void clear_custom_shader() { custom_sksl_.clear(); }
     bool has_custom_shader() const { return !custom_sksl_.empty(); }
     const std::string& custom_shader() const { return custom_sksl_; }
+    bool shader_uses_time() const { return custom_sksl_.find("time") != std::string::npos; }
     void set_widget_schema(std::string json) { widget_schema_ = std::move(json); }
     const std::string& widget_schema() const { return widget_schema_; }
     void set_lottie_json(std::string json) { lottie_json_ = std::move(json); }
@@ -246,6 +248,7 @@ public:
     void clear_custom_shader() { custom_sksl_.clear(); }
     bool has_custom_shader() const { return !custom_sksl_.empty(); }
     const std::string& custom_shader() const { return custom_sksl_; }
+    bool shader_uses_time() const { return custom_sksl_.find("time") != std::string::npos; }
     void set_widget_schema(std::string json) { widget_schema_ = std::move(json); }
     const std::string& widget_schema() const { return widget_schema_; }
     void set_lottie_json(std::string json) { lottie_json_ = std::move(json); }
