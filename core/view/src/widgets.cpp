@@ -348,14 +348,16 @@ void Knob::paint(canvas::Canvas& canvas) {
         // Fall through to draw labels and value text on top of the shader
     } else if (render_style_ == WidgetRenderStyle::minimal) {
         // ── Minimal/design-preview: simple circle outline (matches design tools) ──
+        // Use full available radius (not 0.8) to match Pencil/Figma ellipse sizes
+        float full_r = std::min(cx, cy) - 2.0f;
         auto fill_bg = resolve_color("bg.surface", canvas::Color::rgba(49, 50, 68));
         canvas.set_fill_color(fill_bg);
-        canvas.fill_circle(cx, cy, radius);
+        canvas.fill_circle(cx, cy, full_r);
 
         auto stroke_color = resolve_color("control.fill", canvas::Color::rgba(100, 150, 255));
         canvas.set_stroke_color(stroke_color);
         canvas.set_line_width(2.5f);
-        canvas.stroke_circle(cx, cy, radius);
+        canvas.stroke_circle(cx, cy, full_r);
     } else {
         // ── Default C++ paint path ──────────────────────────────────────
 
@@ -660,19 +662,27 @@ void Icon::paint(canvas::Canvas& canvas) {
             break;
         }
         case Type::send: {
-            // Paper plane icon pointing upper-right (matching original HTML)
-            float ps = s * 1.0f;
+            // Paper plane icon matching the HTML reference more closely.
+            float ps = std::min(b.width, b.height) * 0.62f;
             canvas.set_stroke_color(canvas::Color::rgba(255, 255, 255));
-            canvas.set_line_width(1.5f);
-            // Triangle body pointing upper-right
-            float tx = cx + ps * 0.6f, ty = cy - ps * 0.6f;  // tip (upper right)
-            float bl = cx - ps * 0.6f, bt = cy + ps * 0.1f;   // bottom left
-            float br = cx - ps * 0.1f, bb = cy + ps * 0.6f;   // bottom right
-            canvas.stroke_line(tx, ty, bl, bt);     // tip to bottom-left
-            canvas.stroke_line(bl, bt, br, bb);     // bottom-left to bottom-right
-            canvas.stroke_line(br, bb, tx, ty);     // bottom-right to tip
-            // Inner fold
-            canvas.stroke_line(bl, bt, cx + ps * 0.1f, cy + ps * 0.1f);
+            canvas.set_line_width(1.8f);
+            auto map = [&](float x, float y) {
+                return std::pair<float, float>{
+                    cx + ((x - 12.0f) / 12.0f) * (ps * 0.5f),
+                    cy + ((y - 12.0f) / 12.0f) * (ps * 0.5f)
+                };
+            };
+
+            auto [x1, y1] = map(22, 2);
+            auto [x2, y2] = map(11, 13);
+            auto [x3, y3] = map(15, 22);
+            auto [x4, y4] = map(2, 9);
+
+            canvas.stroke_line(x1, y1, x2, y2);
+            canvas.stroke_line(x1, y1, x3, y3);
+            canvas.stroke_line(x3, y3, x2, y2);
+            canvas.stroke_line(x2, y2, x4, y4);
+            canvas.stroke_line(x4, y4, x1, y1);
             break;
         }
         case Type::search: {

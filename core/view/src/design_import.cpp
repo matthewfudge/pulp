@@ -847,10 +847,18 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "createKnob('" << id << "', '" << col_id << "');\n";
             ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
             ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
-            if (!label_text.empty())
-                ss << ind << "setLabel('" << id << "', '" << label_text << "');\n";
+            // Clear built-in label — use separate Yoga-positioned labels for exact placement
+            ss << ind << "setLabel('" << id << "', ' ');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
             emit_style(id);
+            // Label below knob (Yoga-positioned, matches Pencil text placement)
+            if (!label_text.empty()) {
+                std::string lbl_id = id + "_lbl";
+                ss << ind << "createLabel('" << lbl_id << "', '" << label_text << "', '" << col_id << "');\n";
+                ss << ind << "setFlex('" << lbl_id << "', 'height', " << kMinLabelHeight << ");\n";
+                ss << ind << "setFontSize('" << lbl_id << "', 11);\n";
+                ss << ind << "setTextColor('" << lbl_id << "', '#a6adc8');\n";
+            }
             if (!value_text.empty()) {
                 std::string val_id = id + "_val";
                 ss << ind << "createLabel('" << val_id << "', '" << value_text << "', '" << col_id << "');\n";
@@ -974,6 +982,8 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
            << "('" << id << "', " << pid << ");\n";
 
         // Yoga: every container MUST have explicit height
+        // fill_container on height → flex_grow (main axis of column parent)
+        // fill_container on width in a column → default stretch (cross axis, automatic)
         if (node.style.height) {
             ss << ind << "setFlex('" << id << "', 'height', " << *node.style.height << ");\n";
         } else if (node.layout.height_mode == SizingMode::fill) {
@@ -986,8 +996,8 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
 
         if (node.style.width)
             ss << ind << "setFlex('" << id << "', 'width', " << *node.style.width << ");\n";
-        else if (node.layout.width_mode == SizingMode::fill)
-            ss << ind << "setFlex('" << id << "', 'flex_grow', 1);\n";
+        // fill_container width: DON'T use flex_grow (that affects main axis = height
+        // in a column parent). Yoga's default stretch handles cross-axis fill.
 
         if (node.layout.gap > 0)
             ss << ind << "setFlex('" << id << "', 'gap', " << node.layout.gap << ");\n";
