@@ -278,11 +278,13 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
         auto j = get_string(obj, "justifyContent", "");
         if (j == "center") node.layout.justify = LayoutAlign::center;
         else if (j == "space_between" || j == "space-between") node.layout.justify = LayoutAlign::space_between;
+        else if (j == "space_around" || j == "space-around") node.layout.justify = LayoutAlign::space_around;
+        else if (j == "end" || j == "flex-end") node.layout.justify = LayoutAlign::flex_end;
     }
     if (obj.hasObjectMember("alignItems")) {
         auto a = get_string(obj, "alignItems", "");
         if (a == "center") node.layout.align = LayoutAlign::center;
-        else if (a == "end") node.layout.align = LayoutAlign::flex_end;
+        else if (a == "end" || a == "flex-end") node.layout.align = LayoutAlign::flex_end;
     }
     // Top-level padding (Pencil uses array: [top, right] or [top, right, bottom, left])
     if (obj.hasObjectMember("padding")) {
@@ -813,14 +815,25 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             }
         }
         else if (wtype == AudioWidgetType::fader) {
-            float w = std::max(node.style.width.value_or(kMinFaderWidth), kMinFaderWidth);
-            float h = std::max(node.style.height.value_or(kMinFaderHeight), kMinFaderHeight);
-            float col_h = h + 20;
+            // Frame width = column width, shape dimensions = widget size
+            float frame_w = node.style.width.value_or(kMinFaderWidth);
+            float shape_w = frame_w;  // default to frame width
+            float shape_h = kMinFaderHeight;
+            for (auto& c : node.children) {
+                if (c.type == "rectangle") {
+                    if (c.style.width) shape_w = *c.style.width;
+                    if (c.style.height) shape_h = *c.style.height;
+                    break;
+                }
+            }
+            // Use frame width for column, but ensure widget is at least usable
+            float widget_w = std::max(shape_w, 6.0f);
+            float col_h = shape_h + 20;
             ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
-            ss << ind << "setFlex('" << col_id << "', 'min_width', " << w << ");\n";
+            ss << ind << "setFlex('" << col_id << "', 'min_width', " << frame_w << ");\n";
             ss << ind << "createFader('" << id << "', 'vertical', '" << col_id << "');\n";
-            ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
-            ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
+            ss << ind << "setFlex('" << id << "', 'width', " << widget_w << ");\n";
+            ss << ind << "setFlex('" << id << "', 'height', " << shape_h << ");\n";
             // Fader label overlaps track when rendered inside bounds — use separate label
             ss << ind << "setLabel('" << id << "', ' ');\n";  // Clear built-in label
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
@@ -833,14 +846,23 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             }
         }
         else if (wtype == AudioWidgetType::meter) {
-            float w = std::max(node.style.width.value_or(kMinMeterWidth), kMinMeterWidth);
-            float h = std::max(node.style.height.value_or(kMinMeterHeight), kMinMeterHeight);
-            float col_h = h + 20;
+            float frame_w = node.style.width.value_or(kMinMeterWidth);
+            float shape_w = frame_w;
+            float shape_h = kMinMeterHeight;
+            for (auto& c : node.children) {
+                if (c.type == "rectangle") {
+                    if (c.style.width) shape_w = *c.style.width;
+                    if (c.style.height) shape_h = *c.style.height;
+                    break;
+                }
+            }
+            float widget_w = std::max(shape_w, 8.0f);
+            float col_h = shape_h + 20;
             ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
-            ss << ind << "setFlex('" << col_id << "', 'min_width', " << w << ");\n";
+            ss << ind << "setFlex('" << col_id << "', 'min_width', " << frame_w << ");\n";
             ss << ind << "createMeter('" << id << "', 'vertical', '" << col_id << "');\n";
-            ss << ind << "setFlex('" << id << "', 'width', " << w << ");\n";
-            ss << ind << "setFlex('" << id << "', 'height', " << h << ");\n";
+            ss << ind << "setFlex('" << id << "', 'width', " << widget_w << ");\n";
+            ss << ind << "setFlex('" << id << "', 'height', " << shape_h << ");\n";
             ss << ind << "setMeterLevel('" << id << "', -6);\n";
             // Meter has no setLabel — always add a separate label
             if (!label_text.empty()) {

@@ -11,6 +11,7 @@
 #include <string>
 #include <cstring>
 #include <filesystem>
+#include <chrono>
 
 namespace fs = std::filesystem;
 using namespace pulp::view;
@@ -177,6 +178,8 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: --file <path> is required\n";
         return 1;
     }
+
+    auto t_start = std::chrono::steady_clock::now();
 
     // Read input
     auto content = read_file(input_file);
