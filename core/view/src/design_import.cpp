@@ -194,6 +194,12 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
     if (obj.hasObjectMember("layout"))
         node.layout = parse_ir_layout(obj["layout"]);
 
+    // Exact layout dimensions from snapshot_layout (injected by import skill)
+    if (obj.hasObjectMember("_layoutHeight"))
+        node.attributes["_layoutHeight"] = std::to_string(static_cast<int>(get_float(obj, "_layoutHeight", 0)));
+    if (obj.hasObjectMember("_layoutWidth"))
+        node.attributes["_layoutWidth"] = std::to_string(static_cast<int>(get_float(obj, "_layoutWidth", 0)));
+
     // Audio widget detection is deferred until after children are parsed
     // (see below) — containers with child frames shouldn't be widgets
 
@@ -875,13 +881,14 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setLabel('" << id << "', ' ');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
             emit_style(id);
-            // Label below knob (Yoga-positioned, matches Pencil text placement)
+            // Labels below knob — center-aligned, Yoga-positioned
             if (!label_text.empty()) {
                 std::string lbl_id = id + "_lbl";
                 ss << ind << "createLabel('" << lbl_id << "', '" << label_text << "', '" << col_id << "');\n";
                 ss << ind << "setFlex('" << lbl_id << "', 'height', " << kMinLabelHeight << ");\n";
                 ss << ind << "setFontSize('" << lbl_id << "', 11);\n";
                 ss << ind << "setTextColor('" << lbl_id << "', '#a6adc8');\n";
+                ss << ind << "setTextAlign('" << lbl_id << "', 'center');\n";
             }
             if (!value_text.empty()) {
                 std::string val_id = id + "_val";
@@ -889,6 +896,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
                 ss << ind << "setFlex('" << val_id << "', 'height', " << kMinSmallLabelHeight << ");\n";
                 ss << ind << "setFontSize('" << val_id << "', 10);\n";
                 ss << ind << "setTextColor('" << val_id << "', '#6c7086');\n";
+                ss << ind << "setTextAlign('" << val_id << "', 'center');\n";
             }
         }
         else if (wtype == AudioWidgetType::fader) {
@@ -918,6 +926,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
                 ss << ind << "setFlex('" << lbl_id << "', 'height', " << kMinLabelHeight << ");\n";
                 ss << ind << "setFontSize('" << lbl_id << "', 11);\n";
                 ss << ind << "setTextColor('" << lbl_id << "', '#a6adc8');\n";
+                ss << ind << "setTextAlign('" << lbl_id << "', 'center');\n";
             }
         }
         else if (wtype == AudioWidgetType::meter) {
@@ -944,6 +953,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
                 ss << ind << "setFlex('" << lbl_id << "', 'height', " << kMinLabelHeight << ");\n";
                 ss << ind << "setFontSize('" << lbl_id << "', 11);\n";
                 ss << ind << "setTextColor('" << lbl_id << "', '#a6adc8');\n";
+                ss << ind << "setTextAlign('" << lbl_id << "', 'center');\n";
             }
         }
         else if (wtype == AudioWidgetType::xy_pad) {
@@ -1000,22 +1010,26 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
            << "('" << id << "', " << pid << ");\n";
 
         // Yoga: every container MUST have explicit height
-        // fill_container on height → flex_grow (main axis of column parent)
-        // fill_container on width in a column → default stretch (cross axis, automatic)
-        if (node.style.height) {
+        // Priority: _layoutHeight (from snapshot_layout) > style.height > fill > computed
+        if (node.attributes.count("_layoutHeight")) {
+            int lh = std::stoi(node.attributes.at("_layoutHeight"));
+            if (lh > 0) ss << ind << "setFlex('" << id << "', 'height', " << lh << ");\n";
+        } else if (node.style.height) {
             ss << ind << "setFlex('" << id << "', 'height', " << *node.style.height << ");\n";
         } else if (node.layout.height_mode == SizingMode::fill) {
             ss << ind << "setFlex('" << id << "', 'flex_grow', 1);\n";
         } else {
-            // Compute height from children's actual dimensions
             float est = compute_container_height(node);
             ss << ind << "setFlex('" << id << "', 'height', " << est << ");\n";
         }
 
-        if (node.style.width)
+        // Width: use _layoutWidth if available, then style.width
+        if (node.attributes.count("_layoutWidth")) {
+            int lw = std::stoi(node.attributes.at("_layoutWidth"));
+            if (lw > 0) ss << ind << "setFlex('" << id << "', 'width', " << lw << ");\n";
+        } else if (node.style.width) {
             ss << ind << "setFlex('" << id << "', 'width', " << *node.style.width << ");\n";
-        // fill_container width: DON'T use flex_grow (that affects main axis = height
-        // in a column parent). Yoga's default stretch handles cross-axis fill.
+        }
 
         if (node.layout.gap > 0)
             ss << ind << "setFlex('" << id << "', 'gap', " << node.layout.gap << ");\n";

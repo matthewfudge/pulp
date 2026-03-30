@@ -34,6 +34,9 @@ public:
     // Request a repaint
     virtual void repaint() = 0;
 
+    // Clear any cached host-side input targets before the view tree is rebuilt.
+    virtual void invalidate_input_state() {}
+
     // Set a callback for when the window is closed
     virtual void set_close_callback(std::function<void()> cb) = 0;
 
