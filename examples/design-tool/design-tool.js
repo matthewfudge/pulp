@@ -148,6 +148,7 @@ var stateNames = ["Default", "Hover", "Focus", "Disabled", "Error"];
 var activeState = 0;
 createRow("state-pills", "toolbar");
 setFlex("state-pills", "height", 26);
+setFlex("state-pills", "width", 300);  // Yoga: explicit width for 5 pills
 setFlex("state-pills", "flex_shrink", 0);
 setFlex("state-pills", "gap", 1);
 setFlex("state-pills", "align_items", "center");
