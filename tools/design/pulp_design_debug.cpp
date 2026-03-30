@@ -11,7 +11,9 @@
 #include <pulp/state/store.hpp>
 
 #include <array>
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -69,6 +71,13 @@ bool write_binary_file(const fs::path& path, const std::vector<uint8_t>& bytes) 
     std::ofstream out(path, std::ios::binary);
     if (!out.is_open()) return false;
     out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return out.good();
+}
+
+bool append_text_file(const fs::path& path, const std::string& content) {
+    std::ofstream out(path, std::ios::binary | std::ios::app);
+    if (!out.is_open()) return false;
+    out << content;
     return out.good();
 }
 
@@ -215,6 +224,21 @@ bool backend_supports_widget_sksl(ScreenshotBackend backend) {
     return backend == ScreenshotBackend::skia;
 }
 
+struct TargetArtifacts {
+    bool valid = false;
+    bool diff_written = false;
+    CompareResult compare;
+    std::string source = "none";
+    fs::path before_path;
+    fs::path after_path;
+    fs::path diff_path;
+    uint32_t x = 0;
+    uint32_t y = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t padding = 0;
+};
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -272,7 +296,8 @@ int main(int argc, char* argv[]) {
     }
     fs::create_directories(opts.output_dir);
 
-    auto stem = now_stamp() + "-" + slugify(opts.target == "all" ? "all" : opts.target) + "-" +
+    auto stamp = now_stamp();
+    auto stem = stamp + "-" + slugify(opts.target == "all" ? "all" : opts.target) + "-" +
                 slugify(opts.model) + "-" + slugify(opts.prompt);
     auto before_path = opts.output_dir / (stem + "-before.png");
     auto after_path = opts.output_dir / (stem + "-after.png");
@@ -280,6 +305,9 @@ int main(int argc, char* argv[]) {
     auto prompt_path = opts.output_dir / (stem + "-prompt.txt");
     auto response_path = opts.output_dir / (stem + "-response.txt");
     auto report_path = opts.output_dir / (stem + "-report.json");
+    auto latest_report_path = opts.output_dir / "latest-report.json";
+    auto latest_run_path = opts.output_dir / "latest-run.json";
+    auto runs_path = opts.output_dir / "runs.jsonl";
 
     View root;
     root.set_theme(Theme::dark());
@@ -389,6 +417,7 @@ int main(int argc, char* argv[]) {
         write_binary_file(diff_path, diff_png);
     }
     auto compare = compare_screenshots(before_png, after_png);
+    auto changed_bounds = diff_bounds(before_png, after_png);
 
     std::string debug_state_json = "{}";
     try {
@@ -401,17 +430,75 @@ int main(int argc, char* argv[]) {
     if (opts.target != "all") {
         if (auto* target = bridge.widget(opts.target)) {
             auto b = target->bounds();
-            target_x = b.x;
-            target_y = b.y;
+            float abs_x = 0.0f;
+            float abs_y = 0.0f;
+            for (View* v = target; v != nullptr; v = v->parent()) {
+                abs_x += v->bounds().x;
+                abs_y += v->bounds().y;
+            }
+            target_x = abs_x;
+            target_y = abs_y;
             target_w = b.width;
             target_h = b.height;
             target_found = true;
         }
     }
 
+    TargetArtifacts target_artifacts;
+    if (opts.target != "all") {
+        const auto padding = static_cast<uint32_t>(std::lround(24.0f * opts.scale));
+        uint32_t crop_x = 0;
+        uint32_t crop_y = 0;
+        uint32_t crop_w = 0;
+        uint32_t crop_h = 0;
+        bool have_crop = false;
+
+        if (target_found && target_w > 0.0f && target_h > 0.0f && (target_x > 1.0f || target_y > 1.0f)) {
+            crop_x = static_cast<uint32_t>(std::max(0.0f, std::floor(target_x * opts.scale) - static_cast<float>(padding)));
+            crop_y = static_cast<uint32_t>(std::max(0.0f, std::floor(target_y * opts.scale) - static_cast<float>(padding)));
+            crop_w = static_cast<uint32_t>(std::ceil(target_w * opts.scale)) + padding * 2u;
+            crop_h = static_cast<uint32_t>(std::ceil(target_h * opts.scale)) + padding * 2u;
+            target_artifacts.source = "widget_bounds";
+            have_crop = true;
+        } else if (changed_bounds.valid) {
+            crop_x = changed_bounds.x > padding ? changed_bounds.x - padding : 0u;
+            crop_y = changed_bounds.y > padding ? changed_bounds.y - padding : 0u;
+            crop_w = changed_bounds.width + padding * 2u;
+            crop_h = changed_bounds.height + padding * 2u;
+            target_artifacts.source = "changed_pixels";
+            have_crop = true;
+        }
+
+        if (have_crop) {
+            auto before_crop = crop_png(before_png, crop_x, crop_y, crop_w, crop_h);
+            auto after_crop = crop_png(after_png, crop_x, crop_y, crop_w, crop_h);
+            if (!before_crop.empty() && !after_crop.empty()) {
+                target_artifacts.before_path = opts.output_dir / (stem + "-target-before.png");
+                target_artifacts.after_path = opts.output_dir / (stem + "-target-after.png");
+                target_artifacts.diff_path = opts.output_dir / (stem + "-target-diff.png");
+                target_artifacts.x = crop_x;
+                target_artifacts.y = crop_y;
+                target_artifacts.width = crop_w;
+                target_artifacts.height = crop_h;
+                target_artifacts.padding = padding;
+
+                if (write_binary_file(target_artifacts.before_path, before_crop) &&
+                    write_binary_file(target_artifacts.after_path, after_crop)) {
+                    auto target_diff_png = generate_diff_image(before_crop, after_crop);
+                    if (!target_diff_png.empty()) {
+                        target_artifacts.diff_written = write_binary_file(target_artifacts.diff_path, target_diff_png);
+                    }
+                    target_artifacts.compare = compare_screenshots(before_crop, after_crop);
+                    target_artifacts.valid = target_artifacts.compare.valid;
+                }
+            }
+        }
+    }
+
     std::ostringstream report;
     report << "{\n";
     report << "  \"tool\": \"pulp-design-debug\",\n";
+    report << "  \"timestamp\": \"" << json_escape(stamp) << "\",\n";
     report << "  \"script\": \"" << json_escape(opts.script_path.string()) << "\",\n";
     report << "  \"render_backend\": \"" << backend_report_name(opts.capture_backend) << "\",\n";
     report << "  \"requested_capture_backend\": \"" << backend_flag_name(opts.capture_backend) << "\",\n";
@@ -440,7 +527,37 @@ int main(int argc, char* argv[]) {
     report << "  \"similarity_pct\": " << static_cast<int>(compare.similarity * 100.0f) << ",\n";
     report << "  \"diff_pixels\": " << compare.diff_pixels << ",\n";
     report << "  \"total_pixels\": " << compare.total_pixels << ",\n";
+    report << "  \"diff_pct\": " << (compare.total_pixels > 0 ? (100.0 * static_cast<double>(compare.diff_pixels) / static_cast<double>(compare.total_pixels)) : 0.0) << ",\n";
     report << "  \"mean_error\": " << compare.mean_error << ",\n";
+    report << "  \"target_region\": {\"x\": " << target_artifacts.x << ", \"y\": " << target_artifacts.y
+           << ", \"width\": " << target_artifacts.width << ", \"height\": " << target_artifacts.height
+           << ", \"padding\": " << target_artifacts.padding << "},\n";
+    report << "  \"target_region_source\": \"" << json_escape(target_artifacts.source) << "\",\n";
+    if (target_artifacts.valid) {
+        report << "  \"target_before_image\": \"" << json_escape(target_artifacts.before_path.string()) << "\",\n";
+        report << "  \"target_after_image\": \"" << json_escape(target_artifacts.after_path.string()) << "\",\n";
+        if (target_artifacts.diff_written) {
+            report << "  \"target_diff_image\": \"" << json_escape(target_artifacts.diff_path.string()) << "\",\n";
+        } else {
+            report << "  \"target_diff_image\": null,\n";
+        }
+        report << "  \"target_similarity_pct\": " << static_cast<int>(target_artifacts.compare.similarity * 100.0f) << ",\n";
+        report << "  \"target_diff_pixels\": " << target_artifacts.compare.diff_pixels << ",\n";
+        report << "  \"target_total_pixels\": " << target_artifacts.compare.total_pixels << ",\n";
+        report << "  \"target_diff_pct\": " << (target_artifacts.compare.total_pixels > 0 ? (100.0 * static_cast<double>(target_artifacts.compare.diff_pixels) / static_cast<double>(target_artifacts.compare.total_pixels)) : 0.0) << ",\n";
+        report << "  \"target_mean_error\": " << target_artifacts.compare.mean_error << ",\n";
+        report << "  \"target_region_changed\": " << (target_artifacts.compare.diff_pixels > 0 ? "true" : "false") << ",\n";
+    } else {
+        report << "  \"target_before_image\": null,\n";
+        report << "  \"target_after_image\": null,\n";
+        report << "  \"target_diff_image\": null,\n";
+        report << "  \"target_similarity_pct\": null,\n";
+        report << "  \"target_diff_pixels\": null,\n";
+        report << "  \"target_total_pixels\": null,\n";
+        report << "  \"target_diff_pct\": null,\n";
+        report << "  \"target_mean_error\": null,\n";
+        report << "  \"target_region_changed\": null,\n";
+    }
     report << "  \"apply_summary\": \"" << json_escape(apply_summary) << "\",\n";
     report << "  \"debug_state\": " << debug_state_json;
     if (!command_string.empty()) {
@@ -452,16 +569,65 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: failed to write report file\n";
         return 1;
     }
+    write_text_file(latest_report_path, report.str());
+
+    std::ostringstream run_summary;
+    run_summary << "{";
+    run_summary << "\"timestamp\":\"" << json_escape(stamp) << "\",";
+    run_summary << "\"prompt\":\"" << json_escape(opts.prompt) << "\",";
+    run_summary << "\"target\":\"" << json_escape(opts.target) << "\",";
+    run_summary << "\"provider\":\"" << json_escape(opts.provider) << "\",";
+    run_summary << "\"model\":\"" << json_escape(opts.model) << "\",";
+    run_summary << "\"reasoning_effort\":\"" << json_escape(opts.reasoning_effort) << "\",";
+    run_summary << "\"render_backend\":\"" << backend_report_name(opts.capture_backend) << "\",";
+    run_summary << "\"widget_sksl_render_supported\":" << (backend_supports_widget_sksl(opts.capture_backend) ? "true" : "false") << ",";
+    run_summary << "\"similarity_pct\":" << static_cast<int>(compare.similarity * 100.0f) << ",";
+    run_summary << "\"diff_pct\":" << (compare.total_pixels > 0 ? (100.0 * static_cast<double>(compare.diff_pixels) / static_cast<double>(compare.total_pixels)) : 0.0) << ",";
+    if (target_artifacts.valid) {
+        run_summary << "\"target_similarity_pct\":" << static_cast<int>(target_artifacts.compare.similarity * 100.0f) << ",";
+        run_summary << "\"target_diff_pct\":" << (target_artifacts.compare.total_pixels > 0 ? (100.0 * static_cast<double>(target_artifacts.compare.diff_pixels) / static_cast<double>(target_artifacts.compare.total_pixels)) : 0.0) << ",";
+        run_summary << "\"target_region_changed\":" << (target_artifacts.compare.diff_pixels > 0 ? "true" : "false") << ",";
+    } else {
+        run_summary << "\"target_similarity_pct\":null,";
+        run_summary << "\"target_diff_pct\":null,";
+        run_summary << "\"target_region_changed\":null,";
+    }
+    run_summary << "\"apply_summary\":\"" << json_escape(apply_summary) << "\",";
+    run_summary << "\"report\":\"" << json_escape(report_path.string()) << "\",";
+    run_summary << "\"before_image\":\"" << json_escape(before_path.string()) << "\",";
+    run_summary << "\"after_image\":\"" << json_escape(after_path.string()) << "\",";
+    run_summary << "\"diff_image\":\"" << json_escape(diff_path.string()) << "\"";
+    if (target_artifacts.valid) {
+        run_summary << ",\"target_before_image\":\"" << json_escape(target_artifacts.before_path.string()) << "\"";
+        run_summary << ",\"target_after_image\":\"" << json_escape(target_artifacts.after_path.string()) << "\"";
+        if (target_artifacts.diff_written) {
+            run_summary << ",\"target_diff_image\":\"" << json_escape(target_artifacts.diff_path.string()) << "\"";
+        }
+    }
+    run_summary << "}\n";
+    write_text_file(latest_run_path, run_summary.str());
+    append_text_file(runs_path, run_summary.str());
 
     std::cout << "Prompt saved → " << prompt_path << "\n";
     std::cout << "Before → " << before_path << "\n";
     std::cout << "After → " << after_path << "\n";
     if (!diff_png.empty()) std::cout << "Diff → " << diff_path << "\n";
+    if (target_artifacts.valid) {
+        std::cout << "Target before → " << target_artifacts.before_path << "\n";
+        std::cout << "Target after → " << target_artifacts.after_path << "\n";
+        if (target_artifacts.diff_written) std::cout << "Target diff → " << target_artifacts.diff_path << "\n";
+    }
     std::cout << "Response → " << response_path << "\n";
     std::cout << "Report → " << report_path << "\n";
+    std::cout << "Latest report → " << latest_report_path << "\n";
     std::cout << "Applied → " << apply_summary << "\n";
     std::cout << "Visual change: " << static_cast<int>(compare.similarity * 100.0f)
               << "% similarity (" << compare.diff_pixels << "/" << compare.total_pixels
               << " pixels differ)\n";
+    if (target_artifacts.valid) {
+        std::cout << "Target change: " << static_cast<int>(target_artifacts.compare.similarity * 100.0f)
+                  << "% similarity (" << target_artifacts.compare.diff_pixels << "/"
+                  << target_artifacts.compare.total_pixels << " pixels differ)\n";
+    }
     return 0;
 }

@@ -20,12 +20,17 @@ Each run writes an artifact bundle under `planning/screenshots/design-debug/` by
 - `*-after.png`
 - `*-diff.png`
 - `*-report.json`
+- `*-target-before.png` / `*-target-after.png` / `*-target-diff.png` for targeted widget runs
+- `latest-report.json` with the newest full report
+- `latest-run.json` with a compact summary of the newest run
+- `runs.jsonl` with one JSON summary per run for remote progress tracking
 
 The JSON report includes:
 - provider, model, reasoning effort
 - requested capture backend and actual render backend
 - whether widget SkSL was rendered in the artifact images
 - target widget id and bounds
+- target-region crop bounds and ROI diff stats for targeted runs (`target_diff_pixels`, `target_diff_pct`)
 - the exact AI command used
 - screenshot diff stats
 - `debug_state` from the real design tool script:
@@ -89,6 +94,16 @@ That metadata is preserved in the debug report so you can compare:
 - Claude vs Codex
 - `gpt-5.4` vs another Codex/OpenAI model
 - `low` vs `xhigh` reasoning effort
+
+For targeted widget runs, the harness also emits target-only crops and ROI stats
+so you can answer the important question quickly:
+
+- did the selected widget materially change?
+- was the change localized to the intended control?
+- which prompt/model combination produced the strongest targeted delta?
+
+The report records `target_region_source` so you can tell whether the crop came
+from the requested widget bounds or a changed-pixels fallback.
 
 ## Capture Backends
 

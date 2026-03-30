@@ -60,6 +60,48 @@ static RawImage decode_png(const std::vector<uint8_t>&) {
 }
 #endif
 
+#ifdef __APPLE__
+static std::vector<uint8_t> encode_png_rgba(const uint8_t* pixels, uint32_t width, uint32_t height) {
+    if (!pixels || width == 0 || height == 0) return {};
+
+    CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef ctx = CGBitmapContextCreate(
+        const_cast<uint8_t*>(pixels), width, height, 8, width * 4,
+        cs, kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(cs);
+    if (!ctx) return {};
+
+    CGImageRef img = CGBitmapContextCreateImage(ctx);
+    CGContextRelease(ctx);
+    if (!img) return {};
+
+    CFMutableDataRef cf_data = CFDataCreateMutable(nullptr, 0);
+    if (!cf_data) { CGImageRelease(img); return {}; }
+
+    CGImageDestinationRef dest = CGImageDestinationCreateWithData(cf_data, CFSTR("public.png"), 1, nullptr);
+    if (!dest) {
+        CGImageRelease(img);
+        CFRelease(cf_data);
+        return {};
+    }
+
+    CGImageDestinationAddImage(dest, img, nullptr);
+    const bool ok = CGImageDestinationFinalize(dest);
+    CFRelease(dest);
+    CGImageRelease(img);
+    if (!ok) {
+        CFRelease(cf_data);
+        return {};
+    }
+
+    auto len = static_cast<size_t>(CFDataGetLength(cf_data));
+    std::vector<uint8_t> result(len);
+    std::memcpy(result.data(), CFDataGetBytePtr(cf_data), len);
+    CFRelease(cf_data);
+    return result;
+}
+#endif
+
 static std::vector<uint8_t> read_file_bytes(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return {};
@@ -206,37 +248,89 @@ std::vector<uint8_t> generate_diff_image(
 
     // Encode diff to PNG using CoreGraphics C API
 #ifdef __APPLE__
-    CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    CGContextRef ctx = CGBitmapContextCreate(
-        diff.data(), out_w, out_h, 8, out_w * 4,
-        cs, kCGImageAlphaPremultipliedLast);
-    CGColorSpaceRelease(cs);
-    if (!ctx) return {};
-
-    CGImageRef img = CGBitmapContextCreateImage(ctx);
-    CGContextRelease(ctx);
-    if (!img) return {};
-
-    CFMutableDataRef cf_data = CFDataCreateMutable(nullptr, 0);
-    if (!cf_data) { CGImageRelease(img); return {}; }
-
-    CFStringRef png_type = CFSTR("public.png");
-    CGImageDestinationRef dest = CGImageDestinationCreateWithData(cf_data, png_type, 1, nullptr);
-    if (dest) {
-        CGImageDestinationAddImage(dest, img, nullptr);
-        CGImageDestinationFinalize(dest);
-        CFRelease(dest);
-    }
-    CGImageRelease(img);
-
-    auto len = static_cast<size_t>(CFDataGetLength(cf_data));
-    std::vector<uint8_t> result(len);
-    std::memcpy(result.data(), CFDataGetBytePtr(cf_data), len);
-    CFRelease(cf_data);
-    return result;
+    return encode_png_rgba(diff.data(), out_w, out_h);
 #else
     return {};
 #endif
+}
+
+std::vector<uint8_t> crop_png(
+    const std::vector<uint8_t>& png,
+    uint32_t x,
+    uint32_t y,
+    uint32_t width,
+    uint32_t height)
+{
+    auto img = decode_png(png);
+    if (img.pixels.empty() || width == 0 || height == 0) return {};
+
+    if (x >= img.width || y >= img.height) return {};
+
+    uint32_t crop_w = std::min(width, img.width - x);
+    uint32_t crop_h = std::min(height, img.height - y);
+    if (crop_w == 0 || crop_h == 0) return {};
+
+    std::vector<uint8_t> cropped(crop_w * crop_h * 4);
+    for (uint32_t row = 0; row < crop_h; ++row) {
+        const auto* src = img.pixels.data() + ((y + row) * img.width + x) * 4;
+        auto* dst = cropped.data() + (row * crop_w) * 4;
+        std::memcpy(dst, src, static_cast<size_t>(crop_w) * 4);
+    }
+
+#ifdef __APPLE__
+    return encode_png_rgba(cropped.data(), crop_w, crop_h);
+#else
+    return {};
+#endif
+}
+
+DiffBounds diff_bounds(
+    const std::vector<uint8_t>& reference_png,
+    const std::vector<uint8_t>& rendered_png,
+    uint8_t tolerance)
+{
+    DiffBounds bounds;
+
+    auto ref = decode_png(reference_png);
+    auto ren = decode_png(rendered_png);
+    if (ref.pixels.empty() || ren.pixels.empty()) return bounds;
+
+    uint32_t cmp_w = std::min(ref.width, ren.width);
+    uint32_t cmp_h = std::min(ref.height, ren.height);
+    if (cmp_w == 0 || cmp_h == 0) return bounds;
+
+    uint32_t min_x = cmp_w;
+    uint32_t min_y = cmp_h;
+    uint32_t max_x = 0;
+    uint32_t max_y = 0;
+
+    for (uint32_t y = 0; y < cmp_h; ++y) {
+        for (uint32_t x = 0; x < cmp_w; ++x) {
+            size_t ref_idx = (y * ref.width + x) * 4;
+            size_t ren_idx = (y * ren.width + x) * 4;
+
+            int dr = std::abs(static_cast<int>(ref.pixels[ref_idx])     - static_cast<int>(ren.pixels[ren_idx]));
+            int dg = std::abs(static_cast<int>(ref.pixels[ref_idx + 1]) - static_cast<int>(ren.pixels[ren_idx + 1]));
+            int db = std::abs(static_cast<int>(ref.pixels[ref_idx + 2]) - static_cast<int>(ren.pixels[ren_idx + 2]));
+
+            if (dr > tolerance || dg > tolerance || db > tolerance) {
+                bounds.diff_pixels++;
+                min_x = std::min(min_x, x);
+                min_y = std::min(min_y, y);
+                max_x = std::max(max_x, x);
+                max_y = std::max(max_y, y);
+            }
+        }
+    }
+
+    if (bounds.diff_pixels == 0) return bounds;
+
+    bounds.valid = true;
+    bounds.x = min_x;
+    bounds.y = min_y;
+    bounds.width = max_x - min_x + 1;
+    bounds.height = max_y - min_y + 1;
+    return bounds;
 }
 
 } // namespace pulp::view

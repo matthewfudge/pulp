@@ -249,13 +249,18 @@ Artifacts are written by default under `planning/screenshots/design-debug/`:
 - `*-before.png`
 - `*-after.png`
 - `*-diff.png`
+- `*-target-before.png`, `*-target-after.png`, `*-target-diff.png` for targeted runs
 - `*-prompt.txt`
 - `*-response.txt`
 - `*-report.json`
+- `latest-report.json`
+- `latest-run.json`
+- `runs.jsonl`
 
 The JSON report records:
 - `provider`, `model`, `reasoning_effort`
 - `target` and `target_bounds`
+- `target_region`, `target_region_source`, and target-only diff stats (`target_diff_pixels`, `target_diff_pct`) when a widget target is selected
 - `debug_state` from the design tool (`changedColors`, `changedDimensions`, `widgetLookIds`, summary, request text)
 - the exact `ai_command` used for local execution
 - screenshot-diff stats (`similarity_pct`, `diff_pixels`, `mean_error`)
