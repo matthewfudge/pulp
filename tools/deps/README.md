@@ -38,8 +38,11 @@ Example:
 }
 ```
 
-Remote validation assumes:
+Remote validation is intended to be git-based:
 
-- the branch being validated has been pushed to `origin`
-- the target machine already has the repo cloned at the configured path
-- required build tools are installed on that machine
+- push the branch to `origin`
+- point each target at a real `git clone` / worktree of the repo
+- let the validator `git fetch` / `git checkout` / `git pull` before running the clean build
+- ensure required build tools are installed on that machine
+
+If a remote checkout does not have an `origin` remote configured, the validator currently falls back to validating the current checkout (or a matching local branch if present) so personal machines still produce a useful result. That fallback is a convenience, not the preferred setup. If the configured path is not a real git checkout, validation fails clearly.

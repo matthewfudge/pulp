@@ -46,24 +46,63 @@ def unix_remote_command(repo_path: str, branch: str, skip_tests: bool) -> str:
     validate = "./validate-build.sh --quiet"
     if skip_tests:
         validate += " --no-tests"
-    return (
-        f"cd {shlex.quote(repo_path)} && "
-        f"git fetch origin && "
-        f"git checkout {shlex.quote(branch)} && "
-        f"git pull --ff-only origin {shlex.quote(branch)} && "
-        f"{validate}"
-    )
+    repo = shlex.quote(repo_path)
+    branch_q = shlex.quote(branch)
+    return f"""
+set -e
+cd {repo}
+git rev-parse --is-inside-work-tree >/dev/null
+if git remote get-url origin >/dev/null 2>&1; then
+    git fetch origin
+    if git ls-remote --exit-code --heads origin {branch_q} >/dev/null 2>&1; then
+        git checkout {branch_q} >/dev/null 2>&1 || git checkout -b {branch_q} --track origin/{branch_q}
+        git pull --ff-only origin {branch_q}
+    elif git show-ref --verify --quiet refs/heads/{branch_q}; then
+        git checkout {branch_q}
+    else
+        echo "warning: branch {branch} not available on remote or locally; validating current checkout" >&2
+    fi
+else
+    if git show-ref --verify --quiet refs/heads/{branch_q}; then
+        git checkout {branch_q}
+    else
+        echo "warning: no origin remote configured; validating current checkout" >&2
+    fi
+fi
+{validate}
+""".strip()
 
 
 def windows_remote_command(repo_path: str, branch: str, skip_tests: bool) -> str:
     repo = repo_path.replace("'", "''")
+    branch_q = branch.replace("'", "''")
     no_tests = "$true" if skip_tests else "$false"
     return (
         "$ErrorActionPreference='Stop'; "
         f"$repo='{repo}'; "
-        f"git -C $repo fetch origin; "
-        f"git -C $repo checkout {branch}; "
-        f"git -C $repo pull --ff-only origin {branch}; "
+        f"$branch='{branch_q}'; "
+        "if (-not (Test-Path $repo)) { throw \"repo path missing: $repo\" }; "
+        "if (-not (Test-Path (Join-Path $repo '.git'))) { throw \"not a git checkout: $repo\" }; "
+        "git -C $repo rev-parse --is-inside-work-tree *> $null; "
+        "if ((git -C $repo remote get-url origin) 2>$null) { "
+        "  git -C $repo fetch origin; "
+        "  git ls-remote --exit-code --heads origin $branch *> $null; "
+        "  if ($LASTEXITCODE -eq 0) { "
+        "    git -C $repo checkout $branch *> $null; "
+        "    if ($LASTEXITCODE -ne 0) { git -C $repo checkout -b $branch --track (\"origin/\" + $branch) *> $null }; "
+        "    git -C $repo pull --ff-only origin $branch; "
+        "  } elseif ((git -C $repo show-ref --verify --quiet (\"refs/heads/\" + $branch)) 2>$null) { "
+        "    git -C $repo checkout $branch *> $null; "
+        "  } else { "
+        "    Write-Warning \"branch $branch not available on remote or locally; validating current checkout\"; "
+        "  } "
+        "} else { "
+        "  if ((git -C $repo show-ref --verify --quiet (\"refs/heads/\" + $branch)) 2>$null) { "
+        "    git -C $repo checkout $branch *> $null; "
+        "  } else { "
+        "    Write-Warning \"no origin remote configured; validating current checkout\"; "
+        "  } "
+        "} "
         f"& \"$repo\\validate-build.ps1\" -Quiet -NoTests:{no_tests}"
     )
 
