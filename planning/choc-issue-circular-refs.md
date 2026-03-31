@@ -59,6 +59,22 @@ There's no tracking of which objects have already been visited, so any cycle in 
 
 We're currently appending `";void 0"` to eval strings so the return value is `undefined` instead of the circular object. Works but obviously limits what you can get back from JS.
 
+Important nuance: this only works when the suffix is appended at the very end of the evaluated string, so the final expression result is `undefined` rather than the last user value. If it appears earlier in the script, it doesn't prevent CHOC from trying to convert a later circular object.
+
+## Upstream status
+
+Tracktion fixed this upstream in CHOC commit `13fe8685d3d9d0458c8361fcea29ecb471d5582f`.
+
+As of March 30, 2026, Pulp's fresh `FetchContent` configure already picks up a newer CHOC `main` revision that contains this fix. That means a clean build should no longer need the workaround for circular return values.
+
+However, the repo still uses `GIT_TAG main` for CHOC, so this is not yet a stable, reproducible guarantee for all contributors. The right follow-up is:
+
+1. Pin CHOC to a known-good commit at or after `13fe8685d3d9d0458c8361fcea29ecb471d5582f`.
+2. Add a regression test that evaluates a circular JS object and proves Pulp no longer crashes.
+3. Remove only the specific `";void 0"` workaround sites that were guarding this CHOC bug.
+
+Not every `void 0` in the repo is part of this workaround. Some uses intentionally discard a script result and may still be valid after the CHOC fix.
+
 ## Possible fix direction
 
 A visited-object set (e.g. tracking `JSValue` pointers already seen) would be the thorough solution. A simpler approach that would catch 99% of cases would be a recursion depth limit — something like 32 levels deep is more than enough for any realistic object graph, and anything deeper is almost certainly a cycle. Either way, hitting the limit could return a `choc::value::Value()` or a placeholder string like `"[circular]"` rather than crashing.
