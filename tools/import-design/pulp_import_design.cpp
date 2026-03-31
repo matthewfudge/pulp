@@ -206,7 +206,7 @@ int main(int argc, char* argv[]) {
     // --url without --file: fetch the URL content via curl
     std::string fetched_tmp;
     if (input_file.empty() && !input_url.empty()) {
-        fetched_tmp = fs::temp_directory_path() / "pulp-import-fetched.tmp";
+        fetched_tmp = (fs::temp_directory_path() / "pulp-import-fetched.tmp").string();
         std::string cmd = "curl -sL -o '" + fetched_tmp + "' '" + input_url + "' 2>&1";
         int rc = std::system(cmd.c_str());
         if (rc != 0) {

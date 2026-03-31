@@ -139,11 +139,13 @@ if(APPLE)
 elseif(WIN32)
     target_sources(pulp-view PRIVATE
         src/plugin_view_host_stub.cpp
+        src/window_host_stub.cpp
         platform/win/accessibility_win.cpp
     )
 elseif(UNIX)
     target_sources(pulp-view PRIVATE
         src/plugin_view_host_stub.cpp
+        src/window_host_stub.cpp
         platform/linux/accessibility_linux.cpp
     )
 endif()
