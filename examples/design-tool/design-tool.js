@@ -864,6 +864,111 @@ function hexToRgbParts(hex) {
     };
 }
 
+function shaderVec3FromHex(hex) {
+    var rgb = hexToRgbParts(hex);
+    return "float3(" + (rgb.r / 255).toFixed(4) + ", " + (rgb.g / 255).toFixed(4) + ", " + (rgb.b / 255).toFixed(4) + ")";
+}
+
+function buildPaletteHueSliderShader() {
+    return [
+        "uniform float2 resolution;",
+        "uniform float value;",
+        "float3 hsv2rgb(float3 c) {",
+        "  float4 K = float4(1.0, 2.0/3.0, 1.0/3.0, 3.0);",
+        "  float3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);",
+        "  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);",
+        "}",
+        "float roundedRectPx(float2 p, float2 center, float2 size, float radius) {",
+        "  float2 q = abs(p - center) - size * 0.5 + float2(radius, radius);",
+        "  return length(max(q, float2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;",
+        "}",
+        "half4 main(float2 coord) {",
+        "  float2 uv = coord / max(resolution, float2(1.0, 1.0));",
+        "  float aa = 1.0;",
+        "  float trackH = clamp(resolution.y * 0.28, 4.0, 6.0);",
+        "  float radius = trackH * 0.5;",
+        "  float2 center = float2(resolution.x * 0.5, resolution.y * 0.5);",
+        "  float2 outerSize = float2(max(resolution.x - 2.0, 8.0), trackH + 2.0);",
+        "  float2 innerSize = float2(max(resolution.x - 4.0, 6.0), trackH);",
+        "  float outerMask = 1.0 - smoothstep(0.0, aa, roundedRectPx(coord, center, outerSize, radius + 1.0));",
+        "  float innerMask = 1.0 - smoothstep(0.0, aa, roundedRectPx(coord, center, innerSize, radius));",
+        "  float borderMask = max(outerMask - innerMask, 0.0);",
+        "  float3 ramp = hsv2rgb(float3(clamp(uv.x, 0.0, 1.0), 0.78, 0.98));",
+        "  float gloss = clamp(1.0 - abs(coord.y - (center.y - trackH * 0.18)) / max(trackH * 0.9, 1.0), 0.0, 1.0);",
+        "  ramp = mix(ramp * 0.94, min(ramp * 1.04 + float3(0.035, 0.035, 0.035) * gloss, float3(1.0, 1.0, 1.0)), 0.42);",
+        "  float thumbR = clamp(resolution.y * 0.34, 5.0, 7.0);",
+        "  float thumbX = mix(thumbR, resolution.x - thumbR, clamp(value, 0.0, 1.0));",
+        "  float thumbDist = length(coord - float2(thumbX, center.y));",
+        "  float shadowDist = length(coord - float2(thumbX, center.y + 1.5));",
+        "  float thumbShadow = 1.0 - smoothstep(thumbR * 0.92, thumbR * 1.45, shadowDist);",
+        "  float thumb = 1.0 - smoothstep(thumbR - 0.9, thumbR + 0.9, thumbDist);",
+        "  float ring = 1.0 - smoothstep(thumbR - 2.0, thumbR - 0.3, thumbDist);",
+        "  float highlight = 1.0 - smoothstep(thumbR * 0.18, thumbR * 0.62, length(coord - float2(thumbX - thumbR * 0.35, center.y - thumbR * 0.35)));",
+        "  float3 color = mix(float3(0.21, 0.22, 0.26), float3(0.10, 0.11, 0.14), outerMask * 0.38);",
+        "  color = mix(color, float3(0.18, 0.19, 0.23), borderMask);",
+        "  color = mix(color, ramp, innerMask);",
+        "  color = mix(color, float3(0.05, 0.05, 0.07), thumbShadow * 0.18);",
+        "  color = mix(color, float3(0.96, 0.97, 0.99), thumb);",
+        "  color = mix(color, float3(0.54, 0.56, 0.64), ring * (1.0 - thumb));",
+        "  color += float3(0.04, 0.04, 0.05) * highlight * thumb;",
+        "  float alpha = max(outerMask, thumbShadow);",
+        "  return half4(half3(color) * half(alpha), half(alpha));",
+        "}"
+    ].join("\n");
+}
+
+function buildPaletteChromaSliderShader(hue) {
+    var gray = shaderVec3FromHex(OklchEngine.oklchToHex(0.78, 0.0, hue));
+    var saturated = shaderVec3FromHex(OklchEngine.oklchToHex(0.78, 0.24, hue));
+    return [
+        "uniform float2 resolution;",
+        "uniform float value;",
+        "float roundedRectPx(float2 p, float2 center, float2 size, float radius) {",
+        "  float2 q = abs(p - center) - size * 0.5 + float2(radius, radius);",
+        "  return length(max(q, float2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;",
+        "}",
+        "half4 main(float2 coord) {",
+        "  float2 uv = coord / max(resolution, float2(1.0, 1.0));",
+        "  float aa = 1.0;",
+        "  float trackH = clamp(resolution.y * 0.28, 4.0, 6.0);",
+        "  float radius = trackH * 0.5;",
+        "  float2 center = float2(resolution.x * 0.5, resolution.y * 0.5);",
+        "  float2 outerSize = float2(max(resolution.x - 2.0, 8.0), trackH + 2.0);",
+        "  float2 innerSize = float2(max(resolution.x - 4.0, 6.0), trackH);",
+        "  float outerMask = 1.0 - smoothstep(0.0, aa, roundedRectPx(coord, center, outerSize, radius + 1.0));",
+        "  float innerMask = 1.0 - smoothstep(0.0, aa, roundedRectPx(coord, center, innerSize, radius));",
+        "  float borderMask = max(outerMask - innerMask, 0.0);",
+        "  float3 gray = " + gray + ";",
+        "  float3 sat = " + saturated + ";",
+        "  float3 ramp = mix(gray, sat, smoothstep(0.0, 1.0, clamp(uv.x, 0.0, 1.0)));",
+        "  float gloss = clamp(1.0 - abs(coord.y - (center.y - trackH * 0.18)) / max(trackH * 0.9, 1.0), 0.0, 1.0);",
+        "  ramp = mix(ramp * 0.94, min(ramp * 1.04 + float3(0.035, 0.035, 0.035) * gloss, float3(1.0, 1.0, 1.0)), 0.38);",
+        "  float thumbR = clamp(resolution.y * 0.34, 5.0, 7.0);",
+        "  float thumbX = mix(thumbR, resolution.x - thumbR, clamp(value, 0.0, 1.0));",
+        "  float thumbDist = length(coord - float2(thumbX, center.y));",
+        "  float shadowDist = length(coord - float2(thumbX, center.y + 1.5));",
+        "  float thumbShadow = 1.0 - smoothstep(thumbR * 0.92, thumbR * 1.45, shadowDist);",
+        "  float thumb = 1.0 - smoothstep(thumbR - 0.9, thumbR + 0.9, thumbDist);",
+        "  float ring = 1.0 - smoothstep(thumbR - 2.0, thumbR - 0.3, thumbDist);",
+        "  float highlight = 1.0 - smoothstep(thumbR * 0.18, thumbR * 0.62, length(coord - float2(thumbX - thumbR * 0.35, center.y - thumbR * 0.35)));",
+        "  float3 color = mix(float3(0.21, 0.22, 0.26), float3(0.10, 0.11, 0.14), outerMask * 0.38);",
+        "  color = mix(color, float3(0.18, 0.19, 0.23), borderMask);",
+        "  color = mix(color, ramp, innerMask);",
+        "  color = mix(color, float3(0.05, 0.05, 0.07), thumbShadow * 0.18);",
+        "  color = mix(color, float3(0.96, 0.97, 0.99), thumb);",
+        "  color = mix(color, float3(0.54, 0.56, 0.64), ring * (1.0 - thumb));",
+        "  color += float3(0.04, 0.04, 0.05) * highlight * thumb;",
+        "  float alpha = max(outerMask, thumbShadow);",
+        "  return half4(half3(color) * half(alpha), half(alpha));",
+        "}"
+    ].join("\n");
+}
+
+function applyPaletteSliderShaders(paletteIdx, hue) {
+    setWidgetShader("ramp-" + paletteIdx + "-h-fdr", buildPaletteHueSliderShader());
+    setWidgetShader("ramp-" + paletteIdx + "-c-fdr", buildPaletteChromaSliderShader(hue));
+}
+
 function getPaletteValueFields(format, oklch, hex) {
     var rgb = hexToRgbParts(hex);
     if (format === "RGB") {
@@ -1051,18 +1156,10 @@ function buildShadeRamps() {
             });
         })(p, paletteKeys[p]);
 
-        // H — rainbow gradient bar (visual) above fader with label
-        var hGradId = rampId + "-h-grad";
-        createCanvas(hGradId, editorId);
-        setFlex(hGradId, "height", 14);
-        setBorder(hGradId, APP_BORDER, 0, 7);
-        var hGradW = 260;
-        for (var hg = 0; hg < 60; hg++) {
-            canvasRect(hGradId, (hg / 60) * hGradW, 0, (hGradW / 60) + 1, 14, OklchEngine.oklchToHex(0.65, 0.25, (hg / 60) * 360));
-        }
+        // H — hue slider with inline gradient track
         var hRowId = rampId + "-h-row";
         createRow(hRowId, editorId);
-        setFlex(hRowId, "height", 18);
+        setFlex(hRowId, "height", 20);
         setFlex(hRowId, "gap", 4);
         setFlex(hRowId, "align_items", "center");
         createLabel(rampId + "-h-lbl", "H", hRowId);
@@ -1070,16 +1167,13 @@ function buildShadeRamps() {
         setFlex(rampId + "-h-lbl", "width", 12);
         createFader(rampId + "-h-fdr", "horizontal", hRowId);
         setFlex(rampId + "-h-fdr", "flex_grow", 1);
-        setFlex(rampId + "-h-fdr", "height", 14);
+        setFlex(rampId + "-h-fdr", "height", 18);
+        setWidgetShader(rampId + "-h-fdr", buildPaletteHueSliderShader());
 
-        // C — chroma gradient bar (visual) above fader with label
-        var cGradId = rampId + "-c-grad";
-        createCanvas(cGradId, editorId);
-        setFlex(cGradId, "height", 14);
-        setBorder(cGradId, APP_BORDER, 0, 7);
+        // C — chroma slider with inline gradient track
         var cRowId = rampId + "-c-row";
         createRow(cRowId, editorId);
-        setFlex(cRowId, "height", 18);
+        setFlex(cRowId, "height", 20);
         setFlex(cRowId, "gap", 4);
         setFlex(cRowId, "align_items", "center");
         createLabel(rampId + "-c-lbl", "C", cRowId);
@@ -1087,7 +1181,8 @@ function buildShadeRamps() {
         setFlex(rampId + "-c-lbl", "width", 12);
         createFader(rampId + "-c-fdr", "horizontal", cRowId);
         setFlex(rampId + "-c-fdr", "flex_grow", 1);
-        setFlex(rampId + "-c-fdr", "height", 14);
+        setFlex(rampId + "-c-fdr", "height", 18);
+        setWidgetShader(rampId + "-c-fdr", buildPaletteChromaSliderShader(OklchEngine.hexToOklch(ramp[500].hex).H));
 
         // Color value format selector + value fields
         var valuesRowId = rampId + "-values";
@@ -1183,7 +1278,7 @@ function buildShadeRamps() {
             var base = ramp[500];
             var oklch = OklchEngine.hexToOklch(base.hex);
             renderPaletteGamut(p, oklch.H, oklch.L, oklch.C);
-            renderChromaGradient(p, oklch.H);
+            applyPaletteSliderShaders(p, oklch.H);
             setValue(rampId + "-h-fdr", oklch.H / 360);
             setValue(rampId + "-c-fdr", Math.min(oklch.C / 0.4, 1));
             updatePaletteValueDisplay(p, oklch, base.hex);
@@ -1210,7 +1305,7 @@ function buildShadeRamps() {
                     var base = pal[pKey][500];
                     var oklch = OklchEngine.hexToOklch(base.hex);
                     renderPaletteGamut(idx, oklch.H, oklch.L, oklch.C);
-                    renderChromaGradient(idx, oklch.H);
+                    applyPaletteSliderShaders(idx, oklch.H);
                     setValue("ramp-" + idx + "-h-fdr", oklch.H / 360);
                     setValue("ramp-" + idx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                     updatePaletteValueDisplay(idx, oklch, base.hex);
@@ -1235,7 +1330,7 @@ function buildShadeRamps() {
                         expandedPalette = paletteIdx;
                         applyPaletteExpandedLayout(paletteIdx, true);
                         renderPaletteGamut(paletteIdx, oklch.H, oklch.L, oklch.C);
-                        renderChromaGradient(paletteIdx, oklch.H);
+                        applyPaletteSliderShaders(paletteIdx, oklch.H);
                         setValue("ramp-" + paletteIdx + "-h-fdr", oklch.H / 360);
                         setValue("ramp-" + paletteIdx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                         updatePaletteValueDisplay(paletteIdx, oklch, shade.hex);
@@ -1254,7 +1349,7 @@ function buildShadeRamps() {
                 var mapped = OklchEngine.gamutMap(0.55, c, h);
                 // Redraw gamut with dot + update C gradient for new hue
                 renderPaletteGamut(idx, h, mapped.L, mapped.C);
-                renderChromaGradient(idx, h);
+                applyPaletteSliderShaders(idx, h);
                 updatePaletteValueDisplay(idx, mapped, OklchEngine.oklchToHex(mapped.L, mapped.C, h));
                 // Update the palette base color
                 if (pKey === "accent") {

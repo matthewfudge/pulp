@@ -617,24 +617,36 @@ TEST_CASE("Design tool: palette rows keep mini ramps when collapsed and gamut ed
     auto* mini_ramp = bridge.widget("ramp-0-row");
     auto* first_swatch = bridge.widget("ramp-0-s0");
     auto* editor = bridge.widget("ramp-0-editor");
+    auto* hue_fader = dynamic_cast<Fader*>(bridge.widget("ramp-0-h-fdr"));
+    auto* chroma_fader = dynamic_cast<Fader*>(bridge.widget("ramp-0-c-fdr"));
     REQUIRE(mini_ramp != nullptr);
     REQUIRE(first_swatch != nullptr);
     REQUIRE(editor != nullptr);
+    REQUIRE(hue_fader != nullptr);
+    REQUIRE(chroma_fader != nullptr);
 
     REQUIRE(mini_ramp->bounds().width > 80.0f);
     REQUIRE(first_swatch->bounds().width > 6.0f);
     REQUIRE_FALSE(editor->visible());
+    REQUIRE(bridge.widget("ramp-0-h-grad") == nullptr);
+    REQUIRE(bridge.widget("ramp-0-c-grad") == nullptr);
 
     engine.evaluate("expandedPalette = 0; buildShadeRamps(); layout();");
     root.layout_children();
 
     auto* expanded_editor = bridge.widget("ramp-0-editor");
     auto* gamut = bridge.widget("ramp-0-gamut");
+    auto* rebuilt_hue_fader = dynamic_cast<Fader*>(bridge.widget("ramp-0-h-fdr"));
+    auto* rebuilt_chroma_fader = dynamic_cast<Fader*>(bridge.widget("ramp-0-c-fdr"));
     REQUIRE(expanded_editor != nullptr);
     REQUIRE(gamut != nullptr);
+    REQUIRE(rebuilt_hue_fader != nullptr);
+    REQUIRE(rebuilt_chroma_fader != nullptr);
     REQUIRE(expanded_editor->visible());
     REQUIRE(expanded_editor->bounds().height > 250.0f);
     REQUIRE_THAT(gamut->bounds().height, Catch::Matchers::WithinAbs(130.0f, 2.0f));
+    REQUIRE_FALSE(rebuilt_hue_fader->custom_shader().empty());
+    REQUIRE_FALSE(rebuilt_chroma_fader->custom_shader().empty());
 }
 
 TEST_CASE("Design tool: expanded palette exposes color format values and compact shade chips", "[design-tool]") {
