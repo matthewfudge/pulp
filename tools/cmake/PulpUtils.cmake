@@ -203,6 +203,8 @@ function(_pulp_add_vst3 target name bundle_id version manufacturer category)
         BUNDLE TRUE
         BUNDLE_EXTENSION "vst3"
         OUTPUT_NAME "${name}"
+        ARCHIVE_OUTPUT_NAME "${name}_vst3"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/VST3-import"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/VST3"
     )
 
@@ -261,6 +263,8 @@ function(_pulp_add_clap target name bundle_id version manufacturer category)
 
     set_target_properties(${target}_CLAP PROPERTIES
         OUTPUT_NAME "${name}"
+        ARCHIVE_OUTPUT_NAME "${name}_clap"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/CLAP-import"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/CLAP"
         PREFIX ""
         SUFFIX ".clap"
