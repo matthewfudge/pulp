@@ -132,7 +132,7 @@ Key headers: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`, `pulp/state/bin
 | Flex layout (full CSS Flexbox L1) | usable | [view](modules.md#view) | [web-compat](../guides/web-compat.md) |
 | Grid layout (CSS Grid L1 — templates, fr, gaps) | usable | [view](modules.md#view) | |
 | Theme system (color/dimension tokens, inheritance) | usable | [view](modules.md#view) | [design-tokens](../guides/design-tokens.md) |
-| JS scripting (QuickJS, 84 bridge functions) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
+| JS scripting (QuickJS only today; abstraction seam exists) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
 | Hot reload | usable | [view](modules.md#view) | |
 | Screenshot capture (headless PNG) | usable | [view](modules.md#view) | |
 | Component inspector | usable | [view](modules.md#view) | |
@@ -283,8 +283,8 @@ The `pulp` CLI wraps common development workflows.
 |---|---|---|
 | `pulp build` (configure + build) | usable | [cli](cli.md) |
 | `pulp test` (run test suite) | usable | [cli](cli.md) |
-| `pulp validate` (auval, pluginval, clap-validator — when installed locally) | usable | [cli](cli.md) |
-| `pulp status` (show project info, test list) | usable | [cli](cli.md) |
+| `pulp validate` (auval, clap-validator — CLAP and AU only; pluginval not yet in CLI) | usable | [cli](cli.md) |
+| `pulp status` (show project info, build state, source counts) | usable | [cli](cli.md) |
 | `pulp clean` (remove build directory) | usable | [cli](cli.md) |
 | `pulp ship sign` | usable | [cli](cli.md) |
 | `pulp ship package` | usable | [cli](cli.md) |
@@ -297,6 +297,11 @@ The `pulp` CLI wraps common development workflows.
 | `pulp inspect` (component inspector) | usable | [cli](cli.md) |
 | `pulp audit` (dependency license check) | usable | [cli](cli.md) |
 | `pulp add` (add dependency) | usable | [cli](cli.md) |
+| `pulp cache` (build cache management) | usable | [cli](cli.md) |
+| `pulp design` (interactive AI design tool) | experimental | [cli](cli.md) |
+| `pulp design-debug` (design debug harness) | experimental | [cli](cli.md) |
+| `pulp import-design` (import from external design tools) | experimental | [cli](cli.md) |
+| `pulp export-tokens` (export design tokens) | experimental | [cli](cli.md) |
 | `pulp ci-local` (local CI runner — Mac + VM validation) | experimental | [local-ci](../guides/local-ci.md) |
 
 ---

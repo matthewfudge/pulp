@@ -14,10 +14,10 @@ See the [Vision](vision.html) page for the full architecture, design decisions, 
 
 On the current branch, Pulp provides:
 
-- **Six native plugin formats** — VST3, AU v2, AUv3, CLAP, LV2, and standalone — with format-specific validation tests (pluginval and auval available for local use, not yet in CI)
+- **Six native plugin formats** — VST3, AU v2, AUv3, CLAP, LV2, and standalone — with format-specific validation in CI (pluginval for VST3, clap-validator for CLAP, auval for AU with signing caveats)
 - **Two web plugin formats** — WAMv2 (Web Audio Modules) and WebCLAP (CLAP-to-WebAssembly) for browser-based DAWs
 - **Effects, instruments, and MIDI effects** — all plugin types supported across formats
-- **Three platforms** — macOS (primary), Windows (WASAPI, Win32 MIDI, NSIS installer), Linux (ALSA, JACK, LV2, .deb packaging)
+- **Three desktop platforms** — macOS (primary), Windows (WASAPI, Win32 MIDI, NSIS installer), Linux (ALSA, JACK, LV2, .deb packaging) — plus experimental iOS (AVAudioSession, AUv3, Metal) and Web/WASM support
 - **A thread-safe parameter system** — atomic values, normalization, modulation offsets, state serialization, undo/redo
 - **Audio I/O** — CoreAudio (macOS), WASAPI (Windows), ALSA + JACK (Linux), Web Audio API (browser)
 - **MIDI I/O** — CoreMIDI (macOS), Win32 MIDI (Windows), ALSA Raw MIDI (Linux), Web MIDI API (browser)
@@ -30,7 +30,7 @@ On the current branch, Pulp provides:
 - **Plugin hosting** — PluginScanner, PluginSlot, and SignalGraph for building DAW-like applications
 - **OSC support** — Open Sound Control 1.0 sender/receiver over UDP
 - **Identity system** — UUIDv4 with typed wrappers (SessionId, RunId, ObjectId, CorrelationId) for AI workflows
-- **WebView embedding** — CHOC WebView for Monaco editors, docs panels, custom web UIs
+- **WebView embedding** (optional, off by default) — CHOC-based WebView panel for Monaco editors, docs panels, custom web UIs
 - **Headless processing** — test and batch-process plugins without a DAW
 - **A CLI tool** — `pulp build`, `pulp test`, `pulp validate`, `pulp create`, `pulp inspect`, `pulp audit`, `pulp ship`, `pulp status`, `pulp clean`, `pulp docs`
 - **Code signing and packaging** — codesign, notarization, DMG/PKG (macOS), NSIS (Windows), .deb/.tar.gz (Linux), appcast
@@ -38,8 +38,8 @@ On the current branch, Pulp provides:
 - **MCP server** — AI agent parameter control, screenshot capture, view introspection
 - **Accessibility** — NSAccessibility (macOS), UI Automation stubs (Windows), AT-SPI stubs (Linux)
 - **A browser test host** — HTML/JS app for loading and interacting with WASM-compiled plugins
-- **Eight plugin examples** — PulpGain, PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, PulpPluck — plus GPU Demo, UI Preview, and Web Demos
-- **1331 automated tests** — unit tests, golden-file audio tests, format validation, UI component tests, DSP tests
+- **Eight plugin examples** — PulpGain, PulpTone, PulpEffect, PulpCompressor, PulpSynth, PulpDrums, PulpSampler, PulpPluck — plus GPU Demo, UI Preview, Design Tool, Showcase, and Web Demos
+- **Automated tests** — unit tests, golden-file audio tests, format validation, UI component tests, DSP tests
 
 ## How It Is Organized
 
@@ -68,11 +68,11 @@ Supporting directories:
 | `tools/`    | CLI, CMake modules, build utilities, browser host |
 | `test/`     | Test framework and harnesses |
 | `ship/`     | Code signing, notarization, packaging, appcast |
-| `examples/` | Eleven example plugins and demos |
+| `examples/` | Fourteen example plugins and demos |
 | `external/` | Third-party dependencies |
 | `apple/`    | Swift subsystems (Apple only) |
 | `docs/`     | Documentation and YAML manifests |
-| `ci/`       | GitHub Actions workflows |
+| `ci/`       | CI helper scripts (main workflows in `.github/workflows/`) |
 
 ## Five Principles
 

@@ -5,6 +5,11 @@ add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
 add_test(NAME build-check COMMAND pulp-test-build-check)
 
+# Validation contract tests (Phase 1 — schema and reality snapshot)
+add_executable(pulp-test-validation-contract test_validation_contract.cpp)
+target_link_libraries(pulp-test-validation-contract PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-validation-contract)
+
 # Appcast/auto-update tests
 add_executable(pulp-test-appcast test_appcast.cpp)
 target_link_libraries(pulp-test-appcast PRIVATE pulp::ship Catch2::Catch2WithMain)
