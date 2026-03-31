@@ -318,9 +318,9 @@ int main(int argc, char* argv[]) {
     ScriptEngine engine;
     WidgetBridge bridge(engine, root, store);
     if (!opts.ai_cli.empty()) {
-        bridge.set_ai_cli_command(opts.ai_cli);
+        engine.invoke("setAICli", opts.ai_cli);
     } else if (const char* ai_cli = std::getenv("PULP_AI_CLI")) {
-        bridge.set_ai_cli_command(ai_cli);
+        engine.invoke("setAICli", ai_cli);
     }
 
     try {

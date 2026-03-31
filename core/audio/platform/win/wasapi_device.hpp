@@ -34,10 +34,12 @@ public:
     double sample_rate() const override { return config_.sample_rate; }
     int buffer_size() const override { return config_.buffer_size; }
 
-private:
-    void render_thread_func();
+    // Shared helpers used by WasapiSystem during device enumeration.
     static std::wstring get_device_name(IMMDevice* device);
     static std::string wide_to_utf8(const std::wstring& wide);
+
+private:
+    void render_thread_func();
 
     IMMDevice* device_ = nullptr;
     IAudioClient* audio_client_ = nullptr;

@@ -5,6 +5,7 @@
 ```bash
 pulp test                    # Run all tests
 ctest --test-dir build       # Equivalent, direct CTest
+./validate-build.sh          # Detached clean worktree configure/build/test
 ```
 
 Filter tests by name:
@@ -14,6 +15,11 @@ pulp test -R Gain            # Tests matching "Gain"
 pulp test -R "golden"        # Golden-file audio tests
 ctest --test-dir build -R clap-dlopen   # CLAP load tests
 ```
+
+Use `./validate-build.sh --quiet` when you want a CI-like outer loop that ignores
+incremental build state and only prints logs on failure. This is the quickest way
+to catch clean-build drift, missing setup dependencies, and docs/test-count issues
+before opening a PR.
 
 ## Test Count
 

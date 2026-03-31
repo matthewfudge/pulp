@@ -11,6 +11,8 @@ DOCS="$ROOT/docs"
 STATUS="$DOCS/status"
 ERRORS=0
 WARNINGS=0
+actual_count=""
+readme_count=""
 
 red()    { printf '\033[1;31m%s\033[0m\n' "$1"; }
 yellow() { printf '\033[1;33m%s\033[0m\n' "$1"; }

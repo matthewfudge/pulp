@@ -5,6 +5,7 @@
 # Usage:
 #   ./setup.sh              # Interactive setup
 #   ./setup.sh --ci         # Non-interactive (CI/automation)
+#   ./setup.sh --deps-only  # Bootstrap dependencies without configuring/building
 #   ./setup.sh --dry-run    # Show what would be done without doing it
 
 set -e
@@ -14,17 +15,20 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY_RUN=false
 CI_MODE=false
+DEPS_ONLY=false
 ERRORS=0
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
         --ci)      CI_MODE=true ;;
+        --deps-only) DEPS_ONLY=true ;;
         --help|-h)
-            echo "Usage: ./setup.sh [--ci] [--dry-run]"
+            echo "Usage: ./setup.sh [--ci] [--deps-only] [--dry-run]"
             echo ""
             echo "Options:"
             echo "  --ci        Non-interactive mode for CI/automation"
+            echo "  --deps-only Bootstrap external dependencies and stop before configure/build"
             echo "  --dry-run   Show what would be done without doing it"
             exit 0
             ;;
@@ -227,6 +231,16 @@ if [ "$PLATFORM" = "Linux" ]; then
         fail "ALSA dev headers not found"
         echo "    Fix: sudo apt install libasound2-dev"
     fi
+
+    # SDL3 pulls in desktop windowing backends on Linux. CI and first-time
+    # contributors hit configure failures if the X11/Wayland development
+    # headers are missing, so surface that early with a targeted fix hint.
+    for pkg in x11 xext xrandr xrender xfixes xi xkbcommon wayland-client egl gbm drm; do
+        if ! pkg-config --exists "$pkg" 2>/dev/null; then
+            warn "Missing Linux desktop dependency: $pkg"
+        fi
+    done
+    echo "    Common Ubuntu fix: sudo apt install libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxinerama-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libgbm-dev libdrm-dev libdbus-1-dev"
 fi
 
 # ── Summary before build ───────────────────────────────────────────────────
@@ -242,6 +256,13 @@ if $DRY_RUN; then
     echo ""
     echo "Dry run complete. No changes were made."
     echo "Run ./setup.sh without --dry-run to execute."
+    exit 0
+fi
+
+if $DEPS_ONLY; then
+    step "Dependency bootstrap complete"
+    echo ""
+    echo "  Dependencies are ready. Skipping configure/build because --deps-only was requested."
     exit 0
 fi
 

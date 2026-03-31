@@ -1,6 +1,8 @@
 add_library(pulp-view)
 add_library(pulp::view ALIAS pulp-view)
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 # ── Embed JS preludes as C++ string constants ────────────────────────────────
 set(PULP_JS_PRELUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/js/css-colors.js
@@ -14,16 +16,11 @@ set(PULP_JS_EMBEDDED_HEADER ${CMAKE_CURRENT_BINARY_DIR}/web_compat_preludes_gen.
 
 add_custom_command(
     OUTPUT ${PULP_JS_EMBEDDED_HEADER}
-    COMMAND ${CMAKE_COMMAND}
-        -DFILE1=${CMAKE_CURRENT_SOURCE_DIR}/js/css-colors.js
-        -DFILE2=${CMAKE_CURRENT_SOURCE_DIR}/js/css-parser.js
-        -DFILE3=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
-        -DFILE4=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
-        -DFILE5=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
-        -DFILE6=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
-        -DOUTPUT_FILE=${PULP_JS_EMBEDDED_HEADER}
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.cmake
-    DEPENDS ${PULP_JS_PRELUDES} ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.cmake
+    COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.py
+        ${PULP_JS_EMBEDDED_HEADER}
+        ${PULP_JS_PRELUDES}
+    DEPENDS ${PULP_JS_PRELUDES} ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.py
     COMMENT "Embedding JS preludes into C++ header"
 )
 add_custom_target(pulp-view-js-preludes DEPENDS ${PULP_JS_EMBEDDED_HEADER})
@@ -77,6 +74,13 @@ target_include_directories(pulp-view PUBLIC
 add_dependencies(pulp-view pulp-view-js-preludes)
 
 target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state)
+
+if(WIN32)
+    target_compile_definitions(pulp-view PRIVATE
+        popen=_popen
+        pclose=_pclose
+    )
+endif()
 
 # Yoga layout engine (MIT)
 if(PULP_HAS_YOGA)

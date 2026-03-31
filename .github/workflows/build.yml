@@ -23,27 +23,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y \
+            libasound2-dev \
+            libdbus-1-dev \
+            libdrm-dev \
+            libegl1-mesa-dev \
+            libgbm-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxss-dev \
+            libxtst-dev \
+            libwayland-dev \
+            wayland-protocols
 
-      - name: Clone VST3 SDK
-        run: |
-          git clone --depth 1 --branch v3.7.12 \
-            https://github.com/steinbergmedia/vst3sdk.git \
-            external/vst3sdk
-          cd external/vst3sdk && git submodule update --init --recursive --depth 1
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
         shell: bash
-
-      - name: Clone AudioUnitSDK (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          git clone --depth 1 \
-            https://github.com/apple/AudioUnitSDK.git \
-            external/AudioUnitSDK
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

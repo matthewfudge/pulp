@@ -12,19 +12,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
-      - name: Clone VST3 SDK
-        run: |
-          git clone --depth 1 --branch v3.7.12 \
-            https://github.com/steinbergmedia/vst3sdk.git \
-            external/vst3sdk
-          cd external/vst3sdk && git submodule update --init --recursive --depth 1
-
-      - name: Clone AudioUnitSDK
-        run: |
-          git clone --depth 1 \
-            https://github.com/apple/AudioUnitSDK.git \
-            external/AudioUnitSDK
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
 
       - name: Install pluginval
         run: |
