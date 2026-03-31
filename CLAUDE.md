@@ -189,12 +189,12 @@ Planning docs live in `planning/` locally. When a phase completes, its spec move
 
 - **`main`** — always clean, always builds, always passes tests. Every commit on main should be something we're proud of.
 - **`explore/*`** — exploration branches for prototyping uncertain ideas. Created in worktrees. Never merged directly to main.
-- **`phase/*`** — implementation branches for planned work. Created from specs. Merged to main via PR when validated.
-- **`fix/*`** — bug fixes, small improvements.
+- **`feature/*`** — the default branch for non-trivial implementation work. Use this for focused features, fixes, and polish slices.
+- **`phase/*`** — optional name for a larger, spec-driven feature branch tied to a concrete planning document. This is a special case of feature work, not a separate workflow.
 
 ### Default Branch Discipline
 
-- Default to a branch for any non-trivial change. Use `fix/*` for focused repairs and `phase/*` for planned feature work.
+- Default to a branch for any non-trivial change. Use `feature/*` unless the work is large enough to deserve a spec-driven `phase/*` branch.
 - Treat `main` as a landing branch, not a scratch branch.
 - Direct commits on `main` are reserved for very small, low-risk changes that have already been validated locally.
 - Before merging to `main`, have high confidence the slice is stable: targeted tests pass, higher-risk changes get a clean detached validation pass with `./validate-build.sh`, and docs/status stay in sync.
@@ -204,7 +204,7 @@ Planning docs live in `planning/` locally. When a phase completes, its spec move
 
 1. **Explore** — create a worktree on `explore/topic`. Prototype freely. Use ralph-loop for iterative development. Break things. Learn.
 2. **Validate** — when the exploration proves out, write a spec (in `planning/`). Define acceptance criteria. Write tests.
-3. **Plan** — create `phase/name` branch from main. Implement against the spec. Follow the spec, don't freestyle.
+3. **Plan** — create `feature/name` from main for ordinary implementation, or `phase/name` if the work is large and tied to a planning doc. Implement against the spec when one exists. Follow the spec, don't freestyle.
 4. **Test** — all tests pass, all validation criteria met, code reviewed.
 5. **Land** — PR to main. Squash or rebase for clean history. Delete the worktree.
 
