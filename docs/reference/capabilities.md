@@ -297,6 +297,7 @@ The `pulp` CLI wraps common development workflows.
 | `pulp inspect` (component inspector) | usable | [cli](cli.md) |
 | `pulp audit` (dependency license check) | usable | [cli](cli.md) |
 | `pulp add` (add dependency) | usable | [cli](cli.md) |
+| `pulp ci-local` (local CI runner — Mac + VM validation) | experimental | [local-ci](../guides/local-ci.md) |
 
 ---
 

@@ -1,8 +1,9 @@
 name: Sanitizer Tests
 
 on:
-  pull_request:
-    branches: [main, develop]
+  # Uncomment to re-enable cloud CI on pull requests:
+  # pull_request:
+  #   branches: [main, develop]
   workflow_dispatch:
 
 jobs:

@@ -81,6 +81,12 @@ Use the normal incremental `build/` loop for most work, but periodically run a c
 - Keep `DEPENDENCIES.md` and `NOTICE.md` in sync with the manifest whenever dependency inventory changes.
 - For FetchContent dependencies, prefer exact tags or commits over floating branches on stable lanes. If a dependency is intentionally floating, call that out explicitly in the manifest and docs.
 
+When asked to "check for dependency updates" or "update pinned binaries", use this sequence:
+1. Run `python3 tools/deps/audit.py --strict --check-upstream --format markdown` to identify drift.
+2. Bump only the chosen dependency pins on a branch, and update `tools/deps/manifest.json` plus any affected docs/notices in the same change.
+3. Run `python3 tools/deps/validate_hosts.py` and any risk-appropriate local tests before proposing a merge to `main`.
+4. Merge only after the updated pins and validation results are explicitly summarized.
+
 ---
 
 ## Architecture
@@ -522,3 +528,35 @@ RepoPrompt is available globally as an MCP server.
 - AI tools are collaborators, not autopilots. Review all generated code.
 - Tests validate AI output. Don't trust, verify.
 - When AI suggests a name that matches JUCE naming, reject it and pick an original name.
+
+---
+
+## Shared Agent Skills
+
+Skills live in `.agents/skills/` and are read by both Claude Code and Codex CLI. This is the single source of truth — do not duplicate skills into `.claude/skills/` or `.codex/skills/`.
+
+### Skill Versioning
+
+Skills are committed with the code. A skill must never reference CLI commands, scripts, or features that don't exist at the same commit. If a skill depends on a script, list it in the `requires` frontmatter and check for its existence before running.
+
+### Self-Enhancement
+
+When you create a new repeatable workflow, CLI command, or multi-step pattern that would benefit other sessions or agents, check if it should become a skill:
+
+1. **Is it repeatable?** If you'd do the same steps again next time, it's a skill.
+2. **Is it project-specific?** Put it in `.agents/skills/`. Global personal skills go in `~/.codex/skills/` or `~/.claude/skills/` instead.
+3. **Create or update** the SKILL.md with name, description, and clear step-by-step instructions.
+4. **Don't over-skill** — simple one-off tasks don't need a skill. The bar is "would this save time on the third occurrence?"
+
+When updating existing skills, preserve backward compatibility — don't remove commands that older checkouts might still need. Add new capabilities alongside existing ones.
+
+### Current Skills
+
+| Skill | Location | Purpose |
+|-------|----------|---------|
+| `ci` | `.agents/skills/ci/` | PR creation, local/cloud CI, merge workflow |
+| `import-design` | `.agents/skills/import-design/` | Import from Figma/Stitch/v0/Pencil |
+
+### CI Workflow
+
+Never push directly to main. Use `pulp ci ship` or the CI skill to create a PR, run validation, and merge on green. See `docs/guides/local-ci.md` for setup.

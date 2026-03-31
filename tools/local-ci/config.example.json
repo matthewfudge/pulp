@@ -6,20 +6,21 @@
     },
     "ubuntu": {
       "type": "ssh",
-      "host": "ubuntu",
-      "repo_path": "/home/daniel/Code/pulp-validate",
+      "host": "<your-ubuntu-ssh-host>",
+      "repo_path": "/home/<username>/Code/pulp-validate",
       "utm_fallback": {
-        "vm_name": "Ubuntu 24.04 desktop",
+        "vm_name": "<UTM VM name for Ubuntu>",
         "boot_wait_secs": 30,
         "ssh_retry_secs": 60
       }
     },
     "windows": {
       "type": "ssh",
-      "host": "win2",
-      "repo_path": "C:\\Users\\danielraffel\\pulp-validate",
+      "host": "<your-windows-ssh-host>",
+      "fallback_host": "<optional-secondary-host>",
+      "repo_path": "C:\\Users\\<username>\\pulp-validate",
       "utm_fallback": {
-        "vm_name": "Windows",
+        "vm_name": "<UTM VM name for Windows>",
         "boot_wait_secs": 60,
         "ssh_retry_secs": 120
       }
@@ -28,7 +29,6 @@
   "defaults": {
     "ssh_timeout_secs": 5,
     "max_retries": 3,
-    "retry_delay_secs": 30,
-    "smoke_tested": "2026-03-31"
+    "retry_delay_secs": 30
   }
 }

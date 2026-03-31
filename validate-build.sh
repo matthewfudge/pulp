@@ -8,6 +8,7 @@ QUIET=true
 SKIP_TESTS=false
 KEEP_WORKTREE=false
 REF="HEAD"
+EXCLUDE_REGEX=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -15,6 +16,13 @@ while [ $# -gt 0 ]; do
         --verbose) QUIET=false ;;
         --no-tests) SKIP_TESTS=true ;;
         --keep-worktree) KEEP_WORKTREE=true ;;
+        --exclude-regex)
+            shift
+            EXCLUDE_REGEX="${1:-}"
+            ;;
+        --exclude-regex=*)
+            EXCLUDE_REGEX="${1#--exclude-regex=}"
+            ;;
         --ref)
             shift
             REF="${1:-HEAD}"
@@ -24,7 +32,7 @@ while [ $# -gt 0 ]; do
             ;;
         --help|-h)
             cat <<'EOF'
-Usage: ./validate-build.sh [--quiet] [--verbose] [--no-tests] [--keep-worktree] [--ref <git-ref>]
+Usage: ./validate-build.sh [--quiet] [--verbose] [--no-tests] [--keep-worktree] [--ref <git-ref>] [--exclude-regex <pattern>]
 
 Creates a detached clean worktree at the requested git ref (default: current HEAD),
 bootstraps dependencies, configures, builds, installs, and optionally runs tests. Output is quiet on success
@@ -97,7 +105,11 @@ run_or_dump "install smoke test" "$smoke_log" \
     cmake -S "$smoke_dir" -B "$smoke_dir/build" -DCMAKE_PREFIX_PATH="$install_dir"
 
 if [ "$SKIP_TESTS" = false ]; then
-    run_or_dump "test" "$test_log" ctest --test-dir "$build_dir" --output-on-failure
+    ctest_args=(--test-dir "$build_dir" --output-on-failure)
+    if [ -n "$EXCLUDE_REGEX" ]; then
+        ctest_args+=(--exclude-regex "$EXCLUDE_REGEX")
+    fi
+    run_or_dump "test" "$test_log" ctest "${ctest_args[@]}"
 fi
 
 if ! $QUIET; then

@@ -318,6 +318,7 @@ commands:
         summary: Enqueue and drain immediately
       - name: status
         summary: Show queue, recent results, and VM status
+    docs: guides/local-ci.md
 
   - name: help
     status: usable

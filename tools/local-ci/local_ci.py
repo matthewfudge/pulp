@@ -104,16 +104,26 @@ def ensure_host_reachable(target_name: str, target_cfg: dict, defaults: dict) ->
     """Ensure a target host is reachable, starting UTM VM if needed.
 
     Returns the SSH host to use, or None if unreachable.
+    Tries: primary host → fallback_host → UTM VM start → poll primary host.
     """
     host = target_cfg["host"]
+    fallback_host = target_cfg.get("fallback_host")
     timeout = defaults.get("ssh_timeout_secs", 5)
 
+    # Try primary host first (e.g. local UTM VM)
     print(f"  [{target_name}] Checking ssh {host}...")
     if ssh_reachable(host, timeout):
         print(f"  [{target_name}] {host} is up")
         return host
 
-    # Primary host unreachable — try UTM fallback
+    # Try fallback host (e.g. Proxmox via Tailscale)
+    if fallback_host:
+        print(f"  [{target_name}] {host} unreachable, trying fallback ssh {fallback_host}...")
+        if ssh_reachable(fallback_host, timeout):
+            print(f"  [{target_name}] {fallback_host} is up")
+            return fallback_host
+
+    # Both SSH hosts unreachable — try UTM fallback
     fallback = target_cfg.get("utm_fallback")
     if not fallback:
         print(f"  [{target_name}] {host} unreachable, no UTM fallback configured")
@@ -154,14 +164,18 @@ def ensure_host_reachable(target_name: str, target_cfg: dict, defaults: dict) ->
 
 # ── Validation Runners ───────────────────────────────────────────────────────
 
-def run_local_validation(branch: str) -> dict:
+def run_local_validation(branch: str, exclude_tests: str = "") -> dict:
     """Run validate-build.sh locally."""
     print(f"  [mac] Running local validation on {branch}...")
     start = time.time()
 
+    cmd = ["./validate-build.sh", "--quiet"]
+    if exclude_tests:
+        cmd += ["--exclude-regex", exclude_tests]
+
     result = subprocess.run(
-        ["./validate-build.sh", "--quiet"],
-        cwd=ROOT, capture_output=True, text=True, timeout=600,
+        cmd,
+        cwd=ROOT, capture_output=True, text=True, timeout=1800,  # 30 min
     )
 
     elapsed = round(time.time() - start, 1)
@@ -176,44 +190,48 @@ def run_local_validation(branch: str) -> dict:
 
 
 def run_ssh_validation(target_name: str, host: str, repo_path: str,
-                       branch: str, is_windows: bool = False) -> dict:
+                       branch: str, is_windows: bool = False,
+                       exclude_tests: str = "") -> dict:
     """Run validation on a remote host over SSH."""
     print(f"  [{target_name}] Running validation on {host}:{repo_path}...")
     start = time.time()
 
     if is_windows:
-        # Windows: use PowerShell to cd, fetch, checkout, build, test
-        repo_q = repo_path.replace("'", "''")
-        branch_q = branch.replace("'", "''")
+        # Windows: cmake finds MSVC via VS registry automatically
         remote_cmd = (
-            f"cd '{repo_q}'; "
-            f"git fetch origin; "
-            f"git checkout '{branch_q}' 2>$null; "
-            f"if (-not $?) {{ git checkout -b '{branch_q}' --track origin/'{branch_q}' }}; "
-            f"git pull --ff-only origin '{branch_q}'; "
-            f"cmake -S . -B build -DCMAKE_BUILD_TYPE=Release; "
-            f"cmake --build build --config Release; "
-            f"ctest --test-dir build --output-on-failure"
+            f"cd /d {repo_path} && "
+            f"git fetch origin && "
+            f"(git checkout {branch} 2>nul || git checkout -b {branch} origin/{branch}) && "
+            f"git reset --hard origin/{branch} && "
+            f"cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && "
+            f"cmake --build build --config Release && "
+            f"ctest --test-dir build --output-on-failure -C Release"
+            + (f" --exclude-regex \"{exclude_tests}\"" if exclude_tests else "")
         )
-        cmd = ["ssh", host, "powershell", "-Command", remote_cmd]
+        cmd = ["ssh", host, f'cmd /c "{remote_cmd}"']
     else:
         # Unix: use validate-build.sh
         repo_q = shlex.quote(repo_path)
         branch_q = shlex.quote(branch)
         remote_cmd = (
             f"set -e; "
+            f"export GIT_LFS_SKIP_SMUDGE=1; "
             f"cd {repo_q}; "
             f"git fetch origin; "
-            f"git checkout {branch_q} 2>/dev/null || "
-            f"git checkout -b {branch_q} --track origin/{branch_q}; "
-            f"git pull --ff-only origin {branch_q}; "
+            f"if git show-ref --verify --quiet refs/heads/{branch_q}; then "
+            f"git checkout {branch_q}; "
+            f"else "
+            f"git checkout -b {branch_q} origin/{branch_q}; "
+            f"fi; "
+            f"git reset --hard origin/{branch_q}; "
             f"./validate-build.sh --quiet"
+            + (f" --exclude-regex {shlex.quote(exclude_tests)}" if exclude_tests else "")
         )
         cmd = ["ssh", host, "bash", "-c", shlex.quote(remote_cmd)]
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600,
+            cmd, capture_output=True, text=True, timeout=1800,  # 30 min for full builds
         )
         elapsed = round(time.time() - start, 1)
         return {
@@ -249,15 +267,16 @@ def process_job(job: dict, config: dict) -> dict:
     # Mac (local)
     mac_cfg = targets.get("mac", {})
     if mac_cfg.get("enabled", True):
-        results.append(run_local_validation(branch))
+        results.append(run_local_validation(branch, mac_cfg.get("exclude_tests", "")))
 
     # Ubuntu
     ubuntu_cfg = targets.get("ubuntu")
-    if ubuntu_cfg:
+    if ubuntu_cfg and ubuntu_cfg.get("enabled", True):
         host = ensure_host_reachable("ubuntu", ubuntu_cfg, defaults)
         if host:
             results.append(run_ssh_validation(
-                "ubuntu", host, ubuntu_cfg["repo_path"], branch))
+                "ubuntu", host, ubuntu_cfg["repo_path"], branch,
+                exclude_tests=ubuntu_cfg.get("exclude_tests", "")))
         else:
             results.append({
                 "target": "ubuntu",
@@ -268,12 +287,13 @@ def process_job(job: dict, config: dict) -> dict:
 
     # Windows — try win2 (Proxmox) first, UTM fallback
     win_cfg = targets.get("windows")
-    if win_cfg:
+    if win_cfg and win_cfg.get("enabled", True):
         host = ensure_host_reachable("windows", win_cfg, defaults)
         if host:
             results.append(run_ssh_validation(
                 "windows", host, win_cfg["repo_path"], branch,
-                is_windows=True))
+                is_windows=True,
+                exclude_tests=win_cfg.get("exclude_tests", "")))
         else:
             results.append({
                 "target": "windows",
