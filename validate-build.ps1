@@ -122,9 +122,16 @@ function Import-VcVarsEnvironment {
 
     if (-not $BatchFile) { return }
 
-    $lines = & cmd.exe /d /c "call ""$BatchFile"" >nul && set"
-    if ($LASTEXITCODE -ne 0) {
-        throw "failed to import MSVC environment from $BatchFile"
+    $wrapper = Join-Path $env:TEMP ("pulp-vcvars-" + [Guid]::NewGuid().ToString("N") + ".cmd")
+    try {
+        $cmdLine = 'call "' + $BatchFile + '" >nul'
+        @("@echo off", $cmdLine, "set") | Set-Content -Path $wrapper -Encoding ASCII
+        $lines = & cmd.exe /d /c $wrapper
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to import MSVC environment from $BatchFile"
+        }
+    } finally {
+        Remove-Item -Force -ErrorAction SilentlyContinue $wrapper
     }
 
     foreach ($line in $lines) {
