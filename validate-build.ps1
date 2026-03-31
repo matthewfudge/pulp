@@ -49,8 +49,17 @@ function Run-OrDump {
         [scriptblock]$Action
     )
     try {
-        & $Action *> $LogFile
-        if ($LASTEXITCODE -ne 0) { throw "nonzero exit code" }
+        $previousPreference = $ErrorActionPreference
+        try {
+            # Windows PowerShell can surface normal stderr chatter from native tools
+            # (for example git clone progress) as NativeCommandError records. Judge
+            # these validation steps by process exit code instead of stderr noise.
+            $ErrorActionPreference = "Continue"
+            & $Action *> $LogFile
+            if ($LASTEXITCODE -ne 0) { throw "nonzero exit code" }
+        } finally {
+            $ErrorActionPreference = $previousPreference
+        }
     } catch {
         Write-Host ""
         Write-Host "Validation failed during: $Label"
