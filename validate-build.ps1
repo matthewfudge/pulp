@@ -14,7 +14,8 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$TempRoot = Join-Path $env:TEMP ("pulp-validate." + [Guid]::NewGuid().ToString("N"))
+$tempId = [Guid]::NewGuid().ToString("N").Substring(0, 8)
+$TempRoot = Join-Path $env:SystemDrive ("pv." + $tempId)
 $SrcDir = Join-Path $TempRoot "src"
 $BuildDir = Join-Path $TempRoot "build"
 $InstallDir = Join-Path $TempRoot "install"
