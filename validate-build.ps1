@@ -104,6 +104,16 @@ function Resolve-VcVars {
     return $null
 }
 
+function Convert-ToBashPath {
+    param([string]$PathValue)
+
+    $normalized = $PathValue -replace '\\', '/'
+    if ($normalized -match '^([A-Za-z]):/(.*)$') {
+        return "/" + $matches[1].ToLowerInvariant() + "/" + $matches[2]
+    }
+    return $normalized
+}
+
 function Import-VcVarsEnvironment {
     param([string]$BatchFile)
 
@@ -125,12 +135,13 @@ try {
     $BashExe = Resolve-Bash
     $VcVarsBat = Resolve-VcVars
     Import-VcVarsEnvironment -BatchFile $VcVarsBat
+    $SrcDirBash = Convert-ToBashPath -PathValue $SrcDir
     if (-not $Quiet) { Write-Host "Creating clean validation worktree..." }
     & cmd.exe /c "git -C `"$Root`" worktree add --detach `"$SrcDir`" `"$Ref`" >nul 2>nul"
     if ($LASTEXITCODE -ne 0) { throw "git worktree add failed" }
 
     Run-OrDump "dependency bootstrap" $SetupLog {
-        & $BashExe -lc "cd '$SrcDir' && ./setup.sh --ci --deps-only"
+        & $BashExe -lc "cd '$SrcDirBash' && ./setup.sh --ci --deps-only"
     }
 
     Run-OrDump "configure" $ConfigureLog {
