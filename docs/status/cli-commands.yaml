@@ -308,14 +308,20 @@ commands:
 
   - name: ci-local
     status: experimental
-    summary: Local CI runner — validates branches on Mac, Ubuntu, and Windows VMs.
+    summary: Local CI runner — validates branches on Mac, Ubuntu, and Windows VMs. Parallel execution.
     subcommands:
+      - name: run
+        summary: Validate branch immediately (parallel targets)
+      - name: ship
+        summary: Push, create PR, run CI, merge on green
+      - name: check
+        summary: Validate an existing PR by number, URL, or 'latest'
+      - name: list
+        summary: Show open PRs with summaries
       - name: enqueue
-        summary: Queue a branch for validation (default: current branch)
+        summary: Queue a branch for later drain
       - name: drain
         summary: Process all pending jobs (starts VMs if needed)
-      - name: run
-        summary: Enqueue and drain immediately
       - name: status
         summary: Show queue, recent results, and VM status
     docs: guides/local-ci.md
