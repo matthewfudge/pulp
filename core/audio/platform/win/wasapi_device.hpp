@@ -6,6 +6,10 @@
 #error "wasapi_device.hpp is Windows-only"
 #endif
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
