@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <atomic>
 
 namespace pulp::view {
 
@@ -20,6 +21,7 @@ namespace pulp::view {
 class WidgetBridge {
 public:
     WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& store);
+    ~WidgetBridge();
 
     // Load and execute a UI script
     void load_script(const std::string& code);
@@ -74,8 +76,10 @@ private:
         std::string callback_id;
         std::string output;
     };
-    std::mutex async_exec_mutex_;
-    std::vector<AsyncExecResult> async_exec_results_;
+    std::shared_ptr<std::atomic<bool>> callback_alive_ = std::make_shared<std::atomic<bool>>(true);
+    std::shared_ptr<std::mutex> async_exec_mutex_ = std::make_shared<std::mutex>();
+    std::shared_ptr<std::vector<AsyncExecResult>> async_exec_results_ =
+        std::make_shared<std::vector<AsyncExecResult>>();
     std::vector<int> pending_frame_ids_;
     bool dom_ops_loaded_ = false;
     bool frame_preamble_loaded_ = false;

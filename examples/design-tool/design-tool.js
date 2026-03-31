@@ -18,6 +18,7 @@ __requestFrame__ = function(fn) {
 // ═══════════════════════════════════════════════════════════════════
 var currentAccent = '#89B4FA';
 var currentHarmony = 'monochromatic';
+var currentPaletteMode = 'dark';
 var msgCount = 0;
 
 // ═══════════════════════════════════════════════════════════════════
@@ -861,6 +862,10 @@ var paletteSliderDragActive = {};
 var palettePreviewUpdateTimes = {};
 var paletteThemeApplyTimes = {};
 var paletteShaderUpdateTimes = {};
+var accentHueDragActive = false;
+var accentHueApplyFrame = 0;
+var accentHueLastApplyTime = 0;
+var accentHuePendingHue = OklchEngine.hexToOklch(currentAccent).H;
 
 function hexToRgbParts(hex) {
     if (!hex || hex.length !== 7 || hex.charAt(0) !== "#") return { r: 0, g: 0, b: 0 };
@@ -997,7 +1002,7 @@ function updatePaletteShadeWidgets(paletteIdx, ramp) {
     }
 }
 
-function flushPaletteThemeApply(paletteIdx) {
+function flushPaletteThemeApply(paletteIdx, forceApply) {
     paletteApplyFrames[paletteIdx] = 0;
     var state = paletteApplyStates[paletteIdx];
     if (!state) return;
@@ -1006,6 +1011,8 @@ function flushPaletteThemeApply(paletteIdx) {
 
     if (state.pKey === "accent") {
         currentAccent = OklchEngine.oklchToHex(state.mappedL, state.mappedC, state.h);
+        accentHuePendingHue = state.h;
+        setValue("accent-hue", state.h / 360);
     }
 
     var palette = PaletteSystem.create(currentAccent, currentHarmony);
@@ -1013,8 +1020,18 @@ function flushPaletteThemeApply(paletteIdx) {
         palette[state.pKey] = ShadeGenerator.generateRamp(state.mappedL, state.mappedC, state.h);
     }
 
+    if (dragging && !forceApply) {
+        updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
+        if (expandedPalette === paletteIdx) {
+            updatePaletteValueDisplay(paletteIdx,
+                { L: state.mappedL, C: state.mappedC, H: state.h },
+                palette[state.pKey][500].hex);
+        }
+        return;
+    }
+
     applyTokenDiff(PaletteSystem.toThemeDiff(palette));
-    if (!dragging) updateTokenSwatches(true);
+    updateTokenSwatches();
     updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
 }
 
@@ -1025,16 +1042,12 @@ function schedulePaletteThemeApply(paletteIdx, pKey, h, mappedL, mappedC, forceA
             cancelAnimationFrame(paletteApplyFrames[paletteIdx]);
             paletteApplyFrames[paletteIdx] = 0;
         }
-        flushPaletteThemeApply(paletteIdx);
+        flushPaletteThemeApply(paletteIdx, true);
         return;
     }
     if (paletteApplyFrames[paletteIdx]) return;
-    if (paletteSliderDragActive[paletteIdx]) {
-        var lastApply = paletteThemeApplyTimes[paletteIdx] || 0;
-        if ((performance.now() - lastApply) < 140) return;
-    }
     paletteApplyFrames[paletteIdx] = requestAnimationFrame(function() {
-        flushPaletteThemeApply(paletteIdx);
+        flushPaletteThemeApply(paletteIdx, false);
     });
 }
 
@@ -1588,6 +1601,68 @@ function renderPaletteGamut(paletteIdx, hue, dotL, dotC, fullRedraw) {
 
 buildShadeRamps();
 
+function refreshPaletteMiniRamps(palette) {
+    var steps = ShadeGenerator.STEPS;
+    for (var p = 0; p < paletteKeys.length; p++) {
+        var ramp = palette[paletteKeys[p]];
+        for (var s = 0; s < steps.length; s++) {
+            setBackground("ramp-" + p + "-s" + s, ramp[steps[s]].hex);
+        }
+        setBackground("ramp-" + p + "-dot", ramp[500].hex);
+    }
+}
+
+function refreshExpandedPaletteEditorFromPalette(palette, fullRedraw) {
+    if (expandedPalette < 0) return;
+    var pKey = paletteKeys[expandedPalette];
+    var base = palette[pKey][500];
+    var oklch = OklchEngine.hexToOklch(base.hex);
+    if (accentHueDragActive && !fullRedraw) {
+        renderPaletteGamutOverlay(expandedPalette, oklch.H, oklch.L, oklch.C);
+    } else {
+        renderPaletteGamut(expandedPalette, oklch.H, oklch.L, oklch.C, fullRedraw);
+    }
+    var shaderHue = quantizePaletteShaderHue(oklch.H);
+    if (!accentHueDragActive || fullRedraw || paletteShaderHueBuckets[expandedPalette] !== shaderHue) {
+        applyPaletteSliderShaders(expandedPalette, shaderHue);
+        paletteShaderHueBuckets[expandedPalette] = shaderHue;
+    }
+    setValue("ramp-" + expandedPalette + "-h-fdr", oklch.H / 360);
+    setValue("ramp-" + expandedPalette + "-c-fdr", Math.min(oklch.C / 0.4, 1));
+    updatePaletteValueDisplay(expandedPalette, oklch, base.hex);
+}
+
+function flushAccentHueApply(forceApply) {
+    accentHueApplyFrame = 0;
+    accentHueLastApplyTime = performance.now();
+    var oklch = OklchEngine.hexToOklch(currentAccent);
+    currentAccent = OklchEngine.oklchToHex(oklch.L, oklch.C, accentHuePendingHue);
+    setValue("accent-hue", accentHuePendingHue / 360);
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    refreshPaletteMiniRamps(palette);
+    refreshExpandedPaletteEditorFromPalette(palette, !!forceApply);
+    if (accentHueDragActive && !forceApply) {
+        return;
+    }
+    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+    updateTokenSwatches();
+}
+
+function scheduleAccentHueApply(forceApply) {
+    if (forceApply) {
+        if (accentHueApplyFrame) {
+            cancelAnimationFrame(accentHueApplyFrame);
+            accentHueApplyFrame = 0;
+        }
+        flushAccentHueApply(true);
+        return;
+    }
+    if (accentHueApplyFrame) return;
+    accentHueApplyFrame = requestAnimationFrame(function() {
+        flushAccentHueApply(false);
+    });
+}
+
 // "Generate Opposite Mode" button below palette rows
 createCol("gen-opposite-btn", "color-section");
 setFlex("gen-opposite-btn", "height", 32);
@@ -1607,6 +1682,7 @@ on("gen-opposite-btn", "click", function() {
     var newIdx = currentMode > 0.5 ? 0 : 1;
     setSelected("mode-selector", newIdx);
     var mode = newIdx === 0 ? "dark" : "light";
+    currentPaletteMode = mode;
     setTheme(mode);
     var palette = PaletteSystem.create(currentAccent, currentHarmony);
     applyTokenDiff(PaletteSystem.toThemeDiff(palette));
@@ -1842,16 +1918,19 @@ setFlex("tp-token-modified", "height", 14);
 setOpacity("tp-token-modified", 0.0);
 
 createCol("tp-close", "tp-header");
-setFlex("tp-close", "width", 22);
-setFlex("tp-close", "height", 22);
+setFlex("tp-close", "width", 26);
+setFlex("tp-close", "height", 26);
 setFlex("tp-close", "justify_content", "center");
 setFlex("tp-close", "align_items", "center");
 setBackground("tp-close", APP_SURFACE);
-setBorder("tp-close", APP_BORDER, 1, 10);
-createLabel("tp-close-lbl", "x", "tp-close");
-setFontSize("tp-close-lbl", 11);
+setBorder("tp-close", APP_BORDER, 1, 13);
+setCursor("tp-close", "pointer");
+createLabel("tp-close-lbl", "\u00d7", "tp-close");
+setFontSize("tp-close-lbl", 12);
 setPointerEvents("tp-close-lbl", "none");
 registerClick("tp-close");
+registerPointer("tp-close");
+on("tp-close", "pointerdown", function() { closeTokenPopup(); });
 on("tp-close", "click", function() { closeTokenPopup(); });
 
 // Undo / Redo / Reset row
@@ -1956,6 +2035,9 @@ on("tp-hex-input", "return", function(text) {
     if (!tokenEditState.activeToken) return;
     if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
     applyTokenColor(tokenEditState.activeToken, hex);
+});
+on("tp-hex-input", "escape", function() {
+    closeTokenPopup();
 });
 
 // #62: Token alpha (opacity) fader
@@ -2185,6 +2267,8 @@ on("tp-custom-toggle", "click", function() {
         renderGamutTriangle(oklch.H);
     }
     layout();
+    if (tokenEditState.activeSwatchId) positionTokenPopup(tokenEditState.activeSwatchId);
+    layout();
 });
 
 // ── Popup open/close/update functions ───────────────────────────
@@ -2215,9 +2299,30 @@ function updatePopupState(tokenName) {
     }
     // Undo/redo button opacity
     var h = tokenHistory(tokenName);
+    var showHistory = h.cursor > 0 || h.stack.length > 1 || !!tokenEditState.modified[tokenName];
+    setVisible("tp-undo-row", showHistory);
     setOpacity("tp-btn-0", h.cursor > 0 ? 1.0 : 0.3);
     setOpacity("tp-btn-1", h.cursor < h.stack.length - 1 ? 1.0 : 0.3);
     setOpacity("tp-btn-2", tokenEditState.modified[tokenName] ? 1.0 : 0.3);
+}
+
+function positionTokenPopup(anchorId) {
+    if (!anchorId) return;
+    var rect = getLayoutRect(anchorId);
+    var popupRect = getLayoutRect("token-popup");
+    var rootSize = getRootSize();
+    var viewportW = rootSize && rootSize.width ? rootSize.width : 1100;
+    var viewportH = rootSize && rootSize.height ? rootSize.height : 700;
+    var popupW = popupRect && popupRect.width ? popupRect.width : TOKEN_POPUP_W;
+    var popupH = popupRect && popupRect.height ? popupRect.height : (tpCustomOpen ? 620 : 420);
+    var popX = rect.right + 4;
+    var popY = rect.y;
+    if (popX + popupW > viewportW) popX = rect.x - popupW - 4;
+    if (popY + popupH > viewportH) popY = viewportH - popupH - 8;
+    if (popX < 4) popX = 4;
+    if (popY < 4) popY = 4;
+    setTop("token-popup", popY);
+    setLeft("token-popup", popX);
 }
 
 function openTokenPopup(tokenName, swatchId, gIdx, tIdx) {
@@ -2226,19 +2331,10 @@ function openTokenPopup(tokenName, swatchId, gIdx, tIdx) {
     tokenEditState.activeSwatchId = swatchId;
     rebuildPopupPalette();
     updatePopupState(tokenName);
-    layout();
-    var rect = getLayoutRect(swatchId);
-    var popX = rect.right + 4;
-    var popY = rect.y;
-    // Clamp to window
-    if (popX + TOKEN_POPUP_W > 1100) popX = rect.x - TOKEN_POPUP_W - 4;
-    if (popY + 380 > 700) popY = 700 - 380 - 8;
-    if (popX < 4) popX = 4;
-    if (popY < 4) popY = 4;
-    setTop("token-popup", popY);
-    setLeft("token-popup", popX);
     setVisible("tp-backdrop", true);
     setVisible("token-popup", true);
+    layout();
+    positionTokenPopup(swatchId);
     layout();
 }
 
@@ -2251,20 +2347,20 @@ function closeTokenPopup() {
 }
 
 // ── Accent hue slider handler ────────────────────────────────────
+on("accent-hue", "pointerdown", function() {
+    accentHueDragActive = true;
+});
+on("accent-hue", "pointerup", function() {
+    accentHueDragActive = false;
+    scheduleAccentHueApply(true);
+});
+on("accent-hue", "pointercancel", function() {
+    accentHueDragActive = false;
+    scheduleAccentHueApply(true);
+});
 on("accent-hue", "change", function(val) {
-    var hue = val * 360;
-    var oklch = OklchEngine.hexToOklch(currentAccent);
-    currentAccent = OklchEngine.oklchToHex(oklch.L, oklch.C, hue);
-
-    // Rebuild shade ramps with new hue
-    buildShadeRamps();
-
-    // Apply new palette as theme
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    var diff = PaletteSystem.toThemeDiff(palette);
-    applyTokenDiff(diff);
-    updateTokenSwatches();
-    layout();
+    accentHuePendingHue = val * 360;
+    scheduleAccentHueApply(false);
 });
 
 // Harmony selector handler
@@ -2300,6 +2396,7 @@ on("harmony-selector", "select", function(idx) {
 // Dark/Light mode handler
 on("mode-selector", "select", function(idx) {
     var mode = idx === 0 ? "dark" : "light";
+    currentPaletteMode = mode;
     setSelected("mode-selector", idx);
     setTheme(mode);
     // Update shade ramp colors in-place
@@ -3540,7 +3637,7 @@ on("context-badge", "click", function() {
 // ═══════════════════════════════════════════════════════════════════
 on("__global__", "keydown", function(evt) {
     if (!evt) return;
-    if (evt.key === 274 && tokenEditState.activeToken) {
+    if ((evt.key === 274 || evt.key === 27) && tokenEditState.activeToken) {
         closeTokenPopup();
         layout();
         return;

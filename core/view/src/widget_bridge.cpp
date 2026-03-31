@@ -100,6 +100,50 @@ static void safe_dispatch_eval(ScriptEngine& engine, const std::string& js, cons
     }
 }
 
+static void safe_dispatch_eval(const std::shared_ptr<std::atomic<bool>>& alive,
+                               ScriptEngine* engine,
+                               const std::string& js,
+                               const char* context) {
+    if (!alive || !alive->load(std::memory_order_acquire) || engine == nullptr) return;
+    try {
+        if (!static_cast<bool>(*engine)) return;
+        engine->evaluate(js);
+    } catch (const std::exception& e) {
+        std::cerr << "WidgetBridge " << context << " error: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "WidgetBridge " << context << " error: unknown exception\n";
+    }
+}
+
+static choc::value::Value make_layout_rect_value(View* v) {
+    auto result = choc::value::createObject("");
+    if (!v) return result;
+
+    float ax = 0.0f;
+    float ay = 0.0f;
+    View* cur = v;
+    while (cur) {
+        ax += cur->bounds().x;
+        ay += cur->bounds().y;
+        if (auto* scroll = dynamic_cast<ScrollView*>(cur->parent())) {
+            ax -= scroll->scroll_x();
+            ay -= scroll->scroll_y();
+        }
+        cur = cur->parent();
+    }
+
+    auto b = v->bounds();
+    result.addMember("x", choc::value::createFloat64(ax));
+    result.addMember("y", choc::value::createFloat64(ay));
+    result.addMember("width", choc::value::createFloat64(b.width));
+    result.addMember("height", choc::value::createFloat64(b.height));
+    result.addMember("top", choc::value::createFloat64(ay));
+    result.addMember("left", choc::value::createFloat64(ax));
+    result.addMember("right", choc::value::createFloat64(ax + b.width));
+    result.addMember("bottom", choc::value::createFloat64(ay + b.height));
+    return result;
+}
+
 static void eval_or_throw(ScriptEngine& engine, const char* name, const std::string& js) {
     try {
         engine.evaluate(js);
@@ -134,6 +178,11 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     eval_or_throw(engine_, "web_compat_element", preludes::web_compat_element);
     eval_or_throw(engine_, "web_compat_style_decl", preludes::web_compat_style_decl);
     eval_or_throw(engine_, "web_compat_document", preludes::web_compat_document);
+}
+
+WidgetBridge::~WidgetBridge() {
+    if (callback_alive_) callback_alive_->store(false, std::memory_order_release);
+    root_.on_global_click = {};
 }
 
 void WidgetBridge::set_repaint_callback(std::function<void()> cb) {
@@ -205,17 +254,19 @@ View* WidgetBridge::resolve_parent(const std::string& parent_id) {
 }
 
 void WidgetBridge::wire_callbacks(const std::string& id, View* w) {
+    auto alive = callback_alive_;
+    auto* engine = &engine_;
     if (auto* k = dynamic_cast<Knob*>(w)) {
-        k->on_change = [this, id](float v) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")", "knob change");
+        k->on_change = [alive, engine, id](float v) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")", "knob change");
         };
     } else if (auto* f = dynamic_cast<Fader*>(w)) {
-        f->on_change = [this, id](float v) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")", "fader change");
+        f->on_change = [alive, engine, id](float v) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")", "fader change");
         };
     } else if (auto* t = dynamic_cast<Toggle*>(w)) {
-        t->on_toggle = [this, id](bool v) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")", "toggle");
+        t->on_toggle = [alive, engine, id](bool v) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")", "toggle");
         };
     }
 }
@@ -258,8 +309,8 @@ void WidgetBridge::restore_values(const std::unordered_map<std::string, float>& 
 void WidgetBridge::poll_async_results() {
     std::vector<AsyncExecResult> pending;
     {
-        std::lock_guard<std::mutex> lock(async_exec_mutex_);
-        pending.swap(async_exec_results_);
+        std::lock_guard<std::mutex> lock(*async_exec_mutex_);
+        pending.swap(*async_exec_results_);
     }
     bool had_pending_frames = !pending_frame_ids_.empty();
 
@@ -405,8 +456,10 @@ void WidgetBridge::register_api() {
         auto pid = args.get<std::string>(1, "");
         auto cb = std::make_unique<Checkbox>(); cb->set_id(id);
         auto* ptr = cb.get(); widgets_[id] = ptr;
-        cb->on_change = [this, id](bool v) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', " + std::string(v?"1":"0") + ")", "checkbox change");
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        cb->on_change = [alive, engine, id](bool v) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'change', " + std::string(v?"1":"0") + ")", "checkbox change");
         };
         resolve_parent(pid)->add_child(std::move(cb));
         return choc::value::createString(id);
@@ -418,8 +471,10 @@ void WidgetBridge::register_api() {
         auto pid = args.get<std::string>(1, "");
         auto tb = std::make_unique<ToggleButton>(); tb->set_id(id);
         auto* ptr = tb.get(); widgets_[id] = ptr;
-        tb->on_toggle = [this, id](bool v) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")", "toggle button");
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        tb->on_toggle = [alive, engine, id](bool v) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")", "toggle button");
         };
         resolve_parent(pid)->add_child(std::move(tb));
         return choc::value::createString(id);
@@ -604,11 +659,13 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, "");
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
-            it->second->on_hover_enter = [this, id]() {
-                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'mouseenter', 0)", "hover enter");
+            auto alive = callback_alive_;
+            auto* engine = &engine_;
+            it->second->on_hover_enter = [alive, engine, id]() {
+                safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'mouseenter', 0)", "hover enter");
             };
-            it->second->on_hover_leave = [this, id]() {
-                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'mouseleave', 0)", "hover leave");
+            it->second->on_hover_leave = [alive, engine, id]() {
+                safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'mouseleave', 0)", "hover leave");
             };
         }
         return choc::value::Value();
@@ -664,8 +721,10 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, "");
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
-            it->second->on_click = [this, id]() {
-                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'click', 0)", "click");
+            auto alive = callback_alive_;
+            auto* engine = &engine_;
+            it->second->on_click = [alive, engine, id]() {
+                safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'click', 0)", "click");
             };
         }
         return choc::value::Value();
@@ -686,7 +745,9 @@ void WidgetBridge::register_api() {
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
             auto* w = it->second;
-            w->on_pointer_event = [this, id](const MouseEvent& me) {
+            auto alive = callback_alive_;
+            auto* engine = &engine_;
+            w->on_pointer_event = [alive, engine, id](const MouseEvent& me) {
                 std::string type;
                 if (me.is_down) type = "pointerdown";
                 else type = "pointerup";
@@ -710,15 +771,15 @@ void WidgetBridge::register_api() {
                     "metaKey:" + (me.isCmdDown() ? "true" : "false") +
                     "}";
 
-                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "pointer");
+                safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "pointer");
             };
             // W3C PointerEvents: forward drag as pointermove
-            w->on_drag = [this, id](Point pos) {
+            w->on_drag = [alive, engine, id](Point pos) {
                 std::string data = "{"
                     "offsetX:" + std::to_string(pos.x) + ","
                     "offsetY:" + std::to_string(pos.y) + ","
                     "pointerId:0,pointerType:'mouse',isPrimary:true}";
-                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'pointermove', " + data + ")", "pointermove");
+                safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'pointermove', " + data + ")", "pointermove");
             };
         }
         return choc::value::Value();
@@ -729,7 +790,9 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, "");
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
-            it->second->on_gesture_cb = [this, id](const GestureEvent& ge) {
+            auto alive = callback_alive_;
+            auto* engine = &engine_;
+            it->second->on_gesture_cb = [alive, engine, id](const GestureEvent& ge) {
                 std::string type;
                 switch (ge.phase) {
                     case GesturePhase::began:     type = "gesturestart"; break;
@@ -743,7 +806,7 @@ void WidgetBridge::register_api() {
                     "clientX:" + std::to_string(ge.position.x) + ","
                     "clientY:" + std::to_string(ge.position.y) +
                     "}";
-                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "gesture");
+                safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "gesture");
             };
         }
         return choc::value::Value();
@@ -775,11 +838,13 @@ void WidgetBridge::register_api() {
 
     // enableInspectClick() — sets up Cmd+click detection on all registered widgets
     engine_.register_function("enableInspectClick", [this](choc::javascript::ArgumentList) {
-        root_.on_global_click = [this](const std::string& id, uint16_t mods) {
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        root_.on_global_click = [alive, engine](const std::string& id, uint16_t mods) {
             // Check for Cmd modifier (kModCmd = 0x10, kModMeta = 0x08)
             bool cmd = (mods & (0x10 | 0x08)) != 0;
             if (cmd) {
-                safe_dispatch_eval(engine_, "__dispatch__('__inspect__', 'click', '" + id + "')", "inspect click");
+                safe_dispatch_eval(alive, engine, "__dispatch__('__inspect__', 'click', '" + id + "')", "inspect click");
             }
         };
         return choc::value::Value();
@@ -828,11 +893,13 @@ void WidgetBridge::register_api() {
         auto v = std::make_unique<ModalOverlay>(); v->set_id(id);
         v->flex().direction = FlexDirection::column;
         auto* modal = v.get();
-        modal->on_dismiss = [this, modal, id]() {
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        modal->on_dismiss = [alive, engine, modal, id]() {
             if (modal) {
                 modal->set_visible(false);
             }
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'dismiss', 0)", "modal dismiss");
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'dismiss', 0)", "modal dismiss");
         };
         widgets_[id] = v.get();
         resolve_parent(pid)->add_child(std::move(v));
@@ -967,37 +1034,7 @@ void WidgetBridge::register_api() {
     engine_.register_function("getLayoutRect", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
         View* v = id.empty() ? &root_ : widget(id);
-        if (!v) {
-            auto r = choc::value::createObject("");
-            r.addMember("x", choc::value::createFloat64(0));
-            r.addMember("y", choc::value::createFloat64(0));
-            r.addMember("width", choc::value::createFloat64(0));
-            r.addMember("height", choc::value::createFloat64(0));
-            r.addMember("top", choc::value::createFloat64(0));
-            r.addMember("right", choc::value::createFloat64(0));
-            r.addMember("bottom", choc::value::createFloat64(0));
-            r.addMember("left", choc::value::createFloat64(0));
-            return r;
-        }
-        // Walk up parent chain to compute root-relative position
-        float rx = 0, ry = 0;
-        View* cur = v;
-        while (cur) {
-            rx += cur->bounds().x;
-            ry += cur->bounds().y;
-            cur = cur->parent();
-        }
-        auto b = v->bounds();
-        auto r = choc::value::createObject("");
-        r.addMember("x", choc::value::createFloat64(rx));
-        r.addMember("y", choc::value::createFloat64(ry));
-        r.addMember("width", choc::value::createFloat64(b.width));
-        r.addMember("height", choc::value::createFloat64(b.height));
-        r.addMember("top", choc::value::createFloat64(ry));
-        r.addMember("right", choc::value::createFloat64(rx + b.width));
-        r.addMember("bottom", choc::value::createFloat64(ry + b.height));
-        r.addMember("left", choc::value::createFloat64(rx));
-        return r;
+        return make_layout_rect_value(v);
     });
 
     // getRootSize() -> {width, height} — actual root view dimensions for vw/vh/matchMedia
@@ -1081,8 +1118,10 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
         auto c = std::make_unique<ComboBox>(); c->set_id(id);
         auto* ptr = c.get(); widgets_[id] = ptr;
-        c->on_change = [this, id](int idx) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")", "combo select");
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        c->on_change = [alive, engine, id](int idx) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")", "combo select");
         };
         resolve_parent(pid)->add_child(std::move(c));
         return choc::value::createString(id);
@@ -1106,11 +1145,13 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
         auto lb = std::make_unique<ListBox>(); lb->set_id(id);
         auto* ptr = lb.get(); widgets_[id] = ptr;
-        lb->on_select = [this, id](int idx) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")", "list select");
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        lb->on_select = [alive, engine, id](int idx) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")", "list select");
         };
-        lb->on_activate = [this, id](int idx) {
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'activate', " + std::to_string(idx) + ")", "list activate");
+        lb->on_activate = [alive, engine, id](int idx) {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'activate', " + std::to_string(idx) + ")", "list activate");
         };
         resolve_parent(pid)->add_child(std::move(lb));
         return choc::value::createString(id);
@@ -1153,13 +1194,18 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, ""); auto pid = args.get<std::string>(1, "");
         auto ed = std::make_unique<TextEditor>(); ed->set_id(id);
         auto* ptr = ed.get(); widgets_[id] = ptr;
-        ed->on_return = [this, id](const std::string& text) {
-            std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'return', '" + e + "')", "text return");
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        ed->on_escape = [alive, engine, id]() {
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'escape', 0)", "text escape");
         };
-        ed->on_change = [this, id](const std::string& text) {
+        ed->on_return = [alive, engine, id](const std::string& text) {
             std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
-            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', '" + e + "')", "text change");
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'return', '" + e + "')", "text return");
+        };
+        ed->on_change = [alive, engine, id](const std::string& text) {
+            std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
+            safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'change', '" + e + "')", "text change");
         };
         resolve_parent(pid)->add_child(std::move(ed));
         return choc::value::createString(id);
@@ -2366,23 +2412,7 @@ void WidgetBridge::register_api() {
     engine_.register_function("getLayoutRect", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
         auto* v = widget(id);
-        auto result = choc::value::createObject("");
-        if (v) {
-            auto b = v->bounds();
-            // Walk up parent chain to get absolute position
-            float ax = 0, ay = 0;
-            View* p = v;
-            while (p) { ax += p->bounds().x; ay += p->bounds().y; p = p->parent(); }
-            result.addMember("x", choc::value::createFloat64(ax));
-            result.addMember("y", choc::value::createFloat64(ay));
-            result.addMember("width", choc::value::createFloat64(b.width));
-            result.addMember("height", choc::value::createFloat64(b.height));
-            result.addMember("top", choc::value::createFloat64(ay));
-            result.addMember("left", choc::value::createFloat64(ax));
-            result.addMember("right", choc::value::createFloat64(ax + b.width));
-            result.addMember("bottom", choc::value::createFloat64(ay + b.height));
-        }
-        return result;
+        return make_layout_rect_value(v);
     });
 
     // getComputedValue(id, prop) → string
@@ -2420,7 +2450,10 @@ void WidgetBridge::register_api() {
         auto cbId = args.get<std::string>(1, "");
         if (cmd.empty() || cbId.empty()) return choc::value::Value();
         auto full_cmd = build_shell_command(cmd);
-        std::thread([this, full_cmd, cbId]() {
+        auto alive = callback_alive_;
+        auto async_results = async_exec_results_;
+        auto async_mutex = async_exec_mutex_;
+        std::thread([alive, async_results, async_mutex, full_cmd, cbId]() {
             std::string r;
             FILE* p = PULP_POPEN(full_cmd.c_str(), "r");
             if (p) {
@@ -2428,8 +2461,9 @@ void WidgetBridge::register_api() {
                 while (fgets(buf, sizeof(buf), p)) r += buf;
                 PULP_PCLOSE(p);
             }
-            std::lock_guard<std::mutex> lock(async_exec_mutex_);
-            async_exec_results_.push_back({cbId, std::move(r)});
+            if (!alive || !alive->load(std::memory_order_acquire)) return;
+            std::lock_guard<std::mutex> lock(*async_mutex);
+            async_results->push_back({cbId, std::move(r)});
         }).detach();
         return choc::value::Value();
     });
@@ -2442,8 +2476,12 @@ void WidgetBridge::register_api() {
         auto cb = args.get<std::string>(1, "");
         auto* v = widget(id);
         if (v && !cb.empty()) {
-            v->on_context_menu = [this, cb](Point pos) {
-                engine_.evaluate(cb + "(" + std::to_string(pos.x) + "," + std::to_string(pos.y) + ")");
+            auto alive = callback_alive_;
+            auto* engine = &engine_;
+            v->on_context_menu = [alive, engine, cb](Point pos) {
+                safe_dispatch_eval(alive, engine,
+                    cb + "(" + std::to_string(pos.x) + "," + std::to_string(pos.y) + ")",
+                    "context menu");
             };
         }
         return choc::value::Value();
@@ -2828,18 +2866,22 @@ void WidgetBridge::register_api() {
         auto cb = args.get<std::string>(1, "");
         auto* v = widget(id);
         if (v && !cb.empty()) {
+            auto alive = callback_alive_;
+            auto* engine = &engine_;
             // Wire native drop target to fire JS callback with dropped data
             // The JS callback receives: callbackName(type, data, x, y)
             // type: "file" or "text", data: file path or text content
-            v->on_drop = [this, cb](const std::string& type, const std::string& data, float x, float y) {
+            v->on_drop = [alive, engine, cb](const std::string& type, const std::string& data, float x, float y) {
                 std::string safe_data;
                 for (char c : data) {
                     if (c == '\'') safe_data += "\\'";
                     else if (c == '\n') safe_data += "\\n";
                     else safe_data += c;
                 }
-                engine_.evaluate(cb + "('" + type + "','" + safe_data + "'," +
-                    std::to_string(x) + "," + std::to_string(y) + ")");
+                safe_dispatch_eval(alive, engine,
+                    cb + "('" + type + "','" + safe_data + "'," +
+                    std::to_string(x) + "," + std::to_string(y) + ")",
+                    "drop");
             };
         }
         return choc::value::Value();

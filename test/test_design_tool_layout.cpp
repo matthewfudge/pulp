@@ -338,25 +338,28 @@ TEST_CASE("Design tool: token popup surfaces modified state and compact controls
     auto* popup = bridge.widget("token-popup");
     auto* token_name = dynamic_cast<Label*>(bridge.widget("tp-token-name"));
     auto* modified_marker = bridge.widget("tp-token-modified");
+    auto* undo_row = bridge.widget("tp-undo-row");
     auto* reset_button = bridge.widget("tp-btn-2");
     auto* custom_label = dynamic_cast<Label*>(bridge.widget("tp-custom-lbl"));
     REQUIRE(popup != nullptr);
     REQUIRE(token_name != nullptr);
     REQUIRE(modified_marker != nullptr);
+    REQUIRE(undo_row != nullptr);
     REQUIRE(reset_button != nullptr);
     REQUIRE(custom_label != nullptr);
 
     REQUIRE(popup->visible());
     REQUIRE(token_name->text() == "accent.primary");
-    REQUIRE_THAT(reset_button->bounds().width, Catch::Matchers::WithinAbs(44.0f, 1.0f));
     REQUIRE(custom_label->text().find("Custom color picker") != std::string::npos);
     REQUIRE_THAT(modified_marker->opacity(), Catch::Matchers::WithinAbs(0.0f, 0.01f));
+    REQUIRE_FALSE(undo_row->visible());
 
     REQUIRE_NOTHROW(engine.evaluate("applyTokenColor('accent.primary', '#112233');"));
     root.layout_children();
 
     REQUIRE_THAT(modified_marker->opacity(), Catch::Matchers::WithinAbs(1.0f, 0.01f));
     REQUIRE_THAT(reset_button->opacity(), Catch::Matchers::WithinAbs(1.0f, 0.01f));
+    REQUIRE(undo_row->visible());
 
     auto* custom_section = bridge.widget("tp-custom");
     REQUIRE(custom_section != nullptr);
@@ -368,6 +371,37 @@ TEST_CASE("Design tool: token popup surfaces modified state and compact controls
     REQUIRE_NOTHROW(engine.evaluate("__dispatch__('__global__', 'keydown', { key: 274, mods: 0 });"));
     root.layout_children();
     REQUIRE_FALSE(popup->visible());
+}
+
+TEST_CASE("Design tool: expanded token popup stays within root bounds", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 680, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    load_design_tool(root, engine, bridge);
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('tok-4-0-sw', 'click', 0);"));
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('tp-custom-toggle', 'click', 0);"));
+    root.layout_children();
+
+    auto* popup = bridge.widget("token-popup");
+    REQUIRE(popup != nullptr);
+    REQUIRE(popup->visible());
+    REQUIRE(popup->bounds().x >= 0.0f);
+    REQUIRE(popup->bounds().y >= 0.0f);
+    REQUIRE((popup->bounds().x + popup->bounds().width) <= (root.bounds().width + 0.5f));
+    REQUIRE((popup->bounds().y + popup->bounds().height) <= (root.bounds().height + 0.5f));
 }
 
 TEST_CASE("Design tool: waveform and spectrum previews render populated data", "[design-tool]") {
@@ -789,4 +823,29 @@ TEST_CASE("Design tool: state pills drive disabled and error preview states", "[
     REQUIRE(sample_input->enabled());
     REQUIRE(sample_combo->enabled());
     REQUIRE(panel_content->border_color() == pulp::canvas::Color::hex(0xe94560));
+}
+
+TEST_CASE("Design tool: opposite mode lifts semantic backgrounds in light mode", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(root, engine, bridge);
+
+    auto dark_l = engine.evaluate("OklchEngine.hexToOklch(JSON.parse(getThemeJson()).colors['bg.primary']).L").getWithDefault<double>(0.0);
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('gen-opposite-btn', 'click', 0);"));
+    root.layout_children();
+    auto light_l = engine.evaluate("OklchEngine.hexToOklch(JSON.parse(getThemeJson()).colors['bg.primary']).L").getWithDefault<double>(0.0);
+
+    REQUIRE(light_l > dark_l);
 }

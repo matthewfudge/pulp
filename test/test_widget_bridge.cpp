@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/view/modal.hpp>
+#include <pulp/view/text_editor.hpp>
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/theme.hpp>
 #include <pulp/view/ui_components.hpp>
@@ -113,6 +114,64 @@ TEST_CASE("WidgetBridge modal dismiss dispatches JS handler on Escape", "[view][
     REQUIRE(modal->on_key_event(esc));
     REQUIRE(engine.evaluate("dismissed").getWithDefault<int>(0) == 1);
     REQUIRE_FALSE(modal->visible());
+}
+
+TEST_CASE("WidgetBridge stale click callbacks are inert after bridge destruction", "[view][bridge][lifetime]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+
+    std::function<void()> click_handler;
+    std::function<void(const std::string&, uint16_t)> global_click_handler;
+
+    {
+        WidgetBridge bridge(engine, root, store);
+        bridge.load_script(R"(
+            createLabel('button', 'Hello', '');
+            registerClick('button');
+            enableInspectClick();
+        )");
+
+        auto* button = bridge.widget("button");
+        REQUIRE(button != nullptr);
+        REQUIRE(button->on_click);
+        REQUIRE(root.on_global_click);
+        click_handler = button->on_click;
+        global_click_handler = root.on_global_click;
+    }
+
+    REQUIRE_NOTHROW(click_handler());
+    REQUIRE_NOTHROW(global_click_handler("button", 0x10));
+}
+
+TEST_CASE("WidgetBridge getLayoutRect accounts for scroll offsets", "[view][bridge][layout]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createScrollView('sv', '');
+        setFlex('sv', 'direction', 'col');
+        setFlex('sv', 'width', 200);
+        setFlex('sv', 'height', 100);
+        setScrollContentSize('sv', 200, 260);
+        createCol('spacer', 'sv');
+        setFlex('spacer', 'height', 120);
+        createLabel('anchor', 'Anchor', 'sv');
+        setFlex('anchor', 'height', 20);
+        layout();
+    )");
+
+    auto* scroll = dynamic_cast<ScrollView*>(bridge.widget("sv"));
+    REQUIRE(scroll != nullptr);
+    auto before = engine.evaluate("getLayoutRect('anchor').y").getWithDefault<double>(-1.0);
+    scroll->set_scroll(0.0f, 60.0f);
+
+    auto after = engine.evaluate("getLayoutRect('anchor').y").getWithDefault<double>(-1.0);
+    REQUIRE_THAT(before - after, WithinAbs(60.0, 0.5));
 }
 
 TEST_CASE("WidgetBridge set/get value from JS", "[view][bridge]") {
@@ -535,4 +594,50 @@ TEST_CASE("WidgetBridge execAsync preserves JSON-heavy results", "[view][bridge]
     REQUIRE(async_json.find("\"message\": \"hello \\\"shader\\\"\"") != std::string::npos);
     REQUIRE(engine.evaluate("JSON.parse(async_json).message").toString() == "hello \"shader\"");
     REQUIRE(engine.evaluate("JSON.parse(async_json).shader").toString() == std::string("line1\nline2"));
+}
+
+TEST_CASE("WidgetBridge execAsync completion is safe after bridge destruction", "[view][bridge][async][lifetime]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+
+    {
+        WidgetBridge bridge(engine, root, store);
+        const std::string async_cmd =
+#if defined(_WIN32)
+            "powershell -NoProfile -Command \"Start-Sleep -Milliseconds 25; [Console]::Out.Write('done')\"";
+#else
+            "sh -c 'sleep 0.025; printf done'";
+#endif
+        bridge.load_script(
+            "on('__async-destroy__', 'result', function(value) { });\n"
+            "execAsync('" + js_single_quoted(async_cmd) + "', '__async-destroy__');\n");
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    SUCCEED();
+}
+
+TEST_CASE("WidgetBridge text editor escape dispatches JS handler", "[view][bridge][text]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var escaped = 0;
+        createTextEditor('field', '');
+        on('field', 'escape', function() { escaped++; });
+    )");
+
+    auto* field = dynamic_cast<TextEditor*>(bridge.widget("field"));
+    REQUIRE(field != nullptr);
+
+    KeyEvent esc{};
+    esc.is_down = true;
+    esc.key = KeyCode::escape;
+    REQUIRE(field->on_key_event(esc));
+    REQUIRE(engine.evaluate("escaped").getWithDefault<int>(0) == 1);
 }
