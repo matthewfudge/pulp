@@ -648,46 +648,48 @@ void Icon::paint(canvas::Canvas& canvas) {
     auto color = resolve_color("text.secondary", canvas::Color::rgba(160, 160, 180));
     canvas.set_stroke_color(color);
     canvas.set_line_width(1.5f);
+    canvas.set_line_cap(canvas::LineCap::round);
+    canvas.set_line_join(canvas::LineJoin::round);
 
     switch (type_) {
         case Type::image_upload: {
-            // Landscape image icon: rounded rect with mountain + sun
-            float r = s * 1.0f;
-            canvas.stroke_rounded_rect(cx - r, cy - r, r * 2, r * 2, r * 0.25f);
-            // Mountain (two triangles forming landscape)
-            float base_y = cy + r * 0.55f;
-            // Small mountain (left)
-            canvas.stroke_line(cx - r * 0.5f, base_y, cx - r * 0.15f, cy + r * 0.05f);
-            canvas.stroke_line(cx - r * 0.15f, cy + r * 0.05f, cx + r * 0.15f, base_y);
-            // Large mountain (right, overlapping)
-            canvas.stroke_line(cx - r * 0.1f, base_y, cx + r * 0.25f, cy - r * 0.25f);
-            canvas.stroke_line(cx + r * 0.25f, cy - r * 0.25f, cx + r * 0.6f, base_y);
-            // Sun circle (upper right)
-            canvas.stroke_circle(cx + r * 0.4f, cy - r * 0.4f, r * 0.18f);
+            float frame_w = std::min(b.width, b.height) * 0.88f;
+            float frame_h = frame_w * 0.82f;
+            float frame_x = cx - frame_w * 0.5f;
+            float frame_y = cy - frame_h * 0.5f;
+            float radius = frame_w * 0.14f;
+            canvas.set_line_width(1.35f);
+            canvas.stroke_rounded_rect(frame_x, frame_y, frame_w, frame_h, radius);
+
+            float base_y = frame_y + frame_h * 0.72f;
+            canvas.begin_path();
+            canvas.move_to(frame_x + frame_w * 0.18f, base_y);
+            canvas.line_to(frame_x + frame_w * 0.38f, frame_y + frame_h * 0.48f);
+            canvas.line_to(frame_x + frame_w * 0.52f, base_y);
+            canvas.move_to(frame_x + frame_w * 0.42f, base_y);
+            canvas.line_to(frame_x + frame_w * 0.64f, frame_y + frame_h * 0.34f);
+            canvas.line_to(frame_x + frame_w * 0.84f, base_y);
+            canvas.stroke_current_path();
+
+            canvas.set_fill_color(color);
+            canvas.fill_circle(frame_x + frame_w * 0.72f, frame_y + frame_h * 0.26f, frame_w * 0.075f);
             break;
         }
         case Type::send: {
-            // Paper plane icon matching the HTML reference more closely.
-            float ps = std::min(b.width, b.height) * 0.62f;
-            canvas.set_stroke_color(canvas::Color::rgba(255, 255, 255));
-            canvas.set_line_width(1.8f);
-            auto map = [&](float x, float y) {
-                return std::pair<float, float>{
-                    cx + ((x - 12.0f) / 12.0f) * (ps * 0.5f),
-                    cy + ((y - 12.0f) / 12.0f) * (ps * 0.5f)
-                };
-            };
+            float plane = std::min(b.width, b.height) * 0.88f;
+            canvas.set_fill_color(canvas::Color::rgba(255, 255, 255));
+            canvas.begin_path();
+            canvas.move_to(cx - plane * 0.46f, cy - plane * 0.10f);
+            canvas.line_to(cx + plane * 0.46f, cy - plane * 0.38f);
+            canvas.line_to(cx + plane * 0.10f, cy + plane * 0.40f);
+            canvas.line_to(cx - plane * 0.02f, cy + plane * 0.10f);
+            canvas.close_path();
+            canvas.fill_current_path();
 
-            auto [x1, y1] = map(22, 2);
-            auto [x2, y2] = map(11, 13);
-            auto [x3, y3] = map(15, 22);
-            auto [x4, y4] = map(2, 9);
-
-            canvas.stroke_line(x1, y1, x2, y2);
-            canvas.stroke_line(x1, y1, x3, y3);
-            canvas.stroke_line(x3, y3, x2, y2);
-            canvas.stroke_line(x2, y2, x4, y4);
-            canvas.stroke_line(x4, y4, x1, y1);
+            canvas.set_stroke_color(resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255)));
+            canvas.set_line_width(1.2f);
+            canvas.stroke_line(cx - plane * 0.04f, cy + plane * 0.08f,
+                               cx + plane * 0.16f, cy - plane * 0.05f);
             break;
         }
         case Type::search: {

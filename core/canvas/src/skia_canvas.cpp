@@ -473,7 +473,10 @@ bool SkiaCanvas::draw_with_sksl(const std::string& sksl,
 
     SkPaint paint;
     paint.setShader(std::move(shader));
-    canvas_->drawRect(SkRect::MakeXYWH(x, y, w, h), paint);
+    canvas_->save();
+    canvas_->translate(x, y);
+    canvas_->drawRect(SkRect::MakeXYWH(0, 0, w, h), paint);
+    canvas_->restore();
     return true;
 }
 

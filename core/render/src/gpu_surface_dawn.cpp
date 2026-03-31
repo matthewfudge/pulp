@@ -128,7 +128,8 @@ public:
             surface_config.width = width_;
             surface_config.height = height_;
             surface_config.presentMode = preferred_mode_;
-            surface_config.usage = wgpu::TextureUsage::RenderAttachment;
+            surface_config.usage = wgpu::TextureUsage::RenderAttachment
+                | wgpu::TextureUsage::TextureBinding;
             surface_.Configure(&surface_config);
         }
     }
@@ -283,7 +284,8 @@ private:
         surface_config.width = config.width;
         surface_config.height = config.height;
         surface_config.presentMode = preferred_mode_;
-        surface_config.usage = wgpu::TextureUsage::RenderAttachment;
+        surface_config.usage = wgpu::TextureUsage::RenderAttachment
+            | wgpu::TextureUsage::TextureBinding;
         surface_.Configure(&surface_config);
 
         runtime::log_info("GpuSurface: configured surface (format: {}, mode: {})",

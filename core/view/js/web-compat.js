@@ -793,8 +793,7 @@ Animation.prototype.play = function() {
         }
 
         if (t < 1) {
-            if (typeof __requestFrame__ === "function") __requestFrame__(tick);
-            else window.requestAnimationFrame(tick);
+            window.requestAnimationFrame(tick);
         } else {
             self._finished = true;
             self.playState = "finished";
@@ -807,8 +806,7 @@ Animation.prototype.play = function() {
         }
     }
 
-    if (typeof __requestFrame__ === "function") __requestFrame__(tick);
-    else window.requestAnimationFrame(tick);
+    window.requestAnimationFrame(tick);
 };
 
 Animation.prototype.cancel = function() {
@@ -2027,7 +2025,12 @@ var window = {
     devicePixelRatio: 2,
 
     requestAnimationFrame: function(fn) {
-        if (typeof __requestFrame__ === "function") return __requestFrame__(fn);
+        if (typeof __requestFrame__ === "function") {
+            if (typeof fn !== "function") return 0;
+            var id = __frameNextId__++;
+            __frameCallbacks__[id] = fn;
+            return __requestFrame__(id);
+        }
         return 0;
     },
     cancelAnimationFrame: function(id) {
@@ -2057,9 +2060,9 @@ var window = {
         var count = 0;
         function tick() {
             if (++count >= frames) fn();
-            else if (typeof __requestFrame__ === "function") __requestFrame__(tick);
+            else window.requestAnimationFrame(tick);
         }
-        if (typeof __requestFrame__ === "function") __requestFrame__(tick);
+        window.requestAnimationFrame(tick);
         return 0;
     },
     clearTimeout: function() {},
@@ -2068,9 +2071,9 @@ var window = {
         var count = 0;
         function tick() {
             if (++count >= frames) { fn(); count = 0; }
-            if (typeof __requestFrame__ === "function") __requestFrame__(tick);
+            window.requestAnimationFrame(tick);
         }
-        if (typeof __requestFrame__ === "function") __requestFrame__(tick);
+        window.requestAnimationFrame(tick);
         return 0;
     },
     clearInterval: function() {},

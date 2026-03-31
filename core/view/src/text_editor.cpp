@@ -189,6 +189,10 @@ bool TextEditor::is_word_char(char c) const {
 
 void TextEditor::on_mouse_event(const MouseEvent& event) {
     caret_blink_time_ = 0;  // reset blink on click
+    if (multi_line && event.is_wheel) {
+        scroll_offset_ = std::max(0.0f, scroll_offset_ + event.scroll_delta_y);
+        return;
+    }
     if (!event.is_down) return;
 
     int pos = char_index_at_x(event.position.x);
@@ -264,6 +268,13 @@ bool TextEditor::on_key_event(const KeyEvent& event) {
             return true;
 
         case KeyCode::enter:
+            if (multi_line && !mod) {
+                push_undo();
+                if (has_selection()) delete_selection();
+                insert_text("\n");
+                notify_change();
+                return true;
+            }
             if (on_return) on_return(text_);
             return true;
 
@@ -349,6 +360,109 @@ void TextEditor::paint(canvas::Canvas& canvas) {
         display = std::string(text_.size(), password_char);
     }
 
+    if (multi_line) {
+        canvas.set_font("system", font_size_);
+        const float inner_x = b.x + 6.0f;
+        const float inner_y = b.y + 4.0f;
+        const float inner_w = std::max(20.0f, b.width - 12.0f);
+        const float line_h = font_size_ * 1.35f;
+
+        struct WrappedLine {
+            std::string text;
+            int start = 0;
+            int end = 0;
+        };
+
+        std::vector<WrappedLine> lines;
+        lines.push_back({"", 0, 0});
+        int current_start = 0;
+        std::string current;
+
+        auto flush_line = [&](int end_index) {
+            lines.back().text = current;
+            lines.back().start = current_start;
+            lines.back().end = end_index;
+            current.clear();
+            current_start = end_index;
+            lines.push_back({"", current_start, current_start});
+        };
+
+        for (int i = 0; i < static_cast<int>(display.size()); ++i) {
+            char c = display[static_cast<size_t>(i)];
+            if (c == '\n') {
+                flush_line(i);
+                current_start = i + 1;
+                lines.back().start = current_start;
+                lines.back().end = current_start;
+                continue;
+            }
+
+            std::string candidate = current + c;
+            if (!current.empty() && canvas.measure_text(candidate) > inner_w) {
+                flush_line(i);
+                current_start = i;
+            }
+            current += c;
+        }
+
+        lines.back().text = current;
+        lines.back().start = current_start;
+        lines.back().end = static_cast<int>(display.size());
+        if (lines.size() > 1 && lines.back().text.empty() && lines[lines.size() - 2].end == static_cast<int>(display.size())) {
+            lines.pop_back();
+        }
+
+        if (lines.empty()) lines.push_back({"", 0, 0});
+
+        int caret_line = 0;
+        int caret_column = 0;
+        for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+            auto& line = lines[static_cast<size_t>(i)];
+            if (caret_position_ >= line.start && caret_position_ <= line.end) {
+                caret_line = i;
+                caret_column = std::clamp(caret_position_ - line.start, 0, static_cast<int>(line.text.size()));
+                break;
+            }
+        }
+
+        float visible_h = std::max(line_h, b.height - 8.0f);
+        float total_h = std::max(visible_h, static_cast<float>(lines.size()) * line_h);
+        float caret_top = caret_line * line_h;
+        float caret_bottom = caret_top + line_h;
+        if (caret_bottom - scroll_offset_ > visible_h) {
+            scroll_offset_ = caret_bottom - visible_h;
+        } else if (caret_top - scroll_offset_ < 0) {
+            scroll_offset_ = caret_top;
+        }
+        scroll_offset_ = std::clamp(scroll_offset_, 0.0f, std::max(0.0f, total_h - visible_h));
+
+        if (display.empty() && !placeholder.empty() && !has_focus()) {
+            canvas.set_fill_color(resolve_color("text.secondary", canvas::Color::hex(0x808090)));
+            canvas.fill_text(placeholder, inner_x, inner_y + font_size_);
+        } else {
+            for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+                float baseline_y = inner_y + font_size_ + i * line_h - scroll_offset_;
+                if (baseline_y < b.y - line_h || baseline_y > b.y + b.height + line_h) continue;
+                canvas.set_fill_color(resolve_color("text.primary", canvas::Color::hex(0xe0e0e0)));
+                canvas.fill_text(lines[static_cast<size_t>(i)].text, inner_x, baseline_y);
+            }
+        }
+
+        if (has_focus()) {
+            caret_blink_time_ += 1.0f / 60.0f;
+            bool caret_visible = std::fmod(caret_blink_time_, 1.06f) < 0.53f;
+            if (caret_visible || has_selection()) {
+                auto& line = lines[static_cast<size_t>(caret_line)];
+                float caret_x = inner_x + canvas.measure_text(line.text.substr(0, static_cast<size_t>(caret_column)));
+                float caret_y = inner_y + caret_line * line_h - scroll_offset_;
+                canvas.set_stroke_color(resolve_color("text.primary", canvas::Color::hex(0xe0e0e0)));
+                canvas.set_line_width(1.5f);
+                canvas.stroke_line(caret_x, caret_y, caret_x, caret_y + line_h - 2.0f);
+            }
+        }
+        return;
+    }
+
     float text_x = b.x + 6 - scroll_offset_;
     float text_y = b.y + b.height / 2 + font_size_ * 0.35f;
 
@@ -360,16 +474,16 @@ void TextEditor::paint(canvas::Canvas& canvas) {
         float sel_x = text_x + canvas.measure_text(display.substr(0, static_cast<size_t>(start)));
         float sel_w = canvas.measure_text(display.substr(static_cast<size_t>(start),
                                                           static_cast<size_t>(end - start)));
-        canvas.set_fill_color(resolve_color("selection", canvas::Color::rgba(65, 105, 225, 128)));
+        canvas.set_fill_color(resolve_color("accent.primary", canvas::Color::rgba(65, 105, 225, 128)));
         canvas.fill_rect(sel_x, b.y + 2, sel_w, b.height - 4);
     }
 
     // Text or placeholder
     if (display.empty() && !placeholder.empty() && !has_focus()) {
-        canvas.set_fill_color(resolve_color("text_muted", canvas::Color::hex(0x808090)));
+        canvas.set_fill_color(resolve_color("text.secondary", canvas::Color::hex(0x808090)));
         canvas.fill_text(placeholder, text_x, text_y);
     } else {
-        canvas.set_fill_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
+        canvas.set_fill_color(resolve_color("text.primary", canvas::Color::hex(0xe0e0e0)));
         canvas.fill_text(display, text_x, text_y);
     }
 
@@ -379,7 +493,7 @@ void TextEditor::paint(canvas::Canvas& canvas) {
         bool caret_visible = std::fmod(caret_blink_time_, 1.06f) < 0.53f;
         if (caret_visible || has_selection()) {
             float caret_x = text_x + canvas.measure_text(display.substr(0, static_cast<size_t>(caret_position_)));
-            canvas.set_stroke_color(resolve_color("text", canvas::Color::hex(0xe0e0e0)));
+            canvas.set_stroke_color(resolve_color("text.primary", canvas::Color::hex(0xe0e0e0)));
             canvas.set_line_width(1.5f);
             canvas.stroke_line(caret_x, b.y + 4, caret_x, b.y + b.height - 4);
         }

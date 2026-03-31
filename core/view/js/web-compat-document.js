@@ -305,7 +305,12 @@ var window = {
     devicePixelRatio: 2,
     requestAnimationFrame: function(fn) {
         // Map to Pulp's frame clock
-        if (typeof __requestFrame__ === "function") return __requestFrame__(fn);
+        if (typeof __requestFrame__ === "function") {
+            if (typeof fn !== "function") return 0;
+            var id = __frameNextId__++;
+            __frameCallbacks__[id] = fn;
+            return __requestFrame__(id);
+        }
         return 0;
     },
     cancelAnimationFrame: function(id) {

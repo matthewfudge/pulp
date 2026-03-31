@@ -16,6 +16,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include <cstdlib>
 
 using namespace pulp::view;
 using namespace pulp::state;
@@ -57,7 +58,7 @@ int main(int argc, char* argv[]) {
     // Create the view tree root
     View root;
     root.set_theme(Theme::dark());
-    root.flex().direction = FlexDirection::row;
+    root.flex().direction = FlexDirection::column;
 
     // Create a minimal state store (design tool doesn't need audio params)
     StateStore store;
@@ -65,6 +66,9 @@ int main(int argc, char* argv[]) {
     // Set up scripting engine + widget bridge
     ScriptEngine engine;
     WidgetBridge bridge(engine, root, store);
+    if (const char* ai_cli = std::getenv("PULP_AI_CLI")) {
+        bridge.set_ai_cli_command(ai_cli);
+    }
 
     // Load library scripts first (oklch.js, etc.) then the main UI script
     auto js_dir = js_path.parent_path();
@@ -97,8 +101,12 @@ int main(int argc, char* argv[]) {
     opts.min_width = 900;
     opts.min_height = 550;
     opts.resizable = true;
+    opts.use_gpu = true;
 
     auto window = WindowHost::create(root, opts);
+    bridge.set_repaint_callback([&window] {
+        if (window) window->repaint();
+    });
     window->set_close_callback([] {
         std::cout << "Window closed\n";
     });
@@ -112,6 +120,7 @@ int main(int argc, char* argv[]) {
         bridge.snapshot_values(saved);
 
         // Clear and rebuild
+        window->invalidate_input_state();
         bridge.clear();
         bridge.load_script(new_code);
 

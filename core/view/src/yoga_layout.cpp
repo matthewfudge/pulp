@@ -91,9 +91,31 @@ static void apply_flex_style(YGNodeRef node, const FlexStyle& f) {
     // Order (Yoga doesn't support order directly — we handle it via child insertion order)
 }
 
+static void apply_position_style(YGNodeRef node, const View& view) {
+    switch (view.position()) {
+        case View::Position::absolute:
+        case View::Position::fixed:
+            YGNodeStyleSetPositionType(node, YGPositionTypeAbsolute);
+            break;
+        case View::Position::relative:
+        case View::Position::static_:
+        case View::Position::sticky:
+        default:
+            YGNodeStyleSetPositionType(node, YGPositionTypeRelative);
+            break;
+    }
+
+    if (view.has_top()) YGNodeStyleSetPosition(node, YGEdgeTop, view.top());
+    if (view.has_right()) YGNodeStyleSetPosition(node, YGEdgeRight, view.right());
+    if (view.has_bottom()) YGNodeStyleSetPosition(node, YGEdgeBottom, view.bottom());
+    if (view.has_left()) YGNodeStyleSetPosition(node, YGEdgeLeft, view.left());
+}
+
 // Measure callback for widgets with intrinsic size
 static YGSize yoga_measure(YGNodeConstRef node, float width, YGMeasureMode widthMode,
                             float height, YGMeasureMode heightMode) {
+    (void) widthMode;
+    (void) heightMode;
     auto* view = static_cast<View*>(YGNodeGetContext(node));
     float w = view->intrinsic_width();
     float h = view->intrinsic_height();
@@ -102,61 +124,82 @@ static YGSize yoga_measure(YGNodeConstRef node, float width, YGMeasureMode width
     return {w, h};
 }
 
-// Build YGNode tree from View tree, compute layout, apply results
-void yoga_layout(View& root) {
-    auto rootBounds = root.local_bounds();
-
-    // Create root YGNode
-    YGNodeRef ygRoot = YGNodeNew();
-    YGNodeStyleSetWidth(ygRoot, rootBounds.width);
-    YGNodeStyleSetHeight(ygRoot, rootBounds.height);
-    apply_flex_style(ygRoot, root.flex());
-
-    // Collect visible children sorted by order
+static std::vector<View*> ordered_visible_children(View& parent) {
     struct ChildEntry { View* view; int order; };
     std::vector<ChildEntry> ordered;
-    for (size_t i = 0; i < root.child_count(); ++i) {
-        auto* child = root.child_at(i);
+    for (size_t i = 0; i < parent.child_count(); ++i) {
+        auto* child = parent.child_at(i);
         if (!child->visible()) continue;
         ordered.push_back({const_cast<View*>(child), child->flex().order});
     }
     std::stable_sort(ordered.begin(), ordered.end(),
         [](const ChildEntry& a, const ChildEntry& b) { return a.order < b.order; });
 
-    // Create child YGNodes
-    std::vector<YGNodeRef> childNodes;
-    for (size_t i = 0; i < ordered.size(); ++i) {
-        auto* child = ordered[i].view;
-        YGNodeRef ygChild = YGNodeNew();
-        apply_flex_style(ygChild, child->flex());
-        YGNodeSetContext(ygChild, child);
+    std::vector<View*> children;
+    children.reserve(ordered.size());
+    for (const auto& entry : ordered)
+        children.push_back(entry.view);
+    return children;
+}
 
-        // Set measure function for leaf nodes (widgets with intrinsic size)
-        if (child->child_count() == 0 && (child->intrinsic_width() > 0 || child->intrinsic_height() > 0)) {
-            YGNodeSetMeasureFunc(ygChild, yoga_measure);
+static void build_yoga_subtree(View& view, YGNodeRef node) {
+    apply_flex_style(node, view.flex());
+    apply_position_style(node, view);
+    YGNodeSetContext(node, &view);
+
+    auto children = ordered_visible_children(view);
+    bool has_managed_children = !children.empty() && view.layout_mode() != LayoutMode::grid;
+
+    if (!has_managed_children && (view.intrinsic_width() > 0 || view.intrinsic_height() > 0)) {
+        YGNodeSetMeasureFunc(node, yoga_measure);
+    }
+
+    if (!has_managed_children)
+        return;
+
+    for (size_t i = 0; i < children.size(); ++i) {
+        auto* child = children[i];
+        YGNodeRef ygChild = YGNodeNew();
+        build_yoga_subtree(*child, ygChild);
+        YGNodeInsertChild(node, ygChild, static_cast<uint32_t>(i));
+    }
+}
+
+static void apply_yoga_results(View& parent, YGNodeRef node) {
+    const uint32_t childCount = YGNodeGetChildCount(node);
+    for (uint32_t i = 0; i < childCount; ++i) {
+        YGNodeRef childNode = YGNodeGetChild(node, i);
+        auto* child = static_cast<View*>(YGNodeGetContext(childNode));
+        if (!child) continue;
+
+        child->set_bounds({
+            YGNodeLayoutGetLeft(childNode),
+            YGNodeLayoutGetTop(childNode),
+            YGNodeLayoutGetWidth(childNode),
+            YGNodeLayoutGetHeight(childNode)
+        });
+
+        if (child->layout_mode() == LayoutMode::grid) {
+            child->layout_children();
+            continue;
         }
 
-        YGNodeInsertChild(ygRoot, ygChild, static_cast<uint32_t>(i));
-        childNodes.push_back(ygChild);
+        apply_yoga_results(*child, childNode);
     }
+}
 
-    // Compute layout
+// Build YGNode tree from View tree, compute layout, apply results
+void yoga_layout(View& root) {
+    auto rootBounds = root.local_bounds();
+
+    YGNodeRef ygRoot = YGNodeNew();
+    YGNodeStyleSetWidth(ygRoot, rootBounds.width);
+    YGNodeStyleSetHeight(ygRoot, rootBounds.height);
+    build_yoga_subtree(root, ygRoot);
+
     YGNodeCalculateLayout(ygRoot, rootBounds.width, rootBounds.height, YGDirectionLTR);
+    apply_yoga_results(root, ygRoot);
 
-    // Apply results back to Views
-    for (size_t i = 0; i < ordered.size(); ++i) {
-        auto* child = ordered[i].view;
-        float x = YGNodeLayoutGetLeft(childNodes[i]);
-        float y = YGNodeLayoutGetTop(childNodes[i]);
-        float w = YGNodeLayoutGetWidth(childNodes[i]);
-        float h = YGNodeLayoutGetHeight(childNodes[i]);
-        child->set_bounds({x, y, w, h});
-
-        // Recurse into children
-        child->layout_children();
-    }
-
-    // Cleanup YGNodes
     YGNodeFreeRecursive(ygRoot);
 }
 

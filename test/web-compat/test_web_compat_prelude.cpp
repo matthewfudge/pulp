@@ -162,6 +162,18 @@ TEST_CASE("WebCompat: parseTransition", "[webcompat][parser]") {
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "opacity");
 }
 
+TEST_CASE("WebCompat: matchMedia min-width", "[webcompat][parser]") {
+    TestEnvironment env(800, 600);
+    auto result = env.engine.evaluate("typeof _matchMediaQuery === 'function' && _matchMediaQuery('(min-width: 600px)')");
+    REQUIRE(result.getWithDefault<bool>(false) == true);
+}
+
+TEST_CASE("WebCompat: matchMedia orientation landscape", "[webcompat][parser]") {
+    TestEnvironment env;
+    auto result = env.engine.evaluate("_matchMediaQuery('(orientation: landscape)')");
+    REQUIRE(result.getWithDefault<bool>(false) == true);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // createElement (JS-only construction, no appendChild)
 // ═══════════════════════════════════════════════════════════════════════════════

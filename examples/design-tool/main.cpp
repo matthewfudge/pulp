@@ -12,9 +12,11 @@
 #include <pulp/state/store.hpp>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include <cstdlib>
 #include <dispatch/dispatch.h>
 
 using namespace pulp::view;
@@ -56,23 +58,46 @@ int main(int argc, char* argv[]) {
     // Create the view tree root
     View root;
     root.set_theme(Theme::dark());
-    root.flex().direction = FlexDirection::row;
+    root.flex().direction = FlexDirection::column;
 
     StateStore store;
-    ScriptEngine engine;
-    engine.set_log_callback([](std::string_view level, std::string_view msg) {
-        std::cerr << "[" << level << "] " << msg << "\n";
-    });
-    WidgetBridge bridge(engine, root, store);
+    auto make_engine = [](std::string prefix = {}) {
+        auto engine = std::make_unique<ScriptEngine>();
+        engine->set_log_callback([prefix = std::move(prefix)](std::string_view level, std::string_view msg) {
+            if (!prefix.empty()) {
+                std::cerr << prefix << "[" << level << "] " << msg << "\n";
+            } else {
+                std::cerr << "[" << level << "] " << msg << "\n";
+            }
+        });
+        return engine;
+    };
+
+    auto engine = make_engine();
+    auto bridge = std::make_unique<WidgetBridge>(*engine, root, store);
+    if (const char* ai_cli = std::getenv("PULP_AI_CLI")) {
+        bridge->set_ai_cli_command(ai_cli);
+    }
 
     // Load library scripts first (oklch.js)
     auto js_dir = js_path.parent_path();
-    for (auto& lib : {"oklch.js"}) {
-        auto lib_path = js_dir / lib;
-        if (fs::exists(lib_path)) {
-            bridge.load_script(read_file(lib_path));
-            std::cout << "Loaded: " << lib << "\n";
+    auto load_library_scripts = [&](WidgetBridge& target) {
+        for (auto& lib : {"oklch.js"}) {
+            auto lib_path = js_dir / lib;
+            if (fs::exists(lib_path)) {
+                target.load_script(read_file(lib_path));
+            }
         }
+    };
+    try {
+        load_library_scripts(*bridge);
+        std::cout << "Loaded: oklch.js\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading library scripts: " << e.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "Error loading library scripts: unknown exception\n";
+        return 1;
     }
 
     // Load main UI script
@@ -81,7 +106,15 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: could not read " << js_path.string() << "\n";
         return 1;
     }
-    bridge.load_script(code);
+    try {
+        bridge->load_script(code);
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading design tool script: " << e.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "Error loading design tool script: unknown exception\n";
+        return 1;
+    }
 
     std::cout << "UI created: " << root.child_count() << " top-level views\n";
 
@@ -93,8 +126,12 @@ int main(int argc, char* argv[]) {
     opts.min_width = 1000;  // Issue 5: prevent scrollbar overlap
     opts.min_height = 600;
     opts.resizable = true;
+    opts.use_gpu = true;
 
     auto window = WindowHost::create(root, opts);
+    bridge->set_repaint_callback([&window] {
+        if (window) window->repaint();
+    });
     window->set_close_callback([] {
         std::cout << "Window closed\n";
     });
@@ -102,23 +139,63 @@ int main(int argc, char* argv[]) {
     // Hot reload
     HotReloader reloader(js_path, [&](const std::string& new_code) {
         std::cout << "Hot reload: " << js_path.filename().string() << "\n";
-        std::unordered_map<std::string, float> saved;
-        bridge.snapshot_values(saved);
-        bridge.clear();
-        bridge.load_script(new_code);
-        bridge.restore_values(saved);
-        window->repaint();
+        try {
+            // Validate the new script in an isolated bridge first so a bad
+            // reload does not tear down the live UI.
+            View probe_root;
+            probe_root.set_theme(root.theme());
+            probe_root.flex().direction = FlexDirection::column;
+            StateStore probe_store;
+            auto probe_engine = make_engine("reload:");
+            auto probe_bridge = std::make_unique<WidgetBridge>(*probe_engine, probe_root, probe_store);
+            load_library_scripts(*probe_bridge);
+            probe_bridge->load_script(new_code);
+
+            std::unordered_map<std::string, float> saved;
+            bridge->snapshot_values(saved);
+            window->invalidate_input_state();
+            bridge->clear();
+
+            auto next_engine = make_engine();
+            auto next_bridge = std::make_unique<WidgetBridge>(*next_engine, root, store);
+            if (const char* ai_cli = std::getenv("PULP_AI_CLI")) {
+                next_bridge->set_ai_cli_command(ai_cli);
+            }
+            load_library_scripts(*next_bridge);
+            next_bridge->load_script(new_code);
+            next_bridge->restore_values(saved);
+            engine = std::move(next_engine);
+            bridge = std::move(next_bridge);
+            bridge->set_repaint_callback([&window] {
+                if (window) window->repaint();
+            });
+            window->repaint();
+        } catch (const std::exception& e) {
+            std::cerr << "Hot reload failed: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "Hot reload failed: unknown exception\n";
+        }
     });
 
-    // Poll hot-reload on a GCD timer (main thread, every 300ms)
+    // Poll hot-reload and async bridge results on a GCD timer (main thread).
     auto* reload_timer = dispatch_source_create(
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(reload_timer,
         dispatch_time(DISPATCH_TIME_NOW, 0),
-        300 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
+        100 * NSEC_PER_MSEC, 20 * NSEC_PER_MSEC);
     auto* reloader_ptr = &reloader;
+    auto* bridge_slot = &bridge;
     dispatch_source_set_event_handler(reload_timer, ^{
-        reloader_ptr->poll_reload();
+        try {
+            if (*bridge_slot) {
+                (*bridge_slot)->poll_async_results();
+            }
+            reloader_ptr->poll_reload();
+        } catch (const std::exception& e) {
+            std::cerr << "Design tool event loop error: " << e.what() << "\n";
+        } catch (...) {
+            std::cerr << "Design tool event loop error: unknown exception\n";
+        }
     });
     dispatch_resume(reload_timer);
 
