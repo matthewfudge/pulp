@@ -827,6 +827,13 @@ void WidgetBridge::register_api() {
         auto pid = args.get<std::string>(1, "");
         auto v = std::make_unique<ModalOverlay>(); v->set_id(id);
         v->flex().direction = FlexDirection::column;
+        auto* modal = v.get();
+        modal->on_dismiss = [this, modal, id]() {
+            if (modal) {
+                modal->set_visible(false);
+            }
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'dismiss', 0)", "modal dismiss");
+        };
         widgets_[id] = v.get();
         resolve_parent(pid)->add_child(std::move(v));
         return choc::value::createString(id);

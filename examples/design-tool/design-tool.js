@@ -3155,6 +3155,7 @@ setMultiLine("help-modal-body", 1);
 setFlex("help-modal-body", "flex_grow", 1);
 
 on("help-modal", "click", function() { hideHelpModal(); });
+on("help-modal", "dismiss", function() { hideHelpModal(); });
 on("help-modal-close-btn", "click", function() { hideHelpModal(); });
 
 var toastTimer = 0;

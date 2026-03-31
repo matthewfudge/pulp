@@ -89,6 +89,32 @@ TEST_CASE("WidgetBridge creates modal overlay from JS", "[view][bridge]") {
     REQUIRE(dynamic_cast<ModalOverlay*>(w) != nullptr);
 }
 
+TEST_CASE("WidgetBridge modal dismiss dispatches JS handler on Escape", "[view][bridge]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var dismissed = 0;
+        createModal('help-modal', '');
+        on('help-modal', 'dismiss', function() { dismissed = 1; });
+    )");
+
+    auto* modal = dynamic_cast<ModalOverlay*>(bridge.widget("help-modal"));
+    REQUIRE(modal != nullptr);
+    modal->set_visible(true);
+
+    KeyEvent esc{};
+    esc.is_down = true;
+    esc.key = KeyCode::escape;
+    REQUIRE(modal->on_key_event(esc));
+    REQUIRE(engine.evaluate("dismissed").getWithDefault<int>(0) == 1);
+    REQUIRE_FALSE(modal->visible());
+}
+
 TEST_CASE("WidgetBridge set/get value from JS", "[view][bridge]") {
     ScriptEngine engine;
     View root;
