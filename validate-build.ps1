@@ -137,7 +137,8 @@ try {
     Import-VcVarsEnvironment -BatchFile $VcVarsBat
     $SrcDirBash = Convert-ToBashPath -PathValue $SrcDir
     if (-not $Quiet) { Write-Host "Creating clean validation worktree..." }
-    git -C $Root worktree add --detach $SrcDir $Ref *> $null
+    $worktreeCmd = 'git -C "{0}" worktree add --detach "{1}" "{2}" >nul 2>nul' -f $Root, $SrcDir, $Ref
+    & cmd.exe /d /c $worktreeCmd
     if ($LASTEXITCODE -ne 0) { throw "git worktree add failed" }
 
     Run-OrDump "dependency bootstrap" $SetupLog {
