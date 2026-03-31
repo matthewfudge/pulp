@@ -43,6 +43,10 @@ __pycache__/
 *.pyc
 tools/deps/hosts.local.json
 
+# Local CI runtime files
+tools/local-ci/queue.json
+tools/local-ci/results/
+
 # Secrets
 .env
 .env.*
