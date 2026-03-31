@@ -857,6 +857,10 @@ var paletteValueFormats = ["OKLCH", "OKLCH", "OKLCH", "OKLCH", "OKLCH"];
 var paletteApplyFrames = {};
 var paletteApplyStates = {};
 var paletteShaderHueBuckets = {};
+var paletteSliderDragActive = {};
+var palettePreviewUpdateTimes = {};
+var paletteThemeApplyTimes = {};
+var paletteShaderUpdateTimes = {};
 
 function hexToRgbParts(hex) {
     if (!hex || hex.length !== 7 || hex.charAt(0) !== "#") return { r: 0, g: 0, b: 0 };
@@ -973,11 +977,11 @@ function applyPaletteSliderShaders(paletteIdx, hue) {
 }
 
 function quantizePalettePreviewHue(hue) {
-    return Math.round(hue / 2) * 2;
+    return Math.round(hue / 6) * 6;
 }
 
 function quantizePaletteShaderHue(hue) {
-    return Math.round(hue / 6) * 6;
+    return Math.round(hue / 18) * 18;
 }
 
 function updatePaletteShadeWidgets(paletteIdx, ramp) {
@@ -997,6 +1001,8 @@ function flushPaletteThemeApply(paletteIdx) {
     paletteApplyFrames[paletteIdx] = 0;
     var state = paletteApplyStates[paletteIdx];
     if (!state) return;
+    paletteThemeApplyTimes[paletteIdx] = performance.now();
+    var dragging = !!paletteSliderDragActive[paletteIdx];
 
     if (state.pKey === "accent") {
         currentAccent = OklchEngine.oklchToHex(state.mappedL, state.mappedC, state.h);
@@ -1008,13 +1014,25 @@ function flushPaletteThemeApply(paletteIdx) {
     }
 
     applyTokenDiff(PaletteSystem.toThemeDiff(palette));
-    updateTokenSwatches(true);
+    if (!dragging) updateTokenSwatches(true);
     updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
 }
 
-function schedulePaletteThemeApply(paletteIdx, pKey, h, mappedL, mappedC) {
+function schedulePaletteThemeApply(paletteIdx, pKey, h, mappedL, mappedC, forceApply) {
     paletteApplyStates[paletteIdx] = { pKey: pKey, h: h, mappedL: mappedL, mappedC: mappedC };
+    if (forceApply) {
+        if (paletteApplyFrames[paletteIdx]) {
+            cancelAnimationFrame(paletteApplyFrames[paletteIdx]);
+            paletteApplyFrames[paletteIdx] = 0;
+        }
+        flushPaletteThemeApply(paletteIdx);
+        return;
+    }
     if (paletteApplyFrames[paletteIdx]) return;
+    if (paletteSliderDragActive[paletteIdx]) {
+        var lastApply = paletteThemeApplyTimes[paletteIdx] || 0;
+        if ((performance.now() - lastApply) < 140) return;
+    }
     paletteApplyFrames[paletteIdx] = requestAnimationFrame(function() {
         flushPaletteThemeApply(paletteIdx);
     });
@@ -1397,24 +1415,47 @@ function buildShadeRamps() {
 
         // H/C slider change handlers — update gamut, dot, accent, and preview
         (function(idx, pKey) {
-            function onPaletteSliderChange(hueChanged) {
+            function onPaletteSliderChange(hueChanged, forceApply) {
                 var h = getValue("ramp-" + idx + "-h-fdr") * 360;
                 var c = getValue("ramp-" + idx + "-c-fdr") * 0.4;
                 var mapped = OklchEngine.gamutMap(0.55, c, h);
+                var dragging = !!paletteSliderDragActive[idx];
+                var now = performance.now();
                 var previewHue = hueChanged ? quantizePalettePreviewHue(h) : h;
-                renderPaletteGamut(idx, previewHue, mapped.L, mapped.C, false);
+                if (dragging && !forceApply) {
+                    renderPaletteGamutOverlay(idx, h, mapped.L, mapped.C);
+                } else {
+                    palettePreviewUpdateTimes[idx] = now;
+                    renderPaletteGamut(idx, previewHue, mapped.L, mapped.C, false);
+                }
                 if (hueChanged) {
                     var shaderHue = quantizePaletteShaderHue(h);
-                    if (paletteShaderHueBuckets[idx] !== shaderHue) {
+                    var lastShader = paletteShaderUpdateTimes[idx] || 0;
+                    if (paletteShaderHueBuckets[idx] !== shaderHue && (!dragging || forceApply || (now - lastShader) >= 160)) {
                         paletteShaderHueBuckets[idx] = shaderHue;
+                        paletteShaderUpdateTimes[idx] = now;
                         applyPaletteSliderShaders(idx, shaderHue);
                     }
                 }
                 updatePaletteValueDisplay(idx, mapped, OklchEngine.oklchToHex(mapped.L, mapped.C, h));
-                schedulePaletteThemeApply(idx, pKey, h, mapped.L, mapped.C);
+                schedulePaletteThemeApply(idx, pKey, h, mapped.L, mapped.C, !!forceApply);
             }
-            on("ramp-" + idx + "-h-fdr", "change", function() { onPaletteSliderChange(true); });
-            on("ramp-" + idx + "-c-fdr", "change", function() { onPaletteSliderChange(false); });
+            function beginSliderDrag() {
+                paletteSliderDragActive[idx] = true;
+            }
+            function endSliderDrag(hueChanged) {
+                if (!paletteSliderDragActive[idx]) return;
+                paletteSliderDragActive[idx] = false;
+                onPaletteSliderChange(hueChanged, true);
+            }
+            on("ramp-" + idx + "-h-fdr", "pointerdown", beginSliderDrag);
+            on("ramp-" + idx + "-h-fdr", "pointerup", function() { endSliderDrag(true); });
+            on("ramp-" + idx + "-h-fdr", "pointercancel", function() { endSliderDrag(true); });
+            on("ramp-" + idx + "-c-fdr", "pointerdown", beginSliderDrag);
+            on("ramp-" + idx + "-c-fdr", "pointerup", function() { endSliderDrag(false); });
+            on("ramp-" + idx + "-c-fdr", "pointercancel", function() { endSliderDrag(false); });
+            on("ramp-" + idx + "-h-fdr", "change", function() { onPaletteSliderChange(true, false); });
+            on("ramp-" + idx + "-c-fdr", "change", function() { onPaletteSliderChange(false, false); });
         })(p, paletteKeys[p]);
     }
     updateColorSectionLayout();
