@@ -17,9 +17,10 @@ ctest --test-dir build -R clap-dlopen   # CLAP load tests
 ```
 
 Use `./validate-build.sh --quiet` when you want a CI-like outer loop that ignores
-incremental build state and only prints logs on failure. This is the quickest way
-to catch clean-build drift, missing setup dependencies, and docs/test-count issues
-before opening a PR.
+incremental build state and only prints logs on failure. It bootstraps dependencies
+in a detached worktree, then runs a fresh configure, build, install, and optional
+test pass. This is the quickest way to catch clean-build drift, install/export
+breakage, missing setup dependencies, and docs/test-count issues before opening a PR.
 
 ## Test Count
 

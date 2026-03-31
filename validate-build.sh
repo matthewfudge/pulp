@@ -18,7 +18,7 @@ for arg in "$@"; do
 Usage: ./validate-build.sh [--quiet] [--no-tests] [--keep-worktree]
 
 Creates a detached clean worktree at the current HEAD, bootstraps dependencies,
-configures, builds, and optionally runs tests. Output is buffered and only
+configures, builds, installs, and optionally runs tests. Output is buffered and only
 printed on failure unless --quiet is omitted.
 EOF
             exit 0
@@ -32,6 +32,8 @@ build_dir="$tmp_root/build"
 setup_log="$tmp_root/setup.log"
 configure_log="$tmp_root/configure.log"
 build_log="$tmp_root/build.log"
+install_dir="$tmp_root/install"
+install_log="$tmp_root/install.log"
 test_log="$tmp_root/test.log"
 
 cleanup() {
@@ -66,6 +68,7 @@ run_or_dump() {
 run_or_dump "dependency bootstrap" "$setup_log" bash -lc "cd \"$src_dir\" && ./setup.sh --ci --deps-only"
 run_or_dump "configure" "$configure_log" cmake -S "$src_dir" -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug
 run_or_dump "build" "$build_log" cmake --build "$build_dir" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
+run_or_dump "install" "$install_log" cmake --install "$build_dir" --prefix "$install_dir"
 
 if [ "$SKIP_TESTS" = false ]; then
     run_or_dump "test" "$test_log" ctest --test-dir "$build_dir" --output-on-failure
