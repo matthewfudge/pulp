@@ -306,6 +306,19 @@ commands:
         description: Print to stdout
     docs: guides/importing-designs.md#design-tokens
 
+  - name: ci-local
+    status: experimental
+    summary: Local CI runner — validates branches on Mac, Ubuntu, and Windows VMs.
+    subcommands:
+      - name: enqueue
+        summary: Queue a branch for validation (default: current branch)
+      - name: drain
+        summary: Process all pending jobs (starts VMs if needed)
+      - name: run
+        summary: Enqueue and drain immediately
+      - name: status
+        summary: Show queue, recent results, and VM status
+
   - name: help
     status: usable
     summary: Print usage information.

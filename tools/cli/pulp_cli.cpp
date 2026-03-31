@@ -2658,6 +2658,21 @@ int main(int argc, char* argv[]) {
         for (auto& arg : args) cmd += " \"" + arg + "\"";
         return run(cmd);
     }
+    if (command == "ci-local") {
+        auto root = find_project_root();
+        if (root.empty()) {
+            std::cerr << "Error: not in a Pulp project directory\n";
+            return 1;
+        }
+        auto script = root / "tools" / "local-ci" / "local_ci.py";
+        if (!fs::exists(script)) {
+            std::cerr << "Error: local-ci script not found at " << script.string() << "\n";
+            return 1;
+        }
+        std::string cmd = "python3 \"" + script.string() + "\"";
+        for (auto& arg : args) cmd += " \"" + arg + "\"";
+        return run(cmd);
+    }
     if (command == "design") {
         auto root = find_project_root();
         if (root.empty()) {

@@ -1,0 +1,33 @@
+{
+  "targets": {
+    "mac": {
+      "type": "local",
+      "enabled": true
+    },
+    "ubuntu": {
+      "type": "ssh",
+      "host": "ubuntu",
+      "repo_path": "/home/daniel/Code/pulp-validate",
+      "utm_fallback": {
+        "vm_name": "Ubuntu 24.04 desktop",
+        "boot_wait_secs": 30,
+        "ssh_retry_secs": 60
+      }
+    },
+    "windows": {
+      "type": "ssh",
+      "host": "win2",
+      "repo_path": "C:\\Users\\danielraffel\\pulp-validate",
+      "utm_fallback": {
+        "vm_name": "Windows",
+        "boot_wait_secs": 60,
+        "ssh_retry_secs": 120
+      }
+    }
+  },
+  "defaults": {
+    "ssh_timeout_secs": 5,
+    "max_retries": 3,
+    "retry_delay_secs": 30
+  }
+}

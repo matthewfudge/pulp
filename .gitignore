@@ -42,6 +42,10 @@ target/
 __pycache__/
 *.pyc
 
+# Local CI runtime files
+tools/local-ci/queue.json
+tools/local-ci/results/
+
 # Secrets
 .env
 .env.*

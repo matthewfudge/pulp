@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Drain the local CI queue on login and periodically (every 30 min) -->
+    <key>Label</key>
+    <string>dev.pulp.local-ci</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/danielraffel/Code/pulp/tools/local-ci/local_ci.py</string>
+        <string>drain</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/pulp-local-ci.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/pulp-local-ci.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/danielraffel/Code/pulp</string>
+</dict>
+</plist>
