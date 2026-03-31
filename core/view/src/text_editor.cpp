@@ -364,7 +364,7 @@ void TextEditor::paint(canvas::Canvas& canvas) {
                                    stroke_radius);
     }
 
-    canvas.set_font("system", font_size_);
+    canvas.set_font("Inter", font_size_);
 
     // Display text
     std::string display = text_;
@@ -373,7 +373,7 @@ void TextEditor::paint(canvas::Canvas& canvas) {
     }
 
     if (multi_line) {
-        canvas.set_font("system", font_size_);
+        canvas.set_font("Inter", font_size_);
         const float inner_x = b.x + 6.0f;
         const float inner_y = b.y + 4.0f;
         const float inner_w = std::max(20.0f, b.width - 12.0f);

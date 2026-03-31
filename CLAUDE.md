@@ -192,6 +192,14 @@ Planning docs live in `planning/` locally. When a phase completes, its spec move
 - **`phase/*`** — implementation branches for planned work. Created from specs. Merged to main via PR when validated.
 - **`fix/*`** — bug fixes, small improvements.
 
+### Default Branch Discipline
+
+- Default to a branch for any non-trivial change. Use `fix/*` for focused repairs and `phase/*` for planned feature work.
+- Treat `main` as a landing branch, not a scratch branch.
+- Direct commits on `main` are reserved for very small, low-risk changes that have already been validated locally.
+- Before merging to `main`, have high confidence the slice is stable: targeted tests pass, higher-risk changes get a clean detached validation pass with `./validate-build.sh`, and docs/status stay in sync.
+- When multiple people or agents are active in the repo, prefer branches and worktrees even for medium-sized changes to reduce accidental breakage and merge confusion.
+
 ### Workflow: Exploration → Validation → Landing
 
 1. **Explore** — create a worktree on `explore/topic`. Prototype freely. Use ralph-loop for iterative development. Break things. Learn.
@@ -450,6 +458,8 @@ A plugin that crashes a DAW during scan is worse than no plugin at all. Validati
 Tests must pass in the worktree before creating a PR. CI runs the full matrix on PR. No merging with red tests.
 
 For risky build-system or packaging work, "tests pass" also includes a clean detached validation pass with `./validate-build.sh`, not just an incremental rebuild in the existing `build/` directory.
+
+When in doubt, validate in the branch/worktree first and merge to `main` second. The burden of proof should be on landing safely, not on fixing `main` after the fact.
 
 ---
 
