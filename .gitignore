@@ -18,6 +18,14 @@ xcuserdata/
 .DS_Store
 Thumbs.db
 
+# Local debug/temp artifacts
+/.tmp-pulp-demo-verification.png
+/pulpgain-test-pencil-render.png
+/pulp
+/tokens.json
+/examples/design-tool/.design-tool-*.tmp.js
+/planning/screenshots/design-debug/
+
 # Dependencies (fetched at build time)
 /external/*/
 # Exception: vendored deps committed to repo
