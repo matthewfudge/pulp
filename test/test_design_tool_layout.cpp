@@ -6,6 +6,7 @@
 #include <pulp/view/widgets.hpp>
 #include <pulp/view/text_editor.hpp>
 #include <pulp/view/ui_components.hpp>
+#include <pulp/view/modal.hpp>
 #include <pulp/view/theme.hpp>
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
@@ -191,6 +192,22 @@ TEST_CASE("Design tool: help badges exist for color system controls", "[design-t
     REQUIRE_NOTHROW(engine.evaluate("__dispatch__('template-help', 'click', 0);"));
     root.layout_children();
     REQUIRE(help_modal->visible());
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('help-modal-close-btn', 'click', 0);"));
+    root.layout_children();
+    REQUIRE_FALSE(help_modal->visible());
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('template-help', 'click', 0);"));
+    root.layout_children();
+    REQUIRE(help_modal->visible());
+
+    auto* modal = dynamic_cast<ModalOverlay*>(help_modal);
+    REQUIRE(modal != nullptr);
+    KeyEvent esc{};
+    esc.is_down = true;
+    esc.key = KeyCode::escape;
+    REQUIRE(modal->on_key_event(esc));
+    REQUIRE_FALSE(help_modal->visible());
 }
 
 TEST_CASE("Design tool: composite control labels stay click-through", "[design-tool]") {
@@ -216,6 +233,9 @@ TEST_CASE("Design tool: composite control labels stay click-through", "[design-t
     REQUIRE_FALSE(bridge.widget("palette-save-lbl")->hit_testable());
     REQUIRE_FALSE(bridge.widget("palette-load-lbl")->hit_testable());
     REQUIRE_FALSE(bridge.widget("help-modal-close-label")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("tp-close-lbl")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("tp-btn-0-lbl")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("tp-custom-lbl")->hit_testable());
 }
 
 TEST_CASE("Design tool: palette dots stay circular", "[design-tool]") {
@@ -337,6 +357,17 @@ TEST_CASE("Design tool: token popup surfaces modified state and compact controls
 
     REQUIRE_THAT(modified_marker->opacity(), Catch::Matchers::WithinAbs(1.0f, 0.01f));
     REQUIRE_THAT(reset_button->opacity(), Catch::Matchers::WithinAbs(1.0f, 0.01f));
+
+    auto* custom_section = bridge.widget("tp-custom");
+    REQUIRE(custom_section != nullptr);
+    REQUIRE_FALSE(custom_section->visible());
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('tp-custom-toggle', 'click', 0);"));
+    root.layout_children();
+    REQUIRE(custom_section->visible());
+
+    REQUIRE_NOTHROW(engine.evaluate("__dispatch__('__global__', 'keydown', { key: 274, mods: 0 });"));
+    root.layout_children();
+    REQUIRE_FALSE(popup->visible());
 }
 
 TEST_CASE("Design tool: waveform and spectrum previews render populated data", "[design-tool]") {

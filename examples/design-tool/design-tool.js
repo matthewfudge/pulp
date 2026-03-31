@@ -1678,6 +1678,7 @@ setBackground("tp-close", APP_SURFACE);
 setBorder("tp-close", APP_BORDER, 1, 10);
 createLabel("tp-close-lbl", "x", "tp-close");
 setFontSize("tp-close-lbl", 11);
+setPointerEvents("tp-close-lbl", "none");
 registerClick("tp-close");
 on("tp-close", "click", function() { closeTokenPopup(); });
 
@@ -1702,6 +1703,7 @@ for (var ub = 0; ub < tpUndoBtns.length; ub++) {
     setBorder(ubId, APP_BORDER, 1, 4);
     createLabel(ubId + "-lbl", tpUndoBtns[ub], ubId);
     setFontSize(ubId + "-lbl", 9);
+    setPointerEvents(ubId + "-lbl", "none");
     registerClick(ubId);
 }
 
@@ -1856,6 +1858,7 @@ registerClick("tp-custom-toggle");
 createLabel("tp-custom-lbl", "\u25b6 Custom color picker", "tp-custom-toggle");
 setFontSize("tp-custom-lbl", 10);
 setTextColor("tp-custom-lbl", APP_TEXT_DIM);
+setPointerEvents("tp-custom-lbl", "none");
 
 createCol("tp-custom", "token-popup");
 setFlex("tp-custom", "gap", 4);
@@ -3365,6 +3368,11 @@ on("context-badge", "click", function() {
 // ═══════════════════════════════════════════════════════════════════
 on("__global__", "keydown", function(evt) {
     if (!evt) return;
+    if (evt.key === 274 && tokenEditState.activeToken) {
+        closeTokenPopup();
+        layout();
+        return;
+    }
     var cmd = (evt.mods & 0x18) !== 0;  // kModMeta | kModCmd
     var shift = (evt.mods & 0x01) !== 0;
     // 'z' key = 122 ASCII or platform key code
