@@ -828,7 +828,7 @@ on("token-search", "change", function(query) {
 });
 
 // ── Apply token colors to swatches ───────────────────────────────
-function updateTokenSwatches() {
+function updateTokenSwatches(skipPreviewRefresh) {
     var themeStr = getThemeJson();
     var theme = JSON.parse(themeStr);
     var colors = theme.colors || {};
@@ -844,7 +844,7 @@ function updateTokenSwatches() {
             }
         }
     }
-    if (previewReady) {
+    if (previewReady && !skipPreviewRefresh) {
         refreshPreviewLayoutSection();
     }
 }
@@ -854,6 +854,9 @@ updateTokenSwatches();
 var paletteNames = ["Accent", "Neutral", "Success", "Warning", "Error"];
 var paletteKeys  = ["accent", "neutral", "success", "warning", "error"];
 var paletteValueFormats = ["OKLCH", "OKLCH", "OKLCH", "OKLCH", "OKLCH"];
+var paletteApplyFrames = {};
+var paletteApplyStates = {};
+var paletteShaderHueBuckets = {};
 
 function hexToRgbParts(hex) {
     if (!hex || hex.length !== 7 || hex.charAt(0) !== "#") return { r: 0, g: 0, b: 0 };
@@ -967,6 +970,54 @@ function buildPaletteChromaSliderShader(hue) {
 function applyPaletteSliderShaders(paletteIdx, hue) {
     setWidgetShader("ramp-" + paletteIdx + "-h-fdr", buildPaletteHueSliderShader());
     setWidgetShader("ramp-" + paletteIdx + "-c-fdr", buildPaletteChromaSliderShader(hue));
+}
+
+function quantizePalettePreviewHue(hue) {
+    return Math.round(hue / 2) * 2;
+}
+
+function quantizePaletteShaderHue(hue) {
+    return Math.round(hue / 6) * 6;
+}
+
+function updatePaletteShadeWidgets(paletteIdx, ramp) {
+    var steps = ShadeGenerator.STEPS;
+    for (var s = 0; s < steps.length; s++) {
+        setBackground("ramp-" + paletteIdx + "-s" + s, ramp[steps[s]].hex);
+    }
+    setBackground("ramp-" + paletteIdx + "-dot", ramp[500].hex);
+
+    var stepIdxs = [0, 2, 4, 5, 7, 9];
+    for (var ls = 0; ls < 6; ls++) {
+        setBackground("ramp-" + paletteIdx + "-lg-" + ls, ramp[steps[stepIdxs[ls]]].hex);
+    }
+}
+
+function flushPaletteThemeApply(paletteIdx) {
+    paletteApplyFrames[paletteIdx] = 0;
+    var state = paletteApplyStates[paletteIdx];
+    if (!state) return;
+
+    if (state.pKey === "accent") {
+        currentAccent = OklchEngine.oklchToHex(state.mappedL, state.mappedC, state.h);
+    }
+
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    if (state.pKey !== "accent") {
+        palette[state.pKey] = ShadeGenerator.generateRamp(state.mappedL, state.mappedC, state.h);
+    }
+
+    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+    updateTokenSwatches(true);
+    updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
+}
+
+function schedulePaletteThemeApply(paletteIdx, pKey, h, mappedL, mappedC) {
+    paletteApplyStates[paletteIdx] = { pKey: pKey, h: h, mappedL: mappedL, mappedC: mappedC };
+    if (paletteApplyFrames[paletteIdx]) return;
+    paletteApplyFrames[paletteIdx] = requestAnimationFrame(function() {
+        flushPaletteThemeApply(paletteIdx);
+    });
 }
 
 function getPaletteValueFields(format, oklch, hex) {
@@ -1279,6 +1330,7 @@ function buildShadeRamps() {
             var oklch = OklchEngine.hexToOklch(base.hex);
             renderPaletteGamut(p, oklch.H, oklch.L, oklch.C);
             applyPaletteSliderShaders(p, oklch.H);
+            paletteShaderHueBuckets[p] = quantizePaletteShaderHue(oklch.H);
             setValue(rampId + "-h-fdr", oklch.H / 360);
             setValue(rampId + "-c-fdr", Math.min(oklch.C / 0.4, 1));
             updatePaletteValueDisplay(p, oklch, base.hex);
@@ -1306,6 +1358,7 @@ function buildShadeRamps() {
                     var oklch = OklchEngine.hexToOklch(base.hex);
                     renderPaletteGamut(idx, oklch.H, oklch.L, oklch.C);
                     applyPaletteSliderShaders(idx, oklch.H);
+                    paletteShaderHueBuckets[idx] = quantizePaletteShaderHue(oklch.H);
                     setValue("ramp-" + idx + "-h-fdr", oklch.H / 360);
                     setValue("ramp-" + idx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                     updatePaletteValueDisplay(idx, oklch, base.hex);
@@ -1331,6 +1384,7 @@ function buildShadeRamps() {
                         applyPaletteExpandedLayout(paletteIdx, true);
                         renderPaletteGamut(paletteIdx, oklch.H, oklch.L, oklch.C);
                         applyPaletteSliderShaders(paletteIdx, oklch.H);
+                        paletteShaderHueBuckets[paletteIdx] = quantizePaletteShaderHue(oklch.H);
                         setValue("ramp-" + paletteIdx + "-h-fdr", oklch.H / 360);
                         setValue("ramp-" + paletteIdx + "-c-fdr", Math.min(oklch.C / 0.4, 1));
                         updatePaletteValueDisplay(paletteIdx, oklch, shade.hex);
@@ -1343,42 +1397,24 @@ function buildShadeRamps() {
 
         // H/C slider change handlers — update gamut, dot, accent, and preview
         (function(idx, pKey) {
-            function onPaletteSliderChange() {
+            function onPaletteSliderChange(hueChanged) {
                 var h = getValue("ramp-" + idx + "-h-fdr") * 360;
                 var c = getValue("ramp-" + idx + "-c-fdr") * 0.4;
                 var mapped = OklchEngine.gamutMap(0.55, c, h);
-                // Redraw gamut with dot + update C gradient for new hue
-                renderPaletteGamut(idx, h, mapped.L, mapped.C);
-                applyPaletteSliderShaders(idx, h);
+                var previewHue = hueChanged ? quantizePalettePreviewHue(h) : h;
+                renderPaletteGamut(idx, previewHue, mapped.L, mapped.C, false);
+                if (hueChanged) {
+                    var shaderHue = quantizePaletteShaderHue(h);
+                    if (paletteShaderHueBuckets[idx] !== shaderHue) {
+                        paletteShaderHueBuckets[idx] = shaderHue;
+                        applyPaletteSliderShaders(idx, shaderHue);
+                    }
+                }
                 updatePaletteValueDisplay(idx, mapped, OklchEngine.oklchToHex(mapped.L, mapped.C, h));
-                // Update the palette base color
-                if (pKey === "accent") {
-                    currentAccent = OklchEngine.oklchToHex(mapped.L, mapped.C, h);
-                }
-                // Rebuild full palette and apply all tokens to preview
-                var palette = PaletteSystem.create(currentAccent, currentHarmony);
-                // For non-accent palettes, regenerate that specific ramp with the slider values
-                if (pKey !== "accent") {
-                    palette[pKey] = ShadeGenerator.generateRamp(mapped.L, mapped.C, h);
-                }
-                var diff = PaletteSystem.toThemeDiff(palette);
-                applyTokenDiff(diff);
-                updateTokenSwatches();
-                // Update the mini ramp swatches and dot color
-                var ramp = palette[pKey];
-                var steps = ShadeGenerator.STEPS;
-                for (var s = 0; s < steps.length; s++) {
-                    setBackground("ramp-" + idx + "-s" + s, ramp[steps[s]].hex);
-                }
-                setBackground("ramp-" + idx + "-dot", ramp[500].hex);
-                // Update large shade swatches
-                var stepIdxs = [0, 2, 4, 5, 7, 9];
-                for (var ls = 0; ls < 6; ls++) {
-                    setBackground("ramp-" + idx + "-lg-" + ls, ramp[steps[stepIdxs[ls]]].hex);
-                }
+                schedulePaletteThemeApply(idx, pKey, h, mapped.L, mapped.C);
             }
-            on("ramp-" + idx + "-h-fdr", "change", onPaletteSliderChange);
-            on("ramp-" + idx + "-c-fdr", "change", onPaletteSliderChange);
+            on("ramp-" + idx + "-h-fdr", "change", function() { onPaletteSliderChange(true); });
+            on("ramp-" + idx + "-c-fdr", "change", function() { onPaletteSliderChange(false); });
         })(p, paletteKeys[p]);
     }
     updateColorSectionLayout();
