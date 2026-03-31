@@ -14,6 +14,7 @@
 //
 // Reference: https://github.com/free-audio/clap/blob/main/include/clap/ext/draft/webview.h
 
+#include <cstdint>
 #include <string>
 #include <functional>
 
