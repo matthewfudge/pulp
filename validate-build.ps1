@@ -109,7 +109,7 @@ function Import-VcVarsEnvironment {
 
     if (-not $BatchFile) { return }
 
-    $lines = & cmd.exe /d /s /c """$BatchFile"" >nul && set"
+    $lines = & cmd.exe /d /c "call ""$BatchFile"" >nul && set"
     if ($LASTEXITCODE -ne 0) {
         throw "failed to import MSVC environment from $BatchFile"
     }
