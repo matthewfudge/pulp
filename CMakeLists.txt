@@ -189,9 +189,8 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/facebook/yoga.git
     GIT_TAG v3.2.1
     GIT_SHALLOW TRUE
+    SOURCE_SUBDIR yoga
 )
-# Disable Yoga's tests to avoid building them
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yoga)
 set(PULP_HAS_YOGA TRUE)
 message(STATUS "Pulp: Yoga layout engine enabled")
