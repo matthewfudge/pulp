@@ -24,6 +24,7 @@ $BuildLog = Join-Path $TempRoot "build.log"
 $InstallLog = Join-Path $TempRoot "install.log"
 $SmokeLog = Join-Path $TempRoot "smoke.log"
 $TestLog = Join-Path $TempRoot "test.log"
+$BashExe = $null
 
 New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
 
@@ -55,12 +56,27 @@ function Run-OrDump {
     }
 }
 
+function Resolve-Bash {
+    $cmd = Get-Command bash -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $fallbacks = @(
+        "C:\Program Files\Git\bin\bash.exe",
+        "C:\Program Files\Git\usr\bin\bash.exe"
+    )
+    foreach ($candidate in $fallbacks) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    throw "bash not found on PATH and no Git Bash fallback was found"
+}
+
 try {
+    $BashExe = Resolve-Bash
     if (-not $Quiet) { Write-Host "Creating clean validation worktree..." }
     git -C $Root worktree add --detach $SrcDir $Ref *> $null
 
     Run-OrDump "dependency bootstrap" $SetupLog {
-        bash -lc "cd '$SrcDir' && ./setup.sh --ci --deps-only"
+        & $BashExe -lc "cd '$SrcDir' && ./setup.sh --ci --deps-only"
     }
 
     Run-OrDump "configure" $ConfigureLog {

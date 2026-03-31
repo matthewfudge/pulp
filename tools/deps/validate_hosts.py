@@ -50,6 +50,7 @@ def unix_remote_command(repo_path: str, branch: str, skip_tests: bool) -> str:
     branch_q = shlex.quote(branch)
     return f"""
 set -e
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 cd {repo}
 git rev-parse --is-inside-work-tree >/dev/null
 if git remote get-url origin >/dev/null 2>&1; then
