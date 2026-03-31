@@ -20,6 +20,9 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 # Run all tests
 ctest --test-dir build --output-on-failure
 
+# Run an outer-loop clean validation in a detached worktree
+./validate-build.sh
+
 # Run tests matching a pattern
 ctest --test-dir build -R "Knob"
 
@@ -50,6 +53,15 @@ cmake -S . -B build -DPULP_SANITIZER=address
 ```
 
 **Note:** All plugin formats build and pass tests, including PulpSynth CLAP.
+
+### Outer-Loop Validation Cadence
+
+Use the normal incremental `build/` loop for most work, but periodically run a clean detached validation pass with `./validate-build.sh`.
+
+- Run it after changes to `CMakeLists.txt`, `setup.sh`, toolchain/bootstrap logic, packaging/install/export code, dependency wiring, or cross-platform process/spawn code.
+- Run it before landing broad or risky slices, even if incremental builds are green.
+- Prefer the default quiet mode in agent loops so success stays silent and only failure logs appear.
+- Use `./validate-build.sh --verbose` when a human is actively watching or when debugging the validator itself.
 
 ---
 
@@ -363,6 +375,28 @@ REQUIRE(editor.text() == "hello");
 
 Use `simulate_click()`, `simulate_drag()`, and direct `on_text_input()`/`on_key_event()` calls to test widget interaction without a window. Use screenshot rendering (`render_to_file()`) to verify visual output in CI.
 
+### Docs Maintenance Rule
+
+When you modify files in `core/`, `examples/`, or `tools/cli/`:
+
+1. Check if the change affects public behavior, supported formats, module dependencies, or CLI commands.
+2. If yes, update the relevant YAML manifests in `docs/status/`:
+   - `support-matrix.yaml` — format/platform support levels
+   - `modules.yaml` — module status, dependencies
+   - `cli-commands.yaml` — CLI command descriptions
+   - `cmake-functions.yaml` — CMake function signatures
+3. If yes, update the relevant Markdown docs in `docs/`:
+   - `reference/modules.md` — module descriptions
+   - `reference/cli.md` — CLI reference
+   - `reference/capabilities.md` — capability listings
+   - Example pages in `docs/examples/` if examples changed
+4. Run `tools/check-docs.sh` (or `pulp docs check`) to validate consistency.
+
+### Status Vocabulary
+
+Use only these values for `status:` fields in manifests:
+`stable`, `usable`, `experimental`, `partial`, `planned`, `unsupported`
+
 ### Platform-Specific Testing Tools
 
 **macOS:**
@@ -414,6 +448,8 @@ A plugin that crashes a DAW during scan is worse than no plugin at all. Validati
 ### Test in Every Worktree
 
 Tests must pass in the worktree before creating a PR. CI runs the full matrix on PR. No merging with red tests.
+
+For risky build-system or packaging work, "tests pass" also includes a clean detached validation pass with `./validate-build.sh`, not just an incremental rebuild in the existing `build/` directory.
 
 ---
 

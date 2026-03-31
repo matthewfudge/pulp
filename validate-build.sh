@@ -4,22 +4,23 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-QUIET=false
+QUIET=true
 SKIP_TESTS=false
 KEEP_WORKTREE=false
 
 for arg in "$@"; do
     case "$arg" in
         --quiet) QUIET=true ;;
+        --verbose) QUIET=false ;;
         --no-tests) SKIP_TESTS=true ;;
         --keep-worktree) KEEP_WORKTREE=true ;;
         --help|-h)
             cat <<'EOF'
-Usage: ./validate-build.sh [--quiet] [--no-tests] [--keep-worktree]
+Usage: ./validate-build.sh [--quiet] [--verbose] [--no-tests] [--keep-worktree]
 
 Creates a detached clean worktree at the current HEAD, bootstraps dependencies,
-configures, builds, installs, and optionally runs tests. Output is buffered and only
-printed on failure unless --quiet is omitted.
+configures, builds, installs, and optionally runs tests. Output is quiet on success
+by default and prints logs only on failure. Use --verbose to print progress messages.
 EOF
             exit 0
             ;;
