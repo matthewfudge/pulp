@@ -51,6 +51,7 @@ public:
     void on_text_input(const TextInputEvent& event) override;
 
     bool is_open() const { return open_; }
+    float dropdown_width_hint() const;
 
     /// Close any currently open ComboBox (call before opening a new one).
     static void close_active_popup();
@@ -213,6 +214,9 @@ public:
 
     float scroll_x() const { return smooth_scroll_x_.value(); }
     float scroll_y() const { return smooth_scroll_y_.value(); }
+    bool scroll_animating() const {
+        return smooth_scroll_x_.animating() || smooth_scroll_y_.animating();
+    }
     void set_scroll(float x, float y);
 
     /// Scroll by a delta (e.g., from mouse wheel). Animates smoothly.

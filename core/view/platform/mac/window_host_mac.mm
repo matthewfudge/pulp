@@ -610,6 +610,8 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
         if (t->thumb_position() > 0.01f && t->thumb_position() < 0.99f) return YES;
     if (auto* f = dynamic_cast<pulp::view::Fader*>(view))
         if (f->hover_scale() > 1.01f) return YES;
+    if (auto* sv = dynamic_cast<pulp::view::ScrollView*>(view))
+        if (sv->scroll_animating()) return YES;
 
     for (size_t i = 0; i < view->child_count(); ++i)
         if ([self hasActiveAnimations:view->child_at(i)]) return YES;
@@ -919,9 +921,7 @@ private:
                 return true;
         }
         if (auto* sv = dynamic_cast<ScrollView*>(view)) {
-            if (sv->scroll_x() != 0.0f || sv->scroll_y() != 0.0f) {
-                // Keep existing behavior conservative: just recurse into children.
-            }
+            if (sv->scroll_animating()) return true;
         }
 
         for (size_t i = 0; i < view->child_count(); ++i) {

@@ -30,6 +30,17 @@ const std::string& ComboBox::selected_text() const {
     return empty_string_;
 }
 
+float ComboBox::dropdown_width_hint() const {
+    float width = bounds().width;
+    for (const auto& item : items_) {
+        if (item.size() >= 3 && item.substr(0, 3) == "---") {
+            continue;
+        }
+        width = std::max(width, static_cast<float>(item.size()) * 7.0f + 34.0f);
+    }
+    return width;
+}
+
 void ComboBox::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
     auto bg = resolve_color("bg.surface", canvas::Color::rgba(30, 30, 46));
@@ -46,10 +57,21 @@ void ComboBox::paint(canvas::Canvas& canvas) {
     canvas.stroke_rounded_rect(0, 0, b.width, base_h, 4);
 
     // Selected text
+    std::string display_text = selected_text();
+    float avail = std::max(0.0f, b.width - 30.0f);
+    if (canvas.measure_text(display_text) > avail && display_text.size() > 3) {
+        while (display_text.size() > 1) {
+            display_text.pop_back();
+            if (canvas.measure_text(display_text + "...") <= avail) {
+                display_text += "...";
+                break;
+            }
+        }
+    }
     canvas.set_font("Inter", 12);
     canvas.set_fill_color(text_c);
     canvas.set_text_align(canvas::TextAlign::left);
-    canvas.fill_text(selected_text(), 8, base_h * 0.5f + 4);
+    canvas.fill_text(display_text, 8, base_h * 0.5f + 4);
 
     // Dropdown arrow
     float ax = b.width - 16;
@@ -80,9 +102,15 @@ void ComboBox::paint(canvas::Canvas& canvas) {
         auto items_copy = items_;
         auto dropdown_bg = resolve_color("bg.elevated", canvas::Color::rgba(45, 45, 60));
         auto accent_c = resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255));
-        auto hover_bg = canvas::Color::rgba(60, 60, 80);
         auto border = border_c;
         auto text = text_c;
+        canvas.set_font("Inter", 12);
+        for (const auto& item : items_copy) {
+            if (item.size() >= 3 && item.substr(0, 3) == "---") {
+                continue;
+            }
+            dd_w = std::max(dd_w, canvas.measure_text(item) + 34.0f);
+        }
 
         overlay_queue().push_back({[=](canvas::Canvas& c) {
             c.save();
@@ -422,10 +450,16 @@ void ScrollView::scroll_by(float dx, float dy) {
     target_scroll_x_ += dx;
     target_scroll_y_ += dy;
     clamp_scroll_targets();
-    // Use immediate set — animation requires a running frame timer
-    // which may not exist in all host configurations
-    smooth_scroll_x_.set(target_scroll_x_);
-    smooth_scroll_y_.set(target_scroll_y_);
+    auto duration = resolve_dimension("motion.duration.fast", 0.10f);
+    if (std::abs(smooth_scroll_x_.value() - target_scroll_x_) < 0.01f)
+        smooth_scroll_x_.set(target_scroll_x_);
+    else
+        smooth_scroll_x_.animate_to(target_scroll_x_, duration, easing::ease_out_quad);
+
+    if (std::abs(smooth_scroll_y_.value() - target_scroll_y_) < 0.01f)
+        smooth_scroll_y_.set(target_scroll_y_);
+    else
+        smooth_scroll_y_.animate_to(target_scroll_y_, duration, easing::ease_out_quad);
 }
 
 void ScrollView::on_mouse_enter() {

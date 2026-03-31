@@ -187,7 +187,7 @@ if [ -d "$SKIA_CHECK" ]; then
         info "Skia binaries present"
     fi
 else
-    info "Skia build directory not found (will be fetched during build if needed)"
+    info "Skia build directory not found (GPU rendering stays disabled unless Skia is present)"
 fi
 
 # ── Check: External SDKs ───────────────────────────────────────────────────

@@ -35,10 +35,11 @@ cd pulp
 ./setup.sh
 ```
 
-`setup.sh` checks prerequisites, installs git-lfs, clones external SDKs, configures, builds, and runs tests. It works on macOS, Linux, and Windows (Git Bash/MSYS2).
+`setup.sh` handles first-time bootstrap: it checks prerequisites, verifies git-lfs is available and initialized, clones external SDKs, configures, builds, and runs tests. It works on macOS, Linux, and Windows (Git Bash/MSYS2).
 
 Options:
 - `./setup.sh --ci` — non-interactive mode for CI/automation
+- `./setup.sh --deps-only` — bootstrap SDKs and dependencies without configuring/building
 - `./setup.sh --dry-run` — show what would be done without doing it
 
 ## Prerequisites

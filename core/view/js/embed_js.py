@@ -6,7 +6,9 @@ from __future__ import annotations
 import pathlib
 import sys
 
-CHUNK_SIZE = 12000
+# Keep raw string chunks comfortably below MSVC's per-literal limit.
+# The generator preserves exact JS bytes, so smaller chunks are safe.
+CHUNK_SIZE = 4000
 
 
 def var_name_for(path: pathlib.Path) -> str:
@@ -25,26 +27,23 @@ def main(argv: list[str]) -> int:
     output_path = pathlib.Path(argv[1])
     input_paths = [pathlib.Path(arg) for arg in argv[2:]]
 
-    lines = [
-        "#pragma once",
-        "// Auto-generated from JS prelude files — do not edit",
-        "namespace pulp::view::preludes {",
-        "",
+    parts = [
+        "#pragma once\n",
+        "// Auto-generated from JS prelude files — do not edit\n",
+        "namespace pulp::view::preludes {\n\n",
     ]
 
     for input_path in input_paths:
         text = input_path.read_text(encoding="utf-8")
-        lines.append(f"static const char* {var_name_for(input_path)} =")
+        parts.append(f"static const char* {var_name_for(input_path)} =\n")
         for chunk in chunk_text(text, CHUNK_SIZE):
-            lines.append('R"__JS__(')
-            lines.append(chunk)
-            lines.append(')__JS__"')
-        lines.append(";")
-        lines.append("")
+            parts.append('R"__JS__(')
+            parts.append(chunk)
+            parts.append(')__JS__"\n')
+        parts.append(";\n\n")
 
-    lines.append("} // namespace pulp::view::preludes")
-    lines.append("")
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    parts.append("} // namespace pulp::view::preludes\n")
+    output_path.write_text("".join(parts), encoding="utf-8")
     return 0
 
 

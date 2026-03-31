@@ -12,10 +12,20 @@
 #include <thread>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <unordered_map>
+
+#if defined(_WIN32)
+#define PULP_POPEN _popen
+#define PULP_PCLOSE _pclose
+#else
+#define PULP_POPEN popen
+#define PULP_PCLOSE pclose
+#endif
 
 namespace pulp::view {
 
@@ -79,28 +89,75 @@ static const char* kDomOpsInit =
     "  return oldChild;"
     "};";
 
+static void safe_dispatch_eval(ScriptEngine& engine, const std::string& js, const char* context) {
+    try {
+        engine.evaluate(js);
+    } catch (const std::exception& e) {
+        std::cerr << "WidgetBridge " << context << " error: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "WidgetBridge " << context << " error: unknown exception\n";
+    }
+}
+
+static void eval_or_throw(ScriptEngine& engine, const char* name, const std::string& js) {
+    try {
+        engine.evaluate(js);
+    } catch (const choc::javascript::Error& e) {
+        throw std::runtime_error(std::string("failed to evaluate ") + name + ": " + e.what());
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("failed to evaluate ") + name + ": " + e.what());
+    } catch (...) {
+        throw std::runtime_error(std::string("failed to evaluate ") + name + ": unknown exception");
+    }
+}
+
+static std::string build_shell_command(const std::string& cmd) {
+#if defined(_WIN32)
+    return std::string(
+        "set \"PATH=%USERPROFILE%\\.local\\bin;%USERPROFILE%\\.npm-global\\bin;%PATH%\" && "
+    ) + cmd;
+#else
+    return std::string(
+        "export PATH=\"$HOME/.local/bin:$HOME/.npm-global/bin:"
+        "/opt/homebrew/bin:/usr/local/bin:$PATH\"; "
+    ) + cmd;
+#endif
+}
+
 WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& store)
     : engine_(engine), root_(root), store_(store) {
     register_api();
-    engine_.evaluate(kJSPreamble);
-    engine_.evaluate(preludes::css_colors);
-    engine_.evaluate(preludes::css_parser);
-    engine_.evaluate(preludes::web_compat_element);
-    engine_.evaluate(preludes::web_compat_style_decl);
-    engine_.evaluate(preludes::web_compat_document);
+    eval_or_throw(engine_, "kJSPreamble", kJSPreamble);
+    eval_or_throw(engine_, "css_colors", preludes::css_colors);
+    eval_or_throw(engine_, "css_parser", preludes::css_parser);
+    eval_or_throw(engine_, "web_compat_element", preludes::web_compat_element);
+    eval_or_throw(engine_, "web_compat_style_decl", preludes::web_compat_style_decl);
+    eval_or_throw(engine_, "web_compat_document", preludes::web_compat_document);
+}
+
+void WidgetBridge::set_repaint_callback(std::function<void()> cb) {
+    repaint_callback_ = std::move(cb);
+}
+
+void WidgetBridge::set_ai_cli_command(std::string cmd) {
+    if (!cmd.empty()) ai_cli_command_ = std::move(cmd);
+}
+
+void WidgetBridge::request_repaint() {
+    if (repaint_callback_) repaint_callback_();
 }
 
 void WidgetBridge::load_script(const std::string& code) {
     if (!dom_ops_loaded_) {
         dom_ops_loaded_ = true;
-        engine_.evaluate(kDomOpsInit);
+        eval_or_throw(engine_, "dom_ops_init", kDomOpsInit);
     }
     // Append ";void 0" so the eval result is undefined, not the last
     // expression value. Elements have circular references (_parentElement
     // ↔ _children) which cause infinite recursion in CHOC's toChocValue().
-    engine_.evaluate(code + "\n;void 0");
+    eval_or_throw(engine_, "user_script", code + "\n;void 0");
     // Flush any pending requestAnimationFrame callbacks
-    engine_.evaluate("if (typeof __flushFrames__ === 'function') __flushFrames__();void 0");
+    eval_or_throw(engine_, "flush_frames", "if (typeof __flushFrames__ === 'function') __flushFrames__();void 0");
 }
 
 View* WidgetBridge::widget(const std::string& id) {
@@ -149,15 +206,15 @@ View* WidgetBridge::resolve_parent(const std::string& parent_id) {
 void WidgetBridge::wire_callbacks(const std::string& id, View* w) {
     if (auto* k = dynamic_cast<Knob*>(w)) {
         k->on_change = [this, id](float v) {
-            engine_.evaluate("__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")", "knob change");
         };
     } else if (auto* f = dynamic_cast<Fader*>(w)) {
         f->on_change = [this, id](float v) {
-            engine_.evaluate("__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', " + std::to_string(v) + ")", "fader change");
         };
     } else if (auto* t = dynamic_cast<Toggle*>(w)) {
         t->on_toggle = [this, id](bool v) {
-            engine_.evaluate("__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")", "toggle");
         };
     }
 }
@@ -165,6 +222,7 @@ void WidgetBridge::wire_callbacks(const std::string& id, View* w) {
 void WidgetBridge::clear() {
     pending_frame_ids_.clear();
     shortcuts_.clear();
+    ComboBox::close_active_popup();
     std::vector<std::string> ids;
     ids.reserve(widgets_.size());
     for (auto& [id, _] : widgets_) ids.push_back(id);
@@ -202,23 +260,20 @@ void WidgetBridge::poll_async_results() {
         std::lock_guard<std::mutex> lock(async_exec_mutex_);
         pending.swap(async_exec_results_);
     }
-
-    auto escape_js_string = [](const std::string& input) {
-        std::string escaped;
-        escaped.reserve(input.size());
-        for (char c : input) {
-            if (c == '\\') escaped += "\\\\";
-            else if (c == '\'') escaped += "\\'";
-            else if (c == '\n') escaped += "\\n";
-            else if (c == '\r') continue;
-            else escaped += c;
-        }
-        return escaped;
-    };
+    bool had_pending_frames = !pending_frame_ids_.empty();
 
     for (const auto& result : pending) {
-        engine_.evaluate("__dispatch__('" + result.callback_id + "', 'result', '" +
-                         escape_js_string(result.output) + "')");
+        auto payload = choc::json::toString(choc::value::createString(result.output), false);
+        safe_dispatch_eval(engine_, "__dispatch__('" + result.callback_id + "', 'result', " +
+            payload + ")", "async result");
+    }
+
+    if (had_pending_frames) {
+        engine_.evaluate("if (typeof __flushFrames__ === 'function') __flushFrames__();void 0");
+    }
+
+    if (!pending.empty() || had_pending_frames) {
+        request_repaint();
     }
 }
 
@@ -350,7 +405,7 @@ void WidgetBridge::register_api() {
         auto cb = std::make_unique<Checkbox>(); cb->set_id(id);
         auto* ptr = cb.get(); widgets_[id] = ptr;
         cb->on_change = [this, id](bool v) {
-            engine_.evaluate("__dispatch__('" + id + "', 'change', " + std::string(v?"1":"0") + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', " + std::string(v?"1":"0") + ")", "checkbox change");
         };
         resolve_parent(pid)->add_child(std::move(cb));
         return choc::value::createString(id);
@@ -363,7 +418,7 @@ void WidgetBridge::register_api() {
         auto tb = std::make_unique<ToggleButton>(); tb->set_id(id);
         auto* ptr = tb.get(); widgets_[id] = ptr;
         tb->on_toggle = [this, id](bool v) {
-            engine_.evaluate("__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'toggle', " + std::string(v?"1":"0") + ")", "toggle button");
         };
         resolve_parent(pid)->add_child(std::move(tb));
         return choc::value::createString(id);
@@ -549,10 +604,10 @@ void WidgetBridge::register_api() {
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
             it->second->on_hover_enter = [this, id]() {
-                engine_.evaluate("__dispatch__('" + id + "', 'mouseenter', 0)");
+                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'mouseenter', 0)", "hover enter");
             };
             it->second->on_hover_leave = [this, id]() {
-                engine_.evaluate("__dispatch__('" + id + "', 'mouseleave', 0)");
+                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'mouseleave', 0)", "hover leave");
             };
         }
         return choc::value::Value();
@@ -609,7 +664,7 @@ void WidgetBridge::register_api() {
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
             it->second->on_click = [this, id]() {
-                engine_.evaluate("__dispatch__('" + id + "', 'click', 0)");
+                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'click', 0)", "click");
             };
         }
         return choc::value::Value();
@@ -654,7 +709,7 @@ void WidgetBridge::register_api() {
                     "metaKey:" + (me.isCmdDown() ? "true" : "false") +
                     "}";
 
-                engine_.evaluate("__dispatch__('" + id + "', '" + type + "', " + data + ")");
+                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "pointer");
             };
             // W3C PointerEvents: forward drag as pointermove
             w->on_drag = [this, id](Point pos) {
@@ -662,7 +717,7 @@ void WidgetBridge::register_api() {
                     "offsetX:" + std::to_string(pos.x) + ","
                     "offsetY:" + std::to_string(pos.y) + ","
                     "pointerId:0,pointerType:'mouse',isPrimary:true}";
-                engine_.evaluate("__dispatch__('" + id + "', 'pointermove', " + data + ")");
+                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'pointermove', " + data + ")", "pointermove");
             };
         }
         return choc::value::Value();
@@ -687,7 +742,7 @@ void WidgetBridge::register_api() {
                     "clientX:" + std::to_string(ge.position.x) + ","
                     "clientY:" + std::to_string(ge.position.y) +
                     "}";
-                engine_.evaluate("__dispatch__('" + id + "', '" + type + "', " + data + ")");
+                safe_dispatch_eval(engine_, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "gesture");
             };
         }
         return choc::value::Value();
@@ -700,7 +755,7 @@ void WidgetBridge::register_api() {
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
             it->second->set_pointer_capture(pointerId);
-            engine_.evaluate("__dispatch__('" + id + "', 'gotpointercapture', {pointerId:" + std::to_string(pointerId) + "})");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'gotpointercapture', {pointerId:" + std::to_string(pointerId) + "})", "gotpointercapture");
         }
         return choc::value::Value();
     });
@@ -712,7 +767,7 @@ void WidgetBridge::register_api() {
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
             it->second->release_pointer_capture(pointerId);
-            engine_.evaluate("__dispatch__('" + id + "', 'lostpointercapture', {pointerId:" + std::to_string(pointerId) + "})");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'lostpointercapture', {pointerId:" + std::to_string(pointerId) + "})", "lostpointercapture");
         }
         return choc::value::Value();
     });
@@ -723,7 +778,7 @@ void WidgetBridge::register_api() {
             // Check for Cmd modifier (kModCmd = 0x10, kModMeta = 0x08)
             bool cmd = (mods & (0x10 | 0x08)) != 0;
             if (cmd) {
-                engine_.evaluate("__dispatch__('__inspect__', 'click', '" + id + "')");
+                safe_dispatch_eval(engine_, "__dispatch__('__inspect__', 'click', '" + id + "')", "inspect click");
             }
         };
         return choc::value::Value();
@@ -885,6 +940,7 @@ void WidgetBridge::register_api() {
     engine_.register_function("layout", [this](choc::javascript::ArgumentList) {
         root_.clear_layout_dirty();
         root_.layout_children();
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -1008,7 +1064,7 @@ void WidgetBridge::register_api() {
         auto c = std::make_unique<ComboBox>(); c->set_id(id);
         auto* ptr = c.get(); widgets_[id] = ptr;
         c->on_change = [this, id](int idx) {
-            engine_.evaluate("__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")", "combo select");
         };
         resolve_parent(pid)->add_child(std::move(c));
         return choc::value::createString(id);
@@ -1033,10 +1089,10 @@ void WidgetBridge::register_api() {
         auto lb = std::make_unique<ListBox>(); lb->set_id(id);
         auto* ptr = lb.get(); widgets_[id] = ptr;
         lb->on_select = [this, id](int idx) {
-            engine_.evaluate("__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'select', " + std::to_string(idx) + ")", "list select");
         };
         lb->on_activate = [this, id](int idx) {
-            engine_.evaluate("__dispatch__('" + id + "', 'activate', " + std::to_string(idx) + ")");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'activate', " + std::to_string(idx) + ")", "list activate");
         };
         resolve_parent(pid)->add_child(std::move(lb));
         return choc::value::createString(id);
@@ -1081,11 +1137,11 @@ void WidgetBridge::register_api() {
         auto* ptr = ed.get(); widgets_[id] = ptr;
         ed->on_return = [this, id](const std::string& text) {
             std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
-            engine_.evaluate("__dispatch__('" + id + "', 'return', '" + e + "')");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'return', '" + e + "')", "text return");
         };
         ed->on_change = [this, id](const std::string& text) {
             std::string e; for (char c : text) { if (c=='\'') e+= "\\'"; else if (c=='\n') e+= "\\n"; else e+= c; }
-            engine_.evaluate("__dispatch__('" + id + "', 'change', '" + e + "')");
+            safe_dispatch_eval(engine_, "__dispatch__('" + id + "', 'change', '" + e + "')", "text change");
         };
         resolve_parent(pid)->add_child(std::move(ed));
         return choc::value::createString(id);
@@ -1196,6 +1252,7 @@ void WidgetBridge::register_api() {
         auto* v = widget(args.get<std::string>(0, ""));
         auto ml = args.get<double>(1, 0) > 0.5;
         if (auto* l = dynamic_cast<Label*>(v)) l->set_multi_line(ml);
+        else if (auto* e = dynamic_cast<TextEditor*>(v)) e->multi_line = ml;
         return choc::value::Value();
     });
 
@@ -2097,6 +2154,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_custom_shader(sksl);
         else if (auto* f = dynamic_cast<Fader*>(v)) f->set_custom_shader(sksl);
         else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_custom_shader(sksl);
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -2108,6 +2166,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->clear_custom_shader();
         else if (auto* f = dynamic_cast<Fader*>(v)) f->clear_custom_shader();
         else if (auto* t = dynamic_cast<Toggle*>(v)) t->clear_custom_shader();
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -2120,6 +2179,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_widget_schema(json);
         else if (auto* f = dynamic_cast<Fader*>(v)) f->set_widget_schema(json);
         else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_widget_schema(json);
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -2133,6 +2193,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_lottie_json(json);
         else if (auto* f = dynamic_cast<Fader*>(v)) f->set_lottie_json(json);
         else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_lottie_json(json);
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -2145,6 +2206,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_lottie_time(t);
         else if (auto* f = dynamic_cast<Fader*>(v)) f->set_lottie_time(t);
         else if (auto* tg = dynamic_cast<Toggle*>(v)) tg->set_lottie_time(t);
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -2156,6 +2218,7 @@ void WidgetBridge::register_api() {
         if (auto* k = dynamic_cast<Knob*>(v)) k->set_widget_schema("");
         else if (auto* f = dynamic_cast<Fader*>(v)) f->set_widget_schema("");
         else if (auto* t = dynamic_cast<Toggle*>(v)) t->set_widget_schema("");
+        request_repaint();
         return choc::value::Value();
     });
 
@@ -2319,16 +2382,13 @@ void WidgetBridge::register_api() {
     engine_.register_function("exec", [](choc::javascript::ArgumentList args) {
         auto cmd = args.get<std::string>(0, "");
         if (cmd.empty()) return choc::value::createString("");
-        // Prepend common tool paths that GUI apps miss
-        auto full_cmd = std::string(
-            "export PATH=\"$HOME/.local/bin:$HOME/.npm-global/bin:"
-            "/opt/homebrew/bin:/usr/local/bin:$PATH\"; ") + cmd;
+        auto full_cmd = build_shell_command(cmd);
         std::string r;
-        FILE* p = popen(full_cmd.c_str(), "r");
+        FILE* p = PULP_POPEN(full_cmd.c_str(), "r");
         if (!p) return choc::value::createString("");
         char buf[4096];
         while (fgets(buf, sizeof(buf), p)) r += buf;
-        pclose(p);
+        PULP_PCLOSE(p);
         return choc::value::createString(r);
     });
 
@@ -2339,16 +2399,14 @@ void WidgetBridge::register_api() {
         auto cmd = args.get<std::string>(0, "");
         auto cbId = args.get<std::string>(1, "");
         if (cmd.empty() || cbId.empty()) return choc::value::Value();
-        auto full_cmd = std::string(
-            "export PATH=\"$HOME/.local/bin:$HOME/.npm-global/bin:"
-            "/opt/homebrew/bin:/usr/local/bin:$PATH\"; ") + cmd;
+        auto full_cmd = build_shell_command(cmd);
         std::thread([this, full_cmd, cbId]() {
             std::string r;
-            FILE* p = popen(full_cmd.c_str(), "r");
+            FILE* p = PULP_POPEN(full_cmd.c_str(), "r");
             if (p) {
                 char buf[4096];
                 while (fgets(buf, sizeof(buf), p)) r += buf;
-                pclose(p);
+                PULP_PCLOSE(p);
             }
             std::lock_guard<std::mutex> lock(async_exec_mutex_);
             async_exec_results_.push_back({cbId, std::move(r)});

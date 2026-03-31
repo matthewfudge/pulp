@@ -16,15 +16,17 @@ pulp test -R "golden"        # Golden-file audio tests
 ctest --test-dir build -R clap-dlopen   # CLAP load tests
 ```
 
-Use `./validate-build.sh --quiet` when you want a CI-like outer loop that ignores
-incremental build state and only prints logs on failure. It bootstraps dependencies
-in a detached worktree, then runs a fresh configure, build, install, and optional
-test pass. This is the quickest way to catch clean-build drift, install/export
-breakage, missing setup dependencies, and docs/test-count issues before opening a PR.
+Use `./validate-build.sh --quiet` when you want a detached clean-build outer loop
+that ignores incremental build state and only prints logs on failure. It validates
+committed `HEAD` in a detached worktree, then runs a fresh configure, build, install,
+an installed SDK `find_package(Pulp)` smoke configure, and an optional test pass.
+This is the quickest way to catch clean-build drift, basic install/export breakage,
+and missing setup dependencies before opening a PR. Run `./tools/check-docs.sh`
+separately for manifest and README/docs consistency checks.
 
 ## Test Count
 
-The current branch has 1329 registered tests covering:
+The current branch has 1331 registered tests covering:
 
 - Unit tests for subsystems (runtime, state, audio, midi, signal, format, events, canvas, render, view, osc)
 - Golden-file audio comparison tests

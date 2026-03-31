@@ -16,7 +16,7 @@ MIT-licensed. No royalties. No revenue thresholds. No copyleft.
 - **Zero-boilerplate entry points** — one-line macros for each format
 - **Parameter system** — thread-safe, automatable, with state serialization
 - **Headless processing** — test and batch-process without a DAW
-- **1329 automated tests** — unit tests, golden-file audio tests, format validation, UI component tests, DSP tests
+- **1331 automated tests** — unit tests, golden-file audio tests, format validation, UI component tests, DSP tests
 
 ### Example: Create a Plugin
 
@@ -72,7 +72,7 @@ cd pulp
 ./setup.sh
 ```
 
-`setup.sh` handles everything: checks prerequisites, installs git-lfs, clones external SDKs (VST3, AudioUnit), configures, builds, and runs tests. Works on macOS, Linux, and Windows (Git Bash/MSYS2).
+`setup.sh` handles first-time bootstrap: it checks prerequisites, verifies git-lfs is available and initialized, clones external SDKs (VST3, AudioUnit), configures, builds, and runs tests. Works on macOS, Linux, and Windows (Git Bash/MSYS2).
 
 ### Prerequisites
 
@@ -87,12 +87,16 @@ cd pulp
 If you prefer manual setup over `setup.sh`:
 
 ```bash
-git lfs install && git lfs pull              # pull Skia binaries
-git clone --depth 1 --recursive \
-    https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
-cmake -B build && cmake --build build
-ctest --test-dir build
+./setup.sh --deps-only
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
+
+`--deps-only` bootstraps the first-time source tree without configuring or
+building: it checks prerequisites, makes sure git-lfs content is present,
+clones the VST3 SDK, and clones the AudioUnit SDK on macOS. After that you can
+drive CMake directly.
 
 ### Create a New Plugin
 

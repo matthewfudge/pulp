@@ -13,3 +13,7 @@ target_sources(pulp-osc PRIVATE
 )
 
 target_link_libraries(pulp-osc PUBLIC pulp::runtime)
+
+if(WIN32)
+    target_link_libraries(pulp-osc PRIVATE ws2_32)
+endif()

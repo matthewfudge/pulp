@@ -12,6 +12,14 @@
 
 namespace fs = std::filesystem;
 
+#if defined(_WIN32)
+#define PULP_POPEN _popen
+#define PULP_PCLOSE _pclose
+#else
+#define PULP_POPEN popen
+#define PULP_PCLOSE pclose
+#endif
+
 // ── JSON helpers (minimal, no external deps for MCP server) ──────────────────
 
 static std::string json_string(const std::string& s) {
@@ -96,12 +104,12 @@ static std::string extract_raw(const std::string& json, const std::string& key) 
 
 static std::string exec(const std::string& cmd) {
     std::string result;
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = PULP_POPEN(cmd.c_str(), "r");
     if (!pipe) return "Error: failed to run command";
     char buffer[256];
     while (fgets(buffer, sizeof(buffer), pipe))
         result += buffer;
-    int status = pclose(pipe);
+    int status = PULP_PCLOSE(pipe);
     if (status != 0 && result.empty())
         result = "Command failed with status " + std::to_string(status);
     return result;

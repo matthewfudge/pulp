@@ -10,6 +10,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <mutex>
 
 namespace pulp::view {
 
@@ -41,6 +42,15 @@ public:
     // Restore widget values after hot reload rebuild
     void restore_values(const std::unordered_map<std::string, float>& snapshot);
 
+    // Deliver any pending async shell results back onto the JS thread.
+    void poll_async_results();
+
+    // Request a repaint after JS-driven UI or style changes.
+    void set_repaint_callback(std::function<void()> cb);
+
+    // Override the AI CLI command used by the design tool chat.
+    void set_ai_cli_command(std::string cmd);
+
 private:
     ScriptEngine& engine_;
     View& root_;
@@ -58,13 +68,26 @@ private:
     std::vector<ShortcutBinding> shortcuts_;
 
     // Model-agnostic AI CLI command (default: Claude)
-    std::string ai_cli_command_ = "claude --print --model claude-sonnet-4-6";
+    std::string ai_cli_command_ = "claude --print --model {model}";
+
+    struct AsyncExecResult {
+        std::string callback_id;
+        std::string output;
+    };
+    std::mutex async_exec_mutex_;
+    std::vector<AsyncExecResult> async_exec_results_;
+    std::vector<int> pending_frame_ids_;
+    bool dom_ops_loaded_ = false;
+    bool frame_preamble_loaded_ = false;
+    std::function<void()> repaint_callback_;
 
     // Resolve parent: returns view for parentId, or &root_ if empty
     View* resolve_parent(const std::string& parent_id);
 
     // Install on_change/on_toggle callbacks that dispatch to JS
     void wire_callbacks(const std::string& id, View* w);
+
+    void request_repaint();
 
     void register_api();
 };

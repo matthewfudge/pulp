@@ -118,7 +118,10 @@ public:
 
     /// Set high (but not real-time) thread priority.
     static bool set_high_priority() {
-#if defined(__APPLE__) || defined(__linux__)
+#if defined(__APPLE__)
+        auto result = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+        return result == 0;
+#elif defined(__linux__)
         struct sched_param param;
         param.sched_priority = sched_get_priority_max(SCHED_FIFO);
         // Don't use SCHED_FIFO as it requires root — use elevated normal priority

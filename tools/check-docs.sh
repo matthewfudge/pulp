@@ -135,6 +135,9 @@ done < "$STATUS/modules.yaml"
 # ── 8. README test count accuracy ─────────────────────────────────────────────
 echo "Checking README accuracy..."
 
+actual_count=""
+readme_count=""
+
 if [ -d "$ROOT/build" ]; then
     actual_count=$(ctest --test-dir "$ROOT/build" -N 2>/dev/null | grep "Total Tests:" | grep -oE '[0-9]+')
 fi

@@ -57,12 +57,14 @@ The build system fetches some dependencies automatically via CMake FetchContent:
 - **CLAP SDK** -- fetched automatically
 - **Catch2** -- fetched automatically for tests
 
-Other dependencies must be present:
+Other dependencies are provided or verified by the source tree bootstrap:
 
-- **VST3 SDK** -- expected at `external/vst3sdk/`
-- **AudioUnit SDK** -- expected at `external/AudioUnitSDK/` (macOS only)
-- **Dawn** -- expected at `external/dawn/` (for GPU rendering)
-- **Skia** -- expected at `external/skia-build/` (for GPU rendering)
+- **VST3 SDK** -- cloned into `external/vst3sdk/` by `./setup.sh`
+- **AudioUnit SDK** -- cloned into `external/AudioUnitSDK/` by `./setup.sh` on macOS
+- **Skia** -- must already be present under `external/skia-build/` by default, or provided via `SKIA_DIR`
+
+The GPU build fetches WebGPU/Dawn through CMake `FetchContent`; you do not need a
+separate `external/dawn/` checkout.
 
 ## Clean Build
 

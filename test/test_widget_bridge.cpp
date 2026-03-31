@@ -1,11 +1,35 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/view/widget_bridge.hpp>
+#include <pulp/view/theme.hpp>
 #include <pulp/view/ui_components.hpp>
+#include <chrono>
+#include <thread>
 
 using namespace pulp::view;
 using namespace pulp::state;
 using Catch::Matchers::WithinAbs;
+
+static std::string js_single_quoted(std::string value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (char c : value) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '\'': out += "\\'"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            default: out += c; break;
+        }
+    }
+    return out;
+}
+
+static std::string trim_crlf(std::string value) {
+    while (!value.empty() && (value.back() == '\n' || value.back() == '\r'))
+        value.pop_back();
+    return value;
+}
 
 TEST_CASE("WidgetBridge creates knob from JS", "[view][bridge]") {
     ScriptEngine engine;
@@ -249,4 +273,225 @@ TEST_CASE("WidgetBridge setSelected updates ComboBox without firing select handl
     REQUIRE(combo->selected() == 1);
     REQUIRE(combo->selected_text() == "Analogous");
     REQUIRE(engine.evaluate("select_count").getWithDefault<int>(-1) == 0);
+}
+
+TEST_CASE("WidgetBridge shader and schema APIs apply to knob, fader, and toggle", "[view][bridge][style]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createKnob('gain', 10, 10, 48, 48);
+        createFader('volume', 70, 10, 24, 120, 'vertical');
+        createToggle('bypass', 110, 10, 50, 30);
+        setWidgetShader('gain', 'half4 main(float2 coord) { return half4(1); }');
+        setWidgetShader('volume', 'half4 main(float2 coord) { return half4(1); }');
+        setWidgetShader('bypass', 'half4 main(float2 coord) { return half4(1); }');
+        setWidgetSchema('gain', '{"elements":[{"type":"circle","radius":"20%","color":"accent.primary"}]}');
+        setWidgetSchema('volume', '{"elements":[{"type":"rect","cornerRadius":"4","color":"control.fill"}]}');
+        setWidgetSchema('bypass', '{"elements":[{"type":"rect","cornerRadius":"10","color":"control.track"}]}');
+    )");
+
+    auto* knob = dynamic_cast<Knob*>(bridge.widget("gain"));
+    auto* fader = dynamic_cast<Fader*>(bridge.widget("volume"));
+    auto* toggle = dynamic_cast<Toggle*>(bridge.widget("bypass"));
+    REQUIRE(knob != nullptr);
+    REQUIRE(fader != nullptr);
+    REQUIRE(toggle != nullptr);
+
+    REQUIRE(knob->has_custom_shader());
+    REQUIRE(fader->has_custom_shader());
+    REQUIRE(toggle->has_custom_shader());
+    REQUIRE_FALSE(knob->widget_schema().empty());
+    REQUIRE_FALSE(fader->widget_schema().empty());
+    REQUIRE_FALSE(toggle->widget_schema().empty());
+
+    bridge.load_script(R"(
+        clearWidgetShader('gain');
+        clearWidgetShader('volume');
+        clearWidgetShader('bypass');
+        clearWidgetSchema('gain');
+        clearWidgetSchema('volume');
+        clearWidgetSchema('bypass');
+    )");
+
+    REQUIRE_FALSE(knob->has_custom_shader());
+    REQUIRE_FALSE(fader->has_custom_shader());
+    REQUIRE_FALSE(toggle->has_custom_shader());
+    REQUIRE(knob->widget_schema().empty());
+    REQUIRE(fader->widget_schema().empty());
+    REQUIRE(toggle->widget_schema().empty());
+}
+
+TEST_CASE("WidgetBridge Lottie APIs store state on knob, fader, and toggle", "[view][bridge][style]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createKnob('gain', 10, 10, 48, 48);
+        createFader('volume', 70, 10, 24, 120, 'vertical');
+        createToggle('bypass', 110, 10, 50, 30);
+        setWidgetLottie('gain', '{"v":"5.5.2"}');
+        setWidgetLottie('volume', '{"v":"5.5.2"}');
+        setWidgetLottie('bypass', '{"v":"5.5.2"}');
+        seekWidgetLottie('gain', 0.25);
+        seekWidgetLottie('volume', 0.5);
+        seekWidgetLottie('bypass', 0.75);
+    )");
+
+    auto* knob = dynamic_cast<Knob*>(bridge.widget("gain"));
+    auto* fader = dynamic_cast<Fader*>(bridge.widget("volume"));
+    auto* toggle = dynamic_cast<Toggle*>(bridge.widget("bypass"));
+    REQUIRE(knob != nullptr);
+    REQUIRE(fader != nullptr);
+    REQUIRE(toggle != nullptr);
+
+    REQUIRE(knob->lottie_json() == "{\"v\":\"5.5.2\"}");
+    REQUIRE(fader->lottie_json() == "{\"v\":\"5.5.2\"}");
+    REQUIRE(toggle->lottie_json() == "{\"v\":\"5.5.2\"}");
+    REQUIRE_THAT(knob->lottie_time(), WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(fader->lottie_time(), WithinAbs(0.5f, 0.001f));
+    REQUIRE_THAT(toggle->lottie_time(), WithinAbs(0.75f, 0.001f));
+}
+
+TEST_CASE("WidgetBridge import/export design tokens and AI CLI are scriptable", "[view][bridge][style]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        importDesignTokens('{"accent":{"primary":{"$value":"#ff0000"}},"spacing":{"md":{"$value":"12"}}}');
+        setAICli('echo test-ai');
+    )");
+
+    REQUIRE(root.theme().color("accent.primary").has_value());
+    REQUIRE(root.theme().color("accent.primary").value() == color_from_hex(0xFF0000));
+    REQUIRE(root.theme().dimension("spacing.md").has_value());
+    REQUIRE(root.theme().dimension("spacing.md").value() == 12.0f);
+    REQUIRE(engine.evaluate("getAICli()").toString() == "echo test-ai");
+
+    auto exported = engine.evaluate("exportDesignTokens()").toString();
+    REQUIRE(exported.find("accent") != std::string::npos);
+    REQUIRE(exported.find("#ff0000") != std::string::npos);
+}
+
+TEST_CASE("WidgetBridge compileShader accepts standard widget-uniform SkSL", "[view][bridge][style]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var shader_compile = compileShader(`uniform float2 resolution;
+uniform float value;
+layout(color) uniform float4 accentColor;
+layout(color) uniform float4 fillColor;
+half4 main(float2 coord) {
+  float2 uv = coord / resolution;
+  float glow = smoothstep(0.9, 0.2, length(uv - float2(0.5)));
+  half3 color = mix(fillColor.rgb, accentColor.rgb, half(value));
+  return half4(color * half(glow), half(glow));
+}`);
+    )");
+
+    REQUIRE(engine.evaluate("shader_compile.success").getWithDefault<bool>(false));
+    REQUIRE(engine.evaluate("shader_compile.error").toString().empty());
+}
+
+TEST_CASE("WidgetBridge execAsync returns results without blocking the caller", "[view][bridge][async]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    const std::string async_cmd =
+#if defined(_WIN32)
+        "powershell -NoProfile -Command \"[Console]::Out.Write('hello async')\"";
+#else
+        "printf 'hello async'";
+#endif
+
+    bridge.load_script(
+        "var async_result = '';\n"
+        "on('__async-test__', 'result', function(value) { async_result = value; });\n"
+        "execAsync('" + js_single_quoted(async_cmd) + "', '__async-test__');\n");
+
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        bridge.poll_async_results();
+        if (trim_crlf(engine.evaluate("async_result").toString()) == "hello async")
+            break;
+    }
+
+    REQUIRE(trim_crlf(engine.evaluate("async_result").toString()) == "hello async");
+}
+
+TEST_CASE("WidgetBridge requestAnimationFrame callbacks continue during poll loop", "[view][bridge][async]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var frame_count = 0;
+        function tick() {
+            frame_count++;
+            if (frame_count < 3) window.requestAnimationFrame(tick);
+        }
+        window.requestAnimationFrame(tick);
+    )");
+
+    bridge.poll_async_results();
+    REQUIRE(engine.evaluate("frame_count").getWithDefault<int>(-1) >= 1);
+
+    for (int i = 0; i < 10; ++i) {
+        bridge.poll_async_results();
+        if (engine.evaluate("frame_count").getWithDefault<int>(-1) >= 3)
+            break;
+    }
+
+    REQUIRE(engine.evaluate("frame_count").getWithDefault<int>(-1) == 3);
+}
+
+TEST_CASE("WidgetBridge execAsync preserves JSON-heavy results", "[view][bridge][async]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    const std::string async_json_cmd =
+#if defined(_WIN32)
+        "cmd /c echo {\"message\":\"hello \\\"shader\\\"\",\"shader\":\"line1\\\\nline2\"}";
+#else
+        "python3 -c \"import json; print(json.dumps({'message':'hello \\\"shader\\\"','shader':'line1\\\\nline2'}))\"";
+#endif
+
+    bridge.load_script(
+        "var async_json = '';\n"
+        "on('__async-json__', 'result', function(value) { async_json = value; });\n"
+        "execAsync('" + js_single_quoted(async_json_cmd) + "', '__async-json__');\n");
+
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        bridge.poll_async_results();
+        if (engine.evaluate("async_json").toString().find("\"shader\"") != std::string::npos)
+            break;
+    }
+
+    auto async_json = engine.evaluate("async_json").toString();
+    REQUIRE(async_json.find("\"message\": \"hello \\\"shader\\\"\"") != std::string::npos);
+    REQUIRE(engine.evaluate("JSON.parse(async_json).message").toString() == "hello \"shader\"");
+    REQUIRE(engine.evaluate("JSON.parse(async_json).shader").toString() == std::string("line1\nline2"));
 }
