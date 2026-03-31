@@ -4,6 +4,7 @@
 #include <pulp/midi/message.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <cmath>
+#include <numbers>
 #include <numeric>
 
 // Golden-file style tests for PulpGain audio processing
@@ -26,7 +27,7 @@ static pulp::audio::Buffer<float> make_sine(int channels, int samples,
     pulp::audio::Buffer<float> buf(channels, samples);
     for (int ch = 0; ch < channels; ++ch) {
         for (int i = 0; i < samples; ++i) {
-            buf.channel(ch)[i] = std::sin(2.0f * M_PI * freq * i / sample_rate);
+            buf.channel(ch)[i] = std::sin(2.0f * std::numbers::pi_v<float> * freq * i / sample_rate);
         }
     }
     return buf;
@@ -122,8 +123,8 @@ TEST_CASE("Golden: PulpGain stereo channels are independent", "[golden][pulpgain
     // Different content per channel
     pulp::audio::Buffer<float> in(2, 512);
     for (std::size_t i = 0; i < 512; ++i) {
-        in.channel(0)[i] = std::sin(2.0f * M_PI * 440.0f * i / 48000.0f);
-        in.channel(1)[i] = std::sin(2.0f * M_PI * 880.0f * i / 48000.0f);
+        in.channel(0)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 440.0f * i / 48000.0f);
+        in.channel(1)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 880.0f * i / 48000.0f);
     }
 
     pulp::audio::Buffer<float> out(2, 512);
@@ -217,4 +218,3 @@ TEST_CASE("Golden: PulpTone is silent without MIDI", "[golden][pulptone]") {
     }
     REQUIRE(max_sample < 0.001f);
 }
-

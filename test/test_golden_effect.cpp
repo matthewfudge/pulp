@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/format/headless.hpp>
 #include <cmath>
+#include <numbers>
 
 #include "pulp_effect.hpp"
 
@@ -14,7 +15,7 @@ static pulp::audio::Buffer<float> make_sine(int channels, int samples,
     pulp::audio::Buffer<float> buf(channels, samples);
     for (int ch = 0; ch < channels; ++ch) {
         for (int i = 0; i < samples; ++i) {
-            buf.channel(ch)[i] = std::sin(2.0f * M_PI * freq * i / sample_rate);
+            buf.channel(ch)[i] = std::sin(2.0f * std::numbers::pi_v<float> * freq * i / sample_rate);
         }
     }
     return buf;

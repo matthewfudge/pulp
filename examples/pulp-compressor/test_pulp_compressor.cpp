@@ -3,6 +3,7 @@
 #include "pulp_compressor.hpp"
 #include <pulp/format/headless.hpp>
 #include <cmath>
+#include <numbers>
 
 using namespace pulp;
 using namespace pulp::examples;
@@ -55,7 +56,7 @@ TEST_CASE("PulpCompressor reduces loud signals", "[compressor]") {
     // Loud sine wave (0 dBFS peak)
     audio::Buffer<float> in(2, 4096), out(2, 4096);
     for (std::size_t i = 0; i < 4096; ++i) {
-        float v = std::sin(2.0f * M_PI * 440.0f * i / 48000.0f);
+        float v = std::sin(2.0f * std::numbers::pi_v<float> * 440.0f * i / 48000.0f);
         in.channel(0)[i] = v;
         in.channel(1)[i] = v;
     }

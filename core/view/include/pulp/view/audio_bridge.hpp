@@ -88,7 +88,7 @@ public:
     // Call from the audio callback after processing
     void analyze_and_push(const float* const* channels, int num_channels, int num_samples) {
         MeterData data;
-        data.num_channels = std::min(num_channels, MeterData::max_channels);
+        data.num_channels = (std::min)(num_channels, MeterData::max_channels);
 
         for (int ch = 0; ch < data.num_channels; ++ch) {
             float peak = 0;

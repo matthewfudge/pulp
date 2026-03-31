@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/audio/audio.hpp>
 #include <cmath>
+#include <numbers>
 #include <thread>
 #include <chrono>
 
@@ -97,7 +98,7 @@ TEST_CASE("CoreAudio render sine wave", "[audio][coreaudio]") {
                                  const CallbackContext& ctx) {
         const double inc = freq / ctx.sample_rate;
         for (std::size_t i = 0; i < output.num_samples(); ++i) {
-            float sample = static_cast<float>(std::sin(phase * 2.0 * M_PI)) * 0.1f;
+            float sample = static_cast<float>(std::sin(phase * 2.0 * std::numbers::pi_v<double>)) * 0.1f;
             for (std::size_t ch = 0; ch < output.num_channels(); ++ch) {
                 output.channel(ch)[i] = sample;
             }

@@ -7,6 +7,7 @@
 #include <pulp/format/processor.hpp>
 #include <cmath>
 #include <array>
+#include <numbers>
 
 namespace pulp::examples {
 
@@ -119,7 +120,7 @@ public:
                 float osc = 0.0f;
                 switch (waveform) {
                     case 0: // Sine
-                        osc = std::sin(v.phase * 2.0 * M_PI);
+                        osc = std::sin(v.phase * 2.0 * std::numbers::pi_v<double>);
                         break;
                     case 1: // Saw
                         osc = static_cast<float>(2.0 * v.phase - 1.0);

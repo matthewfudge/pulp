@@ -9,6 +9,7 @@
 #include <cmath>
 #include <algorithm>
 #include <array>
+#include <numbers>
 
 namespace pulp::examples {
 
@@ -37,7 +38,7 @@ struct BiquadCoeffs {
 // Compute biquad coefficients for lowpass/highpass/bandpass
 inline BiquadCoeffs compute_biquad(int type, float freq, float q, double sample_rate) {
     BiquadCoeffs c;
-    float w0 = 2.0f * static_cast<float>(M_PI) * freq / static_cast<float>(sample_rate);
+    float w0 = 2.0f * std::numbers::pi_v<float> * freq / static_cast<float>(sample_rate);
     float cos_w0 = std::cos(w0);
     float sin_w0 = std::sin(w0);
     float alpha = sin_w0 / (2.0f * q);

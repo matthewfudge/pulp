@@ -9,6 +9,7 @@
 #include <pulp/audio/buffer.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <cmath>
+#include <numbers>
 #include <vector>
 
 namespace pulp::examples {
@@ -70,8 +71,8 @@ public:
             delay_r_[write_pos_] = dry_r;
 
             // LFO modulates delay time (L and R have opposite phase for stereo width)
-            float lfo_l = static_cast<float>(std::sin(lfo_phase_ * 2.0 * M_PI));
-            float lfo_r = static_cast<float>(std::sin((lfo_phase_ + 0.5) * 2.0 * M_PI));
+            float lfo_l = static_cast<float>(std::sin(lfo_phase_ * 2.0 * std::numbers::pi_v<double>));
+            float lfo_r = static_cast<float>(std::sin((lfo_phase_ + 0.5) * 2.0 * std::numbers::pi_v<double>));
 
             float delay_l = center_delay + lfo_l * depth_samples;
             float delay_r = center_delay + lfo_r * depth_samples;

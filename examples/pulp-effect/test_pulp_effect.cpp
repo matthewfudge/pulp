@@ -3,6 +3,7 @@
 #include "pulp_effect.hpp"
 #include <pulp/format/headless.hpp>
 #include <cmath>
+#include <numbers>
 
 using namespace pulp;
 using namespace pulp::examples;
@@ -51,7 +52,7 @@ TEST_CASE("PulpEffect lowpass attenuates high frequencies", "[pulpeffect]") {
     // Generate 10kHz sine (should be attenuated by 200Hz lowpass)
     audio::Buffer<float> in(2, 4096), out(2, 4096);
     for (std::size_t i = 0; i < 4096; ++i) {
-        float v = std::sin(2.0f * M_PI * 10000.0f * i / 48000.0f);
+        float v = std::sin(2.0f * std::numbers::pi_v<float> * 10000.0f * i / 48000.0f);
         in.channel(0)[i] = v;
         in.channel(1)[i] = v;
     }
@@ -73,7 +74,7 @@ TEST_CASE("PulpEffect bypass passes through unmodified", "[pulpeffect]") {
 
     audio::Buffer<float> in(2, 512), out(2, 512);
     for (std::size_t i = 0; i < 512; ++i) {
-        in.channel(0)[i] = std::sin(2.0f * M_PI * 1000.0f * i / 48000.0f);
+        in.channel(0)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 1000.0f * i / 48000.0f);
         in.channel(1)[i] = in.channel(0)[i];
     }
 
@@ -93,7 +94,7 @@ TEST_CASE("PulpEffect mix blends dry and wet", "[pulpeffect]") {
     // 10kHz sine
     audio::Buffer<float> in(2, 4096), out(2, 4096);
     for (std::size_t i = 0; i < 4096; ++i) {
-        in.channel(0)[i] = std::sin(2.0f * M_PI * 10000.0f * i / 48000.0f);
+        in.channel(0)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 10000.0f * i / 48000.0f);
         in.channel(1)[i] = in.channel(0)[i];
     }
 

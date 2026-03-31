@@ -5,6 +5,7 @@
 #include <pulp/midi/buffer.hpp>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 #include "pulp_gain.hpp"
 #include "pulp_tone.hpp"
@@ -63,7 +64,7 @@ TEST_CASE("Negative: PulpGain survives very low sample rate", "[negative][gain]"
     audio::Buffer<float> in(2, 32);
     audio::Buffer<float> out(2, 32);
     for (std::size_t i = 0; i < 32; ++i) {
-        in.channel(0)[i] = std::sin(2.0f * static_cast<float>(M_PI) * 10.0f * static_cast<float>(i) / 100.0f);
+        in.channel(0)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 10.0f * static_cast<float>(i) / 100.0f);
         in.channel(1)[i] = in.channel(0)[i];
     }
 
@@ -80,7 +81,7 @@ TEST_CASE("Negative: PulpGain survives very high sample rate", "[negative][gain]
     audio::Buffer<float> in(2, 1024);
     audio::Buffer<float> out(2, 1024);
     for (std::size_t i = 0; i < 1024; ++i) {
-        in.channel(0)[i] = std::sin(2.0f * static_cast<float>(M_PI) * 1000.0f * static_cast<float>(i) / 384000.0f);
+        in.channel(0)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 1000.0f * static_cast<float>(i) / 384000.0f);
         in.channel(1)[i] = in.channel(0)[i];
     }
 
@@ -113,7 +114,7 @@ TEST_CASE("Negative: PulpGain handles large buffer", "[negative][gain]") {
     audio::Buffer<float> in(2, 16384);
     audio::Buffer<float> out(2, 16384);
     for (std::size_t i = 0; i < 16384; ++i) {
-        in.channel(0)[i] = std::sin(2.0f * static_cast<float>(M_PI) * 440.0f * static_cast<float>(i) / 48000.0f);
+        in.channel(0)[i] = std::sin(2.0f * std::numbers::pi_v<float> * 440.0f * static_cast<float>(i) / 48000.0f);
         in.channel(1)[i] = in.channel(0)[i];
     }
 
