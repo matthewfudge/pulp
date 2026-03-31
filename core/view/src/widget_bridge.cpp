@@ -1259,6 +1259,8 @@ void WidgetBridge::register_api() {
     engine_.register_function("setFontSize", [this](choc::javascript::ArgumentList args) {
         if (auto* l = dynamic_cast<Label*>(widget(args.get<std::string>(0, ""))))
             l->set_font_size(static_cast<float>(args.get<double>(1, 14)));
+        else if (auto* e = dynamic_cast<TextEditor*>(widget(args.get<std::string>(0, ""))))
+            e->set_font_size(static_cast<float>(args.get<double>(1, 14)));
         return choc::value::Value();
     });
 

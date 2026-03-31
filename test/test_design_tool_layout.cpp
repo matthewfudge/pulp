@@ -193,6 +193,31 @@ TEST_CASE("Design tool: help badges exist for color system controls", "[design-t
     REQUIRE(help_modal->visible());
 }
 
+TEST_CASE("Design tool: composite control labels stay click-through", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    load_design_tool(root, engine, bridge);
+
+    REQUIRE_FALSE(bridge.widget("state-pill-0-lbl")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("undo-btn")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("palette-save-lbl")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("palette-load-lbl")->hit_testable());
+    REQUIRE_FALSE(bridge.widget("help-modal-close-label")->hit_testable());
+}
+
 TEST_CASE("Design tool: palette dots stay circular", "[design-tool]") {
     auto js_path = find_js_file("design-tool.js");
     if (js_path.empty()) {
@@ -215,6 +240,70 @@ TEST_CASE("Design tool: palette dots stay circular", "[design-tool]") {
     REQUIRE(accent_dot != nullptr);
     REQUIRE_THAT(accent_dot->bounds().width, Catch::Matchers::WithinAbs(14.0f, 1.0f));
     REQUIRE_THAT(accent_dot->bounds().height, Catch::Matchers::WithinAbs(14.0f, 1.0f));
+}
+
+TEST_CASE("Design tool: text editor font sizes flow through the bridge", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    load_design_tool(root, engine, bridge);
+
+    auto* token_hex = dynamic_cast<TextEditor*>(bridge.widget("tok-0-0-hex"));
+    auto* popup_hex = dynamic_cast<TextEditor*>(bridge.widget("tp-hex-input"));
+    REQUIRE(token_hex != nullptr);
+    REQUIRE(popup_hex != nullptr);
+    REQUIRE_THAT(token_hex->font_size(), Catch::Matchers::WithinAbs(9.0f, 0.1f));
+    REQUIRE_THAT(popup_hex->font_size(), Catch::Matchers::WithinAbs(11.0f, 0.1f));
+}
+
+TEST_CASE("Design tool: waveform and spectrum previews render populated data", "[design-tool]") {
+    auto js_path = find_js_file("design-tool.js");
+    if (js_path.empty()) {
+        SKIP("design-tool.js not found");
+        return;
+    }
+
+    View root;
+    root.set_theme(Theme::dark());
+    root.flex().direction = FlexDirection::column;
+    root.set_bounds({0, 0, 1100, 700});
+
+    pulp::state::StateStore store;
+    ScriptEngine engine;
+    WidgetBridge bridge(engine, root, store);
+
+    load_design_tool(root, engine, bridge);
+
+    auto* waveform = dynamic_cast<WaveformView*>(bridge.widget("waveform"));
+    auto* waveform2 = dynamic_cast<WaveformView*>(bridge.widget("waveform2"));
+    auto* spectrum = dynamic_cast<SpectrumView*>(bridge.widget("spectrum-demo"));
+    REQUIRE(waveform != nullptr);
+    REQUIRE(waveform2 != nullptr);
+    REQUIRE(spectrum != nullptr);
+
+    pulp::canvas::RecordingCanvas waveform_canvas;
+    waveform->paint(waveform_canvas);
+    REQUIRE(waveform_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) > 10);
+
+    pulp::canvas::RecordingCanvas waveform_canvas2;
+    waveform2->paint(waveform_canvas2);
+    REQUIRE(waveform_canvas2.count(pulp::canvas::DrawCommand::Type::stroke_line) > 10);
+
+    pulp::canvas::RecordingCanvas spectrum_canvas;
+    spectrum->paint(spectrum_canvas);
+    REQUIRE(spectrum_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) > 3);
 }
 
 TEST_CASE("Design tool: inspect click updates and clears chat context badge", "[design-tool]") {

@@ -210,6 +210,7 @@ for (var sp = 0; sp < stateNames.length; sp++) {
     createLabel(spId + "-lbl", stateNames[sp], spId);
     setFontSize(spId + "-lbl", 10);
     setTextColor(spId + "-lbl", sp === 0 ? APP_ACCENT : APP_TEXT_DIM);
+    setPointerEvents(spId + "-lbl", "none");
     registerClick(spId);
     (function(idx) {
         on("state-pill-" + idx, "click", function() {
@@ -387,6 +388,7 @@ for (var tb = 0; tb < toolbarBtns.length; tb++) {
     createLabel(btn.id, btn.label, btn.id + "-pill");
     setFontSize(btn.id, 10);
     setTextColor(btn.id, btn.accent ? "#ffffff" : APP_TEXT_DIM);
+    setPointerEvents(btn.id, "none");
 }
 
 registerHover("undo-btn-pill");
@@ -1263,6 +1265,7 @@ setBorder("gen-opposite-btn", APP_ACCENT, 0, 6);
 createLabel("gen-opposite-lbl", "Generate Opposite Mode", "gen-opposite-btn");
 setFontSize("gen-opposite-lbl", 11);
 setTextColor("gen-opposite-lbl", "#ffffff");
+setPointerEvents("gen-opposite-lbl", "none");
 registerClick("gen-opposite-btn");
 on("gen-opposite-btn", "click", function() {
     // Toggle dark/light mode
@@ -1292,6 +1295,7 @@ setFlex("palette-save-btn", "align_items", "center");
 setBorder("palette-save-btn", APP_BORDER, 1, 4);
 createLabel("palette-save-lbl", "Save", "palette-save-btn");
 setFontSize("palette-save-lbl", 10);
+setPointerEvents("palette-save-lbl", "none");
 registerClick("palette-save-btn");
 on("palette-save-btn", "click", function() {
     var palette = PaletteSystem.create(currentAccent, currentHarmony);
@@ -1308,6 +1312,7 @@ setFlex("palette-load-btn", "align_items", "center");
 setBorder("palette-load-btn", APP_BORDER, 1, 4);
 createLabel("palette-load-lbl", "Load", "palette-load-btn");
 setFontSize("palette-load-lbl", 10);
+setPointerEvents("palette-load-lbl", "none");
 registerClick("palette-load-btn");
 on("palette-load-btn", "click", function() {
     var json = exec("cat /tmp/pulp-palette.json 2>/dev/null");
@@ -2512,7 +2517,7 @@ setFlex("spectrum-demo", "height", 80);
 var specData = [];
 for (var si = 0; si < 64; si++) {
     var freq = si / 64;
-    specData.push(Math.exp(-freq * 3) * 0.8 + Math.random() * 0.1);
+    specData.push(-72 + Math.exp(-freq * 3) * 54 + Math.random() * 3);
 }
 setSpectrumData("spectrum-demo", specData);
 
@@ -2903,7 +2908,7 @@ function updateChatInputSizing(text) {
 
 registerClick("upload-btn");
 on("upload-btn", "click", function() {
-    var path = showOpenDialog("Select Reference Image", "Images", "png,jpg,jpeg,gif,webp");
+    var path = showOpenDialog("Select Reference Image", "Images", "png;jpg;jpeg;gif;webp");
     if (path && path.length > 0) {
         setUploadedImage(path);
         showToast("Attached " + uploadedImageName);
@@ -3020,6 +3025,7 @@ registerClick("help-modal-close-btn");
 createLabel("help-modal-close-label", "Close", "help-modal-close-btn");
 setFontSize("help-modal-close-label", 10);
 setTextColor("help-modal-close-label", APP_TEXT_DIM);
+setPointerEvents("help-modal-close-label", "none");
 
 createLabel("help-modal-body", "", "help-card");
 setFontSize("help-modal-body", 11);

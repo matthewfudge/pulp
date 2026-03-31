@@ -215,6 +215,7 @@ public:
     void clear_border() { has_border_ = false; }
     bool has_border() const { return has_border_; }
     Color border_color() const { return border_color_; }
+    float border_width() const { return border_width_; }
     float corner_radius() const { return corner_radius_; }
 
     /// Per-side borders (CSS border-top, border-right, etc.)

@@ -333,23 +333,35 @@ void TextEditor::on_focus_changed(bool gained) {
 void TextEditor::paint(canvas::Canvas& canvas) {
     auto b = local_bounds();
 
-    // Background
-    auto bg_color = has_focus() ? resolve_color("text_editor_focus_bg", canvas::Color::hex(0x2a2a4a))
-                                : resolve_color("text_editor_bg", canvas::Color::hex(0x1a1a2e));
-    float radius = 6.0f;
+    auto bg_color = has_background_color()
+        ? background_color()
+        : (has_focus()
+            ? resolve_color("text_editor_focus_bg",
+                            resolve_color("bg.elevated",
+                                          resolve_color("bg.surface", canvas::Color::hex(0x2a2a4a))))
+            : resolve_color("text_editor_bg",
+                            resolve_color("bg.surface", canvas::Color::hex(0x1a1a2e))));
+    float radius = corner_radius() > 0.0f ? corner_radius() : 6.0f;
     canvas.set_fill_color(bg_color);
     canvas.fill_rounded_rect(b.x, b.y, b.width, b.height, radius);
 
-    // Border — accent when focused, subtle when not
-    if (has_focus()) {
-        canvas.set_stroke_color(canvas::Color::rgba(140, 120, 255, 255));
-        canvas.set_line_width(2.0f);
-        // Inset stroke by half line width so it aligns cleanly with fill edge
-        canvas.stroke_rounded_rect(b.x + 1, b.y + 1, b.width - 2, b.height - 2, radius - 1);
-    } else {
-        canvas.set_stroke_color(resolve_color("border", canvas::Color::hex(0x3a3a5a)));
-        canvas.set_line_width(1.0f);
-        canvas.stroke_rounded_rect(b.x + 0.5f, b.y + 0.5f, b.width - 1, b.height - 1, radius - 0.5f);
+    // Border — use explicit per-view styling when present, otherwise theme defaults.
+    auto stroke = has_border()
+        ? border_color()
+        : (has_focus()
+            ? resolve_color("accent.primary", canvas::Color::rgba(140, 120, 255, 255))
+            : resolve_color("control.border",
+                            resolve_color("border", canvas::Color::hex(0x3a3a5a))));
+    float stroke_width = has_border() ? border_width() : (has_focus() ? 2.0f : 1.0f);
+    if (stroke_width > 0.0f) {
+        canvas.set_stroke_color(stroke);
+        canvas.set_line_width(stroke_width);
+        float inset = stroke_width * 0.5f;
+        float stroke_radius = std::max(0.0f, radius - inset);
+        canvas.stroke_rounded_rect(b.x + inset, b.y + inset,
+                                   std::max(0.0f, b.width - stroke_width),
+                                   std::max(0.0f, b.height - stroke_width),
+                                   stroke_radius);
     }
 
     canvas.set_font("system", font_size_);
