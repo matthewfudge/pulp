@@ -1,52 +1,228 @@
 #!/usr/bin/env python3
-"""Local CI runner for Pulp — validates branches on Mac, Ubuntu, and Windows.
+"""Local CI runner for Pulp — validates queued jobs on Mac, Ubuntu, and Windows.
 
 Usage:
-    pulp ci-local run [branch]       # Validate immediately (parallel)
-    pulp ci-local ship [branch]      # PR → CI → merge on green
-    pulp ci-local check <PR#|latest> # Validate an existing PR
-    pulp ci-local list               # Show open PRs
-    pulp ci-local status             # Show queue and recent results
-    pulp ci-local enqueue [branch]   # Queue for later drain
-    pulp ci-local drain              # Process all pending jobs
+    pulp ci-local run [branch]                # Queue and wait for completion
+    pulp ci-local ship [branch]               # PR -> queued CI -> merge on green
+    pulp ci-local check <PR#|latest>          # Validate an existing PR
+    pulp ci-local list                        # Show open PRs
+    pulp ci-local status                      # Show queue, runner, and VM status
+    pulp ci-local enqueue [branch]            # Queue for later drain
+    pulp ci-local drain                       # Drain pending jobs if no runner is active
+    pulp ci-local bump <job> <priority>       # Reprioritize a pending job
 
-Targets:
-    mac      — always runs locally via validate-build.sh
-    ubuntu   — ssh ubuntu, falls back to UTM VM if unreachable
-    windows  — ssh win2 (Proxmox), falls back to UTM VM if unreachable
+Queueing model:
+    - CI state is machine-global, not per worktree.
+    - Only one drain owner runs jobs at a time.
+    - Jobs are ordered by priority, then FIFO within each priority.
+    - Each job validates an exact git SHA.
+    - SSH targets receive the queued SHA via a git bundle before validation.
 """
 
 from __future__ import annotations
 
 import argparse
+from collections import deque
+import fcntl
+import hashlib
 import json
 import os
+import queue as queue_module
 import shlex
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
-QUEUE_PATH = Path(__file__).resolve().parent / "queue.json"
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PRIORITY_VALUES = {"low": 10, "normal": 50, "high": 100}
+WAIT_POLL_SECS = 3
+KEEP_COMPLETED_JOBS = 25
+_BUNDLE_BUILD_LOCK = threading.Lock()
 
 
-def load_config() -> dict:
-    return json.loads(CONFIG_PATH.read_text())
+class LockBusyError(RuntimeError):
+    """Raised when a non-blocking lock cannot be acquired."""
 
 
-def load_queue() -> list[dict]:
-    if not QUEUE_PATH.exists():
+def state_dir() -> Path:
+    override = os.environ.get("PULP_LOCAL_CI_HOME")
+    if override:
+        return Path(override).expanduser()
+
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / "Pulp" / "local-ci"
+
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    if xdg_state:
+        return Path(xdg_state).expanduser() / "pulp" / "local-ci"
+    return home / ".local" / "state" / "pulp" / "local-ci"
+
+
+def config_path() -> Path:
+    override = os.environ.get("PULP_LOCAL_CI_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return SCRIPT_DIR / "config.json"
+
+
+def queue_path() -> Path:
+    return state_dir() / "queue.json"
+
+
+def results_dir() -> Path:
+    return state_dir() / "results"
+
+
+def logs_dir() -> Path:
+    return state_dir() / "logs"
+
+
+def bundles_dir() -> Path:
+    return state_dir() / "bundles"
+
+
+def queue_lock_path() -> Path:
+    return state_dir() / "queue.lock"
+
+
+def drain_lock_path() -> Path:
+    return state_dir() / "drain.lock"
+
+
+def runner_info_path() -> Path:
+    return state_dir() / "runner.json"
+
+
+def ensure_state_dirs() -> None:
+    state_dir().mkdir(parents=True, exist_ok=True)
+    results_dir().mkdir(parents=True, exist_ok=True)
+    logs_dir().mkdir(parents=True, exist_ok=True)
+    bundles_dir().mkdir(parents=True, exist_ok=True)
+
+
+def job_logs_dir(job_id: str) -> Path:
+    return logs_dir() / job_id
+
+
+def target_log_path(job_id: str, target_name: str) -> Path:
+    return job_logs_dir(job_id) / f"{target_name}.log"
+
+
+def prepare_target_log(job_id: str, target_name: str) -> Path:
+    path = target_log_path(job_id, target_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("")
+    return path
+
+
+def bundle_ref_name(job_id: str) -> str:
+    return f"refs/pulp-ci-bundles/{job_id}"
+
+
+def remote_bundle_name(job_id: str) -> str:
+    return f"pulp-ci-{job_id}.bundle"
+
+
+def create_job_bundle(job: dict) -> Path:
+    ensure_state_dirs()
+    bundle_path = bundles_dir() / f"{job['id']}.bundle"
+    bundle_lock_path = Path(f"{bundle_path}.lock")
+
+    with _BUNDLE_BUILD_LOCK:
+        if bundle_path.exists() and bundle_path.stat().st_size > 0:
+            return bundle_path
+
+        bundle_lock_path.unlink(missing_ok=True)
+        bundle_path.unlink(missing_ok=True)
+
+        temp_ref = bundle_ref_name(job["id"])
+        subprocess.run(["git", "update-ref", temp_ref, job["sha"]], cwd=ROOT, check=True)
+        try:
+            subprocess.run(["git", "bundle", "create", str(bundle_path), temp_ref], cwd=ROOT, check=True)
+        finally:
+            subprocess.run(["git", "update-ref", "-d", temp_ref], cwd=ROOT, check=True)
+    return bundle_path
+
+
+def sync_job_bundle_to_ssh_host(host: str, job: dict, report_progress=None) -> tuple[str, str]:
+    bundle_path = create_job_bundle(job)
+    remote_name = remote_bundle_name(job["id"])
+    try:
+        if report_progress:
+            report_progress(
+                phase="bundle-upload",
+                host=host,
+                bundle=remote_name,
+                last_output_at=now_iso(),
+            )
+        subprocess.run(
+            ["scp", str(bundle_path), f"{host}:{remote_name}"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=True,
+        )
+    except subprocess.SubprocessError as exc:
+        detail = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = (exc.stderr or exc.stdout or "").strip()
+        raise RuntimeError(
+            f"failed to upload git bundle to {host}: {detail or exc}"
+        ) from exc
+    return remote_name, bundle_ref_name(job["id"])
+
+
+def tail_lines(path: Path, limit: int = 80) -> list[str]:
+    if not path.exists():
         return []
-    return json.loads(QUEUE_PATH.read_text())
+    with path.open("r", errors="replace") as handle:
+        return list(deque(handle, maxlen=limit))
 
 
-def save_queue(queue: list[dict]) -> None:
-    QUEUE_PATH.write_text(json.dumps(queue, indent=2) + "\n")
+def trim_line(value: str, max_len: int = 160) -> str:
+    value = value.strip()
+    if len(value) <= max_len:
+        return value
+    return "…" + value[-(max_len - 1):]
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    ensure_state_dirs()
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@contextmanager
+def file_lock(path: Path, *, blocking: bool):
+    ensure_state_dirs()
+    handle = path.open("a+")
+    mode = fcntl.LOCK_EX
+    if not blocking:
+        mode |= fcntl.LOCK_NB
+
+    try:
+        fcntl.flock(handle.fileno(), mode)
+    except BlockingIOError as exc:
+        handle.close()
+        raise LockBusyError(str(path)) from exc
+
+    try:
+        yield handle
+    finally:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def now_iso() -> str:
@@ -56,28 +232,473 @@ def now_iso() -> str:
 def current_branch() -> str:
     result = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout.strip()
 
 
 def current_sha() -> str:
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout.strip()
 
 
+def short_sha(sha: str) -> str:
+    return sha[:12] if sha else "?"
+
+
+def normalize_priority(priority: str | None) -> str:
+    value = (priority or "normal").strip().lower()
+    if value not in PRIORITY_VALUES:
+        raise ValueError(f"Invalid priority '{priority}'. Use one of: low, normal, high.")
+    return value
+
+
+def priority_value(priority: str | None) -> int:
+    return PRIORITY_VALUES[normalize_priority(priority)]
+
+
+def load_config() -> dict:
+    path = config_path()
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Local CI config not found at {path}. Copy tools/local-ci/config.example.json first."
+        )
+    return json.loads(path.read_text())
+
+
+def normalize_job(job: dict) -> dict:
+    normalized = dict(job)
+    if "id" not in normalized:
+        legacy_raw = "|".join(
+            [normalized.get("branch", ""), normalized.get("sha", ""), normalized.get("queued_at", "")]
+        )
+        normalized["id"] = hashlib.sha1(legacy_raw.encode("utf-8")).hexdigest()[:12]
+    normalized["priority"] = normalize_priority(normalized.get("priority", "normal"))
+    normalized["targets"] = sorted(dict.fromkeys(normalized.get("targets") or []))
+    normalized["status"] = normalized.get("status", "pending")
+    return normalized
+
+
+def load_queue_unlocked() -> list[dict]:
+    path = queue_path()
+    if not path.exists():
+        return []
+
+    raw = json.loads(path.read_text())
+    jobs = raw.get("jobs", raw) if isinstance(raw, dict) else raw
+    return [normalize_job(job) for job in jobs]
+
+
+def save_queue_unlocked(queue: list[dict]) -> None:
+    atomic_write_text(queue_path(), json.dumps(queue, indent=2) + "\n")
+
+
+def load_queue() -> list[dict]:
+    with file_lock(queue_lock_path(), blocking=True):
+        queue = load_queue_unlocked()
+        queue, changed = reconcile_running_jobs_unlocked(queue)
+        if changed:
+            save_queue_unlocked(queue)
+        return queue
+
+
+def enabled_targets(config: dict) -> list[str]:
+    return [
+        name
+        for name, target_cfg in config.get("targets", {}).items()
+        if target_cfg.get("enabled", True)
+    ]
+
+
+def parse_targets_arg(value: str | None) -> list[str] | None:
+    if value is None or value.strip() == "":
+        return None
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    return sorted(dict.fromkeys(parts))
+
+
+def resolve_targets(config: dict, requested: list[str] | None) -> list[str]:
+    if requested is None:
+        configured = config.get("defaults", {}).get("targets")
+        if configured is not None:
+            if isinstance(configured, str):
+                requested = parse_targets_arg(configured)
+            else:
+                requested = sorted(dict.fromkeys(configured))
+        else:
+            requested = enabled_targets(config)
+
+    if not requested:
+        return []
+
+    valid = set(config.get("targets", {}).keys())
+    unknown = [target for target in requested if target not in valid]
+    if unknown:
+        raise ValueError(f"Unknown target(s): {', '.join(unknown)}")
+
+    disabled = [
+        target
+        for target in requested
+        if not config["targets"].get(target, {}).get("enabled", True)
+    ]
+    if disabled:
+        raise ValueError(
+            f"Requested target(s) disabled in config: {', '.join(disabled)}"
+        )
+
+    return sorted(dict.fromkeys(requested))
+
+
+def default_priority_for(command: str, config: dict) -> str:
+    defaults = config.get("defaults", {})
+    if command in {"ship", "check"}:
+        return normalize_priority(defaults.get(f"{command}_priority", "high"))
+    return normalize_priority(defaults.get("priority", "normal"))
+
+
+def make_fingerprint(branch: str, sha: str, targets: list[str]) -> str:
+    raw = json.dumps(
+        {"branch": branch, "sha": sha, "targets": sorted(targets)},
+        sort_keys=True,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def make_job(branch: str, sha: str, priority: str, targets: list[str], mode: str) -> dict:
+    return {
+        "id": uuid.uuid4().hex[:12],
+        "branch": branch,
+        "sha": sha,
+        "priority": normalize_priority(priority),
+        "targets": sorted(targets),
+        "queued_at": now_iso(),
+        "status": "pending",
+        "fingerprint": make_fingerprint(branch, sha, targets),
+        "mode": mode,
+        "submitted_root": str(ROOT),
+    }
+
+
+def summarize_job(job: dict) -> str:
+    targets = ",".join(job.get("targets") or []) or "none"
+    return (
+        f"[{job['id']}] {job['branch']} @ {short_sha(job.get('sha', ''))} "
+        f"priority={job.get('priority', 'normal')} targets={targets}"
+    )
+
+
+def summarize_active_targets(active_targets: dict | None, preferred_order: list[str] | None = None) -> str:
+    if not active_targets:
+        return ""
+
+    parts: list[str] = []
+    seen: set[str] = set()
+    for name in preferred_order or []:
+        state = active_targets.get(name)
+        if not state:
+            continue
+        parts.append(f"{name}={state.get('status', '?')}")
+        seen.add(name)
+
+    for name in sorted(active_targets):
+        if name in seen:
+            continue
+        state = active_targets.get(name) or {}
+        parts.append(f"{name}={state.get('status', '?')}")
+
+    return ", ".join(parts)
+
+
+def upsert_job_active_targets_unlocked(queue: list[dict], job_id: str, active_targets: dict | None) -> bool:
+    for job in queue:
+        if job["id"] != job_id:
+            continue
+        if active_targets:
+            job["active_targets"] = active_targets
+            job["last_progress_at"] = now_iso()
+        else:
+            job.pop("active_targets", None)
+            job.pop("last_progress_at", None)
+        return True
+    return False
+
+
+def update_job_active_targets(job_id: str, active_targets: dict | None) -> None:
+    with file_lock(queue_lock_path(), blocking=True):
+        queue = load_queue_unlocked()
+        if upsert_job_active_targets_unlocked(queue, job_id, active_targets):
+            save_queue_unlocked(queue)
+
+
+def enqueue_job(branch: str, sha: str, priority: str, targets: list[str], mode: str) -> tuple[dict, bool]:
+    requested_priority = normalize_priority(priority)
+
+    with file_lock(queue_lock_path(), blocking=True):
+        queue = load_queue_unlocked()
+        queue, changed = reconcile_running_jobs_unlocked(queue)
+        if changed:
+            save_queue_unlocked(queue)
+        fingerprint = make_fingerprint(branch, sha, targets)
+
+        for job in queue:
+            if job.get("fingerprint") != fingerprint or job.get("status") not in {"pending", "running"}:
+                continue
+
+            changed = False
+            if (
+                job["status"] == "pending"
+                and priority_value(requested_priority) > priority_value(job.get("priority", "normal"))
+            ):
+                job["priority"] = requested_priority
+                job["bumped_at"] = now_iso()
+                changed = True
+
+            if changed:
+                save_queue_unlocked(queue)
+            return normalize_job(job), False
+
+        job = make_job(branch, sha, requested_priority, targets, mode)
+        queue.append(job)
+        save_queue_unlocked(queue)
+        return job, True
+
+
+def trim_completed_jobs(queue: list[dict]) -> list[dict]:
+    completed = [job for job in queue if job.get("status") == "completed"]
+    if len(completed) <= KEEP_COMPLETED_JOBS:
+        return queue
+
+    completed_by_time = sorted(completed, key=lambda job: job.get("completed_at", job.get("queued_at", "")))
+    remove_ids = {job["id"] for job in completed_by_time[:-KEEP_COMPLETED_JOBS]}
+    return [job for job in queue if job["id"] not in remove_ids]
+
+
+def job_sort_key(job: dict) -> tuple[int, str, str]:
+    return (-priority_value(job.get("priority", "normal")), job.get("queued_at", ""), job["id"])
+
+
+def reconcile_running_jobs_unlocked(queue: list[dict]) -> tuple[list[dict], bool]:
+    runner = read_runner_info()
+    runner_pid = runner.get("pid") if runner else None
+    runner_alive = pid_alive(runner_pid)
+
+    if runner and not runner_alive:
+        runner_info_path().unlink(missing_ok=True)
+        runner = None
+        runner_pid = None
+
+    changed = False
+    for job in queue:
+        if job.get("status") != "running":
+            continue
+
+        job_runner = job.get("runner") or {}
+        if runner and runner_pid and job_runner.get("pid") == runner_pid:
+            continue
+
+        job["status"] = "pending"
+        job["requeued_at"] = now_iso()
+        job.pop("started_at", None)
+        job.pop("runner", None)
+        changed = True
+
+    return queue, changed
+
+
+def read_runner_info() -> dict | None:
+    path = runner_info_path()
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def pid_alive(pid: int | None) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def current_runner_info() -> dict | None:
+    info = read_runner_info()
+    if not info:
+        return None
+
+    if pid_alive(info.get("pid")):
+        return info
+
+    try:
+        with file_lock(drain_lock_path(), blocking=False):
+            runner_info_path().unlink(missing_ok=True)
+            return None
+    except LockBusyError:
+        return info
+
+
+def write_runner_info(info: dict) -> None:
+    atomic_write_text(runner_info_path(), json.dumps(info, indent=2) + "\n")
+
+
+def update_runner_active_targets(job_id: str, active_targets: dict | None) -> None:
+    info = current_runner_info()
+    if not info or info.get("active_job_id") != job_id:
+        return
+
+    if active_targets:
+        info["active_targets"] = active_targets
+    else:
+        info.pop("active_targets", None)
+    info["updated_at"] = now_iso()
+    write_runner_info(info)
+
+
+def clear_runner_info() -> None:
+    runner_info_path().unlink(missing_ok=True)
+
+
+def find_job_unlocked(queue: list[dict], job_ref: str, statuses: set[str] | None = None) -> dict | None:
+    candidates = queue
+    if statuses is not None:
+        candidates = [job for job in candidates if job.get("status") in statuses]
+
+    for job in candidates:
+        if job["id"] == job_ref:
+            return job
+
+    id_prefix = [job for job in candidates if job["id"].startswith(job_ref)]
+    if len(id_prefix) == 1:
+        return id_prefix[0]
+    if len(id_prefix) > 1:
+        raise ValueError(f"Job reference '{job_ref}' is ambiguous.")
+
+    branch_matches = [job for job in candidates if job.get("branch") == job_ref]
+    if len(branch_matches) == 1:
+        return branch_matches[0]
+    if len(branch_matches) > 1:
+        raise ValueError(
+            f"Multiple jobs match branch '{job_ref}'. Use a job id or unique prefix."
+        )
+
+    return None
+
+
+def load_job(job_id: str) -> dict | None:
+    with file_lock(queue_lock_path(), blocking=True):
+        queue = load_queue_unlocked()
+        queue, changed = reconcile_running_jobs_unlocked(queue)
+        if changed:
+            save_queue_unlocked(queue)
+        job = find_job_unlocked(queue, job_id)
+        return normalize_job(job) if job else None
+
+
+def claim_next_job() -> dict | None:
+    with file_lock(queue_lock_path(), blocking=True):
+        queue = load_queue_unlocked()
+        queue, changed = reconcile_running_jobs_unlocked(queue)
+        if changed:
+            save_queue_unlocked(queue)
+        pending = sorted(
+            [job for job in queue if job.get("status") == "pending"],
+            key=job_sort_key,
+        )
+        if not pending:
+            return None
+
+        selected_id = pending[0]["id"]
+        claimed = None
+        for job in queue:
+            if job["id"] != selected_id:
+                continue
+            job["status"] = "running"
+            job["started_at"] = now_iso()
+            job["runner"] = {"pid": os.getpid(), "root": str(ROOT)}
+            job.pop("active_targets", None)
+            job.pop("last_progress_at", None)
+            claimed = normalize_job(job)
+            break
+
+        save_queue_unlocked(queue)
+        return claimed
+
+
+def finalize_job(job_id: str, result: dict, result_path: Path) -> None:
+    with file_lock(queue_lock_path(), blocking=True):
+        queue = load_queue_unlocked()
+        for job in queue:
+            if job["id"] != job_id:
+                continue
+            job["status"] = "completed"
+            job["completed_at"] = now_iso()
+            job["result_file"] = str(result_path)
+            job["overall"] = result.get("overall")
+            job.pop("runner", None)
+            job.pop("active_targets", None)
+            job.pop("last_progress_at", None)
+            break
+
+        save_queue_unlocked(trim_completed_jobs(queue))
+
+
+def load_result(path: Path) -> dict:
+    return json.loads(path.read_text())
+
+
+def wait_for_job(job_id: str, config: dict) -> tuple[dict | None, int]:
+    announced_wait = False
+
+    while True:
+        job = load_job(job_id)
+        if job is None:
+            print(f"Job not found: {job_id}")
+            return None, 1
+
+        if job.get("status") == "completed":
+            result_file = job.get("result_file")
+            if not result_file:
+                print(f"Job completed without a result file: {job_id}")
+                return None, 1
+            result = load_result(Path(result_file))
+            return result, 0 if result.get("overall") == "pass" else 1
+
+        acquired, _ = drain_pending_jobs(config, blocking=False)
+        if acquired:
+            continue
+
+        runner = current_runner_info()
+        if runner and not announced_wait:
+            active_job = runner.get("active_job_id")
+            active_branch = runner.get("active_branch")
+            if active_job and active_branch:
+                print(
+                    f"Another local CI runner is active [{active_job}] {active_branch}; waiting for {job_id}..."
+                )
+            else:
+                print("Another local CI runner is active; waiting for queued job completion...")
+            announced_wait = True
+
+        time.sleep(WAIT_POLL_SECS)
+
+
 def notify(message: str) -> None:
-    """Send a terminal notification."""
-    # Terminal bell
     print("\a", end="", flush=True)
-    # macOS notification
     try:
         subprocess.run(
             ["osascript", "-e", f'display notification "{message}" with title "Pulp CI"'],
-            capture_output=True, timeout=5,
+            capture_output=True,
+            timeout=5,
         )
     except Exception:
         pass
@@ -85,63 +706,49 @@ def notify(message: str) -> None:
 
 # ── VM Management ────────────────────────────────────────────────────────────
 
+
 def ssh_reachable(host: str, timeout: int = 5) -> bool:
-    """Check if an SSH host is reachable."""
     result = subprocess.run(
-        ["ssh", "-o", f"ConnectTimeout={timeout}", "-o", "BatchMode=yes",
-         host, "echo", "up"],
-        capture_output=True, text=True,
+        ["ssh", "-o", f"ConnectTimeout={timeout}", "-o", "BatchMode=yes", host, "echo", "up"],
+        capture_output=True,
+        text=True,
     )
     return result.returncode == 0
 
 
 def utmctl_vm_status(vm_name: str) -> str | None:
-    """Get UTM VM status (started/stopped/None if not found)."""
-    result = subprocess.run(
-        ["utmctl", "list"], capture_output=True, text=True,
-    )
+    result = subprocess.run(["utmctl", "list"], capture_output=True, text=True)
     if result.returncode != 0:
         return None
     for line in result.stdout.splitlines():
         if vm_name in line:
             parts = line.split()
             if len(parts) >= 2:
-                return parts[1]  # status column
+                return parts[1]
     return None
 
 
 def utmctl_start(vm_name: str) -> bool:
-    """Start a UTM VM by name."""
-    result = subprocess.run(
-        ["utmctl", "start", vm_name], capture_output=True, text=True,
-    )
+    result = subprocess.run(["utmctl", "start", vm_name], capture_output=True, text=True)
     return result.returncode == 0
 
 
 def ensure_host_reachable(target_name: str, target_cfg: dict, defaults: dict) -> str | None:
-    """Ensure a target host is reachable, starting UTM VM if needed.
-
-    Returns the SSH host to use, or None if unreachable.
-    Tries: primary host -> fallback_host -> UTM VM start -> poll primary host.
-    """
     host = target_cfg["host"]
     fallback_host = target_cfg.get("fallback_host")
     timeout = defaults.get("ssh_timeout_secs", 5)
 
-    # Try primary host first
     print(f"  [{target_name}] Checking ssh {host}...")
     if ssh_reachable(host, timeout):
         print(f"  [{target_name}] {host} is up")
         return host
 
-    # Try fallback host
     if fallback_host:
         print(f"  [{target_name}] {host} unreachable, trying fallback ssh {fallback_host}...")
         if ssh_reachable(fallback_host, timeout):
             print(f"  [{target_name}] {fallback_host} is up")
             return fallback_host
 
-    # Both SSH hosts unreachable — try UTM fallback
     fallback = target_cfg.get("utm_fallback")
     if not fallback:
         print(f"  [{target_name}] {host} unreachable, no UTM fallback configured")
@@ -152,7 +759,6 @@ def ensure_host_reachable(target_name: str, target_cfg: dict, defaults: dict) ->
     ssh_retry = fallback.get("ssh_retry_secs", 60)
 
     print(f"  [{target_name}] {host} unreachable, checking UTM VM '{vm_name}'...")
-
     status = utmctl_vm_status(vm_name)
     if status is None:
         print(f"  [{target_name}] UTM VM '{vm_name}' not found")
@@ -166,7 +772,6 @@ def ensure_host_reachable(target_name: str, target_cfg: dict, defaults: dict) ->
         print(f"  [{target_name}] Waiting {boot_wait}s for boot...")
         time.sleep(boot_wait)
 
-    # Poll SSH until reachable or timeout
     deadline = time.time() + ssh_retry
     attempt = 0
     while time.time() < deadline:
@@ -182,242 +787,899 @@ def ensure_host_reachable(target_name: str, target_cfg: dict, defaults: dict) ->
 
 # ── Validation Runners ───────────────────────────────────────────────────────
 
-def run_local_validation(branch: str, exclude_tests: str = "") -> dict:
-    """Run validate-build.sh locally."""
-    print(f"  [mac] Running local validation on {branch}...")
-    start = time.time()
 
-    cmd = ["./validate-build.sh", "--quiet"]
+def remote_commit_error(target_name: str, host: str, job: dict) -> str:
+    return (
+        f"{target_name} cannot validate {short_sha(job['sha'])} on {host}: "
+        f"commit is not available on origin. Push the branch first or use --targets mac."
+    )
+
+
+def parse_progress_marker(line: str) -> dict:
+    stripped = line.strip()
+    if stripped.startswith("__PULP_PHASE__:"):
+        return {"phase": stripped.split(":", 1)[1]}
+    if stripped.startswith("__PULP_WAIT__:"):
+        return {"wait_reason": stripped.split(":", 1)[1]}
+    return {}
+
+
+def run_logged_command(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    input_text: str | None = None,
+    timeout: int = 3600,
+    log_path: Path | None = None,
+    report_progress=None,
+) -> dict:
+    start = time.time()
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdin=subprocess.PIPE if input_text is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    if input_text is not None and proc.stdin is not None:
+        proc.stdin.write(input_text)
+        proc.stdin.close()
+
+    output_queue: queue_module.Queue[str | None] = queue_module.Queue()
+
+    def reader() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            output_queue.put(line)
+        output_queue.put(None)
+
+    threading.Thread(target=reader, daemon=True).start()
+
+    combined: list[str] = []
+    saw_eof = False
+    log_handle = log_path.open("a", errors="replace") if log_path else None
+    try:
+        while True:
+            remaining = timeout - (time.time() - start)
+            if remaining <= 0:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                return {
+                    "timed_out": True,
+                    "returncode": -1,
+                    "output": "".join(combined),
+                    "duration_secs": round(time.time() - start, 1),
+                }
+
+            try:
+                item = output_queue.get(timeout=min(0.25, max(remaining, 0.01)))
+            except queue_module.Empty:
+                if proc.poll() is not None and saw_eof:
+                    break
+                continue
+
+            if item is None:
+                saw_eof = True
+                if proc.poll() is not None:
+                    break
+                continue
+
+            progress = parse_progress_marker(item)
+            if progress:
+                progress["last_output_at"] = now_iso()
+                if report_progress:
+                    report_progress(**progress)
+                continue
+
+            combined.append(item)
+            if log_handle is not None:
+                log_handle.write(item)
+                log_handle.flush()
+
+            stripped = item.strip()
+            if report_progress:
+                fields = {"last_output_at": now_iso()}
+                if stripped:
+                    fields["last_line"] = trim_line(stripped)
+                report_progress(**fields)
+
+        return {
+            "timed_out": False,
+            "returncode": proc.wait(),
+            "output": "".join(combined),
+            "duration_secs": round(time.time() - start, 1),
+        }
+    finally:
+        if log_handle is not None:
+            log_handle.close()
+
+
+def run_local_validation(job: dict, exclude_tests: str = "", report_progress=None) -> dict:
+    print(f"  [mac] Running local validation on {job['branch']} @ {short_sha(job['sha'])}...")
+    log_path = prepare_target_log(job["id"], "mac")
+    if report_progress:
+        report_progress(phase="validate", log_path=str(log_path), last_output_at=now_iso())
+
+    cmd = ["./validate-build.sh", "--quiet", "--ref", job["sha"]]
     if exclude_tests:
         cmd += ["--exclude-regex", exclude_tests]
 
-    try:
-        result = subprocess.run(
-            cmd, cwd=ROOT, capture_output=True, text=True, timeout=3600,  # 1 hour — clean builds are slow when parallel
-        )
-        elapsed = round(time.time() - start, 1)
-        return {
-            "target": "mac",
-            "status": "pass" if result.returncode == 0 else "fail",
-            "exit_code": result.returncode,
-            "duration_secs": elapsed,
-            "stdout_tail": result.stdout[-2000:] if result.stdout else "",
-            "stderr_tail": result.stderr[-2000:] if result.stderr else "",
-        }
-    except subprocess.TimeoutExpired:
+    run = run_logged_command(cmd, cwd=ROOT, timeout=3600, log_path=log_path, report_progress=report_progress)
+    if run["timed_out"]:
         return {
             "target": "mac",
             "status": "timeout",
             "exit_code": -1,
-            "duration_secs": round(time.time() - start, 1),
+            "duration_secs": run["duration_secs"],
             "stdout_tail": "",
             "stderr_tail": "Validation timed out after 3600s",
+            "log_file": str(log_path),
         }
+    tail = run["output"][-2000:] if run["output"] else ""
+    failed = run["returncode"] != 0
+    return {
+        "target": "mac",
+        "status": "pass" if not failed else "fail",
+        "exit_code": run["returncode"],
+        "duration_secs": run["duration_secs"],
+        "stdout_tail": "" if failed else tail,
+        "stderr_tail": tail if failed else "",
+        "log_file": str(log_path),
+    }
 
 
-def run_ssh_validation(target_name: str, host: str, repo_path: str,
-                       branch: str, is_windows: bool = False,
-                       exclude_tests: str = "") -> dict:
-    """Run validation on a remote host over SSH."""
-    print(f"  [{target_name}] Running validation on {host}:{repo_path}...")
-    start = time.time()
-
-    if is_windows:
-        remote_cmd = (
-            f"cd /d {repo_path} && "
-            f"git fetch origin && "
-            f"(git checkout {branch} 2>nul || git checkout -b {branch} origin/{branch}) && "
-            f"git reset --hard origin/{branch} && "
-            f"cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && "
-            f"cmake --build build --config Release && "
-            f"ctest --test-dir build --output-on-failure -C Release"
-            + (f' --exclude-regex "{exclude_tests}"' if exclude_tests else "")
-        )
-        cmd = ["ssh", host, f'cmd /c "{remote_cmd}"']
-    else:
-        repo_q = shlex.quote(repo_path)
-        branch_q = shlex.quote(branch)
-        remote_cmd = (
-            f"set -e; "
-            f"export GIT_LFS_SKIP_SMUDGE=1; "
-            f"cd {repo_q}; "
-            f"git fetch origin; "
-            f"if git show-ref --verify --quiet refs/heads/{branch_q}; then "
-            f"git checkout {branch_q}; "
-            f"else "
-            f"git checkout -b {branch_q} origin/{branch_q}; "
-            f"fi; "
-            f"git reset --hard origin/{branch_q}; "
-            f"./validate-build.sh --quiet"
-            + (f" --exclude-regex {shlex.quote(exclude_tests)}" if exclude_tests else "")
-        )
-        cmd = ["ssh", host, "bash", "-c", shlex.quote(remote_cmd)]
+def run_posix_ssh_validation(
+    target_name: str,
+    host: str,
+    repo_path: str,
+    job: dict,
+    exclude_tests: str = "",
+    report_progress=None,
+) -> dict:
+    print(f"  [{target_name}] Running validation on {host}:{repo_path} @ {short_sha(job['sha'])}...")
+    log_path = prepare_target_log(job["id"], target_name)
+    if report_progress:
+        report_progress(phase="connect", host=host, log_path=str(log_path), last_output_at=now_iso())
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=3600,  # 1 hour — clean builds are slow when parallel
-        )
-        elapsed = round(time.time() - start, 1)
+        bundle_name, bundle_ref = sync_job_bundle_to_ssh_host(host, job, report_progress=report_progress)
+    except RuntimeError as exc:
         return {
             "target": target_name,
-            "status": "pass" if result.returncode == 0 else "fail",
-            "exit_code": result.returncode,
-            "duration_secs": elapsed,
-            "stdout_tail": result.stdout[-2000:] if result.stdout else "",
-            "stderr_tail": result.stderr[-2000:] if result.stderr else "",
+            "status": "error",
+            "exit_code": -1,
+            "duration_secs": 0.0,
+            "stdout_tail": "",
+            "stderr_tail": str(exc),
+            "log_file": str(log_path),
         }
-    except subprocess.TimeoutExpired:
+
+    branch_q = shlex.quote(job["branch"])
+    sha_q = shlex.quote(job["sha"])
+    repo_q = shlex.quote(repo_path)
+    bundle_name_q = shlex.quote(bundle_name)
+    bundle_ref_q = shlex.quote(bundle_ref)
+    remote_cmd = (
+        "set -euo pipefail; "
+        f"branch={branch_q}; "
+        f"sha={sha_q}; "
+        f"bundle_name={bundle_name_q}; "
+        f"bundle_ref={bundle_ref_q}; "
+        "bundle=\"$HOME/$bundle_name\"; "
+        "trap 'rm -f \"$bundle\"' EXIT; "
+        "export GIT_LFS_SKIP_SMUDGE=1; "
+        f"cd {repo_q}; "
+        "if [ -f \"$bundle\" ]; then "
+        "printf '__PULP_PHASE__:bundle-sync\n'; "
+        "git fetch \"$bundle\" \"$bundle_ref:refs/remotes/origin/$branch\" >/dev/null 2>&1 || true; "
+        "fi; "
+        "printf '__PULP_PHASE__:fetch\n'; "
+        "git fetch origin >/dev/null 2>&1 || true; "
+        "if ! git cat-file -e \"$sha^{commit}\" 2>/dev/null; then "
+        "git fetch origin \"refs/heads/$branch:refs/remotes/origin/$branch\" >/dev/null 2>&1 || true; "
+        "fi; "
+        "if ! git cat-file -e \"$sha^{commit}\" 2>/dev/null; then "
+        f"echo {shlex.quote(remote_commit_error(target_name, host, job))} >&2; "
+        "exit 2; "
+        "fi; "
+        "printf '__PULP_PHASE__:validate\n'; "
+        "./validate-build.sh --quiet --ref \"$sha\""
+    )
+    if exclude_tests:
+        remote_cmd += f" --exclude-regex {shlex.quote(exclude_tests)}"
+
+    cmd = ["ssh", host, "bash", "-lc", shlex.quote(remote_cmd)]
+
+    run = run_logged_command(cmd, timeout=3600, log_path=log_path, report_progress=report_progress)
+    if run["timed_out"]:
         return {
             "target": target_name,
             "status": "timeout",
             "exit_code": -1,
-            "duration_secs": round(time.time() - start, 1),
+            "duration_secs": run["duration_secs"],
             "stdout_tail": "",
             "stderr_tail": "Validation timed out after 3600s",
+            "log_file": str(log_path),
         }
+    tail = run["output"][-2000:] if run["output"] else ""
+    failed = run["returncode"] != 0
+    return {
+        "target": target_name,
+        "status": "pass" if not failed else "fail",
+        "exit_code": run["returncode"],
+        "duration_secs": run["duration_secs"],
+        "stdout_tail": "" if failed else tail,
+        "stderr_tail": tail if failed else "",
+        "log_file": str(log_path),
+    }
+
+
+def ps_literal(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def windows_ssh_powershell_command(host: str) -> list[str]:
+    # `powershell -Command -` silently no-ops some multi-line try/finally scripts on WinRM/OpenSSH.
+    # Read stdin explicitly and invoke it so complex validation scripts execute reliably.
+    return [
+        "ssh",
+        host,
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$script = [Console]::In.ReadToEnd(); Invoke-Expression $script",
+    ]
+
+
+def probe_windows_ssh_cmake_settings(
+    host: str,
+    cmake_generator: str,
+    cmake_platform: str,
+    cmake_generator_instance: str,
+) -> tuple[str, str]:
+    if cmake_platform and cmake_generator_instance:
+        return cmake_platform, cmake_generator_instance
+
+    ps_script = f"""
+$RequestedPlatform = '{ps_literal(cmake_platform)}'
+$RequestedGeneratorInstance = '{ps_literal(cmake_generator_instance)}'
+$Generator = '{ps_literal(cmake_generator)}'
+
+function Resolve-CMakePlatform {{
+    param([string]$Requested)
+    if ($Requested) {{
+        return $Requested
+    }}
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {{
+        return 'ARM64'
+    }}
+    return 'x64'
+}}
+
+function Resolve-VisualStudioInstance {{
+    param([string]$Requested, [string]$Generator)
+    if ($Requested) {{
+        return $Requested
+    }}
+    if (-not $Generator -or -not $Generator.StartsWith('Visual Studio')) {{
+        return ''
+    }}
+    $vswhere = Join-Path ${{env:ProgramFiles(x86)}} 'Microsoft Visual Studio\\Installer\\vswhere.exe'
+    if (-not (Test-Path $vswhere)) {{
+        return ''
+    }}
+    try {{
+        $raw = (& $vswhere -latest -products * -format json) -join "`n"
+        if (-not $raw) {{
+            return ''
+        }}
+        $instances = $raw | ConvertFrom-Json
+        if ($instances -isnot [System.Array]) {{
+            $instances = @($instances)
+        }}
+        $preferred = $instances | Where-Object {{
+            $_.productId -and $_.productId -ne 'Microsoft.VisualStudio.Product.BuildTools'
+        }} | Select-Object -First 1
+        if (-not $preferred) {{
+            $preferred = $instances | Select-Object -First 1
+        }}
+        if ($preferred -and $preferred.installationPath) {{
+            return $preferred.installationPath.Replace('\\', '/')
+        }}
+    }} catch {{
+    }}
+    return ''
+}}
+
+$resolved = @{{
+    platform = Resolve-CMakePlatform $RequestedPlatform
+    generator_instance = Resolve-VisualStudioInstance $RequestedGeneratorInstance $Generator
+}}
+$resolved | ConvertTo-Json -Compress
+"""
+
+    try:
+        run = subprocess.run(
+            windows_ssh_powershell_command(host),
+            input=ps_script,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return cmake_platform, cmake_generator_instance
+
+    if run.returncode != 0:
+        return cmake_platform, cmake_generator_instance
+
+    for line in reversed(run.stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            resolved = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        return (
+            resolved.get("platform") or cmake_platform,
+            resolved.get("generator_instance") or cmake_generator_instance,
+        )
+    return cmake_platform, cmake_generator_instance
+
+
+def run_windows_ssh_validation(
+    target_name: str,
+    host: str,
+    repo_path: str,
+    job: dict,
+    exclude_tests: str = "",
+    cmake_generator: str = "Visual Studio 17 2022",
+    cmake_platform: str = "",
+    cmake_generator_instance: str = "",
+    report_progress=None,
+) -> dict:
+    print(f"  [{target_name}] Running validation on {host}:{repo_path} @ {short_sha(job['sha'])}...")
+    log_path = prepare_target_log(job["id"], target_name)
+    if report_progress:
+        report_progress(phase="connect", host=host, log_path=str(log_path), last_output_at=now_iso())
+
+    try:
+        bundle_name, bundle_ref = sync_job_bundle_to_ssh_host(host, job, report_progress=report_progress)
+    except RuntimeError as exc:
+        return {
+            "target": target_name,
+            "status": "error",
+            "exit_code": -1,
+            "duration_secs": 0.0,
+            "stdout_tail": "",
+            "stderr_tail": str(exc),
+            "log_file": str(log_path),
+        }
+
+    resolved_platform, resolved_generator_instance = probe_windows_ssh_cmake_settings(
+        host,
+        cmake_generator,
+        cmake_platform,
+        cmake_generator_instance,
+    )
+
+    ps_script = f"""
+$ErrorActionPreference = 'Stop'
+
+function Invoke-Native {{
+    param([string]$File, [string[]]$Arguments)
+    & $File @Arguments
+    if ($LASTEXITCODE -ne 0) {{
+        throw "$File exited with code $LASTEXITCODE"
+    }}
+}}
+
+function Test-CommitRef {{
+    param([string]$Ref)
+    & git rev-parse --verify --quiet "$Ref`^{{commit}}" 1> $null 2> $null
+    return $LASTEXITCODE -eq 0
+}}
+
+function Remove-WorktreeSafe {{
+    param([string]$RepoRoot, [string]$Path)
+    try {{
+        Invoke-Native git @('-C', $RepoRoot, 'worktree', 'remove', '--force', '--force', $Path)
+    }} catch {{
+    }}
+    if (Test-Path $Path) {{
+        try {{
+            Remove-Item -Recurse -Force -ErrorAction Stop $Path
+        }} catch {{
+        }}
+    }}
+    try {{
+        Invoke-Native git @('-C', $RepoRoot, 'worktree', 'prune', '--expire', 'now')
+    }} catch {{
+    }}
+}}
+
+function Wait-HostMutex {{
+    param(
+        [System.Threading.Mutex]$Mutex,
+        [bool]$Immediate
+    )
+
+    try {{
+        if ($Immediate) {{
+            return $Mutex.WaitOne(0)
+        }}
+        $null = $Mutex.WaitOne()
+        return $true
+    }} catch [System.Threading.AbandonedMutexException] {{
+        Write-Host "Recovered abandoned host validation lock: $MutexName"
+        return $true
+    }}
+}}
+
+$Repo = '{ps_literal(repo_path)}'
+$RepoDrive = Split-Path -Path $Repo -Qualifier
+if (-not $RepoDrive) {{
+    $RepoDrive = 'C:'
+}}
+$env:GIT_LFS_SKIP_SMUDGE = '1'
+$CiRoot = Join-Path $RepoDrive 'pulp-ci'
+$SrcRoot = Join-Path $CiRoot 'w'
+$BuildRoot = Join-Path $CiRoot 'b'
+$Src = Join-Path $SrcRoot '{job['id']}'
+$Build = Join-Path $BuildRoot '{job['id']}'
+$Branch = '{ps_literal(job['branch'])}'
+$Sha = '{ps_literal(job['sha'])}'
+$BundleName = '{ps_literal(bundle_name)}'
+$BundleRef = '{ps_literal(bundle_ref)}'
+$Bundle = Join-Path $HOME $BundleName
+$ExcludeRegex = '{ps_literal(exclude_tests)}'
+$Generator = '{ps_literal(cmake_generator)}'
+$Platform = '{ps_literal(resolved_platform)}'
+$GeneratorInstance = '{ps_literal(resolved_generator_instance)}'
+$MutexName = 'Global\\PulpLocalCIValidate'
+$Mutex = New-Object System.Threading.Mutex($false, $MutexName)
+$LockAcquired = $false
+
+try {{
+    if (-not (Wait-HostMutex -Mutex $Mutex -Immediate $true)) {{
+        Write-Host "__PULP_WAIT__:host-lock"
+        Write-Host "__PULP_PHASE__:waiting-lock"
+        Write-Host "Waiting for host validation lock: $MutexName"
+        $LockAcquired = Wait-HostMutex -Mutex $Mutex -Immediate $false
+    }} else {{
+        $LockAcquired = $true
+    }}
+
+    Write-Host "__PULP_PHASE__:fetch"
+    New-Item -ItemType Directory -Force -Path $SrcRoot, $BuildRoot | Out-Null
+    Set-Location $Repo
+    if (Test-Path $Bundle) {{
+        Write-Host "__PULP_PHASE__:bundle-sync"
+        try {{
+            Invoke-Native git @(
+                'fetch',
+                $Bundle,
+                "$BundleRef`:refs/remotes/origin/$Branch"
+            )
+        }} finally {{
+            Remove-Item -Force -ErrorAction SilentlyContinue $Bundle
+        }}
+    }}
+    try {{
+        Invoke-Native git @('fetch', 'origin')
+    }} catch {{
+    }}
+
+    if (-not (Test-CommitRef $Sha)) {{
+        try {{
+            Invoke-Native git @(
+                'fetch',
+                'origin',
+                "refs/heads/$Branch`:refs/remotes/origin/$Branch"
+            )
+        }} catch {{
+        }}
+    }}
+
+    if (-not (Test-CommitRef $Sha)) {{
+        throw '{ps_literal(remote_commit_error(target_name, host, job))}'
+    }}
+
+    if (Test-Path $Src) {{
+        Remove-WorktreeSafe $Repo $Src
+    }}
+
+    if (Test-Path $Build) {{
+        Remove-Item -Recurse -Force $Build
+    }}
+
+    Write-Host "__PULP_PHASE__:worktree"
+    Invoke-Native git @('worktree', 'add', '--force', '--detach', $Src, $Sha)
+
+    try {{
+        Write-Host "__PULP_PHASE__:configure"
+        Write-Host "CMake platform: $Platform"
+        if ($GeneratorInstance) {{
+            Write-Host "CMake generator instance: $GeneratorInstance"
+        }}
+        $configureArgs = @('-S', $Src, '-B', $Build)
+        if ($Generator) {{
+            $configureArgs += @('-G', $Generator)
+        }}
+        if ($Platform) {{
+            $configureArgs += @('-A', $Platform)
+        }}
+        if ($GeneratorInstance) {{
+            $configureArgs += @("-DCMAKE_GENERATOR_INSTANCE=$GeneratorInstance")
+        }}
+        $configureArgs += @('-DCMAKE_BUILD_TYPE=Release')
+        Invoke-Native cmake $configureArgs
+        Write-Host "__PULP_PHASE__:build"
+        Invoke-Native cmake @('--build', $Build, '--config', 'Release')
+        Write-Host "__PULP_PHASE__:test"
+        $ctestArgs = @('--test-dir', $Build, '--output-on-failure', '-C', 'Release')
+        if ($ExcludeRegex) {{
+            $ctestArgs += @('--exclude-regex', $ExcludeRegex)
+        }}
+        Invoke-Native ctest $ctestArgs
+    }} finally {{
+        Write-Host "__PULP_PHASE__:cleanup"
+        Remove-WorktreeSafe $Repo $Src
+        if (Test-Path $Build) {{
+            try {{
+                Remove-Item -Recurse -Force -ErrorAction Stop $Build
+            }} catch {{
+            }}
+        }}
+    }}
+}} finally {{
+    if ($LockAcquired) {{
+        try {{
+            $Mutex.ReleaseMutex() | Out-Null
+        }} catch [System.ApplicationException] {{
+        }}
+    }}
+    $Mutex.Dispose()
+}}
+""".strip()
+
+    cmd = windows_ssh_powershell_command(host)
+
+    run = run_logged_command(
+        cmd,
+        input_text=ps_script,
+        timeout=3600,
+        log_path=log_path,
+        report_progress=report_progress,
+    )
+    if run["timed_out"]:
+        return {
+            "target": target_name,
+            "status": "timeout",
+            "exit_code": -1,
+            "duration_secs": run["duration_secs"],
+            "stdout_tail": "",
+            "stderr_tail": "Validation timed out after 3600s",
+            "log_file": str(log_path),
+        }
+    tail = run["output"][-2000:] if run["output"] else ""
+    failed = run["returncode"] != 0
+    return {
+        "target": target_name,
+        "status": "pass" if not failed else "fail",
+        "exit_code": run["returncode"],
+        "duration_secs": run["duration_secs"],
+        "stdout_tail": "" if failed else tail,
+        "stderr_tail": tail if failed else "",
+        "log_file": str(log_path),
+    }
 
 
 # ── Job Processing ───────────────────────────────────────────────────────────
 
-def _build_target_tasks(branch: str, config: dict) -> list[tuple]:
-    """Build list of (fn, args) tuples for parallel execution."""
+
+def _build_target_tasks(job: dict, config: dict, progress_factory=None) -> list[tuple[str, object]]:
     targets = config["targets"]
-    defaults = config["defaults"]
-    tasks = []
+    defaults = config.get("defaults", {})
+    requested = set(job.get("targets") or enabled_targets(config))
+    tasks: list[tuple[str, object]] = []
 
-    # Mac (local)
     mac_cfg = targets.get("mac", {})
-    if mac_cfg.get("enabled", True):
-        tasks.append(("mac", lambda: run_local_validation(
-            branch, mac_cfg.get("exclude_tests", ""))))
+    if "mac" in requested and mac_cfg.get("enabled", True):
+        reporter = progress_factory("mac") if progress_factory else None
+        tasks.append(("mac", lambda r=reporter: run_local_validation(job, mac_cfg.get("exclude_tests", ""), r)))
 
-    # Ubuntu
     ubuntu_cfg = targets.get("ubuntu")
-    if ubuntu_cfg and ubuntu_cfg.get("enabled", True):
+    if "ubuntu" in requested and ubuntu_cfg and ubuntu_cfg.get("enabled", True):
         host = ensure_host_reachable("ubuntu", ubuntu_cfg, defaults)
         if host:
             exc = ubuntu_cfg.get("exclude_tests", "")
-            tasks.append(("ubuntu", lambda h=host, e=exc: run_ssh_validation(
-                "ubuntu", h, ubuntu_cfg["repo_path"], branch,
-                exclude_tests=e)))
+            reporter = progress_factory("ubuntu") if progress_factory else None
+            tasks.append(
+                (
+                    "ubuntu",
+                    lambda h=host, e=exc, r=reporter: run_posix_ssh_validation(
+                        "ubuntu", h, ubuntu_cfg["repo_path"], job, exclude_tests=e, report_progress=r
+                    ),
+                )
+            )
         else:
-            tasks.append(("ubuntu", lambda: {
-                "target": "ubuntu", "status": "unreachable",
-                "exit_code": -1, "duration_secs": 0,
-            }))
+            tasks.append(
+                (
+                    "ubuntu",
+                    lambda: {
+                        "target": "ubuntu",
+                        "status": "unreachable",
+                        "exit_code": -1,
+                        "duration_secs": 0,
+                        "stdout_tail": "",
+                        "stderr_tail": "Host unreachable",
+                    },
+                )
+            )
 
-    # Windows
     win_cfg = targets.get("windows")
-    if win_cfg and win_cfg.get("enabled", True):
+    if "windows" in requested and win_cfg and win_cfg.get("enabled", True):
         host = ensure_host_reachable("windows", win_cfg, defaults)
         if host:
             exc = win_cfg.get("exclude_tests", "")
-            tasks.append(("windows", lambda h=host, e=exc: run_ssh_validation(
-                "windows", h, win_cfg["repo_path"], branch,
-                is_windows=True, exclude_tests=e)))
+            reporter = progress_factory("windows") if progress_factory else None
+            generator = win_cfg.get("cmake_generator", "Visual Studio 17 2022")
+            platform = win_cfg.get("cmake_platform", "")
+            generator_instance = win_cfg.get("cmake_generator_instance", "")
+            tasks.append(
+                (
+                    "windows",
+                    lambda h=host, e=exc, r=reporter, g=generator, p=platform, i=generator_instance: run_windows_ssh_validation(
+                        "windows",
+                        h,
+                        win_cfg["repo_path"],
+                        job,
+                        exclude_tests=e,
+                        cmake_generator=g,
+                        cmake_platform=p,
+                        cmake_generator_instance=i,
+                        report_progress=r,
+                    ),
+                )
+            )
         else:
-            tasks.append(("windows", lambda: {
-                "target": "windows", "status": "unreachable",
-                "exit_code": -1, "duration_secs": 0,
-            }))
+            tasks.append(
+                (
+                    "windows",
+                    lambda: {
+                        "target": "windows",
+                        "status": "unreachable",
+                        "exit_code": -1,
+                        "duration_secs": 0,
+                        "stdout_tail": "",
+                        "stderr_tail": "Host unreachable",
+                    },
+                )
+            )
 
     return tasks
 
 
 def process_job(job: dict, config: dict) -> dict:
-    """Process a single validation job across all targets in parallel."""
-    branch = job["branch"]
-    print(f"\n=== Validating branch: {branch} ===\n")
+    print(
+        f"\n=== Validating [{job['id']}] {job['branch']} @ {short_sha(job['sha'])} "
+        f"priority={job['priority']} ===\n"
+    )
 
-    tasks = _build_target_tasks(branch, config)
+    target_states: dict[str, dict] = {}
+    state_lock = threading.Lock()
 
+    def flush_target_states() -> None:
+        with state_lock:
+            snapshot = {name: dict(state) for name, state in target_states.items()}
+        update_runner_active_targets(job["id"], snapshot or None)
+        update_job_active_targets(job["id"], snapshot or None)
+
+    def progress_factory(name: str):
+        def report(**fields) -> None:
+            with state_lock:
+                state = dict(target_states.get(name, {}))
+                for key, value in fields.items():
+                    if value is None:
+                        state.pop(key, None)
+                    else:
+                        state[key] = value
+                target_states[name] = state
+            flush_target_states()
+
+        return report
+
+    tasks = _build_target_tasks(job, config, progress_factory=progress_factory)
     if not tasks:
         return {
-            "branch": branch, "sha": job.get("sha", ""),
+            "job_id": job["id"],
+            "branch": job["branch"],
+            "sha": job["sha"],
+            "priority": job["priority"],
+            "targets": job.get("targets", []),
             "queued_at": job.get("queued_at", ""),
-            "completed_at": now_iso(), "results": [], "overall": "pass",
+            "completed_at": now_iso(),
+            "results": [],
+            "overall": "pass",
         }
 
-    # Run all targets in parallel
+    for name, _fn in tasks:
+        target_states[name] = {
+            "status": "running",
+            "started_at": now_iso(),
+            "phase": "starting",
+            "log_path": str(target_log_path(job["id"], name)),
+        }
+    flush_target_states()
+
     results = []
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures = {pool.submit(fn): name for name, fn in tasks}
         for future in as_completed(futures):
             name = futures[future]
             try:
-                results.append(future.result())
-            except Exception as e:
-                results.append({
-                    "target": name, "status": "error",
-                    "exit_code": -1, "duration_secs": 0,
-                    "stderr_tail": str(e),
-                })
+                result = future.result()
+            except Exception as exc:
+                result = {
+                    "target": name,
+                    "status": "error",
+                    "exit_code": -1,
+                    "duration_secs": 0,
+                    "stdout_tail": "",
+                    "stderr_tail": str(exc),
+                }
 
-    # Sort results by target name for consistent output
-    results.sort(key=lambda r: r["target"])
+            results.append(result)
+            target_states[name] = {
+                "status": result.get("status", "?"),
+                "exit_code": result.get("exit_code"),
+                "duration_secs": result.get("duration_secs"),
+                "completed_at": now_iso(),
+                "phase": "done" if result.get("status") == "pass" else target_states.get(name, {}).get("phase", "done"),
+                "log_path": result.get("log_file", str(target_log_path(job["id"], name))),
+                "last_output_at": target_states.get(name, {}).get("last_output_at"),
+                "last_line": target_states.get(name, {}).get("last_line"),
+                "host": target_states.get(name, {}).get("host"),
+                "wait_reason": target_states.get(name, {}).get("wait_reason"),
+            }
+            flush_target_states()
 
+    results.sort(key=lambda item: item["target"])
     return {
-        "branch": branch,
-        "sha": job.get("sha", ""),
+        "job_id": job["id"],
+        "branch": job["branch"],
+        "sha": job["sha"],
+        "priority": job["priority"],
+        "targets": job.get("targets", []),
         "queued_at": job.get("queued_at", ""),
         "completed_at": now_iso(),
         "results": results,
-        "overall": "pass" if all(r["status"] == "pass" for r in results) else "fail",
+        "overall": "pass" if all(result["status"] == "pass" for result in results) else "fail",
     }
 
 
 def save_result(result: dict) -> Path:
-    """Save a job result to the results directory."""
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_state_dirs()
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     branch_slug = result["branch"].replace("/", "-")
-    path = RESULTS_DIR / f"{ts}-{branch_slug}.json"
+    path = results_dir() / f"{ts}-{result['job_id']}-{branch_slug}.json"
     path.write_text(json.dumps(result, indent=2) + "\n")
     return path
 
 
 def print_result(result: dict, result_path: Path | None = None) -> None:
-    """Print a result summary to the terminal."""
-    print(f"\n--- Result: {result['branch']} ---")
-    for r in result["results"]:
-        icon = "PASS" if r["status"] == "pass" else r["status"].upper()
-        dur = r.get("duration_secs", 0)
-        print(f"  {r['target']:10s}  {icon:12s}  {dur}s")
+    print(f"\n--- Result: [{result['job_id']}] {result['branch']} ---")
+    for item in result["results"]:
+        icon = "PASS" if item["status"] == "pass" else item["status"].upper()
+        print(f"  {item['target']:10s}  {icon:12s}  {item.get('duration_secs', 0)}s")
     print(f"  {'overall':10s}  {result['overall'].upper()}")
     if result_path:
         print(f"  Saved: {result_path}")
     print()
 
 
+def drain_pending_jobs(config: dict, *, blocking: bool) -> tuple[bool, bool]:
+    acquired = False
+    try:
+        with file_lock(drain_lock_path(), blocking=blocking):
+            acquired = True
+            runner_info = {
+                "pid": os.getpid(),
+                "root": str(ROOT),
+                "started_at": now_iso(),
+                "active_job_id": None,
+                "active_branch": None,
+            }
+            write_runner_info(runner_info)
+            any_failure = False
+
+            while True:
+                job = claim_next_job()
+                if job is None:
+                    break
+
+                runner_info.update(
+                    {
+                        "active_job_id": job["id"],
+                        "active_branch": job["branch"],
+                        "updated_at": now_iso(),
+                    }
+                )
+                write_runner_info(runner_info)
+
+                try:
+                    result = process_job(job, config)
+                except Exception as exc:
+                    result = {
+                        "job_id": job["id"],
+                        "branch": job["branch"],
+                        "sha": job["sha"],
+                        "priority": job["priority"],
+                        "targets": job.get("targets", []),
+                        "queued_at": job.get("queued_at", ""),
+                        "completed_at": now_iso(),
+                        "results": [
+                            {
+                                "target": "scheduler",
+                                "status": "error",
+                                "exit_code": -1,
+                                "duration_secs": 0,
+                                "stdout_tail": "",
+                                "stderr_tail": str(exc),
+                            }
+                        ],
+                        "overall": "fail",
+                    }
+
+                result_path = save_result(result)
+                finalize_job(job["id"], result, result_path)
+                print_result(result, result_path)
+                if result["overall"] != "pass":
+                    any_failure = True
+
+            return True, any_failure
+    except LockBusyError:
+        return False, False
+    finally:
+        if acquired:
+            clear_runner_info()
+
+
 # ── GitHub Helpers ───────────────────────────────────────────────────────────
 
+
 def gh_available() -> bool:
-    """Check if gh CLI is available and authenticated."""
-    result = subprocess.run(
-        ["gh", "auth", "status"], capture_output=True, text=True,
-    )
+    result = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
     return result.returncode == 0
 
 
 def gh_pr_create(branch: str, base: str = "main") -> int | None:
-    """Create a PR and return its number, or None on failure."""
     result = subprocess.run(
-        ["gh", "pr", "create", "--head", branch, "--base", base,
-         "--fill", "--no-maintainer-edit"],
-        cwd=ROOT, capture_output=True, text=True,
+        ["gh", "pr", "create", "--head", branch, "--base", base, "--fill", "--no-maintainer-edit"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
-        # Maybe PR already exists
         existing = subprocess.run(
             ["gh", "pr", "view", branch, "--json", "number"],
-            cwd=ROOT, capture_output=True, text=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
         )
         if existing.returncode == 0:
             return json.loads(existing.stdout)["number"]
         print(f"  Failed to create PR: {result.stderr.strip()}")
         return None
 
-    # Extract PR number from output (e.g. "https://github.com/org/repo/pull/57")
     url = result.stdout.strip()
     try:
         return int(url.rstrip("/").split("/")[-1])
@@ -426,37 +1688,38 @@ def gh_pr_create(branch: str, base: str = "main") -> int | None:
 
 
 def gh_pr_comment(pr_number: int, body: str) -> bool:
-    """Post a comment on a PR."""
     result = subprocess.run(
         ["gh", "pr", "comment", str(pr_number), "--body", body],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     return result.returncode == 0
 
 
 def gh_pr_merge(pr_number: int, method: str = "squash") -> bool:
-    """Merge a PR."""
     result = subprocess.run(
         ["gh", "pr", "merge", str(pr_number), f"--{method}", "--delete-branch"],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     return result.returncode == 0
 
 
 def gh_pr_list_open() -> list[dict]:
-    """List open PRs."""
     result = subprocess.run(
-        ["gh", "pr", "list", "--json",
-         "number,title,headRefName,author,createdAt,labels"],
-        cwd=ROOT, capture_output=True, text=True,
+        ["gh", "pr", "list", "--json", "number,title,headRefName,author,createdAt,labels"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         return []
     return json.loads(result.stdout)
 
 
-def gh_pr_head_branch(pr_ref: str) -> str | None:
-    """Get the head branch name for a PR number or 'latest'."""
+def gh_pr_head(pr_ref: str) -> tuple[int, str, str] | None:
     if pr_ref == "latest":
         prs = gh_pr_list_open()
         if not prs:
@@ -465,37 +1728,41 @@ def gh_pr_head_branch(pr_ref: str) -> str | None:
         pr_ref = str(prs[0]["number"])
 
     result = subprocess.run(
-        ["gh", "pr", "view", pr_ref, "--json", "headRefName"],
-        cwd=ROOT, capture_output=True, text=True,
+        ["gh", "pr", "view", pr_ref, "--json", "number,headRefName,headRefOid"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         print(f"  Could not find PR {pr_ref}: {result.stderr.strip()}")
         return None
-    return json.loads(result.stdout)["headRefName"]
+
+    data = json.loads(result.stdout)
+    return data["number"], data["headRefName"], data["headRefOid"]
 
 
 def format_ci_comment(result: dict) -> str:
-    """Format CI results as a GitHub PR comment."""
     lines = ["## Local CI Results\n"]
     overall = result["overall"].upper()
     icon = "white_check_mark" if overall == "PASS" else "x"
     lines.append(f":{icon}: **Overall: {overall}**\n")
+    lines.append(f"Job: `{result.get('job_id', '?')}`  Commit: `{short_sha(result.get('sha', ''))}`\n")
     lines.append("| Target | Status | Duration |")
     lines.append("|--------|--------|----------|")
-    for r in result["results"]:
-        status = r["status"].upper()
+    for item in result["results"]:
+        status = item["status"].upper()
         s_icon = "white_check_mark" if status == "PASS" else "x"
-        dur = f"{r.get('duration_secs', 0)}s"
-        lines.append(f"| {r['target']} | :{s_icon}: {status} | {dur} |")
+        lines.append(f"| {item['target']} | :{s_icon}: {status} | {item.get('duration_secs', 0)}s |")
 
-    if any(r["status"] != "pass" for r in result["results"]):
+    if any(item["status"] != "pass" for item in result["results"]):
         lines.append("\n<details><summary>Failure details</summary>\n")
-        for r in result["results"]:
-            if r["status"] != "pass":
-                lines.append(f"### {r['target']} (exit {r.get('exit_code', '?')})")
-                stderr = r.get("stderr_tail", "")
-                if stderr:
-                    lines.append(f"```\n{stderr[-500:]}\n```")
+        for item in result["results"]:
+            if item["status"] == "pass":
+                continue
+            lines.append(f"### {item['target']} (exit {item.get('exit_code', '?')})")
+            stderr = item.get("stderr_tail", "")
+            if stderr:
+                lines.append(f"```\n{stderr[-500:]}\n```")
         lines.append("</details>")
 
     lines.append(f"\n*Run at {result.get('completed_at', 'unknown')}*")
@@ -504,75 +1771,78 @@ def format_ci_comment(result: dict) -> str:
 
 # ── CLI Commands ─────────────────────────────────────────────────────────────
 
-def cmd_enqueue(args: argparse.Namespace) -> int:
+
+def resolve_submission_options(args: argparse.Namespace, command: str) -> tuple[dict, str, str, list[str], str]:
+    config = load_config()
     branch = args.branch or current_branch()
-    sha = current_sha()
+    sha = args.sha or current_sha()
+    targets = resolve_targets(config, parse_targets_arg(getattr(args, "targets", None)))
+    priority = normalize_priority(getattr(args, "priority", None) or default_priority_for(command, config))
+    return config, branch, sha, targets, priority
 
-    queue = load_queue()
 
-    # Don't double-queue same branch+sha
-    for job in queue:
-        if job["branch"] == branch and job.get("sha") == sha:
-            print(f"Already queued: {branch} @ {sha}")
-            return 0
+def cmd_enqueue(args: argparse.Namespace) -> int:
+    try:
+        _config, branch, sha, targets, priority = resolve_submission_options(args, "enqueue")
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
 
-    job = {
-        "branch": branch,
-        "sha": sha,
-        "queued_at": now_iso(),
-        "status": "pending",
-    }
-    queue.append(job)
-    save_queue(queue)
-    print(f"Enqueued: {branch} @ {sha}")
+    job, created = enqueue_job(branch, sha, priority, targets, "enqueue")
+    if created:
+        print(f"Enqueued: {summarize_job(job)}")
+    else:
+        print(f"Already queued/running: {summarize_job(job)}")
     return 0
 
 
 def cmd_drain(_args: argparse.Namespace) -> int:
-    queue = load_queue()
-    config = load_config()
+    try:
+        config = load_config()
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
+        return 1
 
-    pending = [j for j in queue if j["status"] == "pending"]
-    if not pending:
-        print("No pending jobs.")
+    acquired, any_failure = drain_pending_jobs(config, blocking=False)
+    if not acquired:
+        runner = current_runner_info()
+        if runner and runner.get("active_job_id"):
+            print(
+                f"Another local CI runner is active [{runner['active_job_id']}] {runner.get('active_branch', '?')}."
+            )
+        else:
+            print("Another local CI runner is active.")
         return 0
-
-    print(f"Processing {len(pending)} pending job(s)...\n")
-
-    any_failure = False
-    for job in pending:
-        result = process_job(job, config)
-        result_path = save_result(result)
-        job["status"] = "completed"
-        job["result_file"] = str(result_path)
-        save_queue(queue)
-        print_result(result, result_path)
-
-        if result["overall"] != "pass":
-            any_failure = True
-
-    # Clean completed jobs older than the last 10
-    completed = [j for j in queue if j["status"] == "completed"]
-    if len(completed) > 10:
-        to_remove = completed[:-10]
-        queue = [j for j in queue if j not in to_remove]
-        save_queue(queue)
 
     notify("CI complete" + (" - PASSED" if not any_failure else " - FAILED"))
     return 1 if any_failure else 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    args.branch = args.branch or current_branch()
-    cmd_enqueue(args)
-    return cmd_drain(args)
+    try:
+        config, branch, sha, targets, priority = resolve_submission_options(args, "run")
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    job, created = enqueue_job(branch, sha, priority, targets, "run")
+    print(("Enqueued" if created else "Already queued/running") + f": {summarize_job(job)}")
+
+    result, exit_code = wait_for_job(job["id"], config)
+    if result is not None:
+        print_result(result, Path(load_job(job["id"])["result_file"]))
+    notify("CI run complete" + (" - PASSED" if exit_code == 0 else " - FAILED"))
+    return exit_code
 
 
 def cmd_ship(args: argparse.Namespace) -> int:
-    """Full workflow: push -> create PR -> run CI -> merge on green."""
-    branch = args.branch or current_branch()
-    base = args.base or "main"
+    try:
+        config, branch, sha, targets, priority = resolve_submission_options(args, "ship")
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
 
+    base = args.base or "main"
     if branch == base:
         print(f"Error: cannot ship {base} to itself. Checkout a feature branch first.")
         return 1
@@ -581,95 +1851,106 @@ def cmd_ship(args: argparse.Namespace) -> int:
         print("Error: gh CLI not available or not authenticated. Run: gh auth login")
         return 1
 
-    # 1. Push branch
     print(f"\n=== Shipping {branch} -> {base} ===\n")
     print(f"  Pushing {branch}...")
     push = subprocess.run(
         ["git", "push", "-u", "origin", branch],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     if push.returncode != 0:
         print(f"  Push failed: {push.stderr.strip()}")
         return 1
 
-    # 2. Create PR
-    print(f"  Creating PR...")
+    print("  Creating PR...")
     pr_number = gh_pr_create(branch, base)
     if pr_number is None:
         print("  Failed to create or find PR.")
         return 1
     print(f"  PR #{pr_number} ready")
 
-    # 3. Run CI
-    config = load_config()
-    job = {"branch": branch, "sha": current_sha(), "queued_at": now_iso()}
-    result = process_job(job, config)
-    result_path = save_result(result)
-    print_result(result, result_path)
+    job, _created = enqueue_job(branch, sha, priority, targets, "ship")
+    print(f"  Queueing CI: {summarize_job(job)}")
+    result, exit_code = wait_for_job(job["id"], config)
+    if result is None:
+        return 1
 
-    # 4. Post results as PR comment
-    comment = format_ci_comment(result)
-    if gh_pr_comment(pr_number, comment):
-        print(f"  Posted results to PR #{pr_number}")
-
-    # 5. Merge if green
+    gh_pr_comment(pr_number, format_ci_comment(result))
     if result["overall"] == "pass":
         print(f"  All targets passed. Merging PR #{pr_number}...")
         if gh_pr_merge(pr_number):
             print(f"  PR #{pr_number} merged and branch deleted.")
             notify(f"PR #{pr_number} shipped to {base}!")
             return 0
-        else:
-            print(f"  Merge failed. PR #{pr_number} is still open.")
-            notify(f"PR #{pr_number} CI passed but merge failed")
-            return 1
-    else:
-        print(f"  CI failed. PR #{pr_number} left open for review.")
-        notify(f"PR #{pr_number} CI failed")
+        print(f"  Merge failed. PR #{pr_number} is still open.")
+        notify(f"PR #{pr_number} CI passed but merge failed")
         return 1
+
+    print(f"  CI failed. PR #{pr_number} left open for review.")
+    notify(f"PR #{pr_number} CI failed")
+    return exit_code
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    """Run CI on an existing PR."""
-    pr_ref = args.pr
-
     if not gh_available():
         print("Error: gh CLI not available. Run: gh auth login")
         return 1
 
-    branch = gh_pr_head_branch(pr_ref)
-    if not branch:
+    pr_info = gh_pr_head(args.pr)
+    if pr_info is None:
         return 1
 
-    print(f"  PR {pr_ref} -> branch: {branch}")
+    pr_number, branch, sha = pr_info
+    print(f"  PR #{pr_number} -> branch: {branch} @ {short_sha(sha)}")
 
-    # Fetch and checkout
-    subprocess.run(["git", "fetch", "origin", branch], cwd=ROOT,
-                    capture_output=True, text=True)
-
-    # Run CI
-    config = load_config()
-    job = {"branch": branch, "sha": current_sha(), "queued_at": now_iso()}
-    result = process_job(job, config)
-    result_path = save_result(result)
-    print_result(result, result_path)
-
-    # Post results as PR comment
     try:
-        pr_number = int(pr_ref) if pr_ref != "latest" else None
-    except ValueError:
-        # URL — extract number
-        pr_number = int(pr_ref.rstrip("/").split("/")[-1])
+        config = load_config()
+        targets = resolve_targets(config, parse_targets_arg(args.targets))
+        priority = normalize_priority(args.priority or default_priority_for("check", config))
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}")
+        return 1
 
-    if pr_number and gh_pr_comment(pr_number, format_ci_comment(result)):
-        print(f"  Posted results to PR #{pr_number}")
+    job, _created = enqueue_job(branch, sha, priority, targets, "check")
+    print(f"  Queueing CI: {summarize_job(job)}")
+    result, exit_code = wait_for_job(job["id"], config)
+    if result is None:
+        return 1
 
-    notify("CI check complete" + (" - PASSED" if result["overall"] == "pass" else " - FAILED"))
-    return 0 if result["overall"] == "pass" else 1
+    gh_pr_comment(pr_number, format_ci_comment(result))
+    notify("CI check complete" + (" - PASSED" if exit_code == 0 else " - FAILED"))
+    return exit_code
+
+
+def cmd_bump(args: argparse.Namespace) -> int:
+    try:
+        requested_priority = normalize_priority(args.priority)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    try:
+        with file_lock(queue_lock_path(), blocking=True):
+            queue = load_queue_unlocked()
+            job = find_job_unlocked(queue, args.job, statuses={"pending", "running"})
+            if job is None:
+                print(f"No active job matches '{args.job}'.")
+                return 1
+            if job["status"] != "pending":
+                print(f"Job is already {job['status']}; only pending jobs can be reprioritized.")
+                return 1
+            job["priority"] = requested_priority
+            job["bumped_at"] = now_iso()
+            save_queue_unlocked(queue)
+            print(f"Updated priority: {summarize_job(job)}")
+            return 0
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 1
 
 
 def cmd_list(_args: argparse.Namespace) -> int:
-    """List open PRs."""
     if not gh_available():
         print("Error: gh CLI not available. Run: gh auth login")
         return 1
@@ -682,53 +1963,174 @@ def cmd_list(_args: argparse.Namespace) -> int:
     print(f"Open PRs ({len(prs)}):\n")
     for pr in prs:
         author = pr.get("author", {}).get("login", "?")
-        labels = ", ".join(l.get("name", "") for l in pr.get("labels", []))
+        labels = ", ".join(label.get("name", "") for label in pr.get("labels", []))
         label_str = f" [{labels}]" if labels else ""
         print(f"  #{pr['number']:4d}  {pr['title']}")
         print(f"         {pr['headRefName']} by {author}{label_str}")
     return 0
 
 
-def cmd_status(_args: argparse.Namespace) -> int:
+def resolve_job_for_logs(job_ref: str | None) -> dict | None:
     queue = load_queue()
+    runner = current_runner_info()
 
-    pending = [j for j in queue if j["status"] == "pending"]
-    completed = [j for j in queue if j["status"] == "completed"]
+    if job_ref:
+        return find_job_unlocked(queue, job_ref)
+
+    if runner and runner.get("active_job_id"):
+        return find_job_unlocked(queue, runner["active_job_id"])
+
+    completed = [job for job in queue if job.get("status") == "completed"]
+    if completed:
+        return completed[-1]
+    return None
+
+
+def cmd_logs(args: argparse.Namespace) -> int:
+    try:
+        job = resolve_job_for_logs(args.job)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    if job is None:
+        print("No matching job logs found.")
+        return 1
+
+    paths: list[Path]
+    if args.target:
+        path = target_log_path(job["id"], args.target)
+        paths = [path]
+    else:
+        log_dir = job_logs_dir(job["id"])
+        paths = sorted(log_dir.glob("*.log"))
+
+    if not paths:
+        print(f"No logs found for job [{job['id']}] {job['branch']}.")
+        return 1
+
+    print(f"Logs for [{job['id']}] {job['branch']} @ {short_sha(job.get('sha', ''))}\n")
+    for path in paths:
+        print(f"== {path.stem} ==")
+        lines = tail_lines(path, args.lines)
+        if lines:
+            print("".join(lines).rstrip())
+        else:
+            print("(empty)")
+        print()
+    return 0
+
+
+def cmd_status(_args: argparse.Namespace) -> int:
+    try:
+        config = load_config()
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    queue = load_queue()
+    pending = sorted([job for job in queue if job.get("status") == "pending"], key=job_sort_key)
+    running = [job for job in queue if job.get("status") == "running"]
+    completed = [job for job in queue if job.get("status") == "completed"]
+    runner = current_runner_info()
+
+    print(f"State: {state_dir()}")
+    print(f"Config: {config_path()}")
+
+    if runner:
+        active_job = runner.get("active_job_id") or "?"
+        active_branch = runner.get("active_branch") or "?"
+        print(f"\nRunner: pid={runner.get('pid', '?')} active=[{active_job}] {active_branch}")
+    else:
+        print("\nRunner: idle")
+
+    if running:
+        print(f"\nRunning ({len(running)}):")
+        for job in running:
+            print(f"  {summarize_job(job)} started {job.get('started_at', '?')}")
+            active_targets = job.get("active_targets") or (
+                runner.get("active_targets") if runner and runner.get("active_job_id") == job["id"] else None
+            )
+            target_summary = summarize_active_targets(active_targets, job.get("targets"))
+            if target_summary:
+                print(f"    live targets: {target_summary}")
+            for name in job.get("targets") or []:
+                state = (active_targets or {}).get(name)
+                if not state:
+                    continue
+                details = []
+                if state.get("phase"):
+                    details.append(f"phase={state['phase']}")
+                if state.get("wait_reason"):
+                    details.append(f"wait={state['wait_reason']}")
+                if state.get("last_output_at"):
+                    details.append(f"output={state['last_output_at']}")
+                if state.get("log_path"):
+                    details.append(f"log={Path(state['log_path']).name}")
+                if details:
+                    print(f"    {name}: " + ", ".join(details))
+                if state.get("last_line"):
+                    print(f"      {state['last_line']}")
+    else:
+        print("\nNo running jobs.")
 
     if pending:
-        print(f"Pending ({len(pending)}):")
-        for j in pending:
-            print(f"  {j['branch']} @ {j.get('sha', '?')}  queued {j['queued_at']}")
+        print(f"\nPending ({len(pending)}):")
+        for job in pending:
+            print(f"  {summarize_job(job)} queued {job.get('queued_at', '?')}")
+            active_targets = job.get("active_targets")
+            target_summary = summarize_active_targets(active_targets, job.get("targets"))
+            if target_summary:
+                progress_at = job.get("last_progress_at") or job.get("requeued_at") or "?"
+                print(f"    last known targets: {target_summary} (updated {progress_at})")
+            for name in job.get("targets") or []:
+                state = (active_targets or {}).get(name)
+                if not state:
+                    continue
+                details = []
+                if state.get("phase"):
+                    details.append(f"phase={state['phase']}")
+                if state.get("wait_reason"):
+                    details.append(f"wait={state['wait_reason']}")
+                if state.get("last_output_at"):
+                    details.append(f"output={state['last_output_at']}")
+                if state.get("log_path"):
+                    details.append(f"log={Path(state['log_path']).name}")
+                if details:
+                    print(f"    {name}: " + ", ".join(details))
+                if state.get("last_line"):
+                    print(f"      {state['last_line']}")
     else:
-        print("No pending jobs.")
+        print("\nNo pending jobs.")
 
     if completed:
-        print(f"\nRecent ({len(completed)}):")
-        for j in completed[-5:]:
-            rf = j.get("result_file", "")
-            if rf and Path(rf).exists():
-                r = json.loads(Path(rf).read_text())
-                overall = r.get("overall", "?").upper()
+        print(f"\nRecent ({min(len(completed), 5)}):")
+        for job in completed[-5:]:
+            result_file = job.get("result_file")
+            if result_file and Path(result_file).exists():
+                result = load_result(Path(result_file))
                 targets = ", ".join(
-                    f"{t['target']}={t['status']}" for t in r.get("results", []))
-                print(f"  {j['branch']} @ {j.get('sha', '?')}  {overall}  [{targets}]")
+                    f"{item['target']}={item['status']}" for item in result.get("results", [])
+                )
+                print(
+                    f"  [{job['id']}] {job['branch']} @ {short_sha(job.get('sha', ''))} "
+                    f"{result.get('overall', '?').upper()} [{targets}]"
+                )
             else:
-                print(f"  {j['branch']} @ {j.get('sha', '?')}  (result file missing)")
+                print(f"  {summarize_job(job)} (result file missing)")
 
-    # Show VM status
     print("\nVM Status:")
-    for vm in ["Ubuntu 24.04 desktop", "Windows"]:
-        status = utmctl_vm_status(vm)
-        print(f"  {vm}: {status or 'not found'}")
+    for vm_name in ["Ubuntu 24.04 desktop", "Windows"]:
+        print(f"  {vm_name}: {utmctl_vm_status(vm_name) or 'not found'}")
 
-    for host in ["ubuntu", "win2"]:
-        reachable = "up" if ssh_reachable(host, 3) else "down"
-        print(f"  ssh {host}: {reachable}")
+    for host in [target_cfg.get("host") for target_cfg in config.get("targets", {}).values() if target_cfg.get("type") == "ssh"]:
+        if host:
+            print(f"  ssh {host}: {'up' if ssh_reachable(host, 3) else 'down'}")
 
     return 0
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Local CI runner for Pulp",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -736,25 +2138,61 @@ def main() -> int:
     )
     sub = parser.add_subparsers(dest="command")
 
+    def add_submission_args(command_parser: argparse.ArgumentParser, *, include_sha: bool = False) -> None:
+        command_parser.add_argument("branch", nargs="?", help="Branch name (default: current)")
+        command_parser.add_argument(
+            "--priority",
+            choices=sorted(PRIORITY_VALUES),
+            help="Queue priority (default from config; ship/check default to high)",
+        )
+        command_parser.add_argument(
+            "--targets",
+            help="Comma-separated target list (for example: mac or mac,ubuntu)",
+        )
+        if include_sha:
+            command_parser.add_argument("--sha", help="Exact commit SHA to validate (default: current HEAD)")
+
     p_enqueue = sub.add_parser("enqueue", help="Queue a branch for validation")
-    p_enqueue.add_argument("branch", nargs="?", help="Branch name (default: current)")
+    add_submission_args(p_enqueue, include_sha=True)
 
-    p_drain = sub.add_parser("drain", help="Process all pending jobs")
+    sub.add_parser("drain", help="Process pending jobs if no other runner is active")
 
-    p_run = sub.add_parser("run", help="Validate immediately (parallel)")
-    p_run.add_argument("branch", nargs="?", help="Branch name (default: current)")
+    p_run = sub.add_parser("run", help="Queue validation and wait for completion")
+    add_submission_args(p_run, include_sha=True)
 
-    p_ship = sub.add_parser("ship", help="PR -> CI -> merge on green")
-    p_ship.add_argument("branch", nargs="?", help="Branch name (default: current)")
+    p_ship = sub.add_parser("ship", help="PR -> queued CI -> merge on green")
+    add_submission_args(p_ship, include_sha=True)
     p_ship.add_argument("--base", default="main", help="Base branch (default: main)")
 
     p_check = sub.add_parser("check", help="Validate an existing PR")
     p_check.add_argument("pr", help="PR number, GitHub URL, or 'latest'")
+    p_check.add_argument(
+        "--priority",
+        choices=sorted(PRIORITY_VALUES),
+        help="Queue priority (default: high)",
+    )
+    p_check.add_argument(
+        "--targets",
+        help="Comma-separated target list (for example: mac or mac,ubuntu)",
+    )
 
-    p_list = sub.add_parser("list", help="Show open PRs")
+    sub.add_parser("list", help="Show open PRs")
 
-    p_status = sub.add_parser("status", help="Show queue and results")
+    p_bump = sub.add_parser("bump", help="Reprioritize a pending job")
+    p_bump.add_argument("job", help="Job id, unique id prefix, or exact branch name")
+    p_bump.add_argument("priority", choices=sorted(PRIORITY_VALUES), help="New priority")
 
+    p_logs = sub.add_parser("logs", help="Tail saved logs for a running or completed job")
+    p_logs.add_argument("job", nargs="?", help="Job id, unique id prefix, or exact branch name (default: active/latest)")
+    p_logs.add_argument("--target", help="Target name to show (mac, ubuntu, windows)")
+    p_logs.add_argument("--lines", type=int, default=80, help="Number of log lines to show (default: 80)")
+
+    sub.add_parser("status", help="Show queue, runner, results, and VM status")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     commands = {
@@ -764,6 +2202,8 @@ def main() -> int:
         "ship": cmd_ship,
         "check": cmd_check,
         "list": cmd_list,
+        "bump": cmd_bump,
+        "logs": cmd_logs,
         "status": cmd_status,
     }
 

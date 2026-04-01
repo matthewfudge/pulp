@@ -41,16 +41,16 @@ Verify: check that files in `external/skia-build/` are actual binaries (multiple
 **Fix:**
 ```bash
 rm external/vst3sdk external/AudioUnitSDK  # remove broken links
-./setup.sh                                  # re-clone properly
+./setup.sh                                  # re-link from the shared SDK cache
 ```
 
-Or clone manually:
+Or recreate them manually from the pinned revisions:
 ```bash
 git clone --depth 1 --recursive --branch v3.7.12_build_20 \
     https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
 
 # macOS only:
-git clone --depth 1 \
+git clone --depth 1 --branch AudioUnitSDK-1.4.0 \
     https://github.com/apple/AudioUnitSDK.git external/AudioUnitSDK
 ```
 
@@ -71,7 +71,7 @@ Each failed check includes a fix command. Common ones:
 | C++20 compiler missing | `xcode-select --install` (macOS) or `sudo apt install g++-13` (Linux) |
 | CMake too old | `brew upgrade cmake` or install from cmake.org |
 | git-lfs missing | `brew install git-lfs && git lfs install` |
-| VST3 SDK missing | `git clone --depth 1 --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk` |
+| VST3 SDK missing | `git clone --depth 1 --recursive --branch v3.7.12_build_20 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk` |
 | ALSA headers missing | `sudo apt install libasound2-dev` (Linux) |
 
 ### No C++20 support
@@ -101,17 +101,52 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ```
 
+### Windows local CI leaves behind detached worktrees
+
+**Symptom:** Windows validation reruns fail quickly around `git worktree add/remove`, or a previous SSH validation appears to have left behind `C:\pulp-ci\w\...`.
+
+**Fix:** Pull the latest local CI changes first. Windows SSH validation now prunes stale worktree metadata automatically before reusing `C:\pulp-ci`.
+
+If you need to clean up manually on the Windows host:
+```powershell
+Set-Location C:\Users\yourname\pulp-validate
+git worktree prune --expire now
+Remove-Item -Recurse -Force C:\pulp-ci\w\* -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force C:\pulp-ci\b\* -ErrorAction SilentlyContinue
+```
+
 ### FetchContent download failures
 
 **Symptom:** CMake hangs or fails downloading CLAP or Catch2.
 
-**Fix:** Check your internet connection. If behind a proxy, set `http_proxy` and `https_proxy` environment variables. If the download server is down, you can point to a local cache:
+**Fix:** Check your internet connection. If behind a proxy, set `http_proxy` and `https_proxy` environment variables.
+
+Pulp also supports machine-local shared source caches for FetchContent dependencies. Run:
+
+```bash
+./setup.sh --deps-only
+```
+
+That primes the shared pinned source cache used across worktrees. The cache entries are
+versioned by dependency ref, so worktrees on different branches do not share one mutable
+checkout. On WebGPU builds, the bootstrap also seeds the extracted `wgpu-native`
+runtime payload so later build trees do not redownload it. The same cache now provides
+the pinned `vst3sdk` and macOS `AudioUnitSDK` source trees used by `./setup.sh`.
+You can also point to an explicit local source tree:
+
+```bash
+cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_WEBGPU=/path/to/WebGPU-distribution
+cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_SDL3=/path/to/SDL
+```
+
+If the network is unavailable and those sources are already cached, you can configure without downloads:
 
 ```bash
 cmake -S . -B build -DFETCHCONTENT_FULLY_DISCONNECTED=ON
 ```
 
-This requires that `build/_deps/` already has the sources from a previous successful configure.
+This requires that either the active build tree already has populated `_deps/` sources or
+the dependency is provided via the shared cache / explicit source override.
 
 ### Tests fail with AudioWorkgroup timeout
 

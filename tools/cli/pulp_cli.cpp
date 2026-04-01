@@ -210,7 +210,11 @@ static std::string detect_platform() {
         return "darwin-x64";
     #endif
 #elif defined(_WIN32)
-    return "windows-x64";
+    #if defined(_M_ARM64) || defined(__aarch64__) || defined(__arm64__)
+        return "windows-arm64";
+    #else
+        return "windows-x64";
+    #endif
 #elif defined(__linux__)
     #if defined(__aarch64__)
         return "linux-arm64";
@@ -755,7 +759,9 @@ static std::vector<DoctorCheck> run_doctor_checks(const fs::path& root) {
             // Check if vswhere can find any VS installation
             auto vswhere = exec_output(
                 "\"%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe\""
-                " -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                " -latest -requiresAny"
+                " -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                " -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64"
                 " -property displayName 2>nul");
             if (!vswhere.empty()) {
                 c.passed = true;
@@ -1649,10 +1655,12 @@ static int cmd_upgrade(const std::vector<std::string>& args) {
     platform = "linux";
 #endif
 
-#if defined(__aarch64__) || defined(__arm64__)
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
     arch = "arm64";
-#else
+#elif defined(__x86_64__) || defined(_M_X64)
     arch = "x86_64";
+#else
+    arch = "unknown";
 #endif
 
     // Determine install location (where is the current binary?)

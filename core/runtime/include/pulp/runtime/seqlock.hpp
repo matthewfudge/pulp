@@ -44,7 +44,10 @@ public:
     /// Publish a new value. Must be called from a single writer thread only.
     /// @param value  The new value to publish.
     void write(const T& value) {
-        seq_.fetch_add(1, std::memory_order_release); // odd = writing
+        // The opening increment needs acquire semantics as well as release:
+        // on weakly ordered CPUs that prevents the upcoming data copy from
+        // being observed before readers can see the odd "writer active" flag.
+        seq_.fetch_add(1, std::memory_order_acq_rel); // odd = writing
         copy_bytes(reinterpret_cast<volatile char*>(&data_),
                    reinterpret_cast<const char*>(&value), sizeof(T));
         seq_.fetch_add(1, std::memory_order_release); // even = complete
@@ -61,7 +64,7 @@ public:
             copy_bytes(reinterpret_cast<char*>(&result),
                        reinterpret_cast<const volatile char*>(&data_), sizeof(T));
             std::atomic_thread_fence(std::memory_order_acquire);
-            unsigned seq1 = seq_.load(std::memory_order_relaxed);
+            unsigned seq1 = seq_.load(std::memory_order_acquire);
             if (seq0 == seq1) return result;
         }
     }

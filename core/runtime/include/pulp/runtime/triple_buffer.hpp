@@ -47,21 +47,22 @@ public:
     /// Publish a new value from the writer thread.
     /// Writes into the back buffer, then atomically swaps it to middle.
     void write(const T& value) {
-        auto idx = flags_.load(std::memory_order_relaxed);
+        auto idx = flags_.load(std::memory_order_acquire);
         int back = back_index(idx);
         buffers_[back] = value;
-        // Swap back and middle, mark as new
+        std::atomic_thread_fence(std::memory_order_release);
+        // Swap back and middle, keep the current front, and mark as new.
         uint8_t new_flags;
         uint8_t old_flags;
         do {
-            old_flags = flags_.load(std::memory_order_relaxed);
+            old_flags = flags_.load(std::memory_order_acquire);
             back = back_index(old_flags);
             int mid = mid_index(old_flags);
-            new_flags = make_flags(back_index(old_flags), back, mid_index(old_flags));
-            // Swap: new back = old mid, new mid = old back (which has new data), set dirty
+            // Swap: new back = old mid, new mid = old back (which has new data).
+            // Front stays unchanged until the reader consumes the new value.
             new_flags = make_flags(mid, back, front_index(old_flags)) | kDirtyBit;
         } while (!flags_.compare_exchange_weak(old_flags, new_flags,
-                 std::memory_order_release, std::memory_order_relaxed));
+                 std::memory_order_acq_rel, std::memory_order_acquire));
     }
 
     /// Read the latest published value from the reader thread.
@@ -69,18 +70,18 @@ public:
     /// @return Const reference to the front buffer. Valid until the next read().
     const T& read() {
         // If dirty, swap front and middle
-        uint8_t old_flags = flags_.load(std::memory_order_relaxed);
+        uint8_t old_flags = flags_.load(std::memory_order_acquire);
         if (old_flags & kDirtyBit) {
             uint8_t new_flags;
             do {
-                old_flags = flags_.load(std::memory_order_relaxed);
+                old_flags = flags_.load(std::memory_order_acquire);
                 if (!(old_flags & kDirtyBit)) break;
                 int front = front_index(old_flags);
                 int mid = mid_index(old_flags);
                 // Swap front and middle, clear dirty
                 new_flags = make_flags(back_index(old_flags), front, mid) & ~kDirtyBit;
             } while (!flags_.compare_exchange_weak(old_flags, new_flags,
-                     std::memory_order_acquire, std::memory_order_relaxed));
+                     std::memory_order_acq_rel, std::memory_order_acquire));
         }
         return buffers_[front_index(flags_.load(std::memory_order_acquire))];
     }

@@ -17,12 +17,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PULP_ROOT="$(dirname "$SCRIPT_DIR")"
 SKIA_BUILDER_DIR="$PULP_ROOT/external/skia-builder"
 SKIA_BUILD_OUTPUT="$PULP_ROOT/external/skia-build"
+SKIA_BUILDER_REF="${SKIA_BUILDER_REF:-7eecb8abf1f77b2a8bac2e81c38e20708cb79c24}"
 SKIA_BRANCH="${SKIA_BRANCH:-chrome/m144}"
 
 PLATFORM="${1:-mac}"
 
 echo "=== Pulp Skia Builder ==="
 echo "Platform: $PLATFORM"
+echo "Builder ref: $SKIA_BUILDER_REF"
 echo "Branch: $SKIA_BRANCH"
 echo "Output: $SKIA_BUILD_OUTPUT"
 echo ""
@@ -30,8 +32,12 @@ echo ""
 # Clone skia-builder if not present
 if [ ! -d "$SKIA_BUILDER_DIR" ]; then
     echo "Cloning skia-builder..."
-    git clone --depth 1 https://github.com/olilarkin/skia-builder.git "$SKIA_BUILDER_DIR"
+    git clone https://github.com/olilarkin/skia-builder.git "$SKIA_BUILDER_DIR"
 fi
+
+echo "Syncing skia-builder to $SKIA_BUILDER_REF..."
+git -C "$SKIA_BUILDER_DIR" fetch --depth 1 origin "$SKIA_BUILDER_REF"
+git -C "$SKIA_BUILDER_DIR" checkout --detach "$SKIA_BUILDER_REF"
 
 # Increase file limit on macOS
 if [ "$(uname)" = "Darwin" ]; then

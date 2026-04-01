@@ -3,6 +3,7 @@
 #include <cstring>
 #include <thread>
 #include <atomic>
+#include <cerrno>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -26,6 +27,18 @@ using SockLen = int;
 
 static int close_socket(SocketHandle sock) {
     return closesocket(sock);
+}
+
+static int socket_last_error() {
+    return WSAGetLastError();
+}
+
+static bool is_recv_timeout(int error) {
+    return error == WSAETIMEDOUT || error == WSAEWOULDBLOCK;
+}
+
+static bool is_recv_shutdown(int error) {
+    return error == WSAENOTSOCK || error == WSAESHUTDOWN || error == WSAECONNRESET;
 }
 
 struct WSAInit {
@@ -52,6 +65,18 @@ using SockLen = socklen_t;
 
 static int close_socket(SocketHandle sock) {
     return close(sock);
+}
+
+static int socket_last_error() {
+    return errno;
+}
+
+static bool is_recv_timeout(int error) {
+    return error == EAGAIN || error == EWOULDBLOCK;
+}
+
+static bool is_recv_shutdown(int error) {
+    return error == EBADF || error == ENOTSOCK;
 }
 #endif
 
@@ -150,9 +175,15 @@ bool Receiver::listen(uint16_t port, MessageHandler handler) {
     }
 
     // Set receive timeout so we can check running_ flag
+#if defined(_WIN32)
+    DWORD timeout_ms = 100;
+    setsockopt(impl_->sock, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+#else
     timeval tv{0, 100000}; // 100ms
     setsockopt(impl_->sock, SOL_SOCKET, SO_RCVTIMEO,
                reinterpret_cast<const char*>(&tv), sizeof(tv));
+#endif
 
     impl_->handler = std::move(handler);
     impl_->running = true;
@@ -166,6 +197,22 @@ bool Receiver::listen(uint16_t port, MessageHandler handler) {
                 if (!msg.address.empty()) {
                     impl_->handler(msg);
                 }
+                continue;
+            }
+
+            if (n == 0) {
+                continue;
+            }
+
+            const int error = socket_last_error();
+            if (!impl_->running) {
+                break;
+            }
+            if (is_recv_timeout(error)) {
+                continue;
+            }
+            if (is_recv_shutdown(error)) {
+                break;
             }
         }
     });
@@ -175,11 +222,11 @@ bool Receiver::listen(uint16_t port, MessageHandler handler) {
 
 void Receiver::stop() {
     impl_->running = false;
-    if (impl_->thread.joinable()) impl_->thread.join();
     if (impl_->sock != kInvalidSocket) {
         close_socket(impl_->sock);
         impl_->sock = kInvalidSocket;
     }
+    if (impl_->thread.joinable()) impl_->thread.join();
 }
 
 bool Receiver::is_listening() const { return impl_->running; }

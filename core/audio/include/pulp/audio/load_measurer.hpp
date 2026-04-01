@@ -67,7 +67,7 @@ public:
     }
 
 private:
-    using clock = std::chrono::high_resolution_clock;
+    using clock = std::chrono::steady_clock;
     using time_point = clock::time_point;
 
     time_point start_time_{};

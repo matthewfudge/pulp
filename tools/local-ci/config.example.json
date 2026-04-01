@@ -19,6 +19,9 @@
       "host": "<your-windows-ssh-host>",
       "fallback_host": "<optional-secondary-host>",
       "repo_path": "C:\\Users\\<username>\\pulp-validate",
+      "cmake_generator": "Visual Studio 17 2022",
+      "cmake_platform": "x64",
+      "cmake_generator_instance": "",
       "utm_fallback": {
         "vm_name": "<UTM VM name for Windows>",
         "boot_wait_secs": 60,
@@ -27,6 +30,9 @@
     }
   },
   "defaults": {
+    "priority": "normal",
+    "ship_priority": "high",
+    "check_priority": "high",
     "ssh_timeout_secs": 5,
     "max_retries": 3,
     "retry_delay_secs": 30

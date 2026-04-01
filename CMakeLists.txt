@@ -44,6 +44,8 @@ option(PULP_BUILD_EXAMPLES "Build example projects" ON)
 option(PULP_ENABLE_GPU "Enable GPU rendering (Dawn/Skia)" ON)
 option(PULP_ENABLE_SWIFT "Enable Swift layer (Apple only)" OFF)
 option(PULP_FETCHCONTENT_UPDATES_DISCONNECTED "Avoid implicit FetchContent updates during configure" ON)
+option(PULP_USE_SHARED_FETCHCONTENT_SOURCES "Prefer machine-local shared source caches for FetchContent dependencies" ON)
+set(PULP_SHARED_FETCHCONTENT_SOURCE_DIR "" CACHE PATH "Machine-local shared source cache root for FetchContent dependencies")
 
 # ── Compiler Warnings ──────────────────────────────────────────────────────
 if(MSVC)
@@ -58,9 +60,11 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/Sanitizers.cmake)
 # ── Third-Party Dependencies ────────────────────────────────────────────────
 include(FetchContent)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ${PULP_FETCHCONTENT_UPDATES_DISCONNECTED})
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpFetchContent.cmake)
 
 # CHOC: header-only C++ utilities (ISC license)
 # Used for: JS engine abstraction, MIDI utilities
+pulp_register_fetchcontent_source(choc REF f0f5cdf5a938b8b779fea6c083571cce5ccab925)
 FetchContent_Declare(
     choc
     GIT_REPOSITORY https://github.com/Tracktion/choc.git
@@ -71,12 +75,36 @@ FetchContent_MakeAvailable(choc)
 # WebGPU (Dawn) — cross-platform GPU abstraction (BSD-3-Clause)
 # Uses eliemichel/WebGPU-distribution for CMake-friendly integration
 if(PULP_ENABLE_GPU)
+    pulp_register_fetchcontent_source(webgpu REF 17dcd42a7683355e7a40ac4e97e77f36dff5b5ab)
+    pulp_register_wgpu_native_precompiled_source(v24.0.3.1)
     FetchContent_Declare(
         webgpu
         GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution.git
         GIT_TAG 17dcd42a7683355e7a40ac4e97e77f36dff5b5ab
     )
+    set(_pulp_restore_arch FALSE)
+    if(WIN32)
+        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _pulp_webgpu_processor)
+        if(_pulp_webgpu_processor STREQUAL "arm64" OR _pulp_webgpu_processor STREQUAL "aarch64")
+            if(DEFINED ARCH)
+                set(_pulp_saved_arch "${ARCH}")
+            endif()
+            set(ARCH "aarch64")
+            set(_pulp_restore_arch TRUE)
+            message(STATUS "Pulp: forcing WebGPU prebuilt architecture to aarch64 for ${CMAKE_SYSTEM_PROCESSOR}")
+        endif()
+    endif()
     FetchContent_MakeAvailable(webgpu)
+    if(_pulp_restore_arch)
+        if(DEFINED _pulp_saved_arch)
+            set(ARCH "${_pulp_saved_arch}")
+        else()
+            unset(ARCH)
+        endif()
+        unset(_pulp_saved_arch)
+    endif()
+    unset(_pulp_restore_arch)
+    unset(_pulp_webgpu_processor)
     set(PULP_HAS_WEBGPU TRUE)
     message(STATUS "Pulp: WebGPU (Dawn) enabled")
 
@@ -89,6 +117,7 @@ if(PULP_ENABLE_GPU)
 endif()
 
 # SDL3 — cross-platform windowing, input, GPU context (zlib license)
+pulp_register_fetchcontent_source(SDL3 DIR sdl3 REF release-3.2.12)
 FetchContent_Declare(
     SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -152,6 +181,7 @@ else()
 endif()
 
 # CLAP (MIT license) — header-only plugin format
+pulp_register_fetchcontent_source(clap REF 1.2.2)
 FetchContent_Declare(
     clap
     GIT_REPOSITORY https://github.com/free-audio/clap.git
@@ -167,6 +197,7 @@ set(PULP_HAS_CLAP TRUE)
 message(STATUS "Pulp: CLAP SDK available")
 
 # LV2 (ISC license) — header-only plugin format (Linux-first)
+pulp_register_fetchcontent_source(lv2 REF v1.18.10)
 FetchContent_Declare(
     lv2
     GIT_REPOSITORY https://github.com/lv2/lv2.git
@@ -184,6 +215,7 @@ set(PULP_HAS_LV2 TRUE)
 message(STATUS "Pulp: LV2 SDK available")
 
 # Facebook Yoga (MIT license) — cross-platform CSS Flexbox/Grid layout engine
+pulp_register_fetchcontent_source(yoga REF v3.2.1)
 FetchContent_Declare(
     yoga
     GIT_REPOSITORY https://github.com/facebook/yoga.git
@@ -246,6 +278,7 @@ add_subdirectory(ship)
 if(PULP_BUILD_TESTS)
     enable_testing()
     include(FetchContent)
+    pulp_register_fetchcontent_source(Catch2 DIR catch2 REF v3.7.1)
     FetchContent_Declare(
         Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git

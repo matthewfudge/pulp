@@ -90,6 +90,14 @@ function Resolve-VcVars {
         return $null
     }
 
+    $isArm64Host = $env:PROCESSOR_ARCHITECTURE -eq "ARM64"
+    $toolComponent = if ($isArm64Host) {
+        "Microsoft.VisualStudio.Component.VC.Tools.ARM64"
+    } else {
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+    }
+    $vcvarsName = if ($isArm64Host) { "vcvarsarm64.bat" } else { "vcvars64.bat" }
+
     $vswhere = Get-Command vswhere.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
     if (-not $vswhere) {
         $bundledVsWhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -97,19 +105,27 @@ function Resolve-VcVars {
     }
 
     if ($vswhere) {
-        $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        $installPath = & $vswhere -latest -products * -requires $toolComponent -property installationPath 2>$null
         if ($LASTEXITCODE -eq 0 -and $installPath) {
-            $candidate = Join-Path $installPath "VC\Auxiliary\Build\vcvars64.bat"
+            $candidate = Join-Path $installPath ("VC\Auxiliary\Build\" + $vcvarsName)
             if (Test-Path $candidate) { return $candidate }
         }
     }
 
     $fallbacks = @(
-        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
-        "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+        ("C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\" + $vcvarsName),
+        ("C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\" + $vcvarsName),
+        ("C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\" + $vcvarsName),
+        ("C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\" + $vcvarsName)
     )
+    if ($isArm64Host) {
+        $fallbacks += @(
+            "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+            "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+        )
+    }
     foreach ($candidate in $fallbacks) {
         if (Test-Path $candidate) { return $candidate }
     }

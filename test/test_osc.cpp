@@ -3,6 +3,8 @@
 #include <pulp/osc/osc.hpp>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <mutex>
 
 using namespace pulp::osc;
 using Catch::Matchers::WithinAbs;
@@ -111,12 +113,16 @@ TEST_CASE("OSC 4-byte alignment", "[osc][codec]") {
 
 TEST_CASE("OSC sender/receiver loopback", "[osc][udp]") {
     Message received_msg;
-    bool got_message = false;
+    std::mutex received_msg_mutex;
+    std::atomic<bool> got_message{false};
 
     Receiver rx;
     bool listening = rx.listen(9876, [&](const Message& msg) {
-        received_msg = msg;
-        got_message = true;
+        {
+            std::lock_guard<std::mutex> lock(received_msg_mutex);
+            received_msg = msg;
+        }
+        got_message.store(true, std::memory_order_release);
     });
     REQUIRE(listening);
     REQUIRE(rx.is_listening());
@@ -133,14 +139,17 @@ TEST_CASE("OSC sender/receiver loopback", "[osc][udp]") {
     REQUIRE(tx.send(msg));
 
     // Wait for message
-    for (int i = 0; i < 20 && !got_message; ++i) {
+    for (int i = 0; i < 20 && !got_message.load(std::memory_order_acquire); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    REQUIRE(got_message);
-    REQUIRE(received_msg.address == "/test/ping");
-    REQUIRE(received_msg.get_int(0) == 42);
-    REQUIRE_THAT(received_msg.get_float(1), WithinAbs(3.14, 0.01));
+    REQUIRE(got_message.load(std::memory_order_acquire));
+    {
+        std::lock_guard<std::mutex> lock(received_msg_mutex);
+        REQUIRE(received_msg.address == "/test/ping");
+        REQUIRE(received_msg.get_int(0) == 42);
+        REQUIRE_THAT(received_msg.get_float(1), WithinAbs(3.14, 0.01));
+    }
 
     tx.disconnect();
     rx.stop();

@@ -4,7 +4,7 @@ Windows is Pulp's second supported platform. This guide covers building, audio/M
 
 ## Requirements
 
-- Windows 10 version 1903+ (x64)
+- Windows 10 version 1903+ (x64 or ARM64)
 - Visual Studio 2022 (17.x) with C++ desktop workload
 - CMake 3.24+
 - C++20 compiler (MSVC v143+)
@@ -12,12 +12,12 @@ Windows is Pulp's second supported platform. This guide covers building, audio/M
 ## External SDKs
 
 ```bash
-# VST3 SDK (MIT) — cloned at configure time
-git clone --depth 1 --branch v3.7.12 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
-cd external/vst3sdk && git submodule update --init --recursive --depth 1
+# Bootstrap pinned shared dependencies and SDKs
+./setup.sh --deps-only
 
-# CLAP (MIT) — fetched automatically via CMake FetchContent
-# No AudioUnit SDK needed on Windows
+# VST3 SDK (MIT) is then provided under external/vst3sdk from Pulp's shared SDK cache.
+# CLAP (MIT) is fetched automatically via CMake FetchContent.
+# AudioUnit SDK is not used on Windows.
 ```
 
 ## Building
@@ -29,6 +29,8 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ctest --test-dir build --output-on-failure -C Release
 ```
+
+On Windows on ARM, use `-A ARM64` instead. If you have both Visual Studio Community and Build Tools installed, you can force the full IDE instance with `-DCMAKE_GENERATOR_INSTANCE="C:/Program Files/Microsoft Visual Studio/2022/Community"`.
 
 ### Visual Studio IDE
 
@@ -89,7 +91,7 @@ MIDI input uses the Win32 `CALLBACK_FUNCTION` mechanism. Messages are dispatched
 
 Dawn (Pulp's WebGPU implementation) supports D3D12 natively on Windows. When GPU rendering is enabled (`PULP_ENABLE_GPU=ON`), the Skia Graphite backend renders via D3D12 through Dawn.
 
-No additional setup is needed — Dawn selects the D3D12 backend automatically on Windows.
+No additional setup is needed — Dawn selects the D3D12 backend automatically on Windows. On Windows on ARM, the pinned WebGPU dependency also has an `aarch64` prebuilt runtime, so normal GPU-enabled smoke validation can stay on the standard dependency path.
 
 ## Plugin Formats
 

@@ -7,6 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUIET=true
 SKIP_TESTS=false
 KEEP_WORKTREE=false
+NO_LOCK=false
 REF="HEAD"
 EXCLUDE_REGEX=""
 
@@ -30,19 +31,94 @@ while [ $# -gt 0 ]; do
         --ref=*)
             REF="${1#--ref=}"
             ;;
+        --no-lock) NO_LOCK=true ;;
         --help|-h)
             cat <<'EOF'
-Usage: ./validate-build.sh [--quiet] [--verbose] [--no-tests] [--keep-worktree] [--ref <git-ref>] [--exclude-regex <pattern>]
+Usage: ./validate-build.sh [--quiet] [--verbose] [--no-tests] [--keep-worktree] [--no-lock] [--ref <git-ref>] [--exclude-regex <pattern>]
 
 Creates a detached clean worktree at the requested git ref (default: current HEAD),
 bootstraps dependencies, configures, builds, installs, and optionally runs tests. Output is quiet on success
 by default and prints logs only on failure. Use --verbose to print progress messages.
+By default the script also takes a per-host validation lock so concurrent agents wait instead of colliding.
 EOF
             exit 0
             ;;
     esac
     shift
 done
+
+validation_lock_path() {
+    if [ -n "${PULP_VALIDATE_LOCK_PATH_OVERRIDE:-}" ]; then
+        printf '%s\n' "$PULP_VALIDATE_LOCK_PATH_OVERRIDE"
+        return
+    fi
+
+    case "$(uname -s)" in
+        Darwin)
+            if [ -n "${HOME:-}" ]; then
+                mkdir -p "$HOME/Library/Application Support/Pulp/local-ci"
+                printf '%s\n' "$HOME/Library/Application Support/Pulp/local-ci/host-validate.lock"
+                return
+            fi
+            ;;
+        *)
+            if [ -n "${XDG_STATE_HOME:-}" ]; then
+                mkdir -p "${XDG_STATE_HOME}/pulp/local-ci"
+                printf '%s\n' "${XDG_STATE_HOME}/pulp/local-ci/host-validate.lock"
+                return
+            fi
+            if [ -n "${HOME:-}" ]; then
+                mkdir -p "$HOME/.local/state/pulp/local-ci"
+                printf '%s\n' "$HOME/.local/state/pulp/local-ci/host-validate.lock"
+                return
+            fi
+            ;;
+    esac
+
+    printf '%s\n' "${TMPDIR:-/tmp}/pulp-host-validate.lock"
+}
+
+acquire_validation_lock() {
+    if [ "$NO_LOCK" = true ] || [ "${PULP_VALIDATE_NO_LOCK:-0}" = "1" ] || [ -n "${PULP_VALIDATE_LOCK_HELD:-}" ]; then
+        return 0
+    fi
+
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "warning: python3 not found; continuing without host validation lock" >&2
+        return 0
+    fi
+
+    local lock_path
+    lock_path="$(validation_lock_path)"
+
+    exec python3 - "$lock_path" "$0" "$@" <<'PY'
+import fcntl
+import os
+import sys
+
+lock_path = sys.argv[1]
+cmd = sys.argv[2:]
+
+fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.stderr.write(f"Waiting for host validation lock: {lock_path}\n")
+    sys.stderr.flush()
+    fcntl.flock(fd, fcntl.LOCK_EX)
+
+env = os.environ.copy()
+env["PULP_VALIDATE_LOCK_HELD"] = "1"
+env["PULP_VALIDATE_LOCK_PATH"] = lock_path
+env["PULP_VALIDATE_LOCK_FD"] = str(fd)
+os.execvpe(cmd[0], cmd, env)
+PY
+}
+
+acquire_validation_lock "$@"
 
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/pulp-validate.XXXXXX")"
 src_dir="$tmp_root/src"

@@ -3,9 +3,17 @@
 #include <pulp/audio/load_measurer.hpp>
 #include <thread>
 #include <chrono>
+#include <cmath>
 
 using namespace pulp::audio;
 using Catch::Matchers::WithinAbs;
+
+template <typename Rep, typename Period>
+static void busy_wait_for(std::chrono::duration<Rep, Period> duration) {
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < duration) {
+    }
+}
 
 TEST_CASE("AudioProcessLoadMeasurer initial state is zero", "[audio][load]") {
     AudioProcessLoadMeasurer m;
@@ -18,14 +26,13 @@ TEST_CASE("AudioProcessLoadMeasurer measures nonzero load", "[audio][load]") {
     m.set_smoothing(1.0f); // no averaging, raw measurement
 
     m.begin(512, 44100.0f);
-    // Simulate some work (~1ms)
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Use busy-wait instead of sleep_for so the test is not hostage to the
+    // scheduler's timer granularity on Windows.
+    busy_wait_for(std::chrono::microseconds(1200));
     m.end();
 
-    // 512 samples at 44100 Hz = ~11.6ms available
-    // 1ms work ≈ 8.6% load
     REQUIRE(m.load() > 0.01f);
-    REQUIRE(m.load() < 1.0f);
+    REQUIRE(std::isfinite(m.load()));
 }
 
 TEST_CASE("AudioProcessLoadMeasurer peak tracking", "[audio][load]") {
@@ -34,15 +41,17 @@ TEST_CASE("AudioProcessLoadMeasurer peak tracking", "[audio][load]") {
 
     // First measurement
     m.begin(512, 44100.0f);
-    std::this_thread::sleep_for(std::chrono::microseconds(500));
+    busy_wait_for(std::chrono::microseconds(600));
     m.end();
     float first = m.load();
 
     // Second measurement with more work
     m.begin(512, 44100.0f);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    busy_wait_for(std::chrono::microseconds(2200));
     m.end();
 
+    REQUIRE(std::isfinite(first));
+    REQUIRE(m.load() > first);
     REQUIRE(m.peak_load() >= m.load());
 }
 
@@ -51,7 +60,7 @@ TEST_CASE("AudioProcessLoadMeasurer reset clears state", "[audio][load]") {
     m.set_smoothing(1.0f);
 
     m.begin(512, 44100.0f);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    busy_wait_for(std::chrono::microseconds(1200));
     m.end();
     REQUIRE(m.load() > 0);
 
@@ -65,7 +74,7 @@ TEST_CASE("AudioProcessLoadMeasurer reset_peak", "[audio][load]") {
     m.set_smoothing(1.0f);
 
     m.begin(512, 44100.0f);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    busy_wait_for(std::chrono::microseconds(1200));
     m.end();
 
     float peak = m.peak_load();

@@ -53,6 +53,308 @@ prompt_yn() {
     esac
 }
 
+fetchcontent_cache_root() {
+    if [ -n "${PULP_SHARED_FETCHCONTENT_SOURCE_DIR:-}" ]; then
+        echo "$PULP_SHARED_FETCHCONTENT_SOURCE_DIR"
+        return
+    fi
+
+    case "$PLATFORM" in
+        macOS)
+            echo "$HOME/Library/Caches/Pulp/fetchcontent-src"
+            ;;
+        Windows)
+            if [ -n "${LOCALAPPDATA:-}" ]; then
+                echo "$LOCALAPPDATA/Pulp/fetchcontent-src"
+            else
+                echo "$HOME/AppData/Local/Pulp/fetchcontent-src"
+            fi
+            ;;
+        *)
+            echo "${XDG_CACHE_HOME:-$HOME/.cache}/pulp/fetchcontent-src"
+            ;;
+    esac
+}
+
+fetchcontent_cache_dir_name() {
+    local base_name="$1"
+    local ref="$2"
+    local sanitized_ref
+
+    sanitized_ref="$(printf '%s' "$ref" | tr -c 'A-Za-z0-9._-' '_' | tr -s '_')"
+    sanitized_ref="${sanitized_ref#_}"
+    sanitized_ref="${sanitized_ref%_}"
+
+    if [ -n "$sanitized_ref" ]; then
+        printf '%s-%s\n' "$base_name" "$sanitized_ref"
+    else
+        printf '%s\n' "$base_name"
+    fi
+}
+
+find_local_git_seed() {
+    local repo="$1"
+    local exclude_path="$2"
+    local candidate
+    local remote
+
+    if [ -d "$FETCHCONTENT_CACHE_ROOT" ]; then
+        while IFS= read -r -d '' candidate; do
+            [ "$candidate" = "$exclude_path" ] && continue
+            [ -d "$candidate/.git" ] || continue
+            remote="$(git -C "$candidate" remote get-url origin 2>/dev/null || true)"
+            if [ "$remote" = "$repo" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done < <(find "$FETCHCONTENT_CACHE_ROOT" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+    fi
+
+    if [ -d "$REPO_ROOT/build/_deps" ]; then
+        while IFS= read -r -d '' candidate; do
+            [ -d "$candidate/.git" ] || continue
+            remote="$(git -C "$candidate" remote get-url origin 2>/dev/null || true)"
+            if [ "$remote" = "$repo" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done < <(find "$REPO_ROOT/build/_deps" -mindepth 1 -maxdepth 1 -type d -name '*-src' -print0 2>/dev/null)
+    fi
+
+    if [ -d "$REPO_ROOT/external" ]; then
+        while IFS= read -r -d '' candidate; do
+            [ -d "$candidate/.git" ] || continue
+            remote="$(git -C "$candidate" remote get-url origin 2>/dev/null || true)"
+            if [ "$remote" = "$repo" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done < <(find "$REPO_ROOT/external" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+    fi
+
+    return 1
+}
+
+reuse_shared_git_source() {
+    local label="$1"
+    local shared_dir="$2"
+    local local_dir="$3"
+    local marker_path="$4"
+
+    if [ -e "$local_dir" ] && [ ! -L "$local_dir" ] && [ -e "$local_dir/$marker_path" ]; then
+        info "$label present"
+        return 0
+    fi
+
+    if [ -L "$local_dir" ]; then
+        if [ -e "$local_dir/$marker_path" ]; then
+            info "$label linked from shared cache"
+            return 0
+        fi
+        rm "$local_dir"
+    fi
+
+    if [ ! -d "$shared_dir/.git" ]; then
+        warn "Shared $label cache missing at $shared_dir"
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$local_dir")"
+
+    if [ "$PLATFORM" = "Windows" ]; then
+        info "Cloning $label from shared cache..."
+        dry "git clone --local --recursive $shared_dir $local_dir" || {
+            if ! git clone --local --recursive "$shared_dir" "$local_dir" >/dev/null 2>&1; then
+                git clone --recursive "$shared_dir" "$local_dir"
+            fi
+        }
+    else
+        info "Linking $label from shared cache..."
+        dry "ln -s $shared_dir $local_dir" || ln -s "$shared_dir" "$local_dir"
+    fi
+
+    if [ -e "$local_dir/$marker_path" ]; then
+        info "$label ready"
+    else
+        fail "$label setup incomplete at $local_dir"
+        return 1
+    fi
+}
+
+wgpu_runtime_url_name() {
+    local url_os=""
+    local url_arch=""
+    local url_compiler=""
+
+    case "$PLATFORM" in
+        macOS)
+            url_os="macos"
+            ;;
+        Linux)
+            url_os="linux"
+            ;;
+        Windows)
+            url_os="windows"
+            if command -v cl >/dev/null 2>&1; then
+                url_compiler="msvc"
+            else
+                url_compiler="gnu"
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    case "$ARCH" in
+        x86_64|amd64)
+            url_arch="x86_64"
+            ;;
+        arm64|aarch64)
+            url_arch="aarch64"
+            ;;
+        x86|i686)
+            url_arch="i686"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [ -n "$url_compiler" ]; then
+        printf 'wgpu-%s-%s-%s-release\n' "$url_os" "$url_arch" "$url_compiler"
+    else
+        printf 'wgpu-%s-%s-release\n' "$url_os" "$url_arch"
+    fi
+}
+
+ensure_shared_archive_source() {
+    local label="$1"
+    local url="$2"
+    local dir_name="$3"
+    local seed_dir="$4"
+    local target="$FETCHCONTENT_CACHE_ROOT/$dir_name"
+    local lockdir="$FETCHCONTENT_CACHE_ROOT/.${dir_name}.lock"
+
+    mkdir -p "$FETCHCONTENT_CACHE_ROOT"
+
+    (
+        set -e
+        waited=false
+        while ! mkdir "$lockdir" 2>/dev/null; do
+            if [ "$waited" = false ]; then
+                info "Waiting for shared $label source cache lock..."
+                waited=true
+            fi
+            sleep 1
+        done
+        trap 'rmdir "$lockdir" >/dev/null 2>&1 || true' EXIT
+
+        if [ -d "$target" ]; then
+            return 0
+        fi
+
+        if [ -d "$seed_dir" ]; then
+            info "Seeding shared $label source cache from local directory: $seed_dir"
+            if ! dry "cp -R $seed_dir $target"; then
+                cp -R "$seed_dir" "$target"
+            fi
+            return 0
+        fi
+
+        info "Downloading shared $label source cache..."
+        if dry "curl -L --fail $url -o $target.zip && unzip -q $target.zip -d $target"; then
+            return 0
+        fi
+
+        local tmpdir
+        tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/pulp-${dir_name}.XXXXXX")"
+        trap 'rm -rf "$tmpdir" >/dev/null 2>&1 || true; rmdir "$lockdir" >/dev/null 2>&1 || true' EXIT
+        curl -L --fail "$url" -o "$tmpdir/archive.zip"
+        mkdir -p "$target"
+        unzip -q "$tmpdir/archive.zip" -d "$target"
+        rm -rf "$tmpdir"
+    )
+}
+
+ensure_shared_git_source() {
+    local label="$1"
+    local repo="$2"
+    local ref="$3"
+    local dir_name="$4"
+    local target="$FETCHCONTENT_CACHE_ROOT/$dir_name"
+    local lockdir="$FETCHCONTENT_CACHE_ROOT/.${dir_name}.lock"
+    local current_remote=""
+    local seed_repo=""
+    local checkout_ref="$ref"
+
+    mkdir -p "$FETCHCONTENT_CACHE_ROOT"
+
+    (
+        set -e
+        waited=false
+        while ! mkdir "$lockdir" 2>/dev/null; do
+            if [ "$waited" = false ]; then
+                info "Waiting for shared $label source cache lock..."
+                waited=true
+            fi
+            sleep 1
+        done
+        trap 'rmdir "$lockdir" >/dev/null 2>&1 || true' EXIT
+
+        if [ -d "$target/.git" ]; then
+            current_remote="$(git -C "$target" remote get-url origin 2>/dev/null || true)"
+            if [ -n "$current_remote" ] && [ "$current_remote" != "$repo" ]; then
+                info "Updating shared $label cache origin to $repo"
+                dry "git -C $target remote set-url origin $repo" || git -C "$target" remote set-url origin "$repo"
+            fi
+        else
+            info "Priming shared $label source cache..."
+            seed_repo="$(find_local_git_seed "$repo" "$target" || true)"
+            if [ -n "$seed_repo" ]; then
+                info "Seeding shared $label source cache from local clone: $seed_repo"
+                if ! dry "git clone --local --no-hardlinks $seed_repo $target"; then
+                    if ! git clone --local --no-hardlinks "$seed_repo" "$target" >/dev/null 2>&1; then
+                        git clone "$seed_repo" "$target"
+                    fi
+                fi
+            elif ! dry "git clone --filter=blob:none $repo $target"; then
+                if ! git clone --filter=blob:none "$repo" "$target" >/dev/null 2>&1; then
+                    git clone "$repo" "$target"
+                fi
+            fi
+
+            current_remote="$(git -C "$target" remote get-url origin 2>/dev/null || true)"
+            if [ -n "$current_remote" ] && [ "$current_remote" != "$repo" ]; then
+                info "Updating shared $label cache origin to $repo"
+                dry "git -C $target remote set-url origin $repo" || git -C "$target" remote set-url origin "$repo"
+            fi
+        fi
+
+        if ! git -C "$target" cat-file -e "${ref}^{commit}" 2>/dev/null; then
+            info "Updating shared $label source cache to include $ref..."
+            dry "git -C $target fetch --tags origin" || git -C "$target" fetch --tags origin
+        fi
+
+        if ! git -C "$target" cat-file -e "${ref}^{commit}" 2>/dev/null; then
+            info "Fetching explicit shared $label ref $ref..."
+            dry "git -C $target fetch --force origin $ref" || git -C "$target" fetch --force origin "$ref"
+            checkout_ref="FETCH_HEAD"
+        fi
+
+        if dry "git -C $target checkout --detach $checkout_ref"; then
+            :
+        else
+            git -C "$target" checkout --detach "$checkout_ref"
+        fi
+
+        if [ -f "$target/.gitmodules" ]; then
+            dry "git -C $target submodule update --init --recursive" || \
+                git -C "$target" submodule update --init --recursive
+        fi
+    )
+}
+
 # ── Platform detection ───────────────────────────────────────────────────────
 
 step "Detecting platform"
@@ -199,33 +501,55 @@ fi
 
 step "Setting up external SDKs"
 
-# VST3 SDK
-VST3_DIR="$REPO_ROOT/external/vst3sdk"
-if [ -d "$VST3_DIR/pluginterfaces" ]; then
-    info "VST3 SDK present"
-else
-    # Remove broken symlink if present
-    [ -L "$VST3_DIR" ] && rm "$VST3_DIR"
-    info "Cloning VST3 SDK (MIT license)..."
-    dry "git clone --depth 1 --recursive https://github.com/steinbergmedia/vst3sdk.git $VST3_DIR" || \
-        git clone --depth 1 --recursive --branch v3.7.12_build_20 \
-            https://github.com/steinbergmedia/vst3sdk.git "$VST3_DIR"
-    info "VST3 SDK ready"
+FETCHCONTENT_CACHE_ROOT="$(fetchcontent_cache_root)"
+info "Shared FetchContent source cache: $FETCHCONTENT_CACHE_ROOT"
+
+ensure_shared_git_source "CHOC" "https://github.com/Tracktion/choc.git" \
+    "f0f5cdf5a938b8b779fea6c083571cce5ccab925" "$(fetchcontent_cache_dir_name "choc" "f0f5cdf5a938b8b779fea6c083571cce5ccab925")"
+
+ensure_shared_git_source "WebGPU-distribution" "https://github.com/eliemichel/WebGPU-distribution.git" \
+    "17dcd42a7683355e7a40ac4e97e77f36dff5b5ab" "$(fetchcontent_cache_dir_name "webgpu" "17dcd42a7683355e7a40ac4e97e77f36dff5b5ab")"
+
+WGPU_NATIVE_VERSION="v24.0.3.1"
+WGPU_RUNTIME_NAME="$(wgpu_runtime_url_name || true)"
+if [ -n "$WGPU_RUNTIME_NAME" ]; then
+    ensure_shared_archive_source "wgpu-native runtime" \
+        "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_NATIVE_VERSION}/${WGPU_RUNTIME_NAME}.zip" \
+        "$(fetchcontent_cache_dir_name "$WGPU_RUNTIME_NAME" "$WGPU_NATIVE_VERSION")" \
+        "$REPO_ROOT/build/_deps/${WGPU_RUNTIME_NAME}-src"
 fi
+
+ensure_shared_git_source "SDL3" "https://github.com/libsdl-org/SDL.git" \
+    "release-3.2.12" "$(fetchcontent_cache_dir_name "sdl3" "release-3.2.12")"
+
+ensure_shared_git_source "CLAP" "https://github.com/free-audio/clap.git" \
+    "1.2.2" "$(fetchcontent_cache_dir_name "clap" "1.2.2")"
+
+ensure_shared_git_source "LV2" "https://github.com/lv2/lv2.git" \
+    "v1.18.10" "$(fetchcontent_cache_dir_name "lv2" "v1.18.10")"
+
+ensure_shared_git_source "Yoga" "https://github.com/facebook/yoga.git" \
+    "v3.2.1" "$(fetchcontent_cache_dir_name "yoga" "v3.2.1")"
+
+ensure_shared_git_source "Catch2" "https://github.com/catchorg/Catch2.git" \
+    "v3.7.1" "$(fetchcontent_cache_dir_name "catch2" "v3.7.1")"
+
+# VST3 SDK
+VST3_SDK_REF="v3.7.12_build_20"
+VST3_SHARED_DIR="$FETCHCONTENT_CACHE_ROOT/$(fetchcontent_cache_dir_name "vst3sdk" "$VST3_SDK_REF")"
+ensure_shared_git_source "VST3 SDK" "https://github.com/steinbergmedia/vst3sdk.git" \
+    "$VST3_SDK_REF" "$(fetchcontent_cache_dir_name "vst3sdk" "$VST3_SDK_REF")"
+VST3_DIR="$REPO_ROOT/external/vst3sdk"
+reuse_shared_git_source "VST3 SDK" "$VST3_SHARED_DIR" "$VST3_DIR" "pluginterfaces"
 
 # AudioUnit SDK (macOS only)
 if [ "$PLATFORM" = "macOS" ]; then
+    AU_SDK_REF="AudioUnitSDK-1.4.0"
+    AU_SHARED_DIR="$FETCHCONTENT_CACHE_ROOT/$(fetchcontent_cache_dir_name "AudioUnitSDK" "$AU_SDK_REF")"
+    ensure_shared_git_source "AudioUnitSDK" "https://github.com/apple/AudioUnitSDK.git" \
+        "$AU_SDK_REF" "$(fetchcontent_cache_dir_name "AudioUnitSDK" "$AU_SDK_REF")"
     AU_DIR="$REPO_ROOT/external/AudioUnitSDK"
-    if [ -d "$AU_DIR/include" ]; then
-        info "AudioUnitSDK present"
-    else
-        # Remove broken symlink if present
-        [ -L "$AU_DIR" ] && rm "$AU_DIR"
-        info "Cloning AudioUnitSDK (Apache 2.0)..."
-        dry "git clone --depth 1 https://github.com/apple/AudioUnitSDK.git $AU_DIR" || \
-            git clone --depth 1 https://github.com/apple/AudioUnitSDK.git "$AU_DIR"
-        info "AudioUnitSDK ready"
-    fi
+    reuse_shared_git_source "AudioUnitSDK" "$AU_SHARED_DIR" "$AU_DIR" "include/AudioUnitSDK/AUBase.h"
 fi
 
 # Linux: check ALSA dev headers

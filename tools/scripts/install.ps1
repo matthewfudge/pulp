@@ -26,14 +26,23 @@ if ($Version -eq "latest") {
     }
 }
 
-$Arch = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { "x86" }
-$Zipfile = "pulp-$Version-windows-$Arch.zip"
+$Arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+switch ($Arch) {
+    "X64"   { $Platform = "windows-x64" }
+    "Arm64" { $Platform = "windows-arm64" }
+    default {
+        Write-Error "Unsupported architecture: $Arch"
+        exit 1
+    }
+}
+
+$Zipfile = "pulp-$Platform.zip"
 $Url = "https://github.com/$GithubRepo/releases/download/v$Version/$Zipfile"
 
 # ── Download and install ────────────────────────────────────────────────────
 
 Write-Host ""
-Write-Host "Installing Pulp CLI v$Version for Windows ($Arch)..."
+Write-Host "Installing Pulp CLI v$Version for $Platform..."
 Write-Host ""
 
 # Create install directory
@@ -50,7 +59,7 @@ try {
     Write-Error @"
 Download failed.
 
-  The release v$Version may not exist yet for windows-$Arch.
+  The release v$Version may not exist yet for $Platform.
   Check available releases: https://github.com/$GithubRepo/releases
 
   If you're building from source instead:

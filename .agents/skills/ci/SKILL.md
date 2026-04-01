@@ -61,6 +61,17 @@ Run local CI on the current branch without creating a PR or merging.
 python3 tools/local-ci/local_ci.py run [branch]
 ```
 
+For SSH targets, `run` uploads the exact queued SHA as a git bundle before validation, so Ubuntu and Windows do not need that branch tip to be visible on the host ahead of time.
+
+Useful queue controls:
+
+```bash
+python3 tools/local-ci/local_ci.py run [branch] --targets mac
+python3 tools/local-ci/local_ci.py enqueue [branch] --priority low
+python3 tools/local-ci/local_ci.py bump <job-id> high
+python3 tools/local-ci/local_ci.py logs <job-id> --target windows
+```
+
 ### `check <PR#|URL|latest>` — Validate an existing PR
 
 Run CI on an existing PR by number, GitHub URL, or "latest".
@@ -80,11 +91,21 @@ Show open PRs with summaries so the user can pick one to check or merge.
 gh pr list --json number,title,author,headRefName,createdAt,labels --template '{{range .}}#{{.number}} {{.title}} ({{.headRefName}}) by {{.author.login}} {{timeago .createdAt}}{{"\n"}}{{end}}'
 ```
 
-### `status` — Queue and VM status
+### `status` — Queue, live target state, and VM status
 
 ```bash
 python3 tools/local-ci/local_ci.py status
 ```
+
+While a job is still running, `status` can show live target state for the active job, for example `mac=pass, ubuntu=pass, windows=running`.
+
+### `logs [job]` — Tail a saved target log
+
+```bash
+python3 tools/local-ci/local_ci.py logs <job-id> --target windows
+```
+
+Use this when a target looks slow or stuck. The logs come from the machine-global CI state directory, so you can inspect a running job without manual SSH.
 
 ### `cloud run [branch]` — Trigger GitHub Actions
 
@@ -111,8 +132,15 @@ Template at `tools/local-ci/config.example.json`.
 Key fields:
 - `targets.mac.enabled` — run local Mac validation (default: true)
 - `targets.ubuntu` — SSH target for Linux validation
-- `targets.windows` — SSH target for Windows validation (tries Proxmox first, UTM fallback)
-- `defaults.mode` — "local" (default), "cloud", or "both"
+- `targets.windows` — SSH target for Windows validation
+- `targets.<name>.host` — primary SSH host alias
+- `targets.<name>.fallback_host` — optional secondary SSH host alias if the primary is unreachable
+- `targets.<name>.utm_fallback` — optional UTM VM to boot only if SSH hosts are unreachable
+- `targets.windows.cmake_generator` / `targets.windows.cmake_platform` — optional Windows CMake generator settings; if `cmake_platform` is omitted the runner infers `ARM64` vs `x64` from the remote host
+- `targets.windows.cmake_generator_instance` — optional explicit Visual Studio instance path; if omitted the runner prefers a full VS install over `BuildTools` when both exist
+- `defaults.priority` — default queue priority for `run` and `enqueue`
+- `defaults.ship_priority` — default queue priority for `ship`
+- `defaults.check_priority` — default queue priority for `check`
 
 ## Documentation
 
