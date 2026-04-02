@@ -190,6 +190,37 @@ TEST_CASE("WebCompat: createElement tagName", "[webcompat][element]") {
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "SPAN");
 }
 
+TEST_CASE("WebCompat: canvas getContext returns 2d context and rejects webgpu", "[webcompat][canvas]") {
+    TestEnvironment env;
+    env.eval(R"(
+        var canvas = document.createElement('canvas');
+        canvas.id = 'phase13-canvas';
+        canvas.width = 320;
+        canvas.height = 180;
+        document.body.appendChild(canvas);
+    )");
+
+    auto has2d = env.engine.evaluate("document.getElementById('phase13-canvas').getContext('2d') !== null");
+    auto hasWebGpu = env.engine.evaluate("document.getElementById('phase13-canvas').getContext('webgpu') === null");
+    REQUIRE(has2d.getWithDefault<bool>(false) == true);
+    REQUIRE(hasWebGpu.getWithDefault<bool>(false) == true);
+
+    env.root.layout_children();
+    auto nativeIdValue = env.engine.evaluate("document.getElementById('phase13-canvas')._id");
+    auto nativeId = std::string(nativeIdValue.getWithDefault<std::string_view>(""));
+    auto* canvas = env.widget(nativeId);
+    REQUIRE(canvas != nullptr);
+    REQUIRE(bounds_match(canvas->bounds(), 0, 0, 320, 180));
+}
+
+TEST_CASE("WebCompat: window.pulp.gpu.getInfo exposes native GPU truth", "[webcompat][canvas][gpu]") {
+    TestEnvironment env;
+    auto backend = env.engine.evaluate("window.pulp.gpu.getInfo().backend");
+    auto available = env.engine.evaluate("window.pulp.gpu.getInfo().available");
+    REQUIRE(std::string(backend.getWithDefault<std::string_view>("")) == "Dawn/WebGPU");
+    REQUIRE(available.getWithDefault<bool>(false) == true);
+}
+
 TEST_CASE("WebCompat: element.id assignment", "[webcompat][element]") {
     TestEnvironment env;
     env.eval("var el = document.createElement('div'); el.id = 'test123';");

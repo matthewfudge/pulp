@@ -176,6 +176,7 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     eval_or_throw(engine_, "css_colors", preludes::css_colors);
     eval_or_throw(engine_, "css_parser", preludes::css_parser);
     eval_or_throw(engine_, "web_compat_element", preludes::web_compat_element);
+    eval_or_throw(engine_, "web_compat_canvas", preludes::web_compat_canvas);
     eval_or_throw(engine_, "web_compat_style_decl", preludes::web_compat_style_decl);
     eval_or_throw(engine_, "web_compat_document", preludes::web_compat_document);
 }
@@ -998,6 +999,10 @@ void WidgetBridge::register_api() {
             auto lbl = std::make_unique<Label>();
             lbl->set_id(childId);
             child = std::move(lbl);
+        } else if (tag == "canvas") {
+            auto canvas = std::make_unique<CanvasWidget>();
+            canvas->set_id(childId);
+            child = std::move(canvas);
         } else {
             auto v = std::make_unique<View>();
             v->set_id(childId);

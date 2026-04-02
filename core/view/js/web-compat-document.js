@@ -317,3 +317,11 @@ var window = {
         if (typeof __cancelFrame__ === "function") __cancelFrame__(id);
     }
 };
+
+window.pulp = window.pulp || {};
+window.pulp.gpu = {
+    getInfo: function() {
+        if (typeof getGPUInfo === "function") return getGPUInfo();
+        return { available: false, backend: "unavailable" };
+    }
+};
