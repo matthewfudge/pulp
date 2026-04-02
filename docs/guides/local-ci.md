@@ -5,6 +5,7 @@ Local CI lets you validate branches on your Mac and cross-platform VMs before me
 ## TL;DR
 
 - `pulp ci-local run` queues the current `HEAD` in a machine-global queue shared by every worktree on that Mac.
+- `pulp ci-local run <branch>` queues that branch tip's exact commit SHA, not the launching checkout's `HEAD`.
 - `pulp ci-local run --smoke` queues a fast clean install/export preflight instead of a full test run.
 - The queue serializes jobs, not targets. One CI job runs at a time, but its requested targets (`mac`, `ubuntu`, `windows`) run in parallel inside that job.
 - Mac runs locally. Ubuntu and Windows run over SSH against repos you already cloned on those machines.
@@ -57,7 +58,16 @@ UTM is the simplest option, but any SSH-reachable host works: Proxmox, a cloud V
 cp tools/local-ci/config.example.json tools/local-ci/config.json
 ```
 
-Edit `config.json` and fill in your SSH hostnames and repo paths. The `host` field is the primary SSH target. `fallback_host`, if present, is tried next. The `utm_fallback` block is optional and is only used if SSH targets are unreachable.
+Local CI now prefers a machine-global config at `~/Library/Application Support/Pulp/local-ci/config.json` on macOS (or the platform-equivalent `state_dir()/config.json`) so every worktree on the same machine sees the same host topology. `tools/local-ci/config.json` remains the fallback if no shared config exists, and `PULP_LOCAL_CI_CONFIG` still overrides both when you need an explicit one-off config.
+
+Create the initial file from the example, then copy it to the shared state location if you want all worktrees to reuse it:
+
+```bash
+mkdir -p ~/Library/Application\\ Support/Pulp/local-ci
+cp tools/local-ci/config.example.json ~/Library/Application\\ Support/Pulp/local-ci/config.json
+```
+
+Edit the chosen `config.json` and fill in your SSH hostnames and repo paths. The `host` field is the primary SSH target. `fallback_host`, if present, is tried next. The `utm_fallback` block is optional and is only used if SSH targets are unreachable.
 
 ```json
 {
@@ -175,6 +185,8 @@ pulp ci-local evidence feature/my-branch --limit 3
 
 `pulp ci-local run` is the most common command. It enqueues the current `HEAD`, joins the machine-global queue, and waits until that exact job finishes.
 
+If you pass a branch name explicitly, for example `pulp ci-local run feature/my-branch`, local CI resolves and records that branch tip's exact SHA immediately. This prevents a stale launching checkout from accidentally queuing its own `HEAD` while you intended to validate a different branch.
+
 Use `--smoke` when you want a quicker preflight before a full matrix run. Smoke mode still validates a clean detached worktree and installed SDK export path, but it disables tests, examples, and GPU in that clean build and skips `ctest`. Queue summaries and PR comments label these jobs as `validation=smoke` so they are not mistaken for full validation.
 
 When a rerun is narrow and stays on the exact same SHA, local CI can now reuse the prepared root for that `target + validation` on persistent hosts. Status output calls this out as `prepared=reused` or `prepared=clean` so reused proof is never mistaken for a fresh cold path.
@@ -268,6 +280,8 @@ pulp ci-local bump <job-id> high
 
 Remote targets validate the queued SHA, not the latest branch tip. That keeps queued jobs truthful, and the runner now uploads that exact SHA to SSH targets as a git bundle before validation.
 
+If you queued work with an explicit branch name, the runner first resolves that branch name to a commit SHA and then treats the run exactly like any other exact-SHA validation.
+
 That means this works even for a local-only commit:
 
 ```bash
@@ -278,7 +292,7 @@ pulp ci-local run --targets mac,ubuntu,windows
 
 ## Running Mac-only
 
-If you don't have VMs set up, disable the SSH targets in `config.json`:
+If you don't have VMs set up, disable the SSH targets in your active CI config:
 
 ```json
 "ubuntu": {
@@ -305,4 +319,4 @@ You don't need the same VM setup as the original developer. Options:
 - **Cloud VMs**: Works with any SSH-accessible host. Costs money while running — stop them when not in use.
 - **Physical machines**: A spare Linux box or Windows machine on your network works fine.
 
-`config.json` is gitignored. Your host topology stays local.
+Local CI config is intentionally gitignored. Keep your host topology local, and prefer the machine-global config path so every worktree uses the same host map by default.

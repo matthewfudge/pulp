@@ -21,8 +21,11 @@ Before running any CI command, verify the required tooling exists:
 test -f tools/local-ci/local_ci.py || echo "ERROR: local CI not found — is this a recent checkout?"
 command -v gh >/dev/null || echo "ERROR: gh CLI not installed (brew install gh)"
 
-# Optional (for local CI targets)
-test -f tools/local-ci/config.json || echo "WARNING: no config.json — copy from config.example.json"
+# Preferred (shared machine-global local CI config)
+test -f "$HOME/Library/Application Support/Pulp/local-ci/config.json" || echo "WARNING: no shared local CI config — copy tools/local-ci/config.example.json there"
+
+# Fallback (worktree-local legacy config)
+test -f tools/local-ci/config.json || echo "WARNING: no worktree fallback config.json"
 ```
 
 If `local_ci.py` doesn't exist, the user likely has an older checkout. Tell them to pull latest main.
@@ -61,6 +64,8 @@ Run local CI on the current branch without creating a PR or merging.
 python3 tools/local-ci/local_ci.py run [branch]
 python3 tools/local-ci/local_ci.py run [branch] --smoke
 ```
+
+If you pass a branch name explicitly, `run [branch]` resolves that branch tip to an exact SHA before queueing. It must not silently reuse the launching checkout's `HEAD`.
 
 For SSH targets, `run` uploads the exact queued SHA as a git bundle before validation, so Ubuntu and Windows do not need that branch tip to be visible on the host ahead of time.
 Use `--smoke` for a fast clean install/export preflight when you want early signal before paying for the full test matrix. Smoke runs are explicitly labeled as `validation=smoke`.
@@ -145,6 +150,8 @@ Required behavior while a job is active:
 - Use `validation=smoke` before full CI when the risk is install/export/build structure rather than runtime test behavior.
 - Treat `all targets on one SHA` as a goal, not a reason to blindly rerun already-green same-SHA targets.
 - On persistent local/self-hosted targets, prefer prepared same-SHA reruns for narrow follow-up validation and make `prepared=clean` vs `prepared=reused` visible in status/logs.
+- Prefer the shared machine-global CI config (`state_dir()/config.json`; on macOS `~/Library/Application Support/Pulp/local-ci/config.json`) so every worktree sees the same host map by default.
+- Treat worktree-local `tools/local-ci/config.json` as a fallback or temporary override only. Hostnames and `repo_path` values can drift between worktrees.
 - If a dead runner left behind a stale Windows validator, let the queue reclaim that specific remote validator before starting fresh work; treat that cleanup as part of the truthful narrow-rerun path, not as ad hoc manual SSH.
 
 Minimum incident response once a failure is visible:
@@ -173,7 +180,8 @@ gh run list --limit 5
 
 ## Configuration
 
-Config is at `tools/local-ci/config.json` (gitignored, per-developer).
+Config is machine-global by default at `state_dir()/config.json` (on macOS `~/Library/Application Support/Pulp/local-ci/config.json`).
+`tools/local-ci/config.json` is the gitignored fallback, and `PULP_LOCAL_CI_CONFIG` overrides both.
 Template at `tools/local-ci/config.example.json`.
 
 Key fields:

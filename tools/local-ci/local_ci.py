@@ -75,6 +75,11 @@ def config_path() -> Path:
     override = os.environ.get("PULP_LOCAL_CI_CONFIG")
     if override:
         return Path(override).expanduser()
+
+    shared = state_dir() / "config.json"
+    if shared.exists():
+        return shared
+
     return SCRIPT_DIR / "config.json"
 
 
@@ -261,6 +266,19 @@ def current_sha() -> str:
         text=True,
         check=True,
     )
+    return result.stdout.strip()
+
+
+def resolve_git_ref_sha(ref: str) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"Could not resolve git ref '{ref}': {detail or 'unknown ref'}")
     return result.stdout.strip()
 
 
@@ -2539,7 +2557,12 @@ def format_ci_comment(result: dict) -> str:
 def resolve_submission_options(args: argparse.Namespace, command: str) -> tuple[dict, str, str, list[str], str, str]:
     config = load_config()
     branch = args.branch or current_branch()
-    sha = args.sha or current_sha()
+    if args.sha:
+        sha = args.sha
+    elif args.branch:
+        sha = resolve_git_ref_sha(branch)
+    else:
+        sha = current_sha()
     targets = resolve_targets(config, parse_targets_arg(getattr(args, "targets", None)))
     priority = normalize_priority(getattr(args, "priority", None) or default_priority_for(command, config))
     validation = normalize_validation_mode("smoke" if getattr(args, "smoke", False) else "full")

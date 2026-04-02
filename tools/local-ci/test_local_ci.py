@@ -213,6 +213,56 @@ class LocalCiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.mod.resolve_targets(config, ["windows"])
 
+    def test_config_path_prefers_shared_state_config(self):
+        original_override = os.environ.pop("PULP_LOCAL_CI_CONFIG", None)
+        shared_config = self.state_dir / "config.json"
+        shared_config.parent.mkdir(parents=True, exist_ok=True)
+        shared_config.write_text(
+            json.dumps(
+                {
+                    "targets": {"mac": {"type": "local", "enabled": True}},
+                    "defaults": {"priority": "normal", "targets": ["mac"]},
+                }
+            )
+            + "\n"
+        )
+        try:
+            self.assertEqual(self.mod.config_path(), shared_config)
+        finally:
+            if original_override is None:
+                os.environ.pop("PULP_LOCAL_CI_CONFIG", None)
+            else:
+                os.environ["PULP_LOCAL_CI_CONFIG"] = original_override
+
+    def test_resolve_submission_options_uses_branch_tip_when_branch_is_explicit(self):
+        args = SimpleNamespace(branch="feature/topic", sha=None, targets=None, priority=None, smoke=False)
+
+        original_load_config = self.mod.load_config
+        original_resolve_targets = self.mod.resolve_targets
+        original_default_priority = self.mod.default_priority_for
+        original_resolve_ref = self.mod.resolve_git_ref_sha
+        original_current_sha = self.mod.current_sha
+
+        self.mod.load_config = lambda: {"targets": {"mac": {"type": "local", "enabled": True}}, "defaults": {}}
+        self.mod.resolve_targets = lambda config, requested: ["mac"]
+        self.mod.default_priority_for = lambda command, config: "normal"
+        self.mod.resolve_git_ref_sha = lambda ref: "b" * 40
+        self.mod.current_sha = lambda: "a" * 40
+        try:
+            _config, branch, sha, targets, priority, validation = self.mod.resolve_submission_options(args, "run")
+        finally:
+            self.mod.load_config = original_load_config
+            self.mod.resolve_targets = original_resolve_targets
+            self.mod.default_priority_for = original_default_priority
+            self.mod.resolve_git_ref_sha = original_resolve_ref
+            self.mod.current_sha = original_current_sha
+
+        self.assertEqual(branch, "feature/topic")
+        self.assertEqual(sha, "b" * 40)
+        self.assertEqual(targets, ["mac"])
+        self.assertEqual(priority, "normal")
+        self.assertEqual(validation, "full")
+
     def test_stale_running_job_requeues_when_runner_dies(self):
         job = self.mod.make_job("feature/stale", "3" * 40, "normal", ["mac"], "run", "full")
         job["status"] = "running"
