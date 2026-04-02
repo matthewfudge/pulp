@@ -20,7 +20,7 @@
 | 9 | Widgets + assets + themes | phase/dsl-agentic-webgpu-v3-phase9 | **complete** | [#72](https://github.com/danielraffel/pulp/pull/72) | pending Phase 14 |
 | 10 | JS engine abstraction (V8/JSC) | phase/dsl-agentic-webgpu-v3-phase10 | **complete** (core abstraction merged; readiness floor now partially proven) | [#63](https://github.com/danielraffel/pulp/pull/63) | pending Phase 14 |
 | 11 | WebGPU compute exploration | phase/dsl-agentic-webgpu-v3-phase11 | **complete** | [#64](https://github.com/danielraffel/pulp/pull/64) | pending Phase 14 |
-| 12 | Offline video exploration | phase/dsl-agentic-webgpu-v3-phase12 | not started | — | — |
+| 12 | Offline video exploration | feature/v3-phase12-offline-video | **complete** (exploration only; library-first recommendation) | [#101](https://github.com/danielraffel/pulp/pull/101) | macOS PNG-sequence proof + explicit offline transport stepping |
 | 13 | Three.js / WebGPU JS bridge | phase/dsl-agentic-webgpu-v3-phase13 | not started (readiness pass complete; implementation next) | — | readiness floor proven; pending Phase 14 |
 | 14 | Verification pass | — | blocked (needs 7, 12, 13, plus explicit parked disposition for 4/5) | — | — |
 
@@ -46,7 +46,7 @@ These phases are already on `main`:
 Current recommended landing order:
 - [x] Status / planning truth refresh
 - [x] Phase 13 readiness pass (see `planning/v3-phase13-readiness.md`; typed arrays + V8 proof + first host-object slice + first promise slice + first truthful bridge smoke slice landed)
-- [ ] Phase 12 — Offline video exploration
+- [x] Phase 12 — Offline video exploration
 - [ ] Phase 13 — Three.js / WebGPU JS bridge
 - [ ] Phase 14 — Final verification pass
 
@@ -185,9 +185,9 @@ Record when each phase lands with notes on what was delivered vs what was deferr
 
 ### Phase 12 — Offline video exploration
 - **Merged:** —
-- **Delivered:** —
-- **Deferred:** —
-- **Notes:** now unblocked because Phases 2 and 11 are merged
+- **Delivered:** feasibility report, explicit `HeadlessHost` transport-context stepping, and a macOS-first deterministic PNG-sequence proof
+- **Deferred:** in-tree MP4/ProRes encoding, cross-platform capture parity, and GPU-faithful offscreen capture proof
+- **Notes:** recommendation is to proceed only as a library-first / PNG-sequence capability if followed up; do not overclaim a shipped offline-video feature yet
 
 ### Phase 13 — Three.js / WebGPU JS bridge
 - **Merged:** —
