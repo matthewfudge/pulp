@@ -98,6 +98,11 @@ Element.prototype.getContext = function(kind) {
         if (!this._canvasContext2d) this._canvasContext2d = new CanvasRenderingContext2D(this);
         return this._canvasContext2d;
     }
-    if (kind === "webgpu") return null;
+    if (kind === "webgpu") {
+        if (!this._canvasContextWebgpu && typeof __createMockGPUCanvasContext === "function") {
+            this._canvasContextWebgpu = __createMockGPUCanvasContext(this);
+        }
+        return this._canvasContextWebgpu || null;
+    }
     return null;
 };

@@ -50,15 +50,16 @@ READINESS SNAPSHOT (2026-04-02):
 CURRENT IMPLEMENTATION TRUTH (current local slices):
 - The current bridge slices stay narrow and truthful:
   - `HTMLCanvasElement.getContext('2d')` is backed by the existing `CanvasWidget` bridge
-  - `HTMLCanvasElement.getContext('webgpu')` returns `null`
+  - `HTMLCanvasElement.getContext('webgpu')` now returns a mock `GPUCanvasContext`
   - `window.pulp.gpu.getInfo()` exposes native GPU availability/backend truth
   - `navigator.gpu` is now present as a browser-shaped entry object
   - `navigator.gpu.getPreferredCanvasFormat()` returns `"bgra8unorm"`
   - `navigator.gpu.requestAdapter()` returns a real JS `Promise` that resolves to a mock adapter object
+  - a first mock object graph now exists behind that entry surface: `GPUAdapter`, `GPUDevice`, `GPUQueue`, `GPUBuffer`, `GPUTexture`, `GPUCommandEncoder`, and `GPUCanvasContext`
   - core WebGPU globals are now present for bitmask-driven browser code: `GPUBufferUsage`, `GPUTextureUsage`, `GPUMapMode`, `GPUShaderStage`, and `GPUColorWrite`
   - browser helper shims from the older monolith are now present in the split prelude too: `performance.now`, storage, `Image`, `atob`/`btoa`, `crypto.getRandomValues`, `TextEncoder`, `TextDecoder`, and `structuredClone`
   - asset-backed browser helpers now exist for bundled/local resources: `window.pulp.fetch`, `Response`, `Blob`, and `URL.createObjectURL`, backed by `AssetManager`
-- These slices are useful because they prove the browser-style surface can attach to native rendering and GPU facts, expose the first synchronous global constants that real WebGPU libraries expect, and now cover common browser helper APIs that loader code tends to assume, without claiming a real `GPUDevice`, WGSL execution, or Three.js compatibility yet.
+- These slices are useful because they prove the browser-style surface can attach to native rendering and GPU facts, expose the first synchronous global constants and early object graph that real WebGPU libraries expect, and now cover common browser helper APIs that loader code tends to assume, without claiming a real Dawn-backed `GPUDevice`, WGSL execution, or Three.js compatibility yet.
 - UTF-8 JSON payloads now have explicit focused proof across the native asset bridge, including byte-length preservation and canonical `application/json;charset=utf-8` data-URI handling.
 - DOM `id` and native widget `_id` are not yet the same contract; do not overclaim DOM/native parity until that seam is intentionally raised.
 - Promise-returning seams are currently proven only at the "real JS Promise object exists" level. The stock backend wrappers do not yet provide a portable cross-backend guarantee that settled `.then(...)` callbacks are observable from synchronous evaluation loops, so do not overclaim resolved adapter/device semantics yet.

@@ -192,7 +192,7 @@ TEST_CASE("WebCompat: createElement tagName", "[webcompat][element]") {
     REQUIRE(std::string(result.getWithDefault<std::string_view>("")) == "SPAN");
 }
 
-TEST_CASE("WebCompat: canvas getContext returns 2d context and rejects webgpu", "[webcompat][canvas]") {
+TEST_CASE("WebCompat: canvas getContext returns 2d and mock webgpu contexts", "[webcompat][canvas]") {
     TestEnvironment env;
     env.eval(R"(
         var canvas = document.createElement('canvas');
@@ -203,9 +203,11 @@ TEST_CASE("WebCompat: canvas getContext returns 2d context and rejects webgpu", 
     )");
 
     auto has2d = env.engine.evaluate("document.getElementById('phase13-canvas').getContext('2d') !== null");
-    auto hasWebGpu = env.engine.evaluate("document.getElementById('phase13-canvas').getContext('webgpu') === null");
+    auto webGpuType = env.engine.evaluate("document.getElementById('phase13-canvas').getContext('webgpu')._objectName");
+    auto hasWebGpuConfigure = env.engine.evaluate("typeof document.getElementById('phase13-canvas').getContext('webgpu').configure");
     REQUIRE(has2d.getWithDefault<bool>(false) == true);
-    REQUIRE(hasWebGpu.getWithDefault<bool>(false) == true);
+    REQUIRE(std::string(webGpuType.getWithDefault<std::string_view>("")) == "GPUCanvasContext");
+    REQUIRE(std::string(hasWebGpuConfigure.getWithDefault<std::string_view>("")) == "function");
 
     env.root.layout_children();
     auto nativeIdValue = env.engine.evaluate("document.getElementById('phase13-canvas')._id");
@@ -234,6 +236,60 @@ TEST_CASE("WebCompat: navigator.gpu exposes preferred format and adapter promise
     REQUIRE(std::string(format.getWithDefault<std::string_view>("")) == "bgra8unorm");
     REQUIRE(std::string(promiseTag.getWithDefault<std::string_view>("")) == "[object Promise]");
     REQUIRE(std::string(thenType.getWithDefault<std::string_view>("")) == "function");
+}
+
+TEST_CASE("WebCompat: mock adapter and device graph expose early WebGPU entry points", "[webcompat][canvas][gpu]") {
+    TestEnvironment env;
+
+    auto adapterName = env.engine.evaluate("window.pulp.gpu.createMockAdapter().name");
+    auto adapterFeature = env.engine.evaluate("window.pulp.gpu.createMockAdapter().features.has('timestamp-query')");
+    auto deviceQueueType = env.engine.evaluate("window.pulp.gpu.createMockDevice(window.pulp.gpu.createMockAdapter(), { requiredFeatures: ['timestamp-query'] }).queue._objectName");
+    auto deviceFeature = env.engine.evaluate("window.pulp.gpu.createMockDevice(window.pulp.gpu.createMockAdapter(), { requiredFeatures: ['timestamp-query'] }).features.has('timestamp-query')");
+    auto bufferSize = env.engine.evaluate("window.pulp.gpu.createMockDevice().createBuffer({ size: 64, usage: GPUBufferUsage.COPY_DST }).size");
+    auto textureViewFormat = env.engine.evaluate("window.pulp.gpu.createMockDevice().createTexture({ size: { width: 16, height: 8 }, format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING }).createView().format");
+    auto commandBufferType = env.engine.evaluate("window.pulp.gpu.createMockDevice().createCommandEncoder().finish()._objectName");
+
+    REQUIRE(std::string(adapterName.getWithDefault<std::string_view>("")) == "Mock Dawn Adapter");
+    REQUIRE(adapterFeature.getWithDefault<bool>(false) == true);
+    REQUIRE(std::string(deviceQueueType.getWithDefault<std::string_view>("")) == "GPUQueue");
+    REQUIRE(deviceFeature.getWithDefault<bool>(false) == true);
+    REQUIRE(bufferSize.getWithDefault<int32_t>(0) == 64);
+    REQUIRE(std::string(textureViewFormat.getWithDefault<std::string_view>("")) == "rgba8unorm");
+    REQUIRE(std::string(commandBufferType.getWithDefault<std::string_view>("")) == "GPUCommandBuffer");
+}
+
+TEST_CASE("WebCompat: mock GPUCanvasContext configures and returns current texture views", "[webcompat][canvas][gpu]") {
+    TestEnvironment env;
+    env.eval(R"(
+        var canvas = document.createElement('canvas');
+        canvas.id = 'phase13-webgpu-canvas';
+        canvas.width = 256;
+        canvas.height = 144;
+        document.body.appendChild(canvas);
+    )");
+
+    auto configuredFormat = env.engine.evaluate(R"(
+        (function() {
+            var adapter = window.pulp.gpu.createMockAdapter();
+            var device = window.pulp.gpu.createMockDevice(adapter, { requiredFeatures: ['timestamp-query'] });
+            var context = document.getElementById('phase13-webgpu-canvas').getContext('webgpu');
+            context.configure({
+                device: device,
+                format: navigator.gpu.getPreferredCanvasFormat(),
+                alphaMode: 'premultiplied'
+            });
+            return context.getCurrentTexture().createView().format;
+        })()
+    )");
+    auto currentTextureWidth = env.engine.evaluate(R"(
+        (function() {
+            var context = document.getElementById('phase13-webgpu-canvas').getContext('webgpu');
+            return context.getCurrentTexture().width;
+        })()
+    )");
+
+    REQUIRE(std::string(configuredFormat.getWithDefault<std::string_view>("")) == "bgra8unorm");
+    REQUIRE(currentTextureWidth.getWithDefault<int32_t>(0) == 256);
 }
 
 TEST_CASE("WebCompat: WebGPU globals expose core usage and stage constants", "[webcompat][canvas][gpu]") {

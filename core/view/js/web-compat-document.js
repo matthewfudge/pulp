@@ -365,11 +365,429 @@ __installGlobalIfMissing("GPUColorWrite", {
     ALL: 0xF
 });
 
+function __cloneObject(source) {
+    var out = {};
+    if (!source) return out;
+    for (var key in source) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+            out[key] = source[key];
+        }
+    }
+    return out;
+}
+
+function __normalizedFeatureList(values, fallback) {
+    var list = [];
+    function pushValue(value) {
+        var text = String(value);
+        if (list.indexOf(text) < 0) list.push(text);
+    }
+
+    if (values && typeof values.length === "number") {
+        for (var i = 0; i < values.length; ++i) pushValue(values[i]);
+    }
+
+    if (list.length === 0 && fallback && typeof fallback.length === "number") {
+        for (var j = 0; j < fallback.length; ++j) pushValue(fallback[j]);
+    }
+
+    return list;
+}
+
+function __createFeatureSet(values) {
+    var list = __normalizedFeatureList(values, []);
+    return {
+        _values: list.slice(),
+        size: list.length,
+        has: function(name) {
+            return list.indexOf(String(name)) >= 0;
+        },
+        values: function() {
+            return list.slice();
+        },
+        keys: function() {
+            return list.slice();
+        },
+        forEach: function(fn, thisArg) {
+            for (var i = 0; i < list.length; ++i) {
+                fn.call(thisArg, list[i], list[i], this);
+            }
+        }
+    };
+}
+
+function __defaultMockGpuLimits() {
+    return {
+        maxTextureDimension2D: 4096,
+        maxColorAttachments: 4,
+        maxBindGroups: 4,
+        maxBufferSize: 16777216,
+        maxStorageBufferBindingSize: 16777216,
+        maxUniformBufferBindingSize: 65536
+    };
+}
+
+function __mergeMockGpuLimits(overrides) {
+    var limits = __defaultMockGpuLimits();
+    overrides = overrides || {};
+    for (var key in overrides) {
+        if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+            limits[key] = overrides[key];
+        }
+    }
+    return limits;
+}
+
+function __mockGpuInfo() {
+    if (typeof getGPUInfo === "function") return getGPUInfo();
+    return { available: false, backend: "unavailable" };
+}
+
+function __mockPreferredCanvasFormat() {
+    if (typeof navigatorGPU !== "undefined" && navigatorGPU
+            && typeof navigatorGPU.getPreferredCanvasFormat === "function") {
+        return navigatorGPU.getPreferredCanvasFormat();
+    }
+    return "bgra8unorm";
+}
+
+function __textureExtent(sizeLike) {
+    if (Array.isArray(sizeLike)) {
+        return {
+            width: sizeLike[0] || 1,
+            height: sizeLike[1] || 1,
+            depthOrArrayLayers: sizeLike[2] || 1
+        };
+    }
+    sizeLike = sizeLike || {};
+    return {
+        width: sizeLike.width || sizeLike.inlineSize || 1,
+        height: sizeLike.height || sizeLike.blockSize || 1,
+        depthOrArrayLayers: sizeLike.depthOrArrayLayers || sizeLike.depth || 1
+    };
+}
+
+function __createMockGPUBuffer(init) {
+    init = init || {};
+    var buffer = {
+        _objectName: "GPUBuffer",
+        label: init.label || "",
+        size: init.size || 0,
+        usage: init.usage || 0,
+        mapState: "unmapped",
+        _destroyed: false,
+        _bytes: new Uint8Array(init.size || 0)
+    };
+    buffer.mapAsync = function() {
+        buffer.mapState = "mapped";
+        return Promise.resolve(undefined);
+    };
+    buffer.getMappedRange = function(offset, size) {
+        var begin = offset || 0;
+        var end = size == null ? buffer.size : begin + size;
+        return buffer._bytes.buffer.slice(begin, end);
+    };
+    buffer.unmap = function() { buffer.mapState = "unmapped"; };
+    buffer.destroy = function() { buffer._destroyed = true; };
+    return buffer;
+}
+
+function __createMockGPUTextureView(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUTextureView",
+        label: init.label || "",
+        format: init.format || __mockPreferredCanvasFormat(),
+        dimension: init.dimension || "2d",
+        aspect: init.aspect || "all",
+        texture: init.texture || null
+    };
+}
+
+function __createMockGPUTexture(init) {
+    init = init || {};
+    var size = __textureExtent(init.size);
+    var texture = {
+        _objectName: "GPUTexture",
+        label: init.label || "",
+        width: size.width,
+        height: size.height,
+        depthOrArrayLayers: size.depthOrArrayLayers,
+        dimension: init.dimension || "2d",
+        format: init.format || __mockPreferredCanvasFormat(),
+        usage: init.usage || GPUTextureUsage.RENDER_ATTACHMENT,
+        mipLevelCount: init.mipLevelCount || 1,
+        sampleCount: init.sampleCount || 1,
+        _destroyed: false
+    };
+    texture.createView = function(descriptor) {
+        descriptor = descriptor || {};
+        return __createMockGPUTextureView({
+            label: descriptor.label || texture.label,
+            format: descriptor.format || texture.format,
+            dimension: descriptor.dimension || texture.dimension,
+            aspect: descriptor.aspect || "all",
+            texture: texture
+        });
+    };
+    texture.destroy = function() { texture._destroyed = true; };
+    return texture;
+}
+
+function __createMockGPUCommandBuffer(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUCommandBuffer",
+        label: init.label || ""
+    };
+}
+
+function __createMockGPURenderPassEncoder(init) {
+    init = init || {};
+    return {
+        _objectName: "GPURenderPassEncoder",
+        label: init.label || "",
+        setPipeline: function() {},
+        setBindGroup: function() {},
+        setVertexBuffer: function() {},
+        setIndexBuffer: function() {},
+        setViewport: function() {},
+        setScissorRect: function() {},
+        setStencilReference: function() {},
+        draw: function() {},
+        drawIndexed: function() {},
+        end: function() {}
+    };
+}
+
+function __createMockGPUComputePassEncoder(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUComputePassEncoder",
+        label: init.label || "",
+        setPipeline: function() {},
+        setBindGroup: function() {},
+        dispatchWorkgroups: function() {},
+        dispatchWorkgroupsIndirect: function() {},
+        end: function() {}
+    };
+}
+
+function __createMockGPUCommandEncoder(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUCommandEncoder",
+        label: init.label || "",
+        beginRenderPass: function(descriptor) {
+            return __createMockGPURenderPassEncoder({ label: descriptor && descriptor.label ? descriptor.label : "" });
+        },
+        beginComputePass: function(descriptor) {
+            return __createMockGPUComputePassEncoder({ label: descriptor && descriptor.label ? descriptor.label : "" });
+        },
+        copyBufferToBuffer: function() {},
+        copyTextureToBuffer: function() {},
+        copyBufferToTexture: function() {},
+        finish: function(descriptor) {
+            return __createMockGPUCommandBuffer({ label: descriptor && descriptor.label ? descriptor.label : "" });
+        }
+    };
+}
+
+function __createMockGPUShaderModule(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUShaderModule",
+        label: init.label || "",
+        code: init.code || "",
+        getCompilationInfo: function() {
+            return Promise.resolve({ messages: [] });
+        }
+    };
+}
+
+function __createMockGPUBindGroupLayout(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUBindGroupLayout",
+        label: init.label || "",
+        entries: init.entries || []
+    };
+}
+
+function __createMockGPUBindGroup(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUBindGroup",
+        label: init.label || "",
+        layout: init.layout || null,
+        entries: init.entries || []
+    };
+}
+
+function __createMockGPUPipelineLayout(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUPipelineLayout",
+        label: init.label || "",
+        bindGroupLayouts: init.bindGroupLayouts || []
+    };
+}
+
+function __createMockGPURenderPipeline(init) {
+    init = init || {};
+    var pipeline = {
+        _objectName: "GPURenderPipeline",
+        label: init.label || "",
+        _bindGroupLayouts: init.bindGroupLayouts || []
+    };
+    pipeline.getBindGroupLayout = function(index) {
+        return pipeline._bindGroupLayouts[index] || __createMockGPUBindGroupLayout({});
+    };
+    return pipeline;
+}
+
+function __createMockGPUSampler(init) {
+    init = init || {};
+    return {
+        _objectName: "GPUSampler",
+        label: init.label || "",
+        addressModeU: init.addressModeU || "clamp-to-edge",
+        addressModeV: init.addressModeV || "clamp-to-edge",
+        magFilter: init.magFilter || "nearest",
+        minFilter: init.minFilter || "nearest"
+    };
+}
+
+function __createMockGPUQueue(init) {
+    init = init || {};
+    var queue = {
+        _objectName: "GPUQueue",
+        label: init.label || "",
+        _submitCount: 0
+    };
+    queue.submit = function(commandBuffers) {
+        queue._submitCount += commandBuffers && typeof commandBuffers.length === "number" ? commandBuffers.length : 0;
+    };
+    queue.writeBuffer = function(buffer, bufferOffset, data, dataOffset, size) {
+        if (!buffer || buffer._objectName !== "GPUBuffer") return;
+        var source = __toUint8Array(data);
+        var begin = bufferOffset || 0;
+        var sliceOffset = dataOffset || 0;
+        var sliceSize = size == null ? source.length - sliceOffset : size;
+        buffer._bytes.set(source.slice(sliceOffset, sliceOffset + sliceSize), begin);
+    };
+    queue.writeTexture = function() {};
+    queue.copyExternalImageToTexture = function() {};
+    queue.onSubmittedWorkDone = function() {
+        return Promise.resolve(undefined);
+    };
+    return queue;
+}
+
+function __pickDeviceFeatures(adapter, descriptor) {
+    var requested = descriptor && descriptor.requiredFeatures ? descriptor.requiredFeatures : [];
+    var available = adapter && adapter.features ? adapter.features.values() : [];
+    if (!requested || requested.length === 0) return available;
+    var picked = [];
+    for (var i = 0; i < requested.length; ++i) {
+        var feature = String(requested[i]);
+        if (available.indexOf(feature) >= 0 && picked.indexOf(feature) < 0) {
+            picked.push(feature);
+        }
+    }
+    if (picked.indexOf("core-features-and-limits") < 0) {
+        picked.push("core-features-and-limits");
+    }
+    return picked;
+}
+
+function __createMockGPUDevice(adapter, descriptor) {
+    descriptor = descriptor || {};
+    var device = {
+        _objectName: "GPUDevice",
+        label: descriptor.label || "",
+        features: __createFeatureSet(__pickDeviceFeatures(adapter, descriptor)),
+        limits: __mergeMockGpuLimits(descriptor.requiredLimits),
+        queue: __createMockGPUQueue({}),
+        adapterInfo: adapter && adapter.info ? adapter.info : null,
+        lost: new Promise(function() {}),
+        _destroyed: false
+    };
+    device.createBuffer = function(bufferDescriptor) { return __createMockGPUBuffer(bufferDescriptor || {}); };
+    device.createTexture = function(textureDescriptor) { return __createMockGPUTexture(textureDescriptor || {}); };
+    device.createSampler = function(samplerDescriptor) { return __createMockGPUSampler(samplerDescriptor || {}); };
+    device.createShaderModule = function(shaderDescriptor) { return __createMockGPUShaderModule(shaderDescriptor || {}); };
+    device.createBindGroupLayout = function(layoutDescriptor) { return __createMockGPUBindGroupLayout(layoutDescriptor || {}); };
+    device.createBindGroup = function(bindGroupDescriptor) { return __createMockGPUBindGroup(bindGroupDescriptor || {}); };
+    device.createPipelineLayout = function(layoutDescriptor) { return __createMockGPUPipelineLayout(layoutDescriptor || {}); };
+    device.createRenderPipeline = function(pipelineDescriptor) {
+        pipelineDescriptor = pipelineDescriptor || {};
+        return __createMockGPURenderPipeline({
+            label: pipelineDescriptor.label || "",
+            bindGroupLayouts: pipelineDescriptor.layout && pipelineDescriptor.layout.bindGroupLayouts
+                ? pipelineDescriptor.layout.bindGroupLayouts : []
+        });
+    };
+    device.createCommandEncoder = function(commandDescriptor) { return __createMockGPUCommandEncoder(commandDescriptor || {}); };
+    device.destroy = function() { device._destroyed = true; };
+    return device;
+}
+
+function __createMockGPUAdapter(init) {
+    init = init || {};
+    var adapter = {
+        _objectName: "GPUAdapter",
+        name: init.name || "Mock Dawn Adapter",
+        backend: init.backend || __mockGpuInfo().backend,
+        preferredCanvasFormat: init.preferredCanvasFormat || __mockPreferredCanvasFormat(),
+        features: __createFeatureSet(init.features || [ "core-features-and-limits", "timestamp-query" ]),
+        limits: __mergeMockGpuLimits(init.limits),
+        info: init.info || { vendor: "Pulp", architecture: init.backend || __mockGpuInfo().backend, description: init.name || "Mock Dawn Adapter" }
+    };
+    adapter.requestDevice = function(descriptor) {
+        return Promise.resolve(__createMockGPUDevice(adapter, descriptor || {}));
+    };
+    return adapter;
+}
+
+function __createMockGPUCanvasContext(canvasEl) {
+    var context = {
+        _objectName: "GPUCanvasContext",
+        canvas: canvasEl,
+        _configured: false,
+        device: null,
+        format: __mockPreferredCanvasFormat(),
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        alphaMode: "opaque"
+    };
+    context.configure = function(descriptor) {
+        descriptor = descriptor || {};
+        context._configured = true;
+        context.device = descriptor.device || null;
+        context.format = descriptor.format || __mockPreferredCanvasFormat();
+        context.usage = descriptor.usage || GPUTextureUsage.RENDER_ATTACHMENT;
+        context.alphaMode = descriptor.alphaMode || "opaque";
+    };
+    context.getCurrentTexture = function() {
+        return __createMockGPUTexture({
+            size: {
+                width: context.canvas && context.canvas.width ? context.canvas.width : 1,
+                height: context.canvas && context.canvas.height ? context.canvas.height : 1
+            },
+            format: context.format,
+            usage: context.usage,
+            label: (context.canvas && context.canvas.id ? context.canvas.id : "pulp-canvas") + "-current-texture"
+        });
+    };
+    context.present = function() {};
+    return context;
+}
+
 var navigator = globalThis.navigator || {};
 if (typeof navigatorGPU !== "undefined" && navigatorGPU) {
     navigator.gpu = navigatorGPU;
     navigator.gpu.requestAdapter = function() {
-        return __requestAdapterImpl();
+        return Promise.resolve(window.pulp.gpu.createMockAdapter());
     };
 }
 window.navigator = navigator;
@@ -750,5 +1168,17 @@ window.pulp.gpu = {
     getInfo: function() {
         if (typeof getGPUInfo === "function") return getGPUInfo();
         return { available: false, backend: "unavailable" };
+    },
+    createMockAdapter: function() {
+        var info = __mockGpuInfo();
+        return __createMockGPUAdapter({
+            backend: info.backend,
+            preferredCanvasFormat: __mockPreferredCanvasFormat()
+        });
+    },
+    createMockDevice: function(adapter, descriptor) {
+        adapter = adapter && adapter._objectName === "GPUAdapter" ? adapter : window.pulp.gpu.createMockAdapter();
+        descriptor = descriptor || {};
+        return __createMockGPUDevice(adapter, descriptor);
     }
 };
