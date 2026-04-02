@@ -12,6 +12,8 @@ NO_LOCK=false
 REF="HEAD"
 EXCLUDE_REGEX=""
 EXPECT_SMOKE="${PULP_EXPECT_SMOKE:-0}"
+REUSE_PREPARED="${PULP_VALIDATE_REUSE_PREPARED:-0}"
+ROOT_OVERRIDE="${PULP_VALIDATE_ROOT_OVERRIDE:-}"
 ORIGINAL_ARGS=("$@")
 
 while [ $# -gt 0 ]; do
@@ -139,7 +141,11 @@ PY
 
 acquire_validation_lock "${ORIGINAL_ARGS[@]}"
 
-tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/pulp-validate.XXXXXX")"
+if [ -n "$ROOT_OVERRIDE" ]; then
+    tmp_root="$ROOT_OVERRIDE"
+else
+    tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/pulp-validate.XXXXXX")"
+fi
 src_dir="$tmp_root/src"
 build_dir="$tmp_root/build"
 setup_log="$tmp_root/setup.log"
@@ -150,6 +156,7 @@ install_log="$tmp_root/install.log"
 smoke_dir="$tmp_root/sdk-smoke"
 smoke_log="$tmp_root/smoke.log"
 test_log="$tmp_root/test.log"
+prepared_state_file="$tmp_root/prepared-state.txt"
 
 cleanup() {
     if [ "$KEEP_WORKTREE" = true ]; then
@@ -160,6 +167,38 @@ cleanup() {
     rm -rf "$tmp_root"
 }
 trap cleanup EXIT
+
+validation_mode="full"
+if [ "$SMOKE_ONLY" = true ]; then
+    validation_mode="smoke"
+fi
+
+prepared_state_matches() {
+    [ -f "$prepared_state_file" ] || return 1
+    [ -d "$src_dir" ] || return 1
+    [ -d "$build_dir" ] || return 1
+    [ -d "$install_dir" ] || return 1
+
+    local stored_ref stored_validation current_ref
+    stored_ref="$(sed -n '1p' "$prepared_state_file" 2>/dev/null || true)"
+    stored_validation="$(sed -n '2p' "$prepared_state_file" 2>/dev/null || true)"
+    current_ref="$(git -C "$src_dir" rev-parse HEAD 2>/dev/null || true)"
+
+    [ "$stored_ref" = "$REF" ] &&
+        [ "$stored_validation" = "$validation_mode" ] &&
+        [ "$current_ref" = "$REF" ]
+}
+
+reset_prepared_root() {
+    git -C "$ROOT" worktree remove --force "$src_dir" >/dev/null 2>&1 || true
+    rm -rf "$tmp_root"
+    mkdir -p "$tmp_root"
+}
+
+write_prepared_state() {
+    mkdir -p "$tmp_root"
+    printf '%s\n%s\n' "$REF" "$validation_mode" >"$prepared_state_file"
+}
 
 if ! $QUIET; then
     echo "Creating clean validation worktree..."
@@ -174,7 +213,13 @@ if [ "$SKIP_TESTS" = true ]; then
 else
     echo "__PULP_TEST_POLICY__:run"
 fi
-git -C "$ROOT" worktree add --detach "$src_dir" "$REF" >/dev/null
+if [ "$REUSE_PREPARED" = "1" ] && prepared_state_matches; then
+    echo "__PULP_PREPARED__:reused"
+else
+    echo "__PULP_PREPARED__:clean"
+    reset_prepared_root
+    git -C "$ROOT" worktree add --detach "$src_dir" "$REF" >/dev/null
+fi
 
 run_or_dump() {
     local label="$1"
@@ -213,6 +258,8 @@ EOF
 
 run_or_dump "install smoke test" "$smoke_log" \
     cmake -S "$smoke_dir" -B "$smoke_dir/build" -DCMAKE_PREFIX_PATH="$install_dir"
+
+write_prepared_state
 
 if [ "$SKIP_TESTS" = false ]; then
     if [ "$SMOKE_ONLY" = true ]; then

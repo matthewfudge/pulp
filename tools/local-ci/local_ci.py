@@ -814,11 +814,11 @@ def load_result(path: Path) -> dict:
 
 
 def empty_evidence_index() -> dict:
-    return {"version": 1, "entries": {}}
+    return {"version": 2, "entries": {}}
 
 
-def evidence_entry_key(sha: str, target: str, validation: str) -> str:
-    return f"{sha}:{validation}:{target}"
+def evidence_entry_key(branch: str, sha: str, target: str, validation: str) -> str:
+    return f"{branch}:{sha}:{validation}:{target}"
 
 
 def normalize_evidence_index(index: dict | None) -> dict:
@@ -850,7 +850,9 @@ def merge_result_into_evidence_index(index: dict, result: dict, result_path: Pat
         if item.get("status") != "pass":
             continue
         record = evidence_record_from_result(result, item, result_path)
-        key = evidence_entry_key(record["sha"], record["target"], record["validation"])
+        key = evidence_entry_key(
+            record["branch"], record["sha"], record["target"], record["validation"]
+        )
         existing = index["entries"].get(key)
         if existing and existing.get("completed_at", "") >= record["completed_at"]:
             continue
@@ -878,6 +880,8 @@ def load_evidence_index_unlocked() -> tuple[dict, bool]:
     try:
         index = normalize_evidence_index(json.loads(path.read_text()))
     except (OSError, json.JSONDecodeError):
+        return rebuild_evidence_index_unlocked(), True
+    if index.get("version") != empty_evidence_index()["version"]:
         return rebuild_evidence_index_unlocked(), True
     return index, False
 
@@ -1112,7 +1116,17 @@ def parse_progress_marker(line: str) -> dict:
         return {"validation_mode": stripped.split(":", 1)[1]}
     if stripped.startswith("__PULP_TEST_POLICY__:"):
         return {"test_policy": stripped.split(":", 1)[1]}
+    if stripped.startswith("__PULP_PREPARED__:"):
+        return {"prepared_state": stripped.split(":", 1)[1]}
     return {}
+
+
+def prepared_state_root(target_name: str, validation: str) -> Path:
+    return state_dir() / "prepared" / target_name / normalize_validation_mode(validation)
+
+
+def should_reuse_prepared_state(job: dict) -> bool:
+    return len(job.get("targets", [])) == 1
 
 
 def run_logged_command(
@@ -1225,9 +1239,27 @@ def run_local_validation(job: dict, exclude_tests: str = "", report_progress=Non
     if report_progress:
         report_progress(phase="validate", log_path=str(log_path), last_output_at=now_iso())
 
-    cmd = ["./validate-build.sh", "--quiet", "--ref", job["sha"]]
-    if job.get("validation") == "smoke":
-        cmd = ["env", "PULP_EXPECT_SMOKE=1", *cmd, "--smoke", "--no-tests"]
+    validation = job.get("validation", "full")
+    prepared_root = prepared_state_root("mac", validation)
+    reuse_prepared = should_reuse_prepared_state(job)
+    env_args = [
+        f"PULP_VALIDATE_ROOT_OVERRIDE={prepared_root}",
+        f"PULP_VALIDATE_REUSE_PREPARED={'1' if reuse_prepared else '0'}",
+    ]
+    cmd = ["env", *env_args, "./validate-build.sh", "--quiet", "--keep-worktree", "--ref", job["sha"]]
+    if validation == "smoke":
+        cmd = [
+            "env",
+            *env_args,
+            "PULP_EXPECT_SMOKE=1",
+            "./validate-build.sh",
+            "--quiet",
+            "--keep-worktree",
+            "--ref",
+            job["sha"],
+            "--smoke",
+            "--no-tests",
+        ]
     if exclude_tests:
         cmd += ["--exclude-regex", exclude_tests]
 
@@ -1243,7 +1275,7 @@ def run_local_validation(job: dict, exclude_tests: str = "", report_progress=Non
             "log_file": str(log_path),
         }
     tail = run["output"][-2000:] if run["output"] else ""
-    if job.get("validation") == "smoke":
+    if validation == "smoke":
         if "__PULP_VALIDATION__:smoke" not in run["output"] or "__PULP_TEST_POLICY__:skip" not in run["output"]:
             failed = True
             tail = (
@@ -1262,7 +1294,7 @@ def run_local_validation(job: dict, exclude_tests: str = "", report_progress=Non
         "stdout_tail": "" if failed else tail,
         "stderr_tail": tail if failed else "",
         "log_file": str(log_path),
-        "validation": job.get("validation", "full"),
+        "validation": validation,
     }
 
 
@@ -1298,6 +1330,8 @@ def run_posix_ssh_validation(
     bundle_name_q = shlex.quote(bundle_name)
     bundle_ref_q = shlex.quote(bundle_ref)
     script_name_q = shlex.quote(f".pulp-ci-validate-{job['id']}.sh")
+    validation = normalize_validation_mode(job.get("validation", "full"))
+    reuse_prepared_q = shlex.quote("1" if should_reuse_prepared_state(job) else "0")
     remote_cmd = (
         "set -euo pipefail; "
         f"branch={branch_q}; "
@@ -1305,7 +1339,9 @@ def run_posix_ssh_validation(
         f"bundle_name={bundle_name_q}; "
         f"bundle_ref={bundle_ref_q}; "
         f"script_name={script_name_q}; "
+        f"reuse_prepared={reuse_prepared_q}; "
         "bundle=\"$HOME/$bundle_name\"; "
+        f"prepared_root=\"$HOME/.local/state/pulp/local-ci/prepared/{target_name}/{validation}\"; "
         "script=''; "
         "trap 'rm -f \"$bundle\" \"$script\"' EXIT; "
         "export GIT_LFS_SKIP_SMUDGE=1; "
@@ -1327,9 +1363,12 @@ def run_posix_ssh_validation(
         "printf '__PULP_PHASE__:validate\n'; "
         "git show \"$sha:validate-build.sh\" > \"$script\"; "
         "chmod +x \"$script\"; "
-        "PULP_EXPECT_SMOKE=0 bash \"$script\" --quiet --ref \"$sha\""
+        "PULP_VALIDATE_ROOT_OVERRIDE=\"$prepared_root\" "
+        "PULP_VALIDATE_REUSE_PREPARED=\"$reuse_prepared\" "
+        "PULP_EXPECT_SMOKE=0 "
+        "bash \"$script\" --quiet --keep-worktree --ref \"$sha\""
     )
-    if job.get("validation") == "smoke":
+    if validation == "smoke":
         remote_cmd = remote_cmd.replace("PULP_EXPECT_SMOKE=0", "PULP_EXPECT_SMOKE=1", 1)
         remote_cmd += " --smoke --no-tests"
     if exclude_tests:
@@ -1349,7 +1388,7 @@ def run_posix_ssh_validation(
             "log_file": str(log_path),
         }
     tail = run["output"][-2000:] if run["output"] else ""
-    if job.get("validation") == "smoke":
+    if validation == "smoke":
         if "__PULP_VALIDATION__:smoke" not in run["output"] or "__PULP_TEST_POLICY__:skip" not in run["output"]:
             failed = True
             tail = (
@@ -1368,7 +1407,7 @@ def run_posix_ssh_validation(
         "stdout_tail": "" if failed else tail,
         "stderr_tail": tail if failed else "",
         "log_file": str(log_path),
-        "validation": job.get("validation", "full"),
+        "validation": validation,
     }
 
 
@@ -1557,6 +1596,87 @@ function Remove-WorktreeSafe {{
     }}
 }}
 
+function Remove-PreparedRoot {{
+    param([string]$RepoRoot, [string]$PreparedRoot)
+
+    $PreparedSrc = Join-Path $PreparedRoot 'src'
+    if (Test-Path $PreparedSrc) {{
+        Remove-WorktreeSafe $RepoRoot $PreparedSrc
+    }}
+    if (Test-Path $PreparedRoot) {{
+        try {{
+            Remove-Item -Recurse -Force -ErrorAction Stop $PreparedRoot
+        }} catch {{
+        }}
+    }}
+}}
+
+function Test-PreparedStateMatches {{
+    param(
+        [string]$StatePath,
+        [string]$ExpectedSha,
+        [string]$ExpectedValidation,
+        [string]$ExpectedGenerator,
+        [string]$ExpectedPlatform,
+        [string]$ExpectedGeneratorInstance
+    )
+
+    if (-not (Test-Path $StatePath)) {{
+        return $false
+    }}
+
+    try {{
+        $state = Get-Content $StatePath -Raw | ConvertFrom-Json
+    }} catch {{
+        return $false
+    }}
+
+    if (
+        $state.sha -ne $ExpectedSha -or
+        $state.validation -ne $ExpectedValidation -or
+        $state.generator -ne $ExpectedGenerator -or
+        $state.platform -ne $ExpectedPlatform -or
+        $state.generator_instance -ne $ExpectedGeneratorInstance
+    ) {{
+        return $false
+    }}
+
+    $PreparedRoot = Split-Path $StatePath -Parent
+    $PreparedSrc = Join-Path $PreparedRoot 'src'
+    $PreparedBuild = Join-Path $PreparedRoot 'build'
+    $PreparedInstall = Join-Path $PreparedRoot 'install'
+    if (-not (Test-Path $PreparedSrc) -or -not (Test-Path $PreparedBuild) -or -not (Test-Path $PreparedInstall)) {{
+        return $false
+    }}
+
+    $preparedHead = ((& git -C $PreparedSrc rev-parse HEAD 2>$null) | Select-Object -Last 1).Trim()
+    if ($LASTEXITCODE -ne 0) {{
+        return $false
+    }}
+    return $preparedHead -eq $ExpectedSha
+}}
+
+function Write-PreparedState {{
+    param(
+        [string]$StatePath,
+        [string]$Sha,
+        [string]$Validation,
+        [string]$Generator,
+        [string]$Platform,
+        [string]$GeneratorInstance
+    )
+
+    $payload = @{{
+        sha = $Sha
+        validation = $Validation
+        generator = $Generator
+        platform = $Platform
+        generator_instance = $GeneratorInstance
+        updated_at = (Get-Date).ToString('o')
+    }}
+    $payload | ConvertTo-Json | Set-Content -Path $StatePath
+}}
+
 function Wait-HostMutex {{
     param(
         [System.Threading.Mutex]$Mutex,
@@ -1582,14 +1702,6 @@ if (-not $RepoDrive) {{
 }}
 $env:GIT_LFS_SKIP_SMUDGE = '1'
 $CiRoot = Join-Path $RepoDrive 'pulp-ci'
-$SrcRoot = Join-Path $CiRoot 'w'
-$BuildRoot = Join-Path $CiRoot 'b'
-$InstallRoot = Join-Path $CiRoot 'i'
-$SmokeRoot = Join-Path $CiRoot 's'
-$Src = Join-Path $SrcRoot '{job['id']}'
-$Build = Join-Path $BuildRoot '{job['id']}'
-$Install = Join-Path $InstallRoot '{job['id']}'
-$Smoke = Join-Path $SmokeRoot '{job['id']}'
 $Branch = '{ps_literal(job['branch'])}'
 $Sha = '{ps_literal(job['sha'])}'
 $BundleName = '{ps_literal(bundle_name)}'
@@ -1600,6 +1712,15 @@ $Generator = '{ps_literal(cmake_generator)}'
 $Platform = '{ps_literal(resolved_platform)}'
 $GeneratorInstance = '{ps_literal(resolved_generator_instance)}'
 $ValidationMode = '{ps_literal(job.get("validation", "full"))}'
+$PreparedRoot = Join-Path $CiRoot 'prepared\\{ps_literal(target_name)}'
+$PreparedRoot = Join-Path $PreparedRoot $ValidationMode
+$PreparedState = Join-Path $PreparedRoot 'state.json'
+$Src = Join-Path $PreparedRoot 'src'
+$Build = Join-Path $PreparedRoot 'build'
+$Install = Join-Path $PreparedRoot 'install'
+$Smoke = Join-Path $PreparedRoot 'smoke'
+$ReusePrepared = {'$true' if should_reuse_prepared_state(job) else '$false'}
+$UsePrepared = $false
 $MutexName = 'Global\\PulpLocalCIValidate'
 $Mutex = New-Object System.Threading.Mutex($false, $MutexName)
 $LockAcquired = $false
@@ -1615,7 +1736,7 @@ try {{
     }}
 
     Write-Host "__PULP_PHASE__:fetch"
-    New-Item -ItemType Directory -Force -Path $SrcRoot, $BuildRoot, $InstallRoot, $SmokeRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $PreparedRoot | Out-Null
     Set-Location $Repo
     if (Test-Path $Bundle) {{
         Write-Host "__PULP_PHASE__:bundle-sync"
@@ -1649,22 +1770,22 @@ try {{
         throw '{ps_literal(remote_commit_error(target_name, host, job))}'
     }}
 
-    if (Test-Path $Src) {{
-        Remove-WorktreeSafe $Repo $Src
+    if ($ReusePrepared -and (Test-PreparedStateMatches `
+        -StatePath $PreparedState `
+        -ExpectedSha $Sha `
+        -ExpectedValidation $ValidationMode `
+        -ExpectedGenerator $Generator `
+        -ExpectedPlatform $Platform `
+        -ExpectedGeneratorInstance $GeneratorInstance)) {{
+        $UsePrepared = $true
+        Write-Host "__PULP_PREPARED__:reused"
+    }} else {{
+        Write-Host "__PULP_PREPARED__:clean"
+        Remove-PreparedRoot $Repo $PreparedRoot
+        New-Item -ItemType Directory -Force -Path $PreparedRoot | Out-Null
+        Write-Host "__PULP_PHASE__:worktree"
+        Invoke-Native git @('worktree', 'add', '--force', '--detach', $Src, $Sha)
     }}
-
-    if (Test-Path $Build) {{
-        Remove-Item -Recurse -Force $Build
-    }}
-    if (Test-Path $Install) {{
-        Remove-Item -Recurse -Force $Install
-    }}
-    if (Test-Path $Smoke) {{
-        Remove-Item -Recurse -Force $Smoke
-    }}
-
-    Write-Host "__PULP_PHASE__:worktree"
-    Invoke-Native git @('worktree', 'add', '--force', '--detach', $Src, $Sha)
 
     try {{
         Write-Host "__PULP_PHASE__:configure"
@@ -1719,7 +1840,21 @@ target_link_libraries(smoke INTERFACE Pulp::format Pulp::standalone)
             }}
             $smokeConfigureArgs += @("-DCMAKE_PREFIX_PATH=$Install")
             Invoke-Native cmake $smokeConfigureArgs
+            Write-PreparedState `
+                -StatePath $PreparedState `
+                -Sha $Sha `
+                -Validation $ValidationMode `
+                -Generator $Generator `
+                -Platform $Platform `
+                -GeneratorInstance $GeneratorInstance
         }} else {{
+            Write-PreparedState `
+                -StatePath $PreparedState `
+                -Sha $Sha `
+                -Validation $ValidationMode `
+                -Generator $Generator `
+                -Platform $Platform `
+                -GeneratorInstance $GeneratorInstance
             Write-Host "__PULP_PHASE__:test"
             $ctestArgs = @('--test-dir', $Build, '--output-on-failure', '-C', 'Release')
             if ($ExcludeRegex) {{
@@ -1729,24 +1864,8 @@ target_link_libraries(smoke INTERFACE Pulp::format Pulp::standalone)
         }}
     }} finally {{
         Write-Host "__PULP_PHASE__:cleanup"
-        Remove-WorktreeSafe $Repo $Src
-        if (Test-Path $Build) {{
-            try {{
-                Remove-Item -Recurse -Force -ErrorAction Stop $Build
-            }} catch {{
-            }}
-        }}
-        if (Test-Path $Install) {{
-            try {{
-                Remove-Item -Recurse -Force -ErrorAction Stop $Install
-            }} catch {{
-            }}
-        }}
-        if (Test-Path $Smoke) {{
-            try {{
-                Remove-Item -Recurse -Force -ErrorAction Stop $Smoke
-            }} catch {{
-            }}
+        if (-not (Test-Path $PreparedState)) {{
+            Remove-PreparedRoot $Repo $PreparedRoot
         }}
     }}
 }} finally {{
@@ -2532,6 +2651,8 @@ def cmd_status(_args: argparse.Namespace) -> int:
                     details.append(f"mode={state['validation_mode']}")
                 if state.get("test_policy"):
                     details.append(f"tests={state['test_policy']}")
+                if state.get("prepared_state"):
+                    details.append(f"prepared={state['prepared_state']}")
                 if state.get("wait_reason"):
                     details.append(f"wait={state['wait_reason']}")
                 if state.get("last_output_at"):
@@ -2565,6 +2686,8 @@ def cmd_status(_args: argparse.Namespace) -> int:
                     details.append(f"mode={state['validation_mode']}")
                 if state.get("test_policy"):
                     details.append(f"tests={state['test_policy']}")
+                if state.get("prepared_state"):
+                    details.append(f"prepared={state['prepared_state']}")
                 if state.get("wait_reason"):
                     details.append(f"wait={state['wait_reason']}")
                 if state.get("last_output_at"):

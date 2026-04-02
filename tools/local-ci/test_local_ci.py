@@ -444,6 +444,45 @@ class LocalCiTests(unittest.TestCase):
         self.assertIn("$BundleRef = 'refs/pulp-ci-bundles/job123'", captured["input_text"])
         self.assertIn("$BundleRef`:refs/pulp-ci-bundles/job123", captured["input_text"])
 
+    def test_windows_single_target_rerun_enables_prepared_reuse(self):
+        captured = {}
+
+        def fake_run_logged_command(cmd, **kwargs):
+            captured["input_text"] = kwargs.get("input_text", "")
+            return {
+                "timed_out": False,
+                "returncode": 0,
+                "output": "ok\n",
+                "duration_secs": 1.2,
+            }
+
+        original_run_logged = self.mod.run_logged_command
+        original_probe = self.mod.probe_windows_ssh_cmake_settings
+        original_sync = self.mod.sync_job_bundle_to_ssh_host
+        self.mod.run_logged_command = fake_run_logged_command
+        self.mod.probe_windows_ssh_cmake_settings = (
+            lambda host, generator, platform, instance: (platform, instance)
+        )
+        self.mod.sync_job_bundle_to_ssh_host = (
+            lambda host, job, report_progress=None: (f"pulp-ci-{job['id']}.bundle", f"refs/pulp-ci-bundles/{job['id']}")
+        )
+        try:
+            result = self.mod.run_windows_ssh_validation(
+                "windows",
+                "win",
+                "C:\\Pulp",
+                {"id": "job127", "branch": "feature/rerun", "sha": "f" * 40, "targets": ["windows"]},
+            )
+        finally:
+            self.mod.run_logged_command = original_run_logged
+            self.mod.probe_windows_ssh_cmake_settings = original_probe
+            self.mod.sync_job_bundle_to_ssh_host = original_sync
+
+        self.assertEqual(result["status"], "pass")
+        self.assertIn("$PreparedRoot = Join-Path $CiRoot 'prepared\\windows'", captured["input_text"])
+        self.assertIn("$ReusePrepared = $true", captured["input_text"])
+        self.assertIn("__PULP_PREPARED__:reused", captured["input_text"])
+
     def test_windows_smoke_validation_installs_sdk_and_skips_ctest(self):
         captured = {}
 
@@ -747,10 +786,12 @@ class LocalCiTests(unittest.TestCase):
         remote_cmd = captured["cmd"][-1]
         self.assertIn("bundle-sync", remote_cmd)
         self.assertIn('bundle="$HOME/$bundle_name"', remote_cmd)
+        self.assertIn('prepared_root="$HOME/.local/state/pulp/local-ci/prepared/ubuntu/full"', remote_cmd)
+        self.assertIn('PULP_VALIDATE_REUSE_PREPARED="$reuse_prepared"', remote_cmd)
         self.assertIn('script="$PWD/$script_name"', remote_cmd)
         self.assertIn('git fetch "$bundle" "$bundle_ref:refs/remotes/origin/$branch"', remote_cmd)
         self.assertIn('git show "$sha:validate-build.sh" > "$script"', remote_cmd)
-        self.assertIn('bash "$script" --quiet --ref "$sha"', remote_cmd)
+        self.assertIn('bash "$script" --quiet --keep-worktree --ref "$sha"', remote_cmd)
 
     def test_posix_smoke_validation_runs_sha_pinned_script_with_smoke_flag(self):
         captured = {}
@@ -785,8 +826,12 @@ class LocalCiTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         remote_cmd = captured["cmd"][-1]
         self.assertIn('script_name=.pulp-ci-validate-job889.sh', remote_cmd)
+        self.assertIn('prepared_root="$HOME/.local/state/pulp/local-ci/prepared/ubuntu/smoke"', remote_cmd)
         self.assertIn('git show "$sha:validate-build.sh" > "$script"', remote_cmd)
-        self.assertIn('PULP_EXPECT_SMOKE=1 bash "$script" --quiet --ref "$sha" --smoke --no-tests', remote_cmd)
+        self.assertIn(
+            'PULP_EXPECT_SMOKE=1 bash "$script" --quiet --keep-worktree --ref "$sha" --smoke --no-tests',
+            remote_cmd,
+        )
 
     def test_posix_smoke_validation_fails_when_smoke_contract_markers_are_missing(self):
         def fake_sync_bundle(host, job, report_progress=None):
@@ -856,12 +901,47 @@ class LocalCiTests(unittest.TestCase):
             self.mod.parse_progress_marker("__PULP_TEST_POLICY__:skip\n"),
             {"test_policy": "skip"},
         )
+        self.assertEqual(
+            self.mod.parse_progress_marker("__PULP_PREPARED__:reused\n"),
+            {"prepared_state": "reused"},
+        )
         self.assertEqual(self.mod.parse_progress_marker("normal output\n"), {})
 
     def test_validate_build_preserves_original_args_for_lock_reexec(self):
         text = VALIDATE_BUILD_PATH.read_text()
         self.assertIn('ORIGINAL_ARGS=("$@")', text)
         self.assertIn('acquire_validation_lock "${ORIGINAL_ARGS[@]}"', text)
+
+    def test_run_local_validation_uses_prepared_root_for_single_target_reruns(self):
+        captured = {}
+
+        def fake_run_logged_command(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return {
+                "timed_out": False,
+                "returncode": 0,
+                "output": "ok\n",
+                "duration_secs": 1.2,
+            }
+
+        original_run_logged = self.mod.run_logged_command
+        self.mod.run_logged_command = fake_run_logged_command
+        try:
+            result = self.mod.run_local_validation(
+                {"id": "job501", "branch": "feature/local", "sha": "5" * 40, "targets": ["mac"]}
+            )
+        finally:
+            self.mod.run_logged_command = original_run_logged
+
+        self.assertEqual(result["status"], "pass")
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[0], "env")
+        self.assertIn("PULP_VALIDATE_REUSE_PREPARED=1", cmd)
+        self.assertTrue(
+            any(arg.startswith("PULP_VALIDATE_ROOT_OVERRIDE=") for arg in cmd),
+            msg=f"missing prepared root override in {cmd}",
+        )
+        self.assertIn("--keep-worktree", cmd)
 
     def test_run_logged_command_keeps_progress_markers_in_output_and_reports_them(self):
         log_path = self.state_dir / "marker.log"
@@ -965,12 +1045,61 @@ class LocalCiTests(unittest.TestCase):
         )
 
         index = self.mod.load_evidence_index()
-        self.assertIn(self.mod.evidence_entry_key("1" * 40, "mac", "full"), index["entries"])
-        self.assertIn(self.mod.evidence_entry_key("1" * 40, "ubuntu", "full"), index["entries"])
+        self.assertIn(
+            self.mod.evidence_entry_key("feature/evidence", "1" * 40, "mac", "full"),
+            index["entries"],
+        )
+        self.assertIn(
+            self.mod.evidence_entry_key("feature/evidence", "1" * 40, "ubuntu", "full"),
+            index["entries"],
+        )
         self.assertEqual(
-            index["entries"][self.mod.evidence_entry_key("1" * 40, "ubuntu", "full")]["job_id"],
+            index["entries"][
+                self.mod.evidence_entry_key("feature/evidence", "1" * 40, "ubuntu", "full")
+            ]["job_id"],
             "job112",
         )
+
+    def test_branch_scoped_evidence_survives_same_sha_on_another_branch(self):
+        shared_sha = "4" * 40
+        self.mod.save_result(
+            {
+                "job_id": "job401",
+                "branch": "feature/alpha",
+                "sha": shared_sha,
+                "priority": "normal",
+                "validation": "full",
+                "targets": ["mac"],
+                "queued_at": "2026-04-01T03:00:00+00:00",
+                "completed_at": "2026-04-01T03:10:00+00:00",
+                "results": [
+                    {"target": "mac", "status": "pass", "duration_secs": 8.0},
+                ],
+                "overall": "pass",
+            }
+        )
+        self.mod.save_result(
+            {
+                "job_id": "job402",
+                "branch": "main",
+                "sha": shared_sha,
+                "priority": "normal",
+                "validation": "full",
+                "targets": ["mac"],
+                "queued_at": "2026-04-01T03:11:00+00:00",
+                "completed_at": "2026-04-01T03:20:00+00:00",
+                "results": [
+                    {"target": "mac", "status": "pass", "duration_secs": 7.5},
+                ],
+                "overall": "pass",
+            }
+        )
+
+        feature_groups = self.mod.collect_evidence_groups(branch="feature/alpha")
+        self.assertEqual(len(feature_groups["full"]), 1)
+        self.assertEqual(feature_groups["full"][0]["sha"], shared_sha)
+        self.assertEqual(feature_groups["full"][0]["branch"], "feature/alpha")
+        self.assertIn("mac", feature_groups["full"][0]["targets"])
 
     def test_cmd_evidence_prints_grouped_branch_summary(self):
         self.mod.save_result(
