@@ -380,6 +380,20 @@ if (bridge.poll_spectrum()) {
 
 1. **Minimize `canvasClear` + redraw.** Only redraw what changed. The Canvas queues commands — unchanged regions are cheap.
 
+---
+
+## GPU Capabilities: What Is Real Today
+
+Pulp uses the GPU in three distinct ways. Do not conflate them:
+
+| Capability | Status | What It Does |
+|------------|--------|-------------|
+| **Dawn/Skia Graphite rendering** | Shipped | All UI drawing goes through the GPU via Skia Graphite on a Dawn wgpu::Device. This is the rendering pipeline, not compute. |
+| **SkSL runtime effects** | Shipped | Fragment shaders for visual effects (SDF shapes, blur, gradients). These run per-pixel during rendering. Not compute shaders. |
+| **WebGPU compute for audio** | Experimental | WGSL compute shaders for batch spectral processing. Viable for large offline workloads (>64K elements). Not viable for real-time per-buffer audio. See `docs/reports/webgpu-compute-feasibility.md`. |
+
+The first two are production rendering features. The third is a separate compute pipeline that shares the same Dawn device but operates independently of rendering. It does NOT run in the audio callback.
+
 2. **Use SDF shapes over path-based shapes** when possible. SDF rendering is resolution-independent and faster for rounded rectangles, circles, and arcs.
 
 3. **Use `draw_waveform` over manual line drawing** for audio displays. It batches all samples into a single GPU draw call.

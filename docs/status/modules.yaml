@@ -57,7 +57,10 @@ modules:
     docs: reference/modules.md#canvas
 
   - name: render
-    summary: GPU surface management (Dawn, Skia Graphite) — Metal, D3D12, Vulkan backends
+    summary: >
+      GPU surface management (Dawn, Skia Graphite) — Metal, D3D12, Vulkan backends.
+      Includes experimental WebGPU compute pipeline for batch audio processing (>64K elements).
+      Compute is separate from rendering — not for real-time audio callbacks.
     status: experimental
     dependencies: [runtime, canvas]
     docs: reference/modules.md#render

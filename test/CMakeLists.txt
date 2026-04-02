@@ -156,6 +156,11 @@ if(PULP_ENABLE_GPU)
     add_executable(pulp-test-skia-surface test_skia_surface.cpp)
     target_link_libraries(pulp-test-skia-surface PRIVATE pulp::render Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-skia-surface ${PULP_GPU_TEST_DISCOVERY_ARGS})
+
+    # GPU compute tests (Phase 11 feasibility)
+    add_executable(pulp-test-gpu-compute test_gpu_compute.cpp)
+    target_link_libraries(pulp-test-gpu-compute PRIVATE pulp::render pulp::signal Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-gpu-compute ${PULP_GPU_TEST_DISCOVERY_ARGS})
 endif()
 
 # Animation tests
