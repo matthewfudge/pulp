@@ -531,6 +531,214 @@ TextDecoder.prototype.decode = function(buf) {
 window.TextDecoder = TextDecoder;
 globalThis.TextDecoder = TextDecoder;
 
+function __bytesFromBase64(encoded) {
+    var binary = atob(encoded || "");
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; ++i) {
+        bytes[i] = binary.charCodeAt(i) & 255;
+    }
+    return bytes;
+}
+
+function __bytesToBase64(bytes) {
+    var binary = "";
+    for (var i = 0; i < bytes.length; ++i) {
+        binary += String.fromCharCode(bytes[i] & 255);
+    }
+    return btoa(binary);
+}
+
+function __canonicalDataUriMimeType(mimeType) {
+    if (!mimeType) return "application/octet-stream";
+    var lower = String(mimeType).toLowerCase();
+    if (lower === "application/json" || lower === "text/json") {
+        return "application/json;charset=utf-8";
+    }
+    return String(mimeType);
+}
+
+function __toUint8Array(value) {
+    if (value == null) return new Uint8Array(0);
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    if (Array.isArray(value)) return new Uint8Array(value);
+    if (typeof value === "string") return new TextEncoder().encode(value);
+    return new TextEncoder().encode(String(value));
+}
+
+function __toArrayBuffer(bytes) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function PulpHeaders(init) {
+    this._map = {};
+    if (!init) return;
+    for (var key in init) {
+        if (Object.prototype.hasOwnProperty.call(init, key)) {
+            this.set(key, init[key]);
+        }
+    }
+}
+PulpHeaders.prototype.get = function(name) {
+    var key = String(name || "").toLowerCase();
+    return Object.prototype.hasOwnProperty.call(this._map, key) ? this._map[key] : null;
+};
+PulpHeaders.prototype.set = function(name, value) {
+    this._map[String(name || "").toLowerCase()] = String(value == null ? "" : value);
+};
+var __PulpHeaders = typeof globalThis.Headers !== "undefined" ? globalThis.Headers : PulpHeaders;
+if (typeof globalThis.Headers === "undefined") {
+    globalThis.Headers = __PulpHeaders;
+}
+
+function PulpBlob(parts, options) {
+    var chunks = [];
+    var size = 0;
+    var sourceParts = parts || [];
+    for (var i = 0; i < sourceParts.length; ++i) {
+        var bytes = __toUint8Array(sourceParts[i]);
+        chunks.push(bytes);
+        size += bytes.length;
+    }
+
+    var merged = new Uint8Array(size);
+    var offset = 0;
+    for (var j = 0; j < chunks.length; ++j) {
+        merged.set(chunks[j], offset);
+        offset += chunks[j].length;
+    }
+
+    this._bytes = merged;
+    this.size = merged.length;
+    this.type = options && options.type ? String(options.type) : "";
+}
+PulpBlob.prototype.arrayBuffer = function() {
+    return __toArrayBuffer(this._bytes);
+};
+PulpBlob.prototype.text = function() {
+    return new TextDecoder().decode(this._bytes);
+};
+var __PulpBlob = typeof globalThis.Blob !== "undefined" ? globalThis.Blob : PulpBlob;
+if (typeof globalThis.Blob === "undefined") {
+    globalThis.Blob = __PulpBlob;
+}
+
+function PulpResponse(body, init) {
+    init = init || {};
+    this.status = init.status == null ? 200 : init.status;
+    this.ok = this.status >= 200 && this.status < 300;
+    this.statusText = init.statusText || "";
+    this.url = init.url || "";
+    this.headers = init.headers instanceof __PulpHeaders ? init.headers : new __PulpHeaders(init.headers || {});
+    if (init.contentType && !this.headers.get("content-type")) {
+        this.headers.set("content-type", init.contentType);
+    }
+    this._bytes = __toUint8Array(body);
+}
+PulpResponse.prototype.arrayBuffer = function() {
+    return __toArrayBuffer(this._bytes);
+};
+PulpResponse.prototype.text = function() {
+    return new TextDecoder().decode(this._bytes);
+};
+PulpResponse.prototype.json = function() {
+    return JSON.parse(this.text());
+};
+PulpResponse.prototype.blob = function() {
+    return new __PulpBlob([this._bytes], { type: this.headers.get("content-type") || "" });
+};
+PulpResponse.prototype.clone = function() {
+    return new __PulpResponse(this._bytes.slice(0), {
+        status: this.status,
+        statusText: this.statusText,
+        url: this.url,
+        headers: this.headers
+    });
+};
+var __PulpResponse = typeof globalThis.Response !== "undefined" ? globalThis.Response : PulpResponse;
+if (typeof globalThis.Response === "undefined") {
+    globalThis.Response = __PulpResponse;
+}
+
+function PulpURL(url) {
+    this.href = String(url || "");
+}
+PulpURL.createObjectURL = function(blobLike) {
+    var blob = blobLike instanceof PulpBlob ? blobLike : new PulpBlob([blobLike]);
+    return "data:" + __canonicalDataUriMimeType(blob.type || "application/octet-stream")
+        + ";base64," + __bytesToBase64(blob._bytes);
+};
+PulpURL.revokeObjectURL = function() {};
+var __PulpURL = typeof globalThis.URL !== "undefined" ? globalThis.URL : PulpURL;
+if (typeof __PulpURL.createObjectURL !== "function") {
+    __PulpURL.createObjectURL = PulpURL.createObjectURL;
+}
+if (typeof __PulpURL.revokeObjectURL !== "function") {
+    __PulpURL.revokeObjectURL = PulpURL.revokeObjectURL;
+}
+if (typeof globalThis.URL === "undefined") {
+    globalThis.URL = __PulpURL;
+}
+
+function __responseFromDataUri(uri, sourceUrl) {
+    var text = String(uri || "");
+    var comma = text.indexOf(",");
+    if (comma < 0) throw new Error("Malformed data URI");
+    var meta = text.slice(5, comma);
+    var payload = text.slice(comma + 1);
+    var isBase64 = /;base64$/i.test(meta);
+    var mime = meta.replace(/;base64$/i, "") || "application/octet-stream";
+    var bytes = isBase64 ? __bytesFromBase64(payload) : new TextEncoder().encode(decodeURIComponent(payload));
+    return new __PulpResponse(bytes, {
+        status: 200,
+        url: sourceUrl || text,
+        contentType: __canonicalDataUriMimeType(mime)
+    });
+}
+
+function __responseFromAssetRecord(record) {
+    return new __PulpResponse(__bytesFromBase64(record && record.base64 ? record.base64 : ""), {
+        status: record && record.status != null ? record.status : 404,
+        url: record && record.url ? record.url : "",
+        contentType: record && record.contentType ? record.contentType : "application/octet-stream"
+    });
+}
+
+function __pulpFetch(url) {
+    var requestUrl = String(url || "");
+    return new Promise(function(resolve, reject) {
+        try {
+            if (requestUrl.indexOf("data:") === 0) {
+                resolve(__responseFromDataUri(requestUrl, requestUrl));
+                return;
+            }
+
+            if (typeof __loadAssetSync__ !== "function") {
+                reject(new Error("Asset bridge unavailable"));
+                return;
+            }
+
+            var record = __loadAssetSync__(requestUrl);
+            if (!record || !record.ok) {
+                var error = new Error("Failed to fetch asset: " + requestUrl);
+                error.status = record && record.status ? record.status : 404;
+                reject(error);
+                return;
+            }
+
+            resolve(__responseFromAssetRecord(record));
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+if (typeof globalThis.fetch === "undefined") {
+    globalThis.fetch = __pulpFetch;
+}
+window.pulp = window.pulp || {};
+window.pulp.fetch = __pulpFetch;
+
 function structuredClone(obj) {
     return JSON.parse(JSON.stringify(obj));
 }

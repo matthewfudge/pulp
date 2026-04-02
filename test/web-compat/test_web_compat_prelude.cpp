@@ -4,6 +4,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include "test_helpers.hpp"
+#include <pulp/view/asset_manager.hpp>
+#include <fstream>
 #include <pulp/view/ui_components.hpp>
 #include <pulp/view/canvas_widget.hpp>
 
@@ -279,6 +281,89 @@ TEST_CASE("WebCompat: browser utility shims cover base64, crypto, and Image", "[
     REQUIRE(std::string(roundTrip.getWithDefault<std::string_view>("")) == "pulp");
     REQUIRE(randomCount.getWithDefault<int32_t>(0) == 4);
     REQUIRE(imageComplete.getWithDefault<bool>(false) == true);
+}
+
+TEST_CASE("WebCompat: fetch bridge preserves UTF-8 JSON asset payloads", "[webcompat][browser][fetch]") {
+    TestEnvironment env;
+    auto& assets = AssetManager::instance();
+
+    static const char kJson[] = "{\"label\":\"Pulp ✓\"}";
+    assets.register_embedded("phase13/config.json",
+                             reinterpret_cast<const uint8_t*>(kJson),
+                             sizeof(kJson) - 1);
+
+    auto promiseTag = env.engine.evaluate(
+        "Object.prototype.toString.call(fetch('pulp://phase13/config.json'))");
+    auto contentType = env.engine.evaluate(R"(
+        (function() {
+            var response = __responseFromAssetRecord(__loadAssetSync__('pulp://phase13/config.json'));
+            return response.headers.get('content-type');
+        })()
+    )");
+    auto text = env.engine.evaluate(R"(
+        (function() {
+            var response = __responseFromAssetRecord(__loadAssetSync__('pulp://phase13/config.json'));
+            return response.text();
+        })()
+    )");
+    auto label = env.engine.evaluate(R"(
+        (function() {
+            var response = __responseFromAssetRecord(__loadAssetSync__('pulp://phase13/config.json'));
+            return response.json().label;
+        })()
+    )");
+    auto byteLength = env.engine.evaluate(R"(
+        (function() {
+            var response = __responseFromAssetRecord(__loadAssetSync__('pulp://phase13/config.json'));
+            return new Uint8Array(response.arrayBuffer()).length;
+        })()
+    )");
+
+    REQUIRE(std::string(promiseTag.getWithDefault<std::string_view>("")) == "[object Promise]");
+    REQUIRE(std::string(contentType.getWithDefault<std::string_view>("")) == "application/json;charset=utf-8");
+    REQUIRE(std::string(text.getWithDefault<std::string_view>("")) == kJson);
+    REQUIRE(std::string(label.getWithDefault<std::string_view>("")) == "Pulp ✓");
+    REQUIRE(byteLength.getWithDefault<int32_t>(0) == static_cast<int32_t>(sizeof(kJson) - 1));
+}
+
+TEST_CASE("WebCompat: file and blob URLs stay readable through the browser helpers", "[webcompat][browser][fetch]") {
+    TestEnvironment env;
+
+    const std::string fileText = "Pulp ✓ file";
+    const auto tempPath = std::filesystem::temp_directory_path() / "pulp-phase13-fetch.txt";
+    {
+        std::ofstream out(tempPath, std::ios::binary);
+        out << fileText;
+    }
+
+    const auto genericPath = tempPath.generic_string();
+    const std::string fileUrl = std::string("file://")
+        + (genericPath.empty() || genericPath.front() == '/' ? "" : "/")
+        + genericPath;
+    const std::string fileExpr = "'" + fileUrl + "'";
+
+    auto fetchedText = env.engine.evaluate(
+        "(function() {"
+        "  var response = __responseFromAssetRecord(__loadAssetSync__(" + fileExpr + "));"
+        "  return response.text();"
+        "})()");
+
+    env.eval(R"(
+        var phase13Blob = new Blob(
+            [new TextEncoder().encode('{"label":"Pulp ✓"}')],
+            { type: 'application/json' }
+        );
+        var phase13BlobUrl = URL.createObjectURL(phase13Blob);
+    )");
+    auto blobUrl = env.engine.evaluate("phase13BlobUrl");
+    auto blobLabel = env.engine.evaluate("__responseFromDataUri(phase13BlobUrl, phase13BlobUrl).json().label");
+
+    REQUIRE(std::string(fetchedText.getWithDefault<std::string_view>("")) == fileText);
+    const auto blobUrlString = std::string(blobUrl.getWithDefault<std::string_view>(""));
+    REQUIRE(blobUrlString.find("data:application/json;charset=utf-8;base64,") == 0);
+    REQUIRE(std::string(blobLabel.getWithDefault<std::string_view>("")) == "Pulp ✓");
+
+    std::filesystem::remove(tempPath);
 }
 
 TEST_CASE("WebCompat: element.id assignment", "[webcompat][element]") {
