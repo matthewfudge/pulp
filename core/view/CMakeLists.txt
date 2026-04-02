@@ -138,7 +138,7 @@ target_include_directories(pulp-view PUBLIC
 
 add_dependencies(pulp-view pulp-view-js-preludes)
 
-target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state)
+target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state pulp::signal)
 
 # JavaScriptCore framework for JSC backend (Apple only)
 if(APPLE)

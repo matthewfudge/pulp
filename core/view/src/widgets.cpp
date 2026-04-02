@@ -1036,4 +1036,227 @@ void Panel::paint(canvas::Canvas& canvas) {
     }
 }
 
+// ── SpectrogramView ──────────────────────────────────────────────────────────
+
+void SpectrogramView::configure(int history_columns, int freq_rows,
+                                 signal::ColorRamp ramp, float min_db, float max_db) {
+    buffer_.configure(history_columns, freq_rows);
+    mapper_.set_ramp(ramp);
+    min_db_ = min_db;
+    max_db_ = max_db;
+    configured_ = true;
+}
+
+void SpectrogramView::push_spectrum(const float* magnitudes_db, int num_bins) {
+    if (!configured_) {
+        // Auto-configure with sensible defaults
+        configure(256, num_bins);
+    }
+    buffer_.push_column(magnitudes_db, num_bins, mapper_, min_db_, max_db_);
+}
+
+void SpectrogramView::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+
+    // Background
+    auto bg = resolve_color("bg.surface", canvas::Color::rgba(10, 10, 15));
+    canvas.set_fill_color(bg);
+    canvas.fill_rect(0, 0, b.width, b.height);
+
+    if (!configured_ || buffer_.frames_written() == 0) return;
+
+    int buf_w = buffer_.width();
+    int buf_h = buffer_.height();
+    float px_w = b.width / buf_w;
+    float px_h = b.height / buf_h;
+
+    int start_col = buffer_.write_column(); // oldest column
+
+    for (int col = 0; col < buf_w; ++col) {
+        int src_col = (start_col + col) % buf_w;
+        float x = col * px_w;
+
+        for (int row = 0; row < buf_h; ++row) {
+            auto c = buffer_.pixels()[row * buf_w + src_col];
+            // Flip vertically: low freq at bottom
+            float y = b.height - (row + 1) * px_h;
+            canvas.set_fill_color(canvas::Color::rgba(c.r, c.g, c.b, c.a));
+            canvas.fill_rect(x, y, px_w + 0.5f, px_h + 0.5f);
+        }
+    }
+}
+
+// ── MultiMeter ──────────────────────────────────────────────────────────────
+
+void MultiMeter::set_channel_count(int count) {
+    ballistics_.num_channels = std::min(count, signal::kMaxMeterChannels);
+}
+
+void MultiMeter::update(const signal::MultiChannelMeterData& data, float dt) {
+    ballistics_.update(data, dt);
+}
+
+void MultiMeter::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+    int num_ch = ballistics_.num_channels;
+    if (num_ch <= 0) return;
+
+    // Background
+    auto bg = resolve_color("control.track", canvas::Color::rgba(30, 30, 30));
+    canvas.set_fill_color(bg);
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 2.0f);
+
+    bool vert = (layout_ == Layout::vertical);
+    float gap = 2.0f;
+
+    // Calculate per-channel dimensions
+    float ch_size;
+    if (vert)
+        ch_size = (b.width - gap * (num_ch - 1)) / num_ch;
+    else
+        ch_size = (b.height - gap * (num_ch - 1)) / num_ch;
+
+    for (int ch = 0; ch < num_ch; ++ch) {
+        auto& bc = ballistics_.channels[ch];
+        float meter_length = vert ? b.height : b.width;
+
+        // Channel position
+        float x0, y0, cw, ch_h;
+        if (vert) {
+            x0 = ch * (ch_size + gap);
+            y0 = 0;
+            cw = ch_size;
+            ch_h = b.height;
+        } else {
+            x0 = 0;
+            y0 = ch * (ch_size + gap);
+            cw = b.width;
+            ch_h = ch_size;
+        }
+
+        // RMS fill
+        auto rms_color = resolve_color("accent.success", canvas::Color::rgba(80, 200, 80));
+        float rms_level = bc.display_rms;
+        if (rms_level > 0.9f)
+            rms_color = resolve_color("accent.error", canvas::Color::rgba(240, 60, 60));
+        else if (rms_level > 0.7f)
+            rms_color = resolve_color("accent.warning", canvas::Color::rgba(240, 180, 60));
+
+        canvas.set_fill_color(rms_color);
+        float fill = rms_level * meter_length;
+        if (vert)
+            canvas.fill_rect(x0, ch_h - fill, cw, fill);
+        else
+            canvas.fill_rect(x0, y0, fill, ch_h);
+
+        // Peak indicator
+        float peak_level = bc.display_peak;
+        if (peak_level > 0.01f) {
+            canvas.set_stroke_color(canvas::Color::rgba(255, 255, 255));
+            canvas.set_line_width(1.0f);
+            float peak_pos = peak_level * meter_length;
+            if (vert) {
+                float y = ch_h - peak_pos;
+                canvas.stroke_line(x0, y, x0 + cw, y);
+            } else {
+                canvas.stroke_line(peak_pos, y0, peak_pos, y0 + ch_h);
+            }
+        }
+
+        // Held peak
+        float held = bc.held_peak;
+        if (held > 0.01f) {
+            auto held_color = held > 0.9f
+                ? resolve_color("accent.error", canvas::Color::rgba(255, 50, 50))
+                : canvas::Color::rgba(255, 100, 100);
+            canvas.set_stroke_color(held_color);
+            canvas.set_line_width(2.0f);
+            float held_pos = held * meter_length;
+            if (vert) {
+                float y = ch_h - held_pos;
+                canvas.stroke_line(x0, y, x0 + cw, y);
+            } else {
+                canvas.stroke_line(held_pos, y0, held_pos, y0 + ch_h);
+            }
+        }
+
+        // Clip indicator
+        if (bc.clip_indicator) {
+            canvas.set_fill_color(resolve_color("accent.error", canvas::Color::rgba(255, 0, 0)));
+            if (vert)
+                canvas.fill_rect(x0, 0, cw, 3.0f);
+            else
+                canvas.fill_rect(cw - 3.0f, y0, 3.0f, ch_h);
+        }
+    }
+}
+
+// ── CorrelationMeter ────────────────────────────────────────────────────────
+
+void CorrelationMeter::update(float correlation, float dt) {
+    float target = std::clamp(correlation, -1.0f, 1.0f);
+    float coeff = 1.0f - std::exp(-dt / 0.05f); // 50ms smoothing
+    display_correlation_ += (target - display_correlation_) * coeff;
+}
+
+void CorrelationMeter::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+
+    // Background
+    auto bg = resolve_color("control.track", canvas::Color::rgba(30, 30, 30));
+    canvas.set_fill_color(bg);
+    canvas.fill_rounded_rect(0, 0, b.width, b.height, 2.0f);
+
+    // Center line (0.0 correlation)
+    float center_x = b.width * 0.5f;
+    canvas.set_stroke_color(canvas::Color::rgba(80, 80, 80));
+    canvas.set_line_width(1.0f);
+    canvas.stroke_line(center_x, 0, center_x, b.height);
+
+    // -1 and +1 labels position markers
+    float quarter = b.width * 0.25f;
+    canvas.set_stroke_color(canvas::Color::rgba(50, 50, 50));
+    canvas.stroke_line(quarter, 0, quarter, b.height);
+    canvas.stroke_line(b.width - quarter, 0, b.width - quarter, b.height);
+
+    // Correlation indicator
+    // Map -1..+1 to 0..width
+    float norm = (display_correlation_ + 1.0f) * 0.5f; // 0..1
+    float indicator_x = norm * b.width;
+
+    // Color: green at +1, yellow at 0, red at -1
+    canvas::Color indicator_color;
+    if (display_correlation_ > 0.0f) {
+        // Green to yellow
+        float t = display_correlation_;
+        indicator_color = canvas::Color::rgba(
+            static_cast<uint8_t>(240 * (1.0f - t)),
+            static_cast<uint8_t>(200 + 55 * t),
+            static_cast<uint8_t>(60 * (1.0f - t)));
+    } else {
+        // Yellow to red
+        float t = -display_correlation_;
+        indicator_color = canvas::Color::rgba(
+            static_cast<uint8_t>(240),
+            static_cast<uint8_t>(200 * (1.0f - t)),
+            static_cast<uint8_t>(60 * (1.0f - t)));
+    }
+
+    // Draw indicator bar
+    float bar_width = std::max(4.0f, b.width * 0.02f);
+    canvas.set_fill_color(indicator_color);
+    canvas.fill_rounded_rect(indicator_x - bar_width * 0.5f, 1,
+                              bar_width, b.height - 2, 2.0f);
+
+    // Fill from center to indicator
+    auto fill_color = indicator_color;
+    fill_color.a = 80;
+    canvas.set_fill_color(fill_color);
+    if (indicator_x > center_x) {
+        canvas.fill_rect(center_x, 2, indicator_x - center_x, b.height - 4);
+    } else {
+        canvas.fill_rect(indicator_x, 2, center_x - indicator_x, b.height - 4);
+    }
+}
+
 } // namespace pulp::view

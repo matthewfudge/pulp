@@ -30,3 +30,6 @@
 #include <pulp/signal/filter_design.hpp>
 #include <pulp/signal/fast_math.hpp>
 #include <pulp/signal/poly_math.hpp>
+#include <pulp/signal/stft.hpp>
+#include <pulp/signal/spectrogram.hpp>
+#include <pulp/signal/multi_channel_meter.hpp>

@@ -63,6 +63,16 @@ add_executable(pulp-test-signal test_signal.cpp)
 target_link_libraries(pulp-test-signal PRIVATE pulp::signal Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-signal)
 
+# STFT and audio visualization signal tests
+add_executable(pulp-test-stft test_stft.cpp)
+target_link_libraries(pulp-test-stft PRIVATE pulp::signal Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-stft)
+
+# Visualization bridge and widget tests
+add_executable(pulp-test-visualization test_visualization.cpp)
+target_link_libraries(pulp-test-visualization PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-visualization)
+
 # Clipboard tests
 add_executable(pulp-test-clipboard test_clipboard.cpp)
 target_link_libraries(pulp-test-clipboard PRIVATE pulp::platform Catch2::Catch2WithMain)
