@@ -1,6 +1,7 @@
 #include <pulp/view/theme.hpp>
 #include <choc/text/choc_JSON.h>
 #include <sstream>
+#include <fstream>
 
 namespace pulp::view {
 
@@ -235,6 +236,69 @@ Theme Theme::pro_audio() {
     t.strings = dark_theme.strings;
 
     return t;
+}
+
+// ── Import/Export ────────────────────────────────────────────────────────────
+
+bool Theme::save_to_file(const std::string& path) const {
+    auto json = to_json();
+    std::ofstream file(path);
+    if (!file.is_open()) return false;
+    file << json;
+    return file.good();
+}
+
+Theme Theme::load_from_file(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) return {};
+
+    std::string json((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+    if (json.empty()) return {};
+
+    try {
+        return from_json(json);
+    } catch (...) {
+        return {};
+    }
+}
+
+// ── Validation ──────────────────────────────────────────────────────────────
+
+const std::vector<std::string>& Theme::required_color_tokens() {
+    static const std::vector<std::string> tokens = {
+        "bg.primary", "bg.secondary", "bg.surface", "bg.elevated",
+        "text.primary", "text.secondary", "text.disabled",
+        "accent.primary", "accent.secondary", "accent.success",
+        "accent.warning", "accent.error",
+        "control.track", "control.fill", "control.thumb", "control.border",
+    };
+    return tokens;
+}
+
+std::vector<std::string> Theme::missing_tokens() const {
+    std::vector<std::string> missing;
+    for (auto& token : required_color_tokens()) {
+        if (colors.find(token) == colors.end())
+            missing.push_back(token);
+    }
+    return missing;
+}
+
+bool Theme::is_complete() const {
+    return missing_tokens().empty();
+}
+
+void Theme::fill_from(const Theme& base) {
+    for (auto& [k, v] : base.colors) {
+        if (colors.find(k) == colors.end()) colors[k] = v;
+    }
+    for (auto& [k, v] : base.dimensions) {
+        if (dimensions.find(k) == dimensions.end()) dimensions[k] = v;
+    }
+    for (auto& [k, v] : base.strings) {
+        if (strings.find(k) == strings.end()) strings[k] = v;
+    }
 }
 
 } // namespace pulp::view

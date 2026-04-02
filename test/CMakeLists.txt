@@ -551,5 +551,32 @@ add_executable(pulp-test-window-manager test_window_manager.cpp)
 target_link_libraries(pulp-test-window-manager PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-window-manager)
 
+# ── Phase 9: Theme management, widgets, asset system ────────────────────────
+
+# Theme contrast utilities (WCAG AA)
+add_executable(pulp-test-theme-contrast test_theme_contrast.cpp)
+target_link_libraries(pulp-test-theme-contrast PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-theme-contrast)
+
+# Theme preset library (38 tweakcn + derivation)
+add_executable(pulp-test-theme-presets test_theme_presets.cpp)
+target_link_libraries(pulp-test-theme-presets PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-theme-presets)
+
+# OS appearance tracking
+add_executable(pulp-test-appearance test_appearance_tracker.cpp)
+target_link_libraries(pulp-test-appearance PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-appearance)
+
+# New widgets (EqCurve, MidiKeyboard, ColorPicker, FileDropZone, SplitView, PropertyList, Breadcrumb)
+add_executable(pulp-test-phase9-widgets test_phase9_widgets.cpp)
+target_link_libraries(pulp-test-phase9-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-phase9-widgets)
+
+# Asset manager and resource system
+add_executable(pulp-test-asset-manager test_asset_manager.cpp)
+target_link_libraries(pulp-test-asset-manager PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-asset-manager)
+
 # Web-compat test suite (Phase 6: CSS parsing, layout, events, visual regression)
 add_subdirectory(web-compat)

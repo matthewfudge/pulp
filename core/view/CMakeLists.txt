@@ -99,6 +99,10 @@ target_sources(pulp-view PRIVATE
     src/script_engine.cpp
     src/js_engine_recommend.cpp
     src/theme.cpp
+    src/theme_contrast.cpp
+    src/theme_presets.cpp
+    src/appearance_tracker.cpp
+    src/asset_manager.cpp
     src/view.cpp
     src/yoga_layout.cpp
     src/widgets.cpp
@@ -116,6 +120,13 @@ target_sources(pulp-view PRIVATE
     src/canvas_widget.cpp
     src/frame_clock.cpp
     src/window_manager.cpp
+    src/eq_curve_view.cpp
+    src/midi_keyboard.cpp
+    src/color_picker.cpp
+    src/file_drop_zone.cpp
+    src/split_view.cpp
+    src/property_list.cpp
+    src/breadcrumb.cpp
 )
 
 # WebView support — compiled separately to avoid WebKit framework auto-loading
@@ -190,6 +201,7 @@ if(APPLE)
             platform/mac/screenshot_mac.mm
             platform/mac/drag_drop_mac.mm
             platform/mac/accessibility_mac.mm
+            platform/mac/appearance_mac.mm
         )
         target_link_libraries(pulp-view PRIVATE
             "-framework CoreServices"
@@ -211,6 +223,7 @@ elseif(WIN32)
         src/screenshot_stub.cpp
         src/window_host_stub.cpp
         platform/win/accessibility_win.cpp
+        platform/win/appearance_win.cpp
     )
 elseif(UNIX)
     target_sources(pulp-view PRIVATE

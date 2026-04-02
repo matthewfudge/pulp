@@ -57,6 +57,29 @@ struct Theme {
     static Theme dark();
     static Theme light();
     static Theme pro_audio();
+
+    // ── Import/Export ────────────────────────────────────────────────────────
+
+    /// Save theme to a JSON file. Returns true on success.
+    bool save_to_file(const std::string& path) const;
+
+    /// Load theme from a JSON file. Returns empty Theme on failure.
+    static Theme load_from_file(const std::string& path);
+
+    // ── Validation ──────────────────────────────────────────────────────────
+
+    /// List of required color tokens that every complete theme must define.
+    static const std::vector<std::string>& required_color_tokens();
+
+    /// Check if this theme has all required tokens. Returns list of missing token names.
+    std::vector<std::string> missing_tokens() const;
+
+    /// Returns true if this theme defines all required tokens.
+    bool is_complete() const;
+
+    /// Merge with a base theme to fill in any missing tokens.
+    /// Missing tokens in *this are filled from base. Existing tokens are kept.
+    void fill_from(const Theme& base);
 };
 
 } // namespace pulp::view
