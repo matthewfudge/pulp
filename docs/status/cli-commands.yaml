@@ -158,12 +158,20 @@ commands:
 
   - name: design
     status: experimental
-    summary: Launch the local AI-powered design tool for token and style iteration.
+    summary: Build and launch the local AI-powered design tool for token and style iteration, binding to the current checkout or the SDK/build next to the CLI binary.
     args:
       - name: script
         kind: positional
         required: false
         description: Optional path to a design-tool JS file to load instead of the default example
+      - name: --script
+        kind: option
+        required: false
+        description: Explicit path to the design-tool JS file to load
+      - name: --build-dir
+        kind: option
+        required: false
+        description: Override the build directory used to configure/build and launch the tool
     docs: reference/cli.md#design
 
   - name: design-debug

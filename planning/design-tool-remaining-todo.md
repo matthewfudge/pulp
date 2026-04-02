@@ -1,29 +1,63 @@
 # Design Tool — Remaining TODO
 
-**Date:** 2026-03-29
+**Date:** 2026-03-31
+
+## Burn-Down Order
+
+### PR Prep Only
+
+- [ ] **Windows test asset discovery tightening** — Only address this when the design-tool branch is otherwise ready for PR/merge. The current soft-skip path in `test/test_design_tool_layout.cpp` is intentional: tests call `SKIP("design-tool.js not found")` when `examples/design-tool/design-tool.js` cannot be located. Before PR, tighten Windows asset discovery/reporting so that this bucket of tests either runs or skips with a more explicit reason, but do not change that behavior during active feature work.
+
+### Now
+
+- [ ] **Hue slider responsiveness** — Master Hue / H drag path now has cache/throttle passes plus redundant live-ramp repaint suppression, but still needs real runtime feel verification in the native app.
+- [ ] **Preview parity cleanup** — Cards, overlays, tabs, waveform/spectrum token mapping, the compact preview dropdown shell, effect swatches, and uppercase section-header treatment are now aligned. Remaining work is the last HTML-reference cleanup on spacing/details.
+- [x] **Token popup reliability** — Close button, Escape dismissal, expanded custom-picker positioning, on-screen fit, pointer-driven custom gamut selection, stronger selection marker, denser gamut edge rendering, throttled H/C/L slider previews, and taller popup slider geometry now behave consistently.
+- [x] **Modal dismissal parity** — Token, help, contrast, and export popups now close via Escape and outside click with regression coverage.
+- [x] **Opposite-mode parity** — Generate Opposite Mode, preset selection, and palette mode selection now share the same light/dark state, and mode changes now reuse saved generated variants instead of blindly re-deriving them.
+- [x] **Text-input visibility** — Chat, token search, and sample inputs now set explicit editor foreground colors and have regression coverage.
+
+### Next
+
+- [x] **Palette Save/Load** — Save/load palette configurations through the native dialog path where available, with fallback file handling elsewhere.
+- [x] **Token alpha persistence** — Popup alpha now writes real token values and survives palette picks/reopen with regression coverage.
+- [x] **Token override polish** — Inline modified markers and reset affordances now surface overrides directly in the token list.
+- [x] **Chat UX** — Timeout recovery, per-request callback isolation, fast CLI/provider failure handling, explicit cancel/stop affordance, and Escape cancellation are now covered with regression tests.
+- [x] **Template selector** — "Audio Studio" / "Tailwind 4" now apply real starting palettes with tests.
+- [x] **Contrast tooling** — Shade badges plus an `"Aa"` contrast preview modal now exist in the expanded palette editor.
+
+### Later
+
+- [ ] **Export parity** — W3C Design Tokens and style-preset JSON exports now exist. Remaining work is final shortcut/platform polish.
+- [ ] **Full token registry expansion** — Move toward the HTML tool’s broader token taxonomy
+- [ ] **AI style-system expansion** — Richer widget-style generation and shader/recipe authoring flow
+- [ ] **Hot reload / developer experience** — More reliable rebuilds and authoring ergonomics
 
 ## Priority 1: Visual Polish (Fix what exists)
 
-- [ ] **Input field corners** — TextEditor focus border has pixelated/rough corners. Need to check border-radius rendering in Skia canvas vs CoreGraphics path. May need anti-aliased rounded rect stroke.
-- [ ] **Icon quality** — Send button icon is squished. Image upload icon looks rough. Need proper SVG/vector icon rendering or higher-resolution icon assets.
-- [ ] **Gamut triangle edges** — Still pixelated from rect grid. Need ImageData-equivalent bridge OR higher-resolution grid (200x100+) with proper anti-aliasing.
-- [ ] **State pills actually change preview** — Pills exist but only update status text. Need to apply hover/focus/disabled/error overrides to all preview components.
-- [ ] **Chat context badge** — "Editing: All Components" needs accent background styling + visible clear (x) button when component is selected.
-- [ ] **Scrollbar overlap** — Scrollbars in center and right panels can overlap content. Need padding-right on scroll content.
+- [ ] **Input field corners** — TextEditor now renders a filled border shell plus inset fill instead of a stroked rounded rect. Needs visual verification/tuning if corners still look rough on-device.
+- [ ] **Icon quality** — Send/upload icon geometry was redrawn in the native widget renderer; keep open only for final on-device visual tuning against the HTML reference.
+- [x] **Gamut triangle edges** — Popup gamut renderer now uses a higher-resolution strip grid; bridge-level ImageData would still be a future quality upgrade.
+- [x] **State pills actually change preview** — Pills now drive preview state rendering with regression coverage.
+- [x] **Chat context badge** — Accent styling and clear affordance are in place with regression coverage.
+- [x] **Scrollbar overlap** — Center/right scroll content now keeps clearance from the scrollbar with regression coverage.
 
 ## Priority 2: Functional Gaps vs HTML
 
-- [ ] **Generate Opposite Mode** — Button below palette rows that auto-generates light from dark (or vice versa)
-- [ ] **Palette Save/Load** — Download/upload .colorsystem.json for palette configurations
-- [ ] **Template selector** — "Audio Studio" / "Tailwind 4" dropdown for starting palettes
-- [ ] **Contrast badges (AAA/AA)** — Show WCAG contrast ratios on shade swatches
-- [ ] **"Aa" contrast preview button** — Info modal showing color on white/black backgrounds
-- [ ] **"?" info buttons** — Help modals for Template, Harmony, Mode explanations
-- [ ] **Token alpha channel** — UI for setting per-token opacity (0-1)
-- [ ] **Export: C++ Header format** — VISAGE_THEME_COLOR macros
-- [ ] **Export: C++ Palette format** — palette.setColor() calls
-- [ ] **Chat export** — Export conversation history
-- [ ] **Chat typing indicator** — Animated 3-dot bounce during Claude response
+- [x] **Generate Opposite Mode** — Button below palette rows now keeps mode/preset state in sync.
+- [x] **Palette Save/Load** — Palette config can now serialize/round-trip with regression coverage; dialog-backed on hosts that support it.
+- [x] **Template selector** — "Audio Studio" / "Tailwind 4" dropdown now applies real starting palettes.
+- [x] **Contrast badges (AAA/AA)** — Shade swatches now show direct WCAG contrast ratios.
+- [x] **"Aa" contrast preview button** — Info modal now shows color on white/black backgrounds.
+- [x] **"?" info buttons** — Template, Harmony, and Mode help modals are implemented and tested.
+- [x] **Token alpha channel** — Popup alpha slider now persists real token alpha values.
+- [x] **Export: CSS Vars format** — Export helper emits `:root { --pulp-... }` output in the modal.
+- [x] **Export: OKLCH format** — Export helper emits `oklch(...)` CSS variables in the modal.
+- [x] **Export: C++ Header format** — Export helper now emits `PULP_THEME_COLOR(...)` output and saves with `.hpp`.
+- [x] **Export: C++ Palette format** — Export helper now emits `palette.setColor(...)` output and saves with `.cpp`.
+- [x] **Chat export** — Conversation history now serializes and exports through the save-dialog path.
+- [x] **Chat typing indicator** — Pending requests now use transient UI instead of leaving `"..."` in history.
+- [x] **Preview cards / overlays / tabs track theme tokens** — Ready/error cards now use semantic borders, overlay surfaces honor overlay/tooltip/modal tokens, and preview tabs have active/hover treatment with regression coverage.
 
 ## Priority 3: AI-Driven Style System (THE BIG ONE)
 

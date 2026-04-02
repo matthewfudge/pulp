@@ -136,8 +136,8 @@ TEST_CASE("TextEditor key event: Cmd+A selects all", "[view][text_editor]") {
 
 TEST_CASE("TextEditor key event: Backspace deletes before caret", "[view][text_editor]") {
     TextEditor editor;
+    editor.on_focus_changed(true);
     editor.set_text("AB");
-    // Caret is at end (position 2) after set_text
 
     KeyEvent e;
     e.key = KeyCode::backspace;
@@ -148,8 +148,8 @@ TEST_CASE("TextEditor key event: Backspace deletes before caret", "[view][text_e
 
 TEST_CASE("TextEditor key event: Up goes to start in single-line", "[view][text_editor]") {
     TextEditor editor;
+    editor.on_focus_changed(true);
     editor.set_text("Hello");
-    // Caret at end after set_text
 
     KeyEvent e;
     e.key = KeyCode::up;
@@ -168,6 +168,84 @@ TEST_CASE("TextEditor paint produces draw commands", "[view][text_editor]") {
 
     REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) > 0);
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) > 0);
+}
+
+TEST_CASE("TextEditor paint clamps shell radius and insets the inner fill", "[view][text_editor]") {
+    TextEditor editor;
+    editor.set_bounds({0, 0, 120, 20});
+    editor.set_border(Color::hex(0xFFFFFF), 2.0f, 20.0f);
+    editor.set_text("Paint test");
+
+    RecordingCanvas canvas;
+    editor.paint(canvas);
+
+    std::vector<DrawCommand> rounded;
+    for (const auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_rounded_rect) rounded.push_back(cmd);
+    }
+
+    REQUIRE(rounded.size() >= 2);
+    const auto& outer = rounded[0];
+    const auto& inner = rounded[1];
+
+    REQUIRE(outer.f[4] <= 9.5f);
+    REQUIRE(inner.f[0] == 2.0f);
+    REQUIRE(inner.f[1] == 2.0f);
+    REQUIRE(inner.f[2] == 116.0f);
+    REQUIRE(inner.f[3] == 16.0f);
+    REQUIRE(inner.f[4] < outer.f[4]);
+}
+
+TEST_CASE("TextEditor paint renders a visible selection highlight and split text", "[view][text_editor]") {
+    TextEditor editor;
+    editor.set_bounds({0, 0, 180, 28});
+    editor.set_text("Select me");
+    editor.select_all();
+
+    RecordingCanvas canvas;
+    editor.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rect) >= 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_text) >= 1);
+}
+
+TEST_CASE("TextEditor paint keeps unfocused single-line text anchored to the start", "[view][text_editor]") {
+    TextEditor editor;
+    editor.set_bounds({0, 0, 120, 26});
+    editor.set_text("Some text");
+
+    RecordingCanvas canvas;
+    editor.paint(canvas);
+
+    bool found = false;
+    for (const auto& cmd : canvas.commands()) {
+        if (cmd.type != DrawCommand::Type::fill_text || cmd.text != "Some text") continue;
+        REQUIRE(cmd.f[0] >= 6.0f);
+        REQUIRE(cmd.f[0] <= 20.0f);
+        found = true;
+        break;
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("TextEditor paint resets canvas text alignment before drawing", "[view][text_editor]") {
+    TextEditor editor;
+    editor.set_bounds({0, 0, 120, 26});
+    editor.set_text("Some text");
+
+    RecordingCanvas canvas;
+    canvas.set_text_align(TextAlign::center);
+    editor.paint(canvas);
+
+    bool found = false;
+    for (const auto& cmd : canvas.commands()) {
+        if (cmd.type != DrawCommand::Type::fill_text || cmd.text != "Some text") continue;
+        REQUIRE(cmd.f[0] >= 6.0f);
+        REQUIRE(cmd.f[0] <= 20.0f);
+        found = true;
+        break;
+    }
+    REQUIRE(found);
 }
 
 TEST_CASE("TextEditor password mode masks text", "[view][text_editor]") {

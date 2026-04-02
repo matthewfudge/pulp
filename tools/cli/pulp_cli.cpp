@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include "design_binding.hpp"
+
 #ifdef __APPLE__
 #include <mach-o/dyld.h>  // _NSGetExecutablePath
 #endif
@@ -91,6 +93,27 @@ static int run(const std::string& cmd) {
     return std::system(cmd.c_str());
 }
 
+static std::string shell_quote(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '\\' || c == '"') out += '\\';
+        out += c;
+    }
+    out += "\"";
+    return out;
+}
+
+static std::string shell_quote(const fs::path& p) {
+    return shell_quote(p.string());
+}
+
+static fs::path platform_executable(fs::path p) {
+#ifdef _WIN32
+    if (p.extension() != ".exe") p += ".exe";
+#endif
+    return p;
+}
+
 // Run a shell command with an animated spinner and elapsed time.
 // Output is captured to a temp file and shown only on failure.
 static int run_with_spinner(const std::string& cmd, const std::string& label) {
@@ -161,8 +184,9 @@ static std::string exec_output(const std::string& cmd) {
     return result;
 }
 
-static fs::path find_project_root() {
-    auto dir = fs::current_path();
+static fs::path find_project_root_from(fs::path dir) {
+    if (fs::is_regular_file(dir)) dir = dir.parent_path();
+    if (dir.empty()) dir = fs::current_path();
     while (!dir.empty()) {
         if (fs::exists(dir / "CMakeLists.txt") && fs::exists(dir / "core")) {
             return dir;
@@ -171,6 +195,61 @@ static fs::path find_project_root() {
         if (parent == dir) break;
         dir = parent;
     }
+    return {};
+}
+
+static fs::path find_project_root() {
+    return find_project_root_from(fs::current_path());
+}
+
+static fs::path current_executable_path() {
+#ifdef __APPLE__
+    char buf[1024];
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0) {
+        std::error_code ec;
+        auto canonical = fs::canonical(buf, ec);
+        return ec ? fs::path(buf) : canonical;
+    }
+#elif defined(__linux__)
+    std::error_code ec;
+    auto canonical = fs::canonical("/proc/self/exe", ec);
+    if (!ec) return canonical;
+#elif defined(_WIN32)
+    char buf[MAX_PATH];
+    GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    std::error_code ec;
+    auto canonical = fs::canonical(buf, ec);
+    return ec ? fs::path(buf) : canonical;
+#endif
+    return {};
+}
+
+static fs::path cmake_home_directory(const fs::path& build_dir) {
+    auto cache = build_dir / "CMakeCache.txt";
+    if (!fs::exists(cache)) return {};
+
+    std::ifstream in(cache);
+    std::string line;
+    const std::string prefix = "CMAKE_HOME_DIRECTORY:INTERNAL=";
+    while (std::getline(in, line)) {
+        if (line.rfind(prefix, 0) == 0) {
+            return fs::path(line.substr(prefix.size()));
+        }
+    }
+    return {};
+}
+
+static fs::path build_dir_from_current_binary() {
+    auto self = current_executable_path();
+    if (self.empty()) return {};
+
+    auto dir = self.parent_path();
+    if (dir.filename() == "cli" && dir.parent_path().filename() == "tools") {
+        auto candidate = dir.parent_path().parent_path();
+        if (fs::exists(candidate / "CMakeCache.txt")) return candidate;
+    }
+
     return {};
 }
 
@@ -632,6 +711,124 @@ static int cmd_build(const std::vector<std::string>& args) {
     }
 
     return run_with_spinner(build_cmd, "Building");
+}
+
+static int ensure_repo_build_configured(const fs::path& project_root, const fs::path& build_dir) {
+    bool needs_configure = !fs::exists(build_dir / "CMakeCache.txt");
+
+    if (!needs_configure && fs::exists(build_dir / "CMakeCache.txt")) {
+        auto cmake_time = fs::last_write_time(project_root / "CMakeLists.txt");
+        auto cache_time = fs::last_write_time(build_dir / "CMakeCache.txt");
+        if (cmake_time > cache_time) needs_configure = true;
+    }
+
+    if (!needs_configure) return 0;
+    std::string configure_cmd = "cmake -B " + shell_quote(build_dir) + " -S " + shell_quote(project_root);
+    return run_with_spinner(configure_cmd, "Configuring");
+}
+
+static int cmd_design(const std::vector<std::string>& args) {
+    fs::path cwd_root = find_project_root();
+    fs::path build_dir;
+    fs::path script_path;
+    std::vector<std::string> pass_through;
+    bool build_dir_explicit = false;
+    std::string root_reason = cwd_root.empty() ? "" : "current checkout";
+    std::string build_reason;
+    std::string script_reason;
+
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "--build-dir" && i + 1 < args.size()) {
+            build_dir = fs::absolute(args[++i]);
+            build_dir_explicit = true;
+            build_reason = "explicit --build-dir";
+            continue;
+        }
+        if (args[i] == "--script" && i + 1 < args.size()) {
+            script_path = fs::absolute(args[++i]);
+            script_reason = "explicit --script";
+            continue;
+        }
+        pass_through.push_back(args[i]);
+    }
+
+    if (script_path.empty() && !pass_through.empty() && !pass_through.front().empty()
+        && pass_through.front()[0] != '-') {
+        fs::path candidate = pass_through.front();
+        auto ext = candidate.extension().string();
+        if (ext == ".js" || ext == ".mjs" || ext == ".cjs") {
+            script_path = candidate.is_absolute() ? candidate : fs::absolute(candidate);
+            script_reason = "positional script argument";
+            pass_through.erase(pass_through.begin());
+        }
+    }
+
+    auto binary_build_dir = build_dir_from_current_binary();
+    auto binary_root = cmake_home_directory(binary_build_dir);
+    auto cache_root = cmake_home_directory(build_dir);
+    pulp::cli::DesignBindingInput binding_input;
+    binding_input.cwd_root = cwd_root;
+    binding_input.build_dir = build_dir;
+    binding_input.script_path = script_path;
+    binding_input.script_root = script_path.empty() ? fs::path{} : find_project_root_from(script_path.parent_path());
+    binding_input.build_dir_cache_root = cache_root;
+    binding_input.binary_build_dir = binary_build_dir;
+    binding_input.binary_root = binary_root;
+    binding_input.build_dir_explicit = build_dir_explicit;
+    binding_input.script_explicit = !script_reason.empty() && script_reason != "positional script argument";
+
+    auto binding = pulp::cli::resolve_design_binding(binding_input);
+    if (!binding.ok) {
+        std::cerr << "Error: " << binding.error << "\n";
+        return 1;
+    }
+
+    auto root = binding.root;
+    build_dir = binding.build_dir;
+    script_path = binding.script_path;
+    root_reason = binding.root_reason;
+    build_reason = binding.build_reason;
+    script_reason = binding.script_reason;
+
+    if (!fs::exists(script_path)) {
+        std::cerr << "Error: design tool script not found at " << script_path << "\n";
+        return 1;
+    }
+
+    std::cout << "Design root:  " << root << " (" << root_reason << ")\n";
+    std::cout << "Build dir:    " << build_dir << " (" << build_reason << ")\n";
+    std::cout << "Script:       " << script_path << " (" << script_reason << ")\n";
+
+    int rc = ensure_repo_build_configured(root, build_dir);
+    if (rc != 0) return rc;
+
+    rc = run_with_spinner("cmake --build " + shell_quote(build_dir) + " --target pulp-design-tool",
+                          "Building design tool");
+    if (rc != 0) return rc;
+
+    std::vector<fs::path> candidates = {
+        platform_executable(build_dir / "tools" / "design" / "pulp-design"),
+        platform_executable(build_dir / "examples" / "design-tool" / "pulp-design-tool"),
+    };
+
+    fs::path design_bin;
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate)) {
+            design_bin = candidate;
+            break;
+        }
+    }
+
+    if (design_bin.empty()) {
+        std::cerr << "Error: pulp-design-tool not found after build in " << build_dir << "\n";
+        return 1;
+    }
+
+    std::string cmd = shell_quote(design_bin) + " " + shell_quote(script_path);
+    for (const auto& arg : pass_through) {
+        cmd += " " + shell_quote(arg);
+    }
+    return run(cmd);
 }
 
 static int cmd_test(const std::vector<std::string>& args) {
@@ -3064,6 +3261,9 @@ static void print_usage() {
     std::cout << "  pulp cache fetch skia   # Download Skia GPU binaries\n";
     std::cout << "  pulp docs index         # List available docs\n";
     std::cout << "  pulp status             # Show project info\n";
+    std::cout << "  pulp design             # Build and launch the design tool\n";
+    std::cout << "  pulp design --script path/to/design-tool.js\n";
+    std::cout << "  pulp design --build-dir /tmp/pulp-design-parity-build\n";
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -3144,33 +3344,7 @@ int main(int argc, char* argv[]) {
         for (auto& arg : args) cmd += " \"" + arg + "\"";
         return run(cmd);
     }
-    if (command == "design") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        std::vector<fs::path> candidates = {
-            root / "build" / "tools" / "design" / "pulp-design",
-            root / "build" / "examples" / "design-tool" / "pulp-design-tool",
-        };
-
-        fs::path design_bin;
-        for (const auto& candidate : candidates) {
-            if (fs::exists(candidate)) {
-                design_bin = candidate;
-                break;
-            }
-        }
-
-        if (design_bin.empty()) {
-            std::cerr << "Error: design tool not built. Run `pulp build` first.\n";
-            return 1;
-        }
-        std::string cmd = design_bin.string();
-        for (auto& arg : args) cmd += " \"" + arg + "\"";
-        return run(cmd);
-    }
+    if (command == "design")   return cmd_design(args);
     if (command == "design-debug") {
         auto root = find_project_root();
         if (root.empty()) {

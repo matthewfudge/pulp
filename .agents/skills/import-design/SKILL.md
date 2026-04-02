@@ -76,6 +76,22 @@ After generating, offer to:
 - Change theme tokens ("use darker background colors")
 - Preview the UI if a preview tool is available
 
+For interactive review of the current checkout, prefer:
+
+```bash
+pulp design
+```
+
+If the design tool lives in a nonstandard worktree/build setup, use:
+
+```bash
+pulp design --build-dir /path/to/build --script /path/to/design-tool.js
+```
+
+When run outside a Pulp checkout, automatic binding currently only works when the `pulp` binary
+itself lives inside a Pulp build tree. In generic PATH-installed or split repo/SDK layouts, pass
+`--build-dir` and `--script` explicitly.
+
 ## Mapping Quick Reference
 
 ### Figma → Pulp

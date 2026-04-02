@@ -30,6 +30,86 @@ var tokenEditState = {
     activeToken: null,
     activeSwatchId: null
 };
+var oppositeModeVariants = { dark: null, light: null };
+
+function captureModeVariant(mode, titleOverride) {
+    return {
+        mode: resolvePaletteMode(mode || currentPaletteMode),
+        title: titleOverride || getText("theme-name-label"),
+        themeJson: getThemeJson(),
+        accent: currentAccent,
+        harmony: currentHarmony
+    };
+}
+
+function refreshOppositeModeButton() {
+    var label = "Generate Opposite Mode";
+    if (typeof tokenGroups !== "undefined") {
+        var targetMode = resolvePaletteMode(currentPaletteMode === "light" ? "dark" : "light");
+        label = (oppositeModeVariants[targetMode] ? "Switch to " : "Generate ")
+            + (targetMode === "light" ? "Light Mode" : "Dark Mode");
+    }
+    try { setText("gen-opposite-lbl", label); } catch (e) {}
+}
+
+function markCurrentModeDirty() {
+    var mode = resolvePaletteMode(currentPaletteMode);
+    oppositeModeVariants[mode] = captureModeVariant(mode);
+    oppositeModeVariants[mode === "light" ? "dark" : "light"] = null;
+    refreshOppositeModeButton();
+}
+
+function applyModeVariant(variant) {
+    if (!variant || !variant.themeJson) return false;
+    var mode = syncPaletteMode(resolvePaletteMode(variant.mode));
+    currentAccent = variant.accent || currentAccent;
+    currentHarmony = variant.harmony || currentHarmony;
+    setSelected("harmony-selector", harmonySelectorIndex(currentHarmony));
+    setTheme(mode);
+    applyTokenDiff(variant.themeJson);
+    var accentOklch = OklchEngine.hexToOklch(currentAccent);
+    accentHuePendingHue = accentOklch.H;
+    setValue("accent-hue", accentOklch.H / 360);
+    if (variant.title) setText("theme-name-label", variant.title);
+    updateTokenSwatches();
+    refreshPaletteEditorsFromPalette(PaletteSystem.create(currentAccent, currentHarmony), true, false);
+    refreshOppositeModeButton();
+    layout();
+    return true;
+}
+
+function generateModeVariant(targetMode, titleOverride) {
+    var mode = syncPaletteMode(resolvePaletteMode(targetMode));
+    setTheme(mode);
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    applyPaletteThemeDiff(palette, mode);
+    refreshPaletteEditorsFromPalette(palette, true, false);
+    updateTokenSwatches();
+    if (titleOverride) setText("theme-name-label", titleOverride);
+    oppositeModeVariants[mode] = captureModeVariant(mode, getText("theme-name-label"));
+    refreshOppositeModeButton();
+    layout();
+    return true;
+}
+
+function switchPaletteMode(targetMode, options) {
+    options = options || {};
+    var currentMode = resolvePaletteMode(currentPaletteMode);
+    var resolvedTarget = resolvePaletteMode(targetMode);
+    if (resolvedTarget === currentMode) {
+        refreshOppositeModeButton();
+        return true;
+    }
+
+    oppositeModeVariants[currentMode] = captureModeVariant(currentMode);
+    if (applyModeVariant(oppositeModeVariants[resolvedTarget])) return true;
+
+    var generatedTitle = options.generatedTitle;
+    if (!generatedTitle) {
+        generatedTitle = resolvedTarget === "light" ? "Generated Light" : "Generated Dark";
+    }
+    return generateModeVariant(resolvedTarget, generatedTitle);
+}
 
 function tokenHistory(name) {
     if (!tokenEditState.history[name]) {
@@ -48,11 +128,18 @@ function pushTokenEdit(name, hex) {
     h.stack = h.stack.slice(0, h.cursor + 1);
     h.stack.push(hex);
     h.cursor = h.stack.length - 1;
+    setTokenModifiedState(name, hex);
+}
+
+function setTokenModifiedState(name, hex) {
+    var h = tokenHistory(name);
     tokenEditState.modified[name] = (hex !== h.original);
     if (!tokenEditState.modified[name]) delete tokenEditState.modified[name];
 }
 
-function applyTokenColor(name, hex) {
+function applyTokenColor(name, hex, options) {
+    options = options || {};
+    if (hex && hex.charAt(0) === "#") hex = hex.toUpperCase();
     var swatchId = null;
     for (var g = 0; g < tokenGroups.length; g++) {
         for (var t = 0; t < tokenGroups[g].tokens.length; t++) {
@@ -63,19 +150,21 @@ function applyTokenColor(name, hex) {
         }
         if (swatchId) break;
     }
-    pushTokenEdit(name, hex);
+    if (options.recordHistory === false) setTokenModifiedState(name, hex);
+    else pushTokenEdit(name, hex);
     var obj = { colors: {} };
     obj.colors[name] = hex;
     applyTokenDiff(JSON.stringify(obj));
-    pushThemeSnapshot();
+    if (options.snapshot !== false) pushThemeSnapshot();
     // Flash: briefly show accent color on swatch
-    if (swatchId) setBackground(swatchId, APP_ACCENT);
-    layout();
+    if (swatchId && options.flash !== false) setBackground(swatchId, APP_ACCENT);
+    if (options.relayout !== false) layout();
     updateTokenSwatches();
+    markCurrentModeDirty();
     updateModifiedCount();
     updateAllTokenNameDisplays();
-    if (tokenEditState.activeToken) updatePopupState(tokenEditState.activeToken);
-    layout();
+    if (tokenEditState.activeToken && options.refreshPopup !== false) updatePopupState(tokenEditState.activeToken);
+    if (options.relayout !== false) layout();
 }
 
 function updateModifiedCount() {
@@ -84,17 +173,48 @@ function updateModifiedCount() {
     setText("status-text", n > 0 ? n + " token" + (n === 1 ? "" : "s") + " modified" : "0 tokens modified");
 }
 
+function resetTokenColor(name) {
+    var h = tokenHistory(name);
+    var orig = h.original;
+    h.stack = [orig];
+    h.cursor = 0;
+    delete tokenEditState.modified[name];
+    var obj = { colors: {} };
+    obj.colors[name] = orig;
+    applyTokenDiff(JSON.stringify(obj));
+    pushThemeSnapshot();
+    updateTokenSwatches();
+    markCurrentModeDirty();
+    updateModifiedCount();
+    updateAllTokenNameDisplays();
+    if (tokenEditState.activeToken === name) updatePopupState(name);
+    layout();
+}
+
 function updateAllTokenNameDisplays() {
     for (var g = 0; g < tokenGroups.length; g++) {
         for (var t = 0; t < tokenGroups[g].tokens.length; t++) {
             var name = tokenGroups[g].tokens[t];
+            var rowId = "tok-" + g + "-" + t;
             var labelId = "tok-" + g + "-" + t + "-name";
+            var markerId = "tok-" + g + "-" + t + "-mod";
+            var resetId = "tok-" + g + "-" + t + "-reset";
+            var swatchId = "tok-" + g + "-" + t + "-sw";
             if (tokenEditState.modified[name]) {
-                setText(labelId, name + " *");
+                setText(labelId, name);
                 setTextColor(labelId, APP_ACCENT);
+                setTextColor(markerId, APP_ACCENT_HOVER);
+                setOpacity(markerId, 1.0);
+                setVisible(resetId, true);
+                setBorder(swatchId, APP_ACCENT_HOVER, 1, 4);
+                setBackground(rowId, "#8f6cff14");
             } else {
                 setText(labelId, name);
                 setTextColor(labelId, APP_TEXT);
+                setOpacity(markerId, 0.0);
+                setVisible(resetId, false);
+                setBorder(swatchId, APP_BORDER, 1, 4);
+                setBackground(rowId, 'transparent');
             }
         }
     }
@@ -118,6 +238,7 @@ var APP_ACCENT  = '#aa88ff';
 var APP_ACCENT_HOVER = '#bf9fff';
 var previewReady = false;
 var activePreviewTab = 0;
+var previewTabHoverIndex = -1;
 
 function previewThemeColor(token, fallback) {
     var colors = JSON.parse(getThemeJson()).colors || {};
@@ -131,18 +252,176 @@ var previewTabContent = [
     { title: "About this preset", subtitle: "Metadata, export details, and notes" }
 ];
 
+function refreshPreviewThemeBase() {
+    if (!previewReady) return;
+
+    var bgPrimary = previewThemeColor("bg.primary", APP_BG);
+    var bgSecondary = previewThemeColor("bg.secondary", APP_PANEL);
+    var bgSurface = previewThemeColor("bg.surface", APP_PANEL);
+    var bgElevated = previewThemeColor("bg.elevated", APP_PANEL_RAISED);
+    var textPrimary = previewThemeColor("text.primary", APP_TEXT);
+    var textSecondary = previewThemeColor("text.secondary", APP_TEXT_DIM);
+    var textDisabled = previewThemeColor("text.disabled", APP_TEXT_DIM);
+    var accentPrimary = previewThemeColor("accent.primary", APP_ACCENT);
+    var accentError = previewThemeColor("accent.error", "#f38ba8");
+    var focusRing = previewThemeColor("focus.ring", accentPrimary);
+    var gradientStart = previewThemeColor("gradient.start", accentPrimary);
+    var gradientEnd = previewThemeColor("gradient.end", previewThemeColor("accent.secondary", accentPrimary));
+    var controlFill = previewThemeColor("control.fill", accentPrimary);
+    var controlBorder = previewThemeColor("control.border", APP_BORDER);
+    var divider = previewThemeColor("divider", APP_BORDER);
+    var overlayBg = previewThemeColor("overlay.bg", applyHexAlpha(bgElevated, 0.82));
+    var modalBg = previewThemeColor("modal.bg", bgSurface);
+    var modalBorder = previewThemeColor("modal.border", controlBorder);
+    var tooltipBg = previewThemeColor("tooltip.bg", modalBg);
+    var tooltipText = previewThemeColor("tooltip.text", textPrimary);
+
+    setBackground("center-panel", bgPrimary);
+    setBackground("preview-shell", bgSurface);
+    setBorder("preview-shell", divider, 1, 12);
+    setBackground("preview-chrome", bgElevated);
+    setTextColor("preview-chrome-title", textSecondary);
+    setBackground("preview-chrome-divider", divider);
+    setBackground("preview-scroll", bgPrimary);
+
+    var headerIds = [
+        "foundations-header", "controls-header", "data-header", "layout-header",
+        "tabs-header", "overlays-header", "states-header", "effects-header",
+        "showcase-header", "waveform2-header"
+    ];
+    for (var hi = 0; hi < headerIds.length; hi++) setTextColor(headerIds[hi], textSecondary);
+
+    setTextColor("th-heading", textPrimary);
+    setTextColor("th-body", textPrimary);
+    setTextColor("th-caption", textSecondary);
+    setTextColor("toggle-on-label", textPrimary);
+    setTextColor("toggle-off-label", textPrimary);
+    setTextColor("panel-title", textPrimary);
+    setTextColor("panel-sub", textSecondary);
+    setTextColor("spinner-text", textSecondary);
+
+    setBackground("layout-header-line", divider);
+    setBackground("panel-divider", divider);
+    setBackground("tab-bar-preview-line", "transparent");
+
+    for (var bi = 0; bi < 4; bi++) {
+        setBorder("bg-sw-" + bi, divider, 1, 4);
+        setTextColor("bg-sw-" + bi + "-l", textPrimary);
+    }
+
+    setBackground("btn-normal", bgSurface);
+    setBorder("btn-normal", controlBorder, 1, 6);
+    setTextColor("btn-normal-label", textPrimary);
+
+    setBackground("btn-hover", bgElevated);
+    setBorder("btn-hover", controlBorder, 1, 6);
+    setTextColor("btn-hover-label", textPrimary);
+
+    setBackground("btn-action", accentPrimary);
+    setBorder("btn-action", accentPrimary, 0, 6);
+    setTextColor("btn-action-label", "#ffffff");
+
+    setBackground("btn-disabled", bgSecondary);
+    setBorder("btn-disabled", controlBorder, 1, 6);
+    setTextColor("btn-disabled-label", textDisabled);
+
+    setBackground("sample-input", bgSurface);
+    setBackground("sample-placeholder", bgSurface);
+    setBackground("sample-combo", bgSurface);
+    setBorder("sample-input", controlBorder, 1, 6);
+    setBorder("sample-placeholder", controlBorder, 1, 6);
+    setBorder("sample-combo", controlBorder, 1, 6);
+    setTextColor("sample-input", textPrimary);
+    setTextColor("sample-placeholder", textSecondary);
+    setTextColor("sample-combo-label", textPrimary);
+    setTextColor("sample-combo-caret", textSecondary);
+
+    setBackground("tb1", bgSurface);
+    setBorder("tb1", controlBorder, 1, 6);
+
+    setBackground("panel-content", bgSurface);
+    setBorder("panel-content", divider, 1, 6);
+
+    setBackground("overlay-row", overlayBg);
+    setBorder("overlay-row", divider, 1, 8);
+
+    setBackground("dialog-card", modalBg);
+    setBorder("dialog-card", modalBorder, 1, 8);
+    setTextColor("dialog-title", textPrimary);
+    setTextColor("dialog-msg", textSecondary);
+    setBackground("dialog-cancel", bgElevated);
+    setBorder("dialog-cancel", modalBorder, 1, 4);
+    setTextColor("dialog-cancel-l", textSecondary);
+    setBackground("dialog-accept", accentPrimary);
+    setBorder("dialog-accept", accentPrimary, 0, 4);
+    setTextColor("dialog-accept-l", "#ffffff");
+
+    setBackground("ctx-menu", tooltipBg);
+    setBorder("ctx-menu", modalBorder, 1, 6);
+    for (var ci = 0; ci < 5; ci++) {
+        if (ci === 2) setBackground("ctx-sep-" + ci, divider);
+        else setTextColor("ctx-" + ci + "-l", tooltipText);
+    }
+    setBackground("ctx-1", applyHexAlpha(accentPrimary, 0.16));
+    setTextColor("ctx-1-l", accentPrimary);
+    setTextColor("ctx-4-l", accentError);
+
+    var stateBgs = [bgSurface, bgElevated, accentPrimary, bgSurface, bgSecondary];
+    var stateBorders = [controlBorder, controlBorder, accentPrimary, previewThemeColor("focus.ring", accentPrimary), controlBorder];
+    var stateText = [textPrimary, textPrimary, "#ffffff", textPrimary, textDisabled];
+    for (var si = 0; si < 5; si++) {
+        setBackground("state-" + si, stateBgs[si]);
+        setBorder("state-" + si, stateBorders[si], 1, 4);
+        setTextColor("state-" + si + "-l", stateText[si]);
+    }
+    setOpacity("state-4", 0.5);
+
+    for (var ei = 0; ei < 4; ei++) {
+        setBackground("effect-" + ei, bgSurface);
+        setBorder("effect-" + ei, controlBorder, 1, 6);
+        setTextColor("effect-" + ei + "-l", textPrimary);
+    }
+    setBackground("effect-0-chip", bgElevated);
+    setBorder("effect-0-chip", divider, 1, 4);
+    setBoxShadow("effect-0-chip", 0, 3, 8, 0, applyHexAlpha(bgPrimary, 0.58));
+    setBackground("effect-1-chip", focusRing);
+    setBorder("effect-1-chip", focusRing, 0, 4);
+    setBoxShadow("effect-1-chip", 0, 0, 10, 0, applyHexAlpha(focusRing, 0.52));
+    for (var blurIdx = 0; blurIdx < 3; blurIdx++) {
+        setBackground("effect-2-chip-" + blurIdx, controlFill);
+    }
+    setOpacity("effect-2-chip-0", 0.24);
+    setOpacity("effect-2-chip-1", 0.48);
+    setOpacity("effect-2-chip-2", 0.8);
+    setBackground("effect-3-chip-0", gradientStart);
+    setBackground("effect-3-chip-1", accentPrimary);
+    setBackground("effect-3-chip-2", gradientEnd);
+}
+
+function refreshPreviewTabs(skipLayout) {
+    if (!previewReady) return;
+    var activeUnderline = previewThemeColor("tab.active", APP_ACCENT);
+    var inactiveText = previewThemeColor("tab.inactive", APP_TEXT_DIM);
+    var activeText = previewThemeColor("text.primary", APP_TEXT);
+    var activeBg = applyHexAlpha(activeUnderline, 0.18);
+    var hoverBg = applyHexAlpha(activeUnderline, 0.12);
+    for (var ti = 0; ti < 4; ti++) {
+        var isActive = ti === activePreviewTab;
+        var isHovered = ti === previewTabHoverIndex;
+        setTextColor("ptab-" + ti + "-l", (isActive || isHovered) ? activeText : inactiveText);
+        setBackground("ptab-" + ti, isActive ? activeBg : (isHovered ? hoverBg : "transparent"));
+        setBackground("ptab-" + ti + "-line", isActive ? activeUnderline : "transparent");
+    }
+    setText("panel-title", previewTabContent[activePreviewTab].title);
+    setText("panel-sub", previewTabContent[activePreviewTab].subtitle);
+    if (!skipLayout) layout();
+}
+
 function setPreviewActiveTab(idx, skipLayout) {
     if (!previewReady) return;
     activePreviewTab = idx;
-    var activeUnderline = previewThemeColor("tab.active", APP_ACCENT);
-    var inactiveText = previewThemeColor("tab.inactive", APP_TEXT_DIM);
-    for (var ti = 0; ti < 4; ti++) {
-        setTextColor("ptab-" + ti + "-l", ti === idx ? APP_TEXT : inactiveText);
-        setBackground("ptab-" + ti + "-line", ti === idx ? activeUnderline : "transparent");
-    }
-    setText("panel-title", previewTabContent[idx].title);
-    setText("panel-sub", previewTabContent[idx].subtitle);
-    if (!skipLayout) layout();
+    previewTabHoverIndex = -1;
+    refreshPreviewTabs(skipLayout);
 }
 
 function refreshPreviewLayoutSection() {
@@ -151,10 +430,11 @@ function refreshPreviewLayoutSection() {
     var cardLoading = previewThemeColor("card.loading", "#3e4245");
     var cardReady = previewThemeColor("card.ready", APP_PANEL);
     var cardError = previewThemeColor("card.error", "#4a1f28");
-    var success = previewThemeColor("success", "#4CAF50");
-    var error = previewThemeColor("error", "#F44336");
+    var success = previewThemeColor("accent.success", "#4CAF50");
+    var error = previewThemeColor("accent.error", "#F44336");
     var spinner = previewThemeColor("spinner", APP_ACCENT);
     var divider = previewThemeColor("divider", APP_BORDER);
+    var textSecondary = previewThemeColor("text.secondary", APP_TEXT_DIM);
 
     setBackground("card-1", cardEmpty);
     setBackground("card-2", cardLoading);
@@ -162,10 +442,11 @@ function refreshPreviewLayoutSection() {
     setBackground("card-4", cardError);
     setBorder("card-1", divider, 1, 8);
     setBorder("card-2", divider, 1, 8);
-    setBorder("card-3", divider, 1, 8);
-    setBorder("card-4", divider, 1, 8);
-    setTextColor("card-1-label", APP_TEXT_DIM);
-    setTextColor("card-3-label", APP_TEXT_DIM);
+    setBorder("card-3", success, 1, 8);
+    setBorder("card-4", error, 1, 8);
+    setTextColor("card-1-label", textSecondary);
+    setTextColor("card-2-label", textSecondary);
+    setTextColor("card-3-label", textSecondary);
     setTextColor("card-4-label", error);
     setBackground("card-3-badge", success);
     setBackground("card-4-badge", error);
@@ -298,15 +579,16 @@ for (var sp = 0; sp < stateNames.length; sp++) {
 function applyStateToPreview(stateIdx) {
     // 0=Default, 1=Hover, 2=Focus, 3=Disabled, 4=Error
     // Reset all to default first
+    refreshPreviewThemeBase();
     setOpacity("btn-normal", 1); setOpacity("btn-hover", 1);
     setOpacity("btn-action", 1); setOpacity("btn-disabled", 0.5);
-    setBackground("btn-normal", "#3a3a4c");
-    setBackground("btn-hover", "#4a4a5c");
-    setBorder("btn-normal", APP_BORDER, 1, 6);
-    setBorder("btn-hover", APP_BORDER, 1, 6);
-    setBorder("btn-action", APP_ACCENT, 0, 6);
+    setBackground("btn-normal", previewThemeColor("bg.surface", "#3a3a4c"));
+    setBackground("btn-hover", previewThemeColor("bg.elevated", "#4a4a5c"));
+    setBorder("btn-normal", previewThemeColor("control.border", APP_BORDER), 1, 6);
+    setBorder("btn-hover", previewThemeColor("control.border", APP_BORDER), 1, 6);
+    setBorder("btn-action", previewThemeColor("accent.primary", APP_ACCENT), 0, 6);
     setEnabled("btn-disabled", false);
-    setBackground("btn-action", APP_ACCENT);
+    setBackground("btn-action", previewThemeColor("accent.primary", APP_ACCENT));
 
     setOpacity("sample-input", 1);
     setOpacity("sample-placeholder", 1);
@@ -322,42 +604,48 @@ function applyStateToPreview(stateIdx) {
     setEnabled("t1", true);
     setEnabled("t2", true);
     setEnabled("cb1", true);
-    setBackground("sample-input", APP_PANEL);
-    setBackground("sample-placeholder", APP_PANEL);
-    setBackground("sample-combo", APP_PANEL);
-    setBorder("sample-input", APP_BORDER, 1, 6);
-    setBorder("sample-placeholder", APP_BORDER, 1, 6);
-    setBorder("sample-combo", APP_BORDER, 1, 6);
-    setBackground("tb1", APP_PANEL);
-    setBorder("tb1", APP_BORDER, 1, 6);
-    setTextColor("toggle-on-label", APP_TEXT);
-    setTextColor("toggle-off-label", APP_TEXT);
+    setBackground("sample-input", previewThemeColor("bg.surface", APP_PANEL));
+    setBackground("sample-placeholder", previewThemeColor("bg.surface", APP_PANEL));
+    setBackground("sample-combo", previewThemeColor("bg.surface", APP_PANEL));
+    setBorder("sample-input", previewThemeColor("control.border", APP_BORDER), 1, 6);
+    setBorder("sample-placeholder", previewThemeColor("control.border", APP_BORDER), 1, 6);
+    setBorder("sample-combo", previewThemeColor("control.border", APP_BORDER), 1, 6);
+    setTextColor("sample-combo-label", previewThemeColor("text.primary", APP_TEXT));
+    setTextColor("sample-combo-caret", previewThemeColor("text.secondary", APP_TEXT_DIM));
+    setBackground("tb1", previewThemeColor("bg.surface", APP_PANEL));
+    setBorder("tb1", previewThemeColor("control.border", APP_BORDER), 1, 6);
+    setTextColor("toggle-on-label", previewThemeColor("text.primary", APP_TEXT));
+    setTextColor("toggle-off-label", previewThemeColor("text.primary", APP_TEXT));
 
     setBorder("panel-content", previewThemeColor("divider", APP_BORDER), 1, 6);
-    setBackground("panel-content", APP_PANEL);
+    setBackground("panel-content", previewThemeColor("bg.surface", APP_PANEL));
     refreshPreviewLayoutSection();
-    setPreviewActiveTab(0, true);
+    setPreviewActiveTab(activePreviewTab, true);
 
     if (stateIdx === 1) { // Hover
-        setBackground("btn-normal", "#4a4a5c");
-        setBackground("btn-hover", "#5a5a6c");
-        setBorder("btn-normal", APP_ACCENT, 1, 6);
-        setBorder("btn-action", APP_ACCENT, 1, 6);
-        setBorder("sample-input", APP_ACCENT, 1, 6);
-        setBorder("sample-combo", APP_ACCENT, 1, 6);
-        setBackground("tb1", "#4a4a5c");
-        setBorder("tb1", APP_ACCENT, 1, 6);
-        setTextColor("ptab-1-l", APP_TEXT);
+        var hoverAccent = previewThemeColor("accent.primary", APP_ACCENT);
+        setBackground("btn-normal", previewThemeColor("bg.elevated", "#4a4a5c"));
+        setBackground("btn-hover", previewThemeColor("bg.elevated", "#5a5a6c"));
+        setBorder("btn-normal", hoverAccent, 1, 6);
+        setBorder("btn-action", hoverAccent, 1, 6);
+        setBorder("sample-input", hoverAccent, 1, 6);
+        setBorder("sample-combo", hoverAccent, 1, 6);
+        setBackground("sample-combo", previewThemeColor("bg.elevated", "#4a4a5c"));
+        setTextColor("sample-combo-caret", hoverAccent);
+        setBackground("tb1", previewThemeColor("bg.elevated", "#4a4a5c"));
+        setBorder("tb1", hoverAccent, 1, 6);
+        setTextColor("ptab-1-l", previewThemeColor("text.primary", APP_TEXT));
         setBackground("card-2", previewThemeColor("card.loading", "#3e4245"));
     } else if (stateIdx === 2) { // Focus
-        setBorder("btn-normal", APP_ACCENT, 2, 6);
-        setBorder("btn-hover", APP_ACCENT, 2, 6);
-        setBorder("btn-action", APP_ACCENT, 2, 6);
-        setBorder("sample-input", APP_ACCENT, 2, 6);
-        setBorder("sample-placeholder", APP_ACCENT, 2, 6);
-        setBorder("sample-combo", APP_ACCENT, 2, 6);
-        setBorder("tb1", APP_ACCENT, 2, 6);
-        setBorder("panel-content", APP_ACCENT, 1, 6);
+        var focusAccent = previewThemeColor("focus.ring", APP_ACCENT);
+        setBorder("btn-normal", focusAccent, 2, 6);
+        setBorder("btn-hover", focusAccent, 2, 6);
+        setBorder("btn-action", focusAccent, 2, 6);
+        setBorder("sample-input", focusAccent, 2, 6);
+        setBorder("sample-placeholder", focusAccent, 2, 6);
+        setBorder("sample-combo", focusAccent, 2, 6);
+        setBorder("tb1", focusAccent, 2, 6);
+        setBorder("panel-content", focusAccent, 1, 6);
     } else if (stateIdx === 3) { // Disabled
         setOpacity("btn-normal", 0.4);
         setOpacity("btn-hover", 0.4);
@@ -377,21 +665,26 @@ function applyStateToPreview(stateIdx) {
         setEnabled("t1", false);
         setEnabled("t2", false);
         setEnabled("cb1", false);
-        setTextColor("toggle-on-label", APP_TEXT_DIM);
-        setTextColor("toggle-off-label", APP_TEXT_DIM);
+        setTextColor("toggle-on-label", previewThemeColor("text.disabled", APP_TEXT_DIM));
+        setTextColor("toggle-off-label", previewThemeColor("text.disabled", APP_TEXT_DIM));
+        setTextColor("sample-combo-label", previewThemeColor("text.disabled", APP_TEXT_DIM));
+        setTextColor("sample-combo-caret", previewThemeColor("text.disabled", APP_TEXT_DIM));
     } else if (stateIdx === 4) { // Error
-        setBorder("btn-normal", "#e94560", 1, 6);
-        setBorder("btn-hover", "#e94560", 1, 6);
-        setBackground("btn-action", "#e94560");
-        setBorder("sample-input", "#e94560", 1, 6);
-        setBorder("sample-placeholder", "#e94560", 1, 6);
-        setBorder("sample-combo", "#e94560", 1, 6);
-        setBorder("tb1", "#e94560", 1, 6);
-        setBorder("panel-content", "#e94560", 1, 6);
+        var errorAccent = previewThemeColor("accent.error", "#e94560");
+        setBorder("btn-normal", errorAccent, 1, 6);
+        setBorder("btn-hover", errorAccent, 1, 6);
+        setBackground("btn-action", errorAccent);
+        setBorder("btn-action", errorAccent, 0, 6);
+        setBorder("sample-input", errorAccent, 1, 6);
+        setBorder("sample-placeholder", errorAccent, 1, 6);
+        setBorder("sample-combo", errorAccent, 1, 6);
+        setTextColor("sample-combo-caret", errorAccent);
+        setBorder("tb1", errorAccent, 1, 6);
+        setBorder("panel-content", errorAccent, 1, 6);
         setBackground("card-2", previewThemeColor("card.error", "#4a1f28"));
         setBackground("card-4", previewThemeColor("card.error", "#4a1f28"));
-        setTextColor("card-4-label", previewThemeColor("error", "#F44336"));
-        setTextColor("toggle-off-label", "#f38ba8");
+        setTextColor("card-4-label", errorAccent);
+        setTextColor("toggle-off-label", errorAccent);
     }
     layout();
 }
@@ -498,6 +791,7 @@ setItems("template-selector", ["Audio Studio", "Tailwind 4"]);
 setFlex("template-selector", "width", 200);
 setFlex("template-selector", "flex_grow", 1);
 setFlex("template-selector", "height", 22);
+setSelected("template-selector", 0);
 // #56: ? info button
 createLabel("template-help", "?", "template-row");
 setFontSize("template-help", 10);
@@ -512,6 +806,16 @@ setCursor("template-help", "pointer");
 registerClick("template-help");
 on("template-help", "click", function() {
     showHelpModal("Template", "Choose the base palette preset the designer starts from. Audio Studio follows the native reference palette; Tailwind biases the ramps toward utility-style web tokens.");
+});
+
+on("template-selector", "select", function(idx) {
+    var templates = [
+        { title: "Audio Studio", theme: "dark", accent: "#89B4FA", harmony: "monochromatic", templateIndex: 0, snapshot: true },
+        { title: "Tailwind 4", theme: "light", accent: "#2563EB", harmony: "complementary", templateIndex: 1, snapshot: true }
+    ];
+    var config = templates[idx] || templates[0];
+    applyPaletteConfiguration(config);
+    showToast(config.title + " template applied");
 });
 
 // Harmony selector row
@@ -613,6 +917,7 @@ createTextEditor("token-search", "token-search-row");
 setPlaceholder("token-search", "Search tokens...");
 setFlex("token-search", "flex_grow", 1);
 setFlex("token-search", "height", 24);
+setTextColor("token-search", APP_TEXT);
 
 // Token browser header
 createRow("token-header", "left-panel");
@@ -661,6 +966,8 @@ var PALETTE_EDITOR_HEIGHT = 286;
 var COLOR_SECTION_FIXED_HEIGHT = 14 + 22 + 22 + 22 + 22 + 32 + 26;
 var COLOR_SECTION_CHILD_GAP = 6;
 var currentTokenListHeight = 0;
+var helpModalOpen = false;
+var contrastModalOpen = false;
 
 function showHelpModal(title, msg) {
     var size = getRootSize();
@@ -673,6 +980,7 @@ function showHelpModal(title, msg) {
     setPointerEvents("help-modal", "auto");
     setVisible("help-modal", true);
     setOpacity("help-modal", 1);
+    helpModalOpen = true;
     layout();
 }
 
@@ -680,6 +988,38 @@ function hideHelpModal() {
     setOpacity("help-modal", 0);
     setVisible("help-modal", false);
     setPointerEvents("help-modal", "none");
+    helpModalOpen = false;
+    layout();
+}
+
+function showContrastModal(title, hex) {
+    var size = getRootSize();
+    var normalized = (hex || "#000000").toUpperCase();
+    var whiteRatio = OklchEngine.contrastRatio(normalized, "#FFFFFF");
+    var blackRatio = OklchEngine.contrastRatio(normalized, "#111111");
+    setFlex("contrast-modal", "width", size.width);
+    setFlex("contrast-modal", "height", size.height);
+    setTop("contrast-modal", 0);
+    setLeft("contrast-modal", 0);
+    setText("contrast-title", title + " Contrast");
+    setText("contrast-hex", normalized);
+    setTextColor("contrast-white-aa", normalized);
+    setTextColor("contrast-black-aa", normalized);
+    setText("contrast-white-ratio", whiteRatio.toFixed(2) + ":1 on white");
+    setText("contrast-black-ratio", blackRatio.toFixed(2) + ":1 on dark");
+    setText("contrast-note", "Preview the current palette color against light and dark surfaces before committing it to tokens.");
+    setPointerEvents("contrast-modal", "auto");
+    setVisible("contrast-modal", true);
+    setOpacity("contrast-modal", 1);
+    contrastModalOpen = true;
+    layout();
+}
+
+function hideContrastModal() {
+    setOpacity("contrast-modal", 0);
+    setVisible("contrast-modal", false);
+    setPointerEvents("contrast-modal", "none");
+    contrastModalOpen = false;
     layout();
 }
 
@@ -785,6 +1125,30 @@ for (var g = 0; g < tokenGroups.length; g++) {
         setFontSize(tid + "-name", 11);
         setFlex(tid + "-name", "flex_grow", 1);
 
+        createLabel(tid + "-mod", "\u2022", tid);
+        setFontSize(tid + "-mod", 11);
+        setFlex(tid + "-mod", "width", 8);
+        setFlex(tid + "-mod", "height", 12);
+        setOpacity(tid + "-mod", 0.0);
+
+        var resetId = tid + "-reset";
+        createCol(resetId, tid);
+        setFlex(resetId, "width", 34);
+        setFlex(resetId, "min_width", 34);
+        setFlex(resetId, "max_width", 34);
+        setFlex(resetId, "height", 18);
+        setFlex(resetId, "justify_content", "center");
+        setFlex(resetId, "align_items", "center");
+        setFlex(resetId, "flex_shrink", 0);
+        setBackground(resetId, APP_SURFACE);
+        setBorder(resetId, APP_BORDER, 1, 9);
+        setVisible(resetId, false);
+        registerClick(resetId);
+        createLabel(resetId + "-lbl", "Reset", resetId);
+        setFontSize(resetId + "-lbl", 8);
+        setTextColor(resetId + "-lbl", APP_TEXT_DIM);
+        setPointerEvents(resetId + "-lbl", "none");
+
         // D1: hex input field
         var hexId = tid + "-hex";
         createTextEditor(hexId, tid);
@@ -810,6 +1174,12 @@ for (var g = 0; g < tokenGroups.length; g++) {
                 openTokenPopup(tokenName, sid, gi, ti);
             });
         })(group.tokens[t], swatchId, g, t);
+
+        (function(tokenName, rid) {
+            on(rid, 'click', function() {
+                resetTokenColor(tokenName);
+            });
+        })(group.tokens[t], resetId);
 
         // D1: hex input → apply on Enter
         (function(tokenName, hid) {
@@ -841,13 +1211,12 @@ function updateTokenSwatches(skipPreviewRefresh) {
             var tokenName = group.tokens[t];
             if (colors[tokenName]) {
                 setBackground(swatchId, colors[tokenName]);
+                setOpacity(swatchId, 1.0);
                 setText(hexId, colors[tokenName]);
             }
         }
     }
-    if (previewReady && !skipPreviewRefresh) {
-        refreshPreviewLayoutSection();
-    }
+    if (previewReady && !skipPreviewRefresh) applyStateToPreview(activeState);
 }
 updateTokenSwatches();
 
@@ -862,18 +1231,44 @@ var paletteSliderDragActive = {};
 var palettePreviewUpdateTimes = {};
 var paletteThemeApplyTimes = {};
 var paletteShaderUpdateTimes = {};
+var paletteLiveRampCache = {};
+var paletteLivePreviewRefs = {};
 var accentHueDragActive = false;
 var accentHueApplyFrame = 0;
 var accentHueLastApplyTime = 0;
-var accentHuePendingHue = OklchEngine.hexToOklch(currentAccent).H;
+var accentHuePreviewBucket = -1;
+var accentHuePreviewCache = {};
+var initialAccentOklch = OklchEngine.hexToOklch(currentAccent);
+var accentHuePendingHue = initialAccentOklch.H;
+var accentHueBaseL = initialAccentOklch.L;
+var accentHueBaseC = initialAccentOklch.C;
 
 function hexToRgbParts(hex) {
-    if (!hex || hex.length !== 7 || hex.charAt(0) !== "#") return { r: 0, g: 0, b: 0 };
+    if (!hex || hex.charAt(0) !== "#") return { r: 0, g: 0, b: 0, a: 255 };
     return {
         r: parseInt(hex.slice(1, 3), 16) || 0,
         g: parseInt(hex.slice(3, 5), 16) || 0,
-        b: parseInt(hex.slice(5, 7), 16) || 0
+        b: parseInt(hex.slice(5, 7), 16) || 0,
+        a: (hex.length >= 9 ? (parseInt(hex.slice(7, 9), 16) || 0) : 255)
     };
+}
+
+function normalizeOpaqueHex(hex) {
+    if (!hex || hex.charAt(0) !== "#") return "#000000";
+    return ("#" + hex.slice(1, 7)).toUpperCase();
+}
+
+function hexAlpha(hex) {
+    return hexToRgbParts(hex).a / 255;
+}
+
+function applyHexAlpha(hex, alpha) {
+    var base = normalizeOpaqueHex(hex);
+    var a = Math.max(0, Math.min(1, alpha));
+    if (a >= 0.995) return base;
+    var alphaHex = Math.round(a * 255).toString(16).toUpperCase();
+    if (alphaHex.length < 2) alphaHex = "0" + alphaHex;
+    return base + alphaHex;
 }
 
 function shaderVec3FromHex(hex) {
@@ -982,7 +1377,7 @@ function applyPaletteSliderShaders(paletteIdx, hue) {
 }
 
 function quantizePalettePreviewHue(hue) {
-    return Math.round(hue / 6) * 6;
+    return Math.round(hue / 12) * 12;
 }
 
 function quantizePaletteShaderHue(hue) {
@@ -1002,37 +1397,67 @@ function updatePaletteShadeWidgets(paletteIdx, ramp) {
     }
 }
 
+function getPaletteLiveRamp(paletteIdx, mappedL, mappedC, hue, draggingPreview) {
+    var key = [
+        paletteIdx,
+        draggingPreview ? mappedL.toFixed(2) : mappedL.toFixed(3),
+        draggingPreview ? mappedC.toFixed(3) : mappedC.toFixed(4),
+        draggingPreview ? quantizePalettePreviewHue(hue) : hue.toFixed(1)
+    ].join("|");
+    var cached = paletteLiveRampCache[key];
+    if (cached) return cached;
+    cached = ShadeGenerator.generateRamp(mappedL, mappedC, draggingPreview ? quantizePalettePreviewHue(hue) : hue);
+    paletteLiveRampCache[key] = cached;
+    return cached;
+}
+
 function flushPaletteThemeApply(paletteIdx, forceApply) {
     paletteApplyFrames[paletteIdx] = 0;
     var state = paletteApplyStates[paletteIdx];
     if (!state) return;
     paletteThemeApplyTimes[paletteIdx] = performance.now();
     var dragging = !!paletteSliderDragActive[paletteIdx];
+    var liveRamp = getPaletteLiveRamp(paletteIdx, state.mappedL, state.mappedC, state.h, dragging && !forceApply);
+    var liveAccentHex = liveRamp[500].hex;
 
     if (state.pKey === "accent") {
-        currentAccent = OklchEngine.oklchToHex(state.mappedL, state.mappedC, state.h);
         accentHuePendingHue = state.h;
-        setValue("accent-hue", state.h / 360);
-    }
-
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    if (state.pKey !== "accent") {
-        palette[state.pKey] = ShadeGenerator.generateRamp(state.mappedL, state.mappedC, state.h);
+        if (!dragging || forceApply) {
+            currentAccent = liveAccentHex;
+        }
+        if (forceApply) {
+            setValue("accent-hue", state.h / 360);
+        }
     }
 
     if (dragging && !forceApply) {
-        updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
-        if (expandedPalette === paletteIdx) {
-            updatePaletteValueDisplay(paletteIdx,
-                { L: state.mappedL, C: state.mappedC, H: state.h },
-                palette[state.pKey][500].hex);
+        if (paletteLivePreviewRefs[paletteIdx] !== liveRamp) {
+            paletteLivePreviewRefs[paletteIdx] = liveRamp;
+            updatePaletteShadeWidgets(paletteIdx, liveRamp);
+            if (expandedPalette === paletteIdx) {
+                updatePaletteValueDisplay(paletteIdx,
+                    { L: state.mappedL, C: state.mappedC, H: state.h },
+                    liveRamp[500].hex);
+            }
         }
         return;
     }
 
-    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+    paletteLivePreviewRefs[paletteIdx] = liveRamp;
+
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    if (state.pKey !== "accent") {
+        palette[state.pKey] = liveRamp;
+    }
+
+    applyPaletteThemeDiff(palette, currentPaletteMode);
     updateTokenSwatches();
-    updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
+    if (forceApply) markCurrentModeDirty();
+    if (state.pKey === "accent") {
+        refreshPaletteMiniRamps(palette);
+    } else {
+        updatePaletteShadeWidgets(paletteIdx, palette[state.pKey]);
+    }
 }
 
 function schedulePaletteThemeApply(paletteIdx, pKey, h, mappedL, mappedC, forceApply) {
@@ -1092,6 +1517,7 @@ function updatePaletteValueDisplay(paletteIdx, oklch, hex) {
 var expandedPalette = -1;  // -1 = all collapsed, click a row to expand
 
 function buildShadeRamps() {
+    paletteLiveRampCache = {};
     var palette = PaletteSystem.create(currentAccent, currentHarmony);
     var steps = ShadeGenerator.STEPS;
 
@@ -1266,6 +1692,26 @@ function buildShadeRamps() {
         setFlex(rampId + "-c-fdr", "height", 18);
         setWidgetShader(rampId + "-c-fdr", buildPaletteChromaSliderShader(OklchEngine.hexToOklch(ramp[500].hex).H));
 
+        createCol(rampId + "-contrast-btn", cRowId);
+        setFlex(rampId + "-contrast-btn", "width", 28);
+        setFlex(rampId + "-contrast-btn", "height", 18);
+        setFlex(rampId + "-contrast-btn", "justify_content", "center");
+        setFlex(rampId + "-contrast-btn", "align_items", "center");
+        setBackground(rampId + "-contrast-btn", APP_PANEL_RAISED);
+        setBorder(rampId + "-contrast-btn", APP_BORDER, 1, 8);
+        createLabel(rampId + "-contrast-lbl", "Aa", rampId + "-contrast-btn");
+        setFontSize(rampId + "-contrast-lbl", 10);
+        setTextColor(rampId + "-contrast-lbl", APP_TEXT_DIM);
+        setPointerEvents(rampId + "-contrast-lbl", "none");
+        registerClick(rampId + "-contrast-btn");
+        (function(idx, pKey) {
+            on("ramp-" + idx + "-contrast-btn", "click", function() {
+                var palette = PaletteSystem.create(currentAccent, currentHarmony);
+                var base = palette[pKey][500];
+                showContrastModal(paletteNames[idx], base.hex);
+            });
+        })(p, paletteKeys[p]);
+
         // Color value format selector + value fields
         var valuesRowId = rampId + "-values";
         createRow(valuesRowId, editorId);
@@ -1335,24 +1781,18 @@ function buildShadeRamps() {
             setFlex(lsId, "align_items", "center");
             setFlex(lsId, "padding_bottom", 4);
             var ratio = OklchEngine.contrastRatio(shadeHex, "#ffffff");
-            var level = OklchEngine.contrastLevel(ratio);
-            var badgeText = "";
-            if (ratio >= 7.0) badgeText = "AAA";
-            else if (ratio >= 4.5) badgeText = "AA";
-            else if (ratio >= 3.0) badgeText = ratio.toFixed(1) + ":1";
-            if (badgeText.length > 0) {
-                createCol(lsId + "-pill", lsId);
-                setFlex(lsId + "-pill", "height", 14);
-                setFlex(lsId + "-pill", "padding_left", 6);
-                setFlex(lsId + "-pill", "padding_right", 6);
-                setFlex(lsId + "-pill", "justify_content", "center");
-                setFlex(lsId + "-pill", "align_items", "center");
-                setBackground(lsId + "-pill", ratio > 4.5 ? "#00000038" : "#ffffff88");
-                setBorder(lsId + "-pill", ratio > 4.5 ? "#ffffff18" : "#00000014", 1, 7);
-                createLabel(lsId + "-badge", badgeText, lsId + "-pill");
-                setFontSize(lsId + "-badge", badgeText.length > 3 ? 7 : 8);
-                setTextColor(lsId + "-badge", ratio > 4.5 ? "#ffffff" : "#111111");
-            }
+            var badgeText = ratio.toFixed(1) + ":1";
+            createCol(lsId + "-pill", lsId);
+            setFlex(lsId + "-pill", "height", 14);
+            setFlex(lsId + "-pill", "padding_left", 5);
+            setFlex(lsId + "-pill", "padding_right", 5);
+            setFlex(lsId + "-pill", "justify_content", "center");
+            setFlex(lsId + "-pill", "align_items", "center");
+            setBackground(lsId + "-pill", ratio > 4.5 ? "#00000038" : "#ffffff88");
+            setBorder(lsId + "-pill", ratio > 4.5 ? "#ffffff18" : "#00000014", 1, 7);
+            createLabel(lsId + "-badge", badgeText, lsId + "-pill");
+            setFontSize(lsId + "-badge", 7);
+            setTextColor(lsId + "-badge", ratio > 4.5 ? "#ffffff" : "#111111");
         }
 
         // Draw gamut + set faders if this palette is expanded
@@ -1450,7 +1890,9 @@ function buildShadeRamps() {
                         applyPaletteSliderShaders(idx, shaderHue);
                     }
                 }
-                updatePaletteValueDisplay(idx, mapped, OklchEngine.oklchToHex(mapped.L, mapped.C, h));
+                if (!dragging || forceApply) {
+                    updatePaletteValueDisplay(idx, mapped, OklchEngine.oklchToHex(mapped.L, mapped.C, h));
+                }
                 schedulePaletteThemeApply(idx, pKey, h, mapped.L, mapped.C, !!forceApply);
             }
             function beginSliderDrag() {
@@ -1612,6 +2054,114 @@ function refreshPaletteMiniRamps(palette) {
     }
 }
 
+function harmonySelectorIndex(mode) {
+    var modes = ["monochromatic", "analogous", "complementary", "splitComplementary", "none"];
+    for (var i = 0; i < modes.length; i++) {
+        if (modes[i] === mode) return i;
+    }
+    return 0;
+}
+
+function resolvePaletteMode(mode) {
+    return mode === "light" ? "light" : "dark";
+}
+
+function syncPaletteMode(mode) {
+    var resolved = resolvePaletteMode(mode);
+    currentPaletteMode = resolved;
+    setSelected("mode-selector", resolved === "light" ? 1 : 0);
+    return resolved;
+}
+
+function applyPaletteThemeDiff(palette, mode) {
+    applyTokenDiff(PaletteSystem.toThemeDiff(palette, resolvePaletteMode(mode)));
+}
+
+function refreshPaletteEditorsFromPalette(palette, fullRedraw, collapseExpanded) {
+    refreshPaletteMiniRamps(palette);
+    refreshExpandedPaletteEditorFromPalette(palette, !!fullRedraw);
+    if (collapseExpanded && expandedPalette >= 0) {
+        applyPaletteExpandedLayout(expandedPalette, false);
+        expandedPalette = -1;
+        updateLeftPanelScrollMetrics();
+    }
+}
+
+function applyPaletteConfiguration(config) {
+    currentAccent = config.accent || currentAccent;
+    currentHarmony = config.harmony || currentHarmony;
+    setSelected("harmony-selector", harmonySelectorIndex(currentHarmony));
+    var mode = syncPaletteMode(resolvePaletteMode(config.theme || currentPaletteMode));
+    setTheme(config.theme || mode);
+    if (config.templateIndex !== undefined) setSelected("template-selector", config.templateIndex);
+    if (config.presetIndex !== undefined) setSelected("preset-selector", config.presetIndex);
+    if (config.title) setText("theme-name-label", config.title);
+
+    var accentOklch = OklchEngine.hexToOklch(currentAccent);
+    accentHuePendingHue = accentOklch.H;
+    setValue("accent-hue", accentOklch.H / 360);
+
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    applyPaletteThemeDiff(palette, mode);
+    updateTokenSwatches();
+    refreshPaletteEditorsFromPalette(palette, true, true);
+    markCurrentModeDirty();
+    if (config.snapshot !== false) pushThemeSnapshot();
+    layout();
+}
+
+function buildAccentPreviewPalette(accentL, accentC, accentH, harmonyMode) {
+    var neutral = ColorHarmony.deriveNeutral(accentH, harmonyMode || "monochromatic");
+    return {
+        accent: ShadeGenerator.generateRamp(accentL, accentC, accentH),
+        neutral: ShadeGenerator.generateRamp(neutral.L, neutral.C, neutral.H)
+    };
+}
+
+function getAccentHuePreviewData(accentL, accentC, accentH) {
+    var previewHue = quantizePalettePreviewHue(accentH);
+    var cacheKey = [
+        currentHarmony,
+        accentL.toFixed(4),
+        accentC.toFixed(4),
+        previewHue
+    ].join("|");
+    var cached = accentHuePreviewCache[cacheKey];
+    if (cached) return cached;
+
+    var neutral = ColorHarmony.deriveNeutral(previewHue, currentHarmony);
+    cached = {
+        accent: { L: accentL, C: accentC, H: previewHue },
+        accentRamp: ShadeGenerator.generateRamp(accentL, accentC, previewHue),
+        neutral: neutral,
+        neutralRamp: ShadeGenerator.generateRamp(neutral.L, neutral.C, neutral.H)
+    };
+    accentHuePreviewCache[cacheKey] = cached;
+    return cached;
+}
+
+function refreshAccentHuePreview(accentL, accentC, accentH) {
+    var previewData = getAccentHuePreviewData(accentL, accentC, accentH);
+    updatePaletteShadeWidgets(0, previewData.accentRamp);
+    updatePaletteShadeWidgets(1, previewData.neutralRamp);
+
+    if (!accentHueDragActive && expandedPalette === 1) {
+        renderPaletteGamutOverlay(1, previewData.neutral.H, previewData.neutral.L, previewData.neutral.C);
+        updatePaletteValueDisplay(1, previewData.neutral, previewData.neutralRamp[500].hex);
+        setValue("ramp-1-h-fdr", previewData.neutral.H / 360);
+        setValue("ramp-1-c-fdr", Math.min(previewData.neutral.C / 0.4, 1));
+    }
+
+    if (expandedPalette === 0) {
+        renderPaletteGamutOverlay(0, previewData.accent.H, previewData.accent.L, previewData.accent.C);
+        updatePaletteValueDisplay(0, previewData.accent, previewData.accentRamp[500].hex);
+        if (!accentHueDragActive) {
+            setValue("ramp-0-h-fdr", previewData.accent.H / 360);
+            setValue("ramp-0-c-fdr", Math.min(previewData.accent.C / 0.4, 1));
+        }
+    }
+}
+
 function refreshExpandedPaletteEditorFromPalette(palette, fullRedraw) {
     if (expandedPalette < 0) return;
     var pKey = paletteKeys[expandedPalette];
@@ -1635,17 +2185,25 @@ function refreshExpandedPaletteEditorFromPalette(palette, fullRedraw) {
 function flushAccentHueApply(forceApply) {
     accentHueApplyFrame = 0;
     accentHueLastApplyTime = performance.now();
-    var oklch = OklchEngine.hexToOklch(currentAccent);
-    currentAccent = OklchEngine.oklchToHex(oklch.L, oklch.C, accentHuePendingHue);
-    setValue("accent-hue", accentHuePendingHue / 360);
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    refreshPaletteMiniRamps(palette);
-    refreshExpandedPaletteEditorFromPalette(palette, !!forceApply);
+    var nextAccentHex = OklchEngine.oklchToHex(accentHueBaseL, accentHueBaseC, accentHuePendingHue);
+    if (!accentHueDragActive || forceApply) {
+        currentAccent = nextAccentHex;
+        setValue("accent-hue", accentHuePendingHue / 360);
+    }
     if (accentHueDragActive && !forceApply) {
+        var previewHue = quantizePalettePreviewHue(accentHuePendingHue);
+        if (previewHue !== accentHuePreviewBucket) {
+            accentHuePreviewBucket = previewHue;
+            refreshAccentHuePreview(accentHueBaseL, accentHueBaseC, accentHuePendingHue);
+        }
         return;
     }
-    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+    accentHuePreviewBucket = -1;
+    var palette = PaletteSystem.create(currentAccent, currentHarmony);
+    refreshPaletteEditorsFromPalette(palette, !!forceApply, false);
+    applyPaletteThemeDiff(palette, currentPaletteMode);
     updateTokenSwatches();
+    markCurrentModeDirty();
 }
 
 function scheduleAccentHueApply(forceApply) {
@@ -1676,22 +2234,61 @@ setTextColor("gen-opposite-lbl", "#ffffff");
 setPointerEvents("gen-opposite-lbl", "none");
 registerClick("gen-opposite-btn");
 on("gen-opposite-btn", "click", function() {
-    // Toggle dark/light mode
-    var currentMode = 0;
-    try { currentMode = getValue("mode-selector"); } catch(e) {}
-    var newIdx = currentMode > 0.5 ? 0 : 1;
-    setSelected("mode-selector", newIdx);
-    var mode = newIdx === 0 ? "dark" : "light";
-    currentPaletteMode = mode;
-    setTheme(mode);
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
-    buildShadeRamps();
-    updateTokenSwatches();
-    showToast("Switched to " + (newIdx === 0 ? "Dark" : "Light") + " mode");
+    var sourceMode = resolvePaletteMode(currentPaletteMode);
+    var targetMode = resolvePaletteMode(sourceMode === "light" ? "dark" : "light");
+    switchPaletteMode(targetMode, {
+        generatedTitle: targetMode === "light" ? "Generated Light" : "Generated Dark"
+    });
+    pushThemeSnapshot();
+    refreshOppositeModeButton();
+    layout();
+    showToast("Switched to " + (targetMode === "light" ? "Light" : "Dark") + " mode");
 });
+refreshOppositeModeButton();
 
 // #60: Save/Load palette buttons
+function serializePaletteConfiguration() {
+    return JSON.stringify({
+        title: getText("theme-name-label"),
+        accent: currentAccent,
+        harmony: currentHarmony,
+        mode: currentPaletteMode,
+        palette: PaletteSystem.create(currentAccent, currentHarmony)
+    });
+}
+
+function applySerializedPaletteConfiguration(json) {
+    if (!json || json.length < 2) return false;
+    try {
+        var data = JSON.parse(json);
+        applyPaletteConfiguration({
+            title: data.title || undefined,
+            accent: data.accent || currentAccent,
+            harmony: data.harmony || currentHarmony,
+            theme: data.mode || data.theme || currentPaletteMode,
+            snapshot: false
+        });
+        return true;
+    } catch (e) {
+        showToast("Palette file invalid");
+        return false;
+    }
+}
+
+function normalizePaletteSavePath(path) {
+    if (!path || path.length === 0) return "/tmp/pulp-palette.colorsystem.json";
+    if (path.toLowerCase().slice(-5) === ".json") return path;
+    return path + ".colorsystem.json";
+}
+
+function writeTextFile(path, content) {
+    exec("cat > " + shellQuote(path) + " << 'PULPEOF'\n" + content + "\nPULPEOF");
+}
+
+function readTextFile(path) {
+    return exec("cat " + shellQuote(path) + " 2>/dev/null");
+}
+
 createRow("palette-io-row", "color-section");
 setFlex("palette-io-row", "height", 26);
 setFlex("palette-io-row", "gap", 6);
@@ -1707,10 +2304,9 @@ setFontSize("palette-save-lbl", 10);
 setPointerEvents("palette-save-lbl", "none");
 registerClick("palette-save-btn");
 on("palette-save-btn", "click", function() {
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    var data = JSON.stringify({ accent: currentAccent, harmony: currentHarmony, palette: palette });
-    exec("cat > /tmp/pulp-palette.json << 'PULPEOF'\n" + data + "\nPULPEOF");
-    showToast("Palette saved");
+    var path = normalizePaletteSavePath(showSaveDialog("Save Palette", "Color System JSON", "json"));
+    writeTextFile(path, serializePaletteConfiguration());
+    showToast("Palette saved to " + path);
 });
 
 createCol("palette-load-btn", "palette-io-row");
@@ -1724,19 +2320,15 @@ setFontSize("palette-load-lbl", 10);
 setPointerEvents("palette-load-lbl", "none");
 registerClick("palette-load-btn");
 on("palette-load-btn", "click", function() {
-    var json = exec("cat /tmp/pulp-palette.json 2>/dev/null");
+    var path = showOpenDialog("Load Palette", "Color System JSON", "json");
+    if (!path || path.length === 0) path = "/tmp/pulp-palette.colorsystem.json";
+    var json = readTextFile(path);
     if (json && json.length > 10) {
-        var data = JSON.parse(json);
-        if (data.accent) currentAccent = data.accent;
-        if (data.harmony) currentHarmony = data.harmony;
-        var palette = PaletteSystem.create(currentAccent, currentHarmony);
-        applyTokenDiff(PaletteSystem.toThemeDiff(palette));
-        buildShadeRamps();
-        updateTokenSwatches();
-        showToast("Palette loaded");
-        layout();
+        if (applySerializedPaletteConfiguration(json)) {
+            showToast("Palette loaded from " + path);
+        }
     } else {
-        showToast("No saved palette found");
+        showToast("No palette file found");
     }
 });
 
@@ -2002,20 +2594,7 @@ on("tp-btn-1", "click", function() { // Redo
 
 on("tp-btn-2", "click", function() { // Reset
     if (!tokenEditState.activeToken) return;
-    var h = tokenHistory(tokenEditState.activeToken);
-    var orig = h.original;
-    h.stack = [orig];
-    h.cursor = 0;
-    delete tokenEditState.modified[tokenEditState.activeToken];
-    var obj = { colors: {} };
-    obj.colors[tokenEditState.activeToken] = orig;
-    applyTokenDiff(JSON.stringify(obj));
-    pushThemeSnapshot();
-    updateTokenSwatches();
-    updateModifiedCount();
-    updateAllTokenNameDisplays();
-    updatePopupState(tokenEditState.activeToken);
-    layout();
+    resetTokenColor(tokenEditState.activeToken);
 });
 
 // Hex input in popup
@@ -2033,7 +2612,8 @@ setFontSize("tp-hex-input", 11);
 on("tp-hex-input", "return", function(text) {
     var hex = text.trim();
     if (!tokenEditState.activeToken) return;
-    if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+    if (!/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) return;
+    if (hex.length === 7) hex = applyHexAlpha(hex, getValue("tp-alpha-fdr"));
     applyTokenColor(tokenEditState.activeToken, hex);
 });
 on("tp-hex-input", "escape", function() {
@@ -2060,9 +2640,9 @@ on("tp-alpha-fdr", "change", function() {
     var alpha = getValue("tp-alpha-fdr");
     setText("tp-alpha-val", alpha.toFixed(1));
     if (tokenEditState.activeToken) {
-        // Apply opacity to the token swatch
-        var swId = tokenEditState.activeSwatchId;
-        if (swId) setOpacity(swId, alpha);
+        var themeColors = JSON.parse(getThemeJson()).colors || {};
+        var currentHex = themeColors[tokenEditState.activeToken] || '#000000';
+        applyTokenColor(tokenEditState.activeToken, applyHexAlpha(currentHex, alpha), { flash: false });
     }
 });
 
@@ -2097,6 +2677,7 @@ for (var pp = 0; pp < paletteNames.length; pp++) {
                 var palette = PaletteSystem.create(currentAccent, currentHarmony);
                 var pKey = paletteKeys[palIdx];
                 var hex = palette[pKey][ShadeGenerator.STEPS[shadeIdx]].hex;
+                hex = applyHexAlpha(hex, getValue("tp-alpha-fdr"));
                 applyTokenColor(tokenEditState.activeToken, hex);
             });
         })(pp, ps);
@@ -2122,84 +2703,208 @@ setVisible("tp-custom", false);
 var GAMUT_W = 50;  // columns (lightness steps)
 var GAMUT_H = 30;  // rows (chroma steps)
 var GAMUT_MAX_C = 0.4;
+var GAMUT_TRIANGLE_COLS = 220;
 var gamutHue = 0;
 
-createCanvas("tp-gamut", "tp-custom");
+var tpGamutRenderHue = -1;
+var tpPopupHclSyncActive = false;
+var tpPopupGamutDragActive = false;
+var tpPopupSliderDragKind = "";
+var tpPopupShaderHueBucket = -1;
+var tpPopupSliderApplyFrame = 0;
+var tpPopupSliderPending = null;
+
+createCol("tp-gamut-wrap", "tp-custom");
+setPosition("tp-gamut-wrap", "relative");
+setFlex("tp-gamut-wrap", "width", 250);
+setFlex("tp-gamut-wrap", "height", 120);
+setFlex("tp-gamut-wrap", "flex_shrink", 0);
+
+createCanvas("tp-gamut", "tp-gamut-wrap");
 setFlex("tp-gamut", "width", 250);
 setFlex("tp-gamut", "height", 120);
+setBackground("tp-gamut", APP_SURFACE);
+setPointerEvents("tp-gamut", "none");
 
-function renderGamutTriangle(hue) {
-    gamutHue = hue;
-    canvasClear("tp-gamut");
+createCanvas("tp-gamut-overlay", "tp-gamut-wrap");
+setPosition("tp-gamut-overlay", "absolute");
+setTop("tp-gamut-overlay", 0);
+setLeft("tp-gamut-overlay", 0);
+setFlex("tp-gamut-overlay", "width", 250);
+setFlex("tp-gamut-overlay", "height", 120);
+registerPointer("tp-gamut-overlay");
+
+function renderTokenPopupGamutOverlay(renderHue, dotL, dotC, dotHex) {
+    var overlayId = "tp-gamut-overlay";
     var w = 250, h = 120;
-    // Use gradient strips: one vertical gradient per lightness column
-    var cols = 120;
-    var colW = w / cols;
-    var boundary = [];
-    for (var gx = 0; gx < cols; gx++) {
-        var L = gx / (cols - 1);
-        // Find max in-gamut chroma at this lightness via binary search
-        var maxC = 0;
-        var lo = 0, hi = GAMUT_MAX_C;
-        for (var bi = 0; bi < 16; bi++) {
-            var mid = (lo + hi) / 2;
-            if (OklchEngine.isInGamut(L, mid, hue)) lo = mid;
-            else hi = mid;
-        }
-        maxC = lo;
-        boundary.push(maxC);
-        // Draw gradient strip from maxC (top, saturated) to 0 (bottom, gray)
-        var topHex = OklchEngine.oklchToHex(L, maxC, hue);
-        var botHex = OklchEngine.oklchToHex(L, 0, hue);
-        var gamutH = (maxC / GAMUT_MAX_C) * h;
-        // Gradient fill for in-gamut area
-        if (gamutH > 1) {
-            canvasSetLinearGradient("tp-gamut", gx * colW, h - gamutH, gx * colW, h, topHex, botHex);
-            canvasBeginPath("tp-gamut");
-            canvasMoveTo("tp-gamut", gx * colW, h - gamutH);
-            canvasLineTo("tp-gamut", gx * colW + colW + 0.5, h - gamutH);
-            canvasLineTo("tp-gamut", gx * colW + colW + 0.5, h);
-            canvasLineTo("tp-gamut", gx * colW, h);
-            canvasClosePath("tp-gamut");
-            canvasFillPath("tp-gamut");
-            canvasClearGradient("tp-gamut");
-        }
-        // Out-of-gamut area (dark background above the gamut boundary)
-        if (h - gamutH > 0) {
-            canvasRect("tp-gamut", gx * colW, 0, colW + 0.5, h - gamutH, APP_SURFACE);
-        }
-    }
-    canvasSetLineJoin("tp-gamut", "round");
-    canvasSetLineCap("tp-gamut", "round");
-    canvasSetStrokeColor("tp-gamut", '#ffffff14');
-    canvasSetLineWidth("tp-gamut", 2.0);
-    canvasBeginPath("tp-gamut");
-    canvasMoveTo("tp-gamut", 0, h - ((boundary[0] || 0) / GAMUT_MAX_C) * h);
-    for (var bx = 1; bx < boundary.length; bx++) {
-        canvasLineTo("tp-gamut", (bx / (cols - 1)) * w, h - (boundary[bx] / GAMUT_MAX_C) * h);
-    }
-    canvasStrokePath("tp-gamut");
-    canvasSetStrokeColor("tp-gamut", '#ffffff30');
-    canvasSetLineWidth("tp-gamut", 0.95);
-    canvasBeginPath("tp-gamut");
-    canvasMoveTo("tp-gamut", 0, h - ((boundary[0] || 0) / GAMUT_MAX_C) * h);
-    for (var bx2 = 1; bx2 < boundary.length; bx2++) {
-        canvasLineTo("tp-gamut", (bx2 / (cols - 1)) * w, h - (boundary[bx2] / GAMUT_MAX_C) * h);
-    }
-    canvasStrokePath("tp-gamut");
+    canvasClear(overlayId);
+    if (dotL === undefined || dotC === undefined) return;
+    var dx = Math.max(0, Math.min(w, dotL * w));
+    var dy = Math.max(0, Math.min(h, (1 - dotC / GAMUT_MAX_C) * h));
+    canvasStrokeLine(overlayId, dx, 0, dx, h, '#ffffff16', 0.5);
+    canvasStrokeLine(overlayId, 0, dy, w, dy, '#ffffff16', 0.5);
+    canvasFillCircle(overlayId, dx, dy, 10, '#00000052');
+    canvasFillCircle(overlayId, dx, dy, 8, '#f5f7ffef');
+    canvasFillCircle(overlayId, dx, dy, 5.5, '#10131bcc');
+    canvasFillCircle(overlayId, dx, dy, 3.3, dotHex || OklchEngine.oklchToHex(dotL, dotC, renderHue));
 }
 
-// Gamut click handler — map click position to L,C and apply
-registerClick("tp-gamut");
-on("tp-gamut", "click", function() {
-    // Use the current fader values as approximation since we can't get click position
-    // The real interaction needs drag-to-JS (future C++ bridge addition)
-    // For now, the H fader + L/C faders below provide the interaction
+function renderGamutTriangle(renderHue, dotL, dotC, fullRedraw, dotHex) {
+    gamutHue = renderHue;
+    var gamutId = "tp-gamut";
+    var w = 250, h = 120;
+    if (fullRedraw !== false || tpGamutRenderHue !== renderHue) {
+        tpGamutRenderHue = renderHue;
+        canvasClear(gamutId);
+        canvasRect(gamutId, 0, 0, w, h, APP_SURFACE);
+
+        var bSteps = 1024;
+        var boundary = computeGamutBoundary(renderHue, bSteps);
+        var cols = 520;
+        var colW = w / cols;
+        for (var gx = 0; gx < cols; gx++) {
+            var L = gx / (cols - 1);
+            var boundaryIdx = Math.min(bSteps, Math.max(0, Math.round((gx / (cols - 1)) * bSteps)));
+            var maxC = boundary[boundaryIdx];
+            var topY = (1 - maxC / GAMUT_MAX_C) * h;
+            if (topY > 0.35) {
+                canvasRect(gamutId, gx * colW, 0, colW + 0.55, topY + 0.35, APP_SURFACE);
+            }
+            if (maxC > 0.001) {
+                var topHex = OklchEngine.oklchToHex(L, Math.max(0.015, maxC * 0.96), renderHue);
+                var bottomHex = OklchEngine.oklchToHex(L, 0.0001, renderHue);
+                canvasSetLinearGradient(gamutId, gx * colW, topY, gx * colW, h, topHex, bottomHex);
+                canvasBeginPath(gamutId);
+                canvasMoveTo(gamutId, gx * colW, topY);
+                canvasLineTo(gamutId, gx * colW + colW + 0.75, topY);
+                canvasLineTo(gamutId, gx * colW + colW + 0.75, h);
+                canvasLineTo(gamutId, gx * colW, h);
+                canvasClosePath(gamutId);
+                canvasFillPath(gamutId);
+                canvasClearGradient(gamutId);
+            }
+        }
+
+        canvasSetLineJoin(gamutId, "round");
+        canvasSetLineCap(gamutId, "round");
+        canvasSetStrokeColor(gamutId, '#ffffff12');
+        canvasSetLineWidth(gamutId, 2.25);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, (1 - boundary[0] / GAMUT_MAX_C) * h);
+        for (var bx = 1; bx <= bSteps; bx++) {
+            canvasLineTo(gamutId, (bx / bSteps) * w, (1 - boundary[bx] / GAMUT_MAX_C) * h);
+        }
+        canvasStrokePath(gamutId);
+
+        canvasSetStrokeColor(gamutId, '#ffffff34');
+        canvasSetLineWidth(gamutId, 1.05);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, (1 - boundary[0] / GAMUT_MAX_C) * h);
+        for (var bx2 = 1; bx2 <= bSteps; bx2++) {
+            canvasLineTo(gamutId, (bx2 / bSteps) * w, (1 - boundary[bx2] / GAMUT_MAX_C) * h);
+        }
+        canvasStrokePath(gamutId);
+
+        canvasSetStrokeColor(gamutId, '#ffffff10');
+        canvasSetLineWidth(gamutId, 0.75);
+        canvasBeginPath(gamutId);
+        canvasMoveTo(gamutId, 0, h);
+        canvasLineTo(gamutId, 0, (1 - boundary[0] / GAMUT_MAX_C) * h);
+        for (var bx3 = 1; bx3 <= bSteps; bx3++) {
+            canvasLineTo(gamutId, (bx3 / bSteps) * w, (1 - boundary[bx3] / GAMUT_MAX_C) * h);
+        }
+        canvasLineTo(gamutId, w, h);
+        canvasStrokePath(gamutId);
+    }
+
+    renderTokenPopupGamutOverlay(renderHue, dotL, dotC, dotHex);
+}
+
+function syncTokenPopupHclFaders(oklch) {
+    tpPopupHclSyncActive = true;
+    setValue("tp-h-fader", oklch.H / 360);
+    setValue("tp-c-fader", Math.min(oklch.C / GAMUT_MAX_C, 1));
+    setValue("tp-l-fader", oklch.L);
+    tpPopupHclSyncActive = false;
+}
+
+function applyTokenPopupSliderShaders(hue) {
+    var shaderHue = quantizePaletteShaderHue(hue);
+    if (tpPopupShaderHueBucket === shaderHue) return;
+    tpPopupShaderHueBucket = shaderHue;
+    setWidgetShader("tp-h-fader", buildPaletteHueSliderShader());
+    setWidgetShader("tp-c-fader", buildPaletteChromaSliderShader(shaderHue));
+}
+
+function updateTokenPopupCustomUi(oklch, renderHue, fullRedraw, syncFaders) {
+    var alpha = getValue("tp-alpha-fdr");
+    var hex = applyHexAlpha(OklchEngine.oklchToHex(oklch.L, oklch.C, oklch.H), alpha).toUpperCase();
+    if (syncFaders) syncTokenPopupHclFaders(oklch);
+    setText("tp-hex-input", hex);
+    setText("tp-oklch-display", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
+    setOpacity("tp-token-modified", isTokenModified(tokenEditState.activeToken) ? 1.0 : 0.0);
+    applyTokenPopupSliderShaders(renderHue === undefined ? oklch.H : renderHue);
+    renderGamutTriangle(renderHue === undefined ? oklch.H : renderHue, oklch.L, oklch.C, fullRedraw, OklchEngine.oklchToHex(oklch.L, oklch.C, oklch.H));
+}
+
+function applyTokenPopupOklch(oklch, options) {
+    options = options || {};
+    if (!tokenEditState.activeToken) return;
+    var alpha = getValue("tp-alpha-fdr");
+    var hex = applyHexAlpha(OklchEngine.oklchToHex(oklch.L, oklch.C, oklch.H), alpha);
+    var commit = !!options.commit;
+    updateTokenPopupCustomUi(oklch, options.renderHue, options.fullRedraw, !!options.syncFaders);
+    applyTokenColor(tokenEditState.activeToken, hex, {
+        flash: false,
+        refreshPopup: false,
+        recordHistory: commit,
+        snapshot: commit,
+        relayout: commit
+    });
+    setOpacity("tp-token-modified", isTokenModified(tokenEditState.activeToken) ? 1.0 : 0.0);
+}
+
+function applyTokenPopupGamutPoint(x, y, commit) {
+    if (!tokenEditState.activeToken) return;
+    var gw = 250, gh = 120;
+    var h = getValue("tp-h-fader") * 360;
+    var L = Math.max(0, Math.min(1, x / gw));
+    var C = Math.max(0, Math.min(GAMUT_MAX_C, (1 - y / gh) * GAMUT_MAX_C));
+    var mapped = OklchEngine.gamutMap(L, C, h);
+    syncTokenPopupHclFaders(mapped);
+    applyTokenPopupOklch(mapped, { commit: !!commit, renderHue: h, fullRedraw: !!commit, syncFaders: false });
+}
+
+function handleTokenPopupGamutPointer(evt, commit) {
+    if (!evt) return;
+    applyTokenPopupGamutPoint(evt.offsetX, evt.offsetY, commit);
+}
+
+on("tp-gamut-overlay", "pointerdown", function(evt) {
+    tpPopupGamutDragActive = true;
+    nativeSetPointerCapture("tp-gamut-overlay", evt && evt.pointerId ? evt.pointerId : 0);
+    handleTokenPopupGamutPointer(evt, false);
+});
+on("tp-gamut-overlay", "pointermove", function(evt) {
+    if (!tpPopupGamutDragActive) return;
+    handleTokenPopupGamutPointer(evt, false);
+});
+on("tp-gamut-overlay", "pointerup", function(evt) {
+    if (!tpPopupGamutDragActive) return;
+    tpPopupGamutDragActive = false;
+    handleTokenPopupGamutPointer(evt, true);
+    nativeReleasePointerCapture("tp-gamut-overlay", evt && evt.pointerId ? evt.pointerId : 0);
+    updatePopupState(tokenEditState.activeToken);
+});
+on("tp-gamut-overlay", "pointercancel", function(evt) {
+    tpPopupGamutDragActive = false;
+    nativeReleasePointerCapture("tp-gamut-overlay", evt && evt.pointerId ? evt.pointerId : 0);
+    if (tokenEditState.activeToken) updatePopupState(tokenEditState.activeToken);
 });
 
 // H (hue) fader
 createRow("tp-hue-row", "tp-custom");
-setFlex("tp-hue-row", "height", 20);
+setFlex("tp-hue-row", "height", 24);
 setFlex("tp-hue-row", "gap", 6);
 setFlex("tp-hue-row", "align_items", "center");
 createLabel("tp-h-fader-lbl", "H", "tp-hue-row");
@@ -2207,11 +2912,11 @@ setFontSize("tp-h-fader-lbl", 10);
 setFlex("tp-h-fader-lbl", "width", 14);
 createFader("tp-h-fader", "horizontal", "tp-hue-row");
 setFlex("tp-h-fader", "flex_grow", 1);
-setFlex("tp-h-fader", "height", 16);
+setFlex("tp-h-fader", "height", 20);
 
 // C (chroma) fader
 createRow("tp-chroma-row", "tp-custom");
-setFlex("tp-chroma-row", "height", 20);
+setFlex("tp-chroma-row", "height", 24);
 setFlex("tp-chroma-row", "gap", 6);
 setFlex("tp-chroma-row", "align_items", "center");
 createLabel("tp-c-fader-lbl", "C", "tp-chroma-row");
@@ -2219,11 +2924,11 @@ setFontSize("tp-c-fader-lbl", 10);
 setFlex("tp-c-fader-lbl", "width", 14);
 createFader("tp-c-fader", "horizontal", "tp-chroma-row");
 setFlex("tp-c-fader", "flex_grow", 1);
-setFlex("tp-c-fader", "height", 16);
+setFlex("tp-c-fader", "height", 20);
 
 // L (lightness) fader
 createRow("tp-light-row", "tp-custom");
-setFlex("tp-light-row", "height", 20);
+setFlex("tp-light-row", "height", 24);
 setFlex("tp-light-row", "gap", 6);
 setFlex("tp-light-row", "align_items", "center");
 createLabel("tp-l-fader-lbl", "L", "tp-light-row");
@@ -2231,7 +2936,7 @@ setFontSize("tp-l-fader-lbl", 10);
 setFlex("tp-l-fader-lbl", "width", 14);
 createFader("tp-l-fader", "horizontal", "tp-light-row");
 setFlex("tp-l-fader", "flex_grow", 1);
-setFlex("tp-l-fader", "height", 16);
+setFlex("tp-l-fader", "height", 20);
 
 // OKLCH value display
 createRow("tp-oklch-vals", "tp-custom");
@@ -2241,21 +2946,67 @@ createLabel("tp-oklch-display", "L: 0.50  C: 0.100  H: 180", "tp-oklch-vals");
 setFontSize("tp-oklch-display", 9);
 setTextColor("tp-oklch-display", APP_TEXT_DIM);
 
-function onTpHclChange() {
-    if (!tokenEditState.activeToken) return;
-    var h = getValue("tp-h-fader") * 360;
-    var c = getValue("tp-c-fader") * 0.4;
-    var l = getValue("tp-l-fader");
-    var mapped = OklchEngine.gamutMap(l, c, h);
-    var hex = OklchEngine.oklchToHex(mapped.L, mapped.C, mapped.H);
-    setText("tp-oklch-display", "L: " + mapped.L.toFixed(2) + "  C: " + mapped.C.toFixed(3) + "  H: " + mapped.H.toFixed(1));
-    applyTokenColor(tokenEditState.activeToken, hex);
-    // Redraw gamut triangle if hue changed
-    if (Math.abs(h - gamutHue) > 1) renderGamutTriangle(h);
+function onTpHclChange(hueChanged, forceApply) {
+    if (tpPopupHclSyncActive || !tokenEditState.activeToken) return;
+    tpPopupSliderPending = {
+        h: getValue("tp-h-fader") * 360,
+        c: getValue("tp-c-fader") * GAMUT_MAX_C,
+        l: getValue("tp-l-fader"),
+        hueChanged: !!hueChanged
+    };
+
+    var applyPending = function(commit) {
+        if (!tpPopupSliderPending || !tokenEditState.activeToken) return;
+        var state = tpPopupSliderPending;
+        var mapped = OklchEngine.gamutMap(state.l, state.c, state.h);
+        var dragging = !!tpPopupSliderDragKind && !commit;
+        var renderHue = (dragging && state.hueChanged) ? quantizePalettePreviewHue(state.h) : state.h;
+        applyTokenPopupOklch(mapped, {
+            commit: !!commit,
+            renderHue: renderHue,
+            fullRedraw: !!commit || Math.abs(renderHue - tpGamutRenderHue) > 0.1,
+            syncFaders: false
+        });
+        if (commit) updatePopupState(tokenEditState.activeToken);
+    };
+
+    if (forceApply || !tpPopupSliderDragKind) {
+        if (tpPopupSliderApplyFrame) {
+            cancelAnimationFrame(tpPopupSliderApplyFrame);
+            tpPopupSliderApplyFrame = 0;
+        }
+        applyPending(true);
+        return;
+    }
+
+    if (tpPopupSliderApplyFrame) return;
+    tpPopupSliderApplyFrame = requestAnimationFrame(function() {
+        tpPopupSliderApplyFrame = 0;
+        applyPending(false);
+    });
 }
-on("tp-h-fader", "change", function() { onTpHclChange(); });
-on("tp-c-fader", "change", function() { onTpHclChange(); });
-on("tp-l-fader", "change", function() { onTpHclChange(); });
+function beginTokenPopupSliderDrag(kind) {
+    tpPopupSliderDragKind = kind;
+}
+
+function endTokenPopupSliderDrag(hueChanged) {
+    if (!tpPopupSliderDragKind) return;
+    tpPopupSliderDragKind = "";
+    onTpHclChange(!!hueChanged, true);
+}
+
+on("tp-h-fader", "pointerdown", function() { beginTokenPopupSliderDrag("h"); });
+on("tp-h-fader", "pointerup", function() { endTokenPopupSliderDrag(true); });
+on("tp-h-fader", "pointercancel", function() { endTokenPopupSliderDrag(true); });
+on("tp-c-fader", "pointerdown", function() { beginTokenPopupSliderDrag("c"); });
+on("tp-c-fader", "pointerup", function() { endTokenPopupSliderDrag(false); });
+on("tp-c-fader", "pointercancel", function() { endTokenPopupSliderDrag(false); });
+on("tp-l-fader", "pointerdown", function() { beginTokenPopupSliderDrag("l"); });
+on("tp-l-fader", "pointerup", function() { endTokenPopupSliderDrag(false); });
+on("tp-l-fader", "pointercancel", function() { endTokenPopupSliderDrag(false); });
+on("tp-h-fader", "change", function() { onTpHclChange(true, false); });
+on("tp-c-fader", "change", function() { onTpHclChange(false, false); });
+on("tp-l-fader", "change", function() { onTpHclChange(false, false); });
 
 on("tp-custom-toggle", "click", function() {
     tpCustomOpen = !tpCustomOpen;
@@ -2264,7 +3015,8 @@ on("tp-custom-toggle", "click", function() {
     if (tpCustomOpen && tokenEditState.activeToken) {
         var hex = (JSON.parse(getThemeJson()).colors || {})[tokenEditState.activeToken] || '#808080';
         var oklch = OklchEngine.hexToOklch(hex);
-        renderGamutTriangle(oklch.H);
+        applyTokenPopupSliderShaders(oklch.H);
+        updateTokenPopupCustomUi(oklch, oklch.H, true, true);
     }
     layout();
     if (tokenEditState.activeSwatchId) positionTokenPopup(tokenEditState.activeSwatchId);
@@ -2286,16 +3038,14 @@ function updatePopupState(tokenName) {
     var themeColors = JSON.parse(getThemeJson()).colors || {};
     var hex = themeColors[tokenName] || '#000000';
     setText("tp-token-name", tokenName);
-    setText("tp-hex-input", hex);
+    setText("tp-hex-input", hex.toUpperCase());
+    setValue("tp-alpha-fdr", hexAlpha(hex));
+    setText("tp-alpha-val", hexAlpha(hex).toFixed(1));
     setOpacity("tp-token-modified", isTokenModified(tokenName) ? 1.0 : 0.0);
     // D2: Sync HCL faders and gamut triangle
     if (tpCustomOpen) {
         var oklch = OklchEngine.hexToOklch(hex);
-        setValue("tp-h-fader", oklch.H / 360);
-        setValue("tp-c-fader", Math.min(oklch.C / 0.4, 1));
-        setValue("tp-l-fader", oklch.L);
-        setText("tp-oklch-display", "L: " + oklch.L.toFixed(2) + "  C: " + oklch.C.toFixed(3) + "  H: " + oklch.H.toFixed(1));
-        if (Math.abs(oklch.H - gamutHue) > 1) renderGamutTriangle(oklch.H);
+        updateTokenPopupCustomUi(oklch, oklch.H, true, true);
     }
     // Undo/redo button opacity
     var h = tokenHistory(tokenName);
@@ -2315,12 +3065,25 @@ function positionTokenPopup(anchorId) {
     var viewportH = rootSize && rootSize.height ? rootSize.height : 700;
     var popupW = popupRect && popupRect.width ? popupRect.width : TOKEN_POPUP_W;
     var popupH = popupRect && popupRect.height ? popupRect.height : (tpCustomOpen ? 620 : 420);
-    var popX = rect.right + 4;
+    var margin = 8;
+    var gap = 6;
+    var rightSpace = viewportW - rect.right - margin;
+    var leftSpace = rect.x - margin;
+    var belowSpace = viewportH - rect.y - margin;
+    var aboveSpace = rect.bottom - margin;
+
+    var popX = rect.right + gap;
+    if (rightSpace < popupW && leftSpace > rightSpace) popX = rect.x - popupW - gap;
+    if (popX + popupW > viewportW - margin) popX = viewportW - popupW - margin;
+    if (popX < margin) popX = margin;
+
     var popY = rect.y;
-    if (popX + popupW > viewportW) popX = rect.x - popupW - 4;
-    if (popY + popupH > viewportH) popY = viewportH - popupH - 8;
-    if (popX < 4) popX = 4;
-    if (popY < 4) popY = 4;
+    if (belowSpace < popupH && aboveSpace > belowSpace) {
+        popY = rect.bottom - popupH;
+    }
+    if (popY + popupH > viewportH - margin) popY = viewportH - popupH - margin;
+    if (popY < margin) popY = margin;
+
     setTop("token-popup", popY);
     setLeft("token-popup", popX);
 }
@@ -2341,6 +3104,9 @@ function openTokenPopup(tokenName, swatchId, gIdx, tIdx) {
 function closeTokenPopup() {
     tokenEditState.activeToken = null;
     tokenEditState.activeSwatchId = null;
+    tpCustomOpen = false;
+    setVisible("tp-custom", false);
+    setText("tp-custom-lbl", "\u25b6 Custom color picker");
     setVisible("token-popup", false);
     setVisible("tp-backdrop", false);
     layout();
@@ -2348,6 +3114,10 @@ function closeTokenPopup() {
 
 // ── Accent hue slider handler ────────────────────────────────────
 on("accent-hue", "pointerdown", function() {
+    var accent = OklchEngine.hexToOklch(currentAccent);
+    accentHueBaseL = accent.L;
+    accentHueBaseC = accent.C;
+    accentHuePreviewCache = {};
     accentHueDragActive = true;
 });
 on("accent-hue", "pointerup", function() {
@@ -2372,50 +3142,18 @@ on("harmony-selector", "select", function(idx) {
         setSelected("harmony-selector", idx);
         // Just update colors — don't rebuild widget tree during mouse event
         var palette = PaletteSystem.create(currentAccent, currentHarmony);
-        applyTokenDiff(PaletteSystem.toThemeDiff(palette));
+        applyPaletteThemeDiff(palette, currentPaletteMode);
         updateTokenSwatches();
-        // Update shade ramp colors in-place
-        var steps = ShadeGenerator.STEPS;
-        for (var p = 0; p < paletteKeys.length; p++) {
-            var ramp = palette[paletteKeys[p]];
-            for (var s = 0; s < steps.length; s++) {
-                setBackground("ramp-" + p + "-s" + s, ramp[steps[s]].hex);
-            }
-            setBackground("ramp-" + p + "-dot", ramp[500].hex);
-        }
-        // Close any expanded editor since palette changed
-        if (expandedPalette >= 0) {
-            applyPaletteExpandedLayout(expandedPalette, false);
-            expandedPalette = -1;
-            updateLeftPanelScrollMetrics();
-        }
+        refreshPaletteEditorsFromPalette(palette, true, true);
+        markCurrentModeDirty();
         layout();
     }
 });
 
 // Dark/Light mode handler
 on("mode-selector", "select", function(idx) {
-    var mode = idx === 0 ? "dark" : "light";
-    currentPaletteMode = mode;
-    setSelected("mode-selector", idx);
-    setTheme(mode);
-    // Update shade ramp colors in-place
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
-    updateTokenSwatches();
-    var steps = ShadeGenerator.STEPS;
-    for (var p = 0; p < paletteKeys.length; p++) {
-        var ramp = palette[paletteKeys[p]];
-        for (var s = 0; s < steps.length; s++) {
-            setBackground("ramp-" + p + "-s" + s, ramp[steps[s]].hex);
-        }
-        setBackground("ramp-" + p + "-dot", ramp[500].hex);
-    }
-    if (expandedPalette >= 0) {
-        applyPaletteExpandedLayout(expandedPalette, false);
-        expandedPalette = -1;
-        updateLeftPanelScrollMetrics();
-    }
+    switchPaletteMode(idx === 0 ? "dark" : "light");
+    refreshPaletteEditorsFromPalette(PaletteSystem.create(currentAccent, currentHarmony), true, true);
     pushThemeSnapshot();
     layout();
 });
@@ -2429,25 +3167,63 @@ setFlex("center-panel", "padding", 16);
 setFlex("center-panel", "gap", 8);
 setBackground("center-panel", APP_BG);
 
-// Preview content area (scrollable, flush to top — no chrome title bar)
-createScrollView("preview-scroll", "center-panel");
+createCol("preview-shell", "center-panel");
+setFlex("preview-shell", "flex_grow", 1);
+setFlex("preview-shell", "gap", 0);
+setBackground("preview-shell", APP_PANEL);
+setBorder("preview-shell", APP_BORDER, 1, 12);
+
+createRow("preview-chrome", "preview-shell");
+setFlex("preview-chrome", "height", 26);
+setFlex("preview-chrome", "padding_left", 10);
+setFlex("preview-chrome", "padding_right", 10);
+setFlex("preview-chrome", "gap", 6);
+setFlex("preview-chrome", "align_items", "center");
+setBackground("preview-chrome", APP_PANEL_RAISED);
+
+var previewChromeDots = ["#ff5f57", "#febc2e", "#28c840"];
+for (var pcd = 0; pcd < previewChromeDots.length; pcd++) {
+    var dotId = "preview-chrome-dot-" + pcd;
+    createCol(dotId, "preview-chrome");
+    setFlex(dotId, "width", 8);
+    setFlex(dotId, "height", 8);
+    setBackground(dotId, previewChromeDots[pcd]);
+    setBorder(dotId, previewChromeDots[pcd], 0, 4);
+}
+
+createLabel("preview-chrome-title", "Plugin Preview", "preview-chrome");
+setFontSize("preview-chrome-title", 10);
+setTextColor("preview-chrome-title", APP_TEXT_DIM);
+setFlex("preview-chrome-title", "padding_left", 4);
+
+createCol("preview-chrome-divider", "preview-shell");
+setFlex("preview-chrome-divider", "height", 1);
+setBackground("preview-chrome-divider", APP_BORDER);
+
+// Preview content area (scrollable, inside a plugin-style shell)
+createScrollView("preview-scroll", "preview-shell");
 setFlex("preview-scroll", "flex_grow", 1);
-setBackground("preview-scroll", APP_PANEL);
+setBackground("preview-scroll", APP_BG);
 setBorder("preview-scroll", APP_BORDER, 0, 0);
 setScrollContentSize("preview-scroll", 500, 1900);
 
 createCol("preview-area", "preview-scroll");
 setFlex("preview-area", "height", 1900);
 setFlex("preview-area", "flex_shrink", 0);
-setFlex("preview-area", "padding", 12);
-setFlex("preview-area", "padding_right", 24);  // extra space for scrollbar
+setFlex("preview-area", "padding", 14);
+setFlex("preview-area", "padding_right", 28);  // extra space for scrollbar
 setFlex("preview-area", "gap", 10);
 
+function stylePreviewSectionHeader(id) {
+    setFontSize(id, 10);
+    setLetterSpacing(id, 1.2);
+    setTextColor(id, APP_TEXT_DIM);
+    setFlex(id, "height", 14);
+}
+
 // Foundations section: bg swatches + text hierarchy
-createLabel("foundations-header", "Foundations", "preview-area");
-setFontSize("foundations-header", 11);
-setTextColor("foundations-header", APP_TEXT_DIM);
-setFlex("foundations-header", "height", 16);
+createLabel("foundations-header", "FOUNDATIONS", "preview-area");
+stylePreviewSectionHeader("foundations-header");
 
 // Background swatches row
 createRow("bg-swatches", "preview-area");
@@ -2493,10 +3269,8 @@ setTextColor("th-caption", APP_TEXT_DIM);
 setFlex("th-caption", "width", 60);
 
 // Controls section: knobs
-createLabel("controls-header", "Controls", "preview-area");
-setFontSize("controls-header", 11);
-setTextColor("controls-header", APP_TEXT_DIM);
-setFlex("controls-header", "height", 16);
+createLabel("controls-header", "CONTROLS", "preview-area");
+stylePreviewSectionHeader("controls-header");
 
 createRow("knob-row", "preview-area");
 setFlex("knob-row", "gap", 16);
@@ -2634,22 +3408,36 @@ setPlaceholder("sample-input", "Some text");
 setText("sample-input", "Some text");
 setFlex("sample-input", "width", 120);
 setFlex("sample-input", "height", 26);
+setTextColor("sample-input", APP_TEXT);
 
 createTextEditor("sample-placeholder", "input-row");
 setPlaceholder("sample-placeholder", "Placeholder...");
 setFlex("sample-placeholder", "width", 120);
 setFlex("sample-placeholder", "height", 26);
+setTextColor("sample-placeholder", APP_TEXT);
 
-createCombo("sample-combo", "input-row");
-setItems("sample-combo", ["Select preset...", "Option A", "Option B"]);
-setFlex("sample-combo", "width", 130);
+createRow("sample-combo", "input-row");
+setFlex("sample-combo", "width", 148);
 setFlex("sample-combo", "height", 26);
+setFlex("sample-combo", "padding_left", 8);
+setFlex("sample-combo", "padding_right", 8);
+setFlex("sample-combo", "align_items", "center");
+setFlex("sample-combo", "gap", 8);
+setBackground("sample-combo", APP_PANEL);
+setBorder("sample-combo", APP_BORDER, 1, 6);
+createLabel("sample-combo-label", "Select preset...", "sample-combo");
+setFontSize("sample-combo-label", 10);
+setFlex("sample-combo-label", "flex_grow", 1);
+setTextColor("sample-combo-label", APP_TEXT);
+setPointerEvents("sample-combo-label", "none");
+createLabel("sample-combo-caret", "\u25be", "sample-combo");
+setFontSize("sample-combo-caret", 10);
+setTextColor("sample-combo-caret", APP_TEXT_DIM);
+setPointerEvents("sample-combo-caret", "none");
 
 // Data display: Waveform
-createLabel("data-header", "Data Display", "preview-area");
-setFontSize("data-header", 11);
-setTextColor("data-header", APP_TEXT_DIM);
-setFlex("data-header", "height", 16);
+createLabel("data-header", "DATA DISPLAY", "preview-area");
+stylePreviewSectionHeader("data-header");
 
 createWaveform("waveform", "preview-area");
 setFlex("waveform", "height", 60);
@@ -2689,11 +3477,24 @@ setFlex("m4", "width", 14);
 setWidgetStyle("m4", "minimal");
 setMeterLevel("m4", 0.85, 0.95);
 
-// Layout section: 2x2 card grid
-createLabel("layout-header", "LAYOUT", "preview-area");
+// Layout section: single-row status cards matching the HTML reference
+createRow("layout-header-row", "preview-area");
+setFlex("layout-header-row", "height", 16);
+setFlex("layout-header-row", "gap", 8);
+setFlex("layout-header-row", "align_items", "center");
+
+createLabel("layout-header", "LAYOUT", "layout-header-row");
 setFontSize("layout-header", 10);
+setLetterSpacing("layout-header", 1.2);
 setTextColor("layout-header", APP_TEXT_DIM);
-setFlex("layout-header", "height", 16);
+setFlex("layout-header", "height", 14);
+setFlex("layout-header", "width", 52);
+setFlex("layout-header", "flex_shrink", 0);
+
+createCol("layout-header-line", "layout-header-row");
+setFlex("layout-header-line", "height", 1);
+setFlex("layout-header-line", "flex_grow", 1);
+setBackground("layout-header-line", previewThemeColor("divider", APP_BORDER));
 
 // D3: Card grid matching HTML reference — Empty, Loading, Ready (OK badge), Error (! badge)
 var cardDefs = [
@@ -2702,48 +3503,57 @@ var cardDefs = [
     { id: "card-3", label: "Ready", bg: APP_PANEL, border: '#4CAF50', badge: "OK", badgeColor: '#4CAF50' },
     { id: "card-4", label: "Error", bg: '#3a2020', border: '#e94560', badge: "!", badgeColor: '#e94560' }
 ];
-var cardRows = [["card-grid-top", [0, 1]], ["card-grid-bot", [2, 3]]];
-for (var cr = 0; cr < cardRows.length; cr++) {
-    var crId = cardRows[cr][0];
-    createRow(crId, "preview-area");
-    setFlex(crId, "gap", 6);
-    setFlex(crId, "height", 56);
-    var indices = cardRows[cr][1];
-    for (var ci = 0; ci < indices.length; ci++) {
-        var cd = cardDefs[indices[ci]];
-        createCol(cd.id, crId);
-        setPosition(cd.id, "relative");
-        setFlex(cd.id, "flex_grow", 1);
-        setBackground(cd.id, cd.bg);
-        setBorder(cd.id, cd.border, 1, 8);
-        setFlex(cd.id, "padding", 6);
-        setFlex(cd.id, "justify_content", "center");
-        setFlex(cd.id, "align_items", "center");
-        if (cd.loading) {
-            createLabel(cd.id + "-spinner", "\u25DC", cd.id);
-            setFontSize(cd.id + "-spinner", 12);
-            setTextColor(cd.id + "-spinner", APP_ACCENT);
-        } else {
-            createLabel(cd.id + "-label", cd.label, cd.id);
-            setFontSize(cd.id + "-label", 9);
-            setTextColor(cd.id + "-label", cd.id === "card-4" ? "#F44336" : APP_TEXT_DIM);
-        }
-        if (cd.badge) {
-            createCol(cd.id + "-badge", cd.id);
-            setPosition(cd.id + "-badge", "absolute");
-            setTop(cd.id + "-badge", 4);
-            setRight(cd.id + "-badge", 4);
-            setFlex(cd.id + "-badge", "height", 16);
-            setFlex(cd.id + "-badge", "padding_left", 4);
-            setFlex(cd.id + "-badge", "padding_right", 4);
-            setFlex(cd.id + "-badge", "justify_content", "center");
-            setFlex(cd.id + "-badge", "align_items", "center");
-            setBackground(cd.id + "-badge", cd.badgeColor);
-            setBorder(cd.id + "-badge", cd.badgeColor, 0, 3);
-            createLabel(cd.id + "-badge-lbl", cd.badge, cd.id + "-badge");
-            setFontSize(cd.id + "-badge-lbl", 7);
-            setTextColor(cd.id + "-badge-lbl", "#ffffff");
-        }
+createRow("card-grid-row", "preview-area");
+setFlex("card-grid-row", "gap", 6);
+setFlex("card-grid-row", "height", 56);
+setFlex("card-grid-row", "align_items", "stretch");
+setFlex("card-grid-row", "flex_wrap", 0);
+
+for (var ci = 0; ci < cardDefs.length; ci++) {
+    var cd = cardDefs[ci];
+    createCol(cd.id, "card-grid-row");
+    setPosition(cd.id, "relative");
+    setFlex(cd.id, "flex_grow", 1);
+    setFlex(cd.id, "flex_basis", 0);
+    setFlex(cd.id, "min_width", 0);
+    setBackground(cd.id, cd.bg);
+    setBorder(cd.id, cd.border, 1, 8);
+    setFlex(cd.id, "padding", 6);
+    setFlex(cd.id, "justify_content", "center");
+    setFlex(cd.id, "align_items", "center");
+
+    if (cd.loading) {
+        createLabel(cd.id + "-label", cd.label, cd.id);
+        setPosition(cd.id + "-label", "absolute");
+        setTop(cd.id + "-label", 8);
+        setLeft(cd.id + "-label", 10);
+        setFontSize(cd.id + "-label", 9);
+        setTextColor(cd.id + "-label", APP_TEXT_DIM);
+
+        createLabel(cd.id + "-spinner", "\u25DC", cd.id);
+        setFontSize(cd.id + "-spinner", 15);
+        setTextColor(cd.id + "-spinner", APP_ACCENT);
+    } else {
+        createLabel(cd.id + "-label", cd.label, cd.id);
+        setFontSize(cd.id + "-label", 11);
+        setTextColor(cd.id + "-label", cd.id === "card-4" ? "#F44336" : APP_TEXT_DIM);
+    }
+
+    if (cd.badge) {
+        createCol(cd.id + "-badge", cd.id);
+        setPosition(cd.id + "-badge", "absolute");
+        setTop(cd.id + "-badge", 6);
+        setRight(cd.id + "-badge", 6);
+        setFlex(cd.id + "-badge", "height", 14);
+        setFlex(cd.id + "-badge", "min_width", cd.badge === "OK" ? 18 : 14);
+        setFlex(cd.id + "-badge", "max_width", cd.badge === "OK" ? 18 : 14);
+        setFlex(cd.id + "-badge", "justify_content", "center");
+        setFlex(cd.id + "-badge", "align_items", "center");
+        setBackground(cd.id + "-badge", cd.badgeColor);
+        setBorder(cd.id + "-badge", cd.badgeColor, 0, 3);
+        createLabel(cd.id + "-badge-lbl", cd.badge, cd.id + "-badge");
+        setFontSize(cd.id + "-badge-lbl", 7);
+        setTextColor(cd.id + "-badge-lbl", "#ffffff");
     }
 }
 
@@ -2785,43 +3595,57 @@ function tickSpinner() {
 __requestFrame__(tickSpinner);
 
 // ── Tab Bar (General / Audio / MIDI / About) ─────────────────────
+createLabel("tabs-header", "TABS", "preview-area");
+stylePreviewSectionHeader("tabs-header");
+
 createRow("tab-bar-preview", "preview-area");
-setFlex("tab-bar-preview", "height", 28);
+setFlex("tab-bar-preview", "height", 30);
 setFlex("tab-bar-preview", "gap", 0);
-setFlex("tab-bar-preview", "align_items", "flex_end");
+setFlex("tab-bar-preview", "align_items", "stretch");
 setBorder("tab-bar-preview", APP_BORDER, 0, 0);
 createCol("tab-bar-preview-line", "tab-bar-preview");
 setPosition("tab-bar-preview-line", "absolute");
 setLeft("tab-bar-preview-line", 0);
 setRight("tab-bar-preview-line", 0);
 setBottom("tab-bar-preview-line", 0);
-setFlex("tab-bar-preview-line", "height", 2);
-setBackground("tab-bar-preview-line", previewThemeColor("divider", APP_BORDER));
+setFlex("tab-bar-preview-line", "height", 1);
+setBackground("tab-bar-preview-line", "transparent");
 
 var tabNames = ["General", "Audio", "MIDI", "About"];
 for (var ti = 0; ti < tabNames.length; ti++) {
     var tabId = "ptab-" + ti;
     createCol(tabId, "tab-bar-preview");
     setPosition(tabId, "relative");
-    setFlex(tabId, "height", 28);
+    setFlex(tabId, "height", 30);
     setFlex(tabId, "padding_left", 14);
     setFlex(tabId, "padding_right", 14);
-    setFlex(tabId, "justify_content", "flex_end");
+    setFlex(tabId, "justify_content", "center");
     setFlex(tabId, "align_items", "center");
-    setFlex(tabId, "gap", 6);
     registerClick(tabId);
+    registerHover(tabId);
 
     createLabel(tabId + "-l", tabNames[ti], tabId);
-    setFontSize(tabId + "-l", 11);
+    setFontSize(tabId + "-l", 12);
     setTextColor(tabId + "-l", ti === 0 ? APP_TEXT : APP_TEXT_DIM);
     setPointerEvents(tabId + "-l", "none");
 
     createCol(tabId + "-line", tabId);
+    setPosition(tabId + "-line", "absolute");
+    setLeft(tabId + "-line", 10);
+    setRight(tabId + "-line", 10);
+    setBottom(tabId + "-line", 0);
     setFlex(tabId + "-line", "height", 2);
-    setFlex(tabId + "-line", "width", 999);
     setBackground(tabId + "-line", ti === 0 ? APP_ACCENT : "transparent");
 
     (function(idx) {
+        on("ptab-" + idx, "mouseenter", function() {
+            previewTabHoverIndex = idx;
+            refreshPreviewTabs(false);
+        });
+        on("ptab-" + idx, "mouseleave", function() {
+            if (previewTabHoverIndex === idx) previewTabHoverIndex = -1;
+            refreshPreviewTabs(false);
+        });
         on("ptab-" + idx, "click", function() { setPreviewActiveTab(idx); });
     })(ti);
 }
@@ -2846,17 +3670,17 @@ setFontSize("panel-sub", 10);
 setTextColor("panel-sub", APP_TEXT_DIM);
 
 previewReady = true;
-refreshPreviewLayoutSection();
-setPreviewActiveTab(0, true);
+applyStateToPreview(activeState);
 
 // ── Overlays (Static Preview) ────────────────────────────────────
-createLabel("overlays-header", "Overlays", "preview-area");
-setFontSize("overlays-header", 11);
-setTextColor("overlays-header", APP_TEXT_DIM);
+createLabel("overlays-header", "OVERLAYS (STATIC PREVIEW)", "preview-area");
+stylePreviewSectionHeader("overlays-header");
 
 createRow("overlay-row", "preview-area");
 setFlex("overlay-row", "gap", 8);
 setFlex("overlay-row", "height", 96);
+setBackground("overlay-row", applyHexAlpha(APP_PANEL_RAISED, 0.82));
+setBorder("overlay-row", APP_BORDER, 1, 8);
 
 // Confirm Action dialog card
 createCol("dialog-card", "overlay-row");
@@ -2920,18 +3744,39 @@ for (var ci = 0; ci < ctxItems.length; ci++) {
         setFlex(cid, "align_items", "center");
         createLabel(cid + "-l", ctxItems[ci], cid);
         setFontSize(cid + "-l", 11);
+        registerHover(cid);
         if (ctxItems[ci] === "Paste") {
             setBackground(cid, APP_ACCENT + "22");
             setTextColor(cid + "-l", APP_ACCENT);
+            (function(id, labelId) {
+                on(id, "mouseenter", function() {
+                    setBackground(id, APP_ACCENT + "32");
+                    setTextColor(labelId, APP_ACCENT_HOVER);
+                });
+                on(id, "mouseleave", function() {
+                    setBackground(id, APP_ACCENT + "22");
+                    setTextColor(labelId, APP_ACCENT);
+                });
+            })(cid, cid + "-l");
+        } else {
+            (function(id, labelId, isDelete) {
+                on(id, "mouseenter", function() {
+                    setBackground(id, "#ffffff10");
+                    if (!isDelete) setTextColor(labelId, APP_TEXT);
+                });
+                on(id, "mouseleave", function() {
+                    setBackground(id, "transparent");
+                    if (!isDelete) setTextColor(labelId, APP_TEXT_DIM);
+                });
+            })(cid, cid + "-l", ctxItems[ci] === "Delete");
         }
         if (ctxItems[ci] === "Delete") setTextColor(cid + "-l", "#f38ba8");
     }
 }
 
 // ── States ───────────────────────────────────────────────────────
-createLabel("states-header", "States", "preview-area");
-setFontSize("states-header", 11);
-setTextColor("states-header", APP_TEXT_DIM);
+createLabel("states-header", "STATES", "preview-area");
+stylePreviewSectionHeader("states-header");
 
 createRow("states-row", "preview-area");
 setFlex("states-row", "gap", 6);
@@ -2955,13 +3800,12 @@ for (var si = 0; si < stateNames.length; si++) {
 }
 
 // ── Effects ──────────────────────────────────────────────────────
-createLabel("effects-header", "Effects", "preview-area");
-setFontSize("effects-header", 11);
-setTextColor("effects-header", APP_TEXT_DIM);
+createLabel("effects-header", "EFFECTS", "preview-area");
+stylePreviewSectionHeader("effects-header");
 
 createRow("effects-row", "preview-area");
 setFlex("effects-row", "gap", 8);
-setFlex("effects-row", "height", 40);
+setFlex("effects-row", "height", 44);
 setFlex("effects-row", "align_items", "center");
 
 var effectNames = ["Shadow", "Glow", "Blur", "Gradient"];
@@ -2969,19 +3813,57 @@ for (var ei = 0; ei < effectNames.length; ei++) {
     var eid = "effect-" + ei;
     createCol(eid, "effects-row");
     setFlex(eid, "flex_grow", 1);
-    setFlex(eid, "height", 36);
+    setFlex(eid, "height", 40);
+    setFlex(eid, "padding_top", 5);
+    setFlex(eid, "padding_bottom", 5);
+    setFlex(eid, "gap", 4);
     setBackground(eid, APP_PANEL);
     setBorder(eid, APP_BORDER, 1, 6);
-    setFlex(eid, "justify_content", "center");
     setFlex(eid, "align_items", "center");
+    setFlex(eid, "justify_content", "center");
+
+    createRow(eid + "-viz", eid);
+    setFlex(eid + "-viz", "height", 10);
+    setFlex(eid + "-viz", "gap", 3);
+    setFlex(eid + "-viz", "align_items", "center");
+
+    if (ei === 0) {
+        createCol(eid + "-chip", eid + "-viz");
+        setFlex(eid + "-chip", "width", 22);
+        setFlex(eid + "-chip", "height", 8);
+        setBackground(eid + "-chip", APP_PANEL_RAISED);
+        setBorder(eid + "-chip", APP_BORDER, 1, 4);
+    } else if (ei === 1) {
+        createCol(eid + "-chip", eid + "-viz");
+        setFlex(eid + "-chip", "width", 18);
+        setFlex(eid + "-chip", "height", 8);
+        setBackground(eid + "-chip", APP_ACCENT);
+        setBorder(eid + "-chip", APP_ACCENT, 0, 4);
+    } else if (ei === 2) {
+        for (var blurStep = 0; blurStep < 3; blurStep++) {
+            createCol(eid + "-chip-" + blurStep, eid + "-viz");
+            setFlex(eid + "-chip-" + blurStep, "width", 8 + blurStep * 4);
+            setFlex(eid + "-chip-" + blurStep, "height", 8);
+            setBackground(eid + "-chip-" + blurStep, APP_ACCENT);
+            setBorder(eid + "-chip-" + blurStep, "transparent", 0, 4);
+            setOpacity(eid + "-chip-" + blurStep, 0.35 + blurStep * 0.2);
+        }
+    } else {
+        for (var gradStep = 0; gradStep < 3; gradStep++) {
+            createCol(eid + "-chip-" + gradStep, eid + "-viz");
+            setFlex(eid + "-chip-" + gradStep, "width", 8);
+            setFlex(eid + "-chip-" + gradStep, "height", 8);
+            setBorder(eid + "-chip-" + gradStep, "transparent", 0, 4);
+        }
+    }
+
     createLabel(eid + "-l", effectNames[ei], eid);
-    setFontSize(eid + "-l", 10);
+    setFontSize(eid + "-l", 9);
 }
 
 // ── GPU Showcase ─────────────────────────────────────────────────
-createLabel("showcase-header", "GPU Showcase", "preview-area");
-setFontSize("showcase-header", 11);
-setTextColor("showcase-header", APP_TEXT_DIM);
+createLabel("showcase-header", "GPU SHOWCASE", "preview-area");
+stylePreviewSectionHeader("showcase-header");
 
 // XY Pad for touch/mouse interaction demo
 createRow("showcase-row", "preview-area");
@@ -3012,9 +3894,8 @@ for (var si = 0; si < 72; si++) {
 setSpectrumData("spectrum-demo", specData);
 
 // Second waveform with different data
-createLabel("waveform2-header", "Audio Waveform", "preview-area");
-setFontSize("waveform2-header", 11);
-setTextColor("waveform2-header", APP_TEXT_DIM);
+createLabel("waveform2-header", "AUDIO WAVEFORM", "preview-area");
+stylePreviewSectionHeader("waveform2-header");
 
 createWaveform("waveform2", "preview-area");
 setFlex("waveform2", "height", 60);
@@ -3244,20 +4125,52 @@ setFlex("effort-selector", "width", 74);
 setFlex("effort-selector", "height", 22);
 setVisible("effort-selector", false);
 
+createCol("chat-export-btn", "model-bottom-row");
+setFlex("chat-export-btn", "width", 52);
+setFlex("chat-export-btn", "height", 22);
+setFlex("chat-export-btn", "justify_content", "center");
+setFlex("chat-export-btn", "align_items", "center");
+setBorder("chat-export-btn", APP_BORDER, 1, 6);
+createLabel("chat-export-label", "Export", "chat-export-btn");
+setFontSize("chat-export-label", 9);
+setTextColor("chat-export-label", APP_TEXT_DIM);
+setPointerEvents("chat-export-label", "none");
+registerClick("chat-export-btn");
+
 // Chat messages (scrollable)
 createScrollView("chat-messages", "chat-area");
 setFlex("chat-messages", "flex_grow", 1);
 setFlex("chat-messages", "padding_right", 10);
-setScrollContentSize("chat-messages", 236, 400);  // #61: narrower to clear scrollbar
+setScrollContentSize("chat-messages", 224, 400);  // keep content clear of scrollbar
 
-createLabel("welcome-msg", "Describe a visual style and the preview will update live.", "chat-messages");
+createCol("chat-thread", "chat-messages");
+setFlex("chat-thread", "gap", 8);
+setFlex("chat-thread", "padding_right", 14);
+setFlex("chat-thread", "flex_shrink", 0);
+
+createLabel("welcome-msg", "Describe a visual style and the preview will update live.", "chat-thread");
 setFontSize("welcome-msg", 11);
 setFlex("welcome-msg", "height", 30);
 
-createLabel("hint-msg", 'Try: "warm vintage" or "neon cyberpunk"', "chat-messages");
+createLabel("hint-msg", 'Try: "warm vintage" or "neon cyberpunk"', "chat-thread");
 setFontSize("hint-msg", 10);
 setTextColor("hint-msg", APP_TEXT_DIM);
 setFlex("hint-msg", "height", 16);
+
+createRow("chat-typing-row", "chat-area");
+setFlex("chat-typing-row", "height", 0);
+setFlex("chat-typing-row", "align_items", "center");
+setFlex("chat-typing-row", "gap", 6);
+setFlex("chat-typing-row", "padding_left", 6);
+setFlex("chat-typing-row", "padding_right", 6);
+setFlex("chat-typing-row", "flex_shrink", 0);
+setBackground("chat-typing-row", APP_PANEL);
+setBorder("chat-typing-row", APP_BORDER, 1, 6);
+setVisible("chat-typing-row", false);
+
+createLabel("chat-typing-label", "", "chat-typing-row");
+setFontSize("chat-typing-label", 9);
+setTextColor("chat-typing-label", APP_TEXT_DIM);
 
 // Chat input area
 createRow("chat-attachment-row", "chat-area");
@@ -3314,6 +4227,7 @@ on("upload-btn", "mouseleave", function() { setBorder("upload-btn", APP_BORDER, 
 // Issue 2: image upload via file dialog
 var uploadedImagePath = "";
 var uploadedImageName = "";
+var REFERENCE_IMAGE_EXTENSIONS = "png;jpg;jpeg;gif;webp;bmp;tif;tiff;heic;heif";
 
 function clearUploadedImage() {
     uploadedImagePath = "";
@@ -3361,14 +4275,72 @@ function buildAiCliCommand(promptFile, model, provider, reasoningEffort) {
         cmd = "cat " + shellQuote(promptFile) + " | " + cmd;
     }
     if (usesOutputFile) {
-        return cmd + "; __pulp_status=$?; if [ -f " + shellQuote(outputFile) + " ]; then cat " + shellQuote(outputFile) + "; fi; rm -f " + shellQuote(promptFile) + " " + shellQuote(outputFile) + "; exit $__pulp_status";
+        return "{ " + cmd + "; __pulp_status=$?; if [ -f " + shellQuote(outputFile) + " ]; then cat " + shellQuote(outputFile) + "; fi; printf '\\n__PULP_AI_EXIT_CODE__:%s\\n' \"$__pulp_status\"; rm -f " + shellQuote(promptFile) + " " + shellQuote(outputFile) + "; } 2>&1";
     }
-    return cmd + "; rm -f " + shellQuote(promptFile);
+    return "{ " + cmd + "; __pulp_status=$?; printf '\\n__PULP_AI_EXIT_CODE__:%s\\n' \"$__pulp_status\"; rm -f " + shellQuote(promptFile) + "; } 2>&1";
+}
+
+function parseAiCliResponse(response) {
+    var text = String(response || "");
+    var marker = "__PULP_AI_EXIT_CODE__:";
+    var markerIdx = text.lastIndexOf(marker);
+    var exitCode = 0;
+    if (markerIdx >= 0) {
+        var suffix = text.substring(markerIdx + marker.length).trim();
+        var firstToken = suffix.split(/\s+/)[0];
+        exitCode = parseInt(firstToken, 10);
+        if (isNaN(exitCode)) exitCode = 0;
+        text = text.substring(0, markerIdx);
+    }
+    return {
+        text: text.replace(/\s+$/, ""),
+        exitCode: exitCode
+    };
+}
+
+function summarizeAiCliFailure(provider, exitCode, responseText) {
+    var providerLabel = provider === "codex" ? "Codex" : "Claude";
+    var clean = String(responseText || "").trim();
+    var firstLine = clean.length > 0 ? clean.split(/\r?\n/)[0] : "";
+    var lower = firstLine.toLowerCase();
+    if (lower.indexOf("not found") >= 0 || exitCode === 127) {
+        return providerLabel + " CLI was not found. Check the configured AI CLI command and try again.";
+    }
+    if (lower.indexOf("api key") >= 0 || lower.indexOf("authentication") >= 0 || lower.indexOf("unauthorized") >= 0) {
+        return providerLabel + " authentication failed. Check the provider login/API key and try again.";
+    }
+    if (lower.indexOf("rate limit") >= 0 || lower.indexOf("too many requests") >= 0) {
+        return providerLabel + " hit a rate limit. Wait a moment and try again.";
+    }
+    if (firstLine.length > 0) {
+        return providerLabel + " request failed: " + firstLine;
+    }
+    return providerLabel + " request failed with exit code " + exitCode + ".";
+}
+
+function handleDesignChatCommandResult(requestId, provider, response) {
+    if (chatActiveRequestId !== requestId) return false;
+    var outcome = parseAiCliResponse(response);
+    if (outcome.exitCode !== 0) {
+        failPendingChat(summarizeAiCliFailure(provider, outcome.exitCode, outcome.text), "Chat error");
+        return false;
+    }
+    if (!outcome.text || outcome.text.length === 0) {
+        failPendingChat("AI provider returned no output. Check the CLI/provider configuration and try again.", "Chat error");
+        return false;
+    }
+    try {
+        applyDesignChatResponse(outcome.text);
+        return true;
+    } catch (e) {
+        failPendingChat("Chat apply failed: " + String(e), "Chat error");
+        return false;
+    }
 }
 
 function setUploadedImage(path) {
     uploadedImagePath = path || "";
-    var parts = uploadedImagePath.split("/");
+    var parts = String(uploadedImagePath).replace(/\\/g, "/").split("/");
     uploadedImageName = parts.length > 0 ? parts[parts.length - 1] : uploadedImagePath;
     if (!uploadedImagePath) {
         clearUploadedImage();
@@ -3378,6 +4350,21 @@ function setUploadedImage(path) {
     setVisible("chat-attachment-row", true);
     setFlex("chat-attachment-row", "height", 22);
     layout();
+}
+
+function isSupportedReferenceImage(path) {
+    if (!path || path.length === 0) return false;
+    var lower = String(path).toLowerCase();
+    var dot = lower.lastIndexOf(".");
+    if (dot < 0) return false;
+    var ext = lower.slice(dot + 1);
+    return ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" ||
+        ext === "webp" || ext === "bmp" || ext === "tif" || ext === "tiff" ||
+        ext === "heic" || ext === "heif";
+}
+
+function getReferenceImageDialogExtensions() {
+    return REFERENCE_IMAGE_EXTENSIONS;
 }
 
 on("chat-attachment-clear", "click", function() {
@@ -3398,10 +4385,30 @@ function updateChatInputSizing(text) {
     layout();
 }
 
+function setChatPendingUi(pending) {
+    setEnabled("chat-input", !pending);
+    setEnabled("provider-selector", !pending);
+    setEnabled("model-selector", !pending);
+    setEnabled("effort-selector", !pending);
+
+    setPointerEvents("upload-btn", pending ? "none" : "auto");
+    setOpacity("upload-btn", pending ? 0.45 : 1.0);
+    setBackground("upload-btn", pending ? APP_PANEL_RAISED : APP_PANEL);
+    setBorder("upload-btn", APP_BORDER, 1, 6);
+
+    setPointerEvents("chat-export-btn", pending ? "none" : "auto");
+    setOpacity("chat-export-btn", pending ? 0.45 : 1.0);
+    refreshSendButtonPresentation(pending);
+}
+
 registerClick("upload-btn");
 on("upload-btn", "click", function() {
-    var path = showOpenDialog("Select Reference Image", "Images", "png;jpg;jpeg;gif;webp");
+    var path = showOpenDialog("Select Reference Image", "Image Files", getReferenceImageDialogExtensions());
     if (path && path.length > 0) {
+        if (!isSupportedReferenceImage(path)) {
+            showToast("Unsupported image type");
+            return;
+        }
         setUploadedImage(path);
         showToast("Attached " + uploadedImageName);
     }
@@ -3412,6 +4419,7 @@ setPlaceholder("chat-input", "Describe a style...");
 setMultiLine("chat-input", 1);
 setFlex("chat-input", "flex_grow", 1);
 setFlex("chat-input", "height", 32);
+setTextColor("chat-input", APP_TEXT);
 on("chat-input", "change", function(text) {
     updateChatInputSizing(text);
 });
@@ -3428,10 +4436,23 @@ createIcon("send-icon", "send", "send-btn");
 setFlex("send-icon", "width", 16);
 setFlex("send-icon", "height", 16);
 setPointerEvents("send-icon", "none");
+createIcon("send-cancel-icon", "close", "send-btn");
+setFlex("send-cancel-icon", "width", 14);
+setFlex("send-cancel-icon", "height", 14);
+setPointerEvents("send-cancel-icon", "none");
+setVisible("send-cancel-icon", false);
 // Issue 3: hover state for send button
 registerHover("send-btn");
-on("send-btn", "mouseenter", function() { setBackground("send-btn", APP_ACCENT_HOVER); setBorder("send-btn", APP_ACCENT_HOVER, 1, 6); });
-on("send-btn", "mouseleave", function() { setBackground("send-btn", APP_ACCENT); setBorder("send-btn", APP_ACCENT, 1, 6); });
+on("send-btn", "mouseenter", function() {
+    if (chatRequestPending) {
+        setBackground("send-btn", APP_SURFACE);
+        setBorder("send-btn", APP_TEXT_DIM, 1, 6);
+    } else {
+        setBackground("send-btn", APP_ACCENT_HOVER);
+        setBorder("send-btn", APP_ACCENT_HOVER, 1, 6);
+    }
+});
+on("send-btn", "mouseleave", function() { refreshSendButtonPresentation(); });
 
 // ═══════════════════════════════════════════════════════════════════
 // STATUS BAR (28px, full width)
@@ -3530,6 +4551,102 @@ setFlex("help-modal-body", "flex_grow", 1);
 on("help-modal", "click", function() { hideHelpModal(); });
 on("help-modal", "dismiss", function() { hideHelpModal(); });
 on("help-modal-close-btn", "click", function() { hideHelpModal(); });
+
+createModal("contrast-modal", "");
+setPosition("contrast-modal", "absolute");
+setFlex("contrast-modal", "width", 1100);
+setFlex("contrast-modal", "height", 700);
+setFlex("contrast-modal", "justify_content", "center");
+setFlex("contrast-modal", "align_items", "center");
+setBackground("contrast-modal", "#00000088");
+setZIndex("contrast-modal", 211);
+setOpacity("contrast-modal", 0);
+setVisible("contrast-modal", false);
+setPointerEvents("contrast-modal", "none");
+registerClick("contrast-modal");
+
+createCol("contrast-card", "contrast-modal");
+setFlex("contrast-card", "width", 360);
+setFlex("contrast-card", "min_height", 214);
+setFlex("contrast-card", "padding", 16);
+setFlex("contrast-card", "gap", 10);
+setBackground("contrast-card", APP_PANEL);
+setBorder("contrast-card", APP_BORDER, 1, 12);
+setBoxShadow("contrast-card", 0, 12, 32, 0, "#00000088");
+
+createRow("contrast-card-header", "contrast-card");
+setFlex("contrast-card-header", "height", 26);
+setFlex("contrast-card-header", "align_items", "center");
+setFlex("contrast-card-header", "justify_content", "space-between");
+setFlex("contrast-card-header", "gap", 8);
+
+createLabel("contrast-title", "Contrast", "contrast-card-header");
+setFontSize("contrast-title", 14);
+setTextColor("contrast-title", APP_TEXT);
+setFlex("contrast-title", "flex_grow", 1);
+setTextOverflow("contrast-title", "ellipsis");
+
+createCol("contrast-close-btn", "contrast-card-header");
+setFlex("contrast-close-btn", "width", 60);
+setFlex("contrast-close-btn", "height", 26);
+setFlex("contrast-close-btn", "padding_left", 6);
+setFlex("contrast-close-btn", "padding_right", 6);
+setFlex("contrast-close-btn", "justify_content", "center");
+setFlex("contrast-close-btn", "align_items", "center");
+setBackground("contrast-close-btn", APP_SURFACE);
+setBorder("contrast-close-btn", APP_BORDER, 1, 8);
+registerClick("contrast-close-btn");
+
+createLabel("contrast-close-label", "Close", "contrast-close-btn");
+setFontSize("contrast-close-label", 10);
+setTextColor("contrast-close-label", APP_TEXT_DIM);
+setPointerEvents("contrast-close-label", "none");
+
+createLabel("contrast-hex", "#000000", "contrast-card");
+setFontSize("contrast-hex", 11);
+setTextColor("contrast-hex", APP_TEXT_DIM);
+
+createRow("contrast-sample-row", "contrast-card");
+setFlex("contrast-sample-row", "height", 92);
+setFlex("contrast-sample-row", "gap", 10);
+
+createCol("contrast-white-card", "contrast-sample-row");
+setFlex("contrast-white-card", "flex_grow", 1);
+setFlex("contrast-white-card", "height", 92);
+setFlex("contrast-white-card", "padding", 10);
+setFlex("contrast-white-card", "justify_content", "space-between");
+setBackground("contrast-white-card", "#FFFFFF");
+setBorder("contrast-white-card", "#D8D8E4", 1, 10);
+
+createLabel("contrast-white-aa", "Aa", "contrast-white-card");
+setFontSize("contrast-white-aa", 24);
+createLabel("contrast-white-ratio", "", "contrast-white-card");
+setFontSize("contrast-white-ratio", 10);
+setTextColor("contrast-white-ratio", "#444444");
+
+createCol("contrast-black-card", "contrast-sample-row");
+setFlex("contrast-black-card", "flex_grow", 1);
+setFlex("contrast-black-card", "height", 92);
+setFlex("contrast-black-card", "padding", 10);
+setFlex("contrast-black-card", "justify_content", "space-between");
+setBackground("contrast-black-card", "#111111");
+setBorder("contrast-black-card", "#1f1f28", 1, 10);
+
+createLabel("contrast-black-aa", "Aa", "contrast-black-card");
+setFontSize("contrast-black-aa", 24);
+createLabel("contrast-black-ratio", "", "contrast-black-card");
+setFontSize("contrast-black-ratio", 10);
+setTextColor("contrast-black-ratio", "#CFCFE0");
+
+createLabel("contrast-note", "", "contrast-card");
+setFontSize("contrast-note", 10);
+setTextColor("contrast-note", APP_TEXT_DIM);
+setMultiLine("contrast-note", 1);
+setFlex("contrast-note", "flex_grow", 1);
+
+on("contrast-modal", "click", function() { hideContrastModal(); });
+on("contrast-modal", "dismiss", function() { hideContrastModal(); });
+on("contrast-close-btn", "click", function() { hideContrastModal(); });
 
 var toastTimer = 0;
 function showToast(msg) {
@@ -3637,9 +4754,25 @@ on("context-badge", "click", function() {
 // ═══════════════════════════════════════════════════════════════════
 on("__global__", "keydown", function(evt) {
     if (!evt) return;
+    if ((evt.key === 274 || evt.key === 27) && chatRequestPending) {
+        cancelPendingChat("Chat canceled");
+        return;
+    }
     if ((evt.key === 274 || evt.key === 27) && tokenEditState.activeToken) {
         closeTokenPopup();
         layout();
+        return;
+    }
+    if ((evt.key === 274 || evt.key === 27) && helpModalOpen) {
+        hideHelpModal();
+        return;
+    }
+    if ((evt.key === 274 || evt.key === 27) && contrastModalOpen) {
+        hideContrastModal();
+        return;
+    }
+    if ((evt.key === 274 || evt.key === 27) && exportPopupOpen) {
+        hideExportPopup();
         return;
     }
     var cmd = (evt.mods & 0x18) !== 0;  // kModMeta | kModCmd
@@ -3673,19 +4806,140 @@ on("__global__", "keydown", function(evt) {
 // ═══════════════════════════════════════════════════════════════════
 
 // Issue 8: Track cumulative chat height for proper scroll sizing
-var chatTotalHeight = 60; // start after welcome/hint messages
+var chatTotalHeight = 62; // welcome + hint + gap baseline
+var chatTypingVisible = false;
+var chatTypingPhase = 0;
+var chatHistory = [];
+
+function normalizeChatExportPath(path) {
+    if (!path || path.length === 0) return "/tmp/pulp-design-chat.md";
+    var lower = path.toLowerCase();
+    if (lower.slice(-3) === ".md" || lower.slice(-5) === ".json") return path;
+    return path + ".md";
+}
+
+function serializeChatHistory(format) {
+    format = format || "markdown";
+    var target = inspectedComponent || "all";
+    if (format === "json") {
+        return JSON.stringify({
+            target: target,
+            provider: getSelectedAIProvider(),
+            model: getSelectedAIModel(),
+            messages: chatHistory
+        }, null, 2);
+    }
+
+    var out = "# Pulp Style Designer Chat Export\n\n";
+    out += "- Target: `" + target + "`\n";
+    out += "- Provider: `" + getSelectedAIProvider() + "`\n";
+    out += "- Model: `" + getSelectedAIModel() + "`\n\n";
+    if (chatHistory.length === 0) {
+        out += "_No chat messages yet._\n";
+        return out;
+    }
+    for (var i = 0; i < chatHistory.length; i++) {
+        var msg = chatHistory[i];
+        out += "## " + (msg.role === "user" ? "User" : "Assistant") + "\n";
+        out += msg.text + "\n\n";
+    }
+    return out;
+}
+
+function exportChatHistory() {
+    var path = normalizeChatExportPath(showSaveDialog("Export Chat History", "Markdown", "md"));
+    writeTextFile(path, serializeChatHistory("markdown"));
+    showToast("Chat exported to " + path);
+}
+
+function tickChatTypingIndicator() {
+    if (!chatTypingVisible) return;
+    var dots = ["● ○ ○", "○ ● ○", "○ ○ ●"];
+    setText("chat-typing-label", "Designer is thinking  " + dots[chatTypingPhase % dots.length]);
+    chatTypingPhase++;
+    __requestFrame__(tickChatTypingIndicator);
+}
+
+function showChatTypingIndicator() {
+    if (chatTypingVisible) return;
+    chatTypingVisible = true;
+    chatTypingPhase = 0;
+    setVisible("chat-typing-row", true);
+    setFlex("chat-typing-row", "height", 22);
+    tickChatTypingIndicator();
+    layout();
+}
+
+function hideChatTypingIndicator() {
+    chatTypingVisible = false;
+    setText("chat-typing-label", "");
+    setVisible("chat-typing-row", false);
+    setFlex("chat-typing-row", "height", 0);
+    layout();
+}
+
+function refreshSendButtonPresentation(pending) {
+    if (pending === undefined) pending = Boolean(chatRequestPending);
+    setPointerEvents("send-btn", "auto");
+    setOpacity("send-btn", 1.0);
+    setBackground("send-btn", pending ? APP_PANEL_RAISED : APP_ACCENT);
+    setBorder("send-btn", pending ? APP_BORDER : APP_ACCENT, 1, 6);
+    setVisible("send-icon", !pending);
+    setVisible("send-cancel-icon", pending);
+}
+
+function clearChatPendingState() {
+    chatRequestPending = false;
+    chatActiveRequestId = 0;
+    hideChatTypingIndicator();
+    setChatPendingUi(false);
+}
+
+function cancelPendingChat(reason) {
+    if (!chatRequestPending) return false;
+    clearChatPendingState();
+    setText("status-text", reason || "Chat canceled");
+    layout();
+    return true;
+}
+
+function failPendingChat(message, statusText) {
+    clearChatPendingState();
+    if (message && message.length > 0) addChatMessage("assistant", message);
+    setText("status-text", statusText || "Chat error");
+    layout();
+}
+
+function handleChatRequestTimeout(requestId) {
+    if (!chatRequestPending || chatActiveRequestId !== requestId) return false;
+    failPendingChat("AI request timed out. Check the CLI/provider configuration and try again.", "Chat timeout");
+    return true;
+}
+
+function armChatRequestWatchdog(requestId) {
+    function tick() {
+        if (!chatRequestPending || chatActiveRequestId !== requestId) return;
+        if (performance.now() - chatPendingStartedAt >= chatPendingTimeoutMs) {
+            handleChatRequestTimeout(requestId);
+            return;
+        }
+        __requestFrame__(tick);
+    }
+    __requestFrame__(tick);
+}
 
 function addChatMessage(role, text) {
     var id = "msg-" + (msgCount++);
     var snapshot = getThemeJson();
     var hasRestore = (role === "assistant");
+    chatHistory.push({ role: role, text: text });
 
     // Issue 8: Better height estimation — wider chars-per-line for 230px width
     var charsPerLine = 25;
     var lineCount = Math.max(1, Math.ceil(text.length / charsPerLine));
     var msgHeight = 16 + lineCount * 16 + (hasRestore ? 24 : 0) + 20;
 
-    createCol(id, "chat-messages");
+    createCol(id, "chat-thread");
     setFlex(id, "height", msgHeight);
     setFlex(id, "flex_shrink", 0);  // Issue 8: prevent squishing
     setFlex(id, "padding", 10);
@@ -3734,12 +4988,19 @@ function addChatMessage(role, text) {
 
     // Update scroll to fit all messages
     chatTotalHeight += msgHeight + 8;
-    setScrollContentSize("chat-messages", 230, chatTotalHeight);
+    setScrollContentSize("chat-messages", 224, chatTotalHeight);
     layout();
 }
 
+on("chat-export-btn", "click", function() {
+    exportChatHistory();
+});
+
 var chatRequestPending = false;
 var chatRequestCounter = 0;
+var chatActiveRequestId = 0;
+var chatPendingStartedAt = 0;
+var chatPendingTimeoutMs = 25000;
 var widgetLookState = {};
 var lastChatRequestText = "";
 var lastDesignDebugState = {
@@ -4657,7 +5918,7 @@ function applyWidgetLook(widgetId, spec) {
 }
 
 function applyDesignChatResponse(response) {
-    chatRequestPending = false;
+    clearChatPendingState();
     lastDesignDebugState.requestText = lastChatRequestText || "";
     lastDesignDebugState.target = inspectedComponent || "all";
     lastDesignDebugState.responseLength = response ? response.length : 0;
@@ -4772,17 +6033,6 @@ function applyDesignChatResponse(response) {
     return summary;
 }
 
-on("__design-chat__", "result", function(response) {
-    try {
-        applyDesignChatResponse(response);
-    } catch (e) {
-        chatRequestPending = false;
-        addChatMessage("assistant", "Chat apply failed: " + String(e));
-        setText("status-text", "Chat error");
-        layout();
-    }
-});
-
 function buildDesignChatPrompt(text) {
     var themeJson = getThemeJson();
     var scope = inspectedComponent ? "\nScope: ONLY modify tokens related to '" + inspectedComponent + "'" : "";
@@ -4879,8 +6129,8 @@ function submitChat(text) {
     setText("chat-input", "");
     setText("status-text", "Generating...");
     chatRequestPending = true;
-    // #58: Show typing indicator
-    addChatMessage("assistant", "...");
+    setChatPendingUi(true);
+    showChatTypingIndicator();
     layout();
 
     var provider = getSelectedAIProvider();
@@ -4888,9 +6138,17 @@ function submitChat(text) {
     var reasoningEffort = getSelectedAIReasoningEffort();
     var prompt = buildDesignChatPrompt(text);
 
-    var tmpFile = "/tmp/pulp-design-prompt-" + (chatRequestCounter++) + ".txt";
+    var requestId = chatRequestCounter++;
+    var tmpFile = "/tmp/pulp-design-prompt-" + requestId + ".txt";
     exec("cat > " + tmpFile + " << 'PULPEOF'\n" + prompt + "\nPULPEOF");
-    execAsync(buildAiCliCommand(tmpFile, model, provider, reasoningEffort), "__design-chat__");
+    chatActiveRequestId = requestId;
+    chatPendingStartedAt = performance.now();
+    var callbackId = "__design-chat__-" + requestId;
+    on(callbackId, "result", function(response) {
+        handleDesignChatCommandResult(requestId, provider, response);
+    });
+    execAsync(buildAiCliCommand(tmpFile, model, provider, reasoningEffort), callbackId);
+    armChatRequestWatchdog(requestId);
     clearUploadedImage();
     updateChatInputSizing("");
 }
@@ -4902,53 +6160,85 @@ on("chat-input", "return", function(text) {
 // Send button triggers same as return key
 registerClick("send-btn");
 on("send-btn", "click", function() {
+    if (chatRequestPending) {
+        cancelPendingChat("Chat canceled");
+        return;
+    }
     var text = getText("chat-input");
     submitChat(text);
 });
 
+setChatPendingUi(false);
+
 // Preset handler
 on("preset-selector", "select", function(idx) {
     var presets = [
-        { theme: "dark", accent: "#89B4FA" },
-        { theme: "light", accent: "#2563EB" },
-        { theme: "pro_audio", accent: "#89B4FA" },
-        { theme: "dark", accent: "#AA88FF" },
-        { theme: "dark", accent: "#D4A017" },
-        { theme: "dark", accent: "#0EA5E9" },
-        { theme: "dark", accent: "#FF00FF" }
+        { title: "Default Dark", theme: "dark", accent: "#89B4FA", harmony: "monochromatic", presetIndex: 0 },
+        { title: "Light", theme: "light", accent: "#2563EB", harmony: "complementary", presetIndex: 1 },
+        { title: "Pro Audio", theme: "pro_audio", accent: "#89B4FA", harmony: "monochromatic", presetIndex: 2 },
+        { title: "Violet", theme: "dark", accent: "#AA88FF", harmony: "monochromatic", presetIndex: 3 },
+        { title: "Amber", theme: "dark", accent: "#D4A017", harmony: "monochromatic", presetIndex: 4 },
+        { title: "Ocean", theme: "dark", accent: "#0EA5E9", harmony: "analogous", presetIndex: 5 },
+        { title: "Neon", theme: "dark", accent: "#FF00FF", harmony: "complementary", presetIndex: 6 }
     ];
-    var p = presets[idx];
-    currentAccent = p.accent;
-    setSelected("preset-selector", idx);
-    setTheme(p.theme);
-    setText("theme-name-label", ["Default Dark","Light","Pro Audio","Violet","Amber","Ocean","Neon"][idx]);
-    var palette = PaletteSystem.create(currentAccent, currentHarmony);
-    applyTokenDiff(PaletteSystem.toThemeDiff(palette));
-    updateTokenSwatches();
-    var steps = ShadeGenerator.STEPS;
-    for (var pp = 0; pp < paletteKeys.length; pp++) {
-        var ramp = palette[paletteKeys[pp]];
-        for (var s = 0; s < steps.length; s++) {
-            setBackground("ramp-" + pp + "-s" + s, ramp[steps[s]].hex);
-        }
-        setBackground("ramp-" + pp + "-dot", ramp[500].hex);
-    }
-    if (expandedPalette >= 0) {
-        applyPaletteExpandedLayout(expandedPalette, false);
-        expandedPalette = -1;
-        updateLeftPanelScrollMetrics();
-    }
-    pushThemeSnapshot();
-    layout();
+    applyPaletteConfiguration(presets[idx] || presets[0]);
 });
 
 // ═══════════════════════════════════════════════════════════════════
 // Export/Import buttons
 // ═══════════════════════════════════════════════════════════════════
 // D4: Multi-format export
-// #57: 5 export formats including C++ Header and Palette
-var exportFormats = ["JSON", "CSS Vars", "OKLCH", "C++ Header", "C++ Palette"];
+// #57: expanded export formats including W3C tokens and style preset payloads
+var exportFormats = ["JSON", "CSS Vars", "OKLCH", "C++ Header", "C++ Palette", "W3C Tokens", "Style Preset"];
 var activeExportFormat = 0;
+var exportPopupOpen = false;
+
+function getExportFileExtension(formatIdx) {
+    var extensions = [".json", ".css", ".css", ".hpp", ".cpp", ".json", ".json"];
+    return extensions[formatIdx] || ".txt";
+}
+
+function hideExportPopup() {
+    exportPopupOpen = false;
+    setVisible("export-popup", false);
+    setVisible("export-backdrop", false);
+    setPointerEvents("export-backdrop", "none");
+    layout();
+}
+
+function positionExportPopup() {
+    var size = getRootSize();
+    var viewportW = size && size.width ? size.width : 1100;
+    var viewportH = size && size.height ? size.height : 700;
+    var popupW = 480;
+    var popupH = 400;
+    var margin = 16;
+    var left = Math.floor((viewportW - popupW) * 0.5);
+    var top = Math.floor((viewportH - popupH) * 0.5);
+    if (left < margin) left = margin;
+    if (top < 44) top = 44;
+    if (left + popupW > viewportW - margin) left = Math.max(margin, viewportW - popupW - margin);
+    if (top + popupH > viewportH - margin) top = Math.max(44, viewportH - popupH - margin);
+    setLeft("export-popup", left);
+    setTop("export-popup", top);
+}
+
+function captureStylePresetPayload() {
+    var paletteConfig = {};
+    try {
+        paletteConfig = JSON.parse(serializePaletteConfiguration());
+    } catch (e) {
+        paletteConfig = {};
+    }
+    return {
+        version: 1,
+        target: inspectedComponent || "all",
+        palette: paletteConfig,
+        theme: JSON.parse(getThemeJson()),
+        widgetLooks: JSON.parse(JSON.stringify(widgetLookState || {})),
+        debug: JSON.parse(JSON.stringify(lastDesignDebugState || {}))
+    };
+}
 
 function generateExport(formatIdx) {
     var json = getThemeJson();
@@ -4994,8 +6284,41 @@ function generateExport(formatIdx) {
         pal += "}\n";
         return pal;
     }
+    if (formatIdx === 5) {
+        return exportDesignTokens();
+    }
+    if (formatIdx === 6) {
+        return JSON.stringify(captureStylePresetPayload(), null, 2) + "\n";
+    }
     return json;
 }
+
+function showExportPopup() {
+    var size = getRootSize();
+    setFlex("export-backdrop", "width", size.width);
+    setFlex("export-backdrop", "height", size.height);
+    setTop("export-backdrop", 0);
+    setLeft("export-backdrop", 0);
+    positionExportPopup();
+    exportPopupOpen = true;
+    setVisible("export-backdrop", true);
+    setPointerEvents("export-backdrop", "auto");
+    setVisible("export-popup", true);
+    layout();
+}
+
+createCol("export-backdrop", "");
+setPosition("export-backdrop", "absolute");
+setFlex("export-backdrop", "width", 1100);
+setFlex("export-backdrop", "height", 700);
+setTop("export-backdrop", 0);
+setLeft("export-backdrop", 0);
+setBackground("export-backdrop", "#00000088");
+setZIndex("export-backdrop", 149);
+setVisible("export-backdrop", false);
+setPointerEvents("export-backdrop", "none");
+registerClick("export-backdrop");
+on("export-backdrop", "click", function() { hideExportPopup(); });
 
 // Export popup overlay
 createCol("export-popup", "");
@@ -5026,7 +6349,7 @@ setFlex("exp-close", "align_items", "center");
 createLabel("exp-close-lbl", "x", "exp-close");
 setFontSize("exp-close-lbl", 12);
 registerClick("exp-close");
-on("exp-close", "click", function() { setVisible("export-popup", false); layout(); });
+on("exp-close", "click", function() { hideExportPopup(); });
 
 // Format tabs
 createRow("exp-tabs", "export-popup");
@@ -5085,7 +6408,7 @@ setFontSize("exp-copy-lbl", 10);
 registerClick("exp-copy-btn");
 on("exp-copy-btn", "click", function() {
     var code = generateExport(activeExportFormat);
-    exec("echo " + JSON.stringify(code) + " | pbcopy");
+    writeClipboard(code);
     showToast("Copied to clipboard");
 });
 
@@ -5101,7 +6424,7 @@ setFontSize("exp-save-lbl", 10);
 registerClick("exp-save-btn");
 on("exp-save-btn", "click", function() {
     var code = generateExport(activeExportFormat);
-    var ext = [".json", ".css", ".css"][activeExportFormat];
+    var ext = getExportFileExtension(activeExportFormat);
     var path = "/tmp/pulp-theme" + ext;
     exec("cat > " + path + " << 'PULPEOF'\n" + code + "\nPULPEOF");
     showToast("Saved to " + path);
@@ -5110,10 +6433,7 @@ on("exp-save-btn", "click", function() {
 registerClick("export-btn-pill");
 on("export-btn-pill", "click", function() {
     setText("exp-code", generateExport(activeExportFormat));
-    setTop("export-popup", 60);
-    setLeft("export-popup", 200);
-    setVisible("export-popup", true);
-    layout();
+    showExportPopup();
 });
 
 registerClick("import-btn-pill");

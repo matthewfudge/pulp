@@ -254,11 +254,25 @@ Launch the local AI-powered design tool used for token, shader, and style iterat
 ```bash
 pulp design
 pulp design path/to/design-tool.js
+pulp design --script path/to/design-tool.js
+pulp design --build-dir /tmp/pulp-design-parity-build
 ```
 
-The CLI resolves the built design tool from the repo build directory. If the canonical
-`build/tools/design/pulp-design` binary is not present yet, it falls back to the current
-example-host build output in `build/examples/design-tool/pulp-design-tool`.
+`pulp design` now configures/builds `pulp-design-tool` on demand before launch. When run inside
+a Pulp checkout it loads `examples/design-tool/design-tool.js` from that checkout and builds into
+that checkout's `build/` directory.
+
+Use `--script` to point at a different JS entry, and `--build-dir` when you are working from a
+nonstandard build tree such as a separate worktree build directory.
+
+When run outside a Pulp checkout, `pulp design` can currently auto-bind only when the `pulp`
+binary itself lives inside a Pulp build tree such as `.../build/tools/cli/pulp`. Generic
+PATH-installed or symlinked CLI setups are not fully SDK-mode aware yet; use `--build-dir` and
+`--script` explicitly in split layouts where the project repo and the Pulp SDK live in different
+directories.
+
+The selected build environment is the authority for supported behavior. `pulp design` prints the
+chosen root, build dir, and script path so the provenance is explicit.
 
 The design tool chat now supports provider/model-aware local execution in the UI.
 The current app exposes a provider selector (`Claude`, `Codex`), a model selector,

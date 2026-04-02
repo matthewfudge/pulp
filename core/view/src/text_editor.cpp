@@ -8,8 +8,9 @@ namespace pulp::view {
 void TextEditor::set_text(const std::string& t) {
     push_undo();
     text_ = t;
-    caret_position_ = static_cast<int>(t.size());
+    caret_position_ = has_focus() ? static_cast<int>(t.size()) : 0;
     selection_start_ = selection_end_ = caret_position_;
+    scroll_offset_ = 0.0f;
     notify_change();
 }
 
@@ -342,8 +343,8 @@ void TextEditor::paint(canvas::Canvas& canvas) {
             : resolve_color("text_editor_bg",
                             resolve_color("bg.surface", canvas::Color::hex(0x1a1a2e))));
     float radius = corner_radius() > 0.0f ? corner_radius() : 6.0f;
-    canvas.set_fill_color(bg_color);
-    canvas.fill_rounded_rect(b.x, b.y, b.width, b.height, radius);
+    float max_radius = std::max(0.0f, std::min(b.width, b.height) * 0.5f - 0.5f);
+    radius = std::min(radius, max_radius);
 
     // Border — use explicit per-view styling when present, otherwise theme defaults.
     auto stroke = has_border()
@@ -354,17 +355,23 @@ void TextEditor::paint(canvas::Canvas& canvas) {
                             resolve_color("border", canvas::Color::hex(0x3a3a5a))));
     float stroke_width = has_border() ? border_width() : (has_focus() ? 2.0f : 1.0f);
     if (stroke_width > 0.0f) {
-        canvas.set_stroke_color(stroke);
-        canvas.set_line_width(stroke_width);
-        float inset = stroke_width * 0.5f;
-        float stroke_radius = std::max(0.0f, radius - inset);
-        canvas.stroke_rounded_rect(b.x + inset, b.y + inset,
-                                   std::max(0.0f, b.width - stroke_width),
-                                   std::max(0.0f, b.height - stroke_width),
-                                   stroke_radius);
+        canvas.set_fill_color(stroke);
+        canvas.fill_rounded_rect(b.x, b.y, b.width, b.height, radius);
+
+        float inset = std::max(0.0f, stroke_width);
+        float inner_w = std::max(0.0f, b.width - inset * 2.0f);
+        float inner_h = std::max(0.0f, b.height - inset * 2.0f);
+        float inner_max_radius = std::max(0.0f, std::min(inner_w, inner_h) * 0.5f - 0.5f);
+        float inner_radius = std::min(inner_max_radius, std::max(0.0f, radius - inset - 0.5f));
+        canvas.set_fill_color(bg_color);
+        canvas.fill_rounded_rect(b.x + inset, b.y + inset, inner_w, inner_h, inner_radius);
+    } else {
+        canvas.set_fill_color(bg_color);
+        canvas.fill_rounded_rect(b.x, b.y, b.width, b.height, radius);
     }
 
     canvas.set_font("Inter", font_size_);
+    canvas.set_text_align(canvas::TextAlign::left);
 
     // Display text
     std::string display = text_;
@@ -374,6 +381,7 @@ void TextEditor::paint(canvas::Canvas& canvas) {
 
     if (multi_line) {
         canvas.set_font("Inter", font_size_);
+        canvas.set_text_align(canvas::TextAlign::left);
         const float inner_x = b.x + 6.0f;
         const float inner_y = b.y + 4.0f;
         const float inner_w = std::max(20.0f, b.width - 12.0f);
@@ -475,28 +483,70 @@ void TextEditor::paint(canvas::Canvas& canvas) {
         return;
     }
 
-    float text_x = b.x + 6 - scroll_offset_;
-    float text_y = b.y + b.height / 2 + font_size_ * 0.35f;
+    const float text_pad_x = std::max(9.0f, border_width() + 7.0f);
+    const float text_inner_x = b.x + text_pad_x;
+    const float text_inner_w = std::max(0.0f, b.width - text_pad_x * 2.0f);
+    const auto metrics = canvas.measure_text_full(display.empty() ? std::string("Ag") : display);
+    const float text_y = b.y + std::max(0.0f, (b.height - metrics.line_height) * 0.5f) + metrics.ascent;
+    const float total_text_w = display.empty() ? 0.0f : canvas.measure_text(display);
+    const float caret_w = canvas.measure_text(display.substr(0, static_cast<size_t>(caret_position_)));
+
+    if (has_focus() || has_selection()) {
+        if (caret_w - scroll_offset_ > text_inner_w) {
+            scroll_offset_ = caret_w - text_inner_w;
+        } else if (caret_w - scroll_offset_ < 0.0f) {
+            scroll_offset_ = caret_w;
+        }
+        scroll_offset_ = std::clamp(scroll_offset_, 0.0f, std::max(0.0f, total_text_w - text_inner_w));
+    } else {
+        scroll_offset_ = 0.0f;
+    }
+
+    float text_x = text_inner_x - scroll_offset_;
+    auto text_primary = resolve_color("text.primary", canvas::Color::hex(0xe0e0e0));
+    auto text_secondary = resolve_color("text.secondary", canvas::Color::hex(0x808090));
+    auto selection_fill = resolve_color("accent.primary", canvas::Color::rgba(65, 105, 225, 255));
+    selection_fill.a = 168;
+    auto selected_text_color = resolve_color("bg.primary", bg_color);
+
+    canvas.save();
+    canvas.clip_rect(text_inner_x - 2.0f, b.y + 2.0f, text_inner_w + 4.0f, std::max(0.0f, b.height - 4.0f));
 
     // Selection highlight (using measured text widths for tight selection)
     if (has_selection()) {
         int start = std::min(selection_start_, selection_end_);
         int end = std::max(selection_start_, selection_end_);
-        // Measure actual text width for accurate selection bounds
         float sel_x = text_x + canvas.measure_text(display.substr(0, static_cast<size_t>(start)));
         float sel_w = canvas.measure_text(display.substr(static_cast<size_t>(start),
                                                           static_cast<size_t>(end - start)));
-        canvas.set_fill_color(resolve_color("accent.primary", canvas::Color::rgba(65, 105, 225, 128)));
+        canvas.set_fill_color(selection_fill);
         canvas.fill_rect(sel_x, b.y + 2, sel_w, b.height - 4);
     }
 
     // Text or placeholder
     if (display.empty() && !placeholder.empty() && !has_focus()) {
-        canvas.set_fill_color(resolve_color("text.secondary", canvas::Color::hex(0x808090)));
+        canvas.set_fill_color(text_secondary);
         canvas.fill_text(placeholder, text_x, text_y);
     } else {
-        canvas.set_fill_color(resolve_color("text.primary", canvas::Color::hex(0xe0e0e0)));
-        canvas.fill_text(display, text_x, text_y);
+        if (has_selection()) {
+            int start = std::min(selection_start_, selection_end_);
+            int end = std::max(selection_start_, selection_end_);
+            auto before = display.substr(0, static_cast<size_t>(start));
+            auto selected = display.substr(static_cast<size_t>(start), static_cast<size_t>(end - start));
+            auto after = display.substr(static_cast<size_t>(end));
+            float selected_x = text_x + canvas.measure_text(before);
+            float after_x = selected_x + canvas.measure_text(selected);
+
+            canvas.set_fill_color(text_primary);
+            if (!before.empty()) canvas.fill_text(before, text_x, text_y);
+            canvas.set_fill_color(selected_text_color);
+            if (!selected.empty()) canvas.fill_text(selected, selected_x, text_y);
+            canvas.set_fill_color(text_primary);
+            if (!after.empty()) canvas.fill_text(after, after_x, text_y);
+        } else {
+            canvas.set_fill_color(text_primary);
+            canvas.fill_text(display, text_x, text_y);
+        }
     }
 
     // Caret with blinking (530ms on, 530ms off)
@@ -510,11 +560,12 @@ void TextEditor::paint(canvas::Canvas& canvas) {
             canvas.stroke_line(caret_x, b.y + 4, caret_x, b.y + b.height - 4);
         }
     }
+    canvas.restore();
 }
 
 int TextEditor::char_index_at_x(float x) const {
     float char_w = font_size_ * 0.6f;
-    float text_x = 6 - scroll_offset_;
+    float text_x = std::max(9.0f, border_width() + 7.0f) - scroll_offset_;
     int index = static_cast<int>((x - text_x) / char_w + 0.5f);
     return std::clamp(index, 0, static_cast<int>(text_.size()));
 }

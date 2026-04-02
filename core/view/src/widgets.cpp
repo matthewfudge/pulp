@@ -653,43 +653,44 @@ void Icon::paint(canvas::Canvas& canvas) {
 
     switch (type_) {
         case Type::image_upload: {
-            float frame_w = std::min(b.width, b.height) * 0.88f;
-            float frame_h = frame_w * 0.82f;
+            float frame_w = std::min(b.width, b.height) * 0.82f;
+            float frame_h = frame_w * 0.76f;
             float frame_x = cx - frame_w * 0.5f;
-            float frame_y = cy - frame_h * 0.5f;
-            float radius = frame_w * 0.14f;
-            canvas.set_line_width(1.35f);
+            float frame_y = cy - frame_h * 0.46f;
+            float radius = frame_w * 0.13f;
+            canvas.set_line_width(1.4f);
             canvas.stroke_rounded_rect(frame_x, frame_y, frame_w, frame_h, radius);
 
-            float base_y = frame_y + frame_h * 0.72f;
+            float base_y = frame_y + frame_h * 0.74f;
             canvas.begin_path();
-            canvas.move_to(frame_x + frame_w * 0.18f, base_y);
-            canvas.line_to(frame_x + frame_w * 0.38f, frame_y + frame_h * 0.48f);
-            canvas.line_to(frame_x + frame_w * 0.52f, base_y);
+            canvas.move_to(frame_x + frame_w * 0.16f, base_y);
+            canvas.line_to(frame_x + frame_w * 0.36f, frame_y + frame_h * 0.50f);
+            canvas.line_to(frame_x + frame_w * 0.50f, base_y);
             canvas.move_to(frame_x + frame_w * 0.42f, base_y);
-            canvas.line_to(frame_x + frame_w * 0.64f, frame_y + frame_h * 0.34f);
+            canvas.line_to(frame_x + frame_w * 0.62f, frame_y + frame_h * 0.36f);
             canvas.line_to(frame_x + frame_w * 0.84f, base_y);
             canvas.stroke_current_path();
 
             canvas.set_fill_color(color);
-            canvas.fill_circle(frame_x + frame_w * 0.72f, frame_y + frame_h * 0.26f, frame_w * 0.075f);
+            canvas.fill_circle(frame_x + frame_w * 0.73f, frame_y + frame_h * 0.27f, frame_w * 0.07f);
             break;
         }
         case Type::send: {
-            float plane = std::min(b.width, b.height) * 0.88f;
-            canvas.set_fill_color(canvas::Color::rgba(255, 255, 255));
+            float plane = std::min(b.width, b.height) * 0.82f;
+            auto paper = canvas::Color::rgba(255, 255, 255, 244);
+            canvas.set_fill_color(paper);
             canvas.begin_path();
-            canvas.move_to(cx - plane * 0.46f, cy - plane * 0.10f);
-            canvas.line_to(cx + plane * 0.46f, cy - plane * 0.38f);
-            canvas.line_to(cx + plane * 0.10f, cy + plane * 0.40f);
-            canvas.line_to(cx - plane * 0.02f, cy + plane * 0.10f);
+            canvas.move_to(cx - plane * 0.42f, cy - plane * 0.10f);
+            canvas.line_to(cx + plane * 0.44f, cy - plane * 0.34f);
+            canvas.line_to(cx + plane * 0.06f, cy + plane * 0.42f);
+            canvas.line_to(cx - plane * 0.04f, cy + plane * 0.14f);
             canvas.close_path();
             canvas.fill_current_path();
 
-            canvas.set_stroke_color(resolve_color("accent.primary", canvas::Color::rgba(100, 150, 255)));
-            canvas.set_line_width(1.2f);
-            canvas.stroke_line(cx - plane * 0.04f, cy + plane * 0.08f,
-                               cx + plane * 0.16f, cy - plane * 0.05f);
+            canvas.set_stroke_color(canvas::Color::rgba(255, 255, 255, 210));
+            canvas.set_line_width(1.15f);
+            canvas.stroke_line(cx - plane * 0.02f, cy + plane * 0.10f,
+                               cx + plane * 0.14f, cy - plane * 0.02f);
             break;
         }
         case Type::search: {
@@ -904,15 +905,14 @@ void WaveformView::paint(canvas::Canvas& canvas) {
     if (samples_.empty()) return;
 
     // Center line
-    auto center_color = resolve_color("control.border", canvas::Color::rgba(50, 50, 60));
+    auto center_color = resolve_color("waveform.grid", canvas::Color::rgba(50, 50, 60));
     canvas.set_stroke_color(center_color);
     canvas.set_line_width(0.5f);
     float cy = b.height * 0.5f;
     canvas.stroke_line(0, cy, b.width, cy);
 
-    auto wave_color = resolve_color("accent.primary", canvas::Color::rgba(100, 180, 250));
-    auto fill_color = wave_color;
-    fill_color.a = 56;
+    auto wave_color = resolve_color("waveform.line", canvas::Color::rgba(100, 180, 250));
+    auto fill_color = resolve_color("waveform.fill", canvas::Color::rgba(wave_color.r, wave_color.g, wave_color.b, 56));
 
     const float half_h = b.height * 0.42f;
     const float step = samples_.size() > 1 ? (b.width / static_cast<float>(samples_.size() - 1)) : b.width;
@@ -962,7 +962,7 @@ void SpectrumView::paint(canvas::Canvas& canvas) {
     float db_range = max_db_ - min_db_;
     if (db_range <= 0) return;
 
-    auto spectrum_color = resolve_color("accent.primary", canvas::Color::rgba(100, 180, 250));
+    auto spectrum_color = resolve_color("waveform.line", canvas::Color::rgba(100, 180, 250));
 
     if (style_ == Style::bars) {
         canvas.set_fill_color(spectrum_color);
@@ -994,8 +994,7 @@ void SpectrumView::paint(canvas::Canvas& canvas) {
 
         // For filled style, also fill below the line
         if (style_ == Style::filled) {
-            auto fill = spectrum_color;
-            fill.a = 60;
+            auto fill = resolve_color("waveform.fill", canvas::Color::rgba(spectrum_color.r, spectrum_color.g, spectrum_color.b, 60));
             canvas.set_fill_color(fill);
 
             for (size_t i = 0; i < bins_.size(); ++i) {
@@ -1009,7 +1008,7 @@ void SpectrumView::paint(canvas::Canvas& canvas) {
     }
 
     // Frequency grid lines (approximate positions)
-    auto grid = resolve_color("control.border", canvas::Color::rgba(50, 50, 65));
+    auto grid = resolve_color("waveform.grid", canvas::Color::rgba(50, 50, 65));
     canvas.set_stroke_color(grid);
     canvas.set_line_width(0.5f);
 

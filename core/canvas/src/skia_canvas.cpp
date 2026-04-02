@@ -74,6 +74,19 @@ static SkPaint make_stroke_paint(Color c, float width) {
     return paint;
 }
 
+static SkFont make_font(const std::string& family, float size) {
+    SkFont font;
+    font.setSize(size);
+
+    auto mgr = get_font_manager();
+    if (mgr) {
+        auto typeface = mgr->matchFamilyStyle(family.c_str(), SkFontStyle::Normal());
+        if (typeface) font.setTypeface(std::move(typeface));
+    }
+
+    return font;
+}
+
 SkiaCanvas::SkiaCanvas(SkCanvas* canvas) : canvas_(canvas) {}
 SkiaCanvas::~SkiaCanvas() = default;
 
@@ -154,15 +167,7 @@ void SkiaCanvas::set_text_align(TextAlign align) {
 }
 
 void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
-    SkFont font;
-    font.setSize(font_size_);
-
-    // Use platform font manager to find the requested typeface
-    auto mgr = get_font_manager();
-    if (mgr) {
-        auto typeface = mgr->matchFamilyStyle(font_family_.c_str(), SkFontStyle::Normal());
-        if (typeface) font.setTypeface(std::move(typeface));
-    }
+    SkFont font = make_font(font_family_, font_size_);
 
     auto paint = make_fill_paint(fill_color_);
 
@@ -180,8 +185,7 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
 }
 
 float SkiaCanvas::measure_text(const std::string& text) {
-    SkFont font;
-    font.setSize(font_size_);
+    SkFont font = make_font(font_family_, font_size_);
 
     SkRect bounds;
     font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, &bounds);
@@ -189,8 +193,7 @@ float SkiaCanvas::measure_text(const std::string& text) {
 }
 
 Canvas::TextMetrics SkiaCanvas::measure_text_full(const std::string& text) {
-    SkFont font;
-    font.setSize(font_size_);
+    SkFont font = make_font(font_family_, font_size_);
 
     SkFontMetrics sk_metrics;
     font.getMetrics(&sk_metrics);

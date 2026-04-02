@@ -1,5 +1,5 @@
 # pulp CLI tool
-add_executable(pulp-cli pulp_cli.cpp)
+add_executable(pulp-cli pulp_cli.cpp design_binding.cpp)
 set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp")
 target_compile_features(pulp-cli PRIVATE cxx_std_20)
 

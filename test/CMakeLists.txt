@@ -10,6 +10,14 @@ add_executable(pulp-test-validation-contract test_validation_contract.cpp)
 target_link_libraries(pulp-test-validation-contract PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-validation-contract)
 
+# CLI design binding tests
+add_executable(pulp-test-cli-design-binding test_cli_design_binding.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/design_binding.cpp
+)
+target_include_directories(pulp-test-cli-design-binding PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(pulp-test-cli-design-binding PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-design-binding)
+
 # Appcast/auto-update tests
 add_executable(pulp-test-appcast test_appcast.cpp)
 target_link_libraries(pulp-test-appcast PRIVATE pulp::ship Catch2::Catch2WithMain)
