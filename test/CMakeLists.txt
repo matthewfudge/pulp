@@ -188,10 +188,15 @@ add_executable(pulp-test-auto-ui test_auto_ui.cpp)
 target_link_libraries(pulp-test-auto-ui PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-auto-ui)
 
-# Script engine tests
+# Script engine tests (legacy API)
 add_executable(pulp-test-script test_script_engine.cpp)
 target_link_libraries(pulp-test-script PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-script)
+
+# JS engine abstraction tests (shared across all backends)
+add_executable(pulp-test-js-engine test_js_engine.cpp)
+target_link_libraries(pulp-test-js-engine PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-js-engine)
 
 # Theme/design token tests
 add_executable(pulp-test-theme test_theme.cpp)

@@ -78,6 +78,8 @@ modules:
       GPU device for Dawn-backed rendering across windows. Platform: cursor management, Tab focus,
       VoiceOver accessibility, context menus, keyboard shortcuts, file dialogs. Pointer events,
       gestures, Apple Pencil.
+      JS engine abstraction: pluggable backend (QuickJS default, JavaScriptCore on Apple, V8 optional).
+      Build-time engine selection via PULP_JS_ENGINE, smart workload-based engine recommendation.
     status: usable
     dependencies: [canvas, events, state]
     docs: reference/modules.md#view

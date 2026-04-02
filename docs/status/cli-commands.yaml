@@ -6,6 +6,9 @@ commands:
     status: usable
     summary: Configure and build the project. Auto-detects CMake reconfiguration needs. Works with repo and standalone projects.
     args:
+      - name: --js-engine
+        kind: option
+        description: "JS engine backend: auto (default), quickjs, jsc (Apple only), v8 (requires V8 libs). Forces reconfigure."
       - name: extra_args
         kind: passthrough
         description: Passed through to cmake --build (e.g., --target, -j)

@@ -41,8 +41,63 @@ target_include_directories(pulp-view
         ${CMAKE_CURRENT_BINARY_DIR}  # For generated web_compat_preludes_gen.hpp
 )
 
+# ── JS engine backend selection ──────────────────────────────────────────────
+# PULP_JS_ENGINE: auto | quickjs | jsc | v8
+#   auto    → JSC on Apple, QuickJS elsewhere (V8 if PULP_HAS_V8)
+#   quickjs → QuickJS only (always available, portable)
+#   jsc     → JavaScriptCore (Apple platforms only)
+#   v8      → V8 (requires external V8 build, set V8_INCLUDE_DIR / V8_LIB_DIR)
+set(PULP_JS_ENGINE "auto" CACHE STRING "JS engine backend (auto|quickjs|jsc|v8)")
+set_property(CACHE PULP_JS_ENGINE PROPERTY STRINGS auto quickjs jsc v8)
+
+# QuickJS backend is always compiled (portable fallback)
+set(PULP_JS_ENGINE_SOURCES
+    src/js_quickjs_engine.cpp
+    src/js_engine_factory.cpp
+)
+
+# V8 backend (optional, needs external V8)
+if(PULP_JS_ENGINE STREQUAL "v8" OR (PULP_JS_ENGINE STREQUAL "auto" AND DEFINED V8_INCLUDE_DIR))
+    if(DEFINED V8_INCLUDE_DIR AND DEFINED V8_LIB_DIR)
+        list(APPEND PULP_JS_ENGINE_SOURCES src/js_v8_engine.cpp)
+        target_include_directories(pulp-view PRIVATE ${V8_INCLUDE_DIR})
+        target_link_directories(pulp-view PRIVATE ${V8_LIB_DIR})
+        target_link_libraries(pulp-view PRIVATE v8_monolith)
+        set(PULP_HAS_V8_ACTUAL ON)
+    else()
+        if(PULP_JS_ENGINE STREQUAL "v8")
+            message(FATAL_ERROR "PULP_JS_ENGINE=v8 requires V8_INCLUDE_DIR and V8_LIB_DIR")
+        endif()
+        list(APPEND PULP_JS_ENGINE_SOURCES src/js_v8_engine.cpp)
+    endif()
+else()
+    list(APPEND PULP_JS_ENGINE_SOURCES src/js_v8_engine.cpp)
+endif()
+
+# JSC backend (Apple platforms only)
+if(APPLE)
+    list(APPEND PULP_JS_ENGINE_SOURCES src/js_jsc_engine.mm)
+endif()
+
+# Set compile definitions for engine availability / defaults
+if(PULP_HAS_V8_ACTUAL)
+    target_compile_definitions(pulp-view PRIVATE PULP_HAS_V8=1)
+endif()
+
+# Only set non-QuickJS default when explicitly requested (not auto)
+if(PULP_JS_ENGINE STREQUAL "jsc")
+    if(APPLE)
+        target_compile_definitions(pulp-view PRIVATE PULP_DEFAULT_ENGINE_JSC=1)
+    endif()
+elseif(PULP_JS_ENGINE STREQUAL "v8" AND PULP_HAS_V8_ACTUAL)
+    target_compile_definitions(pulp-view PRIVATE PULP_DEFAULT_ENGINE_V8=1)
+endif()
+# auto → QuickJS default (backward compatible with all existing code)
+
 target_sources(pulp-view PRIVATE
+    ${PULP_JS_ENGINE_SOURCES}
     src/script_engine.cpp
+    src/js_engine_recommend.cpp
     src/theme.cpp
     src/view.cpp
     src/yoga_layout.cpp
@@ -84,6 +139,11 @@ target_include_directories(pulp-view PUBLIC
 add_dependencies(pulp-view pulp-view-js-preludes)
 
 target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state)
+
+# JavaScriptCore framework for JSC backend (Apple only)
+if(APPLE)
+    target_link_libraries(pulp-view PRIVATE "-framework JavaScriptCore")
+endif()
 
 if(WIN32)
     target_compile_definitions(pulp-view PRIVATE

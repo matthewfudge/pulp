@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pulp/view/js_engine.hpp>
 #include <string>
 #include <string_view>
 #include <functional>
@@ -9,18 +10,21 @@
 
 namespace pulp::view {
 
-// Callback for resolving module imports (returns source code or nullopt)
-using ModuleResolver = std::function<std::optional<std::string>(std::string_view path)>;
-
-// Callback for logging from JS (console.log, console.warn, etc.)
-using LogCallback = std::function<void(std::string_view level, std::string_view message)>;
-
-// JS scripting engine for plugin UIs
-// Wraps choc::javascript::Context (currently QuickJS)
-// Not thread-safe — all calls must happen on the same thread
+// JS scripting engine for plugin UIs.
+// Wraps a JsEngine backend (QuickJS, JSC, or V8).
+// Not thread-safe — all calls must happen on the same thread.
+//
+// This class preserves the original ScriptEngine API for backward compatibility
+// with WidgetBridge and all existing callers. Internally it delegates to the
+// selected JsEngine backend.
 class ScriptEngine {
 public:
+    // Create with the platform default engine
     ScriptEngine();
+
+    // Create with a specific engine type
+    explicit ScriptEngine(JsEngineType engine_type);
+
     ~ScriptEngine();
 
     ScriptEngine(ScriptEngine&&) noexcept;
@@ -30,15 +34,16 @@ public:
     ScriptEngine& operator=(const ScriptEngine&) = delete;
 
     // Evaluate JS code synchronously, returns the result as a choc::value::Value
-    // Throws choc::javascript::Error on parse/runtime errors
+    // Throws on parse/runtime errors
     choc::value::Value evaluate(const std::string& code);
 
     // Run JS code asynchronously (for module-style code with imports)
     void run_module(const std::string& code, ModuleResolver resolver);
 
-    // Register a C++ function callable from JS
-    using NativeFunction = choc::javascript::Context::NativeFunction;
+    // Register a C++ function callable from JS.
+    // Accepts both the new NativeFunction signature and CHOC's ArgumentList signature.
     void register_function(const std::string& name, NativeFunction fn);
+    void register_function(const std::string& name, choc::javascript::Context::NativeFunction fn);
 
     // Invoke a global JS function by name with no arguments
     choc::value::Value invoke(std::string_view name);
@@ -53,18 +58,31 @@ public:
     // Check if the engine is valid
     explicit operator bool() const;
 
-private:
-    choc::javascript::Context context_;
-    LogCallback log_callback_;
+    // Query which engine backend is active
+    JsEngineType engine_type() const;
 
-    void setup_console();
+    // Access the underlying engine (for advanced use / testing)
+    JsEngine& engine();
+    const JsEngine& engine() const;
+
+private:
+    std::unique_ptr<JsEngine> engine_;
+
+    // For QuickJS backward compatibility: WidgetBridge uses CHOC's Context directly
+    // for the stack size hack and pimpl access. We keep a reference to the CHOC
+    // context when the backend is QuickJS.
+    choc::javascript::Context* choc_context_ = nullptr;
+
+    void init_choc_compat();
 };
 
 // ── Template implementations ────────────────────────────────────────────────
 
 template<typename... Args>
 choc::value::Value ScriptEngine::invoke(std::string_view name, Args&&... args) {
-    return context_.invoke(name, std::forward<Args>(args)...);
+    // Convert variadic args to choc::value::Value array
+    choc::value::Value arg_values[] = { choc::value::Value(std::forward<Args>(args))... };
+    return engine_->invoke(name, arg_values, sizeof...(args));
 }
 
 } // namespace pulp::view
