@@ -234,6 +234,21 @@ TEST_CASE("WebCompat: navigator.gpu exposes preferred format and adapter promise
     REQUIRE(std::string(thenType.getWithDefault<std::string_view>("")) == "function");
 }
 
+TEST_CASE("WebCompat: WebGPU globals expose core usage and stage constants", "[webcompat][canvas][gpu]") {
+    TestEnvironment env;
+    auto shaderMask = env.engine.evaluate("GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT");
+    auto bufferMask = env.engine.evaluate("GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ");
+    auto textureMask = env.engine.evaluate("GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST");
+    auto mapRead = env.engine.evaluate("GPUMapMode.READ");
+    auto colorAll = env.engine.evaluate("GPUColorWrite.ALL");
+
+    REQUIRE(shaderMask.getWithDefault<int32_t>(0) == 0x3);
+    REQUIRE(bufferMask.getWithDefault<int32_t>(0) == 0x9);
+    REQUIRE(textureMask.getWithDefault<int32_t>(0) == 0x6);
+    REQUIRE(mapRead.getWithDefault<int32_t>(0) == 0x1);
+    REQUIRE(colorAll.getWithDefault<int32_t>(0) == 0xF);
+}
+
 TEST_CASE("WebCompat: element.id assignment", "[webcompat][element]") {
     TestEnvironment env;
     env.eval("var el = document.createElement('div'); el.id = 'test123';");

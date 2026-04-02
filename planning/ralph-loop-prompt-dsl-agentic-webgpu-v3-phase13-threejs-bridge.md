@@ -55,7 +55,8 @@ CURRENT IMPLEMENTATION TRUTH (current local slices):
   - `navigator.gpu` is now present as a browser-shaped entry object
   - `navigator.gpu.getPreferredCanvasFormat()` returns `"bgra8unorm"`
   - `navigator.gpu.requestAdapter()` returns a real JS `Promise` that resolves to a mock adapter object
-- These slices are useful because they prove the browser-style surface can attach to native rendering and GPU facts without claiming a real `GPUDevice`, WGSL execution, or Three.js compatibility yet.
+  - core WebGPU globals are now present for bitmask-driven browser code: `GPUBufferUsage`, `GPUTextureUsage`, `GPUMapMode`, `GPUShaderStage`, and `GPUColorWrite`
+- These slices are useful because they prove the browser-style surface can attach to native rendering and GPU facts, and now expose the first synchronous global constants that real WebGPU libraries expect, without claiming a real `GPUDevice`, WGSL execution, or Three.js compatibility yet.
 - DOM `id` and native widget `_id` are not yet the same contract; do not overclaim DOM/native parity until that seam is intentionally raised.
 
 CONCEPT:

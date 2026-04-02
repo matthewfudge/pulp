@@ -21,7 +21,7 @@
 | 10 | JS engine abstraction (V8/JSC) | phase/dsl-agentic-webgpu-v3-phase10 | **complete** (core abstraction merged; readiness floor now partially proven) | [#63](https://github.com/danielraffel/pulp/pull/63) | pending Phase 14 |
 | 11 | WebGPU compute exploration | phase/dsl-agentic-webgpu-v3-phase11 | **complete** | [#64](https://github.com/danielraffel/pulp/pull/64) | pending Phase 14 |
 | 12 | Offline video exploration | feature/v3-phase12-offline-video | **complete** (exploration only; library-first recommendation) | [#101](https://github.com/danielraffel/pulp/pull/101) | macOS PNG-sequence proof + explicit offline transport stepping |
-| 13 | Three.js / WebGPU JS bridge | feature/v3-phase13-threejs-bridge | in progress (first browser-shaped canvas + navigator.gpu entry slice landed locally) | — | readiness floor proven; canvas `2d` + `webgpu -> null` + native GPU probe + `navigator.gpu.requestAdapter()` promise slice pass focused proof |
+| 13 | Three.js / WebGPU JS bridge | feature/v3-phase13-threejs-bridge | in progress (canvas + navigator.gpu + core WebGPU global constants slices landed locally) | — | readiness floor proven; canvas `2d` + `webgpu -> null` + native GPU probe + `navigator.gpu.requestAdapter()` + core WebGPU global constants pass focused proof |
 | 14 | Verification pass | — | blocked (needs 7, 12, 13, plus explicit parked disposition for 4/5) | — | — |
 
 **Status values:** not started, in progress, complete, blocked (needs X), failed, parked
@@ -48,7 +48,7 @@ Current recommended landing order:
 - [x] Phase 13 readiness pass (see `planning/v3-phase13-readiness.md`; typed arrays + V8 proof + first host-object slice + first promise slice + first truthful bridge smoke slice landed)
 - [x] Phase 12 — Offline video exploration
 - [ ] Phase 13 — Three.js / WebGPU JS bridge
-- [~] Phase 13 — Three.js / WebGPU JS bridge (first browser-shaped bridge slices in progress)
+- [~] Phase 13 — Three.js / WebGPU JS bridge (browser-shaped bridge slices in progress)
 - [ ] Phase 14 — Final verification pass
 
 Parked pending license-policy resolution:
@@ -192,7 +192,7 @@ Record when each phase lands with notes on what was delivered vs what was deferr
 
 ### Phase 13 — Three.js / WebGPU JS bridge
 - **Merged:** —
-- **Delivered:** in-progress browser-shaped slices on the branch: `HTMLCanvasElement` `getContext('2d')`, explicit `getContext('webgpu') === null`, `window.pulp.gpu.getInfo()` backed by native truth, and a first `navigator.gpu.requestAdapter()` Promise seam returning a mock adapter object
+- **Delivered:** in-progress browser-shaped slices on the branch: `HTMLCanvasElement` `getContext('2d')`, explicit `getContext('webgpu') === null`, `window.pulp.gpu.getInfo()` backed by native truth, a first `navigator.gpu.requestAdapter()` Promise seam returning a mock adapter object, and core WebGPU globals (`GPUBufferUsage`, `GPUTextureUsage`, `GPUMapMode`, `GPUShaderStage`, `GPUColorWrite`)
 - **Deferred:** real `GPUAdapter` / `GPUDevice` object graph, actual WebGPU canvas context, WGSL execution, Three.js compatibility claims, and DOM/native id parity
 - **Notes:** prerequisites and readiness floor are now proven; implementation has started from narrow browser-style entry points before any full WebGPU or Three.js claim. Current focused proof uses DOM lookup for the public surface and native `_id` for bridge/widget assertions.
 
