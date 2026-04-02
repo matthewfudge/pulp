@@ -8,6 +8,7 @@ set(PULP_JS_PRELUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/js/css-colors.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/css-parser.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
+    ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-canvas.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
@@ -21,9 +22,10 @@ add_custom_command(
         -DFILE1=${CMAKE_CURRENT_SOURCE_DIR}/js/css-colors.js
         -DFILE2=${CMAKE_CURRENT_SOURCE_DIR}/js/css-parser.js
         -DFILE3=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
-        -DFILE4=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
-        -DFILE5=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
-        -DFILE6=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
+        -DFILE4=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-canvas.js
+        -DFILE5=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
+        -DFILE6=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
+        -DFILE7=${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
         -P ${CMAKE_CURRENT_SOURCE_DIR}/js/embed_js.cmake
     DEPENDS
         ${PULP_JS_PRELUDES}
