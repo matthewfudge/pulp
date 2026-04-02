@@ -221,6 +221,19 @@ TEST_CASE("WebCompat: window.pulp.gpu.getInfo exposes native GPU truth", "[webco
     REQUIRE(available.getWithDefault<bool>(false) == true);
 }
 
+TEST_CASE("WebCompat: navigator.gpu exposes preferred format and adapter promise", "[webcompat][canvas][gpu]") {
+    TestEnvironment env;
+    auto backend = env.engine.evaluate("navigator.gpu.backend");
+    auto format = env.engine.evaluate("navigator.gpu.getPreferredCanvasFormat()");
+    auto promiseTag = env.engine.evaluate("Object.prototype.toString.call(navigator.gpu.requestAdapter())");
+    auto thenType = env.engine.evaluate("typeof navigator.gpu.requestAdapter().then");
+
+    REQUIRE(std::string(backend.getWithDefault<std::string_view>("")) == "Dawn/WebGPU");
+    REQUIRE(std::string(format.getWithDefault<std::string_view>("")) == "bgra8unorm");
+    REQUIRE(std::string(promiseTag.getWithDefault<std::string_view>("")) == "[object Promise]");
+    REQUIRE(std::string(thenType.getWithDefault<std::string_view>("")) == "function");
+}
+
 TEST_CASE("WebCompat: element.id assignment", "[webcompat][element]") {
     TestEnvironment env;
     env.eval("var el = document.createElement('div'); el.id = 'test123';");

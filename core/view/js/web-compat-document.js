@@ -318,6 +318,16 @@ var window = {
     }
 };
 
+var navigator = globalThis.navigator || {};
+if (typeof navigatorGPU !== "undefined" && navigatorGPU) {
+    navigator.gpu = navigatorGPU;
+    navigator.gpu.requestAdapter = function() {
+        return __requestAdapterImpl();
+    };
+}
+window.navigator = navigator;
+globalThis.navigator = navigator;
+
 window.pulp = window.pulp || {};
 window.pulp.gpu = {
     getInfo: function() {

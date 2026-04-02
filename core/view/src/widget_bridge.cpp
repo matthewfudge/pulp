@@ -2933,6 +2933,23 @@ void WidgetBridge::register_api() {
         #endif
         return info;
     });
+
+    HostObjectDescriptor gpu;
+    gpu.class_name = "GPU";
+    gpu.properties.push_back({"backend", choc::value::createString("Dawn/WebGPU")});
+    gpu.properties.push_back({"available", choc::value::createBool(true)});
+    gpu.methods.push_back({"getPreferredCanvasFormat", [](const choc::value::Value*, size_t) {
+        return choc::value::createString("bgra8unorm");
+    }});
+    engine_.register_host_object("navigatorGPU", std::move(gpu));
+
+    engine_.register_promise_function("__requestAdapterImpl", [](const choc::value::Value*, size_t) {
+        auto adapter = choc::value::createObject("GPUAdapter");
+        adapter.addMember("name", choc::value::createString("Mock Dawn Adapter"));
+        adapter.addMember("backend", choc::value::createString("Dawn/WebGPU"));
+        adapter.addMember("preferredCanvasFormat", choc::value::createString("bgra8unorm"));
+        return adapter;
+    });
 }
 
 void WidgetBridge::forward_key_event(int key_code, uint16_t modifiers, bool is_down) {

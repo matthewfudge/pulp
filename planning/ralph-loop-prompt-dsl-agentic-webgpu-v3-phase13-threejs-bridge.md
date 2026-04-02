@@ -47,12 +47,15 @@ READINESS SNAPSHOT (2026-04-02):
   - full opaque wrapper / proxy-style HostObjects are still not implemented or proven
 - Read `planning/v3-phase13-readiness.md` before treating this phase as ready to implement.
 
-CURRENT IMPLEMENTATION TRUTH (first slice):
-- The first bridge slice should stay narrow and truthful:
-  - `HTMLCanvasElement.getContext('2d')` backed by the existing `CanvasWidget` bridge
+CURRENT IMPLEMENTATION TRUTH (current local slices):
+- The current bridge slices stay narrow and truthful:
+  - `HTMLCanvasElement.getContext('2d')` is backed by the existing `CanvasWidget` bridge
   - `HTMLCanvasElement.getContext('webgpu')` returns `null`
   - `window.pulp.gpu.getInfo()` exposes native GPU availability/backend truth
-- This slice is useful because it proves the browser-style surface can attach to native rendering and GPU facts without claiming `navigator.gpu`, `GPUDevice`, WGSL execution, or Three.js compatibility yet.
+  - `navigator.gpu` is now present as a browser-shaped entry object
+  - `navigator.gpu.getPreferredCanvasFormat()` returns `"bgra8unorm"`
+  - `navigator.gpu.requestAdapter()` returns a real JS `Promise` that resolves to a mock adapter object
+- These slices are useful because they prove the browser-style surface can attach to native rendering and GPU facts without claiming a real `GPUDevice`, WGSL execution, or Three.js compatibility yet.
 - DOM `id` and native widget `_id` are not yet the same contract; do not overclaim DOM/native parity until that seam is intentionally raised.
 
 CONCEPT:
