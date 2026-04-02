@@ -119,32 +119,35 @@ subsystems:
 
   sanitizers:
     status: shipped
-    available: [asan, tsan, ubsan]
-    not_integrated: [rtsan]
+    available: [asan, tsan, ubsan, rtsan]
     notes: >
       ASan, TSan, UBSan in CI (sanitizers.yml) and CMake (Sanitizers.cmake).
-      RTSan is NOT integrated — not in CMake, CI, or toolchain.
+      RTSan added in Phase 2: PULP_SANITIZER=realtime in CMake, CI job on
+      Ubuntu with Clang 18. RTSan requires upstream LLVM Clang 18+, not
+      Apple Clang. See https://clang.llvm.org/docs/RealtimeSanitizer.html
     files:
       - .github/workflows/sanitizers.yml
       - tools/cmake/Sanitizers.cmake
 
   validators:
-    status: partial
+    status: shipped
     ci_coverage:
-      pluginval: true    # In CI, not in pulp validate CLI
+      pluginval: true
       clap_validator: true
       auval: true        # With signing caveats
-      vstvalidator: false
+      vstvalidator: false # Optional, Steinberg SDK build required
     cli_coverage:
       clap_validator: true
       auval: true
-      pluginval: false
-      vstvalidator: false
+      pluginval: true    # Added in Phase 2
+      vstvalidator: true # Available via --all flag, graceful skip if missing
     notes: >
-      pluginval runs in CI for VST3 but is NOT in `pulp validate` CLI.
-      clap-validator is attempted in CI and available in CLI. auval runs
-      in CI and CLI with signing caveats. vstvalidator is not integrated
-      anywhere. RTSan is not integrated.
+      pluginval now in both CI and `pulp validate` CLI (Phase 2).
+      vstvalidator available via `pulp validate --all` with graceful skip
+      when not installed. Go/no-go documented: optional, pluginval covers
+      most VST3 needs. clap-validator and auval unchanged.
+      `pulp validate --json` and `--report` emit machine-readable output
+      conforming to validation-report-v1.schema.json.
     files:
       - .github/workflows/validate.yml
       - tools/cli/pulp_cli.cpp
@@ -216,14 +219,16 @@ phases:
 
   - id: 2
     name: Validation harness + sanitizer/validator expansion
-    status: pending
+    status: active
     depends_on: [1]
     parallel_with: [3, 6, 7, 8, 9, 10, 11]
     delivers:
-      - RTSan integration
-      - vstvalidator integration
+      - RTSan integration (CMake + CI)
+      - vstvalidator evaluation (go/no-go documented)
       - pluginval in pulp validate CLI
+      - ValidationHarness C++ class (core/format)
       - agent-usable validation report API (uses validation-report-v1.schema.json)
+      - pulp validate --json/--report/--all flags
 
   - id: 3
     name: FAUST offline codegen
@@ -285,14 +290,19 @@ phases:
     depends_on: [2, 11]
     parallel_with: []
 
-# ─── Acceptance Criteria (Phase 1) ──────────────────────────────────────────
-# This file must NOT claim any of the following as real today:
+# ─── Acceptance Criteria ────────────────────────────────────────────────────
+# Phase 1 baseline: This file must NOT claim any of the following as real:
 #   - JSC/V8 support
 #   - STFT framework
 #   - Multi-window framework
-#   - RTSan
-#   - vstvalidator
 #   - WebGPU compute-audio
 #   - Theme import/export
 #   - Centralized asset management
 #   - iPlug2-style WebView
+#
+# Phase 2 additions (now real):
+#   - RTSan (CMake PULP_SANITIZER=realtime, CI on Ubuntu/Clang 18)
+#   - pluginval in pulp validate CLI
+#   - vstvalidator evaluation (available via --all, graceful skip)
+#   - ValidationHarness C++ class
+#   - validation-report-v1 schema includes rtsan

@@ -190,11 +190,18 @@ static std::string handle_status(const std::string& /*params_json*/) {
     return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(out.str()) + "}]}";
 }
 
-static std::string handle_validate(const std::string& /*params_json*/) {
+static std::string handle_validate(const std::string& params_json) {
     auto root = find_project_root();
     if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
 
-    auto output = exec(root.string() + "/build/tools/cli/pulp validate 2>&1");
+    std::string cmd = root.string() + "/build/tools/cli/pulp validate --json";
+    if (params_json.find("\"all\"") != std::string::npos &&
+        params_json.find("true") != std::string::npos) {
+        cmd += " --all";
+    }
+    cmd += " 2>&1";
+
+    auto output = exec(cmd);
     return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
 }
 
@@ -205,7 +212,7 @@ static std::string tools_list_json() {
 {"name":"pulp_build","description":"Build the Pulp project (configure + compile)","inputSchema":{"type":"object","properties":{}}},
 {"name":"pulp_test","description":"Run the Pulp test suite","inputSchema":{"type":"object","properties":{"filter":{"type":"string","description":"Test name filter (regex)"}}}},
 {"name":"pulp_status","description":"Show Pulp project status","inputSchema":{"type":"object","properties":{}}},
-{"name":"pulp_validate","description":"Run plugin format validators","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_validate","description":"Run plugin format validators (CLAP, VST3/pluginval, AU). Use --all for vstvalidator. Returns JSON report.","inputSchema":{"type":"object","properties":{"all":{"type":"boolean","description":"Run all validators including vstvalidator"},"json":{"type":"boolean","description":"Return JSON report (default true via MCP)"}}}},
 {"name":"pulp_screenshot","description":"Render a plugin UI to PNG (base64). Use --demo for a built-in demo or --script for a JS file.","inputSchema":{"type":"object","properties":{"script":{"type":"string","description":"Path to JS UI script"},"width":{"type":"integer","description":"Width in points (default 400)"},"height":{"type":"integer","description":"Height in points (default 300)"},"theme":{"type":"string","description":"Theme: dark, light, pro_audio"},"demo":{"type":"boolean","description":"Render built-in demo UI"}}}},
 {"name":"pulp_simulate_click","description":"Simulate a mouse click at coordinates on a demo UI and return the view tree JSON","inputSchema":{"type":"object","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}}}},
 {"name":"pulp_get_view_tree","description":"Get the view tree as JSON for a demo UI","inputSchema":{"type":"object","properties":{}}},

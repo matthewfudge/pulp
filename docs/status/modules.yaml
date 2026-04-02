@@ -39,7 +39,7 @@ modules:
     docs: reference/modules.md#state
 
   - name: format
-    summary: Plugin format adapters (VST3, AU, CLAP, standalone, headless)
+    summary: Plugin format adapters (VST3, AU, CLAP, standalone, headless), validation harness, diagnostic reporter
     status: usable
     dependencies: [state, audio, midi]
     docs: reference/modules.md#format

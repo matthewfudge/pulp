@@ -10,6 +10,7 @@ target_include_directories(pulp-format
 target_sources(pulp-format PRIVATE
     src/registry.cpp
     src/headless.cpp
+    src/validation_harness.cpp
 )
 
 target_link_libraries(pulp-format PUBLIC pulp::audio pulp::midi pulp::state)

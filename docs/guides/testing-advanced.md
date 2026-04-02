@@ -91,9 +91,41 @@ Use `Approx().margin()` for float comparison. Typical tolerances:
 - Float DSP: `margin(1e-6f)` (single precision rounding)
 - Lossy/stochastic: `margin(1e-3f)` (reverb tails, noise generators)
 
+## ValidationHarness
+
+`ValidationHarness` wraps `HeadlessHost` with screenshot, inspector, and report
+generation into one deterministic API for agent-driven validation workflows.
+
+```cpp
+#include <pulp/format/validation_harness.hpp>
+
+ValidationHarness harness(MyPlugin::create);
+harness.configure({
+    .output_dir = "/tmp/validation",
+    .buffer_size = 512,
+    .git_ref = "abc1234",
+});
+harness.prepare();
+
+// Control surface: set params, send MIDI, process audio
+harness.set_param(kGain, -6.0f);
+harness.send_midi_note_on(0, 60, 100);
+harness.process_blocks(10);
+
+// Run external validators (graceful skip if not installed)
+harness.run_validator("pluginval", "build/VST3/MyPlugin.vst3");
+harness.run_validator("clap-validator", "build/CLAP/MyPlugin.clap");
+
+// Generate JSON report (conforms to validation-report-v1.schema.json)
+auto report = harness.generate_report();
+harness.write_report("/tmp/validation/report.json");
+```
+
+The report JSON is machine-readable and can be consumed by CI scripts or agents.
+
 ## Sanitizer Builds
 
-Pulp supports ASan, TSan, and UBSan via CMake:
+Pulp supports ASan, TSan, UBSan, and RTSan via CMake:
 
 ```bash
 # AddressSanitizer (memory errors, buffer overflows)
@@ -110,11 +142,29 @@ ctest --test-dir build --output-on-failure
 cmake -B build -DPULP_SANITIZER=undefined
 cmake --build build
 ctest --test-dir build --output-on-failure
+
+# RealtimeSanitizer (real-time safety violations — Clang 18+ required)
+cmake -B build -DPULP_SANITIZER=realtime \
+  -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
+
+### RTSan (RealtimeSanitizer)
+
+RTSan detects real-time safety violations: memory allocation, mutex locks, or
+syscalls in audio callbacks. It requires upstream LLVM Clang 18+ (not Apple Clang).
+
+**Platform support:**
+- Linux (x86_64, aarch64): Fully supported with Clang 18+
+- macOS: Requires upstream LLVM Clang 18+, NOT Apple Clang
+- Windows: Not supported
+
+**Reference:** https://clang.llvm.org/docs/RealtimeSanitizer.html
 
 ### CI Integration
 
-The `sanitizers.yml` workflow runs ASan, TSan, and UBSan on every PR to main and develop:
+The `sanitizers.yml` workflow runs ASan, TSan, UBSan on macOS, and RTSan on Ubuntu with Clang 18:
 
 ```yaml
 # .github/workflows/sanitizers.yml
@@ -130,8 +180,23 @@ The `sanitizers.yml` workflow runs ASan, TSan, and UBSan on every PR to main and
 
 - **ASan false positives with SDL3**: SDL3 may trigger ASan warnings in its own code. Suppress with `ASAN_OPTIONS=suppressions=test/asan_suppressions.txt`.
 - **TSan and atomics**: relaxed atomics on independent values are intentionally racy from TSan's perspective. Use annotations if needed.
+- **RTSan on macOS**: Apple Clang does not include RTSan. Install upstream LLVM Clang 18+ via Homebrew (`brew install llvm@18`) and point CMake at it.
 
 ## Format Validation
+
+### CLI
+
+```bash
+# Run all default validators (CLAP + VST3 + AU)
+pulp validate
+
+# Run all available validators including vstvalidator
+pulp validate --all
+
+# Generate machine-readable report
+pulp validate --json
+pulp validate --report /tmp/validation-report.json
+```
 
 ### CLAP
 
@@ -142,6 +207,23 @@ clap-validator validate build/CLAP/MyPlugin.clap
 # Fallback: dlopen test
 ctest --test-dir build -R clap-dlopen-MyPlugin
 ```
+
+### VST3
+
+```bash
+# pluginval (recommended — install from https://github.com/Tracktion/pluginval)
+pluginval --strictness-level 5 --timeout-ms 30000 --validate build/VST3/MyPlugin.vst3
+
+# vstvalidator (optional — Steinberg SDK tool, build from VST3 SDK)
+vstvalidator build/VST3/MyPlugin.vst3
+
+# Via ctest labels
+ctest --test-dir build -L vst3 --output-on-failure
+```
+
+**vstvalidator go/no-go:** Optional. pluginval covers most VST3 validation needs.
+vstvalidator is the Steinberg SDK validator and requires building from the VST3 SDK
+source. It is available via `pulp validate --all` with graceful skip when not installed.
 
 ### Audio Unit (auval)
 
@@ -157,12 +239,14 @@ auval -v aufx MyPl Mnfr
 - Audio passes through without NaN/Inf
 - State save/load round-trips correctly
 
-### VST3
+### Validator Coverage Matrix
 
-```bash
-# Via ctest labels
-ctest --test-dir build -L vst3 --output-on-failure
-```
+| Tool | Format | In CLI | In CI | Required |
+|------|--------|--------|-------|----------|
+| clap-validator | CLAP | Yes | Yes | No (dlopen fallback) |
+| pluginval | VST3 | Yes | Yes | No (skip if missing) |
+| vstvalidator | VST3 | --all | No | No (optional) |
+| auval | AU | Yes | Yes | No (macOS only) |
 
 ## Running Tests
 

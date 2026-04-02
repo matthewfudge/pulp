@@ -979,9 +979,42 @@ static int cmd_validate(const std::vector<std::string>& args) {
         return 1;
     }
 
+    // Parse flags
+    bool run_all = false;
+    bool json_output = false;
+    std::string report_path;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == "--all") run_all = true;
+        else if (args[i] == "--json") json_output = true;
+        else if (args[i] == "--report" && i + 1 < args.size())
+            report_path = args[++i];
+    }
+
     int total = 0, passed = 0, failed = 0, skipped = 0;
 
-    // CLAP validation
+    // JSON report accumulator
+    std::vector<std::string> report_entries;
+
+    auto record = [&](const std::string& tool, const std::string& plugin_path,
+                      const std::string& format, const std::string& status,
+                      int exit_code, const std::string& error_msg) {
+        if (json_output || !report_path.empty()) {
+            std::ostringstream e;
+            e << "    {\"type\": \"validator\", \"status\": \"" << status << "\", "
+              << "\"target\": \"" << fs::path(plugin_path).filename().string() << "\", "
+              << "\"validator\": {"
+              << "\"tool\": \"" << tool << "\", "
+              << "\"plugin_path\": \"" << plugin_path << "\", "
+              << "\"plugin_format\": \"" << format << "\", "
+              << "\"exit_code\": " << exit_code;
+            if (!error_msg.empty()) e << ", \"stderr\": \"" << error_msg << "\"";
+            e << "}}";
+            report_entries.push_back(e.str());
+        }
+    };
+
+    // ── CLAP validation ─────────────────────────────────────────────────
+
     auto clap_dir = build_dir / "CLAP";
     if (fs::exists(clap_dir)) {
         bool has_clap_validator = !exec_output("which clap-validator 2>/dev/null").empty();
@@ -998,9 +1031,11 @@ static int cmd_validate(const std::vector<std::string>& args) {
                     if (rc == 0) {
                         std::cout << "PASSED\n";
                         ++passed;
+                        record("clap-validator", clap_path, "clap", "pass", 0, "");
                     } else {
                         std::cout << "FAILED\n";
                         ++failed;
+                        record("clap-validator", clap_path, "clap", "fail", rc, "");
                     }
                 } else {
                     // Fallback: dlopen test
@@ -1010,16 +1045,86 @@ static int cmd_validate(const std::vector<std::string>& args) {
                     if (rc == 0) {
                         std::cout << "PASSED\n";
                         ++passed;
+                        record("clap-validator", entry.path().string(), "clap", "pass", 0, "dlopen only");
                     } else {
                         std::cout << "FAILED\n";
                         ++failed;
+                        record("clap-validator", entry.path().string(), "clap", "fail", rc, "dlopen only");
                     }
                 }
             }
         }
     }
 
-    // AU validation (macOS only)
+    // ── VST3 validation (pluginval) ─────────────────────────────────────
+
+    auto vst3_dir = build_dir / "VST3";
+    if (fs::exists(vst3_dir)) {
+        bool has_pluginval = !exec_output("which pluginval 2>/dev/null").empty();
+
+        for (auto& entry : fs::directory_iterator(vst3_dir)) {
+            if (entry.path().extension() == ".vst3") {
+                auto name = entry.path().stem().string();
+                ++total;
+
+                if (has_pluginval) {
+                    std::cout << "VST3: validating " << name << " (pluginval)... ";
+                    auto vst3_path = entry.path().string();
+                    int rc = run("pluginval --strictness-level 5 --timeout-ms 30000 --validate \""
+                                 + vst3_path + "\" 2>/dev/null");
+                    if (rc == 0) {
+                        std::cout << "PASSED\n";
+                        ++passed;
+                        record("pluginval", vst3_path, "vst3", "pass", 0, "");
+                    } else {
+                        std::cout << "FAILED\n";
+                        ++failed;
+                        record("pluginval", vst3_path, "vst3", "fail", rc, "");
+                    }
+                } else {
+                    std::cout << "VST3: " << name << " SKIPPED (pluginval not installed)\n";
+                    ++skipped;
+                    record("pluginval", entry.path().string(), "vst3", "skip", -1,
+                           "pluginval not found in PATH");
+                }
+            }
+        }
+    }
+
+    // ── vstvalidator (evaluation: run if --all and tool is available) ────
+
+    if (run_all && fs::exists(vst3_dir)) {
+        bool has_vstvalidator = !exec_output("which vstvalidator 2>/dev/null").empty();
+
+        if (has_vstvalidator) {
+            for (auto& entry : fs::directory_iterator(vst3_dir)) {
+                if (entry.path().extension() == ".vst3") {
+                    auto name = entry.path().stem().string();
+                    ++total;
+                    std::cout << "VST3: validating " << name << " (vstvalidator)... ";
+                    auto vst3_path = entry.path().string();
+                    int rc = run("vstvalidator \"" + vst3_path + "\" 2>/dev/null");
+                    if (rc == 0) {
+                        std::cout << "PASSED\n";
+                        ++passed;
+                        record("vstvalidator", vst3_path, "vst3", "pass", 0, "");
+                    } else {
+                        std::cout << "FAILED\n";
+                        ++failed;
+                        record("vstvalidator", vst3_path, "vst3", "fail", rc, "");
+                    }
+                }
+            }
+        } else {
+            std::cout << "VST3: vstvalidator not found — skipping vstvalidator checks.\n";
+            std::cout << "      vstvalidator is the Steinberg VST3 SDK validator.\n";
+            std::cout << "      It is not widely distributed; build it from the VST3 SDK if needed.\n";
+            std::cout << "      Go/no-go: optional — pluginval covers most VST3 validation needs.\n";
+        }
+    }
+
+    // ── AU validation (macOS only) ──────────────────────────────────────
+
 #ifdef __APPLE__
     auto au_dir = build_dir / "AU";
     if (fs::exists(au_dir)) {
@@ -1037,22 +1142,68 @@ static int cmd_validate(const std::vector<std::string>& args) {
                     if (rc == 0) {
                         std::cout << "PASSED\n";
                         ++passed;
+                        record("auval", entry.path().string(), "au", "pass", 0, "");
                     } else {
                         std::cout << "FAILED\n";
                         ++failed;
+                        record("auval", entry.path().string(), "au", "fail", rc, "");
                     }
                 } else {
                     std::cout << "SKIPPED (auval not found)\n";
                     ++skipped;
+                    record("auval", entry.path().string(), "au", "skip", -1,
+                           "auval not found");
                 }
             }
         }
     }
 #endif
 
+    // ── Summary ─────────────────────────────────────────────────────────
+
     std::cout << "\nValidation Summary: " << total << " total, "
               << passed << " passed, " << failed << " failed, "
               << skipped << " skipped\n";
+
+    // ── JSON report output ──────────────────────────────────────────────
+
+    if (json_output || !report_path.empty()) {
+        // Capture git ref
+        auto git_ref = exec_output("git -C \"" + root.string() + "\" rev-parse --short HEAD 2>/dev/null");
+
+        // Timestamp
+        auto now = std::time(nullptr);
+        char ts[64];
+        std::strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now));
+
+        std::ostringstream report;
+        report << "{\n";
+        report << "  \"version\": 1,\n";
+        report << "  \"timestamp\": \"" << ts << "\",\n";
+        if (!git_ref.empty())
+            report << "  \"git_ref\": \"" << git_ref << "\",\n";
+        report << "  \"reports\": [\n";
+        for (size_t i = 0; i < report_entries.size(); ++i) {
+            report << report_entries[i];
+            if (i + 1 < report_entries.size()) report << ",";
+            report << "\n";
+        }
+        report << "  ]\n";
+        report << "}\n";
+
+        if (json_output) {
+            std::cout << "\n" << report.str();
+        }
+        if (!report_path.empty()) {
+            std::ofstream f(report_path);
+            if (f.good()) {
+                f << report.str();
+                std::cout << "Report written to " << report_path << "\n";
+            } else {
+                std::cerr << "Failed to write report to " << report_path << "\n";
+            }
+        }
+    }
 
     return failed > 0 ? 1 : 0;
 }

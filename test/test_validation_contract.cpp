@@ -136,8 +136,8 @@ TEST_CASE("Schema defines sanitizer metadata fields", "[contract][phase1]") {
     REQUIRE(json_contains_key(content, "asan"));
     REQUIRE(json_contains_key(content, "tsan"));
     REQUIRE(json_contains_key(content, "ubsan"));
-    // RTSan intentionally NOT in enum — it's not integrated today
-    REQUIRE(content.find("\"rtsan\"") == std::string::npos);
+    // RTSan added in Phase 2
+    REQUIRE(content.find("\"rtsan\"") != std::string::npos);
 }
 
 TEST_CASE("Schema defines inspector payload fields", "[contract][phase1]") {
@@ -191,12 +191,11 @@ TEST_CASE("Reality snapshot does not overclaim", "[contract][phase1]") {
     REQUIRE(content.find("backend: jsc") == std::string::npos);
     REQUIRE(content.find("backend: v8") == std::string::npos);
 
-    // RTSan must not be listed as available
+    // RTSan is now integrated (Phase 2) — it should appear in the available list
     auto rtsan_pos = content.find("rtsan");
-    if (rtsan_pos != std::string::npos) {
-        // It should only appear in "not_integrated" list
-        REQUIRE(content.find("not_integrated:") != std::string::npos);
-    }
+    REQUIRE(rtsan_pos != std::string::npos);
+    // It should be in the "available:" list, not "not_integrated:"
+    REQUIRE(content.find("not_integrated:") == std::string::npos);
 
     // DSP DSLs must be planned, not shipped
     auto dsl_pos = content.find("dsp_dsls:");

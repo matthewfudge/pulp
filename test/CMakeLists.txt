@@ -18,6 +18,11 @@ target_include_directories(pulp-test-cli-design-binding PRIVATE ${CMAKE_SOURCE_D
 target_link_libraries(pulp-test-cli-design-binding PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-design-binding)
 
+# Validation harness tests (Phase 2)
+add_executable(pulp-test-validation-harness test_validation_harness.cpp)
+target_link_libraries(pulp-test-validation-harness PRIVATE pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-validation-harness)
+
 # Appcast/auto-update tests
 add_executable(pulp-test-appcast test_appcast.cpp)
 target_link_libraries(pulp-test-appcast PRIVATE pulp::ship Catch2::Catch2WithMain)

@@ -284,8 +284,8 @@
       "properties": {
         "sanitizer": {
           "type": "string",
-          "enum": ["asan", "tsan", "ubsan"],
-          "description": "Sanitizer type. Note: RTSan is not integrated today."
+          "enum": ["asan", "tsan", "ubsan", "rtsan"],
+          "description": "Sanitizer type. RTSan requires Clang 18+ (upstream LLVM, not Apple Clang)."
         },
         "compiler": {
           "type": "string",

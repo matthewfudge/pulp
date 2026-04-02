@@ -116,12 +116,25 @@ In SDK mode it also reports the pinned SDK version plus the resolved SDK path an
 Run plugin format validators on all built plugins.
 
 ```bash
-pulp validate
+pulp validate              # CLAP + VST3 (pluginval) + AU
+pulp validate --all        # Also run vstvalidator if installed
+pulp validate --json       # Print JSON report to stdout
+pulp validate --report out.json  # Write JSON report to file
 ```
 
 Checks:
 - **CLAP**: uses `clap-validator` if installed, otherwise falls back to CTest dlopen checks
+- **VST3**: uses `pluginval` (strictness level 5, 30s timeout) if installed, otherwise skips
 - **AU**: uses `auval` on macOS
+- **VST3 (--all)**: also runs `vstvalidator` if installed (Steinberg SDK tool, optional)
+
+Flags:
+- `--all` — run every available validator, including vstvalidator
+- `--json` — emit a machine-readable JSON report to stdout (conforms to `validation-report-v1.schema.json`)
+- `--report <path>` — write the JSON report to a file
+
+When a validator tool is not installed, the check is reported as SKIPPED with a clear message.
+The JSON report conforms to `docs/contracts/validation-report-v1.schema.json`.
 
 Prints a summary with pass/fail/skip counts.
 
