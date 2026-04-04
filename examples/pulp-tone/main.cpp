@@ -3,7 +3,7 @@
 // Also accepts hardware MIDI input
 
 #include "pulp_tone.hpp"
-#include "../../core/format/src/standalone.hpp"
+#include <pulp/format/standalone.hpp>
 #include <pulp/runtime/log.hpp>
 #include <iostream>
 #include <thread>

@@ -1079,6 +1079,57 @@ class LocalCiTests(unittest.TestCase):
         self.assertEqual(platform, "ARM64")
         self.assertEqual(instance, "C:/Program Files/Microsoft Visual Studio/2022/Community")
 
+    def test_run_logged_command_starts_reader_before_writing_input(self):
+        read_started = threading.Event()
+        read_finished = threading.Event()
+        writes = []
+
+        class FakeStdout:
+            def __iter__(self):
+                read_started.set()
+                yield "ready\n"
+                read_finished.set()
+
+            def close(self):
+                read_finished.set()
+
+        class FakeStdin:
+            def write(self, text):
+                if not read_started.wait(timeout=1):
+                    raise TimeoutError("reader did not start before stdin write")
+                writes.append(text)
+
+            def close(self):
+                writes.append("<closed>")
+
+        class FakeProc:
+            def __init__(self):
+                self.stdin = FakeStdin()
+                self.stdout = FakeStdout()
+
+            def poll(self):
+                return 0 if read_finished.is_set() else None
+
+            def wait(self, timeout=None):
+                self.poll()
+                read_finished.wait(timeout=timeout)
+                return 0
+
+            def kill(self):
+                read_finished.set()
+
+        original_popen = self.mod.subprocess.Popen
+        self.mod.subprocess.Popen = lambda *args, **kwargs: FakeProc()
+        try:
+            result = self.mod.run_logged_command(["ssh", "win2"], input_text="payload", timeout=5)
+        finally:
+            self.mod.subprocess.Popen = original_popen
+
+        self.assertFalse(result["timed_out"])
+        self.assertEqual(result["returncode"], 0)
+        self.assertEqual(result["output"], "ready\n")
+        self.assertEqual(writes, ["payload", "<closed>"])
+
     def test_parse_progress_marker_detects_phase_wait_and_smoke_contract(self):
         self.assertEqual(
             self.mod.parse_progress_marker("__PULP_PHASE__:build\n"),

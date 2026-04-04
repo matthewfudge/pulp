@@ -1580,11 +1580,9 @@ def run_logged_command(
         bufsize=1,
     )
 
-    if input_text is not None and proc.stdin is not None:
-        proc.stdin.write(input_text)
-        proc.stdin.close()
-
     output_queue: queue_module.Queue[str | None] = queue_module.Queue()
+    input_error: list[BaseException] = []
+    input_done = threading.Event()
 
     def reader() -> None:
         assert proc.stdout is not None
@@ -1593,6 +1591,22 @@ def run_logged_command(
         output_queue.put(None)
 
     threading.Thread(target=reader, daemon=True).start()
+
+    def writer() -> None:
+        try:
+            if input_text is not None and proc.stdin is not None:
+                proc.stdin.write(input_text)
+        except BaseException as exc:  # pragma: no cover - surfaced through polling loop
+            input_error.append(exc)
+        finally:
+            if proc.stdin is not None:
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            input_done.set()
+
+    threading.Thread(target=writer, daemon=True).start()
 
     combined: list[str] = []
     saw_eof = False
@@ -1615,13 +1629,21 @@ def run_logged_command(
                     "duration_secs": round(time.time() - start, 1),
                 }
 
+            if input_error:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                raise input_error[0]
+
             try:
                 poll_timeout = 0.25
                 if heartbeat_interval_secs > 0:
                     poll_timeout = min(poll_timeout, max(heartbeat_interval_secs / 2.0, 0.01))
                 item = output_queue.get(timeout=min(poll_timeout, max(remaining, 0.01)))
             except queue_module.Empty:
-                if proc.poll() is not None and saw_eof:
+                if proc.poll() is not None and saw_eof and input_done.is_set():
                     break
                 now = time.time()
                 quiet_for_secs_raw = now - last_output_ts
@@ -1641,7 +1663,7 @@ def run_logged_command(
 
             if item is None:
                 saw_eof = True
-                if proc.poll() is not None:
+                if proc.poll() is not None and input_done.is_set():
                     break
                 continue
 

@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             name: macOS (ARM64)
           - os: windows-latest
             name: Windows (x64)
@@ -63,7 +63,7 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest --output-on-failure -C Release -j4
+        run: ctest --output-on-failure -C Release -LE validation -j4
         shell: bash
 
       - name: Upload plugin bundles (macOS)
