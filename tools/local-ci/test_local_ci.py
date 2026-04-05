@@ -1633,6 +1633,29 @@ class LocalCiTests(unittest.TestCase):
         )
         self.assertEqual(selector, "\"namespace-profile-default\"")
 
+    def test_resolve_default_provider_for_workflow_falls_back_to_github_hosted(self):
+        provider, source = self.mod.resolve_default_provider_for_workflow(
+            {"provider": "namespace"},
+            "validate",
+        )
+        self.assertEqual(provider, "github-hosted")
+        self.assertIn("workflow fallback", source)
+
+    def test_resolve_workflow_field_value_and_source_reads_repo_variable_fallback(self):
+        config = json.loads(self.config_path.read_text())
+        del config["github_actions"]["workflows"]["docs-check"]["providers"]["namespace"]["runner_selector_json"]
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        value, source = self.mod.resolve_workflow_field_value_and_source(
+            self.mod.load_optional_config(),
+            {"PULP_NAMESPACE_DOCS_CHECK_RUNS_ON_JSON": "\"namespace-profile-repo-var\""},
+            "docs-check",
+            "namespace",
+            "runner_selector_json",
+        )
+        self.assertEqual(value, "\"namespace-profile-repo-var\"")
+        self.assertEqual(source, "repo variable PULP_NAMESPACE_DOCS_CHECK_RUNS_ON_JSON")
+
     def test_resolve_workflow_dispatch_field_values_reads_build_namespace_defaults(self):
         fields = self.mod.resolve_workflow_dispatch_field_values(
             self.mod.load_optional_config(),
@@ -1942,10 +1965,12 @@ class LocalCiTests(unittest.TestCase):
         original_dispatch = self.mod.gh_workflow_dispatch
         original_find = self.mod.gh_find_dispatched_run
         original_now_iso = self.mod.now_iso
+        original_repo_variables = self.mod.gh_repo_variables
 
         self.mod.gh_available = lambda: True
         self.mod.resolve_github_repository = lambda settings: "danielraffel/pulp"
         self.mod.gh_current_login = lambda: "danielraffel"
+        self.mod.gh_repo_variables = lambda repository: {}
         dispatched = {}
         self.mod.gh_workflow_dispatch = (
             lambda repository, workflow_file, ref, fields: dispatched.update(
@@ -1981,6 +2006,7 @@ class LocalCiTests(unittest.TestCase):
             self.mod.gh_workflow_dispatch = original_dispatch
             self.mod.gh_find_dispatched_run = original_find
             self.mod.now_iso = original_now_iso
+            self.mod.gh_repo_variables = original_repo_variables
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(
@@ -1994,6 +2020,74 @@ class LocalCiTests(unittest.TestCase):
         records = self.mod.list_cloud_records()
         self.assertEqual(records[0]["dispatch_fields"]["linux_runner_selector_json"], "\"namespace-profile-default\"")
         self.assertEqual(records[0]["dispatch_fields"]["windows_runner_selector_json"], "\"namespace-profile-default\"")
+
+    def test_cmd_cloud_run_build_namespace_uses_repo_variable_selector_defaults(self):
+        config = json.loads(self.config_path.read_text())
+        del config["github_actions"]["workflows"]["build"]["providers"]["namespace"]["linux_runner_selector_json"]
+        del config["github_actions"]["workflows"]["build"]["providers"]["namespace"]["windows_runner_selector_json"]
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        original_gh_available = self.mod.gh_available
+        original_resolve_repo = self.mod.resolve_github_repository
+        original_current_login = self.mod.gh_current_login
+        original_dispatch = self.mod.gh_workflow_dispatch
+        original_find = self.mod.gh_find_dispatched_run
+        original_now_iso = self.mod.now_iso
+        original_repo_variables = self.mod.gh_repo_variables
+
+        self.mod.gh_available = lambda: True
+        self.mod.resolve_github_repository = lambda settings: "danielraffel/pulp"
+        self.mod.gh_current_login = lambda: "danielraffel"
+        self.mod.gh_repo_variables = lambda repository: {
+            "PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON": "\"namespace-profile-linux-repo\"",
+            "PULP_NAMESPACE_BUILD_WINDOWS_RUNS_ON_JSON": "\"namespace-profile-windows-repo\"",
+        }
+        dispatched = {}
+        self.mod.gh_workflow_dispatch = (
+            lambda repository, workflow_file, ref, fields: dispatched.update(
+                {
+                    "repository": repository,
+                    "workflow_file": workflow_file,
+                    "ref": ref,
+                    "fields": dict(fields),
+                }
+            )
+        )
+        self.mod.gh_find_dispatched_run = lambda repository, workflow_file, ref, dispatched_at, timeout_secs: None
+        self.mod.now_iso = lambda: "2026-04-04T12:00:00+00:00"
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_cloud_run(
+                    SimpleNamespace(
+                        workflow="build",
+                        branch="feature/cloud",
+                        provider="namespace",
+                        runner_selector_json=None,
+                        linux_runner_selector_json=None,
+                        windows_runner_selector_json=None,
+                        macos_runner_selector_json=None,
+                        wait=False,
+                    )
+                )
+        finally:
+            self.mod.gh_available = original_gh_available
+            self.mod.resolve_github_repository = original_resolve_repo
+            self.mod.gh_current_login = original_current_login
+            self.mod.gh_workflow_dispatch = original_dispatch
+            self.mod.gh_find_dispatched_run = original_find
+            self.mod.now_iso = original_now_iso
+            self.mod.gh_repo_variables = original_repo_variables
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            dispatched["fields"],
+            {
+                "runner_provider": "namespace",
+                "linux_runner_selector_json": "\"namespace-profile-linux-repo\"",
+                "windows_runner_selector_json": "\"namespace-profile-windows-repo\"",
+            },
+        )
 
     def test_cmd_cloud_run_build_namespace_includes_optional_macos_selector_when_present(self):
         config = json.loads(self.config_path.read_text())
@@ -2307,6 +2401,25 @@ class LocalCiTests(unittest.TestCase):
                 "completed_at": "2026-04-04T12:00:30+00:00",
                 "queue_delay_secs": 1,
                 "duration_secs": 24,
+                "usage_summary": {
+                    "instances_count": 2,
+                    "provider_runtime_secs": 75,
+                    "machine_shapes": [
+                        {
+                            "os": "linux",
+                            "arch": "amd64",
+                            "virtual_cpu": 4,
+                            "memory_megabytes": 8192,
+                            "profile_tag": "namespace-profile-default",
+                            "count": 2,
+                            "duration_secs": 75,
+                        }
+                    ],
+                },
+                "cost_summary": {
+                    "status": "unavailable",
+                    "reason": "Namespace CLI does not expose billing totals; provider runtime is shown instead.",
+                },
                 "jobs": [
                     {
                         "name": "Validate docs consistency",
@@ -2331,7 +2444,42 @@ class LocalCiTests(unittest.TestCase):
         self.assertIn("runner selector: namespace-profile-default", buf.getvalue())
         self.assertIn("queue delay: 1s", buf.getvalue())
         self.assertIn("elapsed: 24s", buf.getvalue())
+        self.assertIn("provider usage: 2 Namespace instance(s) runtime=1m15s", buf.getvalue())
+        self.assertIn("namespace-profile-default: linux/amd64 4 vCPU 8 GB x2 runtime=1m15s", buf.getvalue())
+        self.assertIn("cost: unavailable", buf.getvalue())
         self.assertIn("duration=21s", buf.getvalue())
+
+    def test_cmd_cloud_defaults_reports_effective_providers_and_sources(self):
+        config = json.loads(self.config_path.read_text())
+        config["github_actions"]["defaults"]["provider"] = "namespace"
+        del config["github_actions"]["workflows"]["docs-check"]["providers"]["namespace"]["runner_selector_json"]
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        original_gh_available = self.mod.gh_available
+        original_repo_variables = self.mod.gh_repo_variables
+        self.mod.gh_available = lambda: True
+        self.mod.gh_repo_variables = lambda repository: {
+            "PULP_NAMESPACE_DOCS_CHECK_RUNS_ON_JSON": "\"namespace-profile-docs\"",
+            "PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON": "\"namespace-profile-linux\"",
+            "PULP_NAMESPACE_BUILD_WINDOWS_RUNS_ON_JSON": "\"namespace-profile-windows\"",
+        }
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_cloud_defaults(SimpleNamespace())
+        finally:
+            self.mod.gh_available = original_gh_available
+            self.mod.gh_repo_variables = original_repo_variables
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("configured default provider: namespace", output)
+        self.assertIn("build: Build and Test (build.yml)", output)
+        self.assertIn("linux_runner_selector_json: namespace-profile-default", output)
+        self.assertIn("docs-check: Docs Consistency (docs-check.yml)", output)
+        self.assertIn("runner_selector_json: namespace-profile-docs (repo variable PULP_NAMESPACE_DOCS_CHECK_RUNS_ON_JSON)", output)
+        self.assertIn("validate: Plugin Validation (validate.yml)", output)
+        self.assertIn("default provider: github-hosted (workflow fallback", output)
 
     def test_cmd_status_includes_recent_cloud_summary(self):
         self.mod.save_cloud_record(
@@ -2365,6 +2513,7 @@ class LocalCiTests(unittest.TestCase):
 
         output = buf.getvalue()
         self.assertEqual(exit_code, 0)
+        self.assertIn("Cloud defaults: workflow=build provider=github-hosted", output)
         self.assertIn("Cloud (latest 5 known to this machine):", output)
         self.assertIn("docs-check", output)
         self.assertIn("gha#98765", output)

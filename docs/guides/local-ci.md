@@ -46,8 +46,11 @@ local/SSH queue. `cloud run` dispatches GitHub Actions explicitly and tracks the
 result beside local CI state instead of pretending a hosted workflow is just
 another local target.
 
-Today the narrow Namespace pilot is limited to `docs-check.yml`. All other
-cloud workflows in this phase remain GitHub-hosted only.
+Namespace is now wired into the deliberate cloud companion path for both
+`docs-check.yml` and `build.yml`. The normal day-to-day default remains
+local-first: macOS runs locally, while deliberate cloud dispatches can route
+Linux/Windows through Namespace and keep macOS local unless you opt into a
+one-off cloud macOS selector.
 
 ## How it works
 
@@ -70,6 +73,7 @@ not when you want another exact-SHA local queue job:
 
 ```bash
 pulp ci-local cloud workflows
+pulp ci-local cloud defaults
 pulp ci-local cloud run build feature/my-branch
 pulp ci-local cloud run build feature/my-branch --provider namespace
 pulp ci-local cloud run build feature/my-branch --provider namespace --macos-runner-selector-json '"namespace-profile-big-apple"'
@@ -89,10 +93,16 @@ Important constraints in the current phase:
   directory as local results, but they do not enter `queue.json`
 - local `status` remains fast and local-first; it shows the latest tracked cloud
   summaries without hitting GitHub unless you explicitly run `cloud status --refresh`
+- `cloud defaults` shows the effective workflow/provider defaults plus where the
+  current selector values came from (local config versus repo-variable fallback)
+- `cloud status` now reports Namespace runtime/machine-shape truth when the run
+  was launched on Namespace and `nsc` can see the matching instances
 - tracked cloud runs now persist queue-delay and elapsed-duration timing so the
   later comparison view can answer "how long did GitHub-hosted vs Namespace
   take?" from saved run history instead of rough notes
-- Namespace routing currently applies only to `docs-check.yml`
+- billing totals are still honest and partial in this phase: if the provider CLI
+  does not expose them, Pulp reports runtime and machine shape instead of
+  inventing a cost number
 - `build.yml` now accepts `runner_provider` and routes Linux and Windows through
   the selected provider; macOS is omitted from the cloud build by default so it
   can stay local-first

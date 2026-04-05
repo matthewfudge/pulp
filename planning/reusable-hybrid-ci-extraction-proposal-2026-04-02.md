@@ -568,16 +568,21 @@ Implemented on the active Pulp branch today:
 
 - docs/workflow truth cleanup around Pages artifact deploy versus legacy
   `gh-pages` wording
-- a first-class `pulp ci-local cloud workflows|run|status` operator surface
+- a first-class `pulp ci-local cloud workflows|defaults|run|status` operator
+  surface
 - persisted GitHub dispatch/run records beside local CI state
 - provider-aware workflow metadata and validation in `tools/local-ci/local_ci.py`
-- a narrow Namespace pilot in `.github/workflows/docs-check.yml`
+- Namespace routing proven in both `.github/workflows/docs-check.yml` and the
+  mixed-provider `build.yml` path
 - CLI/docs/skill updates that separate local-vs-cloud from
   orchestrator-vs-provider decisions
 - thin `pulp ci-local cloud namespace doctor|setup` helpers around the upstream
   `nsc` CLI
 - saved cloud-run timing metadata so queued-versus-executing time can be
   compared later across GitHub-hosted, Namespace, and local evidence
+- initial provider-usage truth in `cloud status`, including Namespace runtime,
+  machine shape, and honest "cost unavailable" reporting when the provider CLI
+  cannot supply billing totals yet
 
 Still deferred from the current branch:
 
@@ -780,9 +785,10 @@ Exit criteria:
 
 Current execution note:
 
-- branch work now adds `pulp ci-local cloud workflows`, `cloud run`, and
-  `cloud status` in `tools/local-ci/local_ci.py`, plus additive persisted
-  GitHub-run records and recent cloud summaries in `pulp ci-local status`
+- branch work now adds `pulp ci-local cloud workflows`, `cloud defaults`,
+  `cloud run`, and `cloud status` in `tools/local-ci/local_ci.py`, plus
+  additive persisted GitHub-run records and recent cloud summaries in
+  `pulp ci-local status`
 
 ### Phase 3. Add the minimal GitHub runner-provider seam
 
@@ -816,11 +822,11 @@ Exit criteria:
 
 Current execution note:
 
-- branch work now pilots the seam in `.github/workflows/docs-check.yml` via a
-  `runner_provider` workflow_dispatch input plus explicit
-  `runner_selector_json` override support, with a docs-check-scoped local config
-  default and repo-variable fallback for Namespace, while leaving the broader
-  workflow inventory unchanged
+- branch work now pilots the seam in `.github/workflows/docs-check.yml` and the
+  mixed-provider `build.yml` path via a `runner_provider`
+  workflow_dispatch input plus explicit runner-selector override support, with
+  local config defaults and repo-variable fallbacks for Namespace while keeping
+  the workflow inventory repo-owned instead of provider-hardcoded
 - Namespace operator setup should currently prefer the upstream `nsc` CLI plus
   `nsc login`; any future Pulp wrapper should stay a thin validation/setup layer
   on top of that instead of re-implementing Namespace account bootstrap
@@ -895,9 +901,10 @@ Current execution note:
 
 - branch work has started the bootstrap slice with `pulp ci-local cloud
   namespace doctor|setup`, explicit `nsc` guidance in docs, and real
-  Namespace-vs-GitHub-hosted pilot runs on `docs-check`
+  Namespace-vs-GitHub-hosted runs on both `docs-check` and `build`
 - the current branch now also persists queue-delay and elapsed-duration timing
-  for tracked cloud runs so the later comparison surface can build on saved
+  for tracked cloud runs, exposes effective defaults via `cloud defaults`, and
+  records Namespace runtime/machine-shape truth in `cloud status` so the later
   history rather than bespoke timing notes
 - current branch spot-check on `feature/ci-namespace-plan`:
   - GitHub-hosted `docs-check` run `23989141956` completed in `22s`

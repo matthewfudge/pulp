@@ -92,6 +92,12 @@ BUILTIN_GITHUB_WORKFLOWS = {
         "selector_input": "runner_selector_json",
     },
 }
+REPO_VARIABLE_FALLBACKS = {
+    ("build", "namespace", "linux_runner_selector_json"): "PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON",
+    ("build", "namespace", "windows_runner_selector_json"): "PULP_NAMESPACE_BUILD_WINDOWS_RUNS_ON_JSON",
+    ("build", "namespace", "macos_runner_selector_json"): "PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON",
+    ("docs-check", "namespace", "runner_selector_json"): "PULP_NAMESPACE_DOCS_CHECK_RUNS_ON_JSON",
+}
 
 
 class LockBusyError(RuntimeError):
@@ -493,6 +499,129 @@ def resolve_workflow_dispatch_field_values(
             ),
         )
     return resolved
+
+
+def repo_variable_name_for_workflow_field(
+    workflow_key: str, provider: str, field_name: str
+) -> str:
+    return REPO_VARIABLE_FALLBACKS.get((workflow_key, provider, field_name), "")
+
+
+def resolve_default_provider_for_workflow(
+    settings: dict,
+    workflow_key: str,
+    *,
+    explicit_provider: str | None = None,
+) -> tuple[str, str]:
+    workflow = BUILTIN_GITHUB_WORKFLOWS.get(workflow_key)
+    if workflow is None:
+        raise ValueError(f"Unknown workflow '{workflow_key}'.")
+
+    supported = workflow.get("providers", ["github-hosted"])
+    if explicit_provider:
+        provider = explicit_provider.strip()
+        if provider not in supported:
+            raise ValueError(
+                f"workflow '{workflow_key}' does not support provider '{provider}'. "
+                f"Supported: {', '.join(supported)}"
+            )
+        return provider, "cli"
+
+    preferred = (settings.get("provider") or "github-hosted").strip() or "github-hosted"
+    if preferred in supported:
+        source = "github_actions.defaults.provider" if settings.get("provider") else "builtin default"
+        return preferred, source
+
+    return "github-hosted", f"workflow fallback (default provider '{preferred}' unsupported)"
+
+
+def resolve_workflow_field_value_and_source(
+    config: dict | None,
+    repository_variables: dict[str, str],
+    workflow_key: str,
+    provider: str,
+    field_name: str,
+) -> tuple[str, str]:
+    config_values = resolve_workflow_dispatch_field_values(config, workflow_key, provider, [field_name])
+    value = config_values.get(field_name, "")
+    if value:
+        return (
+            value,
+            f"config github_actions.workflows.{workflow_key}.providers.{provider}.{field_name}",
+        )
+
+    variable_name = repo_variable_name_for_workflow_field(workflow_key, provider, field_name)
+    if variable_name:
+        variable_value = repository_variables.get(variable_name, "")
+        if variable_value:
+            return (
+                normalize_runs_on_json(variable_value, setting_name=variable_name),
+                f"repo variable {variable_name}",
+            )
+
+    return "", ""
+
+
+def resolve_workflow_dispatch_defaults(
+    config: dict | None,
+    repository_variables: dict[str, str],
+    workflow_key: str,
+    provider: str,
+    field_names: list[str] | tuple[str, ...] | None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    resolved: dict[str, str] = {}
+    sources: dict[str, str] = {}
+    for field_name in field_names or []:
+        value, source = resolve_workflow_field_value_and_source(
+            config,
+            repository_variables,
+            workflow_key,
+            provider,
+            field_name,
+        )
+        if not value:
+            continue
+        resolved[field_name] = value
+        if source:
+            sources[field_name] = source
+    return resolved, sources
+
+
+def summarize_workflow_provider_defaults(
+    config: dict | None,
+    repository_variables: dict[str, str],
+    settings: dict,
+    workflow_key: str,
+) -> dict:
+    workflow = BUILTIN_GITHUB_WORKFLOWS[workflow_key]
+    provider, provider_source = resolve_default_provider_for_workflow(settings, workflow_key)
+    dispatch_fields, dispatch_sources = resolve_workflow_dispatch_defaults(
+        config,
+        repository_variables,
+        workflow_key,
+        provider,
+        workflow.get("dispatch_fields"),
+    )
+    selector_value = ""
+    selector_source = ""
+    selector_input = workflow.get("selector_input")
+    if selector_input:
+        selector_value, selector_source = resolve_workflow_field_value_and_source(
+            config,
+            repository_variables,
+            workflow_key,
+            provider,
+            selector_input,
+        )
+    return {
+        "provider": provider,
+        "provider_source": provider_source,
+        "selector_input": selector_input or "",
+        "selector_value": selector_value,
+        "selector_source": selector_source,
+        "dispatch_fields": dispatch_fields,
+        "dispatch_sources": dispatch_sources,
+    }
 
 
 def resolve_cli_dispatch_field_values(
@@ -1329,6 +1458,9 @@ def normalize_cloud_record(record: dict | None) -> dict:
     normalized.setdefault("match_strategy", "")
     normalized.setdefault("match_ambiguous", False)
     normalized.setdefault("jobs", [])
+    normalized.setdefault("provider_metadata", {})
+    normalized.setdefault("usage_summary", {})
+    normalized.setdefault("cost_summary", {})
     return normalized
 
 
@@ -1416,6 +1548,9 @@ def cloud_record_summary(record: dict) -> str:
     duration = format_duration_secs(record.get("duration_secs"))
     if duration:
         summary += f" duration={duration}"
+    provider_runtime = format_duration_secs((record.get("usage_summary") or {}).get("provider_runtime_secs"))
+    if provider_runtime:
+        summary += f" provider_time={provider_runtime}"
     return summary
 
 
@@ -1470,6 +1605,76 @@ def format_duration_secs(value: float | int | str | None) -> str:
     return f"{rounded}s"
 
 
+def format_memory_megabytes(value: int | float | str | None) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        megabytes = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if megabytes <= 0:
+        return ""
+    gigabytes = megabytes / 1024.0
+    return f"{gigabytes:g} GB"
+
+
+def render_selector_value(value: str) -> str:
+    return summarize_runner_selector(value) if value else ""
+
+
+def print_cloud_field_detail(
+    name: str,
+    value: str,
+    source: str = "",
+    *,
+    indent: str = "    ",
+    unset_note: str = "",
+) -> None:
+    rendered = render_selector_value(value) if name.endswith("_selector_json") else str(value)
+    if rendered:
+        suffix = f" ({source})" if source else ""
+        print(f"{indent}{name}: {rendered}{suffix}")
+        return
+    if unset_note:
+        print(f"{indent}{name}: unset ({unset_note})")
+    else:
+        print(f"{indent}{name}: unset")
+
+
+def print_namespace_usage_summary(record: dict) -> None:
+    usage = (record.get("usage_summary") or {})
+    if not usage:
+        return
+
+    instances_count = usage.get("instances_count")
+    provider_runtime = format_duration_secs(usage.get("provider_runtime_secs"))
+    if instances_count:
+        runtime_suffix = f" runtime={provider_runtime}" if provider_runtime else ""
+        print(f"  provider usage: {instances_count} Namespace instance(s){runtime_suffix}")
+    for shape in usage.get("machine_shapes") or []:
+        os_arch = "/".join(part for part in [shape.get("os", ""), shape.get("arch", "")] if part) or "unknown"
+        resources = []
+        if shape.get("virtual_cpu"):
+            resources.append(f"{shape['virtual_cpu']} vCPU")
+        memory = format_memory_megabytes(shape.get("memory_megabytes"))
+        if memory:
+            resources.append(memory)
+        resources_text = f" {' '.join(resources)}" if resources else ""
+        count = int(shape.get("count") or 0)
+        runtime = format_duration_secs(shape.get("duration_secs"))
+        runtime_text = f" runtime={runtime}" if runtime else ""
+        profile_tag = shape.get("profile_tag") or "unlabeled"
+        print(
+            f"    {profile_tag}: {os_arch}{resources_text} x{count}{runtime_text}"
+        )
+
+    cost = record.get("cost_summary") or {}
+    reason = (cost.get("reason") or "").strip()
+    status = (cost.get("status") or "").strip()
+    if status == "unavailable" and reason:
+        print(f"  cost: unavailable ({reason})")
+
+
 def summarize_cloud_timing(snapshot: dict) -> dict[str, str | float | None]:
     created_at = normalize_github_timestamp(snapshot.get("createdAt"))
     updated_at = normalize_github_timestamp(snapshot.get("updatedAt"))
@@ -1510,6 +1715,96 @@ def summarize_cloud_timing(snapshot: dict) -> dict[str, str | float | None]:
         "queue_delay_secs": duration_between(created_at, started_at),
         "duration_secs": duration_between(started_at, duration_anchor),
     }
+
+
+def namespace_instance_duration_secs(instance: dict) -> float | None:
+    created_at = instance.get("created")
+    completed_at = instance.get("destroyed_at") or now_iso()
+    return duration_between(created_at, completed_at)
+
+
+def normalize_namespace_instance(instance: dict) -> dict:
+    shape = instance.get("shape") or {}
+    user_label = instance.get("user_label") or {}
+    github_workflow = instance.get("github_workflow") or {}
+    duration_secs = namespace_instance_duration_secs(instance)
+    return {
+        "cluster_id": instance.get("cluster_id", ""),
+        "created_at": normalize_github_timestamp(instance.get("created", "")),
+        "destroyed_at": normalize_github_timestamp(instance.get("destroyed_at", "")),
+        "os": shape.get("os", ""),
+        "arch": shape.get("machine_arch", ""),
+        "virtual_cpu": shape.get("virtual_cpu", 0),
+        "memory_megabytes": shape.get("memory_megabytes", 0),
+        "profile_tag": user_label.get("nsc.runner-profile-tag", ""),
+        "profile_id": user_label.get("nsc.runner-profile-id", ""),
+        "repository": github_workflow.get("repository", ""),
+        "run_id": github_workflow.get("run_id", ""),
+        "workflow": github_workflow.get("workflow", ""),
+        "duration_secs": duration_secs,
+    }
+
+
+def summarize_namespace_usage(instances: list[dict]) -> dict:
+    machine_shapes: dict[tuple[str, str, int, int, str], dict] = {}
+    total_runtime = 0.0
+    for instance in instances:
+        duration_secs = float(instance.get("duration_secs") or 0)
+        total_runtime += duration_secs
+        key = (
+            instance.get("os", ""),
+            instance.get("arch", ""),
+            int(instance.get("virtual_cpu") or 0),
+            int(instance.get("memory_megabytes") or 0),
+            instance.get("profile_tag", ""),
+        )
+        shape = machine_shapes.setdefault(
+            key,
+            {
+                "os": instance.get("os", ""),
+                "arch": instance.get("arch", ""),
+                "virtual_cpu": int(instance.get("virtual_cpu") or 0),
+                "memory_megabytes": int(instance.get("memory_megabytes") or 0),
+                "profile_tag": instance.get("profile_tag", ""),
+                "count": 0,
+                "duration_secs": 0.0,
+            },
+        )
+        shape["count"] += 1
+        shape["duration_secs"] += duration_secs
+
+    summarized_shapes = sorted(
+        machine_shapes.values(),
+        key=lambda item: (item["os"], item["arch"], item["profile_tag"]),
+    )
+    return {
+        "instances_count": len(instances),
+        "provider_runtime_secs": round(total_runtime, 1),
+        "machine_shapes": summarized_shapes,
+    }
+
+
+def enrich_cloud_record_provider_metadata(record: dict) -> dict:
+    updated = normalize_cloud_record(record)
+    provider = updated.get("provider_resolved") or updated.get("provider_requested") or "github-hosted"
+    if provider != "namespace" or not updated.get("run_id") or not nsc_logged_in():
+        if provider != "namespace":
+            updated["provider_metadata"] = {}
+            updated["usage_summary"] = {}
+            updated["cost_summary"] = {}
+        return updated
+
+    instances = namespace_instances_for_run(updated.get("repository", ""), int(updated["run_id"]))
+    if not instances:
+        return updated
+
+    updated["provider_metadata"] = {"namespace_instances": instances}
+    updated["usage_summary"] = summarize_namespace_usage(instances)
+    updated["cost_summary"] = {
+        "status": "unavailable",
+        "reason": "Namespace CLI does not expose billing totals; provider runtime is shown instead.",
+    }
+    return updated
 
 
 def empty_evidence_index() -> dict:
@@ -3236,6 +3531,30 @@ def nsc_workspace_info() -> dict[str, str] | None:
     return fields or None
 
 
+def nsc_instance_history(max_entries: int = 100) -> list[dict]:
+    result = nsc_run(["instance", "history", "--all", "-o", "json", "--max_entries", str(max_entries)])
+    if not result or result.returncode != 0:
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def namespace_instances_for_run(repository: str, run_id: int) -> list[dict]:
+    matched: list[dict] = []
+    for raw_instance in nsc_instance_history():
+        github_workflow = raw_instance.get("github_workflow") or {}
+        if github_workflow.get("repository") != repository:
+            continue
+        if str(github_workflow.get("run_id") or "") != str(run_id):
+            continue
+        matched.append(normalize_namespace_instance(raw_instance))
+    matched.sort(key=lambda item: (item.get("created_at", ""), item.get("cluster_id", "")))
+    return matched
+
+
 def print_namespace_setup_help() -> None:
     print("Recommended Namespace setup:")
     print("  1. Install the `nsc` CLI")
@@ -3288,6 +3607,29 @@ def cmd_cloud_namespace_setup(_args: argparse.Namespace) -> int:
             return 1
 
     return cmd_cloud_namespace_doctor(argparse.Namespace())
+
+
+def gh_repo_variables(repository: str) -> dict[str, str]:
+    result = subprocess.run(
+        ["gh", "variable", "list", "--repo", repository, "--json", "name,value"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return {}
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    variables: dict[str, str] = {}
+    for item in payload:
+        name = item.get("name")
+        value = item.get("value")
+        if not name or value in (None, ""):
+            continue
+        variables[str(name)] = str(value)
+    return variables
 
 
 def gh_repo_name() -> str | None:
@@ -3601,7 +3943,9 @@ def refresh_cloud_record(record: dict, repository: str) -> dict:
     snapshot = gh_run_view(repository, int(run_id))
     if not snapshot:
         return normalize_cloud_record(record)
-    refreshed = update_cloud_record_from_run(record, snapshot)
+    refreshed = enrich_cloud_record_provider_metadata(
+        update_cloud_record_from_run(record, snapshot)
+    )
     save_cloud_record(refreshed)
     return refreshed
 
@@ -3612,6 +3956,65 @@ def cmd_cloud_workflows(_args: argparse.Namespace) -> int:
         providers = ", ".join(info.get("providers", [])) or "github-hosted"
         print(f"  {key:12s} {info['display_name']} ({info['file']})")
         print(f"               providers: {providers}")
+    return 0
+
+
+def cmd_cloud_defaults(_args: argparse.Namespace) -> int:
+    config = load_optional_config()
+    repository = ""
+    repository_note = ""
+    repository_variables: dict[str, str] = {}
+    try:
+        settings = resolve_github_actions_settings(config)
+        repository = resolve_github_repository(settings)
+    except ValueError as exc:
+        settings = resolve_github_actions_settings(config)
+        repository_note = str(exc)
+    else:
+        if gh_available():
+            repository_variables = gh_repo_variables(repository)
+        else:
+            repository_note = "gh CLI unavailable; repo-variable fallbacks not inspected"
+
+    print("Cloud defaults:\n")
+    if repository:
+        print(f"  repository: {repository}")
+    else:
+        print("  repository: unresolved")
+    if repository_note:
+        print(f"  note: {repository_note}")
+    print(f"  configured default workflow: {settings.get('workflow', 'build')}")
+    print(f"  configured default provider: {settings.get('provider', 'github-hosted')}")
+
+    for workflow_key, workflow in BUILTIN_GITHUB_WORKFLOWS.items():
+        summary = summarize_workflow_provider_defaults(
+            config,
+            repository_variables,
+            settings,
+            workflow_key,
+        )
+        print(f"\n  {workflow_key}: {workflow['display_name']} ({workflow['file']})")
+        print(f"    supported providers: {', '.join(workflow.get('providers', ['github-hosted']))}")
+        print(
+            f"    default provider: {summary['provider']} ({summary['provider_source']})"
+        )
+        selector_input = summary.get("selector_input") or ""
+        if selector_input:
+            print_cloud_field_detail(
+                selector_input,
+                summary.get("selector_value", ""),
+                summary.get("selector_source", ""),
+            )
+        for field_name in workflow.get("dispatch_fields") or []:
+            unset_note = ""
+            if workflow_key == "build" and field_name == "macos_runner_selector_json":
+                unset_note = "macOS stays local-first unless a config default or one-off override is set"
+            print_cloud_field_detail(
+                field_name,
+                (summary.get("dispatch_fields") or {}).get(field_name, ""),
+                (summary.get("dispatch_sources") or {}).get(field_name, ""),
+                unset_note=unset_note,
+            )
     return 0
 
 
@@ -3637,29 +4040,39 @@ def cmd_cloud_run(args: argparse.Namespace) -> int:
         return 1
 
     branch = args.branch or current_branch()
-    provider = (args.provider or settings.get("provider") or "github-hosted").strip()
-    supported = workflow.get("providers", ["github-hosted"])
-    if provider not in supported:
-        print(
-            f"Error: workflow '{workflow_key}' does not support provider '{provider}'. "
-            f"Supported: {', '.join(supported)}"
-        )
-        return 1
-
     try:
-        config_dispatch_fields = resolve_workflow_dispatch_field_values(
-            config, workflow_key, provider, workflow.get("dispatch_fields")
+        provider, _provider_source = resolve_default_provider_for_workflow(
+            settings,
+            workflow_key,
+            explicit_provider=getattr(args, "provider", None),
+        )
+        repository_variables = gh_repo_variables(repository)
+        config_dispatch_fields, _config_dispatch_sources = resolve_workflow_dispatch_defaults(
+            config,
+            repository_variables,
+            workflow_key,
+            provider,
+            workflow.get("dispatch_fields"),
         )
         cli_dispatch_fields = resolve_cli_dispatch_field_values(
             args, workflow.get("dispatch_fields")
         )
+        selector_input = workflow.get("selector_input")
         if getattr(args, "runner_selector_json", None):
             selector_json = normalize_runs_on_json(
                 args.runner_selector_json,
                 setting_name="--runner-selector-json",
             )
+        elif selector_input:
+            selector_json, _selector_source = resolve_workflow_field_value_and_source(
+                config,
+                repository_variables,
+                workflow_key,
+                provider,
+                selector_input,
+            )
         else:
-            selector_json = resolve_workflow_runner_selector_json(config, workflow_key, provider)
+            selector_json = ""
         config_dispatch_fields.update(cli_dispatch_fields)
     except ValueError as exc:
         print(f"Error: {exc}")
@@ -3715,7 +4128,9 @@ def cmd_cloud_run(args: argparse.Namespace) -> int:
     )
 
     if matched:
-        record = update_cloud_record_from_run(record, matched, provider_resolved=provider)
+        record = enrich_cloud_record_provider_metadata(
+            update_cloud_record_from_run(record, matched, provider_resolved=provider)
+        )
         record["match_ambiguous"] = bool(matched.get("match_ambiguous"))
         save_cloud_record(record)
 
@@ -3769,7 +4184,9 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
             print("Error: gh CLI not available or not authenticated. Run: gh auth login")
             return 1
         try:
-            repository = resolve_github_repository(resolve_github_actions_settings(load_optional_config()))
+            repository = record.get("repository") or resolve_github_repository(
+                resolve_github_actions_settings(load_optional_config())
+            )
         except ValueError as exc:
             print(f"Error: {exc}")
             return 1
@@ -3810,6 +4227,7 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
         print(f"  updated: {record['updated_at']}")
     if record.get("completed_at"):
         print(f"  completed: {record['completed_at']}")
+    print_namespace_usage_summary(record)
     if record.get("jobs"):
         print("  jobs:")
         for job in record["jobs"]:
@@ -4312,6 +4730,22 @@ def cmd_status(_args: argparse.Namespace) -> int:
             print("  (none)")
 
     cloud_records = list_cloud_records(limit=5)
+    cloud_config = load_optional_config()
+    cloud_settings = resolve_github_actions_settings(cloud_config)
+    default_workflow_key = cloud_settings.get("workflow", "build")
+    try:
+        default_provider, _default_provider_source = resolve_default_provider_for_workflow(
+            cloud_settings,
+            default_workflow_key,
+        )
+    except ValueError:
+        default_provider = cloud_settings.get("provider", "github-hosted")
+
+    print(
+        f"\nCloud defaults: workflow={default_workflow_key} provider={default_provider} "
+        "(`pulp ci-local cloud defaults` for selectors and sources)"
+    )
+
     if cloud_records:
         print("\nCloud (latest 5 known to this machine):")
         for record in cloud_records:
@@ -4414,6 +4848,7 @@ def build_parser() -> argparse.ArgumentParser:
     cloud_sub = p_cloud.add_subparsers(dest="cloud_command")
 
     cloud_sub.add_parser("workflows", help="List supported GitHub workflows and providers")
+    cloud_sub.add_parser("defaults", help="Show effective cloud workflow/provider defaults")
 
     p_cloud_run = cloud_sub.add_parser("run", help="Dispatch a GitHub Actions workflow")
     p_cloud_run.add_argument(
@@ -4518,6 +4953,8 @@ def main() -> int:
     if args.command == "cloud":
         if args.cloud_command == "workflows":
             return cmd_cloud_workflows(args)
+        if args.cloud_command == "defaults":
+            return cmd_cloud_defaults(args)
         if args.cloud_command == "run":
             return cmd_cloud_run(args)
         if args.cloud_command == "status":
