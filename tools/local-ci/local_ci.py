@@ -399,7 +399,7 @@ def load_optional_config() -> dict | None:
     return json.loads(path.read_text())
 
 
-def resolve_github_actions_settings(config: dict | None) -> dict:
+def github_actions_settings_for_display(config: dict | None) -> dict:
     settings = dict(GITHUB_ACTIONS_DEFAULTS)
     github_actions = (config or {}).get("github_actions", {})
     defaults = github_actions.get("defaults", {})
@@ -415,6 +415,13 @@ def resolve_github_actions_settings(config: dict | None) -> dict:
     provider = defaults.get("provider")
     if isinstance(provider, str) and provider.strip():
         settings["provider"] = provider.strip()
+
+    return settings
+
+
+def resolve_github_actions_settings(config: dict | None) -> dict:
+    settings = github_actions_settings_for_display(config)
+    defaults = ((config or {}).get("github_actions") or {}).get("defaults", {})
 
     for key in ("wait_poll_secs", "match_timeout_secs"):
         value = defaults.get(key)
@@ -4247,12 +4254,14 @@ def update_cloud_record_from_run(record: dict, snapshot: dict, *, provider_resol
     return updated
 
 
-def refresh_cloud_record(record: dict, repository: str) -> dict:
+def refresh_cloud_record(record: dict, repository: str, *, require_snapshot: bool = False) -> dict:
     run_id = record.get("run_id")
     if not run_id:
         return normalize_cloud_record(record)
     snapshot = gh_run_view(repository, int(run_id))
     if not snapshot:
+        if require_snapshot:
+            raise RuntimeError(f"Failed to refresh GitHub run {run_id} from {repository}.")
         return normalize_cloud_record(record)
     refreshed = enrich_cloud_record_provider_metadata(
         update_cloud_record_from_run(record, snapshot)
@@ -4462,15 +4471,20 @@ def cmd_cloud_workflows(_args: argparse.Namespace) -> int:
 
 def cmd_cloud_defaults(_args: argparse.Namespace) -> int:
     config = load_optional_config()
+    settings = github_actions_settings_for_display(config)
     repository = ""
     repository_note = ""
     repository_variables: dict[str, str] = {}
     try:
-        settings = resolve_github_actions_settings(config)
-        repository = resolve_github_repository(settings)
+        resolved_settings = resolve_github_actions_settings(config)
+        settings = resolved_settings
+        repository = resolve_github_repository(resolved_settings)
     except ValueError as exc:
-        settings = resolve_github_actions_settings(config)
         repository_note = str(exc)
+        try:
+            repository = resolve_github_repository(settings)
+        except ValueError:
+            repository = ""
     else:
         if gh_available():
             repository_variables = gh_repo_variables(repository)
@@ -4658,7 +4672,11 @@ def cmd_cloud_run(args: argparse.Namespace) -> int:
 
     while record.get("status") != "completed":
         time.sleep(int(settings["wait_poll_secs"]))
-        record = refresh_cloud_record(record, repository)
+        try:
+            record = refresh_cloud_record(record, repository, require_snapshot=True)
+        except RuntimeError as exc:
+            print(f"Error: {exc}")
+            return 1
 
     print(f"  final: {record.get('status', '?')}/{(record.get('conclusion') or 'unknown').upper()}")
     return 0 if record.get("conclusion") == "success" else 1
@@ -4675,7 +4693,7 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
         for item in records:
             print(f"  {cloud_record_summary(item, config)}")
         print()
-        print_billing_period_summary(estimate_billing_period_totals(records, config))
+        print_billing_period_summary(estimate_billing_period_totals(list_cloud_records(limit=None), config))
         return 0
 
     try:
@@ -4699,7 +4717,11 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"Error: {exc}")
             return 1
-        record = refresh_cloud_record(record, repository)
+        try:
+            record = refresh_cloud_record(record, repository, require_snapshot=True)
+        except RuntimeError as exc:
+            print(f"Error: {exc}")
+            return 1
 
     rendered_record = normalize_cloud_record(record)
     rendered_record["cost_summary"] = estimate_cloud_record_cost(rendered_record, config)
@@ -5242,8 +5264,15 @@ def cmd_status(_args: argparse.Namespace) -> int:
             print("  (none)")
 
     cloud_records = list_cloud_records(limit=5)
+    all_cloud_records = list_cloud_records(limit=None)
     cloud_config = load_optional_config()
-    cloud_settings = resolve_github_actions_settings(cloud_config)
+    cloud_settings_note = ""
+    cloud_settings = github_actions_settings_for_display(cloud_config)
+    try:
+        resolved_cloud_settings = resolve_github_actions_settings(cloud_config)
+        cloud_settings = resolved_cloud_settings
+    except ValueError as exc:
+        cloud_settings_note = str(exc)
     default_workflow_key = cloud_settings.get("workflow", "build")
     try:
         default_provider, _default_provider_source = resolve_default_provider_for_workflow(
@@ -5257,9 +5286,11 @@ def cmd_status(_args: argparse.Namespace) -> int:
         f"\nCloud defaults: workflow={default_workflow_key} provider={default_provider} "
         "(`pulp ci-local cloud defaults` for selectors and sources)"
     )
+    if cloud_settings_note:
+        print(f"  note: {cloud_settings_note}")
 
     if cloud_records:
-        print_billing_period_summary(estimate_billing_period_totals(cloud_records, cloud_config), indent="  ")
+        print_billing_period_summary(estimate_billing_period_totals(all_cloud_records, cloud_config), indent="  ")
         print("\nCloud (latest 5 known to this machine):")
         for record in cloud_records:
             print(f"  {cloud_record_summary(record, cloud_config)}")

@@ -2482,6 +2482,27 @@ class LocalCiTests(unittest.TestCase):
         self.assertIn("validate: Plugin Validation (validate.yml)", output)
         self.assertIn("default provider: github-hosted (workflow fallback", output)
 
+    def test_cmd_cloud_defaults_handles_invalid_timing_config(self):
+        config = json.loads(self.config_path.read_text())
+        config["github_actions"]["defaults"]["wait_poll_secs"] = "not-an-int"
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        original_gh_available = self.mod.gh_available
+        self.mod.gh_available = lambda: False
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_cloud_defaults(SimpleNamespace())
+        finally:
+            self.mod.gh_available = original_gh_available
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("repository: danielraffel/pulp", output)
+        self.assertIn("note: github_actions.defaults.wait_poll_secs must be an integer.", output)
+        self.assertIn("configured default workflow: build", output)
+        self.assertIn("configured default provider: github-hosted", output)
+
     def test_estimate_cloud_record_cost_uses_namespace_profile_rate(self):
         config = json.loads(self.config_path.read_text())
         config["telemetry"] = {
@@ -2706,6 +2727,64 @@ class LocalCiTests(unittest.TestCase):
         self.assertIn("Recommended provider for build: namespace (fastest observed median)", output)
         self.assertIn("note: estimated; verify provider pricing", output)
 
+    def test_cmd_cloud_run_wait_fails_when_refresh_cannot_fetch_github_state(self):
+        original_gh_available = self.mod.gh_available
+        original_resolve_repo = self.mod.resolve_github_repository
+        original_current_login = self.mod.gh_current_login
+        original_dispatch = self.mod.gh_workflow_dispatch
+        original_find = self.mod.gh_find_dispatched_run
+        original_view = self.mod.gh_run_view
+        original_sleep = self.mod.time.sleep
+        original_now_iso = self.mod.now_iso
+
+        self.mod.gh_available = lambda: True
+        self.mod.resolve_github_repository = lambda settings: "danielraffel/pulp"
+        self.mod.gh_current_login = lambda: "danielraffel"
+        self.mod.gh_workflow_dispatch = lambda repository, workflow_file, ref, fields: None
+        self.mod.gh_find_dispatched_run = lambda repository, workflow_file, ref, dispatched_at, timeout_secs: {
+            "databaseId": 98765,
+            "workflowName": "Docs Consistency",
+            "headBranch": "feature/cloud",
+            "headSha": "a" * 40,
+            "status": "in_progress",
+            "conclusion": "",
+            "url": "https://example.test/runs/98765",
+            "createdAt": "2026-04-04T12:00:05+00:00",
+            "updatedAt": "2026-04-04T12:00:06+00:00",
+            "jobs": [],
+        }
+        self.mod.gh_run_view = lambda repository, run_id: None
+        self.mod.time.sleep = lambda _: None
+        self.mod.now_iso = lambda: "2026-04-04T12:00:00+00:00"
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_cloud_run(
+                    SimpleNamespace(
+                        workflow="docs-check",
+                        branch="feature/cloud",
+                        provider="namespace",
+                        runner_selector_json=None,
+                        linux_runner_selector_json=None,
+                        windows_runner_selector_json=None,
+                        macos_runner_selector_json=None,
+                        wait=True,
+                    )
+                )
+        finally:
+            self.mod.gh_available = original_gh_available
+            self.mod.resolve_github_repository = original_resolve_repo
+            self.mod.gh_current_login = original_current_login
+            self.mod.gh_workflow_dispatch = original_dispatch
+            self.mod.gh_find_dispatched_run = original_find
+            self.mod.gh_run_view = original_view
+            self.mod.time.sleep = original_sleep
+            self.mod.now_iso = original_now_iso
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Error: Failed to refresh GitHub run 98765 from danielraffel/pulp.", output)
+
     def test_cmd_status_includes_recent_cloud_summary(self):
         self.mod.save_cloud_record(
             {
@@ -2742,6 +2821,138 @@ class LocalCiTests(unittest.TestCase):
         self.assertIn("Cloud (latest 5 known to this machine):", output)
         self.assertIn("docs-check", output)
         self.assertIn("gha#98765", output)
+
+    def test_cmd_cloud_status_refresh_uses_record_repository(self):
+        self.mod.save_cloud_record(
+            {
+                "dispatch_id": "repo123def456",
+                "workflow_key": "docs-check",
+                "workflow_name": "Docs Consistency",
+                "workflow_file": "docs-check.yml",
+                "repository": "other-owner/other-repo",
+                "requested_ref": "feature/cloud",
+                "provider_requested": "github-hosted",
+                "status": "in_progress",
+                "run_id": 77777,
+                "dispatched_at": "2026-04-04T12:00:00+00:00",
+                "updated_at": "2026-04-04T12:01:00+00:00",
+            }
+        )
+
+        original_gh_available = self.mod.gh_available
+        original_view = self.mod.gh_run_view
+        seen = {}
+        self.mod.gh_available = lambda: True
+        self.mod.gh_run_view = lambda repository, run_id: (
+            seen.update({"repository": repository, "run_id": run_id}) or {
+                "databaseId": 77777,
+                "workflowName": "Docs Consistency",
+                "headBranch": "feature/cloud",
+                "headSha": "a" * 40,
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://example.test/runs/77777",
+                "createdAt": "2026-04-04T12:00:05+00:00",
+                "updatedAt": "2026-04-04T12:00:30+00:00",
+                "jobs": [],
+            }
+        )
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_cloud_status(
+                    SimpleNamespace(identifier="latest", refresh=True, limit=5)
+                )
+        finally:
+            self.mod.gh_available = original_gh_available
+            self.mod.gh_run_view = original_view
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(seen["repository"], "other-owner/other-repo")
+        self.assertEqual(seen["run_id"], 77777)
+
+    def test_cmd_status_handles_invalid_cloud_defaults_config(self):
+        config = json.loads(self.config_path.read_text())
+        config["github_actions"]["defaults"]["wait_poll_secs"] = "broken"
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        original_current_branch = self.mod.current_branch
+        original_utm_status = self.mod.utmctl_vm_status
+        original_ssh_reachable = self.mod.ssh_reachable
+        self.mod.current_branch = lambda: "feature/cloud"
+        self.mod.utmctl_vm_status = lambda vm_name: "stopped"
+        self.mod.ssh_reachable = lambda host, timeout=5: True
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_status(SimpleNamespace())
+        finally:
+            self.mod.current_branch = original_current_branch
+            self.mod.utmctl_vm_status = original_utm_status
+            self.mod.ssh_reachable = original_ssh_reachable
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Cloud defaults: workflow=build provider=github-hosted", output)
+        self.assertIn("note: github_actions.defaults.wait_poll_secs must be an integer.", output)
+
+    def test_cmd_status_period_cost_uses_full_cloud_history(self):
+        config = json.loads(self.config_path.read_text())
+        config["telemetry"] = {
+            "billing": {
+                "currency": "USD",
+                "namespace_profile_tag_rates_per_hour": {
+                    "namespace-profile-default": 0.5
+                }
+            }
+        }
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        for index in range(6):
+            self.mod.save_cloud_record(
+                {
+                    "dispatch_id": f"hist{index:02d}abcdef",
+                    "workflow_key": "build",
+                    "provider_requested": "namespace",
+                    "provider_resolved": "namespace",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "completed_at": f"2026-04-04T12:0{index}:30+00:00",
+                    "duration_secs": 24,
+                    "provider_metadata": {
+                        "namespace_instances": [
+                            {
+                                "profile_tag": "namespace-profile-default",
+                                "os": "linux",
+                                "arch": "amd64",
+                                "virtual_cpu": 4,
+                                "memory_megabytes": 8192,
+                                "duration_secs": 3600,
+                            }
+                        ]
+                    },
+                }
+            )
+
+        original_current_branch = self.mod.current_branch
+        original_utm_status = self.mod.utmctl_vm_status
+        original_ssh_reachable = self.mod.ssh_reachable
+        self.mod.current_branch = lambda: "feature/cloud"
+        self.mod.utmctl_vm_status = lambda vm_name: "stopped"
+        self.mod.ssh_reachable = lambda host, timeout=5: True
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = self.mod.cmd_status(SimpleNamespace())
+        finally:
+            self.mod.current_branch = original_current_branch
+            self.mod.utmctl_vm_status = original_utm_status
+            self.mod.ssh_reachable = original_ssh_reachable
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("period cost: est $3.00 over 6 run(s); estimated; verify provider pricing", output)
+        self.assertIn("Cloud (latest 5 known to this machine):", output)
 
 
 if __name__ == "__main__":
