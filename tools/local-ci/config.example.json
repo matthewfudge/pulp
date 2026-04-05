@@ -55,6 +55,29 @@
       }
     }
   },
+  "telemetry": {
+    "billing": {
+      "currency": "USD",
+      "billing_period_start_day": 1,
+      "github_hosted_job_os_rates_per_minute": {
+        "linux": null,
+        "windows": null,
+        "macos": null
+      },
+      "namespace_profile_tag_rates_per_hour": {
+        "namespace-profile-default": null
+      },
+      "namespace_machine_shape_rates_per_hour": [
+        {
+          "os": "linux",
+          "arch": "amd64",
+          "virtual_cpu": 4,
+          "memory_megabytes": 8192,
+          "rate": null
+        }
+      ]
+    }
+  },
   "defaults": {
     "priority": "normal",
     "ship_priority": "high",

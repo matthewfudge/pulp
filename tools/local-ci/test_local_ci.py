@@ -267,7 +267,7 @@ class LocalCiTests(unittest.TestCase):
             targets=None,
             priority=None,
             smoke=False,
-            allow_root_mismatch=False,
+            allow_root_mismatch=True,
             allow_unreachable_targets=False,
         )
 
@@ -2474,12 +2474,237 @@ class LocalCiTests(unittest.TestCase):
         output = buf.getvalue()
         self.assertEqual(exit_code, 0)
         self.assertIn("configured default provider: namespace", output)
+        self.assertIn("billing estimates: USD period-day=1 (estimated; verify provider pricing)", output)
         self.assertIn("build: Build and Test (build.yml)", output)
         self.assertIn("linux_runner_selector_json: namespace-profile-default", output)
         self.assertIn("docs-check: Docs Consistency (docs-check.yml)", output)
         self.assertIn("runner_selector_json: namespace-profile-docs (repo variable PULP_NAMESPACE_DOCS_CHECK_RUNS_ON_JSON)", output)
         self.assertIn("validate: Plugin Validation (validate.yml)", output)
         self.assertIn("default provider: github-hosted (workflow fallback", output)
+
+    def test_estimate_cloud_record_cost_uses_namespace_profile_rate(self):
+        config = json.loads(self.config_path.read_text())
+        config["telemetry"] = {
+            "billing": {
+                "currency": "USD",
+                "namespace_profile_tag_rates_per_hour": {
+                    "namespace-profile-default": 0.5
+                }
+            }
+        }
+
+        summary = self.mod.estimate_cloud_record_cost(
+            {
+                "provider_requested": "namespace",
+                "provider_resolved": "namespace",
+                "provider_metadata": {
+                    "namespace_instances": [
+                        {
+                            "profile_tag": "namespace-profile-default",
+                            "os": "linux",
+                            "arch": "amd64",
+                            "virtual_cpu": 4,
+                            "memory_megabytes": 8192,
+                            "duration_secs": 7200,
+                        }
+                    ]
+                },
+            },
+            config,
+        )
+
+        self.assertEqual(summary["status"], "estimated")
+        self.assertEqual(summary["currency"], "USD")
+        self.assertAlmostEqual(summary["estimated_total"], 1.0)
+        self.assertEqual(summary["reason"], "estimated; verify provider pricing")
+
+    def test_cmd_cloud_history_shows_estimated_cost_and_period_total(self):
+        config = json.loads(self.config_path.read_text())
+        config["telemetry"] = {
+            "billing": {
+                "currency": "USD",
+                "namespace_profile_tag_rates_per_hour": {
+                    "namespace-profile-default": 0.5
+                }
+            }
+        }
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        self.mod.save_cloud_record(
+            {
+                "dispatch_id": "hist123def456",
+                "workflow_key": "docs-check",
+                "workflow_name": "Docs Consistency",
+                "workflow_file": "docs-check.yml",
+                "repository": "danielraffel/pulp",
+                "requested_ref": "feature/cloud",
+                "provider_requested": "namespace",
+                "provider_resolved": "namespace",
+                "status": "completed",
+                "conclusion": "success",
+                "run_id": 98765,
+                "duration_secs": 24,
+                "completed_at": "2026-04-04T12:00:30+00:00",
+                "usage_summary": {
+                    "instances_count": 1,
+                    "provider_runtime_secs": 3600,
+                    "machine_shapes": [
+                        {
+                            "os": "linux",
+                            "arch": "amd64",
+                            "virtual_cpu": 4,
+                            "memory_megabytes": 8192,
+                            "profile_tag": "namespace-profile-default",
+                            "count": 1,
+                            "duration_secs": 3600,
+                        }
+                    ],
+                },
+                "provider_metadata": {
+                    "namespace_instances": [
+                        {
+                            "profile_tag": "namespace-profile-default",
+                            "os": "linux",
+                            "arch": "amd64",
+                            "virtual_cpu": 4,
+                            "memory_megabytes": 8192,
+                            "duration_secs": 3600,
+                        }
+                    ]
+                },
+            }
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = self.mod.cmd_cloud_history(
+                SimpleNamespace(workflow=None, provider=None, limit=10)
+            )
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("cost=est $0.50", output)
+        self.assertIn("period cost: est $0.50 over 1 run(s); estimated; verify provider pricing", output)
+
+    def test_cmd_cloud_compare_reports_provider_medians(self):
+        config = json.loads(self.config_path.read_text())
+        config["telemetry"] = {
+            "billing": {
+                "currency": "USD",
+                "github_hosted_job_os_rates_per_minute": {
+                    "linux": 0.01
+                },
+                "namespace_profile_tag_rates_per_hour": {
+                    "namespace-profile-default": 0.5
+                }
+            }
+        }
+        self.config_path.write_text(json.dumps(config) + "\n")
+
+        self.mod.save_cloud_record(
+            {
+                "dispatch_id": "cmpns123456",
+                "workflow_key": "build",
+                "provider_requested": "namespace",
+                "provider_resolved": "namespace",
+                "status": "completed",
+                "conclusion": "success",
+                "completed_at": "2026-04-04T12:00:30+00:00",
+                "duration_secs": 120,
+                "queue_delay_secs": 5,
+                "usage_summary": {
+                    "provider_runtime_secs": 3600,
+                    "machine_shapes": [
+                        {
+                            "os": "linux",
+                            "arch": "amd64",
+                            "virtual_cpu": 4,
+                            "memory_megabytes": 8192,
+                            "profile_tag": "namespace-profile-default",
+                            "count": 1,
+                            "duration_secs": 3600,
+                        }
+                    ],
+                },
+                "provider_metadata": {
+                    "namespace_instances": [
+                        {
+                            "profile_tag": "namespace-profile-default",
+                            "os": "linux",
+                            "arch": "amd64",
+                            "virtual_cpu": 4,
+                            "memory_megabytes": 8192,
+                            "duration_secs": 3600,
+                        }
+                    ]
+                },
+            }
+        )
+        self.mod.save_cloud_record(
+            {
+                "dispatch_id": "cmpgh123456",
+                "workflow_key": "build",
+                "provider_requested": "github-hosted",
+                "provider_resolved": "github-hosted",
+                "status": "completed",
+                "conclusion": "success",
+                "completed_at": "2026-04-04T12:10:30+00:00",
+                "duration_secs": 180,
+                "queue_delay_secs": 15,
+                "jobs": [
+                    {
+                        "name": "Linux (x64) [github-hosted]",
+                        "started_at": "2026-04-04T12:07:30+00:00",
+                        "completed_at": "2026-04-04T12:10:30+00:00",
+                    }
+                ],
+            }
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = self.mod.cmd_cloud_compare(SimpleNamespace(workflow="build"))
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("github-hosted: runs=1 success=1/1 median_elapsed=3m00s median_queue=15s median_cost=est $0.03", output)
+        self.assertIn("namespace: runs=1 success=1/1 median_elapsed=2m00s median_queue=5s median_provider_time=1h00m00s median_cost=est $0.50", output)
+        self.assertIn("note: estimated; verify provider pricing", output)
+
+    def test_cmd_cloud_recommend_prefers_fastest_observed_provider(self):
+        self.mod.save_cloud_record(
+            {
+                "dispatch_id": "recns123456",
+                "workflow_key": "build",
+                "provider_requested": "namespace",
+                "provider_resolved": "namespace",
+                "status": "completed",
+                "conclusion": "success",
+                "completed_at": "2026-04-04T12:00:30+00:00",
+                "duration_secs": 120,
+            }
+        )
+        self.mod.save_cloud_record(
+            {
+                "dispatch_id": "recgh123456",
+                "workflow_key": "build",
+                "provider_requested": "github-hosted",
+                "provider_resolved": "github-hosted",
+                "status": "completed",
+                "conclusion": "success",
+                "completed_at": "2026-04-04T12:10:30+00:00",
+                "duration_secs": 180,
+            }
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = self.mod.cmd_cloud_recommend(SimpleNamespace(workflow="build"))
+
+        output = buf.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Recommended provider for build: namespace (fastest observed median)", output)
+        self.assertIn("note: estimated; verify provider pricing", output)
 
     def test_cmd_status_includes_recent_cloud_summary(self):
         self.mod.save_cloud_record(

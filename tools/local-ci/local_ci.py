@@ -8,8 +8,12 @@ Usage:
     pulp ci-local check <PR#|latest>          # Validate an existing PR
     pulp ci-local check <PR#|latest> --smoke  # Fast PR smoke preflight
     pulp ci-local cloud workflows             # List supported GitHub workflows/providers
+    pulp ci-local cloud defaults              # Show effective cloud defaults
     pulp ci-local cloud run [workflow]        # Dispatch a GitHub workflow
     pulp ci-local cloud status [id|latest]    # Show tracked GitHub workflow state
+    pulp ci-local cloud history               # Show recent tracked cloud run history
+    pulp ci-local cloud compare [workflow]    # Compare observed cloud providers
+    pulp ci-local cloud recommend [workflow]  # Suggest a cloud provider from recorded history
     pulp ci-local cloud namespace doctor      # Check Namespace CLI/login/workspace state
     pulp ci-local cloud namespace setup       # Thin Namespace setup wrapper (`nsc login`)
     pulp ci-local list                        # Show open PRs
@@ -37,6 +41,7 @@ import json
 import os
 import queue as queue_module
 import shlex
+import statistics
 import subprocess
 import sys
 import threading
@@ -1461,6 +1466,13 @@ def normalize_cloud_record(record: dict | None) -> dict:
     normalized.setdefault("provider_metadata", {})
     normalized.setdefault("usage_summary", {})
     normalized.setdefault("cost_summary", {})
+    if not isinstance(normalized.get("dispatch_fields"), dict):
+        normalized["dispatch_fields"] = {}
+    if not isinstance(normalized.get("jobs"), list):
+        normalized["jobs"] = []
+    for field_name in ("provider_metadata", "usage_summary", "cost_summary"):
+        if not isinstance(normalized.get(field_name), dict):
+            normalized[field_name] = {}
     return normalized
 
 
@@ -1529,7 +1541,7 @@ def find_cloud_record(records: list[dict], identifier: str | None) -> dict | Non
     return None
 
 
-def cloud_record_summary(record: dict) -> str:
+def cloud_record_summary(record: dict, config: dict | None = None) -> str:
     record = normalize_cloud_record(record)
     status = record.get("status", "unknown").upper()
     conclusion = (record.get("conclusion") or "").upper()
@@ -1551,6 +1563,12 @@ def cloud_record_summary(record: dict) -> str:
     provider_runtime = format_duration_secs((record.get("usage_summary") or {}).get("provider_runtime_secs"))
     if provider_runtime:
         summary += f" provider_time={provider_runtime}"
+    if config is not None:
+        cost = estimate_cloud_record_cost(record, config)
+        if cost.get("status") == "estimated":
+            amount = format_currency_amount(cost.get("estimated_total"), cost.get("currency", "USD"))
+            if amount:
+                summary += f" cost=est {amount}"
     return summary
 
 
@@ -1622,6 +1640,281 @@ def render_selector_value(value: str) -> str:
     return summarize_runner_selector(value) if value else ""
 
 
+def parse_rate_value(value) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def resolve_billing_settings(config: dict | None) -> dict:
+    billing = (((config or {}).get("telemetry") or {}).get("billing") or {})
+    settings = {
+        "currency": "USD",
+        "billing_period_start_day": 1,
+        "github_hosted_job_os_rates_per_minute": {},
+        "namespace_profile_tag_rates_per_hour": {},
+        "namespace_machine_shape_rates_per_hour": [],
+    }
+    if not isinstance(billing, dict):
+        return settings
+
+    currency = billing.get("currency")
+    if isinstance(currency, str) and currency.strip():
+        settings["currency"] = currency.strip().upper()
+
+    start_day = billing.get("billing_period_start_day")
+    if start_day not in (None, ""):
+        try:
+            parsed_start_day = int(start_day)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("telemetry.billing.billing_period_start_day must be an integer.") from exc
+        if parsed_start_day < 1 or parsed_start_day > 28:
+            raise ValueError("telemetry.billing.billing_period_start_day must be between 1 and 28.")
+        settings["billing_period_start_day"] = parsed_start_day
+
+    github_rates = billing.get("github_hosted_job_os_rates_per_minute")
+    if isinstance(github_rates, dict):
+        for os_name, value in github_rates.items():
+            if not isinstance(os_name, str) or not os_name.strip():
+                continue
+            parsed = parse_rate_value(value)
+            if parsed is not None:
+                settings["github_hosted_job_os_rates_per_minute"][os_name.strip().lower()] = parsed
+
+    namespace_profile_rates = billing.get("namespace_profile_tag_rates_per_hour")
+    if isinstance(namespace_profile_rates, dict):
+        for tag, value in namespace_profile_rates.items():
+            if not isinstance(tag, str) or not tag.strip():
+                continue
+            parsed = parse_rate_value(value)
+            if parsed is not None:
+                settings["namespace_profile_tag_rates_per_hour"][tag.strip()] = parsed
+
+    shape_rates = billing.get("namespace_machine_shape_rates_per_hour")
+    if isinstance(shape_rates, list):
+        normalized_shape_rates = []
+        for raw in shape_rates:
+            if not isinstance(raw, dict):
+                continue
+            parsed_rate = parse_rate_value(raw.get("rate"))
+            if parsed_rate is None:
+                continue
+            normalized_shape_rates.append(
+                {
+                    "os": str(raw.get("os", "")).strip().lower(),
+                    "arch": str(raw.get("arch", "")).strip().lower(),
+                    "virtual_cpu": int(raw.get("virtual_cpu") or 0),
+                    "memory_megabytes": int(raw.get("memory_megabytes") or 0),
+                    "rate": parsed_rate,
+                }
+            )
+        settings["namespace_machine_shape_rates_per_hour"] = normalized_shape_rates
+
+    return settings
+
+
+def format_currency_amount(amount: float | int | None, currency: str = "USD") -> str:
+    if amount is None:
+        return ""
+    try:
+        value = float(amount)
+    except (TypeError, ValueError):
+        return ""
+    if currency.upper() == "USD":
+        return f"${value:.2f}"
+    return f"{currency.upper()} {value:.2f}"
+
+
+def billing_note_text() -> str:
+    return "estimated; verify provider pricing"
+
+
+def billing_period_window(
+    start_day: int,
+    *,
+    now_dt: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    current = now_dt or datetime.now(timezone.utc)
+    year = current.year
+    month = current.month
+    if current.day < start_day:
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    period_start = datetime(year, month, start_day, tzinfo=timezone.utc)
+    next_year = year
+    next_month = month + 1
+    if next_month == 13:
+        next_month = 1
+        next_year += 1
+    period_end = datetime(next_year, next_month, start_day, tzinfo=timezone.utc)
+    return period_start, period_end
+
+
+def infer_job_os(workflow_key: str, job_name: str) -> str:
+    name = (job_name or "").strip().lower()
+    if "windows" in name:
+        return "windows"
+    if "macos" in name or "mac " in name or "mac (" in name:
+        return "macos"
+    if "linux" in name or "ubuntu" in name:
+        return "linux"
+    if workflow_key in {"docs-check", "sanitizers"}:
+        return "linux"
+    return ""
+
+
+def match_namespace_shape_rate(shape: dict, billing: dict) -> float | None:
+    profile_tag = (shape.get("profile_tag") or "").strip()
+    if profile_tag:
+        tagged_rate = (billing.get("namespace_profile_tag_rates_per_hour") or {}).get(profile_tag)
+        if tagged_rate is not None:
+            return float(tagged_rate)
+
+    for candidate in billing.get("namespace_machine_shape_rates_per_hour") or []:
+        if candidate.get("os") and candidate["os"] != str(shape.get("os", "")).strip().lower():
+            continue
+        if candidate.get("arch") and candidate["arch"] != str(shape.get("arch", "")).strip().lower():
+            continue
+        if candidate.get("virtual_cpu") and candidate["virtual_cpu"] != int(shape.get("virtual_cpu") or 0):
+            continue
+        if candidate.get("memory_megabytes") and candidate["memory_megabytes"] != int(shape.get("memory_megabytes") or 0):
+            continue
+        return float(candidate["rate"])
+    return None
+
+
+def estimate_namespace_cost(record: dict, billing: dict) -> dict:
+    metadata = (record.get("provider_metadata") or {}).get("namespace_instances") or []
+    shapes = (record.get("usage_summary") or {}).get("machine_shapes") or []
+    currency = billing.get("currency", "USD")
+    total = 0.0
+    estimated_items = 0
+
+    if metadata:
+        for instance in metadata:
+            rate = match_namespace_shape_rate(instance, billing)
+            if rate is None:
+                continue
+            duration_secs = float(instance.get("duration_secs") or 0)
+            total += (duration_secs / 3600.0) * rate
+            estimated_items += 1
+    elif shapes:
+        for shape in shapes:
+            rate = match_namespace_shape_rate(shape, billing)
+            if rate is None:
+                continue
+            duration_secs = float(shape.get("duration_secs") or 0)
+            total += (duration_secs / 3600.0) * rate
+            estimated_items += 1
+
+    if estimated_items:
+        return {
+            "status": "estimated",
+            "currency": currency,
+            "estimated_total": round(total, 4),
+            "reason": billing_note_text(),
+        }
+
+    return {
+        "status": "unavailable",
+        "reason": "configure telemetry.billing Namespace rates",
+    }
+
+
+def estimate_github_hosted_cost(record: dict, billing: dict) -> dict:
+    currency = billing.get("currency", "USD")
+    rates = billing.get("github_hosted_job_os_rates_per_minute") or {}
+    total = 0.0
+    estimated_jobs = 0
+
+    for job in record.get("jobs") or []:
+        job_name = str(job.get("name", ""))
+        if job_name == "resolve-provider":
+            continue
+        os_name = infer_job_os(record.get("workflow_key", ""), job_name)
+        if not os_name:
+            continue
+        rate = rates.get(os_name)
+        if rate is None:
+            continue
+        duration_secs = duration_between(job.get("started_at"), job.get("completed_at"))
+        if duration_secs is None:
+            continue
+        total += (duration_secs / 60.0) * float(rate)
+        estimated_jobs += 1
+
+    if estimated_jobs:
+        return {
+            "status": "estimated",
+            "currency": currency,
+            "estimated_total": round(total, 4),
+            "reason": billing_note_text(),
+        }
+
+    return {
+        "status": "unavailable",
+        "reason": "configure telemetry.billing GitHub-hosted rates",
+    }
+
+
+def estimate_cloud_record_cost(record: dict, config: dict | None) -> dict:
+    record = normalize_cloud_record(record)
+    provider = record.get("provider_resolved") or record.get("provider_requested") or "github-hosted"
+    billing = resolve_billing_settings(config)
+    if provider == "namespace":
+        return estimate_namespace_cost(record, billing)
+    if provider == "github-hosted":
+        return estimate_github_hosted_cost(record, billing)
+    return {"status": "unavailable", "reason": f"no estimator for provider '{provider}'"}
+
+
+def estimate_billing_period_totals(
+    records: list[dict],
+    config: dict | None,
+    *,
+    provider: str | None = None,
+) -> dict:
+    billing = resolve_billing_settings(config)
+    period_start, period_end = billing_period_window(billing["billing_period_start_day"])
+    matched_runs = 0
+    estimated_runs = 0
+    estimated_total = 0.0
+
+    for raw_record in records:
+        record = normalize_cloud_record(raw_record)
+        completed = parse_iso_datetime(record.get("completed_at") or record.get("updated_at"))
+        if not completed:
+            continue
+        if provider and (record.get("provider_resolved") or record.get("provider_requested")) != provider:
+            continue
+        if completed < period_start or completed >= period_end:
+            continue
+        matched_runs += 1
+        summary = estimate_cloud_record_cost(record, config)
+        if summary.get("status") == "estimated":
+            estimated_runs += 1
+            estimated_total += float(summary.get("estimated_total") or 0.0)
+
+    return {
+        "currency": billing.get("currency", "USD"),
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "matched_runs": matched_runs,
+        "estimated_runs": estimated_runs,
+        "estimated_total": round(estimated_total, 4),
+        "status": "estimated" if estimated_runs else "unavailable",
+        "reason": billing_note_text() if estimated_runs else "configure telemetry.billing rates",
+    }
+
+
 def print_cloud_field_detail(
     name: str,
     value: str,
@@ -1671,8 +1964,26 @@ def print_namespace_usage_summary(record: dict) -> None:
     cost = record.get("cost_summary") or {}
     reason = (cost.get("reason") or "").strip()
     status = (cost.get("status") or "").strip()
-    if status == "unavailable" and reason:
+    if status == "estimated":
+        amount = format_currency_amount(cost.get("estimated_total"), cost.get("currency", "USD"))
+        if amount:
+            print(f"  cost: est {amount}; {reason or billing_note_text()}")
+    elif status == "unavailable" and reason:
         print(f"  cost: unavailable ({reason})")
+
+
+def print_billing_period_summary(summary: dict, *, indent: str = "  ") -> None:
+    status = (summary.get("status") or "").strip()
+    if status != "estimated":
+        reason = (summary.get("reason") or "").strip()
+        if reason:
+            print(f"{indent}period cost: unavailable ({reason})")
+        return
+    amount = format_currency_amount(summary.get("estimated_total"), summary.get("currency", "USD"))
+    if not amount:
+        return
+    runs_text = f"{int(summary.get('estimated_runs') or 0)} run(s)"
+    print(f"{indent}period cost: est {amount} over {runs_text}; {summary.get('reason') or billing_note_text()}")
 
 
 def summarize_cloud_timing(snapshot: dict) -> dict[str, str | float | None]:
@@ -3950,6 +4261,196 @@ def refresh_cloud_record(record: dict, repository: str) -> dict:
     return refreshed
 
 
+def filter_cloud_records(
+    records: list[dict],
+    *,
+    workflow_key: str | None = None,
+    provider: str | None = None,
+) -> list[dict]:
+    filtered = []
+    for raw_record in records:
+        record = normalize_cloud_record(raw_record)
+        if workflow_key and record.get("workflow_key") != workflow_key:
+            continue
+        resolved_provider = record.get("provider_resolved") or record.get("provider_requested") or "github-hosted"
+        if provider and resolved_provider != provider:
+            continue
+        filtered.append(record)
+    return filtered
+
+
+def median_or_none(values: list[float], *, digits: int = 1) -> float | None:
+    cleaned = [float(value) for value in values if value not in (None, "")]
+    if not cleaned:
+        return None
+    return round(float(statistics.median(cleaned)), digits)
+
+
+def compare_cloud_providers(
+    records: list[dict],
+    config: dict | None,
+    *,
+    workflow_key: str,
+) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for record in filter_cloud_records(records, workflow_key=workflow_key):
+        if record.get("status") != "completed":
+            continue
+        provider = record.get("provider_resolved") or record.get("provider_requested") or "github-hosted"
+        group = grouped.setdefault(
+            provider,
+            {
+                "provider": provider,
+                "workflow_key": workflow_key,
+                "runs": [],
+                "durations": [],
+                "queue_delays": [],
+                "provider_runtimes": [],
+                "estimated_costs": [],
+                "success_count": 0,
+                "completed_count": 0,
+            },
+        )
+        group["runs"].append(record)
+        group["completed_count"] += 1
+        if record.get("conclusion") == "success":
+            group["success_count"] += 1
+        if record.get("duration_secs") not in (None, ""):
+            group["durations"].append(float(record["duration_secs"]))
+        if record.get("queue_delay_secs") not in (None, ""):
+            group["queue_delays"].append(float(record["queue_delay_secs"]))
+        provider_runtime = (record.get("usage_summary") or {}).get("provider_runtime_secs")
+        if provider_runtime not in (None, ""):
+            group["provider_runtimes"].append(float(provider_runtime))
+        cost = estimate_cloud_record_cost(record, config)
+        if cost.get("status") == "estimated":
+            group["estimated_costs"].append(float(cost.get("estimated_total") or 0.0))
+
+    summaries = []
+    for provider, group in grouped.items():
+        period = estimate_billing_period_totals(records, config, provider=provider)
+        summaries.append(
+            {
+                "provider": provider,
+                "workflow_key": workflow_key,
+                "runs_count": len(group["runs"]),
+                "completed_count": group["completed_count"],
+                "success_count": group["success_count"],
+                "median_duration_secs": median_or_none(group["durations"]),
+                "median_queue_delay_secs": median_or_none(group["queue_delays"]),
+                "median_provider_runtime_secs": median_or_none(group["provider_runtimes"]),
+                "median_estimated_cost": median_or_none(group["estimated_costs"], digits=4),
+                "currency": resolve_billing_settings(config).get("currency", "USD"),
+                "period": period,
+            }
+        )
+
+    summaries.sort(key=lambda item: item["provider"])
+    return summaries
+
+
+def recommend_cloud_provider(
+    records: list[dict],
+    config: dict | None,
+    *,
+    workflow_key: str,
+) -> tuple[str | None, str]:
+    summaries = compare_cloud_providers(records, config, workflow_key=workflow_key)
+    viable = [item for item in summaries if item.get("success_count")]
+    if not viable:
+        return None, "no successful runs recorded yet"
+    if len(viable) == 1:
+        return viable[0]["provider"], "only measured provider"
+
+    viable_with_duration = [item for item in viable if item.get("median_duration_secs") is not None]
+    if not viable_with_duration:
+        return viable[0]["provider"], "no timing medians available"
+
+    fastest = min(viable_with_duration, key=lambda item: float(item["median_duration_secs"]))
+    cheapest_candidates = [item for item in viable if item.get("median_estimated_cost") is not None]
+    if len(cheapest_candidates) >= 2:
+        cheapest = min(cheapest_candidates, key=lambda item: float(item["median_estimated_cost"]))
+        fastest_duration = float(fastest["median_duration_secs"] or 0.0)
+        cheapest_duration = float(cheapest.get("median_duration_secs") or fastest_duration or 0.0)
+        fastest_cost = float(fastest.get("median_estimated_cost") or 0.0)
+        cheapest_cost = float(cheapest.get("median_estimated_cost") or 0.0)
+        speedup = 0.0
+        if cheapest_duration > 0:
+            speedup = max(0.0, (cheapest_duration - fastest_duration) / cheapest_duration)
+        if cheapest["provider"] != fastest["provider"] and fastest_cost > 0 and cheapest_cost > 0:
+            if fastest_cost > cheapest_cost * 1.2 and speedup < 0.15:
+                return cheapest["provider"], "lower estimated cost with similar timing"
+        return fastest["provider"], "fastest observed median"
+
+    return fastest["provider"], "fastest observed median"
+
+
+def cmd_cloud_history(args: argparse.Namespace) -> int:
+    config = load_optional_config()
+    records = filter_cloud_records(
+        list_cloud_records(limit=None),
+        workflow_key=getattr(args, "workflow", None),
+        provider=getattr(args, "provider", None),
+    )
+    if not records:
+        print("No tracked cloud runs found.")
+        return 0
+
+    limit = max(1, int(getattr(args, "limit", 10)))
+    print("Cloud history:\n")
+    for record in records[:limit]:
+        print(f"  {cloud_record_summary(record, config)}")
+
+    print()
+    print_billing_period_summary(estimate_billing_period_totals(records, config))
+    return 0
+
+
+def cmd_cloud_compare(args: argparse.Namespace) -> int:
+    config = load_optional_config()
+    workflow_key = args.workflow or resolve_github_actions_settings(config).get("workflow", "build")
+    summaries = compare_cloud_providers(list_cloud_records(limit=None), config, workflow_key=workflow_key)
+    if not summaries:
+        print(f"No tracked cloud runs found for workflow '{workflow_key}'.")
+        return 0
+
+    print(f"Cloud compare: workflow={workflow_key}\n")
+    for summary in summaries:
+        line = (
+            f"  {summary['provider']}: runs={summary['runs_count']} "
+            f"success={summary['success_count']}/{summary['completed_count'] or summary['runs_count']}"
+        )
+        duration = format_duration_secs(summary.get("median_duration_secs"))
+        if duration:
+            line += f" median_elapsed={duration}"
+        queue_delay = format_duration_secs(summary.get("median_queue_delay_secs"))
+        if queue_delay:
+            line += f" median_queue={queue_delay}"
+        provider_runtime = format_duration_secs(summary.get("median_provider_runtime_secs"))
+        if provider_runtime:
+            line += f" median_provider_time={provider_runtime}"
+        if summary.get("median_estimated_cost") is not None:
+            amount = format_currency_amount(summary.get("median_estimated_cost"), summary.get("currency", "USD"))
+            if amount:
+                line += f" median_cost=est {amount}"
+        print(line)
+        print_billing_period_summary(summary.get("period") or {}, indent="    ")
+    print("\n  note: estimated; verify provider pricing")
+    return 0
+
+
+def cmd_cloud_recommend(args: argparse.Namespace) -> int:
+    config = load_optional_config()
+    workflow_key = args.workflow or resolve_github_actions_settings(config).get("workflow", "build")
+    provider, reason = recommend_cloud_provider(list_cloud_records(limit=None), config, workflow_key=workflow_key)
+    if not provider:
+        print(f"No recommendation for workflow '{workflow_key}': {reason}.")
+        return 0
+    print(f"Recommended provider for {workflow_key}: {provider} ({reason})")
+    print(f"  note: {billing_note_text()}")
+    return 0
+
+
 def cmd_cloud_workflows(_args: argparse.Namespace) -> int:
     print("GitHub Actions workflows:\n")
     for key, info in BUILTIN_GITHUB_WORKFLOWS.items():
@@ -3985,6 +4486,11 @@ def cmd_cloud_defaults(_args: argparse.Namespace) -> int:
         print(f"  note: {repository_note}")
     print(f"  configured default workflow: {settings.get('workflow', 'build')}")
     print(f"  configured default provider: {settings.get('provider', 'github-hosted')}")
+    billing = resolve_billing_settings(config)
+    print(
+        f"  billing estimates: {billing.get('currency', 'USD')} period-day={billing.get('billing_period_start_day', 1)} "
+        f"({billing_note_text()})"
+    )
 
     for workflow_key, workflow in BUILTIN_GITHUB_WORKFLOWS.items():
         summary = summarize_workflow_provider_defaults(
@@ -4159,6 +4665,7 @@ def cmd_cloud_run(args: argparse.Namespace) -> int:
 
 
 def cmd_cloud_status(args: argparse.Namespace) -> int:
+    config = load_optional_config()
     if args.identifier is None:
         records = list_cloud_records(limit=args.limit)
         if not records:
@@ -4166,7 +4673,9 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
             return 0
         print("Recent cloud runs:\n")
         for item in records:
-            print(f"  {cloud_record_summary(item)}")
+            print(f"  {cloud_record_summary(item, config)}")
+        print()
+        print_billing_period_summary(estimate_billing_period_totals(records, config))
         return 0
 
     try:
@@ -4192,7 +4701,9 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
             return 1
         record = refresh_cloud_record(record, repository)
 
-    print(cloud_record_summary(record))
+    rendered_record = normalize_cloud_record(record)
+    rendered_record["cost_summary"] = estimate_cloud_record_cost(rendered_record, config)
+    print(cloud_record_summary(rendered_record, config))
     print(f"  workflow: {record.get('workflow_name')} ({record.get('workflow_file')})")
     print(f"  repo: {record.get('repository')}")
     print(f"  requested ref: {record.get('requested_ref')}")
@@ -4227,7 +4738,8 @@ def cmd_cloud_status(args: argparse.Namespace) -> int:
         print(f"  updated: {record['updated_at']}")
     if record.get("completed_at"):
         print(f"  completed: {record['completed_at']}")
-    print_namespace_usage_summary(record)
+    print_namespace_usage_summary(rendered_record)
+    print_billing_period_summary(estimate_billing_period_totals(list_cloud_records(limit=None), config))
     if record.get("jobs"):
         print("  jobs:")
         for job in record["jobs"]:
@@ -4747,9 +5259,10 @@ def cmd_status(_args: argparse.Namespace) -> int:
     )
 
     if cloud_records:
+        print_billing_period_summary(estimate_billing_period_totals(cloud_records, cloud_config), indent="  ")
         print("\nCloud (latest 5 known to this machine):")
         for record in cloud_records:
-            print(f"  {cloud_record_summary(record)}")
+            print(f"  {cloud_record_summary(record, cloud_config)}")
 
     print("\nVM Status:")
     for vm_name in ["Ubuntu 24.04 desktop", "Windows"]:
@@ -4849,6 +5362,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     cloud_sub.add_parser("workflows", help="List supported GitHub workflows and providers")
     cloud_sub.add_parser("defaults", help="Show effective cloud workflow/provider defaults")
+
+    p_cloud_history = cloud_sub.add_parser("history", help="Show recent tracked cloud run history")
+    p_cloud_history.add_argument(
+        "--workflow",
+        help="Optional workflow key filter (for example: build or docs-check)",
+    )
+    p_cloud_history.add_argument(
+        "--provider",
+        help="Optional provider filter (for example: github-hosted or namespace)",
+    )
+    p_cloud_history.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Runs to show (default: 10)",
+    )
+
+    p_cloud_compare = cloud_sub.add_parser("compare", help="Compare observed cloud providers for a workflow")
+    p_cloud_compare.add_argument(
+        "workflow",
+        nargs="?",
+        help="Workflow key (default: configured cloud default workflow)",
+    )
+
+    p_cloud_recommend = cloud_sub.add_parser("recommend", help="Recommend a cloud provider from recorded history")
+    p_cloud_recommend.add_argument(
+        "workflow",
+        nargs="?",
+        help="Workflow key (default: configured cloud default workflow)",
+    )
 
     p_cloud_run = cloud_sub.add_parser("run", help="Dispatch a GitHub Actions workflow")
     p_cloud_run.add_argument(
@@ -4955,6 +5498,12 @@ def main() -> int:
             return cmd_cloud_workflows(args)
         if args.cloud_command == "defaults":
             return cmd_cloud_defaults(args)
+        if args.cloud_command == "history":
+            return cmd_cloud_history(args)
+        if args.cloud_command == "compare":
+            return cmd_cloud_compare(args)
+        if args.cloud_command == "recommend":
+            return cmd_cloud_recommend(args)
         if args.cloud_command == "run":
             return cmd_cloud_run(args)
         if args.cloud_command == "status":

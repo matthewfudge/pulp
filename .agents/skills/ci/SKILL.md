@@ -185,6 +185,9 @@ surface instead of raw `gh workflow run`:
 ```bash
 pulp ci-local cloud workflows
 pulp ci-local cloud defaults
+pulp ci-local cloud history
+pulp ci-local cloud compare build
+pulp ci-local cloud recommend build
 pulp ci-local cloud run build <branch>
 pulp ci-local cloud run validate <branch>
 pulp ci-local cloud run docs-check <branch> --provider namespace
@@ -200,6 +203,10 @@ pulp ci-local cloud status latest --refresh
 `cloud defaults` is the companion visibility command when you need to see the
 current effective workflow/provider defaults and where Namespace selectors are
 coming from before dispatching a run.
+
+`cloud history`, `cloud compare`, and `cloud recommend` are the next visibility
+layer when you need saved timing/provider evidence from earlier runs. Any cost
+number shown there is `estimated; verify provider pricing`.
 
 Use raw `gh workflow run` / `gh run view` only as a fallback when debugging the
 GitHub side of the operator surface itself.

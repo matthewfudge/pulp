@@ -556,8 +556,8 @@ provider seam, status model, and operator UX are proven in the real repo.
 
 - Phase 0. CI truth cleanup: completed on this branch
 - Phase 1. Clarify the current Pulp CI model: completed on this branch
-- Phase 2. Add the first-class cloud operator surface in Pulp: in progress
-- Phase 3. Add the minimal GitHub runner-provider seam: in progress
+- Phase 2. Add the first-class cloud operator surface in Pulp: completed on this branch
+- Phase 3. Add the minimal GitHub runner-provider seam: completed on this branch
 - Phase 4. Add Namespace support plus provenance/cost telemetry: in progress
 - Phase 5. Pages/docs-site/website integration: deferred later phase
 - Phase 6. Extract proven pieces into `xci`: deferred
@@ -583,13 +583,17 @@ Implemented on the active Pulp branch today:
 - initial provider-usage truth in `cloud status`, including Namespace runtime,
   machine shape, and honest "cost unavailable" reporting when the provider CLI
   cannot supply billing totals yet
+- `pulp ci-local cloud history|compare|recommend` for saved cloud-run timing,
+  provider comparisons, and first-pass recommendation heuristics
+- local-config-driven estimated billing output for per-run and billing-period
+  cloud reporting, explicitly labeled `estimated; verify provider pricing`
 
 Still deferred from the current branch:
 
 - provider capability reporting beyond the current narrow workflow metadata
 - broader provider routing across the workflow inventory
-- cross-provider comparison views and recommendation heuristics
-- usage/cost telemetry
+- cross-scope local-vs-cloud comparison views
+- provider-reported billing totals when the upstream CLI/API exposes them
 - reusable extraction into `xci`
 
 ### Recommended execution order now

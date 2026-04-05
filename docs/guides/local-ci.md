@@ -74,6 +74,9 @@ not when you want another exact-SHA local queue job:
 ```bash
 pulp ci-local cloud workflows
 pulp ci-local cloud defaults
+pulp ci-local cloud history
+pulp ci-local cloud compare build
+pulp ci-local cloud recommend build
 pulp ci-local cloud run build feature/my-branch
 pulp ci-local cloud run build feature/my-branch --provider namespace
 pulp ci-local cloud run build feature/my-branch --provider namespace --macos-runner-selector-json '"namespace-profile-big-apple"'
@@ -95,14 +98,22 @@ Important constraints in the current phase:
   summaries without hitting GitHub unless you explicitly run `cloud status --refresh`
 - `cloud defaults` shows the effective workflow/provider defaults plus where the
   current selector values came from (local config versus repo-variable fallback)
+- `cloud history` shows recent tracked cloud runs with saved timing plus any
+  configured estimated cost line items
+- `cloud compare <workflow>` rolls up observed provider medians for a workflow
+  from tracked run history
+- `cloud recommend <workflow>` suggests a provider from recorded cloud history;
+  it is intentionally conservative and uses observed medians instead of
+  hardcoded guesses
 - `cloud status` now reports Namespace runtime/machine-shape truth when the run
   was launched on Namespace and `nsc` can see the matching instances
 - tracked cloud runs now persist queue-delay and elapsed-duration timing so the
   later comparison view can answer "how long did GitHub-hosted vs Namespace
   take?" from saved run history instead of rough notes
-- billing totals are still honest and partial in this phase: if the provider CLI
-  does not expose them, Pulp reports runtime and machine shape instead of
-  inventing a cost number
+- estimated cost output is opt-in via local config; every estimate is labeled
+  `estimated; verify provider pricing`
+- if the provider CLI does not expose billing totals, Pulp keeps reporting
+  runtime and machine shape instead of inventing invoice truth
 - `build.yml` now accepts `runner_provider` and routes Linux and Windows through
   the selected provider; macOS is omitted from the cloud build by default so it
   can stay local-first
@@ -237,6 +248,43 @@ Edit the chosen `config.json` and fill in your SSH hostnames and repo paths. The
 The optional `github_actions.workflows.docs-check.providers.namespace.runner_selector_json`
 value lets you set the default Namespace `runs-on` selector that `cloud run docs-check`
 should dispatch when you do not pass `--runner-selector-json` explicitly.
+
+### 1b. Optional estimated billing config
+
+If you want per-run and billing-period cost estimates in `cloud status`,
+`cloud history`, and `cloud compare`, fill in the `telemetry.billing` block in
+your local config.
+
+These numbers are estimates only. Verify provider pricing.
+
+Example:
+
+```json
+{
+  "telemetry": {
+    "billing": {
+      "currency": "USD",
+      "billing_period_start_day": 1,
+      "github_hosted_job_os_rates_per_minute": {
+        "linux": 0.008,
+        "windows": 0.016,
+        "macos": 0.08
+      },
+      "namespace_profile_tag_rates_per_hour": {
+        "namespace-profile-generouscorp": 0.50,
+        "namespace-profile-generouscorp-macos": 1.20
+      }
+    }
+  }
+}
+```
+
+Notes:
+
+- GitHub-hosted estimates use per-job OS rates when Pulp can infer the runner OS
+- Namespace estimates prefer a profile-tag hourly rate and fall back to a
+  machine-shape rule if you configured one
+- if no matching rate exists, the CLI prints `cost: unavailable (...)`
 
 ### 1a. Recommended Namespace setup
 
