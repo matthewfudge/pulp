@@ -109,6 +109,22 @@ The rendering stack (experimental) layers:
 
 This stack is optional. Plugins can be built, tested, and shipped without any UI code in the dependency tree.
 
+## JavaScript Engine Abstraction
+
+The view system uses a `JsEngine` abstraction that supports multiple JavaScript backends:
+
+| Engine | Use Case | Features |
+|--------|----------|----------|
+| **QuickJS** | Default for plugins | Fast cold-start, low memory, portable |
+| **V8** | Three.js, heavy workloads | JIT compilation, typed arrays, promises, full ES module support |
+| **JavaScriptCore** | Apple platforms | Native Apple integration, available on macOS and iOS |
+
+The engine is selected at build time or runtime via `JsEngineType`. Your UI code doesn't change — the same JS runs on any backend. QuickJS is always available. V8 requires an external library (Node.js or standalone V8 monolith). JSC is available on Apple platforms.
+
+Key APIs: `ScriptEngine` (high-level wrapper), `JsEngine` (backend interface), `WidgetBridge` (JS-to-native widget binding).
+
+The Three.js native demo uses V8 for full WebGPU compatibility — Three.js needs typed arrays, promises, and ES module `import` support that QuickJS doesn't provide.
+
 ## Platform Isolation
 
 Platform-specific code lives in `core/platform/` and behind `#ifdef` guards or platform subdirectories. The rest of the codebase uses platform-agnostic APIs.

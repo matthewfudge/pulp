@@ -147,7 +147,7 @@ Key headers: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`, `pulp/state/bin
 | Flex layout (full CSS Flexbox L1) | usable | [view](modules.md#view) | [web-compat](../guides/web-compat.md) |
 | Grid layout (CSS Grid L1 — templates, fr, gaps) | usable | [view](modules.md#view) | |
 | Theme system (color/dimension tokens, inheritance) | usable | [view](modules.md#view) | [design-tokens](../guides/design-tokens.md) |
-| JS scripting (QuickJS only today; abstraction seam exists) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
+| JS scripting (QuickJS default, V8 and JavaScriptCore available) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
 | Hot reload | partial | [view](modules.md#view) | Scripted UI live reload is runtime-validated in the standalone macOS lane. Plugin targets can load `UI_SCRIPT`, but live reload is not yet guaranteed across hosts/platforms. |
 | Screenshot capture (headless PNG) | usable | [view](modules.md#view) | |
 | Component inspector | usable | [view](modules.md#view) | |
