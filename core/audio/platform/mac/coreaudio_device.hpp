@@ -52,13 +52,23 @@ private:
 
 class CoreAudioSystem : public AudioSystem {
 public:
+    CoreAudioSystem() = default;
+    ~CoreAudioSystem() override;
+
     std::vector<DeviceInfo> enumerate_devices() override;
     std::unique_ptr<AudioDevice> create_device(const std::string& device_id) override;
     DeviceInfo default_output_device() override;
     DeviceInfo default_input_device() override;
+    void set_device_change_callback(DeviceChangeCallback cb) override;
 
     static DeviceInfo query_device_info(AudioDeviceID device_id);
     static AudioDeviceID get_default_device(bool input);
+
+private:
+    static OSStatus device_list_changed(AudioObjectID, UInt32,
+                                        const AudioObjectPropertyAddress*, void*);
+    DeviceChangeCallback device_change_cb_;
+    bool listener_installed_ = false;
 };
 
 } // namespace pulp::audio::mac

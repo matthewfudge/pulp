@@ -264,6 +264,44 @@ OSStatus CoreAudioDevice::render_callback(
 
 // ── CoreAudioSystem ────────────────────────────────────────────────────────
 
+CoreAudioSystem::~CoreAudioSystem() {
+    if (listener_installed_) {
+        AudioObjectPropertyAddress prop{};
+        prop.mSelector = kAudioHardwarePropertyDevices;
+        prop.mScope = kAudioObjectPropertyScopeGlobal;
+        prop.mElement = kAudioObjectPropertyElementMain;
+        AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &prop,
+                                          device_list_changed, this);
+    }
+}
+
+void CoreAudioSystem::set_device_change_callback(DeviceChangeCallback cb) {
+    device_change_cb_ = std::move(cb);
+
+    if (device_change_cb_ && !listener_installed_) {
+        AudioObjectPropertyAddress prop{};
+        prop.mSelector = kAudioHardwarePropertyDevices;
+        prop.mScope = kAudioObjectPropertyScopeGlobal;
+        prop.mElement = kAudioObjectPropertyElementMain;
+        auto status = AudioObjectAddPropertyListener(
+            kAudioObjectSystemObject, &prop, device_list_changed, this);
+        if (status == noErr) {
+            listener_installed_ = true;
+        }
+    }
+}
+
+OSStatus CoreAudioSystem::device_list_changed(
+    AudioObjectID, UInt32,
+    const AudioObjectPropertyAddress*, void* inClientData)
+{
+    auto* self = static_cast<CoreAudioSystem*>(inClientData);
+    if (self->device_change_cb_) {
+        self->device_change_cb_();
+    }
+    return noErr;
+}
+
 AudioDeviceID CoreAudioSystem::get_default_device(bool input) {
     AudioObjectPropertyAddress prop{};
     prop.mSelector = input ? kAudioHardwarePropertyDefaultInputDevice
