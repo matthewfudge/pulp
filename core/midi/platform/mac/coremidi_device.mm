@@ -156,6 +156,37 @@ private:
 
 class CoreMidiSystem : public MidiSystem {
 public:
+    CoreMidiSystem() = default;
+
+    ~CoreMidiSystem() override {
+        if (system_client_) {
+            MIDIClientDispose(system_client_);
+            system_client_ = 0;
+        }
+    }
+
+    void set_port_change_callback(PortChangeCallback cb) override {
+        port_change_cb_ = std::move(cb);
+
+        // Create a persistent client with notification callback for hotplug
+        if (port_change_cb_ && !system_client_) {
+            OSStatus status = MIDIClientCreateWithBlock(
+                CFSTR("PulpMIDISystem"),
+                &system_client_,
+                ^(const MIDINotification* notification) {
+                    if (notification->messageID == kMIDIMsgSetupChanged) {
+                        if (this->port_change_cb_) {
+                            this->port_change_cb_();
+                        }
+                    }
+                });
+            if (status != noErr) {
+                runtime::log_warn("CoreMIDI: could not create system client for notifications ({})",
+                                  static_cast<int>(status));
+            }
+        }
+    }
+
     std::vector<MidiPortInfo> enumerate_inputs() override {
         std::vector<MidiPortInfo> ports;
         ItemCount count = MIDIGetNumberOfSources();
@@ -213,6 +244,10 @@ public:
     std::unique_ptr<MidiOutput> create_output() override {
         return std::make_unique<CoreMidiOutput>();
     }
+
+private:
+    MIDIClientRef system_client_ = 0;
+    PortChangeCallback port_change_cb_;
 };
 
 } // namespace pulp::midi::mac

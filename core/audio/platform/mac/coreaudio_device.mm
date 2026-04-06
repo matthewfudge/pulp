@@ -48,7 +48,23 @@ bool CoreAudioDevice::open(const DeviceConfig& config) {
         return false;
     }
 
-    // Set stream format
+    // Enable input on bus 1 if input channels are requested
+    input_enabled_ = false;
+    if (config_.input_channels > 0) {
+        UInt32 enable_input = 1;
+        status = AudioUnitSetProperty(audio_unit_,
+            kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Input, 1,
+            &enable_input, sizeof(enable_input));
+        if (status != noErr) {
+            runtime::log_warn("CoreAudio: could not enable input ({})", static_cast<int>(status));
+            // Continue without input — effects will receive silence
+        } else {
+            input_enabled_ = true;
+        }
+    }
+
+    // Set output stream format (bus 0, input scope = what we provide to the device)
     AudioStreamBasicDescription stream_desc{};
     stream_desc.mSampleRate = config_.sample_rate;
     stream_desc.mFormatID = kAudioFormatLinearPCM;
@@ -67,6 +83,41 @@ bool CoreAudioDevice::open(const DeviceConfig& config) {
         runtime::log_error("CoreAudio: could not set output stream format ({})", static_cast<int>(status));
         close();
         return false;
+    }
+
+    // Set input stream format (bus 1, output scope = what we receive from the device)
+    if (input_enabled_) {
+        AudioStreamBasicDescription input_desc = stream_desc;
+        input_desc.mChannelsPerFrame = static_cast<UInt32>(config_.input_channels);
+
+        status = AudioUnitSetProperty(audio_unit_,
+            kAudioUnitProperty_StreamFormat,
+            kAudioUnitScope_Output, 1,
+            &input_desc, sizeof(input_desc));
+        if (status != noErr) {
+            runtime::log_warn("CoreAudio: could not set input stream format ({})", static_cast<int>(status));
+            input_enabled_ = false;
+        }
+    }
+
+    // Pre-allocate input capture buffers (no allocation in audio callback)
+    if (input_enabled_) {
+        auto in_ch = static_cast<UInt32>(config_.input_channels);
+        auto buf_frames = static_cast<UInt32>(config_.buffer_size);
+
+        input_buffer_storage_.resize(in_ch * buf_frames, 0.0f);
+        input_ptrs_.resize(in_ch);
+
+        // Build an AudioBufferList for AudioUnitRender
+        input_buffer_list_size_ = offsetof(AudioBufferList, mBuffers) + in_ch * sizeof(AudioBuffer);
+        input_buffer_list_ = static_cast<AudioBufferList*>(std::malloc(input_buffer_list_size_));
+        input_buffer_list_->mNumberBuffers = in_ch;
+        for (UInt32 c = 0; c < in_ch; ++c) {
+            input_buffer_list_->mBuffers[c].mNumberChannels = 1;
+            input_buffer_list_->mBuffers[c].mDataByteSize = buf_frames * sizeof(float);
+            input_buffer_list_->mBuffers[c].mData = input_buffer_storage_.data() + c * buf_frames;
+            input_ptrs_[c] = static_cast<float*>(input_buffer_list_->mBuffers[c].mData);
+        }
     }
 
     // Set buffer size
@@ -103,8 +154,9 @@ bool CoreAudioDevice::open(const DeviceConfig& config) {
     }
 
     is_open_ = true;
-    runtime::log_info("CoreAudio: opened device '{}' at {} Hz, buffer {}",
-        info().name, config_.sample_rate, config_.buffer_size);
+    runtime::log_info("CoreAudio: opened device '{}' at {} Hz, buffer {}, input {}ch",
+        info().name, config_.sample_rate, config_.buffer_size,
+        input_enabled_ ? config_.input_channels : 0);
     return true;
 }
 
@@ -114,6 +166,13 @@ void CoreAudioDevice::close() {
         AudioComponentInstanceDispose(audio_unit_);
         audio_unit_ = nullptr;
     }
+    if (input_buffer_list_) {
+        std::free(input_buffer_list_);
+        input_buffer_list_ = nullptr;
+    }
+    input_buffer_storage_.clear();
+    input_ptrs_.clear();
+    input_enabled_ = false;
     is_open_ = false;
 }
 
@@ -145,9 +204,9 @@ DeviceInfo CoreAudioDevice::info() const {
 
 OSStatus CoreAudioDevice::render_callback(
     void* inRefCon,
-    AudioUnitRenderActionFlags*,
-    const AudioTimeStamp*,
-    UInt32,
+    AudioUnitRenderActionFlags* ioActionFlags,
+    const AudioTimeStamp* inTimeStamp,
+    UInt32 inBusNumber,
     UInt32 inNumberFrames,
     AudioBufferList* ioData)
 {
@@ -166,8 +225,29 @@ OSStatus CoreAudioDevice::render_callback(
         self->output_ptrs_[i] = static_cast<float*>(ioData->mBuffers[i].mData);
     }
 
-    // No input for now (output-only)
+    // Capture input from bus 1 if enabled
     BufferView<const float> input_view;
+    if (self->input_enabled_ && self->input_buffer_list_) {
+        // Reset buffer sizes in case CoreAudio changed them
+        auto in_ch = static_cast<UInt32>(self->config_.input_channels);
+        for (UInt32 c = 0; c < in_ch; ++c) {
+            self->input_buffer_list_->mBuffers[c].mDataByteSize = inNumberFrames * sizeof(float);
+        }
+
+        OSStatus input_status = AudioUnitRender(
+            self->audio_unit_, ioActionFlags, inTimeStamp,
+            1,  // Bus 1 = input
+            inNumberFrames,
+            self->input_buffer_list_);
+
+        if (input_status == noErr) {
+            input_view = BufferView<const float>(
+                const_cast<const float**>(self->input_ptrs_.data()),
+                self->input_ptrs_.size(), inNumberFrames);
+        }
+        // On error, input_view remains empty (silence) — don't crash
+    }
+
     BufferView<float> output_view(self->output_ptrs_.data(),
         self->output_ptrs_.size(), inNumberFrames);
 
@@ -183,6 +263,44 @@ OSStatus CoreAudioDevice::render_callback(
 }
 
 // ── CoreAudioSystem ────────────────────────────────────────────────────────
+
+CoreAudioSystem::~CoreAudioSystem() {
+    if (listener_installed_) {
+        AudioObjectPropertyAddress prop{};
+        prop.mSelector = kAudioHardwarePropertyDevices;
+        prop.mScope = kAudioObjectPropertyScopeGlobal;
+        prop.mElement = kAudioObjectPropertyElementMain;
+        AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &prop,
+                                          device_list_changed, this);
+    }
+}
+
+void CoreAudioSystem::set_device_change_callback(DeviceChangeCallback cb) {
+    device_change_cb_ = std::move(cb);
+
+    if (device_change_cb_ && !listener_installed_) {
+        AudioObjectPropertyAddress prop{};
+        prop.mSelector = kAudioHardwarePropertyDevices;
+        prop.mScope = kAudioObjectPropertyScopeGlobal;
+        prop.mElement = kAudioObjectPropertyElementMain;
+        auto status = AudioObjectAddPropertyListener(
+            kAudioObjectSystemObject, &prop, device_list_changed, this);
+        if (status == noErr) {
+            listener_installed_ = true;
+        }
+    }
+}
+
+OSStatus CoreAudioSystem::device_list_changed(
+    AudioObjectID, UInt32,
+    const AudioObjectPropertyAddress*, void* inClientData)
+{
+    auto* self = static_cast<CoreAudioSystem*>(inClientData);
+    if (self->device_change_cb_) {
+        self->device_change_cb_();
+    }
+    return noErr;
+}
 
 AudioDeviceID CoreAudioSystem::get_default_device(bool input) {
     AudioObjectPropertyAddress prop{};

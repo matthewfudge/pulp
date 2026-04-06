@@ -71,6 +71,12 @@ public:
     virtual std::unique_ptr<AudioDevice> create_device(const std::string& device_id = "") = 0;
     virtual DeviceInfo default_output_device() = 0;
     virtual DeviceInfo default_input_device() = 0;
+
+    /// Register a callback for device list changes (hotplug/unplug).
+    /// The callback may fire on an OS thread — callers should dispatch to the
+    /// main/UI thread if needed. Pass nullptr to unregister.
+    using DeviceChangeCallback = std::function<void()>;
+    virtual void set_device_change_callback(DeviceChangeCallback) {}
 };
 
 // Create the platform-appropriate audio system

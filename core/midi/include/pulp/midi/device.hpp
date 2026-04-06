@@ -45,6 +45,11 @@ public:
     virtual std::vector<MidiPortInfo> enumerate_outputs() = 0;
     virtual std::unique_ptr<MidiInput> create_input() = 0;
     virtual std::unique_ptr<MidiOutput> create_output() = 0;
+
+    /// Register a callback for MIDI port changes (device plug/unplug).
+    /// The callback may fire on an OS thread. Pass nullptr to unregister.
+    using PortChangeCallback = std::function<void()>;
+    virtual void set_port_change_callback(PortChangeCallback) {}
 };
 
 std::unique_ptr<MidiSystem> create_midi_system();

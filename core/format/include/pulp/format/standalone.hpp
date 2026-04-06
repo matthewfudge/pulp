@@ -1,8 +1,11 @@
 #pragma once
 
+#include <pulp/audio/buffer.hpp>
 #include <pulp/audio/device.hpp>
 #include <pulp/format/processor.hpp>
+#include <pulp/format/test_signal.hpp>
 #include <pulp/midi/device.hpp>
+#include <pulp/view/audio_bridge.hpp>
 
 #include <atomic>
 #include <memory>
@@ -26,14 +29,23 @@ public:
     ~StandaloneApp();
 
     void set_config(const StandaloneConfig& config) { config_ = config; }
+    const StandaloneConfig& config() const { return config_; }
 
     bool start();
     void stop();
     bool is_running() const { return running_.load(); }
     bool run_with_editor(bool use_gpu = false);
 
+    /// Restart audio with a new config (stop → reconfigure → start).
+    bool apply_config(const StandaloneConfig& new_config);
+
     Processor* processor() { return processor_.get(); }
     state::StateStore& state() { return store_; }
+
+    TestSignalSource& test_signal() { return test_signal_; }
+    view::AudioBridge& input_meter_bridge() { return input_meter_bridge_; }
+    audio::AudioSystem* audio_system() { return audio_system_.get(); }
+    midi::MidiSystem* midi_system() { return midi_system_.get(); }
 
 private:
     ProcessorFactory factory_;
@@ -49,6 +61,12 @@ private:
     midi::MidiBuffer pending_midi_;
     std::mutex midi_mutex_;
     std::atomic<bool> running_{false};
+
+    TestSignalSource test_signal_;
+    view::AudioBridge input_meter_bridge_;
+    audio::Buffer<float> test_buffer_;        // Pre-allocated for audio callback
+    std::vector<float*> test_ptrs_;           // Pre-allocated channel pointers
+    std::vector<const float*> meter_ptrs_;    // Pre-allocated for meter analysis
 };
 
 } // namespace pulp::format

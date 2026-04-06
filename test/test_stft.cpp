@@ -10,7 +10,7 @@
 using namespace pulp::signal;
 using Catch::Matchers::WithinAbs;
 
-static constexpr float pi = 3.14159265358979323846f;
+static constexpr float kPi = 3.14159265358979323846f;
 
 // ── STFT Tests ──────────────────────────────────────────────────────────────
 
@@ -74,7 +74,7 @@ TEST_CASE("STFT detects single sine frequency", "[signal][stft]") {
     float freq = 1000.0f;
     std::vector<float> signal(2048);
     for (int i = 0; i < 2048; ++i)
-        signal[i] = std::sin(2.0f * pi * freq * i / sr);
+        signal[i] = std::sin(2.0f * kPi * freq * i / sr);
 
     stft.push_samples(signal.data(), 2048);
     REQUIRE(stft.frame_ready());
@@ -125,7 +125,7 @@ TEST_CASE("STFT window functions produce different results", "[signal][stft]") {
     float freq = 440.0f;
     std::vector<float> signal(1024);
     for (int i = 0; i < 1024; ++i)
-        signal[i] = std::sin(2.0f * pi * freq * i / sr);
+        signal[i] = std::sin(2.0f * kPi * freq * i / sr);
 
     // Rectangular window
     StftConfig cfg_rect;
@@ -358,7 +358,7 @@ TEST_CASE("MultiChannelMeter stereo peak and RMS", "[signal][meter]") {
 
     // ch0: sine at 0.5 amplitude
     for (int i = 0; i < N; ++i) {
-        ch0[i] = 0.5f * std::sin(2.0f * pi * 440.0f * i / 44100.0f);
+        ch0[i] = 0.5f * std::sin(2.0f * kPi * 440.0f * i / 44100.0f);
         ch1[i] = 0.0f; // silent
     }
 
@@ -401,7 +401,7 @@ TEST_CASE("MultiChannelMeter stereo correlation", "[signal][meter]") {
 
     SECTION("Identical channels → correlation ≈ +1") {
         for (int i = 0; i < N; ++i) {
-            ch0[i] = ch1[i] = std::sin(2.0f * pi * 440.0f * i / 44100.0f);
+            ch0[i] = ch1[i] = std::sin(2.0f * kPi * 440.0f * i / 44100.0f);
         }
         const float* channels[] = {ch0.data(), ch1.data()};
         meter.process(channels, 2, N);
@@ -410,7 +410,7 @@ TEST_CASE("MultiChannelMeter stereo correlation", "[signal][meter]") {
 
     SECTION("Inverted channels → correlation ≈ -1") {
         for (int i = 0; i < N; ++i) {
-            ch0[i] = std::sin(2.0f * pi * 440.0f * i / 44100.0f);
+            ch0[i] = std::sin(2.0f * kPi * 440.0f * i / 44100.0f);
             ch1[i] = -ch0[i];
         }
         const float* channels[] = {ch0.data(), ch1.data()};
@@ -431,7 +431,7 @@ TEST_CASE("MultiChannelMeter supports high channel counts", "[signal][meter]") {
         bufs[ch].resize(N);
         float amp = 0.1f * (ch + 1);
         for (int i = 0; i < N; ++i)
-            bufs[ch][i] = amp * std::sin(2.0f * pi * (220.0f * (ch + 1)) * i / 44100.0f);
+            bufs[ch][i] = amp * std::sin(2.0f * kPi * (220.0f * (ch + 1)) * i / 44100.0f);
         ptrs[ch] = bufs[ch].data();
     }
 

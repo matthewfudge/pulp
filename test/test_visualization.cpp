@@ -11,7 +11,7 @@ using namespace pulp::view;
 using namespace pulp::signal;
 using Catch::Matchers::WithinAbs;
 
-static constexpr float pi = 3.14159265358979323846f;
+static constexpr float kPi = 3.14159265358979323846f;
 
 // ── VisualizationBridge Tests ───────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ TEST_CASE("VisualizationBridge publishes spectrum", "[view][vizbridge]") {
     // Generate a sine wave
     std::vector<float> buf(512);
     for (int i = 0; i < 512; ++i)
-        buf[i] = std::sin(2.0f * pi * 1000.0f * i / 44100.0f);
+        buf[i] = std::sin(2.0f * kPi * 1000.0f * i / 44100.0f);
 
     const float* channels[] = {buf.data()};
     bridge.process(channels, 1, 512);
@@ -80,8 +80,8 @@ TEST_CASE("VisualizationBridge publishes meter data", "[view][vizbridge]") {
     constexpr int N = 4410;
     std::vector<float> ch0(N), ch1(N);
     for (int i = 0; i < N; ++i) {
-        ch0[i] = 0.7f * std::sin(2.0f * pi * 440.0f * i / 44100.0f);
-        ch1[i] = 0.3f * std::sin(2.0f * pi * 880.0f * i / 44100.0f);
+        ch0[i] = 0.7f * std::sin(2.0f * kPi * 440.0f * i / 44100.0f);
+        ch1[i] = 0.3f * std::sin(2.0f * kPi * 880.0f * i / 44100.0f);
     }
 
     const float* channels[] = {ch0.data(), ch1.data()};
@@ -172,8 +172,8 @@ TEST_CASE("VisualizationBridge lock-free stress test", "[view][vizbridge]") {
         while (running.load(std::memory_order_relaxed)) {
             for (int i = 0; i < 128; ++i) {
                 float t = static_cast<float>(write_count.load()) * 128 + i;
-                ch0[i] = 0.5f * std::sin(2.0f * pi * 440.0f * t / 48000.0f);
-                ch1[i] = 0.3f * std::sin(2.0f * pi * 880.0f * t / 48000.0f);
+                ch0[i] = 0.5f * std::sin(2.0f * kPi * 440.0f * t / 48000.0f);
+                ch1[i] = 0.3f * std::sin(2.0f * kPi * 880.0f * t / 48000.0f);
             }
             bridge.process(channels, 2, 128);
             write_count.fetch_add(1, std::memory_order_relaxed);

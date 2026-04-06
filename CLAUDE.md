@@ -275,6 +275,20 @@ Status is tracked locally in `planning/STATUS.md` (gitignored). Phase specs live
 
 ## Dependency Management
 
+### CHOC-First Policy
+
+Before implementing common C++ utilities, check if [CHOC](https://github.com/Tracktion/choc) already provides it. CHOC is vendored in `external/choc/`, MIT-licensed, and is Pulp's preferred utility layer.
+
+CHOC already provides:
+- **MIDI**: `choc::midi::ShortMessage`, note/CC helpers
+- **JSON**: `choc::json`, `choc::value`
+- **Audio file I/O**: `choc::audio::AudioFileFormat` (WAV, FLAC, OGG)
+- **Lock-free containers**: `choc::fifo::SingleReaderSingleWriterFIFO`
+- **String utilities**: `choc::text` (trim, split, contains, replace)
+- **JavaScript**: `choc::javascript::QuickJSContext`
+
+When writing new code, prefer a CHOC utility over a hand-rolled equivalent. Only implement custom when CHOC doesn't cover the need or when performance requirements demand a specialized implementation (e.g., SIMD FFT).
+
 ### DEPENDENCIES.md
 
 Every third-party dependency is tracked in `DEPENDENCIES.md` at the repo root:

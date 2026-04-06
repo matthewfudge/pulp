@@ -36,22 +36,39 @@ private:
     AudioCallback callback_;
     bool is_open_ = false;
     bool is_running_ = false;
+    bool input_enabled_ = false;
     uint64_t sample_position_ = 0;
 
     // Buffers for the callback
     std::vector<float*> output_ptrs_;
     std::vector<float*> input_ptrs_;
+
+    // Pre-allocated input capture buffers (avoids allocation in audio callback)
+    std::vector<float> input_buffer_storage_;
+    std::vector<AudioBuffer> input_audio_buffers_;
+    AudioBufferList* input_buffer_list_ = nullptr;
+    size_t input_buffer_list_size_ = 0;
 };
 
 class CoreAudioSystem : public AudioSystem {
 public:
+    CoreAudioSystem() = default;
+    ~CoreAudioSystem() override;
+
     std::vector<DeviceInfo> enumerate_devices() override;
     std::unique_ptr<AudioDevice> create_device(const std::string& device_id) override;
     DeviceInfo default_output_device() override;
     DeviceInfo default_input_device() override;
+    void set_device_change_callback(DeviceChangeCallback cb) override;
 
     static DeviceInfo query_device_info(AudioDeviceID device_id);
     static AudioDeviceID get_default_device(bool input);
+
+private:
+    static OSStatus device_list_changed(AudioObjectID, UInt32,
+                                        const AudioObjectPropertyAddress*, void*);
+    DeviceChangeCallback device_change_cb_;
+    bool listener_installed_ = false;
 };
 
 } // namespace pulp::audio::mac

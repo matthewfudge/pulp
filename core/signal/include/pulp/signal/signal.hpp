@@ -33,3 +33,4 @@
 #include <pulp/signal/stft.hpp>
 #include <pulp/signal/spectrogram.hpp>
 #include <pulp/signal/multi_channel_meter.hpp>
+#include <pulp/signal/convolver.hpp>
