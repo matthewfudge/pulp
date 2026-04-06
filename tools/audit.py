@@ -11,10 +11,15 @@ Usage:
     python3 tools/audit.py                    # Audit the current project
     python3 tools/audit.py path/to/library    # Audit a specific library
     python3 tools/audit.py --license          # License check only
+
+If .private/audit-naming.py exists, additional naming checks are run
+automatically. See .private/README.md for setup.
 """
 
 import argparse
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -85,6 +90,19 @@ def main():
     # Vendor file checks
     if not args.license:
         errors.extend(check_vendor_files(root))
+
+    # Run private audit if available (additional naming/pattern checks)
+    private_audit = root / '.private' / 'audit-naming.py'
+    if private_audit.exists() and not args.license:
+        print('Running extended audit from .private/audit-naming.py...')
+        result = subprocess.run(
+            [sys.executable, str(private_audit), str(root), '--check-source', '--quiet'],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            errors.append('Extended naming audit failed:')
+            for line in result.stdout.strip().splitlines():
+                errors.append(f'  {line}')
 
     if errors:
         print(f'\n\033[1;31m{len(errors)} issues found:\033[0m')
