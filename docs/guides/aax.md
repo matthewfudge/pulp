@@ -1,7 +1,6 @@
 # AAX Setup
 
-not bundle the AAX SDK, DigiShell, the validator, Pro Tools, or any Avid example
-source. The repo stays MIT-licensed; your local AAX toolchain stays outside it.
+AAX is an optional plugin format for Pro Tools. Pulp supports AAX Native targets on macOS and Windows when you provide the Avid AAX SDK locally. The SDK is not bundled — your local AAX toolchain stays outside the repo.
 
 ## Platform Scope
 

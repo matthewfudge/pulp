@@ -76,7 +76,6 @@ Pulp implements or builds on these open standards:
 
 ## Projects That Inspired Pulp
 
-These projects were studied for architecture and patterns (not code). Pulp's implementation is original.
 
 | Project | License | What We Learned |
 |---------|---------|-----------------|
