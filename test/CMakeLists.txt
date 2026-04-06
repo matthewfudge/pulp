@@ -76,6 +76,11 @@ add_executable(pulp-test-signal test_signal.cpp)
 target_link_libraries(pulp-test-signal PRIVATE pulp::signal Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-signal)
 
+# Convolution engine tests
+add_executable(pulp-test-convolver test_convolver.cpp)
+target_link_libraries(pulp-test-convolver PRIVATE pulp::signal Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-convolver)
+
 # STFT and audio visualization signal tests
 add_executable(pulp-test-stft test_stft.cpp)
 target_link_libraries(pulp-test-stft PRIVATE pulp::signal Catch2::Catch2WithMain)
