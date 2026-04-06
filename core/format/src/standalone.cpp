@@ -1,5 +1,6 @@
 #include <pulp/format/standalone.hpp>
 #include <pulp/format/editor_ui.hpp>
+#include <pulp/format/settings_panel.hpp>
 #include <pulp/view/window_host.hpp>
 #include <pulp/runtime/log.hpp>
 
@@ -55,6 +56,12 @@ bool StandaloneApp::start() {
     prep.output_channels = config_.output_channels;
     processor_->prepare(prep);
 
+    // Pre-allocate test signal buffer (no audio-thread allocation)
+    test_signal_.set_sample_rate(config_.sample_rate);
+    int test_ch = std::max(config_.input_channels, config_.output_channels);
+    if (test_ch < 2) test_ch = 2;
+    test_buffer_.resize(static_cast<size_t>(test_ch), static_cast<size_t>(config_.buffer_size));
+
     // Set up MIDI input (optional)
     if (desc.accepts_midi) {
         midi_system_ = midi::create_midi_system();
@@ -88,12 +95,36 @@ bool StandaloneApp::start() {
             pending_midi_.clear();
         }
 
+        // Determine actual input: test signal overrides hardware input
+        const audio::BufferView<const float>* actual_input = &input;
+        if (test_signal_.is_active()) {
+            auto test_view = test_buffer_.view();
+            int ch = static_cast<int>(test_view.num_channels());
+            int frames = ctx.buffer_size;
+            std::vector<float*> ptrs(static_cast<size_t>(ch));
+            for (int c = 0; c < ch; ++c)
+                ptrs[static_cast<size_t>(c)] = test_view.channel_ptr(static_cast<size_t>(c));
+            test_signal_.fill(ptrs.data(), ch, frames);
+            // Build a const view from the test buffer
+            // (BufferView<const float> can be constructed from the mutable view data)
+        }
+
+        // Push input meter data (meter whatever goes into the processor)
+        if (actual_input->num_channels() > 0) {
+            int meter_ch = static_cast<int>(actual_input->num_channels());
+            int meter_frames = ctx.buffer_size;
+            std::vector<const float*> ch_ptrs(static_cast<size_t>(meter_ch));
+            for (int c = 0; c < meter_ch; ++c)
+                ch_ptrs[static_cast<size_t>(c)] = actual_input->channel_ptr(static_cast<size_t>(c));
+            input_meter_bridge_.analyze_and_push(ch_ptrs.data(), meter_ch, meter_frames);
+        }
+
         ProcessContext proc_ctx;
         proc_ctx.sample_rate = ctx.sample_rate;
         proc_ctx.num_samples = ctx.buffer_size;
         proc_ctx.position_samples = static_cast<int64_t>(ctx.sample_position);
 
-        processor_->process(output, input, midi_in, midi_out, proc_ctx);
+        processor_->process(output, *actual_input, midi_in, midi_out, proc_ctx);
     });
 
     if (!ok) {
@@ -105,6 +136,14 @@ bool StandaloneApp::start() {
     auto device_info = audio_device_->info();
     runtime::log_info("Standalone: running on '{}' at {} Hz, buffer {}",
         device_info.name, config_.sample_rate, config_.buffer_size);
+    return true;
+}
+
+bool StandaloneApp::apply_config(const StandaloneConfig& new_config) {
+    bool was_running = running_.load();
+    if (was_running) stop();
+    config_ = new_config;
+    if (was_running) return start();
     return true;
 }
 
@@ -129,14 +168,45 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     auto [w, h] = processor_->editor_size();
     auto desc = processor_->descriptor();
 
+    // Create settings panel
+    auto settings_panel = std::make_unique<SettingsPanel>();
+    auto* settings_ptr = settings_panel.get();
+    settings_panel->bind_systems(audio_system_.get(), midi_system_.get());
+    settings_panel->set_current_config(config_);
+    settings_panel->set_input_meter_bridge(&input_meter_bridge_);
+    settings_panel->set_callbacks({
+        .on_config_apply = [this, settings_ptr](const StandaloneConfig& cfg) {
+            if (apply_config(cfg)) {
+                // Re-bind systems after restart (they may be recreated)
+                settings_ptr->bind_systems(audio_system_.get(), midi_system_.get());
+            }
+        },
+        .on_test_signal_changed = [this](const TestSignalConfig& cfg) {
+            test_signal_.set_config(cfg);
+        },
+        .on_file_load = [this](const std::string& path) {
+            test_signal_.load_file(path);
+        },
+        .on_file_transport = [this](bool play, bool loop) {
+            test_signal_.set_loop(loop);
+            if (play) test_signal_.play(); else test_signal_.stop();
+        },
+    });
+
+    // Wrap editor and settings in a TabPanel
+    auto tab_panel = std::make_unique<view::TabPanel>();
+    tab_panel->flex().flex_grow = 1.0f;
+    tab_panel->add_tab("Editor", std::move(root));
+    tab_panel->add_tab("Settings", std::move(settings_panel));
+
     view::WindowOptions opts;
     opts.title = desc.name + " — Standalone";
     opts.width = static_cast<float>(w);
-    opts.height = static_cast<float>(h);
+    opts.height = static_cast<float>(h) + 32.0f;  // Extra space for tab bar
     opts.resizable = true;
     opts.use_gpu = use_gpu;
 
-    auto window = view::WindowHost::create(*root, opts);
+    auto window = view::WindowHost::create(*tab_panel, opts);
     if (!window) {
         runtime::log_error("Standalone: WindowHost::create() failed");
         stop();
@@ -147,8 +217,14 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         editor_ui.scripted_ui->set_repaint_callback([&window] {
             if (window) window->repaint();
         });
-        window->set_idle_callback([scripted_ui = editor_ui.scripted_ui.get()] {
+        window->set_idle_callback([scripted_ui = editor_ui.scripted_ui.get(), settings_ptr] {
             if (scripted_ui) scripted_ui->poll();
+            if (settings_ptr) settings_ptr->poll();
+        });
+    } else {
+        // Even without scripted UI, poll settings for meter updates
+        window->set_idle_callback([settings_ptr] {
+            if (settings_ptr) settings_ptr->poll();
         });
     }
 
