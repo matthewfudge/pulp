@@ -36,11 +36,18 @@ private:
     AudioCallback callback_;
     bool is_open_ = false;
     bool is_running_ = false;
+    bool input_enabled_ = false;
     uint64_t sample_position_ = 0;
 
     // Buffers for the callback
     std::vector<float*> output_ptrs_;
     std::vector<float*> input_ptrs_;
+
+    // Pre-allocated input capture buffers (avoids allocation in audio callback)
+    std::vector<float> input_buffer_storage_;
+    std::vector<AudioBuffer> input_audio_buffers_;
+    AudioBufferList* input_buffer_list_ = nullptr;
+    size_t input_buffer_list_size_ = 0;
 };
 
 class CoreAudioSystem : public AudioSystem {
