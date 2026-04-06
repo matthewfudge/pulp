@@ -1,0 +1,57 @@
+# Planning and internal docs (committed to a separate private repo)
+/planning/
+/.planning-repo/
+/research/
+
+# Build artifacts
+/build/
+/build-*/
+/out/
+
+# IDE
+.vscode/
+.idea/
+*.xcworkspace/
+*.xcuserdata/
+xcuserdata/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local debug/temp artifacts
+/.tmp-pulp-demo-verification.png
+/pulpgain-test-pencil-render.png
+/pulp
+/tokens.json
+/examples/design-tool/.design-tool-*.tmp.js
+
+
+# Dependencies (fetched at build time)
+/external/*/
+# Exception: vendored deps committed to repo
+!/external/nanosvg/
+!/external/skia-build/
+
+# Node (for web/WASM builds)
+node_modules/
+
+# Rust (if Tauri tooling is used)
+target/
+
+# Python
+__pycache__/
+*.pyc
+tools/deps/hosts.local.json
+
+# Local CI runtime files
+tools/local-ci/config.json
+tools/local-ci/queue.json
+tools/local-ci/results/
+
+# Secrets
+.env
+.env.*
+!.env.example
+examples/web-demos/wasm-build/build/
+/.private/

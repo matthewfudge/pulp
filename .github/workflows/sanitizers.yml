@@ -1,0 +1,139 @@
+name: Sanitizer Tests
+
+on:
+  # Uncomment to re-enable cloud CI on pull requests:
+  # pull_request:
+  #   branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  asan:
+    runs-on: macos-14
+    name: AddressSanitizer (macOS ARM64)
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+
+      - name: Configure with ASan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test with ASan
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1"  # leak detection off (Catch2 false positives)
+        run: ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
+
+  tsan:
+    runs-on: macos-14
+    name: ThreadSanitizer (macOS ARM64)
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+
+      - name: Configure with TSan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread" \
+            -DCMAKE_C_FLAGS="-fsanitize=thread" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test with TSan
+        env:
+          TSAN_OPTIONS: "halt_on_error=1"
+        run: ctest --test-dir build --output-on-failure -j1  # TSan needs serial execution
+
+  ubsan:
+    runs-on: macos-14
+    name: UndefinedBehaviorSanitizer (macOS ARM64)
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+
+      - name: Configure with UBSan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all" \
+            -DCMAKE_C_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test with UBSan
+        run: ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
+
+  rtsan:
+    runs-on: ubuntu-24.04
+    name: RealtimeSanitizer (Linux x86_64, Clang 18)
+    # RTSan requires upstream LLVM Clang 18+. Not available in Apple Clang.
+    # See: https://clang.llvm.org/docs/RealtimeSanitizer.html
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install Clang 18
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          sudo apt-get install -y clang-18 lld-18
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+
+      - name: Configure with RTSan
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_CXX_FLAGS="-fsanitize=realtime -fno-omit-frame-pointer" \
+            -DCMAKE_C_FLAGS="-fsanitize=realtime -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=realtime" \
+            -DPULP_BUILD_TESTS=ON \
+            -DPULP_BUILD_EXAMPLES=OFF \
+            -DPULP_ENABLE_GPU=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test with RTSan
+        run: ctest --test-dir build --output-on-failure -j$(nproc) --exclude-regex "GpuSurface|compileShader"

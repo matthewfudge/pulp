@@ -1,0 +1,626 @@
+cmake_minimum_required(VERSION 3.24)
+
+project(Pulp
+    VERSION 0.1.0
+    DESCRIPTION "Cross-platform audio plugin and application framework"
+    HOMEPAGE_URL "https://github.com/danielraffel/pulp"
+    LANGUAGES CXX
+)
+
+# ── C++20 Standard ──────────────────────────────────────────────────────────
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(APPLE)
+    include(CheckLanguage)
+    check_language(OBJCXX)
+    if(CMAKE_OBJCXX_COMPILER)
+        enable_language(OBJCXX)
+        set(CMAKE_OBJCXX_STANDARD 20)
+        set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+    endif()
+endif()
+
+# Required on Linux: static libraries linked into shared objects (.clap, .so) need PIC
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# ── Platform Detection ──────────────────────────────────────────────────────
+if(APPLE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(PULP_IOS TRUE)
+        set(PULP_PLATFORM "ios")
+    else()
+        set(PULP_MACOS TRUE)
+        set(PULP_PLATFORM "mac")
+    endif()
+    set(PULP_APPLE TRUE)
+elseif(WIN32)
+    set(PULP_WINDOWS TRUE)
+    set(PULP_PLATFORM "win")
+elseif(UNIX)
+    set(PULP_LINUX TRUE)
+    set(PULP_PLATFORM "linux")
+elseif(ANDROID)
+    set(PULP_ANDROID TRUE)
+    set(PULP_PLATFORM "android")
+endif()
+
+message(STATUS "Pulp ${PROJECT_VERSION} — platform: ${PULP_PLATFORM}")
+
+# ── Options ─────────────────────────────────────────────────────────────────
+option(PULP_BUILD_TESTS "Build unit tests" ON)
+option(PULP_BUILD_EXAMPLES "Build example projects" ON)
+option(PULP_ENABLE_GPU "Enable GPU rendering (Dawn/Skia)" ON)
+option(PULP_ENABLE_SWIFT "Enable Swift layer (Apple only)" OFF)
+option(PULP_ENABLE_AAX "Enable optional AAX support with a developer-supplied SDK" OFF)
+option(PULP_FETCHCONTENT_UPDATES_DISCONNECTED "Avoid implicit FetchContent updates during configure" ON)
+option(PULP_USE_SHARED_FETCHCONTENT_SOURCES "Prefer machine-local shared source caches for FetchContent dependencies" ON)
+set(PULP_SHARED_FETCHCONTENT_SOURCE_DIR "" CACHE PATH "Machine-local shared source cache root for FetchContent dependencies")
+set(PULP_AAX_SDK_DIR "" CACHE PATH "Path to a developer-supplied AAX SDK kept outside the Pulp source tree")
+
+# ── Compiler Warnings ──────────────────────────────────────────────────────
+if(MSVC)
+    add_compile_options(/W4 /wd4100)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+endif()
+
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# ── Sanitizers (optional) ──────────────────────────────────────────────────
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/Sanitizers.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpAAX.cmake)
+pulp_configure_aax_sdk()
+
+# ── Third-Party Dependencies ────────────────────────────────────────────────
+include(FetchContent)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ${PULP_FETCHCONTENT_UPDATES_DISCONNECTED})
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpFetchContent.cmake)
+
+# CHOC: header-only C++ utilities (ISC license)
+# Used for: JS engine abstraction, MIDI utilities
+pulp_register_fetchcontent_source(choc REF f0f5cdf5a938b8b779fea6c083571cce5ccab925)
+FetchContent_Declare(
+    choc
+    GIT_REPOSITORY https://github.com/Tracktion/choc.git
+    GIT_TAG f0f5cdf5a938b8b779fea6c083571cce5ccab925
+)
+FetchContent_MakeAvailable(choc)
+
+# WebGPU (Dawn) — cross-platform GPU abstraction (BSD-3-Clause)
+# Uses eliemichel/WebGPU-distribution for CMake-friendly integration
+if(PULP_ENABLE_GPU)
+    pulp_register_fetchcontent_source(webgpu REF 17dcd42a7683355e7a40ac4e97e77f36dff5b5ab)
+    pulp_register_wgpu_native_precompiled_source(v24.0.3.1)
+    FetchContent_Declare(
+        webgpu
+        GIT_REPOSITORY https://github.com/eliemichel/WebGPU-distribution.git
+        GIT_TAG 17dcd42a7683355e7a40ac4e97e77f36dff5b5ab
+    )
+    set(_pulp_restore_arch FALSE)
+    if(WIN32)
+        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _pulp_webgpu_processor)
+        if(_pulp_webgpu_processor STREQUAL "arm64" OR _pulp_webgpu_processor STREQUAL "aarch64")
+            if(DEFINED ARCH)
+                set(_pulp_saved_arch "${ARCH}")
+            endif()
+            set(ARCH "aarch64")
+            set(_pulp_restore_arch TRUE)
+            message(STATUS "Pulp: forcing WebGPU prebuilt architecture to aarch64 for ${CMAKE_SYSTEM_PROCESSOR}")
+        endif()
+    endif()
+    FetchContent_MakeAvailable(webgpu)
+    if(_pulp_restore_arch)
+        if(DEFINED _pulp_saved_arch)
+            set(ARCH "${_pulp_saved_arch}")
+        else()
+            unset(ARCH)
+        endif()
+        unset(_pulp_saved_arch)
+    endif()
+    unset(_pulp_restore_arch)
+    unset(_pulp_webgpu_processor)
+    set(PULP_HAS_WEBGPU TRUE)
+    message(STATUS "Pulp: WebGPU (Dawn) enabled")
+
+    # Skia Graphite — GPU-accelerated 2D rendering (BSD-3-Clause)
+    # Pre-built via skia-builder (https://github.com/olilarkin/skia-builder)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/FindSkia.cmake)
+    if(SKIA_FOUND)
+        set(PULP_HAS_SKIA TRUE)
+    endif()
+endif()
+
+# SDL3 — cross-platform windowing, input, GPU context (zlib license)
+pulp_register_fetchcontent_source(SDL3 DIR sdl3 REF release-3.2.12)
+FetchContent_Declare(
+    SDL3
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG release-3.2.12
+    GIT_SHALLOW TRUE
+)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SDL3)
+set(PULP_HAS_SDL3 TRUE)
+message(STATUS "Pulp: SDL3 enabled")
+
+# VST3 SDK (MIT license) — cloned into external/vst3sdk/
+set(VST3_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vst3sdk")
+if(EXISTS "${VST3_SDK_DIR}/pluginterfaces")
+    set(PULP_HAS_VST3 TRUE)
+
+    # Build the minimal VST3 SDK base library
+    file(GLOB_RECURSE VST3_BASE_SOURCES
+        "${VST3_SDK_DIR}/base/source/*.cpp"
+        "${VST3_SDK_DIR}/base/thread/source/*.cpp"
+    )
+    file(GLOB_RECURSE VST3_PLUGIF_SOURCES
+        "${VST3_SDK_DIR}/pluginterfaces/base/*.cpp"
+    )
+    file(GLOB_RECURSE VST3_SDK_SOURCES
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstaudioeffect.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstbus.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstcomponent.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstcomponentbase.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstinitiids.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstparameters.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/common/pluginview.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/common/commoniids.cpp"
+    )
+
+    add_library(vst3-sdk STATIC
+        ${VST3_BASE_SOURCES}
+        ${VST3_PLUGIF_SOURCES}
+        ${VST3_SDK_SOURCES}
+    )
+    target_include_directories(vst3-sdk PUBLIC
+        $<BUILD_INTERFACE:${VST3_SDK_DIR}>
+        $<INSTALL_INTERFACE:external/vst3sdk>
+    )
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        target_compile_definitions(vst3-sdk PUBLIC RELEASE=1)
+    else()
+        target_compile_definitions(vst3-sdk PUBLIC DEVELOPMENT=1)
+    endif()
+    # Suppress warnings in third-party code
+    target_compile_options(vst3-sdk PRIVATE -w)
+
+    message(STATUS "Pulp: VST3 SDK found at ${VST3_SDK_DIR}")
+else()
+    set(PULP_HAS_VST3 FALSE)
+    message(STATUS "Pulp: VST3 SDK not found — VST3 format disabled")
+endif()
+
+# CLAP (MIT license) — header-only plugin format
+pulp_register_fetchcontent_source(clap REF 1.2.2)
+FetchContent_Declare(
+    clap
+    GIT_REPOSITORY https://github.com/free-audio/clap.git
+    GIT_TAG 1.2.2
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(clap)
+target_include_directories(clap INTERFACE
+    $<BUILD_INTERFACE:${clap_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:external/clap/include>
+)
+set(PULP_HAS_CLAP TRUE)
+message(STATUS "Pulp: CLAP SDK available")
+
+# LV2 (ISC license) — header-only plugin format (Linux-first)
+pulp_register_fetchcontent_source(lv2 REF v1.18.10)
+FetchContent_Declare(
+    lv2
+    GIT_REPOSITORY https://github.com/lv2/lv2.git
+    GIT_TAG v1.18.10
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(lv2)
+# LV2 headers are in lv2/include/
+add_library(lv2-headers INTERFACE)
+target_include_directories(lv2-headers INTERFACE
+    $<BUILD_INTERFACE:${lv2_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:external/lv2/include>
+)
+set(PULP_HAS_LV2 TRUE)
+message(STATUS "Pulp: LV2 SDK available")
+
+# Facebook Yoga (MIT license) — cross-platform CSS Flexbox/Grid layout engine
+pulp_register_fetchcontent_source(yoga REF v3.2.1)
+FetchContent_Declare(
+    yoga
+    GIT_REPOSITORY https://github.com/facebook/yoga.git
+    GIT_TAG v3.2.1
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR yoga
+)
+FetchContent_MakeAvailable(yoga)
+set(PULP_HAS_YOGA TRUE)
+message(STATUS "Pulp: Yoga layout engine enabled")
+
+# three.js (MIT license) — native WebGPU bridge demos and tests
+if(PULP_BUILD_TESTS AND PULP_ENABLE_GPU)
+    pulp_register_fetchcontent_source(threejs REF 077dd13c0e869d9f3dbe55875686f920367de457)
+    FetchContent_Declare(
+        threejs
+        GIT_REPOSITORY https://github.com/mrdoob/three.js.git
+        GIT_TAG 077dd13c0e869d9f3dbe55875686f920367de457
+    )
+    FetchContent_MakeAvailable(threejs)
+    set(PULP_HAS_THREEJS TRUE)
+    message(STATUS "Pulp: three.js native bridge dependency available")
+endif()
+
+# Apple AudioUnitSDK (Apache 2.0) — for AU v2 plugin support (macOS only, not iOS)
+set(AUSDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/AudioUnitSDK")
+if(PULP_MACOS AND EXISTS "${AUSDK_DIR}/include/AudioUnitSDK/AUBase.h")
+    set(PULP_HAS_AUSDK TRUE)
+
+    file(GLOB AUSDK_SOURCES "${AUSDK_DIR}/src/AudioUnitSDK/*.cpp")
+    add_library(ausdk STATIC ${AUSDK_SOURCES})
+    target_include_directories(ausdk PUBLIC
+        $<BUILD_INTERFACE:${AUSDK_DIR}/include>
+        $<INSTALL_INTERFACE:external/AudioUnitSDK/include>
+    )
+    target_link_libraries(ausdk PUBLIC
+        "-framework AudioToolbox"
+        "-framework CoreFoundation"
+        "-framework CoreAudio"
+    )
+    target_compile_options(ausdk PRIVATE -w)  # Suppress third-party warnings
+    target_compile_features(ausdk PUBLIC cxx_std_23)  # AudioUnitSDK 1.4 requires std::expected
+
+    message(STATUS "Pulp: AudioUnitSDK found — AU v2 support enabled")
+else()
+    set(PULP_HAS_AUSDK FALSE)
+    message(STATUS "Pulp: AudioUnitSDK not found — AU v2 format disabled")
+endif()
+
+# ── Core Subsystems ─────────────────────────────────────────────────────────
+# Order matters: dependencies first
+add_subdirectory(core/platform)
+add_subdirectory(core/runtime)
+add_subdirectory(core/events)
+add_subdirectory(core/state)
+add_subdirectory(core/audio)
+add_subdirectory(core/midi)
+add_subdirectory(core/signal)
+add_subdirectory(core/format)
+add_subdirectory(core/canvas)
+add_subdirectory(core/view)
+add_subdirectory(core/osc)
+add_subdirectory(core/host)
+add_subdirectory(core/dsl)
+
+# ── Optional Subsystems ────────────────────────────────────────────────────
+if(PULP_ENABLE_GPU)
+    add_subdirectory(core/render)
+endif()
+
+add_library(pulp-standalone STATIC
+    core/format/src/standalone.cpp
+)
+add_library(pulp::standalone ALIAS pulp-standalone)
+target_include_directories(pulp-standalone
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/core/format/include>
+        $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(pulp-standalone
+    PUBLIC
+        pulp::format
+        pulp::view
+        $<BUILD_INTERFACE:yogacore>
+        $<INSTALL_INTERFACE:Pulp::yogacore>
+        $<BUILD_INTERFACE:SDL3::SDL3-static>
+        $<INSTALL_INTERFACE:Pulp::sdl3-static>
+)
+
+if(PULP_ENABLE_GPU)
+    add_subdirectory(inspect)
+endif()
+add_subdirectory(ship)
+add_subdirectory(tools/audio)
+
+# ── Testing ─────────────────────────────────────────────────────────────────
+if(PULP_BUILD_TESTS)
+    enable_testing()
+    include(FetchContent)
+    pulp_register_fetchcontent_source(Catch2 DIR catch2 REF v3.7.1)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.7.1
+    )
+    FetchContent_MakeAvailable(Catch2)
+    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+    include(Catch)
+    add_subdirectory(test)
+endif()
+
+# ── CMake Module Path (for pulp_add_plugin, pulp_add_app) ──────────────────
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake")
+include(PulpUtils)
+
+# ── CLI Tool ───────────────────────────────────────────────────────────────
+add_subdirectory(tools/cli)
+
+# ── MCP Server ─────────────────────────────────────────────────────────────
+add_subdirectory(tools/mcp)
+
+# ── Screenshot Tool ────────────────────────────────────────────────────────
+add_subdirectory(tools/screenshot)
+
+# ── Design Tool ───────────────────────────────────────────────────────────
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/design/CMakeLists.txt)
+    add_subdirectory(tools/design)
+endif()
+
+# ── Import Design Tool ────────────────────────────────────────────────────
+add_subdirectory(tools/import-design)
+
+# ── Python Bindings ────────────────────────────────────────────────────────
+option(PULP_BUILD_PYTHON "Build Python bindings via pybind11" OFF)
+if(PULP_BUILD_PYTHON)
+    add_subdirectory(bindings/python)
+endif()
+
+# ── Node.js Bindings ──────────────────────────────────────────────────────
+option(PULP_BUILD_NODEJS "Build Node.js bindings via Node-API" OFF)
+if(PULP_BUILD_NODEJS)
+    add_subdirectory(bindings/nodejs)
+endif()
+
+# ── Examples ────────────────────────────────────────────────────────────────
+if(PULP_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+# ── SDK Install Rules ──────────────────────────────────────────────────────
+# cmake --install build --prefix <staging> produces a complete Pulp SDK
+include(GNUInstallDirs)
+
+# Core libraries for SDK packaging. Standalone projects need the same runtime
+# surface as repo examples, so the SDK exports the view/standalone layers plus
+# the bundled third-party pieces they depend on. Some targets, like
+# `pulp-render`, are optional in smoke or non-GPU builds, so only export targets
+# that were actually configured in this build tree.
+set(PULP_SDK_TARGETS
+    pulp-platform pulp-runtime pulp-events pulp-state
+    pulp-audio pulp-midi pulp-signal pulp-format
+    pulp-canvas pulp-view pulp-standalone pulp-dsl
+)
+
+if(TARGET pulp-render)
+    list(APPEND PULP_SDK_TARGETS pulp-render)
+endif()
+
+foreach(_sdk_target IN LISTS PULP_SDK_TARGETS)
+    string(REPLACE "pulp-" "" _sdk_export_name "${_sdk_target}")
+    set_target_properties(${_sdk_target} PROPERTIES EXPORT_NAME "${_sdk_export_name}")
+endforeach()
+
+install(TARGETS ${PULP_SDK_TARGETS}
+    EXPORT PulpTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+# Also install third-party targets that our exported targets depend on
+if(PULP_HAS_VST3)
+    install(TARGETS vst3-sdk
+        EXPORT PulpTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION external/vst3sdk
+    )
+endif()
+if(PULP_HAS_CLAP)
+    install(TARGETS clap EXPORT PulpTargets)
+endif()
+if(PULP_HAS_LV2)
+    install(TARGETS lv2-headers EXPORT PulpTargets)
+endif()
+if(PULP_HAS_AUSDK)
+    install(TARGETS ausdk
+        EXPORT PulpTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION external/AudioUnitSDK/include
+    )
+endif()
+if(TARGET yogacore)
+    set_target_properties(yogacore PROPERTIES
+        EXPORT_NAME yogacore
+        INTERFACE_INCLUDE_DIRECTORIES "$<BUILD_INTERFACE:${yoga_SOURCE_DIR}>;$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    )
+    install(TARGETS yogacore
+        EXPORT PulpTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+    if(DEFINED yoga_SOURCE_DIR AND EXISTS "${yoga_SOURCE_DIR}/yoga")
+        install(DIRECTORY "${yoga_SOURCE_DIR}/yoga"
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        )
+    endif()
+endif()
+if(TARGET SDL3-static)
+    set_target_properties(SDL3-static PROPERTIES EXPORT_NAME sdl3-static)
+    install(TARGETS SDL3-static
+        EXPORT PulpTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+if(TARGET SDL3_Headers)
+    set_target_properties(SDL3_Headers PROPERTIES EXPORT_NAME sdl3-headers)
+    install(TARGETS SDL3_Headers EXPORT PulpTargets)
+endif()
+
+# Public headers for each SDK subsystem
+foreach(subsystem platform runtime events state audio midi signal format canvas render view)
+    set(_inc_dir "${CMAKE_CURRENT_SOURCE_DIR}/core/${subsystem}/include")
+    if(EXISTS "${_inc_dir}")
+        install(DIRECTORY "${_inc_dir}/pulp/"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/pulp"
+            FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h"
+        )
+    endif()
+endforeach()
+
+# SDK version file
+file(WRITE "${CMAKE_BINARY_DIR}/version.txt" "${PROJECT_VERSION}\n")
+install(FILES "${CMAKE_BINARY_DIR}/version.txt" DESTINATION ".")
+
+# CMake config files for find_package(Pulp)
+install(EXPORT PulpTargets
+    FILE PulpTargets.cmake
+    NAMESPACE Pulp::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Pulp
+)
+
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    "${CMAKE_BINARY_DIR}/PulpConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpConfig.cmake.in"
+    "${CMAKE_BINARY_DIR}/PulpConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Pulp
+)
+
+install(FILES
+    "${CMAKE_BINARY_DIR}/PulpConfig.cmake"
+    "${CMAKE_BINARY_DIR}/PulpConfigVersion.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpAAX.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpUtils.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpPlugin.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/FindSkia.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpInfoPlist.aax.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpInfoPlist.au.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpInfoPlist.vst3.in"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Pulp
+)
+
+# Templates for standalone project scaffolding
+install(DIRECTORY tools/templates/
+    DESTINATION templates
+    PATTERN "*.template"
+)
+install(DIRECTORY templates/ios-auv3
+    DESTINATION templates
+)
+
+# Header-only third-party deps referenced by installed public headers
+install(DIRECTORY "${choc_SOURCE_DIR}/choc"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+
+if(DEFINED SDL3_SOURCE_DIR AND EXISTS "${SDL3_SOURCE_DIR}/include/SDL3")
+    install(DIRECTORY "${SDL3_SOURCE_DIR}/include/SDL3"
+        DESTINATION external/SDL3/include
+    )
+    if(EXISTS "${SDL3_SOURCE_DIR}/include/build_config")
+        install(DIRECTORY "${SDL3_SOURCE_DIR}/include/build_config"
+            DESTINATION external/SDL3/include
+        )
+    endif()
+endif()
+if(DEFINED SDL3_BINARY_DIR AND EXISTS "${SDL3_BINARY_DIR}/include-revision/SDL3")
+    install(DIRECTORY "${SDL3_BINARY_DIR}/include-revision/SDL3"
+        DESTINATION external/SDL3/include
+    )
+endif()
+
+# Format SDK headers (CLAP, LV2 — MIT/ISC compatible)
+if(PULP_HAS_CLAP)
+    install(DIRECTORY "${clap_SOURCE_DIR}/include/clap"
+        DESTINATION external/clap/include
+    )
+endif()
+if(PULP_HAS_LV2)
+    install(DIRECTORY "${lv2_SOURCE_DIR}/include/lv2"
+        DESTINATION external/lv2/include
+    )
+endif()
+if(PULP_HAS_VST3)
+    install(DIRECTORY
+        "${VST3_SDK_DIR}/base"
+        "${VST3_SDK_DIR}/pluginterfaces"
+        "${VST3_SDK_DIR}/public.sdk"
+        DESTINATION external/vst3sdk
+        FILES_MATCHING PATTERN "*.h"
+    )
+    install(FILES
+        "${VST3_SDK_DIR}/public.sdk/source/main/dllmain.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/main/linuxmain.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/main/macmain.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/main/moduleinit.cpp"
+        "${VST3_SDK_DIR}/public.sdk/source/main/pluginfactory.cpp"
+        DESTINATION external/vst3sdk/public.sdk/source/main
+    )
+endif()
+if(PULP_HAS_AUSDK)
+    install(DIRECTORY "${AUSDK_DIR}/include/AudioUnitSDK"
+        DESTINATION external/AudioUnitSDK/include
+    )
+endif()
+
+# Helper sources needed by installed-SDK plugin targets. These are shared by
+# the unified PulpUtils.cmake implementation when it is used from find_package.
+install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/aax_runtime.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/au_adapter.mm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/au_audio_unit.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/au_entry.mm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/au_v2_cocoa_view.mm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/au_view_controller_ios.mm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/format/src/vst3_plug_view.cpp"
+    DESTINATION src/pulp/format
+)
+
+if(PULP_HAS_WEBGPU AND DEFINED WEBGPU_RUNTIME_LIB AND TARGET webgpu)
+    install(IMPORTED_RUNTIME_ARTIFACTS webgpu
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+
+    get_filename_component(_pulp_webgpu_lib_dir "${WEBGPU_RUNTIME_LIB}" DIRECTORY)
+    get_filename_component(_pulp_webgpu_root "${_pulp_webgpu_lib_dir}" DIRECTORY)
+
+    if(DEFINED FETCHCONTENT_SOURCE_DIR_WEBGPU
+       AND EXISTS "${FETCHCONTENT_SOURCE_DIR_WEBGPU}/wgpu-native/include")
+        install(DIRECTORY "${FETCHCONTENT_SOURCE_DIR_WEBGPU}/wgpu-native/include/"
+            DESTINATION external/webgpu/include
+        )
+    endif()
+
+    if(EXISTS "${_pulp_webgpu_root}/include")
+        install(DIRECTORY "${_pulp_webgpu_root}/include/"
+            DESTINATION external/webgpu/include
+        )
+    endif()
+
+    if(WIN32 AND DEFINED WGPU_IMPLIB AND EXISTS "${WGPU_IMPLIB}")
+        install(FILES "${WGPU_IMPLIB}"
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        )
+    endif()
+endif()
+
+if(PULP_HAS_SKIA)
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/skia-build"
+        DESTINATION external
+    )
+endif()

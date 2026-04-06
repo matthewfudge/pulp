@@ -1,0 +1,202 @@
+# Examples
+
+Pulp ships with eight example plugins plus standalone apps (GPU demo, UI preview, web demos). Each example validates a specific capability of the framework.
+
+All examples live under `examples/`.
+
+## PulpGain
+
+**Path**: `examples/pulp-gain/`
+**Type**: Effect
+**Formats**: VST3, AU v2, CLAP, Standalone
+**Purpose**: The simplest possible plugin. A gain knob. Validates that the build system works, format entry points are correct, and audio passes through.
+
+Features:
+- Single gain parameter (dB)
+- All four output formats
+- Golden-file audio test
+- Includes `Info.plist.au`, `Info.plist.vst3`, `moduleinfo.json`
+
+## PulpTone
+
+**Path**: `examples/pulp-tone/`
+**Type**: Instrument
+**Formats**: VST3, AU v2, CLAP, Standalone
+**Purpose**: A simple oscillator synth with MIDI input. Validates audio I/O, MIDI processing, and the instrument plugin path.
+
+Features:
+- Sine/saw/square oscillators
+- MIDI note input
+- Multiple format targets
+
+## PulpEffect
+
+**Path**: `examples/pulp-effect/`
+**Type**: Effect
+**Formats**: VST3, AU v2, CLAP
+**Purpose**: A filter effect with cutoff, resonance, and mix parameters. Validates parameter automation and state save/load across formats.
+
+Features:
+- Multi-parameter processing
+- State serialization
+- Format adapter validation
+
+## PulpCompressor
+
+**Path**: `examples/pulp-compressor/`
+**Type**: Effect
+**Formats**: VST3, AU v2, CLAP
+**Purpose**: A dynamics processor. Validates the sidechain API, latency reporting, and more complex DSP.
+
+Features:
+- Threshold, ratio, attack, release parameters
+- Sidechain input support
+- Latency compensation
+
+## PulpDrums
+
+**Path**: `examples/PulpDrums/`
+**Type**: MIDI Effect
+**Formats**: CLAP
+**Purpose**: A generative drum sequencer. The first example using MIDI output. Validates MIDI effect processing.
+
+Features:
+- Three voices (kick, snare, hi-hat)
+- Density and chaos controls
+- Pattern generation
+- MIDI output
+
+## PulpSynth
+
+**Path**: `examples/PulpSynth/`
+**Type**: Instrument
+**Formats**: CLAP
+**Purpose**: A macro oscillator synthesizer. Validates polyphonic instrument processing and more complex parameter layouts.
+
+Features:
+- Multiple oscillator models
+- Modulation parameters
+- Polyphonic voice handling
+
+## UI Preview
+
+**Path**: `examples/ui-preview/`
+**Type**: Standalone application (not a plugin)
+**Purpose**: A standalone app for testing the view/widget system and GPU rendering pipeline without building a full plugin.
+
+## FAUST Examples
+
+These examples validate the current supported FAUST lane: offline codegen,
+checked-in generated headers, `FaustProcessor<T>` wrapping, and headless
+regression tests.
+
+### FaustGain
+
+**Path**: `examples/faust-gain/`
+**Type**: Effect
+**Purpose**: Smallest FAUST example. Validates metadata reflection, state
+round-trip, and predictable gain processing.
+
+### FaustFilter
+
+**Path**: `examples/faust-filter/`
+**Type**: Effect
+**Purpose**: Multi-parameter FAUST effect. Validates parameter reflection and
+expected filter behavior.
+
+### FaustTremolo
+
+**Path**: `examples/faust-tremolo/`
+**Type**: Effect
+**Purpose**: Modulation effect example. Validates another non-trivial generated
+DSP shape and the current offline-codegen workflow.
+
+## Cmajor Example
+
+This example validates the current Cmajor support lane in its truthful scope:
+source-owned patch files plus an external-toolchain helper. It is **not** built
+as part of the normal CMake example set and does not imply a bundled Cmajor
+runtime.
+
+### CmajorGain
+
+**Path**: `examples/cmajor-gain/`
+**Type**: Source-only effect example
+**Purpose**: Minimal patch for validating Pulp's MIT-safe Cmajor workflow:
+patch/source structure, helper diagnostics, and user-supplied `cmaj` codegen.
+
+## JSFX Examples
+
+These examples validate Pulp's current bounded JSFX lane: source-only `.jsfx`
+files plus explicit subset validation. They do **not** imply a bundled REAPER
+runtime or full JSFX compatibility.
+
+### PulpJsfxGain
+
+**Path**: `examples/jsfx-gain/`
+**Type**: Source-only effect example
+**Purpose**: Minimal gain example validating `desc:`, slider declarations, and
+the `@init` + `@slider` + `@sample` subset.
+
+### PulpJsfxTremolo
+
+**Path**: `examples/jsfx-tremolo/`
+**Type**: Source-only effect example
+**Purpose**: Modulation example validating the same subset with a more musical
+processing shape.
+
+### PulpJsfxDelay
+
+**Path**: `examples/jsfx-delay/`
+**Type**: Source-only effect example
+**Purpose**: Memory-based delay idiom validating `@block` + `@sample` style in
+the bounded subset.
+
+## Building Examples
+
+All examples are built as part of the main build:
+
+```bash
+cmake -B build
+cmake --build build
+```
+
+To build a specific example:
+
+```bash
+cmake --build build --target PulpGain_VST3
+cmake --build build --target PulpTone_Standalone
+```
+
+## Testing Examples
+
+Each plugin example includes a test file (`test_pulp_*.cpp`) that exercises the processor through the headless host:
+
+```bash
+pulp test -R PulpGain
+pulp test -R PulpTone
+```
+
+For the FAUST lane specifically:
+
+```bash
+cmake --build build --target pulp-faust-gain-test pulp-faust-filter-test pulp-faust-tremolo-test -j8
+ctest --test-dir build --output-on-failure -R Faust
+```
+
+For the Cmajor external lane specifically:
+
+```bash
+python3 tools/scripts/cmajor_external.py doctor \
+  --patch examples/cmajor-gain/CmajorGain.cmajorpatch
+python3 -m unittest tools/scripts/test_cmajor_external.py
+```
+
+For the JSFX bounded lane specifically:
+
+```bash
+python3 tools/scripts/jsfx_subset.py doctor --file examples/jsfx-gain/PulpJsfxGain.jsfx
+python3 tools/scripts/jsfx_subset.py doctor --file examples/jsfx-tremolo/PulpJsfxTremolo.jsfx
+python3 tools/scripts/jsfx_subset.py doctor --file examples/jsfx-delay/PulpJsfxDelay.jsfx
+python3 -m unittest tools/scripts/test_jsfx_subset.py
+```

@@ -1,0 +1,17 @@
+desc:Pulp JSFX Gain
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+slider1:1<0,2,0.01>Gain
+
+@init
+gain = 1;
+
+@slider
+gain = slider1;
+
+@sample
+spl0 *= gain;
+spl1 *= gain;

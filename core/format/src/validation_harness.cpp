@@ -1,0 +1,506 @@
+/// @file validation_harness.cpp
+/// Implementation of the deterministic validation harness.
+
+#include <pulp/format/validation_harness.hpp>
+#include <pulp/platform/platform.hpp>
+#include <chrono>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
+#ifdef _WIN32
+#define PULP_POPEN _popen
+#define PULP_PCLOSE _pclose
+#include <io.h>
+#else
+#define PULP_POPEN popen
+#define PULP_PCLOSE pclose
+#include <sys/wait.h>
+#endif
+
+namespace pulp::format {
+
+ValidationHarness::ValidationHarness(ProcessorFactory factory)
+    : host_(std::move(factory))
+{}
+
+void ValidationHarness::configure(const ValidationRunOptions& opts) {
+    opts_ = opts;
+    if (!opts_.output_dir.empty()) {
+        std::filesystem::create_directories(opts_.output_dir);
+    }
+}
+
+// ── Audio control surface ───────────────────────────────────────────────────
+
+void ValidationHarness::prepare() {
+    host_.prepare(opts_.sample_rate, opts_.buffer_size,
+                  opts_.input_channels, opts_.output_channels);
+    prepared_ = true;
+}
+
+void ValidationHarness::set_param(state::ParamID id, float value) {
+    host_.state().set_value(id, value);
+}
+
+float ValidationHarness::get_param(state::ParamID id) const {
+    return host_.state().get_value(id);
+}
+
+void ValidationHarness::send_midi_note_on(int channel, int note, int velocity) {
+    pending_midi_in_.add(midi::MidiEvent::note_on(
+        static_cast<uint8_t>(channel),
+        static_cast<uint8_t>(note),
+        static_cast<uint8_t>(velocity)));
+}
+
+void ValidationHarness::send_midi_note_off(int channel, int note) {
+    pending_midi_in_.add(midi::MidiEvent::note_off(
+        static_cast<uint8_t>(channel),
+        static_cast<uint8_t>(note)));
+}
+
+void ValidationHarness::send_midi_cc(int channel, int controller, int value) {
+    pending_midi_in_.add(midi::MidiEvent::cc(
+        static_cast<uint8_t>(channel),
+        static_cast<uint8_t>(controller),
+        static_cast<uint8_t>(value)));
+}
+
+std::vector<float> ValidationHarness::process_blocks(int num_blocks) {
+    if (!prepared_) prepare();
+
+    auto nch = static_cast<std::size_t>(opts_.output_channels);
+    auto nsamp = static_cast<std::size_t>(opts_.buffer_size);
+
+    audio::Buffer<float> in(nch, nsamp);
+    audio::Buffer<float> out(nch, nsamp);
+
+    // Zero the input
+    for (std::size_t ch = 0; ch < nch; ++ch)
+        for (std::size_t i = 0; i < nsamp; ++i)
+            in.channel(ch)[i] = 0.0f;
+
+    midi::MidiBuffer midi_out;
+
+    for (int b = 0; b < num_blocks; ++b) {
+        const float* in_ptrs[16] = {};
+        for (std::size_t ch = 0; ch < nch && ch < 16; ++ch)
+            in_ptrs[ch] = in.channel(ch).data();
+        audio::BufferView<const float> in_view(in_ptrs, nch, nsamp);
+        auto out_view = out.view();
+
+        // Use pending MIDI on first block only
+        if (b == 0 && !pending_midi_in_.empty()) {
+            pending_midi_in_.sort();
+            host_.process(out_view, in_view, pending_midi_in_, midi_out);
+            pending_midi_in_.clear();
+        } else {
+            host_.process(out_view, in_view);
+        }
+        midi_out.clear();
+    }
+
+    // Return final block interleaved
+    std::vector<float> result(nch * nsamp);
+    for (std::size_t ch = 0; ch < nch; ++ch)
+        for (std::size_t i = 0; i < nsamp; ++i)
+            result[i * nch + ch] = out.channel(ch)[i];
+
+    return result;
+}
+
+std::vector<float> ValidationHarness::process_buffer(
+    const std::vector<float>& interleaved_input,
+    int num_channels, int num_samples)
+{
+    if (!prepared_) prepare();
+
+    auto nch = static_cast<std::size_t>(num_channels);
+    auto nsamp = static_cast<std::size_t>(num_samples);
+
+    audio::Buffer<float> in(nch, nsamp);
+    audio::Buffer<float> out(nch, nsamp);
+
+    // De-interleave input
+    for (std::size_t ch = 0; ch < nch; ++ch)
+        for (std::size_t i = 0; i < nsamp; ++i)
+            in.channel(ch)[i] = interleaved_input[i * nch + ch];
+
+    const float* in_ptrs[16] = {};
+    for (std::size_t ch = 0; ch < nch && ch < 16; ++ch)
+        in_ptrs[ch] = in.channel(ch).data();
+    audio::BufferView<const float> in_view(in_ptrs, nch, nsamp);
+    auto out_view = out.view();
+
+    midi::MidiBuffer midi_out;
+    if (!pending_midi_in_.empty()) {
+        pending_midi_in_.sort();
+        host_.process(out_view, in_view, pending_midi_in_, midi_out);
+        pending_midi_in_.clear();
+    } else {
+        host_.process(out_view, in_view);
+    }
+
+    // Interleave output
+    std::vector<float> result(nch * nsamp);
+    for (std::size_t ch = 0; ch < nch; ++ch)
+        for (std::size_t i = 0; i < nsamp; ++i)
+            result[i * nch + ch] = out.channel(ch)[i];
+
+    return result;
+}
+
+std::vector<uint8_t> ValidationHarness::save_state() const {
+    return host_.save_state();
+}
+
+bool ValidationHarness::load_state(std::span<const uint8_t> data) {
+    return host_.load_state(data);
+}
+
+// ── Capture ─────────────────────────────────────────────────────────────────
+
+ReportEntry ValidationHarness::capture_screenshot(
+    [[maybe_unused]] const std::filesystem::path& output_path)
+{
+    // Screenshot capture requires a View root, which the harness doesn't own.
+    // This is a headless-only stub that records the intent in the report.
+    // For actual screenshot capture, use the view layer directly.
+    ReportEntry entry;
+    entry.type = "screenshot";
+    entry.status = ValidationStatus::skip;
+    entry.target = descriptor().name;
+    entry.error_message = "No view root attached (headless-only mode)";
+
+    std::ostringstream payload;
+    payload << "{"
+            << "\"path\": \"" << escape_json(output_path.string()) << "\","
+            << "\"width\": " << opts_.screenshot_width << ","
+            << "\"height\": " << opts_.screenshot_height << ","
+            << "\"scale\": " << opts_.screenshot_scale << ","
+            << "\"backend\": \"" << opts_.screenshot_backend << "\","
+            << "\"view_id\": \"none\""
+            << "}";
+    entry.payload_json = payload.str();
+
+    entries_.push_back(entry);
+    return entry;
+}
+
+ReportEntry ValidationHarness::compare_screenshots(
+    [[maybe_unused]] const std::filesystem::path& reference,
+    [[maybe_unused]] const std::filesystem::path& rendered)
+{
+    ReportEntry entry;
+    entry.type = "screenshot_diff";
+    entry.target = descriptor().name;
+
+    // Check files exist
+    if (!std::filesystem::exists(reference)) {
+        entry.status = ValidationStatus::error;
+        entry.error_message = "Reference file not found: " + reference.string();
+        entries_.push_back(entry);
+        return entry;
+    }
+    if (!std::filesystem::exists(rendered)) {
+        entry.status = ValidationStatus::error;
+        entry.error_message = "Rendered file not found: " + rendered.string();
+        entries_.push_back(entry);
+        return entry;
+    }
+
+    // Delegate to the screenshot comparison API
+    // (included via view headers when available, otherwise stub)
+    entry.status = ValidationStatus::skip;
+    entry.error_message = "Screenshot diff requires view library linkage";
+
+    std::ostringstream payload;
+    payload << "{"
+            << "\"reference_path\": \"" << escape_json(reference.string()) << "\","
+            << "\"rendered_path\": \"" << escape_json(rendered.string()) << "\","
+            << "\"similarity\": 0.0,"
+            << "\"total_pixels\": 0,"
+            << "\"diff_pixels\": 0,"
+            << "\"tolerance\": " << static_cast<int>(opts_.diff_tolerance) << ","
+            << "\"threshold\": " << opts_.diff_threshold
+            << "}";
+    entry.payload_json = payload.str();
+
+    entries_.push_back(entry);
+    return entry;
+}
+
+ReportEntry ValidationHarness::capture_inspector() {
+    ReportEntry entry;
+    entry.type = "inspector";
+    entry.target = descriptor().name;
+    entry.status = ValidationStatus::skip;
+    entry.error_message = "No view root attached (headless-only mode)";
+
+    std::ostringstream payload;
+    payload << "{\"view_tree\": {}, \"view_count\": 0}";
+    entry.payload_json = payload.str();
+
+    entries_.push_back(entry);
+    return entry;
+}
+
+// ── External validators ─────────────────────────────────────────────────────
+
+ReportEntry ValidationHarness::run_validator(
+    const std::string& tool,
+    const std::filesystem::path& plugin_path,
+    const std::string& format)
+{
+    auto start = std::chrono::steady_clock::now();
+
+    ReportEntry entry;
+    entry.type = "validator";
+    entry.target = plugin_path.filename().string();
+
+    // Check plugin exists
+    if (!std::filesystem::exists(plugin_path)) {
+        entry.status = ValidationStatus::error;
+        entry.error_message = "Plugin not found: " + plugin_path.string();
+        entries_.push_back(entry);
+        return entry;
+    }
+
+    // Check if the tool is available
+#ifdef _WIN32
+    std::string which_cmd = "where " + tool + " 2>NUL";
+#else
+    std::string which_cmd = "which " + tool + " 2>/dev/null";
+#endif
+    FILE* pipe = PULP_POPEN(which_cmd.c_str(), "r");
+    std::string tool_path;
+    if (pipe) {
+        char buf[256];
+        while (fgets(buf, sizeof(buf), pipe)) tool_path += buf;
+        PULP_PCLOSE(pipe);
+    }
+    // Trim
+    while (!tool_path.empty() && (tool_path.back() == '\n' || tool_path.back() == '\r'))
+        tool_path.pop_back();
+
+    if (tool_path.empty()) {
+        entry.status = ValidationStatus::skip;
+        entry.error_message = tool + " not found in PATH";
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"tool\": \"" << tool << "\","
+                << "\"plugin_path\": \"" << escape_json(plugin_path.string()) << "\""
+                << "}";
+        entry.payload_json = payload.str();
+
+        entries_.push_back(entry);
+        return entry;
+    }
+
+    // Build validation command
+    std::string cmd;
+    std::string detected_format = format;
+
+    if (tool == "pluginval") {
+        if (detected_format.empty()) detected_format = "vst3";
+        cmd = tool + " --strictness-level 5 --timeout-ms 30000 --validate \""
+              + plugin_path.string() + "\" 2>&1";
+    } else if (tool == "clap-validator") {
+        if (detected_format.empty()) detected_format = "clap";
+        cmd = tool + " validate \"" + plugin_path.string() + "\" 2>&1";
+    } else if (tool == "auval") {
+        // auval requires component type/subtype/manufacturer
+        if (detected_format.empty()) detected_format = "au";
+        cmd = tool + " -v aufx pulp Pulp 2>&1";  // generic; caller should customize
+    } else if (tool == "vstvalidator") {
+        if (detected_format.empty()) detected_format = "vst3";
+        cmd = tool + " \"" + plugin_path.string() + "\" 2>&1";
+    } else {
+        entry.status = ValidationStatus::error;
+        entry.error_message = "Unknown validator tool: " + tool;
+        entries_.push_back(entry);
+        return entry;
+    }
+
+    // Run the validator
+    std::string output;
+    pipe = PULP_POPEN(cmd.c_str(), "r");
+    if (pipe) {
+        char buf[1024];
+        while (fgets(buf, sizeof(buf), pipe)) output += buf;
+        int exit_code = PULP_PCLOSE(pipe);
+        // On POSIX, pclose returns waitpid status; extract exit code.
+        // On Windows, _pclose returns the process exit code directly.
+#ifndef _WIN32
+        exit_code = WIFEXITED(exit_code) ? WEXITSTATUS(exit_code) : -1;
+#endif
+
+        auto end = std::chrono::steady_clock::now();
+        entry.duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
+        entry.status = (exit_code == 0) ? ValidationStatus::pass : ValidationStatus::fail;
+        if (exit_code != 0) {
+            entry.error_message = tool + " exited with code " + std::to_string(exit_code);
+        }
+
+        // Get tool version
+        std::string version_cmd = tool + " --version 2>&1";
+        std::string version;
+        FILE* vpipe = PULP_POPEN(version_cmd.c_str(), "r");
+        if (vpipe) {
+            char vbuf[256];
+            while (fgets(vbuf, sizeof(vbuf), vpipe)) version += vbuf;
+            PULP_PCLOSE(vpipe);
+            while (!version.empty() && (version.back() == '\n' || version.back() == '\r'))
+                version.pop_back();
+        }
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"tool\": \"" << tool << "\","
+                << "\"tool_version\": \"" << escape_json(version) << "\","
+                << "\"plugin_path\": \"" << escape_json(plugin_path.string()) << "\","
+                << "\"plugin_format\": \"" << detected_format << "\","
+                << "\"exit_code\": " << exit_code << ","
+                << "\"stdout\": \"" << escape_json(output) << "\","
+                << "\"stderr\": \"\""
+                << "}";
+        entry.payload_json = payload.str();
+    } else {
+        entry.status = ValidationStatus::error;
+        entry.error_message = "Failed to execute " + tool;
+    }
+
+    entries_.push_back(entry);
+    return entry;
+}
+
+// ── Report generation ───────────────────────────────────────────────────────
+
+void ValidationHarness::add_entry(ReportEntry entry) {
+    entries_.push_back(std::move(entry));
+}
+
+std::string ValidationHarness::generate_report() const {
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(2);
+
+    ss << "{\n";
+    ss << "  \"version\": 1,\n";
+    ss << "  \"timestamp\": \"" << iso_timestamp() << "\"";
+
+    if (!opts_.run_id.empty())
+        ss << ",\n  \"run_id\": \"" << escape_json(opts_.run_id) << "\"";
+    if (!opts_.git_ref.empty())
+        ss << ",\n  \"git_ref\": \"" << escape_json(opts_.git_ref) << "\"";
+
+    ss << ",\n  \"platform\": \"" << platform_string() << "\"";
+
+    ss << ",\n  \"reports\": [\n";
+
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        const auto& e = entries_[i];
+        ss << "    {\n";
+        ss << "      \"type\": \"" << e.type << "\",\n";
+        ss << "      \"status\": \"" << to_string(e.status) << "\"";
+
+        if (!e.target.empty())
+            ss << ",\n      \"target\": \"" << escape_json(e.target) << "\"";
+        if (e.duration_ms > 0)
+            ss << ",\n      \"duration_ms\": " << e.duration_ms;
+        if (!e.error_message.empty())
+            ss << ",\n      \"error_message\": \"" << escape_json(e.error_message) << "\"";
+
+        // Type-specific payload
+        if (!e.payload_json.empty()) {
+            std::string payload_key;
+            if (e.type == "screenshot")       payload_key = "screenshot";
+            else if (e.type == "screenshot_diff") payload_key = "diff";
+            else if (e.type == "inspector")   payload_key = "inspector";
+            else if (e.type == "validator")   payload_key = "validator";
+            else if (e.type == "sanitizer")   payload_key = "sanitizer";
+            else if (e.type == "test_suite")  payload_key = "test_suite";
+
+            if (!payload_key.empty())
+                ss << ",\n      \"" << payload_key << "\": " << e.payload_json;
+        }
+
+        ss << "\n    }";
+        if (i + 1 < entries_.size()) ss << ",";
+        ss << "\n";
+    }
+
+    ss << "  ]\n";
+    ss << "}\n";
+
+    return ss.str();
+}
+
+bool ValidationHarness::write_report(const std::filesystem::path& output_path) const {
+    if (output_path.has_parent_path())
+        std::filesystem::create_directories(output_path.parent_path());
+
+    std::ofstream f(output_path);
+    if (!f.good()) return false;
+    f << generate_report();
+    return f.good();
+}
+
+// ── Private helpers ─────────────────────────────────────────────────────────
+
+std::string ValidationHarness::platform_string() const {
+#if defined(__APPLE__)
+#  if defined(__aarch64__)
+    return "macos-arm64";
+#  else
+    return "macos-x86_64";
+#  endif
+#elif defined(_WIN32)
+    return "windows-x64";
+#elif defined(__linux__)
+    return "linux-x64";
+#else
+    return "unknown";
+#endif
+}
+
+std::string ValidationHarness::iso_timestamp() const {
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    char buf[64];
+    std::tm tm_buf{};
+#ifdef _WIN32
+    gmtime_s(&tm_buf, &time_t);
+#else
+    gmtime_r(&time_t, &tm_buf);
+#endif
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+    return buf;
+}
+
+std::string ValidationHarness::escape_json(const std::string& s) const {
+    std::string result;
+    result.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '"':  result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char hex[8];
+                    snprintf(hex, sizeof(hex), "\\u%04x", c);
+                    result += hex;
+                } else {
+                    result += c;
+                }
+        }
+    }
+    return result;
+}
+
+} // namespace pulp::format

@@ -1,0 +1,160 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.1.0)'
+        required: true
+
+jobs:
+  build-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: darwin-arm64
+            artifact: pulp
+          - os: ubuntu-24.04
+            platform: linux-x64
+            artifact: pulp
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            artifact: pulp
+          - os: windows-latest
+            platform: windows-x64
+            artifact: pulp.exe
+          - os: windows-11-arm
+            platform: windows-arm64
+            artifact: pulp.exe
+
+    runs-on: ${{ matrix.os }}
+    name: CLI ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libdbus-1-dev libdrm-dev libegl1-mesa-dev \
+            libgbm-dev libgl1-mesa-dev libx11-dev libxext-dev libxfixes-dev \
+            libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev \
+            libxrender-dev libxss-dev libxtst-dev libwayland-dev wayland-protocols
+
+      - name: Bootstrap dependencies
+        run: ./setup.sh --ci --deps-only
+        shell: bash
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPULP_BUILD_TESTS=OFF
+        shell: bash
+
+      - name: Build
+        run: cmake --build build --config Release
+        shell: bash
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip build/tools/cli/pulp
+
+      - name: Package CLI (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd build/tools/cli
+          tar czf ../../../pulp-${{ matrix.platform }}.tar.gz pulp
+        shell: bash
+
+      - name: Package CLI (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd build/tools/cli/Release
+          Compress-Archive -Path pulp.exe -DestinationPath ../../../../pulp-${{ matrix.platform }}.zip
+        shell: pwsh
+
+      - name: Build SDK tarball (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cmake --install build --prefix sdk-staging --config Release
+          mv sdk-staging pulp-sdk
+          tar czf pulp-sdk-${{ matrix.platform }}.tar.gz pulp-sdk
+          rm -rf pulp-sdk
+        shell: bash
+
+      - name: Build SDK tarball (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake --install build --prefix sdk-staging --config Release
+          Rename-Item sdk-staging pulp-sdk
+          Compress-Archive -Path pulp-sdk -DestinationPath pulp-sdk-${{ matrix.platform }}.tar.gz
+          Remove-Item -Recurse pulp-sdk
+        shell: pwsh
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: pulp-${{ matrix.platform }}
+          path: pulp-${{ matrix.platform }}.*
+
+      - name: Upload SDK artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: pulp-sdk-${{ matrix.platform }}
+          path: pulp-sdk-${{ matrix.platform }}.*
+
+  release:
+    needs: build-cli
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Pulp CLI ${{ steps.version.outputs.tag }}
+          body: |
+            ## Install
+
+            **macOS / Linux:**
+            ```bash
+            curl -fsSL https://www.generouscorp.com/pulp/install.sh | sh
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://www.generouscorp.com/pulp/install.ps1 | iex
+            ```
+
+            Or download the binary for your platform below.
+          files: |
+            artifacts/**/*
+          draft: false
+          prerelease: false

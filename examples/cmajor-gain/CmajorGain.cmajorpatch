@@ -1,0 +1,11 @@
+{
+  "CmajorVersion": 1,
+  "ID": "dev.generouscorp.pulp.examples.cmajor-gain",
+  "version": "1.0",
+  "name": "Pulp Cmajor Gain",
+  "description": "Minimal source-only gain patch for Pulp's external Cmajor support lane",
+  "manufacturer": "Pulp",
+  "category": "effect",
+  "isInstrument": false,
+  "source": "CmajorGain.cmajor"
+}

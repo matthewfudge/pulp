@@ -1,0 +1,608 @@
+# Pulp support matrix
+# Vocabulary: stable, usable, experimental, partial, planned, unsupported
+
+platforms:
+  macos:
+    status: usable
+    notes: Primary development platform. ARM64 (Apple Silicon) only.
+  windows:
+    status: experimental
+    notes: WASAPI audio, Win32 MIDI, NSIS installer, Authenticode signing. CI enabled.
+  linux:
+    status: experimental
+    notes: ALSA audio, ALSA MIDI, .deb packaging. CI enabled.
+  ios:
+    status: experimental
+    notes: Foundation in place. AVAudioSession, AUv3, UIKit views, Metal surface.
+  web:
+    status: experimental
+    notes: WAMv2, WebCLAP adapters, Emscripten build pipeline, browser test host. Not yet runtime-validated in browser.
+
+formats:
+  vst3:
+    macos: usable
+    windows: partial
+    linux: partial
+  au_v2:
+    macos: usable
+    windows: unsupported
+    linux: unsupported
+  clap:
+    macos: usable
+    windows: partial
+    linux: partial
+  standalone:
+    macos: usable
+    windows: partial
+    linux: partial
+  auv3:
+    macos: experimental
+    ios: experimental
+  lv2:
+    linux: experimental
+  wam_v2:
+    web: experimental
+  webclap:
+    web: experimental
+  aax:
+    macos: experimental
+    windows: experimental
+    linux: unsupported
+
+scripted_ui:
+  ui_script_target_wiring:
+    status: usable
+    notes: UI_SCRIPT is threaded through VST3, AU, CLAP, and Standalone targets via PULP_UI_SCRIPT_PATH.
+  scripted_editor_loading:
+    macos: usable
+    windows: partial
+    linux: partial
+    notes: Scripted editor sessions load in the supported desktop targets. Non-macOS desktop hosts are not yet runtime-validated to the same level.
+  live_js_reload:
+    macos: usable
+    windows: unsupported
+    linux: unsupported
+    notes: Available in desktop standalone hosts that poll ScriptedUiSession::poll(). Runtime-validated only in the standalone macOS lane; plugin hosts still need a host-neutral polling contract.
+  live_theme_reload:
+    macos: usable
+    windows: unsupported
+    linux: unsupported
+    notes: Sibling theme.json overrides reload in ScriptedUiSession. Runtime-validated only in the standalone macOS scripted UI lane.
+  state_preservation:
+    status: usable
+    notes: Knob, fader, toggle, checkbox, toggle-button, and XY pad values are restored across scripted UI reloads. JavaScript heap state is rebuilt.
+
+audio_io:
+  coreaudio:
+    status: usable
+    platform: macos
+  avaudiosession:
+    status: experimental
+    platform: ios
+  wasapi:
+    status: experimental
+    platform: windows
+  alsa:
+    status: experimental
+    platform: linux
+
+midi_io:
+  coremidi:
+    status: usable
+    platform: macos
+  win32_midi:
+    status: experimental
+    platform: windows
+  alsa_midi:
+    status: experimental
+    platform: linux
+
+rendering:
+  dawn_metal:
+    status: experimental
+    platform: macos
+    notes: Presentable surface via CAMetalLayer-backed NSView. GPU path opt-in via use_gpu in WindowHost and PluginViewHost. CoreGraphics remains default.
+  skia_graphite:
+    status: experimental
+    platform: macos
+    notes: Skia Graphite wired through Dawn device. Offscreen and on-screen rendering work. CoreGraphics is still the default path.
+  dawn_metal_ios:
+    status: experimental
+    platform: ios
+    notes: IOSGpuWindowHost and IOSGpuPluginViewHost implemented. Not yet runtime-validated on device.
+  dawn_d3d12:
+    status: experimental
+    platform: windows
+    notes: Surface creation via SurfaceSourceWindowsHWND implemented. SDL3 extraction for HWND. Not runtime-validated on hardware.
+  dawn_vulkan:
+    status: experimental
+    platform: linux
+    notes: Surface creation via SDL3 X11/Wayland extraction implemented. Not runtime-validated on hardware.
+  coregraphics_fallback:
+    status: usable
+    platform: macos
+    notes: Current default render path for all macOS view hosts. Production-ready.
+
+css_parity:
+  grid_layout:
+    status: usable
+    notes: >
+      CSS Grid Layout Level 1: LayoutMode::grid, template columns/rows with fr/px/auto
+      units, column/row gaps, auto-placement, grid item spanning (grid-column/grid-row).
+      JS bridge: createGrid, setGrid.
+  flexbox:
+    status: usable
+    notes: >
+      Full flexbox: direction, wrap, grow/shrink/basis, gap, row-gap/column-gap,
+      justify-content (start/center/end/space-between/space-around/space-evenly),
+      align-items, align-self, order, margin, padding shorthand expansion.
+  transforms:
+    status: usable
+    notes: >
+      CSS Transforms Level 1: translate(x,y), rotate(deg), scale(s), skew(x,y).
+      Transform origin (normalized 0–1). Composited in paint_all. JS bridge:
+      setTranslate, setRotation, setScale, setTransformOrigin.
+  animations:
+    status: usable
+    notes: >
+      FrameClock-driven animation system. ValueAnimation with easing curves
+      (ease-in/out/in-out, cubic, spring). Motion tokens for consistent timing.
+      Widget-level animations: knob hover glow, toggle slide, fader thumb scale,
+      scroll bar fade, tooltip opacity. JS bridge: animate, defineKeyframes,
+      setAnimation, setMotionToken.
+  backgrounds_borders:
+    status: usable
+    notes: >
+      CSS Backgrounds Level 3: background-color, linear-gradient (4 directions +
+      multi-stop). Border: width, color, radius (per-corner planned). Box shadow:
+      offset, blur, spread, color. JS bridge: setBackground, setBorder,
+      setBackgroundGradient, setBoxShadow.
+  filters:
+    status: usable
+    notes: >
+      CSS Filter Effects Level 1: blur(px). Applied per-element in paint_all.
+      JS bridge: setFilter("blur(4px)").
+  colors:
+    status: usable
+    notes: >
+      CSS Color Level 4: #RGB, #RRGGBB, #RRGGBBAA, rgb(), rgba(), hsl(), hsla(),
+      100+ named CSS colors. Full parseColor() in C++ bridge and JS prelude.
+  text:
+    status: usable
+    notes: >
+      CSS Text Level 3: text-transform (uppercase/lowercase/capitalize),
+      text-decoration (underline/line-through/overline), text-align (left/center/right),
+      text-overflow (ellipsis/clip), font-size, font-weight, font-style, letter-spacing,
+      line-height, multi-line labels. JS bridge: setTextTransform, setTextDecoration,
+      setTextAlign, setTextOverflow, setFontSize, setFontWeight, setFontStyle.
+  positioning:
+    status: usable
+    notes: >
+      CSS Positioned Layout Level 3: position (static/relative/absolute/fixed/sticky),
+      top/right/bottom/left offsets, z-index. Applied during layout_children.
+      JS bridge: setPosition, setTop/Right/Bottom/Left, setZIndex.
+  canvas_2d:
+    status: usable
+    notes: >
+      25 draw command types on CanvasWidget: fillRect, strokeRect, fillRoundedRect,
+      strokeRoundedRect, fillCircle, strokeCircle, strokeLine, fillText, setFont,
+      setFillColor, setStrokeColor, setLineWidth, beginPath, moveTo, lineTo,
+      quadTo, cubicTo, closePath, fillPath, strokePath, save, restore, translate,
+      scale, rotate, clipRect. Full JS canvas bridge API.
+  opacity:
+    status: usable
+    notes: Per-element opacity (0.0–1.0) applied as layer alpha in paint_all.
+  overflow:
+    status: usable
+    notes: Overflow hidden/visible clipping on container views.
+  cursor:
+    status: usable
+    notes: CSS cursor property with 7 styles (default, pointer, crosshair, text, grab, grabbing, not-allowed).
+  transitions:
+    status: partial
+    notes: Transition duration stored as theme dimension token. Full CSS transition shorthand parsed in JS prelude.
+  calc_expressions:
+    status: usable
+    notes: >
+      calc(), min(), max(), clamp() expression evaluator with nested function support,
+      arithmetic operators (+, -, *, /), and mixed-unit operands. Proper operator
+      precedence (multiply/divide before add/subtract).
+  unit_resolution:
+    status: usable
+    notes: >
+      resolveLength() converts em (parent font-size), rem (root font-size),
+      % (parent dimension), vw/vh/vmin/vmax (viewport), ch (approximate) to px.
+      resolveCSSLength() provides unified calc-aware API.
+  selectors:
+    status: usable
+    notes: >
+      Full selector engine: tag, .class, #id, descendant (space), child (>),
+      :first-child, :last-child, :nth-child(An+B), :nth-last-child, :only-child,
+      :empty, :checked, :disabled, :not(selector), :hover, :focus, :active,
+      :first-of-type, :last-of-type, :nth-of-type(An+B),
+      attribute selectors [attr], [attr="val"], [attr~=], [attr^=], [attr$=], [attr*=].
+  dom_api:
+    status: usable
+    notes: >
+      closest(selector), matches(selector), contains(node), innerHTML get/set with
+      HTML parser, outerHTML, querySelector/querySelectorAll on elements,
+      append/prepend/before/after/replaceWith (DOM4), classList.replace(),
+      focus()/blur(), cloneNode, createDocumentFragment(), <option> sync for <select>.
+  events:
+    status: usable
+    notes: >
+      click, dblclick, mousedown/up, mouseenter/leave, wheel, scroll, contextmenu,
+      keydown/keyup, input/change, focus/blur, pointer events (L2), gesture events.
+      stopPropagation, stopImmediatePropagation, preventDefault. CustomEvent constructor.
+      window.addEventListener for global events. Capture + bubble event flow.
+  per_side_borders:
+    status: usable
+    notes: >
+      Per-side borders (border-top/right/bottom/left with individual width + color).
+      Per-corner border-radius (border-top-left-radius etc., 4 independent corners).
+  animation_properties:
+    status: usable
+    notes: >
+      CSS animation-* properties parsed: name, duration, timing-function, delay,
+      iteration-count (including infinite), direction, fill-mode. animation shorthand.
+      Execution via FrameClock animate() bridge.
+  css_shorthands:
+    status: usable
+    notes: >
+      flex-flow, place-items, place-content, inset, box-sizing (parsed),
+      margin-inline/block, padding-inline/block (CSS logical properties),
+      -webkit-line-clamp, background-repeat (parsed).
+  media_queries:
+    status: usable
+    notes: >
+      matchMedia() with min-width, max-width, min-height, max-height, orientation
+      (landscape/portrait). window.innerWidth/innerHeight dynamic via getRootSize().
+  aspect_ratio:
+    status: usable
+    notes: CSS aspect-ratio property (16/9 shorthand or single number).
+  visibility:
+    status: usable
+    notes: CSS visibility hidden (preserves layout space, sets opacity to 0).
+  pointer_events_css:
+    status: usable
+    notes: CSS pointer-events none/auto. View.hit_testable_ flag skips in hit_test.
+  outline:
+    status: usable
+    notes: CSS outline property (width, color). Parsed from shorthand "2px solid blue".
+  white_space:
+    status: usable
+    notes: CSS white-space (normal/nowrap/pre). Maps to Label multi_line flag.
+  text_shadow:
+    status: partial
+    notes: CSS text-shadow parsed (offset, blur, color). Bridge stub — rendering planned.
+  font_family:
+    status: partial
+    notes: CSS font-family property parsed. Bridge stub — font selection planned.
+
+widgets:
+  image_view:
+    status: usable
+    notes: ImageWidget with placeholder rendering, JS bridge createImage/setImageSource.
+  list_box:
+    status: usable
+    notes: >
+      Virtualized ListBox with scroll wheel support, auto-scroll on keyboard navigation.
+      JS bridge: createListBox, setListItems, setListSelected, setListRowHeight.
+  combo_box:
+    status: usable
+    notes: Dropdown with global click-outside dismiss, keyboard navigation, hover tracking.
+  scroll_view:
+    status: usable
+    notes: ScrollView with smooth scroll animation, bar fade-in/out, content size management.
+  text_editor:
+    status: usable
+    notes: >
+      Full text editor: selection (click/double/triple), clipboard (Cmd+C/X/V/A),
+      undo/redo (Cmd+Z/Shift+Z), numeric-only, password mode, multi-line,
+      placeholder, IME composition with marked text.
+  tree_view:
+    status: usable
+    notes: Hierarchical tree with expand/collapse, indent levels.
+  progress_bar:
+    status: usable
+    notes: Progress indicator with animated fill.
+  tooltip:
+    status: usable
+    notes: Fade-in/out tooltip attached to any view.
+
+js_authoring:
+  web_compat_layer:
+    status: usable
+    notes: >
+      JS prelude providing document.createElement, element.style, addEventListener,
+      StyleSheet, querySelector/querySelectorAll, getBoundingClientRect, getComputedStyle.
+      148 named CSS colors, shorthand expansion, transform/transition parsing.
+      No DOM/CSSOM — pure JS shim over native widget bridge.
+
+documentation:
+  getting_started:
+    status: usable
+    notes: Setup, first plugin, UI scripting, hot-reload, themes.
+  migration_guide:
+    status: usable
+    notes: React/CSS side-by-side mapping tables for developers coming from web.
+  api_reference:
+    status: usable
+    notes: All 111+ JS bridge functions documented with signatures and examples.
+  cookbook:
+    status: usable
+    notes: 10 practical recipes for common UI patterns.
+  starter_template:
+    status: usable
+    notes: Gain plugin template with UI script, --template CLI flag.
+  component_showcase:
+    status: usable
+    notes: Every widget type demonstrated in one JS file.
+  design_token_guide:
+    status: usable
+    notes: Theme system, inheritance, custom tokens, export formats.
+  custom_rendering_guide:
+    status: usable
+    notes: Three layers — JS canvas to GPU shaders.
+
+testing:
+  web_compat_validation:
+    status: usable
+    notes: >
+      424 browser-style validation tests: CSS value/color/shorthand/calc parsing (157),
+      computed style + layout tests for flex/grid/position/nested (135),
+      event tests for click/hover/keyboard/focus/bubbling/selectors (81),
+      visual reftests and screenshot regression (46).
+  unit_tests:
+    status: usable
+    notes: 1622+ Catch2 tests across all subsystems. CI on every PR.
+  format_validation:
+    status: usable
+    notes: CLAP dlopen tests, VST3 load tests, auval for AU.
+  audio_golden_files:
+    status: usable
+    notes: DSP output compared against reference files with tolerance.
+
+platform_maturity:
+  cursor_management:
+    status: usable
+    platform: macos
+    notes: CursorStyle enum mapped to NSCursor in mouseMoved. All 7 styles supported.
+  tab_focus:
+    status: usable
+    notes: Tab/Shift+Tab cycles focus through focusable views. Wraps at ends.
+  accessibility:
+    macos:
+      status: usable
+      notes: VoiceOver via NSAccessibilityElement. AccessRole maps to NSAccessibilityRole.
+    windows:
+      status: partial
+      notes: UIA stub — role mapping defined, provider not yet implemented.
+    linux:
+      status: partial
+      notes: AT-SPI stub — role mapping defined, D-Bus registration not yet implemented.
+  ime_composition:
+    status: usable
+    platform: macos
+    notes: Full NSTextInputClient — setMarkedText, unmarkText, firstRectForCharacterRange for candidate window positioning.
+  context_menu:
+    status: usable
+    notes: on_context_menu callback on View, rightMouseDown dispatch, showContextMenu/registerContextMenu bridge.
+  keyboard_shortcuts:
+    status: usable
+    notes: registerShortcut bridge function, shortcuts checked before global key dispatch.
+  file_dialogs:
+    status: usable
+    notes: showOpenDialog, showSaveDialog, chooseFolder bridge functions via native NSOpenPanel/NSSavePanel.
+
+input:
+  pointer_events:
+    status: usable
+    notes: >
+      W3C PointerEvent API: pointerdown/pointermove/pointerup/pointercancel with
+      pointerId, pointerType (mouse/touch/pen), isPrimary, pressure, clientX/clientY.
+      Unified model — same JS code works for mouse (macOS), touch (iOS), and stylus (Apple Pencil).
+  pointer_capture:
+    status: usable
+    notes: >
+      setPointerCapture/releasePointerCapture for drag interactions.
+      gotpointercapture/lostpointercapture events. Implicit release on pointerup.
+  stylus:
+    status: usable
+    platform: ios
+    notes: >
+      Apple Pencil properties: pressure (0.0–1.0), altitudeAngle, azimuthAngle.
+      pointerType="pen" discrimination. Exposed via PointerEvent JS API.
+  gesture_events:
+    status: usable
+    notes: >
+      gesturestart/gesturechange/gestureend with scale and rotation.
+      macOS: magnifyWithEvent/rotateWithEvent trackpad gestures.
+      iOS: multi-touch gesture analysis (planned).
+  ipados_hover:
+    status: usable
+    platform: ios
+    notes: UIHoverGestureRecognizer for trackpad/mouse hover on iPadOS 13+.
+  touch_action_css:
+    status: usable
+    notes: CSS touch-action property to control default gesture handling (auto, none, pan-x, pan-y, manipulation).
+  coalesced_predicted:
+    status: partial
+    notes: >
+      getCoalescedEvents()/getPredictedEvents() API on PointerEvent objects.
+      JS API structure in place. iOS coalescedTouches/predictedTouches data piping planned.
+
+runtime_apis:
+  canvas_2d:
+    status: usable
+    notes: >
+      25+ draw commands including gradient fills (linear/radial), arc/ellipse,
+      textAlign/textBaseline, clearRect, clipRect, globalAlpha, lineCap/lineJoin,
+      globalCompositeOperation (blend modes), fillRoundedRect, strokeCircle.
+  clipboard:
+    status: usable
+    notes: navigator.clipboard.readText/writeText via platform::Clipboard C++ API.
+  local_storage:
+    status: usable
+    notes: localStorage.getItem/setItem/removeItem — file-backed in temp directory.
+  performance:
+    status: usable
+    notes: performance.now() via std::chrono::steady_clock (sub-millisecond precision).
+  fetch:
+    status: usable
+    notes: Minimal fetch(url, opts) via curl exec. GET/POST, returns {text(), json()}.
+  encoding:
+    status: usable
+    notes: TextEncoder/TextDecoder (UTF-8), atob/btoa (base64).
+  crypto:
+    status: partial
+    notes: crypto.getRandomValues() (Math.random-based, not cryptographic).
+  image_constructor:
+    status: usable
+    notes: new Image() with src setter and onload callback for preloading.
+  console_extended:
+    status: usable
+    notes: console.log/warn/error/info/debug + console.time/timeEnd.
+  structured_clone:
+    status: usable
+    notes: structuredClone() via JSON round-trip.
+  custom_event:
+    status: usable
+    notes: CustomEvent constructor with detail property, dispatchEvent support.
+  timers:
+    status: usable
+    notes: setTimeout/setInterval/requestAnimationFrame via __requestFrame__ bridge.
+  canvas_draw_image:
+    status: partial
+    notes: canvasDrawImage renders placeholder; full Skia image decode pipeline planned.
+  drag_and_drop:
+    status: usable
+    notes: registerDrop(id, callback) + View::on_drop. Receives type/data/x/y on file or text drop.
+  font_loading:
+    status: partial
+    notes: loadFont(path) bridge validates existence. Full Skia font registration planned.
+  webgpu_shaders:
+    status: usable
+    notes: >
+      Dawn/WebGPU backend available. applyShader(canvasId, skslCode) for custom
+      SkSL fragment shaders. getGPUInfo() queries backend. compileShader() validates.
+
+ai_shader_design:
+  yoga_layout:
+    status: usable
+    notes: >
+      Meta Yoga v3.2.1 (MIT) replaces hand-rolled flexbox. Correct CSS Flexbox L1:
+      margin:auto centering, flex-wrap, absolute positioning, min-content/max-content.
+  shader_engine:
+    status: usable
+    notes: >
+      RuntimeEffectCache (process-lifetime SkRuntimeEffect compiler). draw_with_sksl()
+      on Canvas with GPU rendering via SkiaCanvas. compileShader() validates SkSL.
+      setWidgetShader/clearWidgetShader for Knob/Fader/Toggle body-layer shaders.
+      Shader `time` is now driven from FrameClock. Recommended workflow is
+      preset/material-first restyling with audio-plugin style-family routing;
+      raw SkSL remains a developer escape hatch.
+  declarative_schema:
+    status: usable
+    notes: >
+      Rive-inspired JSON widget schema: elements (arc/circle/line/rect/text),
+      value binding, color token resolution, percentage dimensions. Interpreted
+      by render_schema() at paint time. setWidgetSchema/clearWidgetSchema on
+      Knob/Fader/Toggle. Recommended for structured non-color widget look changes
+      alongside preset/material overrides.
+  lottie_animations:
+    status: partial
+    notes: >
+      setWidgetLottie/seekWidgetLottie bridge. Lottie JSON storage and scrub state
+      on Knob/Fader/Toggle. Native Skottie rendering still pending.
+      Skottie headers+libs available for future native GPU rendering.
+  web_animations_api:
+    status: usable
+    notes: >
+      element.animate(keyframes, options) with Animation object (play/pause/cancel).
+      Easing: linear, ease-in, ease-out, ease-in-out. fill mode, animationend event.
+  design_tokens_interop:
+    status: usable
+    notes: >
+      importDesignTokens/exportDesignTokens in W3C Design Tokens format.
+      Enables round-trip with Figma token plugins, Stitch, v0.
+  model_agnostic_ai:
+    status: usable
+    notes: >
+      setAICli/getAICli configures AI CLI command at runtime.
+      Default: Claude. Swappable to Gemini/Codex CLI. execAsync enables
+      non-blocking shell-backed chat flows in local tools. Design workflows now
+      carry provider/model/reasoning-effort metadata and expand command templates
+      with {prompt_file}, {model}, {provider}, {reasoning_effort}, and {output_file}.
+      Full navigator.gpu pipeline API not exposed — Canvas 2D + shaders is the design.
+  design_debug_harness:
+    status: experimental
+    notes: >
+      `pulp design-debug` runs the design chat pipeline headlessly and emits
+      before/after/diff screenshots plus a JSON report containing provider/model/
+      reasoning-effort metadata, target bounds, prompt/response files, and
+      screenshot diff statistics. Supports replaying saved responses. The default
+      Skia backend renders widget SkSL offscreen (`render_backend: skia-headless`,
+      `widget_sksl_render_supported: true`). `--capture-backend live-gpu` now
+      drives the real `pulp-design-tool` app in automation mode and records
+      `render_backend: skia-live-gpu` with true live GPU widget screenshots.
+
+design_import:
+  figma_adapter:
+    status: usable
+    notes: JSON IR parsing, audio widget detection, token extraction. MCP live fetch via Claude skill.
+  stitch_adapter:
+    status: usable
+    notes: JSON IR + HTML fallback parsing. Stitch MCP integration via Claude skill.
+  v0_adapter:
+    status: usable
+    notes: JSON IR + Tailwind className extraction. URL fetch via --url flag.
+  pencil_adapter:
+    status: usable
+    notes: JSON IR parsing with Yoga layout near-1:1 translation. Pencil MCP integration via Claude skill.
+  code_generator:
+    status: usable
+    notes: >
+      Native mode (createCol/createKnob/setFlex) and web-compat mode
+      (document.createElement/style). Audio widget sizing constraints,
+      Yoga layout requirements encoded.
+  w3c_tokens:
+    status: usable
+    notes: >
+      Full W3C/DTCG Design Tokens: group $type inheritance, alias resolution
+      with cycle detection, math expressions, composite types (typography,
+      shadow, border). Round-trip safe.
+  figma_variables_sync:
+    status: experimental
+    notes: Parse Figma Variables JSON, export Theme as Figma Variables format. Slash-to-dot path conversion.
+  stitch_design_system_sync:
+    status: experimental
+    notes: Parse Stitch Design System JSON (colors, fonts, roundness, spacing), export Theme as Stitch format.
+  validation:
+    status: usable
+    notes: Headless render + screenshot comparison. Similarity threshold, diff image generation.
+  cli_import_design:
+    status: experimental
+    notes: >
+      pulp import-design with --from, --file, --url, --frame, --screen,
+      --output, --tokens, --validate, --reference, --diff, --debug flags.
+  cli_export_tokens:
+    status: experimental
+    notes: pulp export-tokens with theme JSON input or built-in dark theme default.
+  claude_skill:
+    status: usable
+    notes: /import-design skill with MCP-aware flow for Figma, Stitch, Pencil, v0.
+
+subsystems:
+  runtime: stable
+  events: usable
+  audio: usable
+  midi: usable
+  signal: usable
+  state: stable
+  format: usable
+  platform: usable
+  canvas: usable
+  render: experimental
+  view: usable
+  osc: experimental

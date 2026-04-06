@@ -1,0 +1,347 @@
+# Phase 1 Reality Snapshot — Authoritative Contract
+# Generated: 2026-03-31
+# Purpose: Later phases (2-12) point to this file as the single source of
+#          truth for what is real today. No phase prompt should re-litigate
+#          claims documented here.
+#
+# Status vocabulary:
+#   shipped      — production-quality, tested, documented
+#   partial      — code exists but incomplete or has known caveats
+#   experimental — works in limited scenarios, not production-ready
+#   planned      — no code today, future work
+
+# ─── Subsystem Reality ───────────────────────────────────────────────────────
+
+subsystems:
+
+  js_engine:
+    status: shipped
+    backend: quickjs
+    notes: >
+      ScriptEngine wraps choc::javascript::Context (QuickJS only).
+      Abstraction seam exists but no alternate backends (V8, JSC) are wired in.
+      ~190 bridge functions registered in widget_bridge.cpp.
+    files:
+      - core/view/include/pulp/view/script_engine.hpp
+      - core/view/src/script_engine.cpp
+      - core/view/src/widget_bridge.cpp
+
+  multi_window:
+    status: partial
+    notes: >
+      WindowHost is a single-window abstraction. Multiple windows possible by
+      constructing multiple hosts manually. No shared lifecycle, floating palette
+      support, inspector coordination, popup routing, multi-monitor awareness,
+      or window state persistence.
+    files:
+      - core/view/include/pulp/view/window_host.hpp
+
+  webview:
+    status: partial
+    notes: >
+      Optional CHOC-based WebView panel, gated behind PULP_BUILD_WEBVIEW (OFF
+      by default). Supports navigate/set_html/evaluate_js/bind. Does NOT match
+      iPlug2 model (no custom URL scheme, no structured bidirectional message
+      bridge, no resource bundling, no DevTools toggle from API).
+    files:
+      - core/view/include/pulp/view/web_view.hpp
+      - core/view/src/web_view.cpp
+      - core/view/CMakeLists.txt
+
+  audio_visualization:
+    status: partial
+    notes: >
+      Real: MeterBallistics, TripleBuffer latest-value publication, FFT
+      primitives, Meter/WaveformView/SpectrumView widgets.
+      Not verified: first-class STFT abstraction with configurable
+      window/overlap. Not implemented: multi-channel meter, production
+      spectrogram pipeline.
+    files:
+      - core/view/include/pulp/view/audio_bridge.hpp
+      - core/signal/include/pulp/signal/fft.hpp
+      - core/view/include/pulp/view/widgets.hpp
+
+  theme_system:
+    status: shipped
+    notes: >
+      Token-based Theme struct with color/dimension/string maps. JSON
+      serialization (from_json/to_json). 3 built-in presets: dark, light,
+      pro_audio. Style designer tool with 13 token groups, per-token undo/redo,
+      live hot-reload, preset selector. NOT real: OS appearance tracking,
+      theme import/export, accessibility-aware contrast, component-level
+      style variants, theme inheritance/versioning.
+    files:
+      - core/view/include/pulp/view/theme.hpp
+      - core/view/src/theme.cpp
+      - examples/design-tool/design-tool.js
+
+  widget_library:
+    status: shipped
+    notes: >
+      Solid audio-optimized set: Knob, Fader, Toggle, Checkbox, ToggleButton,
+      XYPad, Meter, WaveformView, SpectrumView, Panel, Label, Icon, ImageView,
+      TextEditor, ComboBox, ListBox, ScrollView, TabPanel, TreeView, Tooltip,
+      ProgressBar, CallOutBox, CanvasWidget. Missing: multi-channel meter,
+      EQ curve, MIDI keyboard, piano roll, step sequencer, file browser,
+      color picker.
+    files:
+      - core/view/include/pulp/view/widgets.hpp
+      - core/view/include/pulp/view/ui_components.hpp
+      - core/view/include/pulp/view/text_editor.hpp
+      - core/view/include/pulp/view/canvas_widget.hpp
+      - core/view/include/pulp/view/tree_view.hpp
+
+  resource_asset_system:
+    status: partial
+    notes: >
+      File-path-based loading only. ImageView loads from paths, SkSL shaders
+      and Lottie JSON passed as strings. No centralized asset manager, resource
+      caching, font preloading, shader compilation error handling, resource
+      bundling, or SVG asset pipeline.
+
+  screenshot_and_diff:
+    status: shipped
+    notes: >
+      Headless render_to_png/render_to_file. Screenshot comparison with
+      similarity scoring, diff image generation, crop, bounding box.
+      CoreGraphics and Skia backends.
+    files:
+      - core/view/include/pulp/view/screenshot.hpp
+      - core/view/include/pulp/view/screenshot_compare.hpp
+
+  view_inspector:
+    status: shipped
+    notes: >
+      ViewInspector serializes view tree to JSON, find_by_id, count_views,
+      type_name. Used by component inspector and debugging tools.
+    files:
+      - core/view/include/pulp/view/inspector.hpp
+
+  sanitizers:
+    status: shipped
+    available: [asan, tsan, ubsan, rtsan]
+    notes: >
+      ASan, TSan, UBSan in CI (sanitizers.yml) and CMake (Sanitizers.cmake).
+      RTSan added in Phase 2: PULP_SANITIZER=realtime in CMake, CI job on
+      Ubuntu with Clang 18. RTSan requires upstream LLVM Clang 18+, not
+      Apple Clang. See https://clang.llvm.org/docs/RealtimeSanitizer.html
+    files:
+      - .github/workflows/sanitizers.yml
+      - tools/cmake/Sanitizers.cmake
+
+  validators:
+    status: shipped
+    ci_coverage:
+      pluginval: true
+      clap_validator: true
+      auval: true        # With signing caveats
+      vstvalidator: false # Optional, Steinberg SDK build required
+      aax_validator: false # Optional, developer-supplied Avid validator; not run in public CI
+    cli_coverage:
+      clap_validator: true
+      auval: true
+      pluginval: true    # Added in Phase 2
+      vstvalidator: true # Available via --all flag, graceful skip if missing
+      aax_validator: true # Available on macOS/Windows when DigiShell + AAX Validator are installed
+    notes: >
+      pluginval now in both CI and `pulp validate` CLI (Phase 2).
+      vstvalidator available via `pulp validate --all` with graceful skip
+      when not installed. Go/no-go documented: optional, pluginval covers
+      most VST3 needs. Optional AAX validation is available locally on macOS
+      and Windows via DigiShell + AAX Validator, but remains out of public CI
+      because the SDK and validator are developer-supplied. clap-validator and
+      auval otherwise remain unchanged.
+      `pulp validate --json` and `--report` emit machine-readable output
+      conforming to validation-report-v1.schema.json.
+    files:
+      - .github/workflows/validate.yml
+      - tools/cli/pulp_cli.cpp
+
+  aax_format:
+    status: experimental
+    notes: >
+      Optional AAX Native support on macOS and Windows. Requires
+      `PULP_ENABLE_AAX=ON` plus a developer-supplied out-of-tree AAX SDK.
+      `pulp validate` can drive DigiShell + AAX Validator when installed.
+      Linux and Ubuntu are explicitly unsupported.
+    files:
+      - core/format/include/pulp/format/aax_entry.hpp
+      - core/format/include/pulp/format/aax_model.hpp
+      - core/format/src/aax_model.cpp
+      - core/format/src/aax_runtime.cpp
+      - tools/cmake/PulpAAX.cmake
+
+  dsp_dsls:
+    status: planned
+    notes: >
+      No FAUST, Cmajor, or JSFX code in core/, tools/, templates, or CLI.
+      Future phases 3, 4, 5.
+      FAUST offline codegen support is real but still narrow: `core/dsl`
+      contains the FAUST wrapper substrate, `tools/cmake/PulpFaust.cmake`
+      supports external regeneration, and checked-in FAUST examples/tests prove
+      the generated-C++ path. This is not yet a first-class CLI/template flow.
+      Cmajor now has an experimental external-toolchain lane via docs, helper,
+      and a source-only example, but Pulp still does not ship the official
+      Cmajor engine/runtime or a finished Processor adapter. JSFX now has an
+      experimental bounded source-validation lane via docs, helper, and
+      source-only examples, but Pulp still does not ship a JSFX runtime or
+      finished Processor adapter.
+    files:
+      - core/dsl/include/pulp/dsl/dsl_processor.hpp
+      - core/dsl/include/pulp/dsl/faust_base.hpp
+      - core/dsl/include/pulp/dsl/faust_processor.hpp
+      - tools/cmake/PulpFaust.cmake
+      - examples/faust-gain/faust_gain.hpp
+      - tools/scripts/cmajor_external.py
+      - examples/cmajor-gain/CmajorGain.cmajorpatch
+      - tools/scripts/jsfx_subset.py
+      - examples/jsfx-gain/PulpJsfxGain.jsfx
+
+  webgpu_compute_audio:
+    status: planned
+    notes: >
+      GPU-backed rendering (Dawn/Skia Graphite) and SkSL effects are real.
+      WebGPU compute for audio workloads has no code today.
+
+  offline_video:
+    status: planned
+    notes: No code. Future exploration only.
+
+  plugin_hosting:
+    status: experimental
+    notes: >
+      PluginScanner, PluginSlot, and SignalGraph exist in core/host/.
+    files:
+      - core/host/include/pulp/host/scanner.hpp
+      - core/host/include/pulp/host/plugin_slot.hpp
+      - core/host/include/pulp/host/signal_graph.hpp
+
+  preset_management:
+    status: experimental
+    notes: >
+      PresetManager and PresetBrowser exist in code.
+    files:
+      - core/state/include/pulp/state/preset_manager.hpp
+      - core/view/include/pulp/view/preset_browser.hpp
+
+  mcp_server:
+    status: experimental
+    notes: >
+      MCP server for AI agent parameter control, screenshot capture,
+      view introspection.
+    files:
+      - tools/mcp/pulp_mcp.cpp
+
+  bindings:
+    status: experimental
+    notes: >
+      Python (pybind11) and Node.js (Node-API) bindings for HeadlessHost.
+    files:
+      - bindings/python/bindings.cpp
+      - bindings/nodejs/bindings.cpp
+
+  midi2_ump:
+    status: experimental
+    notes: >
+      Universal MIDI Packet (UMP) support exists in core/midi.
+    files:
+      - core/midi/include/pulp/midi/ump.hpp
+
+# ─── Phase Dependency Map ────────────────────────────────────────────────────
+
+phases:
+  - id: 1
+    name: Contract / truth pass
+    status: active
+    depends_on: []
+    parallel_with: []
+
+  - id: 2
+    name: Validation harness + sanitizer/validator expansion
+    status: active
+    depends_on: [1]
+    parallel_with: [3, 6, 7, 8, 9, 10, 11]
+    delivers:
+      - RTSan integration (CMake + CI)
+      - vstvalidator evaluation (go/no-go documented)
+      - pluginval in pulp validate CLI
+      - ValidationHarness C++ class (core/format)
+      - agent-usable validation report API (uses validation-report-v1.schema.json)
+      - pulp validate --json/--report/--all flags
+
+  - id: 3
+    name: FAUST offline codegen
+    status: pending
+    depends_on: [1]
+    parallel_with: [2, 6, 8, 9, 10, 11]
+
+  - id: 4
+    name: Cmajor adapter
+    status: pending
+    depends_on: [3]
+    parallel_with: [2, 6, 8, 9, 10, 11]
+
+  - id: 5
+    name: JSFX adapter
+    status: pending
+    depends_on: [4]
+    parallel_with: [2, 6, 8, 9, 10, 11]
+
+  - id: 6
+    name: Multi-window framework
+    status: pending
+    depends_on: [1]
+    parallel_with: [2, 3, 8, 9, 10, 11]
+
+  - id: 7
+    name: WebView integration (iPlug2-style)
+    status: pending
+    depends_on: [6]
+    parallel_with: [2, 3, 4, 8, 9, 10, 11]
+
+  - id: 8
+    name: Audio visualization (STFT/spectrogram)
+    status: pending
+    depends_on: [1]
+    parallel_with: [2, 3, 6, 9, 10, 11]
+
+  - id: 9
+    name: Themeable widgets + resource/asset system
+    status: pending
+    depends_on: [1]
+    parallel_with: [2, 3, 6, 8, 10, 11]
+
+  - id: 10
+    name: JS engine abstraction (V8/JSC)
+    status: pending
+    depends_on: [1]
+    parallel_with: [2, 3, 6, 8, 9, 11]
+
+  - id: 11
+    name: WebGPU compute exploration
+    status: pending
+    depends_on: [1]
+    parallel_with: [2, 3, 6, 8, 9, 10]
+
+  - id: 12
+    name: Offline video exploration
+    status: pending
+    depends_on: [2, 11]
+    parallel_with: []
+
+# ─── Acceptance Criteria ────────────────────────────────────────────────────
+# Phase 1 baseline: This file must NOT claim any of the following as real:
+#   - JSC/V8 support
+#   - STFT framework
+#   - Multi-window framework
+#   - WebGPU compute-audio
+#   - Theme import/export
+#   - Centralized asset management
+#   - iPlug2-style WebView
+#
+# Phase 2 additions (now real):
+#   - RTSan (CMake PULP_SANITIZER=realtime, CI on Ubuntu/Clang 18)
+#   - pluginval in pulp validate CLI
+#   - vstvalidator evaluation (available via --all, graceful skip)
+#   - ValidationHarness C++ class
+#   - validation-report-v1 schema includes rtsan

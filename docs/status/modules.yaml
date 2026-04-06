@@ -1,0 +1,97 @@
+# Pulp module status
+# Vocabulary: stable, usable, experimental, partial, planned, unsupported
+
+modules:
+  - name: runtime
+    summary: Lock-free primitives, logging, assertions
+    status: stable
+    dependencies: [platform]
+    docs: reference/modules.md#runtime
+
+  - name: events
+    summary: Event loop, timers, async dispatch
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#events
+
+  - name: audio
+    summary: Audio buffers, device I/O, file I/O
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#audio
+
+  - name: midi
+    summary: MIDI messages, buffers, device I/O, file I/O
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#midi
+
+  - name: signal
+    summary: 30+ DSP algorithms -- filters, oscillators, effects, math, interpolation
+    status: usable
+    dependencies: []
+    docs: reference/modules.md#signal
+
+  - name: state
+    summary: Thread-safe parameters, state serialization, preset management
+    status: stable
+    dependencies: [runtime]
+    docs: reference/modules.md#state
+
+  - name: format
+    summary: Plugin format adapters (VST3, AU, CLAP, standalone, headless), validation harness, diagnostic reporter
+    status: usable
+    dependencies: [state, audio, midi]
+    docs: reference/modules.md#format
+
+  - name: platform
+    summary: Platform detection, native dialogs, clipboard
+    status: usable
+    dependencies: []
+    docs: reference/modules.md#platform
+
+  - name: canvas
+    summary: 2D drawing abstraction (CoreGraphics, Skia), RecordingCanvas, Canvas 2D API (25 draw commands), path builder, gradients, clipping
+    status: usable
+    dependencies: [runtime]
+    docs: reference/modules.md#canvas
+
+  - name: render
+    summary: >
+      GPU surface management (Dawn, Skia Graphite) — Metal, D3D12, Vulkan backends.
+      Includes experimental WebGPU compute pipeline for batch audio processing (>64K elements).
+      Compute is separate from rendering — not for real-time audio callbacks.
+    status: experimental
+    dependencies: [runtime, canvas]
+    docs: reference/modules.md#render
+
+  - name: view
+    summary: >
+      Full widget toolkit with CSS parity: flexbox, grid layout, transforms, animations,
+      backgrounds/gradients, filters, colors (CSS L4), text styling, positioned layout, z-index,
+      Canvas 2D (25 commands), ImageView, ListBox (virtualized), ComboBox, ScrollView, TextEditor
+      with IME, TreeView, ProgressBar, Tooltip. Web-compat JS prelude (document/Element/style/events/
+      StyleSheet/querySelector). FrameClock animation with motion tokens. Hot-reload, inspector,
+      app framework, design export. Multi-window framework (WindowManager): window registry,
+      parent-child cascading close, floating palettes, inspectors, popups, dialogs, shared theme
+      propagation, inter-window messaging, screen enumeration, window state save/restore, shared
+      GPU device for Dawn-backed rendering across windows. Platform: cursor management, Tab focus,
+      VoiceOver accessibility, context menus, keyboard shortcuts, file dialogs. Pointer events,
+      gestures, Apple Pencil.
+      JS engine abstraction: pluggable backend (QuickJS default, JavaScriptCore on Apple, V8 optional).
+      Build-time engine selection via PULP_JS_ENGINE, smart workload-based engine recommendation.
+    status: usable
+    dependencies: [canvas, events, state]
+    docs: reference/modules.md#view
+
+  - name: dsl
+    summary: DSL integration contract and FAUST offline codegen wrapper
+    status: experimental
+    dependencies: [format]
+    docs: reference/modules.md#dsl
+
+  - name: osc
+    summary: Open Sound Control messaging
+    status: experimental
+    dependencies: [runtime]
+    docs: reference/modules.md#osc

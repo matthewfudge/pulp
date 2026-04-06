@@ -1,0 +1,328 @@
+# Pulp documentation index
+# Used by `pulp docs` CLI commands to resolve slugs to file paths
+
+docs:
+  # About
+  - slug: vision
+    path: concepts/vision.md
+    kind: concept
+    summary: Why Pulp exists, what it is, the full architecture and design decisions
+
+  - slug: overview
+    path: concepts/overview.md
+    kind: concept
+    summary: What Pulp does today — formats, platforms, features, test coverage
+
+  - slug: architecture
+    path: concepts/architecture.md
+    kind: concept
+    summary: Subsystem dependencies, thread model, build system, GPU stack
+
+  # Guides
+  - slug: getting-started
+    path: guides/getting-started.md
+    kind: guide
+    summary: Build your first plugin step by step
+
+  - slug: build
+    path: guides/build.md
+    kind: guide
+    summary: Build requirements, options, and platform notes
+
+  - slug: testing
+    path: guides/testing.md
+    kind: guide
+    summary: Running tests, validation, writing new tests
+
+  - slug: aax
+    path: guides/aax.md
+    kind: guide
+    summary: Optional AAX setup, downloads, validation, rules, and Linux limitations
+
+  - slug: animation
+    path: guides/animation.md
+    kind: guide
+    summary: FrameClock, ValueAnimation, motion tokens, widget animations, JS bridge animation API
+
+  - slug: animation-demo
+    path: examples/animation-demo.md
+    kind: example
+    summary: Animated plugin UI with JS bridge and C++ examples
+
+  - slug: parameters
+    path: guides/parameters.md
+    kind: guide
+    summary: State and parameter system — ParamValue, StateStore, Binding, serialization
+
+  - slug: shipping
+    path: guides/shipping.md
+    kind: guide
+    summary: End-to-end signing, notarization, packaging, and distribution
+
+  - slug: troubleshooting
+    path: guides/troubleshooting.md
+    kind: guide
+    summary: Common issues and solutions — setup, build, environment, plugins
+
+  - slug: testing-advanced
+    path: guides/testing-advanced.md
+    kind: guide
+    summary: HeadlessHost API, golden-file testing, sanitizer builds, format validation
+
+  - slug: local-ci
+    path: guides/local-ci.md
+    kind: guide
+    summary: Local and SSH-backed CI queue, host validation, and PR workflow
+
+  - slug: webview
+    path: guides/webview.md
+    kind: guide
+    summary: Optional WebView runtime, asset serving, messaging, and debug workflow
+
+  - slug: claude-code-plugin
+    path: guides/claude-code-plugin.md
+    kind: guide
+    summary: Install and use the Claude Code plugin for Pulp development workflows
+
+  - slug: cmajor-guide
+    path: guides/cmajor.md
+    kind: guide
+    summary: MIT-safe external Cmajor workflow — source-owned patches, helper diagnostics, and user-supplied code generation
+
+  - slug: jsfx-guide
+    path: guides/jsfx.md
+    kind: guide
+    summary: Bounded JSFX workflow — source-only examples, subset validation, and explicit exclusions like no @gfx
+
+  - slug: platform-macos
+    path: guides/platforms/macos.md
+    kind: guide
+    summary: macOS signing, notarization, entitlements, auval, deployment
+
+  - slug: platform-windows
+    path: guides/platforms/windows.md
+    kind: guide
+    summary: Windows WASAPI audio, Win32 MIDI, Authenticode signing, NSIS installer
+
+  - slug: platform-linux
+    path: guides/platforms/linux.md
+    kind: guide
+    summary: Linux ALSA/JACK audio, ALSA MIDI, LV2 format, Vulkan, packaging
+
+  - slug: module-runtime
+    path: guides/modules/runtime.md
+    kind: guide
+    summary: Lock-free primitives — SeqLock, TripleBuffer, SpscQueue, logging
+
+  - slug: module-canvas
+    path: guides/modules/canvas.md
+    kind: guide
+    summary: 2D drawing — Canvas interface, CoreGraphics/Skia backends, SVG, effects
+
+  - slug: module-view
+    path: guides/modules/view.md
+    kind: guide
+    summary: Widget system — View hierarchy, layout, theming, JS scripting, hot-reload
+
+  - slug: module-render
+    path: guides/modules/render.md
+    kind: guide
+    summary: GPU rendering — Dawn/WebGPU, Skia Graphite, surface management
+
+  - slug: module-osc
+    path: guides/modules/osc.md
+    kind: guide
+    summary: OSC 1.0 sender/receiver over UDP
+
+  - slug: docs-site
+    path: guides/docs-site.md
+    kind: guide
+    summary: How the docs site at generouscorp.com/pulp is built, deployed, and configured
+
+  - slug: docs-maintenance
+    path: guides/docs-maintenance.md
+    kind: guide
+    summary: How docs stay consistent with code across tools and branches
+
+  - slug: importing-designs
+    path: guides/importing-designs.md
+    kind: guide
+    summary: Importing UI structure and design tokens from Figma, Stitch, v0, and Pencil
+
+  - slug: design-debugging
+    path: guides/design-debugging.md
+    kind: guide
+    summary: Headless before/after/diff harness for design chat prompts, provider/model metadata, and debug artifact bundles
+
+  - slug: web-compat-guide
+    path: guides/web-compat.md
+    kind: guide
+    summary: Web-style authoring model, DOM/CSS compatibility layer, and native runtime guardrails
+
+  - slug: formats
+    path: guides/formats.md
+    kind: guide
+    summary: Plugin format adapters — CLAP, VST3, AU v2, optional AAX entry points, param sync, MIDI, state
+
+  - slug: signal-processing
+    path: guides/signal-processing.md
+    kind: guide
+    summary: DSP algorithm reference — 20 processors with usage examples and parameter docs
+
+  - slug: examples
+    path: guides/examples.md
+    kind: guide
+    summary: Walkthroughs of all example plugins
+
+  - slug: examples-index
+    path: examples/index.md
+    kind: guide
+    summary: Gallery index of all example projects by category
+
+  - slug: example-pulp-gain
+    path: examples/pulp-gain.md
+    kind: guide
+    summary: PulpGain — stereo gain effect (reference example)
+
+  - slug: example-pulp-tone
+    path: examples/pulp-tone.md
+    kind: guide
+    summary: PulpTone — polyphonic oscillator synth with MIDI input
+
+  - slug: example-pulp-effect
+    path: examples/pulp-effect.md
+    kind: guide
+    summary: PulpEffect — biquad filter with diverse parameter types
+
+  - slug: example-pulp-compressor
+    path: examples/pulp-compressor.md
+    kind: guide
+    summary: PulpCompressor — sidechain compressor with multi-bus input
+
+  - slug: example-pulp-synth
+    path: examples/pulp-synth.md
+    kind: guide
+    summary: PulpSynth — macro oscillator synth using the signal DSP library
+
+  - slug: example-pulp-drums
+    path: examples/pulp-drums.md
+    kind: guide
+    summary: PulpDrums — generative drum sequencer with MIDI output
+
+  - slug: example-ui-preview
+    path: examples/ui-preview.md
+    kind: guide
+    summary: UI Preview — standalone app for view/widget rendering pipeline
+
+  - slug: example-screenshots
+    path: examples/screenshots.md
+    kind: guide
+    summary: Example plugin screenshots — visual documentation and capture script
+
+  - slug: gpu-validation
+    path: guides/gpu-validation-checklist.md
+    kind: guide
+    summary: GPU rendering validation — verified vs experimental per platform
+
+  - slug: web-plugins
+    path: guides/web-plugins.md
+    kind: guide
+    summary: WAMv2 and WebCLAP web plugin formats — build, deploy, and browser demo
+
+  - slug: from-react-css
+    path: guides/from-react-css.md
+    kind: guide
+    summary: Migration guide — React/CSS concepts mapped to Pulp widgets and bridge API
+
+  - slug: cookbook
+    path: guides/cookbook.md
+    kind: guide
+    summary: 10 practical recipes — form layout, modal, scroll list, tabs, meter, themes, hover, keys, drag, presets
+
+  - slug: design-tokens
+    path: guides/design-tokens.md
+    kind: guide
+    summary: Theme system — token categories, inheritance, JSON creation, CSS/WGSL/Figma export
+
+  - slug: custom-rendering
+    path: guides/custom-rendering.md
+    kind: guide
+    summary: Three rendering layers — JS canvas, C++ Canvas API, Dawn/WebGPU shaders
+
+  - slug: offline-video-feasibility
+    path: reports/offline-video-feasibility.md
+    kind: guide
+    summary: Phase 12 exploration — offline PNG-sequence rendering feasibility and honest recommendation
+
+  - slug: example-showcase
+    path: examples/showcase.md
+    kind: example
+    summary: Component showcase — every widget type in one screenshot-testable JS file
+
+  # Reference
+  - slug: cli
+    path: reference/cli.md
+    kind: reference
+    summary: CLI commands and usage
+
+  - slug: js-bridge
+    path: reference/js-bridge.md
+    kind: reference
+    summary: All 111 JS bridge functions — widget creation, layout, styling, events, canvas, animation
+
+  - slug: design-import
+    path: reference/design-import.md
+    kind: reference
+    summary: CLI and pipeline reference for design import adapters, IR, validation, and token sync
+
+  - slug: w3c-coverage
+    path: reference/w3c-coverage.md
+    kind: reference
+    summary: Property-by-property W3C coverage matrix for the web-compat layer
+
+  - slug: cmake
+    path: reference/cmake.md
+    kind: reference
+    summary: CMake functions for plugins and apps
+
+  - slug: capabilities
+    path: reference/capabilities.md
+    kind: reference
+    summary: All current capabilities organized by area with status
+
+  - slug: claim-audit-baseline
+    path: reference/claim-audit-baseline.md
+    kind: reference
+    summary: Phase 15 baseline for current public capability claims and evidence
+
+  - slug: pulp-dsl-v1
+    path: contracts/pulp-dsl-v1.md
+    kind: contract
+    summary: Contract for integrating code-generating DSL backends with Pulp processors
+
+  - slug: modules
+    path: reference/modules.md
+    kind: reference
+    summary: All subsystems with status and key headers
+
+  # Policies
+  - slug: code-style
+    path: policies/code-style.md
+    kind: policy
+    summary: Coding standards and architectural rules
+
+  - slug: agent-rules
+    path: policies/agent-contribution-rules.md
+    kind: policy
+    summary: Contribution rules for AI agents and automated tools
+
+  - slug: licensing
+    path: reference/licensing.md
+    kind: reference
+    summary: Licensing, dependencies, acknowledgements, and policy
+
+  # Reports
+  - slug: webgpu-compute-feasibility
+    path: reports/webgpu-compute-feasibility.md
+    kind: report
+    summary: Feasibility spike for batch-oriented WebGPU compute audio workloads

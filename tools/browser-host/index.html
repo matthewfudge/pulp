@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulp Browser Host</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #1e1e2e; color: #cdd6f4;
+    display: grid; grid-template-rows: auto 1fr auto;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  header {
+    background: #181825; padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px;
+    border-bottom: 1px solid #313244;
+  }
+  header h1 { font-size: 16px; color: #89b4fa; white-space: nowrap; }
+  header .controls { display: flex; gap: 8px; align-items: center; flex: 1; }
+  header select, header button, header input[type=file] {
+    background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  header button:hover { background: #45475a; }
+  header button.active { background: #89b4fa; color: #1e1e2e; }
+  .cpu { font-size: 12px; color: #a6adc8; white-space: nowrap; }
+
+  /* Main content */
+  main {
+    display: grid; grid-template-columns: 1fr 300px;
+    gap: 0; overflow: hidden;
+  }
+
+  /* Plugin UI area */
+  #plugin-area {
+    padding: 20px; overflow-y: auto;
+  }
+  #plugin-area h2 { font-size: 14px; color: #a6adc8; margin-bottom: 12px; }
+
+  /* Parameter panel */
+  #param-panel {
+    background: #181825; border-left: 1px solid #313244;
+    padding: 16px; overflow-y: auto;
+  }
+  #param-panel h3 { font-size: 13px; color: #89b4fa; margin-bottom: 12px; }
+  .param-row {
+    margin-bottom: 12px;
+  }
+  .param-row label {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: #a6adc8; margin-bottom: 4px;
+  }
+  .param-row .val { color: #cdd6f4; font-weight: 600; }
+  .param-row input[type=range] {
+    width: 100%; accent-color: #89b4fa;
+  }
+
+  /* Keyboard */
+  #keyboard {
+    display: flex; height: 60px; margin-top: 16px;
+    border-radius: 6px; overflow: hidden;
+  }
+  .key {
+    flex: 1; background: #cdd6f4; border: 1px solid #585b70;
+    cursor: pointer; position: relative; min-width: 24px;
+    transition: background 0.05s;
+  }
+  .key.black {
+    background: #313244; flex: 0.6; margin: 0 -6px;
+    z-index: 1; height: 38px; border-radius: 0 0 4px 4px;
+  }
+  .key:active, .key.pressed { background: #89b4fa; }
+  .key.black:active, .key.black.pressed { background: #74c7ec; }
+
+  /* Oscilloscope */
+  #scope {
+    background: #11111b; border-radius: 6px;
+    margin-top: 12px; height: 80px;
+  }
+
+  /* Footer */
+  footer {
+    background: #181825; padding: 8px 20px;
+    border-top: 1px solid #313244;
+    font-size: 11px; color: #585b70;
+    display: flex; justify-content: space-between;
+  }
+
+  /* States */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  .overlay button {
+    background: #89b4fa; color: #1e1e2e; border: none;
+    padding: 16px 32px; font-size: 18px; border-radius: 12px;
+    cursor: pointer; font-weight: 600;
+  }
+  .overlay button:hover { background: #74c7ec; }
+  .hidden { display: none; }
+
+  /* Plugin webview iframe */
+  #webview-frame {
+    width: 100%; border: none; border-radius: 8px;
+    background: #11111b; min-height: 200px;
+  }
+
+  /* Drag-drop zone */
+  .drop-zone {
+    border: 2px dashed #45475a; border-radius: 12px;
+    padding: 40px; text-align: center; color: #585b70;
+    margin: 20px 0;
+  }
+  .drop-zone.active { border-color: #89b4fa; color: #89b4fa; }
+
+  @media (max-width: 768px) {
+    main { grid-template-columns: 1fr; }
+    #param-panel { border-left: none; border-top: 1px solid #313244; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Click-to-start overlay (required for AudioContext) -->
+<div class="overlay" id="start-overlay">
+  <button onclick="startAudio()">Start Audio Engine</button>
+</div>
+
+<header>
+  <h1>Pulp Browser Host</h1>
+  <div class="controls">
+    <select id="plugin-select" disabled>
+      <option value="">Load a plugin...</option>
+    </select>
+    <button id="btn-play" onclick="togglePlay()">▶ Play</button>
+    <button id="btn-stop" onclick="stopEngine()">⏹ Stop</button>
+    <button onclick="resetPlugin()">↻ Reset</button>
+    <button onclick="copyLink()">🔗 Share</button>
+    <input type="file" id="file-input" accept=".wasm,.tar.gz,.wclap" onchange="loadFile(this)">
+  </div>
+  <span class="cpu" id="cpu-display">CPU: —</span>
+</header>
+
+<main>
+  <div id="plugin-area">
+    <h2 id="plugin-name">No plugin loaded</h2>
+
+    <!-- Plugin webview UI (if available) -->
+    <iframe id="webview-frame" class="hidden"></iframe>
+
+    <!-- Drop zone for audio files -->
+    <div class="drop-zone" id="drop-zone"
+         ondragover="event.preventDefault(); this.classList.add('active')"
+         ondragleave="this.classList.remove('active')"
+         ondrop="handleDrop(event)">
+      Drop an audio file here, or use the file picker above to load a WCLAP
+    </div>
+
+    <!-- MIDI keyboard (for instruments) -->
+    <div id="keyboard" class="hidden"></div>
+
+    <!-- Oscilloscope -->
+    <canvas id="scope" class="hidden"></canvas>
+  </div>
+
+  <div id="param-panel">
+    <h3>Parameters</h3>
+    <div id="param-list">
+      <p style="color:#585b70; font-size: 12px;">Load a plugin to see parameters</p>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span>Pulp Audio Framework — <a href="https://github.com/niclamusic/WebCLAP" style="color:#89b4fa">WebCLAP</a> + <a href="https://www.webaudiomodules.com" style="color:#89b4fa">WAMv2</a></span>
+  <span id="format-badge">No format loaded</span>
+</footer>
+
+<script type="module">
+// ── Audio Engine ────────────────────────────────────────────────────────
+
+let audioCtx = null;
+let sourceNode = null;
+let pluginNode = null;
+let analyserNode = null;
+let isPlaying = false;
+
+window.startAudio = async function() {
+  audioCtx = new AudioContext({ sampleRate: 48000 });
+  analyserNode = audioCtx.createAnalyser();
+  analyserNode.fftSize = 2048;
+  analyserNode.connect(audioCtx.destination);
+
+  document.getElementById('start-overlay').classList.add('hidden');
+  document.getElementById('plugin-select').disabled = false;
+
+  // Check URL params for auto-load
+  const params = new URLSearchParams(location.search);
+  if (params.get('module')) {
+    await loadModuleFromURL(params.get('module'), params.get('plugin'));
+  }
+
+  startScope();
+};
+
+window.togglePlay = function() {
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  isPlaying = !isPlaying;
+  document.getElementById('btn-play').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+};
+
+window.stopEngine = function() {
+  if (audioCtx) audioCtx.suspend();
+  isPlaying = false;
+  document.getElementById('btn-play').textContent = '▶ Play';
+};
+
+window.resetPlugin = function() {
+  // TODO: reset plugin state
+  location.search = '';
+};
+
+window.copyLink = function() {
+  navigator.clipboard.writeText(location.href);
+};
+
+// ── Plugin Loading ──────────────────────────────────────────────────────
+
+async function loadModuleFromURL(url, pluginId) {
+  document.getElementById('plugin-name').textContent = 'Loading...';
+  document.getElementById('format-badge').textContent = 'Loading WCLAP...';
+
+  try {
+    // Detect format from URL
+    if (url.endsWith('.tar.gz') || url.endsWith('.wclap')) {
+      await loadWCLAP(url, pluginId);
+    } else if (url.endsWith('.wasm')) {
+      await loadWASM(url);
+    } else {
+      // Try as WAMv2 module
+      await loadWAM(url);
+    }
+  } catch (err) {
+    document.getElementById('plugin-name').textContent = 'Error: ' + err.message;
+    console.error('Plugin load failed:', err);
+  }
+}
+
+async function loadWCLAP(url, pluginId) {
+  document.getElementById('format-badge').textContent = 'WebCLAP';
+  // TODO: fetch .tar.gz, extract module.wasm, instantiate via wclap-host-js
+  // For now, show placeholder
+  document.getElementById('plugin-name').textContent = 'WCLAP: ' + (pluginId || url);
+  showMessage('WCLAP loading requires wclap-host-js runtime. Use ?module=URL to load.');
+}
+
+async function loadWASM(url) {
+  document.getElementById('format-badge').textContent = 'WASM';
+  const response = await fetch(url);
+  const wasmBytes = await response.arrayBuffer();
+  const wasmModule = await WebAssembly.compile(wasmBytes);
+
+  // Register AudioWorklet and create node
+  // This uses our WAMv2 processor bridge
+  const processorCode = await fetch('wam-processor.js').then(r => r.text()).catch(() => null);
+  if (processorCode) {
+    const blob = new Blob([processorCode], { type: 'application/javascript' });
+    await audioCtx.audioWorklet.addModule(URL.createObjectURL(blob));
+  }
+
+  document.getElementById('plugin-name').textContent = 'WASM Plugin loaded';
+}
+
+async function loadWAM(url) {
+  document.getElementById('format-badge').textContent = 'WAMv2';
+  // Dynamic import of WAMv2 module
+  try {
+    const WAMModule = await import(url);
+    const wam = await WAMModule.default.createInstance(audioCtx);
+    pluginNode = wam.audioNode;
+    pluginNode.connect(analyserNode);
+
+    document.getElementById('plugin-name').textContent = wam.name;
+    buildParamUI(await wam.getParameterInfo());
+
+    // Show webview if available
+    const gui = await wam.createGui();
+    if (gui) {
+      document.getElementById('plugin-area').appendChild(gui);
+    }
+  } catch (err) {
+    showMessage('WAMv2 load failed: ' + err.message);
+  }
+}
+
+window.loadFile = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  loadModuleFromURL(url, file.name);
+};
+
+window.handleDrop = function(event) {
+  event.preventDefault();
+  event.target.classList.remove('active');
+  const file = event.dataTransfer.files[0];
+  if (file) {
+    const url = URL.createObjectURL(file);
+    if (file.name.match(/\.(wav|mp3|ogg|flac|aac)$/i)) {
+      loadAudioFile(url);
+    } else {
+      loadModuleFromURL(url, file.name);
+    }
+  }
+};
+
+async function loadAudioFile(url) {
+  if (!audioCtx) return;
+  const audio = new Audio(url);
+  audio.crossOrigin = 'anonymous';
+  if (sourceNode) sourceNode.disconnect();
+  sourceNode = audioCtx.createMediaElementSource(audio);
+
+  if (pluginNode) {
+    sourceNode.connect(pluginNode);
+  } else {
+    sourceNode.connect(analyserNode);
+  }
+
+  audio.play();
+  isPlaying = true;
+  document.getElementById('btn-play').textContent = '⏸ Pause';
+}
+
+// ── Parameter UI ────────────────────────────────────────────────────────
+
+function buildParamUI(paramInfo) {
+  const container = document.getElementById('param-list');
+  container.innerHTML = '';
+
+  for (const [id, param] of Object.entries(paramInfo)) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+
+    const label = document.createElement('label');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = param.label || id;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'val';
+    valSpan.textContent = (param.defaultValue ?? 0).toFixed(2);
+    label.appendChild(nameSpan);
+    label.appendChild(valSpan);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = param.minValue ?? 0;
+    slider.max = param.maxValue ?? 1;
+    slider.step = param.discreteStep || 0.01;
+    slider.value = param.defaultValue ?? 0;
+    slider.addEventListener('input', () => {
+      valSpan.textContent = parseFloat(slider.value).toFixed(2);
+      if (pluginNode) {
+        pluginNode.port.postMessage({ type: 'param', id, value: parseFloat(slider.value) });
+      }
+    });
+
+    row.appendChild(label);
+    row.appendChild(slider);
+    container.appendChild(row);
+  }
+}
+
+// ── MIDI Keyboard ───────────────────────────────────────────────────────
+
+function buildKeyboard() {
+  const kb = document.getElementById('keyboard');
+  kb.classList.remove('hidden');
+  kb.innerHTML = '';
+
+  // Two octaves: C3-B4
+  const notes = [
+    { note: 48, black: false }, { note: 49, black: true },
+    { note: 50, black: false }, { note: 51, black: true },
+    { note: 52, black: false }, { note: 53, black: false },
+    { note: 54, black: true }, { note: 55, black: false },
+    { note: 56, black: true }, { note: 57, black: false },
+    { note: 58, black: true }, { note: 59, black: false },
+    { note: 60, black: false }, { note: 61, black: true },
+    { note: 62, black: false }, { note: 63, black: true },
+    { note: 64, black: false }, { note: 65, black: false },
+    { note: 66, black: true }, { note: 67, black: false },
+    { note: 68, black: true }, { note: 69, black: false },
+    { note: 70, black: true }, { note: 71, black: false },
+  ];
+
+  for (const n of notes) {
+    const key = document.createElement('div');
+    key.className = 'key' + (n.black ? ' black' : '');
+    key.addEventListener('mousedown', () => {
+      key.classList.add('pressed');
+      sendMidi(0x90, n.note, 100);
+    });
+    key.addEventListener('mouseup', () => {
+      key.classList.remove('pressed');
+      sendMidi(0x80, n.note, 0);
+    });
+    key.addEventListener('mouseleave', () => {
+      if (key.classList.contains('pressed')) {
+        key.classList.remove('pressed');
+        sendMidi(0x80, n.note, 0);
+      }
+    });
+    kb.appendChild(key);
+  }
+}
+
+function sendMidi(status, data1, data2) {
+  if (pluginNode) {
+    pluginNode.port.postMessage({ type: 'midi', status, data1, data2 });
+  }
+}
+
+// ── Oscilloscope ────────────────────────────────────────────────────────
+
+function startScope() {
+  const canvas = document.getElementById('scope');
+  canvas.classList.remove('hidden');
+  const ctx = canvas.getContext('2d');
+
+  function draw() {
+    requestAnimationFrame(draw);
+    if (!analyserNode) return;
+
+    const w = canvas.width = canvas.clientWidth;
+    const h = canvas.height = canvas.clientHeight;
+
+    const data = new Float32Array(analyserNode.frequencyBinCount);
+    analyserNode.getFloatTimeDomainData(data);
+
+    ctx.fillStyle = '#11111b';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = '#89b4fa';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    const step = data.length / w;
+    for (let i = 0; i < w; i++) {
+      const idx = Math.floor(i * step);
+      const y = (1 - data[idx]) * h / 2;
+      if (i === 0) ctx.moveTo(i, y);
+      else ctx.lineTo(i, y);
+    }
+    ctx.stroke();
+  }
+
+  draw();
+}
+
+function showMessage(msg) {
+  document.getElementById('drop-zone').textContent = msg;
+}
+</script>
+</body>
+</html>

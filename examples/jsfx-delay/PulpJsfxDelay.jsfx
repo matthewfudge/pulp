@@ -1,0 +1,39 @@
+desc:Pulp JSFX Delay
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+slider1:24000<1,96000,1>Delay Samples
+slider2:0.35<0,0.95,0.01>Feedback
+slider3:0.5<0,1,0.01>Mix
+
+@init
+buffer_size = 131072;
+write_pos = 0;
+delay_samples = 24000;
+feedback = 0.35;
+mix = 0.5;
+
+@slider
+delay_samples = slider1;
+feedback = slider2;
+mix = slider3;
+
+@block
+read_pos = write_pos - delay_samples;
+read_pos < 0 ? read_pos += buffer_size;
+
+@sample
+delayed_l = mem[read_pos];
+delayed_r = mem[buffer_size + read_pos];
+dry_l = spl0;
+dry_r = spl1;
+mem[write_pos] = dry_l + delayed_l * feedback;
+mem[buffer_size + write_pos] = dry_r + delayed_r * feedback;
+spl0 = dry_l * (1 - mix) + delayed_l * mix;
+spl1 = dry_r * (1 - mix) + delayed_r * mix;
+write_pos += 1;
+write_pos >= buffer_size ? write_pos = 0;
+read_pos += 1;
+read_pos >= buffer_size ? read_pos = 0;

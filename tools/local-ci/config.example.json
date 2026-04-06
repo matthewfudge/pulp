@@ -1,0 +1,139 @@
+{
+  "targets": {
+    "mac": {
+      "type": "local",
+      "enabled": true
+    },
+    "ubuntu": {
+      "type": "ssh",
+      "host": "<your-ubuntu-ssh-host>",
+      "repo_path": "/home/<username>/Code/pulp-validate",
+      "utm_fallback": {
+        "vm_name": "<UTM VM name for Ubuntu>",
+        "boot_wait_secs": 30,
+        "ssh_retry_secs": 60
+      }
+    },
+    "windows": {
+      "type": "ssh",
+      "host": "<your-windows-ssh-host>",
+      "fallback_host": "<optional-secondary-host>",
+      "repo_path": "C:\\Users\\<username>\\pulp-validate",
+      "cmake_generator": "Visual Studio 17 2022",
+      "cmake_platform": "x64",
+      "cmake_generator_instance": "",
+      "utm_fallback": {
+        "vm_name": "<UTM VM name for Windows>",
+        "boot_wait_secs": 60,
+        "ssh_retry_secs": 120
+      }
+    }
+  },
+  "github_actions": {
+    "repository": "danielraffel/pulp",
+    "defaults": {
+      "workflow": "build",
+      "provider": "github-hosted",
+      "wait_poll_secs": 10,
+      "match_timeout_secs": 60
+    },
+    "workflows": {
+      "build": {
+        "providers": {
+          "namespace": {
+            "linux_runner_selector_json": "\"namespace-profile-default\"",
+            "windows_runner_selector_json": "\"namespace-profile-default\""
+          }
+        }
+      },
+      "docs-check": {
+        "providers": {
+          "namespace": {
+            "runner_selector_json": "\"namespace-profile-default\""
+          }
+        }
+      }
+    }
+  },
+  "telemetry": {
+    "billing": {
+      "enable_provider_reported_totals": false,
+      "currency": "USD",
+      "billing_period_start_day": 1,
+      "github_hosted_job_os_rates_per_minute": {
+        "linux": null,
+        "windows": null,
+        "macos": null
+      },
+      "namespace_profile_tag_rates_per_hour": {
+        "namespace-profile-default": null
+      },
+      "namespace_machine_shape_rates_per_hour": [
+        {
+          "os": "linux",
+          "arch": "amd64",
+          "virtual_cpu": 4,
+          "memory_megabytes": 8192,
+          "rate": null
+        }
+      ]
+    }
+  },
+  "defaults": {
+    "priority": "normal",
+    "ship_priority": "high",
+    "check_priority": "high",
+    "ssh_timeout_secs": 5,
+    "max_retries": 3,
+    "retry_delay_secs": 30
+  },
+  "desktop_automation": {
+    "artifact_root": "",
+    "publish_mode": "none",
+    "publish_branch": "dev-artifacts",
+    "retention_days": 14,
+    "targets": {
+      "mac": {
+        "adapter": "macos-local",
+        "bootstrap": "launchagent",
+        "capability_tier": "v2",
+        "optional": {
+          "webview_driver": false,
+          "webdriver_url": "",
+          "debug_attach": false,
+          "debugger_command": "lldb",
+          "video_capture": false,
+          "frame_stats": false
+        }
+      },
+      "ubuntu": {
+        "adapter": "linux-xvfb",
+        "bootstrap": "xvfb-run",
+        "capability_tier": "v2",
+        "optional": {
+          "webview_driver": false,
+          "webdriver_url": "",
+          "debug_attach": false,
+          "debugger_command": "lldb",
+          "video_capture": false,
+          "frame_stats": false
+        }
+      },
+      "windows": {
+        "adapter": "windows-session-agent",
+        "bootstrap": "scheduled-task",
+        "capability_tier": "v2",
+        "task_name": null,
+        "remote_root": null,
+        "optional": {
+          "webview_driver": false,
+          "webdriver_url": "",
+          "debug_attach": false,
+          "debugger_command": "",
+          "video_capture": false,
+          "frame_stats": false
+        }
+      }
+    }
+  }
+}

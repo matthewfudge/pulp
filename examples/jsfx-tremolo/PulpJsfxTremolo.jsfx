@@ -1,0 +1,25 @@
+desc:Pulp JSFX Tremolo
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+slider1:2<0.1,12,0.1>LFO Rate (Hz)
+slider2:0.5<0,1,0.01>Depth
+
+@init
+phase = 0;
+phase_inc = 0;
+depth = 0.5;
+twopi = 2 * $pi;
+
+@slider
+phase_inc = twopi * slider1 / srate;
+depth = slider2;
+
+@sample
+mod = 1 - depth + depth * (0.5 + 0.5 * sin(phase));
+spl0 *= mod;
+spl1 *= mod;
+phase += phase_inc;
+phase >= twopi ? phase -= twopi;

@@ -1,0 +1,338 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulpframework.dev/schemas/validation-report-v1.schema.json",
+  "title": "Pulp Validation Report v1",
+  "description": "Machine-readable contract for agent-driven validation workflows. Covers screenshot metadata, diff metrics, inspector/view-tree payloads, validator results, and sanitizer metadata.",
+  "type": "object",
+  "required": ["version", "timestamp", "reports"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Schema version. Always 1 for this revision."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of report generation."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Optional unique identifier for the validation run."
+    },
+    "git_ref": {
+      "type": "string",
+      "description": "Git commit SHA or branch at time of validation."
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["macos-arm64", "macos-x86_64", "windows-x64", "linux-x64", "ios-arm64"],
+      "description": "Target platform for this validation run."
+    },
+    "reports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/report" },
+      "description": "Array of individual report entries."
+    }
+  },
+  "$defs": {
+    "report": {
+      "type": "object",
+      "required": ["type", "status"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["screenshot", "screenshot_diff", "inspector", "validator", "sanitizer", "test_suite"],
+          "description": "Report entry type."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pass", "fail", "skip", "error"],
+          "description": "Outcome of this report entry."
+        },
+        "target": {
+          "type": "string",
+          "description": "What was validated (plugin name, test name, view ID, etc.)."
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Wall-clock duration in milliseconds."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "Human-readable error if status is fail or error."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "screenshot" } } },
+          "then": {
+            "properties": {
+              "screenshot": { "$ref": "#/$defs/screenshot_metadata" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "screenshot_diff" } } },
+          "then": {
+            "properties": {
+              "diff": { "$ref": "#/$defs/diff_metrics" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "inspector" } } },
+          "then": {
+            "properties": {
+              "inspector": { "$ref": "#/$defs/inspector_payload" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "validator" } } },
+          "then": {
+            "properties": {
+              "validator": { "$ref": "#/$defs/validator_result" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sanitizer" } } },
+          "then": {
+            "properties": {
+              "sanitizer": { "$ref": "#/$defs/sanitizer_metadata" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "test_suite" } } },
+          "then": {
+            "properties": {
+              "test_suite": { "$ref": "#/$defs/test_suite_result" }
+            }
+          }
+        }
+      ]
+    },
+    "screenshot_metadata": {
+      "type": "object",
+      "required": ["path", "width", "height"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Filesystem path to the PNG file."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 0.5,
+          "description": "Retina/HiDPI scale factor (e.g. 2.0)."
+        },
+        "backend": {
+          "type": "string",
+          "enum": ["coregraphics", "skia", "default"],
+          "description": "Rendering backend used."
+        },
+        "view_id": {
+          "type": "string",
+          "description": "Root view ID that was captured."
+        }
+      }
+    },
+    "diff_metrics": {
+      "type": "object",
+      "required": ["similarity", "total_pixels", "diff_pixels"],
+      "properties": {
+        "reference_path": {
+          "type": "string",
+          "description": "Path to the reference screenshot."
+        },
+        "rendered_path": {
+          "type": "string",
+          "description": "Path to the rendered screenshot."
+        },
+        "diff_image_path": {
+          "type": "string",
+          "description": "Path to the generated diff visualization."
+        },
+        "similarity": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "0.0 = completely different, 1.0 = identical."
+        },
+        "total_pixels": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diff_pixels": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pixels differing beyond tolerance."
+        },
+        "mean_error": {
+          "type": "number",
+          "minimum": 0.0,
+          "description": "Mean per-channel error (0-255 scale)."
+        },
+        "tolerance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Per-channel color tolerance used."
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Similarity threshold for pass/fail."
+        },
+        "bounds": {
+          "$ref": "#/$defs/diff_bounds"
+        }
+      }
+    },
+    "diff_bounds": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "inspector_payload": {
+      "type": "object",
+      "required": ["view_tree"],
+      "properties": {
+        "view_tree": {
+          "type": "object",
+          "description": "JSON representation of the view hierarchy from ViewInspector::to_json().",
+          "properties": {
+            "id": { "type": "string" },
+            "type": { "type": "string" },
+            "bounds": {
+              "type": "object",
+              "properties": {
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "width": { "type": "number" },
+                "height": { "type": "number" }
+              }
+            },
+            "children": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
+        },
+        "view_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total views in the tree (from ViewInspector::count_views)."
+        }
+      }
+    },
+    "validator_result": {
+      "type": "object",
+      "required": ["tool", "plugin_path"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "enum": ["pluginval", "clap-validator", "auval", "vstvalidator", "aax-validator"],
+          "description": "Validation tool used."
+        },
+        "tool_version": {
+          "type": "string"
+        },
+        "plugin_path": {
+          "type": "string",
+          "description": "Path to the plugin bundle validated."
+        },
+        "plugin_format": {
+          "type": "string",
+          "enum": ["vst3", "au", "auv3", "clap", "aax"],
+          "description": "Plugin format."
+        },
+        "strictness_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Strictness level (pluginval-specific)."
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        }
+      }
+    },
+    "sanitizer_metadata": {
+      "type": "object",
+      "required": ["sanitizer"],
+      "properties": {
+        "sanitizer": {
+          "type": "string",
+          "enum": ["asan", "tsan", "ubsan", "rtsan"],
+          "description": "Sanitizer type. RTSan requires Clang 18+ (upstream LLVM, not Apple Clang)."
+        },
+        "compiler": {
+          "type": "string",
+          "description": "Compiler used (e.g. AppleClang 16)."
+        },
+        "flags": {
+          "type": "string",
+          "description": "Sanitizer compiler flags."
+        },
+        "options": {
+          "type": "string",
+          "description": "Runtime options (e.g. ASAN_OPTIONS value)."
+        },
+        "tests_run": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tests_passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string" },
+              "message": { "type": "string" },
+              "location": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "test_suite_result": {
+      "type": "object",
+      "required": ["total", "passed", "failed"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "label_filter": {
+          "type": "string",
+          "description": "CTest label filter if applied."
+        }
+      }
+    }
+  }
+}

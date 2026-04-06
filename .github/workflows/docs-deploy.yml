@@ -1,0 +1,96 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'core/**/include/**'
+      - 'tools/build-docs.py'
+      - 'tools/build-api-docs.sh'
+      - 'tools/install/install.sh'
+      - 'tools/install/install.ps1'
+      - 'docs/doxygen/**'
+      - '.github/workflows/docs-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Doxygen
+        run: sudo apt-get install -y doxygen
+
+      - name: Build docs site
+        run: |
+          python3 tools/build-docs.py \
+            --output build/site \
+            --base-url /pulp/ \
+            --branch main
+
+      - name: Build API reference
+        run: |
+          chmod +x tools/build-api-docs.sh
+          tools/build-api-docs.sh
+
+      - name: Merge site and API docs
+        run: |
+          # API docs go under /pulp/api/
+          if [ -d build/api-docs/html ]; then
+            cp -r build/api-docs/html build/site/api
+            echo "API docs merged into site at /api/"
+          fi
+
+      - name: Copy install scripts
+        run: |
+          # Install scripts accessible at www.generouscorp.com/pulp/install.sh
+          cp tools/install/install.sh build/site/install.sh
+          cp tools/install/install.ps1 build/site/install.ps1
+          echo "Install scripts copied to site root"
+
+      - name: Archive Pages artifact
+        run: |
+          tar \
+            --dereference --hard-dereference \
+            --directory build/site \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude='.[^/]*' \
+            -cvf "$RUNNER_TEMP/github-pages.tar" \
+            .
+
+      - name: Upload Pages artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/github-pages.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,12 @@
+graph CmajorGain [[ main ]]
+{
+    input gain.level;
+
+    input stream float<2> in;
+    output stream float<2> out;
+
+    node gain = std::levels::SmoothedGain (float<2>);
+
+    connection in -> gain.in;
+    connection gain.out -> out;
+}
