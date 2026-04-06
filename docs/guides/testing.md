@@ -48,7 +48,7 @@ new one-off loop every time.
 
 ## Test Count
 
-The current branch has 1359 registered tests covering:
+The current branch has 1622+ registered tests covering:
 
 - Unit tests for subsystems (runtime, state, audio, midi, signal, format, events, canvas, render, view, osc)
 - Golden-file audio comparison tests
