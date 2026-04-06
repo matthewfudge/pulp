@@ -6,9 +6,7 @@
 namespace pulp::format {
 
 void TestSignalSource::set_config(const TestSignalConfig& cfg) {
-    std::lock_guard lock(config_mutex_);
-    pending_config_ = cfg;
-    config_dirty_.store(true, std::memory_order_release);
+    config_buf_.write(cfg);
     active_.store(cfg.type != TestSignalType::none, std::memory_order_relaxed);
 }
 
@@ -56,13 +54,15 @@ void TestSignalSource::reset() {
 }
 
 void TestSignalSource::fill(float* const* output, int num_channels, int num_samples) {
-    // Check for pending config update from UI thread
-    if (config_dirty_.load(std::memory_order_acquire)) {
-        config_ = pending_config_;
-        config_dirty_.store(false, std::memory_order_release);
+    // Read latest config from UI thread via lock-free TripleBuffer
+    auto& latest = config_buf_.read();
+    if (latest.type != config_.type || latest.sine_frequency_hz != config_.sine_frequency_hz) {
+        config_ = latest;
         if (config_.type == TestSignalType::sine) {
             sine_phase_ = 0.0;  // Reset phase on config change
         }
+    } else {
+        config_ = latest;
     }
 
     if (config_.type == TestSignalType::none) {

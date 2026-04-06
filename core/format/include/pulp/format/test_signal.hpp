@@ -1,11 +1,11 @@
 #pragma once
 
 #include <pulp/audio/audio_file.hpp>
+#include <pulp/runtime/triple_buffer.hpp>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 
 namespace pulp::format {
@@ -55,11 +55,9 @@ private:
     double sample_rate_ = 48000.0;
     std::atomic<bool> active_{false};
 
-    // Config sync: UI writes pending, audio thread swaps on next fill()
-    TestSignalConfig config_;
-    TestSignalConfig pending_config_;
-    std::atomic<bool> config_dirty_{false};
-    std::mutex config_mutex_;
+    // Config sync: UI writes via TripleBuffer, audio thread reads latest
+    TestSignalConfig config_;  // Audio thread's working copy
+    runtime::TripleBuffer<TestSignalConfig> config_buf_;
 
     // Sine state (audio thread only)
     double sine_phase_ = 0.0;
