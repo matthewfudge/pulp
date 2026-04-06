@@ -68,10 +68,15 @@ def md_to_html(md: str) -> str:
                 # Links: [text](url) — rewrite .md refs to .html
                 def rewrite_link(m):
                     text, url = m.group(1), m.group(2)
-                    if url.endswith('.md') and not url.startswith('http'):
+                    if '.md' in url and not url.startswith('http'):
                         url = url.replace('.md', '.html')
                         # Strip path prefixes — all pages are at root level
-                        url = url.split('/')[-1]
+                        # But preserve anchors: modules.html#format → modules.html#format
+                        anchor = ''
+                        if '#' in url:
+                            url, anchor = url.split('#', 1)
+                            anchor = '#' + anchor
+                        url = url.split('/')[-1] + anchor
                     return f'<a href="{url}">{text}</a>'
                 p = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', rewrite_link, p)
                 result.append(p)
