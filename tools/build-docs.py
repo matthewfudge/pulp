@@ -239,6 +239,9 @@ def parse_docs_index(path: Path) -> list[dict]:
 # ── Navigation ────────────────────────────────────────────────────────────────
 
 NAV_SECTIONS = [
+    ('', [
+        ('index', 'Home'),
+    ]),
     ('About', [
         ('vision', 'Vision'),
         ('overview', 'Overview'),
@@ -265,6 +268,8 @@ NAV_SECTIONS = [
         ('example-pulp-compressor', 'PulpCompressor'),
         ('example-pulp-synth', 'PulpSynth'),
         ('example-pulp-drums', 'PulpDrums'),
+        ('example-pulp-sampler', 'PulpSampler'),
+        ('example-pulp-pluck', 'PulpPluck'),
         ('example-ui-preview', 'UI Preview'),
     ]),
     ('CLI & CMake', [
@@ -287,7 +292,8 @@ def build_nav_html(current_slug: str, base_url: str) -> str:
     """Build the sidebar navigation HTML."""
     parts = []
     for section_title, items in NAV_SECTIONS:
-        parts.append(f'<div class="nav-section">{html.escape(section_title)}</div>')
+        if section_title:
+            parts.append(f'<div class="nav-section">{html.escape(section_title)}</div>')
         parts.append('<ul>')
         for slug, label in items:
             active = ' class="active"' if slug == current_slug else ''
@@ -587,14 +593,14 @@ MIT-licensed. No royalties. No copyleft.</p>
 <li><strong>GPU rendering</strong>: Dawn (Metal/D3D12/Vulkan) + Skia Graphite on all platforms</li>
 <li><strong>View system</strong>: TextEditor, ComboBox, TabPanel, ListBox, TreeView, and more — flex layout, JS scripting, hot-reload</li>
 <li><strong>Plugin hosting</strong>: PluginScanner, PluginSlot, SignalGraph for DAW-like apps</li>
-<li><strong>Testing</strong>: 642 automated tests across 13 subsystems</li>
+<li><strong>Testing</strong>: 1622+ automated tests across 13 subsystems</li>
 <li><strong>Shipping</strong>: codesign, notarization, DMG/PKG (macOS), NSIS (Windows), .deb (Linux), appcast</li>
 </ul>
 
 <h2>Where to start</h2>
 <ul>
 <li><a href="{base_url}getting-started.html">Getting Started</a> — build your first plugin step by step</li>
-<li><a href="{base_url}examples-index.html">Examples</a> — browse 11 example projects by category</li>
+<li><a href="{base_url}examples-index.html">Examples</a> — browse 25 example projects by category</li>
 <li><a href="{base_url}capabilities.html">Capabilities</a> — full capability matrix with status</li>
 <li><a href="{base_url}overview.html">Overview</a> — what Pulp is and how it is organized</li>
 </ul>
@@ -696,7 +702,7 @@ def main():
         built += 1
 
     # Build landing page (index.html)
-    nav = build_nav_html('', base_url)
+    nav = build_nav_html('index', base_url)
     landing = build_landing_page(base_url)
     index_page = page_html('Documentation', landing, nav, base_url, branch)
     (output_dir / 'index.html').write_text(index_page, encoding='utf-8')
