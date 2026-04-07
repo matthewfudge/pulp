@@ -1,4 +1,5 @@
 #include <pulp/audio/system_volume.hpp>
+#include <pulp/platform/child_process.hpp>
 
 #ifdef __APPLE__
 #include <CoreAudio/CoreAudio.h>
@@ -160,24 +161,18 @@ bool set_system_muted(bool) { return false; }
 
 // Linux: use amixer (ALSA) command-line tool
 std::optional<float> get_system_volume() {
-    FILE* pipe = popen("amixer sget Master 2>/dev/null | grep -oP '\\[\\d+%\\]' | head -1 | tr -d '[]%'", "r");
-    if (!pipe) return std::nullopt;
-
-    char buf[32];
-    if (fgets(buf, sizeof(buf), pipe)) {
-        pclose(pipe);
-        int pct = std::atoi(buf);
-        return static_cast<float>(pct) / 100.0f;
-    }
-    pclose(pipe);
-    return std::nullopt;
+    auto r = pulp::platform::exec("/bin/sh", {"-c",
+        "amixer sget Master 2>/dev/null | grep -oP '\\[\\d+%\\]' | head -1 | tr -d '[]%'"}, 5000);
+    if (r.exit_code != 0 || r.stdout_output.empty()) return std::nullopt;
+    int pct = std::atoi(r.stdout_output.c_str());
+    return static_cast<float>(pct) / 100.0f;
 }
 
 bool set_system_volume(float volume) {
     int pct = static_cast<int>(volume * 100.0f);
-    char cmd[64];
-    std::snprintf(cmd, sizeof(cmd), "amixer sset Master %d%% 2>/dev/null", pct);
-    return std::system(cmd) == 0;
+    std::string cmd = "amixer sset Master " + std::to_string(pct) + "% 2>/dev/null";
+    auto r = pulp::platform::exec("/bin/sh", {"-c", cmd}, 5000);
+    return r.exit_code == 0;
 }
 
 std::optional<bool> is_system_muted() { return std::nullopt; }
