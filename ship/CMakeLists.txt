@@ -12,6 +12,8 @@ target_sources(pulp-ship PRIVATE
     src/appcast.cpp
 )
 
+target_link_libraries(pulp-ship PUBLIC pulp::platform)
+
 if(APPLE)
     target_sources(pulp-ship PRIVATE
         platform/mac/codesign_mac.mm
