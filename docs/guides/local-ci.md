@@ -584,6 +584,20 @@ pulp ci-local cleanup --apply --include-prepared
 
 `pulp ci-local run` is the most common command. It enqueues the current `HEAD`, joins the machine-global queue, and waits until that exact job finishes.
 
+### Develop branch workflow
+
+For complex, multi-piece features that use a `develop/*` integration branch, PRs target the develop branch instead of `main`. The `ship` command supports this via `--base`:
+
+```bash
+# Ship a feature to the develop branch (not main)
+pulp ci-local ship feature/pkg-registry --base develop/package-manager
+
+# The develop branch itself ships to main at phase boundaries
+pulp ci-local ship develop/package-manager
+```
+
+GitHub Actions CI triggers on PRs to both `main` and `develop/**` branches, so CI runs automatically regardless of the target.
+
 If you pass a branch name explicitly, for example `pulp ci-local run feature/my-branch`, local CI resolves and records that branch tip's exact SHA immediately. This prevents a stale launching checkout from accidentally queuing its own `HEAD` while you intended to validate a different branch.
 
 Before queueing, local CI now also records:
