@@ -128,3 +128,15 @@ std::vector<DoctorCheck> run_doctor_checks(const fs::path& active_root, bool sta
 // ── Command Forward Declarations (for cross-command calls) ──────────────────
 
 int cmd_build(const std::vector<std::string>& args);
+int cmd_test(const std::vector<std::string>& args);
+int cmd_status(const std::vector<std::string>& args);
+int cmd_clean(const std::vector<std::string>& args);
+int cmd_run(const std::vector<std::string>& args);
+int cmd_validate(const std::vector<std::string>& args);
+int cmd_ship(const std::vector<std::string>& args);
+int cmd_doctor(const std::vector<std::string>& args);
+int cmd_create(const std::vector<std::string>& args);
+int cmd_docs(const std::vector<std::string>& args);
+int cmd_design(const std::vector<std::string>& args);
+int cmd_cache(const std::vector<std::string>& args);
+int cmd_upgrade(const std::vector<std::string>& args);

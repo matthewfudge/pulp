@@ -6,21 +6,7 @@
 #include <cstring>
 #include <iostream>
 
-// ── Command Forward Declarations ────────────────────────────────────────────
-// cmd_build is declared in cli_common.hpp (needed by cmd_test)
-
-int cmd_test(const std::vector<std::string>& args);
-int cmd_status(const std::vector<std::string>& args);
-int cmd_clean(const std::vector<std::string>& args);
-int cmd_cache(const std::vector<std::string>& args);
-int cmd_upgrade(const std::vector<std::string>& args);
-int cmd_run(const std::vector<std::string>& args);
-int cmd_design(const std::vector<std::string>& args);
-int cmd_validate(const std::vector<std::string>& args);
-int cmd_ship(const std::vector<std::string>& args);
-int cmd_doctor(const std::vector<std::string>& args);
-int cmd_create(const std::vector<std::string>& args);
-int cmd_docs(const std::vector<std::string>& args);
+// All command declarations are in cli_common.hpp
 
 // ── Usage ───────────────────────────────────────────────────────────────────
 
