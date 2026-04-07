@@ -18,7 +18,10 @@ bool PropertiesFile::load(std::string_view path) {
     ss << file.rdbuf();
     std::string content = ss.str();
 
-    if (content.empty()) return true;  // Empty file is valid (no properties)
+    if (content.empty()) {
+        values_.clear();  // Clear any stale state when loading empty file
+        return true;
+    }
 
     try {
         auto json = choc::json::parse(content);

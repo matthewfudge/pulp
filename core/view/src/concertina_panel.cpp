@@ -7,22 +7,34 @@ void ConcertinaPanel::add_section(std::string title, std::unique_ptr<View> conte
                                    bool initially_expanded) {
     Section section;
     section.title = std::move(title);
-    section.content = std::move(content);
     section.expanded = initially_expanded;
+
+    // Attach content to the view tree so it receives paint/input lifecycle
+    if (content) {
+        section.content = std::move(content);
+        add_child(section.content.get());
+        section.content->set_visible(initially_expanded);
+    }
+
     sections_.push_back(std::move(section));
 }
 
 void ConcertinaPanel::expand(int index) {
     if (index < 0 || index >= section_count()) return;
     if (exclusive_) {
-        for (auto& s : sections_) s.expanded = false;
+        for (auto& s : sections_) {
+            s.expanded = false;
+            if (s.content) s.content->set_visible(false);
+        }
     }
     sections_[index].expanded = true;
+    if (sections_[index].content) sections_[index].content->set_visible(true);
 }
 
 void ConcertinaPanel::collapse(int index) {
     if (index < 0 || index >= section_count()) return;
     sections_[index].expanded = false;
+    if (sections_[index].content) sections_[index].content->set_visible(false);
 }
 
 void ConcertinaPanel::toggle(int index) {
