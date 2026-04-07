@@ -51,6 +51,11 @@ add_executable(pulp-test-sync test_sync_primitives.cpp)
 target_link_libraries(pulp-test-sync PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sync)
 
+# IPC (InterprocessConnection) tests
+add_executable(pulp-test-ipc test_ipc.cpp)
+target_link_libraries(pulp-test-ipc PRIVATE pulp::events pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-ipc)
+
 # AttributedString and TextLayout tests
 add_executable(pulp-test-attributed-string test_attributed_string.cpp)
 target_link_libraries(pulp-test-attributed-string PRIVATE pulp::canvas Catch2::Catch2WithMain)
