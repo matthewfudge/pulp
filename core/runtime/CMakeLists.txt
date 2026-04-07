@@ -11,6 +11,12 @@ target_sources(pulp-runtime PRIVATE
     src/runtime.cpp
     src/identity.cpp
     src/simd.cpp
+    src/memory_mapped_file.cpp
+    src/temporary_file.cpp
+    src/dynamic_library.cpp
+    src/child_process.cpp
+    src/inter_process_lock.cpp
+    src/base64.cpp
 )
 
 # Highway's foreach_target.h uses #include HWY_TARGET_INCLUDE to re-include

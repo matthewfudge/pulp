@@ -51,6 +51,11 @@ add_executable(pulp-test-sync test_sync_primitives.cpp)
 target_link_libraries(pulp-test-sync PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sync)
 
+# Runtime utility tests (mmap, temp file, dynlib, base64, range, child process)
+add_executable(pulp-test-runtime-utils test_runtime_utils.cpp)
+target_link_libraries(pulp-test-runtime-utils PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-runtime-utils)
+
 # SIMD operations and aligned buffer tests
 add_executable(pulp-test-simd test_simd.cpp)
 target_link_libraries(pulp-test-simd PRIVATE pulp::runtime pulp::signal Catch2::Catch2WithMain)
