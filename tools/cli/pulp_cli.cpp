@@ -30,6 +30,8 @@
 #include "create_targets.hpp"
 #include "design_binding.hpp"
 #include <pulp/ship/installer.hpp>
+#include <pulp/view/screenshot.hpp>
+#include <pulp/format/editor_ui.hpp>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>  // _NSGetExecutablePath
@@ -1431,10 +1433,12 @@ static int cmd_validate(const std::vector<std::string>& args) {
     // Parse flags
     bool run_all = false;
     bool json_output = false;
+    bool screenshot = false;
     std::string report_path;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--all") run_all = true;
         else if (args[i] == "--json") json_output = true;
+        else if (args[i] == "--screenshot") screenshot = true;
         else if (args[i] == "--report" && i + 1 < args.size())
             report_path = args[++i];
     }
@@ -1734,6 +1738,56 @@ static int cmd_validate(const std::vector<std::string>& args) {
                 std::cerr << "Failed to write report to " << report_path << "\n";
             }
         }
+    }
+
+    // ── Screenshot capture (--screenshot) ───────────────────────────────────
+    if (screenshot) {
+        auto screenshots_dir = root / "artifacts" / "screenshots";
+        fs::create_directories(screenshots_dir);
+        int captured = 0;
+
+        // Capture editor screenshots for each built plugin example
+        auto examples_dir = build_dir / "examples";
+        if (!fs::exists(examples_dir)) examples_dir = build_dir;
+
+        // Use AutoUi to render a generic parameter editor for each plugin's StateStore
+        // This creates the same UI that the plugin would show in a DAW
+        for (auto dir_name : {"VST3", "CLAP", "AU"}) {
+            auto dir = build_dir / dir_name;
+            if (!fs::exists(dir)) continue;
+
+            for (auto& entry : fs::directory_iterator(dir)) {
+                auto ext = entry.path().extension().string();
+                if (ext != ".vst3" && ext != ".clap" && ext != ".component") continue;
+
+                auto name = entry.path().stem().string();
+                auto png_name = name + "-" + dir_name + ".png";
+                auto png_path = screenshots_dir / png_name;
+
+                // Build an editor UI from the StateStore (AutoUi)
+                pulp::state::StateStore store;
+                auto editor_ui = pulp::format::build_editor_ui(store, false);
+
+                if (!editor_ui.root) {
+                    std::cout << "  Screenshot: " << name << " (" << dir_name << ") — no editor, skipping\n";
+                    continue;
+                }
+
+                uint32_t w = 400, h = 300;
+                bool ok = pulp::view::render_to_file(*editor_ui.root, w, h, png_path.string());
+                if (ok) {
+                    std::cout << "  Screenshot: " << png_path.filename().string() << "\n";
+                    ++captured;
+                } else {
+                    std::cerr << "  Screenshot FAILED: " << name << " (" << dir_name << ")\n";
+                }
+            }
+        }
+
+        if (captured > 0)
+            std::cout << captured << " screenshot(s) saved to " << screenshots_dir.string() << "\n";
+        else
+            std::cout << "No plugin screenshots captured.\n";
     }
 
     return failed > 0 ? 1 : 0;
