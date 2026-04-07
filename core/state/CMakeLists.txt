@@ -11,6 +11,7 @@ target_sources(pulp-state PRIVATE
     src/store.cpp
     src/preset_manager.cpp
     src/state_tree.cpp
+    src/properties_file.cpp
 )
 
 target_link_libraries(pulp-state PUBLIC pulp::runtime)
