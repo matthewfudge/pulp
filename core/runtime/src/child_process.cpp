@@ -149,15 +149,17 @@ std::optional<ProcessResult> run_process(
     posix_spawn_file_actions_addclose(&actions, stdout_pipe[1]);
     posix_spawn_file_actions_addclose(&actions, stderr_pipe[1]);
 
+    // Working directory change for spawned process
+    // posix_spawn_file_actions_addchdir_np is a non-standard extension
+    // available on macOS and glibc 2.29+. Skip if unavailable.
+#if defined(__APPLE__) || (defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 29)
     if (!working_dir.empty()) {
         std::string wd(working_dir);
-#if defined(__APPLE__) && defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && \
-    __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 260000
-        posix_spawn_file_actions_addchdir(&actions, wd.c_str());
-#else
         posix_spawn_file_actions_addchdir_np(&actions, wd.c_str());
-#endif
     }
+#else
+    (void)working_dir;  // Not supported on this platform
+#endif
 
     pid_t pid;
     int status = posix_spawn(&pid, exe_str.c_str(), &actions, nullptr,

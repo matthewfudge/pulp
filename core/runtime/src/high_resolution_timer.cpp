@@ -2,6 +2,9 @@
 
 #ifdef __APPLE__
 #include <mach/mach_time.h>
+#elif defined(__linux__)
+#include <sched.h>
+#include <pthread.h>
 #endif
 
 namespace pulp::runtime {
@@ -21,9 +24,10 @@ void HighResolutionTimer::start(std::chrono::microseconds interval,
 #ifdef __APPLE__
         pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #elif defined(__linux__)
-        struct sched_param param;
+        // Best-effort priority boost — may fail without CAP_SYS_NICE
+        struct sched_param param{};
         param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-        pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+        pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);  // Ignored if no permission
 #endif
 
         auto next = std::chrono::steady_clock::now() + interval;
