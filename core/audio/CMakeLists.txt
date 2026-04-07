@@ -14,6 +14,7 @@ target_sources(pulp-audio PRIVATE
     src/codecs.c
     src/stb_vorbis_impl.c
     src/ogg_reader.cpp
+    src/aiff_reader.cpp
     src/channel_set.cpp
     src/offline_processor.cpp
 )

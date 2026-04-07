@@ -62,9 +62,17 @@ public:
     CachedProperty& operator=(const CachedProperty&) = delete;
     CachedProperty(CachedProperty&& other) noexcept
         : tree_(std::move(other.tree_)), property_name_(std::move(other.property_name_)),
-          value_(std::move(other.value_)), default_(std::move(other.default_)),
-          listener_id_(other.listener_id_) {
-        other.listener_id_ = -1;
+          value_(std::move(other.value_)), default_(std::move(other.default_)) {
+        // Remove old listener from the source and re-register on this object
+        if (tree_ && other.listener_id_ >= 0) {
+            tree_->remove_listener(other.listener_id_);
+            other.listener_id_ = -1;
+            listener_id_ = tree_->add_listener(
+                [this](StateTree&, std::string_view prop, const PropertyValue&, const PropertyValue& new_val) {
+                    if (prop == property_name_)
+                        update_from_variant(new_val);
+                });
+        }
     }
 
 private:
