@@ -131,18 +131,26 @@ public:
             uint32_t chunk_size = read_be32(chunk_header + 4);
 
             if (std::memcmp(chunk_header, "COMM", 4) == 0) {
-                uint8_t comm[26];
-                file.read(reinterpret_cast<char*>(comm), std::min(chunk_size, 26u));
+                uint32_t bytes_to_read = std::min(chunk_size, 26u);
+                uint8_t comm[26] = {};
+                file.read(reinterpret_cast<char*>(comm), bytes_to_read);
                 num_channels = read_be16(comm);
                 num_frames = read_be32(comm + 2);
                 bits_per_sample = read_be16(comm + 6);
                 sample_rate = extended_to_double(comm + 8);
-                if (chunk_size > 18)
-                    file.seekg(chunk_size - 18 + (chunk_size & 1), std::ios::cur);
+                // Skip remaining bytes in chunk (common in AIFC with compression type)
+                uint32_t remaining = chunk_size - bytes_to_read;
+                if (remaining > 0)
+                    file.seekg(remaining, std::ios::cur);
+                // Pad to even boundary
+                if (chunk_size & 1) file.seekg(1, std::ios::cur);
             } else if (std::memcmp(chunk_header, "SSND", 4) == 0) {
+                if (chunk_size < 8) {
+                    file.seekg(chunk_size + (chunk_size & 1), std::ios::cur);
+                    continue;  // Malformed SSND — skip
+                }
                 uint8_t ssnd_header[8];
                 file.read(reinterpret_cast<char*>(ssnd_header), 8);
-                // offset and block size (usually 0)
                 size_t data_size = chunk_size - 8;
                 ssnd_data.resize(data_size);
                 file.read(reinterpret_cast<char*>(ssnd_data.data()), static_cast<std::streamsize>(data_size));
@@ -183,7 +191,9 @@ public:
                     int32_t v = static_cast<int32_t>(read_be32(p));
                     sample = static_cast<float>(v) / 2147483648.0f;
                 } else if (bits_per_sample == 8) {
-                    sample = (static_cast<float>(p[0]) - 128.0f) / 128.0f;
+                    // AIFF 8-bit PCM is signed (-128 to 127)
+                    int8_t v = static_cast<int8_t>(p[0]);
+                    sample = static_cast<float>(v) / 128.0f;
                 }
 
                 data.channels[c][f] = sample;
