@@ -86,6 +86,11 @@ add_executable(pulp-test-animation-3d test_animation_3d.cpp)
 target_link_libraries(pulp-test-animation-3d PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-animation-3d)
 
+# AnimatorSet / 3D types tests
+add_executable(pulp-test-animator-set test_animator_set.cpp)
+target_link_libraries(pulp-test-animator-set PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-animator-set)
+
 # Runtime utility tests (mmap, temp file, dynlib, base64, range, child process)
 add_executable(pulp-test-runtime-utils test_runtime_utils.cpp)
 target_link_libraries(pulp-test-runtime-utils PRIVATE pulp::runtime Catch2::Catch2WithMain)
@@ -110,6 +115,11 @@ catch_discover_tests(pulp-test-dnd)
 add_executable(pulp-test-osc test_osc.cpp)
 target_link_libraries(pulp-test-osc PRIVATE pulp::osc Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-osc)
+
+# ImageConvolutionKernel tests
+add_executable(pulp-test-image-convolution test_image_convolution.cpp)
+target_link_libraries(pulp-test-image-convolution PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-image-convolution)
 
 # RectangleList geometry tests
 add_executable(pulp-test-rectangle-list test_rectangle_list.cpp)
