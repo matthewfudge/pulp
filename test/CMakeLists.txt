@@ -56,6 +56,11 @@ add_executable(pulp-test-i18n test_i18n.cpp)
 target_link_libraries(pulp-test-i18n PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-i18n)
 
+# StateTree and ObservableValue tests
+add_executable(pulp-test-state-tree test_state_tree.cpp)
+target_link_libraries(pulp-test-state-tree PRIVATE pulp::state pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-state-tree)
+
 # GUI component tests (table, toolbar, concertina, buttons, lasso)
 add_executable(pulp-test-gui-components test_gui_components.cpp)
 target_link_libraries(pulp-test-gui-components PRIVATE pulp::view Catch2::Catch2WithMain)

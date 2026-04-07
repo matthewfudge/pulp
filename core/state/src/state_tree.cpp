@@ -30,6 +30,8 @@ int64_t StateTree::get_int(std::string_view name, int64_t d) const {
 double StateTree::get_double(std::string_view name, double d) const {
     auto v = get(name);
     if (auto* f = std::get_if<double>(&v)) return *f;
+    // JSON may deserialize whole-number doubles as int64
+    if (auto* i = std::get_if<int64_t>(&v)) return static_cast<double>(*i);
     return d;
 }
 
@@ -179,18 +181,18 @@ static StateTree::Ptr choc_to_tree(const choc::value::ValueView& val) {
 
     // Properties
     if (val.hasObjectMember("properties") && val["properties"].isObject()) {
-        auto& props = val["properties"];
+        auto props = val["properties"];
         for (uint32_t i = 0; i < props.size(); ++i) {
             auto member = props.getObjectMemberAt(i);
             std::string key(member.name);
             if (member.value.isBool())
                 node->set(key, member.value.getBool());
-            else if (member.value.isInt32())
-                node->set(key, static_cast<int64_t>(member.value.getInt32()));
-            else if (member.value.isInt64())
-                node->set(key, member.value.getInt64());
             else if (member.value.isFloat64())
                 node->set(key, member.value.getFloat64());
+            else if (member.value.isInt64())
+                node->set(key, member.value.getInt64());
+            else if (member.value.isInt32())
+                node->set(key, static_cast<int64_t>(member.value.getInt32()));
             else if (member.value.isString())
                 node->set(key, std::string(member.value.getString()));
         }
@@ -198,7 +200,7 @@ static StateTree::Ptr choc_to_tree(const choc::value::ValueView& val) {
 
     // Children
     if (val.hasObjectMember("children") && val["children"].isArray()) {
-        auto& children = val["children"];
+        auto children = val["children"];
         for (uint32_t i = 0; i < children.size(); ++i) {
             auto child = choc_to_tree(children[i]);
             if (child) node->add_child(child);
