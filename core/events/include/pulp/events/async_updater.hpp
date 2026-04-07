@@ -3,8 +3,12 @@
 // AsyncUpdater — coalesce rapid updates to a single callback on the event thread.
 // Thread-safe: can be triggered from any thread.
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace pulp::events {
 
@@ -47,7 +51,8 @@ public:
 private:
     std::atomic<bool> pending_{false};
 
-    void post_to_event_thread();  // Platform-specific posting
+    // Consumers should poll process_pending() from their event loop.
+    void post_to_event_thread() {}
 };
 
 /// Lambda-based async updater (convenience)
