@@ -61,6 +61,11 @@ add_executable(pulp-test-midi-ci test_midi_ci.cpp)
 target_link_libraries(pulp-test-midi-ci PRIVATE pulp::midi Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-midi-ci)
 
+# TextShaper (PreText-style measure-once-reflow-forever)
+add_executable(pulp-test-text-shaper test_text_shaper.cpp)
+target_link_libraries(pulp-test-text-shaper PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-text-shaper)
+
 # Analytics tests
 add_executable(pulp-test-analytics test_analytics.cpp)
 target_link_libraries(pulp-test-analytics PRIVATE pulp::runtime Catch2::Catch2WithMain)
