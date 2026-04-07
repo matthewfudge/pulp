@@ -32,7 +32,7 @@ TEST_CASE("OSC Bundle add message", "[osc][bundle]") {
     Bundle bundle;
     Message msg;
     msg.address = "/test";
-    msg.add_int(42);
+    msg.add(42);
     bundle.add(std::move(msg));
 
     REQUIRE(bundle.elements.size() == 1);
@@ -63,15 +63,17 @@ TEST_CASE("OSC Bundle serialize produces valid data", "[osc][bundle]") {
 
     Message msg;
     msg.address = "/gain";
-    msg.add_float(0.75f);
+    msg.add(0.75f);
     bundle.add(std::move(msg));
 
     auto data = bundle.serialize();
     REQUIRE(data.size() > 8);  // At minimum: #bundle + timetag
 
-    // Check #bundle header
-    std::string header(data.begin(), data.begin() + 8);
-    REQUIRE(header == "#bundle\0");
+    // Check #bundle header (8 bytes: "#bundle" + null terminator)
+    REQUIRE(data[0] == '#');
+    REQUIRE(data[1] == 'b');
+    REQUIRE(data[6] == 'e');
+    REQUIRE(data[7] == '\0');
 }
 
 TEST_CASE("OSC Bundle serialize/deserialize round-trip", "[osc][bundle]") {
@@ -80,12 +82,12 @@ TEST_CASE("OSC Bundle serialize/deserialize round-trip", "[osc][bundle]") {
 
     Message msg1;
     msg1.address = "/volume";
-    msg1.add_float(-6.0f);
+    msg1.add(-6.0f);
     original.add(std::move(msg1));
 
     Message msg2;
     msg2.address = "/mute";
-    msg2.add_int(1);
+    msg2.add(1);
     original.add(std::move(msg2));
 
     auto data = original.serialize();
