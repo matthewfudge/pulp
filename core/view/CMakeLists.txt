@@ -162,7 +162,6 @@ target_sources(pulp-view PRIVATE
     src/file_browser.cpp
     src/code_editor.cpp
     src/table.cpp
-    src/toolbar.cpp
     src/concertina_panel.cpp
 )
 
