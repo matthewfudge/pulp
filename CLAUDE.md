@@ -200,20 +200,18 @@ pulp/
 ├── examples/              # Example projects
 ├── external/              # Third-party dependencies (vendored or fetched)
 ├── docs/                  # PUBLIC documentation (getting-started, API, guides)
-└── planning/              # LOCAL ONLY — gitignored, committed to a separate private repo
+└── planning/              # Private submodule (pulp-planning) — specs, roadmaps, assessments
 ```
 
-### What Does NOT Go in the Repo
+### What Does NOT Go in the Public Repo
 
-Planning documents, spec drafts, audit notes, phase tracking, and internal design exploration stay in `planning/` locally but are **gitignored** from this repo. They are committed to a separate private repository.
+Internal planning — capability assessments, feature specs, roadmaps, phase tracking, and design exploration — lives in the `planning/` submodule (private repo `pulp-planning`). This separation keeps the public repo focused on code, docs, and examples.
 
 ```
-# In .gitignore:
-/planning/           # Phase specs, status tracking, archived plans
-/research/           # Audit notes, competitive analysis
+planning/            # Private submodule — specs, assessments, roadmaps, research, phase tracking
 ```
 
-Planning docs live in `planning/` locally. When a phase completes, its spec moves to `planning/archive/`. Status is tracked in `planning/STATUS.md`. None of this is committed to this repo.
+When a phase completes, its spec moves to `planning/archive/`. Status is tracked in `planning/STATUS.md`. The `planning/` submodule is optional — external cloners can build and use Pulp without it.
 
 ---
 
@@ -266,10 +264,45 @@ Multiple explorations can run simultaneously. Multiple phases can be implemented
 
 ### Status Tracking
 
-Status is tracked locally in `planning/STATUS.md` (gitignored). Phase specs live in `planning/` with goals, deliverables, acceptance criteria, test plans, and notes.
+Status is tracked in `planning/STATUS.md` (private submodule). Phase specs live in `planning/` with goals, deliverables, acceptance criteria, test plans, and notes. After writing or updating files in `planning/`, always commit and push to the planning repo.
 
 ---
 
+## Planning & Internal Docs
+
+The `planning/` directory is a private git submodule (`pulp-planning`). All internal documents go here — never in the public repo.
+
+### What goes in `planning/`
+
+- **Feature specs** — detailed plans for upcoming work
+- **Roadmaps and phase tracking** — STATUS.md, phase plans
+- **Design exploration** — architecture proposals, workflow designs
+
+### What goes in `planning/research/`
+
+- **Capability assessments** — evaluating what Pulp needs to improve
+- **Technology evaluations** — library reviews, framework studies
+- **Proposals** — package manager concepts, integration strategies
+- **Reference material** — notes from studying other implementations
+
+### Workflow
+
+When creating or updating planning documents:
+
+1. Write files to `planning/`
+2. Commit in the planning submodule: `cd planning && git add . && git commit`
+3. Push to the planning repo: `git push origin main`
+4. Optionally update the submodule pointer in the parent repo
+
+Never create branches or worktrees on the public repo for planning work. Write directly to the submodule.
+
+### Language guidelines
+
+Planning docs should use neutral, professional language:
+- "Capability assessment" not "competitive analysis"
+- "Feature evaluation" not "gap analysis against [project]"
+- "Reference implementation study" not "reverse engineering"
+- Focus on what Pulp needs, not on critiquing other projects
 
 ---
 

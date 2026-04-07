@@ -1,7 +1,5 @@
-# Planning and internal docs (committed to a separate private repo)
-/planning/
+# Legacy planning paths (now a submodule at planning/)
 /.planning-repo/
-/research/
 
 # Build artifacts
 /build/
@@ -32,6 +30,9 @@ Thumbs.db
 # Exception: vendored deps committed to repo
 !/external/nanosvg/
 !/external/skia-build/
+!/external/pugixml/
+!/external/miniz/
+!/external/cpp-httplib/
 
 # Node (for web/WASM builds)
 node_modules/
