@@ -2,6 +2,7 @@
 // Uses signtool.exe when available
 
 #include <pulp/ship/codesign.hpp>
+#include <pulp/platform/child_process.hpp>
 
 #ifdef _WIN32
 
@@ -12,20 +13,16 @@
 namespace pulp::ship {
 
 static std::string exec_cmd(const std::string& cmd) {
-    std::string result;
-    FILE* pipe = _popen(cmd.c_str(), "r");
-    if (!pipe) return {};
-    char buf[256];
-    while (fgets(buf, sizeof(buf), pipe))
-        result += buf;
-    _pclose(pipe);
+    auto r = pulp::platform::exec("cmd", {"/c", cmd}, 120000);
+    auto result = r.stdout_output;
     while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
         result.pop_back();
     return result;
 }
 
 static int exec_status(const std::string& cmd) {
-    return std::system(cmd.c_str());
+    auto r = pulp::platform::exec("cmd", {"/c", cmd}, 120000);
+    return r.exit_code;
 }
 
 SigningInfo check_codesign(const std::string& path) {

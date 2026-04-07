@@ -2,6 +2,7 @@
 // API surface for .deb and AppImage creation
 
 #include <pulp/ship/codesign.hpp>
+#include <pulp/platform/child_process.hpp>
 
 #if defined(__linux__)
 
@@ -11,7 +12,8 @@
 namespace pulp::ship {
 
 static int exec_status(const std::string& cmd) {
-    return WEXITSTATUS(std::system(cmd.c_str()));
+    auto r = pulp::platform::exec("/bin/sh", {"-c", cmd}, 60000);
+    return r.exit_code;
 }
 
 // Linux has no code signing equivalent

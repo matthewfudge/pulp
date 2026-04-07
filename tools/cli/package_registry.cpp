@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "package_registry.hpp"
+#include <pulp/platform/child_process.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -534,14 +535,13 @@ fs::path default_cache_dir() {
 
 static bool download_file(const std::string& url, const fs::path& dest) {
     fs::create_directories(dest.parent_path());
-    // Use curl on macOS/Linux, PowerShell on Windows
 #ifdef _WIN32
-    std::string cmd = "powershell -Command \"Invoke-WebRequest -Uri '" + url +
-                      "' -OutFile '" + dest.string() + "'\" 2>nul";
+    auto r = pulp::platform::exec("powershell", {"-Command",
+        "Invoke-WebRequest -Uri '" + url + "' -OutFile '" + dest.string() + "'"}, 60000);
 #else
-    std::string cmd = "curl -sSfL -o '" + dest.string() + "' '" + url + "' 2>/dev/null";
+    auto r = pulp::platform::exec("curl", {"-sSfL", "-o", dest.string(), url}, 60000);
 #endif
-    return std::system(cmd.c_str()) == 0;
+    return r.exit_code == 0;
 }
 
 static bool is_cache_fresh(const fs::path& cache_file, int ttl_hours) {

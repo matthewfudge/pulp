@@ -1,8 +1,8 @@
 #include <pulp/ship/installer.hpp>
+#include <pulp/platform/child_process.hpp>
 
 #include <fstream>
 #include <sstream>
-#include <cstdlib>
 #include <filesystem>
 
 namespace pulp::ship {
@@ -157,8 +157,8 @@ bool create_nsis_installer(const InstallerConfig& config) {
     }
 
     // Invoke makensis
-    std::string cmd = "makensis /V2 \"" + nsi_path.string() + "\"";
-    int result = std::system(cmd.c_str());
+    auto proc_result = pulp::platform::exec("makensis", {"/V2", nsi_path.string()}, 120000);
+    int result = proc_result.exit_code;
 
     // Clean up the .nsi file
     fs::remove(nsi_path);
