@@ -1,5 +1,9 @@
 // iOS VoiceOver accessibility provider
-// Maps Pulp View accessibility properties to UIAccessibility.
+// Maps Pulp View accessibility properties to UIAccessibility protocol.
+//
+// Each View with an AccessRole is exposed as a UIAccessibilityElement.
+// The hosting UIView implements UIAccessibilityContainer to provide
+// a flat list of accessible elements to VoiceOver.
 
 #include <TargetConditionals.h>
 #if TARGET_OS_IOS
@@ -10,21 +14,30 @@
 
 namespace pulp::view {
 
+// ── Role mapping ────────────────────────────────────────────────────────
+
 static UIAccessibilityTraits access_role_to_traits(View::AccessRole role) {
     switch (role) {
-        case View::AccessRole::slider: return UIAccessibilityTraitAdjustable;
-        case View::AccessRole::toggle: return UIAccessibilityTraitButton;
-        case View::AccessRole::label:  return UIAccessibilityTraitStaticText;
-        case View::AccessRole::meter:  return UIAccessibilityTraitUpdatesFrequently;
-        case View::AccessRole::image:  return UIAccessibilityTraitImage;
-        default: return UIAccessibilityTraitNone;
+        case View::AccessRole::slider:
+            return UIAccessibilityTraitAdjustable;
+        case View::AccessRole::toggle:
+            return UIAccessibilityTraitButton;
+        case View::AccessRole::label:
+            return UIAccessibilityTraitStaticText;
+        case View::AccessRole::group:
+            return UIAccessibilityTraitNone;
+        case View::AccessRole::meter:
+            return UIAccessibilityTraitUpdatesFrequently;
+        case View::AccessRole::image:
+            return UIAccessibilityTraitImage;
+        default:
+            return UIAccessibilityTraitNone;
     }
 }
 
-}  // namespace pulp::view
+// ── PulpAccessibilityElement ────────────────────────────────────────────
 
-/// Bridges a Pulp View to UIAccessibility with proper screen-space frame
-/// and adjustable increment/decrement for slider roles.
+/// Bridges a Pulp View to UIAccessibility.
 @interface PulpAccessibilityElement : UIAccessibilityElement
 @property (nonatomic, assign) pulp::view::View* pulpView;
 @property (nonatomic, weak) UIView* hostView;
@@ -92,28 +105,33 @@ static UIAccessibilityTraits access_role_to_traits(View::AccessRole role) {
 
 @end
 
-namespace pulp::view {
+// ── Helper: collect accessible views ────────────────────────────────────
+
+static void collect_accessible_views(View& root, std::vector<View*>& out) {
+    for (size_t i = 0; i < root.child_count(); ++i) {
+        auto* child = root.child_at(i);
+        if (child->access_role() != View::AccessRole::none)
+            out.push_back(const_cast<View*>(child));
+        collect_accessible_views(*const_cast<View*>(child), out);
+    }
+}
 
 /// Create accessibility elements for all accessible views in the tree.
-/// The hosting UIView should call this and implement UIAccessibilityContainer.
+/// Called by the hosting UIView to populate its accessibility container.
 NSArray<UIAccessibilityElement *>* create_accessibility_elements(
     View& root, UIView* hostView) {
 
-    NSMutableArray* elements = [NSMutableArray array];
+    std::vector<View*> accessible;
+    collect_accessible_views(root, accessible);
 
-    std::function<void(View&)> collect = [&](View& view) {
-        if (view.access_role() != View::AccessRole::none) {
-            PulpAccessibilityElement* element =
-                [[PulpAccessibilityElement alloc] initWithAccessibilityContainer:hostView];
-            element.pulpView = &view;
-            element.hostView = hostView;
-            [elements addObject:element];
-        }
-        for (size_t i = 0; i < view.child_count(); ++i)
-            collect(*const_cast<View*>(view.child_at(i)));
-    };
-
-    collect(root);
+    NSMutableArray* elements = [NSMutableArray arrayWithCapacity:accessible.size()];
+    for (auto* view : accessible) {
+        PulpAccessibilityElement* element =
+            [[PulpAccessibilityElement alloc] initWithAccessibilityContainer:hostView];
+        element.pulpView = view;
+        element.hostView = hostView;
+        [elements addObject:element];
+    }
     return elements;
 }
 
