@@ -3,37 +3,37 @@
 
 modules:
   - name: runtime
-    summary: Lock-free primitives, logging, assertions
+    summary: Logging, SIMD (Highway), XML, ZIP, HTTP, sockets, crypto (mbedTLS), i18n, analytics, licensing, BigInteger
     status: stable
     dependencies: [platform]
     docs: reference/modules.md#runtime
 
   - name: events
-    summary: Event loop, timers, async dispatch
+    summary: Event loop, timers, async dispatch, IPC (InterprocessConnection), child process management, mDNS discovery
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#events
 
   - name: audio
-    summary: Audio buffers, device I/O, file I/O
+    summary: Audio buffers, device I/O, format registry (WAV/FLAC/MP3/OGG/AIFF/AAC), channels, offline processing, system volume
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#audio
 
   - name: midi
-    summary: MIDI messages, buffers, device I/O, file I/O
+    summary: MIDI messages, buffers, device I/O, file I/O, MIDI CI (discovery, profiles, properties)
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#midi
 
   - name: signal
-    summary: 30+ DSP algorithms -- filters, oscillators, effects, math, interpolation
+    summary: 30+ DSP algorithms, DryWetMixer, matrix math, special functions, SIMD buffer
     status: usable
     dependencies: []
     docs: reference/modules.md#signal
 
   - name: state
-    summary: Thread-safe parameters, state serialization, preset management
+    summary: Thread-safe parameters, StateTree, PropertiesFile, CachedProperty, preset management
     status: stable
     dependencies: [runtime]
     docs: reference/modules.md#state
@@ -51,7 +51,7 @@ modules:
     docs: reference/modules.md#platform
 
   - name: canvas
-    summary: 2D drawing abstraction (CoreGraphics, Skia), RecordingCanvas, Canvas 2D API (25 draw commands), path builder, gradients, clipping
+    summary: 2D drawing, TextShaper (PreText-style), AttributedString, RectangleList, ImageConvolution, CoreGraphics/Skia backends
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#canvas

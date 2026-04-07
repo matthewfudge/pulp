@@ -134,19 +134,29 @@ Sync primitives (in `core/runtime/`):
 
 | Subsystem | Path | Purpose |
 |-----------|------|---------|
-| platform | `core/platform/` | OS detection, types |
-| runtime | `core/runtime/` | Logging, assert, SeqLock, TripleBuffer, SpscQueue |
-| events | `core/events/` | EventLoop, Timer |
-| audio | `core/audio/` | BufferView (non-owning channel pointer wrapper) |
-| midi | `core/midi/` | MidiEvent, MidiBuffer (via choc::midi) |
-| state | `core/state/` | ParamValue, ParamInfo, StateStore, Binding, serialization |
-| signal | `core/signal/` | 30+ DSP processors, math, interpolation, filter design |
+| platform | `core/platform/` | OS detection, types, Windows registry |
+| runtime | `core/runtime/` | Logging, SIMD (Highway), XML, ZIP, HTTP, sockets, pipes, base64, crypto (mbedTLS), i18n, analytics, licensing, BigInteger |
+| events | `core/events/` | EventLoop, Timer, AsyncUpdater, InterprocessConnection, ChildProcessManager, NetworkServiceDiscovery |
+| audio | `core/audio/` | BufferView, FormatRegistry (WAV/FLAC/MP3/OGG/AIFF/AAC), ChannelSet, OfflineProcessor, SystemVolume |
+| midi | `core/midi/` | MidiEvent, MidiBuffer (via choc::midi), MIDI CI (discovery, profiles, properties) |
+| state | `core/state/` | ParamValue, ParamInfo, StateStore, Binding, StateTree, PropertiesFile, CachedProperty |
+| signal | `core/signal/` | 30+ DSP processors, math, SIMD buffer, DryWetMixer, matrix, special functions |
 | format | `core/format/` | Processor interface, VST3/AU/CLAP adapters, standalone |
-| canvas | `core/canvas/` | 2D drawing API, RecordingCanvas, CoreGraphics/Skia backends |
-| view | `core/view/` | View hierarchy, widgets, themes, JS bridge, AudioBridge |
+| canvas | `core/canvas/` | 2D drawing API, TextShaper (PreText-style), AttributedString, RectangleList, ImageConvolution |
+| view | `core/view/` | View hierarchy, widgets, themes, JS bridge, AudioBridge, accessibility interfaces |
 | render | `core/render/` | WebGPU/Dawn surface, Skia Graphite context |
-| osc | `core/osc/` | OSC 1.0 sender/receiver over UDP |
+| osc | `core/osc/` | OSC 1.0 sender/receiver over UDP, bundles, address pattern matching |
 | ship | `ship/` | Codesign, notarization, DMG/PKG creation, appcast |
+
+### Text Shaping
+
+Pulp uses a PreText-inspired text layout architecture (measure once, reflow forever):
+
+- **`PULP_TEXT_SHAPING`** CMake option — default ON with GPU, OFF without
+- `TextShaper::prepare()` — expensive: shapes text via SkFont/HarfBuzz, caches segment widths
+- `TextShaper::layout()` — cheap: pure arithmetic over cached widths, no font calls
+- HarfBuzz, ICU, and SkParagraph are bundled in the Skia pre-built binaries — no separate vendoring needed
+- Fallback to character-width estimation when Skia unavailable
 
 ---
 
