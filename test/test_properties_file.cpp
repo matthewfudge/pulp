@@ -166,10 +166,11 @@ TEST_CASE("PropertiesFile save and reload preserves path", "[state][properties]"
 
     PropertiesFile props;
     props.set_string("key", "val");
-    props.save(tmp.path_string());
+    props.set_path(tmp.path_string());
+    REQUIRE(props.save());  // Uses stored path
     REQUIRE(props.path() == tmp.path_string());
 
-    // save() without arg should use the stored path
+    // Modify and save again
     props.set_string("key2", "val2");
     REQUIRE(props.save());
 
