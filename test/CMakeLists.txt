@@ -51,6 +51,16 @@ add_executable(pulp-test-sync test_sync_primitives.cpp)
 target_link_libraries(pulp-test-sync PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sync)
 
+# i18n translation tests
+add_executable(pulp-test-i18n test_i18n.cpp)
+target_link_libraries(pulp-test-i18n PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-i18n)
+
+# GUI component tests (table, toolbar, concertina, buttons, lasso)
+add_executable(pulp-test-gui-components test_gui_components.cpp)
+target_link_libraries(pulp-test-gui-components PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-gui-components)
+
 # PropertiesFile JSON persistence tests
 add_executable(pulp-test-properties test_properties_file.cpp)
 target_link_libraries(pulp-test-properties PRIVATE pulp::state pulp::runtime Catch2::Catch2WithMain)
