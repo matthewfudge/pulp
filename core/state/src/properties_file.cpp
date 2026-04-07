@@ -48,8 +48,9 @@ bool PropertiesFile::load(std::string_view path) {
     }
 }
 
-bool PropertiesFile::save(std::string_view path) const {
-    std::string save_path(path);
+bool PropertiesFile::save(std::string_view path) {
+    path_ = std::string(path);
+    std::string save_path = path_;
 
     // Ensure parent directory exists
     auto parent = std::filesystem::path(save_path).parent_path();

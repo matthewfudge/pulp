@@ -20,10 +20,10 @@ public:
     /// Load properties from a JSON file. Returns false if file doesn't exist or is invalid.
     bool load(std::string_view path);
 
-    /// Save properties to a JSON file.
-    bool save(std::string_view path) const;
+    /// Save properties to a JSON file. Stores the path for subsequent save() calls.
+    bool save(std::string_view path);
 
-    /// Save to the path it was loaded from.
+    /// Save to the path it was loaded from (or last saved to).
     bool save() const;
 
     /// Get/set string properties
