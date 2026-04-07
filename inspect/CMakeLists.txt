@@ -14,6 +14,7 @@ target_sources(pulp-inspect PRIVATE
     src/protocol.cpp
     src/inspector_server.cpp
     src/audio_inspector.cpp
+    src/domain_handler.cpp
 )
 
 target_link_libraries(pulp-inspect PUBLIC pulp::view pulp::render pulp::state pulp::events)
