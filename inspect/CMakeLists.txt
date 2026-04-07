@@ -13,6 +13,7 @@ target_sources(pulp-inspect PRIVATE
     src/console_capture.cpp
     src/protocol.cpp
     src/inspector_server.cpp
+    src/audio_inspector.cpp
 )
 
 target_link_libraries(pulp-inspect PUBLIC pulp::view pulp::render pulp::state pulp::events)
