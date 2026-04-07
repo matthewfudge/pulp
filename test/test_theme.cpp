@@ -7,16 +7,16 @@ using Catch::Matchers::WithinAbs;
 
 TEST_CASE("Color from hex", "[view][theme]") {
     auto c = color_from_hex(0xFF8800);
-    REQUIRE(c.r == 0xFF);
-    REQUIRE(c.g == 0x88);
-    REQUIRE(c.b == 0x00);
-    REQUIRE(c.a == 0xFF);
+    REQUIRE(c.r8() == 0xFF);
+    REQUIRE(c.g8() == 0x88);
+    REQUIRE(c.b8() == 0x00);
+    REQUIRE(c.a8() == 0xFF);
 
     auto c2 = color_from_hex_alpha(0xFF880080);
-    REQUIRE(c2.r == 0xFF);
-    REQUIRE(c2.g == 0x88);
-    REQUIRE(c2.b == 0x00);
-    REQUIRE(c2.a == 0x80);
+    REQUIRE(c2.r8() == 0xFF);
+    REQUIRE(c2.g8() == 0x88);
+    REQUIRE(c2.b8() == 0x00);
+    REQUIRE(c2.a8() == 0x80);
 }
 
 TEST_CASE("Theme dark has required tokens", "[view][theme]") {
@@ -67,8 +67,8 @@ TEST_CASE("Theme apply_overrides", "[view][theme]") {
 
     base.apply_overrides(overrides);
 
-    REQUIRE(base.color("bg.primary")->r == 0xFF);
-    REQUIRE(base.color("bg.primary")->g == 0x00);
+    REQUIRE(base.color("bg.primary")->r8() == 0xFF);
+    REQUIRE(base.color("bg.primary")->g8() == 0x00);
     REQUIRE_THAT(base.dimension("spacing.md").value(), WithinAbs(99.0, 0.001));
 
     // Non-overridden tokens should still be there
@@ -177,9 +177,9 @@ TEST_CASE("Theme from_json with custom tokens", "[view][theme]") {
     })";
 
     auto theme = Theme::from_json(json);
-    REQUIRE(theme.color("custom.accent")->r == 0xFF);
-    REQUIRE(theme.color("custom.accent")->g == 0x66);
-    REQUIRE(theme.color("custom.accent")->b == 0x00);
+    REQUIRE(theme.color("custom.accent")->r8() == 0xFF);
+    REQUIRE(theme.color("custom.accent")->g8() == 0x66);
+    REQUIRE(theme.color("custom.accent")->b8() == 0x00);
     REQUIRE_THAT(theme.dimension("custom.size").value(), WithinAbs(42.5, 0.001));
     REQUIRE(theme.string_token("custom.label").value() == "My Plugin");
 }

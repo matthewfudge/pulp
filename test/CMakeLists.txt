@@ -393,6 +393,41 @@ add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-view)
 
+# Dirty region tracker tests
+add_executable(pulp-test-dirty-tracker test_dirty_tracker.cpp)
+target_link_libraries(pulp-test-dirty-tracker PRIVATE pulp::render Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-dirty-tracker)
+
+# Rendering integration tests (effects, dimensions, text direction, render passes)
+add_executable(pulp-test-rendering-integration test_rendering_integration.cpp)
+target_link_libraries(pulp-test-rendering-integration PRIVATE pulp::view pulp::render pulp::state Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-rendering-integration)
+
+# Draw batcher tests
+add_executable(pulp-test-draw-batcher test_draw_batcher.cpp)
+target_link_libraries(pulp-test-draw-batcher PRIVATE pulp::render Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-draw-batcher)
+
+# GPU graph renderer tests
+add_executable(pulp-test-gpu-graph test_gpu_graph.cpp)
+target_link_libraries(pulp-test-gpu-graph PRIVATE pulp::render Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-gpu-graph)
+
+# Texture atlas tests
+add_executable(pulp-test-texture-atlas test_texture_atlas.cpp)
+target_link_libraries(pulp-test-texture-atlas PRIVATE pulp::render Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-texture-atlas)
+
+# Sprite strip tests
+add_executable(pulp-test-sprite-strip test_sprite_strip.cpp)
+target_link_libraries(pulp-test-sprite-strip PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-sprite-strip)
+
+# Edit history (global undo) tests
+add_executable(pulp-test-edit-history test_edit_history.cpp)
+target_link_libraries(pulp-test-edit-history PRIVATE pulp::state Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-edit-history)
+
 # Platform maturity tests (cursor, focus, IME, context menu, accessibility)
 add_executable(pulp-test-platform-maturity test_platform_maturity.cpp)
 target_link_libraries(pulp-test-platform-maturity PRIVATE pulp::view Catch2::Catch2WithMain)
