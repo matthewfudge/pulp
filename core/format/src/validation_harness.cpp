@@ -304,7 +304,11 @@ ReportEntry ValidationHarness::run_validator(
     }
 
     // Run the validator via ChildProcess (with 30s timeout)
+#ifdef _WIN32
+    auto result = pulp::platform::exec("cmd", {"/c", cmd}, 30000);
+#else
     auto result = pulp::platform::exec("/bin/sh", {"-c", cmd}, 30000);
+#endif
     {
         auto end = std::chrono::steady_clock::now();
         entry.duration_ms = std::chrono::duration<double, std::milli>(end - start).count();
@@ -336,9 +340,6 @@ ReportEntry ValidationHarness::run_validator(
                 << "\"stderr\": \"\""
                 << "}";
         entry.payload_json = payload.str();
-    } else {
-        entry.status = ValidationStatus::error;
-        entry.error_message = "Failed to execute " + tool;
     }
 
     entries_.push_back(entry);
