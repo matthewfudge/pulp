@@ -560,10 +560,11 @@ When updating existing skills, preserve backward compatibility — don't remove 
 | `engine` | `.agents/skills/engine/` | Query, recommend, switch JS engine backend |
 | `import-design` | `.agents/skills/import-design/` | Import from Figma/Stitch/v0/Pencil |
 | `webview-ui` | `.agents/skills/webview-ui/` | Build WebView UIs with native bridge |
+| `cli-maintenance` | `.agents/skills/cli-maintenance/` | CLI command add/modify/remove checklist and sync |
 
 ### Claude Code Plugin
 
-Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/create`, `/status`, `/validate`, `/design`, `/ship`, `/import-design`), skills, and hooks. The plugin manifest is at `.claude-plugin/plugin.json`. See `docs/guides/claude-code-plugin.md` for installation and full details.
+Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/create`, `/status`, `/validate`, `/design`, `/ship`, `/version`, `/import-design`), skills, and hooks. The plugin manifest is at `.claude-plugin/plugin.json`. See `docs/guides/claude-code-plugin.md` for installation and full details.
 
 ### CI Workflow
 
