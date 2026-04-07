@@ -20,39 +20,39 @@ struct ProcessResult {
     bool was_cancelled = false;
 };
 
+/// Options for child process execution.
+struct ProcessOptions {
+    std::string working_directory;
+    int timeout_ms = 0;                    ///< 0 = no timeout
+    size_t max_output_bytes = 1 << 20;     ///< 1 MB default cap
+    /// Called for each complete line on stdout (from background reader thread).
+    std::function<void(std::string_view line)> on_stdout_line;
+    /// Called for each complete line on stderr (from background reader thread).
+    std::function<void(std::string_view line)> on_stderr_line;
+};
+
 /// Cross-platform child process with timeout, cancellation, and line-by-line
 /// output callbacks. Uses posix_spawn on POSIX (sandbox-compatible for AU
 /// plugins on macOS) and CreateProcess on Windows.
 class ChildProcess {
 public:
-    struct Options {
-        std::string working_directory;
-        int timeout_ms = 0;                    ///< 0 = no timeout
-        size_t max_output_bytes = 1 << 20;     ///< 1 MB default cap
-        /// Called for each complete line on stdout (from background reader thread).
-        std::function<void(std::string_view line)> on_stdout_line;
-        /// Called for each complete line on stderr (from background reader thread).
-        std::function<void(std::string_view line)> on_stderr_line;
-    };
-
     ChildProcess();
     ~ChildProcess();
     ChildProcess(ChildProcess&&) noexcept;
     ChildProcess& operator=(ChildProcess&&) noexcept;
 
-    // Non-copyable
     ChildProcess(const ChildProcess&) = delete;
     ChildProcess& operator=(const ChildProcess&) = delete;
 
     /// Blocking: run a command and return the result.
     static ProcessResult run(const std::string& command,
                              const std::vector<std::string>& args,
-                             const Options& options = {});
+                             const ProcessOptions& options = {});
 
     /// Non-blocking: start a command.
     bool start(const std::string& command,
                const std::vector<std::string>& args,
-               const Options& options = {});
+               const ProcessOptions& options = {});
 
     /// Check if the started process is still running.
     bool is_running() const;
@@ -62,7 +62,6 @@ public:
     void cancel();
 
     /// Wait for the process to complete and return the result.
-    /// Must be called after start(). Blocks until exit or timeout.
     ProcessResult wait();
 
     /// Read any available output without blocking (for non-blocking mode).

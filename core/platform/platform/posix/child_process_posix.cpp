@@ -75,7 +75,7 @@ struct ChildProcess::Impl {
     pid_t pid = -1;
     Pipe stdout_pipe;
     Pipe stderr_pipe;
-    Options options;
+    ProcessOptions options;
     std::string stdout_buf;
     std::string stderr_buf;
     std::string stdout_lines_buf;  // partial line accumulator
@@ -97,7 +97,7 @@ ChildProcess& ChildProcess::operator=(ChildProcess&&) noexcept = default;
 
 bool ChildProcess::start(const std::string& command,
                          const std::vector<std::string>& args,
-                         const Options& options) {
+                         const ProcessOptions& options) {
     impl_->options = options;
     impl_->stdout_buf.clear();
     impl_->stderr_buf.clear();
@@ -266,7 +266,7 @@ std::string ChildProcess::read_available_output() {
 
 ProcessResult ChildProcess::run(const std::string& command,
                                 const std::vector<std::string>& args,
-                                const Options& options) {
+                                const ProcessOptions& options) {
     ChildProcess cp;
     if (!cp.start(command, args, options))
         return {-1, {}, {}, false, false};

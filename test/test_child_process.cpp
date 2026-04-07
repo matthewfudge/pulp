@@ -34,7 +34,7 @@ TEST_CASE("exec respects timeout", "[child_process]") {
 
 TEST_CASE("line callback fires per line", "[child_process]") {
     std::vector<std::string> lines;
-    ChildProcess::Options opts;
+    ProcessOptions opts;
     opts.on_stdout_line = [&](std::string_view line) {
         lines.push_back(std::string(line));
     };
@@ -85,7 +85,7 @@ TEST_CASE("run with empty command fails gracefully", "[child_process]") {
 }
 
 TEST_CASE("stderr is captured separately", "[child_process]") {
-    ChildProcess::Options opts;
+    ProcessOptions opts;
     opts.timeout_ms = 5000;
 
 #ifdef _WIN32

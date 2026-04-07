@@ -73,7 +73,7 @@ struct ChildProcess::Impl {
     HANDLE process = INVALID_HANDLE_VALUE;
     WinPipe stdout_pipe;
     WinPipe stderr_pipe;
-    Options options;
+    ProcessOptions options;
     std::string stdout_lines_buf;
     std::string stderr_lines_buf;
     bool started = false;
@@ -93,7 +93,7 @@ ChildProcess& ChildProcess::operator=(ChildProcess&&) noexcept = default;
 
 bool ChildProcess::start(const std::string& command,
                          const std::vector<std::string>& args,
-                         const Options& options) {
+                         const ProcessOptions& options) {
     impl_->options = options;
     impl_->stdout_lines_buf.clear();
     impl_->stderr_lines_buf.clear();
@@ -225,7 +225,7 @@ std::string ChildProcess::read_available_output() {
 
 ProcessResult ChildProcess::run(const std::string& command,
                                 const std::vector<std::string>& args,
-                                const Options& options) {
+                                const ProcessOptions& options) {
     ChildProcess cp;
     if (!cp.start(command, args, options))
         return {-1, {}, {}, false, false};
