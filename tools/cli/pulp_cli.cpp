@@ -1,62 +1,132 @@
 // pulp — CLI tool for the Pulp audio plugin framework
-// Command dispatch and usage. See cmd_*.cpp for individual commands.
+// Command dispatch via structured table. See cmd_*.cpp for implementations.
 
 #include "cli_common.hpp"
 
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 
-// All command declarations are in cli_common.hpp
+// ── Command Table ───────────────────────────────────────────────────────────
 
-// ── Usage ───────────────────────────────────────────────────────────────────
+struct Command {
+    const char* name;
+    const char* summary;
+    int (*handler)(const std::vector<std::string>&);
+};
+
+static const Command commands[] = {
+    {"build",    "Configure and build the project",       cmd_build},
+    {"run",      "Launch a standalone Pulp application",  cmd_run},
+    {"test",     "Run the test suite",                    cmd_test},
+    {"status",   "Show project status and info",          cmd_status},
+    {"create",   "Scaffold a new plugin project",         cmd_create},
+    {"validate", "Run plugin format validators",          cmd_validate},
+    {"doctor",   "Diagnose environment issues",           cmd_doctor},
+    {"ship",     "Sign, package, and distribute",         cmd_ship},
+    {"design",   "Launch the AI design tool",             cmd_design},
+    {"docs",     "Browse local documentation",            cmd_docs},
+    {"clean",    "Remove build directory",                cmd_clean},
+    {"cache",    "Manage SDK and asset cache",            cmd_cache},
+    {"upgrade",  "Update the CLI to the latest version",  cmd_upgrade},
+};
+
+static constexpr int command_count = sizeof(commands) / sizeof(commands[0]);
+
+// Script commands: delegate to a Python script in the project tree
+struct ScriptCommand {
+    const char* name;
+    const char* script_path;  // relative to project root
+    const char* summary;
+};
+
+static const ScriptCommand script_commands[] = {
+    {"add",      "tools/add-component.py",          "Add a component to the project"},
+    {"audit",    "tools/audit.py",                   "License and clean-room audit"},
+    {"ci-local", "tools/local-ci/local_ci.py",       "Local-first CI across configured hosts"},
+};
+
+static constexpr int script_command_count = sizeof(script_commands) / sizeof(script_commands[0]);
+
+// Binary commands: delegate to a built binary
+struct BinaryCommand {
+    const char* name;
+    const char* binary_path;  // relative to project build dir
+    const char* summary;
+    const char* extra_arg;    // prepended arg (e.g., "--demo"), or nullptr
+};
+
+static const BinaryCommand binary_commands[] = {
+    {"design-debug",  "tools/design/pulp-design-debug",            "Headless design debug runner", nullptr},
+    {"inspect",       "tools/screenshot/pulp-screenshot",          "Launch the component inspector", "--demo"},
+    {"import-design", "tools/import-design/pulp-import-design",    "Import designs from Figma/Stitch/v0/Pencil", nullptr},
+    {"export-tokens", "tools/import-design/pulp-import-design",    "Export theme as W3C Design Tokens", "--export-tokens"},
+};
+
+static constexpr int binary_command_count = sizeof(binary_commands) / sizeof(binary_commands[0]);
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+static int delegate_to_script(const ScriptCommand& sc, const std::vector<std::string>& args) {
+    auto root = require_project_root();
+    if (!root) return 1;
+    auto script = *root / sc.script_path;
+    if (!fs::exists(script)) {
+        std::cerr << "Error: script not found at " << script.string() << "\n";
+        return 1;
+    }
+    std::string cmd = "python3 " + shell_quote(script);
+    for (auto& arg : args) cmd += " " + shell_quote(arg);
+    return run(cmd);
+}
+
+static int delegate_to_binary(const BinaryCommand& bc, const std::vector<std::string>& args) {
+    auto root = require_project_root();
+    if (!root) return 1;
+    auto binary = *root / "build" / bc.binary_path;
+    if (!fs::exists(binary)) {
+        std::cerr << "Error: " << fs::path(bc.binary_path).filename().string()
+                  << " not built. Run `pulp build` first.\n";
+        return 1;
+    }
+    std::string cmd = shell_quote(binary);
+    if (bc.extra_arg) cmd += std::string(" ") + bc.extra_arg;
+    for (auto& arg : args) cmd += " " + shell_quote(arg);
+    return run(cmd);
+}
+
+// ── Usage (auto-generated from command tables) ──────────────────────────────
 
 static void print_usage() {
     std::cout << "pulp — Pulp audio plugin framework CLI\n\n";
     std::cout << "Usage: pulp <command> [options]\n\n";
     std::cout << "Commands:\n";
-    std::cout << "  create   Create a new plugin project (scaffold + build + test)\n";
-    std::cout << "  build    Build the project (configure + compile)\n";
-    std::cout << "  run      Launch a standalone Pulp application\n";
-    std::cout << "  test     Run the test suite\n";
-    std::cout << "  status   Show project status and info\n";
-    std::cout << "  validate Run plugin format validators (CLAP, VST3, AU, optional AAX)\n";
-    std::cout << "  ship     Sign, package, and check plugins\n";
-    std::cout << "  cache    Manage SDK and asset cache (~/.pulp/)\n";
-    std::cout << "  docs     Browse local documentation\n";
-    std::cout << "  doctor   Diagnose environment issues (--fix, --ci, --dry-run)\n";
-    std::cout << "  ci-local Run local-first CI across this Mac and configured hosts\n";
-    std::cout << "  upgrade  Update the Pulp CLI to the latest version\n";
-    std::cout << "  clean    Remove build directory\n";
-    std::cout << "  inspect  Launch the component inspector\n";
-    std::cout << "  design          AI-powered style design (natural language -> token diffs)\n";
-    std::cout << "  design-debug    Headless before/after/diff runner for design chat prompts\n";
-    std::cout << "  import-design   Import designs from Figma/Stitch/v0/Pencil\n";
-    std::cout << "  export-tokens   Export theme as W3C Design Tokens\n";
-    std::cout << "  audit           License and clean-room audit\n";
-    std::cout << "  help     Show this help\n";
+    for (int i = 0; i < command_count; ++i) {
+        std::cout << "  " << std::left << std::setw(14) << commands[i].name
+                  << " " << commands[i].summary << "\n";
+    }
+    std::cout << "\n";
+    for (int i = 0; i < script_command_count; ++i) {
+        std::cout << "  " << std::left << std::setw(14) << script_commands[i].name
+                  << " " << script_commands[i].summary << "\n";
+    }
+    for (int i = 0; i < binary_command_count; ++i) {
+        std::cout << "  " << std::left << std::setw(14) << binary_commands[i].name
+                  << " " << binary_commands[i].summary << "\n";
+    }
+    std::cout << "  " << std::left << std::setw(14) << "help" << " Show this help\n";
     std::cout << "\nExamples:\n";
     std::cout << "  pulp create MyPlugin              # Create a new effect plugin\n";
     std::cout << "  pulp create MySynth --type instrument  # Create an instrument\n";
-    std::cout << "  pulp create DebugKnob --in-tree   # Add an example under examples/\n";
     std::cout << "  pulp doctor             # Check environment for issues\n";
-    std::cout << "  pulp doctor --fix       # Auto-fix issues where possible\n";
     std::cout << "  pulp build              # Build all targets\n";
-    std::cout << "  pulp build --target X   # Build specific target\n";
     std::cout << "  pulp test               # Run all tests\n";
-    std::cout << "  pulp test -R Knob       # Run tests matching 'Knob'\n";
     std::cout << "  pulp validate           # Validate built plugins\n";
-    std::cout << "  pulp cache status       # Show cached SDKs and assets\n";
-    std::cout << "  pulp cache fetch skia   # Download Skia GPU binaries\n";
     std::cout << "  pulp docs index         # List available docs\n";
     std::cout << "  pulp status             # Show project info\n";
-    std::cout << "  pulp ci-local cloud workflows\n";
-    std::cout << "  pulp ci-local cloud run build feature/my-branch\n";
-    std::cout << "  pulp design             # Build and launch the design tool\n";
-    std::cout << "  pulp design --script path/to/design-tool.js\n";
-    std::cout << "  pulp design --build-dir /tmp/pulp-design-parity-build\n";
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// ── Main ────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
@@ -78,117 +148,22 @@ int main(int argc, char* argv[]) {
         args.push_back(argv[i]);
     }
 
-    // ── Named commands (implemented in cmd_*.cpp) ───────────────────────
-    if (command == "build")    return cmd_build(args);
-    if (command == "run")      return cmd_run(args);
-    if (command == "test")     return cmd_test(args);
-    if (command == "status")   return cmd_status(args);
-    if (command == "validate") return cmd_validate(args);
-    if (command == "doctor")   return cmd_doctor(args);
-    if (command == "upgrade")  return cmd_upgrade(args);
-    if (command == "ship")     return cmd_ship(args);
-    if (command == "docs")     return cmd_docs(args);
-    if (command == "clean")    return cmd_clean(args);
-    if (command == "cache")    return cmd_cache(args);
-    if (command == "create")   return cmd_create(args);
-    if (command == "design")   return cmd_design(args);
-
-    // ── Script-delegation commands ──────────────────────────────────────
-    if (command == "add") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        auto script = root / "tools" / "add-component.py";
-        if (!fs::exists(script)) {
-            std::cerr << "Error: add-component script not found\n";
-            return 1;
-        }
-        std::string cmd = "python3 \"" + script.string() + "\"";
-        for (auto& arg : args) cmd += " \"" + arg + "\"";
-        return run(cmd);
-    }
-    if (command == "audit") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        auto script = root / "tools" / "audit.py";
-        if (!fs::exists(script)) {
-            std::cerr << "Error: audit script not found at " << script.string() << "\n";
-            return 1;
-        }
-        std::string cmd = "python3 \"" + script.string() + "\"";
-        for (auto& arg : args) cmd += " \"" + arg + "\"";
-        return run(cmd);
-    }
-    if (command == "ci-local") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        auto script = root / "tools" / "local-ci" / "local_ci.py";
-        if (!fs::exists(script)) {
-            std::cerr << "Error: local-ci script not found at " << script.string() << "\n";
-            return 1;
-        }
-        std::string cmd = "python3 \"" + script.string() + "\"";
-        for (auto& arg : args) cmd += " \"" + arg + "\"";
-        return run(cmd);
+    // Lookup in command table
+    for (int i = 0; i < command_count; ++i) {
+        if (command == commands[i].name) return commands[i].handler(args);
     }
 
-    // ── Binary-delegation commands ──────────────────────────────────────
-    if (command == "design-debug") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        auto debug_bin = root / "build" / "tools" / "design" / "pulp-design-debug";
-        if (!fs::exists(debug_bin)) {
-            std::cerr << "Error: pulp-design-debug not built. Run `pulp build` first.\n";
-            return 1;
-        }
-        std::string cmd = debug_bin.string();
-        for (auto& arg : args) cmd += " \"" + arg + "\"";
-        return run(cmd);
-    }
-    if (command == "inspect") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        auto screenshot_bin = root / "build" / "tools" / "screenshot" / "pulp-screenshot";
-        if (!fs::exists(screenshot_bin)) {
-            std::cerr << "Error: pulp-screenshot not built. Run `pulp build` first.\n";
-            return 1;
-        }
-        std::string cmd = screenshot_bin.string() + " --demo";
-        for (auto& arg : args) cmd += " " + arg;
-        return run(cmd);
-    }
-    if (command == "import-design" || command == "export-tokens") {
-        auto root = find_project_root();
-        if (root.empty()) {
-            std::cerr << "Error: not in a Pulp project directory\n";
-            return 1;
-        }
-        auto import_bin = root / "build" / "tools" / "import-design" / "pulp-import-design";
-        if (!fs::exists(import_bin)) {
-            std::cerr << "Error: pulp-import-design not built. Run `pulp build` first.\n";
-            return 1;
-        }
-        std::string cmd = import_bin.string();
-        if (command == "export-tokens") cmd += " --export-tokens";
-        for (auto& arg : args) cmd += " \"" + arg + "\"";
-        return run(cmd);
+    // Lookup in script commands
+    for (int i = 0; i < script_command_count; ++i) {
+        if (command == script_commands[i].name) return delegate_to_script(script_commands[i], args);
     }
 
-    // ── Help ────────────────────────────────────────────────────────────
+    // Lookup in binary commands
+    for (int i = 0; i < binary_command_count; ++i) {
+        if (command == binary_commands[i].name) return delegate_to_binary(binary_commands[i], args);
+    }
+
+    // Help
     if (command == "help" || command == "--help" || command == "-h") {
         print_usage();
         return 0;

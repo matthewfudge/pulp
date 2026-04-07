@@ -3,6 +3,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -58,6 +59,27 @@ bool icontains(const std::string& haystack, const std::string& needle);
 std::string yaml_value(const std::string& line, const std::string& key);
 std::string sanitize_process_output(std::string output);
 std::string truncate_message(std::string value, std::size_t max_chars);
+
+// ── Project Root Helpers ────────────────────────────────────────────────────
+
+// Returns project root or prints error and returns empty path.
+// Require being in a Pulp project. Prints error and returns nullopt if not found.
+std::optional<fs::path> require_project_root();
+
+// Like require_project_root but also checks for standalone (pulp.toml) projects.
+std::optional<fs::path> require_active_project_root(bool* is_standalone = nullptr);
+
+// ── Script/Binary Delegation ────────────────────────────────────────────────
+
+// Run a python3 script relative to the project root, passing all args quoted.
+int delegate_to_python_script(const fs::path& relative_script,
+                              const std::vector<std::string>& args);
+
+// Run a build binary relative to the project root, passing args quoted.
+// Optional prepend_flag is inserted before user args (e.g., "--export-tokens").
+int delegate_to_build_binary(const fs::path& relative_binary,
+                             const std::vector<std::string>& args,
+                             const std::string& prepend_flag = {});
 
 // ── Path / Project Detection ────────────────────────────────────────────────
 

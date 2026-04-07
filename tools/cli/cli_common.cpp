@@ -18,6 +18,8 @@
 #include <thread>
 
 #include <pulp/runtime/system.hpp>
+#include <choc/text/choc_StringUtilities.h>
+#include <choc/text/choc_Files.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>  // _NSGetExecutablePath
@@ -173,10 +175,7 @@ std::string exec_output(const std::string& cmd) {
 // ── String Utilities ────────────────────────────────────────────────────────
 
 std::string trim(const std::string& s) {
-    auto start = s.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return {};
-    auto end = s.find_last_not_of(" \t\r\n");
-    return s.substr(start, end - start + 1);
+    return std::string(choc::text::trim(s));
 }
 
 std::string strip_quotes(const std::string& s) {
@@ -190,23 +189,13 @@ std::string strip_quotes(const std::string& s) {
 }
 
 std::string read_file_contents(const fs::path& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
+    return choc::file::loadFileAsString(path.string());
 }
 
 std::string replace_all_str(const std::string& str,
                             const std::string& from,
                             const std::string& to) {
-    std::string result = str;
-    size_t pos = 0;
-    while ((pos = result.find(from, pos)) != std::string::npos) {
-        result.replace(pos, from.length(), to);
-        pos += to.length();
-    }
-    return result;
+    return choc::text::replace(str, from, to);
 }
 
 bool icontains(const std::string& haystack, const std::string& needle) {
@@ -354,6 +343,24 @@ fs::path resolve_active_project_root(bool* is_standalone) {
 
     auto root = find_project_root();
     if (is_standalone) *is_standalone = false;
+    return root;
+}
+
+std::optional<fs::path> require_project_root() {
+    auto root = find_project_root();
+    if (root.empty()) {
+        std::cerr << "Error: not in a Pulp project directory\n";
+        return std::nullopt;
+    }
+    return root;
+}
+
+std::optional<fs::path> require_active_project_root(bool* is_standalone) {
+    auto root = resolve_active_project_root(is_standalone);
+    if (root.empty()) {
+        std::cerr << "Error: not in a Pulp project directory\n";
+        return std::nullopt;
+    }
     return root;
 }
 
@@ -934,4 +941,23 @@ bool aax_validator_passed(const std::string& output) {
     }
 
     return false;
+}
+
+int delegate_to_built_binary(const fs::path& relative_binary,
+                             const std::vector<std::string>& args,
+                             const std::string& prepend_flag) {
+    auto root = require_project_root();
+    if (!root) return 1;
+
+    auto binary = *root / relative_binary;
+    if (!fs::exists(binary)) {
+        std::cerr << "Error: " << binary.filename().string()
+                  << " not built. Run `pulp build` first.\n";
+        return 1;
+    }
+
+    std::string cmd = shell_quote(binary);
+    if (!prepend_flag.empty()) cmd += " " + prepend_flag;
+    for (auto& arg : args) cmd += " " + shell_quote(arg);
+    return run(cmd);
 }
