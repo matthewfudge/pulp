@@ -51,6 +51,31 @@ add_executable(pulp-test-sync test_sync_primitives.cpp)
 target_link_libraries(pulp-test-sync PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sync)
 
+# License and BigInteger tests
+add_executable(pulp-test-license test_license.cpp)
+target_link_libraries(pulp-test-license PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-license)
+
+# MIDI CI tests
+add_executable(pulp-test-midi-ci test_midi_ci.cpp)
+target_link_libraries(pulp-test-midi-ci PRIVATE pulp::midi Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-midi-ci)
+
+# Analytics tests
+add_executable(pulp-test-analytics test_analytics.cpp)
+target_link_libraries(pulp-test-analytics PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-analytics)
+
+# Crypto tests (SHA-256, MD5, AES, machine ID)
+add_executable(pulp-test-crypto test_crypto.cpp)
+target_link_libraries(pulp-test-crypto PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-crypto)
+
+# IPC (InterprocessConnection) tests
+add_executable(pulp-test-ipc test_ipc.cpp)
+target_link_libraries(pulp-test-ipc PRIVATE pulp::events pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-ipc)
+
 # AttributedString and TextLayout tests
 add_executable(pulp-test-attributed-string test_attributed_string.cpp)
 target_link_libraries(pulp-test-attributed-string PRIVATE pulp::canvas Catch2::Catch2WithMain)

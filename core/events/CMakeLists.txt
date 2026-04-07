@@ -10,6 +10,10 @@ target_include_directories(pulp-events
 target_sources(pulp-events PRIVATE
     src/event_loop.cpp
     src/timer.cpp
+    src/async_updater.cpp
+    src/interprocess_connection.cpp
+    src/child_process_manager.cpp
+    src/volume_detector.cpp
 )
 
 target_link_libraries(pulp-events PUBLIC pulp::runtime)
