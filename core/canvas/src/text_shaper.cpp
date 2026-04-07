@@ -191,9 +191,10 @@ struct TextShaper::Impl {
         font.setSize(font_size);
         font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
-        SkRect bounds;
-        font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, &bounds);
-        width = bounds.width();
+        // Use the advance width (return value), not bounds.width().
+        // Advance includes whitespace and proper glyph spacing;
+        // bounds.width() can exclude trailing spaces and differ for overhangs.
+        width = font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, nullptr);
 #else
         // Fallback: character-width estimation
         width = static_cast<float>(text.size()) * font_size * 0.6f;
@@ -277,6 +278,11 @@ PreparedText TextShaper::prepare(const AttributedString& text) {
     result.line_height_ = first_span.font_size * 1.5f;
 
     for (auto& span : text.spans()) {
+        // Use the largest font's line height so mixed-size text doesn't overlap
+        float span_lh = span.font_size * 1.5f;
+        if (span_lh > result.line_height_)
+            result.line_height_ = span_lh;
+
         auto span_prepared = prepare(span.text, span.font_family, span.font_size);
         result.segments_.insert(result.segments_.end(),
                                span_prepared.segments_.begin(),

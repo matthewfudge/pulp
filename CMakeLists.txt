@@ -145,10 +145,12 @@ if(PULP_ENABLE_GPU)
         endif()
     endif()
 
-    if(NOT PULP_ENABLE_GPU AND PULP_TEXT_SHAPING)
-        message(WARNING "PULP_TEXT_SHAPING requires PULP_ENABLE_GPU — disabling text shaping")
-        set(PULP_TEXT_SHAPING OFF)
-    endif()
+endif()
+
+# Text shaping requires GPU/Skia — validate even when GPU is off
+if(PULP_TEXT_SHAPING AND NOT PULP_ENABLE_GPU)
+    message(WARNING "PULP_TEXT_SHAPING requires PULP_ENABLE_GPU — disabling text shaping")
+    set(PULP_TEXT_SHAPING OFF)
 endif()
 
 # SDL3 — cross-platform windowing, input, GPU context (zlib license)
