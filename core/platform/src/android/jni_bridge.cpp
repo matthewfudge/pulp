@@ -2,6 +2,8 @@
 
 #include <pulp/platform/android/jni.hpp>
 #include <android/log.h>
+#include <stdexcept>
+#include <string>
 
 #define PULP_LOG_TAG "Pulp"
 #define PULP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, PULP_LOG_TAG, __VA_ARGS__)

@@ -123,7 +123,8 @@ private:
 
         // Track xruns
         auto xruns = stream->getXRunCount();
-        if (xruns.has_value() && xruns.value() > last_reported_xruns_) {
+        if (xruns != oboe::ResultWithValue<int32_t>(oboe::Result::ErrorUnimplemented) &&
+            xruns.value() > last_reported_xruns_) {
             xrun_count_.fetch_add(xruns.value() - last_reported_xruns_, std::memory_order_relaxed);
             last_reported_xruns_ = xruns.value();
         }
@@ -173,19 +174,19 @@ private:
     bool open_output_stream() {
         oboe::AudioStreamBuilder builder;
         builder.setDirection(oboe::Direction::Output)
-               .setPerformanceMode(oboe::PerformanceMode::LowLatency)
-               .setSharingMode(oboe::SharingMode::Exclusive)
-               .setFormat(oboe::AudioFormat::Float)
-               .setChannelCount(requested_channels_)
-               .setDataCallback(this)
-               .setErrorCallback(this)
-               .setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Best);
+               ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+               ->setSharingMode(oboe::SharingMode::Exclusive)
+               ->setFormat(oboe::AudioFormat::Float)
+               ->setChannelCount(requested_channels_)
+               ->setDataCallback(this)
+               ->setErrorCallback(this)
+               ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Best);
 
         if (requested_sample_rate_ > 0) {
             builder.setSampleRate(requested_sample_rate_);
         }
         if (requested_buffer_size_ > 0) {
-            builder.setFramesPerBuffer(requested_buffer_size_);
+            builder.setFramesPerCallback(requested_buffer_size_);
         }
 
         auto result = builder.openManagedStream(output_stream_);

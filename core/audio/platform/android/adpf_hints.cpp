@@ -1,56 +1,61 @@
 #if defined(__ANDROID__)
 
 #include <android/log.h>
-#include <chrono>
 #include <cstdint>
-
-// ADPF (Android Dynamic Performance Framework) requires API 31+.
-// We check at runtime and gracefully degrade on older devices.
-#if __ANDROID_API__ >= 31
-#include <android/performance_hint.h>
-#define PULP_HAS_ADPF 1
-#else
-#define PULP_HAS_ADPF 0
-#endif
-
-#include <sys/types.h>
-#include <unistd.h>
 
 #define PULP_LOG_TAG "Pulp"
 #define PULP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, PULP_LOG_TAG, __VA_ARGS__)
 #define PULP_LOGW(...) __android_log_print(ANDROID_LOG_WARN, PULP_LOG_TAG, __VA_ARGS__)
 
+// ADPF requires API 31+. Since we build with minSdk 26 but use weak linking
+// (ANDROID_WEAK_API_DEFS), we check availability at runtime via dlsym.
+// This avoids compile-time API level issues.
+
+#include <dlfcn.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 namespace pulp::audio {
 
-// ── ADPF Performance Hint Session ─────────────────────────────────────────
-// Reports audio callback execution times and deadlines to the OS scheduler.
-// This allows the OS to:
-// - Assign the audio thread to performance ("Big") CPU cores
-// - Scale CPU clock appropriately without thermal runaway
-// - Avoid power-saving throttling during active DSP work
-//
-// Graceful degradation: if ADPF is unavailable (API < 31 or unsupported device),
-// init() returns false and all subsequent calls are no-ops.
+// Function pointers for ADPF APIs (loaded at runtime via dlsym)
+using PFN_getManager = void* (*)();
+using PFN_createSession = void* (*)(void*, const int32_t*, size_t, int64_t);
+using PFN_reportDuration = void (*)(void*, int64_t);
+using PFN_updateTarget = void (*)(void*, int64_t);
+using PFN_closeSession = void (*)(void*);
 
 class AdpfHintSession {
 public:
-    // Initialize the hint session for the current thread.
-    // Call from the audio callback thread on the first callback.
-    // target_duration_ns: the audio buffer duration in nanoseconds.
     bool init(int64_t target_duration_ns) {
-#if PULP_HAS_ADPF
-        manager_ = APerformanceHint_getManager();
-        if (!manager_) {
-            PULP_LOGW("ADPF: APerformanceHint_getManager() returned null — not available");
+        // Try to load ADPF functions at runtime
+        fn_getManager_ = reinterpret_cast<PFN_getManager>(
+            dlsym(RTLD_DEFAULT, "APerformanceHint_getManager"));
+        fn_createSession_ = reinterpret_cast<PFN_createSession>(
+            dlsym(RTLD_DEFAULT, "APerformanceHint_createSession"));
+        fn_reportDuration_ = reinterpret_cast<PFN_reportDuration>(
+            dlsym(RTLD_DEFAULT, "APerformanceHint_reportActualWorkDuration"));
+        fn_updateTarget_ = reinterpret_cast<PFN_updateTarget>(
+            dlsym(RTLD_DEFAULT, "APerformanceHint_updateTargetWorkDuration"));
+        fn_closeSession_ = reinterpret_cast<PFN_closeSession>(
+            dlsym(RTLD_DEFAULT, "APerformanceHint_closeSession"));
+
+        if (!fn_getManager_ || !fn_createSession_ || !fn_reportDuration_ || !fn_closeSession_) {
+            PULP_LOGW("ADPF: Not available on this device (API < 31 or unsupported)");
+            return false;
+        }
+
+        void* manager = fn_getManager_();
+        if (!manager) {
+            PULP_LOGW("ADPF: getManager returned null");
             return false;
         }
 
         target_duration_ns_ = target_duration_ns;
+        int32_t tids[] = { static_cast<int32_t>(gettid()) };
+        session_ = fn_createSession_(manager, tids, 1, target_duration_ns_);
 
-        pid_t tids[] = { gettid() };
-        session_ = APerformanceHint_createSession(manager_, tids, 1, target_duration_ns_);
         if (!session_) {
-            PULP_LOGW("ADPF: Failed to create performance hint session");
+            PULP_LOGW("ADPF: Failed to create hint session");
             return false;
         }
 
@@ -58,85 +63,44 @@ public:
                   static_cast<long long>(target_duration_ns_),
                   target_duration_ns_ / 1e6);
         return true;
-#else
-        (void)target_duration_ns;
-        return false;
-#endif
     }
 
-    // Report the actual work duration of the audio callback.
-    // Call at the END of every onAudioReady callback.
     void report_actual_duration(int64_t actual_ns) {
-#if PULP_HAS_ADPF
-        if (session_) {
-            APerformanceHint_reportActualWorkDuration(session_, actual_ns);
-        }
-#else
-        (void)actual_ns;
-#endif
+        if (session_ && fn_reportDuration_)
+            fn_reportDuration_(session_, actual_ns);
     }
 
-    // Update the target duration when buffer size or sample rate changes.
     void update_target(int64_t new_target_ns) {
-#if PULP_HAS_ADPF
-        if (session_) {
+        if (session_ && fn_updateTarget_) {
             target_duration_ns_ = new_target_ns;
-            APerformanceHint_updateTargetWorkDuration(session_, new_target_ns);
-            PULP_LOGI("ADPF: Target updated to %lldns (%.1fms)",
-                      static_cast<long long>(new_target_ns), new_target_ns / 1e6);
+            fn_updateTarget_(session_, new_target_ns);
         }
-#else
-        (void)new_target_ns;
-#endif
     }
 
     ~AdpfHintSession() {
-#if PULP_HAS_ADPF
-        if (session_) {
-            APerformanceHint_closeSession(session_);
-        }
-#endif
+        if (session_ && fn_closeSession_)
+            fn_closeSession_(session_);
     }
 
-    // Non-copyable, movable
     AdpfHintSession() = default;
     AdpfHintSession(const AdpfHintSession&) = delete;
     AdpfHintSession& operator=(const AdpfHintSession&) = delete;
-    AdpfHintSession(AdpfHintSession&& other) noexcept
-        : manager_(other.manager_), session_(other.session_),
-          target_duration_ns_(other.target_duration_ns_) {
-        other.session_ = nullptr;
-    }
-    AdpfHintSession& operator=(AdpfHintSession&& other) noexcept {
-#if PULP_HAS_ADPF
-        if (session_) APerformanceHint_closeSession(session_);
-#endif
-        manager_ = other.manager_;
-        session_ = other.session_;
-        target_duration_ns_ = other.target_duration_ns_;
-        other.session_ = nullptr;
-        return *this;
-    }
 
-    bool is_active() const {
-#if PULP_HAS_ADPF
-        return session_ != nullptr;
-#else
-        return false;
-#endif
-    }
+    bool is_active() const { return session_ != nullptr; }
 
-    // Calculate target duration from buffer size and sample rate
     static int64_t calculate_target_ns(int32_t buffer_size, int32_t sample_rate) {
         return static_cast<int64_t>(buffer_size) * 1'000'000'000LL / sample_rate;
     }
 
 private:
-#if PULP_HAS_ADPF
-    APerformanceHintManager* manager_ = nullptr;
-    APerformanceHintSession* session_ = nullptr;
-#endif
+    void* session_ = nullptr;
     int64_t target_duration_ns_ = 0;
+
+    PFN_getManager fn_getManager_ = nullptr;
+    PFN_createSession fn_createSession_ = nullptr;
+    PFN_reportDuration fn_reportDuration_ = nullptr;
+    PFN_updateTarget fn_updateTarget_ = nullptr;
+    PFN_closeSession fn_closeSession_ = nullptr;
 };
 
 } // namespace pulp::audio

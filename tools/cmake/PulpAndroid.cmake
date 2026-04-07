@@ -83,8 +83,12 @@ function(pulp_wire_android_sources)
                 ${_android_midi_dir}/android_midi.cpp
             )
         endif()
-        # AMidi NDK library (android.media.midi native API)
-        target_link_libraries(pulp-midi PRIVATE amidi log)
+        # AMidi NDK library — only available at API 29+. For minSdk 26, we use
+        # the Java MIDI API via JNI instead. Only link amidi if building for API 29+.
+        if(ANDROID_NATIVE_API_LEVEL GREATER_EQUAL 29)
+            target_link_libraries(pulp-midi PRIVATE amidi)
+        endif()
+        target_link_libraries(pulp-midi PRIVATE log)
     endif()
 
     # -- Platform: JNI bridge, permissions, lifecycle, file provider --

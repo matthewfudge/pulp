@@ -464,6 +464,10 @@ endif()
 
 # ── SDK Install Rules ──────────────────────────────────────────────────────
 # cmake --install build --prefix <staging> produces a complete Pulp SDK
+# Android builds use Gradle for packaging — skip CMake install rules.
+if(ANDROID)
+    return()
+endif()
 include(GNUInstallDirs)
 
 # Core libraries for SDK packaging. Standalone projects need the same runtime
@@ -508,6 +512,13 @@ if(PULP_HAS_VST3)
 endif()
 if(PULP_HAS_CLAP)
     install(TARGETS clap EXPORT PulpTargets)
+endif()
+if(PULP_HAS_OBOE AND TARGET oboe)
+    install(TARGETS oboe
+        EXPORT PulpTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
 endif()
 if(PULP_HAS_LV2)
     install(TARGETS lv2-headers EXPORT PulpTargets)
