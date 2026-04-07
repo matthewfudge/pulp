@@ -8,6 +8,7 @@ target_include_directories(pulp-events
 )
 
 target_sources(pulp-events PRIVATE
+    src/async_updater.cpp
     src/event_loop.cpp
     src/timer.cpp
 )

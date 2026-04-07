@@ -1,5 +1,7 @@
 #include <pulp/state/state_tree.hpp>
 
+#include <algorithm>
+
 namespace pulp::state {
 
 void StateTree::set(std::string_view name, PropertyValue value) {
