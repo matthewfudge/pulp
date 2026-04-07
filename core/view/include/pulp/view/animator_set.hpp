@@ -123,11 +123,14 @@ public:
             : steps_(std::move(steps)) {}
 
         bool advance(float dt) {
-            if (current_ >= static_cast<int>(steps_.size())) return true;
-
-            steps_[current_]->advance(dt);
-            if (steps_[current_]->finished()) {
-                ++current_;
+            while (current_ < static_cast<int>(steps_.size()) && dt > 0) {
+                steps_[current_]->advance(dt);
+                if (steps_[current_]->finished()) {
+                    ++current_;
+                    // Carry leftover time to the next step
+                } else {
+                    break;
+                }
             }
             return current_ >= static_cast<int>(steps_.size());
         }
@@ -327,8 +330,13 @@ public:
     /// Current orientation quaternion
     const Quaternion& orientation() const { return orientation_; }
 
-    /// Reset to identity
-    void reset() { orientation_ = Quaternion::identity(); }
+    /// Reset to identity (also cancels any active drag)
+    void reset() {
+        orientation_ = Quaternion::identity();
+        dragging_ = false;
+        drag_start_ = {};
+        start_orientation_ = Quaternion::identity();
+    }
 
 private:
     Quaternion orientation_ = Quaternion::identity();
