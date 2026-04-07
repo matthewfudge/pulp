@@ -3,37 +3,37 @@
 
 modules:
   - name: runtime
-    summary: Logging, SIMD (Highway), XML, ZIP, HTTP, sockets, crypto (mbedTLS), i18n, analytics, licensing, BigInteger
+    summary: Core utilities — SIMD (Highway), XML/JSON, ZIP, HTTP client, sockets, IPC pipes, crypto (SHA-256/AES/RSA via mbedTLS), i18n, analytics, licensing
     status: stable
     dependencies: [platform]
     docs: reference/modules.md#runtime
 
   - name: events
-    summary: Event loop, timers, async dispatch, IPC (InterprocessConnection), child process management, mDNS discovery
+    summary: Event loop, timers, async dispatch, crash-isolated IPC, child process pool, network service discovery
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#events
 
   - name: audio
-    summary: Audio buffers, device I/O, format registry (WAV/FLAC/MP3/OGG/AIFF/AAC), channels, offline processing, system volume
+    summary: Multi-platform device I/O (CoreAudio, WASAPI, ALSA, JACK, Web Audio), format registry (WAV, FLAC, MP3, OGG, AIFF, AAC/ALAC), surround (5.1/7.1/Atmos), offline processing, system volume
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#audio
 
   - name: midi
-    summary: MIDI messages, buffers, device I/O, file I/O, MIDI CI (discovery, profiles, properties)
+    summary: MIDI I/O (CoreMIDI, WinMIDI, ALSA, Web MIDI), MIDI files, UMP/MIDI 2.0, MIDI-CI (device discovery, profiles, property exchange)
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#midi
 
   - name: signal
-    summary: 30+ DSP algorithms, DryWetMixer, matrix math, special functions, SIMD buffer
+    summary: 30+ DSP processors — filters (IIR, FIR, SVF, ladder, Linkwitz-Riley), oscillators, convolution, compressor, limiter, reverb, chorus, delay, oversampling, FFT (vDSP), SIMD ops, dry/wet mixer
     status: usable
     dependencies: []
     docs: reference/modules.md#signal
 
   - name: state
-    summary: Thread-safe parameters, StateTree, PropertiesFile, CachedProperty, preset management
+    summary: Thread-safe parameters, reactive StateTree with JSON sync, PresetManager, PropertiesFile (JSON settings), undo/redo
     status: stable
     dependencies: [runtime]
     docs: reference/modules.md#state
@@ -45,13 +45,17 @@ modules:
     docs: reference/modules.md#format
 
   - name: platform
-    summary: Platform detection, native dialogs, clipboard
+    summary: Platform detection, native file dialogs, clipboard, popup menus, Windows registry
     status: usable
     dependencies: []
     docs: reference/modules.md#platform
 
   - name: canvas
-    summary: 2D drawing, TextShaper (PreText-style), AttributedString, RectangleList, ImageConvolution, CoreGraphics/Skia backends
+    summary: >
+      2D GPU-accelerated drawing (CoreGraphics + Skia Graphite backends), path builder,
+      gradients, clipping, blend modes, SVG, TextShaper (PreText-style measure-once reflow-forever
+      with optional HarfBuzz via Skia), AttributedString with word-wrap, RectangleList for
+      clip regions, ImageConvolutionKernel (blur, sharpen, edge detect)
     status: usable
     dependencies: [runtime]
     docs: reference/modules.md#canvas
