@@ -51,6 +51,36 @@ add_executable(pulp-test-sync test_sync_primitives.cpp)
 target_link_libraries(pulp-test-sync PRIVATE pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sync)
 
+# AttributedString and TextLayout tests
+add_executable(pulp-test-attributed-string test_attributed_string.cpp)
+target_link_libraries(pulp-test-attributed-string PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-attributed-string)
+
+# i18n translation tests
+add_executable(pulp-test-i18n test_i18n.cpp)
+target_link_libraries(pulp-test-i18n PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-i18n)
+
+# StateTree and ObservableValue tests
+add_executable(pulp-test-state-tree test_state_tree.cpp)
+target_link_libraries(pulp-test-state-tree PRIVATE pulp::state pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-state-tree)
+
+# GUI component tests (table, toolbar, concertina, buttons, lasso)
+add_executable(pulp-test-gui-components test_gui_components.cpp)
+target_link_libraries(pulp-test-gui-components PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-gui-components)
+
+# CodeEditor / FileBasedDocument / RecentlyOpenedFilesList tests
+add_executable(pulp-test-code-editor test_code_editor.cpp)
+target_link_libraries(pulp-test-code-editor PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-code-editor)
+
+# PropertiesFile JSON persistence tests
+add_executable(pulp-test-properties test_properties_file.cpp)
+target_link_libraries(pulp-test-properties PRIVATE pulp::state pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-properties)
+
 # DSP enhancement tests (dry/wet mixer, processor duplicator, matrix, special functions)
 add_executable(pulp-test-dsp-enhancements test_dsp_enhancements.cpp)
 target_link_libraries(pulp-test-dsp-enhancements PRIVATE pulp::signal Catch2::Catch2WithMain)
@@ -60,6 +90,11 @@ catch_discover_tests(pulp-test-dsp-enhancements)
 add_executable(pulp-test-animation-3d test_animation_3d.cpp)
 target_link_libraries(pulp-test-animation-3d PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-animation-3d)
+
+# AnimatorSet / 3D types tests
+add_executable(pulp-test-animator-set test_animator_set.cpp)
+target_link_libraries(pulp-test-animator-set PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-animator-set)
 
 # Runtime utility tests (mmap, temp file, dynlib, base64, range, child process)
 add_executable(pulp-test-runtime-utils test_runtime_utils.cpp)
@@ -85,6 +120,21 @@ catch_discover_tests(pulp-test-dnd)
 add_executable(pulp-test-osc test_osc.cpp)
 target_link_libraries(pulp-test-osc PRIVATE pulp::osc Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-osc)
+
+# ImageConvolutionKernel tests
+add_executable(pulp-test-image-convolution test_image_convolution.cpp)
+target_link_libraries(pulp-test-image-convolution PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-image-convolution)
+
+# RectangleList geometry tests
+add_executable(pulp-test-rectangle-list test_rectangle_list.cpp)
+target_link_libraries(pulp-test-rectangle-list PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-rectangle-list)
+
+# OSC Bundle serialization tests
+add_executable(pulp-test-osc-bundle test_osc_bundle.cpp)
+target_link_libraries(pulp-test-osc-bundle PRIVATE pulp::osc Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-osc-bundle)
 
 # SVG tests
 add_executable(pulp-test-svg test_svg.cpp)
