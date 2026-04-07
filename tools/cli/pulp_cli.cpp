@@ -29,6 +29,7 @@
 
 #include "create_targets.hpp"
 #include "design_binding.hpp"
+#include <pulp/ship/installer.hpp>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>  // _NSGetExecutablePath
@@ -1795,11 +1796,70 @@ static int cmd_ship(const std::vector<std::string>& args) {
         fs::create_directories(artifacts);
 
         std::string version = "0.1.0";
+        bool per_user = false;
         for (size_t i = 1; i < args.size(); ++i) {
             if (args[i] == "--version" && i + 1 < args.size())
                 version = args[++i];
+            if (args[i] == "--per-user")
+                per_user = true;
         }
 
+#ifdef _WIN32
+        // Windows: use NSIS installer
+        // Check for makensis
+        if (std::system("where makensis >nul 2>&1") != 0) {
+            std::cerr << "Error: makensis not found on PATH\n";
+            std::cerr << "  Install NSIS from https://nsis.sourceforge.io/\n";
+            std::cerr << "  Then add its directory to PATH\n";
+            return 1;
+        }
+
+        // Discover product name from the first plugin found
+        std::string product_name;
+        pulp::ship::InstallerConfig config;
+        config.version = version;
+        config.per_user_install = per_user;
+
+        for (auto dir_name : {"VST3", "CLAP"}) {
+            auto dir = build_dir / dir_name;
+            if (!fs::exists(dir)) continue;
+            std::string format_lower = dir_name;
+            for (auto& c : format_lower) c = static_cast<char>(std::tolower(c));
+
+            for (auto& entry : fs::directory_iterator(dir)) {
+                auto ext = entry.path().extension().string();
+                if (ext == ".vst3" || ext == ".clap") {
+                    if (product_name.empty())
+                        product_name = entry.path().stem().string();
+                    config.plugins.push_back({
+                        entry.path().string(), "", format_lower
+                    });
+                }
+            }
+        }
+
+        if (config.plugins.empty()) {
+            std::cerr << "Error: no plugins found in " << build_dir.string() << "\n";
+            return 1;
+        }
+
+        config.product_name = product_name;
+        config.publisher = "Pulp";
+        config.output_path = (artifacts / (product_name + "-" + version + "-setup.exe")).string();
+
+        auto license = root / "LICENSE.md";
+        if (fs::exists(license)) config.license_path = license.string();
+
+        std::cout << "Creating NSIS installer for " << product_name << "...\n";
+        if (pulp::ship::create_nsis_installer(config)) {
+            std::cout << "  Created " << config.output_path << "\n";
+        } else {
+            std::cerr << "  FAILED to create installer\n";
+            return 1;
+        }
+        return 0;
+#else
+        // macOS/Linux: use pkgbuild (macOS) or deb (Linux)
         int pkg_count = 0;
         for (auto dir_name : {"VST3", "CLAP", "AU"}) {
             auto dir = build_dir / dir_name;
@@ -1833,6 +1893,7 @@ static int cmd_ship(const std::vector<std::string>& args) {
         }
         std::cout << "Created " << pkg_count << " packages in " << artifacts.string() << "\n";
         return 0;
+#endif
     }
 
     if (sub == "check") {
