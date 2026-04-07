@@ -26,6 +26,7 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ── Platform Detection ──────────────────────────────────────────────────────
+# Note: ANDROID must be checked before UNIX because Android is also UNIX.
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(PULP_IOS TRUE)
@@ -38,12 +39,12 @@ if(APPLE)
 elseif(WIN32)
     set(PULP_WINDOWS TRUE)
     set(PULP_PLATFORM "win")
-elseif(UNIX)
-    set(PULP_LINUX TRUE)
-    set(PULP_PLATFORM "linux")
 elseif(ANDROID)
     set(PULP_ANDROID TRUE)
     set(PULP_PLATFORM "android")
+elseif(UNIX)
+    set(PULP_LINUX TRUE)
+    set(PULP_PLATFORM "linux")
 endif()
 
 message(STATUS "Pulp ${PROJECT_VERSION} — platform: ${PULP_PLATFORM}")
@@ -353,6 +354,9 @@ else()
     message(STATUS "Pulp: AudioUnitSDK not found — AU v2 format disabled")
 endif()
 
+# ── Android NDK Support ───────────────────────────────────────────────────
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpAndroid.cmake)
+
 # ── Core Subsystems ─────────────────────────────────────────────────────────
 # Order matters: dependencies first
 add_subdirectory(core/platform)
@@ -368,6 +372,9 @@ add_subdirectory(core/view)
 add_subdirectory(core/osc)
 add_subdirectory(core/host)
 add_subdirectory(core/dsl)
+
+# Wire Android-specific sources into subsystem targets (must come after add_subdirectory)
+pulp_wire_android_sources()
 
 # ── Optional Subsystems ────────────────────────────────────────────────────
 if(PULP_ENABLE_GPU)
