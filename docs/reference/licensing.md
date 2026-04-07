@@ -83,6 +83,7 @@ Pulp implements or builds on these open standards:
 | [AudioKit](https://github.com/AudioKit/AudioKit) | MIT | Swift audio patterns, Apple platform integration |
 | [SignalKit](https://github.com/niclamusic/signalkit) | MIT | Real-time DSP patterns in Swift |
 | [signalsmith-clap-cpp](https://github.com/geraintluff/signalsmith-clap-cpp) | MIT | WCLAP build pipeline, webview extension patterns |
+| [Visage](https://github.com/VitalAudio/visage) | MIT | SDF-first rendering, dirty region tracking, shape batching, and a high bar for visual quality in audio plugin interfaces |
 
 ## Discipline
 
