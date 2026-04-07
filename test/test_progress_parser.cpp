@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <catch2/catch_test_macros.hpp>
+#include <pulp/platform/child_process.hpp>
 #include <pulp/platform/progress_parser.hpp>
 
 #include <string>
