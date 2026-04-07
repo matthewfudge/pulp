@@ -32,6 +32,7 @@ Thumbs.db
 !/external/skia-build/
 !/external/pugixml/
 !/external/miniz/
+!/external/cpp-httplib/
 
 # Node (for web/WASM builds)
 node_modules/

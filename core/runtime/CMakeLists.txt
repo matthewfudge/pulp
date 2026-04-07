@@ -22,6 +22,10 @@ target_sources(pulp-runtime PRIVATE
     src/text_diff.cpp
     src/xml.cpp
     src/zip.cpp
+    src/http.cpp
+    src/socket.cpp
+    src/named_pipe.cpp
+    src/ip_address.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/pugixml/pugixml.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz/miniz.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz/miniz_tdef.c
@@ -37,6 +41,7 @@ target_include_directories(pulp-runtime PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(pulp-runtime PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/pugixml
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../external/cpp-httplib
 )
 
 target_link_libraries(pulp-runtime PUBLIC pulp::platform)
