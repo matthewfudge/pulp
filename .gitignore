@@ -1,5 +1,4 @@
-# Planning and internal docs (committed to a separate private repo)
-/planning/
+# Planning and internal docs (private submodule)
 /.planning-repo/
 /research/
 

@@ -1,0 +1,3 @@
+[submodule "planning"]
+	path = planning
+	url = https://github.com/danielraffel/pulp-planning.git
