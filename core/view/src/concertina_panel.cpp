@@ -9,11 +9,9 @@ void ConcertinaPanel::add_section(std::string title, std::unique_ptr<View> conte
     section.title = std::move(title);
     section.expanded = initially_expanded;
 
-    // Attach content to the view tree so it receives paint/input lifecycle
     if (content) {
+        content->set_visible(initially_expanded);
         section.content = std::move(content);
-        add_child(section.content.get());
-        section.content->set_visible(initially_expanded);
     }
 
     sections_.push_back(std::move(section));
