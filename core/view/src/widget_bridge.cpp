@@ -7,17 +7,14 @@
 #include <pulp/view/modal.hpp>
 #include <pulp/view/asset_manager.hpp>
 #include <pulp/view/design_import.hpp>
-// GPU surface is only available when the render subsystem is built
-// (not on Android where Dawn is bundled in Skia but render/ is not ported yet)
 #if __has_include(<pulp/render/gpu_surface.hpp>) && !defined(__ANDROID__)
 #include <pulp/render/gpu_surface.hpp>
 #define PULP_WIDGET_BRIDGE_HAS_GPU_SURFACE 1
 #else
 #define PULP_WIDGET_BRIDGE_HAS_GPU_SURFACE 0
-// Stub GpuSurface so pointer members and null checks compile
 namespace pulp::render {
 struct GpuSurface {
-    struct AdapterInfo { bool native_bridge = false; std::string name, vendor, driver; };
+    struct AdapterInfo { bool available = false; bool native_bridge = false; std::string backend, backend_type, name, vendor, driver, architecture; };
     AdapterInfo adapter_info() const { return {}; }
     void* dawn_device_handle() { return nullptr; }
     void* dawn_queue_handle() { return nullptr; }

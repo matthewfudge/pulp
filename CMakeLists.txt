@@ -386,9 +386,6 @@ if(ANDROID)
 endif()
 
 # ── Optional Subsystems ────────────────────────────────────────────────────
-# Render subsystem requires the desktop WebGPU distribution (not available on Android).
-# On Android, Skia renders directly via its bundled Dawn — the render subsystem
-# will be ported in a follow-up (requires decoupling from WebGPU-distribution).
 if(PULP_ENABLE_GPU AND NOT ANDROID)
     add_subdirectory(core/render)
 endif()
