@@ -97,6 +97,9 @@ static SkPaint make_stroke_paint(Color c, float width) {
 static SkFont make_font(const std::string& family, float size) {
     SkFont font;
     font.setSize(size);
+    font.setSubpixel(true);                               // Subpixel glyph positioning — tighter spacing
+    font.setEdging(SkFont::Edging::kSubpixelAntiAlias);   // LCD-quality anti-aliasing
+    font.setHinting(SkFontHinting::kSlight);               // Light hinting preserves glyph shapes
 
     auto mgr = get_font_manager();
     if (mgr && mgr->countFamilies() > 0) {
@@ -107,7 +110,6 @@ static SkFont make_font(const std::string& family, float size) {
         }
         if (typeface) font.setTypeface(std::move(typeface));
     }
-
 
     return font;
 }
