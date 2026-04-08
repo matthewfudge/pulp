@@ -70,6 +70,7 @@ private:
 class InspectorWindow : public View {
 public:
     InspectorWindow();
+    ~InspectorWindow();
 
     /// Convenience: construct and immediately set the inspected root.
     explicit InspectorWindow(View& root);

@@ -160,6 +160,15 @@ void ConsoleEntryView::paint(canvas::Canvas& canvas) {
 
 // ── InspectorWindow ────────────────────────────────────────────────────────
 
+InspectorWindow::~InspectorWindow() {
+    // Clear callbacks that capture pointers to our members to prevent
+    // dangling references if the root view outlives this window.
+    on_view_selected = nullptr;
+    if (tree_view_) tree_view_->on_select = nullptr;
+    if (tree_view_) tree_view_->on_activate = nullptr;
+    inspected_root_ = nullptr;
+}
+
 InspectorWindow::InspectorWindow(View& root) : InspectorWindow() {
     set_inspected_root(&root);
 }
