@@ -513,6 +513,60 @@ adb logcat -s Pulp | grep "Audio peak"
 
 This logs every ~3 seconds. If peaks are >0 but you hear nothing, the issue is the emulator audio pipe, not the synth.
 
+## Render Thread with Looper (ANR Prevention)
+
+Dawn shader compilation takes 10-15 seconds on the emulator. Running it on the main thread causes ANR. The fix: a dedicated render thread with its own Looper for AChoreographer:
+
+```kotlin
+// Kotlin: launch render thread in surfaceCreated
+renderThread = Thread({
+    Looper.prepare()              // AChoreographer needs a Looper
+    renderLooper = Looper.myLooper()
+    nativeOnSurfaceCreated(holder.surface)  // Dawn init happens here (slow)
+    initComplete = true
+    Looper.loop()                 // Blocks — processes AChoreographer callbacks
+}, "PulpRenderThread").also { it.start() }
+```
+
+Key rules:
+- **AChoreographer requires a thread with a Looper** — plain `std::thread` won't work
+- **Dawn/Skia context must be used from the thread that created them** — render-thread affinity
+- **Touch events must NOT call android_render_frame()** — the choreographer loop handles all rendering
+- **surfaceDestroyed must be non-blocking during init** — if Dawn is still compiling, don't join/block
+- **Quit the Looper on surface destroy**: `renderLooper?.quitSafely()` + `thread.join(5000)`
+
+### Emulator GPU Mode — NEVER Use swiftshader_indirect
+
+`swiftshader_indirect` is a CPU software rasterizer. Dawn shader compilation under swiftshader pegs virtual CPU at 100%, starving the VirtIO audio pipe and System UI threads. Symptoms:
+- `pcm_writei failed with I/O error` from Ranchu HAL (permanent audio dropout)
+- "System UI isn't responding" ANR dialog
+- App killed during startup
+
+**Always use `-gpu host`** on macOS Apple Silicon. This maps Vulkan to Metal via MoltenVK, offloading rendering to the GPU.
+
+## JS-Scripted UI (QuickJS)
+
+The synth UI can be created entirely via JavaScript using QuickJS (via CHOC). The JS script is embedded as a C++ string literal — no APK asset loading needed:
+
+```cpp
+#include "synth_ui.js.h"  // contains kSynthUiScript
+
+// In create_demo_view_hierarchy:
+auto engine = std::make_unique<ScriptEngine>();
+auto bridge = std::make_unique<WidgetBridge>(*engine, root, store);
+bridge->load_script(kSynthUiScript);  // JS creates all widgets
+root.layout_children();
+```
+
+The JS API: `createKnob()`, `createFader(id, "horizontal", parent)`, `createToggle()`, `createXYPad()`, `createMeter()`, `createLabel()`, `createRow()`, `createCol()`, `setFlex()`, `setValue()`, `setFontSize()`, `setTextColor()`, `setBackground()`, `on()`.
+
+Widget refs for synth param sync are captured by ID:
+```cpp
+auto* knob = dynamic_cast<Knob*>(bridge->widget("osc-0"));
+```
+
+Falls back to C++ widget hierarchy if JS fails (any exception → catch → C++ fallback).
+
 ## Known Blockers
 
 1. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
