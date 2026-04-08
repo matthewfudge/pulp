@@ -761,8 +761,9 @@ void android_touch_up(int pointer_id, float px_x, float px_y) {
 }
 
 void android_surface_destroyed() {
-    PULP_LOGI("Android GPU surface: destroying — stopping audio and render loop...");
-    demo::synth_stop();
+    PULP_LOGI("Android GPU surface: destroying — stopping render loop...");
+    // Don't stop the synth here — surface gets destroyed/recreated during
+    // Activity lifecycle transitions. Synth is stopped in nativeOnShutdown.
     stop_render_loop();
 
     {

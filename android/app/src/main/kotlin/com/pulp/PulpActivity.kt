@@ -37,11 +37,13 @@ class PulpActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        audioFocus.abandonFocus()
+        // Don't abandon audio focus on pause — the Activity gets briefly paused
+        // during surface transitions and we don't want to kill audio each time.
         if (PulpApplication.nativeLoaded) nativeOnBackground()
     }
 
     override fun onDestroy() {
+        audioFocus.abandonFocus()
         if (PulpApplication.nativeLoaded) nativeOnShutdown()
         super.onDestroy()
     }

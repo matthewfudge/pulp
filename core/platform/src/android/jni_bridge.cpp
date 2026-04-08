@@ -4,6 +4,7 @@
 #include <android/log.h>
 #include <stdexcept>
 #include <string>
+#include "../../audio/platform/android/demo_synth.hpp"
 
 #define PULP_LOG_TAG "Pulp"
 #define PULP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, PULP_LOG_TAG, __VA_ARGS__)
@@ -134,8 +135,8 @@ Java_com_pulp_PulpActivity_nativeOnBackground(JNIEnv* env, jobject thiz) {
 extern "C" JNIEXPORT void JNICALL
 Java_com_pulp_PulpActivity_nativeOnShutdown(JNIEnv* env, jobject thiz) {
     try {
-        PULP_LOGI("nativeOnShutdown");
-        // TODO: Clean shutdown of all subsystems
+        PULP_LOGI("nativeOnShutdown — stopping synth");
+        pulp::demo::synth_stop();
     } catch (const std::exception& e) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
     } catch (...) {

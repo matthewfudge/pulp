@@ -24,11 +24,11 @@ public:
     bool start() {
         oboe::AudioStreamBuilder builder;
         builder.setDirection(oboe::Direction::Output)
-            ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
-            ->setSharingMode(oboe::SharingMode::Exclusive)
+            ->setPerformanceMode(oboe::PerformanceMode::None)   // Emulator can't do LowLatency
+            ->setSharingMode(oboe::SharingMode::Shared)         // Exclusive breaks Ranchu HAL
             ->setFormat(oboe::AudioFormat::Float)
             ->setChannelCount(oboe::ChannelCount::Stereo)
-            ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Best)
+            ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
             ->setDataCallback(this)
             ->setErrorCallback(this);
 
@@ -39,8 +39,13 @@ public:
         }
 
         sample_rate_ = static_cast<float>(stream_->getSampleRate());
-        PULP_LOGI("DemoSynth: stream opened — %.0f Hz, %d frames/burst",
-                  sample_rate_, stream_->getFramesPerBurst());
+        auto actual_perf = stream_->getPerformanceMode();
+        auto actual_share = stream_->getSharingMode();
+        auto actual_api = stream_->getAudioApi();
+        PULP_LOGI("DemoSynth: stream opened — %.0f Hz, %d frames/burst, api=%s, perf=%d, share=%d",
+                  sample_rate_, stream_->getFramesPerBurst(),
+                  actual_api == oboe::AudioApi::AAudio ? "AAudio" : "OpenSLES",
+                  static_cast<int>(actual_perf), static_cast<int>(actual_share));
 
         result = stream_->requestStart();
         if (result != oboe::Result::OK) {
