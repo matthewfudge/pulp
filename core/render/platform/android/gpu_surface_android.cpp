@@ -1,5 +1,6 @@
 #if defined(__ANDROID__)
 
+#include <pulp/render/gpu_surface.hpp>
 #include <pulp/platform/android/jni.hpp>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -8,6 +9,7 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <memory>
 
 #define PULP_LOG_TAG "Pulp"
 #define PULP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, PULP_LOG_TAG, __VA_ARGS__)
@@ -16,118 +18,117 @@
 
 namespace pulp::render {
 
-// ── Android GPU Surface ───────────────────────────────────────────────────
-// Manages the native window for Vulkan/Dawn rendering on Android.
-// Handles the critical surfaceDestroyed synchronization to prevent SIGSEGV.
+// ── Android GPU Surface Manager ───────────────────────────────────────────
+// Manages the lifecycle of Dawn/Vulkan rendering on Android.
+// Bridges ANativeWindow from Kotlin SurfaceView to GpuSurface.
 
-class AndroidGpuSurface {
-public:
-    void on_surface_created(ANativeWindow* window) {
+static std::unique_ptr<GpuSurface> g_gpu_surface;
+static ANativeWindow* g_native_window = nullptr;
+static std::mutex g_surface_mutex;
+static std::condition_variable g_surface_cv;
+static bool g_render_stopped = true;
+static bool g_surface_valid = false;
+
+void android_surface_created(ANativeWindow* window) {
+    PULP_LOGI("Android GPU surface: ANativeWindow received (%dx%d)",
+              ANativeWindow_getWidth(window), ANativeWindow_getHeight(window));
+
+    g_native_window = window;
+    ANativeWindow_acquire(g_native_window);
+
+    // Create and initialize Dawn GPU surface
+    g_gpu_surface = GpuSurface::create_dawn();
+    if (!g_gpu_surface) {
+        PULP_LOGE("Android GPU surface: failed to create Dawn GpuSurface");
+        return;
+    }
+
+    GpuSurface::Config config;
+    config.width = static_cast<uint32_t>(ANativeWindow_getWidth(window));
+    config.height = static_cast<uint32_t>(ANativeWindow_getHeight(window));
+    config.native_surface_handle = g_native_window;
+    config.vsync = true;
+
+    if (g_gpu_surface->initialize(config)) {
+        PULP_LOGI("Android GPU surface: Dawn initialized (%ux%u)",
+                  config.width, config.height);
+
+        auto info = g_gpu_surface->adapter_info();
+        PULP_LOGI("Android GPU surface: adapter=%s backend=%s",
+                  info.name.c_str(), info.backend.c_str());
+
         {
-            std::lock_guard lock(surface_mutex_);
-            native_window_ = window;
-            ANativeWindow_acquire(native_window_);
-            surface_valid_ = true;
-            render_stopped_ = false;
+            std::lock_guard lock(g_surface_mutex);
+            g_surface_valid = true;
+            g_render_stopped = false;
         }
+    } else {
+        PULP_LOGW("Android GPU surface: Dawn initialization failed — no GPU rendering");
+        g_gpu_surface.reset();
+    }
+}
 
-        width_ = ANativeWindow_getWidth(window);
-        height_ = ANativeWindow_getHeight(window);
+void android_surface_resized(int width, int height) {
+    if (g_gpu_surface && g_gpu_surface->is_initialized()) {
+        g_gpu_surface->resize(static_cast<uint32_t>(width),
+                               static_cast<uint32_t>(height));
+        PULP_LOGI("Android GPU surface: resized to %dx%d", width, height);
+    }
+}
 
-        PULP_LOGI("GPU surface created: %dx%d", width_, height_);
+void android_surface_destroyed() {
+    PULP_LOGI("Android GPU surface: destroying — waiting for render stop...");
 
-        // TODO: Create Dawn/WebGPU surface from ANativeWindow
-        // wgpu::SurfaceDescriptorFromAndroidNativeWindow desc;
-        // desc.window = native_window_;
-        // surface_ = instance_.CreateSurface(&desc);
-
-        first_frame_rendered_ = false;
+    {
+        std::lock_guard lock(g_surface_mutex);
+        g_surface_valid = false;
     }
 
-    void on_surface_resized(int width, int height) {
-        width_ = width;
-        height_ = height;
-        PULP_LOGI("GPU surface resized: %dx%d", width, height);
-        // TODO: Reconfigure Dawn swap chain
+    // Wait for render to confirm stop (condition_variable, not spin)
+    {
+        std::unique_lock lock(g_surface_mutex);
+        g_surface_cv.wait(lock, [] { return g_render_stopped; });
     }
 
-    // CRITICAL: Called from surfaceDestroyed on the main thread.
-    // Must block until the render thread has fully stopped.
-    void on_surface_destroyed() {
-        PULP_LOGI("GPU surface destroying — waiting for render thread...");
+    g_gpu_surface.reset();
 
-        {
-            std::lock_guard lock(surface_mutex_);
-            surface_valid_ = false;
-        }
-
-        // Wait for render thread to confirm stop.
-        // Using condition_variable (not spin-sleep) — this is the UI thread,
-        // not the audio thread, so blocking is safe and saves battery.
-        {
-            std::unique_lock lock(surface_mutex_);
-            surface_cv_.wait(lock, [this] { return render_stopped_; });
-        }
-
-        // Release the native window — safe now, render thread is idle
-        if (native_window_) {
-            ANativeWindow_release(native_window_);
-            native_window_ = nullptr;
-        }
-
-        PULP_LOGI("GPU surface destroyed — render thread confirmed stopped");
+    if (g_native_window) {
+        ANativeWindow_release(g_native_window);
+        g_native_window = nullptr;
     }
 
-    // Called by the render thread each frame
-    bool begin_frame() {
-        std::lock_guard lock(surface_mutex_);
-        return surface_valid_;
+    PULP_LOGI("Android GPU surface: destroyed");
+}
+
+// Called by the render loop each frame
+bool android_gpu_begin_frame() {
+    std::lock_guard lock(g_surface_mutex);
+    if (!g_surface_valid || !g_gpu_surface) return false;
+    return g_gpu_surface->begin_frame();
+}
+
+void android_gpu_end_frame() {
+    if (g_gpu_surface) g_gpu_surface->end_frame();
+}
+
+void android_gpu_signal_render_stopped() {
+    {
+        std::lock_guard lock(g_surface_mutex);
+        g_render_stopped = true;
     }
+    g_surface_cv.notify_one();
+}
 
-    void end_frame() {
-        if (!first_frame_rendered_) {
-            first_frame_rendered_ = true;
-            PULP_LOGI("First frame rendered — Vulkan confirmed working");
-            // TODO: Call GpuDriverPolicy.markVulkanSuccess() via JNI
-        }
-    }
-
-    // Called by the render thread when it exits the loop
-    void signal_render_stopped() {
-        {
-            std::lock_guard lock(surface_mutex_);
-            render_stopped_ = true;
-        }
-        surface_cv_.notify_one();
-    }
-
-    int width() const { return width_; }
-    int height() const { return height_; }
-    ANativeWindow* native_window() const { return native_window_; }
-
-private:
-    ANativeWindow* native_window_ = nullptr;
-    int width_ = 0;
-    int height_ = 0;
-
-    std::mutex surface_mutex_;
-    std::condition_variable surface_cv_;
-    bool surface_valid_ = false;
-    bool render_stopped_ = true;
-    bool first_frame_rendered_ = false;
-};
-
-// Global surface instance
-static AndroidGpuSurface g_surface;
+GpuSurface* android_gpu_surface() {
+    return g_gpu_surface.get();
+}
 
 } // namespace pulp::render
 
-// ── Touch Input State ─────────────────────────────────────────────────────
+// ── Touch Input ───────────────────────────────────────────────────────────
 
 namespace pulp::input {
-
-using TouchCallback = void(*)(int pointer_id, float x, float y, float pressure,
-                               int action, void* user_data);
+using TouchCallback = void(*)(int, float, float, float, int, void*);
 static TouchCallback g_touch_callback = nullptr;
 static void* g_touch_callback_data = nullptr;
 
@@ -135,24 +136,21 @@ void set_touch_callback(TouchCallback cb, void* user_data) {
     g_touch_callback = cb;
     g_touch_callback_data = user_data;
 }
-
 enum TouchAction { Down = 0, Move = 1, Up = 2, Cancel = 3 };
-
 } // namespace pulp::input
 
 // ── JNI Exports ───────────────────────────────────────────────────────────
 
 extern "C" {
 
-// Surface lifecycle
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnSurfaceCreated(
     JNIEnv* env, jobject thiz, jobject surface) {
     try {
         ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
         if (window) {
-            pulp::render::g_surface.on_surface_created(window);
-            ANativeWindow_release(window);  // on_surface_created acquired its own ref
+            pulp::render::android_surface_created(window);
+            ANativeWindow_release(window);  // android_surface_created acquires its own ref
         } else {
             PULP_LOGE("ANativeWindow_fromSurface returned null");
         }
@@ -168,7 +166,7 @@ JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnSurfaceResized(
     JNIEnv* env, jobject thiz, jint width, jint height) {
     try {
-        pulp::render::g_surface.on_surface_resized(width, height);
+        pulp::render::android_surface_resized(width, height);
     } catch (const std::exception& e) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
     } catch (...) {
@@ -181,7 +179,7 @@ JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnSurfaceDestroyed(
     JNIEnv* env, jobject thiz) {
     try {
-        pulp::render::g_surface.on_surface_destroyed();
+        pulp::render::android_surface_destroyed();
     } catch (const std::exception& e) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
     } catch (...) {
