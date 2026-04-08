@@ -5,8 +5,8 @@ The DSL contract defines how code-generating DSL backends (FAUST, Cmajor, JSFX) 
 ## Status
 
 - **FAUST**: experimental (offline codegen only, Phase 3)
-- **Cmajor**: planned (Phase 4)
-- **JSFX**: planned (Phase 5)
+- **Cmajor**: experimental external-toolchain support (guide/example/helper shipped; core Processor adapter still planned)
+- **JSFX**: experimental bounded-subset authoring support (guide/example/helper shipped; core Processor adapter still planned)
 
 ## Contract
 
@@ -14,8 +14,8 @@ The DSL contract defines how code-generating DSL backends (FAUST, Cmajor, JSFX) 
 
 DSL backends populate `DslParamDescriptor` from their native metadata:
 - FAUST: `buildUserInterface()` callbacks → `DslParamDescriptor`
-- Cmajor: endpoint declarations (future)
-- JSFX: `slider` declarations (future)
+- Cmajor: endpoint declarations (future Processor adapter work)
+- JSFX: `slider` declarations (source validation today; Processor mapping future)
 
 Parameters are registered into `StateStore` with sequential IDs starting at 1. The mapping is deterministic: same DSL source produces the same parameter layout.
 
@@ -52,6 +52,8 @@ DSL processors inherit `StateStore::serialize()` / `deserialize()` from the Proc
 | `core/dsl/include/pulp/dsl/faust_processor.hpp` | FAUST-specific wrapper: FaustProcessor<T>, PulpFaustUI, PulpFaustMeta |
 | `core/dsl/include/pulp/dsl/faust_base.hpp` | Minimal FAUST base classes (dsp, UI, Meta) |
 | `tools/cmake/PulpFaust.cmake` | CMake functions for FAUST codegen |
+| `tools/scripts/cmajor_external.py` | External-helper flow for validating patch layout and invoking a user-supplied `cmaj` |
+| `tools/scripts/jsfx_subset.py` | Bounded JSFX subset validator for source-only examples and authoring workflows |
 
 ## Scope Boundaries
 
@@ -61,3 +63,12 @@ This contract covers offline code generation only. It does NOT cover:
 - Multi-DSL parity (each backend implements what it can)
 - DSL-specific UI generation
 - MIDI mapping from FAUST metadata
+
+For Cmajor specifically, the shipped support today is the external-toolchain
+lane around `.cmajor` / `.cmajorpatch` sources. A real Pulp `Processor` adapter
+for generated Cmajor artifacts remains follow-up work.
+
+For JSFX specifically, the shipped support today is a bounded source-validation
+lane around `.jsfx` files that stay inside `@init`, `@slider`, `@block`,
+`@sample`, and `slider1..slider64`. A real Pulp runtime/adapter for executing
+that subset remains follow-up work.

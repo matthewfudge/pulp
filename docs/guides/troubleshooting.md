@@ -8,14 +8,23 @@ Common issues and solutions when building and using Pulp.
 
 **Symptom:** CMake errors during configure, missing targets or directories.
 
-**Fix:** Use `setup.sh` instead of raw CMake:
+**Fix:** Use the platform bootstrap wrapper instead of raw CMake:
+
+**macOS / Linux**
 ```bash
 git clone https://github.com/danielraffel/pulp.git
 cd pulp
 ./setup.sh
 ```
 
-`setup.sh` handles all prerequisites: git-lfs, external SDK cloning, configure, build, and test.
+**Windows (PowerShell)**
+```powershell
+git clone https://github.com/danielraffel/pulp.git
+cd pulp
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+`setup.sh` remains the shared implementation, but `setup.ps1` is the supported Windows entrypoint because it imports the MSVC toolchain and temporarily shortens the checkout path to avoid `MAX_PATH` bootstrap failures.
 
 ### Skia headers are git-lfs pointers
 
@@ -114,6 +123,18 @@ git worktree prune --expire now
 Remove-Item -Recurse -Force C:\pulp-ci\w\* -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force C:\pulp-ci\b\* -ErrorAction SilentlyContinue
 ```
+
+### Windows bootstrap fails with a path-length / `MAX_PATH` error
+
+**Symptom:** MSBuild/CMake fails inside a nested `_deps/` path with a message like “Path exceeds the OS max path limit”.
+
+**Fix:** Use the supported PowerShell wrapper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+The wrapper imports the Visual Studio environment and temporarily maps the checkout to a short drive alias before running the shared Bash bootstrap. If you intentionally bypass it, keep the checkout and build directories very short (for example `C:\Code\pulp` and `C:\pulp-build`).
 
 ### FetchContent download failures
 

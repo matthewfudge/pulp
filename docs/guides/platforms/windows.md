@@ -6,14 +6,25 @@ Windows is Pulp's second supported platform. This guide covers building, audio/M
 
 - Windows 10 version 1903+ (x64 or ARM64)
 - Visual Studio 2022 (17.x) with C++ desktop workload
+- Git for Windows (the supported wrapper uses its bundled Git Bash)
 - CMake 3.24+
 - C++20 compiler (MSVC v143+)
 
+## First-Time Bootstrap
+
+Use the PowerShell wrapper, not raw `./setup.sh`, as the supported Windows entrypoint:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+`setup.ps1` imports the Visual Studio C++ environment, resolves Git Bash from Git for Windows, and temporarily maps the checkout to a short drive alias so nested dependency bootstrap does not trip Windows path-length limits.
+
 ## External SDKs
 
-```bash
+```powershell
 # Bootstrap pinned shared dependencies and SDKs
-./setup.sh --deps-only
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 --deps-only
 
 # VST3 SDK (MIT) is then provided under external/vst3sdk from Pulp's shared SDK cache.
 # CLAP (MIT) is fetched automatically via CMake FetchContent.
@@ -22,15 +33,17 @@ Windows is Pulp's second supported platform. This guide covers building, audio/M
 
 ## Building
 
-### Command Line (Developer Command Prompt)
+### Command Line (Developer PowerShell / Developer Command Prompt)
 
-```bash
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
-ctest --test-dir build --output-on-failure -C Release
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 --deps-only
+cmake -S . -B C:\pulp-build -G "Visual Studio 17 2022" -A x64
+cmake --build C:\pulp-build --config Release
+ctest --test-dir C:\pulp-build --output-on-failure -C Release
 ```
 
 On Windows on ARM, use `-A ARM64` instead. If you have both Visual Studio Community and Build Tools installed, you can force the full IDE instance with `-DCMAKE_GENERATOR_INSTANCE="C:/Program Files/Microsoft Visual Studio/2022/Community"`.
+If you bypass `setup.ps1`, keep your checkout/build paths short. Nested FetchContent paths under `_deps/` can otherwise exceed the classic 260-character limit during MSBuild configure steps.
 
 ### Visual Studio IDE
 

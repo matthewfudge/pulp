@@ -214,7 +214,7 @@ Reports: element counts (containers/widgets/labels), token counts, timing (ms), 
 
 *\*Stitch validation compares plugin render vs app thumbnail (different resolution/chrome) — not comparable.*
 
-Screenshot files in `planning/screenshots/`:
+Screenshot files in `build/design-debug/`:
 - `pulpgain-pencil-source.png`, `pulpgain-import-pencil-render.png`, `pulpgain-import-pencil-diff.png`
 - `pulpeq-pencil-source.png`, `pulpeq-import-pencil-render.png`, `pulpeq-import-pencil-diff.png`
 - `pulpdelay-stitch-source.png`, `pulpdelay-stitch-render.png`, `pulpdelay-stitch-diff.png`

@@ -8,7 +8,7 @@ Pulp's web-compat layer was audited against **28 web specifications** — 16 W3C
 |---|------|---------|--------|----------------|------------|
 | 1 | [CSS Flexbox L1](https://www.w3.org/TR/css-flexbox-1/) | L1 | ✅ Complete | All properties: direction, wrap, grow/shrink/basis, justify, align, gap, order | — |
 | 2 | [CSS Grid L1](https://www.w3.org/TR/css-grid-1/) | L1 | ⚠️ Partial | Templates (fr/px/auto), column/row spans, gaps | auto-flow, named areas, grid shorthand |
-| 3 | [CSS Box Model L3](https://www.w3.org/TR/css-box-3/) | L3 | ✅ Complete | margin/padding (shorthand + individual), width/height/min/max | margin:auto centering |
+| 3 | [CSS Box Model L3](https://www.w3.org/TR/css-box-3/) | L3 | ✅ Mostly | margin/padding (shorthand + individual), width/height/min/max | margin:auto centering |
 | 4 | [CSS Backgrounds & Borders L3](https://www.w3.org/TR/css-backgrounds-3/) | L3 | ✅ Mostly | bg-color, gradients, border (per-side + per-corner radius), box-shadow | bg-image URL, bg-repeat rendering |
 | 5 | [CSS Color L4](https://www.w3.org/TR/css-color-4/) | L4 | ✅ Complete | hex, rgb/rgba, hsl/hsla, 148 named colors, transparent | oklch, color-mix |
 | 6 | [CSS Values & Units L4](https://www.w3.org/TR/css-values-4/) | L4 | ✅ Complete | px, em, rem, %, vw/vh/vmin/vmax, ch, calc/min/max/clamp | min-content/max-content/fit-content |

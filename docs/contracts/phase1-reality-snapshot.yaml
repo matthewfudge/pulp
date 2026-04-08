@@ -160,7 +160,7 @@ subsystems:
   aax_format:
     status: experimental
     notes: >
-      Optional clean-room AAX Native support on macOS and Windows. Requires
+      Optional AAX Native support on macOS and Windows. Requires
       `PULP_ENABLE_AAX=ON` plus a developer-supplied out-of-tree AAX SDK.
       `pulp validate` can drive DigiShell + AAX Validator when installed.
       Linux and Ubuntu are explicitly unsupported.
@@ -176,6 +176,26 @@ subsystems:
     notes: >
       No FAUST, Cmajor, or JSFX code in core/, tools/, templates, or CLI.
       Future phases 3, 4, 5.
+      FAUST offline codegen support is real but still narrow: `core/dsl`
+      contains the FAUST wrapper substrate, `tools/cmake/PulpFaust.cmake`
+      supports external regeneration, and checked-in FAUST examples/tests prove
+      the generated-C++ path. This is not yet a first-class CLI/template flow.
+      Cmajor now has an experimental external-toolchain lane via docs, helper,
+      and a source-only example, but Pulp still does not ship the official
+      Cmajor engine/runtime or a finished Processor adapter. JSFX now has an
+      experimental bounded source-validation lane via docs, helper, and
+      source-only examples, but Pulp still does not ship a JSFX runtime or
+      finished Processor adapter.
+    files:
+      - core/dsl/include/pulp/dsl/dsl_processor.hpp
+      - core/dsl/include/pulp/dsl/faust_base.hpp
+      - core/dsl/include/pulp/dsl/faust_processor.hpp
+      - tools/cmake/PulpFaust.cmake
+      - examples/faust-gain/faust_gain.hpp
+      - tools/scripts/cmajor_external.py
+      - examples/cmajor-gain/CmajorGain.cmajorpatch
+      - tools/scripts/jsfx_subset.py
+      - examples/jsfx-gain/PulpJsfxGain.jsfx
 
   webgpu_compute_audio:
     status: planned

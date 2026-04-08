@@ -68,10 +68,15 @@ def md_to_html(md: str) -> str:
                 # Links: [text](url) — rewrite .md refs to .html
                 def rewrite_link(m):
                     text, url = m.group(1), m.group(2)
-                    if url.endswith('.md') and not url.startswith('http'):
+                    if '.md' in url and not url.startswith('http'):
+                        # But preserve anchors: modules.html#format → modules.html#format
+                        anchor = ''
+                        if '#' in url:
+                            url, anchor = url.split('#', 1)
+                            anchor = '#' + anchor
                         url = url.replace('.md', '.html')
                         # Strip path prefixes — all pages are at root level
-                        url = url.split('/')[-1]
+                        url = url.split('/')[-1] + anchor
                     return f'<a href="{url}">{text}</a>'
                 p = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', rewrite_link, p)
                 result.append(p)
@@ -121,7 +126,7 @@ def md_to_html(md: str) -> str:
             level = len(m.group(1))
             text = m.group(2)
             slug = re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
-            out.append(f'<h{level} id="{slug}">{inline(text)} <a class="permalink" href="#{slug}">#</a></h{level}>')
+            out.append(f'<h{level} id="{slug}">{inline(text)} <a class="permalink" href="#{slug}" data-pagefind-ignore>#</a></h{level}>')
             i += 1
             continue
 
@@ -234,6 +239,9 @@ def parse_docs_index(path: Path) -> list[dict]:
 # ── Navigation ────────────────────────────────────────────────────────────────
 
 NAV_SECTIONS = [
+    ('', [
+        ('index', 'Home'),
+    ]),
     ('About', [
         ('vision', 'Vision'),
         ('overview', 'Overview'),
@@ -260,6 +268,7 @@ NAV_SECTIONS = [
         ('example-pulp-compressor', 'PulpCompressor'),
         ('example-pulp-synth', 'PulpSynth'),
         ('example-pulp-drums', 'PulpDrums'),
+        ('example-pulp-pluck', 'PulpPluck'),
         ('example-ui-preview', 'UI Preview'),
     ]),
     ('CLI & CMake', [
@@ -282,7 +291,8 @@ def build_nav_html(current_slug: str, base_url: str) -> str:
     """Build the sidebar navigation HTML."""
     parts = []
     for section_title, items in NAV_SECTIONS:
-        parts.append(f'<div class="nav-section">{html.escape(section_title)}</div>')
+        if section_title:
+            parts.append(f'<div class="nav-section">{html.escape(section_title)}</div>')
         parts.append('<ul>')
         for slug, label in items:
             active = ' class="active"' if slug == current_slug else ''
@@ -503,9 +513,83 @@ h4:hover .permalink {{ opacity: 0.6; }}
 }}
 
 /* Responsive */
+/* Search — Pagefind dark theme overrides */
+.header-search {{
+  flex: 1;
+  max-width: 320px;
+  margin: 0 16px;
+  position: relative;
+}}
+.header-search .pagefind-ui {{
+  --pagefind-ui-scale: 0.7;
+  --pagefind-ui-primary: #e94560;
+  --pagefind-ui-text: #e0e0e0;
+  --pagefind-ui-background: #0d1117;
+  --pagefind-ui-border: #2a2a4a;
+  --pagefind-ui-tag: #0f3460;
+  --pagefind-ui-border-width: 1px;
+  --pagefind-ui-border-radius: 6px;
+  --pagefind-ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+/* Search input */
+.header-search .pagefind-ui__search-input {{
+  color: #e0e0e0 !important;
+  background: #0d1117 !important;
+}}
+.header-search .pagefind-ui__search-clear {{
+  color: #a0a0b0 !important;
+  background: #0d1117 !important;
+}}
+/* Results dropdown — position absolutely so it overlays content */
+.header-search .pagefind-ui__drawer {{
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: #16213e;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  margin-top: 4px;
+  max-height: 70vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}}
+/* Result items */
+.header-search .pagefind-ui__result-link {{
+  color: #64b5f6 !important;
+}}
+.header-search .pagefind-ui__result-excerpt {{
+  color: #a0a0b0 !important;
+}}
+.header-search .pagefind-ui__message {{
+  color: #a0a0b0 !important;
+}}
+/* Loading skeleton — make visible on dark background */
+.header-search .pagefind-ui__loading {{
+  color: #a0a0b0 !important;
+  background-color: #a0a0b0 !important;
+}}
+/* Load more button */
+.header-search .pagefind-ui__button {{
+  color: #64b5f6 !important;
+  background: #0f3460 !important;
+  border: 1px solid #2a2a4a !important;
+}}
+/* Highlight marks — override Pagefind's "all:revert" reset */
+.pagefind-ui--reset mark,
+.pagefind-ui mark,
+mark {{
+  all: unset !important;
+  background: rgba(233, 69, 96, 0.4) !important;
+  color: #fff !important;
+  border-radius: 2px !important;
+  padding: 0 2px !important;
+}}
+
 @media (max-width: 768px) {{
   .menu-toggle {{ display: block; }}
   .header-left .alpha-badge {{ display: none; }}
+  .header-search {{ max-width: none; margin: 0 8px; }}
   .sidebar {{
     transform: translateX(-100%);
     transition: transform 0.2s ease;
@@ -520,6 +604,7 @@ h4:hover .permalink {{ opacity: 0.6; }}
   .content pre {{ font-size: 12px; }}
 }}
 </style>
+<link href="{base_url}pagefind/pagefind-ui.css" rel="stylesheet">
 </head>
 <body>
 <header class="header">
@@ -529,6 +614,9 @@ h4:hover .permalink {{ opacity: 0.6; }}
     <span class="branch-badge">{html.escape(branch)}</span>
     <span class="alpha-badge">Alpha — under active development</span>
   </div>
+  <div class="header-search">
+    <div id="search"></div>
+  </div>
   <div class="header-right">
     <a href="https://github.com/danielraffel/pulp">GitHub</a>
   </div>
@@ -536,7 +624,7 @@ h4:hover .permalink {{ opacity: 0.6; }}
 <nav class="sidebar">
 {nav}
 </nav>
-<main class="content">
+<main class="content" data-pagefind-body data-pagefind-meta="title:{html.escape(title)}">
 {content}
 </main>
 <script>
@@ -560,6 +648,14 @@ h4:hover .permalink {{ opacity: 0.6; }}
   }});
 }})();
 </script>
+<script src="{base_url}pagefind/pagefind-ui.js"></script>
+<script>
+new PagefindUI({{
+  element: "#search",
+  showSubResults: true,
+  showImages: false
+}});
+</script>
 </body>
 </html>'''
 
@@ -582,7 +678,7 @@ MIT-licensed. No royalties. No copyleft.</p>
 <li><strong>GPU rendering</strong>: Dawn (Metal/D3D12/Vulkan) + Skia Graphite on all platforms</li>
 <li><strong>View system</strong>: TextEditor, ComboBox, TabPanel, ListBox, TreeView, and more — flex layout, JS scripting, hot-reload</li>
 <li><strong>Plugin hosting</strong>: PluginScanner, PluginSlot, SignalGraph for DAW-like apps</li>
-<li><strong>Testing</strong>: 642 automated tests across 13 subsystems</li>
+<li><strong>Testing</strong>: 1622+ automated tests across 13 subsystems</li>
 <li><strong>Shipping</strong>: codesign, notarization, DMG/PKG (macOS), NSIS (Windows), .deb (Linux), appcast</li>
 </ul>
 
@@ -673,6 +769,8 @@ def main():
     for entry in entries:
         slug = entry['slug']
         doc_path = docs_dir / entry.get('path', '')
+        # Resolve symlinks (e.g. docs/concepts/vision.md → ../../VISION.md)
+        doc_path = doc_path.resolve()
         if not doc_path.exists():
             print(f'  SKIP: {entry.get("path", "?")} (file not found)')
             continue
@@ -691,7 +789,7 @@ def main():
         built += 1
 
     # Build landing page (index.html)
-    nav = build_nav_html('', base_url)
+    nav = build_nav_html('index', base_url)
     landing = build_landing_page(base_url)
     index_page = page_html('Documentation', landing, nav, base_url, branch)
     (output_dir / 'index.html').write_text(index_page, encoding='utf-8')

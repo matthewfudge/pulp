@@ -2,6 +2,18 @@
 
 Local CI lets you validate branches on your Mac and cross-platform VMs before merging, without spending money on cloud CI minutes.
 
+## Required Merge Process (All Agents)
+
+Every change to `main` must go through this workflow — no exceptions, regardless of which AI agent or human is doing the work:
+
+1. **Branch** — work on `feature/*` or `fix/*`, never directly on main
+2. **Local CI** — run `python3 tools/local-ci/local_ci.py run <branch>` to validate on macOS + Ubuntu + Windows
+3. **PR** — push and create a PR via `gh pr create`
+4. **GitHub Actions** — PR triggers build+test CI on all 3 platforms (automatic)
+5. **Merge** — only when both local CI and GitHub Actions are green
+
+The `ci` skill (`.agents/skills/ci/SKILL.md`) wraps this into a single `ship` command. Use it.
+
 ## TL;DR
 
 - `pulp ci-local run` queues the current `HEAD` in a machine-global queue shared by every worktree on that Mac.
@@ -122,6 +134,18 @@ Important constraints in the current phase:
 - `build.yml` now accepts `runner_provider` and routes Linux and Windows through
   the selected provider; macOS is omitted from the cloud build by default so it
   can stay local-first
+- **Default provider for PR checks** is controlled by the GitHub repo variable
+  `PULP_DEFAULT_RUNNER_PROVIDER`. Set it to `namespace` to route all PR checks
+  through Namespace runners (faster, parallel). Set to `github-hosted` to use
+  GitHub-hosted runners (free tier, queued). The `workflow_dispatch` input
+  overrides this for manual runs. To change the default:
+  ```bash
+  # Switch to Namespace (recommended for faster CI)
+  gh variable set PULP_DEFAULT_RUNNER_PROVIDER --body "namespace"
+  
+  # Switch back to GitHub-hosted
+  gh variable set PULP_DEFAULT_RUNNER_PROVIDER --body "github-hosted"
+  ```
 - `build` also accepts one-off leg overrides:
   `--linux-runner-selector-json`, `--windows-runner-selector-json`, and
   `--macos-runner-selector-json`; that means you can keep the normal
@@ -371,18 +395,131 @@ If your Windows VM is Windows on ARM, you can either set `cmake_platform` to `"A
 
 ### 2. Set up SSH keys
 
-Each VM needs your public key in its `authorized_keys`. Standard procedure:
+Each VM needs your public key in its `authorized_keys`. The Linux path is
+straightforward; Windows requires extra steps because OpenSSH on Windows uses a
+separate file with strict ACLs for admin users.
+
+#### Find your public key (on your Mac)
+
+If your private key is `~/.ssh/id_ed25519`, your public key is:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+Copy the output — you'll paste it on each VM. If you're running the VM in UTM
+or another hypervisor and can't copy/paste between host and guest, install the
+guest tools for your hypervisor first (e.g. SPICE guest tools for UTM/QEMU,
+VMware Tools, VirtualBox Guest Additions).
+
+#### Linux (Ubuntu)
+
+If `ssh-copy-id` is available and you can already reach the VM by password:
 
 ```bash
 ssh-copy-id ubuntu    # or whatever your host alias is
-ssh-copy-id win2
 ```
 
-Test that passwordless login works before proceeding:
+If you're setting up from scratch on a fresh VM, SSH into it (or open its
+console) and run:
+
+**1. Note the VM's IP address:**
+
+```bash
+ip addr show
+```
+
+Look for the `inet` line under your active adapter (usually `enp0s1` or `eth0`).
+
+**2. Install and enable the SSH server** (if not already running):
+
+```bash
+sudo apt update && sudo apt install -y openssh-server
+sudo systemctl enable --now ssh
+```
+
+**3. Add your public key:**
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo "ssh-ed25519 AAAA...your-key-here..." >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+**4. (Optional) Disable password auth** for tighter security:
+
+```bash
+sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
+```
+
+#### Windows
+
+On the Windows VM, open PowerShell **as Administrator** and run:
+
+**1. Note the VM's IP address** (you'll need it for SSH config later):
+
+```powershell
+ipconfig
+```
+
+Look for the `IPv4 Address` line under your active adapter.
+
+**2. Create the admin authorized_keys file and add your public key:**
+
+```powershell
+New-Item -Force -ItemType File -Path "C:\ProgramData\ssh\administrators_authorized_keys"
+Add-Content -Path "C:\ProgramData\ssh\administrators_authorized_keys" -Value "ssh-ed25519 AAAA...your-key-here..."
+```
+
+**3. Fix the ACL** (OpenSSH ignores the file if permissions are wrong):
+
+```powershell
+icacls "C:\ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant "SYSTEM:(F)" /grant "Administrators:(F)"
+```
+
+**4. Make sure sshd is running and set to auto-start:**
+
+```powershell
+Set-Service -Name sshd -StartupType Automatic
+Start-Service sshd
+```
+
+> **Why `administrators_authorized_keys`?** Windows OpenSSH uses
+> `C:\ProgramData\ssh\administrators_authorized_keys` for users in the
+> Administrators group, not `~/.ssh/authorized_keys`. The ACL step is required —
+> without it, sshd silently skips the file and falls back to password auth.
+
+#### Set up SSH config on your Mac
+
+Add entries to `~/.ssh/config` so you can type `ssh win` instead of remembering
+IPs and usernames:
+
+```
+Host win
+  HostName 192.168.64.5
+  User your-username
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  ConnectTimeout 5
+
+Host ubuntu
+  HostName 192.168.64.4
+  User your-username
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  ConnectTimeout 5
+```
+
+Replace the `HostName` values with the actual IPs from `ipconfig` (Windows) or
+`ip addr` (Linux). The host aliases here (`win`, `ubuntu`) are what you'll use
+in `hosts.local.json` for CI targets.
+
+#### Test passwordless login
 
 ```bash
 ssh ubuntu exit && echo "ok"
-ssh win2 exit && echo "ok"
+ssh win exit && echo "ok"
 ```
 
 ### 3. Clone the repo on each VM
@@ -458,6 +595,20 @@ pulp ci-local cleanup --apply --include-prepared
 ```
 
 `pulp ci-local run` is the most common command. It enqueues the current `HEAD`, joins the machine-global queue, and waits until that exact job finishes.
+
+### Develop branch workflow
+
+For complex, multi-piece features that use a `develop/*` integration branch, PRs target the develop branch instead of `main`. The `ship` command supports this via `--base`:
+
+```bash
+# Ship a feature to the develop branch (not main)
+pulp ci-local ship feature/pkg-registry --base develop/package-manager
+
+# The develop branch itself ships to main at phase boundaries
+pulp ci-local ship develop/package-manager
+```
+
+GitHub Actions CI triggers on PRs to both `main` and `develop/**` branches, so CI runs automatically regardless of the target.
 
 If you pass a branch name explicitly, for example `pulp ci-local run feature/my-branch`, local CI resolves and records that branch tip's exact SHA immediately. This prevents a stale launching checkout from accidentally queuing its own `HEAD` while you intended to validate a different branch.
 
@@ -561,6 +712,429 @@ Safety rules:
 
 If you need immediate manual cleanup outside the CLI, make sure no
 `pulp ci-local` job is active first.
+
+
+## Desktop automation
+
+`pulp ci-local desktop ...` adds a GUI/session automation layer under the same local CI control plane. Use it when an agent needs to launch an app, inspect it, click on it, capture screenshots, or publish a local evidence gallery without logging into the target machine manually.
+
+Current desktop commands:
+
+```bash
+# Prepare one target and record its contract/receipt
+pulp ci-local desktop install mac
+pulp ci-local desktop install ubuntu
+pulp ci-local desktop install windows
+
+# Health and capability reporting
+pulp ci-local desktop doctor mac
+pulp ci-local desktop status
+pulp ci-local desktop recent mac --limit 3
+pulp ci-local desktop proof windows --action inspect --source-mode exact-sha --sha <commit-sha>
+
+# Configure artifact/publish settings
+pulp ci-local desktop config show
+pulp ci-local desktop config set artifact_root ~/Library/Application\\ Support/Pulp/desktop-automation/runs
+pulp ci-local desktop config set publish_mode none
+
+# Run GUI actions
+pulp ci-local desktop smoke mac --bundle-id com.apple.TextEdit --label textedit-smoke
+pulp ci-local desktop inspect mac --command '/path/to/pulp-ui-preview' --label ui-preview-inspect --pulp-app-automation
+pulp ci-local desktop click mac --command '/path/to/pulp-ui-preview' --click-view-id bypass-toggle --capture-ui-snapshot --pulp-app-automation
+pulp ci-local desktop inspect windows --command 'notepad.exe' --label notepad-inspect
+pulp ci-local desktop click windows --command 'notepad.exe' --click 885,18 --label notepad-maximize
+
+# Run against an exact prepared SHA instead of the live checkout
+pulp ci-local desktop inspect mac \
+  --command './build-desktop-automation/examples/ui-preview/pulp-ui-preview' \
+  --source-mode exact-sha \
+  --sha <commit-sha> \
+  --prepare-command 'cmake -S . -B build-desktop-automation && cmake --build build-desktop-automation --target pulp-ui-preview' \
+  --pulp-app-automation
+
+# Publish or prune local bundles
+pulp ci-local desktop publish mac --limit 5 --label mac-gallery
+pulp ci-local desktop cleanup mac --older-than-days 14 --keep-last 10
+```
+
+Ubuntu prerequisite:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git-lfs xvfb xauth xdotool imagemagick wmctrl x11-utils
+git lfs install
+```
+
+Supported Ubuntu/Linux setup tiers:
+
+- baseline deterministic backend: `xvfb` + `xauth`
+- source/bootstrap prerequisite: `git-lfs`
+- richer interaction/capture lane: `xdotool`, `imagemagick`, `x11-utils`, and `wmctrl`
+
+`xvfb-run` is the supported deterministic backend for Ubuntu/Linux desktop automation. A visible `:0` display socket alone is not enough for SSH-driven automation because X11 authorization is often unavailable inside the remote shell. For repeatable CI and agent-driven runs, use the package set above and keep `xvfb-run` as the documented default.
+
+`desktop doctor ubuntu` is an aggregate report. If multiple prerequisites are missing, it reports the full missing set plus remediation commands in one run instead of stopping at the first failure.
+
+`desktop doctor ubuntu` checks the non-interactive SSH environment, not your interactive shell. `setup.sh` now prepends the common `~/.local/bin` path automatically before dependency checks, but if `git-lfs` still fails over SSH after that, add the real install location to the non-interactive login-shell PATH or install `git-lfs` system-wide so `git lfs version` succeeds without extra shell setup.
+
+Exact-SHA source prep on Ubuntu/Linux uses the same non-interactive SSH environment. The controller now treats bundle-based checkout and LFS materialization as separate steps:
+
+- prepend `~/.local/bin` before any `git-lfs`-dependent command
+- fetch and checkout with `GIT_LFS_SKIP_SMUDGE=1`
+- attach the clone URL as `origin`
+- then let `setup.sh --deps-only --ci` / `git lfs pull` materialize the SDK blobs
+
+That split matters on fresh VMs because a bundle checkout alone does not carry an `origin` remote, and LFS smudge/pull fails if it cannot resolve the repository URL.
+
+Fresh Ubuntu proof checklist:
+
+1. Start from a fresh source root, `PULP_HOME`, and `PULP_PROJECTS_DIR`
+2. Run `./setup.sh --deps-only --ci`
+3. Build `pulp-cli`
+4. Run `pulp create <ProjectName> --manufacturer "<Name>" --no-interactive`
+5. Run `pulp build` inside the generated project
+6. Verify actual emitted artifacts, not just configure/test success
+
+Current expected native outputs from that proof are:
+
+- Linux: VST3 target output under `build/VST3`, `CLAP`, `LV2`, and the standalone binary
+- macOS: `build/VST3/<Name>.vst3`, `build/AU/<Name>.component`, `build/CLAP/<Name>.clap`, and the standalone `.app` bundle
+- Windows: `build/VST3/Debug/<Name>.dll` for the VST3 target, `build/CLAP/Debug/<Name>.clap`, and the standalone `.exe`
+
+If web formats are required, make them explicit in the generated project format list; the default native create proof does not imply web artifact output.
+
+Windows first-time setup checklist:
+
+1. Install and enable OpenSSH Server.
+2. Keep a normal desktop user logged in to the VM. The Windows session-agent runs inside that logged-in session; SSH by itself is not a GUI session.
+3. Make sure `winget` is available. `desktop install windows` uses it to provision required remote tooling such as Git when the VM is still fresh.
+4. Run `pulp ci-local desktop install windows` once. This bootstraps the scheduled task, installs required remote tooling when possible, and writes the target-side PowerShell agent under `%LOCALAPPDATA%\\Pulp\\desktop-automation-agent`.
+5. Run `pulp ci-local desktop doctor windows` and make sure SSH, the scheduled-task contract, and the required `git` check are green before attempting live proofs.
+6. For source builds on the Windows VM itself, use `powershell -ExecutionPolicy Bypass -File .\setup.ps1`. The wrapper imports the Visual Studio environment and uses a short temporary drive alias so first-time bootstrap does not fail on long nested dependency paths.
+
+The short-path rule is not theoretical. Windows source builds can fail from
+long nested checkout roots and then pass once the same source tree is mapped
+through a temporary drive alias before the first configure/build. Treat
+`setup.ps1` or an equivalent short-path wrapper as the supported bootstrap path
+for Windows source builds.
+
+Remote tooling policy on Windows:
+
+- required: `git`
+  - used by the exact-SHA bundle-sync and prepare flows
+  - `desktop install windows` will provision it via `winget` when possible
+- optional: `gh`
+  - useful for remote GitHub workflows on the target
+  - not required for smoke/inspect/click proofs
+- optional: `gh auth`
+  - advisory only; authenticate it only if you intentionally want GitHub CLI workflows on the Windows target
+
+Remote repo bootstrap policy on Windows:
+
+- first-time `desktop install windows` should not require GitHub credentials on the target VM
+- the controller prefers a locally uploaded git bundle to materialize `pulp-validate`
+- `origin` is still attached when available so later fetches remain truthful
+- `gh` and stored Git credentials are optional unless you intentionally want GitHub workflows on the Windows machine itself
+
+Useful host-side verification commands:
+
+```powershell
+Get-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+Start-Service sshd
+Get-NetFirewallRule -Name *ssh*
+where.exe winget
+where.exe git
+where.exe gh
+```
+
+Useful first-time remote installs if you want to pre-provision them manually:
+
+```powershell
+winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity
+winget install --id GitHub.cli -e --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity
+```
+
+Supported Windows v1 interaction tiers:
+
+- generic window-capture lane:
+  - `--command` only
+  - works for normal desktop apps such as `notepad.exe`
+  - supports window screenshot capture and coordinate clicks
+- Pulp-owned app automation lane:
+  - add `--pulp-app-automation`
+  - enables `ViewInspector` snapshots and view-target selectors such as `--click-view-id`
+
+Artifact bundles are written outside the repo by default:
+
+- macOS: `~/Library/Application Support/Pulp/desktop-automation/runs/`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/pulp/desktop-automation/runs/`
+- Windows: `%LOCALAPPDATA%\\Pulp\\desktop-automation\\runs\\`
+
+Each bundle stores:
+
+- `manifest.json`
+- `stdout.log` / `stderr.log`
+- `prepare.log` when exact-SHA mode runs a fresh prepare step
+- `ui-tree.json` when a UI snapshot is available
+- `screenshots/window.png`
+- `screenshots/before.png` / `screenshots/diff.png` when an interaction captures before/after evidence
+
+The artifact root also maintains rolling summaries for agents and status tooling:
+
+- `latest-run.json` — newest observed run summary
+- `latest-proof.json` — newest successful proof summary
+- `runs.jsonl` — raw summary stream for recent desktop automation runs
+- target-scoped copies under `<artifact-root>/<target>/...`
+- `_published/latest-report.json` — newest staged local HTML/JSON gallery summary
+- `_published/reports.jsonl` — raw summary stream for local published galleries
+
+`manifest.json` now includes additive source provenance when desktop actions run through the controller:
+
+- `source.mode` (`live` or `exact-sha`)
+- `source.branch`
+- `source.sha`
+- `source.prepare_command`
+- `source.prepare_timeout_secs`
+- `source.prepared_root`
+- `source.launch_cwd`
+
+Desktop reporting surfaces are intentionally split:
+
+- `desktop recent` = raw run history, including failed attempts
+- `desktop proof` = successful proof summaries grouped by `target + action + source.mode + source.sha`
+- `desktop status` = target config plus `latest_run`, `latest_proof`, and the newest local publish summary (`latest_publish`)
+
+Use `desktop proof` when you need to answer questions like:
+
+- “What live-host proof do we already have for Ubuntu on this SHA?”
+- “Did Windows ever pass this exact-SHA inspect lane?”
+- “What is the newest successful proof, even if the newest run failed?”
+
+### Exact-SHA desktop source mode
+
+`desktop smoke`, `desktop click`, and `desktop inspect` all share a controller-owned source mode:
+
+- `--source-mode live|exact-sha`
+- `--branch`
+- `--sha`
+- `--prepare-command`
+- `--prepare-timeout`
+
+Behavior:
+
+- `live` launches from the target's normal working copy behavior.
+- `exact-sha` prepares a per-target source root for the requested SHA, launches from that prepared root, and records the prepared-root provenance in the run manifest.
+- On Windows, `--prepare-command` executes inside a generated `.cmd` script under `cmd.exe`. Use double quotes for paths, generator names, and arguments. POSIX-style single-quoted tokens are treated as literal text and are rejected by the controller before the remote prepare step starts.
+- When `desktop_automation.targets.<target>.optional.webview_driver=true`, `desktop doctor` probes the configured `webdriver_url` through the WebDriver `/status` endpoint and reports whether the driver is actually reachable and ready, not just whether the URL exists in config.
+
+Preparation/cache semantics:
+
+- Prepared roots are keyed by `target + sha + prepare_command`.
+- A repeated identical request may reuse the prepared root instead of rebuilding it.
+- `prepare_command` only runs when a fresh prepared root is created.
+
+Launch behavior:
+
+- Desktop actions switch their launch `cwd` to the prepared root in exact-SHA mode.
+- Repo-local executable paths in the first command token are rewritten into the prepared root automatically.
+- The current exact-SHA workflow is a `--command` lane. Do not assume `--bundle-id` participates in exact-SHA source preparation.
+
+Examples:
+
+```bash
+# macOS local exact-SHA inspect
+pulp ci-local desktop inspect mac \
+  --command './build-desktop-automation/examples/ui-preview/pulp-ui-preview' \
+  --source-mode exact-sha \
+  --sha <commit-sha> \
+  --prepare-command 'cmake -S . -B build-desktop-automation && cmake --build build-desktop-automation --target pulp-ui-preview' \
+  --pulp-app-automation
+
+# Ubuntu xvfb exact-SHA click
+pulp ci-local desktop click ubuntu \
+  --command './build-desktop-automation/examples/ui-preview/pulp-ui-preview' \
+  --click-view-id bypass-toggle \
+  --capture-ui-snapshot \
+  --source-mode exact-sha \
+  --sha <commit-sha> \
+  --prepare-command 'cmake -S . -B build-desktop-automation && cmake --build build-desktop-automation --target pulp-ui-preview' \
+  --pulp-app-automation
+
+# Windows session-agent exact-SHA smoke
+pulp ci-local desktop smoke windows \
+  --command '.\\build-desktop-automation\\examples\\ui-preview\\pulp-ui-preview.exe' \
+  --source-mode exact-sha \
+  --sha <commit-sha> \
+  --prepare-command 'cmake -S . -B build-desktop-automation -G \"Visual Studio 17 2022\"; cmake --build build-desktop-automation --target pulp-ui-preview --config Debug' \
+  --pulp-app-automation
+
+# Windows generic live inspect
+pulp ci-local desktop inspect windows \
+  --command 'notepad.exe' \
+  --label notepad-inspect
+
+# Windows generic live click with before/after evidence
+pulp ci-local desktop click windows \
+  --command 'notepad.exe' \
+  --click 885,18 \
+  --label notepad-maximize
+
+# Query the newest successful Windows proof for one SHA
+pulp ci-local desktop proof windows \
+  --action smoke \
+  --source-mode exact-sha \
+  --sha <commit-sha>
+```
+
+### Desktop adapter truth
+
+- `macos-local`
+  - runs directly on the local logged-in macOS session
+  - supports bundle launch via `--bundle-id`
+  - supports Pulp-owned app automation (`--pulp-app-automation`) for direct launch commands, including `ViewInspector` snapshots and view-target clicks
+- `linux-xvfb`
+  - runs GUI smoke/inspect/click through `xvfb-run`
+  - currently supports `--command` only
+  - currently requires `--pulp-app-automation` for the click/inspect lane
+- `windows-session-agent`
+  - bootstraps a scheduled task plus target-side PowerShell agent in the logged-in Windows desktop session
+  - requires a real logged-in desktop user; SSH alone is not enough
+  - currently supports `--command` only
+  - supports generic `window-capture` smoke/inspect/click for normal desktop apps
+  - supports coordinate clicks and before/after screenshot diffs without `--pulp-app-automation`
+  - supports `ViewInspector` snapshots and view-target selectors only with `--pulp-app-automation`
+  - uses the scheduled task plus target-side agent as the honest v1 Windows interaction lane; external UI automation tools are optional future adapters, not the core controller
+
+### Proof lookup
+
+`desktop proof` is the first-class proof query surface for desktop automation:
+
+- filters:
+  - `target`
+  - `--action`
+  - `--source-mode live|exact-sha|legacy`
+  - `--sha`
+  - `--branch`
+- groups successful proofs by `target/action/source.mode/source.sha`
+- ignores failed runs when computing proof summaries
+
+Example:
+
+```bash
+pulp ci-local desktop proof ubuntu --action click --source-mode exact-sha --sha <commit-sha>
+```
+
+`desktop status` now reports both:
+
+- `latest_run`: the newest run, even if it failed
+- `latest_proof`: the newest successful proof summary for that target
+- `latest_publish`: the newest local HTML/JSON gallery summary staged under `_published/`
+
+### Desktop config keys
+
+`tools/local-ci/config.json` accepts a `desktop_automation` block:
+
+```json
+{
+  "desktop_automation": {
+    "artifact_root": "",
+    "publish_mode": "none",
+    "publish_branch": "dev-artifacts",
+    "retention_days": 14,
+    "targets": {
+      "mac": {
+        "adapter": "macos-local",
+        "bootstrap": "launchagent",
+        "capability_tier": "v2",
+        "optional": {
+          "webview_driver": false,
+          "webdriver_url": "",
+          "debug_attach": false,
+          "debugger_command": "lldb",
+          "video_capture": false,
+          "frame_stats": false
+        }
+      },
+      "ubuntu": {
+        "adapter": "linux-xvfb",
+        "bootstrap": "xvfb-run",
+        "capability_tier": "v2",
+        "optional": {
+          "webview_driver": false,
+          "webdriver_url": "",
+          "debug_attach": false,
+          "debugger_command": "lldb",
+          "video_capture": false,
+          "frame_stats": false
+        }
+      },
+      "windows": {
+        "adapter": "windows-session-agent",
+        "bootstrap": "scheduled-task",
+        "capability_tier": "v2",
+        "task_name": null,
+        "remote_root": null,
+        "optional": {
+          "webview_driver": false,
+          "webdriver_url": "",
+          "debug_attach": false,
+          "debugger_command": "",
+          "video_capture": false,
+          "frame_stats": false
+        }
+      }
+    }
+  }
+}
+```
+
+For Windows:
+
+- `task_name` is optional. If omitted, local CI uses `PulpDesktopAutomationAgent-<target>`.
+- `remote_root` is optional. If omitted, the agent is installed under `%LOCALAPPDATA%\Pulp\desktop-automation-agent`.
+- `optional.webview_driver` enables the future WebView/WebDriver capability vocabulary for that target. Pair it with `optional.webdriver_url` only when the app under test actually exposes a localhost WebDriver endpoint in debug/test mode.
+- `optional.debug_attach`, `optional.video_capture`, and `optional.frame_stats` are opt-in groundwork flags. They make the target advertise and doctor those optional tiers; they do not magically make the adapter support them unless the required tooling is also present.
+
+Convenience updates through the CLI:
+
+```bash
+pulp ci-local desktop config set target.mac.webview_driver true
+pulp ci-local desktop config set target.mac.webdriver_url http://127.0.0.1:4444
+pulp ci-local desktop config set target.mac.debug_attach true
+pulp ci-local desktop config set target.mac.debugger_command lldb
+pulp ci-local desktop config set target.mac.video_capture true
+pulp ci-local desktop config set target.mac.frame_stats true
+```
+
+Recommended host-side remediation when `desktop doctor windows` reports `SSH service reset during handshake`:
+
+```powershell
+Get-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+Start-Service sshd
+Get-NetFirewallRule -Name *ssh*
+```
+
+Treat that failure as a Windows host-side OpenSSH issue, not a desktop-agent contract failure.
+
+### Desktop publication
+
+`pulp ci-local desktop publish` always stages a local HTML/JSON gallery from recent bundles. In the default `publish_mode=none` path, that is the whole feature. When `publish_mode=branch`, the same report is also mirrored to the configured publish branch under `desktop-automation/latest/` and `desktop-automation/reports/<report-id>/`.
+
+- `index.html`
+- `index.json`
+- copied screenshots and diffs
+- source manifest/log references
+- `_published/latest-report.json` and `_published/reports.jsonl` rollups for the newest/known local galleries
+
+Use `desktop config set publish_mode ...` only when you intentionally want publication behavior. The default should stay `none` for normal development.
+
+Branch publication notes:
+
+- `publish_mode=branch` pushes the latest local report to `publish_branch`
+- the branch stores `desktop-automation/latest/` plus immutable `desktop-automation/reports/<report-id>/` snapshots
+- when the repo remote is GitHub, the publish report includes clickable branch/tree/blob URLs for the mirrored artifacts
 
 ## Evidence Tracking
 

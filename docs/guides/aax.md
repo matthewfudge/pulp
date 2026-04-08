@@ -1,8 +1,6 @@
 # AAX Setup
 
-AAX support in Pulp is optional, clean-room, and developer-supplied. Pulp does
-not bundle the AAX SDK, DigiShell, the validator, Pro Tools, or any Avid example
-source. The repo stays MIT-licensed; your local AAX toolchain stays outside it.
+AAX is an optional plugin format for Pro Tools. Pulp supports AAX Native targets on macOS and Windows when you provide the Avid AAX SDK locally. The SDK is not bundled — your local AAX toolchain stays outside the repo.
 
 ## Platform Scope
 
@@ -28,13 +26,12 @@ Optional:
 Not needed for normal Pulp integration and should stay out of this repo:
 
 - `AAX Developer Tools` beta bundles
-- `JUCE to AAX DSP Example Plug-In`
 - Pro Tools installers
 - HD Driver
 - Avid Cloud Client Services
 
 Those extra packages may be useful for deeper host-specific workflows later, but
-they are not required for the initial clean-room AAX integration, build, or
+they are not required for the initial AAX integration, build, or
 validator loop.
 
 ## Suggested Install Locations
@@ -121,7 +118,7 @@ Some Avid tooling may depend on your local Avid/PACE/iLok setup. Start with the
 SDK plus DigiShell/AAX Validator first, and add more tooling only when your
 workflow actually needs it.
 
-## Clean-Room Rules
+## Rules
 
 - Never commit the AAX SDK, DigiShell, validator binaries, Avid examples, or generated vendor files into this repo
 - Never unpack the AAX SDK inside the Pulp source tree
@@ -131,7 +128,6 @@ workflow actually needs it.
 
 The repo audit tooling is designed to help maintainers catch this:
 
-- `python3 tools/audit.py --clean-room`
 - `python3 tools/deps/audit.py --strict`
 
 ## CLI Behavior

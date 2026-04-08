@@ -10,7 +10,7 @@ Source: `tools/cli/pulp_cli.cpp`
 
 **Status**: usable
 
-Create a new plugin project from templates. Checks environment, scaffolds source files, builds, and runs tests.
+Create a new plugin project from templates. Checks environment, scaffolds source files, configures the project, builds the generated test plus the default platform outputs, and runs tests.
 
 Default behavior is product-first:
 - **SDK mode** (default for external projects): uses `find_package(Pulp)`, generates `pulp.toml`, and either reuses a checkout-built local SDK or downloads a cached SDK release when no local checkout hint is available
@@ -58,19 +58,23 @@ What it does:
 3. Scaffolds source files from templates (processor, format entries, test, CMakeLists.txt)
 4. In in-tree mode: adds the project to `examples/CMakeLists.txt`
 5. In standalone product mode: generates `pulp.toml` with pinned SDK version and local SDK hints when created from a checkout
-6. Configures, builds the test target, and runs tests
-7. Reports plugin artifact locations
+6. Configures, builds the generated test target plus the default platform outputs, and runs tests
+7. Leaves the project ready for `pulp build`, which you use for rebuilds, explicit targets, or optional deliverables after changing configuration
+
+Notes:
+- `pulp create` is meant to prove that a fresh machine and fresh project can scaffold, configure, build the default native outputs, and pass the generated tests.
+- Use `pulp build` after `pulp create` when you want to rebuild, target a specific format/app target, or materialize optional deliverables after changing configuration.
+- Browser targets such as WAM/WebCLAP are separate lanes and are not emitted by default by `pulp create`.
 
 Default formats are platform-gated:
-- **macOS**: VST3, AU, CLAP, AAX, Standalone
+- **macOS**: VST3, AU, CLAP, Standalone
 - **Linux**: VST3, CLAP, LV2, Standalone
-- **Windows**: VST3, CLAP, AAX, Standalone
+- **Windows**: VST3, CLAP, Standalone
 - **app/bare**: Standalone only
 
-On macOS and Windows, `pulp create` scaffolds `aax_entry.cpp` by default, but the
-actual AAX target is still optional. It is only built when
-`PULP_ENABLE_AAX=ON` and `PULP_AAX_SDK_DIR` points to a developer-supplied AAX
-SDK kept outside the repo. Linux and Ubuntu do not support AAX.
+On macOS and Windows, AAX is optional. `pulp create` only scaffolds `aax_entry.cpp`
+and includes the AAX target when an AAX SDK is already configured via
+`PULP_AAX_SDK_DIR`. Linux and Ubuntu do not support AAX.
 
 ### build
 
@@ -87,6 +91,7 @@ pulp build -j8                # Parallel jobs
 Extra arguments are passed through to `cmake --build`.
 
 For standalone projects (detected via `pulp.toml`), automatically sets `CMAKE_PREFIX_PATH` to the hinted local SDK when available, otherwise to the cached SDK release.
+On Windows, `pulp build` also selects a Visual Studio generator automatically when no active MSVC shell is detected on `PATH`.
 
 ### test
 
@@ -202,9 +207,9 @@ pulp doctor --dry-run   # show what --fix would do
 ```
 
 Checks are platform-gated — only relevant checks run on each OS:
-- **macOS**: compiler, CMake, git-lfs, LFS files, VST3 SDK, AudioUnitSDK, optional AAX SDK/validator, build state
-- **Linux**: compiler, CMake, git-lfs, LFS files, VST3 SDK, ALSA dev headers, build state
-- **Windows**: compiler, CMake, git-lfs, LFS files, VST3 SDK, optional AAX SDK/validator, build state
+- **macOS**: git, compiler, CMake, git-lfs, LFS files, VST3 SDK, AudioUnitSDK, optional AAX SDK/validator, build state
+- **Linux**: git, compiler, CMake, git-lfs, LFS files, VST3 SDK, ALSA dev headers, build state
+- **Windows**: git, compiler, CMake, git-lfs, LFS files, VST3 SDK, optional AAX SDK/validator, build state
 
 Mode-specific checks:
 - **SDK mode**: verifies `pulp.toml`, the installed SDK path or cache, optional checkout hints, and build configuration for the external project
@@ -431,7 +436,7 @@ pulp design-debug --prompt "warm analog EQ" --target all --response-file saved-r
 pulp design-debug --prompt "make the gain knob look like premium brushed aluminum" --target k1 --capture-backend live-gpu
 ```
 
-Artifacts are written by default under `planning/screenshots/design-debug/`:
+Artifacts are written by default under `build/design-debug/`:
 - `*-before.png`
 - `*-after.png`
 - `*-diff.png`
@@ -508,6 +513,144 @@ pulp export-tokens --file theme.json --tokens tokens.json
 pulp export-tokens --dry-run
 ```
 
+### ci-local
+
+**Status**: experimental
+
+Run local CI and desktop automation workflows from the same control plane.
+
+```bash
+pulp ci-local run
+pulp ci-local run --smoke --targets mac
+pulp ci-local status
+pulp ci-local logs <job-id> --target windows
+pulp ci-local evidence feature/my-branch
+```
+
+Core CI subcommands:
+
+- `run` — queue validation and wait for completion
+- `ship` — push, open PR, queue CI, merge on green
+- `check` — validate an existing PR by number, URL, or `latest`
+- `list` — list open PRs
+- `enqueue` — queue background validation
+- `drain` — process pending jobs if no runner already owns the queue
+- `bump` — change priority for a queued job
+- `status` — show queue, live per-target state, and VM status
+- `logs` — tail one target log from the machine-global state dir
+- `evidence` — show last-good exact-SHA target evidence
+
+Desktop automation subcommands live under `pulp ci-local desktop ...`.
+
+```bash
+# setup / health
+pulp ci-local desktop install mac
+pulp ci-local desktop doctor windows --json
+pulp ci-local desktop status
+
+# config
+pulp ci-local desktop config show
+pulp ci-local desktop config set artifact_root ~/Library/Application\\ Support/Pulp/desktop-automation/runs
+pulp ci-local desktop config set target.mac.webview_driver true
+pulp ci-local desktop config set target.mac.webdriver_url http://127.0.0.1:4444
+pulp ci-local desktop config set target.mac.debug_attach true
+
+# inspect / interact
+pulp ci-local desktop smoke mac --bundle-id com.apple.TextEdit --label textedit-smoke
+pulp ci-local desktop inspect mac --command '/path/to/pulp-ui-preview' --pulp-app-automation
+pulp ci-local desktop click mac --command '/path/to/pulp-ui-preview' --click-view-id bypass-toggle --capture-ui-snapshot --pulp-app-automation
+pulp ci-local desktop inspect windows --command 'notepad.exe' --label notepad-inspect
+pulp ci-local desktop click windows --command 'notepad.exe' --click 885,18 --capture-before --label notepad-maximize
+
+# exact-SHA source mode
+pulp ci-local desktop inspect mac \
+  --command './build-desktop-automation/examples/ui-preview/pulp-ui-preview' \
+  --source-mode exact-sha \
+  --sha <commit-sha> \
+  --prepare-command 'cmake -S . -B build-desktop-automation && cmake --build build-desktop-automation --target pulp-ui-preview' \
+  --pulp-app-automation
+
+# artifact workflows
+pulp ci-local desktop recent mac --limit 5
+pulp ci-local desktop proof windows --action inspect --source-mode exact-sha --sha <commit-sha>
+pulp ci-local desktop publish mac --limit 5 --label mac-gallery
+pulp ci-local desktop cleanup mac --older-than-days 14 --keep-last 10
+```
+
+Current desktop subcommands:
+
+- `install <target>` — prepare one desktop automation target and record its receipt/contract
+- `doctor <target>` — run health checks and capability reporting for one target
+- `status [target]` — show desktop automation config, contracts, latest run history, and latest successful proof
+- `config show|set` — show/update `artifact_root`, `publish_mode`, `publish_branch`, `retention_days`, and target-level optional tiers such as `target.<name>.webview_driver` and `target.<name>.debug_attach`
+  - `publish_mode=none` keeps reports local only
+  - `publish_mode=branch` mirrors reports to `publish_branch` under `desktop-automation/latest/` and `desktop-automation/reports/<report-id>/`
+- `recent [target]` — list recent desktop runs (raw history, including failed attempts)
+- `proof [target]` — list successful desktop proofs grouped by `target/action/source.mode/source.sha`
+- `publish [target]` — stage a local HTML/JSON gallery from recent bundles, and optionally mirror it to `publish_branch` when `publish_mode=branch`
+- `cleanup [target]` — prune old bundles
+- `smoke <target>` — launch an app and capture a smoke screenshot/log bundle
+- `click <target>` — perform one click interaction and capture before/after evidence
+- `inspect <target>` — launch an app and capture screenshot + available UI state
+
+Shared desktop source flags for `smoke`, `click`, and `inspect`:
+
+- `--source-mode live|exact-sha` — use the live checkout (default) or a prepared exact-SHA source root
+- `--branch` — record a branch label for desktop source provenance
+- `--sha` — select the exact commit to prepare/launch
+- `--prepare-command` — optional shell command to build/setup the prepared root before launch
+- `--prepare-timeout` — timeout in seconds for the optional prepare command
+
+Windows note:
+
+- Windows exact-SHA `--prepare-command` values run from a generated `.cmd` script under `cmd.exe`.
+- Use double quotes for paths, generator names, and arguments.
+- POSIX-style single-quoted tokens are treated as literal text on Windows and are rejected by the controller before remote prepare starts.
+
+Exact-SHA desktop runs record additive provenance in `manifest.json` under `source.*`, and attach `artifacts.prepare_log` when a fresh prepare step produces a log.
+
+Desktop artifact roots also maintain rolling summaries for agents and status tooling:
+
+- `latest-run.json` — newest observed run summary
+- `latest-proof.json` — newest successful proof summary
+- `runs.jsonl` — raw summary stream for recent desktop automation runs
+- target-scoped copies under `<artifact-root>/<target>/...`
+- `_published/latest-report.json` — newest staged local HTML/JSON gallery summary
+- `_published/reports.jsonl` — raw summary stream for local published galleries
+
+`desktop proof` filters:
+
+- `--action`
+- `--source-mode live|exact-sha|legacy`
+- `--sha`
+- `--branch`
+- `--limit`
+
+`desktop status` now reports both:
+
+- `latest_run` — newest observed run, regardless of success
+- `latest_proof` — newest successful proof summary for the target
+- `latest_publish` — newest local HTML/JSON gallery summary staged under `_published/`
+
+Adapter truth:
+
+- `macos-local`
+  - local logged-in session
+  - supports `--bundle-id`
+  - supports Pulp-owned direct-app automation with `--pulp-app-automation`
+- `linux-xvfb`
+  - wraps app launch in `xvfb-run`
+  - currently supports `--command` only
+  - supports generic X11 smoke/click capture with `xvfb`, `xauth`, `xdotool`, `imagemagick`, and `wmctrl`
+  - supports Pulp-owned UI snapshots and view-target selectors only with `--pulp-app-automation`
+- `windows-session-agent`
+  - bootstraps a Scheduled Task plus target-side PowerShell agent
+  - requires a real logged-in Windows desktop session
+  - currently supports `--command` only
+  - supports generic `window-capture` smoke/inspect/click for normal desktop apps
+  - supports coordinate clicks and before/after capture without `--pulp-app-automation`
+  - supports `ViewInspector` snapshots and view-target selectors only with `--pulp-app-automation`
+
 ### upgrade
 
 **Status**: usable
@@ -538,6 +681,105 @@ Print usage information.
 ```bash
 pulp help
 ```
+
+### add
+
+**Status**: usable
+
+Add a third-party package from the Pulp package registry.
+
+```bash
+pulp add signalsmith-stretch                       # add a package
+pulp add rtneural --license-override commercial    # accept a non-standard license
+pulp add some-lib --platform-guard                 # add with platform guard
+pulp add dr-libs --no-cmake                        # metadata only, skip CMake wiring
+```
+
+Performs license checking, platform compatibility analysis, overlap detection, CMake generation (`cmake/pulp-packages.cmake`), and updates `packages.lock.json`, `DEPENDENCIES.md`, and `NOTICE.md`.
+
+### remove
+
+**Status**: usable
+
+Remove a previously added package.
+
+```bash
+pulp remove signalsmith-stretch
+```
+
+Cleans up the lock file, CMake declarations, and metadata entries.
+
+### list
+
+**Status**: usable
+
+Show installed packages.
+
+```bash
+pulp list              # human-readable table
+pulp list --json       # JSON output
+```
+
+### search
+
+**Status**: usable
+
+Search the package registry.
+
+```bash
+pulp search "pitch detection"
+pulp search dsp
+pulp search fft --format json
+```
+
+### update
+
+**Status**: usable
+
+Check for and apply package updates.
+
+```bash
+pulp update            # dry-run: show available updates
+pulp update --apply    # apply updates and regenerate CMake
+```
+
+### suggest
+
+**Status**: usable
+
+Context-aware package recommendations.
+
+```bash
+pulp suggest --description "pitch shifting"
+pulp suggest --analyze src/my_processor.cpp
+pulp suggest --alternative pffft
+```
+
+### target
+
+**Status**: usable
+
+Manage project platform targets stored in `pulp.toml`.
+
+```bash
+pulp target list                  # show current targets
+pulp target add Windows-arm64     # add a target
+pulp target remove Linux-x64     # remove a target
+```
+
+Default targets (if none configured): `macOS-arm64`, `Windows-x64`, `Linux-x64`.
+
+### audit (package extensions)
+
+The existing `pulp audit` command now supports package-specific flags:
+
+```bash
+pulp audit --packages     # verify lock file integrity
+pulp audit --platforms    # check package/platform coverage
+pulp audit --licenses     # verify license compatibility
+```
+
+These flags are handled natively; without them, `pulp audit` delegates to the Python audit script as before.
 
 ## Global Flags
 

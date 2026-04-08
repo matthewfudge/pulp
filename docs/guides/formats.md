@@ -284,7 +284,7 @@ PULP_AAX_PLUGIN(my_namespace::create_my_processor)
 `PULP_AAX_PLUGIN(factory_fn)` generates:
 
 - A `GetEffectDescriptions()` export for the AAX host
-- Clean-room metadata generation from `Processor::descriptor()`
+- metadata generation from `Processor::descriptor()`
 - Parameter, state, latency, transport, and MIDI registration through the AAX runtime
 
 ### Build Requirements
@@ -340,9 +340,9 @@ Avid download page instead of guessing.
 - Native AAX only. DSP and AudioSuite are out of scope.
 - No AAX GUI layer yet. Current validator output may warn that the effect does not contain `EffectGUI`.
 - Public CI does not build or validate AAX because the SDK and validator are not bundled by Pulp.
-- Component layouts are intentionally constrained to keep the clean-room surface small.
+- Component layouts are intentionally constrained to keep the surface small.
 
-For setup, download, and clean-room rules, see [AAX Setup](aax.md).
+For setup, download, and rules, see [AAX Setup](aax.md).
 
 ---
 
@@ -463,5 +463,5 @@ Each entry-point `.cpp` file includes the processor header and calls the format-
 | Tail reporting | Yes | Yes | Yes (seconds) |
 | Stable ID | `bundle_id` string | `FUID` (128-bit) | Four-char codes in Info.plist |
 
-Optional AAX uses its own clean-room runtime and follows the constraints listed
+Optional AAX uses its own runtime and follows the constraints listed
 in the AAX section above.

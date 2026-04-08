@@ -102,19 +102,19 @@ commands:
         description: "Plugin type: effect, instrument, app, bare (default: effect)"
       - name: --manufacturer
         kind: option
-        description: Manufacturer name (default: Pulp)
+        description: "Manufacturer name (default: Pulp)"
       - name: --output
         kind: option
         description: Output directory override (otherwise uses PULP_PROJECTS_DIR, ~/.pulp/config.toml, repo sibling, or ./<name>)
       - name: --in-tree
         kind: flag
-        description: Add the project under examples/ using the local Pulp checkout (alias: --example)
+        description: "Add the project under examples/ using the local Pulp checkout (alias: --example)"
       - name: --no-build
         kind: flag
         description: Skip build after scaffolding
       - name: --no-interactive
         kind: flag
-        description: Non-interactive mode for CI/scripting (alias: --ci)
+        description: "Non-interactive mode for CI/scripting (alias: --ci)"
     docs: reference/cli.md#create
 
   - name: cache
@@ -136,7 +136,7 @@ commands:
       - name: target
         kind: positional
         required: false
-        description: Target name (default: first standalone binary found)
+        description: "Target name (default: first standalone binary found)"
     docs: reference/cli.md#run
 
   - name: upgrade
@@ -146,7 +146,7 @@ commands:
       - name: version
         kind: positional
         required: false
-        description: Version to install (default: latest)
+        description: "Version to install (default: latest)"
     docs: reference/cli.md#upgrade
 
   - name: doctor
@@ -198,7 +198,7 @@ commands:
       - name: --target
         kind: option
         required: false
-        description: Target widget id or all (default: all)
+        description: "Target widget id or all (default: all)"
       - name: --script
         kind: option
         required: false
@@ -279,10 +279,10 @@ commands:
         description: Screen name to import (Stitch)
       - name: --output
         kind: option
-        description: Output JS file (default: ui.js)
+        description: "Output JS file (default: ui.js)"
       - name: --tokens
         kind: option
-        description: Output W3C token file (default: tokens.json)
+        description: "Output W3C token file (default: tokens.json)"
       - name: --dry-run
         kind: flag
         description: Show generated code without writing files
@@ -321,10 +321,10 @@ commands:
     args:
       - name: --file
         kind: option
-        description: Input theme JSON (default: built-in dark theme)
+        description: "Input theme JSON (default: built-in dark theme)"
       - name: --tokens
         kind: option
-        description: Output file (default: tokens.json)
+        description: "Output file (default: tokens.json)"
       - name: --dry-run
         kind: flag
         description: Print to stdout
@@ -332,7 +332,7 @@ commands:
 
   - name: ci-local
     status: experimental
-    summary: Local CI runner — machine-global queue for Mac, Ubuntu, and Windows validation.
+    summary: Local CI runner and desktop automation control plane for Mac, Ubuntu, and Windows validation.
     subcommands:
       - name: run
         summary: Queue validation and wait for completion
@@ -356,7 +356,126 @@ commands:
         summary: Show tracked GitHub workflow state and refresh a selected run on demand
       - name: status
         summary: Show queue, active runner, recent results, tracked cloud runs, and VM status
-    docs: reference/cli.md#ci-local
+      - name: desktop
+        summary: Desktop automation setup, health, artifact, and interaction workflows
+        subcommands:
+          - name: install
+            summary: Prepare one desktop automation target and record its receipt/contract
+          - name: doctor
+            summary: Run health checks and capability reporting for one desktop target
+          - name: status
+            summary: Show desktop automation config, target contracts, latest runs, and latest successful proof summaries
+          - name: config show
+            summary: Show desktop automation config values
+          - name: config set
+            summary: Set artifact_root, publish_mode, publish_branch, retention_days, or target-level optional desktop tiers
+          - name: recent
+            summary: Show recent desktop automation runs, including failed attempts
+          - name: proof
+            summary: Show successful desktop proofs grouped by target/action/source.mode/source.sha
+          - name: publish
+            summary: Stage a local HTML/JSON gallery from recent bundles
+          - name: cleanup
+            summary: Prune old desktop automation bundles
+          - name: smoke
+            summary: Launch an app and capture a desktop smoke bundle; supports shared source flags (--source-mode, --branch, --sha, --prepare-command, --prepare-timeout)
+          - name: click
+            summary: Launch an app, perform one click interaction, and capture before/after evidence; supports shared source flags (--source-mode, --branch, --sha, --prepare-command, --prepare-timeout)
+          - name: inspect
+            summary: Launch an app and capture screenshot plus available UI state; supports shared source flags (--source-mode, --branch, --sha, --prepare-command, --prepare-timeout)
+    docs: guides/local-ci.md
+
+  - name: add
+    status: usable
+    summary: Add a third-party package from the registry. License check, platform check, CMake wiring, metadata updates.
+    args:
+      - name: package
+        kind: positional
+        required: true
+        description: Package slug from tools/packages/registry.json
+      - name: --license-override
+        kind: option
+        description: "Accept a rejected license (value: commercial)"
+      - name: --platform-guard
+        kind: flag
+        description: Add with platform guard (skip prompt for unsupported targets)
+      - name: --no-cmake
+        kind: flag
+        description: Skip CMake wiring (metadata only)
+    docs: reference/cli.md#add
+
+  - name: remove
+    status: usable
+    summary: Remove a previously added package. Cleans lock file, CMake, and metadata.
+    args:
+      - name: package
+        kind: positional
+        required: true
+        description: Package slug to remove
+    docs: reference/cli.md#remove
+
+  - name: list
+    status: usable
+    summary: Show installed packages from packages.lock.json.
+    args:
+      - name: --json
+        kind: flag
+        description: Output as JSON
+    docs: reference/cli.md#list
+
+  - name: search
+    status: usable
+    summary: Search the package registry by name, tags, description, or category.
+    args:
+      - name: query
+        kind: positional
+        required: true
+        description: Search query string
+      - name: --format
+        kind: option
+        description: "Output format (text or json)"
+    docs: reference/cli.md#search
+
+  - name: update
+    status: usable
+    summary: Check for and apply package version updates.
+    args:
+      - name: --apply
+        kind: flag
+        description: Apply updates (default is dry-run)
+    docs: reference/cli.md#update
+
+  - name: suggest
+    status: usable
+    summary: Context-aware package recommendations.
+    args:
+      - name: --description
+        kind: option
+        description: Find packages matching a text description
+      - name: --analyze
+        kind: option
+        description: Scan a source file for package suggestions
+      - name: --alternative
+        kind: option
+        description: Find alternatives to a specific package
+      - name: --format
+        kind: option
+        description: "Output format (text or json)"
+    docs: reference/cli.md#suggest
+
+  - name: target
+    status: usable
+    summary: Manage project platform targets in pulp.toml.
+    args:
+      - name: subcommand
+        kind: positional
+        required: true
+        description: "list, add, or remove"
+      - name: target
+        kind: positional
+        required: false
+        description: "Platform-arch target (e.g., macOS-arm64, Windows-x64)"
+    docs: reference/cli.md#target
 
   - name: help
     status: usable

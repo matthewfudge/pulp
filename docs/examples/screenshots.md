@@ -59,13 +59,6 @@ Screenshots are captured via the headless screenshot tool:
 - **UI:** Four knobs + two combos, auto-generated
 - **Formats:** CLAP only
 
-## PulpSampler — Audio File Sampler
-
-- **Type:** Instrument (MIDI in → stereo out)
-- **Parameters:** Volume, Attack, Decay, Sustain, Release, Pitch, Loop
-- **UI:** Five knobs + two toggles, auto-generated
-- **Formats:** CLAP only
-
 ## GPU Demo — Modulation Matrix
 
 - **Type:** Standalone GPU demo (not a plugin)

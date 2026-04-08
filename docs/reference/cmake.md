@@ -22,6 +22,7 @@ pulp_add_plugin(<target>
     AAX_NATIVE_CODE <4-char>
     SOURCES         <file-list>
     PROCESSOR_FACTORY <function-name>
+    UI_SCRIPT       <path>
 )
 ```
 
@@ -41,6 +42,7 @@ pulp_add_plugin(<target>
 | `AAX_NATIVE_CODE` | AAX only | -- | 4-character stable AAX Native identifier |
 | `SOURCES` | No | -- | Source files for the core object library |
 | `PROCESSOR_FACTORY` | No | -- | Factory function name (for generated entry points) |
+| `UI_SCRIPT` | No | -- | Path to a JavaScript UI entry file. Pulp passes it through to VST3, AU, CLAP, and Standalone targets via `PULP_UI_SCRIPT_PATH`. Scripted-editor loading is supported in those targets; live JS/theme reload is currently only runtime-validated in the Standalone macOS lane. |
 
 ### Created Targets
 

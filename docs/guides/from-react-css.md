@@ -51,7 +51,7 @@ on('gain', 'change', function(val) { setParam('gain', val); });
 | Event handlers (`onClick`) | `element.addEventListener('click', fn)` or `on(id, 'click', fn)` |
 | Event delegation | `container.addEventListener('click', e => { if (e.target.closest('.item')) ... })` |
 | React DevTools | `enableInspectClick()` + component inspector |
-| Hot Module Replacement | Built-in hot-reload — save JS, see changes instantly |
+| Hot Module Replacement | Built-in hot-reload in standalone host — save JS, see changes instantly. Plugin hosts load scripts at startup. |
 
 ## Component Mapping
 
@@ -262,8 +262,8 @@ Things that **don't transfer** from React/CSS:
 | Virtual DOM / reconciliation | No VDOM. Widgets are created once and mutated. |
 | Component composition / `children` | No nesting syntax. Use `parentId` parameter. |
 | `useEffect` / lifecycle hooks | No lifecycle. Use `on()` for events. |
-| CSS selectors / cascading | No selectors. Style each widget directly or use theme tokens. |
-| `className` / CSS modules | No class system. Use `setStyle()` or individual setters. |
+| CSS selectors / cascading | Selectors and class-based styling exist via `StyleSheet`/`querySelector`, but there is no browser stylesheet loader or full CSS cascade stack. |
+| `className` / CSS modules | `className` is usable for `StyleSheet` matching, but CSS modules/build tooling do not exist in the runtime. |
 | Media queries / responsive | Fixed-size plugin windows. Use flex layout to fill available space. |
 | Server-side rendering | Runs in plugin process only. |
 | npm / bundlers | Single JS file, no build step. |
@@ -294,4 +294,4 @@ Audio plugin UIs have unique requirements:
 | Level meters at 60fps | `Meter` widget polls `AudioBridge` via `TripleBuffer` — no JS polling needed |
 | Multiple plugin formats | Same UI JS works in VST3, AU, CLAP, and Standalone |
 | GPU-accelerated rendering | Skia/Dawn backend — Canvas API maps to GPU draw calls |
-| Hot-reload during development | Save JS file → UI updates instantly, no rebuild |
+| Hot-reload during development | Save JS file → UI updates instantly in standalone host, no rebuild |

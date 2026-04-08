@@ -22,7 +22,7 @@ A standalone application for testing the view/widget system and GPU rendering pi
 
 ## Supported Formats
 
-This is not a plugin. It builds as a standalone executable only.
+This is not a plugin. It builds only as a native standalone target (`.app` on macOS, executable elsewhere).
 
 ## Supported Platforms
 

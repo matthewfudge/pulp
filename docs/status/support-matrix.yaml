@@ -4,7 +4,7 @@
 platforms:
   macos:
     status: usable
-    notes: Primary development platform. ARM64 and x86_64.
+    notes: Primary development platform. ARM64 (Apple Silicon) only.
   windows:
     status: experimental
     notes: WASAPI audio, Win32 MIDI, NSIS installer, Authenticode signing. CI enabled.
@@ -48,6 +48,29 @@ formats:
     macos: experimental
     windows: experimental
     linux: unsupported
+
+scripted_ui:
+  ui_script_target_wiring:
+    status: usable
+    notes: UI_SCRIPT is threaded through VST3, AU, CLAP, and Standalone targets via PULP_UI_SCRIPT_PATH.
+  scripted_editor_loading:
+    macos: usable
+    windows: partial
+    linux: partial
+    notes: Scripted editor sessions load in the supported desktop targets. Non-macOS desktop hosts are not yet runtime-validated to the same level.
+  live_js_reload:
+    macos: usable
+    windows: unsupported
+    linux: unsupported
+    notes: Available in desktop standalone hosts that poll ScriptedUiSession::poll(). Runtime-validated only in the standalone macOS lane; plugin hosts still need a host-neutral polling contract.
+  live_theme_reload:
+    macos: usable
+    windows: unsupported
+    linux: unsupported
+    notes: Sibling theme.json overrides reload in ScriptedUiSession. Runtime-validated only in the standalone macOS scripted UI lane.
+  state_preservation:
+    status: usable
+    notes: Knob, fader, toggle, checkbox, toggle-button, and XY pad values are restored across scripted UI reloads. JavaScript heap state is rebuilt.
 
 audio_io:
   coreaudio:
@@ -332,7 +355,7 @@ testing:
       visual reftests and screenshot regression (46).
   unit_tests:
     status: usable
-    notes: 1230+ Catch2 tests across all subsystems. CI on every PR.
+    notes: 1622+ Catch2 tests across all subsystems. CI on every PR.
   format_validation:
     status: usable
     notes: CLAP dlopen tests, VST3 load tests, auval for AU.

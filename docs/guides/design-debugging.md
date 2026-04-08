@@ -12,7 +12,7 @@ This tool is useful when you want to:
 
 ## What It Produces
 
-Each run writes an artifact bundle under `planning/screenshots/design-debug/` by default:
+Each run writes an artifact bundle under `build/design-debug/` by default:
 
 - `*-prompt.txt`
 - `*-response.txt`

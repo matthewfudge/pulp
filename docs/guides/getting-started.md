@@ -19,7 +19,7 @@ irm https://www.generouscorp.com/pulp/install.ps1 | iex
 Then create your first plugin:
 
 ```bash
-pulp create my-plugin           # scaffolds, builds, and tests
+pulp create my-plugin           # scaffolds, builds the default native outputs, and tests
 pulp run                     # launch the standalone host
 ```
 
@@ -37,6 +37,26 @@ Pulp has two explicit creation/build modes:
 
 If you run `pulp create my-plugin` from inside a Pulp source checkout, Pulp still creates an SDK-mode product project by default. Unless you override it, that project is created next to the repo root rather than under `examples/`. In that case, Pulp reuses the pinned SDK dependencies from the checkout and caches a local SDK install instead of assuming a public SDK download is available.
 
+What `pulp create` proves by default:
+- native plugin/app outputs for the current platform
+- generated tests passing
+- a usable standalone app target for app-capable templates (`.app` on macOS, executable elsewhere)
+
+What it does **not** emit by default:
+- browser targets such as WAM/WebCLAP
+- optional AAX outputs unless the AAX SDK is already configured
+
+Fresh create/build proofs were re-run from clean `PULP_HOME` / project roots
+on macOS, Ubuntu, and Windows. The default generated project emitted only
+native outputs for the host platform plus the platform-native standalone target:
+
+- macOS: `VST3`, `AU`, `CLAP`, and `Standalone` (`.app` bundle)
+- Ubuntu/Linux: `VST3`, `CLAP`, `LV2`, and `Standalone`
+- Windows: `VST3`, `CLAP`, and `Standalone`
+
+No browser outputs (`.wasm`, web bundles, WAM/WebCLAP artifacts) were emitted
+unless those formats were requested explicitly.
+
 ## Building from Source
 
 If you want to build the framework itself (to contribute, modify core code, or work without pre-built binaries):
@@ -44,26 +64,44 @@ If you want to build the framework itself (to contribute, modify core code, or w
 ```bash
 git clone https://github.com/danielraffel/pulp.git
 cd pulp
+```
+
+**macOS / Linux**
+```bash
 ./setup.sh
 ```
 
-`setup.sh` handles first-time bootstrap: it checks prerequisites, verifies git-lfs is available and initialized, clones external SDKs, configures, builds, and runs tests. It works on macOS, Linux, and Windows (Git Bash/MSYS2).
+**Windows (PowerShell)**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+`setup.sh` is the shared bootstrap implementation, but the supported Windows entrypoint is `setup.ps1`. The wrapper imports the Visual Studio C++ environment, uses Git Bash from Git for Windows, and temporarily maps the repo to a short drive alias so first-time dependency bootstrap does not trip Windows path-length limits.
 
 Options:
 - `./setup.sh --ci` — non-interactive mode for CI/automation
 - `./setup.sh --deps-only` — bootstrap SDKs and dependencies without configuring/building
 - `./setup.sh --dry-run` — show what would be done without doing it
+- `powershell -ExecutionPolicy Bypass -File .\setup.ps1 --ci` — Windows non-interactive bootstrap
+- `powershell -ExecutionPolicy Bypass -File .\setup.ps1 --deps-only` — Windows dependency-only bootstrap
 
 ## Prerequisites
 
+- **git**
 - **CMake 3.24+**
 - **C++20 compiler** (Clang 15+, GCC 13+, MSVC 2022+)
 - **git-lfs** — required for pre-built Skia GPU rendering binaries
   - macOS: `brew install git-lfs && git lfs install`
   - Linux: `sudo apt install git-lfs && git lfs install`
-  - Windows: `winget install git-lfs`
+    - if you installed `git-lfs` with a per-user tool such as `~/.local/bin/git-lfs`, make sure that location is also on the non-interactive PATH used by SSH/CI
+  - Windows: install Git for Windows, then run `git lfs install`
+- **Windows:** Git for Windows (the supported wrapper uses its bundled Git Bash)
 - **macOS:** Xcode Command Line Tools (`xcode-select --install`)
 - **Linux:** ALSA dev headers (`sudo apt install libasound2-dev`)
+  - For a fresh Ubuntu machine that needs full native UI/GPU-capable builds, install the desktop/dev package set once:
+    ```bash
+    sudo apt install libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxinerama-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgl1-mesa-dev libgbm-dev libdrm-dev libdbus-1-dev
+    ```
 - Optional: [pluginval](https://github.com/Tracktion/pluginval) for VST3 validation
 - Optional: [clap-validator](https://github.com/free-audio/clap-validator) for CLAP validation
 - Optional on macOS/Windows: AAX SDK + DigiShell/AAX Validator for local AAX builds and validation. See [AAX Setup](aax.md)
@@ -80,6 +118,10 @@ pulp doctor --dry-run   # show what --fix would do
 ```
 
 In SDK mode, `pulp doctor` validates the generated project's `pulp.toml`, installed SDK location, checkout hint, and build state. In source-tree mode, it validates the active Pulp checkout and pinned external SDKs instead.
+
+### Cross-Platform CI (Optional)
+
+If you want to validate builds on macOS, Ubuntu, and Windows before merging, see the [Local CI guide](local-ci.md) — it covers SSH key setup for Windows and Linux VMs, host configuration, and the `pulp ci-local` runner.
 
 ## Project Structure
 
@@ -223,11 +265,21 @@ pulp build
 ```
 
 Output locations:
-- VST3: `build/VST3/MyGain.vst3`
-- CLAP: `build/CLAP/MyGain.clap`
-- AU: `build/AU/MyGain.component`
-- AAX: `build/AAX/MyGain.aaxplugin` (macOS/Windows, opt-in)
-- Standalone: `build/MyGain`
+- VST3:
+  - macOS: `build/VST3/MyGain.vst3`
+  - Linux: `build/VST3/libMyGain.so`
+  - Windows: `build/VST3/Debug/MyGain.dll`
+- CLAP:
+  - macOS / Linux: `build/CLAP/MyGain.clap`
+  - Windows: `build/CLAP/Debug/MyGain.clap`
+- LV2 (Linux): `build/LV2/MyGain.lv2/`
+- AU (macOS): `build/AU/MyGain.component`
+- AAX (macOS/Windows, opt-in): `build/AAX/MyGain.aaxplugin`
+- Standalone:
+  - macOS / Linux: `build/MyGain`
+  - Windows: `build/Debug/MyGain.exe`
+
+`pulp create` still proves the native outputs were built; the exact on-disk path depends on the generator and configuration.
 
 ## Step 5: Validate
 
@@ -258,7 +310,7 @@ cp -R build/AU/MyGain.component ~/Library/Audio/Plug-Ins/Components/
 
 Restart your DAW to scan the new plugins.
 
-## Step 6: Add a UI with Your First Knob
+## Step 7: Add a UI with Your First Knob
 
 Pulp UIs are defined in JavaScript and hot-reloaded. Create a `ui/main.js` file next to your plugin source:
 
@@ -322,11 +374,11 @@ pulp build
 
 You should see a window with a centered knob labeled "Gain" and a dB readout below it.
 
-## Step 7: Hot-Reload
+## Step 8: Hot-Reload
 
-With the standalone running, edit `ui/main.js` — changes appear instantly. No rebuild needed.
+With the standalone running on macOS, edit `ui/main.js` — changes appear instantly. No rebuild needed.
 
-Try changing the background color or adding a second knob. The HotReloader watches the `ui/` directory and re-evaluates your script whenever a file changes. Widget state (parameter bindings) is preserved across reloads.
+Try changing the background color or adding a second knob. The scripted standalone host watches `ui/main.js` and re-evaluates your script whenever it changes. Widget values are restored across reloads. JavaScript heap state is not preserved.
 
 ```bash
 # Terminal output when a reload happens:
@@ -334,9 +386,11 @@ Try changing the background color or adding a second knob. The HotReloader watch
 # [pulp] hot-reload: 3 widgets restored
 ```
 
-This makes UI iteration as fast as web development. Edit, save, see.
+This is currently the supported live-reload path for scripted UI. Plugin targets can load the same `UI_SCRIPT`, but live JS/theme reload is not yet a cross-host guarantee.
 
-## Step 8: Apply a Theme
+`pulp create` verifies the fresh project path by scaffolding, configuring, building the default native outputs for the platform, and running the generated tests. Use `pulp build` after `pulp create` when you want to rebuild, select explicit targets, or materialize optional deliverables after changing configuration. Browser targets such as WAM/WebCLAP are separate lanes and are not emitted by default by the generated project.
+
+## Step 9: Apply a Theme
 
 Pulp has three built-in themes: `dark` (default), `light`, and `pro_audio`. Switch themes from JS:
 
@@ -344,7 +398,7 @@ Pulp has three built-in themes: `dark` (default), `light`, and `pro_audio`. Swit
 setTheme("pro_audio");
 ```
 
-Or define a custom theme in JSON and load it:
+Or define a custom theme in JSON:
 
 ```json
 {
@@ -364,7 +418,7 @@ Or define a custom theme in JSON and load it:
 }
 ```
 
-Save this as `ui/theme.json` and load it from your script:
+Save this as `ui/theme.json` next to `ui/main.js`:
 
 ```js
 // Themes cascade — child views inherit parent tokens
@@ -372,7 +426,7 @@ setBackground("root", getThemeColor("background"));
 setTextColor("title", getThemeColor("on_surface"));
 ```
 
-Design tokens resolve by walking up the view tree: child → parent → root → built-in fallback. This lets you override tokens for specific sections of your UI without affecting the rest.
+Scripted UI sessions automatically apply a sibling `theme.json` when the UI loads. In the macOS standalone hot-reload lane, edits to `theme.json` are also picked up live. Design tokens resolve by walking up the view tree: child → parent → root → built-in fallback. This lets you override tokens for specific sections of your UI without affecting the rest.
 
 ## Next Steps
 

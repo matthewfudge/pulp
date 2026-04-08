@@ -37,7 +37,7 @@ is not bundled by Pulp, and is unsupported on Linux and Ubuntu.
 
 | Capability | Status | Module | Notes |
 |---|---|---|---|
-| macOS (ARM64 + x86_64) | usable | [platform](modules.md#platform) | Primary development platform |
+| macOS (ARM64) | usable | [platform](modules.md#platform) | Primary development platform |
 | Windows | experimental | [platform](modules.md#platform) | WASAPI, Win32 MIDI, NSIS installer, CI |
 | Linux | experimental | [platform](modules.md#platform) | ALSA, JACK, LV2, .deb packaging, CI |
 | iOS | experimental | [platform](modules.md#platform) | AVAudioSession, AUv3, UIKit, Metal |
@@ -106,6 +106,18 @@ Key headers: all under `pulp/signal/` -- e.g., `pulp/signal/compressor.hpp`, `pu
 
 ---
 
+## DSP DSLs
+
+| Capability | Status | Module | Docs | Examples |
+|---|---|---|---|---|
+| FAUST offline codegen via external compiler + checked-in generated C++ | experimental | [dsl](modules.md#dsl) | [faust guide](../guides/faust.md), [pulp-dsl contract](../contracts/pulp-dsl-v1.md) | faust-gain, faust-filter, faust-tremolo |
+| Cmajor external-toolchain support lane | experimental | [dsl](modules.md#dsl) | [cmajor guide](../guides/cmajor.md), [pulp-dsl contract](../contracts/pulp-dsl-v1.md) | cmajor-gain (source-only) |
+| JSFX bounded subset support lane | experimental | [dsl](modules.md#dsl) | [jsfx guide](../guides/jsfx.md), [pulp-dsl contract](../contracts/pulp-dsl-v1.md) | jsfx-gain, jsfx-tremolo, jsfx-delay (source-only) |
+
+Key headers: `pulp/dsl/dsl_processor.hpp`, `pulp/dsl/faust_processor.hpp`
+
+---
+
 ## State and Automation
 
 | Capability | Status | Module | Docs | Examples |
@@ -135,8 +147,8 @@ Key headers: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`, `pulp/state/bin
 | Flex layout (full CSS Flexbox L1) | usable | [view](modules.md#view) | [web-compat](../guides/web-compat.md) |
 | Grid layout (CSS Grid L1 — templates, fr, gaps) | usable | [view](modules.md#view) | |
 | Theme system (color/dimension tokens, inheritance) | usable | [view](modules.md#view) | [design-tokens](../guides/design-tokens.md) |
-| JS scripting (QuickJS only today; abstraction seam exists) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
-| Hot reload | usable | [view](modules.md#view) | |
+| JS scripting (QuickJS default, V8 and JavaScriptCore available) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
+| Hot reload | partial | [view](modules.md#view) | Scripted UI live reload is runtime-validated in the standalone macOS lane. Plugin targets can load `UI_SCRIPT`, but live reload is not yet guaranteed across hosts/platforms. |
 | Screenshot capture (headless PNG) | usable | [view](modules.md#view) | |
 | Component inspector | usable | [view](modules.md#view) | |
 | Animation (FrameClock, ValueAnimation, motion tokens) | usable | [view](modules.md#view) | [animation](../guides/animation.md) |
@@ -175,7 +187,7 @@ Key headers: `pulp/state/parameter.hpp`, `pulp/state/store.hpp`, `pulp/state/bin
 | closest / matches / innerHTML | usable | [view](modules.md#view) | |
 | matchMedia (responsive breakpoints) | usable | [view](modules.md#view) | |
 | Pointer events (W3C Level 2) | usable | [view](modules.md#view) | [js-bridge](js-bridge.md) |
-| Gesture events (scale, rotation) | usable | [view](modules.md#view) | |
+| Gesture events (scale, rotation) | partial | [view](modules.md#view) | macOS trackpad gestures shipped; iOS multi-touch gesture analysis is still incomplete |
 
 ### Platform Maturity
 
@@ -275,6 +287,16 @@ Key headers: `pulp/platform/detect.hpp`, `pulp/platform/clipboard.hpp`, `pulp/pl
 | UDP receiver | experimental | [osc](modules.md#osc) | |
 
 Key header: `pulp/osc/osc.hpp`
+
+---
+
+## Agent / Automation
+
+| Capability | Status | Docs | Notes |
+|---|---|---|---|
+| Repo-level MCP server (`pulp-mcp`) | experimental | | Project/repo automation server in `tools/mcp/pulp_mcp.cpp`; not a per-plugin control surface |
+| Plugin CLI harness pattern | usable | [cli](cli.md) | `tools/plugin-cli/plugin_cli.hpp`; usable for batch/headless workflows, but not auto-generated for every plugin |
+| Per-plugin/app MCP control contract | planned | [claim-audit-baseline](claim-audit-baseline.md) | Active follow-up work rather than a shipped default capability |
 
 ---
 

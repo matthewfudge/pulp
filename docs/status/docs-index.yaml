@@ -37,7 +37,7 @@ docs:
   - slug: aax
     path: guides/aax.md
     kind: guide
-    summary: Optional AAX setup, downloads, validation, clean-room rules, and Linux limitations
+    summary: Optional AAX setup, downloads, validation, rules, and Linux limitations
 
   - slug: animation
     path: guides/animation.md
@@ -68,6 +68,31 @@ docs:
     path: guides/testing-advanced.md
     kind: guide
     summary: HeadlessHost API, golden-file testing, sanitizer builds, format validation
+
+  - slug: local-ci
+    path: guides/local-ci.md
+    kind: guide
+    summary: Local and SSH-backed CI queue, host validation, and PR workflow
+
+  - slug: webview
+    path: guides/webview.md
+    kind: guide
+    summary: Optional WebView runtime, asset serving, messaging, and debug workflow
+
+  - slug: claude-code-plugin
+    path: guides/claude-code-plugin.md
+    kind: guide
+    summary: Install and use the Claude Code plugin for Pulp development workflows
+
+  - slug: cmajor-guide
+    path: guides/cmajor.md
+    kind: guide
+    summary: MIT-safe external Cmajor workflow — source-owned patches, helper diagnostics, and user-supplied code generation
+
+  - slug: jsfx-guide
+    path: guides/jsfx.md
+    kind: guide
+    summary: Bounded JSFX workflow — source-only examples, subset validation, and explicit exclusions like no @gfx
 
   - slug: platform-macos
     path: guides/platforms/macos.md
@@ -224,11 +249,8 @@ docs:
     kind: guide
     summary: Three rendering layers — JS canvas, C++ Canvas API, Dawn/WebGPU shaders
 
-  - slug: offline-video-feasibility
-    path: reports/offline-video-feasibility.md
-    kind: guide
-    summary: Phase 12 exploration — offline PNG-sequence rendering feasibility and honest recommendation
-
+  - slug: example-pulp-pluck
+    path: examples/pulp-pluck.md
   - slug: example-showcase
     path: examples/showcase.md
     kind: example
@@ -265,6 +287,16 @@ docs:
     kind: reference
     summary: All current capabilities organized by area with status
 
+  - slug: claim-audit-baseline
+    path: reference/claim-audit-baseline.md
+    kind: reference
+    summary: Phase 15 baseline for current public capability claims and evidence
+
+  - slug: pulp-dsl-v1
+    path: contracts/pulp-dsl-v1.md
+    kind: contract
+    summary: Contract for integrating code-generating DSL backends with Pulp processors
+
   - slug: modules
     path: reference/modules.md
     kind: reference
@@ -284,4 +316,5 @@ docs:
   - slug: licensing
     path: reference/licensing.md
     kind: reference
-    summary: Licensing, dependencies, acknowledgements, and clean-room policy
+    summary: Licensing, dependencies, acknowledgements, and policy
+

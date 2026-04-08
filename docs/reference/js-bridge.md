@@ -253,7 +253,8 @@ el.addEventListener("pointerdown", (e) => {
 });
 
 el.addEventListener("pointermove", (e) => {
-    // Coalesced events: all touch samples between frames (120Hz+ on ProMotion)
+    // API shape is present now; extra native touch samples only appear when the
+    // platform producer populates them.
     for (const pt of e.getCoalescedEvents()) {
         drawLine(pt.clientX, pt.clientY);
     }
@@ -262,6 +263,10 @@ el.addEventListener("pointermove", (e) => {
 el.addEventListener("pointerup", (e) => { /* finger/mouse released */ });
 el.addEventListener("pointercancel", (e) => { /* touch cancelled by system */ });
 ```
+
+`getCoalescedEvents()` / `getPredictedEvents()` are currently structural JS APIs.
+The native iOS `coalescedTouches` / `predictedTouches` enrichment path is still
+planned, so callers should be prepared for the current event or an empty list.
 
 ### Pointer Capture
 

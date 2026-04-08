@@ -217,7 +217,7 @@ Maps Stitch-specific properties: `colors`, `fonts`, `roundness` (none/small/medi
 
 ### Figma (`parse_figma_json`)
 
-Accepts IR-format JSON. In Claude Code flows, the Figma MCP (`get_design_context`) provides the design data, which is translated to IR format using `planning/figma-to-pulp-mapping.md`.
+Accepts IR-format JSON. In Claude Code flows, the Figma MCP (`get_design_context`) provides the design data, which is translated to IR format using the Figma-to-Pulp mapping rules.
 
 ### Stitch (`parse_stitch_html`)
 

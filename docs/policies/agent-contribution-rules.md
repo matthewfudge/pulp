@@ -77,12 +77,8 @@ Never introduce code that violates real-time safety in `Processor::process()` or
 
 See `docs/policies/code-style.md` for the full list of rules and approved lock-free primitives.
 
-## Clean-Room Discipline
 
-- Never reference JUCE source code during implementation
-- No JUCE class names, module names, API names, or naming patterns
 - When studying external code for inspiration (iPlug2, AudioKit, format SDKs), note it
-- See CLAUDE.md for the full clean-room policy
 
 ## Commit Standards
 

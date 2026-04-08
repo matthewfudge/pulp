@@ -44,9 +44,7 @@ rules:
     summary: Configure and build must not modify tracked source files. Generated files belong in build outputs.
     docs: policies/code-style.md
 
-  - id: no_juce_names
     status: active
-    summary: No class names, module names, API names, or naming patterns from JUCE. Clean-room discipline required.
     docs: policies/agent-contribution-rules.md
 
   - id: clean_commits

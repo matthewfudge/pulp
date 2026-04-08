@@ -474,10 +474,9 @@ Use `element._id` to get the internal widget ID for native bridge calls.
 - No per-corner border-radius — only single radius value
 - No CSS `@keyframes` animations (use Pulp's `animate()` bridge)
 - No `transitionend` / `animationend` events yet
-- No `wheel`, `scroll`, `resize`, `dblclick` events yet
+- No general per-element `resize` event yet — window resize is available via `window.addEventListener('resize', ...)`
 - No `<form>`, `<table>`, `<video>`, `<audio>` elements
-- No attribute selectors (`[data-x]`) or `:nth-of-type`
 - No `::before` / `::after` pseudo-elements
-- `getComputedStyle` returns inline style, not fully computed layout values
-- `margin: auto` centering not yet implemented
+- `getComputedStyle()` is partial — inline style plus selected layout dimensions, not a full browser CSSOM snapshot
+- CSS `margin: auto` / `margin-left: auto` / `margin-right: auto` centering is not supported yet
 - `min-content` / `max-content` / `fit-content` size keywords not supported

@@ -94,7 +94,7 @@ CMake is the build system. The key function is `pulp_add_plugin()`, which create
 - `${target}_VST3` -- VST3 bundle (`.vst3`)
 - `${target}_AU` -- AU v2 component (`.component`, macOS only)
 - `${target}_CLAP` -- CLAP bundle (`.clap`)
-- `${target}_Standalone` -- standalone executable
+- `${target}_Standalone` -- standalone app target (`.app` bundle on macOS; executable elsewhere)
 
 Each format target links against the core library and its format-specific adapter. The developer provides small entry-point files (`vst3_entry.cpp`, `clap_entry.cpp`, `au_v2_entry.cpp`, `main.cpp`) that use one-line macros.
 
@@ -108,6 +108,22 @@ The rendering stack (experimental) layers:
 4. **View** -- widgets, layout, themes, JS scripting engine, hot-reload
 
 This stack is optional. Plugins can be built, tested, and shipped without any UI code in the dependency tree.
+
+## JavaScript Engine Abstraction
+
+The view system uses a `JsEngine` abstraction that supports multiple JavaScript backends:
+
+| Engine | Use Case | Features |
+|--------|----------|----------|
+| **QuickJS** | Default for plugins | Fast cold-start, low memory, portable |
+| **V8** | Three.js, heavy workloads | JIT compilation, typed arrays, promises, full ES module support |
+| **JavaScriptCore** | Apple platforms | Native Apple integration, available on macOS and iOS |
+
+The engine is selected at build time or runtime via `JsEngineType`. Your UI code doesn't change — the same JS runs on any backend. QuickJS is always available. V8 requires an external library (Node.js or standalone V8 monolith). JSC is available on Apple platforms.
+
+Key APIs: `ScriptEngine` (high-level wrapper), `JsEngine` (backend interface), `WidgetBridge` (JS-to-native widget binding).
+
+The Three.js native demo uses V8 for full WebGPU compatibility — Three.js needs typed arrays, promises, and ES module `import` support that QuickJS doesn't provide.
 
 ## Platform Isolation
 
