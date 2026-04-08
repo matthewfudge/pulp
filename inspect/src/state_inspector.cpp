@@ -4,27 +4,33 @@
 
 namespace pulp::inspect {
 
+struct StateInspector::SharedState {
+    std::mutex mutex;
+    std::vector<ParamChange> changes;
+    std::atomic<bool> alive{true};
+};
+
 StateInspector::StateInspector(StateStore& store)
     : store_(store)
-    , alive_(std::make_shared<bool>(true))
+    , shared_state_(std::make_shared<SharedState>())
 {
-    // Register listener with weak_ptr guard for safe destruction
-    std::weak_ptr<bool> weak = alive_;
-    store_.add_listener([this, weak](ParamID id, float value) {
-        auto locked = weak.lock();
-        if (!locked) return;  // inspector destroyed
+
+    auto state = shared_state_;  // copy shared_ptr for the lambda
+    store_.add_listener([state](ParamID id, float value) {
+        if (!state->alive.load(std::memory_order_acquire)) return;
 
         ParamChange change{id, value, std::chrono::steady_clock::now()};
-        std::lock_guard lock(changes_mutex_);
-        changes_.push_back(change);
-        if (changes_.size() > kMaxChanges)
-            changes_.erase(changes_.begin());
+        std::lock_guard lock(state->mutex);
+        state->changes.push_back(change);
+        if (state->changes.size() > kMaxChanges)
+            state->changes.erase(state->changes.begin());
     });
 }
 
 StateInspector::~StateInspector() {
-    // Invalidate the weak_ptr guard — listener will no-op after this
-    alive_.reset();
+    // Signal the shared state to stop accepting changes.
+    // In-flight callbacks will see alive=false and return.
+    if (shared_state_) shared_state_->alive.store(false, std::memory_order_release);
 }
 
 std::vector<StateInspector::ParamSnapshot> StateInspector::all_params() const {
@@ -52,8 +58,9 @@ std::vector<StateInspector::ParamSnapshot> StateInspector::all_params() const {
 }
 
 std::vector<StateInspector::ParamChange> StateInspector::recent_changes() const {
-    std::lock_guard lock(changes_mutex_);
-    return changes_;
+    if (!shared_state_) return {};
+    std::lock_guard lock(shared_state_->mutex);
+    return shared_state_->changes;
 }
 
 void StateInspector::set_param(ParamID id, float value) {

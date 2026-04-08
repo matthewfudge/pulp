@@ -441,10 +441,15 @@ static std::string handle_request(const std::string& json) {
                  name == "pulp_inspect_performance" || name == "pulp_inspect_audio") {
             // Map MCP tool name to inspector protocol method
             std::string inspector_method;
+            std::string inspector_params;
             if (name == "pulp_inspect_dom")         inspector_method = "DOM.getDocument";
             else if (name == "pulp_inspect_params")  inspector_method = "State.getParameters";
             else if (name == "pulp_inspect_screenshot") inspector_method = "Capture.screenshot";
-            else if (name == "pulp_inspect_evaluate") inspector_method = "Runtime.evaluate";
+            else if (name == "pulp_inspect_evaluate") {
+                inspector_method = "Runtime.evaluate";
+                auto expr = extract_string(args_json, "expression");
+                if (!expr.empty()) inspector_params = " {\"expression\":" + json_string(expr) + "}";
+            }
             else if (name == "pulp_inspect_performance") inspector_method = "Performance.getMetrics";
             else if (name == "pulp_inspect_audio")   inspector_method = "Audio.getConfig";
 
@@ -453,10 +458,10 @@ static std::string handle_request(const std::string& json) {
                 result = "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
             } else {
                 auto cli = (root / "build" / "tools" / "cli" / "pulp").string();
-                auto output = exec(cli + " inspect --command " + inspector_method + " 2>&1");
+                auto output = exec(cli + " inspect --command " + inspector_method + inspector_params + " 2>&1");
                 if (name == "pulp_inspect_screenshot") {
-                    // Screenshot returns base64 PNG
-                    result = "{\"content\":[{\"type\":\"image\",\"data\":\"" + output + "\",\"mimeType\":\"image/png\"}]}";
+                    // Screenshot returns base64 PNG — escape for safe JSON embedding
+                    result = "{\"content\":[{\"type\":\"image\",\"data\":" + json_string(output) + ",\"mimeType\":\"image/png\"}]}";
                 } else {
                     result = "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
                 }

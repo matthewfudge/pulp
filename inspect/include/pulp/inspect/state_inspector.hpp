@@ -52,10 +52,9 @@ public:
 
 private:
     StateStore& store_;
-    std::shared_ptr<bool> alive_;  // guard for listener callback
 
-    mutable std::mutex changes_mutex_;
-    std::vector<ParamChange> changes_;
+    struct SharedState;
+    std::shared_ptr<SharedState> shared_state_;
     static constexpr size_t kMaxChanges = 100;
 };
 
