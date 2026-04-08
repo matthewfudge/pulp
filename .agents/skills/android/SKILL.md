@@ -97,8 +97,9 @@ ctest --test-dir build --output-on-failure
 # List available AVDs
 emulator -list-avds
 
-# Start (use -wipe-data if StorageManager is corrupted)
-emulator -avd Medium_Phone_API_36 -gpu swiftshader_indirect &
+# Start with CoreAudio backend (required for audio on macOS emulator)
+# Without QEMU_AUDIO_DRV=coreaudio, Ranchu HAL produces pcm_writei I/O errors
+QEMU_AUDIO_DRV=coreaudio emulator -avd Medium_Phone_API_36 -gpu swiftshader_indirect &
 
 # Wait for boot
 adb wait-for-device
