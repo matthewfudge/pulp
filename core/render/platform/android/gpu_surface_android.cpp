@@ -7,8 +7,12 @@
 #include <pulp/view/widgets.hpp>
 #include <pulp/view/theme.hpp>
 #include <pulp/view/input_events.hpp>
+#include <pulp/view/script_engine.hpp>
+#include <pulp/view/widget_bridge.hpp>
+#include <pulp/state/store.hpp>
 #include <pulp/platform/android/jni.hpp>
 #include "../../../../core/audio/platform/android/demo_synth.hpp"
+#include "synth_ui.js.h"
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 #include <android/choreographer.h>
@@ -36,6 +40,12 @@ static void android_render_frame(float dt = 1.0f);
 static std::unique_ptr<GpuSurface> g_gpu_surface;
 static std::unique_ptr<SkiaSurface> g_skia_surface;
 static std::unique_ptr<view::View> g_root_view;
+
+// JS scripted UI (QuickJS via CHOC)
+static std::unique_ptr<view::ScriptEngine> g_script_engine;
+static std::unique_ptr<view::WidgetBridge> g_widget_bridge;
+static state::StateStore g_state_store;
+static bool g_using_js_ui = false;
 
 // Display density from Android (set by Kotlin before surface creation)
 static float g_display_density = 2.625f;  // default xxhdpi, overridden by Kotlin
@@ -185,11 +195,77 @@ static void sync_ui_to_synth() {
     if (g_widgets.toggles[3]) p.osc4_on.store(g_widgets.toggles[3]->is_on(), std::memory_order_relaxed);
 }
 
+// Try to create the synth UI via JS (QuickJS). Returns true on success.
+static bool create_js_ui(float dp_w, float dp_h) {
+    using namespace view;
+    try {
+        g_root_view = std::make_unique<Panel>();
+        g_root_view->set_bounds({0, 0, dp_w, dp_h});
+        g_root_view->set_theme(Theme::dark());
+
+        // Apply safe area as padding on the root
+        float content_pad = 12.0f;
+        g_root_view->flex().padding_top = std::max(content_pad, g_safe_top + 4.0f);
+        g_root_view->flex().padding_bottom = std::max(content_pad, g_safe_bottom + 4.0f);
+        g_root_view->flex().padding_left = std::max(content_pad, g_safe_left);
+        g_root_view->flex().padding_right = std::max(content_pad, g_safe_right);
+
+        g_script_engine = std::make_unique<ScriptEngine>();
+        g_script_engine->set_log_callback([](std::string_view level, std::string_view msg) {
+            PULP_LOGI("JS[%.*s] %.*s",
+                      static_cast<int>(level.size()), level.data(),
+                      static_cast<int>(msg.size()), msg.data());
+        });
+
+        g_widget_bridge = std::make_unique<WidgetBridge>(
+            *g_script_engine, *g_root_view, g_state_store);
+
+        g_widget_bridge->load_script(kSynthUiScript);
+        g_root_view->layout_children();
+
+        // Capture widget refs for synth param sync
+        auto* wb = g_widget_bridge.get();
+        for (int i = 0; i < 4; ++i) {
+            g_widgets.osc[i] = dynamic_cast<Knob*>(wb->widget("osc-" + std::to_string(i)));
+            g_widgets.toggles[i] = dynamic_cast<Toggle*>(wb->widget("toggle-" + std::to_string(i)));
+        }
+        for (int i = 0; i < 3; ++i)
+            g_widgets.filter[i] = dynamic_cast<Knob*>(wb->widget("filter-" + std::to_string(i)));
+        for (int i = 0; i < 4; ++i) {
+            g_widgets.env[i] = dynamic_cast<Knob*>(wb->widget("env-" + std::to_string(i)));
+            g_widgets.mixer[i] = dynamic_cast<Fader*>(wb->widget("mix-" + std::to_string(i)));
+        }
+        g_widgets.master = dynamic_cast<Fader*>(wb->widget("master"));
+
+        g_using_js_ui = true;
+        PULP_LOGI("JS-scripted UI created successfully (%d children)",
+                  static_cast<int>(g_root_view->child_count()));
+        return true;
+    } catch (const std::exception& e) {
+        PULP_LOGW("JS UI failed: %s — falling back to C++ UI", e.what());
+        g_script_engine.reset();
+        g_widget_bridge.reset();
+        g_root_view.reset();
+        g_using_js_ui = false;
+        return false;
+    } catch (...) {
+        PULP_LOGW("JS UI failed (unknown exception) — falling back to C++ UI");
+        g_script_engine.reset();
+        g_widget_bridge.reset();
+        g_root_view.reset();
+        g_using_js_ui = false;
+        return false;
+    }
+}
+
 static void create_demo_view_hierarchy(float width, float height) {
     using namespace view;
 
     float dp_w = width / g_display_density;
     float dp_h = height / g_display_density;
+
+    // Try JS-scripted UI first (QuickJS via CHOC)
+    if (create_js_ui(dp_w, dp_h)) return;
 
     g_root_view = std::make_unique<Panel>();
     g_root_view->set_bounds({0, 0, dp_w, dp_h});
@@ -644,7 +720,10 @@ void android_surface_destroyed() {
     }
 
     g_captured_view = nullptr;
+    g_widget_bridge.reset();
+    g_script_engine.reset();
     g_root_view.reset();
+    g_using_js_ui = false;
     g_gpu_surface.reset();
 
     if (g_native_window) {

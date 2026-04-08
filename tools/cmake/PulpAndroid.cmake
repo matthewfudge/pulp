@@ -149,6 +149,9 @@ function(pulp_wire_android_sources)
             ${CMAKE_SOURCE_DIR}/core/events/include
             ${CMAKE_SOURCE_DIR}/core/midi/include
             ${CMAKE_SOURCE_DIR}/core/format/include
+            ${CMAKE_SOURCE_DIR}/core/runtime/include
+            ${CMAKE_SOURCE_DIR}/core/canvas/include
+            ${CMAKE_SOURCE_DIR}/external/choc
         )
         target_compile_definitions(pulp-render PRIVATE PULP_VULKAN_BACKEND=1)
     endif()
