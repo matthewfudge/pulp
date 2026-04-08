@@ -22,6 +22,7 @@ namespace pulp::render {
 // Manages the lifecycle of Dawn/Vulkan rendering on Android.
 // Bridges ANativeWindow from Kotlin SurfaceView to GpuSurface.
 
+static void android_render_test_frame();  // forward declaration
 static std::unique_ptr<GpuSurface> g_gpu_surface;
 static ANativeWindow* g_native_window = nullptr;
 static std::mutex g_surface_mutex;
@@ -73,6 +74,24 @@ void android_surface_resized(int width, int height) {
         g_gpu_surface->resize(static_cast<uint32_t>(width),
                                static_cast<uint32_t>(height));
         PULP_LOGI("Android GPU surface: resized to %dx%d", width, height);
+
+        // Render a test frame — prove the full pipeline works
+        android_render_test_frame();
+    }
+}
+
+static float g_hue = 0.0f;
+
+void android_render_test_frame() {
+    if (!g_gpu_surface || !g_gpu_surface->is_initialized()) return;
+
+    if (g_gpu_surface->begin_frame()) {
+        // The surface is now presenting — begin_frame acquired the texture
+        // In the full pipeline, SkiaSurface would wrap this texture and
+        // our View hierarchy would paint to it. For now, just end_frame
+        // which presents whatever Dawn's clear color is.
+        g_gpu_surface->end_frame();
+        PULP_LOGI("Android GPU surface: test frame rendered");
     }
 }
 
