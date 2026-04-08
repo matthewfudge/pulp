@@ -10,6 +10,8 @@
 #include <pulp/platform/android/jni.hpp>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <android/choreographer.h>
+#include <android/looper.h>
 #include <android/log.h>
 #include <stdexcept>
 #include <atomic>
@@ -29,7 +31,7 @@ namespace pulp::render {
 // Manages the lifecycle of Dawn/Vulkan rendering on Android.
 // Bridges ANativeWindow from Kotlin SurfaceView to GpuSurface.
 
-static void android_render_frame();
+static void android_render_frame(float dt = 1.0f);
 static std::unique_ptr<GpuSurface> g_gpu_surface;
 static std::unique_ptr<SkiaSurface> g_skia_surface;
 static std::unique_ptr<view::View> g_root_view;
@@ -41,6 +43,31 @@ static float g_display_density = 2.625f;  // default xxhdpi, overridden by Kotli
 static view::View* g_captured_view = nullptr;
 static std::chrono::steady_clock::time_point g_last_tap_time{};
 static float g_last_tap_x = 0, g_last_tap_y = 0;
+
+// Choreographer continuous render loop
+static AChoreographer* g_choreographer = nullptr;
+static std::atomic<bool> g_render_loop_running{false};
+static int64_t g_last_frame_nanos = 0;
+
+static void on_vsync(long frame_time_nanos, void* data);
+
+static void start_render_loop() {
+    g_choreographer = AChoreographer_getInstance();
+    if (!g_choreographer) {
+        PULP_LOGW("AChoreographer not available — touch-only repaints");
+        return;
+    }
+    g_render_loop_running.store(true);
+    g_last_frame_nanos = 0;
+    AChoreographer_postFrameCallback(g_choreographer, on_vsync, nullptr);
+    PULP_LOGI("AChoreographer render loop started");
+}
+
+static void stop_render_loop() {
+    g_render_loop_running.store(false);
+    g_choreographer = nullptr;
+    PULP_LOGI("AChoreographer render loop stopped");
+}
 
 void android_set_display_density(float density) {
     g_display_density = density;
@@ -231,8 +258,9 @@ void android_surface_created(ANativeWindow* window) {
             g_render_stopped = false;
         }
 
-        // Render an initial frame
+        // Render an initial frame and start the continuous render loop
         android_render_frame();
+        start_render_loop();
     } else {
         PULP_LOGW("Android GPU surface: Dawn initialization failed — no GPU rendering");
         g_gpu_surface.reset();
@@ -253,7 +281,7 @@ void android_surface_resized(int width, int height) {
     }
 }
 
-void android_render_frame() {
+void android_render_frame(float dt) {
     if (!g_gpu_surface || !g_gpu_surface->is_initialized()) return;
 
     if (g_gpu_surface->begin_frame()) {
@@ -268,9 +296,9 @@ void android_render_frame() {
                     create_demo_view_hierarchy(w, h);
                 }
 
-                // Advance animations for all widgets (no continuous render loop yet,
-                // so snap to completion with a large dt)
-                advance_view_animations(g_root_view.get(), 1.0f);
+                // Advance animations with real dt from choreographer,
+                // or 1.0f to snap to completion on touch-only repaints
+                advance_view_animations(g_root_view.get(), dt);
 
                 // SkiaSurface applies display density scaling internally
                 g_root_view->paint_all(*canvas);
@@ -279,6 +307,26 @@ void android_render_frame() {
             }
         }
         g_gpu_surface->end_frame();
+    }
+}
+
+// AChoreographer VSYNC callback — drives the continuous render loop
+static void on_vsync(long frame_time_nanos, void* /*data*/) {
+    if (!g_render_loop_running.load()) return;
+
+    // Calculate dt from previous frame
+    float dt = 0.016f;  // default ~60fps
+    if (g_last_frame_nanos > 0) {
+        dt = static_cast<float>(frame_time_nanos - g_last_frame_nanos) / 1e9f;
+        dt = std::clamp(dt, 0.001f, 0.1f);  // clamp to 10fps..1000fps
+    }
+    g_last_frame_nanos = frame_time_nanos;
+
+    android_render_frame(dt);
+
+    // Request next frame
+    if (g_render_loop_running.load() && g_choreographer) {
+        AChoreographer_postFrameCallback(g_choreographer, on_vsync, nullptr);
     }
 }
 
@@ -370,7 +418,8 @@ void android_touch_up(int pointer_id, float px_x, float px_y) {
 }
 
 void android_surface_destroyed() {
-    PULP_LOGI("Android GPU surface: destroying — waiting for render stop...");
+    PULP_LOGI("Android GPU surface: destroying — stopping render loop...");
+    stop_render_loop();
 
     {
         std::lock_guard lock(g_surface_mutex);
