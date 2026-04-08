@@ -79,10 +79,12 @@ Pulp implements or builds on these open standards:
 
 | Project | License | What We Learned |
 |---------|---------|-----------------|
-| [iPlug2](https://github.com/iPlug2/iPlug2) | zlib-like | Multi-format adapter architecture, graphics abstraction |
 | [AudioKit](https://github.com/AudioKit/AudioKit) | MIT | Swift audio patterns, Apple platform integration |
+| [iPlug2](https://github.com/iPlug2/iPlug2) | zlib-like | Multi-format adapter architecture, graphics abstraction |
+| [PreText](https://github.com/chenglou/pretext) | MIT | Measure-once, reflow-forever text layout — the two-phase prepare/layout pattern that separates expensive font shaping from cheap arithmetic line breaking |
 | [SignalKit](https://github.com/niclamusic/signalkit) | MIT | Real-time DSP patterns in Swift |
 | [signalsmith-clap-cpp](https://github.com/geraintluff/signalsmith-clap-cpp) | MIT | WCLAP build pipeline, webview extension patterns |
+| [Visage](https://github.com/VitalAudio/visage) | MIT | SDF-first rendering, dirty region tracking, shape batching |
 
 ## Discipline
 
