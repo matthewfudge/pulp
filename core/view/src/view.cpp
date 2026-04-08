@@ -282,12 +282,26 @@ std::vector<View::OverlayRequest>& View::overlay_queue() {
     return queue;
 }
 
-// Global inspector paint hook — set by the inspector module, called after overlays.
-// Uses a function pointer to avoid circular dependency (view → inspect).
+// Inspector hooks — set by the inspector module via function pointers
+// to avoid circular dependency (view → inspect).
 static std::function<void(canvas::Canvas&)> s_inspector_paint_hook;
+static std::function<bool(const KeyEvent&)> s_inspector_key_hook;
+static std::function<bool(const MouseEvent&)> s_inspector_mouse_hook;
 
 void View::set_inspector_paint_hook(std::function<void(canvas::Canvas&)> hook) {
     s_inspector_paint_hook = std::move(hook);
+}
+void View::set_inspector_key_hook(std::function<bool(const KeyEvent&)> hook) {
+    s_inspector_key_hook = std::move(hook);
+}
+void View::set_inspector_mouse_hook(std::function<bool(const MouseEvent&)> hook) {
+    s_inspector_mouse_hook = std::move(hook);
+}
+bool View::call_inspector_key_hook(const KeyEvent& e) {
+    return s_inspector_key_hook ? s_inspector_key_hook(e) : false;
+}
+bool View::call_inspector_mouse_hook(const MouseEvent& e) {
+    return s_inspector_mouse_hook ? s_inspector_mouse_hook(e) : false;
 }
 
 void View::paint_overlays(canvas::Canvas& canvas) {

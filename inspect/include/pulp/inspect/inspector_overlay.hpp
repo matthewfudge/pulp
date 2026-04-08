@@ -104,6 +104,8 @@ inline InspectorOverlay* g_active_inspector = nullptr;
 
 /// Install the inspector into the View system's paint and input hooks.
 /// Call this after creating the InspectorOverlay and setting g_active_inspector.
+/// Installs paint hook, key intercept, and mouse intercept via function pointers
+/// so pulp-view doesn't need to link pulp-inspect.
 void install_inspector_hooks(InspectorOverlay& inspector);
 
 } // namespace pulp::inspect
