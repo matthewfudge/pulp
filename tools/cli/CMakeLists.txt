@@ -1,9 +1,38 @@
 # pulp CLI tool
-add_executable(pulp-cli pulp_cli.cpp design_binding.cpp create_targets.cpp
-    package_registry.cpp package_commands.cpp tool_registry.cpp cmd_inspect.cpp)
+
+
+# Generate version header from CMake project(VERSION)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/pulp_version_gen.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/pulp_version_gen.h"
+    @ONLY)
+
+add_executable(pulp-cli
+    pulp_cli.cpp
+    cli_common.cpp
+    cmd_build.cpp
+    cmd_create.cpp
+    cmd_design.cpp
+    cmd_doctor.cpp
+    cmd_docs.cpp
+    cmd_misc.cpp
+    cmd_run.cpp
+    cmd_ship.cpp
+    cmd_validate.cpp
+    cmd_sdk.cpp
+    cmd_audio.cpp
+    cmd_version.cpp
+    cmd_dev.cpp
+    cmd_inspect.cpp
+    design_binding.cpp
+    create_targets.cpp
+    package_registry.cpp
+    package_commands.cpp
+    tool_registry.cpp)
 set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp")
 target_compile_features(pulp-cli PRIVATE cxx_std_20)
 target_link_libraries(pulp-cli PRIVATE pulp::runtime pulp::tool-audio pulp::ship pulp::view pulp::format pulp::inspect)
+target_include_directories(pulp-cli PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Install into the active prefix so SDK installs do not try to write back into
 # the source checkout.

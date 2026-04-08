@@ -59,6 +59,11 @@ cmake -S . -B build -DPULP_SANITIZER=address
 ./build/tools/cli/pulp ship sign --identity "Developer ID Application: ..."
 ./build/tools/cli/pulp ship package --version 1.0.0
 ./build/tools/cli/pulp ship check  # show signing status
+./build/tools/cli/pulp version             # show SDK and project version
+./build/tools/cli/pulp version bump patch  # bump version
+./build/tools/cli/pulp version check       # verify version consistency
+./build/tools/cli/pulp dev --test          # watch + rebuild + test loop
+./build/tools/cli/pulp build --watch       # watch + rebuild loop
 ```
 
 **Note:** All plugin formats build and pass tests, including PulpSynth CLAP.
@@ -571,6 +576,7 @@ When updating existing skills, preserve backward compatibility — don't remove 
 | `engine` | `.agents/skills/engine/` | Query, recommend, switch JS engine backend |
 | `import-design` | `.agents/skills/import-design/` | Import from Figma/Stitch/v0/Pencil |
 | `jsfx` | `.agents/skills/jsfx/` | Bounded JSFX subset support |
+| `cli-maintenance` | `.agents/skills/cli-maintenance/` | CLI add/modify/remove checklist and sync |
 | `webview-ui` | `.agents/skills/webview-ui/` | Build WebView UIs with native bridge |
 
 ### Claude Code Plugin
