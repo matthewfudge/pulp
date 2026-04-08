@@ -21,6 +21,12 @@ class PulpSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
     init {
         holder.addCallback(this)
+        // Pass real display density to C++ before surface is created
+        if (PulpApplication.nativeLoaded) {
+            val density = resources.displayMetrics.density
+            Log.i(TAG, "Setting display density: $density")
+            nativeSetDisplayDensity(density)
+        }
     }
 
     // ── Surface Lifecycle ─────────────────────────────────────────────────
@@ -87,6 +93,9 @@ class PulpSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     }
 
     // ── Native Methods ────────────────────────────────────────────────────
+
+    // Display density — called once in init, before surface lifecycle
+    private external fun nativeSetDisplayDensity(density: Float)
 
     // Surface lifecycle — called on main thread
     private external fun nativeOnSurfaceCreated(surface: Surface)

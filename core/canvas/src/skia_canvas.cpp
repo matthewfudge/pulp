@@ -119,16 +119,21 @@ SkiaCanvas::SkiaCanvas(SkCanvas* canvas, skgpu::graphite::Recorder* recorder)
     : canvas_(canvas), recorder_(recorder) {}
 SkiaCanvas::~SkiaCanvas() = default;
 
-void SkiaCanvas::save() { canvas_->save(); }
-void SkiaCanvas::restore() { canvas_->restore(); }
+// Null-safe: canvas_ can be null when swapchain texture wrap fails on Android
+#define GUARD_CANVAS if (!canvas_) return
 
-void SkiaCanvas::translate(float x, float y) { canvas_->translate(x, y); }
-void SkiaCanvas::scale(float sx, float sy) { canvas_->scale(sx, sy); }
+void SkiaCanvas::save() { GUARD_CANVAS; canvas_->save(); }
+void SkiaCanvas::restore() { GUARD_CANVAS; canvas_->restore(); }
+
+void SkiaCanvas::translate(float x, float y) { GUARD_CANVAS; canvas_->translate(x, y); }
+void SkiaCanvas::scale(float sx, float sy) { GUARD_CANVAS; canvas_->scale(sx, sy); }
 void SkiaCanvas::rotate(float radians) {
-    canvas_->rotate(radians * 180.0f / 3.14159265f); // Skia uses degrees
+    GUARD_CANVAS;
+    canvas_->rotate(radians * 180.0f / 3.14159265f);
 }
 
 void SkiaCanvas::clip_rect(float x, float y, float w, float h) {
+    GUARD_CANVAS;
     canvas_->clipRect(SkRect::MakeXYWH(x, y, w, h));
 }
 
@@ -145,32 +150,32 @@ void SkiaCanvas::set_line_join(LineJoin join) {
 }
 
 void SkiaCanvas::fill_rect(float x, float y, float w, float h) {
-    canvas_->drawRect(SkRect::MakeXYWH(x, y, w, h), make_fill_paint(fill_color_));
+    GUARD_CANVAS; canvas_->drawRect(SkRect::MakeXYWH(x, y, w, h), make_fill_paint(fill_color_));
 }
 
 void SkiaCanvas::stroke_rect(float x, float y, float w, float h) {
-    auto paint = make_stroke_paint(stroke_color_, line_width_);
+    GUARD_CANVAS; auto paint = make_stroke_paint(stroke_color_, line_width_);
     canvas_->drawRect(SkRect::MakeXYWH(x, y, w, h), paint);
 }
 
 void SkiaCanvas::fill_rounded_rect(float x, float y, float w, float h, float radius) {
-    SkRRect rrect;
+    GUARD_CANVAS; SkRRect rrect;
     rrect.setRectXY(SkRect::MakeXYWH(x, y, w, h), radius, radius);
     canvas_->drawRRect(rrect, make_fill_paint(fill_color_));
 }
 
 void SkiaCanvas::stroke_rounded_rect(float x, float y, float w, float h, float radius) {
-    SkRRect rrect;
+    GUARD_CANVAS; SkRRect rrect;
     rrect.setRectXY(SkRect::MakeXYWH(x, y, w, h), radius, radius);
     canvas_->drawRRect(rrect, make_stroke_paint(stroke_color_, line_width_));
 }
 
 void SkiaCanvas::fill_circle(float cx, float cy, float radius) {
-    canvas_->drawCircle(cx, cy, radius, make_fill_paint(fill_color_));
+    GUARD_CANVAS; canvas_->drawCircle(cx, cy, radius, make_fill_paint(fill_color_));
 }
 
 void SkiaCanvas::stroke_circle(float cx, float cy, float radius) {
-    canvas_->drawCircle(cx, cy, radius, make_stroke_paint(stroke_color_, line_width_));
+    GUARD_CANVAS; canvas_->drawCircle(cx, cy, radius, make_stroke_paint(stroke_color_, line_width_));
 }
 
 void SkiaCanvas::stroke_arc(float cx, float cy, float radius,
@@ -179,11 +184,11 @@ void SkiaCanvas::stroke_arc(float cx, float cy, float radius,
     float sweep_deg = (end_angle - start_angle) * 180.0f / 3.14159265f;
     SkRect oval = SkRect::MakeXYWH(cx - radius, cy - radius, radius * 2, radius * 2);
     SkPath path = SkPathBuilder().addArc(oval, start_deg, sweep_deg).detach();
-    canvas_->drawPath(path, make_stroke_paint(stroke_color_, line_width_));
+    if (canvas_) canvas_->drawPath(path, make_stroke_paint(stroke_color_, line_width_));
 }
 
 void SkiaCanvas::stroke_line(float x0, float y0, float x1, float y1) {
-    canvas_->drawLine(x0, y0, x1, y1, make_stroke_paint(stroke_color_, line_width_));
+    GUARD_CANVAS; canvas_->drawLine(x0, y0, x1, y1, make_stroke_paint(stroke_color_, line_width_));
 }
 
 void SkiaCanvas::set_font(const std::string& family, float size) {
@@ -196,6 +201,7 @@ void SkiaCanvas::set_text_align(TextAlign align) {
 }
 
 void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
+    GUARD_CANVAS;
     SkFont font = make_font(font_family_, font_size_);
 
     auto paint = make_fill_paint(fill_color_);

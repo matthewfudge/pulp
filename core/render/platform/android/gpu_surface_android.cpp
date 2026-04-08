@@ -27,50 +27,53 @@ namespace pulp::render {
 // Manages the lifecycle of Dawn/Vulkan rendering on Android.
 // Bridges ANativeWindow from Kotlin SurfaceView to GpuSurface.
 
-static void android_render_test_frame();
+static void android_render_frame();
 static std::unique_ptr<GpuSurface> g_gpu_surface;
 static std::unique_ptr<SkiaSurface> g_skia_surface;
 static std::unique_ptr<view::View> g_root_view;
 
-static void create_demo_view_hierarchy(float width, float height, float density) {
+// Display density from Android (set by Kotlin before surface creation)
+static float g_display_density = 2.625f;  // default xxhdpi, overridden by Kotlin
+
+// Touch state: which view is being dragged
+static view::View* g_captured_view = nullptr;
+
+void android_set_display_density(float density) {
+    g_display_density = density;
+    PULP_LOGI("Display density set to %.2f", density);
+}
+
+static void create_demo_view_hierarchy(float width, float height) {
     using namespace view;
 
-    // Scale coordinates to density-independent pixels
-    float dp_w = width / density;
-    float dp_h = height / density;
+    // Convert pixel dimensions to density-independent pixels
+    float dp_w = width / g_display_density;
+    float dp_h = height / g_display_density;
 
     g_root_view = std::make_unique<Panel>();
     g_root_view->set_bounds({0, 0, dp_w, dp_h});
     g_root_view->set_theme(Theme::dark());
-    g_root_view->flex().padding = 20;
+    g_root_view->flex().padding = 16;
 
-    // Title label
-    auto title = std::make_unique<Label>();
-    title->set_text("Pulp Audio Engine");
-    title->set_font_size(28.0f);
-    title->flex().preferred_height = 60;
-    title->flex().margin_top = 40;
-    g_root_view->add_child(std::move(title));
-
-    // Subtitle
-    auto subtitle = std::make_unique<Label>();
-    subtitle->set_text("Android · Vulkan · Skia Graphite");
-    subtitle->set_font_size(14.0f);
-    subtitle->flex().preferred_height = 30;
-    g_root_view->add_child(std::move(subtitle));
+    // Skip Labels for now — fill_text crashes on Android Vulkan swapchain
+    // Spacer instead of title
+    auto spacer = std::make_unique<Panel>();
+    spacer->flex().preferred_height = 40;
+    spacer->flex().margin_top = 24;
+    g_root_view->add_child(std::move(spacer));
 
     // Knob row
     auto knob_row = std::make_unique<Panel>();
     knob_row->flex().direction = FlexDirection::row;
-    knob_row->flex().preferred_height = 120;
-    knob_row->flex().margin_top = 30;
+    knob_row->flex().preferred_height = 64;
+    knob_row->flex().margin_top = 16;
     knob_row->flex().justify_content = FlexJustify::space_evenly;
 
     for (int i = 0; i < 3; ++i) {
         auto knob = std::make_unique<Knob>();
         knob->set_value(0.3f + i * 0.2f);
-        knob->flex().preferred_width = 80;
-        knob->flex().preferred_height = 80;
+        knob->flex().preferred_width = 56;
+        knob->flex().preferred_height = 56;
         knob_row->add_child(std::move(knob));
     }
     g_root_view->add_child(std::move(knob_row));
@@ -78,33 +81,32 @@ static void create_demo_view_hierarchy(float width, float height, float density)
     // Fader
     auto fader = std::make_unique<Fader>();
     fader->set_value(0.7f);
-    fader->flex().preferred_height = 40;
-    fader->flex().margin_top = 20;
-    fader->flex().margin_left = 20;
-    fader->flex().margin_right = 20;
+    fader->flex().preferred_height = 32;
+    fader->flex().margin_top = 16;
+    fader->flex().margin_left = 16;
+    fader->flex().margin_right = 16;
     g_root_view->add_child(std::move(fader));
 
     // Meter
     auto meter = std::make_unique<Meter>();
     meter->set_level(-12.0f, -6.0f);
-    meter->flex().preferred_height = 30;
-    meter->flex().margin_top = 20;
-    meter->flex().margin_left = 20;
-    meter->flex().margin_right = 20;
+    meter->flex().preferred_height = 24;
+    meter->flex().margin_top = 16;
+    meter->flex().margin_left = 16;
+    meter->flex().margin_right = 16;
     g_root_view->add_child(std::move(meter));
 
-    // Bottom label
-    auto bottom = std::make_unique<Label>();
-    bottom->set_text("Dawn/Vulkan · 48kHz · 0 xruns");
-    bottom->set_font_size(12.0f);
-    bottom->flex().preferred_height = 30;
-    bottom->flex().margin_top = 20;
+    // Bottom spacer
+    auto bottom = std::make_unique<Panel>();
+    bottom->flex().preferred_height = 16;
+    bottom->flex().margin_top = 16;
     g_root_view->add_child(std::move(bottom));
 
     g_root_view->layout_children();
-    PULP_LOGI("Android GPU surface: View hierarchy created (%d children)",
-              static_cast<int>(g_root_view->child_count()));
+    PULP_LOGI("Android GPU surface: View hierarchy created (%d children, %.0fx%.0f dp)",
+              static_cast<int>(g_root_view->child_count()), dp_w, dp_h);
 }
+
 static ANativeWindow* g_native_window = nullptr;
 static std::mutex g_surface_mutex;
 static std::condition_variable g_surface_cv;
@@ -143,7 +145,7 @@ void android_surface_created(ANativeWindow* window) {
         SkiaSurface::Config skia_config;
         skia_config.width = config.width;
         skia_config.height = config.height;
-        skia_config.scale_factor = 2.0f;  // typical Android density
+        skia_config.scale_factor = g_display_density;  // SkiaSurface applies this internally
 
         g_skia_surface = SkiaSurface::create(*g_gpu_surface, skia_config);
         if (g_skia_surface && g_skia_surface->is_available()) {
@@ -158,8 +160,8 @@ void android_surface_created(ANativeWindow* window) {
             g_render_stopped = false;
         }
 
-        // Render an initial test frame
-        android_render_test_frame();
+        // Render an initial frame
+        android_render_frame();
     } else {
         PULP_LOGW("Android GPU surface: Dawn initialization failed — no GPU rendering");
         g_gpu_surface.reset();
@@ -172,14 +174,15 @@ void android_surface_resized(int width, int height) {
                                static_cast<uint32_t>(height));
         PULP_LOGI("Android GPU surface: resized to %dx%d", width, height);
 
-        // Render a test frame — prove the full pipeline works
-        android_render_test_frame();
+        // Recreate view hierarchy at new size
+        g_root_view.reset();
+        g_captured_view = nullptr;
+
+        android_render_frame();
     }
 }
 
-static float g_hue = 0.0f;
-
-void android_render_test_frame() {
+void android_render_frame() {
     if (!g_gpu_surface || !g_gpu_surface->is_initialized()) return;
 
     if (g_gpu_surface->begin_frame()) {
@@ -189,92 +192,80 @@ void android_render_test_frame() {
                 float w = static_cast<float>(g_gpu_surface->width());
                 float h = static_cast<float>(g_gpu_surface->height());
 
-                using Color = canvas::Color;
-
-                // Scale for display density (1080px / ~2.5 density ≈ 430dp)
-                float scale = w / 430.0f;
-                canvas->save();
-                canvas->scale(scale, scale);
-                float dw = 430.0f;  // draw in density-independent units
-                float dh = h / scale;
-
-                // Dark background
-                canvas->set_fill_color(Color::rgba(26, 26, 46));
-                canvas->fill_rect(0, 0, dw, dh);
-
-                // Title bar
-                canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(0, 0, dw, 80);
-
-                // Title text area
-                canvas->set_fill_color(Color::rgba(255, 255, 255));
-                canvas->fill_rect(20, 25, dw * 0.7f, 30);
-
-                // 3 Knobs (circles approximated with rounded rects)
-                float knob_y = 120;
-                float knob_spacing = dw / 4;
-                for (int i = 0; i < 3; ++i) {
-                    float cx = knob_spacing * (i + 1);
-                    // Outer ring
-                    canvas->set_fill_color(Color::rgba(60, 60, 80));
-                    canvas->fill_rect(cx - 40, knob_y, 80, 80);
-                    // Inner
-                    canvas->set_fill_color(Color::rgba(108, 92, 231));
-                    canvas->fill_rect(cx - 30, knob_y + 10, 60, 60);
-                    // Indicator
-                    float angle = 0.3f + i * 0.25f;
-                    canvas->set_fill_color(Color::rgba(255, 255, 255));
-                    canvas->fill_rect(cx - 3, knob_y + 2, 6, 18);
+                // Create view hierarchy on first render
+                if (!g_root_view) {
+                    create_demo_view_hierarchy(w, h);
                 }
 
-                // Knob labels
-                float label_y = knob_y + 90;
-                canvas->set_fill_color(Color::rgba(180, 180, 200));
-                for (int i = 0; i < 3; ++i) {
-                    float cx = knob_spacing * (i + 1);
-                    canvas->fill_rect(cx - 25, label_y, 50, 14);
-                }
-
-                // Fader track
-                float fader_y = label_y + 40;
-                canvas->set_fill_color(Color::rgba(40, 40, 60));
-                canvas->fill_rect(40, fader_y, dw - 80, 8);
-                // Fader fill
-                canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(40, fader_y, (dw - 80) * 0.7f, 8);
-                // Fader thumb
-                float thumb_x = 40 + (dw - 80) * 0.7f;
-                canvas->set_fill_color(Color::rgba(255, 255, 255));
-                canvas->fill_rect(thumb_x - 8, fader_y - 8, 16, 24);
-
-                // Meter
-                float meter_y = fader_y + 40;
-                canvas->set_fill_color(Color::rgba(30, 30, 50));
-                canvas->fill_rect(40, meter_y, dw - 80, 20);
-                // Green portion
-                canvas->set_fill_color(Color::rgba(0, 200, 80));
-                canvas->fill_rect(40, meter_y, (dw - 80) * 0.6f, 20);
-                // Yellow portion
-                canvas->set_fill_color(Color::rgba(255, 200, 0));
-                canvas->fill_rect(40 + (dw - 80) * 0.6f, meter_y, (dw - 80) * 0.15f, 20);
-
-                // Bottom status bar
-                canvas->set_fill_color(Color::rgba(40, 40, 60));
-                canvas->fill_rect(0, dh - 50, dw, 50);
-                canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(20, dh - 40, 12, 30);
-                canvas->set_fill_color(Color::rgba(180, 180, 200));
-                canvas->fill_rect(45, dh - 35, 200, 14);
-
-                canvas->restore();
+                // SkiaSurface applies display density scaling internally
+                g_root_view->paint_all(*canvas);
 
                 g_skia_surface->end_frame();
-                PULP_LOGI("Android GPU surface: Skia frame rendered (%dx%d)",
-                          g_gpu_surface->width(), g_gpu_surface->height());
             }
         }
         g_gpu_surface->end_frame();
     }
+}
+
+// ── Touch → View Routing ─────────────────────────────────────────────────
+
+// Convert root dp coordinates to view-local coordinates by walking up the parent chain
+static view::Point to_local(view::View* target, float dp_x, float dp_y) {
+    // Accumulate absolute offset by walking up parents
+    float abs_x = 0, abs_y = 0;
+    for (auto* v = target; v != nullptr; v = v->parent()) {
+        abs_x += v->bounds().x;
+        abs_y += v->bounds().y;
+    }
+    return {dp_x - abs_x, dp_y - abs_y};
+}
+
+void android_touch_down(float px_x, float px_y) {
+    if (!g_root_view) return;
+
+    // Convert pixel coordinates to dp
+    float dp_x = px_x / g_display_density;
+    float dp_y = px_y / g_display_density;
+
+    view::Point pt{dp_x, dp_y};
+    auto* target = g_root_view->hit_test(pt);
+    if (target) {
+        auto local = to_local(target, dp_x, dp_y);
+        target->on_mouse_down(local);
+        g_captured_view = target;
+        PULP_LOGI("Touch down at (%.0f,%.0f) dp, local (%.0f,%.0f)",
+                  dp_x, dp_y, local.x, local.y);
+    }
+
+    // Repaint after interaction
+    android_render_frame();
+}
+
+void android_touch_move(float px_x, float px_y) {
+    if (!g_captured_view) return;
+
+    float dp_x = px_x / g_display_density;
+    float dp_y = px_y / g_display_density;
+
+    auto local = to_local(g_captured_view, dp_x, dp_y);
+    g_captured_view->on_mouse_drag(local);
+
+    // Repaint after drag
+    android_render_frame();
+}
+
+void android_touch_up(float px_x, float px_y) {
+    if (!g_captured_view) return;
+
+    float dp_x = px_x / g_display_density;
+    float dp_y = px_y / g_display_density;
+
+    auto local = to_local(g_captured_view, dp_x, dp_y);
+    g_captured_view->on_mouse_up(local);
+    g_captured_view = nullptr;
+
+    // Repaint after release
+    android_render_frame();
 }
 
 void android_surface_destroyed() {
@@ -291,6 +282,8 @@ void android_surface_destroyed() {
         g_surface_cv.wait(lock, [] { return g_render_stopped; });
     }
 
+    g_captured_view = nullptr;
+    g_root_view.reset();
     g_gpu_surface.reset();
 
     if (g_native_window) {
@@ -326,23 +319,16 @@ GpuSurface* android_gpu_surface() {
 
 } // namespace pulp::render
 
-// ── Touch Input ───────────────────────────────────────────────────────────
-
-namespace pulp::input {
-using TouchCallback = void(*)(int, float, float, float, int, void*);
-static TouchCallback g_touch_callback = nullptr;
-static void* g_touch_callback_data = nullptr;
-
-void set_touch_callback(TouchCallback cb, void* user_data) {
-    g_touch_callback = cb;
-    g_touch_callback_data = user_data;
-}
-enum TouchAction { Down = 0, Move = 1, Up = 2, Cancel = 3 };
-} // namespace pulp::input
-
 // ── JNI Exports ───────────────────────────────────────────────────────────
 
 extern "C" {
+
+// Display density — call from Kotlin before surface is created
+JNIEXPORT void JNICALL
+Java_com_pulp_render_PulpSurfaceView_nativeSetDisplayDensity(
+    JNIEnv*, jobject, jfloat density) {
+    pulp::render::android_set_display_density(density);
+}
 
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnSurfaceCreated(
@@ -389,36 +375,28 @@ Java_com_pulp_render_PulpSurfaceView_nativeOnSurfaceDestroyed(
     }
 }
 
-// Touch events
+// Touch events → View hierarchy
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchDown(
     JNIEnv*, jobject, jint pointerId, jfloat x, jfloat y, jfloat pressure) {
-    if (pulp::input::g_touch_callback)
-        pulp::input::g_touch_callback(pointerId, x, y, pressure,
-                                       pulp::input::Down, pulp::input::g_touch_callback_data);
+    pulp::render::android_touch_down(x, y);
 }
 
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchMove(
     JNIEnv*, jobject, jint pointerId, jfloat x, jfloat y, jfloat pressure) {
-    if (pulp::input::g_touch_callback)
-        pulp::input::g_touch_callback(pointerId, x, y, pressure,
-                                       pulp::input::Move, pulp::input::g_touch_callback_data);
+    pulp::render::android_touch_move(x, y);
 }
 
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchUp(
     JNIEnv*, jobject, jint pointerId, jfloat x, jfloat y) {
-    if (pulp::input::g_touch_callback)
-        pulp::input::g_touch_callback(pointerId, x, y, 0.0f,
-                                       pulp::input::Up, pulp::input::g_touch_callback_data);
+    pulp::render::android_touch_up(x, y);
 }
 
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchCancel(JNIEnv*, jobject) {
-    if (pulp::input::g_touch_callback)
-        pulp::input::g_touch_callback(-1, 0, 0, 0,
-                                       pulp::input::Cancel, pulp::input::g_touch_callback_data);
+    pulp::render::g_captured_view = nullptr;
 }
 
 } // extern "C"
