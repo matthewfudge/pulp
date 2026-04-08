@@ -83,10 +83,28 @@ static int version_bump(const std::vector<std::string>& args) {
     }
 
     auto cmake_path = root / "CMakeLists.txt";
-    auto current = read_project_cmake_version(root);
-    if (current.empty()) {
-        std::cerr << "Error: could not read version from " << cmake_path.string() << "\n";
+    auto content = read_file_contents(cmake_path);
+    if (content.empty()) {
+        std::cerr << "Error: could not read " << cmake_path.string() << "\n";
         return 1;
+    }
+
+    // Use different regex for --plugin vs SDK version
+    std::string current;
+    if (plugin_mode) {
+        std::regex re(R"(pulp_add_plugin\s*\([^)]*VERSION\s+.(\d+\.\d+\.\d+).)");
+        std::smatch m;
+        if (std::regex_search(content, m, re)) current = m[1].str();
+        if (current.empty()) {
+            std::cerr << "Error: no pulp_add_plugin(... VERSION \"x.y.z\" ...) found\n";
+            return 1;
+        }
+    } else {
+        current = read_project_cmake_version(root);
+        if (current.empty()) {
+            std::cerr << "Error: no project(... VERSION x.y.z ...) found\n";
+            return 1;
+        }
     }
 
     auto old_ver = SemVer::parse(current);
