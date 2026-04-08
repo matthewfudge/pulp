@@ -97,9 +97,11 @@ ctest --test-dir build --output-on-failure
 # List available AVDs
 emulator -list-avds
 
-# Start with CoreAudio backend (required for audio on macOS emulator)
-# Without QEMU_AUDIO_DRV=coreaudio, Ranchu HAL produces pcm_writei I/O errors
-QEMU_AUDIO_DRV=coreaudio emulator -avd Medium_Phone_API_36 -gpu swiftshader_indirect &
+# CRITICAL: use -gpu host, NOT swiftshader_indirect
+# swiftshader is a CPU software rasterizer that starves the audio HAL,
+# causing pcm_writei I/O errors and permanent audio dropout.
+# -gpu host uses Metal/MoltenVK on Apple Silicon — fast, stable audio.
+QEMU_AUDIO_DRV=coreaudio emulator -avd Medium_Phone_API_36 -gpu host -no-snapshot &
 
 # Wait for boot
 adb wait-for-device
