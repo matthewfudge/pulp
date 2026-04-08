@@ -1,3 +1,0 @@
-ninja: Entering directory `/Users/danielraffel/Code/pulp-android/android/app/.cxx/Debug/4y6n4a3e/x86_64'
-[0/2] Re-checking globbed directories...
-ninja: no work to do.

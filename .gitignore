@@ -64,3 +64,5 @@ android/local.properties
 android/.gradle/
 build-android/
 android/.gradle/
+android/app/.cxx/
+android/app/build/
