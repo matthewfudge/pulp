@@ -564,10 +564,20 @@ function(_pulp_add_au target name bundle_id version manufacturer category plugin
         set(PULP_AU_FACTORY_NAME "${target}AUFactory")
 
         # Compute AU integer version: major*65536 + minor*256 + patch
+        # Safely handle 1-part or 2-part versions (e.g., "1.0" → 1.0.0)
         string(REPLACE "." ";" _au_ver_parts "${version}")
+        list(LENGTH _au_ver_parts _au_ver_len)
         list(GET _au_ver_parts 0 _au_ver_major)
-        list(GET _au_ver_parts 1 _au_ver_minor)
-        list(GET _au_ver_parts 2 _au_ver_patch)
+        if(_au_ver_len GREATER 1)
+            list(GET _au_ver_parts 1 _au_ver_minor)
+        else()
+            set(_au_ver_minor 0)
+        endif()
+        if(_au_ver_len GREATER 2)
+            list(GET _au_ver_parts 2 _au_ver_patch)
+        else()
+            set(_au_ver_patch 0)
+        endif()
         math(EXPR PULP_AU_VERSION_INT "${_au_ver_major} * 65536 + ${_au_ver_minor} * 256 + ${_au_ver_patch}")
 
         configure_file(

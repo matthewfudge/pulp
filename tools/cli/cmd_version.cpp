@@ -84,7 +84,23 @@ static int version_bump(const std::vector<std::string>& args) {
     }
 
     auto cmake_path = root / "CMakeLists.txt";
-    auto current = read_project_cmake_version(root);
+
+    std::string current;
+    if (plugin_mode) {
+        // Plugin mode: read version from pulp_add_plugin(VERSION ...) in the project CMakeLists
+        auto content = read_file_contents(cmake_path);
+        std::regex re("pulp_add_plugin\\s*\\([^)]*VERSION\\s+\"(\\d+\\.\\d+\\.\\d+)\"");
+        std::smatch match;
+        if (std::regex_search(content, match, re)) {
+            current = match[1];
+        } else {
+            std::cerr << "Error: could not find pulp_add_plugin(VERSION ...) in " << cmake_path.string() << "\n";
+            return 1;
+        }
+    } else {
+        current = read_project_cmake_version(root);
+    }
+
     if (current.empty()) {
         std::cerr << "Error: could not read version from " << cmake_path.string() << "\n";
         return 1;

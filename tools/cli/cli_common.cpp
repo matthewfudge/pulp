@@ -1085,11 +1085,23 @@ int watch_and_rebuild(const fs::path& root, const fs::path& build_dir,
         auto current = snapshot_timestamps(root);
         bool changed = false;
 
+        // Check for new or modified files
         for (auto& [path, mtime] : current) {
             auto it = previous.find(path);
             if (it == previous.end() || it->second != mtime) {
                 if (!changed) {
                     std::cout << "\n" << color::yellow() << "Change detected"
+                              << color::reset() << ": "
+                              << path.lexically_relative(root).string() << "\n";
+                }
+                changed = true;
+            }
+        }
+        // Check for deleted files
+        for (auto& [path, mtime] : previous) {
+            if (current.find(path) == current.end()) {
+                if (!changed) {
+                    std::cout << "\n" << color::yellow() << "File removed"
                               << color::reset() << ": "
                               << path.lexically_relative(root).string() << "\n";
                 }
