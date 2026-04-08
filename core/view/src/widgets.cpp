@@ -579,7 +579,9 @@ void Fader::paint(canvas::Canvas& canvas) {
         canvas.set_fill_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
 
         float thumb_radius = std::min(track_width * 0.35f, 8.0f) * hover_thumb_scale_.value();
-        // Inset thumb position by its radius so it doesn't get clipped at edges
+        // Convention: when mapping a 0..1 value to a position with a circular/rect
+        // indicator, inset by the indicator's radius so it stays fully within bounds:
+        //   usable = length - 2 * radius;  pos = radius + value * usable;
         if (vert) {
             float usable = track_length - 2.0f * thumb_radius;
             float thumb_y = thumb_radius + usable - value_ * usable;
@@ -1300,9 +1302,11 @@ void CorrelationMeter::paint(canvas::Canvas& canvas) {
     canvas.stroke_line(b.width - quarter, 0, b.width - quarter, b.height);
 
     // Correlation indicator
-    // Map -1..+1 to 0..width
+    // Map -1..+1 to 0..width, inset by half bar width to prevent edge clipping
     float norm = (display_correlation_ + 1.0f) * 0.5f; // 0..1
-    float indicator_x = norm * b.width;
+    float bar_width = std::max(4.0f, b.width * 0.02f);
+    float usable = b.width - bar_width;
+    float indicator_x = bar_width * 0.5f + norm * usable;
 
     // Color: green at +1, yellow at 0, red at -1
     canvas::Color indicator_color;
@@ -1323,7 +1327,6 @@ void CorrelationMeter::paint(canvas::Canvas& canvas) {
     }
 
     // Draw indicator bar
-    float bar_width = std::max(4.0f, b.width * 0.02f);
     canvas.set_fill_color(indicator_color);
     canvas.fill_rounded_rect(indicator_x - bar_width * 0.5f, 1,
                               bar_width, b.height - 2, 2.0f);
