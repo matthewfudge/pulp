@@ -79,6 +79,11 @@ function(pulp_wire_android_sources)
                 ${_android_audio_dir}/tone_generator.cpp
             )
         endif()
+        if(EXISTS "${_android_audio_dir}/demo_synth.cpp")
+            target_sources(pulp-audio PRIVATE
+                ${_android_audio_dir}/demo_synth.cpp
+            )
+        endif()
         target_link_libraries(pulp-audio PRIVATE oboe)
         # Link android lib for ADPF (APerformanceHint*) and ANativeWindow
         target_link_libraries(pulp-audio PRIVATE android log)

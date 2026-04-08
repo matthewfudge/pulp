@@ -8,6 +8,7 @@
 #include <pulp/view/theme.hpp>
 #include <pulp/view/input_events.hpp>
 #include <pulp/platform/android/jni.hpp>
+#include "../../../../core/audio/platform/android/demo_synth.hpp"
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 #include <android/choreographer.h>
@@ -148,6 +149,42 @@ struct SectionIndices {
 };
 static SectionIndices g_sections;
 
+// Raw widget pointers for synth parameter sync (non-owning, valid while g_root_view exists)
+struct WidgetRefs {
+    view::Knob* osc[4] = {};
+    view::Toggle* toggles[4] = {};
+    view::Knob* filter[3] = {};
+    view::Knob* env[4] = {};
+    view::Fader* mixer[4] = {};
+    view::Fader* master = nullptr;
+};
+static WidgetRefs g_widgets;
+
+// Sync widget values → synth params (called each frame, lock-free)
+static void sync_ui_to_synth() {
+    auto& p = demo::synth_params();
+    if (g_widgets.osc[0]) p.osc_pitch.store(g_widgets.osc[0]->value(), std::memory_order_relaxed);
+    if (g_widgets.osc[1]) p.osc_detune.store(g_widgets.osc[1]->value(), std::memory_order_relaxed);
+    if (g_widgets.osc[2]) p.osc_mix.store(g_widgets.osc[2]->value(), std::memory_order_relaxed);
+    if (g_widgets.osc[3]) p.osc_level.store(g_widgets.osc[3]->value(), std::memory_order_relaxed);
+    if (g_widgets.filter[0]) p.filter_cutoff.store(g_widgets.filter[0]->value(), std::memory_order_relaxed);
+    if (g_widgets.filter[1]) p.filter_reso.store(g_widgets.filter[1]->value(), std::memory_order_relaxed);
+    if (g_widgets.filter[2]) p.filter_env.store(g_widgets.filter[2]->value(), std::memory_order_relaxed);
+    if (g_widgets.env[0]) p.env_attack.store(g_widgets.env[0]->value(), std::memory_order_relaxed);
+    if (g_widgets.env[1]) p.env_decay.store(g_widgets.env[1]->value(), std::memory_order_relaxed);
+    if (g_widgets.env[2]) p.env_sustain.store(g_widgets.env[2]->value(), std::memory_order_relaxed);
+    if (g_widgets.env[3]) p.env_release.store(g_widgets.env[3]->value(), std::memory_order_relaxed);
+    if (g_widgets.mixer[0]) p.mix1.store(g_widgets.mixer[0]->value(), std::memory_order_relaxed);
+    if (g_widgets.mixer[1]) p.mix2.store(g_widgets.mixer[1]->value(), std::memory_order_relaxed);
+    if (g_widgets.mixer[2]) p.mix3.store(g_widgets.mixer[2]->value(), std::memory_order_relaxed);
+    if (g_widgets.mixer[3]) p.mix4.store(g_widgets.mixer[3]->value(), std::memory_order_relaxed);
+    if (g_widgets.master) p.master.store(g_widgets.master->value(), std::memory_order_relaxed);
+    if (g_widgets.toggles[0]) p.osc1_on.store(g_widgets.toggles[0]->is_on(), std::memory_order_relaxed);
+    if (g_widgets.toggles[1]) p.osc2_on.store(g_widgets.toggles[1]->is_on(), std::memory_order_relaxed);
+    if (g_widgets.toggles[2]) p.osc3_on.store(g_widgets.toggles[2]->is_on(), std::memory_order_relaxed);
+    if (g_widgets.toggles[3]) p.osc4_on.store(g_widgets.toggles[3]->is_on(), std::memory_order_relaxed);
+}
+
 static void create_demo_view_hierarchy(float width, float height) {
     using namespace view;
 
@@ -181,6 +218,9 @@ static void create_demo_view_hierarchy(float width, float height) {
 
     // ── Oscillator: 4 knobs directly in a row ────────────────────────
     auto osc_knobs = make_knob_row({0.5f, 0.3f, 0.5f, 0.15f}, 48, 56);
+    // Capture raw knob pointers for synth param sync
+    for (int i = 0; i < 4 && i < static_cast<int>(osc_knobs->child_count()); ++i)
+        g_widgets.osc[i] = dynamic_cast<Knob*>(osc_knobs->child_at(i));
     osc_knobs->flex().margin_top = 0;
     g_sections.osc_knobs = static_cast<int>(g_root_view->child_count());
     g_root_view->add_child(std::move(osc_knobs));
@@ -200,6 +240,7 @@ static void create_demo_view_hierarchy(float width, float height) {
         toggle->set_on(toggle_states[i]);
         toggle->flex().preferred_width = 48;
         toggle->flex().preferred_height = 28;
+        g_widgets.toggles[i] = toggle.get();
         toggle_row->add_child(std::move(toggle));
     }
     g_sections.toggles = static_cast<int>(g_root_view->child_count());
@@ -232,6 +273,8 @@ static void create_demo_view_hierarchy(float width, float height) {
 
     // ── Filter: 3 knobs directly in a row ───────────────────────────
     auto filter_knobs = make_knob_row({0.65f, 0.35f, 0.5f}, 44, 52);
+    for (int i = 0; i < 3 && i < static_cast<int>(filter_knobs->child_count()); ++i)
+        g_widgets.filter[i] = dynamic_cast<Knob*>(filter_knobs->child_at(i));
     filter_knobs->flex().margin_top = 0;
     g_sections.filter_knobs = static_cast<int>(g_root_view->child_count());
     g_root_view->add_child(std::move(filter_knobs));
@@ -245,6 +288,8 @@ static void create_demo_view_hierarchy(float width, float height) {
 
     // ── Envelope: 4 ADSR knobs directly in a row ────────────────────
     auto env_knobs = make_knob_row({0.05f, 0.3f, 0.7f, 0.4f}, 40, 48);
+    for (int i = 0; i < 4 && i < static_cast<int>(env_knobs->child_count()); ++i)
+        g_widgets.env[i] = dynamic_cast<Knob*>(env_knobs->child_at(i));
     env_knobs->flex().margin_top = 0;
     g_sections.env_knobs = static_cast<int>(g_root_view->child_count());
     g_root_view->add_child(std::move(env_knobs));
@@ -262,6 +307,7 @@ static void create_demo_view_hierarchy(float width, float height) {
     for (int i = 0; i < 4; ++i) {
         auto f = make_fader(fader_values[i], 22);
         f->flex().margin_top = (i == 0) ? 0 : 4;
+        g_widgets.mixer[i] = f.get();
         g_root_view->add_child(std::move(f));
     }
 
@@ -274,6 +320,7 @@ static void create_demo_view_hierarchy(float width, float height) {
 
     // ── Master fader ────────────────────────────────────────────────
     auto master_fader = make_fader(0.8f, 26);
+    g_widgets.master = master_fader.get();
     master_fader->flex().margin_top = 0;
     g_sections.master_fader = static_cast<int>(g_root_view->child_count());
     g_root_view->add_child(std::move(master_fader));
@@ -412,6 +459,11 @@ void android_surface_created(ANativeWindow* window) {
         // Render an initial frame and start the continuous render loop
         android_render_frame();
         start_render_loop();
+
+        // Start audio synthesis
+        if (!demo::synth_is_playing()) {
+            demo::synth_start();
+        }
     } else {
         PULP_LOGW("Android GPU surface: Dawn initialization failed — no GPU rendering");
         g_gpu_surface.reset();
@@ -446,6 +498,9 @@ void android_render_frame(float dt) {
                 if (!g_root_view) {
                     create_demo_view_hierarchy(w, h);
                 }
+
+                // Sync widget values → synth parameters (lock-free)
+                sync_ui_to_synth();
 
                 // Advance animations with real dt from choreographer,
                 // or 1.0f to snap to completion on touch-only repaints
@@ -573,7 +628,8 @@ void android_touch_up(int pointer_id, float px_x, float px_y) {
 }
 
 void android_surface_destroyed() {
-    PULP_LOGI("Android GPU surface: destroying — stopping render loop...");
+    PULP_LOGI("Android GPU surface: destroying — stopping audio and render loop...");
+    demo::synth_stop();
     stop_render_loop();
 
     {
