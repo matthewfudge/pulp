@@ -464,9 +464,52 @@ oboe::DataCallbackResult onAudioReady(...) {
 }
 ```
 
-Start audio after the render loop starts, stop before surface destroy.
+Start audio after the render loop starts, stop in `nativeOnShutdown` (NOT in `android_surface_destroyed`).
+
+### Oboe Stream Mode — Shared, Not Exclusive
+
+**Never use `SharingMode::Exclusive` or `PerformanceMode::LowLatency` on the emulator.** The Ranchu virtual audio HAL can't handle exclusive access — it produces `pcm_writei I/O error` storms that permanently break the audio pipe until emulator restart. Use:
+
+```cpp
+builder.setPerformanceMode(oboe::PerformanceMode::None)
+    ->setSharingMode(oboe::SharingMode::Shared)
+```
+
+On a real device, Exclusive + LowLatency is fine and preferred. Detect emulator vs hardware at runtime if you need both paths.
+
+### Audio Lifecycle — Don't Kill on Surface Transitions
+
+The Activity lifecycle causes surface destroy/recreate during normal transitions (configuration change, initial layout). Three rules:
+
+1. **Don't stop the synth in `android_surface_destroyed()`** — the surface gets destroyed and recreated during Activity transitions. The synth should survive this.
+2. **Don't abandon audio focus in `onPause()`** — the Activity gets briefly paused during surface transitions. Move `abandonFocus()` to `onDestroy()`.
+3. **Stop the synth only in `nativeOnShutdown()`** — called from `onDestroy()` when the Activity is actually going away.
+
+Violating any of these causes audio to play for 0.4–1.7 seconds then go silent, making it look like an emulator bug when it's actually a lifecycle bug.
+
+### Audio Focus Is Required
+
+Without `AudioFocusRequest`, Android may silently mute the Oboe stream. Request focus in `onResume()`:
+
+```kotlin
+audioFocus = PulpAudioFocus(this)
+// in onResume:
+audioFocus.requestFocus()
+// in onDestroy:
+audioFocus.abandonFocus()
+```
+
+### CLI Audio Debugging
+
+Monitor audio output without speakers using logcat peak levels:
+
+```bash
+adb logcat -s Pulp | grep "Audio peak"
+# Output: Audio peak: 0.130 (-17.7 dB)
+```
+
+This logs every ~3 seconds. If peaks are >0 but you hear nothing, the issue is the emulator audio pipe, not the synth.
 
 ## Known Blockers
 
 1. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
-2. **JS-scripted UI** — QuickJS compiles on Android but wiring ScriptedUiSession requires APK asset bundling and AAssetManager loading. Deferred to Phase 2.
