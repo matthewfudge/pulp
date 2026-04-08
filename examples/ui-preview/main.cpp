@@ -8,6 +8,7 @@
 #include <pulp/view/theme.hpp>
 #include <pulp/view/frame_clock.hpp>
 #include <pulp/view/inspector.hpp>
+#include <pulp/view/inspector_window.hpp>
 #include <pulp/inspect/inspector_overlay.hpp>
 #include <pulp/runtime/system.hpp>
 #include <pulp/view/screenshot.hpp>
@@ -435,8 +436,14 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
-    // Inspector was set up before screenshot_only check above.
+    // Inspector overlay was set up before screenshot_only check above.
     // Cmd+I toggle is handled by the platform WindowHost key dispatch.
+
+    // Floating inspector window (separate OS window with TreeView + PropertyList)
+    auto inspector_win = std::make_unique<pulp::view::InspectorWindow>(root, nullptr, window.get());
+    inspector_win->install_keyboard_shortcut();
+    if (pulp::runtime::get_env("PULP_INSPECTOR"))
+        inspector_win->show();
 
     std::cout << "Opening window... (Cmd+I for inspector)\n";
     window->run_event_loop();
