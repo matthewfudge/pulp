@@ -3,11 +3,17 @@
 #include "demo_synth.hpp"
 #include <oboe/Oboe.h>
 #include <android/log.h>
+#include <sys/system_properties.h>
 #include <cmath>
 #include <algorithm>
+#include <cstring>
+#include <thread>
+#include <chrono>
 
 #define PULP_LOG_TAG "PulpAudio"
 #define PULP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, PULP_LOG_TAG, __VA_ARGS__)
+#define PULP_LOGW(...) __android_log_print(ANDROID_LOG_WARN, PULP_LOG_TAG, __VA_ARGS__)
+#define PULP_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, PULP_LOG_TAG, __VA_ARGS__)
 
 namespace pulp::demo {
 
@@ -21,16 +27,45 @@ SynthParams& synth_params() { return g_params; }
 class DemoSynth : public oboe::AudioStreamDataCallback,
                   public oboe::AudioStreamErrorCallback {
 public:
+    // Detect emulator vs real device at runtime
+    static bool is_emulator() {
+        // Check for known emulator fingerprints
+        char prop[256] = {};
+        __system_property_get("ro.hardware", prop);
+        if (strstr(prop, "ranchu") || strstr(prop, "goldfish")) return true;
+        __system_property_get("ro.product.model", prop);
+        if (strstr(prop, "Emulator") || strstr(prop, "SDK")) return true;
+        __system_property_get("ro.build.characteristics", prop);
+        if (strstr(prop, "emulator")) return true;
+        return false;
+    }
+
     bool start() {
+        bool emulator = is_emulator();
+        PULP_LOGI("DemoSynth: device=%s", emulator ? "EMULATOR" : "HARDWARE");
+
         oboe::AudioStreamBuilder builder;
         builder.setDirection(oboe::Direction::Output)
-            ->setPerformanceMode(oboe::PerformanceMode::None)   // Emulator can't do LowLatency
-            ->setSharingMode(oboe::SharingMode::Shared)         // Exclusive breaks Ranchu HAL
             ->setFormat(oboe::AudioFormat::Float)
             ->setChannelCount(oboe::ChannelCount::Stereo)
-            ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
             ->setDataCallback(this)
             ->setErrorCallback(this);
+
+        if (emulator) {
+            // Emulator: conservative settings to avoid HAL pipe starvation.
+            // The Ranchu virtual audio HAL can't handle Exclusive or LowLatency
+            // when competing with heavy GPU work (Dawn shader compilation).
+            builder.setPerformanceMode(oboe::PerformanceMode::None)
+                ->setSharingMode(oboe::SharingMode::Shared)
+                ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
+            PULP_LOGI("DemoSynth: using Shared/None mode (emulator-safe)");
+        } else {
+            // Real device: low-latency exclusive for best performance.
+            builder.setPerformanceMode(oboe::PerformanceMode::LowLatency)
+                ->setSharingMode(oboe::SharingMode::Exclusive)
+                ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Best);
+            PULP_LOGI("DemoSynth: using Exclusive/LowLatency (hardware)");
+        }
 
         auto result = builder.openManagedStream(stream_);
         if (result != oboe::Result::OK) {
@@ -39,13 +74,11 @@ public:
         }
 
         sample_rate_ = static_cast<float>(stream_->getSampleRate());
-        auto actual_perf = stream_->getPerformanceMode();
-        auto actual_share = stream_->getSharingMode();
-        auto actual_api = stream_->getAudioApi();
-        PULP_LOGI("DemoSynth: stream opened — %.0f Hz, %d frames/burst, api=%s, perf=%d, share=%d",
+        PULP_LOGI("DemoSynth: stream opened — %.0f Hz, %d frames/burst, api=%s, share=%d, perf=%d",
                   sample_rate_, stream_->getFramesPerBurst(),
-                  actual_api == oboe::AudioApi::AAudio ? "AAudio" : "OpenSLES",
-                  static_cast<int>(actual_perf), static_cast<int>(actual_share));
+                  stream_->getAudioApi() == oboe::AudioApi::AAudio ? "AAudio" : "OpenSLES",
+                  static_cast<int>(stream_->getSharingMode()),
+                  static_cast<int>(stream_->getPerformanceMode()));
 
         result = stream_->requestStart();
         if (result != oboe::Result::OK) {
@@ -54,6 +87,7 @@ public:
         }
 
         playing_.store(true);
+        restart_count_ = 0;
         PULP_LOGI("DemoSynth: playing");
         return true;
     }
@@ -209,12 +243,28 @@ private:
     }
 
     void onErrorAfterClose(oboe::AudioStream*, oboe::Result error) override {
-        PULP_LOGI("DemoSynth: stream error — %s, restarting", oboe::convertToText(error));
-        if (playing_.load()) start();
+        if (!playing_.load()) return;
+
+        restart_count_++;
+        if (restart_count_ > 5) {
+            PULP_LOGE("DemoSynth: stream error — %s. Giving up after %d restarts. "
+                      "If on emulator, launch with: QEMU_AUDIO_DRV=coreaudio emulator -gpu host",
+                      oboe::convertToText(error), restart_count_);
+            playing_.store(false);
+            return;
+        }
+
+        PULP_LOGW("DemoSynth: stream error — %s. Restarting (attempt %d/5)...",
+                  oboe::convertToText(error), restart_count_);
+
+        // Brief delay before restart to avoid tight retry loops
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        start();
     }
 
     oboe::ManagedStream stream_;
     std::atomic<bool> playing_{false};
+    int restart_count_ = 0;
     float sample_rate_ = 48000.0f;
 
     // Oscillator state (4 voices)
