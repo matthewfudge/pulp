@@ -2385,24 +2385,24 @@ static std::vector<DoctorCheck> run_doctor_checks(const fs::path& active_root, b
     // Cmajor CLI check — only if project has .cmajorpatch files
     if (!active_root.empty()) {
         bool has_patches = false;
-        for (auto& entry : fs::recursive_directory_iterator(active_root,
-                 fs::directory_options::skip_permission_denied)) {
-            if (entry.path().extension() == ".cmajorpatch") {
-                has_patches = true;
-                break;
+        // Check common locations for .cmajorpatch files
+        for (auto& dir : {".", "examples", "src"}) {
+            auto check_dir = active_root / dir;
+            if (!fs::exists(check_dir)) continue;
+            for (auto& entry : fs::directory_iterator(check_dir)) {
+                if (entry.path().extension() == ".cmajorpatch") {
+                    has_patches = true;
+                    break;
+                }
             }
-            // Don't recurse into build/, external/, .git/
-            auto name = entry.path().filename().string();
-            if (entry.is_directory() && (name == "build" || name == "external" ||
-                name == ".git" || name == "node_modules"))
-                entry.disable_recursion_pending();
+            if (has_patches) break;
         }
         if (has_patches) {
             DoctorCheck c{"Cmajor CLI (cmaj)", false, {}, {}};
-            auto cmaj_path = pulp::platform::find_on_path("cmaj");
-            if (cmaj_path) {
+            auto cmaj_path = find_executable_in_path("cmaj");
+            if (!cmaj_path.empty()) {
                 c.passed = true;
-                c.detail = cmaj_path->string();
+                c.detail = cmaj_path;
             } else if (auto env = std::getenv("CMAJ_BIN"); env && fs::exists(env)) {
                 c.passed = true;
                 c.detail = std::string(env) + " (via CMAJ_BIN)";
