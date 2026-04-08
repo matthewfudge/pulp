@@ -145,21 +145,21 @@ cp "$BUILD_DIR"/*.a "$SKIA_OUTPUT/android-gpu/lib/Release/" 2>/dev/null || true
 # Some builds put libs in subdirectories
 find "$BUILD_DIR" -name "*.a" -maxdepth 1 -exec cp {} "$SKIA_OUTPUT/android-gpu/lib/Release/" \;
 
-# Copy headers (shared with other platforms)
-if [ ! -d "$SKIA_OUTPUT/include/core" ]; then
-    echo "Copying Skia headers..."
-    mkdir -p "$SKIA_OUTPUT/include"
-    for dir in include/core include/effects include/encode include/gpu \
-               include/pathops include/ports include/svg include/utils \
-               include/gpu/graphite include/gpu/dawn include/private \
-               modules/skparagraph/include modules/skshaper/include \
-               modules/svg/include modules/skottie/include; do
-        if [ -d "$SKIA_SRC/$dir" ]; then
-            mkdir -p "$SKIA_OUTPUT/$dir"
-            cp -R "$SKIA_SRC/$dir/"* "$SKIA_OUTPUT/$dir/" 2>/dev/null || true
-        fi
-    done
-fi
+# Copy ALL headers from Skia source (shared with other platforms)
+echo "Copying Skia headers..."
+# Copy entire include/ tree (preserving structure for root-relative includes)
+cd "$SKIA_SRC"
+find include -name "*.h" | while read f; do
+    mkdir -p "$SKIA_OUTPUT/$(dirname "$f")"
+    cp "$f" "$SKIA_OUTPUT/$f"
+done
+# Copy module headers
+for mod in skparagraph skshaper svg skottie sksg; do
+    if [ -d "$SKIA_SRC/modules/$mod/include" ]; then
+        mkdir -p "$SKIA_OUTPUT/modules/$mod/include"
+        cp "$SKIA_SRC/modules/$mod/include/"*.h "$SKIA_OUTPUT/modules/$mod/include/" 2>/dev/null || true
+    fi
+done
 
 echo ""
 echo "=== Skia Android build complete ==="

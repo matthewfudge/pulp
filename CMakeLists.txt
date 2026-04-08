@@ -94,7 +94,8 @@ FetchContent_MakeAvailable(choc)
 
 # WebGPU (Dawn) — cross-platform GPU abstraction (BSD-3-Clause)
 # Uses eliemichel/WebGPU-distribution for CMake-friendly integration
-if(PULP_ENABLE_GPU)
+# On Android, Dawn is bundled in Skia's pre-built libs — skip FetchContent.
+if(PULP_ENABLE_GPU AND NOT ANDROID)
     pulp_register_fetchcontent_source(webgpu REF 17dcd42a7683355e7a40ac4e97e77f36dff5b5ab)
     pulp_register_wgpu_native_precompiled_source(v24.0.3.1)
     FetchContent_Declare(
@@ -128,11 +129,18 @@ if(PULP_ENABLE_GPU)
     set(PULP_HAS_WEBGPU TRUE)
     message(STATUS "Pulp: WebGPU (Dawn) enabled")
 
-    # Skia Graphite — GPU-accelerated 2D rendering (BSD-3-Clause)
-    # Pre-built via skia-builder (https://github.com/olilarkin/skia-builder)
+endif()
+
+# Skia Graphite — GPU-accelerated 2D rendering (BSD-3-Clause)
+# Pre-built via skia-builder (desktop) or build-skia-android.sh (Android)
+if(PULP_ENABLE_GPU)
     include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/FindSkia.cmake)
     if(SKIA_FOUND)
         set(PULP_HAS_SKIA TRUE)
+        # On Android, Dawn is bundled in Skia — set the flag so render subsystem builds
+        if(ANDROID)
+            set(PULP_HAS_WEBGPU TRUE)
+        endif()
 
         # Text shaping via SkParagraph (HarfBuzz + ICU, bundled in Skia pre-built)
         if(PULP_TEXT_SHAPING)
@@ -145,7 +153,6 @@ if(PULP_ENABLE_GPU)
             set(PULP_TEXT_SHAPING OFF)
         endif()
     endif()
-
 endif()
 
 # Text shaping requires GPU/Skia — validate even when GPU is off
@@ -379,7 +386,10 @@ if(ANDROID)
 endif()
 
 # ── Optional Subsystems ────────────────────────────────────────────────────
-if(PULP_ENABLE_GPU)
+# Render subsystem requires the desktop WebGPU distribution (not available on Android).
+# On Android, Skia renders directly via its bundled Dawn — the render subsystem
+# will be ported in a follow-up (requires decoupling from WebGPU-distribution).
+if(PULP_ENABLE_GPU AND NOT ANDROID)
     add_subdirectory(core/render)
 endif()
 
@@ -404,7 +414,7 @@ target_link_libraries(pulp-standalone
         $<INSTALL_INTERFACE:Pulp::sdl3-static>
 )
 
-if(PULP_ENABLE_GPU)
+if(PULP_ENABLE_GPU AND NOT ANDROID)
     add_subdirectory(inspect)
 endif()
 add_subdirectory(ship)

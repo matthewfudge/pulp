@@ -35,6 +35,10 @@
 #include "include/ports/SkFontMgr_mac_ct.h"
 #elif defined(_WIN32)
 #include "include/ports/SkTypeface_win.h"
+#elif defined(__ANDROID__)
+// Android: use the built-in Android font manager
+#include "include/ports/SkFontMgr_android.h"
+#include "include/core/SkFontScanner.h"
 #elif defined(__linux__)
 #include "include/ports/SkFontMgr_fontconfig.h"
 #include "include/core/SkFontScanner.h"
@@ -51,6 +55,8 @@ static sk_sp<SkFontMgr> get_font_manager() {
         mgr = SkFontMgr_New_CoreText(nullptr);
 #elif defined(_WIN32)
         mgr = SkFontMgr_New_DirectWrite();
+#elif defined(__ANDROID__)
+        mgr = SkFontMgr_New_Android(nullptr, nullptr);
 #elif defined(__linux__)
         mgr = SkFontMgr_New_FontConfig(nullptr, nullptr);
 #else

@@ -7,11 +7,22 @@
 #include <pulp/view/modal.hpp>
 #include <pulp/view/asset_manager.hpp>
 #include <pulp/view/design_import.hpp>
-#if __has_include(<pulp/render/gpu_surface.hpp>)
+// GPU surface is only available when the render subsystem is built
+// (not on Android where Dawn is bundled in Skia but render/ is not ported yet)
+#if __has_include(<pulp/render/gpu_surface.hpp>) && !defined(__ANDROID__)
 #include <pulp/render/gpu_surface.hpp>
 #define PULP_WIDGET_BRIDGE_HAS_GPU_SURFACE 1
 #else
 #define PULP_WIDGET_BRIDGE_HAS_GPU_SURFACE 0
+// Stub GpuSurface so pointer members and null checks compile
+namespace pulp::render {
+struct GpuSurface {
+    struct AdapterInfo { bool native_bridge = false; std::string name, vendor, driver; };
+    AdapterInfo adapter_info() const { return {}; }
+    void* dawn_device_handle() { return nullptr; }
+    void* dawn_queue_handle() { return nullptr; }
+};
+} // namespace pulp::render
 #endif
 #include <pulp/platform/popup_menu.hpp>
 #include <pulp/platform/file_dialog.hpp>
@@ -4671,7 +4682,7 @@ void WidgetBridge::register_api() {
         wgpu::Texture depth_texture;
         wgpu::TextureView depth_view;
         wgpu::RenderPassDepthStencilAttachment depth_attachment{};
-        bool has_depth = payload.hasObjectMember("depthStencil") || payload.hasObjectMember("pipelineDepthStencil");
+        has_depth = payload.hasObjectMember("depthStencil") || payload.hasObjectMember("pipelineDepthStencil");
 
         if (has_depth) {
             wgpu::TextureDescriptor depth_tex_desc{};
