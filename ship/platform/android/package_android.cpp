@@ -51,6 +51,46 @@ static int exec_status_win(const std::string& cmd, int timeout_ms = 120000) {
 }
 #endif
 
+// Shell-quote a string to protect spaces and metacharacters
+static std::string shell_quote(const std::string& s) {
+#ifdef _WIN32
+    // Windows: wrap in double quotes, escape internal double quotes
+    std::string result = "\"";
+    for (char c : s) {
+        if (c == '"') result += "\\\"";
+        else result += c;
+    }
+    result += "\"";
+    return result;
+#else
+    // POSIX: wrap in single quotes, escape internal single quotes
+    std::string result = "'";
+    for (char c : s) {
+        if (c == '\'') result += "'\\''";
+        else result += c;
+    }
+    result += "'";
+    return result;
+#endif
+}
+
+// Platform-aware command execution
+static std::string run_cmd(const std::string& cmd, int timeout_ms = 120000) {
+#ifdef _WIN32
+    return exec_cmd_win(cmd, timeout_ms);
+#else
+    return exec_cmd(cmd, timeout_ms);
+#endif
+}
+
+static int run_status(const std::string& cmd, int timeout_ms = 120000) {
+#ifdef _WIN32
+    return exec_status_win(cmd, timeout_ms);
+#else
+    return exec_status(cmd, timeout_ms);
+#endif
+}
+
 static std::string resolve_password(const std::string& password) {
     // Support @env:VAR_NAME syntax
     if (password.size() > 5 && password.substr(0, 5) == "@env:") {
@@ -159,7 +199,7 @@ std::string android_build_tools_version() {
 }
 
 std::string detect_java_version() {
-    auto output = exec_cmd("java -version 2>&1 | head -1");
+    auto output = run_cmd("java -version 2>&1 | head -1");
     // Parse: openjdk version "17.0.2" or java version "21.0.2"
     auto q1 = output.find('"');
     if (q1 == std::string::npos) return {};
@@ -186,11 +226,7 @@ bool zipalign_apk(const fs::path& input_apk, const fs::path& output_apk) {
 
     std::string cmd = "\"" + tool.string() + "\" -f 4 \""
         + input_apk.string() + "\" \"" + output_apk.string() + "\"";
-#ifdef _WIN32
-    return exec_status_win(cmd) == 0;
-#else
-    return exec_status(cmd) == 0;
-#endif
+    return run_status(cmd) == 0;
 }
 
 bool sign_apk(const fs::path& apk_path, const AndroidKeystoreConfig& keystore) {
@@ -204,16 +240,12 @@ bool sign_apk(const fs::path& apk_path, const AndroidKeystoreConfig& keystore) {
     std::string cmd = "\"" + tool.string() + "\" sign"
         " --ks \"" + keystore.keystore_path.string() + "\""
         " --ks-key-alias \"" + keystore.key_alias + "\""
-        " --ks-pass pass:" + store_pass +
-        " --key-pass pass:" + key_pass +
+        " --ks-pass pass:" + shell_quote(store_pass) +
+        " --key-pass pass:" + shell_quote(key_pass) +
         " --v2-signing-enabled true"
         " --v3-signing-enabled true"
         " \"" + apk_path.string() + "\"";
-#ifdef _WIN32
-    return exec_status_win(cmd) == 0;
-#else
-    return exec_status(cmd) == 0;
-#endif
+    return run_status(cmd) == 0;
 }
 
 bool sign_aab(const fs::path& aab_path, const AndroidKeystoreConfig& keystore) {
@@ -224,15 +256,11 @@ bool sign_aab(const fs::path& aab_path, const AndroidKeystoreConfig& keystore) {
     // AABs use jarsigner (Google re-signs with Play App Signing)
     std::string cmd = "jarsigner"
         " -keystore \"" + keystore.keystore_path.string() + "\""
-        " -storepass " + store_pass +
-        " -keypass " + key_pass +
+        " -storepass " + shell_quote(store_pass) +
+        " -keypass " + shell_quote(key_pass) +
         " \"" + aab_path.string() + "\""
         " \"" + keystore.key_alias + "\"";
-#ifdef _WIN32
-    return exec_status_win(cmd) == 0;
-#else
-    return exec_status(cmd) == 0;
-#endif
+    return run_status(cmd) == 0;
 }
 
 AndroidSigningInfo check_android_signing(const fs::path& path) {
@@ -240,8 +268,8 @@ AndroidSigningInfo check_android_signing(const fs::path& path) {
 
     auto ext = path.extension().string();
     if (ext == ".aab") {
-        // AABs: use jarsigner -verify
-        auto output = exec_cmd("jarsigner -verify \"" + path.string() + "\" 2>&1");
+        // AABs: use jarsigner -verify (platform-aware)
+        auto output = run_cmd("jarsigner -verify \"" + path.string() + "\" 2>&1");
         info.is_signed = output.find("jar verified") != std::string::npos;
         if (!info.is_signed)
             info.error = output;
@@ -255,8 +283,8 @@ AndroidSigningInfo check_android_signing(const fs::path& path) {
         return info;
     }
 
-    auto output = exec_cmd("\"" + tool.string() + "\" verify --print-certs --verbose \""
-                           + path.string() + "\" 2>&1");
+    auto output = run_cmd("\"" + tool.string() + "\" verify --print-certs --verbose \""
+                          + path.string() + "\" 2>&1");
 
     info.is_signed = output.find("Verified using") != std::string::npos;
     info.v2_signed = output.find("Verified using v2 scheme") != std::string::npos
@@ -320,17 +348,13 @@ AndroidPackageResult build_android_package(
         auto key_pass = resolve_password(
             keystore->key_password.empty() ? keystore->store_password : keystore->key_password);
         cmd += " -Pandroid.injected.signing.store.file=\"" + keystore->keystore_path.string() + "\"";
-        cmd += " -Pandroid.injected.signing.store.password=" + store_pass;
+        cmd += " -Pandroid.injected.signing.store.password=" + shell_quote(store_pass);
         cmd += " -Pandroid.injected.signing.key.alias=" + keystore->key_alias;
-        cmd += " -Pandroid.injected.signing.key.password=" + key_pass;
+        cmd += " -Pandroid.injected.signing.key.password=" + shell_quote(key_pass);
     }
 
     // Run Gradle (can take minutes for a full build)
-#ifdef _WIN32
-    int rc = exec_status_win(cmd, 600000);
-#else
-    int rc = exec_status(cmd, 600000);
-#endif
+    int rc = run_status(cmd, 600000);
     if (rc != 0) {
         result.error = "Gradle build failed (exit code " + std::to_string(rc) + ")";
         return result;
@@ -392,15 +416,11 @@ bool aab_to_apks(const fs::path& aab_path,
             keystore->key_password.empty() ? keystore->store_password : keystore->key_password);
         cmd += " --ks=\"" + keystore->keystore_path.string() + "\"";
         cmd += " --ks-key-alias=" + keystore->key_alias;
-        cmd += " --ks-pass=pass:" + store_pass;
-        cmd += " --key-pass=pass:" + key_pass;
+        cmd += " --ks-pass=pass:" + shell_quote(store_pass);
+        cmd += " --key-pass=pass:" + shell_quote(key_pass);
     }
 
-#ifdef _WIN32
-    return exec_status_win(cmd) == 0;
-#else
-    return exec_status(cmd) == 0;
-#endif
+    return run_status(cmd) == 0;
 }
 
 } // namespace pulp::ship
