@@ -2382,6 +2382,38 @@ static std::vector<DoctorCheck> run_doctor_checks(const fs::path& active_root, b
         }
     }
 
+    // Cmajor CLI check — only if project has .cmajorpatch files
+    if (!active_root.empty()) {
+        bool has_patches = false;
+        for (auto& entry : fs::recursive_directory_iterator(active_root,
+                 fs::directory_options::skip_permission_denied)) {
+            if (entry.path().extension() == ".cmajorpatch") {
+                has_patches = true;
+                break;
+            }
+            // Don't recurse into build/, external/, .git/
+            auto name = entry.path().filename().string();
+            if (entry.is_directory() && (name == "build" || name == "external" ||
+                name == ".git" || name == "node_modules"))
+                entry.disable_recursion_pending();
+        }
+        if (has_patches) {
+            DoctorCheck c{"Cmajor CLI (cmaj)", false, {}, {}};
+            auto cmaj_path = pulp::platform::find_on_path("cmaj");
+            if (cmaj_path) {
+                c.passed = true;
+                c.detail = cmaj_path->string();
+            } else if (auto env = std::getenv("CMAJ_BIN"); env && fs::exists(env)) {
+                c.passed = true;
+                c.detail = std::string(env) + " (via CMAJ_BIN)";
+            } else {
+                c.detail = "Project has .cmajorpatch files but cmaj is not installed";
+                c.fix = "Download from https://cmajor.dev or set CMAJ_BIN=/path/to/cmaj";
+            }
+            checks.push_back(c);
+        }
+    }
+
     return checks;
 }
 

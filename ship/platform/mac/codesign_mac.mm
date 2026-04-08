@@ -15,16 +15,16 @@
 namespace pulp::ship {
 namespace fs = std::filesystem;
 
-static std::string exec_cmd(const std::string& cmd) {
-    auto r = pulp::platform::exec("/bin/sh", {"-c", cmd}, 120000);
+static std::string exec_cmd(const std::string& cmd, int timeout_ms = 120000) {
+    auto r = pulp::platform::exec("/bin/sh", {"-c", cmd}, timeout_ms);
     auto result = r.stdout_output;
     while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
         result.pop_back();
     return result;
 }
 
-static int exec_status(const std::string& cmd) {
-    auto r = pulp::platform::exec("/bin/sh", {"-c", cmd}, 120000);
+static int exec_status(const std::string& cmd, int timeout_ms = 120000) {
+    auto r = pulp::platform::exec("/bin/sh", {"-c", cmd}, timeout_ms);
     return r.exit_code;
 }
 
@@ -110,7 +110,8 @@ std::optional<std::string> notarize_submit(const std::string& path,
         + " --password \"" + password + "\""
         + " --wait 2>&1";
 
-    auto output = exec_cmd(cmd);
+    // Notarization can take 5-15 minutes — use 20 min timeout
+    auto output = exec_cmd(cmd, 1200000);
     // Extract request UUID
     std::regex uuid_re("id: ([0-9a-f-]+)");
     std::smatch match;
