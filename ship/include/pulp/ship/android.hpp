@@ -67,4 +67,26 @@ bool aab_to_apks(const std::filesystem::path& aab_path,
                  const std::filesystem::path& output_apks,
                  const AndroidKeystoreConfig* keystore = nullptr);
 
+// ── SDK discovery (host-side — used by doctor checks and ship commands) ──────
+
+// Minimum versions for Android toolchain
+constexpr int PULP_ANDROID_MIN_NDK = 26;
+constexpr int PULP_ANDROID_MIN_JAVA = 17;
+inline const char* PULP_ANDROID_MIN_BUILD_TOOLS = "30.0.0";
+
+// Find Android SDK root (ANDROID_HOME → ANDROID_SDK_ROOT → platform defaults)
+std::filesystem::path detect_android_sdk();
+
+// Find Android NDK (ANDROID_NDK_HOME → <sdk>/ndk/<latest>/)
+std::filesystem::path find_android_ndk();
+
+// Find a build-tools binary (apksigner, zipalign) in the latest build-tools dir
+std::filesystem::path find_android_build_tool(const std::string& name);
+
+// Get the installed build-tools version string (e.g., "34.0.0")
+std::string android_build_tools_version();
+
+// Detect Java version from `java -version` output (e.g., "21.0.2")
+std::string detect_java_version();
+
 } // namespace pulp::ship

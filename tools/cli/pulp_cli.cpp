@@ -1799,6 +1799,202 @@ static int cmd_validate(const std::vector<std::string>& args) {
     return failed > 0 ? 1 : 0;
 }
 
+// ── Config command ──────────────────────────────────────────────────────────
+
+static int cmd_config(const std::vector<std::string>& args) {
+    auto config_path = pulp_home() / "config.toml";
+    std::string sub = args.empty() ? "show" : args[0];
+
+    if (sub == "init") {
+        bool force = false;
+        for (auto& a : args) if (a == "--force") force = true;
+
+        if (fs::exists(config_path) && !force) {
+            std::cout << "Config already exists at " << config_path.string() << " — no changes made.\n";
+            std::cout << "Use --force to overwrite (will ask for confirmation).\n";
+            return 0;
+        }
+
+        if (fs::exists(config_path) && force) {
+            std::cout << "This will overwrite " << config_path.string() << ". Continue? [y/N] ";
+            std::string response;
+            std::getline(std::cin, response);
+            if (response.empty() || (response[0] != 'y' && response[0] != 'Y')) {
+                std::cout << "Cancelled.\n";
+                return 0;
+            }
+        }
+
+        // Find config.example.toml in the repo
+        auto root = find_project_root();
+        fs::path template_path;
+        if (!root.empty()) template_path = root / "config.example.toml";
+
+        // Also check relative to the binary
+        if (template_path.empty() || !fs::exists(template_path)) {
+            auto bin_root = source_checkout_root_from_current_binary();
+            if (!bin_root.empty()) template_path = bin_root / "config.example.toml";
+        }
+
+        fs::create_directories(config_path.parent_path());
+
+        if (!template_path.empty() && fs::exists(template_path)) {
+            fs::copy_file(template_path, config_path, fs::copy_options::overwrite_existing);
+            std::cout << "Config template copied to " << config_path.string() << "\n";
+            std::cout << "Edit it to add your developer signing credentials.\n";
+        } else {
+            // Write a minimal config
+            std::ofstream out(config_path);
+            out << "# Pulp Developer Configuration\n"
+                << "# See config.example.toml in the Pulp repo for all options.\n\n"
+                << "[developer]\n"
+                << "# name = \"Your Name\"\n\n"
+                << "[signing.apple]\n"
+                << "# identity = \"Developer ID Application: Your Name (TEAMID)\"\n"
+                << "# team_id = \"ABCDE12345\"\n"
+                << "# apple_id = \"you@example.com\"\n\n"
+                << "[signing.android]\n"
+                << "# keystore = \"~/keystores/release.jks\"\n"
+                << "# key_alias = \"release\"\n"
+                << "# store_pass = \"@env:ANDROID_STORE_PASS\"\n";
+            std::cout << "Config created at " << config_path.string() << "\n";
+        }
+        return 0;
+    }
+
+    if (sub == "set" && args.size() >= 3) {
+        auto dotted_key = args[1];
+        auto value = args[2];
+
+        // Parse "signing.apple.identity" → section="signing.apple", key="identity"
+        auto last_dot = dotted_key.rfind('.');
+        if (last_dot == std::string::npos) {
+            std::cerr << "Error: key must be in section.key format (e.g., signing.apple.identity)\n";
+            return 1;
+        }
+        auto section = dotted_key.substr(0, last_dot);
+        auto key = dotted_key.substr(last_dot + 1);
+
+        // If config doesn't exist, create from template first
+        if (!fs::exists(config_path)) {
+            std::vector<std::string> init_args = {"init"};
+            cmd_config(init_args);
+        }
+
+        // Read all lines, find and replace or append
+        std::vector<std::string> lines;
+        {
+            std::ifstream in(config_path);
+            std::string line;
+            while (std::getline(in, line)) lines.push_back(line);
+        }
+
+        std::string section_header = "[" + section + "]";
+        int section_line = -1;
+        int key_line = -1;
+        std::string current_section;
+
+        for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+            auto trimmed = trim(lines[i]);
+            if (trimmed.empty() || trimmed[0] == '#') {
+                // Check if it's a commented-out version of our key
+                if (current_section == section && !trimmed.empty() && trimmed[0] == '#') {
+                    auto pos = trimmed.find_first_not_of("# ");
+                    if (pos != std::string::npos) {
+                        auto uncommented = trim(trimmed.substr(pos));
+                        auto eq = uncommented.find('=');
+                        if (eq != std::string::npos && trim(uncommented.substr(0, eq)) == key) {
+                            key_line = i;  // Replace the commented-out line
+                        }
+                    }
+                }
+                continue;
+            }
+            if (trimmed.front() == '[' && trimmed.back() == ']') {
+                current_section = trim(trimmed.substr(1, trimmed.size() - 2));
+                if (current_section == section) section_line = i;
+                continue;
+            }
+            if (current_section == section) {
+                auto eq = trimmed.find('=');
+                if (eq != std::string::npos && trim(trimmed.substr(0, eq)) == key) {
+                    key_line = i;
+                }
+            }
+        }
+
+        std::string new_line = key + " = \"" + value + "\"";
+
+        if (key_line >= 0) {
+            lines[key_line] = new_line;
+        } else if (section_line >= 0) {
+            // Insert after section header
+            lines.insert(lines.begin() + section_line + 1, new_line);
+        } else {
+            // Section doesn't exist — append
+            lines.push_back("");
+            lines.push_back(section_header);
+            lines.push_back(new_line);
+        }
+
+        // Write back
+        std::ofstream out(config_path);
+        for (auto& l : lines) out << l << "\n";
+
+        std::cout << "Set " << section << "." << key << " in " << config_path.string() << "\n";
+        return 0;
+    }
+
+    if (sub == "show" || sub == "path") {
+        if (sub == "path") {
+            std::cout << config_path.string() << "\n";
+            return 0;
+        }
+        if (!fs::exists(config_path)) {
+            std::cout << "No config file found at " << config_path.string() << "\n";
+            std::cout << "Run `pulp config init` to create one from the template.\n";
+            return 0;
+        }
+        // Show non-comment, non-empty lines
+        std::ifstream in(config_path);
+        std::string line;
+        while (std::getline(in, line)) {
+            auto trimmed = trim(line);
+            if (!trimmed.empty() && trimmed[0] != '#')
+                std::cout << line << "\n";
+        }
+        return 0;
+    }
+
+    std::cout << "pulp config — manage developer configuration\n\n";
+    std::cout << "Subcommands:\n";
+    std::cout << "  init                               Create ~/.pulp/config.toml from template\n";
+    std::cout << "  set <section.key> <value>           Set a config value\n";
+    std::cout << "  show                                Show current config (non-comment lines)\n";
+    std::cout << "  path                                Print config file path\n\n";
+    std::cout << "Examples:\n";
+    std::cout << "  pulp config init\n";
+    std::cout << "  pulp config set signing.apple.identity \"Developer ID Application: ...\"\n";
+    std::cout << "  pulp config set signing.android.keystore ~/keystores/release.jks\n";
+    return 0;
+}
+
+// ── Config fallback helpers for ship commands ───────────────────────────────
+
+// Read a ship config value: CLI flag → env var → project pulp.toml → global config.toml
+static std::string ship_config(const std::string& cli_val,
+                                const std::string& env_name,
+                                const std::string& section,
+                                const std::string& key) {
+    if (!cli_val.empty()) return cli_val;
+    if (!env_name.empty()) {
+        if (auto env = pulp::runtime::get_env(env_name))
+            if (!env->empty()) return *env;
+    }
+    // TODO: project pulp.toml override (future)
+    return read_user_config_value(section, key);
+}
+
 static int cmd_ship(const std::vector<std::string>& args) {
     auto root = find_project_root();
     if (root.empty()) {
@@ -1826,8 +2022,22 @@ static int cmd_ship(const std::vector<std::string>& args) {
         }
 
         if (target == "android") {
+            // Fall back to config for Android signing
+            keystore_path = ship_config(keystore_path, "", "signing.android", "keystore");
+            key_alias = ship_config(key_alias, "", "signing.android", "key_alias");
+            store_pass = ship_config(store_pass, "ANDROID_STORE_PASS", "signing.android", "store_pass");
+            key_pass = ship_config(key_pass, "ANDROID_KEY_PASS", "signing.android", "key_pass");
+
             if (keystore_path.empty()) {
-                std::cerr << "Usage: pulp ship sign --target android --keystore key.jks --key-alias mykey\n";
+                std::cerr << "Error: No Android keystore specified.\n\n";
+                std::cerr << "  pulp ship sign --target android --keystore ~/keystores/release.jks --key-alias release\n\n";
+                std::cerr << "  To create a release keystore:\n";
+                std::cerr << "    keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000\n\n";
+                std::cerr << "  To save for next time, add to ~/.pulp/config.toml:\n";
+                std::cerr << "    [signing.android]\n";
+                std::cerr << "    keystore  = \"~/keystores/release.jks\"\n";
+                std::cerr << "    key_alias = \"release\"\n";
+                std::cerr << "    store_pass = \"@env:ANDROID_STORE_PASS\"\n";
                 return 1;
             }
             pulp::ship::AndroidKeystoreConfig ks;
@@ -1863,10 +2073,23 @@ static int cmd_ship(const std::vector<std::string>& args) {
             return signed_count > 0 ? 0 : 1;
         }
 
-        // Desktop signing (macOS/Windows)
+        // Desktop signing (macOS/Windows) — fall back to config
+        identity = ship_config(identity, "PULP_SIGN_IDENTITY", "signing.apple", "identity");
+
         if (identity.empty()) {
-            std::cerr << "Usage: pulp ship sign --identity \"Developer ID Application: ...\"\n";
-            std::cerr << "       pulp ship sign --target android --keystore key.jks\n";
+            std::cerr << "Error: No signing identity specified.\n\n";
+            std::cerr << "  pulp ship sign --identity \"Developer ID Application: Your Name (TEAMID)\"\n\n";
+            std::cerr << "  To find your identity:\n";
+#ifdef __APPLE__
+            std::cerr << "    security find-identity -v -p codesigning\n";
+            std::cerr << "    Or: Keychain Access → My Certificates\n\n";
+#else
+            std::cerr << "    Check your certificate store for a code signing certificate.\n\n";
+#endif
+            std::cerr << "  To save for next time, add to ~/.pulp/config.toml:\n";
+            std::cerr << "    [signing.apple]\n";
+            std::cerr << "    identity = \"Developer ID Application: Your Name (TEAMID)\"\n\n";
+            std::cerr << "  Or run: pulp config set signing.apple.identity \"Developer ID Application: ...\"\n";
             return 1;
         }
 
@@ -2128,8 +2351,25 @@ static int cmd_ship(const std::vector<std::string>& args) {
             return stapled == static_cast<int>(bundles.size()) ? 0 : 1;
         }
 
+        // Fall back to config
+        apple_id = ship_config(apple_id, "PULP_APPLE_ID", "signing.apple", "apple_id");
+        team_id = ship_config(team_id, "PULP_TEAM_ID", "signing.apple", "team_id");
+        password = ship_config(password, "", "signing.apple", "password");
+
         if (apple_id.empty() || team_id.empty()) {
-            std::cerr << "Usage: pulp ship notarize --apple-id you@example.com --team-id ABCDE12345\n";
+            std::cerr << "Error: Apple ID and Team ID required for notarization.\n\n";
+            std::cerr << "  pulp ship notarize --apple-id you@example.com --team-id ABCDE12345\n\n";
+            std::cerr << "  Where to find these:\n";
+            std::cerr << "    Apple ID:  Your Apple Developer account email\n";
+            std::cerr << "    Team ID:   https://developer.apple.com/account → Membership → Team ID\n";
+            std::cerr << "    Password:  https://appleid.apple.com → Sign-In and Security → App-Specific Passwords\n";
+            std::cerr << "               Then store in Keychain:\n";
+            std::cerr << "               security add-generic-password -s AC_PASSWORD -a you@example.com -w\n\n";
+            std::cerr << "  To save for next time, add to ~/.pulp/config.toml:\n";
+            std::cerr << "    [signing.apple]\n";
+            std::cerr << "    apple_id = \"you@example.com\"\n";
+            std::cerr << "    team_id  = \"ABCDE12345\"\n";
+            std::cerr << "    password = \"@keychain:AC_PASSWORD\"\n";
             return 1;
         }
         if (password.empty()) password = "@keychain:AC_PASSWORD";
@@ -2568,6 +2808,46 @@ static std::vector<DoctorCheck> run_doctor_checks(const fs::path& active_root, b
         checks.push_back(c);
     }
 #endif
+
+    // Android toolchain (optional — needed for `pulp ship package --target android`)
+    {
+        DoctorCheck c{"Android SDK (optional)", true, {}, {}};
+        auto sdk = pulp::ship::detect_android_sdk();
+        if (!sdk.empty()) {
+            c.detail = sdk.string();
+        } else {
+            c.detail = "Not configured — install Android Studio (https://developer.android.com/studio) or set ANDROID_HOME";
+        }
+        checks.push_back(c);
+    }
+    {
+        DoctorCheck c{"Android NDK (optional)", true, {}, {}};
+        auto ndk = pulp::ship::find_android_ndk();
+        if (!ndk.empty()) {
+            c.detail = ndk.filename().string();
+        } else {
+            c.detail = "Not installed — install via Android Studio SDK Manager or sdkmanager";
+        }
+        checks.push_back(c);
+    }
+    {
+        DoctorCheck c{"Java (optional, for Android)", true, {}, {}};
+        auto ver = pulp::ship::detect_java_version();
+        if (!ver.empty()) {
+            c.detail = "Java " + ver;
+            auto dot = ver.find('.');
+            auto major_str = (dot != std::string::npos) ? ver.substr(0, dot) : ver;
+            try {
+                int major = std::stoi(major_str);
+                if (major < pulp::ship::PULP_ANDROID_MIN_JAVA) {
+                    c.detail += " (Java " + std::to_string(pulp::ship::PULP_ANDROID_MIN_JAVA) + "+ recommended)";
+                }
+            } catch (...) {}
+        } else {
+            c.detail = "Not found — install JDK 17+ for Android builds";
+        }
+        checks.push_back(c);
+    }
 
     if (!active_root.empty()) {
         DoctorCheck c{"Build configured", false, {}, {}};
@@ -4978,6 +5258,7 @@ int main(int argc, char* argv[]) {
     if (command == "validate") return cmd_validate(args);
     if (command == "doctor")   return cmd_doctor(args);
     if (command == "upgrade")  return cmd_upgrade(args);
+    if (command == "config")   return cmd_config(args);
     if (command == "ship")     return cmd_ship(args);
     if (command == "docs")     return cmd_docs(args);
     if (command == "clean")    return cmd_clean(args);

@@ -62,7 +62,9 @@ static std::string resolve_password(const std::string& password) {
     return password;
 }
 
-static fs::path find_sdk_root() {
+// ── Public SDK discovery API ────────────────────────────────────────────────
+
+fs::path detect_android_sdk() {
     // Check environment variables first
     if (auto env = get_env("ANDROID_HOME")) {
         auto p = fs::path(*env);
@@ -103,13 +105,36 @@ static fs::path find_latest_build_tools(const fs::path& sdk) {
     }
     if (versions.empty()) return {};
 
-    // Sort by version string (lexicographic works for semver with same digit count)
     std::sort(versions.begin(), versions.end());
     return versions.back();
 }
 
-static fs::path find_build_tool(const std::string& name) {
-    auto sdk = find_sdk_root();
+fs::path find_android_ndk() {
+    // Check dedicated env var first
+    if (auto env = get_env("ANDROID_NDK_HOME")) {
+        auto p = fs::path(*env);
+        if (fs::exists(p / "ndk-build") || fs::exists(p / "toolchains"))
+            return p;
+    }
+
+    auto sdk = detect_android_sdk();
+    if (sdk.empty()) return {};
+
+    auto ndk_dir = sdk / "ndk";
+    if (!fs::exists(ndk_dir)) return {};
+
+    std::vector<fs::path> versions;
+    for (auto& entry : fs::directory_iterator(ndk_dir)) {
+        if (entry.is_directory())
+            versions.push_back(entry.path());
+    }
+    if (versions.empty()) return {};
+    std::sort(versions.begin(), versions.end());
+    return versions.back();
+}
+
+fs::path find_android_build_tool(const std::string& name) {
+    auto sdk = detect_android_sdk();
     if (sdk.empty()) return {};
     auto bt = find_latest_build_tools(sdk);
     if (bt.empty()) return {};
@@ -125,6 +150,24 @@ static fs::path find_build_tool(const std::string& name) {
     return {};
 }
 
+std::string android_build_tools_version() {
+    auto sdk = detect_android_sdk();
+    if (sdk.empty()) return {};
+    auto bt = find_latest_build_tools(sdk);
+    if (bt.empty()) return {};
+    return bt.filename().string();
+}
+
+std::string detect_java_version() {
+    auto output = exec_cmd("java -version 2>&1 | head -1");
+    // Parse: openjdk version "17.0.2" or java version "21.0.2"
+    auto q1 = output.find('"');
+    if (q1 == std::string::npos) return {};
+    auto q2 = output.find('"', q1 + 1);
+    if (q2 == std::string::npos) return {};
+    return output.substr(q1 + 1, q2 - q1 - 1);
+}
+
 static fs::path find_gradlew(const fs::path& project_dir) {
 #ifdef _WIN32
     auto gradlew = project_dir / "gradlew.bat";
@@ -138,7 +181,7 @@ static fs::path find_gradlew(const fs::path& project_dir) {
 // ── Core operations ─────────────────────────────────────────────────────────
 
 bool zipalign_apk(const fs::path& input_apk, const fs::path& output_apk) {
-    auto tool = find_build_tool("zipalign");
+    auto tool = find_android_build_tool("zipalign");
     if (tool.empty()) return false;
 
     std::string cmd = "\"" + tool.string() + "\" -f 4 \""
@@ -151,7 +194,7 @@ bool zipalign_apk(const fs::path& input_apk, const fs::path& output_apk) {
 }
 
 bool sign_apk(const fs::path& apk_path, const AndroidKeystoreConfig& keystore) {
-    auto tool = find_build_tool("apksigner");
+    auto tool = find_android_build_tool("apksigner");
     if (tool.empty()) return false;
 
     auto store_pass = resolve_password(keystore.store_password);
@@ -206,7 +249,7 @@ AndroidSigningInfo check_android_signing(const fs::path& path) {
     }
 
     // APKs: use apksigner verify
-    auto tool = find_build_tool("apksigner");
+    auto tool = find_android_build_tool("apksigner");
     if (tool.empty()) {
         info.error = "apksigner not found — install Android SDK Build Tools";
         return info;

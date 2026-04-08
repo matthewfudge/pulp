@@ -214,6 +214,30 @@ commands:
     summary: Remove the build directory.
     docs: reference/cli.md#clean
 
+  - name: config
+    status: usable
+    summary: Manage global developer configuration (~/.pulp/config.toml).
+    subcommands:
+      - name: init
+        summary: Create config from template (safe — never overwrites)
+        args:
+          - name: --force
+            required: false
+      - name: set
+        summary: Set a config value (e.g., signing.apple.identity)
+        args:
+          - name: key
+            kind: positional
+            required: true
+          - name: value
+            kind: positional
+            required: true
+      - name: show
+        summary: Show current non-comment config values
+      - name: path
+        summary: Print config file path
+    docs: reference/cli.md#config
+
   - name: design
     status: experimental
     summary: Build and launch the local AI-powered design tool for token and style iteration, binding to the current checkout or the SDK/build next to the CLI binary.
