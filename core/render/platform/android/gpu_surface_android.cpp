@@ -6,6 +6,7 @@
 #include <pulp/view/view.hpp>
 #include <pulp/view/widgets.hpp>
 #include <pulp/view/theme.hpp>
+#include <pulp/view/input_events.hpp>
 #include <pulp/platform/android/jni.hpp>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -220,10 +221,23 @@ static view::Point to_local(view::View* target, float dp_x, float dp_y) {
     return {dp_x - abs_x, dp_y - abs_y};
 }
 
-void android_touch_down(float px_x, float px_y) {
+static view::MouseEvent make_touch_event(view::Point local, view::Point dp,
+                                          int pointer_id, float pressure, bool is_down) {
+    view::MouseEvent ev;
+    ev.position = local;
+    ev.window_position = dp;
+    ev.button = view::MouseButton::left;
+    ev.pointer_id = pointer_id;
+    ev.pointer_type = view::PointerType::touch;
+    ev.pressure = pressure;
+    ev.is_down = is_down;
+    ev.click_count = 1;
+    return ev;
+}
+
+void android_touch_down(int pointer_id, float px_x, float px_y, float pressure) {
     if (!g_root_view) return;
 
-    // Convert pixel coordinates to dp
     float dp_x = px_x / g_display_density;
     float dp_y = px_y / g_display_density;
 
@@ -231,17 +245,18 @@ void android_touch_down(float px_x, float px_y) {
     auto* target = g_root_view->hit_test(pt);
     if (target) {
         auto local = to_local(target, dp_x, dp_y);
+        // Dispatch rich event (Fader uses this for dragging_ flag)
+        auto ev = make_touch_event(local, pt, pointer_id, pressure, true);
+        target->on_mouse_event(ev);
+        // Dispatch legacy event (Knob uses this for drag_start_y_)
         target->on_mouse_down(local);
         g_captured_view = target;
-        PULP_LOGI("Touch down at (%.0f,%.0f) dp, local (%.0f,%.0f)",
-                  dp_x, dp_y, local.x, local.y);
     }
 
-    // Repaint after interaction
     android_render_frame();
 }
 
-void android_touch_move(float px_x, float px_y) {
+void android_touch_move(int pointer_id, float px_x, float px_y, float pressure) {
     if (!g_captured_view) return;
 
     float dp_x = px_x / g_display_density;
@@ -250,21 +265,23 @@ void android_touch_move(float px_x, float px_y) {
     auto local = to_local(g_captured_view, dp_x, dp_y);
     g_captured_view->on_mouse_drag(local);
 
-    // Repaint after drag
     android_render_frame();
 }
 
-void android_touch_up(float px_x, float px_y) {
+void android_touch_up(int pointer_id, float px_x, float px_y) {
     if (!g_captured_view) return;
 
     float dp_x = px_x / g_display_density;
     float dp_y = px_y / g_display_density;
 
     auto local = to_local(g_captured_view, dp_x, dp_y);
+    // Dispatch rich event (Fader clears dragging_ on is_down=false)
+    auto ev = make_touch_event(local, {dp_x, dp_y}, pointer_id, 0.0f, false);
+    g_captured_view->on_mouse_event(ev);
+    // Dispatch legacy event
     g_captured_view->on_mouse_up(local);
     g_captured_view = nullptr;
 
-    // Repaint after release
     android_render_frame();
 }
 
@@ -379,19 +396,19 @@ Java_com_pulp_render_PulpSurfaceView_nativeOnSurfaceDestroyed(
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchDown(
     JNIEnv*, jobject, jint pointerId, jfloat x, jfloat y, jfloat pressure) {
-    pulp::render::android_touch_down(x, y);
+    pulp::render::android_touch_down(pointerId, x, y, pressure);
 }
 
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchMove(
     JNIEnv*, jobject, jint pointerId, jfloat x, jfloat y, jfloat pressure) {
-    pulp::render::android_touch_move(x, y);
+    pulp::render::android_touch_move(pointerId, x, y, pressure);
 }
 
 JNIEXPORT void JNICALL
 Java_com_pulp_render_PulpSurfaceView_nativeOnTouchUp(
     JNIEnv*, jobject, jint pointerId, jfloat x, jfloat y) {
-    pulp::render::android_touch_up(x, y);
+    pulp::render::android_touch_up(pointerId, x, y);
 }
 
 JNIEXPORT void JNICALL
