@@ -40,7 +40,6 @@ static UIAccessibilityTraits access_role_to_traits(View::AccessRole role) {
 /// Bridges a Pulp View to UIAccessibility.
 @interface PulpAccessibilityElement : UIAccessibilityElement
 @property (nonatomic, assign) pulp::view::View* pulpView;
-@property (nonatomic, weak) UIView* hostView;
 @end
 
 @implementation PulpAccessibilityElement
@@ -63,24 +62,23 @@ static UIAccessibilityTraits access_role_to_traits(View::AccessRole role) {
 }
 
 - (CGRect)accessibilityFrame {
-    if (!_pulpView || !_hostView) return CGRectZero;
-
-    // Convert view-local bounds to screen coordinates
+    if (!_pulpView) return CGRectZero;
     auto bounds = _pulpView->bounds();
-    CGRect localRect = CGRectMake(bounds.x, bounds.y, bounds.width, bounds.height);
-
-    // Walk up the Pulp view hierarchy to accumulate parent offsets
-    auto* current = _pulpView->parent();
-    while (current) {
-        auto pb = current->bounds();
-        localRect.origin.x += pb.x;
-        localRect.origin.y += pb.y;
-        current = current->parent();
+    // Convert view-local bounds to screen coordinates by walking up the hierarchy
+    float ox = bounds.x, oy = bounds.y;
+    auto* parent = _pulpView->parent();
+    while (parent) {
+        ox += parent->bounds().x;
+        oy += parent->bounds().y;
+        parent = parent->parent();
     }
-
-    // Convert from host UIView coordinates to screen coordinates
-    CGRect screenRect = [_hostView convertRect:localRect toCoordinateSpace:_hostView.window.screen.coordinateSpace];
-    return screenRect;
+    CGRect localRect = CGRectMake(ox, oy, bounds.width, bounds.height);
+    // Convert from container view coordinates to screen coordinates
+    UIView* container = (UIView*)self.accessibilityContainer;
+    if (container) {
+        return UIAccessibilityConvertFrameToScreenCoordinates(localRect, container);
+    }
+    return localRect;
 }
 
 - (BOOL)isAccessibilityElement {
@@ -91,16 +89,12 @@ static UIAccessibilityTraits access_role_to_traits(View::AccessRole role) {
 
 - (void)accessibilityIncrement {
     if (!_pulpView) return;
-    // Simulate an increment: post a synthetic drag-up event
-    // The widget's on_mouse_drag handler will process the value change
-    pulp::view::Point p = {0, -5};  // Up = increase for vertical sliders
-    _pulpView->on_mouse_drag(p);
+    _pulpView->on_accessibility_adjust(0.05f);  // +5% step
 }
 
 - (void)accessibilityDecrement {
     if (!_pulpView) return;
-    pulp::view::Point p = {0, 5};   // Down = decrease
-    _pulpView->on_mouse_drag(p);
+    _pulpView->on_accessibility_adjust(-0.05f);  // -5% step
 }
 
 @end
@@ -119,7 +113,7 @@ static void collect_accessible_views(View& root, std::vector<View*>& out) {
 /// Create accessibility elements for all accessible views in the tree.
 /// Called by the hosting UIView to populate its accessibility container.
 NSArray<UIAccessibilityElement *>* create_accessibility_elements(
-    View& root, UIView* hostView) {
+    View& root, UIView* container) {
 
     std::vector<View*> accessible;
     collect_accessible_views(root, accessible);
@@ -127,9 +121,8 @@ NSArray<UIAccessibilityElement *>* create_accessibility_elements(
     NSMutableArray* elements = [NSMutableArray arrayWithCapacity:accessible.size()];
     for (auto* view : accessible) {
         PulpAccessibilityElement* element =
-            [[PulpAccessibilityElement alloc] initWithAccessibilityContainer:hostView];
+            [[PulpAccessibilityElement alloc] initWithAccessibilityContainer:container];
         element.pulpView = view;
-        element.hostView = hostView;
         [elements addObject:element];
     }
     return elements;
