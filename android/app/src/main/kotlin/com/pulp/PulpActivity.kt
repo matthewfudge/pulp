@@ -6,13 +6,18 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import com.pulp.audio.PulpAudioFocus
 import com.pulp.render.PulpSurfaceView
 
 class PulpActivity : ComponentActivity() {
 
+    private lateinit var audioFocus: PulpAudioFocus
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.i(PulpApplication.LOG_TAG, "PulpActivity.onCreate")
+
+        audioFocus = PulpAudioFocus(this)
 
         if (PulpApplication.nativeLoaded) nativeOnForeground()
 
@@ -25,11 +30,14 @@ class PulpActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Request audio focus so the system doesn't mute our Oboe stream
+        audioFocus.requestFocus()
         if (PulpApplication.nativeLoaded) nativeOnForeground()
     }
 
     override fun onPause() {
         super.onPause()
+        audioFocus.abandonFocus()
         if (PulpApplication.nativeLoaded) nativeOnBackground()
     }
 

@@ -172,4 +172,24 @@ Java_com_pulp_PulpActivity_nativeOnDisplayChanged(
     }
 }
 
+// ── Audio Focus JNI Callbacks ─────────────────────────────────────────────
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_pulp_audio_PulpAudioFocus_nativeOnAudioFocusLost(JNIEnv*, jobject) {
+    PULP_LOGI("Audio focus lost");
+    // TODO: pause synth output
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_pulp_audio_PulpAudioFocus_nativeOnAudioFocusDuck(JNIEnv*, jobject) {
+    PULP_LOGI("Audio focus duck");
+    // TODO: reduce volume
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_pulp_audio_PulpAudioFocus_nativeOnAudioFocusGained(JNIEnv*, jobject) {
+    PULP_LOGI("Audio focus gained");
+    // TODO: resume synth output
+}
+
 #endif // __ANDROID__
