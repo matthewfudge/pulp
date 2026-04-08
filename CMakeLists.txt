@@ -362,7 +362,9 @@ else()
 endif()
 
 # ── Android NDK Support ───────────────────────────────────────────────────
-include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpAndroid.cmake)
+if(ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpAndroid.cmake)
+endif()
 
 # ── Core Subsystems ─────────────────────────────────────────────────────────
 # Order matters: dependencies first
