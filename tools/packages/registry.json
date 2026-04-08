@@ -2075,6 +2075,67 @@
         "build_status": {}
       }
     },
+    "rtmidi": {
+      "name": "RtMidi",
+      "version": "6.0.0",
+      "description": "Cross-platform MIDI I/O (legacy — prefer libremidi for new projects)",
+      "license": "MIT",
+      "category": "utilities",
+      "url": "https://github.com/thestk/rtmidi",
+      "fetch": {
+        "method": "FetchContent",
+        "git_repository": "https://github.com/thestk/rtmidi.git",
+        "git_tag": "6.0.0"
+      },
+      "cmake": {
+        "targets": [
+          "rtmidi"
+        ],
+        "header_only": false,
+        "include_dir": "."
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ]
+        }
+      },
+      "rt_safe": true,
+      "tags": [
+        "midi",
+        "io",
+        "ports",
+        "legacy"
+      ],
+      "provides": [
+        "midi-io",
+        "midi-ports"
+      ],
+      "overlaps_with_builtin": {},
+      "unique_value": "Established MIDI I/O library — useful for porting projects that already use RtMidi",
+      "alternatives": [
+        "libremidi (BSD-2, modern C++20, MIDI 2.0 — recommended for new projects)"
+      ],
+      "migration_notes": {},
+      "verification": {}
+    },
     "rtneural": {
       "name": "RTNeural",
       "version": "1fb1f075",
@@ -2580,6 +2641,81 @@
         "pulp_commit": "unknown",
         "build_status": {}
       }
+    },
+    "stk": {
+      "name": "STK (Synthesis ToolKit)",
+      "version": "5.0.1",
+      "description": "Physical modeling synthesis — waveguides, resonators, and instrument models",
+      "license": "MIT",
+      "category": "dsp",
+      "url": "https://github.com/thestk/stk",
+      "fetch": {
+        "method": "FetchContent",
+        "git_repository": "https://github.com/thestk/stk.git",
+        "git_tag": "5.0.1"
+      },
+      "cmake": {
+        "targets": [
+          "stk"
+        ],
+        "header_only": false,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ],
+          "notes": "Untested but pure C++"
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ],
+          "notes": "iOS folder in repo"
+        }
+      },
+      "rt_safe": false,
+      "rt_safe_notes": "Some instruments allocate at note-on",
+      "tags": [
+        "synthesis",
+        "physical-modeling",
+        "waveguide",
+        "instruments",
+        "academic"
+      ],
+      "provides": [
+        "physical-modeling",
+        "waveguide-synthesis",
+        "instrument-models"
+      ],
+      "overlaps_with_builtin": {
+        "feature": "signal/oscillator.hpp",
+        "note": "Basic oscillators overlap, but STK provides unique waveguide and physical modeling"
+      },
+      "unique_value": "Unique waveguide synthesis (strings, brass, woodwinds, percussion models) from CCRMA — not available in any other registry package",
+      "alternatives": [
+        "DaisySP (MIT, simpler physical modeling)"
+      ],
+      "migration_notes": {},
+      "verification": {}
     },
     "tinysoundfont": {
       "name": "TinySoundFont",
