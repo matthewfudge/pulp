@@ -363,6 +363,110 @@ mgr = SkFontMgr_New_Android(nullptr, SkFontScanner_Make_FreeType());
 
 Do NOT use `SkFontMgr_New_AndroidNDK` for API < 30 — it has locale API bugs on Android 10.
 
+### Safe Area Insets — Status Bar, Nav Bar, Notch
+
+Android surfaces render edge-to-edge. Content must account for system UI (status bar, navigation bar, display cutouts). Pass insets from Kotlin to C++ via JNI:
+
+```kotlin
+// Kotlin: read insets and pass to C++ as dp values
+ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+    val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+    nativeSetSafeAreaInsets(
+        bars.top / density, bars.bottom / density,
+        bars.left / density, bars.right / density
+    )
+    insets
+}
+```
+
+```cpp
+// C++: apply to root panel padding
+g_root_view->flex().padding_top = std::max(12.0f, safe_top + 4.0f);
+g_root_view->flex().padding_bottom = std::max(12.0f, safe_bottom + 4.0f);
+```
+
+Without this, content renders under the status bar. The `+4.0f` adds breathing room beyond the bare minimum.
+
+### Label Widget Text Not Rendering Under Nested Skia Graphite Clips
+
+`Label::paint()` calls `canvas.fill_text()` which works in isolation, but text doesn't appear when painted through the View hierarchy's nested `save/translate/clip_rect` stack on Skia Graphite + Vulkan. This is likely a Graphite-specific issue.
+
+**Workaround**: Draw section labels directly on the canvas after `paint_all()`:
+
+```cpp
+// After paint_all, draw labels at absolute dp coordinates
+canvas.set_fill_color(Color::rgba(205, 214, 244));
+canvas.set_font("sans-serif", 22);
+canvas.fill_text("PULP SYNTH", label_x, pad_top + 22);
+```
+
+Use spacer Panels in the flex layout to reserve vertical space for each label.
+
+### Desktop-Only Targets Must Be Guarded on Android
+
+CLI, MCP server, inspector, tests, and examples are desktop-only. Guard them in the root CMakeLists.txt:
+
+```cmake
+if(NOT ANDROID)
+    add_subdirectory(tools/cli)
+    add_subdirectory(tools/mcp)
+endif()
+
+if(PULP_BUILD_TESTS AND NOT ANDROID)
+    # ...tests...
+endif()
+
+if(PULP_BUILD_EXAMPLES AND NOT ANDROID)
+    add_subdirectory(examples)
+endif()
+```
+
+For libraries that conditionally link desktop-only targets (like `pulp-format` → `pulp::inspect`), use `if(NOT ANDROID)` guards rather than `if(TARGET ...)` since the target may not exist yet at configure time due to CMake ordering.
+
+### Dawn API Renames After Rebase
+
+Dawn regularly renames WebGPU types. After rebasing on main, watch for:
+- `ShaderModuleWGSLDescriptor` → `ShaderSourceWGSL`
+- `choc::value::ValueView` temporaries may not bind to non-const references — use `auto` (not `auto&`)
+
+### No posix_spawn — Also Affects View Code
+
+`posix_spawn` isn't just missing from platform code — view utilities like `ContentSharer` on the Linux `#else` fallback path also hit it. Guard with `#elif defined(__ANDROID__)` stubs:
+
+```cpp
+#elif defined(__ANDROID__)
+// Android: file sharing done via JNI/Intent — stub for now
+void ContentSharer::share_file(const std::filesystem::path&, void*) {}
+```
+
+## Oboe Audio Integration
+
+The demo synth uses Oboe with shared atomic parameters for lock-free UI → audio communication:
+
+```cpp
+// Shared params — written by UI thread, read by audio callback
+struct SynthParams {
+    std::atomic<float> osc_pitch{0.5f};
+    std::atomic<float> filter_cutoff{0.65f};
+    // ...
+};
+
+// UI sync (called each frame from render loop)
+static void sync_ui_to_synth() {
+    auto& p = synth_params();
+    p.osc_pitch.store(knob->value(), std::memory_order_relaxed);
+}
+
+// Audio callback (Oboe, lock-free)
+oboe::DataCallbackResult onAudioReady(...) {
+    float pitch = p.osc_pitch.load(std::memory_order_relaxed);
+    // ... generate audio ...
+}
+```
+
+Start audio after the render loop starts, stop before surface destroy.
+
 ## Known Blockers
 
 1. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
+2. **JS-scripted UI** — QuickJS compiles on Android but wiring ScriptedUiSession requires APK asset bundling and AAssetManager loading. Deferred to Phase 2.
