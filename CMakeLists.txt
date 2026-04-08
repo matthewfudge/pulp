@@ -496,8 +496,14 @@ if(ANDROID)
         log
     )
     # Ensure all static library symbols are included (needed for JNI registration)
-    target_link_options(pulp-jni PRIVATE -Wl,--whole-archive
-        $<TARGET_FILE:pulp-platform> -Wl,--no-whole-archive)
+    # Ensure JNI exports from static libs are included in the shared lib.
+    # Without --whole-archive, the linker strips "unused" JNI_OnLoad and
+    # Java_* functions since nothing in the .so itself references them.
+    target_link_options(pulp-jni PRIVATE
+        -Wl,--whole-archive
+        $<TARGET_FILE:pulp-platform>
+        $<TARGET_FILE:pulp-audio>
+        -Wl,--no-whole-archive)
 endif()
 
 # ── SDK Install Rules ──────────────────────────────────────────────────────
