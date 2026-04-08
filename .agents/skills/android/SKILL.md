@@ -348,10 +348,21 @@ advance_view_animations(g_root_view.get(), 1.0f);  // 1s snaps to target
 
 This is a workaround until AChoreographer provides a proper frame loop with real dt values.
 
+### SkFontMgr Requires a FreeType Scanner (Skia m132+)
+
+Since Skia m132, `SkFontMgr_New_Android` and `SkFontMgr_New_FontConfig` require a non-null `SkFontScanner`. Passing `nullptr` causes SIGSEGV when rasterizing glyphs (not during font manager creation — the crash is deferred to `drawSimpleText`).
+
+```cpp
+// WRONG — crashes in drawSimpleText
+mgr = SkFontMgr_New_Android(nullptr, nullptr);
+
+// RIGHT — pass a FreeType scanner
+#include "include/ports/SkFontScanner_FreeType.h"
+mgr = SkFontMgr_New_Android(nullptr, SkFontScanner_Make_FreeType());
+```
+
+Do NOT use `SkFontMgr_New_AndroidNDK` for API < 30 — it has locale API bugs on Android 10.
+
 ## Known Blockers
 
-1. **Text rendering crashes** — `fill_text()` / Labels crash on Android. Root cause: SkCanvas internal state mismatch from swapchain texture format. Fix requires ensuring Graphite backend texture info matches the Vulkan swapchain format exactly.
-
-2. **No continuous render loop** — Currently repaints only on touch. Need AChoreographer callback for smooth animation.
-
-3. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
+1. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
