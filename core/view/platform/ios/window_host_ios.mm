@@ -11,9 +11,15 @@
 
 // ── PulpRootView: UIView subclass that paints the View tree ─────────────────
 
+// Forward declaration from accessibility_ios.mm
+namespace pulp::view {
+NSArray<UIAccessibilityElement *>* create_accessibility_elements(View& root, UIView* container);
+}
+
 @interface PulpRootView : UIView {
     std::unordered_map<void*, int> _touchIdMap;
     int _nextTouchId;
+    NSArray<UIAccessibilityElement *>* _cachedAccessibilityElements;
 }
 @property (nonatomic, assign) pulp::view::View* rootView;
 @end
@@ -27,6 +33,7 @@
         self.multipleTouchEnabled = YES;
         self.contentMode = UIViewContentModeRedraw;
         _nextTouchId = 0;
+        _cachedAccessibilityElements = nil;
         [self setupHoverIfAvailable];
     }
     return self;
@@ -171,6 +178,33 @@
         self.rootView->simulate_hover({-1, -1});
     }
     [self setNeedsDisplay];
+}
+
+// ── UIAccessibilityContainer ────────────────────────────────────────────
+
+- (BOOL)isAccessibilityElement {
+    return NO;  // Container, not an element itself
+}
+
+- (NSArray *)accessibilityElements {
+    if (!_rootView) return @[];
+    // Rebuild on each query — VoiceOver caches this per focus change
+    _cachedAccessibilityElements = pulp::view::create_accessibility_elements(*_rootView, self);
+    return _cachedAccessibilityElements;
+}
+
+- (NSInteger)accessibilityElementCount {
+    return [[self accessibilityElements] count];
+}
+
+- (id)accessibilityElementAtIndex:(NSInteger)index {
+    NSArray* elements = [self accessibilityElements];
+    if (index >= 0 && index < (NSInteger)elements.count) return elements[index];
+    return nil;
+}
+
+- (NSInteger)indexOfAccessibilityElement:(id)element {
+    return [[self accessibilityElements] indexOfObject:element];
 }
 
 @end

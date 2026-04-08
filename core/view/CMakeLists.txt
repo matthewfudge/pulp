@@ -230,6 +230,7 @@ if(APPLE)
         target_sources(pulp-view PRIVATE
             platform/ios/window_host_ios.mm
             platform/ios/plugin_view_host_ios.mm
+            platform/ios/accessibility_ios.mm
         )
         target_link_libraries(pulp-view PRIVATE
             "-framework UIKit"
