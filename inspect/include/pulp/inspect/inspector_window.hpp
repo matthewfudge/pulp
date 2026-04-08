@@ -93,6 +93,9 @@ public:
     /// Called when a view is selected in the tree.
     std::function<void(View* view)> on_view_selected;
 
+    /// Select a view from external code (e.g., Cmd+click in plugin window)
+    void select_view(View* view);
+
 private:
     // ── Tab construction ────────────────────────────────────────────
     std::unique_ptr<View> build_elements_tab();

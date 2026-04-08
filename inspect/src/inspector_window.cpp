@@ -537,6 +537,11 @@ void InspectorWindow::populate_tree_from_view(TreeNode& parent, View* view) {
     }
 }
 
+void InspectorWindow::select_view(View* view) {
+    show_properties_for(view);
+    if (on_view_selected) on_view_selected(view);
+}
+
 void InspectorWindow::show_properties_for(View* view) {
     if (!view) return;
 
