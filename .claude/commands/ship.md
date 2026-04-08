@@ -1,21 +1,32 @@
 ---
 name: ship
 description: "Sign, package, notarize, and distribute Pulp plugins and apps across macOS, Windows, and Android. Handles code signing (codesign, signtool, apksigner), Apple notarization, installers (.pkg, NSIS, APK, AAB), Sparkle appcast feeds, and signing status checks."
+allowed-tools:
+  - Read
+  - Bash
+  - Glob
+  - Grep
+  - AskUserQuestion
 ---
 
 Ship a Pulp plugin or app — sign, notarize, package, and generate update feeds.
 
 ## Before running any ship command
 
-Check prerequisites for the target platform:
+1. Run `pulp config show` to check saved credentials.
+2. If no config exists, use AskUserQuestion to offer setup:
+   - "No signing config found. Would you like to set up signing credentials now?"
+   - Options: "Yes, set up macOS signing" / "Yes, set up Android signing" / "Skip for now"
+   - If yes, walk through `pulp config set` for each required field.
 
-**macOS:** Run `security find-identity -v -p codesigning` to verify signing identity exists. Check `pulp config show` for saved credentials.
+3. Check prerequisites for the target platform:
+   - **macOS:** Run `security find-identity -v -p codesigning` to verify identity exists.
+   - **Android:** Verify `ANDROID_HOME` is set. Verify keystore file exists. Verify `android/` Gradle project exists.
+   - **Windows:** Verify signing certificate is installed. Verify NSIS is on PATH.
 
-**Android:** Verify `ANDROID_HOME` is set (`pulp doctor` checks this). Verify keystore file exists. Verify `android/` Gradle project exists.
-
-**Windows:** Verify signing certificate is installed. Verify NSIS is on PATH for packaging.
-
-If credentials are missing, the CLI shows rich error messages with setup guidance. Credentials can be saved globally via `pulp config set` so they carry across projects.
+4. If prerequisites are missing, use AskUserQuestion to offer solutions:
+   - "Android SDK not found. Would you like help setting it up?"
+   - Options: "Show install instructions" / "I'll set it up myself" / "Skip Android"
 
 ## Standard workflow order
 
@@ -75,6 +86,55 @@ pulp config set signing.apple.team_id "ABCDE12345"
 pulp config set signing.android.keystore "~/keystores/release.jks"
 pulp config show                    # Show current values
 ```
+
+## Interactive review pattern
+
+Before executing destructive or external actions (signing, notarizing, uploading), show a summary of what will happen and use AskUserQuestion to confirm:
+
+```
+Ready to sign 3 bundles with:
+  Identity: Developer ID Application: Dan Raffel (ABCDE12345)  (from: config.toml)
+  Bundles:  PulpGain.vst3, PulpGain.clap, PulpGain.component
+
+Proceed?
+  - Yes, sign all
+  - Edit signing identity first
+  - Cancel
+```
+
+If the user chooses "Edit signing identity first", show the current value and let them provide a new one, then offer to save it with `pulp config set`.
+
+Similarly for notarize:
+```
+Ready to notarize 3 bundles:
+  Apple ID: dan@example.com  (from: config.toml)
+  Team ID:  ABCDE12345       (from: config.toml)
+  Password: @keychain:AC_PASSWORD
+
+Proceed?
+  - Yes, submit for notarization
+  - Edit credentials first
+  - Cancel
+```
+
+And for Android packaging:
+```
+Ready to build Android package:
+  Gradle project: android/
+  ABIs: arm64-v8a (phones + tablets)
+  Signing: debug (no keystore configured)
+
+Proceed?
+  - Yes, build with debug signing
+  - Set up release keystore first
+  - Cancel
+```
+
+This "show then confirm" pattern applies to:
+- `pulp ship sign` — show identity/keystore and bundles
+- `pulp ship notarize` — show credentials and bundles
+- `pulp ship package` — show target, version, and signing mode
+- `pulp ship package --target android` — show ABIs, keystore, Gradle project
 
 Run the appropriate subcommand based on $ARGUMENTS. If no arguments, show signing status first with `pulp ship check`, then suggest the next step in the workflow.
 
