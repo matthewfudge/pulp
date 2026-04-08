@@ -1654,7 +1654,9 @@
       "verification": {
         "last_verified": "2026-04-07",
         "status": "metadata-only"
-      }
+      },
+      "license_requires_acceptance": true,
+      "license_note": "FDK AAC license is permissive for code but AAC patents may apply. Check your distribution model before shipping."
     },
     "libflac": {
       "name": "FLAC",
