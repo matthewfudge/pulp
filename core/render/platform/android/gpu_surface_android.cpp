@@ -32,11 +32,16 @@ static std::unique_ptr<GpuSurface> g_gpu_surface;
 static std::unique_ptr<SkiaSurface> g_skia_surface;
 static std::unique_ptr<view::View> g_root_view;
 
-static void create_demo_view_hierarchy(float width, float height) {
+static void create_demo_view_hierarchy(float width, float height, float density) {
     using namespace view;
 
+    // Scale coordinates to density-independent pixels
+    float dp_w = width / density;
+    float dp_h = height / density;
+
     g_root_view = std::make_unique<Panel>();
-    g_root_view->set_bounds({0, 0, width, height});
+    g_root_view->set_bounds({0, 0, dp_w, dp_h});
+    g_root_view->set_theme(Theme::dark());
     g_root_view->flex().padding = 20;
 
     // Title label

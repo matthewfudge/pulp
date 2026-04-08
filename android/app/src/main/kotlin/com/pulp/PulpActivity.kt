@@ -10,16 +10,14 @@ import com.pulp.render.PulpSurfaceView
 
 class PulpActivity : ComponentActivity() {
 
-    private var surfaceView: PulpSurfaceView? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.i(PulpApplication.LOG_TAG, "PulpActivity.onCreate")
 
         if (PulpApplication.nativeLoaded) nativeOnForeground()
 
-        // Fullscreen Pulp rendering surface — replaces Compose UI
-        surfaceView = PulpSurfaceView(this)
+        // Fullscreen Pulp rendering surface
+        val surfaceView = PulpSurfaceView(this)
         val frame = FrameLayout(this)
         frame.addView(surfaceView)
         setContentView(frame)
@@ -63,7 +61,6 @@ class PulpActivity : ComponentActivity() {
         if (PulpApplication.nativeLoaded) nativeOnMemoryPressure(pressureLevel)
     }
 
-    // Native methods
     private external fun nativeOnForeground()
     private external fun nativeOnBackground()
     private external fun nativeOnShutdown()
@@ -71,12 +68,3 @@ class PulpActivity : ComponentActivity() {
     private external fun nativeOnDisplayChanged(w: Int, h: Int, density: Float, dark: Boolean)
     external fun nativeOnPermissionResult(permission: Int, granted: Boolean)
 }
-
-// Tone generator native interface (still available)
-private external fun nativeStartTone(frequencyHz: Float)
-private external fun nativeStopTone()
-private external fun nativeSetFrequency(frequencyHz: Float)
-private external fun nativeIsPlaying(): Boolean
-private external fun nativeGetSampleRate(): Int
-private external fun nativeGetBufferSize(): Int
-private external fun nativeGetXrunCount(): Long
