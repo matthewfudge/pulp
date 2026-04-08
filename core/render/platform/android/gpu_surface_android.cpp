@@ -78,6 +78,19 @@ static std::unique_ptr<view::Fader> make_fader(float value, float height) {
     return fader;
 }
 
+// Recursively advance animations on all widgets in the hierarchy.
+// Without a continuous render loop (AChoreographer), this is called before each
+// paint with a large dt to snap animations to completion on touch-triggered repaints.
+static void advance_view_animations(view::View* v, float dt) {
+    if (!v) return;
+    // Try each widget type that has advance_animations
+    if (auto* k = dynamic_cast<view::Knob*>(v))   { k->advance_animations(dt); }
+    if (auto* f = dynamic_cast<view::Fader*>(v))   { f->advance_animations(dt); }
+    if (auto* t = dynamic_cast<view::Toggle*>(v))  { t->advance_animations(dt); }
+    for (size_t i = 0; i < v->child_count(); ++i)
+        advance_view_animations(v->child_at(i), dt);
+}
+
 static void create_demo_view_hierarchy(float width, float height) {
     using namespace view;
 
@@ -89,19 +102,15 @@ static void create_demo_view_hierarchy(float width, float height) {
     g_root_view->set_theme(Theme::dark());
     g_root_view->flex().padding = 12;
 
-    // ── Oscillator section: 4 knobs (Pitch, Shape, PW, Detune) ──────
-    auto osc_section = std::make_unique<Panel>();
-    osc_section->flex().margin_top = 4;
+    // ── Oscillator: 4 knobs directly in a row ────────────────────────
     auto osc_knobs = make_knob_row({0.5f, 0.3f, 0.5f, 0.15f}, 48, 56);
-    osc_section->flex().preferred_height = 60;
-    osc_section->add_child(std::move(osc_knobs));
-    // layout_children() called on root only — it recurses
-    g_root_view->add_child(std::move(osc_section));
+    osc_knobs->flex().margin_top = 4;
+    g_root_view->add_child(std::move(osc_knobs));
 
-    // ── Toggle row (Osc 1 / Osc 2 / Sub / Noise) ────────────────────
+    // ── Toggle row: 4 toggles directly in root ──────────────────────
     auto toggle_row = std::make_unique<Panel>();
     toggle_row->flex().direction = FlexDirection::row;
-    toggle_row->flex().preferred_height = 32;
+    toggle_row->flex().preferred_height = 36;
     toggle_row->flex().margin_top = 8;
     toggle_row->flex().justify_content = FlexJustify::space_evenly;
     toggle_row->flex().align_items = FlexAlign::center;
@@ -109,73 +118,53 @@ static void create_demo_view_hierarchy(float width, float height) {
     for (int i = 0; i < 4; ++i) {
         auto toggle = std::make_unique<Toggle>();
         toggle->set_on(toggle_states[i]);
-        toggle->flex().preferred_width = 44;
-        toggle->flex().preferred_height = 24;
+        toggle->flex().preferred_width = 48;
+        toggle->flex().preferred_height = 28;
         toggle_row->add_child(std::move(toggle));
     }
     g_root_view->add_child(std::move(toggle_row));
 
-    // ── XY Pad (filter cutoff × resonance) ──────────────────────────
+    // ── XY Pad ──────────────────────────────────────────────────────
     auto xy = std::make_unique<XYPad>();
     xy->set_x(0.65f);
     xy->set_y(0.35f);
-    xy->flex().preferred_height = 140;
-    xy->flex().margin_top = 12;
+    xy->flex().preferred_height = 120;
+    xy->flex().margin_top = 10;
     xy->flex().margin_left = 8;
     xy->flex().margin_right = 8;
     g_root_view->add_child(std::move(xy));
 
-    // ── Filter section: 3 knobs (Cutoff, Res, Env Amt) ──────────────
-    auto filter_section = std::make_unique<Panel>();
-    filter_section->flex().margin_top = 10;
+    // ── Filter: 3 knobs directly in a row ───────────────────────────
     auto filter_knobs = make_knob_row({0.65f, 0.35f, 0.5f}, 44, 52);
-    filter_section->flex().preferred_height = 56;
-    filter_section->add_child(std::move(filter_knobs));
-    // root layout_children() handles this
-    g_root_view->add_child(std::move(filter_section));
+    filter_knobs->flex().margin_top = 10;
+    g_root_view->add_child(std::move(filter_knobs));
 
-    // ── Envelope knobs (A, D, S, R) ─────────────────────────────────
-    auto env_section = std::make_unique<Panel>();
-    env_section->flex().margin_top = 8;
+    // ── Envelope: 4 ADSR knobs directly in a row ────────────────────
     auto env_knobs = make_knob_row({0.05f, 0.3f, 0.7f, 0.4f}, 40, 48);
-    env_section->flex().preferred_height = 52;
-    env_section->add_child(std::move(env_knobs));
-    // root layout_children() handles this
-    g_root_view->add_child(std::move(env_section));
+    env_knobs->flex().margin_top = 8;
+    g_root_view->add_child(std::move(env_knobs));
 
-    // ── Mixer faders (Osc1 Vol, Osc2 Vol, Sub, Noise) ──────────────
-    auto mixer = std::make_unique<Panel>();
-    mixer->flex().margin_top = 10;
-    mixer->flex().preferred_height = 100;
-
+    // ── Mixer: 4 horizontal faders stacked vertically ───────────────
     float fader_values[] = {0.75f, 0.6f, 0.4f, 0.2f};
     for (int i = 0; i < 4; ++i) {
-        auto f = make_fader(fader_values[i], 20);
-        f->flex().margin_top = (i == 0) ? 4 : 2;
-        mixer->add_child(std::move(f));
+        auto f = make_fader(fader_values[i], 22);
+        f->flex().margin_top = (i == 0) ? 10 : 4;
+        g_root_view->add_child(std::move(f));
     }
-    // root layout_children() handles this
-    g_root_view->add_child(std::move(mixer));
 
-    // ── Output meter + master fader ─────────────────────────────────
-    auto output_section = std::make_unique<Panel>();
-    output_section->flex().margin_top = 10;
-    output_section->flex().preferred_height = 56;
+    // ── Master fader ────────────────────────────────────────────────
+    auto master_fader = make_fader(0.8f, 26);
+    master_fader->flex().margin_top = 12;
+    g_root_view->add_child(std::move(master_fader));
 
-    auto master_fader = make_fader(0.8f, 24);
-    master_fader->flex().margin_top = 4;
-    output_section->add_child(std::move(master_fader));
-
+    // ── Output meter (read-only audio level display) ────────────────
     auto meter = std::make_unique<Meter>();
     meter->set_level(-8.0f, -3.0f);
     meter->flex().preferred_height = 20;
-    meter->flex().margin_top = 4;
+    meter->flex().margin_top = 6;
     meter->flex().margin_left = 8;
     meter->flex().margin_right = 8;
-    output_section->add_child(std::move(meter));
-
-    // root layout_children() handles this
-    g_root_view->add_child(std::move(output_section));
+    g_root_view->add_child(std::move(meter));
 
     g_root_view->layout_children();
     PULP_LOGI("Android GPU surface: Synth UI created (%d children, %.0fx%.0f dp)",
@@ -271,6 +260,10 @@ void android_render_frame() {
                 if (!g_root_view) {
                     create_demo_view_hierarchy(w, h);
                 }
+
+                // Advance animations for all widgets (no continuous render loop yet,
+                // so snap to completion with a large dt)
+                advance_view_animations(g_root_view.get(), 1.0f);
 
                 // SkiaSurface applies display density scaling internally
                 g_root_view->paint_all(*canvas);
