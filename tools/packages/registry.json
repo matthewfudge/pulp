@@ -976,6 +976,80 @@
         "build_status": {}
       }
     },
+    "rnnoise": {
+      "name": "RNNoise",
+      "version": "v0.2",
+      "description": "Neural network noise suppression for voice",
+      "license": "BSD-3-Clause",
+      "category": "dsp",
+      "url": "https://github.com/xiph/rnnoise",
+      "fetch": {
+        "method": "FetchContent",
+        "git_repository": "https://github.com/xiph/rnnoise.git",
+        "git_tag": "v0.2"
+      },
+      "cmake": {
+        "targets": [
+          "rnnoise"
+        ],
+        "header_only": false,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ]
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ]
+        }
+      },
+      "rt_safe": true,
+      "tags": [
+        "noise-suppression",
+        "voice",
+        "neural-network",
+        "real-time"
+      ],
+      "provides": [
+        "noise-suppression",
+        "voice-enhancement"
+      ],
+      "overlaps_with_builtin": {},
+      "unique_value": "Purpose-built neural noise suppression — removes keyboard, HVAC, crowd noise in real time",
+      "alternatives": [
+        "SpeexDSP (BSD-3, traditional AEC/NS — less effective but lighter)"
+      ],
+      "migration_notes": {},
+      "verification": {
+        "last_verified": "2026-04-07",
+        "verified_version": "v0.2",
+        "upstream_commit": "unknown",
+        "upstream_latest": "v0.2",
+        "pulp_commit": "unknown",
+        "build_status": {}
+      }
+    },
     "rubber-band": {
       "name": "Rubber Band",
       "version": "v3.3.0",
@@ -1304,6 +1378,215 @@
         "build_status": {}
       }
     },
+    "miniaudio": {
+      "name": "miniaudio",
+      "version": "0.11.21",
+      "description": "Single-header audio playback, capture, and device I/O",
+      "license": "MIT-0",
+      "category": "audio-io",
+      "url": "https://github.com/mackron/miniaudio",
+      "fetch": {
+        "method": "header-only",
+        "git_repository": "https://github.com/mackron/miniaudio.git",
+        "git_tag": "0.11.21"
+      },
+      "cmake": {
+        "targets": [
+          "miniaudio"
+        ],
+        "header_only": true,
+        "include_dir": "."
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ],
+          "ndk_compatible": true,
+          "min_api": 27
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ],
+          "min_version": "15.0"
+        }
+      },
+      "rt_safe": false,
+      "tags": [
+        "device-io",
+        "playback",
+        "capture",
+        "audio-backend",
+        "cross-platform"
+      ],
+      "provides": [
+        "audio-device-io",
+        "playback",
+        "capture"
+      ],
+      "overlaps_with_builtin": {},
+      "unique_value": "Complete audio device layer for mobile — Core Audio on iOS, AAudio on Android, single-header",
+      "alternatives": [
+        "Oboe (Apache-2.0, Android-only)"
+      ],
+      "migration_notes": {},
+      "verification": {
+        "last_verified": "2026-04-07",
+        "verified_version": "0.11.21",
+        "upstream_commit": "unknown",
+        "upstream_latest": "0.11.21",
+        "pulp_commit": "unknown",
+        "build_status": {}
+      }
+    },
+    "oboe": {
+      "name": "Oboe",
+      "version": "1.9.0",
+      "description": "Google's Android low-latency audio library",
+      "license": "Apache-2.0",
+      "category": "audio-io",
+      "url": "https://github.com/google/oboe",
+      "fetch": {
+        "method": "FetchContent",
+        "git_repository": "https://github.com/google/oboe.git",
+        "git_tag": "1.9.0"
+      },
+      "cmake": {
+        "targets": [
+          "oboe"
+        ],
+        "header_only": false,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ],
+          "ndk_compatible": true,
+          "min_api": 16
+        }
+      },
+      "rt_safe": true,
+      "tags": [
+        "android",
+        "low-latency",
+        "aaudio",
+        "opensl"
+      ],
+      "provides": [
+        "android-audio-device"
+      ],
+      "overlaps_with_builtin": {},
+      "unique_value": "Google-maintained Android audio with automatic AAudio/OpenSL selection for lowest latency",
+      "alternatives": [
+        "miniaudio (MIT-0, cross-platform but less Android-optimized)"
+      ],
+      "migration_notes": {},
+      "verification": {
+        "last_verified": "2026-04-07",
+        "verified_version": "1.9.0",
+        "upstream_commit": "unknown",
+        "upstream_latest": "1.9.0",
+        "pulp_commit": "unknown",
+        "build_status": {}
+      }
+    },
+    "opus": {
+      "name": "Opus",
+      "version": "v1.5.2",
+      "description": "IETF standard low-latency audio codec (6-510 kbps)",
+      "license": "BSD-3-Clause",
+      "category": "audio-io",
+      "url": "https://github.com/xiph/opus",
+      "fetch": {
+        "method": "FetchContent",
+        "git_repository": "https://github.com/xiph/opus.git",
+        "git_tag": "v1.5.2"
+      },
+      "cmake": {
+        "targets": [
+          "opus"
+        ],
+        "header_only": false,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ]
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ]
+        }
+      },
+      "rt_safe": true,
+      "tags": [
+        "codec",
+        "voice",
+        "streaming",
+        "voip",
+        "low-latency"
+      ],
+      "provides": [
+        "audio-codec",
+        "opus-encode",
+        "opus-decode"
+      ],
+      "overlaps_with_builtin": {},
+      "unique_value": "The standard audio codec for streaming, VOIP, and WebRTC — patent-free, royalty-free",
+      "alternatives": [],
+      "migration_notes": {},
+      "verification": {
+        "last_verified": "2026-04-07",
+        "verified_version": "v1.5.2",
+        "upstream_commit": "unknown",
+        "upstream_latest": "v1.5.2",
+        "pulp_commit": "unknown",
+        "build_status": {}
+      }
+    },
     "soundtouch": {
       "name": "SoundTouch",
       "version": "2.4.0",
@@ -1380,6 +1663,83 @@
         "verified_version": "2.4.0",
         "upstream_commit": "unknown",
         "upstream_latest": "2.4.0",
+        "pulp_commit": "unknown",
+        "build_status": {}
+      }
+    },
+    "tinysoundfont": {
+      "name": "TinySoundFont",
+      "version": "master",
+      "description": "Single-header SoundFont2 synthesizer for MIDI playback",
+      "license": "MIT",
+      "category": "dsp",
+      "url": "https://github.com/schellingb/TinySoundFont",
+      "fetch": {
+        "method": "header-only",
+        "git_repository": "https://github.com/schellingb/TinySoundFont.git",
+        "git_tag": "master"
+      },
+      "cmake": {
+        "targets": [
+          "tinysoundfont"
+        ],
+        "header_only": true,
+        "include_dir": "."
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ]
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ]
+        }
+      },
+      "rt_safe": false,
+      "tags": [
+        "soundfont",
+        "sf2",
+        "midi",
+        "synthesizer",
+        "general-midi"
+      ],
+      "provides": [
+        "soundfont-synthesis",
+        "sf2-playback",
+        "midi-synthesis"
+      ],
+      "overlaps_with_builtin": {},
+      "unique_value": "MIT-licensed SF2 synthesis — mobile-friendly alternative to FluidSynth (LGPL)",
+      "alternatives": [
+        "FluidSynth (LGPL-2.1, full-featured but heavy deps)"
+      ],
+      "migration_notes": {},
+      "verification": {
+        "last_verified": "2026-04-07",
+        "verified_version": "master",
+        "upstream_commit": "unknown",
+        "upstream_latest": "master",
         "pulp_commit": "unknown",
         "build_status": {}
       }
@@ -1532,6 +1892,81 @@
         "verified_version": "6.0.2",
         "upstream_commit": "unknown",
         "upstream_latest": "6.0.2",
+        "pulp_commit": "unknown",
+        "build_status": {}
+      }
+    },
+    "kissfft": {
+      "name": "KissFFT",
+      "version": "131.1.0",
+      "description": "Portable FFT for any size — not just power-of-two",
+      "license": "BSD-3-Clause",
+      "category": "dsp",
+      "url": "https://github.com/mborgerding/kissfft",
+      "fetch": {
+        "method": "FetchContent",
+        "git_repository": "https://github.com/mborgerding/kissfft.git",
+        "git_tag": "131.1.0"
+      },
+      "cmake": {
+        "targets": [
+          "kissfft"
+        ],
+        "header_only": false,
+        "include_dir": "."
+      },
+      "platforms": {
+        "macOS": {
+          "architectures": [
+            "arm64"
+          ]
+        },
+        "Windows": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Linux": {
+          "architectures": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "Android": {
+          "architectures": [
+            "arm64-v8a",
+            "x86_64"
+          ]
+        },
+        "iOS": {
+          "architectures": [
+            "arm64"
+          ]
+        }
+      },
+      "rt_safe": true,
+      "tags": [
+        "fft",
+        "portable",
+        "arbitrary-size"
+      ],
+      "provides": [
+        "fft"
+      ],
+      "overlaps_with_builtin": {
+        "signal/fft.hpp": "FFT"
+      },
+      "unique_value": "Arbitrary-size FFT (not limited to power-of-two like PFFFT)",
+      "alternatives": [
+        "PFFFT (BSD-3, SIMD-optimized but power-of-two only)"
+      ],
+      "migration_notes": {},
+      "verification": {
+        "last_verified": "2026-04-07",
+        "verified_version": "131.1.0",
+        "upstream_commit": "unknown",
+        "upstream_latest": "131.1.0",
         "pulp_commit": "unknown",
         "build_status": {}
       }

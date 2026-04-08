@@ -619,6 +619,11 @@ int cmd_add(const std::vector<std::string>& args) {
         }
     }
     if (verdict == LicenseVerdict::rejected && license_override) {
+        // Validate --accept-license matches the actual package license
+        if (!accepted_license.empty() && accepted_license != pkg.license) {
+            print_fail("--accept-license " + accepted_license + " does not match package license " + pkg.license);
+            return 1;
+        }
         print_warn("Installing " + pkg.license + " package — your distributed binary must comply with " + pkg.license);
     }
     if (verdict == LicenseVerdict::review_required) {
