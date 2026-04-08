@@ -17,11 +17,12 @@ DEFAULT_TARGET = "cpp"
 SUPPORTED_TARGETS = (
     "cpp",
     "clap",
-    "juce",
     "javascript",
     "webaudio",
     "webaudio-html",
 )
+# Note: cmaj also supports --target juce, but JUCE output is not
+# relevant for Pulp projects. Use "cpp" for Pulp integration.
 
 
 class CmajorExternalError(RuntimeError):
