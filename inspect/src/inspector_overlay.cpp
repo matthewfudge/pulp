@@ -35,9 +35,15 @@ InspectorOverlay::InspectorOverlay(View& root) : root_(root) {}
 
 void install_inspector_hooks(InspectorOverlay& inspector) {
     g_active_inspector = &inspector;
-    // Install paint hook via function pointer — no circular dependency
+    // Install all hooks via function pointers — no circular dependency
     View::set_inspector_paint_hook([&inspector](Canvas& canvas) {
         inspector.paint(canvas);
+    });
+    View::set_inspector_key_hook([&inspector](const KeyEvent& e) -> bool {
+        return inspector.handle_key_event(e);
+    });
+    View::set_inspector_mouse_hook([&inspector](const MouseEvent& e) -> bool {
+        return inspector.handle_mouse_event(e);
     });
 }
 

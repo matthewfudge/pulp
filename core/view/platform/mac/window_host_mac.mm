@@ -5,7 +5,6 @@
 #include <pulp/view/ui_components.hpp>
 #include <pulp/view/text_editor.hpp>
 #include <pulp/view/modal.hpp>
-#include <pulp/inspect/inspector_overlay.hpp>
 
 #include <TargetConditionals.h>
 #if TARGET_OS_OSX
@@ -311,17 +310,15 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
             auto pt = [self localPoint:event];
 
         // Inspector intercept — consume clicks when inspector is active
-        if (auto* inspector = pulp::inspect::g_active_inspector) {
-            if (inspector->is_active()) {
-                auto mods = modifiersFromNSFlags(event.modifierFlags);
-                pulp::view::MouseEvent me;
-                me.position = {pt.x, pt.y};
-                me.modifiers = mods;
-                me.is_down = true;
-                if (inspector->handle_mouse_event(me)) {
-                    [self setNeedsDisplay:YES];
-                    return;
-                }
+        {
+            auto mods = modifiersFromNSFlags(event.modifierFlags);
+            pulp::view::MouseEvent me;
+            me.position = {pt.x, pt.y};
+            me.modifiers = mods;
+            me.is_down = true;
+            if (pulp::view::View::call_inspector_mouse_hook(me)) {
+                [self setNeedsDisplay:YES];
+                return;
             }
         }
 
@@ -492,13 +489,13 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
             auto mods = modifiersFromNSFlags(event.modifierFlags);
 
         // Inspector intercept — check before all other key handling
-        if (auto* inspector = pulp::inspect::g_active_inspector) {
+        {
             pulp::view::KeyEvent ike;
             ike.key = key;
             ike.modifiers = mods;
             ike.is_down = true;
             ike.is_repeat = event.isARepeat;
-            if (inspector->handle_key_event(ike)) {
+            if (pulp::view::View::call_inspector_key_hook(ike)) {
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -660,15 +657,12 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
             auto pt = [self localPoint:event];
 
             // Inspector hover intercept
-            if (auto* inspector = pulp::inspect::g_active_inspector) {
-                if (inspector->is_active()) {
-                    pulp::view::MouseEvent me;
-                    me.position = {pt.x, pt.y};
-                    me.is_down = false;
-                    inspector->handle_mouse_event(me);
-                    [self setNeedsDisplay:YES];
-                    // Don't return — let normal hover handling continue for cursor changes
-                }
+            {
+                pulp::view::MouseEvent me;
+                me.position = {pt.x, pt.y};
+                me.is_down = false;
+                pulp::view::View::call_inspector_mouse_hook(me);
+                // Don't consume — let normal hover handling continue for cursor changes
             }
 
             if (pulp::view::ComboBox::active_popup_) {
