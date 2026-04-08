@@ -50,10 +50,26 @@ class PulpSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
     // ── Surface Lifecycle ─────────────────────────────────────────────────
 
+    private var renderThread: Thread? = null
+
     override fun surfaceCreated(holder: SurfaceHolder) {
-        Log.i(TAG, "surfaceCreated")
+        Log.i(TAG, "surfaceCreated — launching GPU init on render thread")
         if (PulpApplication.nativeLoaded) {
-            nativeOnSurfaceCreated(holder.surface)
+            // Run Dawn/Skia initialization on a dedicated thread to avoid ANR.
+            // Dawn shader compilation takes 10-15 seconds on the emulator.
+            // The render thread becomes the owner of the GPU context and
+            // AChoreographer render loop.
+            initComplete = false
+            renderThread = Thread({
+                Log.i(TAG, "Render thread started")
+                android.os.Looper.prepare()  // AChoreographer needs a Looper
+                renderLooper = android.os.Looper.myLooper()
+                nativeOnSurfaceCreated(holder.surface)
+                initComplete = true
+                Log.i(TAG, "Dawn init complete, entering Looper for choreographer callbacks")
+                android.os.Looper.loop()     // Blocks — processes AChoreographer callbacks
+                Log.i(TAG, "Render thread Looper exited")
+            }, "PulpRenderThread").also { it.start() }
         }
     }
 
@@ -64,14 +80,33 @@ class PulpSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         }
     }
 
+    @Volatile private var renderLooper: android.os.Looper? = null
+    @Volatile private var initComplete = false
+
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        // CRITICAL: This must block until the C++ render thread has fully stopped.
-        // Returning before the render thread releases the surface → SIGSEGV.
-        Log.i(TAG, "surfaceDestroyed: waiting for render thread to stop...")
-        if (PulpApplication.nativeLoaded) {
-            nativeOnSurfaceDestroyed()  // synchronous — uses condition_variable
+        Log.i(TAG, "surfaceDestroyed (initComplete=$initComplete)")
+        if (!initComplete) {
+            // Dawn is still initializing on the render thread.
+            // Don't block — just let the render thread finish and discover
+            // the surface is gone on its next frame attempt.
+            Log.i(TAG, "surfaceDestroyed during init — not blocking")
+            return
         }
-        Log.i(TAG, "surfaceDestroyed: render thread confirmed stopped")
+        if (PulpApplication.nativeLoaded) {
+            nativeOnSurfaceDestroyed()
+        }
+        renderLooper?.quitSafely()
+        renderThread?.let { thread ->
+            try {
+                thread.join(5000)
+            } catch (e: InterruptedException) {
+                Log.w(TAG, "Interrupted waiting for render thread")
+            }
+            renderThread = null
+            renderLooper = null
+        }
+        initComplete = false
+        Log.i(TAG, "surfaceDestroyed: render thread stopped")
     }
 
     // ── Touch Input ───────────────────────────────────────────────────────

@@ -25,6 +25,7 @@
 #include <memory>
 #include <chrono>
 #include <cmath>
+#include <thread>
 
 #define PULP_LOG_TAG "Pulp"
 #define PULP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, PULP_LOG_TAG, __VA_ARGS__)
@@ -539,7 +540,15 @@ void android_surface_created(ANativeWindow* window) {
     g_native_window = window;
     ANativeWindow_acquire(g_native_window);
 
-    // Create and initialize Dawn GPU surface
+    // Start audio immediately — user hears sound while GPU initializes
+    if (!demo::synth_is_playing()) {
+        demo::synth_start();
+    }
+
+    // Dawn initialization is slow (10-15s on emulator, ~2s on device).
+    // Runs on main thread because AChoreographer requires the thread's Looper,
+    // and Dawn/Skia contexts must be used from the thread that created them.
+    // The Kotlin Activity disables the ANR timeout during this phase.
     g_gpu_surface = GpuSurface::create_dawn();
     if (!g_gpu_surface) {
         PULP_LOGE("Android GPU surface: failed to create Dawn GpuSurface");
@@ -560,11 +569,10 @@ void android_surface_created(ANativeWindow* window) {
         PULP_LOGI("Android GPU surface: adapter=%s backend=%s",
                   info.name.c_str(), info.backend.c_str());
 
-        // Create Skia Graphite surface wrapping the Dawn device
         SkiaSurface::Config skia_config;
         skia_config.width = config.width;
         skia_config.height = config.height;
-        skia_config.scale_factor = g_display_density;  // SkiaSurface applies this internally
+        skia_config.scale_factor = g_display_density;
 
         g_skia_surface = SkiaSurface::create(*g_gpu_surface, skia_config);
         if (g_skia_surface && g_skia_surface->is_available()) {
@@ -579,14 +587,8 @@ void android_surface_created(ANativeWindow* window) {
             g_render_stopped = false;
         }
 
-        // Render an initial frame and start the continuous render loop
         android_render_frame();
         start_render_loop();
-
-        // Start audio synthesis
-        if (!demo::synth_is_playing()) {
-            demo::synth_start();
-        }
     } else {
         PULP_LOGW("Android GPU surface: Dawn initialization failed — no GPU rendering");
         g_gpu_surface.reset();
@@ -727,8 +729,7 @@ void android_touch_down(int pointer_id, float px_x, float px_y, float pressure) 
         target->on_mouse_down(local);
         g_captured_view = target;
     }
-
-    android_render_frame();
+    // No explicit render_frame() — AChoreographer loop renders at VSYNC
 }
 
 void android_touch_move(int pointer_id, float px_x, float px_y, float pressure) {
@@ -739,8 +740,6 @@ void android_touch_move(int pointer_id, float px_x, float px_y, float pressure) 
 
     auto local = to_local(g_captured_view, dp_x, dp_y);
     g_captured_view->on_mouse_drag(local);
-
-    android_render_frame();
 }
 
 void android_touch_up(int pointer_id, float px_x, float px_y) {
@@ -750,14 +749,10 @@ void android_touch_up(int pointer_id, float px_x, float px_y) {
     float dp_y = px_y / g_display_density;
 
     auto local = to_local(g_captured_view, dp_x, dp_y);
-    // Dispatch rich event (Fader clears dragging_ on is_down=false)
     auto ev = make_touch_event(local, {dp_x, dp_y}, pointer_id, 0.0f, false);
     g_captured_view->on_mouse_event(ev);
-    // Dispatch legacy event
     g_captured_view->on_mouse_up(local);
     g_captured_view = nullptr;
-
-    android_render_frame();
 }
 
 void android_surface_destroyed() {
