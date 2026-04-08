@@ -241,27 +241,6 @@ void SkiaCanvas::set_text_align(TextAlign align) {
     text_align_ = align;
 }
 
-// Thread-local cached shaper — HarfBuzz keeps a mutable hb_buffer_t per
-// instance, so sharing across threads is unsafe. thread_local ensures each
-// render thread gets its own shaper instance.
-static SkShaper* get_shaper() {
-    thread_local std::unique_ptr<SkShaper> shaper;
-    if (!shaper) {
-        auto mgr = get_font_manager();
-        shaper = SkShaper::Make(mgr);  // HarfBuzz when available, else primitive
-        if (!shaper) shaper = SkShaper::MakePrimitive();
-    }
-    return shaper.get();
-}
-
-// Shape text and return total advance width (for measure_text consistency)
-static float shape_and_measure(SkShaper* shaper, const std::string& text,
-                                const SkFont& font) {
-    SkTextBlobBuilderRunHandler handler(text.c_str(), {0, 0});
-    shaper->shape(text.c_str(), text.size(), font, true, FLT_MAX, &handler);
-    return handler.endPoint().fX;
-}
-
 void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     GUARD_CANVAS;
     if (text.empty()) return;
@@ -270,55 +249,60 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     if (!font.getTypeface()) return;
 
     auto paint = make_fill_paint(fill_color_);
-    auto* shaper = get_shaper();
 
-    if (shaper) {
-        // SkShaper path — full HarfBuzz shaping with OpenType kerning and ligatures.
-        // Shape at origin, then draw at the desired position.
-        // IMPORTANT: pass {0,0} to handler and offset via drawTextBlob —
-        // passing the position to BOTH causes a double-image ghost effect.
-        SkTextBlobBuilderRunHandler handler(text.c_str(), {0, 0});
-        shaper->shape(text.c_str(), text.size(), font, true, FLT_MAX, &handler);
-        auto blob = handler.makeBlob();
-        if (!blob) return;
+    // Per-glyph positioned SkTextBlob with exact advance widths from the font.
+    // This gives proper glyph spacing + subpixel positioning without the
+    // ghost/doubling artifacts that SkShaper::shape() produces in nested
+    // save/translate/clip contexts (widget paint pipeline).
+    int glyph_count = static_cast<int>(font.countText(text.c_str(), text.size(), SkTextEncoding::kUTF8));
+    if (glyph_count <= 0) return;
 
-        float draw_x = x;
-        if (text_align_ != TextAlign::left) {
-            float total_w = handler.endPoint().fX;
-            if (text_align_ == TextAlign::center) draw_x -= total_w * 0.5f;
-            else if (text_align_ == TextAlign::right) draw_x -= total_w;
-        }
+    std::vector<SkGlyphID> glyphs(glyph_count);
+    font.textToGlyphs(text.c_str(), text.size(), SkTextEncoding::kUTF8,
+                      SkSpan<SkGlyphID>(glyphs.data(), glyph_count));
 
-        canvas_->drawTextBlob(blob, draw_x, y, paint);
-    } else {
-        // Fallback: drawSimpleText (no kerning, no shaping)
-        float draw_x = x;
-        if (text_align_ != TextAlign::left) {
-            SkRect bounds;
-            font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, &bounds);
-            if (text_align_ == TextAlign::center) draw_x -= bounds.width() * 0.5f;
-            else if (text_align_ == TextAlign::right) draw_x -= bounds.width();
-        }
-        canvas_->drawSimpleText(text.c_str(), text.size(), SkTextEncoding::kUTF8,
-                               draw_x, y, font, paint);
+    std::vector<SkScalar> widths(glyph_count);
+    font.getWidths(SkSpan<const SkGlyphID>(glyphs.data(), glyph_count),
+                   SkSpan<SkScalar>(widths.data(), glyph_count));
+
+    float total_w = 0;
+    for (int i = 0; i < glyph_count; ++i) total_w += widths[i];
+
+    float draw_x = x;
+    if (text_align_ == TextAlign::center) draw_x -= total_w * 0.5f;
+    else if (text_align_ == TextAlign::right) draw_x -= total_w;
+
+    SkTextBlobBuilder builder;
+    const auto& run = builder.allocRunPosH(font, glyph_count, y);
+    float cursor = draw_x;
+    for (int i = 0; i < glyph_count; ++i) {
+        run.glyphs[i] = glyphs[i];
+        run.pos[i] = cursor;
+        cursor += widths[i];
     }
+
+    canvas_->drawTextBlob(builder.make(), 0, 0, paint);
 }
 
 float SkiaCanvas::measure_text(const std::string& text) {
     SkFont font = make_font(font_family_, font_size_);
     if (!font.getTypeface()) return font_size_ * text.size() * 0.5f;
 
-    // Use the same shaper as fill_text so measurement matches rendering.
-    // Without this, measure_text returns unshaped widths while fill_text
-    // renders with HarfBuzz kerning — causing layout/rendering divergence.
-    auto* shaper = get_shaper();
-    if (shaper) {
-        return shape_and_measure(shaper, text, font);
-    }
+    // Measure using per-glyph advances (same method as fill_text) for consistency
+    int glyph_count = static_cast<int>(font.countText(text.c_str(), text.size(), SkTextEncoding::kUTF8));
+    if (glyph_count <= 0) return 0;
 
-    SkRect bounds;
-    font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, &bounds);
-    return bounds.width();
+    std::vector<SkGlyphID> glyphs(glyph_count);
+    font.textToGlyphs(text.c_str(), text.size(), SkTextEncoding::kUTF8,
+                      SkSpan<SkGlyphID>(glyphs.data(), glyph_count));
+
+    std::vector<SkScalar> widths(glyph_count);
+    font.getWidths(SkSpan<const SkGlyphID>(glyphs.data(), glyph_count),
+                   SkSpan<SkScalar>(widths.data(), glyph_count));
+
+    float total = 0;
+    for (int i = 0; i < glyph_count; ++i) total += widths[i];
+    return total;
 }
 
 Canvas::TextMetrics SkiaCanvas::measure_text_full(const std::string& text) {
