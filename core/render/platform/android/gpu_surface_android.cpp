@@ -166,8 +166,9 @@ static void create_demo_view_hierarchy(float width, float height) {
 
     // ── Title spacer (text drawn directly in render_frame) ──────────
     auto title_spacer = std::make_unique<Panel>();
-    title_spacer->flex().preferred_height = 32;
+    title_spacer->flex().preferred_height = 36;
     title_spacer->flex().margin_top = 4;
+    title_spacer->flex().margin_bottom = 6;
     // spacer — Panel bg blends with root, label text drawn in draw_section_labels()
     g_root_view->add_child(std::move(title_spacer));
 
