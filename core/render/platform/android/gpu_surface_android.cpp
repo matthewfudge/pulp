@@ -81,6 +81,8 @@ static std::unique_ptr<view::Panel> make_knob_row(
     auto row = std::make_unique<Panel>();
     row->flex().direction = FlexDirection::row;
     row->flex().preferred_height = row_height;
+    row->flex().margin_left = 8;
+    row->flex().margin_right = 8;
     row->flex().justify_content = FlexJustify::space_evenly;
     row->flex().align_items = FlexAlign::center;
     for (float v : values) {
@@ -146,6 +148,8 @@ static void create_demo_view_hierarchy(float width, float height) {
     toggle_row->flex().direction = FlexDirection::row;
     toggle_row->flex().preferred_height = 36;
     toggle_row->flex().margin_top = 8;
+    toggle_row->flex().margin_left = 8;
+    toggle_row->flex().margin_right = 8;
     toggle_row->flex().justify_content = FlexJustify::space_evenly;
     toggle_row->flex().align_items = FlexAlign::center;
     bool toggle_states[] = {true, false, true, false};
