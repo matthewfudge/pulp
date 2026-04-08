@@ -8,6 +8,8 @@
 #include <pulp/view/theme.hpp>
 #include <pulp/view/frame_clock.hpp>
 #include <pulp/view/inspector.hpp>
+#include <pulp/inspect/inspector_overlay.hpp>
+#include <pulp/runtime/system.hpp>
 #include <pulp/view/screenshot.hpp>
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
@@ -304,6 +306,13 @@ int main(int argc, char* argv[]) {
         return true;
     };
 
+    // Set up inspector before screenshot so it renders in headless mode too
+    pulp::inspect::InspectorOverlay inspector(root);
+    pulp::inspect::install_inspector_hooks(inspector);
+    if (pulp::runtime::get_env("PULP_INSPECTOR")) {
+        inspector.set_active(true);
+    }
+
     if (screenshot_only) {
         if (!emit_view_tree(render_w, render_h)) return 1;
         bool ok = render_to_file(
@@ -312,6 +321,7 @@ int main(int argc, char* argv[]) {
             static_cast<uint32_t>(render_h),
             screenshot_path.c_str());
         std::cout << (ok ? "Screenshot saved to " + screenshot_path + "\n" : "Screenshot failed\n");
+        pulp::inspect::g_active_inspector = nullptr;
         return ok ? 0 : 1;
     }
 
@@ -425,7 +435,10 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
-    std::cout << "Opening window...\n";
+    // Inspector was set up before screenshot_only check above.
+    // Cmd+I toggle is handled by the platform WindowHost key dispatch.
+
+    std::cout << "Opening window... (Cmd+I for inspector)\n";
     window->run_event_loop();
     return automation_exit_code;
 }

@@ -2,7 +2,9 @@
 #include <pulp/format/editor_ui.hpp>
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/view/window_host.hpp>
+#include <pulp/inspect/inspector_overlay.hpp>
 #include <pulp/runtime/log.hpp>
+#include <pulp/runtime/system.hpp>
 
 namespace pulp::format {
 
@@ -249,9 +251,51 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     }
 
     window->set_close_callback([this]() { stop(); });
+
+    // Create inspector overlay — activated via Cmd+I / Ctrl+I
+    auto inspector = std::make_unique<inspect::InspectorOverlay>(*tab_panel);
+    auto* inspector_ptr = inspector.get();
+
+    // Wire inspector into the idle callback to push overlay paint each frame.
+    // The inspector uses View::overlay_queue() for rendering and intercepts
+    // key events through the root view's on_global_click callback for Cmd+I.
+    if (editor_ui.scripted_ui) {
+        auto* scripted_ui_ptr = editor_ui.scripted_ui.get();
+        window->set_idle_callback([scripted_ui_ptr, settings_ptr, inspector_ptr, &tab_panel] {
+            if (scripted_ui_ptr) scripted_ui_ptr->poll();
+            if (settings_ptr) settings_ptr->poll();
+            if (inspector_ptr->is_active()) {
+                view::View::overlay_queue().push_back({
+                    [inspector_ptr](canvas::Canvas& canvas) {
+                        inspector_ptr->paint(canvas);
+                    },
+                    tab_panel.get()
+                });
+            }
+        });
+    } else {
+        window->set_idle_callback([settings_ptr, inspector_ptr, &tab_panel] {
+            if (settings_ptr) settings_ptr->poll();
+            if (inspector_ptr->is_active()) {
+                view::View::overlay_queue().push_back({
+                    [inspector_ptr](canvas::Canvas& canvas) {
+                        inspector_ptr->paint(canvas);
+                    },
+                    tab_panel.get()
+                });
+            }
+        });
+    }
+
+    // Enable inspector by default when PULP_INSPECTOR env var is set
+    if (runtime::get_env("PULP_INSPECTOR")) {
+        inspector_ptr->set_active(true);
+        runtime::log_info("Standalone: inspector enabled via PULP_INSPECTOR env var");
+    }
+
     window->show();
 
-    runtime::log_info("Standalone: editor window open ({}x{}, gpu={}, mode={})",
+    runtime::log_info("Standalone: editor window open ({}x{}, gpu={}, mode={}, inspector=ready)",
                       w, h, use_gpu, editor_ui.uses_script_ui ? "scripted" : "autoui");
 
     // Blocks until the window is closed

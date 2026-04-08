@@ -312,7 +312,13 @@ static std::string tools_list_json() {
 {"name":"pulp_get_view_tree","description":"Get the view tree as JSON for a demo UI","inputSchema":{"type":"object","properties":{}}},
 {"name":"pulp_create","description":"Scaffold a new plugin project from templates","inputSchema":{"type":"object","properties":{"name":{"type":"string","description":"Plugin name"},"type":{"type":"string","enum":["effect","instrument"],"description":"Plugin type"},"manufacturer":{"type":"string","description":"Manufacturer name"}}}},
 {"name":"pulp_docs_check","description":"Validate docs consistency against the codebase","inputSchema":{"type":"object","properties":{}}},
-{"name":"pulp_docs_search","description":"Search local docs for a query string","inputSchema":{"type":"object","properties":{"query":{"type":"string","description":"Search query"}}}}
+{"name":"pulp_docs_search","description":"Search local docs for a query string","inputSchema":{"type":"object","properties":{"query":{"type":"string","description":"Search query"}}}},
+{"name":"pulp_inspect_dom","description":"Get the view tree of a running plugin's UI via the inspector protocol","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_inspect_params","description":"Get all parameter info and current values from a running plugin","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_inspect_screenshot","description":"Capture a screenshot from a running plugin via the inspector","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_inspect_evaluate","description":"Evaluate a JS expression in a running plugin's script engine","inputSchema":{"type":"object","properties":{"expression":{"type":"string","description":"JS expression to evaluate"}}}},
+{"name":"pulp_inspect_performance","description":"Get render performance metrics from a running plugin","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_inspect_audio","description":"Get audio configuration and buffer underrun info from a running plugin","inputSchema":{"type":"object","properties":{}}}
 ]})JSON";
 }
 
@@ -426,6 +432,39 @@ static std::string handle_request(const std::string& json) {
             } else {
                 auto output = exec((root / "build" / "tools" / "cli" / "pulp").string() + " docs search \"" + query + "\" 2>&1");
                 result = "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+            }
+        }
+        // Inspector tools — delegate to pulp inspect CLI for now
+        // (in the future these could connect directly via TCP)
+        else if (name == "pulp_inspect_dom" || name == "pulp_inspect_params" ||
+                 name == "pulp_inspect_screenshot" || name == "pulp_inspect_evaluate" ||
+                 name == "pulp_inspect_performance" || name == "pulp_inspect_audio") {
+            // Map MCP tool name to inspector protocol method
+            std::string inspector_method;
+            std::string inspector_params;
+            if (name == "pulp_inspect_dom")         inspector_method = "DOM.getDocument";
+            else if (name == "pulp_inspect_params")  inspector_method = "State.getParameters";
+            else if (name == "pulp_inspect_screenshot") inspector_method = "Capture.screenshot";
+            else if (name == "pulp_inspect_evaluate") {
+                inspector_method = "Runtime.evaluate";
+                auto expr = extract_string(args_json, "expression");
+                if (!expr.empty()) inspector_params = " {\"expression\":" + json_string(expr) + "}";
+            }
+            else if (name == "pulp_inspect_performance") inspector_method = "Performance.getMetrics";
+            else if (name == "pulp_inspect_audio")   inspector_method = "Audio.getConfig";
+
+            auto root = find_project_root();
+            if (root.empty()) {
+                result = "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+            } else {
+                auto cli = (root / "build" / "tools" / "cli" / "pulp").string();
+                auto output = exec(cli + " inspect --command " + inspector_method + inspector_params + " 2>&1");
+                if (name == "pulp_inspect_screenshot") {
+                    // Screenshot returns base64 PNG — escape for safe JSON embedding
+                    result = "{\"content\":[{\"type\":\"image\",\"data\":" + json_string(output) + ",\"mimeType\":\"image/png\"}]}";
+                } else {
+                    result = "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+                }
             }
         }
         else return json_error(id, -32601, "Unknown tool: " + name);

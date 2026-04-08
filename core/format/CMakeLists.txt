@@ -22,6 +22,7 @@ target_link_libraries(pulp-format
         pulp::midi
         pulp::state
         pulp::view
+        pulp::inspect
 )
 
 # VST3 adapter (when SDK is available)
