@@ -144,14 +144,16 @@ int cmd_inspect(const std::vector<std::string>& args) {
 
     // Set up message handler
     std::atomic<bool> got_response{false};
+    std::atomic<bool> got_error{false};
     std::string last_response;
     conn.on_text_message = [&](std::string_view msg) {
         InspectorMessage response;
         if (decode_message(std::string(msg), response)) {
             if (!one_shot_command.empty()) {
-                // One-shot mode: print and exit
+                // One-shot mode: capture result
                 if (response.is_error) {
                     std::cerr << "Error: " << response.params_json << "\n";
+                    got_error = true;
                 } else {
                     last_response = response.params_json;
                 }
@@ -198,6 +200,8 @@ int cmd_inspect(const std::vector<std::string>& args) {
             std::cerr << "Error: no response received (timeout)\n";
             return 1;
         }
+
+        if (got_error) return 1;
 
         if (!output_file.empty()) {
             std::ofstream f(output_file);
