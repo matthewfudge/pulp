@@ -4,6 +4,7 @@
 
 #ifdef PULP_HAS_FDK_AAC
 
+#include <algorithm>
 #include <pulp/audio/format_registry.hpp>
 #include <fdk-aac/aacenc_lib.h>
 #include <vector>

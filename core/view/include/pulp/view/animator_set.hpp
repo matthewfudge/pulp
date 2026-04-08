@@ -3,6 +3,7 @@
 // AnimatorSetBuilder — compose animations in sequence or parallel groups.
 // Inspired by Android's AnimatorSet pattern.
 
+#include <algorithm>
 #include <pulp/view/animation.hpp>
 #include <vector>
 #include <memory>

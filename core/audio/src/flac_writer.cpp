@@ -4,6 +4,7 @@
 
 #ifdef PULP_HAS_LIBFLAC
 
+#include <algorithm>
 #include <pulp/audio/format_registry.hpp>
 #include <FLAC/stream_encoder.h>
 #include <vector>

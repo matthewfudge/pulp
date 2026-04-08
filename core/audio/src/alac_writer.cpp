@@ -8,6 +8,7 @@
 
 #ifdef PULP_HAS_ALAC
 
+#include <algorithm>
 #include <pulp/audio/format_registry.hpp>
 #include <ALACEncoder.h>
 #include <ALACBitUtilities.h>

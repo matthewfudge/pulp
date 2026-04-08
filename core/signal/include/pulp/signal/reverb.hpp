@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <pulp/signal/delay_line.hpp>
 #include <array>
 #include <cmath>

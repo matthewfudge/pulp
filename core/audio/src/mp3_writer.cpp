@@ -4,6 +4,7 @@
 
 #ifdef PULP_HAS_LAME
 
+#include <algorithm>
 #include <pulp/audio/format_registry.hpp>
 #include <lame/lame.h>
 #include <vector>
