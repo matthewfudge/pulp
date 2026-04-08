@@ -66,3 +66,5 @@ build-android/
 android/.gradle/
 android/app/.cxx/
 android/app/build/
+external/skia-src/
+external/skia-build/android-gpu/
