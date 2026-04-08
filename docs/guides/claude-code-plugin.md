@@ -49,6 +49,7 @@ This is not yet available because the Pulp repository is currently private. Thes
 | `/design [style]` | AI-driven design session with natural language |
 | `/ship` | Sign, notarize, and package for distribution |
 | `/import-design` | Import from Figma, Stitch, v0, or Pencil |
+| `/version` | Show, bump, or check version consistency |
 
 ### Skills
 

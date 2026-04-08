@@ -86,9 +86,13 @@ Configure and build the project. Auto-detects when CMake reconfiguration is need
 pulp build                    # Build all targets
 pulp build --target PulpGain_VST3  # Build specific target
 pulp build -j8                # Parallel jobs
+pulp build --watch            # Build and watch for changes
+pulp build --watch --test     # Build, watch, run tests on change
 ```
 
 Extra arguments are passed through to `cmake --build`.
+
+The `--watch` flag enters a file-watching loop after the initial build. It polls source files every 500ms and rebuilds on changes. Combine with `--test` to run tests after each successful rebuild and `--validate` to run quick dlopen checks.
 
 For standalone projects (detected via `pulp.toml`), automatically sets `CMAKE_PREFIX_PATH` to the hinted local SDK when available, otherwise to the cached SDK release.
 On Windows, `pulp build` also selects a Visual Studio generator automatically when no active MSVC shell is detected on `PATH`.
@@ -681,6 +685,27 @@ Print usage information.
 ```bash
 pulp help
 ```
+
+### version
+
+**Status**: usable
+
+Show, bump, or check version consistency across all surfaces (CMakeLists.txt, SDK constant, CHANGELOG, AU Info.plist).
+
+```bash
+pulp version                  # Show current SDK and project versions
+pulp version bump patch       # Increment patch version
+pulp version bump minor       # Increment minor version
+pulp version bump major --plugin  # Bump plugin version (pulp_add_plugin VERSION)
+pulp version check            # Verify version consistency
+```
+
+The `bump` subcommand updates `CMakeLists.txt project(VERSION)` and adds a CHANGELOG.md entry. The SDK version constant is derived from CMake via `configure_file`, so a rebuild picks up the change automatically. Use `--plugin` to bump the `pulp_add_plugin(... VERSION ...)` line instead.
+
+The `check` subcommand verifies:
+- SDK version constant matches CMakeLists.txt
+- AU Info.plist template uses a computed version integer (not hardcoded)
+- CHANGELOG latest heading matches CMakeLists.txt
 
 ### add
 
