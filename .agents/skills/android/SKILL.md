@@ -326,6 +326,28 @@ float pos = radius + value * usable;
 
 This applies to: Fader thumb, XYPad dot, CorrelationMeter bar, ColorPicker cursors. Knob and Toggle already self-inset by design.
 
+## Widget Animations Without a Render Loop
+
+Many widgets use `ValueAnimation` for visual state changes (Toggle thumb position, Knob hover scale, Fader hover). Without a continuous render loop (AChoreographer), `advance_animations(dt)` is never called, so animations are started but never progress — the widget's visual state appears stuck even though the logical state changed.
+
+**Fix**: Before each paint, advance animations with a large dt to snap to completion:
+
+```cpp
+// Recursively advance all widget animations
+static void advance_view_animations(view::View* v, float dt) {
+    if (auto* k = dynamic_cast<view::Knob*>(v))   k->advance_animations(dt);
+    if (auto* f = dynamic_cast<view::Fader*>(v))   f->advance_animations(dt);
+    if (auto* t = dynamic_cast<view::Toggle*>(v))  t->advance_animations(dt);
+    for (size_t i = 0; i < v->child_count(); ++i)
+        advance_view_animations(v->child_at(i), dt);
+}
+
+// In render function, before paint:
+advance_view_animations(g_root_view.get(), 1.0f);  // 1s snaps to target
+```
+
+This is a workaround until AChoreographer provides a proper frame loop with real dt values.
+
 ## Known Blockers
 
 1. **Text rendering crashes** — `fill_text()` / Labels crash on Android. Root cause: SkCanvas internal state mismatch from swapchain texture format. Fix requires ensuring Graphite backend texture info matches the Vulkan swapchain format exactly.
