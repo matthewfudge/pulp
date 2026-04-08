@@ -186,21 +186,28 @@ void android_render_test_frame() {
 
                 using Color = canvas::Color;
 
+                // Scale for display density (1080px / ~2.5 density ≈ 430dp)
+                float scale = w / 430.0f;
+                canvas->save();
+                canvas->scale(scale, scale);
+                float dw = 430.0f;  // draw in density-independent units
+                float dh = h / scale;
+
                 // Dark background
                 canvas->set_fill_color(Color::rgba(26, 26, 46));
-                canvas->fill_rect(0, 0, w, h);
+                canvas->fill_rect(0, 0, dw, dh);
 
                 // Title bar
                 canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(0, 0, w, 80);
+                canvas->fill_rect(0, 0, dw, 80);
 
                 // Title text area
                 canvas->set_fill_color(Color::rgba(255, 255, 255));
-                canvas->fill_rect(20, 25, w * 0.7f, 30);
+                canvas->fill_rect(20, 25, dw * 0.7f, 30);
 
                 // 3 Knobs (circles approximated with rounded rects)
                 float knob_y = 120;
-                float knob_spacing = w / 4;
+                float knob_spacing = dw / 4;
                 for (int i = 0; i < 3; ++i) {
                     float cx = knob_spacing * (i + 1);
                     // Outer ring
@@ -226,33 +233,35 @@ void android_render_test_frame() {
                 // Fader track
                 float fader_y = label_y + 40;
                 canvas->set_fill_color(Color::rgba(40, 40, 60));
-                canvas->fill_rect(40, fader_y, w - 80, 8);
+                canvas->fill_rect(40, fader_y, dw - 80, 8);
                 // Fader fill
                 canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(40, fader_y, (w - 80) * 0.7f, 8);
+                canvas->fill_rect(40, fader_y, (dw - 80) * 0.7f, 8);
                 // Fader thumb
-                float thumb_x = 40 + (w - 80) * 0.7f;
+                float thumb_x = 40 + (dw - 80) * 0.7f;
                 canvas->set_fill_color(Color::rgba(255, 255, 255));
                 canvas->fill_rect(thumb_x - 8, fader_y - 8, 16, 24);
 
                 // Meter
                 float meter_y = fader_y + 40;
                 canvas->set_fill_color(Color::rgba(30, 30, 50));
-                canvas->fill_rect(40, meter_y, w - 80, 20);
+                canvas->fill_rect(40, meter_y, dw - 80, 20);
                 // Green portion
                 canvas->set_fill_color(Color::rgba(0, 200, 80));
-                canvas->fill_rect(40, meter_y, (w - 80) * 0.6f, 20);
+                canvas->fill_rect(40, meter_y, (dw - 80) * 0.6f, 20);
                 // Yellow portion
                 canvas->set_fill_color(Color::rgba(255, 200, 0));
-                canvas->fill_rect(40 + (w - 80) * 0.6f, meter_y, (w - 80) * 0.15f, 20);
+                canvas->fill_rect(40 + (dw - 80) * 0.6f, meter_y, (dw - 80) * 0.15f, 20);
 
                 // Bottom status bar
                 canvas->set_fill_color(Color::rgba(40, 40, 60));
-                canvas->fill_rect(0, h - 50, w, 50);
+                canvas->fill_rect(0, dh - 50, dw, 50);
                 canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(20, h - 40, 12, 30);
+                canvas->fill_rect(20, dh - 40, 12, 30);
                 canvas->set_fill_color(Color::rgba(180, 180, 200));
-                canvas->fill_rect(45, h - 35, 200, 14);
+                canvas->fill_rect(45, dh - 35, 200, 14);
+
+                canvas->restore();
 
                 g_skia_surface->end_frame();
                 PULP_LOGI("Android GPU surface: Skia frame rendered (%dx%d)",
