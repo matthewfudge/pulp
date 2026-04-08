@@ -102,6 +102,13 @@ static void create_demo_view_hierarchy(float width, float height) {
     g_root_view->set_theme(Theme::dark());
     g_root_view->flex().padding = 12;
 
+    // ── Test label for text rendering ─────────────────────────────────
+    auto test_label = std::make_unique<Label>();
+    test_label->set_text("PULP SYNTH");
+    test_label->flex().preferred_height = 20;
+    test_label->flex().margin_top = 4;
+    g_root_view->add_child(std::move(test_label));
+
     // ── Oscillator: 4 knobs directly in a row ────────────────────────
     auto osc_knobs = make_knob_row({0.5f, 0.3f, 0.5f, 0.15f}, 48, 56);
     osc_knobs->flex().margin_top = 4;

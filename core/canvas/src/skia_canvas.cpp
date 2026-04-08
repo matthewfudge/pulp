@@ -50,18 +50,21 @@ namespace pulp::canvas {
 // macOS: CoreText, Windows: DirectWrite, Linux: fontconfig
 static sk_sp<SkFontMgr> get_font_manager() {
     static sk_sp<SkFontMgr> mgr;
-    if (!mgr) {
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
 #ifdef __APPLE__
         mgr = SkFontMgr_New_CoreText(nullptr);
 #elif defined(_WIN32)
         mgr = SkFontMgr_New_DirectWrite();
 #elif defined(__ANDROID__)
+        // Android font manager needs access to /system/fonts/
+        // If this fails (e.g., missing fonts.xml), mgr stays null
         mgr = SkFontMgr_New_Android(nullptr, nullptr);
 #elif defined(__linux__)
         mgr = SkFontMgr_New_FontConfig(nullptr, nullptr);
-#else
-        mgr = SkFontMgr::RefEmpty();
 #endif
+        // Don't fall back to RefEmpty — callers check for null
     }
     return mgr;
 }
@@ -96,10 +99,15 @@ static SkFont make_font(const std::string& family, float size) {
     font.setSize(size);
 
     auto mgr = get_font_manager();
-    if (mgr) {
+    if (mgr && mgr->countFamilies() > 0) {
         auto typeface = mgr->matchFamilyStyle(family.c_str(), SkFontStyle::Normal());
+        if (!typeface) {
+            // Requested family not found — fall back to default
+            typeface = mgr->matchFamilyStyle(nullptr, SkFontStyle::Normal());
+        }
         if (typeface) font.setTypeface(std::move(typeface));
     }
+
 
     return font;
 }
@@ -202,7 +210,14 @@ void SkiaCanvas::set_text_align(TextAlign align) {
 
 void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     GUARD_CANVAS;
+#ifdef __ANDROID__
+    // TODO: Android text rendering crashes in Skia Graphite glyph cache.
+    // Root cause is under investigation — skip text to prevent SIGSEGV.
+    // Labels will be blank until this is resolved.
+    return;
+#endif
     SkFont font = make_font(font_family_, font_size_);
+    if (!font.getTypeface()) return;  // no typeface — skip rather than crash
 
     auto paint = make_fill_paint(fill_color_);
 
@@ -221,6 +236,7 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
 
 float SkiaCanvas::measure_text(const std::string& text) {
     SkFont font = make_font(font_family_, font_size_);
+    if (!font.getTypeface()) return font_size_ * text.size() * 0.5f;  // rough estimate
 
     SkRect bounds;
     font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, &bounds);
@@ -229,6 +245,7 @@ float SkiaCanvas::measure_text(const std::string& text) {
 
 Canvas::TextMetrics SkiaCanvas::measure_text_full(const std::string& text) {
     SkFont font = make_font(font_family_, font_size_);
+    if (!font.getTypeface()) return {font_size_ * text.size() * 0.5f, font_size_, 0, font_size_ * 0.8f};
 
     SkFontMetrics sk_metrics;
     font.getMetrics(&sk_metrics);
