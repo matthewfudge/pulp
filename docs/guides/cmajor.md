@@ -108,17 +108,17 @@ python3 tools/scripts/cmajor_external.py generate \
 
 Supported targets in the helper today:
 
-- `cpp`
-- `clap`
-- `juce`
-- `javascript`
-- `webaudio`
-- `webaudio-html`
+- `cpp` — raw C++ (recommended for Pulp integration)
+- `clap` — standalone CLAP plugin
+- `javascript` — JavaScript module
+- `webaudio` — Web Audio worklet
+- `webaudio-html` — Web Audio with HTML wrapper
 
 Notes:
 
-- `clap`, `juce`, `javascript`, `webaudio`, and `webaudio-html` are documented
-  upstream targets.
+- `clap`, `javascript`, `webaudio`, and `webaudio-html` are documented
+  upstream targets. The cmaj CLI also supports `--target juce` but
+  JUCE output is not relevant for Pulp projects.
 - `cpp` is the most promising artifact-import lane for Pulp because the
   upstream Cmajor docs describe the generated C++ class as dependency-free.
 - Pulp does not yet claim a finished, shipped `Processor` wrapper around that
