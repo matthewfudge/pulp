@@ -120,7 +120,7 @@ function(pulp_wire_android_sources)
         )
     endif()
 
-    # -- Render: Vulkan backend + AChoreographer --
+    # -- Render: Vulkan backend + AChoreographer + View hierarchy --
     if(TARGET pulp-render AND PULP_ENABLE_GPU)
         set(_android_render_dir "${CMAKE_SOURCE_DIR}/core/render/platform/android")
         if(EXISTS "${_android_render_dir}/choreographer_android.cpp")
@@ -134,6 +134,17 @@ function(pulp_wire_android_sources)
             )
         endif()
         target_link_libraries(pulp-render PRIVATE android log)
+        # View headers needed for rendering the widget hierarchy on Android
+        target_include_directories(pulp-render PRIVATE
+            ${CMAKE_SOURCE_DIR}/core/view/include
+            ${CMAKE_SOURCE_DIR}/core/platform/include
+            ${CMAKE_SOURCE_DIR}/core/signal/include
+            ${CMAKE_SOURCE_DIR}/core/state/include
+            ${CMAKE_SOURCE_DIR}/core/audio/include
+            ${CMAKE_SOURCE_DIR}/core/events/include
+            ${CMAKE_SOURCE_DIR}/core/midi/include
+            ${CMAKE_SOURCE_DIR}/core/format/include
+        )
         target_compile_definitions(pulp-render PRIVATE PULP_VULKAN_BACKEND=1)
     endif()
 

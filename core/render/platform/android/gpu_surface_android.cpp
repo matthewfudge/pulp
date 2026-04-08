@@ -3,6 +3,9 @@
 #include <pulp/render/gpu_surface.hpp>
 #include <pulp/render/skia_surface.hpp>
 #include <pulp/canvas/canvas.hpp>
+#include <pulp/view/view.hpp>
+#include <pulp/view/widgets.hpp>
+#include <pulp/view/theme.hpp>
 #include <pulp/platform/android/jni.hpp>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -27,6 +30,76 @@ namespace pulp::render {
 static void android_render_test_frame();
 static std::unique_ptr<GpuSurface> g_gpu_surface;
 static std::unique_ptr<SkiaSurface> g_skia_surface;
+static std::unique_ptr<view::View> g_root_view;
+
+static void create_demo_view_hierarchy(float width, float height) {
+    using namespace view;
+
+    g_root_view = std::make_unique<Panel>();
+    g_root_view->set_bounds({0, 0, width, height});
+    g_root_view->flex().padding = 20;
+
+    // Title label
+    auto title = std::make_unique<Label>();
+    title->set_text("Pulp Audio Engine");
+    title->set_font_size(28.0f);
+    title->flex().preferred_height = 60;
+    title->flex().margin_top = 40;
+    g_root_view->add_child(std::move(title));
+
+    // Subtitle
+    auto subtitle = std::make_unique<Label>();
+    subtitle->set_text("Android · Vulkan · Skia Graphite");
+    subtitle->set_font_size(14.0f);
+    subtitle->flex().preferred_height = 30;
+    g_root_view->add_child(std::move(subtitle));
+
+    // Knob row
+    auto knob_row = std::make_unique<Panel>();
+    knob_row->flex().direction = FlexDirection::row;
+    knob_row->flex().preferred_height = 120;
+    knob_row->flex().margin_top = 30;
+    knob_row->flex().justify_content = FlexJustify::space_evenly;
+
+    for (int i = 0; i < 3; ++i) {
+        auto knob = std::make_unique<Knob>();
+        knob->set_value(0.3f + i * 0.2f);
+        knob->flex().preferred_width = 80;
+        knob->flex().preferred_height = 80;
+        knob_row->add_child(std::move(knob));
+    }
+    g_root_view->add_child(std::move(knob_row));
+
+    // Fader
+    auto fader = std::make_unique<Fader>();
+    fader->set_value(0.7f);
+    fader->flex().preferred_height = 40;
+    fader->flex().margin_top = 20;
+    fader->flex().margin_left = 20;
+    fader->flex().margin_right = 20;
+    g_root_view->add_child(std::move(fader));
+
+    // Meter
+    auto meter = std::make_unique<Meter>();
+    meter->set_level(-12.0f, -6.0f);
+    meter->flex().preferred_height = 30;
+    meter->flex().margin_top = 20;
+    meter->flex().margin_left = 20;
+    meter->flex().margin_right = 20;
+    g_root_view->add_child(std::move(meter));
+
+    // Bottom label
+    auto bottom = std::make_unique<Label>();
+    bottom->set_text("Dawn/Vulkan · 48kHz · 0 xruns");
+    bottom->set_font_size(12.0f);
+    bottom->flex().preferred_height = 30;
+    bottom->flex().margin_top = 20;
+    g_root_view->add_child(std::move(bottom));
+
+    g_root_view->layout_children();
+    PULP_LOGI("Android GPU surface: View hierarchy created (%d children)",
+              static_cast<int>(g_root_view->child_count()));
+}
 static ANativeWindow* g_native_window = nullptr;
 static std::mutex g_surface_mutex;
 static std::condition_variable g_surface_cv;
@@ -108,35 +181,78 @@ void android_render_test_frame() {
         if (g_skia_surface && g_skia_surface->is_available()) {
             auto* canvas = g_skia_surface->begin_frame();
             if (canvas) {
-                using Color = canvas::Color;
                 float w = static_cast<float>(g_gpu_surface->width());
                 float h = static_cast<float>(g_gpu_surface->height());
 
-                // Bright red background — impossible to miss
-                canvas->set_fill_color(Color::rgba(255, 0, 0));
+                using Color = canvas::Color;
+
+                // Dark background
+                canvas->set_fill_color(Color::rgba(26, 26, 46));
                 canvas->fill_rect(0, 0, w, h);
 
-                // Green bar
-                canvas->set_fill_color(Color::rgba(0, 255, 0));
-                canvas->fill_rect(20, 20, w - 40, 80);
-
-                // Blue rectangle
-                canvas->set_fill_color(Color::rgba(0, 100, 255));
-                canvas->fill_rect(50, 120, w - 100, 80);
-
-                // White center square
-                canvas->set_fill_color(Color::rgba(255, 255, 255));
-                float cx = w / 2;
-                float cy = h / 2;
-                canvas->fill_rect(cx - 60, cy - 60, 120, 120);
-
-                // Purple inner
+                // Title bar
                 canvas->set_fill_color(Color::rgba(108, 92, 231));
-                canvas->fill_rect(cx - 40, cy - 40, 80, 80);
+                canvas->fill_rect(0, 0, w, 80);
 
-                // Yellow bar at bottom
-                canvas->set_fill_color(Color::rgba(255, 255, 0));
-                canvas->fill_rect(20, h - 60, w - 40, 40);
+                // Title text area
+                canvas->set_fill_color(Color::rgba(255, 255, 255));
+                canvas->fill_rect(20, 25, w * 0.7f, 30);
+
+                // 3 Knobs (circles approximated with rounded rects)
+                float knob_y = 120;
+                float knob_spacing = w / 4;
+                for (int i = 0; i < 3; ++i) {
+                    float cx = knob_spacing * (i + 1);
+                    // Outer ring
+                    canvas->set_fill_color(Color::rgba(60, 60, 80));
+                    canvas->fill_rect(cx - 40, knob_y, 80, 80);
+                    // Inner
+                    canvas->set_fill_color(Color::rgba(108, 92, 231));
+                    canvas->fill_rect(cx - 30, knob_y + 10, 60, 60);
+                    // Indicator
+                    float angle = 0.3f + i * 0.25f;
+                    canvas->set_fill_color(Color::rgba(255, 255, 255));
+                    canvas->fill_rect(cx - 3, knob_y + 2, 6, 18);
+                }
+
+                // Knob labels
+                float label_y = knob_y + 90;
+                canvas->set_fill_color(Color::rgba(180, 180, 200));
+                for (int i = 0; i < 3; ++i) {
+                    float cx = knob_spacing * (i + 1);
+                    canvas->fill_rect(cx - 25, label_y, 50, 14);
+                }
+
+                // Fader track
+                float fader_y = label_y + 40;
+                canvas->set_fill_color(Color::rgba(40, 40, 60));
+                canvas->fill_rect(40, fader_y, w - 80, 8);
+                // Fader fill
+                canvas->set_fill_color(Color::rgba(108, 92, 231));
+                canvas->fill_rect(40, fader_y, (w - 80) * 0.7f, 8);
+                // Fader thumb
+                float thumb_x = 40 + (w - 80) * 0.7f;
+                canvas->set_fill_color(Color::rgba(255, 255, 255));
+                canvas->fill_rect(thumb_x - 8, fader_y - 8, 16, 24);
+
+                // Meter
+                float meter_y = fader_y + 40;
+                canvas->set_fill_color(Color::rgba(30, 30, 50));
+                canvas->fill_rect(40, meter_y, w - 80, 20);
+                // Green portion
+                canvas->set_fill_color(Color::rgba(0, 200, 80));
+                canvas->fill_rect(40, meter_y, (w - 80) * 0.6f, 20);
+                // Yellow portion
+                canvas->set_fill_color(Color::rgba(255, 200, 0));
+                canvas->fill_rect(40 + (w - 80) * 0.6f, meter_y, (w - 80) * 0.15f, 20);
+
+                // Bottom status bar
+                canvas->set_fill_color(Color::rgba(40, 40, 60));
+                canvas->fill_rect(0, h - 50, w, 50);
+                canvas->set_fill_color(Color::rgba(108, 92, 231));
+                canvas->fill_rect(20, h - 40, 12, 30);
+                canvas->set_fill_color(Color::rgba(180, 180, 200));
+                canvas->fill_rect(45, h - 35, 200, 14);
 
                 g_skia_surface->end_frame();
                 PULP_LOGI("Android GPU surface: Skia frame rendered (%dx%d)",
