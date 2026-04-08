@@ -579,11 +579,14 @@ void Fader::paint(canvas::Canvas& canvas) {
         canvas.set_fill_color({thumb_color.r, thumb_color.g, thumb_color.b, thumb_color.a});
 
         float thumb_radius = std::min(track_width * 0.35f, 8.0f) * hover_thumb_scale_.value();
+        // Inset thumb position by its radius so it doesn't get clipped at edges
         if (vert) {
-            float thumb_y = track_length - value_ * track_length;
+            float usable = track_length - 2.0f * thumb_radius;
+            float thumb_y = thumb_radius + usable - value_ * usable;
             canvas.fill_circle(b.width * 0.5f, thumb_y, thumb_radius);
         } else {
-            float thumb_x = value_ * track_length;
+            float usable = track_length - 2.0f * thumb_radius;
+            float thumb_x = thumb_radius + value_ * usable;
             canvas.fill_circle(thumb_x, b.height * 0.5f, thumb_radius);
         }
     }
@@ -955,9 +958,10 @@ void XYPad::paint(canvas::Canvas& canvas) {
     canvas.stroke_line(b.width * 0.5f, 0, b.width * 0.5f, b.height);
     canvas.stroke_line(0, b.height * 0.5f, b.width, b.height * 0.5f);
 
-    // Crosshair position
-    float cx = x_ * b.width;
-    float cy = (1.0f - y_) * b.height; // Y is inverted (0=bottom, 1=top)
+    // Crosshair position — inset by dot radius so it doesn't clip at edges
+    float dot_r = 5.0f;
+    float cx = dot_r + x_ * (b.width - 2.0f * dot_r);
+    float cy = dot_r + (1.0f - y_) * (b.height - 2.0f * dot_r);
 
     // Crosshair lines
     auto hair_color = resolve_color("control.fill", canvas::Color::rgba8(100, 150, 255));
@@ -969,7 +973,7 @@ void XYPad::paint(canvas::Canvas& canvas) {
     // Thumb dot
     auto thumb = resolve_color("control.thumb", canvas::Color::rgba8(220, 220, 220));
     canvas.set_fill_color(thumb);
-    canvas.fill_circle(cx, cy, 5.0f);
+    canvas.fill_circle(cx, cy, dot_r);
 
     // Labels
     auto text_color = resolve_color("text.secondary", canvas::Color::rgba8(150, 150, 150));
