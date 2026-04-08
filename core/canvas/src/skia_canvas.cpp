@@ -213,21 +213,43 @@ void SkiaCanvas::set_text_align(TextAlign align) {
 void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     GUARD_CANVAS;
     SkFont font = make_font(font_family_, font_size_);
-    if (!font.getTypeface()) return;  // no typeface — skip rather than crash
+    if (!font.getTypeface()) return;
 
     auto paint = make_fill_paint(fill_color_);
 
-    // Handle text alignment
+    // Convert text to glyphs with proper per-glyph advance widths.
+    // drawSimpleText() skips kerning — SkTextBlob with explicit glyph
+    // positions gives tighter, more natural character spacing.
+    int glyph_count = static_cast<int>(font.countText(text.c_str(), text.size(), SkTextEncoding::kUTF8));
+    if (glyph_count <= 0) return;
+
+    std::vector<SkGlyphID> glyphs(glyph_count);
+    font.textToGlyphs(text.c_str(), text.size(), SkTextEncoding::kUTF8,
+                      SkSpan<SkGlyphID>(glyphs.data(), glyph_count));
+
+    std::vector<SkScalar> widths(glyph_count);
+    font.getWidths(SkSpan<const SkGlyphID>(glyphs.data(), glyph_count),
+                   SkSpan<SkScalar>(widths.data(), glyph_count));
+
+    // Calculate total width for alignment
+    float total_w = 0;
+    for (int i = 0; i < glyph_count; ++i) total_w += widths[i];
+
     float draw_x = x;
-    if (text_align_ != TextAlign::left) {
-        SkRect bounds;
-        font.measureText(text.c_str(), text.size(), SkTextEncoding::kUTF8, &bounds);
-        if (text_align_ == TextAlign::center) draw_x -= bounds.width() * 0.5f;
-        else if (text_align_ == TextAlign::right) draw_x -= bounds.width();
+    if (text_align_ == TextAlign::center) draw_x -= total_w * 0.5f;
+    else if (text_align_ == TextAlign::right) draw_x -= total_w;
+
+    // Build positioned text blob — each glyph at its exact advance position
+    SkTextBlobBuilder builder;
+    const auto& run = builder.allocRunPosH(font, glyph_count, y);
+    float cursor = draw_x;
+    for (int i = 0; i < glyph_count; ++i) {
+        run.glyphs[i] = glyphs[i];
+        run.pos[i] = cursor;
+        cursor += widths[i];
     }
 
-    canvas_->drawSimpleText(text.c_str(), text.size(), SkTextEncoding::kUTF8,
-                           draw_x, y, font, paint);
+    canvas_->drawTextBlob(builder.make(), 0, 0, paint);
 }
 
 float SkiaCanvas::measure_text(const std::string& text) {
