@@ -855,7 +855,6 @@ pulp ship check
 
 | Feature | What It Does |
 |---------|-------------|
-| Appcast | Sparkle (macOS) / WinSparkle (Windows) update feed |
 | Code Signing | macOS `codesign` + Windows `signtool` |
 | DMG / PKG | macOS installer creation |
 | Linux Packaging | `.deb` and `.tar.gz` |
