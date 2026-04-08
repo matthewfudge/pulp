@@ -31,7 +31,7 @@ setFlex("osc-row", "margin_left", 8);
 setFlex("osc-row", "margin_right", 8);
 
 const oscNames = ["Pitch", "Detune", "Mix", "Level"];
-const oscDefaults = [0.5, 0.3, 0.5, 0.15];
+const oscDefaults = [0.5, 0.3, 0.5, 0.6];
 for (let i = 0; i < 4; i++) {
     const id = "osc-" + i;
     createKnob(id, "osc-row");

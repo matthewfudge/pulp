@@ -14,7 +14,7 @@ struct SynthParams {
     std::atomic<float> osc_pitch{0.5f};     // 0=low, 1=high (mapped to Hz)
     std::atomic<float> osc_detune{0.3f};    // 0=none, 1=wide
     std::atomic<float> osc_mix{0.5f};       // 0=saw, 1=square
-    std::atomic<float> osc_level{0.15f};    // output level
+    std::atomic<float> osc_level{0.6f};     // output level
 
     // Filter
     std::atomic<float> filter_cutoff{0.65f};  // 0=20Hz, 1=20kHz

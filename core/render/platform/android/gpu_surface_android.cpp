@@ -164,6 +164,7 @@ static SectionIndices g_sections;
 struct WidgetRefs {
     view::Knob* osc[4] = {};
     view::Toggle* toggles[4] = {};
+    view::XYPad* xy_pad = nullptr;
     view::Knob* filter[3] = {};
     view::Knob* env[4] = {};
     view::Fader* mixer[4] = {};
@@ -190,6 +191,11 @@ static void sync_ui_to_synth() {
     if (g_widgets.mixer[2]) p.mix3.store(g_widgets.mixer[2]->value(), std::memory_order_relaxed);
     if (g_widgets.mixer[3]) p.mix4.store(g_widgets.mixer[3]->value(), std::memory_order_relaxed);
     if (g_widgets.master) p.master.store(g_widgets.master->value(), std::memory_order_relaxed);
+    // XY pad drives filter cutoff (X) and resonance (Y)
+    if (g_widgets.xy_pad) {
+        p.filter_cutoff.store(g_widgets.xy_pad->x_value(), std::memory_order_relaxed);
+        p.filter_reso.store(g_widgets.xy_pad->y_value(), std::memory_order_relaxed);
+    }
     if (g_widgets.toggles[0]) p.osc1_on.store(g_widgets.toggles[0]->is_on(), std::memory_order_relaxed);
     if (g_widgets.toggles[1]) p.osc2_on.store(g_widgets.toggles[1]->is_on(), std::memory_order_relaxed);
     if (g_widgets.toggles[2]) p.osc3_on.store(g_widgets.toggles[2]->is_on(), std::memory_order_relaxed);
@@ -237,6 +243,7 @@ static bool create_js_ui(float dp_w, float dp_h) {
             g_widgets.mixer[i] = dynamic_cast<Fader*>(wb->widget("mix-" + std::to_string(i)));
         }
         g_widgets.master = dynamic_cast<Fader*>(wb->widget("master"));
+        g_widgets.xy_pad = dynamic_cast<XYPad*>(wb->widget("xy"));
 
         g_using_js_ui = true;
         PULP_LOGI("JS-scripted UI created successfully (%d children)",
@@ -294,7 +301,7 @@ static void create_demo_view_hierarchy(float width, float height) {
     g_root_view->add_child(std::move(osc_label));
 
     // ── Oscillator: 4 knobs directly in a row ────────────────────────
-    auto osc_knobs = make_knob_row({0.5f, 0.3f, 0.5f, 0.15f}, 48, 56);
+    auto osc_knobs = make_knob_row({0.5f, 0.3f, 0.5f, 0.6f}, 48, 56);
     // Capture raw knob pointers for synth param sync
     for (int i = 0; i < 4 && i < static_cast<int>(osc_knobs->child_count()); ++i)
         g_widgets.osc[i] = dynamic_cast<Knob*>(osc_knobs->child_at(i));
@@ -335,6 +342,7 @@ static void create_demo_view_hierarchy(float width, float height) {
     xy->set_x(0.65f);
     xy->set_y(0.35f);
     xy->flex().preferred_height = 120;
+    g_widgets.xy_pad = xy.get();
     xy->flex().margin_top = 0;
     xy->flex().margin_left = 8;
     xy->flex().margin_right = 8;
