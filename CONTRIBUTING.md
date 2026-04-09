@@ -12,7 +12,16 @@ Pulp is currently a **single-maintainer project**. Contributors should expect:
 - **Release tags are immutable.** Once a `v*` tag is published, it cannot be force-pushed, deleted, or updated. This guarantees the cryptographic identity of every published artifact.
 - **The maintainer signs releases.** macOS plugin bundles use Developer ID code signing; release artifacts will gain Sigstore attestations in a future release for cryptographic provenance.
 
-Pulp's CI controller is migrating from `tools/local-ci/local_ci.py` to [Shipyard](https://github.com/danielraffel/Shipyard) — the reusable CI tool extracted from `local_ci.py`. Both tools accept the same workflows during the transition.
+Pulp uses [Shipyard](https://github.com/danielraffel/Shipyard) —
+the reusable CI controller extracted from Pulp's original
+`tools/local-ci/local_ci.py` — to manage **branch protection,
+tag protection, and governance state declaratively**. The rules
+live in `.shipyard/config.toml` (`[project].profile = "solo"` +
+`[governance].required_status_checks`) and are applied with
+`shipyard governance apply`. Validation of individual PRs still
+runs through `local_ci.py` + GitHub Actions today; the full
+switchover to `shipyard run` / `shipyard ship` as the primary
+validation path is in progress.
 
 If you're interested in the rationale behind these rules, see [Astral's open-source security post](https://astral.sh/blog/open-source-security-at-astral) — Pulp adopts several of the practices documented there.
 
@@ -20,8 +29,8 @@ If you're interested in the rationale behind these rules, see [Astral's open-sou
 
 1. Fork the repo (or create a feature branch if you have write access).
 2. Make your changes on a branch named `feature/short-description` or `fix/short-description`.
-3. **Pre-PR validation** (optional but recommended): `shipyard run` (preferred, when shipyard is on PATH) or `python3 tools/local-ci/local_ci.py run` (fallback). This validates on macOS + Linux + Windows without creating a PR.
-4. Open the PR with `git push` + `gh pr create`, or use `shipyard ship` / `python3 tools/local-ci/local_ci.py ship` to push, open the PR, validate, and merge on green automatically.
+3. **Pre-PR validation** (optional but recommended): `python3 tools/local-ci/local_ci.py run` validates on macOS + Linux + Windows without creating a PR. `shipyard run` is also available but hasn't finished cross-validation against Pulp's VM topology yet.
+4. Open the PR with `git push` + `gh pr create`, or use `python3 tools/local-ci/local_ci.py ship` to push, open the PR, validate, and merge on green automatically.
 5. CI will run automatically on macOS, Linux, and Windows.
 6. The maintainer will merge the PR after CI passes. If anything is unclear, leave a comment.
 

@@ -173,17 +173,15 @@ Every change goes through: **branch → CI → PR → merge on green**. Pulp acc
 
 ```bash
 # Validate on macOS + Ubuntu + Windows before creating a PR
-shipyard run                               # preferred (when shipyard is on PATH)
-python3 tools/local-ci/local_ci.py run     # fallback
+python3 tools/local-ci/local_ci.py run     # current primary validation path
 
 # Or use the CI skill: "validate this"
 #
 # When you're ready to open a PR + merge on green automatically:
-shipyard ship                              # creates the PR, waits for CI, merges
-python3 tools/local-ci/local_ci.py ship    # fallback
+python3 tools/local-ci/local_ci.py ship    # creates the PR, waits for CI, merges
 ```
 
-Pulp's CI controller is migrating from `local_ci.py` to [Shipyard](https://github.com/danielraffel/Shipyard). The CI skill detects which one is on PATH and prefers Shipyard; both tools cover the same target matrix (macOS local + Linux SSH + Windows SSH + Namespace cloud). See [docs/guides/local-ci.md](docs/guides/local-ci.md) for setup and [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor expectations.
+Pulp is migrating from `local_ci.py` to [Shipyard](https://github.com/danielraffel/Shipyard) — the reusable CI controller extracted from it. **Governance** (branch protection, tag protection, doctor drift detection, snapshot/restore) has already moved to Shipyard and is declared in [.shipyard/config.toml](.shipyard/config.toml). **Validation** (`run` and `ship`) is still going through `local_ci.py` while Shipyard's validation path is cross-checked against Pulp's VM topology. Both tools accept the same target matrix (macOS local + Linux SSH + Windows SSH + Namespace cloud). See [docs/guides/local-ci.md](docs/guides/local-ci.md) for setup and [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor expectations.
 
 ### Security & CI policy
 

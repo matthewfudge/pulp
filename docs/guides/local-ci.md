@@ -2,6 +2,17 @@
 
 Local CI lets you validate branches on your Mac and cross-platform VMs before merging, without spending money on cloud CI minutes.
 
+> **Migration note.** `local_ci.py` is still Pulp's primary validation
+> tool today. Pulp is migrating validation to
+> [Shipyard](https://github.com/danielraffel/Shipyard) — the reusable
+> CI controller extracted from this script. Governance
+> (branch protection, tag protection, `doctor` drift detection) has
+> already moved to Shipyard and is declared in `.shipyard/config.toml`.
+> Validation (`run` / `ship`) stays on `local_ci.py` until the
+> Shipyard validation path is cross-checked against Pulp's VM
+> topology. When that cut-over happens, the CI skill flips its
+> preference and this guide will be updated.
+
 ## Required Merge Process (All Agents)
 
 Every change to `main` must go through this workflow — no exceptions, regardless of which AI agent or human is doing the work:

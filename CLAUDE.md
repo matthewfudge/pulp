@@ -646,3 +646,39 @@ If it shows `github-hosted`, add this to `~/Library/Application Support/Pulp/loc
 ```
 
 See `docs/guides/local-ci.md` for setup.
+
+#### Branch protection + governance (Shipyard)
+
+The CI **validation path** is still `local_ci.py`, but branch
+protection and governance state are declared in
+`.shipyard/config.toml` and managed by Shipyard. The declared
+shape is `[project].profile = "solo"` — single-maintainer
+defaults: require PRs + required status checks, no rebase tax,
+no required reviews, admins not enforced. The required status
+check names are `macOS (ARM64)`, `Linux (x64)`, `Windows (x64)`
+(provider-neutral — the runner provider is visible in each
+job's first step annotation, not in the job name).
+
+Useful commands (pinned via `tools/shipyard.toml`):
+
+```bash
+shipyard doctor                  # governance + core tools health
+shipyard governance status       # declared vs live drift on main
+shipyard governance apply        # fix drift from the config (idempotent)
+shipyard governance export > snap.toml      # snapshot live state
+shipyard governance apply --from snap.toml  # restore from snapshot
+```
+
+Changing governance rules means editing
+`.shipyard/config.toml`, committing, and running
+`shipyard governance apply`. Never change branch protection
+through the GitHub UI directly — the TOML file is the source of
+truth and UI changes will be reported as drift by
+`governance status` and overwritten on the next `apply`.
+
+`shipyard run` / `shipyard ship` are installed but are **not yet
+the primary CI path**. The full cut-over is blocked on Part 13
+validation stages (see `planning/develop-branch-and-shipyard-migration.md`
+in the private planning submodule). Until then, continue using
+`local_ci.py` for validation and use Shipyard only for
+governance.
