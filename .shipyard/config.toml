@@ -17,6 +17,30 @@ name      = "pulp"
 type      = "cmake"
 platforms = ["macos", "linux", "windows"]
 
+# Governance profile — determines the defaults for branch protection,
+# review requirements, and other merge gates. Pulp is a single-
+# maintainer project today, so "solo" is the right fit: require PRs
+# and status checks to prevent `git push origin main` accidents, but
+# do NOT require strict status (no rebase tax), reviews (can't
+# review your own PR), or admin enforcement (3 AM hotfix path needs
+# to exist). See Shipyard's docs for the full profile matrix.
+profile   = "solo"
+
+# ── Governance defaults ────────────────────────────────────────────────────
+# Required status check names MUST match the job names GitHub
+# Actions actually produces. Pulp's `.github/workflows/build.yml`
+# names include the runner provider suffix, so the list is:
+#   macOS (ARM64) [github-hosted], Linux (x64) [namespace],
+#   Windows (x64) [namespace]
+# Keep this in sync if the workflow job names ever change.
+
+[governance]
+required_status_checks = [
+    "macOS (ARM64) [github-hosted]",
+    "Linux (x64) [namespace]",
+    "Windows (x64) [namespace]",
+]
+
 # ── Validation pipeline ────────────────────────────────────────────────────
 # Each stage maps to a step in tools/validate-build.sh. Shipyard runs
 # them in order; stage failure short-circuits the pipeline.
