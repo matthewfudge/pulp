@@ -856,6 +856,8 @@ pulp ship check
 | Feature | What It Does |
 |---------|-------------|
 | Code Signing | macOS `codesign` + Windows `signtool` |
-| macOS Packaging | `.pkg` installers via `pkgbuild` |
+| DMG / PKG | macOS installer creation |
+| Linux Packaging | `.deb` and `.tar.gz` |
+| Notarization | macOS notarization with `notarytool` |
 | Signing Check | Verify signing status of all built plugin bundles |
-| Windows Installer | NSIS-based installer with optional Authenticode |
+| Windows Installer | NSIS-based with optional Authenticode |
