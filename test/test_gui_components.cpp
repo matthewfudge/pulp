@@ -282,6 +282,32 @@ TEST_CASE("Toolbar is_toggled returns false for unknown id", "[gui][toolbar]") {
 }
 
 // ── ConcertinaPanel ─────────────────────────────────────────────────────
+//
+// Behavioral coverage for the accordion-style stack. The original tests
+// only exercised section count, toggle(), and exclusive mode by direct
+// API call. The quality pass adds:
+//   - on_mouse_down hit-testing for headers (the user-facing path)
+//   - on_mouse_down ignoring the content area between headers
+//   - on_mouse_down beyond the bottom of all sections is a no-op
+//   - layout_sections positions content view bounds correctly
+//   - non-exclusive mode lets multiple sections be open simultaneously
+//   - direct collapse() works
+//   - bounds-checked expand/collapse/toggle/is_expanded with bad indices
+//   - add_section with a content view starts hidden when initially_expanded=false
+//   - content view visibility tracks expand/collapse state changes
+
+namespace {
+// A minimal View subclass with a fixed intrinsic height so we can verify
+// layout_sections positions it correctly without dragging in real widgets.
+class FixedHeightView : public View {
+public:
+    explicit FixedHeightView(float h) : intrinsic_h_(h) {}
+    float intrinsic_height() const override { return intrinsic_h_; }
+    void paint(pulp::canvas::Canvas&) override {}
+private:
+    float intrinsic_h_;
+};
+}  // namespace
 
 TEST_CASE("ConcertinaPanel add sections", "[gui][concertina]") {
     ConcertinaPanel panel;
@@ -318,6 +344,191 @@ TEST_CASE("ConcertinaPanel exclusive mode", "[gui][concertina]") {
     panel.expand(1);
     REQUIRE_FALSE(panel.is_expanded(0));  // Auto-collapsed
     REQUIRE(panel.is_expanded(1));
+}
+
+TEST_CASE("ConcertinaPanel non-exclusive lets multiple expand", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    REQUIRE_FALSE(panel.is_exclusive());
+    panel.add_section("A", nullptr, false);
+    panel.add_section("B", nullptr, false);
+    panel.add_section("C", nullptr, false);
+
+    panel.expand(0);
+    panel.expand(1);
+    panel.expand(2);
+
+    REQUIRE(panel.is_expanded(0));
+    REQUIRE(panel.is_expanded(1));
+    REQUIRE(panel.is_expanded(2));
+}
+
+TEST_CASE("ConcertinaPanel collapse() directly", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.add_section("A", nullptr, true);
+    REQUIRE(panel.is_expanded(0));
+
+    panel.collapse(0);
+    REQUIRE_FALSE(panel.is_expanded(0));
+}
+
+TEST_CASE("ConcertinaPanel out-of-bounds index is a no-op", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.add_section("Only", nullptr, false);
+
+    // is_expanded with bad index returns false instead of crashing or UB
+    REQUIRE_FALSE(panel.is_expanded(-1));
+    REQUIRE_FALSE(panel.is_expanded(99));
+    REQUIRE_FALSE(panel.is_expanded(panel.section_count()));
+
+    // expand/collapse/toggle with bad index leave state unchanged
+    panel.expand(-5);
+    panel.collapse(42);
+    panel.toggle(99);
+    REQUIRE(panel.section_count() == 1);
+    REQUIRE_FALSE(panel.is_expanded(0));  // unchanged
+}
+
+TEST_CASE("ConcertinaPanel on_mouse_down on header toggles section", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.set_bounds({0, 0, 200, 600});
+    panel.add_section("First", nullptr, false);
+    panel.add_section("Second", nullptr, false);
+
+    // header_height_ = 30 by default
+    // Section 0 header: y ∈ [0, 30)
+    // Section 1 header: y ∈ [30, 60) (because section 0 collapsed)
+    REQUIRE_FALSE(panel.is_expanded(0));
+    panel.on_mouse_down({100.0f, 10.0f});  // inside section 0 header
+    REQUIRE(panel.is_expanded(0));
+
+    // Re-clicking the same header collapses it
+    panel.on_mouse_down({100.0f, 10.0f});
+    REQUIRE_FALSE(panel.is_expanded(0));
+
+    // Click section 1 header (still at y ∈ [30, 60) since 0 is collapsed)
+    panel.on_mouse_down({100.0f, 40.0f});
+    REQUIRE(panel.is_expanded(1));
+}
+
+TEST_CASE("ConcertinaPanel on_mouse_down skips expanded content area", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.set_bounds({0, 0, 200, 600});
+
+    auto content = std::make_unique<FixedHeightView>(80.0f);
+    panel.add_section("First", std::move(content), true);
+    panel.add_section("Second", nullptr, false);
+
+    // Section 0 header: y ∈ [0, 30)
+    // Section 0 content: y ∈ [30, 110)  (content_h = 80)
+    // Section 1 header: y ∈ [110, 140)
+    REQUIRE(panel.is_expanded(0));
+    REQUIRE_FALSE(panel.is_expanded(1));
+
+    // Click in the content area of section 0 — must NOT toggle section 1
+    panel.on_mouse_down({100.0f, 60.0f});
+    REQUIRE(panel.is_expanded(0));  // unchanged
+    REQUIRE_FALSE(panel.is_expanded(1));  // unchanged
+
+    // Click section 1 header (y=120 lands inside [110, 140))
+    panel.on_mouse_down({100.0f, 120.0f});
+    REQUIRE(panel.is_expanded(0));  // still expanded (non-exclusive)
+    REQUIRE(panel.is_expanded(1));
+}
+
+TEST_CASE("ConcertinaPanel on_mouse_down below all sections is a no-op", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.set_bounds({0, 0, 200, 600});
+    panel.add_section("Only", nullptr, false);
+
+    // Click way below the single header — no toggle
+    panel.on_mouse_down({100.0f, 500.0f});
+    REQUIRE_FALSE(panel.is_expanded(0));
+}
+
+TEST_CASE("ConcertinaPanel layout_sections positions content view bounds", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.set_bounds({0, 0, 240, 600});
+
+    auto content = std::make_unique<FixedHeightView>(120.0f);
+    auto* content_raw = content.get();
+    panel.add_section("Section", std::move(content), true);
+
+    panel.layout_sections();
+
+    // Content view should be placed below the header at full panel width
+    auto b = content_raw->bounds();
+    REQUIRE(b.x == 0.0f);
+    REQUIRE(b.y == panel.header_height());  // 30 by default
+    REQUIRE(b.width == 240.0f);
+    REQUIRE(b.height == 120.0f);
+}
+
+TEST_CASE("ConcertinaPanel content view visibility tracks expand/collapse", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    auto content = std::make_unique<FixedHeightView>(50.0f);
+    auto* content_raw = content.get();
+
+    panel.add_section("Test", std::move(content), false);
+    REQUIRE_FALSE(content_raw->visible());  // started collapsed
+
+    panel.expand(0);
+    REQUIRE(content_raw->visible());
+
+    panel.collapse(0);
+    REQUIRE_FALSE(content_raw->visible());
+
+    panel.toggle(0);
+    REQUIRE(content_raw->visible());
+}
+
+TEST_CASE("ConcertinaPanel exclusive mode hides other content views", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.set_exclusive(true);
+
+    auto a_content = std::make_unique<FixedHeightView>(40.0f);
+    auto b_content = std::make_unique<FixedHeightView>(40.0f);
+    auto* a_raw = a_content.get();
+    auto* b_raw = b_content.get();
+
+    panel.add_section("A", std::move(a_content), true);
+    panel.add_section("B", std::move(b_content), false);
+
+    REQUIRE(a_raw->visible());
+    REQUIRE_FALSE(b_raw->visible());
+
+    panel.expand(1);
+
+    REQUIRE_FALSE(a_raw->visible());  // exclusive mode collapsed A
+    REQUIRE(b_raw->visible());
+}
+
+TEST_CASE("ConcertinaPanel custom header height affects hit testing", "[gui][concertina]") {
+    ConcertinaPanel panel;
+    panel.set_bounds({0, 0, 200, 600});
+    panel.set_header_height(50.0f);
+    panel.add_section("First", nullptr, false);
+    panel.add_section("Second", nullptr, false);
+
+    // Both sections collapsed, so:
+    //   Section 0 header: y ∈ [0, 50)
+    //   Section 1 header: y ∈ [50, 100)
+    // The default 30px header would NOT match these clicks; this test
+    // confirms set_header_height(50) actually drives hit-testing.
+    panel.on_mouse_down({100.0f, 25.0f});  // inside section 0 header
+    REQUIRE(panel.is_expanded(0));
+
+    // Re-collapse 0 so section 1's header stays at y ∈ [50, 100)
+    panel.collapse(0);
+    panel.on_mouse_down({100.0f, 75.0f});  // inside section 1 header
+    REQUIRE(panel.is_expanded(1));
+
+    // A click at y=35 (where the OLD 30px hit-test would have placed
+    // section 1's header) must hit section 0, NOT section 1, with the
+    // new 50px height
+    panel.collapse(1);
+    panel.on_mouse_down({100.0f, 35.0f});
+    REQUIRE(panel.is_expanded(0));
+    REQUIRE_FALSE(panel.is_expanded(1));
 }
 
 // ── TextButton ──────────────────────────────────────────────────────────
