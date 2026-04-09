@@ -30,8 +30,8 @@
 # bumps this pin.
 
 [shipyard]
-# Pinned to the Shipyard release that bundles Phase 5 capability
-# parity with local_ci.py plus Phase 6 governance (full surface):
+# Pinned to the Shipyard release with the complete Phase 5 +
+# Phase 6 surface:
 #   - validation contract markers (__PULP_VALIDATION__:smoke|full)
 #   - prepared-state reuse keyed by (sha, target, mode)
 #   - Windows host mutex + Visual Studio auto-detection
@@ -39,13 +39,15 @@
 #   - Governance profiles (solo/multi/custom) + status/diff/apply
 #   - governance use <profile> (profile switch)
 #   - governance export + apply --from <snapshot> (disaster recovery)
+#   - branch apply --create (new branch + rules in one command)
+#   - ship --base develop/foo auto-create-base (auto-on for
+#     develop/* and release/* patterns)
 #   - doctor drift integration with honest immutable-releases row
 #
 # v0.1.1 was a no-op stub on macOS — do not pin to anything older
-# than v0.1.2. v0.1.5 is the first Shipyard release that runs
-# Pulp's Part 13 validation Stages 4 and 5 cleanly (drift detection
-# + recreation drill with snapshot restore).
-version = "v0.1.5"
+# than v0.1.2. v0.1.6 is the Phase 6 complete release — nothing in
+# the original Phase 6 follow-up plan remains deferred.
+version = "v0.1.6"
 
 # Public release source. The bootstrap script downloads from
 # https://github.com/{repo}/releases/download/{version}/{asset}
