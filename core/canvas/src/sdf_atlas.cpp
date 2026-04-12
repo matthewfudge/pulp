@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -31,6 +32,17 @@
     #include "include/core/SkPaint.h"
     #include "include/core/SkTypeface.h"
     #include "include/core/SkImageInfo.h"
+    #ifdef __APPLE__
+        #include "include/ports/SkFontMgr_mac_ct.h"
+    #elif defined(_WIN32)
+        #include "include/ports/SkFontMgr_directory.h"
+    #elif defined(__ANDROID__)
+        #include "include/ports/SkFontMgr_android.h"
+        #include "include/ports/SkFontScanner_FreeType.h"
+    #elif defined(__linux__)
+        #include "include/ports/SkFontMgr_fontconfig.h"
+        #include "include/ports/SkFontScanner_FreeType.h"
+    #endif
 #endif
 
 namespace pulp::canvas {
@@ -155,8 +167,22 @@ std::vector<std::uint8_t> rasterize_placeholder(char32_t codepoint, int w, int h
 #if PULP_HAS_SKIA
 // Resolve a typeface the same way rasterize_skia() does so metrics and
 // rasterization agree on which font is in use.
+sk_sp<SkFontMgr> make_font_mgr() {
+#ifdef __APPLE__
+    return SkFontMgr_New_CoreText(nullptr);
+#elif defined(_WIN32)
+    return SkFontMgr_New_DirectWrite();
+#elif defined(__ANDROID__)
+    return SkFontMgr_New_Android(nullptr, SkFontScanner_Make_FreeType());
+#elif defined(__linux__)
+    return SkFontMgr_New_FontConfig(nullptr, SkFontScanner_Make_FreeType());
+#else
+    return nullptr;
+#endif
+}
+
 sk_sp<SkTypeface> resolve_typeface(const std::string& font_family) {
-    auto mgr = SkFontMgr::RefDefault();
+    auto mgr = make_font_mgr();
     if (!mgr) return nullptr;
     sk_sp<SkTypeface> face;
     if (!font_family.empty()) {
@@ -186,6 +212,10 @@ GlyphMetrics glyph_metrics_skia(const sk_sp<SkTypeface>& face,
         SkUnichar uni = static_cast<SkUnichar>(codepoint);
         font.unicharsToGlyphs(&uni, 1, &gid);
     }
+    std::fprintf(stderr, "[sdf] cp=U+%04X gid=%u face=%p\n",
+                 static_cast<unsigned>(codepoint),
+                 static_cast<unsigned>(gid),
+                 static_cast<const void*>(face.get()));
     if (gid == 0) return m;  // .notdef — still emit advance below
 
     SkScalar advance = 0;
@@ -212,7 +242,7 @@ std::vector<std::uint8_t> rasterize_skia(const std::string& font_family,
                                           char32_t codepoint,
                                           int base_size,
                                           int w, int h, int padding) {
-    auto mgr = SkFontMgr::RefDefault();
+    auto mgr = make_font_mgr();
     if (!mgr) return {};
 
     sk_sp<SkTypeface> face;
