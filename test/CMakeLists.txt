@@ -418,6 +418,11 @@ add_executable(pulp-test-sdf-atlas-cache test_sdf_atlas_cache.cpp)
 target_link_libraries(pulp-test-sdf-atlas-cache PRIVATE pulp::canvas Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sdf-atlas-cache)
 
+# Software SDF renderer (end-to-end headless raster)
+add_executable(pulp-test-sdf-software-renderer test_sdf_software_renderer.cpp)
+target_link_libraries(pulp-test-sdf-software-renderer PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-sdf-software-renderer)
+
 # View and layout tests
 add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
