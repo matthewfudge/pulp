@@ -74,14 +74,41 @@ float pen_x = snap_pen_x(fractional_x, SdfPenSnap::Nearest);
 
 The sampler shader is unchanged regardless of policy.
 
-## Effects (planned)
+## Effects
 
-Phase 4 adds a reusable effects layer: `glow`, `shadow`, `outline`,
-`bevel`. These are implemented as shader uniforms on top of the SDF
-sampler so any SDF text call-site gets the same effect module.
+A reusable effects layer — `glow`, `shadow`, `outline`, `bevel` — is
+exposed via `SdfEffectParams` in `<pulp/canvas/sdf_effects.hpp>` and
+backed by the `sdf_text_effects.sksl` shader. Design-token presets
+(`preset_subtle_shadow()`, `preset_outline()`, `preset_glow()`,
+`preset_pressed_bevel()`) compose onto any SDF or MSDF atlas without
+extra geometry — outline and glow are shader-space ring sweeps and
+bevel is a `dFdx`/`dFdy` light dot product. See
+`examples/sdf-effects-demo/` for a runnable showcase of the four
+presets plus a plain baseline.
+
+## Runtime atlas management
+
+`SdfAtlasCache` (in `<pulp/canvas/sdf_atlas_cache.hpp>`) lets UIs share
+a single atlas across every `fill_text_sdf` call-site with per-glyph
+dirty-rect upload hints and frame-based LRU eviction:
+
+```cpp
+SdfAtlasCache cache;
+cache.initialize(font, seed_chars);
+cache.ensure(U'☃');           // dynamic growth: rebuild atlas if missing
+cache.touch(U'A');             // record recency for LRU
+cache.next_frame();            // call once per rendered frame
+cache.evict_older_than(600);   // drop glyphs unused for 10 seconds at 60fps
+```
+
+For procedural UI that needs SDFs beyond the font atlas (vector icons,
+generated glyphs), `<pulp/canvas/path_to_sdf.hpp>` runs the same
+Felzenszwalb-Huttenlocher EDT on a caller-supplied binary mask and
+emits the `128 == edge` field the SDF samplers expect.
 
 ## Related
 
 - `planning/next-features-plan.md` § Feature 4 — full phase plan
-- `examples/sdf-text-demo/` — SDF vs MSDF comparison (planned)
+- `examples/sdf-text-demo/` — SDF vs MSDF comparison
+- `examples/sdf-effects-demo/` — effects showcase across presets
 - `docs/reference/modules.md` — module index
