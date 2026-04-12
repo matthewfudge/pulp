@@ -36,6 +36,9 @@ add_subdirectory(faust-gain)
 add_subdirectory(faust-filter)
 add_subdirectory(faust-tremolo)
 
+# ViewBridge demo: custom create_view() + secondary-view attach
+add_subdirectory(view-bridge-demo)
+
 # GPU Validation Demo: Modulation Matrix with animated cables
 add_subdirectory(gpu-demo)
 

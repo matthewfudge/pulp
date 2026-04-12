@@ -4,11 +4,24 @@
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/mpe_buffer.hpp>
 #include <pulp/state/store.hpp>
+#include <pulp/view/view.hpp>
 #include <string>
 #include <memory>
 #include <vector>
 
 namespace pulp::format {
+
+/// Editor size hints (in logical pixels). preferred is used for the
+/// initial window size; min/max bound interactive resizing. A zero
+/// max dimension means unbounded in that axis.
+struct ViewSize {
+    uint32_t preferred_width = 400;
+    uint32_t preferred_height = 300;
+    uint32_t min_width = 0;
+    uint32_t min_height = 0;
+    uint32_t max_width = 0;   ///< 0 = unbounded
+    uint32_t max_height = 0;  ///< 0 = unbounded
+};
 
 /// Plugin category — determines bus layout expectations and DAW behavior.
 enum class PluginCategory {
@@ -188,6 +201,38 @@ public:
 
     /// Preferred editor window size in logical pixels.
     virtual std::pair<uint32_t, uint32_t> editor_size() const { return {400, 300}; }
+
+    /// Return the full view size hints (preferred/min/max). Default builds
+    /// a ViewSize from `editor_size()` with no min/max bounds. Override for
+    /// resizable editors that need explicit bounds.
+    virtual ViewSize view_size() const {
+        auto [w, h] = editor_size();
+        return ViewSize{w, h, 0, 0, 0, 0};
+    }
+
+    /// Create a custom view for this processor. Default returns nullptr,
+    /// which signals the framework to build the default editor (scripted UI
+    /// if configured, otherwise AutoUi from registered parameters).
+    ///
+    /// Override to return a fully custom `view::View` tree. The returned
+    /// view is owned by the `ViewBridge` and destroyed when the editor
+    /// closes. This method may be called multiple times during the lifetime
+    /// of the processor (one per attached editor window).
+    ///
+    virtual std::unique_ptr<view::View> create_view() { return nullptr; }
+
+    /// Called after a view has been constructed and attached. Runs on the
+    /// host/UI thread. Safe to read state and register UI listeners.
+    virtual void on_view_opened(view::View& /*view*/) {}
+
+    /// Called immediately before a view is destroyed. Runs on the UI thread.
+    /// Use to unregister listeners; do not assume the view is still usable
+    /// for drawing after this returns.
+    virtual void on_view_closed(view::View& /*view*/) {}
+
+    /// Called when the host resizes the editor window. Dimensions are in
+    /// logical pixels. Runs on the UI thread.
+    virtual void on_view_resized(view::View& /*view*/, uint32_t /*w*/, uint32_t /*h*/) {}
 
     /// Access the parameter state store.
     /// Use state().get_value(id) to read parameter values in process().

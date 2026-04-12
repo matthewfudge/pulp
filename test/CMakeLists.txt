@@ -356,6 +356,11 @@ add_executable(pulp-test-auto-ui test_auto_ui.cpp)
 target_link_libraries(pulp-test-auto-ui PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-auto-ui)
 
+# ViewBridge lifecycle tests
+add_executable(pulp-test-view-bridge test_view_bridge.cpp)
+target_link_libraries(pulp-test-view-bridge PRIVATE pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-view-bridge)
+
 # Script engine tests (legacy API)
 add_executable(pulp-test-script test_script_engine.cpp)
 target_link_libraries(pulp-test-script PRIVATE pulp::view Catch2::Catch2WithMain)
