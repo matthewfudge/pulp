@@ -202,6 +202,130 @@ TEST_CASE("SignalGraph disconnected output stays silent", "[host][graph][routing
     graph.release();
 }
 
+// ── Mock plugin for PDC tests ───────────────────────────────────────────
+
+namespace {
+class MockLatencyPlugin final : public PluginSlot {
+public:
+    MockLatencyPlugin(int latency, int num_ch)
+        : latency_(latency), num_ch_(num_ch) {
+        info_.name = "MockLatency";
+        info_.num_inputs = num_ch;
+        info_.num_outputs = num_ch;
+    }
+    const PluginInfo& info() const override { return info_; }
+    bool is_loaded() const override { return true; }
+    bool prepare(double, int) override { return true; }
+    void release() override {}
+    void process(pulp::audio::BufferView<float>& out,
+                 const pulp::audio::BufferView<const float>& in,
+                 const pulp::midi::MidiBuffer&,
+                 pulp::midi::MidiBuffer&,
+                 int n) override {
+        // Actually delay the audio by the reported latency samples so PDC
+        // behaviour can be measured end-to-end: the plugin's internal delay
+        // line and the host's reported-latency view agree.
+        if (rings_.size() != (size_t)num_ch_) {
+            rings_.assign((size_t)num_ch_,
+                          std::vector<float>((size_t)std::max(1, latency_ + 1), 0.f));
+            wp_ = 0;
+        }
+        for (int c = 0; c < num_ch_ && (size_t)c < out.num_channels(); ++c) {
+            const float* s = (size_t)c < in.num_channels() ? in.channel_ptr((size_t)c) : nullptr;
+            float* d = out.channel_ptr((size_t)c);
+            if (latency_ <= 0) {
+                if (s) std::memcpy(d, s, sizeof(float) * (size_t)n);
+                else std::memset(d, 0, sizeof(float) * (size_t)n);
+                continue;
+            }
+            const int ring_size = (int)rings_[(size_t)c].size();
+            int wp = wp_;
+            int rp = wp - latency_;
+            if (rp < 0) rp += ring_size;
+            for (int i = 0; i < n; ++i) {
+                rings_[(size_t)c][(size_t)wp] = s ? s[i] : 0.f;
+                d[i] = rings_[(size_t)c][(size_t)rp];
+                if (++wp == ring_size) wp = 0;
+                if (++rp == ring_size) rp = 0;
+            }
+        }
+        // Advance write pointer by one block (shared across channels).
+        wp_ = (wp_ + n) % (int)std::max<size_t>(1, rings_.empty() ? 1 : rings_[0].size());
+    }
+    std::vector<HostParamInfo> parameters() const override { return {}; }
+    float get_parameter(uint32_t) const override { return 0.f; }
+    void set_parameter(uint32_t, float) override {}
+    void set_bypass(bool) override {}
+    bool is_bypassed() const override { return false; }
+    std::vector<uint8_t> save_state() const override { return {}; }
+    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    bool has_editor() const override { return false; }
+    void* create_editor_view() override { return nullptr; }
+    void destroy_editor_view() override {}
+    int latency_samples() const override { return latency_; }
+    int tail_samples() const override { return 0; }
+private:
+    PluginInfo info_;
+    int latency_ = 0;
+    int num_ch_ = 2;
+    std::vector<std::vector<float>> rings_;
+    int wp_ = 0;
+};
+} // namespace
+
+TEST_CASE("SignalGraph PDC aligns parallel branches", "[host][graph][pdc]") {
+    // in → A(latency=32) → mix
+    // in → B(latency=0)  → mix   (should be delayed by 32 so A and B align)
+    SignalGraph graph;
+    auto in = graph.add_input_node(1, "in");
+    auto a  = graph.add_plugin_node(std::make_unique<MockLatencyPlugin>(32, 1), 1, 1, "A");
+    auto b  = graph.add_plugin_node(std::make_unique<MockLatencyPlugin>(0,  1), 1, 1, "B");
+    auto out = graph.add_output_node(1, "out");
+
+    REQUIRE(graph.connect(in, 0, a, 0));
+    REQUIRE(graph.connect(in, 0, b, 0));
+    REQUIRE(graph.connect(a, 0, out, 0));
+    REQUIRE(graph.connect(b, 0, out, 0));
+
+    REQUIRE(graph.prepare(48000.0, 64));
+    REQUIRE(graph.latency_samples() == 32);
+    REQUIRE(graph.node_latency_samples(out) == 32);
+
+    // Drive an impulse at sample 0 and check the first non-zero sample in the
+    // output is at index 32 (aligned) with amplitude 2.0 (both branches sum).
+    std::vector<float> in_buf(64, 0.f);
+    in_buf[0] = 1.0f;
+    std::vector<float> out_buf(64, 999.f);
+    const float* in_ptrs[1]  = {in_buf.data()};
+    float*       out_ptrs[1] = {out_buf.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 1, 64);
+    pulp::audio::BufferView<float>       ov(out_ptrs, 1, 64);
+
+    graph.process(ov, iv, 64);
+
+    // Samples 0..31 should be silent (pre-latency), sample 32 should carry
+    // the impulse from both branches aligned (2.0).
+    for (int i = 0; i < 32; ++i) REQUIRE(out_buf[i] == 0.0f);
+    REQUIRE(out_buf[32] == 2.0f);
+    for (int i = 33; i < 64; ++i) REQUIRE(out_buf[i] == 0.0f);
+    graph.release();
+}
+
+TEST_CASE("SignalGraph serial plugin latencies accumulate", "[host][graph][pdc]") {
+    SignalGraph graph;
+    auto in = graph.add_input_node(1, "in");
+    auto a  = graph.add_plugin_node(std::make_unique<MockLatencyPlugin>(10, 1), 1, 1, "A");
+    auto b  = graph.add_plugin_node(std::make_unique<MockLatencyPlugin>(20, 1), 1, 1, "B");
+    auto out = graph.add_output_node(1, "out");
+
+    graph.connect(in, 0, a, 0);
+    graph.connect(a,  0, b, 0);
+    graph.connect(b,  0, out, 0);
+
+    REQUIRE(graph.prepare(48000.0, 32));
+    REQUIRE(graph.latency_samples() == 30);
+}
+
 // ── Real CLAP loader (integration test, skipped when no test plugin built) ──
 
 #include <filesystem>

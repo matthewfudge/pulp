@@ -44,6 +44,20 @@ NodeId SignalGraph::add_plugin_node(const PluginInfo& info) {
     return nodes_.back().id;
 }
 
+NodeId SignalGraph::add_plugin_node(std::unique_ptr<PluginSlot> slot,
+                                    int num_inputs, int num_outputs,
+                                    const std::string& name) {
+    GraphNode node;
+    node.id = next_id_++;
+    node.type = NodeType::Plugin;
+    node.name = name;
+    node.num_input_ports = num_inputs;
+    node.num_output_ports = num_outputs;
+    node.plugin = std::move(slot);
+    nodes_.push_back(std::move(node));
+    return nodes_.back().id;
+}
+
 NodeId SignalGraph::add_gain_node(const std::string& name) {
     GraphNode node;
     node.id = next_id_++;
@@ -185,11 +199,79 @@ std::vector<NodeId> SignalGraph::processing_order() const {
     return order;
 }
 
+int SignalGraph::node_latency_samples(NodeId id) const {
+    auto it = runtime_.find(id);
+    if (it == runtime_.end()) return 0;
+    return (int)it->second.input_latency;
+}
+
+void SignalGraph::compute_latencies_() {
+    // Walk nodes in topological order; each node's input_latency is the max
+    // of its inbound connections' source output_latency, and its
+    // output_latency is that plus the node's own added latency (plugin
+    // latency for Plugin nodes, 0 otherwise).
+    for (NodeId id : cached_order_) {
+        auto rt_it = runtime_.find(id);
+        if (rt_it == runtime_.end()) continue;
+        auto& rt = rt_it->second;
+
+        int64_t max_upstream = 0;
+        bool has_upstream = false;
+        for (const auto& c : connections_) {
+            if (c.dest_node != id) continue;
+            auto src_it = runtime_.find(c.source_node);
+            if (src_it == runtime_.end()) continue;
+            max_upstream = std::max(max_upstream, src_it->second.output_latency);
+            has_upstream = true;
+        }
+        rt.input_latency = has_upstream ? max_upstream : 0;
+
+        int64_t added = 0;
+        if (auto* n = node(id); n && n->plugin) {
+            added = std::max(0, n->plugin->latency_samples());
+        }
+        rt.output_latency = rt.input_latency + added;
+    }
+
+    // Compute graph-wide latency: max input_latency across AudioOutput nodes.
+    total_latency_samples_ = 0;
+    for (auto& n : nodes_) {
+        if (n.type != NodeType::AudioOutput) continue;
+        auto it = runtime_.find(n.id);
+        if (it == runtime_.end()) continue;
+        total_latency_samples_ = std::max(total_latency_samples_, it->second.input_latency);
+    }
+
+    // Allocate per-connection delay lines to align inbound branches. Each
+    // connection's delay brings the source output up to the dest node's
+    // input_latency.
+    connection_delays_.assign(connections_.size(), ConnectionDelay{});
+    for (size_t i = 0; i < connections_.size(); ++i) {
+        const auto& c = connections_[i];
+        auto src_it = runtime_.find(c.source_node);
+        auto dst_it = runtime_.find(c.dest_node);
+        if (src_it == runtime_.end() || dst_it == runtime_.end()) continue;
+        int64_t want = dst_it->second.input_latency - src_it->second.output_latency;
+        if (want < 0) want = 0;
+        connection_delays_[i].delay_samples = (int)want;
+        if (want > 0) {
+            // Ring size = delay + max_block so one process() call can push
+            // max_block samples and pull max_block delayed samples without
+            // overlapping itself.
+            connection_delays_[i].ring.assign(
+                static_cast<size_t>((int64_t)max_block_size_ + want), 0.0f);
+            connection_delays_[i].write_pos = 0;
+        }
+    }
+}
+
 bool SignalGraph::prepare(double sample_rate, int max_block_size) {
     if (max_block_size <= 0) return false;
 
     max_block_size_ = max_block_size;
     runtime_.clear();
+    connection_delays_.clear();
+    total_latency_samples_ = 0;
 
     for (auto& n : nodes_) {
         if (n.plugin) {
@@ -219,6 +301,7 @@ bool SignalGraph::prepare(double sample_rate, int max_block_size) {
     }
 
     cached_order_ = processing_order();
+    compute_latencies_();
     prepared_ = true;
     return true;
 }
@@ -229,7 +312,9 @@ void SignalGraph::release() {
     }
     prepared_ = false;
     runtime_.clear();
+    connection_delays_.clear();
     cached_order_.clear();
+    total_latency_samples_ = 0;
 }
 
 void SignalGraph::process(audio::BufferView<float>& output,
@@ -258,16 +343,16 @@ void SignalGraph::process(audio::BufferView<float>& output,
             std::memset(rt.input_data.data(), 0, rt.input_data.size() * sizeof(float));
         }
 
-        // 2. Gather inbound connections.
-        for (const auto& c : connections_) {
+        // 2. Gather inbound connections, pushing through per-connection
+        //    delay lines so every inbound branch arrives aligned at this
+        //    node's input_latency.
+        for (size_t ci = 0; ci < connections_.size(); ++ci) {
+            const auto& c = connections_[ci];
             if (c.dest_node != id) continue;
             const int dport = static_cast<int>(c.dest_port);
             if (dport < 0 || dport >= static_cast<int>(rt.input_ptrs.size())) continue;
+            if (c.source_node == 0) continue;  // reserved sentinel
 
-            if (c.source_node == 0) {
-                // Reserved sentinel; skip.
-                continue;
-            }
             auto src_rt_it = runtime_.find(c.source_node);
             if (src_rt_it == runtime_.end()) continue;
             const auto& src_rt = src_rt_it->second;
@@ -276,7 +361,26 @@ void SignalGraph::process(audio::BufferView<float>& output,
 
             float* dst = rt.input_ptrs[dport];
             const float* src = src_rt.output_ptrs[sport];
-            for (int i = 0; i < num_samples; ++i) dst[i] += src[i];
+            auto& dl = connection_delays_[ci];
+            if (dl.delay_samples <= 0 || dl.ring.empty()) {
+                // Zero-latency pass-through: sum source output into dest input.
+                for (int i = 0; i < num_samples; ++i) dst[i] += src[i];
+            } else {
+                const int ring_size = (int)dl.ring.size();
+                const int D = dl.delay_samples;
+                // Push num_samples new samples in, read num_samples delayed
+                // samples out. Read position lags write position by D frames.
+                int wp = dl.write_pos;
+                int rp = wp - D;
+                if (rp < 0) rp += ring_size;
+                for (int i = 0; i < num_samples; ++i) {
+                    dl.ring[(size_t)wp] = src[i];
+                    dst[i] += dl.ring[(size_t)rp];
+                    if (++wp == ring_size) wp = 0;
+                    if (++rp == ring_size) rp = 0;
+                }
+                dl.write_pos = wp;
+            }
         }
 
         // 3. Produce output based on node type.

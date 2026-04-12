@@ -76,6 +76,13 @@ public:
     NodeId add_input_node(int channels, const std::string& name = "Input");
     NodeId add_output_node(int channels, const std::string& name = "Output");
     NodeId add_plugin_node(const PluginInfo& info);
+
+    // Add a plugin node wrapping a caller-provided slot. Useful for tests
+    // (mock latency, mock processing) and for hosts that build their own
+    // PluginSlot implementations outside of PluginSlot::load().
+    NodeId add_plugin_node(std::unique_ptr<PluginSlot> slot,
+                           int num_inputs, int num_outputs,
+                           const std::string& name = "Plugin");
     NodeId add_gain_node(const std::string& name = "Gain");
     NodeId add_midi_input_node(const std::string& name = "MIDI In");
     NodeId add_midi_output_node(const std::string& name = "MIDI Out");
@@ -118,6 +125,15 @@ public:
     bool set_node_gain(NodeId id, float linear_gain);
     float node_gain(NodeId id) const;
 
+    // Latency in samples from any AudioInput to the graph's AudioOutput, as
+    // computed by prepare(). Reflects plugin-reported latencies plus any
+    // delay inserted by PDC. Returns 0 when not prepared.
+    int latency_samples() const { return (int)total_latency_samples_; }
+
+    // Latency arriving at a specific node's input (samples). Returns 0 when
+    // the node is unknown or the graph is not prepared.
+    int node_latency_samples(NodeId id) const;
+
 private:
     struct NodeRuntime {
         // Per-node output-port channel storage (interleaved per-port, flat).
@@ -130,6 +146,24 @@ private:
         std::vector<float> input_data;
         std::vector<float*> input_ptrs;
         float gain = 1.0f;
+
+        // PDC: cumulative samples of latency from AudioInput to this node's
+        // input ports (input_latency) and output ports (output_latency).
+        // output_latency = input_latency + (plugin->latency_samples() for
+        // Plugin nodes, 0 otherwise).
+        int64_t input_latency = 0;
+        int64_t output_latency = 0;
+    };
+
+    // One delay line per graph connection, parallel to connections_. Used to
+    // align branch latencies so a node receives all its inbound audio with a
+    // common alignment at input_latency samples.
+    struct ConnectionDelay {
+        int delay_samples = 0;
+        // Ring buffer: delay_samples + max_block_size_ frames per source
+        // channel. Empty when delay_samples == 0 (pass-through path).
+        std::vector<float> ring;
+        int write_pos = 0;
     };
 
     std::vector<GraphNode> nodes_;
@@ -139,11 +173,14 @@ private:
     // Populated by prepare(); consumed by process(). Kept flat rather than
     // per-node to keep allocation lifetime predictable.
     std::unordered_map<NodeId, NodeRuntime> runtime_;
+    std::vector<ConnectionDelay> connection_delays_;  // parallel to connections_
     std::vector<NodeId> cached_order_;
     int max_block_size_ = 0;
     bool prepared_ = false;
+    int64_t total_latency_samples_ = 0;
 
     bool has_path(NodeId from, NodeId to) const;
+    void compute_latencies_();
 };
 
 } // namespace pulp::host
