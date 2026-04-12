@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -212,10 +211,6 @@ GlyphMetrics glyph_metrics_skia(const sk_sp<SkTypeface>& face,
         SkUnichar uni = static_cast<SkUnichar>(codepoint);
         font.unicharsToGlyphs(&uni, 1, &gid);
     }
-    std::fprintf(stderr, "[sdf] cp=U+%04X gid=%u face=%p\n",
-                 static_cast<unsigned>(codepoint),
-                 static_cast<unsigned>(gid),
-                 static_cast<const void*>(face.get()));
     if (gid == 0) return m;  // .notdef — still emit advance below
 
     SkScalar advance = 0;
