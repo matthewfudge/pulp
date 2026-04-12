@@ -36,6 +36,11 @@ add_executable(pulp-test-progress-parser test_progress_parser.cpp)
 target_link_libraries(pulp-test-progress-parser PRIVATE pulp::platform Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-progress-parser)
 
+# Stream tests (unified I/O interface)
+add_executable(pulp-test-stream test_stream.cpp)
+target_link_libraries(pulp-test-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-stream)
+
 # Validation harness tests (Phase 2)
 add_executable(pulp-test-validation-harness test_validation_harness.cpp)
 target_link_libraries(pulp-test-validation-harness PRIVATE pulp::format Catch2::Catch2WithMain)
