@@ -111,6 +111,16 @@ function(pulp_wire_android_sources)
         target_link_libraries(pulp-midi PRIVATE log)
     endif()
 
+    # -- Accessibility: TalkBack bridge (#87) --
+    if(TARGET pulp-view)
+        set(_android_a11y_dir "${CMAKE_SOURCE_DIR}/core/view/platform/android")
+        if(EXISTS "${_android_a11y_dir}/accessibility_android.cpp")
+            target_sources(pulp-view PRIVATE
+                ${_android_a11y_dir}/accessibility_android.cpp
+            )
+        endif()
+    endif()
+
     # -- Platform: permissions, lifecycle, file provider, clipboard --
     # Note: jni_bridge.cpp is NOT added here — it's compiled into the
     # pulp-jni shared library target instead (see root CMakeLists.txt).
