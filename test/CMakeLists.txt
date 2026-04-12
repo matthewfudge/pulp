@@ -423,6 +423,11 @@ add_executable(pulp-test-sdf-software-renderer test_sdf_software_renderer.cpp)
 target_link_libraries(pulp-test-sdf-software-renderer PRIVATE pulp::canvas Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sdf-software-renderer)
 
+# Runtime path → SDF conversion (Phase 5 — on-device SDF generation)
+add_executable(pulp-test-path-to-sdf test_path_to_sdf.cpp)
+target_link_libraries(pulp-test-path-to-sdf PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-path-to-sdf)
+
 # View and layout tests
 add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
