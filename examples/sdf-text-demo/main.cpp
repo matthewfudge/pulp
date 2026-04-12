@@ -154,20 +154,39 @@ private:
 
 // ── Main ────────────────────────────────────────────────────────────────
 
+#include <pulp/view/screenshot.hpp>
+
 #ifndef PULP_SDF_DEMO_NO_MAIN
 
-int main() {
-    auto panel = std::make_unique<SdfTextPanel>();
-    panel->set_bounds({0, 0, 800, 900});
+int main(int argc, char* argv[]) {
+    // --screenshot: render headless to PNG and exit
+    bool screenshot_mode = false;
+    std::string screenshot_path = "/tmp/pulp-sdf-text-demo.png";
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--screenshot") {
+            screenshot_mode = true;
+            if (i + 1 < argc) screenshot_path = argv[++i];
+        }
+    }
 
-    WindowHost::Options opts;
+    SdfTextPanel panel;
+    panel.set_bounds({0, 0, 800, 900});
+
+    if (screenshot_mode) {
+        if (render_to_file(panel, 800, 900, screenshot_path)) {
+            return 0;
+        }
+        return 1;
+    }
+
+    WindowOptions opts;
     opts.title = "Pulp SDF Text Demo";
     opts.width = 800;
     opts.height = 900;
     opts.resizable = true;
+    opts.use_gpu = true;
 
-    auto host = WindowHost::create(opts);
-    host->set_root(std::move(panel));
+    auto host = WindowHost::create(panel, opts);
     host->show();
     host->run_event_loop();
 
