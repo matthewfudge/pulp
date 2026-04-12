@@ -53,9 +53,10 @@ public:
 
   ViewBridge(Processor&, state::StateStore&, Options = {});
 
-  bool open(std::string* error = nullptr);  // Build view, fire on_view_opened
-  void close();                             // Fire on_view_closed, destroy view
-  void resize(uint32_t w, uint32_t h);      // Fire on_view_resized
+  bool open(std::string* error = nullptr);  // Build view (does NOT fire on_view_opened yet)
+  void notify_attached();                   // Fire on_view_opened AFTER host attach succeeds
+  void close();                             // Fire on_view_closed (only if attached), destroy view
+  void resize(uint32_t w, uint32_t h);      // Fire on_view_resized (only if attached)
 
   bool is_open() const;
   view::View* view();
@@ -125,10 +126,16 @@ bridge.attach_secondary_view(std::move(inspector), ViewRole::Inspector);
 ## Thread model
 
 - All ViewBridge methods run on the UI / host thread.
-- `open()`, `close()`, and `resize()` are called by the format adapter
-  when the host opens / closes / resizes the editor window.
-- Lifecycle callbacks (`on_view_opened`, `on_view_closed`,
-  `on_view_resized`) are dispatched synchronously on the UI thread.
+- `open()` builds the view but does **not** fire `on_view_opened`. The
+  adapter calls `notify_attached()` only after the host has successfully
+  attached the view to its native parent window (`attach_to_parent`,
+  CLAP `gui_set_parent`, VST3 `CPluginView::attached`). This guarantees
+  `on_view_opened` fires only when host-window-dependent resources can
+  actually be used, and keeps open/close dispatch balanced — if attach
+  fails, `close()` tears down the view without a spurious `on_view_closed`.
+- `close()` fires `on_view_closed` only when `notify_attached` had fired.
+- `resize()` dispatches `on_view_resized` only when attached; pre-attach
+  resizes just update the cached dimensions.
 - Parameter propagation to all attached views happens through the
   existing `Binding::poll()` loop driven by each view's frame clock —
   ViewBridge itself does not touch the audio thread.

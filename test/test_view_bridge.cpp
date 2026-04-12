@@ -60,6 +60,7 @@ TEST_CASE("ViewBridge falls back to AutoUi when create_view returns nullptr", "[
 
     std::string err;
     REQUIRE(bridge.open(&err));
+    bridge.notify_attached();
     REQUIRE(bridge.is_open());
     REQUIRE(bridge.view() != nullptr);
     REQUIRE(bridge.view_count() == 1);
@@ -87,6 +88,7 @@ TEST_CASE("ViewBridge honors custom create_view()", "[view_bridge]") {
 
     format::ViewBridge bridge(p, store);
     REQUIRE(bridge.open());
+    bridge.notify_attached();
     REQUIRE(bridge.view() == raw);
     REQUIRE_FALSE(bridge.uses_script_ui());
 }
@@ -99,6 +101,7 @@ TEST_CASE("ViewBridge supports secondary views", "[view_bridge]") {
 
     format::ViewBridge bridge(p, store);
     REQUIRE(bridge.open());
+    bridge.notify_attached();
     REQUIRE(bridge.view_count() == 1);
 
     auto inspector = std::make_unique<view::View>();
@@ -114,6 +117,53 @@ TEST_CASE("ViewBridge supports secondary views", "[view_bridge]") {
     REQUIRE_FALSE(bridge.detach_secondary_view(insp));
 }
 
+TEST_CASE("ViewBridge defers on_view_opened until notify_attached", "[view_bridge]") {
+    StubProcessor p;
+    state::StateStore store;
+    p.set_state_store(&store);
+    p.define_parameters(store);
+
+    format::ViewBridge bridge(p, store);
+    REQUIRE(bridge.open());
+    // open() must NOT fire on_view_opened — only notify_attached() does.
+    REQUIRE(p.opened_count == 0);
+
+    // Resize before attach is a no-op for lifecycle (no on_view_resized dispatched).
+    bridge.resize(500, 300);
+    REQUIRE(p.resize_count == 0);
+
+    bridge.notify_attached();
+    REQUIRE(p.opened_count == 1);
+
+    // Second notify_attached is idempotent.
+    bridge.notify_attached();
+    REQUIRE(p.opened_count == 1);
+
+    bridge.resize(600, 400);
+    REQUIRE(p.resize_count == 1);
+
+    bridge.close();
+    REQUIRE(p.closed_count == 1);
+}
+
+TEST_CASE("ViewBridge close without attach does not fire on_view_closed", "[view_bridge]") {
+    // Simulates: adapter called open(), then host attach failed, so
+    // notify_attached() was never invoked. close() must NOT fire
+    // on_view_closed because on_view_opened never fired — keeps
+    // open/close dispatch balanced.
+    StubProcessor p;
+    state::StateStore store;
+    p.set_state_store(&store);
+    p.define_parameters(store);
+
+    format::ViewBridge bridge(p, store);
+    REQUIRE(bridge.open());
+    REQUIRE(p.opened_count == 0);
+
+    bridge.close();
+    REQUIRE(p.closed_count == 0);
+}
+
 TEST_CASE("ViewBridge destructor closes view", "[view_bridge]") {
     StubProcessor p;
     state::StateStore store;
@@ -123,6 +173,7 @@ TEST_CASE("ViewBridge destructor closes view", "[view_bridge]") {
     {
         format::ViewBridge bridge(p, store);
         REQUIRE(bridge.open());
+        bridge.notify_attached();
         REQUIRE(p.opened_count == 1);
     }
     REQUIRE(p.closed_count == 1);

@@ -44,14 +44,22 @@ bool ViewBridge::open(std::string* error) {
     size_hints_ = processor_.view_size();
     width_ = size_hints_.preferred_width;
     height_ = size_hints_.preferred_height;
-
-    processor_.on_view_opened(*view_);
+    attached_ = false;
     return true;
+}
+
+void ViewBridge::notify_attached() {
+    if (!view_ || attached_) return;
+    attached_ = true;
+    processor_.on_view_opened(*view_);
 }
 
 void ViewBridge::close() {
     if (!view_) return;
-    processor_.on_view_closed(*view_);
+    if (attached_) {
+        processor_.on_view_closed(*view_);
+        attached_ = false;
+    }
     scripted_ui_.reset();
     view_.reset();
     uses_script_ui_ = false;
@@ -61,7 +69,7 @@ void ViewBridge::close() {
 void ViewBridge::resize(uint32_t width, uint32_t height) {
     width_ = width;
     height_ = height;
-    if (view_) {
+    if (view_ && attached_) {
         processor_.on_view_resized(*view_, width, height);
     }
 }

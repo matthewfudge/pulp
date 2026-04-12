@@ -56,6 +56,15 @@ tresult PLUGIN_API PulpPlugView::attached(void* parent, FIDString type) {
 
     editor_host_->attach_to_parent(parent);
     auto result = CPluginView::attached(parent, type);
+    if (result != kResultTrue) {
+        editor_host_->detach();
+        editor_host_.reset();
+        bridge_.close();
+        return result;
+    }
+
+    // Attach succeeded — now fire Processor::on_view_opened.
+    bridge_.notify_attached();
 
     runtime::log_info("VST3 editor: attached ({}x{}, mode={})",
                       hints.preferred_width, hints.preferred_height,

@@ -47,12 +47,25 @@ public:
     ViewBridge(const ViewBridge&) = delete;
     ViewBridge& operator=(const ViewBridge&) = delete;
 
-    /// Build the view and fire `on_view_opened`. Returns false if view
-    /// construction failed; inspect `last_error()` for details. Calling
-    /// `open()` on an already-open bridge is a no-op that returns true.
+    /// Build the view. Returns false if view construction failed; inspect
+    /// `last_error()` for details. Calling `open()` on an already-open
+    /// bridge is a no-op that returns true.
+    ///
+    /// `on_view_opened` is **not** fired here. The adapter must call
+    /// `notify_attached()` once the view has been attached to its host
+    /// parent window. This split avoids firing `on_view_opened` before
+    /// the host attach step succeeds.
     bool open(std::string* error = nullptr);
 
-    /// Destroy the view and fire `on_view_closed`. No-op if not open.
+    /// Fire `on_view_opened(view)` — called by the adapter once the
+    /// view has been attached to its native parent. Idempotent: a
+    /// second call after successful attach is a no-op.
+    void notify_attached();
+
+    /// Destroy the view. Fires `on_view_closed` only if
+    /// `notify_attached()` previously fired, so open/close dispatch
+    /// stays balanced even when host attachment failed after `open()`.
+    /// No-op if not open.
     void close();
 
     /// Notify the bridge that the host resized the editor. Dispatches
@@ -107,6 +120,7 @@ private:
     std::unique_ptr<view::View> view_;
     std::unique_ptr<view::ScriptedUiSession> scripted_ui_;
     bool uses_script_ui_ = false;
+    bool attached_ = false;  ///< true between notify_attached() and close()
 
     struct Secondary {
         std::unique_ptr<view::View> view;

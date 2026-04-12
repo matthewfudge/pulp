@@ -351,23 +351,27 @@ inline bool gui_set_parent(const clap_plugin_t* plugin, const clap_window_t* win
     auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
     if (!p->editor_host) return false;
 
+    bool attached = false;
 #ifdef __APPLE__
     if (strcmp(window->api, CLAP_WINDOW_API_COCOA) == 0) {
         p->editor_host->attach_to_parent(window->cocoa);
-        return true;
+        attached = true;
     }
 #elif defined(_WIN32)
     if (strcmp(window->api, CLAP_WINDOW_API_WIN32) == 0) {
         p->editor_host->attach_to_parent(window->win32);
-        return true;
+        attached = true;
     }
 #elif defined(__linux__)
     if (strcmp(window->api, CLAP_WINDOW_API_X11) == 0) {
         p->editor_host->attach_to_parent(reinterpret_cast<void*>(window->x11));
-        return true;
+        attached = true;
     }
 #endif
-    return false;
+    if (attached && p->bridge) {
+        p->bridge->notify_attached();
+    }
+    return attached;
 }
 
 inline bool gui_set_transient(const clap_plugin_t*, const clap_window_t*) {

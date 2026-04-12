@@ -88,6 +88,8 @@ int main() {
     REQUIRE(bridge.open(&err));
     REQUIRE(bridge.is_open());
     REQUIRE(bridge.view() != nullptr);
+    REQUIRE(proc.opened == 0);  // deferred until notify_attached()
+    bridge.notify_attached();
     REQUIRE(proc.opened == 1);
     REQUIRE(bridge.view_count() == 1);
 
