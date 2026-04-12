@@ -55,9 +55,24 @@ half d  = max(min(s.r, s.g), min(max(s.r, s.g), s.b));
 `fwidth(d)` in the sampler shader gives a pixel-accurate AA width at
 any zoom, so glyph quads can be placed at fractional pixel positions
 without introducing distance-field aliasing. For animated UIs that
-prefer stable edges to minimal sample error, snap quad origins to a
-whole-pixel grid before draw (`std::round(x)`, `std::round(y)`); the
-sampler needs no change.
+prefer stable edges to minimal sample error, use the snapping helper
+in `<pulp/canvas/sdf_text.hpp>`:
+
+```cpp
+#include <pulp/canvas/sdf_text.hpp>
+using pulp::canvas::SdfPenSnap;
+using pulp::canvas::snap_pen_x;
+
+float pen_x = snap_pen_x(fractional_x, SdfPenSnap::Nearest);
+```
+
+`SdfPenSnap` values:
+- `Free` — pass-through; smoothest animation.
+- `Nearest` — round to whole pixels; crisp at rest.
+- `SubpixelThird` — round x to 1/3 px (LCD subpixel stripe); y to
+  whole pixels.
+
+The sampler shader is unchanged regardless of policy.
 
 ## Effects (planned)
 
