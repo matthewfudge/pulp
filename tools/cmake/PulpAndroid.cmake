@@ -88,8 +88,10 @@ function(pulp_wire_android_sources)
         # Link android lib for ADPF (APerformanceHint*) and ANativeWindow
         target_link_libraries(pulp-audio PRIVATE android log)
         # Platform JNI headers needed by tone_generator.cpp
+        # MIDI headers needed by oboe_device.cpp (drain_into integration)
         target_include_directories(pulp-audio PRIVATE
             ${CMAKE_SOURCE_DIR}/core/platform/include
+            ${CMAKE_SOURCE_DIR}/core/midi/include
         )
     endif()
 
