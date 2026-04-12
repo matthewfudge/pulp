@@ -150,25 +150,12 @@ std::vector<PluginInfo> PluginScanner::scan_directory(const std::string& dir, Pl
 }
 
 #ifdef __APPLE__
+// Implemented in scanner_au.mm using AudioComponent APIs (the supported
+// discovery mechanism — also handles AUv3 app extensions).
+std::vector<PluginInfo> scan_audio_units_api();
+
 std::vector<PluginInfo> PluginScanner::scan_audio_units() {
-    std::vector<PluginInfo> results;
-    // Scan .component bundles in AU directories
-    for (auto& dir : default_paths(PluginFormat::AudioUnit)) {
-        std::error_code ec;
-        if (!fs::exists(dir, ec)) continue;
-        for (const auto& entry : fs::directory_iterator(dir, ec)) {
-            auto path = entry.path().string();
-            if (path.ends_with(".component")) {
-                PluginInfo info;
-                info.path = path;
-                info.format = PluginFormat::AudioUnit;
-                info.name = entry.path().stem().string();
-                info.unique_id = info.name;
-                results.push_back(std::move(info));
-            }
-        }
-    }
-    return results;
+    return scan_audio_units_api();
 }
 #endif
 

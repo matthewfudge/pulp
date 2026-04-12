@@ -24,3 +24,18 @@ if(PULP_HAS_CLAP)
     target_link_libraries(pulp-host PRIVATE clap)
     target_compile_definitions(pulp-host PRIVATE PULP_HOST_HAS_CLAP=1)
 endif()
+
+# Audio Unit loader + API-based scanner (macOS only, no external SDK)
+if(APPLE)
+    target_sources(pulp-host PRIVATE
+        src/plugin_slot_au.mm
+        src/scanner_au.mm
+    )
+    target_link_libraries(pulp-host PRIVATE
+        "-framework AudioToolbox"
+        "-framework AudioUnit"
+        "-framework CoreAudio"
+        "-framework CoreFoundation"
+    )
+    target_compile_definitions(pulp-host PRIVATE PULP_HOST_HAS_AU=1)
+endif()

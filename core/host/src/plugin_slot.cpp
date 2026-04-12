@@ -13,6 +13,9 @@ namespace pulp::host {
 #if PULP_HOST_HAS_CLAP
 std::unique_ptr<PluginSlot> load_clap_plugin(const PluginInfo& info);
 #endif
+#if PULP_HOST_HAS_AU
+std::unique_ptr<PluginSlot> load_au_plugin(const PluginInfo& info);
+#endif
 
 std::unique_ptr<PluginSlot> PluginSlot::load(const PluginInfo& info) {
     switch (info.format) {
@@ -23,9 +26,15 @@ std::unique_ptr<PluginSlot> PluginSlot::load(const PluginInfo& info) {
             runtime::log_warn("PluginSlot::load: CLAP loader not compiled in");
             return nullptr;
 #endif
-        case PluginFormat::VST3:
         case PluginFormat::AudioUnit:
         case PluginFormat::AudioUnitV3:
+#if PULP_HOST_HAS_AU
+            return load_au_plugin(info);
+#else
+            runtime::log_warn("PluginSlot::load: AU loader only available on macOS");
+            return nullptr;
+#endif
+        case PluginFormat::VST3:
         case PluginFormat::LV2:
             runtime::log_warn("PluginSlot::load: loader for this format not yet implemented ('{}')",
                               info.path);

@@ -159,13 +159,16 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (chosen.path.empty()) {
+    // AU plugins are identified by their OSType triplet (unique_id), not a
+    // filesystem path — so treat an empty path as fine when unique_id is set.
+    if (chosen.path.empty() && chosen.unique_id.empty()) {
         std::fprintf(stderr,
             "No suitable plugin found. Pass --path, --id, or --list to inspect.\n");
         return 1;
     }
 
-    std::printf("Loading: %s  (%s)\n", chosen.name.c_str(), chosen.path.c_str());
+    std::printf("Loading: %s  (%s)\n", chosen.name.c_str(),
+                chosen.path.empty() ? chosen.unique_id.c_str() : chosen.path.c_str());
 
     auto slot = PluginSlot::load(chosen);
     if (!slot) {
