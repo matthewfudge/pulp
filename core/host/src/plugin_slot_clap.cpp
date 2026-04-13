@@ -113,6 +113,7 @@ public:
                  const audio::BufferView<const float>& input,
                  const midi::MidiBuffer& /*midi_in*/,
                  midi::MidiBuffer& /*midi_out*/,
+                 const ParameterEventQueue& /*param_events*/,
                  int num_samples) override {
         if (!plugin_ || !processing_ || bypassed_.load(std::memory_order_relaxed)) {
             copy_or_zero(output, input, num_samples);

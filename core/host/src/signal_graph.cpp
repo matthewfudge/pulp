@@ -512,7 +512,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 // plugin populates midi_out; downstream MIDI destinations
                 // pick it up in their own gather phase.
                 rt.midi_out.clear();
-                n->plugin->process(out_view, in_c, rt.midi_in, rt.midi_out, num_samples);
+                // Phase 0C: pass an empty ParameterEventQueue until Phase 1E
+                // wires graph-level automation events in.
+                ParameterEventQueue param_events;
+                n->plugin->process(out_view, in_c, rt.midi_in, rt.midi_out,
+                                   param_events, num_samples);
                 break;
             }
             case NodeType::Gain: {

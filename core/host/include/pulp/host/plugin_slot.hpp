@@ -11,6 +11,7 @@
 //   slot->release();
 
 #include <pulp/host/scanner.hpp>
+#include <pulp/host/parameter_event_queue.hpp>
 #include <pulp/audio/buffer.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <memory>
@@ -68,11 +69,18 @@ public:
     virtual bool prepare(double sample_rate, int max_block_size) = 0;
     virtual void release() = 0;
 
-    // Audio processing
+    // Audio processing.
+    //
+    // param_events carries sample-accurate parameter changes to deliver to the
+    // plugin during this block (sorted by sample_offset). Loaders translate
+    // into the plugin's native event stream. A loader that doesn't yet support
+    // per-block parameter events may ignore the queue; callers will then see
+    // the most recent value set via set_parameter().
     virtual void process(audio::BufferView<float>& output,
                          const audio::BufferView<const float>& input,
                          const midi::MidiBuffer& midi_in,
                          midi::MidiBuffer& midi_out,
+                         const ParameterEventQueue& param_events,
                          int num_samples) = 0;
 
     // Parameters

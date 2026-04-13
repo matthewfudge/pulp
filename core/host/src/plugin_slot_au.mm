@@ -132,6 +132,7 @@ public:
                  const audio::BufferView<const float>& input,
                  const midi::MidiBuffer& /*midi_in*/,
                  midi::MidiBuffer& /*midi_out*/,
+                 const ParameterEventQueue& /*param_events*/,
                  int num_samples) override {
         if (!au_ || !prepared_) return;
         if (num_samples <= 0 || num_samples > max_block_size_) return;

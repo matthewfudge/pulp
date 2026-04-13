@@ -221,6 +221,7 @@ public:
                  const pulp::audio::BufferView<const float>& in,
                  const pulp::midi::MidiBuffer&,
                  pulp::midi::MidiBuffer&,
+                 const pulp::host::ParameterEventQueue& /*pe*/,
                  int n) override {
         // Actually delay the audio by the reported latency samples so PDC
         // behaviour can be measured end-to-end: the plugin's internal delay
@@ -338,6 +339,7 @@ public:
     void process(pulp::audio::BufferView<float>& out,
                  const pulp::audio::BufferView<const float>& in,
                  const pulp::midi::MidiBuffer&, pulp::midi::MidiBuffer&,
+                 const pulp::host::ParameterEventQueue& /*pe*/,
                  int n) override {
         const size_t nc = out.num_channels();
         for (size_t c = 0; c < nc; ++c) {
@@ -479,6 +481,7 @@ public:
                  const pulp::audio::BufferView<const float>&,
                  const pulp::midi::MidiBuffer& midi_in,
                  pulp::midi::MidiBuffer& midi_out,
+                 const pulp::host::ParameterEventQueue& /*pe*/,
                  int n) override {
         last_seen_.clear();
         for (const auto& ev : midi_in) {
@@ -589,7 +592,8 @@ TEST_CASE("PluginSlot loads and processes a real CLAP plugin", "[host][clap][int
     pulp::audio::BufferView<float>       out(out_ptrs, 2, 256);
     pulp::midi::MidiBuffer mi, mo;
 
-    slot->process(out, in, mi, mo, 256);
+    pulp::host::ParameterEventQueue pe;
+    slot->process(out, in, mi, mo, pe, 256);
 
     // PulpGain is a unity-ish gain plugin; output should not be all zeros
     // after processing a non-zero input.
