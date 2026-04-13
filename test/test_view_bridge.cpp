@@ -3,6 +3,7 @@
 #include <pulp/format/view_bridge.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/view.hpp>
+#include <functional>
 
 using namespace pulp;
 
@@ -162,6 +163,92 @@ TEST_CASE("ViewBridge close without attach does not fire on_view_closed", "[view
 
     bridge.close();
     REQUIRE(p.closed_count == 0);
+}
+
+// Simulates each format adapter's call sequence against ViewBridge and
+// asserts the same on_view_opened → on_view_resized* → on_view_closed
+// ordering fires regardless of which adapter-specific flow is used.
+// These are unit-level cross-format invariants; the real cross-host
+// harness (loading .vst3/.clap/.component bundles) is a separate track
+// documented in the planning next-features file.
+TEST_CASE("ViewBridge cross-format lifecycle invariants", "[view_bridge][cross_format]") {
+    auto run_scenario = [](std::function<void(format::ViewBridge&, StubProcessor&)> adapter_flow,
+                           int expected_opened, int expected_closed, int expected_resized) {
+        StubProcessor p;
+        state::StateStore store;
+        p.set_state_store(&store);
+        p.define_parameters(store);
+        format::ViewBridge bridge(p, store);
+        adapter_flow(bridge, p);
+        REQUIRE(p.opened_count == expected_opened);
+        REQUIRE(p.closed_count == expected_closed);
+        REQUIRE(p.resize_count == expected_resized);
+    };
+
+    SECTION("VST3-style: attached → resize → removed") {
+        run_scenario([](format::ViewBridge& b, StubProcessor&) {
+            REQUIRE(b.open());
+            b.notify_attached();     // CPluginView::attached success
+            b.resize(700, 500);      // CPluginView::onSize
+            b.close();               // CPluginView::removed
+        }, 1, 1, 1);
+    }
+
+    SECTION("CLAP-style: gui_create → gui_set_parent → gui_set_size → gui_destroy") {
+        run_scenario([](format::ViewBridge& b, StubProcessor&) {
+            REQUIRE(b.open());       // gui_create
+            b.notify_attached();     // gui_set_parent succeeded on supported API
+            b.resize(1000, 600);     // gui_set_size
+            b.close();               // gui_destroy
+        }, 1, 1, 1);
+    }
+
+    SECTION("AU v2-style: uiViewForAudioUnit → dealloc") {
+        run_scenario([](format::ViewBridge& b, StubProcessor&) {
+            REQUIRE(b.open());
+            b.notify_attached();     // PluginViewHost attached to NSView
+            b.close();               // owner dealloc
+        }, 1, 1, 0);
+    }
+
+    SECTION("AU v3-style: viewDidLoad → viewDidLayoutSubviews → dealloc") {
+        run_scenario([](format::ViewBridge& b, StubProcessor&) {
+            REQUIRE(b.open());
+            b.notify_attached();     // PluginViewHost::attach_to_parent in viewDidLoad
+            b.resize(500, 375);      // viewDidLayoutSubviews
+            b.resize(600, 450);
+            b.close();               // dealloc
+        }, 1, 1, 2);
+    }
+
+    SECTION("Standalone-style: open → release_view → notify_attached → close") {
+        StubProcessor p;
+        state::StateStore store;
+        p.set_state_store(&store);
+        p.define_parameters(store);
+        format::ViewBridge bridge(p, store);
+
+        REQUIRE(bridge.open());
+        auto released = bridge.release_view();
+        REQUIRE(released != nullptr);
+        REQUIRE(bridge.view() == released.get());   // raw ptr retained
+        bridge.notify_attached();
+        bridge.resize(820, 640);
+        REQUIRE(p.resize_count == 1);
+        bridge.close();
+        REQUIRE(p.opened_count == 1);
+        REQUIRE(p.closed_count == 1);
+        // Caller still owns `released` here; bridge no longer touches it.
+    }
+
+    SECTION("Failed-attach: open → close (no on_view_opened)") {
+        run_scenario([](format::ViewBridge& b, StubProcessor&) {
+            REQUIRE(b.open());
+            // Adapter's attach_to_parent / CPluginView::attached returned failure
+            // — notify_attached was never called.
+            b.close();
+        }, 0, 0, 0);
+    }
 }
 
 TEST_CASE("ViewBridge destructor closes view", "[view_bridge]") {
