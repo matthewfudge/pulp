@@ -22,13 +22,32 @@ namespace pulp::host {
 
 // ── Plugin parameter info ───────────────────────────────────────────────
 
+// Parameter behavior flags. Loaders fill these from their format-native
+// parameter descriptors; consumers (automation routing, UI, automation gates)
+// honor them. All defaults are conservative — a loader that doesn't know the
+// flag value should leave it at its default.
+struct ParamFlags {
+    bool automatable = true;   // Host may drive this via connect_automation.
+    bool read_only   = false;  // Plugin reports it; host must not write.
+    bool hidden      = false;  // Don't show in default UIs (developer/internal).
+    bool stepped     = false;  // Discrete int-valued (max_value - min_value + 1 steps).
+    bool is_bypass   = false;  // Plugin's bypass param (special-cased by host).
+    bool rampable    = true;   // Plugin handles per-block linear interpolation.
+    bool modulatable = true;   // Plugin accepts per-voice modulation events
+                               // (CLAP MOD, etc.) — distinct from automation.
+};
+
 struct HostParamInfo {
-    uint32_t id;
+    uint32_t id = 0;
     std::string name;
     std::string unit;
+    // Plain (not normalized) parameter range. PluginSlot::get_parameter() and
+    // set_parameter() operate in this domain; loaders that natively normalize
+    // (VST3) do the conversion internally.
     float min_value = 0.0f;
     float max_value = 1.0f;
     float default_value = 0.0f;
+    ParamFlags flags;
 };
 
 // ── Plugin Slot ─────────────────────────────────────────────────────────
