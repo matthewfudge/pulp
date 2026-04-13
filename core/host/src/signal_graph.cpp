@@ -124,6 +124,32 @@ bool SignalGraph::connect(NodeId source, PortIndex source_port,
     return true;
 }
 
+bool SignalGraph::connect_midi(NodeId source, NodeId dest) {
+    if (!node(source) || !node(dest)) return false;
+    if (would_create_cycle(source, dest)) return false;
+    Connection conn{source, 0, dest, 0, false, true};
+    for (auto& c : connections_) {
+        if (c == conn && c.midi == conn.midi) return false;
+    }
+    connections_.push_back(conn);
+    return true;
+}
+
+bool SignalGraph::inject_midi(NodeId id, const midi::MidiBuffer& events) {
+    auto it = runtime_.find(id);
+    if (it == runtime_.end()) return false;
+    it->second.midi_out.clear();
+    for (const auto& ev : events) it->second.midi_out.add(ev);
+    return true;
+}
+
+bool SignalGraph::extract_midi(NodeId id, midi::MidiBuffer& out) const {
+    auto it = runtime_.find(id);
+    if (it == runtime_.end()) return false;
+    for (const auto& ev : it->second.midi_in) out.add(ev);
+    return true;
+}
+
 bool SignalGraph::connect_feedback(NodeId source, PortIndex source_port,
                                    NodeId dest, PortIndex dest_port) {
     if (!node(source) || !node(dest)) return false;
@@ -235,6 +261,7 @@ void SignalGraph::compute_latencies_() {
         for (const auto& c : connections_) {
             if (c.dest_node != id) continue;
             if (c.feedback) continue;  // back-edge; one-block delay breaks it
+            if (c.midi) continue;      // MIDI carries no audio latency
             auto src_it = runtime_.find(c.source_node);
             if (src_it == runtime_.end()) continue;
             max_upstream = std::max(max_upstream, src_it->second.output_latency);
@@ -277,6 +304,7 @@ void SignalGraph::compute_latencies_() {
                 static_cast<size_t>(max_block_size_), 0.0f);
             continue;
         }
+        if (c.midi) continue;  // MIDI edges need no audio delay line
 
         int64_t want = dst_it->second.input_latency - src_it->second.output_latency;
         if (want < 0) want = 0;
@@ -369,6 +397,19 @@ void SignalGraph::process(audio::BufferView<float>& output,
         if (!rt.input_data.empty()) {
             std::memset(rt.input_data.data(), 0, rt.input_data.size() * sizeof(float));
         }
+        rt.midi_in.clear();
+        // MidiInput's midi_out is populated by inject_midi() before process()
+        // and must survive; clear other nodes' midi_out so plugins/outputs
+        // start each block empty.
+        if (n->type != NodeType::MidiInput) rt.midi_out.clear();
+
+        // 1b. Gather MIDI from MIDI-flagged inbound connections.
+        for (const auto& c : connections_) {
+            if (c.dest_node != id || !c.midi || c.feedback) continue;
+            auto src_it = runtime_.find(c.source_node);
+            if (src_it == runtime_.end()) continue;
+            for (const auto& ev : src_it->second.midi_out) rt.midi_in.add(ev);
+        }
 
         // 2. Gather inbound connections, pushing through per-connection
         //    delay lines so every inbound branch arrives aligned at this
@@ -376,6 +417,7 @@ void SignalGraph::process(audio::BufferView<float>& output,
         for (size_t ci = 0; ci < connections_.size(); ++ci) {
             const auto& c = connections_[ci];
             if (c.dest_node != id) continue;
+            if (c.midi) continue;  // MIDI gathered above, not audio
             const int dport = static_cast<int>(c.dest_port);
             if (dport < 0 || dport >= static_cast<int>(rt.input_ptrs.size())) continue;
             if (c.source_node == 0) continue;  // reserved sentinel
@@ -453,8 +495,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 audio::BufferView<const float> in_c(
                     in_const.data(), in_const.size(),
                     static_cast<std::size_t>(num_samples));
-                midi::MidiBuffer midi_in, midi_out;
-                n->plugin->process(out_view, in_c, midi_in, midi_out, num_samples);
+                // midi_in was gathered from upstream MIDI edges above. The
+                // plugin populates midi_out; downstream MIDI destinations
+                // pick it up in their own gather phase.
+                rt.midi_out.clear();
+                n->plugin->process(out_view, in_c, rt.midi_in, rt.midi_out, num_samples);
                 break;
             }
             case NodeType::Gain: {

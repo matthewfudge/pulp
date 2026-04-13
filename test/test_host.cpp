@@ -382,6 +382,96 @@ TEST_CASE("SignalGraph connect_feedback allows cycles with one-block delay",
     graph.release();
 }
 
+// A plugin that forwards its MIDI input to its MIDI output unchanged and
+// records the events it saw so the test can inspect them.
+namespace {
+class MidiForwarder final : public PluginSlot {
+public:
+    const PluginInfo& info() const override { return info_; }
+    bool is_loaded() const override { return true; }
+    bool prepare(double, int) override { return true; }
+    void release() override {}
+    void process(pulp::audio::BufferView<float>& out,
+                 const pulp::audio::BufferView<const float>&,
+                 const pulp::midi::MidiBuffer& midi_in,
+                 pulp::midi::MidiBuffer& midi_out,
+                 int n) override {
+        last_seen_.clear();
+        for (const auto& ev : midi_in) {
+            last_seen_.add(ev);
+            midi_out.add(ev);
+        }
+        for (size_t c = 0; c < out.num_channels(); ++c) {
+            std::memset(out.channel_ptr(c), 0, sizeof(float) * (size_t)n);
+        }
+    }
+    std::vector<HostParamInfo> parameters() const override { return {}; }
+    float get_parameter(uint32_t) const override { return 0.f; }
+    void set_parameter(uint32_t, float) override {}
+    void set_bypass(bool) override {}
+    bool is_bypassed() const override { return false; }
+    std::vector<uint8_t> save_state() const override { return {}; }
+    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    bool has_editor() const override { return false; }
+    void* create_editor_view() override { return nullptr; }
+    void destroy_editor_view() override {}
+    int latency_samples() const override { return 0; }
+    int tail_samples() const override { return 0; }
+    const pulp::midi::MidiBuffer& last_seen() const { return last_seen_; }
+private:
+    PluginInfo info_{"MidiFwd", "", "", "", "", PluginFormat::CLAP};
+    pulp::midi::MidiBuffer last_seen_;
+};
+} // namespace
+
+TEST_CASE("SignalGraph connect_midi routes events through the graph",
+          "[host][graph][midi]") {
+    // midi_in → plugin (forwards) → midi_out
+    SignalGraph graph;
+    auto mi  = graph.add_midi_input_node("keys");
+    auto fwd = std::make_unique<MidiForwarder>();
+    auto* fwd_ptr = fwd.get();
+    auto p   = graph.add_plugin_node(std::move(fwd), 0, 0, "fwd");
+    auto mo  = graph.add_midi_output_node("thru");
+
+    REQUIRE(graph.connect_midi(mi, p));
+    REQUIRE(graph.connect_midi(p, mo));
+    REQUIRE(graph.connections().size() == 2);
+
+    REQUIRE(graph.prepare(48000.0, 32));
+
+    pulp::midi::MidiBuffer in_events;
+    auto ev0 = pulp::midi::MidiEvent::note_on(0, 60, 100);
+    ev0.sample_offset = 0;
+    auto ev1 = pulp::midi::MidiEvent::note_off(0, 60, 0);
+    ev1.sample_offset = 16;
+    in_events.add(ev0);
+    in_events.add(ev1);
+    REQUIRE(graph.inject_midi(mi, in_events));
+
+    // Dummy audio (graph has no audio path; process() still runs).
+    float in_sample = 0.f, out_sample = 0.f;
+    const float* in_ptrs[1]  = {&in_sample};
+    float*       out_ptrs[1] = {&out_sample};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 0, 32);
+    pulp::audio::BufferView<float>       ov(out_ptrs, 0, 32);
+    graph.process(ov, iv, 32);
+
+    // The forwarder plugin saw both events.
+    REQUIRE(fwd_ptr->last_seen().size() == 2);
+    REQUIRE(fwd_ptr->last_seen()[0].sample_offset == 0);
+    REQUIRE(fwd_ptr->last_seen()[1].sample_offset == 16);
+
+    // MidiOutput sink received the forwarded events.
+    pulp::midi::MidiBuffer arrived;
+    REQUIRE(graph.extract_midi(mo, arrived));
+    REQUIRE(arrived.size() == 2);
+    REQUIRE(arrived[0].sample_offset == 0);
+    REQUIRE(arrived[1].sample_offset == 16);
+
+    graph.release();
+}
+
 // ── Real CLAP loader (integration test, skipped when no test plugin built) ──
 
 #include <filesystem>

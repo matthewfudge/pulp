@@ -48,6 +48,8 @@ struct Connection {
     PortIndex dest_port;
     bool feedback = false;  // back-edge: reads previous block's audio, breaks
                             // the cycle for topological sort and PDC.
+    bool midi = false;      // event-edge: routes MidiBuffer events instead of
+                            // audio samples. Ports are ignored.
 
     bool operator==(const Connection& o) const {
         return source_node == o.source_node && source_port == o.source_port
@@ -102,6 +104,20 @@ public:
     // output, giving the feedback loop a block-sized delay.
     bool connect_feedback(NodeId source, PortIndex source_port,
                           NodeId dest, PortIndex dest_port);
+
+    // MIDI connection: routes events from source's MIDI output into dest's
+    // MIDI input. Ports are ignored (MIDI is node-scoped, not port-scoped).
+    // Participates in cycle detection and topological sort the same way as
+    // audio connections.
+    bool connect_midi(NodeId source, NodeId dest);
+
+    // Inject a MIDI buffer into a MidiInput source node. Call before
+    // process(); the events become that node's MIDI output this block.
+    bool inject_midi(NodeId midi_input_node, const midi::MidiBuffer& events);
+
+    // Drain the MIDI events that arrived at a MidiOutput sink node during
+    // the last process() call. Appends to `out`.
+    bool extract_midi(NodeId midi_output_node, midi::MidiBuffer& out) const;
 
     // Disconnect
     bool disconnect(NodeId source, PortIndex source_port,
@@ -162,6 +178,12 @@ private:
         // Plugin nodes, 0 otherwise).
         int64_t input_latency = 0;
         int64_t output_latency = 0;
+
+        // MIDI scratch. Cleared at the start of each process() call except
+        // for MidiInput nodes, whose midi_out is populated by inject_midi()
+        // and must survive the process() entry-clear.
+        midi::MidiBuffer midi_in;
+        midi::MidiBuffer midi_out;
     };
 
     // One delay line per graph connection, parallel to connections_. Used to
