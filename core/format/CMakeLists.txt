@@ -66,6 +66,11 @@ if(PULP_HAS_AUSDK)
         )
     endif()
     target_link_libraries(pulp-format PUBLIC ausdk)
+    # AudioUnitSDK 1.4 headers `#include <expected>` (C++23). Apple clang
+    # only exposes std::expected when the consuming TU is compiled with
+    # -std=c++23. Public requirement so format-API consumers (tests,
+    # standalone, plugin entry points) inherit it transitively.
+    target_compile_features(pulp-format PUBLIC cxx_std_23)
 endif()
 
 # AU v2 adapter uses Apple AudioUnitSDK — compiled per-plugin in the entry point,
