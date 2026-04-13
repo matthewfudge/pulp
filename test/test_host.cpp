@@ -326,6 +326,62 @@ TEST_CASE("SignalGraph serial plugin latencies accumulate", "[host][graph][pdc]"
     REQUIRE(graph.latency_samples() == 30);
 }
 
+TEST_CASE("SignalGraph connect_feedback allows cycles with one-block delay",
+          "[host][graph][feedback]") {
+    // in → g → out, with a feedback edge g.out[0] → g.in[0]: each block,
+    // gain reads its own previous block's output summed with the fresh
+    // input. Classic one-block delay feedback loop.
+    SignalGraph graph;
+    auto in  = graph.add_input_node(1, "in");
+    auto g   = graph.add_gain_node("g");
+    auto out = graph.add_output_node(1, "out");
+
+    REQUIRE(graph.connect(in, 0, g, 0));
+    REQUIRE(graph.connect(g,  0, out, 0));
+
+    // Adding g → g as a forward edge must fail (self-loop = cycle), but
+    // connect_feedback should accept it.
+    REQUIRE_FALSE(graph.connect(g, 0, g, 0));
+    REQUIRE(graph.connect_feedback(g, 0, g, 0));
+    REQUIRE(graph.connections().size() == 3);
+
+    // Topological sort ignores feedback edges, so the order is still valid.
+    REQUIRE(graph.processing_order().size() == 3);
+
+    REQUIRE(graph.prepare(48000.0, 8));
+    REQUIRE(graph.set_node_gain(g, 0.5f));
+
+    std::vector<float> in_buf(8, 0.f);
+    in_buf[0] = 1.0f;
+    std::vector<float> out_buf(8, 999.f);
+    const float* in_ptrs[1]  = {in_buf.data()};
+    float*       out_ptrs[1] = {out_buf.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 1, 8);
+    pulp::audio::BufferView<float>       ov(out_ptrs, 1, 8);
+
+    // Block 0: feedback buffer is still zero. Gain input = impulse + 0.
+    //   g.out[0] = 0.5 * 1 = 0.5; g.out[i>0] = 0.
+    graph.process(ov, iv, 8);
+    REQUIRE(out_buf[0] == 0.5f);
+    for (int i = 1; i < 8; ++i) REQUIRE(out_buf[i] == 0.0f);
+
+    // Block 1: input silent, but feedback_prev holds block 0's g output
+    // (0.5, 0, 0, ...). Gain input = 0 + (0.5, 0, 0, ...). Out = 0.25.
+    std::fill(in_buf.begin(), in_buf.end(), 0.0f);
+    std::fill(out_buf.begin(), out_buf.end(), 999.f);
+    graph.process(ov, iv, 8);
+    REQUIRE(out_buf[0] == 0.25f);
+    for (int i = 1; i < 8; ++i) REQUIRE(out_buf[i] == 0.0f);
+
+    // Block 2: feedback_prev = block 1's g output = (0.25, 0, ...).
+    std::fill(out_buf.begin(), out_buf.end(), 999.f);
+    graph.process(ov, iv, 8);
+    REQUIRE(out_buf[0] == 0.125f);
+    for (int i = 1; i < 8; ++i) REQUIRE(out_buf[i] == 0.0f);
+
+    graph.release();
+}
+
 // ── Real CLAP loader (integration test, skipped when no test plugin built) ──
 
 #include <filesystem>

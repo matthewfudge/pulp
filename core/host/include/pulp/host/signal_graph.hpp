@@ -46,6 +46,8 @@ struct Connection {
     PortIndex source_port;
     NodeId dest_node;
     PortIndex dest_port;
+    bool feedback = false;  // back-edge: reads previous block's audio, breaks
+                            // the cycle for topological sort and PDC.
 
     bool operator==(const Connection& o) const {
         return source_node == o.source_node && source_port == o.source_port
@@ -93,6 +95,13 @@ public:
     // Connect two nodes (port-to-port)
     bool connect(NodeId source, PortIndex source_port,
                  NodeId dest, PortIndex dest_port);
+
+    // Connect with an explicit one-block delay. Permitted to close a cycle
+    // (the back-edge the user is intentionally introducing) and invisible to
+    // topological sort. The destination reads the source's previous-block
+    // output, giving the feedback loop a block-sized delay.
+    bool connect_feedback(NodeId source, PortIndex source_port,
+                          NodeId dest, PortIndex dest_port);
 
     // Disconnect
     bool disconnect(NodeId source, PortIndex source_port,
@@ -164,6 +173,9 @@ private:
         // channel. Empty when delay_samples == 0 (pass-through path).
         std::vector<float> ring;
         int write_pos = 0;
+        // Feedback edges hold the previous block's source-port audio so the
+        // destination can read it before the source writes the current block.
+        std::vector<float> feedback_prev;  // size = max_block_size_
     };
 
     std::vector<GraphNode> nodes_;

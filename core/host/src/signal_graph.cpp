@@ -124,6 +124,17 @@ bool SignalGraph::connect(NodeId source, PortIndex source_port,
     return true;
 }
 
+bool SignalGraph::connect_feedback(NodeId source, PortIndex source_port,
+                                   NodeId dest, PortIndex dest_port) {
+    if (!node(source) || !node(dest)) return false;
+    Connection conn{source, source_port, dest, dest_port, true};
+    for (auto& c : connections_) {
+        if (c == conn) return false;  // duplicate
+    }
+    connections_.push_back(conn);
+    return true;
+}
+
 bool SignalGraph::disconnect(NodeId source, PortIndex source_port,
                              NodeId dest, PortIndex dest_port) {
     Connection target{source, source_port, dest, dest_port};
@@ -168,11 +179,14 @@ bool SignalGraph::would_create_cycle(NodeId source, NodeId dest) const {
 }
 
 std::vector<NodeId> SignalGraph::processing_order() const {
-    // Kahn's algorithm for topological sort
+    // Kahn's algorithm for topological sort. Feedback connections are
+    // invisible to the sort — they're the back-edges the user intentionally
+    // introduced, and the runtime breaks them via a one-block delay.
     std::unordered_map<NodeId, int> in_degree;
     for (auto& n : nodes_) in_degree[n.id] = 0;
 
     for (auto& c : connections_) {
+        if (c.feedback) continue;
         in_degree[c.dest_node]++;
     }
 
@@ -188,6 +202,7 @@ std::vector<NodeId> SignalGraph::processing_order() const {
         order.push_back(current);
 
         for (auto& c : connections_) {
+            if (c.feedback) continue;
             if (c.source_node == current) {
                 if (--in_degree[c.dest_node] == 0) {
                     queue.push(c.dest_node);
@@ -219,6 +234,7 @@ void SignalGraph::compute_latencies_() {
         bool has_upstream = false;
         for (const auto& c : connections_) {
             if (c.dest_node != id) continue;
+            if (c.feedback) continue;  // back-edge; one-block delay breaks it
             auto src_it = runtime_.find(c.source_node);
             if (src_it == runtime_.end()) continue;
             max_upstream = std::max(max_upstream, src_it->second.output_latency);
@@ -251,6 +267,17 @@ void SignalGraph::compute_latencies_() {
         auto src_it = runtime_.find(c.source_node);
         auto dst_it = runtime_.find(c.dest_node);
         if (src_it == runtime_.end() || dst_it == runtime_.end()) continue;
+
+        if (c.feedback) {
+            // Feedback back-edge: allocate a one-block buffer that holds the
+            // source's previous block's output. Destination reads from it
+            // before source writes the current block; after the block we
+            // overwrite with the just-computed source output.
+            connection_delays_[i].feedback_prev.assign(
+                static_cast<size_t>(max_block_size_), 0.0f);
+            continue;
+        }
+
         int64_t want = dst_it->second.input_latency - src_it->second.output_latency;
         if (want < 0) want = 0;
         connection_delays_[i].delay_samples = (int)want;
@@ -362,6 +389,17 @@ void SignalGraph::process(audio::BufferView<float>& output,
             float* dst = rt.input_ptrs[dport];
             const float* src = src_rt.output_ptrs[sport];
             auto& dl = connection_delays_[ci];
+            if (c.feedback) {
+                // Read the source's previous block's output — this is
+                // available *before* the source processes the current block,
+                // which is what makes cycles tractable. After the full pass
+                // we overwrite feedback_prev with the now-current source
+                // output (see the per-block update loop below).
+                if (!dl.feedback_prev.empty()) {
+                    for (int i = 0; i < num_samples; ++i) dst[i] += dl.feedback_prev[(size_t)i];
+                }
+                continue;
+            }
             if (dl.delay_samples <= 0 || dl.ring.empty()) {
                 // Zero-latency pass-through: sum source output into dest input.
                 for (int i = 0; i < num_samples; ++i) dst[i] += src[i];
@@ -448,6 +486,24 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 // MIDI routing lands in Phase 2 (events wired via the graph).
                 break;
         }
+    }
+
+    // Capture each feedback source's current block for the *next* block's
+    // reader. This runs after the full topological pass so it sees the
+    // freshly computed output of each feedback source node.
+    for (size_t ci = 0; ci < connections_.size(); ++ci) {
+        const auto& c = connections_[ci];
+        if (!c.feedback) continue;
+        auto src_it = runtime_.find(c.source_node);
+        if (src_it == runtime_.end()) continue;
+        const auto& src_rt = src_it->second;
+        const int sport = static_cast<int>(c.source_port);
+        if (sport < 0 || sport >= static_cast<int>(src_rt.output_ptrs.size())) continue;
+        auto& dl = connection_delays_[ci];
+        if (dl.feedback_prev.empty()) continue;
+        const float* src = src_rt.output_ptrs[sport];
+        std::memcpy(dl.feedback_prev.data(), src,
+                    sizeof(float) * static_cast<size_t>(num_samples));
     }
 }
 
