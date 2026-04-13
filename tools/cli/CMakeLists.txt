@@ -24,6 +24,7 @@ add_executable(pulp-cli
     cmd_version.cpp
     cmd_dev.cpp
     cmd_host.cpp
+    cmd_pr.cpp
     cmd_inspect.cpp
     design_binding.cpp
     create_targets.cpp
