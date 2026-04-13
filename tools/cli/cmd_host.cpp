@@ -68,7 +68,12 @@ int cmd_scan(const std::vector<std::string>& args) {
     int total = 0;
     for (PluginFormat f : formats) {
         if (!all_formats && f != requested) continue;
-        auto results = scanner.scan(f);
+        ScanOptions opts;
+        opts.scan_vst3 = (f == PluginFormat::VST3);
+        opts.scan_au   = (f == PluginFormat::AudioUnit || f == PluginFormat::AudioUnitV3);
+        opts.scan_clap = (f == PluginFormat::CLAP);
+        opts.scan_lv2  = (f == PluginFormat::LV2);
+        auto results = scanner.scan(opts);
         if (results.empty()) continue;
         std::printf("[%s] %zu plugin(s)\n", format_name(f), results.size());
         for (auto& info : results) {
