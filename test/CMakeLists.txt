@@ -36,6 +36,21 @@ add_executable(pulp-test-progress-parser test_progress_parser.cpp)
 target_link_libraries(pulp-test-progress-parser PRIVATE pulp::platform Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-progress-parser)
 
+# Stream tests (unified I/O interface)
+add_executable(pulp-test-stream test_stream.cpp)
+target_link_libraries(pulp-test-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-stream)
+
+# AsyncStream tests (Phase 2)
+add_executable(pulp-test-async-stream test_async_stream.cpp)
+target_link_libraries(pulp-test-async-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-async-stream)
+
+# Network Stream tests (Phase 3)
+add_executable(pulp-test-network-stream test_network_stream.cpp)
+target_link_libraries(pulp-test-network-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-network-stream)
+
 # Validation harness tests (Phase 2)
 add_executable(pulp-test-validation-harness test_validation_harness.cpp)
 target_link_libraries(pulp-test-validation-harness PRIVATE pulp::format Catch2::Catch2WithMain)
@@ -398,6 +413,41 @@ add_executable(pulp-test-sdf-atlas test_sdf_atlas.cpp)
 target_link_libraries(pulp-test-sdf-atlas PRIVATE pulp::canvas Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-sdf-atlas)
 
+# MSDF glyph atlas (Phase 2 scaffold)
+add_executable(pulp-test-msdf-atlas test_msdf_atlas.cpp)
+target_link_libraries(pulp-test-msdf-atlas PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-msdf-atlas)
+
+# PSDF glyph atlas + vector-fallback (Phase 3 scaffold)
+add_executable(pulp-test-psdf-atlas test_psdf_atlas.cpp)
+target_link_libraries(pulp-test-psdf-atlas PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-psdf-atlas)
+
+# Shared SDF/MSDF text helpers (pen snap + build_text_quads + fill_text_*)
+add_executable(pulp-test-sdf-text test_sdf_text.cpp)
+target_link_libraries(pulp-test-sdf-text PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-sdf-text)
+
+# SDF effects layer (Phase 4 — host-side API + presets)
+add_executable(pulp-test-sdf-effects test_sdf_effects.cpp)
+target_link_libraries(pulp-test-sdf-effects PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-sdf-effects)
+
+# Runtime SDF atlas cache (Phase 5 — LRU + frame-based eviction)
+add_executable(pulp-test-sdf-atlas-cache test_sdf_atlas_cache.cpp)
+target_link_libraries(pulp-test-sdf-atlas-cache PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-sdf-atlas-cache)
+
+# Software SDF renderer (end-to-end headless raster)
+add_executable(pulp-test-sdf-software-renderer test_sdf_software_renderer.cpp)
+target_link_libraries(pulp-test-sdf-software-renderer PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-sdf-software-renderer)
+
+# Runtime path → SDF conversion (Phase 5 — on-device SDF generation)
+add_executable(pulp-test-path-to-sdf test_path_to_sdf.cpp)
+target_link_libraries(pulp-test-path-to-sdf PRIVATE pulp::canvas Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-path-to-sdf)
+
 # View and layout tests
 add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
@@ -702,6 +752,11 @@ catch_discover_tests(pulp-test-ump-mpe)
 add_executable(pulp-test-mpe-voice-tracker test_mpe_voice_tracker.cpp)
 target_link_libraries(pulp-test-mpe-voice-tracker PRIVATE pulp::midi Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-mpe-voice-tracker)
+
+# UMP buffer + MIDI 1.0 <-> UMP conversion + UMP-aware MpeVoiceTracker
+add_executable(pulp-test-ump-buffer-conversion test_ump_buffer_conversion.cpp)
+target_link_libraries(pulp-test-ump-buffer-conversion PRIVATE pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-ump-buffer-conversion)
 
 # MPE buffer + Processor sidecar tests
 add_executable(pulp-test-mpe-buffer test_mpe_buffer.cpp)
