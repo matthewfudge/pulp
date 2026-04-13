@@ -22,7 +22,7 @@ ViewBridge::~ViewBridge() {
 }
 
 bool ViewBridge::open(std::string* error) {
-    if (view_) return true;
+    if (view_raw_) return true;
     last_error_.clear();
 
     // First chance: let the processor supply a fully custom view.
@@ -40,37 +40,47 @@ bool ViewBridge::open(std::string* error) {
         scripted_ui_ = std::move(instance.scripted_ui);
         uses_script_ui_ = instance.uses_script_ui;
     }
+    view_raw_ = view_.get();
 
     size_hints_ = processor_.view_size();
     width_ = size_hints_.preferred_width;
     height_ = size_hints_.preferred_height;
     attached_ = false;
+    released_ = false;
     return true;
 }
 
 void ViewBridge::notify_attached() {
-    if (!view_ || attached_) return;
+    if (!view_raw_ || attached_) return;
     attached_ = true;
-    processor_.on_view_opened(*view_);
+    processor_.on_view_opened(*view_raw_);
+}
+
+std::unique_ptr<view::View> ViewBridge::release_view() {
+    if (!view_ || released_) return nullptr;
+    released_ = true;
+    return std::move(view_);  // view_raw_ stays valid so lifecycle keeps dispatching
 }
 
 void ViewBridge::close() {
-    if (!view_) return;
+    if (!view_raw_) return;
     if (attached_) {
-        processor_.on_view_closed(*view_);
+        processor_.on_view_closed(*view_raw_);
         attached_ = false;
     }
     scripted_ui_.reset();
-    view_.reset();
+    view_.reset();          // no-op if already released
+    view_raw_ = nullptr;
     uses_script_ui_ = false;
+    released_ = false;
     secondaries_.clear();
 }
 
 void ViewBridge::resize(uint32_t width, uint32_t height) {
     width_ = width;
     height_ = height;
-    if (view_ && attached_) {
-        processor_.on_view_resized(*view_, width, height);
+    if (view_raw_ && attached_) {
+        processor_.on_view_resized(*view_raw_, width, height);
     }
 }
 
@@ -92,12 +102,12 @@ bool ViewBridge::detach_secondary_view(view::View* target) {
 }
 
 size_t ViewBridge::view_count() const {
-    return (view_ ? 1u : 0u) + secondaries_.size();
+    return (view_raw_ ? 1u : 0u) + secondaries_.size();
 }
 
 view::View* ViewBridge::view_at(size_t index) {
-    if (view_) {
-        if (index == 0) return view_.get();
+    if (view_raw_) {
+        if (index == 0) return view_raw_;
         --index;
     }
     if (index < secondaries_.size()) return secondaries_[index].view.get();
@@ -105,7 +115,7 @@ view::View* ViewBridge::view_at(size_t index) {
 }
 
 ViewRole ViewBridge::role_at(size_t index) const {
-    if (view_) {
+    if (view_raw_) {
         if (index == 0) return options_.role;
         --index;
     }

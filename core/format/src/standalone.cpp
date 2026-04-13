@@ -1,6 +1,7 @@
 #include <pulp/format/standalone.hpp>
 #include <pulp/format/editor_ui.hpp>
 #include <pulp/format/settings_panel.hpp>
+#include <pulp/format/view_bridge.hpp>
 #include <pulp/view/window_host.hpp>
 #if !defined(__ANDROID__)
 #include <pulp/inspect/inspector_overlay.hpp>
@@ -181,15 +182,26 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     }
 
     std::string editor_error;
-    auto editor_ui = build_editor_ui(store_, true, &editor_error);
-    auto root = std::move(editor_ui.root);
-    if (!root) {
+    auto bridge = std::make_unique<ViewBridge>(
+        *processor_, store_,
+        ViewBridge::Options{.enable_hot_reload = true, .role = ViewRole::Editor});
+    if (!bridge->open(&editor_error)) {
         runtime::log_error("Standalone: failed to build editor UI ({})", editor_error);
         stop();
         return false;
     }
+    // Hand off view ownership to the TabPanel below; bridge retains a raw
+    // pointer so `notify_attached`, `resize`, and `close` continue to
+    // dispatch `Processor::on_view_*` on the same view instance.
+    auto root = bridge->release_view();
+    if (!root) {
+        runtime::log_error("Standalone: ViewBridge::release_view returned null");
+        stop();
+        return false;
+    }
 
-    auto [w, h] = processor_->editor_size();
+    const uint32_t w = bridge->size_hints().preferred_width;
+    const uint32_t h = bridge->size_hints().preferred_height;
     auto desc = processor_->descriptor();
 
     // Create settings panel
@@ -233,16 +245,20 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     auto window = view::WindowHost::create(*tab_panel, opts);
     if (!window) {
         runtime::log_error("Standalone: WindowHost::create() failed");
+        bridge->close();
         stop();
         return false;
     }
 
-    if (editor_ui.scripted_ui) {
-        editor_ui.scripted_ui->set_repaint_callback([&window] {
+    // Window host is live — fire Processor::on_view_opened now.
+    bridge->notify_attached();
+
+    if (auto* scripted = bridge->scripted_ui()) {
+        scripted->set_repaint_callback([&window] {
             if (window) window->repaint();
         });
-        window->set_idle_callback([scripted_ui = editor_ui.scripted_ui.get(), settings_ptr] {
-            if (scripted_ui) scripted_ui->poll();
+        window->set_idle_callback([scripted, settings_ptr] {
+            scripted->poll();
             if (settings_ptr) settings_ptr->poll();
         });
     } else {
@@ -265,8 +281,8 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     // The inspector uses View::overlay_queue() for rendering and intercepts
     // key events through the root view's on_global_click callback for Cmd+I.
 #if !defined(__ANDROID__)
-    if (editor_ui.scripted_ui) {
-        auto* scripted_ui_ptr = editor_ui.scripted_ui.get();
+    if (bridge->scripted_ui()) {
+        auto* scripted_ui_ptr = bridge->scripted_ui();
         window->set_idle_callback([scripted_ui_ptr, settings_ptr, inspector_ptr, &tab_panel] {
             if (scripted_ui_ptr) scripted_ui_ptr->poll();
             if (settings_ptr) settings_ptr->poll();
@@ -299,8 +315,8 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         runtime::log_info("Standalone: inspector enabled via PULP_INSPECTOR env var");
     }
 #else
-    if (editor_ui.scripted_ui) {
-        auto* scripted_ui_ptr = editor_ui.scripted_ui.get();
+    if (bridge->scripted_ui()) {
+        auto* scripted_ui_ptr = bridge->scripted_ui();
         window->set_idle_callback([scripted_ui_ptr, settings_ptr] {
             if (scripted_ui_ptr) scripted_ui_ptr->poll();
             if (settings_ptr) settings_ptr->poll();
@@ -315,10 +331,16 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     window->show();
 
     runtime::log_info("Standalone: editor window open ({}x{}, gpu={}, mode={}, inspector=ready)",
-                      w, h, use_gpu, editor_ui.uses_script_ui ? "scripted" : "autoui");
+                      w, h, use_gpu, bridge->uses_script_ui() ? "scripted" : "autoui");
 
     // Blocks until the window is closed
     window->run_event_loop();
+
+    // Fire Processor::on_view_closed while the released view is still alive
+    // inside tab_panel. tab_panel (and its owned view) is destroyed after
+    // this scope ends; closing the bridge here keeps the raw-pointer
+    // contract documented in ViewBridge::release_view().
+    bridge->close();
 
     stop();
     return true;
