@@ -69,11 +69,9 @@
     "hosting": {
       "paths": [
         "core/host/**",
-        "tools/cli/cmd_host.cpp",
-        "tools/cli/cmd_scan.cpp",
         "examples/plugin-host-demo/**",
-        "docs/guides/hosting.md",
-        "docs/reference/signal-graph.md"
+        "tools/cli/commands/host.cpp",
+        "tools/cli/commands/scan.cpp"
       ]
     },
     "import-design": {
@@ -93,10 +91,11 @@
     },
     "mpe": {
       "paths": [
-        "core/midi/include/pulp/midi/mpe_*.hpp",
-        "core/midi/src/mpe_*.cpp",
-        "examples/mpe-synth/**",
-        "docs/guides/mpe.md"
+        "core/midi/src/*mpe*",
+        "core/midi/include/**/*mpe*",
+        "core/midi/src/*ump*",
+        "core/midi/include/**/*ump*",
+        "examples/mpe-*/**"
       ]
     },
     "packages": {
@@ -148,6 +147,24 @@
         "core/view/include/**/threejs*",
         "examples/threejs-*/**",
         "tools/scripts/threejs*"
+      ]
+    },
+    "view-bridge": {
+      "paths": [
+        "core/format/src/view_bridge.cpp",
+        "core/format/include/pulp/format/view_bridge.hpp",
+        "core/format/include/pulp/format/processor.hpp",
+        "core/format/src/vst3_plug_view.cpp",
+        "core/format/include/pulp/format/vst3_plug_view.hpp",
+        "core/format/include/pulp/format/clap_adapter.hpp",
+        "core/format/include/pulp/format/clap_entry.hpp",
+        "core/format/src/standalone.cpp",
+        "core/format/src/au_v2_cocoa_view.mm",
+        "core/format/src/au_v2_adapter.cpp",
+        "core/format/include/pulp/format/au_v2_adapter.hpp",
+        "core/format/src/au_adapter.mm",
+        "core/format/src/au_view_controller_ios.mm",
+        "examples/view-bridge-demo/**"
       ]
     },
     "webview-ui": {
