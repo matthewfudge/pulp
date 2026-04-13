@@ -71,6 +71,15 @@ if(PULP_HAS_AUSDK)
         target_compile_features(pulp-format PRIVATE cxx_std_23)
     endif()
     target_link_libraries(pulp-format PUBLIC ausdk)
+    # AudioUnitSDK 1.4 headers `#include <expected>` (C++23). Apple clang
+    # only exposes std::expected when the consuming TU is compiled with
+    # -std=c++23. Set the standard explicitly (target_compile_features
+    # alone is ignored when CMAKE_CXX_STANDARD pins a lower version —
+    # CMake 3.24 treats CXX_STANDARD as authoritative, so we need to set
+    # it per-target). Public so every TU that links pulp::format on
+    # Apple also builds at C++23.
+    set_target_properties(pulp-format PROPERTIES CXX_STANDARD 23)
+    target_compile_features(pulp-format PUBLIC cxx_std_23)
 endif()
 
 # AU v2 adapter uses Apple AudioUnitSDK — compiled per-plugin in the entry point,

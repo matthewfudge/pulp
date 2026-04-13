@@ -62,6 +62,23 @@ public:
     /// second call after successful attach is a no-op.
     void notify_attached();
 
+    /// Transfer ownership of the primary view to the caller while
+    /// preserving the bridge's lifecycle dispatch. After `release_view()`:
+    ///
+    ///   - Ownership of the `view::View` passes to the caller (typically
+    ///     because a container widget like `TabPanel::add_tab` needs a
+    ///     `unique_ptr`).
+    ///   - `view()` still returns the raw pointer so `resize()`,
+    ///     `notify_attached()`, and `close()` continue to dispatch
+    ///     `Processor::on_view_*` callbacks on the released view.
+    ///   - The caller **must keep the view alive at least until**
+    ///     `ViewBridge::close()` has been called (or the bridge
+    ///     destroys), otherwise lifecycle dispatch will touch freed
+    ///     memory.
+    ///   - Returns `nullptr` if the bridge is not open or the view was
+    ///     already released.
+    std::unique_ptr<view::View> release_view();
+
     /// Destroy the view. Fires `on_view_closed` only if
     /// `notify_attached()` previously fired, so open/close dispatch
     /// stays balanced even when host attachment failed after `open()`.
@@ -72,10 +89,10 @@ public:
     /// `on_view_resized` and stores the new size.
     void resize(uint32_t width, uint32_t height);
 
-    bool is_open() const { return view_ != nullptr; }
+    bool is_open() const { return view_raw_ != nullptr; }
     ViewRole role() const { return options_.role; }
-    view::View* view() { return view_.get(); }
-    const view::View* view() const { return view_.get(); }
+    view::View* view() { return view_raw_; }
+    const view::View* view() const { return view_raw_; }
     bool uses_script_ui() const { return uses_script_ui_; }
 
     /// Access the scripted UI session, if the primary view was built from
@@ -118,9 +135,11 @@ private:
     Options options_;
 
     std::unique_ptr<view::View> view_;
+    view::View* view_raw_ = nullptr;  ///< valid even after release_view()
     std::unique_ptr<view::ScriptedUiSession> scripted_ui_;
     bool uses_script_ui_ = false;
     bool attached_ = false;  ///< true between notify_attached() and close()
+    bool released_ = false;  ///< true after release_view() transfers ownership
 
     struct Secondary {
         std::unique_ptr<view::View> view;
