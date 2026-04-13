@@ -32,6 +32,16 @@ if(PULP_HAS_VST3)
     target_compile_definitions(pulp-host PRIVATE PULP_HOST_HAS_VST3=1)
 endif()
 
+# LV2 loader (requires LV2 headers)
+if(TARGET lv2-headers)
+    target_sources(pulp-host PRIVATE src/plugin_slot_lv2.cpp)
+    target_link_libraries(pulp-host PRIVATE lv2-headers)
+    target_compile_definitions(pulp-host PRIVATE PULP_HOST_HAS_LV2=1)
+    if(UNIX)
+        target_link_libraries(pulp-host PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+endif()
+
 # Audio Unit loader + API-based scanner (macOS only, no external SDK)
 if(APPLE)
     target_sources(pulp-host PRIVATE

@@ -326,6 +326,90 @@ TEST_CASE("SignalGraph serial plugin latencies accumulate", "[host][graph][pdc]"
     REQUIRE(graph.latency_samples() == 30);
 }
 
+// Plugin that sums its main input (ports 0,1) and sidechain (ports 2,3)
+// into its output, so a test can observe whether the sidechain arrived.
+namespace {
+class SidechainSum final : public PluginSlot {
+public:
+    const PluginInfo& info() const override { return info_; }
+    bool is_loaded() const override { return true; }
+    bool prepare(double, int) override { return true; }
+    void release() override {}
+    void process(pulp::audio::BufferView<float>& out,
+                 const pulp::audio::BufferView<const float>& in,
+                 const pulp::midi::MidiBuffer&, pulp::midi::MidiBuffer&,
+                 int n) override {
+        const size_t nc = out.num_channels();
+        for (size_t c = 0; c < nc; ++c) {
+            float* d = out.channel_ptr(c);
+            const float* a = c < in.num_channels() ? in.channel_ptr(c) : nullptr;
+            const float* b = (c + 2) < in.num_channels() ? in.channel_ptr(c + 2) : nullptr;
+            for (int i = 0; i < n; ++i) d[i] = (a ? a[i] : 0.f) + (b ? b[i] : 0.f);
+        }
+    }
+    std::vector<HostParamInfo> parameters() const override { return {}; }
+    float get_parameter(uint32_t) const override { return 0.f; }
+    void set_parameter(uint32_t, float) override {}
+    void set_bypass(bool) override {}
+    bool is_bypassed() const override { return false; }
+    std::vector<uint8_t> save_state() const override { return {}; }
+    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    bool has_editor() const override { return false; }
+    void* create_editor_view() override { return nullptr; }
+    void destroy_editor_view() override {}
+    int latency_samples() const override { return 0; }
+    int tail_samples() const override { return 0; }
+private:
+    PluginInfo info_{"SC", "", "", "", "", PluginFormat::CLAP};
+};
+} // namespace
+
+TEST_CASE("SignalGraph routes sidechain via named port connections",
+          "[host][graph][sidechain]") {
+    // Two input nodes feed a 4-input-port plugin: ports 0/1 are the main
+    // stereo bus, ports 2/3 are the sidechain. The plugin sums them.
+    SignalGraph graph;
+    auto main_in = graph.add_input_node(2, "main");
+    auto side_in = graph.add_input_node(2, "side");
+    auto p = graph.add_plugin_node(std::make_unique<SidechainSum>(), 4, 2, "mix");
+    auto out = graph.add_output_node(2, "out");
+
+    REQUIRE(graph.connect(main_in, 0, p, 0));
+    REQUIRE(graph.connect(main_in, 1, p, 1));
+    REQUIRE(graph.connect(side_in, 0, p, 2));   // sidechain L
+    REQUIRE(graph.connect(side_in, 1, p, 3));   // sidechain R
+    REQUIRE(graph.connect(p, 0, out, 0));
+    REQUIRE(graph.connect(p, 1, out, 1));
+
+    REQUIRE(graph.prepare(48000.0, 16));
+
+    // Drive the sole AudioInput (the process-level input view) into
+    // main_in; there's currently no API for per-node independent input
+    // injection, so both main and sidechain see the same 2-channel input
+    // buffer. We distinguish them by writing different values into L/R and
+    // wiring main.0 from L and side.0 from L — the graph already dispatches
+    // input[c] into each AudioInput's port c, so both nodes mirror the
+    // same buffer. We check that the plugin saw *two* copies summed: L+L.
+    std::vector<float> in_l(16, 0.3f), in_r(16, 0.5f);
+    std::vector<float> out_l(16, 0.f), out_r(16, 0.f);
+    const float* in_ptrs[2]  = {in_l.data(), in_r.data()};
+    float*       out_ptrs[2] = {out_l.data(), out_r.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 2, 16);
+    pulp::audio::BufferView<float>       ov(out_ptrs, 2, 16);
+
+    graph.process(ov, iv, 16);
+
+    // SidechainSum adds ports {0,2} into out[0] and ports {1,3} into
+    // out[1]. Because main_in.0 and side_in.0 both pull from input[0],
+    // both carry 0.3 — so out[0] = 0.3 + 0.3 = 0.6. Similarly out[1] =
+    // 0.5 + 0.5 = 1.0.
+    for (int i = 0; i < 16; ++i) {
+        REQUIRE(std::abs(out_l[i] - 0.6f) < 1e-6f);
+        REQUIRE(std::abs(out_r[i] - 1.0f) < 1e-6f);
+    }
+    graph.release();
+}
+
 TEST_CASE("SignalGraph connect_feedback allows cycles with one-block delay",
           "[host][graph][feedback]") {
     // in → g → out, with a feedback edge g.out[0] → g.in[0]: each block,

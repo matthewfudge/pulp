@@ -240,6 +240,19 @@ std::vector<NodeId> SignalGraph::processing_order() const {
     return order;
 }
 
+bool SignalGraph::set_node_parameter(NodeId id, uint32_t param_id, float value) {
+    auto* n = const_cast<GraphNode*>(node(id));
+    if (!n || n->type != NodeType::Plugin || !n->plugin) return false;
+    n->plugin->set_parameter(param_id, value);
+    return true;
+}
+
+float SignalGraph::get_node_parameter(NodeId id, uint32_t param_id) const {
+    auto* n = node(id);
+    if (!n || n->type != NodeType::Plugin || !n->plugin) return 0.f;
+    return n->plugin->get_parameter(param_id);
+}
+
 int SignalGraph::node_latency_samples(NodeId id) const {
     auto it = runtime_.find(id);
     if (it == runtime_.end()) return 0;

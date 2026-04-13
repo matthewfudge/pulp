@@ -19,6 +19,9 @@ std::unique_ptr<PluginSlot> load_au_plugin(const PluginInfo& info);
 #if PULP_HOST_HAS_VST3
 std::unique_ptr<PluginSlot> load_vst3_plugin(const PluginInfo& info);
 #endif
+#if PULP_HOST_HAS_LV2
+std::unique_ptr<PluginSlot> load_lv2_plugin(const PluginInfo& info);
+#endif
 
 std::unique_ptr<PluginSlot> PluginSlot::load(const PluginInfo& info) {
     switch (info.format) {
@@ -45,9 +48,12 @@ std::unique_ptr<PluginSlot> PluginSlot::load(const PluginInfo& info) {
             return nullptr;
 #endif
         case PluginFormat::LV2:
-            runtime::log_warn("PluginSlot::load: LV2 loader not yet implemented ('{}')",
-                              info.path);
+#if PULP_HOST_HAS_LV2
+            return load_lv2_plugin(info);
+#else
+            runtime::log_warn("PluginSlot::load: LV2 loader not compiled in");
             return nullptr;
+#endif
     }
     return nullptr;
 }

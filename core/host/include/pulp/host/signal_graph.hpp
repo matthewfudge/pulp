@@ -159,6 +159,17 @@ public:
     // the node is unknown or the graph is not prepared.
     int node_latency_samples(NodeId id) const;
 
+    // Set a parameter on a Plugin node at the graph level. The call is
+    // forwarded to PluginSlot::set_parameter(). Returns false if the node
+    // is not a Plugin node or has no loaded slot. This is the single-value
+    // knob — full automation-curve routing (one node's output driving
+    // another node's parameter over a block) is follow-up work.
+    bool set_node_parameter(NodeId id, uint32_t param_id, float value);
+
+    // Read a parameter's current value from a Plugin node (returns 0.0f if
+    // the node is not a Plugin or has no slot).
+    float get_node_parameter(NodeId id, uint32_t param_id) const;
+
 private:
     struct NodeRuntime {
         // Per-node output-port channel storage (interleaved per-port, flat).
