@@ -71,6 +71,10 @@ struct GraphNode {
     // published CompiledGraph snapshots can keep the plugin alive while the
     // audio thread is still referencing a now-stale snapshot.
     std::shared_ptr<PluginSlot> plugin;
+
+    // UI-thread-owned scalar state that needs to survive snapshot
+    // recompilation. compile_() copies these into per-snapshot NodeRuntime.
+    float gain = 1.0f;
 };
 
 // ── Signal Graph ────────────────────────────────────────────────────────

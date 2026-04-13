@@ -2,6 +2,8 @@
 #include <pulp/host/scanner.hpp>
 #include <pulp/host/plugin_slot.hpp>
 #include <pulp/host/signal_graph.hpp>
+#include <atomic>
+#include <thread>
 
 using namespace pulp::host;
 
@@ -604,3 +606,68 @@ TEST_CASE("PluginSlot loads and processes a real CLAP plugin", "[host][clap][int
     slot->release();
 }
 #endif
+
+// ── Phase 0B race-stress test ─────────────────────────────────────────────
+//
+// Exercises the snapshot-publish semantic: one thread runs process() in a
+// tight loop while another thread mutates the graph. No TSan assertion here
+// (builds without TSan must pass), but with TSan enabled this run should be
+// clean. The behavioral contract we assert is "no crash, no wild output":
+// every sample in the audio thread's output buffer is either silence (post-
+// invalidate, pre-reprepare) or a valid sample in [-1, 1].
+
+TEST_CASE("SignalGraph snapshot publish is race-clean", "[host][graph][race]") {
+    SignalGraph graph;
+    auto in  = graph.add_input_node(1, "in");
+    auto g   = graph.add_gain_node("g");
+    auto out = graph.add_output_node(1, "out");
+    REQUIRE(graph.connect(in, 0, g, 0));
+    REQUIRE(graph.connect(g,  0, out, 0));
+    REQUIRE(graph.prepare(48000.0, 64));
+    REQUIRE(graph.set_node_gain(g, 0.5f));
+
+    std::atomic<bool> stop{false};
+    std::atomic<int>  blocks{0};
+    std::atomic<int>  bad_samples{0};  // REQUIREs in audio thread would throw
+                                       // and take down the process; count
+                                       // violations and assert on the main
+                                       // thread after join.
+
+    std::thread audio([&] {
+        std::vector<float> in_l(64, 0.25f);
+        std::vector<float> out_l(64, 0.0f);
+        const float* in_ptrs[1]  = {in_l.data()};
+        float*       out_ptrs[1] = {out_l.data()};
+        pulp::audio::BufferView<const float> iv(in_ptrs, 1, 64);
+        pulp::audio::BufferView<float>       ov(out_ptrs, 1, 64);
+        while (!stop.load(std::memory_order_relaxed)) {
+            graph.process(ov, iv, 64);
+            for (int i = 0; i < 64; ++i) {
+                const float v = out_l[i];
+                // Either silence (snapshot invalidated mid-run) or the
+                // set-gain path (0.25 * 0.5 = 0.125). Anything else = race.
+                if (!(v == 0.0f || v == 0.125f)) {
+                    bad_samples.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+            blocks.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    // Hammer the graph with mutation cycles from the "UI" thread.
+    const int cycles = 200;
+    for (int i = 0; i < cycles; ++i) {
+        REQUIRE(graph.disconnect(g, 0, out, 0));
+        REQUIRE(graph.connect(g, 0, out, 0));
+        REQUIRE(graph.prepare(48000.0, 64));
+    }
+
+    // Let the audio thread see the final prepared state for a few blocks
+    // so the test ends with the snapshot published (not nullptr).
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    stop.store(true, std::memory_order_relaxed);
+    audio.join();
+
+    REQUIRE(blocks.load() > 0);
+    REQUIRE(bad_samples.load() == 0);
+}

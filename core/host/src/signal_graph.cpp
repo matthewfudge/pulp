@@ -335,6 +335,7 @@ SignalGraph::compile_(double /*sample_rate*/, int max_block_size) {
             rt.output_ptrs[c] = rt.output_data.data() + static_cast<size_t>(c) * max_block_size;
         for (int c = 0; c < in_ch; ++c)
             rt.input_ptrs[c] = rt.input_data.data() + static_cast<size_t>(c) * max_block_size;
+        rt.gain = n.gain;  // copy UI-thread scalar into per-snapshot runtime
         cg->runtime[n.id] = std::move(rt);
 
         CompiledGraph::NodeShape shape{n.type, n.num_input_ports, n.num_output_ports};
@@ -535,31 +536,25 @@ void SignalGraph::clear() {
 }
 
 bool SignalGraph::set_node_gain(NodeId id, float linear_gain) {
-    // Gain is part of the runtime, so we'd need to propagate into the live
-    // snapshot if prepared. Simplest: invalidate and require re-prepare.
-    // (Plugin-node gain, hot-gain control, and automated gain should land
-    // through connect_automation in Phase 1E rather than through this knob.)
+    // Write the UI-thread-owned scalar on GraphNode so it survives future
+    // compile_() calls. Also reflect into the live snapshot's runtime (safe:
+    // the audio thread reads it once per block as a plain float load) so the
+    // change takes effect without a re-prepare.
+    auto* n = const_cast<GraphNode*>(node(id));
+    if (!n) return false;
+    n->gain = linear_gain;
     auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
     if (cg) {
         auto it = cg->runtime.find(id);
-        if (it != cg->runtime.end()) {
-            // Safe: gain is a plain float, audio thread reads it once per block.
-            it->second.gain = linear_gain;
-            return true;
-        }
-        return false;
+        if (it != cg->runtime.end()) it->second.gain = linear_gain;
     }
-    // Not prepared yet — stash for next compile by invalidating.
-    // (Pre-prepare gain-set is uncommon; callers should prepare first.)
-    return false;
+    return true;
 }
 
 float SignalGraph::node_gain(NodeId id) const {
-    auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
-    if (!cg) return 1.0f;
-    auto it = cg->runtime.find(id);
-    if (it == cg->runtime.end()) return 1.0f;
-    return it->second.gain;
+    auto* n = node(id);
+    if (!n) return 1.0f;
+    return n->gain;
 }
 
 } // namespace pulp::host
