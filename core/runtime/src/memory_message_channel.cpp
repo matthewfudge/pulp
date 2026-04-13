@@ -80,11 +80,16 @@ void MemoryMessageChannel::close() {
         self_closed = std::move(on_closed_);
     }
 
+    // Transition the peer to closed too and consume its callback so that
+    // peer->close() (which frequently happens via the destructor) does
+    // not fire on_closed a second time — ChannelClosedCallback is
+    // contractually called exactly once per channel.
     if (auto p = peer_.lock(); p && *p) {
         MemoryMessageChannel* peer = *p;
+        peer->open_.store(false);
         {
             std::lock_guard<std::mutex> lock(peer->mutex_);
-            peer_closed = peer->on_closed_;
+            peer_closed = std::move(peer->on_closed_);
         }
     }
     if (self_closed) self_closed();

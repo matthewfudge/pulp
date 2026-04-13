@@ -71,6 +71,24 @@ TEST_CASE("JsonRpcPeer returns method_not_found for unknown methods", "[json_rpc
     REQUIRE(err->code == -32601);
 }
 
+TEST_CASE("JsonRpcPeer emits parse error for malformed input", "[json_rpc]") {
+    auto pair = MemoryMessageChannel::make_pair();
+    // Raw receiver — no JsonRpcPeer on the right side, so we can observe
+    // the error envelope our side emits when fed garbage.
+    std::string reply;
+    pair.second->on_message([&](const Message& m) {
+        reply.assign(m.as_text());
+    });
+    JsonRpcPeer client(*pair.first);
+
+    // Feed the client peer's channel malformed JSON directly.
+    const char* garbage = "{not valid json";
+    pair.second->send_text(garbage);
+
+    REQUIRE(reply.find("-32700") != std::string::npos);
+    REQUIRE(reply.find("\"id\":null") != std::string::npos);
+}
+
 TEST_CASE("JsonRpcPeer fires notification handler and expects no response", "[json_rpc]") {
     auto pair = MemoryMessageChannel::make_pair();
     JsonRpcPeer client(*pair.first);

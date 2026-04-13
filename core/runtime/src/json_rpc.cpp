@@ -90,7 +90,15 @@ bool JsonRpcPeer::send_request(std::string_view method,
         std::lock_guard<std::mutex> lock(mutex_);
         pending_[id] = std::move(callback);
     }
-    return channel_->send_text(make_request(id, method, params_json));
+    if (!channel_->send_text(make_request(id, method, params_json))) {
+        // Write failed — reclaim the pending slot so the callback is not
+        // leaked indefinitely. A retry from the caller will allocate a
+        // fresh id rather than piling on stale entries.
+        std::lock_guard<std::mutex> lock(mutex_);
+        pending_.erase(id);
+        return false;
+    }
+    return true;
 }
 
 bool JsonRpcPeer::notify(std::string_view method, std::string_view params_json) {
@@ -120,9 +128,19 @@ void JsonRpcPeer::handle_object(std::string_view obj_json) {
     try {
         root = choc::json::parse(std::string(obj_json));
     } catch (...) {
+        // RFC 4.2: malformed JSON → respond with a -32700 Parse error and
+        // id: null so senders don't hang waiting for a reply.
+        if (channel_) {
+            channel_->send_text(make_error("null", JsonRpcError::parse_error()));
+        }
         return;
     }
-    if (!root.isObject()) return;
+    if (!root.isObject()) {
+        if (channel_) {
+            channel_->send_text(make_error("null", JsonRpcError::invalid_request()));
+        }
+        return;
+    }
 
     const bool has_method = root.hasObjectMember("method");
     const bool has_id = root.hasObjectMember("id");

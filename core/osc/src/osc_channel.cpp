@@ -29,9 +29,10 @@ OscChannel::~OscChannel() { close(); }
 
 bool OscChannel::send(const std::uint8_t* data, std::size_t size) {
     if (!open_.load() || !sender_.is_connected() || size == 0) return false;
-    Message msg = decode(data, size);
-    if (msg.address.empty()) return false;
-    return sender_.send(msg);
+    // Preserve the caller's bytes verbatim — bundles (#bundle), custom
+    // encodings, or payloads this module doesn't yet decode must pass
+    // through unmodified. Structured sends can use the Message overload.
+    return sender_.send_raw(data, size);
 }
 
 bool OscChannel::send(const Message& msg) {
