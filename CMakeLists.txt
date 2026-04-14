@@ -375,7 +375,18 @@ if(PULP_MACOS AND EXISTS "${AUSDK_DIR}/include/AudioUnitSDK/AUBase.h")
         "-framework CoreAudio"
     )
     target_compile_options(ausdk PRIVATE -w)  # Suppress third-party warnings
-    target_compile_features(ausdk PUBLIC cxx_std_23)  # AudioUnitSDK 1.4 requires std::expected
+    # AudioUnitSDK 1.4's own .cpp files #include <expected> (C++23). Under
+    # CMake 3.24's policy, the root's CMAKE_CXX_STANDARD=20 is authoritative
+    # on every target and silently downgrades target_compile_features's
+    # minimum (cxx_std_23) to whatever the root says. The target property
+    # CXX_STANDARD bypasses that and forces C++23 for AU-SDK compilation.
+    # PUBLIC compile_features stays so downstream consumers inherit the
+    # minimum requirement if they rebuild with an older root standard.
+    set_target_properties(ausdk PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+    )
+    target_compile_features(ausdk PUBLIC cxx_std_23)
 
     message(STATUS "Pulp: AudioUnitSDK found — AU v2 support enabled")
 else()
@@ -539,6 +550,28 @@ if(ANDROID)
         $<TARGET_FILE:pulp-audio>
         $<$<TARGET_EXISTS:pulp-render>:$<TARGET_FILE:pulp-render>>
         -Wl,--no-whole-archive)
+
+    # TalkBack accessibility JNI entry points live in pulp-view
+    # (core/view/platform/android/accessibility_android.cpp). pulp-view is
+    # not whole-archived — whole-archiving it pulls in SDL3's JNI_OnLoad
+    # and duplicates ours (see closed PR #148). Instead, force-reference
+    # each Java_com_pulp_accessibility_* symbol so the linker keeps the
+    # containing object file. This preserves just the JNI exports without
+    # dragging SDL3 into the JNI closure. Without this the app hits
+    # UnsatisfiedLinkError the first time TalkBack walks the node tree.
+    foreach(_a11y_sym IN ITEMS
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetAccessibilityNodeCount
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeColumnCount
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeLabel
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeRangeMax
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeRangeMin
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeRole
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeRowCount
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativeGetNodeValue
+        Java_com_pulp_accessibility_PulpAccessibilityDelegate_nativePerformAction
+    )
+        target_link_options(pulp-jni PRIVATE "-Wl,--undefined=${_a11y_sym}")
+    endforeach()
 endif()
 
 # ── SDK Install Rules ──────────────────────────────────────────────────────
