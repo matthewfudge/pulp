@@ -119,3 +119,37 @@ rules:
   for per-block automation.
 - **Thread rules doc.** `docs/reference/host-thread-rules.md` is the
   canonical reference.
+
+## Phase 1 per-format depth (PR #156-ish)
+
+Each format loader gained real parameter / state / automation handling
+on top of Phase 0 contracts:
+
+- **CLAP**: real `clap_input_events_t` (param_value + midi events
+  sorted by time), `clap_output_events_t` harvests MIDI to
+  `midi_out`, `CLAP_EXT_STATE` save/load via vector-backed
+  `clap_ostream` / `clap_istream`.
+- **VST3**: `IEditController` queryInterface (combined or separate
+  with controller initialize), full parameter enumeration with
+  ParameterInfo flags mapped onto HostParamInfo, plain-domain
+  get/set via `normalizedParamToPlain` / `plainParamToNormalized`,
+  state save/load via a `VectorStream` IBStream implementation.
+- **AU**: `AudioUnitScheduleParameters` per block from
+  ParameterEventQueue — sample-accurate AUv2 automation.
+- **LV2**: control-port discovery extended into the regex TTL parser
+  (lv2:ControlPort + name/default/min/max), per-port float scratch in
+  `control_values_`, `connect_port` wired at process() block start,
+  param_events apply last-write-wins.
+
+Param domain: **plain values** at the PluginSlot boundary (not
+normalized). Loaders convert internally if they natively normalize
+(VST3). Don't normalize host-side.
+
+`connect_automation(src, port, dest, param, lo, hi, ...)` delivers
+two control points per block (sample 0 + N-1) via the queue. Loaders
+that interpolate sample-accurately (CLAP, VST3, AU via
+ScheduleParameters) get smooth automation; LV2 control ports are
+sample-at-block-start so the offset-(N-1) value wins.
+
+MixMode::Replace is the default; second Replace edge to the same
+(node, param) is rejected. MixMode::Add sums then clamps.

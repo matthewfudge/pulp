@@ -11,6 +11,7 @@
 #include <clap/clap.h>
 
 #include <dlfcn.h>
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <filesystem>
@@ -111,9 +112,9 @@ public:
 
     void process(audio::BufferView<float>& output,
                  const audio::BufferView<const float>& input,
-                 const midi::MidiBuffer& /*midi_in*/,
-                 midi::MidiBuffer& /*midi_out*/,
-                 const ParameterEventQueue& /*param_events*/,
+                 const midi::MidiBuffer& midi_in,
+                 midi::MidiBuffer& midi_out,
+                 const ParameterEventQueue& param_events,
                  int num_samples) override {
         if (!plugin_ || !processing_ || bypassed_.load(std::memory_order_relaxed)) {
             copy_or_zero(output, input, num_samples);
@@ -139,14 +140,80 @@ public:
         out_buf.data32 = out_ptrs_.empty() ? nullptr : out_ptrs_.data();
         out_buf.channel_count = nch_out;
 
-        clap_input_events_t in_events{};
-        in_events.ctx = nullptr;
-        in_events.size = [](const clap_input_events_t*) -> uint32_t { return 0; };
-        in_events.get = [](const clap_input_events_t*, uint32_t) -> const clap_event_header_t* { return nullptr; };
+        // Build the block's input event stream: parameter automation from
+        // the host's ParameterEventQueue (sample-accurate) + MIDI 1.0
+        // messages as CLAP_EVENT_MIDI events. Events are packed into an
+        // event-pointer array keyed by sample_offset so the plugin can
+        // iterate them in time order.
+        in_event_storage_.clear();
+        for (const auto& pe : param_events) {
+            clap_event_param_value_t ev{};
+            ev.header.size = sizeof(ev);
+            ev.header.time = (uint32_t)pe.sample_offset;
+            ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ev.header.type = CLAP_EVENT_PARAM_VALUE;
+            ev.header.flags = 0;
+            ev.param_id = (clap_id)pe.param_id;
+            ev.cookie = nullptr;
+            ev.note_id = -1;
+            ev.port_index = -1;
+            ev.channel = -1;
+            ev.key = -1;
+            ev.value = pe.value;
+            in_event_storage_.emplace_back(EventAny{.param_value = ev, .kind = EventKind::ParamValue});
+        }
+        for (const auto& m : midi_in) {
+            clap_event_midi_t ev{};
+            ev.header.size = sizeof(ev);
+            ev.header.time = (uint32_t)m.sample_offset;
+            ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ev.header.type = CLAP_EVENT_MIDI;
+            ev.header.flags = 0;
+            ev.port_index = 0;
+            const auto& msg = m.message;
+            ev.data[0] = msg.data()[0];
+            ev.data[1] = msg.size() > 1 ? msg.data()[1] : 0;
+            ev.data[2] = msg.size() > 2 ? msg.data()[2] : 0;
+            in_event_storage_.emplace_back(EventAny{.midi = ev, .kind = EventKind::Midi});
+        }
+        // Sort by header.time.
+        std::sort(in_event_storage_.begin(), in_event_storage_.end(),
+                  [](const EventAny& a, const EventAny& b) {
+                      return a.header_time() < b.header_time();
+                  });
 
+        clap_input_events_t in_events{};
+        in_events.ctx = this;
+        in_events.size = [](const clap_input_events_t* list) -> uint32_t {
+            auto* self = static_cast<ClapSlot*>(list->ctx);
+            return (uint32_t)self->in_event_storage_.size();
+        };
+        in_events.get = [](const clap_input_events_t* list, uint32_t i)
+                          -> const clap_event_header_t* {
+            auto* self = static_cast<ClapSlot*>(list->ctx);
+            if (i >= self->in_event_storage_.size()) return nullptr;
+            return &self->in_event_storage_[i].as_header();
+        };
+
+        out_midi_sink_ = &midi_out;
         clap_output_events_t out_events{};
-        out_events.ctx = nullptr;
-        out_events.try_push = [](const clap_output_events_t*, const clap_event_header_t*) -> bool { return true; };
+        out_events.ctx = this;
+        out_events.try_push = [](const clap_output_events_t* list,
+                                 const clap_event_header_t* ev) -> bool {
+            auto* self = static_cast<ClapSlot*>(list->ctx);
+            // Harvest MIDI events to the host's midi_out buffer. Param-change
+            // outbound events (plugin-initiated) are informational for the
+            // host UI; we drop them for now.
+            if (ev->space_id == CLAP_CORE_EVENT_SPACE_ID
+                && ev->type == CLAP_EVENT_MIDI && self->out_midi_sink_) {
+                auto* m = reinterpret_cast<const clap_event_midi_t*>(ev);
+                pulp::midi::MidiEvent e;
+                e.sample_offset = (int32_t)ev->time;
+                e.message = choc::midi::ShortMessage(m->data[0], m->data[1], m->data[2]);
+                self->out_midi_sink_->add(e);
+            }
+            return true;
+        };
 
         clap_process_t p{};
         p.steady_time = steady_time_;
@@ -186,8 +253,47 @@ public:
         return bypassed_.load(std::memory_order_relaxed);
     }
 
-    std::vector<uint8_t> save_state() const override { return {}; }
-    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    std::vector<uint8_t> save_state() const override {
+        if (!plugin_) return {};
+        auto* ext = (const clap_plugin_state_t*)plugin_->get_extension(
+            plugin_, CLAP_EXT_STATE);
+        if (!ext || !ext->save) return {};
+
+        std::vector<uint8_t> buf;
+        clap_ostream_t os{};
+        os.ctx = &buf;
+        os.write = [](const struct clap_ostream* stream, const void* data,
+                      uint64_t size) -> int64_t {
+            auto* v = static_cast<std::vector<uint8_t>*>(stream->ctx);
+            const auto* p = static_cast<const uint8_t*>(data);
+            v->insert(v->end(), p, p + size);
+            return (int64_t)size;
+        };
+        if (!ext->save(plugin_, &os)) return {};
+        return buf;
+    }
+
+    bool restore_state(const std::vector<uint8_t>& data) override {
+        if (!plugin_) return false;
+        auto* ext = (const clap_plugin_state_t*)plugin_->get_extension(
+            plugin_, CLAP_EXT_STATE);
+        if (!ext || !ext->load) return false;
+
+        struct IStreamCtx { const uint8_t* data; size_t size; size_t pos; };
+        IStreamCtx ctx{data.data(), data.size(), 0};
+        clap_istream_t is{};
+        is.ctx = &ctx;
+        is.read = [](const struct clap_istream* stream, void* buffer,
+                     uint64_t want) -> int64_t {
+            auto* c = static_cast<IStreamCtx*>(stream->ctx);
+            uint64_t remaining = c->size - c->pos;
+            uint64_t n = want < remaining ? want : remaining;
+            std::memcpy(buffer, c->data + c->pos, (size_t)n);
+            c->pos += (size_t)n;
+            return (int64_t)n;
+        };
+        return ext->load(plugin_, &is);
+    }
 
     bool has_editor() const override { return false; }
     void* create_editor_view() override { return nullptr; }
@@ -265,6 +371,29 @@ private:
     std::vector<HostParamInfo> params_;
     std::vector<float*> in_ptrs_;
     std::vector<float*> out_ptrs_;
+
+    // Per-block event-list scratch. Each entry holds either a param-value
+    // or a MIDI event; a union variant because CLAP events are heterogeneous
+    // structs and the plugin expects pointers to clap_event_header_t.
+    enum class EventKind : uint8_t { ParamValue, Midi };
+    struct EventAny {
+        union {
+            clap_event_param_value_t param_value;
+            clap_event_midi_t        midi;
+        };
+        EventKind kind;
+        uint32_t header_time() const {
+            return kind == EventKind::ParamValue
+                ? param_value.header.time : midi.header.time;
+        }
+        const clap_event_header_t& as_header() const {
+            return kind == EventKind::ParamValue
+                ? param_value.header : midi.header;
+        }
+    };
+    std::vector<EventAny> in_event_storage_;
+    midi::MidiBuffer* out_midi_sink_ = nullptr;
+
     bool active_ = false;
     bool processing_ = false;
     std::atomic<bool> bypassed_{false};

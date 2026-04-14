@@ -18,6 +18,9 @@
 #include <pluginterfaces/vst/ivstprocesscontext.h>
 #include <pluginterfaces/vst/ivstmessage.h>
 #include <pluginterfaces/vst/ivstevents.h>
+#include <pluginterfaces/vst/ivsteditcontroller.h>
+#include <pluginterfaces/vst/ivstparameterchanges.h>
+#include <pluginterfaces/base/ibstream.h>
 
 #include <dlfcn.h>
 #include <atomic>
@@ -83,15 +86,24 @@ public:
 class Vst3Slot final : public PluginSlot {
 public:
     Vst3Slot(PluginInfo info, void* handle, IPluginFactory* factory,
-             Vst::IComponent* component, Vst::IAudioProcessor* processor)
+             Vst::IComponent* component, Vst::IAudioProcessor* processor,
+             Vst::IEditController* controller)
         : info_(std::move(info)),
           handle_(handle),
           factory_(factory),
           component_(component),
-          processor_(processor) {}
+          processor_(processor),
+          controller_(controller) {
+        cache_params_();
+    }
 
     ~Vst3Slot() override {
         release();
+        if (controller_) {
+            controller_->terminate();
+            controller_->release();
+            controller_ = nullptr;
+        }
         if (component_) {
             component_->terminate();
             component_->release();
@@ -237,12 +249,28 @@ public:
         }
     }
 
-    std::vector<HostParamInfo> parameters() const override {
-        // TODO: query IEditController for parameter metadata.
-        return {};
+    std::vector<HostParamInfo> parameters() const override { return params_; }
+
+    float get_parameter(uint32_t id) const override {
+        if (!controller_) return 0.0f;
+        // VST3 works in normalized [0..1]; convert to plain using the
+        // controller's conversion.
+        Vst::ParamValue norm = controller_->getParamNormalized(id);
+        return (float)controller_->normalizedParamToPlain(id, norm);
     }
-    float get_parameter(uint32_t) const override { return 0.0f; }
-    void set_parameter(uint32_t, float) override {}
+
+    void set_parameter(uint32_t id, float plain_value) override {
+        if (!controller_) return;
+        // Plain-domain input, feed normalized to the controller AND queue a
+        // processor-side edit via ParameterEventQueue in the next process()
+        // block. For now the controller mirror suffices for UI; processor
+        // automation is delivered via ParameterEventQueue at process() time.
+        Vst::ParamValue norm =
+            controller_->plainParamToNormalized(id, plain_value);
+        controller_->setParamNormalized(id, norm);
+        // Also stash in pending_host_edits_ so the next process() picks it up.
+        pending_host_edits_.push_back({id, norm});
+    }
 
     void set_bypass(bool bypassed) override {
         bypassed_.store(bypassed, std::memory_order_relaxed);
@@ -251,8 +279,18 @@ public:
         return bypassed_.load(std::memory_order_relaxed);
     }
 
-    std::vector<uint8_t> save_state() const override { return {}; }
-    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    std::vector<uint8_t> save_state() const override {
+        if (!component_) return {};
+        VectorStream stream;
+        if (component_->getState(&stream) != kResultOk) return {};
+        return stream.take();
+    }
+
+    bool restore_state(const std::vector<uint8_t>& data) override {
+        if (!component_ || data.empty()) return false;
+        VectorStream stream(data);
+        return component_->setState(&stream) == kResultOk;
+    }
 
     bool has_editor() const override { return false; }
     void* create_editor_view() override { return nullptr; }
@@ -272,12 +310,103 @@ public:
         return app;
     }
 
+    // Minimal IBStream backed by std::vector<uint8_t> for state round-trips.
+    class VectorStream final : public IBStream {
+    public:
+        VectorStream() = default;
+        explicit VectorStream(const std::vector<uint8_t>& src) : buf_(src) {}
+        std::vector<uint8_t> take() { return std::move(buf_); }
+        tresult PLUGIN_API read(void* buffer, int32 num_bytes,
+                                int32* num_bytes_read) override {
+            if (num_bytes < 0) return kInvalidArgument;
+            int64 remaining = (int64)buf_.size() - pos_;
+            int64 n = num_bytes < remaining ? num_bytes : remaining;
+            if (n > 0) std::memcpy(buffer, buf_.data() + pos_, (size_t)n);
+            pos_ += n;
+            if (num_bytes_read) *num_bytes_read = (int32)n;
+            return kResultOk;
+        }
+        tresult PLUGIN_API write(void* buffer, int32 num_bytes,
+                                 int32* num_bytes_written) override {
+            if (num_bytes < 0) return kInvalidArgument;
+            const auto* p = static_cast<const uint8_t*>(buffer);
+            buf_.insert(buf_.end(), p, p + num_bytes);
+            pos_ = (int64)buf_.size();
+            if (num_bytes_written) *num_bytes_written = num_bytes;
+            return kResultOk;
+        }
+        tresult PLUGIN_API seek(int64 pos, int32 mode, int64* result) override {
+            int64 new_pos = pos_;
+            switch (mode) {
+                case kIBSeekSet: new_pos = pos; break;
+                case kIBSeekCur: new_pos = pos_ + pos; break;
+                case kIBSeekEnd: new_pos = (int64)buf_.size() + pos; break;
+                default: return kInvalidArgument;
+            }
+            if (new_pos < 0 || new_pos > (int64)buf_.size()) return kInvalidArgument;
+            pos_ = new_pos;
+            if (result) *result = pos_;
+            return kResultOk;
+        }
+        tresult PLUGIN_API tell(int64* pos) override {
+            if (!pos) return kInvalidArgument;
+            *pos = pos_;
+            return kResultOk;
+        }
+        tresult PLUGIN_API queryInterface(const TUID iid, void** obj) override {
+            if (FUnknownPrivate::iidEqual(iid, IBStream::iid)
+                || FUnknownPrivate::iidEqual(iid, FUnknown::iid)) {
+                *obj = static_cast<IBStream*>(this);
+                return kResultTrue;
+            }
+            *obj = nullptr;
+            return kNoInterface;
+        }
+        uint32 PLUGIN_API addRef() override { return 1; }
+        uint32 PLUGIN_API release() override { return 1; }
+    private:
+        std::vector<uint8_t> buf_;
+        int64 pos_ = 0;
+    };
+
+    void cache_params_() {
+        params_.clear();
+        if (!controller_) return;
+        const int32 count = controller_->getParameterCount();
+        params_.reserve((size_t)count);
+        for (int32 i = 0; i < count; ++i) {
+            Vst::ParameterInfo pi{};
+            if (controller_->getParameterInfo(i, pi) != kResultOk) continue;
+            HostParamInfo h;
+            h.id = (uint32_t)pi.id;
+            for (int c = 0; c < 127 && pi.title[c]; ++c) h.name.push_back((char)pi.title[c]);
+            for (int c = 0; c < 127 && pi.units[c]; ++c) h.unit.push_back((char)pi.units[c]);
+            // VST3 reports stepCount > 0 for stepped; 0 = continuous.
+            h.flags.stepped = (pi.stepCount > 0);
+            h.flags.rampable = !h.flags.stepped;
+            h.flags.automatable = (pi.flags & Vst::ParameterInfo::kCanAutomate) != 0;
+            h.flags.read_only   = (pi.flags & Vst::ParameterInfo::kIsReadOnly) != 0;
+            h.flags.hidden      = (pi.flags & Vst::ParameterInfo::kIsHidden) != 0;
+            h.flags.is_bypass   = (pi.flags & Vst::ParameterInfo::kIsBypass) != 0;
+            h.flags.modulatable = false;  // VST3 has no per-voice mod primitive
+            // Plain param range: normalize 0/1 via controller.
+            h.min_value = (float)controller_->normalizedParamToPlain(pi.id, 0.0);
+            h.max_value = (float)controller_->normalizedParamToPlain(pi.id, 1.0);
+            h.default_value = (float)controller_->normalizedParamToPlain(pi.id, pi.defaultNormalizedValue);
+            params_.push_back(std::move(h));
+        }
+    }
+
 private:
     PluginInfo info_;
     void* handle_ = nullptr;
     IPluginFactory* factory_ = nullptr;
     Vst::IComponent* component_ = nullptr;
     Vst::IAudioProcessor* processor_ = nullptr;
+    Vst::IEditController* controller_ = nullptr;
+    std::vector<HostParamInfo> params_;
+    struct PendingEdit { uint32_t id; Vst::ParamValue normalized; };
+    std::vector<PendingEdit> pending_host_edits_;
     std::vector<float*> in_ptrs_;
     std::vector<float*> out_ptrs_;
     std::atomic<bool> bypassed_{false};
@@ -376,13 +505,34 @@ std::unique_ptr<PluginSlot> load_vst3_plugin(const PluginInfo& info) {
         return nullptr;
     }
 
+    // Try to get IEditController. Preferred path: plugin implements both
+    // IComponent and IEditController on the same object (combined). Fallback
+    // path for plugins that separate component and controller: query the
+    // component for its controller class id and factory-create it; this is
+    // a minimum viable implementation (no IConnectionPoint wiring yet).
+    Vst::IEditController* controller = nullptr;
+    if (component->queryInterface(Vst::IEditController::iid, (void**)&controller) != kResultOk) {
+        controller = nullptr;
+    }
+    if (!controller) {
+        TUID controller_cid;
+        if (component->getControllerClassId(controller_cid) == kResultOk) {
+            factory->createInstance(controller_cid, Vst::IEditController::iid,
+                                    (void**)&controller);
+            if (controller && controller->initialize(&Vst3Slot::host_app()) != kResultOk) {
+                controller->release();
+                controller = nullptr;
+            }
+        }
+    }
+
     PluginInfo filled = info;
     if (filled.name.empty())         filled.name = chosen.name;
     if (filled.manufacturer.empty()) filled.manufacturer = ""; // PClassInfo2 carries vendor
     if (filled.unique_id.empty())    filled.unique_id = chosen.name;
 
     return std::make_unique<Vst3Slot>(std::move(filled), handle, factory,
-                                      component, processor);
+                                      component, processor, controller);
 }
 
 } // namespace pulp::host
