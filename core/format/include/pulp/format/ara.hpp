@@ -55,4 +55,11 @@ public:
 /// Returns false if ARA is not available (most hosts).
 bool host_supports_ara();
 
+/// True when Pulp was built with the Celemony ARA SDK (PULP_ENABLE_ARA=ON
+/// + PULP_ARA_SDK_DIR pointing at a valid checkout). Separate from
+/// host_supports_ara(): SDK-compiled-in is a build-time fact; host
+/// support is resolved at load time per format adapter.
+/// Workstream 06 slice 6.1.
+bool ara_sdk_compiled_in();
+
 }  // namespace pulp::format
