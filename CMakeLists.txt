@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Pulp
-    VERSION 0.9.0
+    VERSION 0.10.0
     DESCRIPTION "Cross-platform audio plugin and application framework"
     HOMEPAGE_URL "https://github.com/danielraffel/pulp"
     LANGUAGES CXX C
@@ -590,7 +590,7 @@ include(GNUInstallDirs)
 set(PULP_SDK_TARGETS
     pulp-platform pulp-runtime pulp-events pulp-state
     pulp-audio pulp-midi pulp-signal pulp-format
-    pulp-canvas pulp-view pulp-standalone pulp-dsl
+    pulp-canvas pulp-view pulp-host pulp-standalone pulp-dsl
 )
 
 if(TARGET pulp-render)
