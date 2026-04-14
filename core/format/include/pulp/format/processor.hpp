@@ -113,6 +113,13 @@ struct PluginDescriptor {
     /// Used by hosts to flush reverb/delay tails after playback stops.
     int tail_samples = 0;
 
+    /// Optional contact info — appended here so existing positional
+    /// aggregate initializers keep working. Surfaced by VST3
+    /// PFactoryInfo::url/email, CLAP manufacturer_url/manufacturer_email,
+    /// AU kAudioUnitProperty_URL. Leave empty to skip.
+    std::string vendor_url;
+    std::string vendor_email;
+
     /// Channel count of the first (main) input bus.
     int default_input_channels() const {
         return input_buses.empty() ? 0 : input_buses[0].default_channels;
