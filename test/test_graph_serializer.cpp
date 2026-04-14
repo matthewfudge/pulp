@@ -159,20 +159,20 @@ TEST_CASE("GraphSerializer round-trips MIDI routing", "[host][serializer]") {
     auto midi_in = src.add_midi_input_node();
     auto midi_out = src.add_midi_output_node();
     REQUIRE(src.connect_midi(midi_in, midi_out));
+    REQUIRE(src.connections().size() == 1);
 
     const auto json = GraphSerializer::to_json(src);
     SignalGraph dst;
     auto result = GraphSerializer::from_json(dst, json);
     REQUIRE(result.ok);
     REQUIRE(dst.nodes().size() == 2);
-    // MIDI connection should survive (implementation-specific how it's
-    // represented in the connections vector vs. a MIDI edge list).
-    bool any_midi_node = false;
-    for (const auto& n : dst.nodes()) {
-        if (n.type == NodeType::MidiInput || n.type == NodeType::MidiOutput) {
-            any_midi_node = true;
-            break;
-        }
+
+    // Verify the MIDI edge itself survives, not just the MIDI nodes. A
+    // regression that dropped MIDI edges on decode would still leave both
+    // MIDI nodes present but the `midi` connection broken.
+    int midi_edge_count = 0;
+    for (const auto& c : dst.connections()) {
+        if (c.midi) midi_edge_count++;
     }
-    REQUIRE(any_midi_node);
+    REQUIRE(midi_edge_count == 1);
 }
