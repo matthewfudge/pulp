@@ -203,6 +203,14 @@ if [ -f "$ROOT/VISION.md" ]; then
     fi
 fi
 
+# ── Generated-table drift check (workstream 08 slice 8.3) ─────────────────────
+if [ -x "$ROOT/tools/docs_generate.py" ]; then
+    echo "Checking generated-table drift in capabilities.md..."
+    if ! python3 "$ROOT/tools/docs_generate.py" check; then
+        ERRORS=$((ERRORS + 1))
+    fi
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 if [ $ERRORS -gt 0 ]; then
