@@ -203,6 +203,24 @@ if [ -f "$ROOT/VISION.md" ]; then
     fi
 fi
 
+# ── Docs consistency (support-matrix.yaml ↔ capabilities.md) ──────────────────
+if [ -x "$ROOT/tools/check-docs-consistency.py" ]; then
+    echo "Checking docs consistency (support-matrix ↔ capabilities)..."
+    if ! python3 "$ROOT/tools/check-docs-consistency.py"; then
+        ERRORS=$((ERRORS + 1))
+    fi
+fi
+
+# ── Status ladder (warn-mode during phase-in) ─────────────────────────────────
+if [ -x "$ROOT/tools/check_status_ladder.py" ]; then
+    echo "Checking status ladder (usable ⇒ validation evidence)..."
+    if [ "${PULP_STATUS_LADDER_STRICT:-0}" = "1" ]; then
+        python3 "$ROOT/tools/check_status_ladder.py" --mode=report || ERRORS=$((ERRORS + 1))
+    else
+        python3 "$ROOT/tools/check_status_ladder.py" --mode=warn || true
+    fi
+fi
+
 # ── Generated-table drift check (workstream 08 slice 8.3) ─────────────────────
 if [ -x "$ROOT/tools/docs_generate.py" ]; then
     echo "Checking generated-table drift in capabilities.md..."
@@ -210,7 +228,6 @@ if [ -x "$ROOT/tools/docs_generate.py" ]; then
         ERRORS=$((ERRORS + 1))
     fi
 fi
-
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 if [ $ERRORS -gt 0 ]; then
