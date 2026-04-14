@@ -88,6 +88,12 @@ struct GraphNode {
     // audio thread is still referencing a now-stale snapshot.
     std::shared_ptr<PluginSlot> plugin;
 
+    // For Plugin nodes, the identity used to load it. Preserved even when
+    // the slot itself is null (e.g., plugin missing on this machine after a
+    // .pulpgraph load) so subsequent serializations retain the identity for
+    // later re-resolution.
+    PluginInfo plugin_info;
+
     // UI-thread-owned scalar state that needs to survive snapshot
     // recompilation. compile_() copies these into per-snapshot NodeRuntime.
     float gain = 1.0f;

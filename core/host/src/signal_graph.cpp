@@ -47,6 +47,7 @@ NodeId SignalGraph::add_plugin_node(const PluginInfo& info) {
     node.num_input_ports = info.num_inputs;
     node.num_output_ports = info.num_outputs;
     node.plugin = std::shared_ptr<PluginSlot>(PluginSlot::load(info));
+    node.plugin_info = info;  // preserve identity even if load failed
     nodes_.push_back(std::move(node));
     invalidate_live_();
     return nodes_.back().id;
@@ -62,6 +63,13 @@ NodeId SignalGraph::add_plugin_node(std::unique_ptr<PluginSlot> slot,
     node.num_input_ports = num_inputs;
     node.num_output_ports = num_outputs;
     node.plugin = std::shared_ptr<PluginSlot>(std::move(slot));
+    if (node.plugin) {
+        node.plugin_info = node.plugin->info();
+    } else {
+        node.plugin_info.name = name;
+        node.plugin_info.num_inputs = num_inputs;
+        node.plugin_info.num_outputs = num_outputs;
+    }
     nodes_.push_back(std::move(node));
     invalidate_live_();
     return nodes_.back().id;

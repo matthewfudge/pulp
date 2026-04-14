@@ -135,8 +135,11 @@ std::string GraphSerializer::to_json(
         node_obj.addMember("num_input_ports",  (int64_t)n.num_input_ports);
         node_obj.addMember("num_output_ports", (int64_t)n.num_output_ports);
         node_obj.addMember("gain", (double)n.gain);
-        if (n.type == NodeType::Plugin && n.plugin) {
-            const auto& info = n.plugin->info();
+        if (n.type == NodeType::Plugin) {
+            // Always serialize the plugin identity (from GraphNode::plugin_info),
+            // even when the slot itself failed to load on this machine. State
+            // blob is omitted for unresolved plugins.
+            const auto& info = n.plugin_info;
             auto plug_obj = choc::value::createObject("Plugin");
             plug_obj.addMember("format",       std::string(format_str(info.format)));
             plug_obj.addMember("unique_id",    info.unique_id);
@@ -144,7 +147,9 @@ std::string GraphSerializer::to_json(
             plug_obj.addMember("manufacturer", info.manufacturer);
             plug_obj.addMember("version",      info.version);
             plug_obj.addMember("last_path",    info.path);
-            plug_obj.addMember("state_b64",    b64_encode(n.plugin->save_state()));
+            if (n.plugin) {
+                plug_obj.addMember("state_b64", b64_encode(n.plugin->save_state()));
+            }
             node_obj.addMember("plugin", plug_obj);
         }
         auto layout_it = editor_layout.find(n.id);
@@ -198,6 +203,11 @@ GraphSerializer::LoadResult GraphSerializer::from_json(SignalGraph& graph, const
         result.error = "root is not an object";
         return result;
     }
+
+    // From here on, choc field accessors (getInt64 / getString / etc.) throw
+    // on type mismatch. Wrap the deserialization body so a malformed
+    // .pulpgraph leaves the graph in its cleared state with a clear error.
+    try {
 
     // Pass 1: instantiate every node, build old-id → new-id map.
     std::unordered_map<NodeId, NodeId> id_map;
@@ -301,6 +311,13 @@ GraphSerializer::LoadResult GraphSerializer::from_json(SignalGraph& graph, const
                 graph.connect(src, sp, dst, dp);
             }
         }
+    }
+
+    } catch (const std::exception& e) {
+        graph.clear();
+        result.ok = false;
+        result.error = std::string("field deserialization failed: ") + e.what();
+        return result;
     }
 
     result.ok = true;
