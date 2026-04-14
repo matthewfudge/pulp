@@ -21,14 +21,14 @@ TEST_CASE("ATK role IDs match documented AtkRole values",
           "[a11y][atk]") {
     // Locking the magic numbers against atk/atk.h so refactors can't
     // silently drift. Values: AtkRole enum in atk/atk.h.
-    REQUIRE(kRoleUnknown      == 0);
     REQUIRE(kRoleImage        == 21);
     REQUIRE(kRoleLabel        == 24);
     REQUIRE(kRolePushButton   == 29);
     REQUIRE(kRoleProgressBar  == 33);
-    REQUIRE(kRoleSlider       == 34);
     REQUIRE(kRolePanel        == 35);
-    REQUIRE(kRoleToggleButton == 42);
+    REQUIRE(kRoleSlider       == 50);
+    REQUIRE(kRoleToggleButton == 61);
+    REQUIRE(kRoleUnknown      == 66);
 }
 
 TEST_CASE("every role advertises AtkComponent", "[a11y][atk]") {

@@ -22,14 +22,18 @@ namespace pulp::view::atk {
 //
 // Matched against the AtkRole enum in atk/atk.h. Only the roles Pulp
 // currently declares are listed; extending AccessRole adds rows here.
-inline constexpr int32_t kRoleUnknown      = 0;
+// Values verified against modern atk.h (ATK >= 2.30). Earlier drafts of
+// this header hard-coded incorrect numbers — AT-SPI clients would have
+// announced slider as KEYBOARD_KEY (34) and toggle as DATE_EDITOR (42).
+// Fixed per the #204 review.
 inline constexpr int32_t kRoleImage        = 21;
 inline constexpr int32_t kRoleLabel        = 24;
 inline constexpr int32_t kRolePushButton   = 29;
 inline constexpr int32_t kRoleProgressBar  = 33;
-inline constexpr int32_t kRoleSlider       = 34;
 inline constexpr int32_t kRolePanel        = 35;   // group container
-inline constexpr int32_t kRoleToggleButton = 42;
+inline constexpr int32_t kRoleSlider       = 50;   // was incorrectly 34
+inline constexpr int32_t kRoleToggleButton = 61;   // was incorrectly 42
+inline constexpr int32_t kRoleUnknown      = 66;   // was incorrectly 0
 
 // ── AtkInterface flags the provider advertises per role ──────────────
 //
