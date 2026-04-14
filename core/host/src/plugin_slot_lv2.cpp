@@ -41,7 +41,13 @@ namespace fs = std::filesystem;
 struct PortRole {
     int index = -1;
     bool is_audio = false;
+    bool is_control = false;
     bool is_input = false;
+    // Control-port metadata (only meaningful when is_control == true).
+    std::string name;
+    float min_value = 0.0f;
+    float max_value = 1.0f;
+    float default_value = 0.0f;
 };
 
 // Scan every .ttl file in the bundle, concatenate content, and extract audio
@@ -70,20 +76,32 @@ std::vector<PortRole> discover_audio_ports(const std::string& bundle_dir) {
     auto begin = std::sregex_iterator(all.begin(), all.end(), stanza);
     auto end = std::sregex_iterator();
     std::regex audio_re(R"(lv2:AudioPort)");
+    std::regex control_re(R"(lv2:ControlPort)");
     std::regex in_re(R"(lv2:InputPort)");
-    std::regex out_re(R"(lv2:OutputPort)");
     std::regex idx_re(R"(lv2:index\s+(\d+))");
+    std::regex name_re(R"X(lv2:name\s+"([^"]+)")X");
+    std::regex def_re(R"(lv2:default\s+([-0-9.eE]+))");
+    std::regex min_re(R"(lv2:minimum\s+([-0-9.eE]+))");
+    std::regex max_re(R"(lv2:maximum\s+([-0-9.eE]+))");
     for (auto it = begin; it != end; ++it) {
         const std::string& body = it->str(1);
-        if (!std::regex_search(body, audio_re)) continue;
+        const bool is_audio = std::regex_search(body, audio_re);
+        const bool is_control = std::regex_search(body, control_re);
+        if (!is_audio && !is_control) continue;
         std::smatch idx_m;
         if (!std::regex_search(body, idx_m, idx_re)) continue;
         PortRole role;
         role.index = std::stoi(idx_m[1]);
-        role.is_audio = true;
-        role.is_input = std::regex_search(body, in_re);
-        // Note: a port can be both lv2:InputPort and lv2:OutputPort in TTL
-        // only in pathological cases; otherwise treat !input as output.
+        role.is_audio   = is_audio;
+        role.is_control = is_control;
+        role.is_input   = std::regex_search(body, in_re);
+        if (is_control) {
+            std::smatch m;
+            if (std::regex_search(body, m, name_re)) role.name = m[1];
+            if (std::regex_search(body, m, def_re))  role.default_value = std::stof(m[1]);
+            if (std::regex_search(body, m, min_re))  role.min_value = std::stof(m[1]);
+            if (std::regex_search(body, m, max_re))  role.max_value = std::stof(m[1]);
+        }
         out.push_back(role);
     }
     return out;
@@ -111,6 +129,29 @@ public:
         for (auto& r : port_roles_) {
             if (r.is_audio && r.is_input) num_audio_inputs_++;
             else if (r.is_audio && !r.is_input) num_audio_outputs_++;
+        }
+        // Allocate one float of scratch per control port, indexed by
+        // port_index. The plugin gets connect_port'd to these floats and
+        // reads them at run() time.
+        int max_port_idx = -1;
+        for (auto& r : port_roles_) max_port_idx = std::max(max_port_idx, r.index);
+        control_values_.assign((size_t)std::max(0, max_port_idx + 1), 0.0f);
+        for (auto& r : port_roles_) {
+            if (!r.is_control) continue;
+            control_values_[(size_t)r.index] = r.default_value;
+            if (r.is_input) {
+                HostParamInfo h;
+                h.id            = (uint32_t)r.index;
+                h.name          = r.name;
+                h.min_value     = r.min_value;
+                h.max_value     = r.max_value;
+                h.default_value = r.default_value;
+                h.flags.automatable = true;
+                h.flags.read_only   = false;
+                h.flags.rampable    = true;
+                h.flags.modulatable = false;
+                params_.push_back(std::move(h));
+            }
         }
     }
 
@@ -156,7 +197,7 @@ public:
                  const audio::BufferView<const float>& input,
                  const midi::MidiBuffer&,
                  midi::MidiBuffer&,
-                 const ParameterEventQueue& /*param_events*/,
+                 const ParameterEventQueue& param_events,
                  int num_samples) override {
         if (!instance_ || !active_ || bypassed_.load(std::memory_order_relaxed)) {
             for (size_t c = 0; c < output.num_channels(); ++c) {
@@ -168,6 +209,27 @@ public:
                 }
             }
             return;
+        }
+
+        // Apply any host-driven parameter events for this block. LV2
+        // control ports are sample-accurate at block start (the float at
+        // the connected pointer is sampled when run() begins). Multiple
+        // events on the same param: last one wins (matches the
+        // two-point linear convention from connect_automation, which
+        // sends offset-0 + offset-(N-1); the offset-(N-1) value becomes
+        // the value the plugin sees for THIS block, while the offset-0
+        // value is what the plugin would have seen on the previous block.
+        // For block-rate accuracy this is the correct behavior.).
+        for (const auto& pe : param_events) {
+            if ((size_t)pe.param_id < control_values_.size()) {
+                control_values_[(size_t)pe.param_id] = pe.value;
+            }
+        }
+        // Connect every control port (input + output) to our scratch.
+        for (auto& r : port_roles_) {
+            if (!r.is_control) continue;
+            desc_->connect_port(instance_, (uint32_t)r.index,
+                                &control_values_[(size_t)r.index]);
         }
 
         // Stage inputs into our scratch buffer so we can connect_port with a
@@ -208,9 +270,15 @@ public:
         }
     }
 
-    std::vector<HostParamInfo> parameters() const override { return {}; }
-    float get_parameter(uint32_t) const override { return 0.f; }
-    void set_parameter(uint32_t, float) override {}
+    std::vector<HostParamInfo> parameters() const override { return params_; }
+    float get_parameter(uint32_t id) const override {
+        if ((size_t)id >= control_values_.size()) return 0.f;
+        return control_values_[(size_t)id];
+    }
+    void set_parameter(uint32_t id, float plain_value) override {
+        if ((size_t)id >= control_values_.size()) return;
+        control_values_[(size_t)id] = plain_value;
+    }
 
     void set_bypass(bool b) override { bypassed_.store(b, std::memory_order_relaxed); }
     bool is_bypassed() const override { return bypassed_.load(std::memory_order_relaxed); }
@@ -236,6 +304,11 @@ private:
     int max_block_size_ = 0;
     std::vector<float> scratch_in_;
     std::vector<float> scratch_out_;
+    // Control-port scratch: one float per port index; connect_port'd at
+    // process() time so the plugin reads the current value at the start
+    // of run(). Indices that aren't control ports remain zero.
+    std::vector<float> control_values_;
+    std::vector<HostParamInfo> params_;
     std::atomic<bool> bypassed_{false};
     bool active_ = false;
 };
