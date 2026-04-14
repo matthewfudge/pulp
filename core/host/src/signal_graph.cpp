@@ -148,6 +148,12 @@ bool SignalGraph::connect_automation(NodeId src, PortIndex src_audio_port,
     if (dst_n->type != NodeType::Plugin || !dst_n->plugin) return false;
     if ((int)src_audio_port >= src_n->num_output_ports) return false;
 
+    // Reject automation edges that would introduce a cycle. Automation
+    // edges contribute to topological order (the source must be processed
+    // before the dest), so a back-edge here would make the graph
+    // un-orderable. Use the same has_path check as connect().
+    if (would_create_cycle(src, dest)) return false;
+
     // Parameter must exist, be automatable, and not read-only.
     bool ok_param = false;
     for (const auto& pi : dst_n->plugin->parameters()) {
@@ -428,7 +434,10 @@ void SignalGraph::process(audio::BufferView<float>& output,
                           const audio::BufferView<const float>& input,
                           int num_samples) {
     auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
-    if (!cg || num_samples <= 0 || num_samples > cg->max_block_size) {
+    // Negative or zero block sizes mean "nothing to do" — return without
+    // touching output (a memset with size_t(negative) wraps to a huge size).
+    if (num_samples <= 0) return;
+    if (!cg || num_samples > cg->max_block_size) {
         for (std::size_t c = 0; c < output.num_channels(); ++c)
             std::memset(output.channel_ptr(c), 0,
                         sizeof(float) * static_cast<size_t>(num_samples));
@@ -629,6 +638,16 @@ void SignalGraph::process(audio::BufferView<float>& output,
         const float* src = src_rt.output_ptrs[sport];
         std::memcpy(dl.feedback_prev.data(), src,
                     sizeof(float) * static_cast<size_t>(num_samples));
+    }
+
+    // Drain MidiInput nodes' midi_out so events injected for THIS block
+    // don't get re-consumed next block. inject_midi() runs before the
+    // next process() call to refill them.
+    for (auto& [nid, rt] : cg->runtime) {
+        auto sit = cg->shapes.find(nid);
+        if (sit != cg->shapes.end() && sit->second.type == NodeType::MidiInput) {
+            rt.midi_out.clear();
+        }
     }
 }
 

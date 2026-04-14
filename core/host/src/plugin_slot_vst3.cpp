@@ -99,11 +99,21 @@ public:
 
     ~Vst3Slot() override {
         release();
-        if (controller_) {
+        // Combined plugins implement IComponent + IEditController on the
+        // same object — terminating both pointers would call IPluginBase
+        // ::terminate() twice. Detect by raw-pointer equality on the
+        // FUnknown side and only terminate once.
+        const bool combined = (controller_ != nullptr
+            && static_cast<FUnknown*>(controller_) == static_cast<FUnknown*>(component_));
+        if (controller_ && !combined) {
             controller_->terminate();
             controller_->release();
-            controller_ = nullptr;
+        } else if (controller_) {
+            // Combined: just drop the extra reference; component branch
+            // handles terminate.
+            controller_->release();
         }
+        controller_ = nullptr;
         if (component_) {
             component_->terminate();
             component_->release();
