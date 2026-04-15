@@ -477,12 +477,12 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake")
 include(PulpUtils)
 
 # ── CLI Tool (desktop only) ────────────────────────────────────────────────
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     add_subdirectory(tools/cli)
 endif()
 
 # ── MCP Server (desktop only) ─────────────────────────────────────────────
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     add_subdirectory(tools/mcp)
 endif()
 

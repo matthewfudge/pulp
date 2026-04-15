@@ -15,7 +15,7 @@ target_sources(pulp-platform PRIVATE
 )
 
 # Platform-specific UI services and child process
-if(APPLE)
+if(APPLE AND NOT IOS)
     target_sources(pulp-platform PRIVATE
         platform/mac/clipboard_mac.mm
         platform/mac/file_dialog_mac.mm
@@ -24,6 +24,12 @@ if(APPLE)
     )
     target_link_libraries(pulp-platform PRIVATE
         "-framework Cocoa"
+        "-framework UniformTypeIdentifiers"
+    )
+elseif(IOS)
+    # iOS: no Cocoa, no child_process (sandboxed). Use stubs only.
+    target_link_libraries(pulp-platform PRIVATE
+        "-framework UIKit"
         "-framework UniformTypeIdentifiers"
     )
 elseif(WIN32)

@@ -107,7 +107,7 @@
     if (!self.rootView) return;
     for (UITouch *touch in touches) {
         auto me = [self mouseEventFromTouch:touch isDown:YES];
-        self.rootView->on_mouse_down(me);
+        self.rootView->on_mouse_down(me.position);
     }
 }
 
@@ -115,7 +115,7 @@
     if (!self.rootView) return;
     for (UITouch *touch in touches) {
         auto me = [self mouseEventFromTouch:touch isDown:YES];
-        self.rootView->on_mouse_drag(me);
+        self.rootView->on_mouse_drag(me.position);
     }
 }
 
@@ -123,7 +123,7 @@
     if (!self.rootView) return;
     for (UITouch *touch in touches) {
         auto me = [self mouseEventFromTouch:touch isDown:NO];
-        self.rootView->on_mouse_up(me);
+        self.rootView->on_mouse_up(me.position);
         [self removeTouchId:touch];
     }
 }
@@ -133,7 +133,7 @@
     for (UITouch *touch in touches) {
         auto me = [self mouseEventFromTouch:touch isDown:NO];
         me.is_cancelled = true;
-        self.rootView->on_mouse_up(me);
+        self.rootView->on_mouse_up(me.position);
         [self removeTouchId:touch];
     }
 }

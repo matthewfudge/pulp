@@ -29,7 +29,7 @@ target_link_libraries(pulp-format
         pulp::view
         pulp::runtime
 )
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     # Inspector is desktop-only; it's defined later in the CMake order,
     # so we link by name rather than using if(TARGET ...).
     target_link_libraries(pulp-format PUBLIC pulp::inspect)
