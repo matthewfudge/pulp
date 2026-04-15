@@ -489,6 +489,11 @@ endif()
 # ── Screenshot Tool ────────────────────────────────────────────────────────
 add_subdirectory(tools/screenshot)
 
+# ── Out-of-process plugin scan worker (workstream 03 slice 3.3b) ──────────
+if(NOT IOS AND NOT ANDROID)
+    add_subdirectory(tools/scan-worker)
+endif()
+
 # ── Design Tool ───────────────────────────────────────────────────────────
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/design/CMakeLists.txt)
     add_subdirectory(tools/design)
