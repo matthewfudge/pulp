@@ -2,8 +2,12 @@
 #include <pulp/platform/child_process.hpp>
 
 #ifdef __APPLE__
+#include <TargetConditionals.h>
+#if !(TARGET_OS_IPHONE || TARGET_OS_TV || TARGET_OS_WATCH)
 #include <CoreAudio/CoreAudio.h>
 #include <AudioToolbox/AudioToolbox.h>
+#define PULP_HAS_COREAUDIO_DEVICE 1
+#endif
 #endif
 
 #ifdef _WIN32
@@ -21,7 +25,7 @@
 
 namespace pulp::audio {
 
-#ifdef __APPLE__
+#ifdef PULP_HAS_COREAUDIO_DEVICE
 
 static AudioDeviceID get_default_output_device() {
     AudioDeviceID device = kAudioObjectUnknown;
