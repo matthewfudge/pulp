@@ -63,3 +63,13 @@ TEST_CASE("kClapAraFactoryExtension id matches Celemony convention", "[ara]") {
     // hosts match on it exactly.
     REQUIRE(std::string(kClapAraFactoryExtension) == "com.celemony.ara/clap-factory-v1");
 }
+
+TEST_CASE("VST3 ARA factory context key is stable", "[ara][vst3]") {
+    REQUIRE(std::string(kVst3AraFactoryContextKey) == "com.celemony.ara/vst3-host-factory-v1");
+}
+
+TEST_CASE("AU ARA factory property key matches Apple convention", "[ara][au]") {
+    // Apple docs: AUAudioUnit.audioUnitARAFactory is the standard
+    // property name that ARA-aware AU hosts observe.
+    REQUIRE(std::string(kAuAraFactoryPropertyKey) == "audioUnitARAFactory");
+}
