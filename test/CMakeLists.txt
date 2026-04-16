@@ -385,6 +385,11 @@ add_executable(pulp-test-clipboard test_clipboard.cpp)
 target_link_libraries(pulp-test-clipboard PRIVATE pulp::platform Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-clipboard)
 
+# FileDialog backend-registration tests (#301)
+add_executable(pulp-test-file-dialog test_file_dialog.cpp)
+target_link_libraries(pulp-test-file-dialog PRIVATE pulp::platform Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-file-dialog)
+
 # Platform tests
 add_executable(pulp-test-platform test_platform.cpp)
 target_link_libraries(pulp-test-platform PRIVATE pulp::platform Catch2::Catch2WithMain)
