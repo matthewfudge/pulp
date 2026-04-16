@@ -3,6 +3,7 @@
 // Each format has platform-specific default paths.
 
 #include <pulp/host/scanner.hpp>
+#include <pulp/host/scan_blacklist.hpp>
 #include <pulp/runtime/log.hpp>
 #include <pulp/runtime/system.hpp>
 #include <filesystem>
@@ -173,6 +174,18 @@ std::vector<PluginInfo> PluginScanner::scan(const ScanOptions& options) {
                 options.on_progress(dir, scanned++, total_dirs);
             }
             auto found = scan_directory(dir, fmt);
+            // Workstream 03 #246: drop blacklisted bundles before
+            // the result reaches the caller. `pulp-scan-worker`
+            // populates the blacklist when a prior scan crashed on
+            // a bundle; we never re-scan that bundle until the user
+            // explicitly clears its entry.
+            if (options.blacklist) {
+                found.erase(std::remove_if(found.begin(), found.end(),
+                    [&](const PluginInfo& info) {
+                        return options.blacklist->is_blacklisted(info.path);
+                    }),
+                    found.end());
+            }
             all.insert(all.end(), found.begin(), found.end());
         }
     };

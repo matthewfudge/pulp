@@ -78,6 +78,14 @@ struct ScanOptions {
     // Callback for progress reporting during scan
     using ProgressCallback = std::function<void(const std::string& current_path, int scanned, int total)>;
     ProgressCallback on_progress;
+
+    // Workstream 03 slice 3.3b (issue #246): optional blacklist of
+    // bundle paths the scanner should skip. Populated by a prior
+    // crash (recorded by the out-of-process pulp-scan-worker). When
+    // non-null, scan() short-circuits any bundle whose path
+    // ScanBlacklist::is_blacklisted reports true and pushes nothing
+    // into the result for it. Caller-owned; must outlive scan().
+    class ScanBlacklist* blacklist = nullptr;
 };
 
 // ── Plugin Scanner ──────────────────────────────────────────────────────
