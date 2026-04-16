@@ -205,7 +205,7 @@ worker->on_message = [](std::string_view result) { update_list(result); };
 | Action Broadcaster | `async_updater.hpp` | `broadcaster.send_action("file_open")` to all listeners |
 | Async Updater | `async_updater.hpp` | Coalesce rapid cross-thread triggers into one callback |
 | Event Loop | `event_loop.hpp` | `EventLoop loop; loop.dispatch([]{...}); loop.dispatch_after(100ms, []{...})` |
-| Service Discovery | `volume_detector.hpp` | mDNS/Bonjour browsing for networked audio devices |
+| Service Discovery | `volume_detector.hpp` | mDNS/Bonjour API surface (experimental — requires host-supplied backend via `install_backend`; no built-in backend yet, see #302) |
 | Timer | `timer.hpp` | `Timer t; t.start(100ms, []{...})` — periodic or one-shot |
 | Volume Detector | `volume_detector.hpp` | Poll for USB drive mount/unmount events |
 
