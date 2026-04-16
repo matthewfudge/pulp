@@ -378,11 +378,12 @@ struct AUBridge {
             bridge->processor->set_sidechain(nullptr);
         }
 
-        // MIDI events. Pulp's MidiEvent is a choc::midi::ShortMessage
-        // (1–3 bytes); AU can also deliver longer messages (sysex, UMP)
-        // via AURenderEventMIDIEventList — we skip those here so a
-        // malformed ShortMessage is never constructed from truncated
-        // bytes. Workstream 01 slice 1.4.
+        // MIDI events. Short messages arrive as AURenderEventMIDI;
+        // sysex (and long MIDI 2.0 UMP groups from AU v3.1+) arrive
+        // as AURenderEventMIDIEventList. Workstream 01 #288 completes
+        // the sysex triad — CLAP half #269, VST3 half #274, AU half
+        // here — by routing long packets into MidiBuffer's variable-
+        // length sysex sidecar (#231).
         pulp::midi::MidiBuffer midi_in, midi_out;
         const AURenderEvent* event = realtimeEventListHead;
         while (event) {
@@ -399,6 +400,120 @@ struct AUBridge {
                     me.sample_offset =
                         static_cast<int32_t>(event->head.eventSampleTime);
                     midi_in.add(me);
+                }
+            } else if (event->head.eventType == AURenderEventMIDIEventList) {
+                // AUMIDIEventList delivers UMP-encoded events. For
+                // sysex the UMP type-3 (7-bit Data Messages) stream
+                // carries the F0..F7 payload spread across 8-byte
+                // (2-word) packets. Each word's top nibble identifies
+                // the UMP message type; nibble 0x3 = sysex7.
+                //
+                // Each sysex7 UMP also carries a 4-bit status in
+                // bits 20-23 of word 0:
+                //   0x0 = complete (single-packet sysex)
+                //   0x1 = start
+                //   0x2 = continue
+                //   0x3 = end
+                //
+                // We accumulate start→continue→end spans into one
+                // payload and emit a single add_sysex per logical
+                // sysex message (#292 P2 — preserve boundaries).
+                //
+                // Each type-3 message is 2 UMP words, so the cursor
+                // must advance by 2 per message — not 1 — otherwise
+                // the second word's payload nibble can masquerade as
+                // a new message header (#292 P1 — advance by size).
+                const auto& elist = event->MIDIEventsList;
+                const MIDIEventList* packets = &elist.eventList;
+                if (packets) {
+                    std::vector<uint8_t> payload;
+                    bool in_progress = false;
+                    const MIDIEventPacket* pkt = &packets->packet[0];
+
+                    auto extract_bytes = [&](uint32_t w0, uint32_t w1,
+                                             uint32_t size, std::vector<uint8_t>& out) {
+                        const uint8_t buf[6] = {
+                            static_cast<uint8_t>((w0 >>  8) & 0xFF),
+                            static_cast<uint8_t>((w0 >>  0) & 0xFF),
+                            static_cast<uint8_t>((w1 >> 24) & 0xFF),
+                            static_cast<uint8_t>((w1 >> 16) & 0xFF),
+                            static_cast<uint8_t>((w1 >>  8) & 0xFF),
+                            static_cast<uint8_t>((w1 >>  0) & 0xFF),
+                        };
+                        for (uint32_t e = 0; e < size && e < 6; ++e)
+                            out.push_back(buf[e]);
+                    };
+
+                    for (UInt32 i = 0; i < packets->numPackets; ++i) {
+                        UInt32 w = 0;
+                        while (w < pkt->wordCount) {
+                            const uint32_t word0 = pkt->words[w];
+                            const uint8_t mt = (word0 >> 28) & 0x0F;
+
+                            // UMP message word length by type. Types
+                            // not listed default to 1 so we still
+                            // advance past unknown messages safely.
+                            UInt32 ump_words = 1;
+                            switch (mt) {
+                                case 0x0: case 0x1: case 0x2:
+                                    ump_words = 1; break;
+                                case 0x3: case 0x4:
+                                case 0x8: case 0x9: case 0xA:
+                                    ump_words = 2; break;
+                                case 0xB: case 0xC:
+                                    ump_words = 3; break;
+                                case 0x5: case 0xD: case 0xE:
+                                    ump_words = 4; break;
+                                default:
+                                    ump_words = 1; break;
+                            }
+                            if (w + ump_words > pkt->wordCount) break;
+
+                            if (mt == 0x3) {
+                                const uint8_t status = (word0 >> 20) & 0x0F;
+                                const uint32_t size   = (word0 >> 16) & 0x0F;
+                                const uint32_t word1 = pkt->words[w + 1];
+
+                                if (status == 0x0) {
+                                    // Complete single-packet sysex
+                                    std::vector<uint8_t> p;
+                                    extract_bytes(word0, word1, size, p);
+                                    if (!p.empty()) {
+                                        midi_in.add_sysex(std::move(p),
+                                            static_cast<int32_t>(event->head.eventSampleTime),
+                                            0.0);
+                                    }
+                                } else if (status == 0x1) {
+                                    // Start — reset accumulator
+                                    payload.clear();
+                                    extract_bytes(word0, word1, size, payload);
+                                    in_progress = true;
+                                } else if (status == 0x2 && in_progress) {
+                                    extract_bytes(word0, word1, size, payload);
+                                } else if (status == 0x3 && in_progress) {
+                                    extract_bytes(word0, word1, size, payload);
+                                    if (!payload.empty()) {
+                                        midi_in.add_sysex(std::move(payload),
+                                            static_cast<int32_t>(event->head.eventSampleTime),
+                                            0.0);
+                                    }
+                                    payload.clear();
+                                    in_progress = false;
+                                }
+                                // status 0x2/0x3 without in_progress
+                                // arriving first means we missed a
+                                // start; drop silently — corrupting
+                                // the Processor's view is worse than
+                                // dropping one malformed sysex.
+                            }
+
+                            w += ump_words;
+                        }
+                        pkt = reinterpret_cast<const MIDIEventPacket*>(
+                            reinterpret_cast<const uint8_t*>(pkt) +
+                            sizeof(MIDIEventPacket) +
+                            (pkt->wordCount > 0 ? (pkt->wordCount - 1) * sizeof(UInt32) : 0));
+                    }
                 }
             }
             event = event->head.next;
