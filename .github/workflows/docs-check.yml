@@ -1,9 +1,25 @@
 name: Docs Consistency
 
 on:
-  # Uncomment to re-enable cloud CI on pull requests:
-  # pull_request:
-  #   branches: [main, develop]
+  # Issues #273 + #289: run on every PR so doc drift is caught before
+  # merge. The CLAUDE.md "Docs Maintenance Rule" already required this
+  # policy locally; turn it into a CI gate.
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'core/**'
+      - 'examples/**'
+      - 'tools/cli/**'
+      - 'tools/check-docs.sh'
+      - 'tools/check_status_ladder.py'
+      - 'tools/scripts/docs_*.py'
+      - 'docs/**'
+      - 'VISION.md'
+      - 'README.md'
+      - 'DEPENDENCIES.md'
+      - 'NOTICE.md'
+      - 'CHANGELOG.md'
+      - '.github/workflows/docs-check.yml'
   workflow_dispatch:
     inputs:
       runner_provider:
