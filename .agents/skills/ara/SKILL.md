@@ -1,5 +1,6 @@
 ---
 name: ara
+description: Optional ARA support for Pulp, including developer-supplied ARA SDK setup, CMake enablement, adapter companion APIs, validation, and ARA-aware plugin implementation guidance.
 requires:
   scripts:
     - tools/deps/audit.py

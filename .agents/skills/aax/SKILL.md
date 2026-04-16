@@ -1,5 +1,6 @@
 ---
 name: aax
+description: Optional AAX support for Pulp, including developer-supplied Avid SDK setup, CMake enablement, DigiShell/AAX Validator workflows, and local AAX builds on macOS or Windows.
 requires:
   scripts:
     - tools/audit.py
