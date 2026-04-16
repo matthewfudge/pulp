@@ -12,6 +12,7 @@ target_sources(pulp-platform PRIVATE
     src/file_dialog_stub.cpp
     src/popup_menu_stub.cpp
     src/registry.cpp
+    src/clipboard_common.cpp
 )
 
 # Platform-specific UI services and child process

@@ -353,7 +353,7 @@ Key headers: `pulp/events/event_loop.hpp`, `pulp/events/timer.hpp`
 | Capability | Status | Module |
 |---|---|---|
 | OS detection | usable | [platform](modules.md#platform) |
-| Clipboard access | usable | [platform](modules.md#platform) |
+| Clipboard access | partial | [platform](modules.md#platform) |
 | Native file dialogs | partial | [platform](modules.md#platform) |
 | Popup menus | usable | [platform](modules.md#platform) |
 | Native window handle | usable | [platform](modules.md#platform) |
