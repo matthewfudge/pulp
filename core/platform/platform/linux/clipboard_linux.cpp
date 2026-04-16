@@ -112,23 +112,27 @@ std::optional<std::string> Clipboard::get_text() {
     std::lock_guard lock(mutex());
     const auto& tools = resolve_tools();
     if (tools.backend == Backend::none) return std::nullopt;
-    auto result = capture_command(tools.paste_cmd);
-    if (!result) return std::nullopt;
-    // wl-paste / xclip append a trailing newline when the selection
-    // doesn't have one; strip a single trailing '\n' to round-trip
-    // cleanly with set_text().
-    if (!result->empty() && result->back() == '\n') {
-        result->pop_back();
-    }
-    return result;
+    return capture_command(tools.paste_cmd);
+    // #309 Codex P2: do NOT strip a trailing '\n'. xclip/wl-paste
+    // preserve the selection bytes as-is — they don't synthesize a
+    // newline. Content that legitimately ends with '\n' would lose a
+    // byte on round-trip if we stripped. The previous comment in
+    // this function was wrong; preserving the byte stream is the
+    // correct round-trip for set_text/get_text.
 }
 
 bool Clipboard::has_text() {
+    // #309 Codex P2: "text present" must include the empty string,
+    // not treat it as absent. An application that set "" should
+    // observe has_text() == true. Report true iff the paste command
+    // succeeded — the pasted value's length is orthogonal to whether
+    // a text selection exists. On platforms where paste always
+    // succeeds (wl-paste -l / xclip -o return cleanly for empty
+    // selections), this tracks the native clipboard API semantics.
     std::lock_guard lock(mutex());
     const auto& tools = resolve_tools();
     if (tools.backend == Backend::none) return false;
-    auto result = capture_command(tools.paste_cmd);
-    return result.has_value() && !result->empty();
+    return capture_command(tools.paste_cmd).has_value();
 }
 
 bool Clipboard::set_data(const std::string& /*type*/,
