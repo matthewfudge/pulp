@@ -374,6 +374,31 @@ DEPENDENCIES.md and NOTICE.md entries are always sorted **alphabetically by name
 
 If it's not tested, it doesn't work. Every subsystem has tests. Every feature has acceptance criteria. Every phase has a validation plan.
 
+### Tests ship with fixes — NON-NEGOTIABLE
+
+**Every correctness fix, stub fill-in, or feature slice lands in the same PR as the test that covers it. This is not optional. "CI built green" is not a test — it means the compiler agreed, not that the behavior works.**
+
+Applies to:
+
+- **Parsers / state machines** — UMP sysex reassembly, Atom sequence walking, VST3 event queues, ARA callback sequences, any binary-format decoder. Deterministic input vector → expected output, asserted with Catch2.
+- **Threading / lock-free code** — atomic refcounts, SPSC/triple-buffer flush, audio-thread ↔ UI-thread handoff. N-thread hammer test + assert final state. A race-condition bug the CI matrix will not catch.
+- **Stub fill-ins** — the acceptance criterion for "implement stub X" is "round-trip test through X using the real path", not "X now compiles." E.g. wiring CLAP `set_parameter` means a test that calls it and reads `get_parameter` back.
+- **CLI behavior changes** — shell out to the built binary, assert exit code + stderr content. Catches silent-failure bugs like #295 where `--sign-key` wrote empty signatures without error.
+- **Platform-specific backends** — clipboard, file dialogs, screenshot hosts, mDNS. Even if the platform path only runs on one OS, write the test to run on that OS in CI. Cross-platform parity means the test runs on every supported OS too.
+
+What "CI green is enough" cost us on 2026-04-16: a UMP-cursor-advance P1 bug (`#292`), an atomic-refcount P1 bug (`#281`), and a silent-empty-Ed25519-signature P0 bug (`#295`) — all caught by Codex review comments *after* merge because the PRs had no dedicated unit test. A 20-line Catch2 fixture would have caught each of them during PR development.
+
+**The only acceptable "no test in this PR" justification** is: pre-existing historical coverage gap in a subsystem you are not modifying. In that case, file a follow-up issue linked to `#290` and reference it in the commit trailer. Anything else — ship the test.
+
+**Test hygiene:**
+
+- Catch2 tag names cannot contain `#` (reserved). Use `[issue-NNN]` not `[#NNN]`.
+- Place tests next to existing `test/test_<subsystem>.cpp` files where one exists; only create a new file for a genuinely new surface.
+- Tests that need a runtime binary (CLI, validator) can shell out — don't skip them because the infrastructure is "too heavy."
+- Parser tests should exercise the edge cases the fix actually addresses (e.g., the #292 UMP test must include "second word's top nibble is 0x3" specifically, not just happy-path single-packet sysex).
+
+**Subsystems under active coverage hardening** (tracked by `#290`): `platform`, `host`, `format`, `runtime`, `view`, `osc`, `dsl`. When touching any of these, grow the test surface — do not leave the coverage number where you found it.
+
 ### Test Layers
 
 | Layer | What | Tool | When |
