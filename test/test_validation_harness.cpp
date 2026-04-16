@@ -378,6 +378,34 @@ TEST_CASE("ValidationHarness compare_screenshots differing files → fail",
     std::filesystem::remove(b);
 }
 
+// #308 Codex P1: compare_screenshots must NOT throw filesystem_error
+// when a caller passes a directory or other non-regular path. It must
+// return a ValidationStatus::error entry so the harness's report-
+// first behavior is preserved under bad input.
+TEST_CASE("ValidationHarness compare_screenshots directory input → error, not throw",
+          "[harness][phase2][issue-308]") {
+    pulp::format::ValidationHarness harness(create_test_gain);
+    harness.configure({});
+
+    auto dir = std::filesystem::temp_directory_path() / "harness-dir-input";
+    std::filesystem::create_directories(dir);
+    auto file = std::filesystem::temp_directory_path() / "harness-file-input.bin";
+    std::ofstream(file) << "some content";
+
+    // reference is a directory — must error, not throw.
+    auto entry = harness.compare_screenshots(dir, file);
+    REQUIRE(entry.status == pulp::format::ValidationStatus::error);
+    REQUIRE_THAT(entry.error_message, ContainsSubstring("regular file"));
+
+    // rendered is a directory — must error, not throw.
+    entry = harness.compare_screenshots(file, dir);
+    REQUIRE(entry.status == pulp::format::ValidationStatus::error);
+    REQUIRE_THAT(entry.error_message, ContainsSubstring("regular file"));
+
+    std::filesystem::remove_all(dir);
+    std::filesystem::remove(file);
+}
+
 // ── Clear entries ───────────────────────────────────────────────────────────
 
 TEST_CASE("ValidationHarness clear_entries resets accumulator", "[harness][phase2]") {
