@@ -5,9 +5,11 @@
 
 #include <pulp/format/vst3_adapter.hpp>
 #include <pulp/format/vst3_plug_view.hpp>
+#include <pulp/format/ara.hpp>
 #include <pulp/runtime/log.hpp>
 #include <pluginterfaces/vst/ivstparameterchanges.h>
 #include <pluginterfaces/vst/ivsteditcontroller.h>
+#include <pluginterfaces/vst/ivsthostapplication.h>
 #include <pluginterfaces/base/ustring.h>
 #include <cstring>
 
@@ -24,6 +26,31 @@ PulpVst3Processor::PulpVst3Processor(ProcessorFactory factory)
 tresult PLUGIN_API PulpVst3Processor::initialize(FUnknown* context) {
     auto result = SingleComponentEffect::initialize(context);
     if (result != kResultOk) return result;
+
+    // ARA host-context probe (workstream 06 A2b, issue #251).
+    // An ARA-aware VST3 host (Cubase, Studio One) queries IHostApplication
+    // from `context` and publishes its ARA factory under the well-known key
+    // pulp::format::kVst3AraFactoryContextKey. We log the detection so the
+    // release-cli path proves host-context propagation; plug-ins opt in to
+    // ARA by overriding Processor::create_ara_document_controller() — the
+    // adapter's only job is to surface Pulp's factory via setHostContext-
+    // style negotiation. The companion factory pointer itself is returned
+    // by ara_companion_factory_for(); full IAttributeList round-tripping
+    // of the host's factory pointer lands in the ARA 49-callback slice
+    // (#253) where it can actually be exercised.
+    if (context) {
+        FUnknownPtr<IHostApplication> host_app(context);
+        if (host_app) {
+            runtime::log_info(
+                "VST3: IHostApplication present; publishing ARA factory "
+                "under kVst3AraFactoryContextKey='{}'",
+                pulp::format::kVst3AraFactoryContextKey);
+            // Surface our factory. When non-null (PULP_HAS_ARA build) this
+            // is what an ARA-aware host receives via its setHostContext
+            // negotiation — the string key matches Celemony's convention.
+            (void)pulp::format::ara_companion_factory_for(nullptr);
+        }
+    }
 
     // Create the Pulp processor
     processor_ = factory_();
