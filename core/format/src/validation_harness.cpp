@@ -245,8 +245,47 @@ ReportEntry ValidationHarness::compare_screenshots(
     // codec becomes available to the format layer (#298 follow-up).
     // Produces pass/fail — never skip — so callers can't confuse
     // "images differ" with "comparison not available."
-    std::uintmax_t ref_size = std::filesystem::file_size(reference);
-    std::uintmax_t ren_size = std::filesystem::file_size(rendered);
+    // #308 Codex P1: std::filesystem::file_size throws on non-regular
+    // files (e.g. a directory accidentally passed as an argument) and
+    // on some I/O failures. Use the non-throwing overload + is_regular_file
+    // so the harness can always return a report entry with
+    // ValidationStatus::error instead of propagating an exception that
+    // aborts the whole validation run.
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(reference, ec) || ec) {
+        entry.status = ValidationStatus::error;
+        entry.error_message =
+            "Reference path is not a regular file: " + reference.string();
+        entries_.push_back(entry);
+        return entry;
+    }
+    ec.clear();
+    if (!std::filesystem::is_regular_file(rendered, ec) || ec) {
+        entry.status = ValidationStatus::error;
+        entry.error_message =
+            "Rendered path is not a regular file: " + rendered.string();
+        entries_.push_back(entry);
+        return entry;
+    }
+    ec.clear();
+    const std::uintmax_t ref_size = std::filesystem::file_size(reference, ec);
+    if (ec) {
+        entry.status = ValidationStatus::error;
+        entry.error_message =
+            "Failed to stat reference: " + ec.message();
+        entries_.push_back(entry);
+        return entry;
+    }
+    ec.clear();
+    const std::uintmax_t ren_size = std::filesystem::file_size(rendered, ec);
+    if (ec) {
+        entry.status = ValidationStatus::error;
+        entry.error_message =
+            "Failed to stat rendered: " + ec.message();
+        entries_.push_back(entry);
+        return entry;
+    }
+
     double similarity = 0.0;
     bool identical = false;
     if (ref_size == ren_size) {
