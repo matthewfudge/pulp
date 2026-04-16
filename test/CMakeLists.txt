@@ -939,6 +939,11 @@ add_executable(pulp-test-graph-serializer test_graph_serializer.cpp)
 target_link_libraries(pulp-test-graph-serializer PRIVATE pulp::host Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-graph-serializer)
 
+# NetworkServiceDiscovery backend-dispatch tests (#302)
+add_executable(pulp-test-network-service-discovery test_network_service_discovery.cpp)
+target_link_libraries(pulp-test-network-service-discovery PRIVATE pulp::events Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-network-service-discovery)
+
 # WAMv2 + WebCLAP format adapter tests
 add_executable(pulp-test-wam-wclap test_wam_wclap.cpp
     ${CMAKE_SOURCE_DIR}/core/format/src/wasm/wam_adapter.cpp
