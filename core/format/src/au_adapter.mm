@@ -6,6 +6,7 @@
 #import <AVFoundation/AVFoundation.h>
 #include <pulp/format/processor.hpp>
 #include <pulp/format/registry.hpp>
+#include <pulp/format/ara.hpp>
 #include <pulp/runtime/log.hpp>
 #include <memory>
 #include <array>
@@ -67,6 +68,14 @@ struct AUBridge {
 /// bug that the AU v2 path used to hit).
 - (pulp::format::Processor *)pulpProcessor;
 - (pulp::state::StateStore *)pulpStore;
+
+/// ARA companion factory, surfaced under the KVO-standard property
+/// name Apple's ARA-aware AU hosts observe ("audioUnitARAFactory" —
+/// see pulp::format::kAuAraFactoryPropertyKey). Returns an opaque
+/// ARA::ARAFactory* when Pulp was built with PULP_HAS_ARA and the
+/// plug-in's Processor overrode create_ara_document_controller();
+/// otherwise NULL. Issue #252.
+@property (nonatomic, readonly, nullable) void *audioUnitARAFactory;
 
 @end
 
@@ -435,6 +444,15 @@ struct AUBridge {
 
 - (pulp::state::StateStore *)pulpStore {
     return &_bridge.store;
+}
+
+// ARA-aware AU hosts (Logic Pro 11+, etc.) read this property via KVO
+// during scan. Returns an opaque ARA::ARAFactory* when the plug-in
+// participates in ARA; nullptr otherwise. See issue #252 and the
+// A2c ralph slice.
+- (void *)audioUnitARAFactory {
+    return const_cast<void *>(
+        pulp::format::ara_companion_factory_for(nullptr));
 }
 
 @end
