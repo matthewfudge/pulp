@@ -15,6 +15,7 @@
 
 #include <lv2/core/lv2.h>
 #include <lv2/atom/atom.h>
+#include <lv2/atom/util.h>
 #include <lv2/midi/midi.h>
 #include <lv2/urid/urid.h>
 
@@ -85,6 +86,7 @@ inline LV2_Handle instantiate(
     for (const auto& bus : desc.output_buses) {
         inst->num_audio_outputs += bus.default_channels;
     }
+    inst->accepts_midi = desc.accepts_midi;
 
     // Prepare the processor
     format::PrepareContext ctx;
@@ -101,6 +103,9 @@ inline void connect_port(LV2_Handle handle, uint32_t port, void* data) {
     int audio_in_end = inst->num_audio_inputs;
     int audio_out_end = audio_in_end + inst->num_audio_outputs;
     int control_end = audio_out_end + inst->num_params;
+    // MIDI atom ports follow control ports. A plug-in with accepts_midi
+    // gets one atom input port at index control_end. Workstream 01 #241.
+    int atom_in_end = control_end + (inst->accepts_midi ? 1 : 0);
 
     int idx = static_cast<int>(port);
 
@@ -110,8 +115,10 @@ inline void connect_port(LV2_Handle handle, uint32_t port, void* data) {
         inst->audio_out_ports[idx - audio_in_end] = static_cast<float*>(data);
     } else if (idx < control_end) {
         inst->control_in_ports[idx - audio_out_end] = static_cast<float*>(data);
+    } else if (idx < atom_in_end) {
+        // LV2 atom input port — host hands us an LV2_Atom_Sequence buffer.
+        inst->midi_in_atom = data;
     }
-    // MIDI atom ports would follow control ports
 }
 
 inline void activate(LV2_Handle) {
@@ -146,8 +153,30 @@ inline void run(LV2_Handle handle, uint32_t n_samples) {
     audio::BufferView<float> output(out_ptrs,
         static_cast<size_t>(inst->num_audio_outputs), n_samples);
 
-    // MIDI (TODO: parse LV2 atom sequences when MIDI ports are connected)
+    // MIDI: parse the connected LV2_Atom_Sequence (if any) and promote
+    // each MidiEvent into the Processor's MidiBuffer. Sysex atoms are
+    // currently ignored here; the CLAP/VST3/AU sysex sidecar wiring in
+    // issue #239 is the in-progress path for variable-length events.
     midi::MidiBuffer midi_in, midi_out;
+    if (inst->midi_in_atom && inst->urid_atom_sequence && inst->urid_midi_event) {
+        const auto* seq = static_cast<const LV2_Atom_Sequence*>(inst->midi_in_atom);
+        if (seq->atom.type == inst->urid_atom_sequence) {
+            LV2_ATOM_SEQUENCE_FOREACH(seq, ev) {
+                if (ev->body.type != inst->urid_midi_event) continue;
+                const auto* data = reinterpret_cast<const uint8_t*>(ev + 1);
+                const uint32_t size = ev->body.size;
+                if (size >= 1 && size <= 3 && (data[0] & 0x80)) {
+                    midi::MidiEvent me;
+                    me.message = choc::midi::ShortMessage(
+                        data[0],
+                        size > 1 ? data[1] : uint8_t{0},
+                        size > 2 ? data[2] : uint8_t{0});
+                    me.sample_offset = static_cast<int32_t>(ev->time.frames);
+                    midi_in.add(me);
+                }
+            }
+        }
+    }
 
     format::ProcessContext proc_ctx;
     proc_ctx.sample_rate = inst->sample_rate;

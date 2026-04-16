@@ -51,6 +51,14 @@ struct PulpLv2Instance {
     LV2_URID urid_midi_event = 0;      // LV2_MIDI__MidiEvent
     LV2_URID urid_atom_sequence = 0;   // LV2_ATOM__Sequence
     LV2_URID urid_atom_chunk = 0;      // LV2_ATOM__Chunk
+
+    // Workstream 01 #241: atom-port MIDI. When the plug-in declares
+    // accepts_midi, the host connects an LV2_Atom_Sequence buffer to
+    // the port after the control ports. run() iterates it, extracts
+    // MIDI events whose atom `type` field is urid_midi_event, and
+    // feeds them to the Processor.
+    bool accepts_midi = false;
+    void* midi_in_atom = nullptr;
 };
 
 /// Resolve LV2_URID_Map from a features array.
