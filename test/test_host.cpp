@@ -4,8 +4,11 @@
 #include <pulp/host/plugin_slot.hpp>
 #include <pulp/host/signal_graph.hpp>
 #include <atomic>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <thread>
+#include <vector>
 
 using namespace pulp::host;
 using Catch::Matchers::WithinAbs;
@@ -115,6 +118,83 @@ TEST_CASE("ClapSlot::set_parameter round-trip via get_parameter",
         // bogus_id rejected — readback must not reflect 99.0f.
         REQUIRE_THAT(after, WithinAbs(before, 1e-6f));
     }
+}
+
+// #297 regression: VST3 set_parameter must mirror to the controller AND
+// queue an edit for processor delivery in the next block. The processor
+// side requires a live VST3 plugin to exercise, so this test walks the
+// system install folders for any .vst3 plugin and gracefully skips when
+// none exists. The controller-mirror half is observable independently:
+// set → get returns the written value.
+TEST_CASE("VST3 set_parameter → get_parameter controller-mirror round-trip",
+          "[host][slot][vst3][issue-297]") {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> search_roots = {
+#if defined(__APPLE__)
+        fs::path(std::getenv("HOME") ? std::getenv("HOME") : "")
+            / "Library/Audio/Plug-Ins/VST3",
+        "/Library/Audio/Plug-Ins/VST3",
+#elif defined(_WIN32)
+        "C:/Program Files/Common Files/VST3",
+#elif defined(__linux__)
+        fs::path(std::getenv("HOME") ? std::getenv("HOME") : "")
+            / ".vst3",
+        "/usr/lib/vst3",
+#endif
+    };
+
+    fs::path found;
+    for (const auto& root : search_roots) {
+        std::error_code ec;
+        if (!fs::is_directory(root, ec)) continue;
+        for (const auto& ent : fs::directory_iterator(root, ec)) {
+            if (ent.path().extension() == ".vst3") {
+                found = ent.path();
+                break;
+            }
+        }
+        if (!found.empty()) break;
+    }
+
+    if (found.empty()) {
+        SUCCEED("No .vst3 plugin installed on this system — skipping VST3 set_parameter integration");
+        return;
+    }
+
+    PluginInfo info;
+    info.name = found.stem().string();
+    info.path = found.string();
+    info.format = PluginFormat::VST3;
+
+    auto slot = PluginSlot::load(info);
+    if (!slot) {
+        SUCCEED("VST3 slot load returned nullptr — plugin may have rejected the host");
+        return;
+    }
+
+    auto params = slot->parameters();
+    if (params.empty()) {
+        SUCCEED("plugin exposes no parameters — cannot exercise set_parameter");
+        return;
+    }
+
+    const auto& pinfo = params.front();
+    const auto pid = pinfo.id;
+    const float target = (pinfo.min_value + pinfo.max_value) * 0.5f;
+
+    // Read baseline, write, read back — the controller mirror must reflect
+    // the set immediately even though the processor sees it next block.
+    const float before = slot->get_parameter(pid);
+    slot->set_parameter(pid, target);
+    const float after = slot->get_parameter(pid);
+
+    // Normalized round-trip can lose precision; be tolerant.
+    const float tol = std::abs(pinfo.max_value - pinfo.min_value) * 1e-3f;
+    INFO("param=" << pinfo.name << " id=" << pid
+         << " before=" << before << " target=" << target
+         << " after=" << after << " tol=" << tol);
+    REQUIRE_THAT(after, WithinAbs(target, std::max(tol, 1e-4f)));
+    (void)before;
 }
 
 // ── SignalGraph tests ───────────────────────────────────────────────────

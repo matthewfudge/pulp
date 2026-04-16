@@ -31,7 +31,9 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace pulp::host {
@@ -282,6 +284,27 @@ public:
         // in plain domain on our side; VST3 expects normalized [0..1], so
         // we round-trip via controller_->plainParamToNormalized().
         in_param_changes_.clearQueue();
+
+        // #297 drain: pull any host-originated set_parameter edits that
+        // arrived since the previous block. Delivered as time=0 points.
+        // try_lock so the audio thread never blocks on the host side;
+        // if contended, the edit rides to the next process() call and
+        // is not lost (it's still in the map).
+        if (controller_) {
+            std::unique_lock<std::mutex> lock(pending_host_edits_mu_,
+                                              std::try_to_lock);
+            if (lock.owns_lock() && !pending_host_edits_.empty()) {
+                for (const auto& [pid, norm] : pending_host_edits_) {
+                    Steinberg::int32 idx = 0;
+                    auto* q = in_param_changes_.addParameterData(pid, idx);
+                    if (!q) continue;
+                    Steinberg::int32 point = 0;
+                    q->addPoint(0, norm, point);
+                }
+                pending_host_edits_.clear();
+            }
+        }
+
         if (controller_ && !param_events.empty()) {
             for (const auto& pe : param_events) {
                 Steinberg::int32 idx = 0;
@@ -333,15 +356,19 @@ public:
 
     void set_parameter(uint32_t id, float plain_value) override {
         if (!controller_) return;
-        // Plain-domain input, feed normalized to the controller AND queue a
-        // processor-side edit via ParameterEventQueue in the next process()
-        // block. For now the controller mirror suffices for UI; processor
-        // automation is delivered via ParameterEventQueue at process() time.
+        // #297: host-originated edits must reach the processor. Mirror
+        // into the controller (for UI/state reads) AND queue a
+        // normalized point-at-time-0 edit for the next process() block
+        // to deliver via IParameterChanges.
         Vst::ParamValue norm =
             controller_->plainParamToNormalized(id, plain_value);
         controller_->setParamNormalized(id, norm);
-        // Also stash in pending_host_edits_ so the next process() picks it up.
-        pending_host_edits_.push_back({id, norm});
+
+        // Mutex-guarded coalesced map; the audio thread drains via
+        // try_lock so set_parameter never blocks process(). Latest-wins
+        // per param_id so rapid knob drags coalesce.
+        std::lock_guard<std::mutex> lock(pending_host_edits_mu_);
+        pending_host_edits_[id] = norm;
     }
 
     void set_bypass(bool bypassed) override {
@@ -477,8 +504,12 @@ private:
     Vst::IAudioProcessor* processor_ = nullptr;
     Vst::IEditController* controller_ = nullptr;
     std::vector<HostParamInfo> params_;
-    struct PendingEdit { uint32_t id; Vst::ParamValue normalized; };
-    std::vector<PendingEdit> pending_host_edits_;
+    // #297: host set_parameter edits are coalesced by param_id (latest
+    // wins per block) and delivered as time=0 IParameterChanges points
+    // at the start of the next process(). Mutex-guarded, try_lock on
+    // the audio thread for RT-safety.
+    std::mutex pending_host_edits_mu_;
+    std::unordered_map<uint32_t, Vst::ParamValue> pending_host_edits_;
     std::vector<float*> in_ptrs_;
     std::vector<float*> out_ptrs_;
     // Workstream 03 slice 3.5 — pre-allocated event/param buffers so the
