@@ -282,6 +282,20 @@ tresult PLUGIN_API PulpVst3Processor::process(ProcessData& data) {
                         static_cast<uint8_t>(evt.noteOff.velocity * 127.0f));
                     me.sample_offset = evt.sampleOffset;
                     midi_in.add(me);
+                } else if (evt.type == Event::kDataEvent
+                           && evt.data.type == DataEvent::kMidiSysEx) {
+                    // Workstream 01 #239 VST3 half: route kData/kMidiSysEx
+                    // payloads into MidiBuffer's variable-length sidecar.
+                    // VST3 delivers the raw F0..F7 bytes in evt.data.bytes
+                    // with length in evt.data.size.
+                    if (evt.data.bytes && evt.data.size > 0) {
+                        midi_in.add_sysex(
+                            std::vector<uint8_t>(
+                                evt.data.bytes,
+                                evt.data.bytes + evt.data.size),
+                            evt.sampleOffset,
+                            0.0);
+                    }
                 }
             }
         }
