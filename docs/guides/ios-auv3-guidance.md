@@ -55,7 +55,9 @@ examples/ios-auv3-synth/
 └── CMakeLists.txt            # uses pulp_add_ios_auv3()
 ```
 
-`tools/cmake/PulpUtils.cmake` already has the `pulp_add_ios_auv3()` helper (see the `PULP_IOS` blocks). It reads `${PULP_IOS_AUV3_TEMPLATE_DIR}` (defaults to `templates/ios-auv3/`) for the `Info.plist.in`, entitlements, **and a minimal SwiftUI host (`HostApp/ContentView.swift` + `HostApp/PulpHostApp.swift`)** that plug-in authors can copy in to sanity-check the extension loads. The template host instantiates the AUv3 via `AVAudioUnit.instantiate`, lists parameters from the AU's `parameterTree`, and gives you a play/stop toggle — enough to verify the bundle + Info.plist round-trip without a full DAW.
+`tools/cmake/PulpUtils.cmake` provides the `pulp_add_ios_auv3()` helper. Today it builds the `.appex` app-extension target only: a Core OBJECT library from `SOURCES`, plus the AUv3 module that consumes `templates/ios-auv3/Info.plist.in` via `${PULP_IOS_AUV3_TEMPLATE_DIR}` (defaults to `templates/ios-auv3/`).
+
+The App Store container host-app target is authored separately for now. `templates/ios-auv3/HostApp/` ships a minimal SwiftUI host (`ContentView.swift` + `PulpHostApp.swift`) that instantiates the AUv3 via `AVAudioUnit.instantiate`, lists parameters from the AU's `parameterTree`, and gives you a play/stop toggle — copy it into your Xcode project to sanity-check the extension loads without a full DAW. A CMake generator that emits the host-app target automatically is follow-on work.
 
 ---
 
@@ -156,8 +158,8 @@ The `ios` agent skill documents the XcodeBuildMCP preference: when those tools a
 
 | Slice | Status |
 |---|---|
-| 5.1 `examples/ios-auv3-synth/` | 🔴 open — template exists, example not yet scaffolded |
-| 5.4 Metal on-device validation | 🔴 open — headless render test needed |
+| 5.1 `examples/ios-auv3-synth/` | 🟡 partial — `.appex` target builds via `pulp_add_ios_auv3()`; host-app target generation is follow-on |
+| 5.4 Metal on-device validation | 🔴 open — headless render test needed (see #330, #249) |
 | 5.6 this document | ✅ first draft |
 
 Track in `planning/production-readiness/05-auv3-mobile.md` and issue #218.

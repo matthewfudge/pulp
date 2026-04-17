@@ -72,3 +72,7 @@ android/app/.cxx/
 android/app/build/
 external/skia-src/
 external/skia-build/android-gpu/
+
+# External SDKs cloned by setup.sh / FetchContent — never committed.
+external/AudioUnitSDK
+external/vst3sdk
