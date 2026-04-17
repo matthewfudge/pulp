@@ -122,6 +122,40 @@ Gotchas:
   run *before* `pulp pr` if you want to see what the gate will say. Same
   script, `--mode=report`.
 
+## `pulp validate` — plugin-format validators
+
+Runs `clap-validator` / `pluginval` / `auval` / optional AAX validator
+on built plugins in `build/{CLAP,VST3,AU,AAX}`. Lives in
+`tools/cli/cmd_validate.cpp`.
+
+Modes:
+
+- Default — best-effort. Missing validators skip gracefully but emit a
+  loud WARNING at the end listing each missing tool + install hint.
+- `--strict` — CI enforced tier. Any "skipped because tool not
+  installed" upgrades to exit 1. Use in CI gates.
+- `--all` — also run optional `vstvalidator` + full AAX validation.
+- `--json` / `--report <path>` — emit structured report
+  (`validation-report-v1.schema.json`).
+- `--screenshot` — capture plugin editor PNGs under
+  `artifacts/screenshots/`.
+
+Gotchas:
+
+- **Missing-tool skip is NOT a silent pass.** The advisory at the end
+  of the run enumerates absent tools; `--strict` gates CI on it. A
+  green run without all four validators is *not* the same as a run
+  where all four passed — the advisory makes that visible.
+- **Each missing tool is reported once** even across many plugins.
+  The `note_missing` helper de-duplicates by tool name.
+- **Install hints are embedded in the code** — if you add a new
+  format lane, wire `note_missing("<tool>", "<format>", "<hint>")`
+  alongside the `++skipped_missing_tool` bump in the skip branch.
+  Otherwise `--strict` won't know about it.
+- **Exit code still follows `failed > 0` first.** `--strict` only
+  adds "OR any skipped-missing-tool" on top. Genuine validator
+  failures still fail without `--strict`.
+
 ## `pulp upgrade` — self-update
 
 Lives in `tools/cli/cmd_misc.cpp` and calls `pulp::cli::pulp_upgrade_url_for()`
