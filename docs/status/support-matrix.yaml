@@ -122,12 +122,23 @@ audio_io:
   avaudiosession:
     status: experimental
     platform: ios
+    notes: >-
+      AVAudioSession category / interruption / route-change / media-services-reset
+      all observed in Swift and forwarded to native listeners via
+      pulp_ios_audio_session_emit (#329 / PR #374). Runtime validation
+      still waits on iOS on-device smoke (#249).
   wasapi:
     status: experimental
     platform: windows
+    notes: >-
+      Shared-mode playback with IMMNotificationClient hotplug (landed
+      PR #281). Input capture + exclusive-mode paths tracked in #243.
   alsa:
     status: experimental
     platform: linux
+    notes: >-
+      Output path works. Input capture and real device-metadata
+      enumeration tracked under #215 child issue.
   jack:
     status: planned
     platform: linux
@@ -508,8 +519,13 @@ platform_maturity:
     status: usable
     notes: registerShortcut bridge function, shortcuts checked before global key dispatch.
   file_dialogs:
-    status: usable
-    notes: showOpenDialog, showSaveDialog, chooseFolder bridge functions via native NSOpenPanel/NSSavePanel.
+    status: partial
+    notes: >-
+      macOS native (NSOpenPanel/NSSavePanel) — `usable`. Non-Apple
+      platforms route through a host-registered backend with honest
+      has_backend() — PRs #312/#316. No native provider ships yet
+      for Windows/Linux/Android; callers register their own backend
+      or receive explicit no-selection. #338/#339.
 
 input:
   pointer_events:
@@ -561,7 +577,13 @@ runtime_apis:
   clipboard:
     status: usable
     ci_test: pulp-test-clipboard
-    notes: navigator.clipboard.readText/writeText via platform::Clipboard C++ API.
+    notes: >-
+      navigator.clipboard.readText/writeText via platform::Clipboard C++ API.
+      macOS/iOS/Windows use native pasteboard APIs. Linux uses
+      xclip/wl-copy (#309 / PR #320) — set_text returns false honestly
+      when neither is on PATH. Android routes through a host-registered
+      bridge (Clipboard::set_android_bridge / clear_android_bridge);
+      generated app wiring tracked in #345.
   local_storage:
     status: usable
     notes: localStorage.getItem/setItem/removeItem — file-backed in temp directory.
@@ -775,8 +797,9 @@ limitations:
       tracked_in: "planning/production-readiness/02-audio-midi-io.md#2.1"
     - text: "Input capture not wired — input_view is always empty."
       tracked_in: "planning/production-readiness/02-audio-midi-io.md#2.1"
-    - text: "No IMMNotificationClient hotplug; device-change callback is inert."
-      tracked_in: "planning/production-readiness/02-audio-midi-io.md#2.1"
+    # Hotplug: IMMNotificationClient device-change callbacks landed in
+    # PR #281; stale stub entry removed on 2026-04-18 during parity-audit
+    # docs refresh (#348).
   audio_io.alsa:
     - text: "No input capture path."
       tracked_in: "planning/production-readiness/02-audio-midi-io.md#2.2"
@@ -795,10 +818,16 @@ limitations:
     - text: "Running status not handled; timestamps always 0; no hotplug; no SysEx."
       tracked_in: "planning/production-readiness/02-audio-midi-io.md#2.5"
   platform_maturity.accessibility.windows:
-    - text: "UIA provider is a stub — IRawElementProviderSimple/WM_GETOBJECT/event firing pending."
+    # UIA bootstrap landed in PR #283 (UIAutomationCore linked, session
+    # init wired). Remaining: IRawElementProviderSimple provider tree +
+    # WM_GETOBJECT integration + value/focus/selection event emission
+    # — tracked in #247.
+    - text: "UIA provider tree and event emission pending (bootstrap in place via #283)."
       tracked_in: "planning/production-readiness/04-accessibility.md#4.1"
   platform_maturity.accessibility.linux:
-    - text: "AT-SPI registration is a stub — D-Bus bridge not yet connected."
+    # AT-SPI D-Bus bridge bootstrap landed in PR #280. Remaining:
+    # per-view AtkObject model + value/text/focus event emission.
+    - text: "AT-SPI per-view accessible objects and events pending (bridge bootstrap in place via #280)."
       tracked_in: "planning/production-readiness/04-accessibility.md#4.2"
 
 # ── Schema-v2 additions (workstream 08 slice 8.1) ─────────────────────────────

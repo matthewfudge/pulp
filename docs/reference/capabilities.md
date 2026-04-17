@@ -13,7 +13,7 @@ See [docs/guides/status-ladder.md](../guides/status-ladder.md) for the evidence 
 The following section is auto-generated from the `limitations:` block of `docs/status/support-matrix.yaml`. Run `python3 tools/docs_generate.py generate` to refresh.
 
 <!-- generated:start id=limitations -->
-### Known limitations (23 items across 13 capabilities)
+### Known limitations (22 items across 13 capabilities)
 
 | Capability | Limitation | Tracked in |
 |---|---|---|
@@ -31,15 +31,14 @@ The following section is auto-generated from the `limitations:` block of `docs/s
 | `formats.lv2` | LV2_URID_Map feature never resolved in instantiate(); real hosts may fail to load. | [link](planning/production-readiness/01-format-adapters.md#1.5) |
 | `audio_io.wasapi` | Shared mode only; no exclusive mode. | [link](planning/production-readiness/02-audio-midi-io.md#2.1) |
 | `audio_io.wasapi` | Input capture not wired — input_view is always empty. | [link](planning/production-readiness/02-audio-midi-io.md#2.1) |
-| `audio_io.wasapi` | No IMMNotificationClient hotplug; device-change callback is inert. | [link](planning/production-readiness/02-audio-midi-io.md#2.1) |
 | `audio_io.alsa` | No input capture path. | [link](planning/production-readiness/02-audio-midi-io.md#2.2) |
 | `audio_io.alsa` | Hardcoded sample-rate list; no real enumeration. | [link](planning/production-readiness/02-audio-midi-io.md#2.2) |
 | `audio_io.jack` | Dead code — factory always returns AlsaSystem; JACK is never selected at runtime. | [link](planning/production-readiness/02-audio-midi-io.md#2.2) |
 | `midi_io.coremidi` | UMP type-4 (MIDI 2.0 channel voice) packets are silently dropped in the input handler. | [link](planning/production-readiness/02-audio-midi-io.md#2.6) |
 | `midi_io.win32_midi` | Legacy mmeapi; no windows.devices.midi2, no hotplug, no SysEx input. | [link](planning/production-readiness/02-audio-midi-io.md#2.4) |
 | `midi_io.alsa_midi` | Running status not handled; timestamps always 0; no hotplug; no SysEx. | [link](planning/production-readiness/02-audio-midi-io.md#2.5) |
-| `platform_maturity.accessibility.windows` | UIA provider is a stub — IRawElementProviderSimple/WM_GETOBJECT/event firing pending. | [link](planning/production-readiness/04-accessibility.md#4.1) |
-| `platform_maturity.accessibility.linux` | AT-SPI registration is a stub — D-Bus bridge not yet connected. | [link](planning/production-readiness/04-accessibility.md#4.2) |
+| `platform_maturity.accessibility.windows` | UIA provider tree and event emission pending (bootstrap in place via #283). | [link](planning/production-readiness/04-accessibility.md#4.1) |
+| `platform_maturity.accessibility.linux` | AT-SPI per-view accessible objects and events pending (bridge bootstrap in place via #280). | [link](planning/production-readiness/04-accessibility.md#4.2) |
 <!-- generated:end id=limitations -->
 
 ---
