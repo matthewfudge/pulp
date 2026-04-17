@@ -163,3 +163,142 @@ TEST_CASE("WebSocketChannel rejects handshake without upgrade header", "[websock
     client.close();
     server_thread.join();
 }
+
+// ── WebSocketChannel additional coverage ────────────────────────────────
+
+TEST_CASE("WebSocket accept_key rejects empty input gracefully",
+          "[websocket][handshake]") {
+    // A malformed/empty client key must not crash compute_accept_key.
+    // The RFC says the key must be 16 bytes base64-encoded (24 chars);
+    // we just require no UB + a deterministic non-empty output (or
+    // empty, depending on the implementation).
+    auto result = WebSocketChannel::compute_accept_key("");
+    // Whatever the implementation returns, it must be deterministic.
+    REQUIRE(result == WebSocketChannel::compute_accept_key(""));
+}
+
+TEST_CASE("WebSocketChannel connect fails gracefully on non-WS peer",
+          "[websocket][handshake]") {
+    // A peer that accepts the TCP connection but never sends a valid
+    // 101 Switching Protocols response must cause WebSocketChannel::connect
+    // to return nullptr — not crash, not hang beyond a reasonable limit.
+    Socket listener;
+    REQUIRE(listener.create(SocketType::TCP));
+    auto port = bind_loopback(listener, 47001);
+    if (!port) { SUCCEED("could not bind loopback; skipping"); return; }
+
+    std::atomic<bool> ready{false};
+    std::thread server_thread([&] {
+        ready.store(true);
+        auto accepted = listener.accept();
+        // Reply with plain-text rubbish — not a valid HTTP response.
+        if (accepted) {
+            const char junk[] = "HELLO NOT WEBSOCKET\r\n\r\n";
+            accepted->send(reinterpret_cast<const std::uint8_t*>(junk),
+                           std::strlen(junk));
+            accepted->close();
+        }
+    });
+    while (!ready.load()) std::this_thread::sleep_for(1ms);
+
+    auto tcp = std::make_unique<TcpStream>();
+    REQUIRE(tcp->connect("127.0.0.1", *port));
+    auto ws = WebSocketChannel::connect(std::move(tcp), "127.0.0.1", "/");
+    REQUIRE(ws == nullptr);
+
+    server_thread.join();
+}
+
+TEST_CASE("WebSocketChannel close flips is_open to false",
+          "[websocket][lifecycle]") {
+    // Validate the close → is_open() transition via a real echo server
+    // so we exercise the same handshake the echo test does; this is
+    // additional assurance that close() doesn't just no-op.
+    Socket listener;
+    REQUIRE(listener.create(SocketType::TCP));
+    auto port = bind_loopback(listener, 47101);
+    if (!port) { SUCCEED("could not bind loopback; skipping"); return; }
+
+    std::atomic<bool> ready{false};
+    std::unique_ptr<WebSocketChannel> server_ws;
+    std::thread server_thread([&] {
+        ready.store(true);
+        auto accepted = listener.accept();
+        if (!accepted) return;
+        auto server_tcp = std::make_unique<TcpStream>(std::move(*accepted));
+        server_ws = WebSocketChannel::accept(std::move(server_tcp));
+    });
+    while (!ready.load()) std::this_thread::sleep_for(1ms);
+
+    auto client_tcp = std::make_unique<TcpStream>();
+    REQUIRE(client_tcp->connect("127.0.0.1", *port));
+    auto client = WebSocketChannel::connect(std::move(client_tcp), "127.0.0.1", "/");
+    REQUIRE(client != nullptr);
+    REQUIRE(client->is_open());
+
+    client->close();
+    REQUIRE_FALSE(client->is_open());
+
+    // Double-close is safe.
+    client->close();
+    REQUIRE_FALSE(client->is_open());
+
+    if (server_ws) server_ws->close();
+    server_thread.join();
+}
+
+TEST_CASE("WebSocketChannel echoes a >126-byte message (16-bit payload length)",
+          "[websocket][frame-length]") {
+    // Payload length 126 crosses the boundary where WS frames switch
+    // from 7-bit to 16-bit encoding (RFC 6455 §5.2). This case exercises
+    // that branch end-to-end.
+    Socket listener;
+    REQUIRE(listener.create(SocketType::TCP));
+    auto port = bind_loopback(listener, 47201);
+    if (!port) { SUCCEED("could not bind loopback; skipping"); return; }
+
+    std::atomic<bool> ready{false};
+    std::unique_ptr<WebSocketChannel> server_ws;
+    std::thread server_thread([&] {
+        ready.store(true);
+        auto accepted = listener.accept();
+        if (!accepted) return;
+        auto server_tcp = std::make_unique<TcpStream>(std::move(*accepted));
+        server_ws = WebSocketChannel::accept(std::move(server_tcp));
+        if (server_ws) {
+            server_ws->on_message([&](const Message& m) {
+                server_ws->send_text(std::string(m.as_text()));
+            });
+        }
+    });
+    while (!ready.load()) std::this_thread::sleep_for(1ms);
+
+    auto client_tcp = std::make_unique<TcpStream>();
+    REQUIRE(client_tcp->connect("127.0.0.1", *port));
+    auto client = WebSocketChannel::connect(std::move(client_tcp), "127.0.0.1", "/");
+    REQUIRE(client != nullptr);
+
+    std::mutex mu;
+    std::vector<std::string> seen;
+    client->on_message([&](const Message& m) {
+        std::lock_guard<std::mutex> lock(mu);
+        seen.emplace_back(m.as_text());
+    });
+
+    std::string big(300, 'A');  // > 126 bytes → 16-bit payload length field
+    REQUIRE(client->send_text(big));
+
+    REQUIRE(wait_until([&] {
+        std::lock_guard<std::mutex> lock(mu);
+        return !seen.empty();
+    }));
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        REQUIRE(seen[0].size() == 300);
+        REQUIRE(seen[0] == big);
+    }
+
+    client->close();
+    if (server_ws) server_ws->close();
+    server_thread.join();
+}
