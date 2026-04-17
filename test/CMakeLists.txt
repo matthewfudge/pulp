@@ -38,6 +38,15 @@ target_include_directories(pulp-test-cli-create-targets PRIVATE ${CMAKE_SOURCE_D
 target_link_libraries(pulp-test-cli-create-targets PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-create-targets)
 
+# CLI shell-out behaviour tests — launches the built `pulp` binary.
+# Depends on pulp-cli so the binary exists at test time.
+add_executable(pulp-test-cli-shellout test_cli_shellout.cpp)
+target_link_libraries(pulp-test-cli-shellout PRIVATE pulp::platform Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-shellout pulp-cli)
+endif()
+catch_discover_tests(pulp-test-cli-shellout)
+
 # Child process tests
 add_executable(pulp-test-child-process test_child_process.cpp)
 target_link_libraries(pulp-test-child-process PRIVATE pulp::platform Catch2::Catch2WithMain)
