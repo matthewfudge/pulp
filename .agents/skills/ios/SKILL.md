@@ -38,7 +38,7 @@ Swift / UIKit (iOS UI)        C++ (Pulp core)
 | `core/view/platform/ios/accessibility_ios.mm` | UIAccessibility bridge |
 | `core/format/src/au_view_controller_ios.mm` | AUv3 NSExtensionPrincipalClass |
 | `core/platform/CMakeLists.txt` (`IOS` branch) | UIKit link, omit Cocoa/fork-exec |
-| `tools/cmake/PulpUtils.cmake` (`PULP_IOS` blocks) | AUv3 bundle, Info.plist generation |
+| `tools/cmake/PulpUtils.cmake` (`PULP_IOS` blocks) | AUv3 bundle, Info.plist generation, `pulp_add_ios_auv3()` helper |
 | `templates/ios-auv3/Info.plist.in` | AUv3 extension manifest template |
 
 ## Configure & Build
@@ -223,12 +223,29 @@ xcodebuild test -project ... -scheme AUv3Tests -sdk iphonesimulator
   `NSFileCoordinator` from the host app's group container.
 - No `fork`/`exec`, no `NSTask` — all child-process code must be `NOT IOS`.
 
+## `pulp_add_ios_auv3()` helper
+
+```cmake
+pulp_add_ios_auv3(
+    NAME               PulpSineSynth
+    BUNDLE_ID          com.pulp.examples.sinesynth
+    MANUFACTURER       Pulp
+    MANUFACTURER_CODE  Pulp        # exactly 4 characters
+    SUBTYPE_CODE       PsSn        # exactly 4 characters
+    AU_TYPE            aumu        # aumu | aufx | aumi
+    VERSION            0.1.0
+    SOURCES            src/sine_synth.cpp src/sine_synth.hpp
+)
+```
+
+Builds the `.appex` only. The App Store container host-app target is authored separately — `templates/ios-auv3/HostApp/` has a SwiftUI host you can copy into Xcode. Auto-generating the host target is follow-on work.
+
 ## Follow-ups / Known Gaps
 
 - Full `pulp-view` iOS build requires gating `hot_reload.hpp`.
-- No AUv3 example project yet (`examples/ios-auv3-synth/`). Tracked in issue #218.
+- `pulp_add_ios_auv3()` ships the `.appex`; host-app target generation (consuming `templates/ios-auv3/HostApp/`) is follow-on.
 - Device-target code signing is documented but not scripted.
-- Visual regression for iOS UIs not wired up yet.
+- Visual regression for iOS UIs not wired up yet (see #330, #249).
 
 ## See Also
 

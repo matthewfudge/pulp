@@ -778,6 +778,116 @@ function(_pulp_add_auv3 target name bundle_id version manufacturer category plug
     endif()
 endfunction()
 
+# ── pulp_add_ios_auv3 ────────────────────────────────────────────────────
+# Public helper for iOS AUv3 app-extension targets.
+#
+# Wraps the internal `_pulp_add_auv3` and builds a Core OBJECT library from
+# the supplied SOURCES so example and user projects can declare a single
+# target without the `FORMATS AUv3` boilerplate of `pulp_add_plugin`.
+#
+# This helper builds the `.appex` bundle only. The host container app that
+# the App Store requires is still authored separately; a generator for the
+# SwiftUI host template in `templates/ios-auv3/HostApp/` is follow-on work.
+#
+# Usage:
+#   pulp_add_ios_auv3(
+#       NAME               PulpSineSynth
+#       BUNDLE_ID          com.pulp.examples.sinesynth
+#       MANUFACTURER       Pulp
+#       MANUFACTURER_CODE  Pulp        # exactly 4 characters
+#       SUBTYPE_CODE       PsSn        # exactly 4 characters
+#       AU_TYPE            aumu        # aumu (instrument) | aufx (effect) | aumi (MIDI effect)
+#       VERSION            0.1.0
+#       SOURCES            src/sine_synth.cpp src/sine_synth.hpp
+#   )
+#
+# Creates:
+#   ${NAME}_Core  — OBJECT library with the processor sources
+#   ${NAME}_AUv3  — AUv3 app-extension bundle (.appex)
+function(pulp_add_ios_auv3)
+    cmake_parse_arguments(AUV3
+        ""
+        "NAME;BUNDLE_ID;MANUFACTURER;MANUFACTURER_CODE;SUBTYPE_CODE;AU_TYPE;VERSION"
+        "SOURCES"
+        ${ARGN}
+    )
+
+    if(NOT PULP_IOS)
+        message(FATAL_ERROR
+            "pulp_add_ios_auv3(${AUV3_NAME}): iOS-only helper. Configure with "
+            "-DCMAKE_SYSTEM_NAME=iOS (optionally -DCMAKE_OSX_SYSROOT=iphonesimulator) "
+            "before invoking it.")
+    endif()
+
+    foreach(_req IN ITEMS NAME BUNDLE_ID MANUFACTURER MANUFACTURER_CODE SUBTYPE_CODE VERSION)
+        if(NOT AUV3_${_req})
+            message(FATAL_ERROR "pulp_add_ios_auv3: ${_req} is required")
+        endif()
+    endforeach()
+
+    string(LENGTH "${AUV3_MANUFACTURER_CODE}" _mfr_len)
+    if(NOT _mfr_len EQUAL 4)
+        message(FATAL_ERROR
+            "pulp_add_ios_auv3(${AUV3_NAME}): MANUFACTURER_CODE must be exactly "
+            "4 characters (got '${AUV3_MANUFACTURER_CODE}', length ${_mfr_len}).")
+    endif()
+    string(LENGTH "${AUV3_SUBTYPE_CODE}" _sub_len)
+    if(NOT _sub_len EQUAL 4)
+        message(FATAL_ERROR
+            "pulp_add_ios_auv3(${AUV3_NAME}): SUBTYPE_CODE must be exactly "
+            "4 characters (got '${AUV3_SUBTYPE_CODE}', length ${_sub_len}).")
+    endif()
+
+    if(NOT AUV3_AU_TYPE)
+        set(AUV3_AU_TYPE "aufx")
+    endif()
+    if(AUV3_AU_TYPE STREQUAL "aumu")
+        set(_category "Instrument")
+    elseif(AUV3_AU_TYPE STREQUAL "aumi")
+        set(_category "MidiEffect")
+    elseif(AUV3_AU_TYPE STREQUAL "aufx")
+        set(_category "Effect")
+    else()
+        message(FATAL_ERROR
+            "pulp_add_ios_auv3(${AUV3_NAME}): AU_TYPE must be aumu, aumi, or "
+            "aufx (got '${AUV3_AU_TYPE}').")
+    endif()
+
+    set(target "${AUV3_NAME}")
+
+    if(AUV3_SOURCES)
+        add_library(${target}_Core OBJECT ${AUV3_SOURCES})
+        target_link_libraries(${target}_Core PUBLIC ${_PULP_FORMAT_TARGET})
+        target_include_directories(${target}_Core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+        target_compile_definitions(${target}_Core PRIVATE
+            PULP_PLUGIN_NAME="${AUV3_NAME}"
+            PULP_BUNDLE_ID="${AUV3_BUNDLE_ID}"
+            PULP_PLUGIN_VERSION="${AUV3_VERSION}"
+        )
+    else()
+        add_library(${target}_Core INTERFACE)
+        target_link_libraries(${target}_Core INTERFACE ${_PULP_FORMAT_TARGET})
+        target_include_directories(${target}_Core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+    endif()
+    set(PULP_${target}_CORE_OBJECTS "" CACHE INTERNAL "")
+
+    _pulp_add_auv3(${target}
+        "${AUV3_NAME}"
+        "${AUV3_BUNDLE_ID}"
+        "${AUV3_VERSION}"
+        "${AUV3_MANUFACTURER}"
+        "${_category}"
+        "${AUV3_SUBTYPE_CODE}"
+        "${AUV3_MANUFACTURER_CODE}"
+    )
+
+    if(TARGET ${target}_AUv3)
+        target_link_libraries(${target}_AUv3 PRIVATE ${target}_Core)
+    endif()
+
+    message(STATUS "Pulp iOS AUv3: ${target} (type: ${AUV3_AU_TYPE}, subtype: ${AUV3_SUBTYPE_CODE})")
+endfunction()
+
 # ── Internal: Standalone target ─────────────────────────────────────────
 function(_pulp_add_standalone target name bundle_id version)
     if(NOT _PULP_STANDALONE_TARGET)

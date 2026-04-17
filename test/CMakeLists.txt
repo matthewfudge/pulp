@@ -5,6 +5,16 @@ add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
 add_test(NAME build-check COMMAND pulp-test-build-check)
 
+# iOS AUv3 helper configure smoke (macOS host only; skipped when iOS SDK absent)
+if(APPLE AND NOT PULP_IOS)
+    add_test(NAME cmake-ios-auv3-configure
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_ios_auv3_configure.sh
+                ${CMAKE_SOURCE_DIR})
+    set_tests_properties(cmake-ios-auv3-configure PROPERTIES
+        SKIP_RETURN_CODE 77
+        TIMEOUT 300)
+endif()
+
 # Validation contract tests (Phase 1 — schema and reality snapshot)
 add_executable(pulp-test-validation-contract test_validation_contract.cpp)
 target_link_libraries(pulp-test-validation-contract PRIVATE Catch2::Catch2WithMain)
