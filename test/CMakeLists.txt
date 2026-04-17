@@ -917,6 +917,19 @@ target_include_directories(pulp-test-golden PRIVATE
 )
 catch_discover_tests(pulp-test-golden)
 
+# Audio determinism matrix (#48 / #356): SR × block-size sweep
+# asserting framework-layer invariants (unity pass-through, silence,
+# block-size invariance, re-prepare cleanliness) across the examples
+# that are known SR/block-independent today.
+add_executable(pulp-test-audio-matrix test_audio_determinism_matrix.cpp)
+target_link_libraries(pulp-test-audio-matrix PRIVATE
+    pulp::format pulp::signal Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-matrix PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/pulp-gain
+    ${CMAKE_SOURCE_DIR}/examples/pulp-tone
+)
+catch_discover_tests(pulp-test-audio-matrix)
+
 # Golden-file tests for PulpEffect (separate to avoid enum collision with PulpGain)
 add_executable(pulp-test-golden-effect test_golden_effect.cpp)
 target_link_libraries(pulp-test-golden-effect PRIVATE pulp::format Catch2::Catch2WithMain)
