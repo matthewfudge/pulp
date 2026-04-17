@@ -56,7 +56,11 @@ const Tools& resolve_tools() {
         // fall back to X11 tools otherwise.
         const char* wayland = std::getenv("WAYLAND_DISPLAY");
         if (wayland && *wayland && which_exists("wl-copy") && which_exists("wl-paste")) {
-            return {Backend::wl_clipboard, "wl-copy", "wl-paste"};
+            // #320 Codex P1: wl-paste appends a newline by default.
+            // Pass -n so get_text() returns the exact bytes
+            // wl-copy received. xclip/xsel preserve bytes without
+            // a flag; only Wayland needs this.
+            return {Backend::wl_clipboard, "wl-copy", "wl-paste -n"};
         }
         if (which_exists("xclip")) {
             return {Backend::xclip, "xclip -selection clipboard -in",
