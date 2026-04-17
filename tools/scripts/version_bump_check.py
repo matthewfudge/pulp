@@ -417,6 +417,28 @@ def surface_trailer_override(
     return None
 
 
+def release_unblock_trailer(trailers: dict[str, list[str]]) -> bool:
+    """True when a `Release-Unblock: reason="..."` trailer is present.
+
+    Designed for the narrow case where a PR's code change is small
+    enough that the heuristic (and even Version-Bump trailer) would
+    normally not raise an SDK bump, but the PR is intentionally the
+    release-marker for a previously-failing tag (e.g. unblocks a
+    silent release-cli.yml breakage). Must include a non-empty
+    `reason="..."` so the audit trail is in git, not in review
+    commentary.
+
+    This trailer forces AT LEAST a patch bump on the SDK surface,
+    bypassing the "heuristic says none, ignore override" guard in
+    assess_surfaces. Always accompanies a Version-Bump trailer too
+    so the level is explicit.
+    """
+    for v in trailers.get("release-unblock", []):
+        if re.search(r'reason\s*=\s*"[^"]+"|reason\s*=\s*\S+', v):
+            return True
+    return False
+
+
 # ── Version bumping arithmetic ──────────────────────────────────────────
 
 
@@ -489,6 +511,7 @@ def assess_surfaces(
     repo: Path,
 ) -> list[Verdict]:
     trailers = git_range_trailers(base, head)
+    release_unblock = release_unblock_trailer(trailers)
     verdicts: list[Verdict] = []
     for s in cfg.surfaces:
         heur = heuristic_for_surface(s, changed, base, head)
@@ -505,10 +528,21 @@ def assess_surfaces(
                 final = override
             elif heur != "none":
                 final = heur
+            elif release_unblock and s.name == "sdk":
+                # Explicit release-marker bump: the author added
+                # `Release-Unblock: reason="..."` to signal this PR is
+                # shipping a release even though the heuristic thinks
+                # no SDK surface changed. Honor the Version-Bump
+                # override in that narrow case.
+                final = override
             else:
                 # Surface not touched; ignore the override to avoid
                 # rubber-stamping unrelated bumps.
                 final = "none"
+        elif release_unblock and s.name == "sdk":
+            # No Version-Bump override but Release-Unblock present —
+            # default to patch (the minimum bump that forces a tag).
+            final = "patch"
 
         # Promote via conventional-commit subjects on commits that touched
         # THIS surface — never from commits that only touched unrelated

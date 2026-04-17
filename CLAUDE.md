@@ -494,11 +494,14 @@ Pulp versions three surfaces independently: SDK/CLI (`CMakeLists.txt`), Claude p
 
 **Bypass trailers** (tip commit, never PR body — audit trail lives in git):
 
-| Gate           | Trailer                                                          |
-|----------------|------------------------------------------------------------------|
-| Version bump   | `Version-Bump: <surface>=<patch\|minor\|major\|skip> reason="..."` |
-| Skill update   | `Skill-Update: skip skill=<name> reason="..."`                  |
-| Auto-release   | `Release: skip reason="..."`                                     |
+| Gate            | Trailer                                                          |
+|-----------------|------------------------------------------------------------------|
+| Version bump    | `Version-Bump: <surface>=<patch\|minor\|major\|skip> reason="..."` |
+| Skill update    | `Skill-Update: skip skill=<name> reason="..."`                  |
+| Auto-release    | `Release: skip reason="..."`                                     |
+| Release unblock | `Release-Unblock: reason="..."`                                  |
+
+The `Release-Unblock:` trailer forces an SDK bump when the heuristic would otherwise say "no bump needed" but the PR is intentionally the release-marker for a previously-failing tag. Use narrowly — see [docs/guides/versioning.md § Release-Unblock](docs/guides/versioning.md) for worked examples.
 
 Codex picks this policy up via the existing `AGENTS.md → CLAUDE.md` pointer; `AGENTS.md` intentionally stays a thin redirect so the two never drift. Full design: [docs/guides/versioning.md](docs/guides/versioning.md).
 

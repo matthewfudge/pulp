@@ -201,15 +201,39 @@ Both Claude Code and Codex pick up this policy from `CLAUDE.md`. Codex reads `AG
 
 ## Bypassing a check
 
-All three bypass trailers live on the tip commit, never in the PR body. The audit trail must be in git.
+All bypass trailers live on the tip commit, never in the PR body. The audit trail must be in git.
 
 | Check          | Trailer                                                   |
 |----------------|-----------------------------------------------------------|
 | Version bump   | `Version-Bump: <surface>=<patch|minor|major|skip> reason="..."` |
 | Skill update   | `Skill-Update: skip skill=<name> reason="..."`           |
 | Auto-release   | `Release: skip reason="..."`                              |
+| Release unblock | `Release-Unblock: reason="..."`                          |
 
 A bypass is a recorded admission that the author thought about the rule and decided it doesn't apply. Empty-reason bypasses are rejected.
+
+### The `Release-Unblock:` trailer
+
+Use when a PR's code change is small (e.g. a Windows-MSVC include-order fix) but the PR is intentionally the release-marker for a previously-failing tag. Without this trailer, `version_bump_check.py`'s heuristic says "no SDK surface touched → no bump needed" and discards an explicit `Version-Bump: sdk=patch` override — because that override would otherwise be rubber-stampable on unrelated PRs.
+
+With `Release-Unblock: reason="..."` the guard is lifted on the SDK surface: the explicit `Version-Bump:` level is honored, or a default patch bump is applied if none is given. A non-empty `reason="..."` is required.
+
+**When to use:** the PR fixes a release-pipeline failure (like the v0.15.0–v0.17.0 Windows MSVC gap) and the fix itself doesn't need a bump, but without one `auto-release.yml` won't create a new tag and the fix ships to no one.
+
+**When NOT to use:** ordinary code changes where the heuristic is right. Don't reach for this to force releases out of habit.
+
+Worked example:
+```
+chore(sdk): bump to 0.18.0 for Windows MSVC release unblock
+
+v0.18.0 is the first release where both Windows MSVC fixes (wasapi
+C2248 from #318 + UIAutomationCore.h from this PR) are in place,
+so release-cli.yml should pass cleanly for the first time since
+v0.14.0.
+
+Version-Bump: sdk=patch reason="explicit release-marker bump"
+Release-Unblock: reason="MSVC fixes unblock release-cli.yml for v0.15-v0.17 gap"
+```
 
 ---
 
