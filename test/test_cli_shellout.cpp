@@ -173,10 +173,16 @@ TEST_CASE("pulp validate --strict is a recognized flag",
     // Run from /tmp so resolve_active_project_root() bails with
     // "not in a Pulp project directory". Flag parsing runs first, so
     // --strict passes through cleanly and we hit exit 1, not 2.
+    //
+    // NB: resolve the absolute binary path up front. run_pulp's
+    // pulp_binary() is cwd-relative ("<cwd>/../tools/cli/pulp"), so
+    // if we swap cwd to /tmp first the lookup resolves to a path
+    // that doesn't exist and we never actually run the CLI.
+    const auto bin = fs::absolute(pulp_binary());
     auto cwd_saver = fs::current_path();
     fs::current_path(fs::temp_directory_path());
-    auto strict = run_pulp({"validate", "--strict"});
-    auto bogus = run_pulp({"validate", "--this-flag-does-not-exist"});
+    auto strict = exec(bin.string(), {"validate", "--strict"}, 10000);
+    auto bogus = exec(bin.string(), {"validate", "--this-flag-does-not-exist"}, 10000);
     fs::current_path(cwd_saver);
 
     REQUIRE_FALSE(strict.timed_out);
