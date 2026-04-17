@@ -8,6 +8,35 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0190"></a>
+## [0.19.0] - 2026-04-18
+
+- view(win): fix UIAutomationCore.h C2371/C2146 in MSVC + unblock releases ([#383](https://github.com/danielraffel/pulp/pull/383))
+- test + cli: address Codex P2s from PRs #378/#379/#381 ([#382](https://github.com/danielraffel/pulp/pull/382))
+- cli(validate): --strict flag + missing-validator advisory (#356) ([#381](https://github.com/danielraffel/pulp/pull/381))
+- test(audio): framework-layer edge-case corpus (#356) ([#380](https://github.com/danielraffel/pulp/pull/380))
+- test(examples): golden breadth for Compressor/Drums/Synth (#356) ([#379](https://github.com/danielraffel/pulp/pull/379))
+- cli(upgrade): fix 404 — drop version from tarball filename (#352) ([#377](https://github.com/danielraffel/pulp/pull/377))
+- test(audio): SR × block-size determinism matrix (#356) ([#378](https://github.com/danielraffel/pulp/pull/378))
+- cli: delegate 'pulp pr' to 'shipyard pr' by default; --native preserves fallback (#352) ([#376](https://github.com/danielraffel/pulp/pull/376))
+- docs: refresh support matrix after v0.17-v0.18 provider contracts (#348) ([#375](https://github.com/danielraffel/pulp/pull/375))
+- ios: forward AVAudioSession notifications to native listener (#329) ([#374](https://github.com/danielraffel/pulp/pull/374))
+- test(view): harden WidgetBridge clear() + snapshot/restore (+4 cases) ([#373](https://github.com/danielraffel/pulp/pull/373))
+- test(view): harden TextEditor input edges (+7 cases) ([#372](https://github.com/danielraffel/pulp/pull/372))
+- test(cli-ship): shell-out tests for pulp ship (+7 cases) ([#368](https://github.com/danielraffel/pulp/pull/368))
+- test(view): harden screenshot edge cases (+4 cases) ([#371](https://github.com/danielraffel/pulp/pull/371))
+- test: delete placeholder test_showcase + test_token_diff (#357) ([#370](https://github.com/danielraffel/pulp/pull/370))
+- test(tempo-hook): harden Processor::on_host_tempo_changed (+6 cases) ([#369](https://github.com/danielraffel/pulp/pull/369))
+- test(cli): shell-out behaviour tests for the pulp binary (+7 cases) ([#367](https://github.com/danielraffel/pulp/pull/367))
+- test(events): harden AsyncUpdater coalescing + EventLoop/Timer edges (+6 cases) ([#366](https://github.com/danielraffel/pulp/pull/366))
+- test(platform): I/O failure-path sweep (+10 cases) ([#365](https://github.com/danielraffel/pulp/pull/365))
+- test(format): harden transport/memory/ARA hook stubs (+11 cases) ([#363](https://github.com/danielraffel/pulp/pull/363))
+- test(runtime): harden network_stream + websocket_channel (+12 cases) ([#362](https://github.com/danielraffel/pulp/pull/362))
+- test(host): expand plugin_info_metadata + scan_cache coverage — fix dropped richer-metadata JSON round-trip ([#361](https://github.com/danielraffel/pulp/pull/361))
+- test(dsl): first contract tests for FaustProcessor (+18 cases) — fix 0-in instrument leaking default stereo bus ([#360](https://github.com/danielraffel/pulp/pull/360))
+- view(ios): wire Skia paint + CADisplayLink for GPU window/plugin hosts ([#358](https://github.com/danielraffel/pulp/pull/358))
+- test: harden OSC coverage (+34 cases) — first pass on #351 ([#353](https://github.com/danielraffel/pulp/pull/353))
+
 <a id="v0180"></a>
 ## [0.18.0] - 2026-04-17
 
@@ -285,6 +314,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.19.0]: https://github.com/danielraffel/pulp/releases/tag/v0.19.0
 [0.18.0]: https://github.com/danielraffel/pulp/releases/tag/v0.18.0
 [0.17.0]: https://github.com/danielraffel/pulp/releases/tag/v0.17.0
 [0.16.0]: https://github.com/danielraffel/pulp/releases/tag/v0.16.0
