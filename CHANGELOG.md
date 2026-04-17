@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0170"></a>
+## [0.18.0]
+
 ## [0.17.0] - 2026-04-17
 
 - audio: fix MSVC C2248 on fire_device_change + add release-guard.yml ([#318](https://github.com/danielraffel/pulp/pull/318))
