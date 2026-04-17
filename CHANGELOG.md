@@ -8,8 +8,23 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<!-- Note on v0.15.0 through v0.17.0: these tags exist in the repo but
+     their GitHub Release binaries were never published. Two Windows MSVC
+     build errors — a protected-member access bug in wasapi_device.cpp
+     (#318) and a UIAutomationCore.h include-order issue with
+     WIN32_LEAN_AND_MEAN (#283) — caused release-cli.yml to fail
+     silently on the Windows x64 lane after each tag push. The tags
+     can't be moved to fixed commits, so v0.15.0–v0.17.0 are skipped
+     releases. v0.18.0 is the first release where both fixes are in
+     place and binaries published cleanly. A release-guard.yml workflow
+     now monitors for this class of silent failure (#318). -->
+
 <a id="v0170"></a>
 ## [0.17.0] - 2026-04-17
+
+> **Note:** This release's GitHub Release page has no binaries due to a
+> Windows MSVC build error (`UIAutomationCore.h` include order with
+> `WIN32_LEAN_AND_MEAN`). Fixed in v0.18.0. See the comment above for details.
 
 - audio: fix MSVC C2248 on fire_device_change + add release-guard.yml ([#318](https://github.com/danielraffel/pulp/pull/318))
 - platform(linux): preserve clipboard bytes + correct has_text semantics (#309 P2) ([#320](https://github.com/danielraffel/pulp/pull/320))
@@ -27,6 +42,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v0160"></a>
 ## [0.16.0] - 2026-04-17
 
+> **Note:** Binaries not published — Windows MSVC build failed on `wasapi_device.cpp` (protected-member access, fixed in v0.17.0) and `UIAutomationCore.h` (include order, fixed in v0.18.0). Tag exists; use v0.18.0+ for binaries.
+
 - platform: native file dialog backend-registration + explicit unsupported (#301) ([#312](https://github.com/danielraffel/pulp/pull/312))
 - format: guard compare_screenshots against filesystem exceptions (#308 Codex P1) ([#311](https://github.com/danielraffel/pulp/pull/311))
 - events: NetworkServiceDiscovery backend-registration + honest no-op (#302) ([#310](https://github.com/danielraffel/pulp/pull/310))
@@ -35,6 +52,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 
 <a id="v0150"></a>
 ## [0.15.0] - 2026-04-16
+
+> **Note:** Binaries not published — same Windows MSVC build issues as v0.16.0 and v0.17.0. Tag exists; use v0.18.0+ for binaries.
 
 - host: skip blacklisted bundles before opening them (#271 P1 follow-up) ([#287](https://github.com/danielraffel/pulp/pull/287))
 - host: wire CLAP PluginSlot::set_parameter end-to-end (#296) ([#306](https://github.com/danielraffel/pulp/pull/306))

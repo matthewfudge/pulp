@@ -13,6 +13,11 @@
 #include <pulp/view/view.hpp>
 #include <pulp/runtime/log.hpp>
 #include <pulp/platform/win32_sane.hpp>
+// win32_sane.hpp defines WIN32_LEAN_AND_MEAN which strips COM headers
+// from <windows.h>. UIAutomation.h needs IUnknown from ObjBase.h.
+// Include explicitly so MSVC doesn't fail with C2146 on
+// IRawElementProviderSimple. v0.17.0 release-cli blocker.
+#include <ObjBase.h>
 #include <UIAutomation.h>
 
 namespace pulp::view {
