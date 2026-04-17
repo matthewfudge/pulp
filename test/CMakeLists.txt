@@ -47,6 +47,15 @@ if(TARGET pulp-cli)
 endif()
 catch_discover_tests(pulp-test-cli-shellout)
 
+# CLI ship shell-out behaviour tests — launches the built `pulp` binary
+# for the non-destructive ship subcommand branches.
+add_executable(pulp-test-cli-ship-shellout test_cli_ship_shellout.cpp)
+target_link_libraries(pulp-test-cli-ship-shellout PRIVATE pulp::platform Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-ship-shellout pulp-cli)
+endif()
+catch_discover_tests(pulp-test-cli-ship-shellout)
+
 # Child process tests
 add_executable(pulp-test-child-process test_child_process.cpp)
 target_link_libraries(pulp-test-child-process PRIVATE pulp::platform Catch2::Catch2WithMain)
