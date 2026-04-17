@@ -113,3 +113,120 @@ TEST_CASE("HttpStream write is Invalid (read-only)", "[network_stream]") {
     REQUIRE_FALSE(w.ok());
     REQUIRE(w.error == StreamError::Invalid);
 }
+
+// ── TcpStream edge cases ────────────────────────────────────────────────
+
+TEST_CASE("TcpStream read on unconnected stream returns Closed",
+          "[network_stream][tcp][edge]") {
+    TcpStream stream;
+    REQUIRE_FALSE(stream.is_open());
+    std::uint8_t buf[4]{};
+    auto r = stream.read(buf, sizeof(buf));
+    REQUIRE_FALSE(r.ok());
+    // Stream contract: reading an unopened stream is Closed (EOF-equivalent)
+    // or Invalid (state error) — both are non-ok.
+    REQUIRE((r.closed() || r.error == StreamError::Invalid));
+}
+
+TEST_CASE("TcpStream write on unconnected stream is non-ok",
+          "[network_stream][tcp][edge]") {
+    TcpStream stream;
+    const std::uint8_t payload[] = {'x'};
+    auto w = stream.write(payload, sizeof(payload));
+    REQUIRE_FALSE(w.ok());
+}
+
+TEST_CASE("TcpStream connect to unreachable host:port fails fast",
+          "[network_stream][tcp][edge]") {
+    TcpStream stream;
+    // Port 1 on loopback is never bound in a default environment;
+    // the kernel returns ECONNREFUSED synchronously from connect().
+    REQUIRE_FALSE(stream.connect("127.0.0.1", 1));
+    REQUIRE_FALSE(stream.is_open());
+}
+
+TEST_CASE("TcpStream double-close is safe and idempotent",
+          "[network_stream][tcp][edge]") {
+    TcpStream stream;
+    stream.close();        // close on never-opened stream
+    stream.close();        // and again — must not crash/UB
+    REQUIRE_FALSE(stream.is_open());
+}
+
+TEST_CASE("TcpStream detects peer-close on the next read",
+          "[network_stream][tcp][peer-close]") {
+    Socket server;
+    REQUIRE(server.create(SocketType::TCP));
+
+    std::uint16_t port = 0;
+    for (std::uint16_t candidate = 45501; candidate < 45580; ++candidate) {
+        if (auto bound = try_bind_loopback(server, candidate)) {
+            port = *bound;
+            break;
+        }
+    }
+    if (port == 0) {
+        SUCCEED("could not bind loopback; skipping");
+        return;
+    }
+
+    std::atomic<bool> server_ready{false};
+    std::thread server_thread([&] {
+        server_ready.store(true);
+        auto client = server.accept();
+        if (!client) return;
+        client->close();  // immediate peer-close
+    });
+    while (!server_ready.load()) std::this_thread::sleep_for(1ms);
+
+    TcpStream stream;
+    REQUIRE(stream.connect("127.0.0.1", port));
+
+    // Read until the peer-close is observed. The first read may return
+    // WouldBlock on some platforms before the FIN propagates.
+    std::uint8_t buf[8]{};
+    bool saw_close = false;
+    auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto r = stream.read(buf, sizeof(buf));
+        if (r.closed()) { saw_close = true; break; }
+        if (r.ok() && r.bytes == 0) { saw_close = true; break; }
+        std::this_thread::sleep_for(5ms);
+    }
+    REQUIRE(saw_close);
+
+    stream.close();
+    server_thread.join();
+}
+
+// ── HttpStream edge cases ───────────────────────────────────────────────
+
+TEST_CASE("HttpStream with empty URL reports transport failure",
+          "[network_stream][http][edge]") {
+    HttpStream::Request req;
+    req.url = "";
+    req.timeout_seconds = 1;
+    HttpStream stream(req);
+
+    std::uint8_t buf[4]{};
+    auto r = stream.read(buf, sizeof(buf));
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("HttpStream with unsupported scheme reports transport failure",
+          "[network_stream][http][edge]") {
+    HttpStream::Request req;
+    req.url = "ftp://127.0.0.1/nope";
+    req.timeout_seconds = 1;
+    HttpStream stream(req);
+
+    std::uint8_t buf[4]{};
+    auto r = stream.read(buf, sizeof(buf));
+    REQUIRE_FALSE(r.ok());
+}
+
+TEST_CASE("HttpStream status_code is 0 before fetch",
+          "[network_stream][http][state]") {
+    HttpStream stream;
+    REQUIRE(stream.status_code() == 0);
+}
