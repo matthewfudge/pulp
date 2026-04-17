@@ -28,16 +28,39 @@ int cmd_validate(const std::vector<std::string>& args) {
     bool run_all = false;
     bool json_output = false;
     bool screenshot = false;
+    bool strict = false;   // #51: skipped-because-missing-tool ⇒ fail
     std::string report_path;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--all") run_all = true;
         else if (args[i] == "--json") json_output = true;
         else if (args[i] == "--screenshot") screenshot = true;
+        else if (args[i] == "--strict") strict = true;
         else if (args[i] == "--report" && i + 1 < args.size())
             report_path = args[++i];
     }
 
     int total = 0, passed = 0, failed = 0, skipped = 0;
+    int skipped_missing_tool = 0;  // #51: subset of `skipped` we care about
+
+    // Missing-tool tracking (#51 / #356). A "skipped because the
+    // validator isn't installed" outcome is otherwise invisible — under
+    // --strict we upgrade it to a hard failure, and under default mode
+    // we print a loud warning at the end listing which tools are gone
+    // and how to install them.
+    struct MissingTool {
+        std::string tool;
+        std::string format;
+        std::string install_hint;
+    };
+    std::vector<MissingTool> missing_tools;
+    auto note_missing = [&](const std::string& tool,
+                            const std::string& format,
+                            const std::string& hint) {
+        for (const auto& m : missing_tools) {
+            if (m.tool == tool) return;  // only report each tool once
+        }
+        missing_tools.push_back({tool, format, hint});
+    };
 
     // JSON report accumulator
     std::vector<std::string> report_entries;
@@ -94,7 +117,11 @@ int cmd_validate(const std::vector<std::string>& args) {
                         record("clap-validator", clap_path, "clap", "fail", rc, "");
                     }
                 } else {
-                    // Fallback: dlopen test
+                    // Fallback: dlopen test. Still count the missing
+                    // validator against the strict gate so CI knows.
+                    note_missing("clap-validator", "clap",
+                                 "cargo install clap-validator");
+                    ++skipped_missing_tool;
                     std::cout << "CLAP: " << name << " (dlopen check only, clap-validator not installed)... ";
                     auto test_cmd = "ctest --test-dir " + build_dir.string() + " -R clap-dlopen-" + name + " --output-on-failure 2>/dev/null";
                     int rc = run(test_cmd);
@@ -140,6 +167,10 @@ int cmd_validate(const std::vector<std::string>& args) {
                 } else {
                     std::cout << "VST3: " << name << " SKIPPED (pluginval not installed)\n";
                     ++skipped;
+                    ++skipped_missing_tool;
+                    note_missing("pluginval", "vst3",
+                                 "brew install pluginval (macOS) "
+                                 "| https://github.com/Tracktion/pluginval/releases");
                     record("pluginval", entry.path().string(), "vst3", "skip", -1,
                            "pluginval not found in PATH");
                 }
@@ -223,6 +254,10 @@ int cmd_validate(const std::vector<std::string>& args) {
                 } else {
                     std::cout << "SKIPPED (auval not found)\n";
                     ++skipped;
+                    ++skipped_missing_tool;
+                    note_missing("auval", "au",
+                                 "ships with Xcode Command Line Tools "
+                                 "(`xcode-select --install`)");
                     record("auval", entry.path().string(), "au", "skip", -1,
                            "auval not found");
                 }
@@ -258,6 +293,10 @@ int cmd_validate(const std::vector<std::string>& args) {
             if (!has_aax_validator) {
                 std::cout << "AAX: " << name << " SKIPPED (AAX validator not installed)\n";
                 ++skipped;
+                ++skipped_missing_tool;
+                note_missing("aax-validator", "aax",
+                             "ships with the Avid AAX SDK — see "
+                             "`.agents/skills/aax/SKILL.md`");
                 record("aax-validator", entry.path().string(), "aax", "skip", -1,
                        "AAX validator not found");
                 if (!printed_guidance) {
@@ -290,6 +329,33 @@ int cmd_validate(const std::vector<std::string>& args) {
     std::cout << "\nValidation Summary: " << total << " total, "
               << passed << " passed, " << failed << " failed, "
               << skipped << " skipped\n";
+
+    // ── Missing-validator advisory (#51 / #356) ────────────────────────
+    //
+    // Without this, a green `pulp validate` on a machine that lacks
+    // pluginval/clap-validator/auval looks identical to one that ran
+    // every validator and all passed. Print a loud warning listing
+    // which tools are absent. Under --strict, turn the warning into
+    // a hard failure so CI can actually gate on it.
+    if (!missing_tools.empty()) {
+        std::cerr << "\n";
+        std::cerr << (strict ? "ERROR" : "WARNING")
+                  << ": " << missing_tools.size()
+                  << " validator(s) not installed — coverage is incomplete.\n";
+        for (const auto& m : missing_tools) {
+            std::cerr << "  - " << m.tool << " (" << m.format << "): "
+                      << m.install_hint << "\n";
+        }
+        std::cerr << "\n";
+        std::cerr << "Skipped-because-missing-tool count: "
+                  << skipped_missing_tool << "\n";
+        if (!strict) {
+            std::cerr << "Re-run with --strict to treat missing validators "
+                         "as failures (e.g. in CI).\n";
+        }
+    }
+
+    const bool strict_fail = strict && skipped_missing_tool > 0;
 
     // ── JSON report output ───────��────────────────────────────��─────────
 
@@ -373,5 +439,5 @@ int cmd_validate(const std::vector<std::string>& args) {
             std::cout << "No plugin screenshots captured.\n";
     }
 
-    return failed > 0 ? 1 : 0;
+    return (failed > 0 || strict_fail) ? 1 : 0;
 }
