@@ -136,7 +136,16 @@ pulp validate              # CLAP + VST3 (pluginval) + AU + optional AAX
 pulp validate --all        # Also run vstvalidator and full AAX validation if installed
 pulp validate --json       # Print JSON report to stdout
 pulp validate --report out.json  # Write JSON report to file
+pulp validate --strict     # CI gate: skipped-because-missing-tool ⇒ exit 1
 ```
+
+**Missing-validator policy.** If `clap-validator`, `pluginval`, `auval`,
+or the AAX validator is not installed, affected plugins are reported as
+`SKIPPED`. The default mode prints a loud warning listing which tools
+are absent and how to install them — a green run without all four
+validators is *not* the same as a run where all four passed. Use
+`--strict` in CI (or any environment where partial coverage is a bug)
+to treat those skips as hard failures.
 
 Checks:
 - **CLAP**: uses `clap-validator` if installed, otherwise falls back to CTest dlopen checks

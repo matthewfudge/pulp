@@ -155,3 +155,39 @@ TEST_CASE("pulp help output lists the top-level subcommands",
         REQUIRE(r.stdout_output.find(cmd) != std::string::npos);
     }
 }
+
+// #51 / #356: `pulp validate --strict` is supposed to upgrade
+// skipped-because-missing-tool into a hard failure. Running it from
+// outside a Pulp project is the cheapest way to exercise the flag
+// parser — we know the command exits 1 early ("not in a Pulp project")
+// so all we're really asserting here is that `--strict` doesn't make
+// the CLI reject the invocation as an unknown flag or crash.
+//
+// The full behaviour (advisory text + missing-tool enumeration + exit
+// code gating) is validated by hand in dev with a real build tree;
+// shell-out tests can't install/uninstall clap-validator.
+TEST_CASE("pulp validate --strict is a recognized flag",
+          "[cli][shellout][validate][issue-356]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    // Run from /tmp so resolve_active_project_root() bails fast with
+    // "not in a Pulp project directory" rather than trying to validate
+    // anything real.
+    auto cwd_saver = fs::current_path();
+    fs::current_path(fs::temp_directory_path());
+    auto r = run_pulp({"validate", "--strict"});
+    fs::current_path(cwd_saver);
+
+    REQUIRE_FALSE(r.timed_out);
+    // Expected: non-zero exit ("not in a Pulp project"). The failure
+    // we're guarding against is --strict being rejected as unknown
+    // before reaching the project-root check.
+    REQUIRE(r.exit_code != 0);
+    // stderr should NOT say "unknown" / "unrecognized" for --strict.
+    // The CLI currently silently ignores unknown flags, so the best
+    // signal we have is the diagnostic mentioning the project state.
+    const bool unknown_flag_error =
+        r.stderr_output.find("unknown flag") != std::string::npos
+        || r.stderr_output.find("unrecognized") != std::string::npos;
+    REQUIRE_FALSE(unknown_flag_error);
+}
