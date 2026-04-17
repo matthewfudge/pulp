@@ -99,16 +99,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Pull all v* tags created in the last 24h so we don't
-          # re-alert on ancient tags.
+          # #318 Codex P2s (2):
+          # 1. "grace window": wait 30 minutes before alerting on a
+          #    missing release. release-cli.yml takes ~20 minutes
+          #    across 5 platforms; a tag that just got pushed is
+          #    still in flight. alerting during that window would be
+          #    a false positive.
+          # 2. "tag creation time, not commit time": for annotated
+          #    tags, `git log -1 --format=%ct` returns the TAGGED
+          #    commit's author date. A tag recreated today on an
+          #    old commit would look old. Use
+          #    `git for-each-ref creatordate` which returns when the
+          #    tag object itself was created.
           now_epoch=$(date +%s)
-          cutoff=$((now_epoch - 86400))
+          grace_window=1800                  # 30 minutes
+          max_age=86400                      # 24 hours
+          oldest_interesting=$((now_epoch - max_age))
+          newest_interesting=$((now_epoch - grace_window))
 
           tags_missing_release=()
           for tag in $(git tag --list 'v*' --sort=-creatordate | head -20); do
-              tag_date=$(git log -1 --format=%ct "refs/tags/${tag}")
-              if [ "${tag_date}" -lt "${cutoff}" ]; then
+              # creatordate: when the tag OBJECT was created (annotated
+              # tag creation time), not the tagged commit's author date.
+              tag_date=$(git for-each-ref --format='%(creatordate:unix)' "refs/tags/${tag}")
+              if [ -z "${tag_date}" ]; then
+                  # Lightweight tag: no tag object, fall back to
+                  # committer date of the tagged commit.
+                  tag_date=$(git log -1 --format=%ct "refs/tags/${tag}")
+              fi
+              if [ "${tag_date}" -lt "${oldest_interesting}" ]; then
                   continue  # older than 24h — skip
+              fi
+              if [ "${tag_date}" -gt "${newest_interesting}" ]; then
+                  continue  # created <30 min ago — still in flight
               fi
               if gh release view "${tag}" >/dev/null 2>&1; then
                   continue  # release exists
