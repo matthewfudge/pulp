@@ -1809,7 +1809,7 @@ std::vector<DoctorCheck> run_doctor_android_checks() {
         const char* platform_label    = "Linux arm64 (NOT supported by Google)";
 #elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
         const bool platform_supported = true;
-        const char* platform_label    = "Windows x86_64 (supported)";
+        const char* platform_label    = "Windows x86_64 (supported — note: `android emulator` subcommand is currently disabled on Windows; use `emulator` from $ANDROID_HOME/emulator instead)";
 #elif defined(_WIN32) && (defined(_M_ARM64) || defined(__aarch64__))
         const bool platform_supported = false;
         const char* platform_label    = "Windows arm64 (NOT supported by Google)";
