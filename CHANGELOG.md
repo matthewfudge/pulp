@@ -8,6 +8,35 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0210"></a>
+## [0.21.0] - 2026-04-19
+
+- platform: unified Environment API for display/safe-area/keyboard/scheme/lifecycle/memory (#342) ([#403](https://github.com/danielraffel/pulp/pull/403))
+- chore: migrate CHANGELOG regeneration from in-tree script to shipyard ([#417](https://github.com/danielraffel/pulp/pull/417))
+- ci: widen windows alias to also gate on MSVC release-path (#438 P1, #416) ([#439](https://github.com/danielraffel/pulp/pull/439))
+- ci: TSan hardening steps 4 + 5 — race hammer + path-gated trigger (#412) ([#431](https://github.com/danielraffel/pulp/pull/431))
+- fix(setup): retry_git_clone scrubs partial target between attempts (#438 P1 / #425) ([#441](https://github.com/danielraffel/pulp/pull/441))
+- docs(aax skill): document the sysex accumulator pattern #408 landed ([#436](https://github.com/danielraffel/pulp/pull/436))
+- fix(release): bundle libwgpu_native + rewrite rpath → portable CLI tarball (#391) ([#397](https://github.com/danielraffel/pulp/pull/397))
+- ci: portable-binary smoke gate on every release-cli.yml run (#391) ([#395](https://github.com/danielraffel/pulp/pull/395))
+- midi(mac): CoreMIDI SysEx7 reassembly (#239) ([#405](https://github.com/danielraffel/pulp/pull/405))
+- render: CMake gate for iOS Dawn-only path (#359) ([#433](https://github.com/danielraffel/pulp/pull/433))
+- docs(ci): self-hosted runner setup + first-run gotchas (#429) ([#430](https://github.com/danielraffel/pulp/pull/430))
+- docs(support-matrix): reflect shipped Win32 + ALSA sysex ([#437](https://github.com/danielraffel/pulp/pull/437))
+- ci: reusable retry composite action + wrap apt-llvm-org flake sites (#419) ([#432](https://github.com/danielraffel/pulp/pull/432))
+- fix(events): Timer sentinel race — move alive_ reassignment from stop() to start() (#414) ([#428](https://github.com/danielraffel/pulp/pull/428))
+- ci: ccache + FetchContent source caching (#420) ([#427](https://github.com/danielraffel/pulp/pull/427))
+- ci: concurrency cancel-in-progress on PR workflows (#421) ([#423](https://github.com/danielraffel/pulp/pull/423))
+- docs: GitHub issue templates (bug report + feature request) (#413) ([#435](https://github.com/danielraffel/pulp/pull/435))
+- cli(doctor): add android + ios mobile dev-env subcommands (#8 / #355) ([#389](https://github.com/danielraffel/pulp/pull/389))
+- fix(view): rename app_framework Toolbar → NativeToolbar to remove ODR violation (#411) ([#426](https://github.com/danielraffel/pulp/pull/426))
+- midi(linux): ALSA raw-midi sysex accumulator (#239) ([#406](https://github.com/danielraffel/pulp/pull/406))
+- format(aax): sysex parity with CLAP/VST3/AU/CoreMIDI/Win/ALSA (#239) ([#408](https://github.com/danielraffel/pulp/pull/408))
+- ci: retry transient git ops + capture Android diagnostic on failure (#418) ([#425](https://github.com/danielraffel/pulp/pull/425))
+- view: Linux ATK pkg-config integration (#18 phase 1) ([#400](https://github.com/danielraffel/pulp/pull/400))
+- ci: stable-name status aliases macos/linux/windows for branch protection ([#416](https://github.com/danielraffel/pulp/pull/416))
+- ci(sanitizers): skip private planning submodule (unblock all PRs) ([#401](https://github.com/danielraffel/pulp/pull/401))
+
 <a id="v0200"></a>
 ## [0.20.0] - 2026-04-18
 
@@ -323,6 +352,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.21.0]: https://github.com/danielraffel/pulp/releases/tag/v0.21.0
 [0.20.0]: https://github.com/danielraffel/pulp/releases/tag/v0.20.0
 [0.19.0]: https://github.com/danielraffel/pulp/releases/tag/v0.19.0
 [0.18.0]: https://github.com/danielraffel/pulp/releases/tag/v0.18.0
