@@ -52,6 +52,203 @@ git worktree add ../pulp-android feature/android-targeting
 cd ../pulp-android
 ```
 
+## Verify dev environment first
+
+Before any Android work — `pulp doctor android` is the single-stop
+verifier. It checks:
+
+- Android SDK location (ANDROID_HOME, ANDROID_SDK_ROOT, or per-host
+  default at `~/Library/Android/sdk` / `~/Android/Sdk` / `%LOCALAPPDATA%\Android\Sdk`).
+- NDK install + version listing.
+- `adb` (platform-tools) on PATH or under the SDK.
+- `emulator` + at least one configured AVD.
+- **Optional accelerator** — Google's Android CLI (#355) for faster
+  agent-driven iteration. See § "Android CLI accelerator" below for
+  when to reach for it and which platforms ship a binary.
+
+Each missing piece comes with a per-host install hint
+(brew / apt / winget / sdkmanager).
+
+## Android CLI (#355) — what it actually is, when to reach for it
+
+Google's "Android CLI" (the `android` binary at
+`~/.android-cli/bin/android` after install) is **not** a Gradle
+replacement — there is no `android build` subcommand. It's an
+agent-side toolkit that bundles:
+
+| Command                       | What you'd otherwise do |
+|-------------------------------|--------------------------|
+| `android create [template]`   | Scaffold a new project from a template (vs. Android Studio's New Project wizard). `android create list` shows the templates. |
+| `android describe`            | Emit project metadata as JSON — apk paths, build targets, etc. The agent reads this instead of poking around `app/build/outputs`. |
+| `android run --apks=…`        | `adb install` + `am start` rolled into one. **Does not build** — you give it pre-built APKs. |
+| `android emulator create/list/start/stop` | AVD lifecycle without `avdmanager`. ⚠️ `emulator` subcommands disabled on Windows; use `$ANDROID_HOME/emulator/emulator.exe` directly there. |
+| `android layout [-d]`         | Dump the running app's view hierarchy as JSON; `-d` returns just what changed since the last call. |
+| `android screen capture` / `screen resolve` | Screenshot + label-to-coordinates so the agent can `input tap #5` style scripting. |
+| `android docs search/fetch`   | Query the Android Knowledge Base from the CLI (`kb://` URLs). |
+| `android sdk install/list/remove/update` | Replaces `sdkmanager` for package management. |
+| `android skills add/remove/list/find` | Install Google's published Android Skills (see § Catalog below). |
+| `android init`                | One-shot install of the `android-cli` skill into the host agent's skill directory. |
+| `android info`                | Print the active SDK path. |
+| `android update` / `-V`       | Self-update / version check. |
+
+So: **Pulp's actual build still runs through Gradle + CMake/NDK** —
+the CLI doesn't accelerate that leg. What the CLI accelerates is
+**agent productivity** (less hand-rolled `adb` scripting, less
+manual screenshot capture, structured project metadata).
+
+### Platform support matrix (Google-published)
+
+| Host                   | CLI binary | Use it? |
+|------------------------|------------|---------|
+| macOS arm64            | ✅          | Yes — fast-iteration mode. Install via `pulp doctor android` hint. |
+| Linux x86_64           | ✅          | Yes — same as above. |
+| Windows x86_64         | ✅          | Yes — but note: per Google's Known Issues, the `android emulator` subcommand is currently disabled on Windows. Run the emulator directly from `%ANDROID_HOME%\emulator\emulator.exe` (which `pulp doctor android` already discovers). The build subcommand is unaffected. |
+| **Linux arm64**        | ❌          | **No binary.** Stay on Gradle. Pulp's CI Linux ARM64 host (`ssh ubuntu`) is in this bucket. |
+| **Windows arm64**      | ❌          | **No binary.** Stay on Gradle. Pulp's `ssh win2` ARM64 Windows host is in this bucket. |
+| **macOS Intel**        | ❌          | Not in Google's matrix. Stay on Gradle. |
+
+`pulp doctor android` reports your host's status under "Google
+Android CLI (optional accelerator)" — green when the binary is
+installed on a supported host, green-with-explanation on
+unsupported hosts (no install hint to follow), yellow with an
+install command on supported hosts where the binary is absent.
+
+### When to reach for it
+
+- **Iterating on the Kotlin shell**: you've changed C++, rebuilt
+  via Gradle (or `pulp build --android` once that wraps it), and
+  now need to push the APK + relaunch:
+  `android run --apks=android/app/build/outputs/apk/debug/app-debug.apk`
+  is faster than `adb install` + `am start` with the right activity.
+- **UI scripting from the agent**: `android layout -d` followed by
+  `android screen capture --annotate` + `screen resolve` lets you
+  drive the running app without computing tap coordinates by hand.
+- **Project scaffolding**: `android create empty-activity-agp-9` is
+  a defensible starting point if Pulp's example Android shell ever
+  needs regenerating from a current AGP template.
+- **Knowledge-base lookups**: `android docs search 'foreground service lifecycle'`
+  is the agent-facing replacement for hand-rolling
+  developer.android.com queries.
+
+### When NOT to use it
+
+- **Builds** — there is no `android build`. Gradle (+ Pulp's CMake
+  NDK invocation) stays the authoritative path. Don't claim the
+  CLI is a build accelerator; it isn't.
+- **Release / signing** — Gradle through `pulp ship` is the only
+  store-grade path. The CLI's `run` is debug-install only.
+- **CI** — Pulp's CI runs on mixed-arch hosts (Linux ARM64 via
+  `ssh ubuntu`, Windows ARM64 via `ssh win2`) where the CLI binary
+  doesn't exist. CI scripts use `adb` / `gradle` directly.
+- **NDK / C++ rebuilds** — out of scope for the CLI.
+
+### Agent compatibility
+
+The Android CLI is **agent-agnostic**. Per Google's own docs
+(developer.android.com/tools/agents): *"Use any agent of your
+choice while still being able to easily leverage Android development
+best practices."* Claude Code, Codex, plain bash — all use it the
+same way. It is **not** Gemini-locked.
+
+### Empirical note
+
+Tested 2026-04-18 against this repo: the Android CLI binary
+itself installs cleanly and `android info` / `android emulator
+list` / `android skills list` work. But `android run --apks=...`
+needs a successfully-built APK first, and Pulp's `./gradlew
+assembleDebug` can fail for reasons outside the CLI's reach
+(stale local checkout missing `tools/cmake/PulpInstrumentation.cmake`,
+NDK version mismatch with AGP, etc.). Treat the CLI as a
+post-build amplifier; it doesn't fix build-stage breakage.
+
+A future `pulp doctor android` extension should add a
+"build-configures-cleanly" check (run `./gradlew
+:app:configureCMakeDebug --dry-run` and grep for `CMake Error`)
+so the agent catches stale-checkout / missing-NDK issues before
+attempting a full build cycle.
+
+### Fallback contract
+
+There is no `pulp` flag that wraps the CLI today, and given the
+CLI's actual command surface (no build subcommand) there's no
+clean wrap to add. The CLI is invoked directly:
+
+```
+android run --apks=android/app/build/outputs/apk/debug/app-debug.apk
+android layout -p
+android screen capture --output=ui.png
+```
+
+When the CLI is absent, fall back to the underlying tools the CLI
+itself wraps:
+
+| CLI absent → use this instead |
+|------------------------------|
+| `android run --apks=X` → `adb install -r X && adb shell am start -n com.pulp/.MainActivity` |
+| `android layout` → `adb shell uiautomator dump` |
+| `android screen capture` → `adb exec-out screencap -p > ui.png` |
+| `android emulator start` → `$ANDROID_HOME/emulator/emulator -avd <name>` |
+| `android sdk install/list` → `$ANDROID_HOME/cmdline-tools/.../bin/sdkmanager` (if installed) or via Android Studio |
+| `android docs search` → just google it |
+
+`pulp doctor android` reports CLI status; if it's missing the
+agent should fall back to these commands without asking.
+
+## Google's Android Skills catalog (github.com/android/skills)
+
+Google publishes a set of agent skills under the
+[agentskills.io](https://agentskills.io/home) open standard at
+[github.com/android/skills](https://github.com/android/skills).
+These follow the same `SKILL.md` + frontmatter convention Pulp
+uses, so any agent that loads `.agents/skills/` can also consume
+them by cloning the Android repo into its skill search path.
+
+### Pulp-relevant skills (curated subset)
+
+Not all 6 published skills apply to Pulp's Android target. Pulp's
+Android UI is C++/Skia rendered to a `SurfaceView`, not Jetpack
+Compose, so the Compose-flavoured skills are inert here.
+
+| Google skill | Path | Pulp relevance |
+|--------------|------|----------------|
+| **AGP 9 upgrade** | `build/agp/agp-9-upgrade` | ✅ Use when bumping `android/app/build.gradle.kts` past AGP 8.x. Skill walks the migration steps; pair with `pulp doctor android` to confirm Gradle/SDK versions. |
+| **R8 analyzer** | `performance/r8-analyzer` | 🟡 Use only if/when Pulp's Android shell ever enables R8 shrink/optimize. Pulp ships JNI bridges (`com.pulp.*`) that need explicit `-keep` rules; R8 audit is the right tool when that day comes. |
+| **Make app edge-to-edge** | `system/edge-to-edge` | ✅ Pulp's full-screen Vulkan Surface should declare edge-to-edge support so the system bars don't crop the canvas. Useful when wiring `WindowCompat.setDecorFitsSystemWindows`. |
+| Migrate to Compose | `jetpack-compose/...` | ❌ N/A — Pulp UI is C++/Skia, not Compose. |
+| Set up Navigation 3 | `navigation/...` | ❌ N/A — Pulp's shell is single-Activity SurfaceView; no Compose Navigation. |
+| Upgrade Play Billing | `play/...` | ❌ N/A — Pulp doesn't ship in-app purchases. |
+
+### How to install
+
+Three options, in order of preference for an agent context:
+
+1. **`android skills add`** (requires the Android CLI):
+   ```
+   android skills add --all                # install everything for detected agents
+   android skills add --skill=edge-to-edge # install just one
+   android skills add --agent=claude-code --skill=agp-9-upgrade
+   ```
+   `android skills add` defaults to `~/.gemini/antigravity/skills` if
+   no agents are detected, so pass `--agent` explicitly when
+   installing for Claude Code or Codex. List installed skills with
+   `android skills list --long`. `android init` is a one-shot helper
+   that installs only the `android-cli` skill into the host agent.
+
+2. **Clone the repo** if you want to read or version-pin offline:
+   ```
+   git clone https://github.com/android/skills \
+       ~/.agents/external/android-skills
+   ```
+   Then add the relevant subdirectory to the agent's skill search
+   path manually.
+
+3. **`WebFetch` ad-hoc** when the applicability is one-off — the
+   Android skills are short Markdown files and the raw URL is
+   stable.
+
+When in doubt, ask `pulp doctor android` first — it'll confirm the
+CLI is present so `android skills add` is even an option.
+
 ## Build
 
 ### Cross-compile for Android
@@ -570,3 +767,13 @@ Falls back to C++ widget hierarchy if JS fails (any exception → catch → C++ 
 ## Known Blockers
 
 1. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
+
+---
+
+*Android CLI integration last verified against Google's docs:
+2026-04-18 (Pulp #389). New CLI commands, install-URL changes, and
+known-issue resolutions are tracked by the planned
+`android-cli-monitor` workflow (#390) which polls Google's docs
+twice a month and files an issue when the surface drifts. Until
+that lands, refresh by hand if it's been > 1 month since the
+verification date above.*
