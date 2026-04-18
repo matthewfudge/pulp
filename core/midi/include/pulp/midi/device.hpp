@@ -15,8 +15,12 @@ struct MidiPortInfo {
     bool is_output = false;
 };
 
-// Callback for received MIDI messages
+// Callback for received MIDI short (channel-voice / system-realtime)
+// messages. SysEx is delivered via MidiSysexCallback registered
+// separately so the open() signature stays bit-compat.
 using MidiInputCallback = std::function<void(const MidiEvent& event)>;
+using MidiSysexCallback = std::function<void(const std::vector<uint8_t>& bytes,
+                                             double timestamp_sec)>;
 
 // MIDI input port
 class MidiInput {
@@ -25,6 +29,13 @@ public:
     virtual bool open(const std::string& port_id, MidiInputCallback callback) = 0;
     virtual void close() = 0;
     virtual bool is_open() const = 0;
+
+    /// Optional SysEx delivery. Backends without SysEx support leave
+    /// this as a no-op; callers can still register safely. Backends
+    /// that DO support it (Win mmeapi MIM_LONGDATA, future CoreMIDI
+    /// reassembly, ALSA SND_SEQ_EVENT_SYSEX) call this BEFORE open()
+    /// to register the receiver. #19 / #239.
+    virtual void set_sysex_callback(MidiSysexCallback /*cb*/) {}
 };
 
 // MIDI output port
