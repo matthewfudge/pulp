@@ -81,7 +81,7 @@ loop, not a replacement for Gradle.
 |------------------------|------------|---------|
 | macOS arm64            | ✅          | Yes — fast-iteration mode. Install via `pulp doctor android` hint. |
 | Linux x86_64           | ✅          | Yes — same as above. |
-| Windows x86_64         | ✅          | Yes — same as above. |
+| Windows x86_64         | ✅          | Yes — but note: per Google's Known Issues, the `android emulator` subcommand is currently disabled on Windows. Run the emulator directly from `%ANDROID_HOME%\emulator\emulator.exe` (which `pulp doctor android` already discovers). The build subcommand is unaffected. |
 | **Linux arm64**        | ❌          | **No binary.** Stay on Gradle. Pulp's CI Linux ARM64 host (`ssh ubuntu`) is in this bucket. |
 | **Windows arm64**      | ❌          | **No binary.** Stay on Gradle. Pulp's `ssh win2` ARM64 Windows host is in this bucket. |
 | **macOS Intel**        | ❌          | Not in Google's matrix. Stay on Gradle. |
