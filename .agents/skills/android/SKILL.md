@@ -57,17 +57,30 @@ cd ../pulp-android
 Before any Android work — `pulp doctor android` is the single-stop
 verifier. It checks:
 
-- Android SDK location (ANDROID_HOME, ANDROID_SDK_ROOT, or per-host
+- **Android SDK** location (ANDROID_HOME, ANDROID_SDK_ROOT, or per-host
   default at `~/Library/Android/sdk` / `~/Android/Sdk` / `%LOCALAPPDATA%\Android\Sdk`).
-- NDK install + version listing.
-- `adb` (platform-tools) on PATH or under the SDK.
-- `emulator` + at least one configured AVD.
-- **Optional accelerator** — Google's Android CLI (#355) for faster
-  agent-driven iteration. See § "Android CLI accelerator" below for
-  when to reach for it and which platforms ship a binary.
+- **NDK** install + version listing.
+- **adb** (platform-tools) on PATH or under the SDK.
+- **JDK 17+** — required for AGP 8 (current Pulp); AGP 9 will need 21.
+- **cmdline-tools** (`sdkmanager` / `avdmanager`) — needed to install
+  platforms / build-tools / NDK / system images headlessly.
+- **emulator** + at least one configured AVD.
+- **Optional accelerator** — Google's Android CLI (#355). See §
+  "Android CLI" below for when to reach for it and which platforms
+  ship a binary.
 
-Each missing piece comes with a per-host install hint
-(brew / apt / winget / sdkmanager).
+**`pulp doctor android --fix`** runs the per-host install command
+for the failing checks (JDK via brew/apt/winget, cmdline-tools via
+brew-cask / Android Studio, optional Android CLI via direct
+binary download — uniform raw-binary URL across all 3 supported
+hosts, no shell-init mutation). Each piece is independently
+installable so you can opt in granularly.
+
+For a one-shot install of *everything* (SDK + NDK + cmdline-tools
++ JDK + IDE), Android Studio is the easiest path:
+- macOS: `brew install --cask android-studio`
+- Linux: https://developer.android.com/studio
+- Windows: `winget install -e --id Google.AndroidStudio`
 
 ## Android CLI (#355) — what it actually is, when to reach for it
 

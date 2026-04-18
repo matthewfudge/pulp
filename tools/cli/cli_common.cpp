@@ -1753,6 +1753,94 @@ std::vector<DoctorCheck> run_doctor_android_checks() {
         checks.push_back(c);
     }
 
+    // ── JDK 17+ (#394 — full Android build chain) ────────────────────
+    //
+    // AGP 8.x requires JDK 17; AGP 9 requires JDK 21. Pulp's
+    // android/app/build.gradle.kts targets AGP 8 today but the
+    // skill flags AGP 9 as the next bump (Google Android Skills
+    // catalog AGP-9 upgrade), so we check for 17 minimum.
+    {
+        DoctorCheck c{"JDK 17+", false, {}, {}};
+        // 'java -version' writes to stderr historically; capture both.
+        auto ver = first_line(exec_output("java -version 2>&1"));
+        int major = 0;
+        if (!ver.empty()) {
+            // Parse 'openjdk version "21.0.2"' OR 'java version "17"'.
+            auto qopen  = ver.find('"');
+            auto qclose = ver.find('"', qopen + 1);
+            if (qopen != std::string::npos && qclose != std::string::npos) {
+                std::string v = ver.substr(qopen + 1, qclose - qopen - 1);
+                auto dot = v.find('.');
+                try { major = std::stoi(dot == std::string::npos ? v : v.substr(0, dot)); }
+                catch (...) {}
+            }
+        }
+        if (major >= 17) {
+            c.passed = true;
+            c.detail = ver;
+        } else {
+            c.detail = ver.empty() ? "java not found" : (ver + " (need 17+)");
+#if defined(__APPLE__)
+            c.fix = "brew install openjdk@21 && "
+                    "sudo ln -sfn $(brew --prefix)/opt/openjdk@21/libexec/openjdk.jdk "
+                    "/Library/Java/JavaVirtualMachines/openjdk-21.jdk";
+            c.fix_cmd = "brew install openjdk@21";
+#elif defined(__linux__)
+            c.fix = "Install OpenJDK 21 via your distro:\n"
+                    "    sudo apt install -y openjdk-21-jdk            # Debian/Ubuntu\n"
+                    "    sudo dnf install -y java-21-openjdk-devel     # Fedora/RHEL";
+            c.fix_cmd = "bash -c 'if command -v apt >/dev/null; then "
+                        "sudo apt update && sudo apt install -y openjdk-21-jdk; "
+                        "elif command -v dnf >/dev/null; then "
+                        "sudo dnf install -y java-21-openjdk-devel; "
+                        "else echo \"No supported package manager found\"; exit 1; fi'";
+#elif defined(_WIN32)
+            c.fix = "winget install --silent --id Microsoft.OpenJDK.21";
+            c.fix_cmd = "winget install --silent --id Microsoft.OpenJDK.21";
+#endif
+        }
+        checks.push_back(c);
+    }
+
+    // ── cmdline-tools (sdkmanager + avdmanager) ─────────────────────
+    {
+        DoctorCheck c{"Android cmdline-tools (sdkmanager / avdmanager)",
+                      false, {}, {}};
+        std::string sdkmanager = find_executable_in_path("sdkmanager");
+        if (sdkmanager.empty() && !sdk.empty()) {
+            for (auto sub : {"latest", "13.0", "12.0"}) {
+                auto candidate = sdk / "cmdline-tools" / sub / "bin" / "sdkmanager";
+                if (fs::exists(candidate)) {
+                    sdkmanager = candidate.string();
+                    break;
+                }
+            }
+        }
+        if (!sdkmanager.empty()) {
+            c.passed = true;
+            c.detail = sdkmanager + " — use to install platforms / build-tools / NDK";
+        } else {
+#if defined(__APPLE__)
+            c.fix = "brew install --cask android-commandlinetools\n"
+                    "  (or install Android Studio for the GUI installer that bundles\n"
+                    "   cmdline-tools + SDK + NDK + JDK in one step:\n"
+                    "    brew install --cask android-studio)";
+            c.fix_cmd = "brew install --cask android-commandlinetools";
+#elif defined(__linux__)
+            c.fix = "Download cmdline-tools from\n"
+                    "  https://developer.android.com/studio#command-line-tools-only\n"
+                    "  Unpack into $ANDROID_HOME/cmdline-tools/latest/.\n"
+                    "  Or install Android Studio (which bundles them):\n"
+                    "    https://developer.android.com/studio";
+#elif defined(_WIN32)
+            c.fix = "winget install -e --id Google.AndroidStudio\n"
+                    "  (Studio bundles cmdline-tools + SDK + NDK + JDK)";
+            c.fix_cmd = "winget install -e --id Google.AndroidStudio";
+#endif
+        }
+        checks.push_back(c);
+    }
+
     {
         DoctorCheck c{"Android emulator + AVD", false, {}, {}};
         std::string emu = find_executable_in_path("emulator");
@@ -1862,9 +1950,18 @@ std::vector<DoctorCheck> run_doctor_android_checks() {
             ;
 
             // Real installable command for `pulp doctor android --fix`.
-            // Idempotent (mkdir -p, curl -fsSL overwrites). User runs
-            // `android --version` once after to accept the ToS — the
-            // post-install echo reminds them.
+            // All three supported hosts publish a raw binary at the
+            // same URL pattern, so the install is uniform: download
+            // to ~/.android-cli/bin/, chmod, remind the user about
+            // PATH + ToS. We avoid Google's install.sh / install.cmd
+            // wrappers because they touch the user's shell init
+            // unconditionally; a dedicated ~/.android-cli/bin entry
+            // is more predictable and easier to uninstall.
+            //
+            // URLs verified 2026-04-18 — all return HTTP 200:
+            //   https://dl.google.com/android/cli/latest/darwin_arm64/android
+            //   https://dl.google.com/android/cli/latest/linux_x86_64/android
+            //   https://dl.google.com/android/cli/latest/windows_x86_64/android.exe
 #if defined(__APPLE__)
             c.fix_cmd =
                 "bash -c '"
@@ -1879,17 +1976,24 @@ std::vector<DoctorCheck> run_doctor_android_checks() {
 #elif defined(__linux__) && defined(__x86_64__)
             c.fix_cmd =
                 "bash -c '"
-                "curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash; "
-                "echo \"Run android --version to accept the ToS.\""
+                "set -e; "
+                "mkdir -p \"$HOME/.android-cli/bin\"; "
+                "curl -fsSL -o \"$HOME/.android-cli/bin/android\" "
+                "https://dl.google.com/android/cli/latest/linux_x86_64/android; "
+                "chmod +x \"$HOME/.android-cli/bin/android\"; "
+                "echo \"Installed: $HOME/.android-cli/bin/android\"; "
+                "echo \"Add $HOME/.android-cli/bin to PATH and run android --version to accept the ToS.\""
                 "'";
 #elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
             c.fix_cmd =
                 "powershell -NoProfile -Command \""
-                "$tmp = Join-Path $env:TEMP 'pulp-android-cli-install.cmd'; "
+                "New-Item -ItemType Directory -Force "
+                "  -Path \\\"$env:USERPROFILE\\.android-cli\\bin\\\" | Out-Null; "
                 "Invoke-WebRequest -UseBasicParsing "
-                "-Uri 'https://dl.google.com/android/cli/latest/windows_x86_64/install.cmd' "
-                "-OutFile $tmp; "
-                "& cmd /c $tmp\"";
+                "  -Uri 'https://dl.google.com/android/cli/latest/windows_x86_64/android.exe' "
+                "  -OutFile \\\"$env:USERPROFILE\\.android-cli\\bin\\android.exe\\\"; "
+                "Write-Host \\\"Installed: $env:USERPROFILE\\.android-cli\\bin\\android.exe\\\"; "
+                "Write-Host \\\"Add %USERPROFILE%\\.android-cli\\bin to PATH and run 'android --version' to accept the ToS.\\\"\"";
 #endif
         }
         checks.push_back(c);
