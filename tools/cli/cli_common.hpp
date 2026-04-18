@@ -148,7 +148,11 @@ struct DoctorCheck {
     std::string name;
     bool passed;
     std::string detail;
-    std::string fix;
+    std::string fix;       // Human-readable hint shown in default mode.
+    std::string fix_cmd;   // Executable shell command for --fix mode.
+                           // If empty, --fix runs `fix` verbatim (legacy
+                           // behaviour for single-line command hints
+                           // like `xcode-select --install`).
 };
 
 std::vector<DoctorCheck> run_doctor_checks(const fs::path& active_root, bool standalone_mode);

@@ -1844,22 +1844,53 @@ std::vector<DoctorCheck> run_doctor_android_checks() {
                 "    chmod +x ~/.android-cli/bin/android\n"
                 "    export PATH=\"$HOME/.android-cli/bin:$PATH\"\n"
                 "  Then accept the ToS on first run: `android --version`.\n"
-                "  See .agents/skills/android/SKILL.md for when to use it."
+                "  Or run `pulp doctor android --fix` to install automatically."
 #elif defined(__linux__) && defined(__x86_64__)
                 "Install (Linux x86_64 — supported):\n"
                 "    curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash\n"
-                "  See .agents/skills/android/SKILL.md for when to use it."
+                "  Or run `pulp doctor android --fix` to install automatically."
 #elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
                 "Install (Windows x86_64 — supported):\n"
                 "    curl.exe -fsSL https://dl.google.com/android/cli/latest/windows_x86_64/install.cmd"
                 " -o \"%TEMP%\\i.cmd\" && \"%TEMP%\\i.cmd\"\n"
-                "  See .agents/skills/android/SKILL.md for when to use it."
+                "  Or run `pulp doctor android --fix` to install automatically."
 #else
                 "See https://developer.android.com/tools/agents for install"
                 " instructions on supported platforms (macOS arm64,"
                 " Linux x86_64, Windows x86_64)."
 #endif
             ;
+
+            // Real installable command for `pulp doctor android --fix`.
+            // Idempotent (mkdir -p, curl -fsSL overwrites). User runs
+            // `android --version` once after to accept the ToS — the
+            // post-install echo reminds them.
+#if defined(__APPLE__)
+            c.fix_cmd =
+                "bash -c '"
+                "set -e; "
+                "mkdir -p \"$HOME/.android-cli/bin\"; "
+                "curl -fsSL -o \"$HOME/.android-cli/bin/android\" "
+                "https://dl.google.com/android/cli/latest/darwin_arm64/android; "
+                "chmod +x \"$HOME/.android-cli/bin/android\"; "
+                "echo \"Installed: $HOME/.android-cli/bin/android\"; "
+                "echo \"Add $HOME/.android-cli/bin to PATH and run android --version to accept the ToS.\""
+                "'";
+#elif defined(__linux__) && defined(__x86_64__)
+            c.fix_cmd =
+                "bash -c '"
+                "curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash; "
+                "echo \"Run android --version to accept the ToS.\""
+                "'";
+#elif defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
+            c.fix_cmd =
+                "powershell -NoProfile -Command \""
+                "$tmp = Join-Path $env:TEMP 'pulp-android-cli-install.cmd'; "
+                "Invoke-WebRequest -UseBasicParsing "
+                "-Uri 'https://dl.google.com/android/cli/latest/windows_x86_64/install.cmd' "
+                "-OutFile $tmp; "
+                "& cmd /c $tmp\"";
+#endif
         }
         checks.push_back(c);
     }

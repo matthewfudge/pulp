@@ -83,20 +83,32 @@ int cmd_doctor(const std::vector<std::string>& args) {
                 std::string msg = c.name;
                 if (!c.detail.empty()) msg += " — " + c.detail;
                 print_fail(msg);
-                if (!c.fix.empty()) {
+                if (!c.fix.empty() || !c.fix_cmd.empty()) {
+                    // Prefer fix_cmd (executable shell command) when
+                    // present; fall back to running the prose `fix`
+                    // verbatim — legacy behaviour for single-line
+                    // hints like `xcode-select --install` that are
+                    // already shell-executable as written.
+                    const std::string& effective_fix =
+                        c.fix_cmd.empty() ? c.fix : c.fix_cmd;
+
                     if (fix_mode && !dry_run) {
-                        std::cout << "    " << color::cyan() << "Fixing:" << color::reset() << " " << c.fix << "\n";
-                        int rc = std::system(c.fix.c_str());
+                        std::cout << "    " << color::cyan() << "Fixing:" << color::reset() << "\n";
+                        if (!c.fix.empty()) {
+                            std::cout << "      " << c.fix << "\n";
+                        }
+                        int rc = std::system(effective_fix.c_str());
                         if (rc == 0) {
                             print_ok("Fixed");
                             --fail_count;
                             ++pass_count;
                         } else {
                             std::cout << "    Fix failed (exit " << rc << "). Run manually:\n";
-                            std::cout << "      " << color::yellow() << c.fix << color::reset() << "\n";
+                            std::cout << "      " << color::yellow() << effective_fix << color::reset() << "\n";
                         }
                     } else if (dry_run) {
-                        std::cout << "    " << color::dim() << "[dry-run] Would run: " << c.fix << color::reset() << "\n";
+                        std::cout << "    " << color::dim() << "[dry-run] Would run: "
+                                  << effective_fix << color::reset() << "\n";
                     } else {
                         std::cout << "    Fix: " << color::yellow() << c.fix << color::reset() << "\n";
                     }
