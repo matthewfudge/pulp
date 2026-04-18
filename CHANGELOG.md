@@ -8,6 +8,15 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0200"></a>
+## [0.20.0] - 2026-04-18
+
+- midi(win): MIM_LONGDATA SysEx + QPC timestamps (#19 / #245 partial) ([#388](https://github.com/danielraffel/pulp/pull/388))
+- audio(linux): ALSA capture endpoint + real device-channel metadata (#20 / #215) ([#387](https://github.com/danielraffel/pulp/pull/387))
+- audio(win): WASAPI capture endpoint + flow-aware device routing (#243) ([#386](https://github.com/danielraffel/pulp/pull/386))
+- platform(win): move COM base-type includes into win32_sane.hpp (#384) ([#385](https://github.com/danielraffel/pulp/pull/385))
+- ci: add Windows MSVC release-path job to the PR gate ([#349](https://github.com/danielraffel/pulp/pull/349))
+
 <a id="v0190"></a>
 ## [0.19.0] - 2026-04-18
 
@@ -314,6 +323,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.20.0]: https://github.com/danielraffel/pulp/releases/tag/v0.20.0
 [0.19.0]: https://github.com/danielraffel/pulp/releases/tag/v0.19.0
 [0.18.0]: https://github.com/danielraffel/pulp/releases/tag/v0.18.0
 [0.17.0]: https://github.com/danielraffel/pulp/releases/tag/v0.17.0
