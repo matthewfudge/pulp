@@ -38,6 +38,9 @@ if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
     # disables GPU). Defined later in CMake order, so we link by name
     # rather than using if(TARGET ...).
     target_link_libraries(pulp-format PUBLIC pulp::inspect)
+    # Source-side gate: standalone.cpp uses PULP_HAS_INSPECT to decide
+    # whether it can include <pulp/inspect/inspector_overlay.hpp>.
+    target_compile_definitions(pulp-format PRIVATE PULP_HAS_INSPECT=1)
 endif()
 
 # VST3 adapter (when SDK is available)
