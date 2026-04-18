@@ -241,6 +241,12 @@ catch_discover_tests(pulp-test-midi-buffer-ump)
 add_executable(pulp-test-midi-buffer-sysex test_midi_buffer_sysex.cpp)
 target_link_libraries(pulp-test-midi-buffer-sysex PRIVATE pulp::midi Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-midi-buffer-sysex)
+# Win MIDI MIM_LONGDATA SysEx + QPC timestamps (#19 / #245 partial).
+# Cross-platform — compiles everywhere; Windows-specific cases are
+# guarded behind #ifdef _WIN32.
+add_executable(pulp-test-winmidi-sysex test_winmidi_sysex.cpp)
+target_link_libraries(pulp-test-winmidi-sysex PRIVATE pulp::midi Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-winmidi-sysex)
 # Accessibility provider cross-platform entry (workstream 04 slices 4.1 + 4.2)
 add_executable(pulp-test-accessibility-provider test_accessibility_provider.cpp)
 target_link_libraries(pulp-test-accessibility-provider PRIVATE pulp::view Catch2::Catch2WithMain)

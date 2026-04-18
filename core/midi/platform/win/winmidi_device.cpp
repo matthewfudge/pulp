@@ -32,6 +32,10 @@ class WinMidiInput : public MidiInput {
 public:
     ~WinMidiInput() override { close(); }
 
+    void set_sysex_callback(MidiSysexCallback cb) override {
+        sysex_callback_ = std::move(cb);
+    }
+
     bool open(const std::string& port_id, MidiInputCallback callback) override {
         callback_ = std::move(callback);
 
@@ -46,6 +50,13 @@ public:
             return false;
         }
 
+        // Snapshot QPC frequency + open-time tick so per-event
+        // timestamps are seconds-since-open with sub-millisecond
+        // resolution. mmeapi's param2 is only millisecond
+        // resolution — too coarse for high-rate sources.
+        QueryPerformanceFrequency(&qpc_freq_);
+        QueryPerformanceCounter(&qpc_open_);
+
         MMRESULT result = midiInOpen(&handle_, device_id,
             reinterpret_cast<DWORD_PTR>(midi_in_callback),
             reinterpret_cast<DWORD_PTR>(this),
@@ -55,9 +66,31 @@ public:
             return false;
         }
 
+        // Prepare and queue SysEx receive buffers (#19 / #239).
+        // Four 4 KB buffers — enough headroom for typical device
+        // dumps without flooding the driver. Driver returns each
+        // via MIM_LONGDATA when full or when an F7 arrives; we
+        // re-add it after firing the callback.
+        for (auto& slot : sysex_slots_) {
+            slot.bytes.resize(kSysexBufBytes);
+            ZeroMemory(&slot.hdr, sizeof(slot.hdr));
+            slot.hdr.lpData         = reinterpret_cast<LPSTR>(slot.bytes.data());
+            slot.hdr.dwBufferLength = static_cast<DWORD>(slot.bytes.size());
+            slot.hdr.dwUser         = reinterpret_cast<DWORD_PTR>(&slot);
+            if (midiInPrepareHeader(handle_, &slot.hdr, sizeof(slot.hdr))
+                    == MMSYSERR_NOERROR) {
+                midiInAddBuffer(handle_, &slot.hdr, sizeof(slot.hdr));
+            }
+        }
+
         result = midiInStart(handle_);
         if (result != MMSYSERR_NOERROR) {
             runtime::log_error("WinMIDI: could not start input (error {})", result);
+            for (auto& slot : sysex_slots_) {
+                if (slot.hdr.dwFlags & MHDR_PREPARED) {
+                    midiInUnprepareHeader(handle_, &slot.hdr, sizeof(slot.hdr));
+                }
+            }
             midiInClose(handle_);
             handle_ = nullptr;
             return false;
@@ -70,9 +103,21 @@ public:
     void close() override {
         if (handle_) {
             midiInStop(handle_);
+            // midiInReset returns any pending SysEx buffers via
+            // MIM_LONGDATA with dwBytesRecorded==0. Unprepare each
+            // header before closing the device.
             midiInReset(handle_);
+            for (auto& slot : sysex_slots_) {
+                if (slot.hdr.dwFlags & MHDR_PREPARED) {
+                    midiInUnprepareHeader(handle_, &slot.hdr, sizeof(slot.hdr));
+                }
+            }
             midiInClose(handle_);
             handle_ = nullptr;
+        }
+        for (auto& slot : sysex_slots_) {
+            slot.bytes.clear();
+            ZeroMemory(&slot.hdr, sizeof(slot.hdr));
         }
         is_open_ = false;
     }
@@ -80,32 +125,78 @@ public:
     bool is_open() const override { return is_open_; }
 
 private:
+    static constexpr int    kSysexSlots    = 4;
+    static constexpr size_t kSysexBufBytes = 4 * 1024;
+
+    struct SysexSlot {
+        MIDIHDR              hdr{};
+        std::vector<uint8_t> bytes;
+    };
+
     static void CALLBACK midi_in_callback(
         HMIDIIN, UINT msg, DWORD_PTR instance,
-        DWORD_PTR param1, DWORD_PTR param2)
+        DWORD_PTR param1, DWORD_PTR /*param2*/)
     {
-        if (msg != MIM_DATA) return;
-
         auto* self = reinterpret_cast<WinMidiInput*>(instance);
-        if (!self->callback_) return;
 
-        // param1 contains the MIDI message packed into a DWORD:
-        // low byte = status, next byte = data1, next byte = data2
-        auto status = static_cast<uint8_t>(param1 & 0xFF);
-        auto data1 = static_cast<uint8_t>((param1 >> 8) & 0xFF);
-        auto data2 = static_cast<uint8_t>((param1 >> 16) & 0xFF);
+        if (msg == MIM_DATA && self->callback_) {
+            auto status = static_cast<uint8_t>(param1 & 0xFF);
+            auto data1  = static_cast<uint8_t>((param1 >> 8) & 0xFF);
+            auto data2  = static_cast<uint8_t>((param1 >> 16) & 0xFF);
 
-        // param2 is the timestamp in milliseconds
-        MidiEvent evt;
-        evt.message = choc::midi::ShortMessage(status, data1, data2);
-        evt.timestamp = static_cast<double>(param2) / 1000.0;
+            MidiEvent evt;
+            evt.message   = choc::midi::ShortMessage(status, data1, data2);
+            evt.timestamp = self->qpc_seconds_since_open();
+            self->callback_(evt);
+            return;
+        }
 
-        self->callback_(evt);
+        if (msg == MIM_LONGDATA) {
+            auto* hdr = reinterpret_cast<LPMIDIHDR>(param1);
+            if (!hdr || hdr->dwBytesRecorded == 0) return;
+
+            if (self->sysex_callback_) {
+                std::vector<uint8_t> bytes(
+                    reinterpret_cast<const uint8_t*>(hdr->lpData),
+                    reinterpret_cast<const uint8_t*>(hdr->lpData)
+                        + hdr->dwBytesRecorded);
+                self->sysex_callback_(bytes,
+                    self->qpc_seconds_since_open());
+            }
+
+            // Re-arm the buffer for the next packet. dwBytesRecorded
+            // must be cleared first (driver populates it).
+            hdr->dwBytesRecorded = 0;
+            midiInAddBuffer(self->handle_, hdr, sizeof(*hdr));
+            return;
+        }
+
+        if (msg == MIM_LONGERROR) {
+            // Long packet was malformed — re-arm the buffer.
+            auto* hdr = reinterpret_cast<LPMIDIHDR>(param1);
+            if (hdr) {
+                hdr->dwBytesRecorded = 0;
+                midiInAddBuffer(self->handle_, hdr, sizeof(*hdr));
+            }
+        }
     }
 
-    HMIDIIN handle_ = nullptr;
-    MidiInputCallback callback_;
-    bool is_open_ = false;
+    double qpc_seconds_since_open() const {
+        if (qpc_freq_.QuadPart == 0) return 0.0;
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        const auto ticks = now.QuadPart - qpc_open_.QuadPart;
+        return static_cast<double>(ticks)
+             / static_cast<double>(qpc_freq_.QuadPart);
+    }
+
+    HMIDIIN            handle_ = nullptr;
+    MidiInputCallback  callback_;
+    MidiSysexCallback  sysex_callback_;
+    bool               is_open_ = false;
+    LARGE_INTEGER      qpc_freq_{};
+    LARGE_INTEGER      qpc_open_{};
+    SysexSlot          sysex_slots_[kSysexSlots]{};
 };
 
 // ── WinMidiOutput ────────────────────────────────────────────────────────
