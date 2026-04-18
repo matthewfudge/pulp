@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          submodules: recursive
+          submodules: false
           lfs: true
 
       - name: Bootstrap repository dependencies
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          submodules: recursive
+          submodules: false
           lfs: true
 
       - name: Bootstrap repository dependencies
@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          submodules: recursive
+          submodules: false
           lfs: true
 
       - name: Bootstrap repository dependencies
@@ -115,7 +115,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          submodules: recursive
+          submodules: false
           lfs: true
 
       - name: Install Clang 18
