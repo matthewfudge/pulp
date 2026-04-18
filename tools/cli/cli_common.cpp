@@ -1681,9 +1681,41 @@ static fs::path detect_android_cli() {
     return {};
 }
 
+// Detect mise (formerly rtx) — MIT-licensed polyglot version manager
+// (https://mise.jdx.dev). When present, doctor prefers it as the
+// install channel for JDK/Android SDK/etc. instead of brew/apt/winget,
+// so we don't add a parallel install of something the user already
+// manages through mise. See #398 for the heterogeneity policy.
+static fs::path detect_mise() {
+    std::string found = find_executable_in_path("mise");
+    if (found.empty()) found = find_executable_in_path("rtx");  // legacy name
+    return found.empty() ? fs::path{} : fs::path(found);
+}
+
 std::vector<DoctorCheck> run_doctor_android_checks() {
     std::vector<DoctorCheck> checks;
     auto sdk = detect_android_sdk_root();
+
+    // Detect mise once up-front so per-tool checks can prefer it as
+    // the install channel when present. Always reported as PASS;
+    // absence isn't a failure — it's a free upgrade some users
+    // have, others don't.
+    const auto mise = detect_mise();
+    {
+        DoctorCheck c{"mise (optional channel preference)", true, {}, {}};
+        if (!mise.empty()) {
+            c.detail = mise.string()
+                + " — `--fix` will prefer `mise use ...` over brew/apt/winget"
+                  " for JDK / cmdline-tools. Avoids parallel installs.";
+        } else {
+            c.detail =
+                "not installed — `--fix` will use brew/apt/winget. "
+                "Install mise (MIT-licensed, https://mise.jdx.dev) for "
+                "polyglot version management that coexists cleanly with "
+                "system installs: `curl https://mise.run | sh`";
+        }
+        checks.push_back(c);
+    }
 
     {
         DoctorCheck c{"Android SDK", false, {}, {}};
@@ -1780,24 +1812,37 @@ std::vector<DoctorCheck> run_doctor_android_checks() {
             c.detail = ver;
         } else {
             c.detail = ver.empty() ? "java not found" : (ver + " (need 17+)");
+
+            // Prefer mise when present — it co-exists with system
+            // installs cleanly via per-shim resolution rather than
+            // shadowing $PATH.
+            if (!mise.empty()) {
+                c.fix = "mise use --global jdk@21  (preferred — co-exists with system installs)";
+                c.fix_cmd = "mise use --global jdk@21";
+            } else {
 #if defined(__APPLE__)
-            c.fix = "brew install openjdk@21 && "
-                    "sudo ln -sfn $(brew --prefix)/opt/openjdk@21/libexec/openjdk.jdk "
-                    "/Library/Java/JavaVirtualMachines/openjdk-21.jdk";
-            c.fix_cmd = "brew install openjdk@21";
+                c.fix = "brew install openjdk@21 && "
+                        "sudo ln -sfn $(brew --prefix)/opt/openjdk@21/libexec/openjdk.jdk "
+                        "/Library/Java/JavaVirtualMachines/openjdk-21.jdk\n"
+                        "  Or install mise first for cleaner version management:\n"
+                        "    curl https://mise.run | sh && mise use --global jdk@21";
+                c.fix_cmd = "brew install openjdk@21";
 #elif defined(__linux__)
-            c.fix = "Install OpenJDK 21 via your distro:\n"
-                    "    sudo apt install -y openjdk-21-jdk            # Debian/Ubuntu\n"
-                    "    sudo dnf install -y java-21-openjdk-devel     # Fedora/RHEL";
-            c.fix_cmd = "bash -c 'if command -v apt >/dev/null; then "
-                        "sudo apt update && sudo apt install -y openjdk-21-jdk; "
-                        "elif command -v dnf >/dev/null; then "
-                        "sudo dnf install -y java-21-openjdk-devel; "
-                        "else echo \"No supported package manager found\"; exit 1; fi'";
+                c.fix = "Install OpenJDK 21 via your distro:\n"
+                        "    sudo apt install -y openjdk-21-jdk            # Debian/Ubuntu\n"
+                        "    sudo dnf install -y java-21-openjdk-devel     # Fedora/RHEL\n"
+                        "  Or install mise first: curl https://mise.run | sh && mise use --global jdk@21";
+                c.fix_cmd = "bash -c 'if command -v apt >/dev/null; then "
+                            "sudo apt update && sudo apt install -y openjdk-21-jdk; "
+                            "elif command -v dnf >/dev/null; then "
+                            "sudo dnf install -y java-21-openjdk-devel; "
+                            "else echo \"No supported package manager found\"; exit 1; fi'";
 #elif defined(_WIN32)
-            c.fix = "winget install --silent --id Microsoft.OpenJDK.21";
-            c.fix_cmd = "winget install --silent --id Microsoft.OpenJDK.21";
+                c.fix = "winget install --silent --id Microsoft.OpenJDK.21\n"
+                        "  Or install mise first: irm https://mise.run | iex; mise use --global jdk@21";
+                c.fix_cmd = "winget install --silent --id Microsoft.OpenJDK.21";
 #endif
+            }
         }
         checks.push_back(c);
     }

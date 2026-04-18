@@ -1,0 +1,31 @@
+# Pulp's host-tool pins for mise (https://mise.jdx.dev) users.
+#
+# Optional — Pulp's build works with brew / apt / winget / system
+# installs of these tools as long as the version constraints below
+# are satisfied. This file is for contributors who already use mise
+# and want a one-command setup that doesn't shadow other projects'
+# tool versions.
+#
+# Usage:
+#   mise install         # install everything pinned here under mise's prefix
+#   mise current         # show what mise resolved for this directory
+#
+# Non-mise users: ignore this file. `pulp doctor` checks the same
+# version constraints against whatever is on PATH.
+
+[tools]
+# Build system (cmake_minimum_required is 3.24 in Pulp's CMakeLists.txt).
+cmake  = "3.30"
+ninja  = "latest"
+
+# Python is used by tools/scripts/* (regenerate_changelog, package_cli,
+# version_bump_check, etc.).
+python = "3.12"
+
+# JDK 17+ is required by Android Gradle Plugin 8 (current). AGP 9 will
+# need JDK 21 — we pin 21 now so the AGP-9 bump (Google's published
+# Android Skill) is friction-free when it lands.
+java   = "openjdk-21"
+
+# Node is used for design-tool integrations and JS-scripted UI dev.
+node   = "lts"
