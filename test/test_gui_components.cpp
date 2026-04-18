@@ -73,7 +73,7 @@ TEST_CASE("TableListBox column management", "[gui][table]") {
 
 // ── Toolbar ─────────────────────────────────────────────────────────────
 
-TEST_CASE("Toolbar add items", "[gui][toolbar][!mayfail][!mayfail]") {
+TEST_CASE("Toolbar add items", "[gui][toolbar]") {
     Toolbar toolbar;
     REQUIRE(toolbar.item_count() == 0);
 
@@ -85,7 +85,7 @@ TEST_CASE("Toolbar add items", "[gui][toolbar][!mayfail][!mayfail]") {
     REQUIRE(toolbar.item_count() == 4);
 }
 
-TEST_CASE("Toolbar toggle state", "[gui][toolbar][!mayfail]") {
+TEST_CASE("Toolbar toggle state", "[gui][toolbar]") {
     Toolbar toolbar;
     toolbar.add_toggle("mute", "Mute", [](bool) {});
 
@@ -94,7 +94,7 @@ TEST_CASE("Toolbar toggle state", "[gui][toolbar][!mayfail]") {
     REQUIRE(toolbar.is_toggled("mute"));
 }
 
-TEST_CASE("Toolbar enable/disable", "[gui][toolbar][!mayfail]") {
+TEST_CASE("Toolbar enable/disable", "[gui][toolbar]") {
     Toolbar toolbar;
     bool clicked = false;
     toolbar.add_button("save", "Save", [&]() { clicked = true; });
@@ -103,7 +103,7 @@ TEST_CASE("Toolbar enable/disable", "[gui][toolbar][!mayfail]") {
     // Disabled items shouldn't trigger (tested via on_mouse_down in real usage)
 }
 
-TEST_CASE("Toolbar remove item", "[gui][toolbar][!mayfail]") {
+TEST_CASE("Toolbar remove item", "[gui][toolbar]") {
     Toolbar toolbar;
     toolbar.add_button("a", "A", []() {});
     toolbar.add_button("b", "B", []() {});

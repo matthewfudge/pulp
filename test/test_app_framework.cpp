@@ -153,10 +153,10 @@ TEST_CASE("MenuBar set_key_mapping populates from commands", "[view][menu]") {
     REQUIRE(menu.menus().size() == 2);
 }
 
-// ── Toolbar ──────────────────────────────────────────────────────────────
+// ── NativeToolbar ────────────────────────────────────────────────────────
 
-TEST_CASE("Toolbar add items and separator", "[view][toolbar]") {
-    Toolbar tb;
+TEST_CASE("NativeToolbar add items and separator", "[view][toolbar]") {
+    NativeToolbar tb;
     tb.add_item({"play", "Play", "play.fill", [] {}});
     tb.add_separator();
     tb.add_item({"stop", "Stop", "stop.fill", [] {}});
