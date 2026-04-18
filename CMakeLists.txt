@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Pulp
-    VERSION 0.12.0
+    VERSION 0.18.0
     DESCRIPTION "Cross-platform audio plugin and application framework"
     HOMEPAGE_URL "https://github.com/danielraffel/pulp"
     LANGUAGES CXX C
@@ -74,8 +74,12 @@ if(WIN32)
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
-# ── Sanitizers (optional) ──────────────────────────────────────────────────
+# ── Instrumentation (optional) ─────────────────────────────────────────────
+# Sanitizers via PULP_SANITIZER=address|thread|undefined|memory|realtime
+# Coverage via PULP_ENABLE_COVERAGE=ON (Clang only, mutually exclusive
+# with PULP_SANITIZER).
 include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/Sanitizers.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpInstrumentation.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpAAX.cmake)
 pulp_configure_aax_sdk()
 
