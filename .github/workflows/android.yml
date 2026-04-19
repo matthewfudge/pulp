@@ -106,69 +106,128 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
 
-  # Emulator test — only on macOS (KVM not available on GitHub Windows runners)
-  # Disabled until emulator CI infrastructure is set up (see #77).
-  # The emulator test requires GPU support (Dawn/Vulkan) which CI runners
-  # don't have, causing a guaranteed 20-minute timeout on every PR.
-  android-emulator-test:
-    if: false  # Disabled — see issue #77
-    runs-on: macos-latest
+  # Emulator smoke — minimal "does the native bridge load and the activity
+  # not crash" check. Deliberately DOES NOT render — the JNI_OnLoad log
+  # fires from System.loadLibrary before any GPU surface exists, so we
+  # can verify the native bridge is healthy without a working Dawn/Vulkan
+  # stack. Full rendering-path smoke waits on dedicated emulator CI infra
+  # with GPU support (#77).
+  #
+  # Uses reactivecircus/android-emulator-runner — the standard action that
+  # boots an emulator with KVM acceleration on ubuntu-latest and handles
+  # the disk-state snapshot for fast boot. We run x86_64 + swiftshader so
+  # nothing requires a real GPU.
+  #
+  # Closes the Android half of #14 (generated Android app end-to-end smoke)
+  # and #33 (mobile emulator/simulator CI smoke). iOS simulator smoke
+  # is a separate slice.
+  android-emulator-smoke:
+    name: Android emulator smoke (native-init)
+    runs-on: ubuntu-latest
     needs: android-build
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: false
 
+      - name: Enable KVM group perms
+        # reactivecircus/android-emulator-runner documents this as a
+        # required step on ubuntu-latest for its hardware-accel path.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK and emulator
-        run: |
-          sdkmanager "ndk;30.0.14904198"
-          sdkmanager "system-images;android-34;google_apis;arm64-v8a"
-          sdkmanager "emulator"
-
       - name: Download APK
         uses: actions/download-artifact@v5
         with:
+          # android-build produces one artifact per OS matrix entry;
+          # macos-latest APK includes arm64-v8a + x86_64 ABIs and is
+          # the authoritative artifact for cross-ABI installs.
           name: pulp-android-macos-latest
+          path: apk
 
-      - name: Create AVD and boot emulator
-        run: |
-          echo "no" | avdmanager create avd -n pulp-ci -k "system-images;android-34;google_apis;arm64-v8a" --force
-          $ANDROID_HOME/emulator/emulator -avd pulp-ci -no-window -no-audio -no-boot-anim &
-          adb wait-for-device
-          # Wait for boot
-          for i in $(seq 1 60); do
-            BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            [ "$BOOT" = "1" ] && echo "Emulator booted" && break
-            sleep 2
-          done
+      - name: Run emulator smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: >-
+            -no-window -no-audio -no-snapshot-save -no-boot-anim
+            -gpu swiftshader_indirect -camera-back none
+          disable-animations: true
+          script: |
+            set -euo pipefail
 
-      - name: Install and launch
-        run: |
-          adb install app-debug.apk
-          adb shell am start -n com.pulp.app/com.pulp.PulpActivity
-          sleep 5
+            APK="$(find apk -name 'app-debug.apk' | head -1)"
+            if [ -z "$APK" ]; then
+              echo "APK not found under apk/"
+              find apk -type f
+              exit 1
+            fi
+            echo "Installing $APK"
+            adb install -r "$APK"
 
-      - name: Verify JNI bridge initialization
-        run: |
-          adb logcat -d -s Pulp:V | tee /tmp/pulp-logcat.txt
-          if grep -q "JNI_OnLoad: Pulp native bridge initialized" /tmp/pulp-logcat.txt; then
-            echo "✅ JNI bridge initialized successfully"
-          else
-            echo "❌ JNI bridge did not initialize"
-            cat /tmp/pulp-logcat.txt
-            exit 1
-          fi
+            # Start logcat capture in the background pinned to our tag
+            # (plus any *:E errors so a hard crash elsewhere surfaces).
+            adb logcat -c
+            adb logcat -s Pulp:V '*:E' > /tmp/pulp-logcat.txt &
+            LOGCAT_PID=$!
 
-      - name: Kill emulator
+            echo "Launching PulpActivity"
+            adb shell am start -n com.pulp/com.pulp.PulpActivity
+
+            # Poll for the JNI-init log (30s budget). The "initialized"
+            # line fires from JNI_OnLoad which runs on System.loadLibrary
+            # inside PulpApplication.onCreate — well before any rendering
+            # or foreground service startup, so no GPU/Vulkan needed.
+            ok=0
+            for i in $(seq 1 30); do
+              if grep -q "JNI_OnLoad: Pulp native bridge initialized" /tmp/pulp-logcat.txt; then
+                ok=1
+                break
+              fi
+              sleep 1
+            done
+
+            # Hold 5 more seconds to catch a late crash (SIGABRT /
+            # native abort from secondary init). A pass requires BOTH
+            # the init log AND the process still being alive.
+            sleep 5
+
+            echo "--- activity process state ---"
+            adb shell ps -A | grep com.pulp || echo "  (no com.pulp process)"
+            echo "--- logcat tail ---"
+            tail -80 /tmp/pulp-logcat.txt || true
+
+            kill $LOGCAT_PID 2>/dev/null || true
+
+            if [ "$ok" -ne 1 ]; then
+              echo "JNI bridge did not initialize within 30s — FAIL"
+              exit 1
+            fi
+            if ! adb shell ps -A | grep -q com.pulp; then
+              echo "com.pulp process died after init — FAIL"
+              exit 1
+            fi
+            echo "Android native-init smoke PASSED"
+
+      - name: Upload emulator diagnostic logs
         if: always()
-        run: adb emu kill 2>/dev/null || true
+        uses: actions/upload-artifact@v5
+        with:
+          name: android-emulator-smoke-logs
+          path: |
+            /tmp/pulp-logcat.txt
+          retention-days: 7
+          if-no-files-found: ignore
