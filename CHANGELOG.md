@@ -8,9 +8,46 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0210"></a>
-## [0.22.0]
+<a id="v0220"></a>
+## [0.22.0] - 2026-04-20
 
+- audio(android): wire Oboe input-stream frame read (#244) ([#478](https://github.com/danielraffel/pulp/pull/478))
+- fix(docs): guard PagefindUI init against missing bundle (local preview) ([#475](https://github.com/danielraffel/pulp/pull/475))
+- ci: post-merge fixes to orphan/deps/ruleset drift workflows (P1 + 3×P2) ([#477](https://github.com/danielraffel/pulp/pull/477))
+- test(env): static_assert macOS memory-pressure mask includes NORMAL (#466 gap) ([#476](https://github.com/danielraffel/pulp/pull/476))
+- ci: skip RTSan selector resolution outside workflow_dispatch (#438 P2 / #424) ([#464](https://github.com/danielraffel/pulp/pull/464))
+- ci: ruleset-as-code for main branch protection (#462) ([#471](https://github.com/danielraffel/pulp/pull/471))
+- docs: defer pulp report bug guidance until CLI ships (#438 P2 / #435) ([#458](https://github.com/danielraffel/pulp/pull/458))
+- fix(env): include NORMAL in macOS memory-pressure source mask (#438 P2 / #404) ([#466](https://github.com/danielraffel/pulp/pull/466))
+- test(cli): bump pulp doctor android|ios timeout to 90s (flake fix) ([#474](https://github.com/danielraffel/pulp/pull/474))
+- fix(midi): Win MIDI close() guards SysEx re-queue against shutdown race (#438 P1 / #388) ([#457](https://github.com/danielraffel/pulp/pull/457))
+- ci: weekly orphan-branch sweep workflow (#463) ([#469](https://github.com/danielraffel/pulp/pull/469))
+- ci: weekly dependency drift-check workflow (#467) ([#470](https://github.com/danielraffel/pulp/pull/470))
+- fix(docs): Pagefind results drawer as anchored overlay (#472) ([#473](https://github.com/danielraffel/pulp/pull/473))
+- docs: keep ALSA limitation scoped to ALSA behavior (#438 P2 / #437) ([#465](https://github.com/danielraffel/pulp/pull/465))
+- docs: restore Pagefind search in docs site (recover feature/doc-search) ([#461](https://github.com/danielraffel/pulp/pull/461))
+- fix(doctor): quote adb + emulator fallback paths (#438 P2 / #442) ([#460](https://github.com/danielraffel/pulp/pull/460))
+- fix(android): convert insets to CSS units + distinguish landscape sides (#438 P2 / #443) ([#459](https://github.com/danielraffel/pulp/pull/459))
+- fix(audio): ALSA create_device distinguishes open-fail from 0-channels (#438 P1 / #387) ([#456](https://github.com/danielraffel/pulp/pull/456))
+- fix(audio): WASAPI capture uses engine stride, not actual_channels (#438 P1 / #386) ([#455](https://github.com/danielraffel/pulp/pull/455))
+- fix(aax): copy sysex in bypass MIDI-thru path (#438 P2 / #408) ([#454](https://github.com/danielraffel/pulp/pull/454))
+- fix(audio): ALSA capture drops before join to unblock snd_pcm_readi (#438 P1 / #387) ([#453](https://github.com/danielraffel/pulp/pull/453))
+- fix(platform): use TARGET_OS_IPHONE for iOS observer dispatch (#438 P1 / #445) ([#451](https://github.com/danielraffel/pulp/pull/451))
+- fix(events): Timer::start() is idempotent when already active (#438 P1 / #428) ([#450](https://github.com/danielraffel/pulp/pull/450))
+- fix(release): search real FetchContent roots + fail on missing wgpu (#438 P1 / #397) ([#452](https://github.com/danielraffel/pulp/pull/452))
+- fix(platform): Linux env observer stops + joins poll thread on teardown (#438 P1 / #444) ([#449](https://github.com/danielraffel/pulp/pull/449))
+- ci: preserve fail-fast semantics in retry composite action (#438 P1 / #432) ([#448](https://github.com/danielraffel/pulp/pull/448))
+- fix(platform): prevent Environment listener callback after token reset (#438 P1 / #403) ([#447](https://github.com/danielraffel/pulp/pull/447))
+- platform(win): WM_ACTIVATEAPP + registry-watch observers for Environment API (#342) ([#446](https://github.com/danielraffel/pulp/pull/446))
+- test(view): pin ComboBox overlay-click contract (regression) ([#402](https://github.com/danielraffel/pulp/pull/402))
+- platform(ios): scene + UITraitCollection observers for Environment API (#342) ([#445](https://github.com/danielraffel/pulp/pull/445))
+- fix(midi): ALSA sysex accumulator recovers from aborted F0 (#438 P2 / #406) ([#440](https://github.com/danielraffel/pulp/pull/440))
+- platform(android): Kotlin plumbing for orientation + safe-area + keyboard env (#342) ([#443](https://github.com/danielraffel/pulp/pull/443))
+- platform(linux): X11/gsettings/proc env adapter for Environment API (#342) ([#444](https://github.com/danielraffel/pulp/pull/444))
+- fix(doctor): optional checks don't drive exit code + Windows .exe suffixes (#438 P1+P2 / #389) ([#442](https://github.com/danielraffel/pulp/pull/442))
+- ci: lift runner resolver, route sanitizers via repo vars (#412 step 6) ([#424](https://github.com/danielraffel/pulp/pull/424))
+
+<a id="v0210"></a>
 ## [0.21.0] - 2026-04-19
 
 - platform: unified Environment API for display/safe-area/keyboard/scheme/lifecycle/memory (#342) ([#403](https://github.com/danielraffel/pulp/pull/403))
@@ -40,8 +77,6 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - ci(sanitizers): skip private planning submodule (unblock all PRs) ([#401](https://github.com/danielraffel/pulp/pull/401))
 
 <a id="v0200"></a>
-## [0.21.0]
-
 ## [0.20.0] - 2026-04-18
 
 - midi(win): MIM_LONGDATA SysEx + QPC timestamps (#19 / #245 partial) ([#388](https://github.com/danielraffel/pulp/pull/388))
@@ -356,6 +391,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.22.0]: https://github.com/danielraffel/pulp/releases/tag/v0.22.0
 [0.21.0]: https://github.com/danielraffel/pulp/releases/tag/v0.21.0
 [0.20.0]: https://github.com/danielraffel/pulp/releases/tag/v0.20.0
 [0.19.0]: https://github.com/danielraffel/pulp/releases/tag/v0.19.0
