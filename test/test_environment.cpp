@@ -161,6 +161,12 @@ TEST_CASE("Environment: memory pressure transitions", "[environment]") {
     REQUIRE(observed == 1);
 }
 
+// Note: this case exercises the listener contract (diff is emitted
+// on normal-recovery) via inject_for_test, which bypasses the platform
+// dispatch source. The platform-side mask that makes that recovery
+// event actually fire on macOS is guarded by static_assert in
+// core/platform/platform/mac/environment_mac.mm — see #466 follow-up
+// for the layered coverage decision.
 TEST_CASE("Environment: memory pressure recovery to normal fires diff",
           "[environment][issue-404]") {
     Environment::reset_for_test();
