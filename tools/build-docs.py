@@ -126,7 +126,7 @@ def md_to_html(md: str) -> str:
             level = len(m.group(1))
             text = m.group(2)
             slug = re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
-            out.append(f'<h{level} id="{slug}">{inline(text)} <a class="permalink" href="#{slug}">#</a></h{level}>')
+            out.append(f'<h{level} id="{slug}">{inline(text)} <a class="permalink" href="#{slug}" data-pagefind-ignore>#</a></h{level}>')
             i += 1
             continue
 
@@ -529,8 +529,31 @@ h4:hover .permalink {{ opacity: 0.6; }}
   .content h2 {{ font-size: 18px; }}
   .content table {{ font-size: 12px; display: block; overflow-x: auto; }}
   .content pre {{ font-size: 12px; }}
+  .header-search {{ max-width: none; margin: 0 8px; }}
+}}
+.header-search {{
+  flex: 1;
+  max-width: 360px;
+  margin: 0 16px;
+}}
+.header-search .pagefind-ui {{
+  --pagefind-ui-scale: 0.7;
+  --pagefind-ui-primary: #e94560;
+  --pagefind-ui-text: #e0e0e0;
+  --pagefind-ui-background: #0d1117;
+  --pagefind-ui-border: #2a2a4a;
+  --pagefind-ui-tag: #0f3460;
+  --pagefind-ui-border-width: 1px;
+  --pagefind-ui-border-radius: 6px;
+  --pagefind-ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+.pagefind-ui--reset mark,
+.pagefind-ui mark {{
+  background: #e94560;
+  color: #ffffff;
 }}
 </style>
+<link href="{base_url}pagefind/pagefind-ui.css" rel="stylesheet">
 </head>
 <body>
 <header class="header">
@@ -540,6 +563,9 @@ h4:hover .permalink {{ opacity: 0.6; }}
     <span class="branch-badge">{html.escape(branch)}</span>
     <span class="alpha-badge">Alpha — under active development</span>
   </div>
+  <div class="header-search">
+    <div id="search"></div>
+  </div>
   <div class="header-right">
     <a href="https://github.com/danielraffel/pulp">GitHub</a>
   </div>
@@ -547,9 +573,17 @@ h4:hover .permalink {{ opacity: 0.6; }}
 <nav class="sidebar">
 {nav}
 </nav>
-<main class="content">
+<main class="content" data-pagefind-body data-pagefind-meta="title:{html.escape(title)}">
 {content}
 </main>
+<script src="{base_url}pagefind/pagefind-ui.js"></script>
+<script>
+new PagefindUI({{
+  element: "#search",
+  showSubResults: true,
+  showImages: false
+}});
+</script>
 <script>
 // Persist sidebar scroll position across page loads
 (function() {{

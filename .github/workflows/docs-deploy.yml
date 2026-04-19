@@ -58,6 +58,17 @@ jobs:
             echo "API docs merged into site at /api/"
           fi
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Pagefind search index
+        # Pagefind crawls build/site and writes `pagefind/` into it —
+        # the client-side search widget wired into tools/build-docs.py
+        # loads pagefind-ui.{css,js} from `{base_url}pagefind/`.
+        run: npx --yes pagefind --site build/site
+
       - name: Copy install scripts
         run: |
           # Install scripts accessible at www.generouscorp.com/pulp/install.sh
