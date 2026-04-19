@@ -125,7 +125,7 @@ jobs:
     name: Android emulator smoke (native-init)
     runs-on: ubuntu-latest
     needs: android-build
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v5
@@ -145,6 +145,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK
+        # Without this the action's auto-installed SDK can't find the
+        # platform-tools adb, producing the "Unable to connect to adb
+        # daemon on port: 5037" failure seen on first deploy. Explicit
+        # setup-android gives a stable toolchain before the action runs.
+        uses: android-actions/setup-android@v3
+
       - name: Download APK
         uses: actions/download-artifact@v5
         with:
@@ -157,14 +164,20 @@ jobs:
       - name: Run emulator smoke
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          # API 30 (Android 11) is the most-tested combination on the
+          # action's CI matrix — API 34 emulator images are sometimes
+          # slow to boot on ubuntu runners. Our minSdk is lower than
+          # this anyway; 30 just validates the native bridge loads.
+          api-level: 30
           target: google_apis
           arch: x86_64
           profile: pixel_6
           force-avd-creation: false
+          emulator-boot-timeout: 900
           emulator-options: >-
             -no-window -no-audio -no-snapshot-save -no-boot-anim
             -gpu swiftshader_indirect -camera-back none
+            -accel auto
           disable-animations: true
           script: |
             set -euo pipefail
