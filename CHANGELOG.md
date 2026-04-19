@@ -8,9 +8,15 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0220"></a>
-## [0.23.0]
+<a id="v0230"></a>
+## [0.23.0] - 2026-04-20
 
+- audio: cross-platform AudioFocusRegistry + Android JNI wiring (#334) ([#482](https://github.com/danielraffel/pulp/pull/482))
+- ci: skip close-path on already-closed trackers (#475 Codex P2 × 2) ([#481](https://github.com/danielraffel/pulp/pull/481))
+- audio(android): fix input-buffer sizing + race on stream start (#478 Codex P1/P2) ([#480](https://github.com/danielraffel/pulp/pull/480))
+- test(runtime): fix SpscQueue hammer shutdown race (6× flake today) ([#479](https://github.com/danielraffel/pulp/pull/479))
+
+<a id="v0220"></a>
 ## [0.22.0] - 2026-04-20
 
 - audio(android): wire Oboe input-stream frame read (#244) ([#478](https://github.com/danielraffel/pulp/pull/478))
@@ -393,6 +399,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.23.0]: https://github.com/danielraffel/pulp/releases/tag/v0.23.0
 [0.22.0]: https://github.com/danielraffel/pulp/releases/tag/v0.22.0
 [0.21.0]: https://github.com/danielraffel/pulp/releases/tag/v0.21.0
 [0.20.0]: https://github.com/danielraffel/pulp/releases/tag/v0.20.0
