@@ -105,14 +105,19 @@ class PulpAudioController(private val context: Context) {
         // unbind so the service can be reaped when no other clients
         // hold it.
         context.startService(intent)
-        if (bound) {
-            try {
-                context.unbindService(connection)
-            } catch (e: IllegalArgumentException) {
-                // Already unbound — fine.
-            }
-            bound = false
+        // #500: Always attempt unbindService when running was true, not
+        // only when `bound` flipped true. `bound` is set by the async
+        // onServiceConnected callback; a start→stop sequence that races
+        // faster than the system dispatches the connection callback
+        // would leak the binding forever. unbindService throws
+        // IllegalArgumentException if no matching registration exists —
+        // catch-and-ignore is the documented safe pattern.
+        try {
+            context.unbindService(connection)
+        } catch (e: IllegalArgumentException) {
+            // Already unbound, or bind never registered — fine.
         }
+        bound = false
         service = null
         Log.i(PulpApplication.LOG_TAG,
             "PulpAudioController: stop requested")
