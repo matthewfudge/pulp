@@ -1127,6 +1127,21 @@ if(TARGET PulpGain_CLAP)
 endif()
 catch_discover_tests(pulp-test-host)
 
+# Host regression coverage (#52) — end-to-end scan / load / process /
+# unload lifecycle, scanner failure modes (moduleinfo.json + manifest.ttl),
+# state round-trip, and hot-reload race-cleanliness. Separate binary so a
+# failing regression case fingers the guilty surface without clouding
+# pulp-test-host's scope.
+add_executable(pulp-test-host-regression test_host_regression.cpp)
+target_link_libraries(pulp-test-host-regression
+    PRIVATE pulp::host Catch2::Catch2WithMain)
+if(TARGET PulpGain_CLAP)
+    target_compile_definitions(pulp-test-host-regression PRIVATE
+        PULP_TEST_CLAP_PATH="${CMAKE_BINARY_DIR}/CLAP/PulpGain.clap")
+    add_dependencies(pulp-test-host-regression PulpGain_CLAP)
+endif()
+catch_discover_tests(pulp-test-host-regression)
+
 # GraphSerializer round-trip tests
 add_executable(pulp-test-graph-serializer test_graph_serializer.cpp)
 target_link_libraries(pulp-test-graph-serializer PRIVATE pulp::host Catch2::Catch2WithMain)
