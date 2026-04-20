@@ -10,6 +10,7 @@
 
 #include "../tools/cli/version_diag.hpp"
 
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
