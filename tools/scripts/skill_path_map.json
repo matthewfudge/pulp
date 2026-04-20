@@ -170,6 +170,16 @@
         "tools/scripts/threejs*"
       ]
     },
+    "upgrade": {
+      "paths": [
+        "tools/cli/cmd_upgrade.cpp",
+        "tools/cli/migration_index.hpp",
+        "tools/cli/migration_runtime.cpp",
+        "tools/scripts/build_migration_index.py",
+        "docs/migrations/**",
+        ".claude/commands/upgrade.md"
+      ]
+    },
     "view-bridge": {
       "paths": [
         "core/format/src/view_bridge.cpp",

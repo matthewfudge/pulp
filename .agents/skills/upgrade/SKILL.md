@@ -1,0 +1,251 @@
+---
+name: upgrade
+description: |
+  Guide users through `pulp upgrade` — discover new CLI releases, interpret
+  migration notes for the hop they're performing, and apply breaking-change
+  fixes (CMake macro renames, API surface changes, config file moves).
+  Handles "upgrade pulp", "what's new", "migrate my project", "show
+  breaking changes", and the `/upgrade` slash command. Pairs with the
+  embedded migration index shipped in the CLI binary (release-discovery
+  Slice 3, #571).
+requires:
+  tools:
+    - pulp
+---
+
+# upgrade
+
+## When this skill applies
+
+- User asks to upgrade, update, or bump the Pulp CLI.
+- User runs `/upgrade` in Claude Code.
+- User asks "what changed", "what's new", "what breaks", or "how do I
+  migrate" after bumping an SDK / CLI version.
+- A `pulp doctor --versions` run surfaces CLI-vs-SDK skew the user wants
+  to resolve.
+
+This skill does NOT cover:
+
+- Bumping the **project's** pinned SDK version — that's the `cli-maintenance`
+  skill + `pulp version bump`.
+- Shipping a PR from a dev branch — that's the `ci` skill via `pulp pr`.
+- Updating the Shipyard pin — that's the Dependency Update Workflow in
+  `CLAUDE.md` (runs through `tools/deps/audit.py`).
+
+## Mental model
+
+Three independently-versioned surfaces, two of which this skill acts on:
+
+| Surface | Source of truth | How to upgrade |
+|---------|----------------|----------------|
+| Pulp CLI / SDK | `~/.pulp/bin/pulp` (installed binary) | `pulp upgrade` |
+| Claude plugin | `.claude-plugin/plugin.json` | `/plugin install pulp` in Claude Code |
+| Shipyard pin | `tools/install-shipyard.sh` | Dependency Update Workflow (out of scope) |
+
+`pulp upgrade` downloads the new CLI binary and replaces the installed
+one. `pulp upgrade --notes` prints migration notes for the hop without
+downloading anything. `pulp upgrade --notes --json` emits the same data
+as a stable-shape JSON document for agent consumption (the `/upgrade`
+slash command is the primary consumer).
+
+## Discovery workflow (`pulp` on PATH is assumed)
+
+The skill shells out to `pulp` — no hardcoded paths, no env-var
+requirement. If `pulp` is not on PATH, tell the user to install first
+(`curl -fsSL https://raw.githubusercontent.com/danielraffel/pulp/main/install.sh | sh`)
+and stop.
+
+1. **Identify the active plugin directory** (so the skill can resolve
+   `docs/migrations/` for full-body lookups):
+
+   ```bash
+   pulp doctor --versions --json
+   ```
+
+   The JSON output contains `plugin_json_path` — walk up two levels
+   (`dirname $(dirname $plugin_json_path)`) to reach the plugin root.
+
+2. **Report the version skew at a glance** so the user sees where they are
+   before deciding what to do. The JSON response also includes `cli`,
+   `plugin`, `project_sdk`, and `findings[]` — surface those in a
+   compact table.
+
+3. **Fetch applicable migration notes** for the current hop:
+
+   ```bash
+   pulp upgrade --notes --json                  # defaults: from = installed CLI, to = cached latest
+   pulp upgrade --notes --json --from X --to Y  # explicit hop
+   ```
+
+   Stable-shape output (do NOT rename these keys — they are a public
+   surface the skill depends on, see `tools/cli/migration_index.hpp`):
+
+   ```json
+   {
+     "from": "0.27.0",
+     "to":   "0.30.0",
+     "entries": [
+       {
+         "version":   "0.28.0",
+         "breaking":  false,
+         "summary":   "…",
+         "applies_if":"cli_version_from < 0.28.0 && cli_version_to >= 0.28.0",
+         "body":      "…"
+       }
+     ]
+   }
+   ```
+
+4. **Render the notes inline in the chat**. For each entry:
+   - If `breaking == true`, prefix with a loud tag (e.g. "BREAKING").
+   - Print the `summary` on the first line.
+   - Include the `body` verbatim — it's already Markdown.
+
+## Interpreting migration notes
+
+Each note describes one release's visible behaviour shift. Read them
+like a pro-developer changelog, not a marketing blurb.
+
+### Breaking vs non-breaking
+
+- `breaking: true` — requires user action: code change, config edit,
+  habit change. Do not skip. Offer to grep the project for the affected
+  symbols as a follow-up.
+- `breaking: false` — informational. The upgrade works without
+  intervention, but something worth knowing has changed.
+
+### `applies_if` expressions
+
+The filter runs in the CLI — by the time the skill receives JSON,
+non-applicable entries are already stripped. You'll only see entries
+whose `applies_if` matched the hop. Still: print the expression alongside
+the note so a curious user can verify why it applied.
+
+Grammar: Boolean combinations (`&&`, `||`, parentheses) over comparisons
+of `cli_version_from` / `cli_version_to` against a literal semver. Six
+operators: `<`, `<=`, `>`, `>=`, `==`, `!=`. See
+`docs/migrations/README.md` for full details.
+
+## Common breaking-change patterns
+
+These are the patterns that have shown up in Pulp migration notes. When
+you spot one, suggest the exact grep / replacement to the user instead
+of leaving them to figure it out from a prose paragraph.
+
+### CMake macro renames
+
+**Pattern.** A `pulp_add_*` function in `tools/cmake/Pulp*.cmake` is
+renamed, folded into `pulp_add_plugin(FORMATS ...)`, or split out of
+one macro into several.
+
+**What to do.**
+
+```bash
+# Find every call site.
+grep -rn "pulp_add_ios_auv3\|pulp_add_auv3\|pulp_add_vst3_only" .
+```
+
+Propose the replacement form explicitly; do NOT rewrite the user's
+CMakeLists.txt without confirmation. For unified-form migrations, show
+a diff like:
+
+```diff
+- pulp_add_ios_auv3(MyPlugin …)
++ pulp_add_plugin(MyPlugin FORMATS AUv3 …)
+```
+
+### API surface changes
+
+**Pattern.** A public C++ header under `core/*/include/pulp/**` adds,
+removes, or renames a symbol that processors / view code use.
+
+**What to do.**
+
+```bash
+# Find call sites of the old symbol.
+grep -rn "OldProcessorAPI\|deprecated_function_name" .
+```
+
+Read the migration body for the replacement signature. If the change is
+a deprecation (old API still works, emits a warning), flag that —
+teams may want to migrate at their own pace.
+
+### Config file / path moves
+
+**Pattern.** A file Pulp reads (e.g. `~/.pulp/config.toml`,
+`pulp.toml`, `.pulp/projects.json`) changes location or key shape.
+
+**What to do.** Most config moves are handled by the CLI on first run
+(it migrates the old location to the new one and prints a one-line
+notice). The note tells you whether manual action is needed. If it is,
+quote the exact `pulp config set` / `pulp config unset` commands from
+the body.
+
+### CLI flag / subcommand changes
+
+**Pattern.** A subcommand is renamed (e.g. `pulp check` → `pulp doctor`),
+a flag changes shape (`--sign-key` → `--ed25519-key`), or an exit code
+semantic changes (silent-success → loud-failure as in #295 / #560).
+
+**What to do.** If the user has CI scripts (`ci/`, `.github/workflows`,
+`tools/local-ci/`, team-specific shell scripts), grep those for the
+old invocation first — those are the scripts that'll silently break.
+
+```bash
+grep -rn "pulp <old-command>\|--<old-flag>" ci/ .github/ tools/ || true
+```
+
+## Bypass trailers
+
+Slice 4 itself doesn't add new bypass trailers — it consumes Slice 3's.
+But users will ask about trailers around upgrade-triggered PRs, so keep
+the syntax handy (full table in `CLAUDE.md` → "Versioning & Skill-Sync
+Policy"):
+
+| Gate | Trailer (tip commit only, NEVER PR body) |
+|------|-------------------------------------------|
+| Version bump | `Version-Bump: <surface>=<patch\|minor\|major\|skip> reason="..."` |
+| Skill update | `Skill-Update: skip skill=<name> reason="..."` |
+| Auto-release | `Release: skip reason="..."` |
+
+Trailer blocks must be **contiguous** — no blank lines between
+trailers, or `git interpret-trailers --parse` stops reading. When
+amending, rewrite the whole block, don't append.
+
+## Decision tree (used by the `/upgrade` slash command)
+
+```
+pulp doctor --versions --json   → parse cli / plugin / project_sdk / findings
+pulp upgrade --notes --json     → parse entries[]
+
+present table:  CLI   vX.Y.Z → vA.B.C    (<hop>)
+                plugin vP.Q.R → vP'.Q'.R' (if drift)
+                project SDK vS.T.U  (skew warn from findings)
+
+list applicable notes (inline, breaking flagged)
+
+ask via AskUserQuestion:
+  - "Upgrade CLI + bump projects" → `pulp upgrade` + `pulp version bump patch` in each project
+  - "Upgrade CLI only"            → `pulp upgrade`
+  - "Bump projects only"          → `pulp version bump patch` in each project
+  - "Dismiss"                     → no action, remind user they can re-run `/upgrade`
+```
+
+## Testing the slash command
+
+The `/upgrade` command shells out to `pulp upgrade --notes --json`.
+A regression test lives in `test/test_cli_shellout.cpp` (the
+`[issue-549]` tag) — it asserts that a synthetic hop produces the keys
+the slash command depends on. If you add or rename a key in
+`render_notes_json` (`tools/cli/migration_runtime.cpp`), update this
+skill AND the slash command AND the test in the same PR.
+
+## References
+
+- Design: `planning/release-discovery-ux-design-2026-04-20.md` Section C + Slice 4
+- CLI surface: `tools/cli/cmd_upgrade.cpp`, `tools/cli/migration_index.hpp`
+- Migration doc schema: `docs/migrations/README.md`
+- Slice 1 (diagnostics): #546 (`pulp doctor --versions`)
+- Slice 2 (update check): #562 (`pulp upgrade --check-only`)
+- Slice 3 (migration index): #571 (`pulp upgrade --notes --json`)
+- This slice: #549
