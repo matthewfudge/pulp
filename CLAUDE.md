@@ -669,17 +669,33 @@ Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/cre
 #### The `ship` workflow (primary path for all agents)
 
 ```bash
-# Shipyard is the primary CI tool. Say "ship this" or use directly:
+# Primary path for "ship this" / "push a PR" / any natural-language ship trigger:
+pulp pr
+
+# Useful options:
+pulp pr --base origin/main
+pulp pr --title "<title>"
+pulp pr --no-ship
+pulp pr --no-push
+pulp pr --dry-run
+
+# Fallback ONLY when the local `pulp` binary is broken (e.g. wgpu dylib load failure):
+shipyard pr
+
+# Lower-level Shipyard commands — use only for diagnostics or recovery, NOT as the
+# default ship path:
 shipyard run                              # validate current branch
 shipyard ship                             # PR + validate + merge on green
 shipyard cloud run build <branch>         # dispatch to Namespace
 ```
 
-The CI skill (`.agents/skills/ci/SKILL.md`) is the single process for landing code. It:
-1. Creates a PR to main
-2. Runs `shipyard ship` which validates on macOS (locally), Ubuntu (SSH), and Windows (SSH)
-3. Merges only when ALL targets pass
-4. Posts a closeout comment
+The CI skill (`.agents/skills/ci/SKILL.md`) is the single source of truth for landing code. Normal ship cycle:
+
+1. Run `pulp pr` — never `gh pr create` + `shipyard ship` separately (that bypasses the skill-sync and version-bump gates)
+2. The orchestrator runs skill-sync + version-bump gates, commits any bumps, pushes, opens a PR, and invokes `shipyard ship`
+3. `shipyard ship` validates on macOS (locally), Ubuntu (SSH), and Windows (SSH)
+4. Merges only when ALL targets pass
+5. Posts a closeout comment
 
 `local_ci.py` remains in the repo as a legacy fallback but is scheduled for removal (see issue #120).
 

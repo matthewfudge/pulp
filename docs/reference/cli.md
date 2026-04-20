@@ -372,6 +372,56 @@ pulp ship check
 
 `package` creates per-format `.pkg` files using `pkgbuild`. macOS only.
 
+### pr
+
+**Status**: usable
+
+Create, validate, and merge a PR through the canonical ship flow.
+
+`pulp pr` is the primary "ship this" orchestrator referenced by the CI skill.
+By default it delegates to `shipyard pr` (single source of truth for ship
+orchestration). Use `--native` only for diagnostics when debugging the
+CLI-side fallback path. Natural-language triggers in agent conversations
+("push to main", "ship this", "ship it", "we're done", "merge this",
+"push it", "run CI", "push a PR") all route here — see
+[`.agents/skills/ci/SKILL.md`](../../.agents/skills/ci/SKILL.md) for the
+authoritative trigger list.
+
+```bash
+pulp pr
+pulp pr --base origin/main
+pulp pr --title "feat(cli): document pulp pr and sync CI policy"
+pulp pr --no-ship
+pulp pr --no-push
+pulp pr --dry-run
+
+# Fallback when the local `pulp` binary is broken (for example wgpu
+# dylib load failure). Equivalent for the default ship cycle:
+shipyard pr
+```
+
+Flags:
+
+| Flag | Description |
+|------|-------------|
+| `--base <ref>` | Diff base (default: `origin/main`) |
+| `--title <s>` | PR title (default: tip commit subject) |
+| `--no-ship` | Create PR but skip `shipyard ship` |
+| `--no-push` | Stop after bump commit; do not push or create PR |
+| `--dry-run` | Print the plan without executing steps |
+| `-h`, `--help` | Show help |
+
+Notes:
+
+- Default behavior is shim delegation to `shipyard pr` — the single source
+  of truth for ship orchestration. Do not treat `gh pr create` + `shipyard ship`
+  as a substitute; that sequence bypasses the skill-sync and version-bump
+  gates `pulp pr` runs first.
+- `--native` runs an in-CLI fallback that performs the same gates + PR flow
+  without delegating to Shipyard. Diagnostic use only.
+- For the canonical list of natural-language ship triggers and the full
+  policy, see [`.agents/skills/ci/SKILL.md`](../../.agents/skills/ci/SKILL.md).
+
 ### docs
 
 **Status**: usable

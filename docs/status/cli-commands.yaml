@@ -124,6 +124,40 @@ commands:
             required: false
     docs: reference/cli.md#ship
 
+  - name: pr
+    status: usable
+    summary: One-shot push-a-PR orchestrator. Primary path for shipping; delegates to shipyard pr by default and keeps native orchestration for diagnostics.
+    args:
+      - name: --base
+        kind: option
+        description: Diff base (default origin/main)
+        required: false
+      - name: --title
+        kind: option
+        description: PR title override (default tip commit subject)
+        required: false
+      - name: --no-ship
+        kind: flag
+        description: Create PR but skip shipyard ship
+        required: false
+      - name: --no-push
+        kind: flag
+        description: Stop after bump commit; do not push or create PR
+        required: false
+      - name: --dry-run
+        kind: flag
+        description: Print the plan without executing steps
+        required: false
+      - name: --help
+        kind: flag
+        description: Show help for the command
+        required: false
+      - name: --native
+        kind: flag
+        description: Run in-CLI fallback orchestrator instead of delegating to shipyard pr (diagnostics only)
+        required: false
+    docs: reference/cli.md#pr
+
   - name: docs
     status: usable
     summary: Browse local documentation and status manifests.
