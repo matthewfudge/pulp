@@ -106,7 +106,20 @@ public:
         // Start output AFTER input buffer is provisioned. The audio
         // callback will now observe a fully-constructed input_buffer_ on
         // its first tick, not an in-progress resize.
-        if (output_stream_->requestStart() != oboe::Result::OK) return false;
+        if (output_stream_->requestStart() != oboe::Result::OK) {
+            // #500 / #480: if we already started the input stream above,
+            // a failed output start left it running — every retry then
+            // leaked another input stream. Tear it down before returning
+            // failure so the caller sees a clean slate.
+            if (input_stream_) {
+                input_stream_->requestStop();
+                input_stream_->close();
+                input_stream_.reset();
+                input_buffer_.clear();
+                current_input_channels_ = 0;
+            }
+            return false;
+        }
 
         return true;
     }
