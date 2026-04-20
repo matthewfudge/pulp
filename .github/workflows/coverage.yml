@@ -108,5 +108,9 @@ jobs:
         with:
           files: build-coverage/coverage.cobertura.xml
           flags: audio,canvas,events,format,host,midi,osc,platform,render,runtime,signal,state,view,android,apple,linux,windows,cli,ship,tools
+          # Token makes upload more reliable (avoids tokenless rate limits);
+          # action silently falls back to tokenless if the secret is unset
+          # (e.g. in forked-PR context where secrets aren't exposed).
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
           verbose: true
