@@ -1187,3 +1187,25 @@ catch_discover_tests(pulp-test-asset-manager)
 
 # Web-compat test suite (Phase 6: CSS parsing, layout, events, visual regression)
 add_subdirectory(web-compat)
+
+# ── Zero-copy benchmark (Slice 0 of #516) ──────────────────────────────────
+#
+# Tooling-only tests, gated on PULP_BENCHMARK. The perf-counter unit
+# test is portable; the integration test shell-outs to pulp-ui-preview
+# which is currently Apple-desktop-only (same guard as the target).
+if(PULP_BENCHMARK)
+    add_executable(pulp-test-bench-perf-counters test_bench_perf_counters.cpp)
+    target_link_libraries(pulp-test-bench-perf-counters PRIVATE
+        pulp::render Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-bench-perf-counters)
+
+    if(APPLE AND NOT PULP_IOS)
+        add_executable(pulp-test-bench-integration test_bench_integration.cpp)
+        target_link_libraries(pulp-test-bench-integration PRIVATE
+            pulp::platform Catch2::Catch2WithMain)
+        if(TARGET pulp-ui-preview)
+            add_dependencies(pulp-test-bench-integration pulp-ui-preview)
+        endif()
+        catch_discover_tests(pulp-test-bench-integration)
+    endif()
+endif()
