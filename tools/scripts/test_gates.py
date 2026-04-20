@@ -122,9 +122,14 @@ class Fixture:
                     "trigger_paths": [
                         "core/**/include/**/*.hpp",
                         "core/**/src/**/*.cpp",
+                        "tools/cli/**/*.cpp",
+                        "tools/cli/**/*.hpp",
                     ],
                     "public_api_paths": ["core/**/include/**/*.hpp"],
-                    "internal_only_paths": ["core/**/src/**"],
+                    "internal_only_paths": [
+                        "core/**/src/**",
+                        "tools/cli/**",
+                    ],
                 },
                 "plugin": {
                     "label": "Plugin",
@@ -367,6 +372,149 @@ class GateFixtureTests(unittest.TestCase):
         # Net diff from origin/main to HEAD is empty on this surface; the
         # gate should not demand a bump.
         self.assertEqual(code, 0, msg=out)
+        self.assertIn("no bump needed", out)
+
+    # ── Regression: 2026-04-20 fnmatch `**` glob bug (#538/#540/#541/#546) ─
+
+    def test_tools_cli_top_level_file_is_detected(self) -> None:
+        """Editing tools/cli/cmd_foo.cpp must match the sdk trigger pattern
+        tools/cli/**/*.cpp. The stdlib fnmatch-based matcher previously
+        failed here because it didn't treat `**` as zero-or-more segments,
+        so a `feat:` on a top-level CLI file silently produced "no bump
+        needed". See today's incidents on PRs #538/#540/#541/#546."""
+        self.f.write(
+            "tools/cli/cmd_foo.cpp",
+            "int cmd_foo_run() { return 0; }\n",
+        )
+        self.f.commit("feat: cli add cmd_foo")
+        code, out = self.f.run_vbc()
+        self.assertEqual(code, 1, msg=out)
+        self.assertIn("[sdk]", out)
+        self.assertIn("bump required", out)
+        self.assertIn("minor", out)
+
+    def test_apply_writes_version_for_tools_cli_top_level_file(self) -> None:
+        """`--mode=apply` must actually rewrite CMakeLists.txt for a
+        top-level tools/cli/*.cpp edit. The silent-skip was the symptom
+        reported by four agents today."""
+        self.f.write(
+            "tools/cli/cmd_foo.cpp",
+            "int cmd_foo_run() { return 0; }\n",
+        )
+        self.f.commit("feat: cli add cmd_foo")
+        code, out = self.f.run_vbc(["--mode=apply"])
+        self.assertEqual(code, 0, msg=out)
+        self.assertIn("bumped", out)
+        new_cmake = (self.tmp / "CMakeLists.txt").read_text()
+        # 0.1.0 → minor bump → 0.2.0.
+        self.assertIn("VERSION 0.2.0", new_cmake, msg=new_cmake)
+
+    def test_glob_matching_unit_cases(self) -> None:
+        """Direct unit coverage for the glob-to-regex helper. These are the
+        cases the incident playbook explicitly calls out — keep them
+        exhaustive so a future refactor can't silently regress."""
+        # Import here so the rest of the file keeps working even without
+        # the fix rolled out.
+        sys.path.insert(0, str(REPO_ROOT / "tools" / "scripts"))
+        from version_bump_check import _glob_match
+
+        positives = [
+            ("tools/cli/cmd_doctor.cpp", "tools/cli/**/*.cpp"),
+            ("tools/cli/cmd_doctor.cpp", "tools/cli/*.cpp"),
+            ("tools/cli/sub/cmd_x.cpp",  "tools/cli/**/*.cpp"),
+            ("core/view/src/widget_bridge.cpp", "core/**"),
+            ("core/view/src/widget.cpp", "core/**/src/**/*.cpp"),
+            ("core/view/include/pulp/view.hpp", "core/**/include/**/*.hpp"),
+            ("CMakeLists.txt", "CMakeLists.txt"),
+            ("docs/reference/cli.md", "docs/**/*.md"),
+            ("docs/cli.md", "docs/**/*.md"),
+            (".claude-plugin/plugin.json", ".claude-plugin/**"),
+            (".claude-plugin/sub/foo.json", ".claude-plugin/**"),
+            ("build/foo/bar.cpp", "build/**"),
+            ("build/bar.cpp", "build/**"),
+            ("foo.generated.cpp", "**/*.generated.*"),
+            ("sub/foo.generated.cpp", "**/*.generated.*"),
+            ("pulp.lock", "*.lock"),
+            ("foo/bar/baz.hpp", "**/bar/*.hpp"),
+            ("bar/baz.hpp", "**/bar/*.hpp"),
+        ]
+        negatives = [
+            # Non-sibling directory — core/** must not match external/**.
+            ("external/choc/json.hpp", "core/**"),
+            # Wrong extension.
+            ("tools/cli/foo.js", "tools/cli/**/*.cpp"),
+            # Pattern has no leading `**/` so root-level file must not match.
+            ("sub/pulp.lock", "*.lock"),
+            # `**/bar/*.hpp` requires a `bar` segment.
+            ("baz.hpp", "**/bar/*.hpp"),
+            # Completely unrelated top-level file.
+            ("CMakeLists.txt", "core/**"),
+            # Prefix that looks like a subdir but isn't.
+            ("coretools/foo.cpp", "core/**"),
+        ]
+        for path, pattern in positives:
+            self.assertTrue(
+                _glob_match(path, pattern),
+                msg=f"expected {path!r} to match {pattern!r}",
+            )
+        for path, pattern in negatives:
+            self.assertFalse(
+                _glob_match(path, pattern),
+                msg=f"expected {path!r} to NOT match {pattern!r}",
+            )
+
+    def test_skill_sync_matches_top_level_cli_file(self) -> None:
+        """Skill-sync carried the same glob bug — its `tools/cli/**` map
+        entry must match `tools/cli/cmd_foo.cpp` directly."""
+        self.f.write(
+            "tools/cli/cmd_foo.cpp",
+            "int cmd_foo_run() { return 0; }\n",
+        )
+        self.f.commit("chore: cli tweak")
+        code, out = self.f.run_ssc()
+        # cli-maintenance skill is mapped to tools/cli/** and its SKILL.md
+        # was NOT updated → expect the gate to hard-fail.
+        self.assertEqual(code, 1, msg=out)
+        self.assertIn("cli-maintenance", out)
+        self.assertIn("SKILL.md NOT updated", out)
+
+    def test_override_applies_when_heuristic_is_comment_only(self) -> None:
+        """An explicit Version-Bump trailer should apply when the surface's
+        trigger paths were touched, even if the diff is entirely comments
+        and the heuristic would otherwise fall through to "none"."""
+        # Comment-only edit to a touched trigger path → heuristic none.
+        path = self.tmp / "core/runtime/include/pulp/runtime/foo.hpp"
+        path.write_text(
+            "#pragma once\n"
+            "// Explanatory header comment added by a docs-only PR.\n"
+            "int foo();\n"
+        )
+        _git(self.tmp, "add", "-A")
+        _git(self.tmp, "commit", "-q", "-m",
+             'docs: flesh out foo() header comment\n\n'
+             'Version-Bump: sdk=patch reason="doc-only header tweak, explicit patch"')
+        code, out = self.f.run_vbc()
+        # Patch is advisory in report mode; what we verify here is that
+        # the trailer was honored, not ignored — the verdict line should
+        # show `override=patch` alongside `final=patch`.
+        self.assertIn("override=patch", out, msg=out)
+        self.assertIn("final=patch", out, msg=out)
+
+    def test_override_for_untouched_surface_is_ignored(self) -> None:
+        """Anti-rubberstamp: a Version-Bump trailer referencing a surface
+        whose trigger paths weren't touched must NOT force a bump."""
+        # Touch only the plugin manifest; SDK trigger paths are untouched.
+        (self.tmp / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": "test", "version": "0.2.0"}, indent=2) + "\n"
+        )
+        _git(self.tmp, "add", "-A")
+        _git(self.tmp, "commit", "-q", "-m",
+             'chore(plugin): bump\n\n'
+             'Version-Bump: sdk=major reason="should be ignored, sdk untouched"')
+        code, out = self.f.run_vbc()
+        # Plugin surface is properly bumped, SDK is untouched and the stray
+        # override must not conjure a bump for it.
+        self.assertIn("[sdk]", out)
         self.assertIn("no bump needed", out)
 
 

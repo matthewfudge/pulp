@@ -15,13 +15,13 @@ Uses JSON (not YAML) for zero-dependency execution on PEP-668 Python.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -168,19 +168,69 @@ def load_skill_map(path: Path) -> SkillMap:
 # ── Matching ────────────────────────────────────────────────────────────
 
 
-def _glob_match(path: str, pattern: str) -> bool:
-    """fnmatch-with-`**` support.
+@lru_cache(maxsize=None)
+def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
+    """Translate a gitignore-style glob into an anchored regex.
 
-    fnmatch treats `*` as matching `/`, which is already what we want for
-    `**` semantics — but we also need `**/X` to match `X` at the repo root.
-    Normalize the pattern so that `**` expands to allow any segment count,
-    including zero.
+    Mirrors ``tools/scripts/version_bump_check._glob_to_regex``. Kept here
+    as a deliberate copy so each gate stays a single-file script (agent
+    hooks and CI both invoke them directly). If this diverges from the
+    version-bump copy, the regression tests in test_gates.py will catch
+    it.
+
+    Semantics:
+        - ``**`` matches zero or more path segments (including zero).
+        - ``*``  matches zero or more characters within a single segment.
+        - ``?``  matches exactly one character within a single segment.
+        - Patterns are anchored at both ends.
     """
-    # Normalize `**/` at the start to match both `foo/X` and `X`.
-    if pattern.startswith("**/"):
-        tail = pattern[3:]
-        return fnmatch.fnmatchcase(path, tail) or fnmatch.fnmatchcase(path, pattern)
-    return fnmatch.fnmatchcase(path, pattern)
+    parts = pattern.split("/")
+    n = len(parts)
+
+    STARSTAR = object()
+    tokens: list = []
+    for part in parts:
+        if part == "**":
+            tokens.append(STARSTAR)
+            continue
+        seg = ""
+        for c in part:
+            if c == "*":
+                seg += "[^/]*"
+            elif c == "?":
+                seg += "[^/]"
+            else:
+                seg += re.escape(c)
+        tokens.append(seg)
+
+    out = ""
+    for i, tok in enumerate(tokens):
+        is_first = i == 0
+        is_last = i == n - 1
+        if tok is STARSTAR:
+            if is_first and is_last:
+                out += ".*"
+            elif is_first:
+                out += "(?:.*/)?"
+            elif is_last:
+                if out.endswith("/"):
+                    out = out[:-1]
+                out += "(?:/.*)?"
+            else:
+                if out.endswith("/"):
+                    out = out[:-1]
+                out += "(?:.*/)?"
+        else:
+            if not is_first:
+                if not (out.endswith("/") or out.endswith(")?")):
+                    out += "/"
+            out += tok
+
+    return re.compile("^" + out + "$")
+
+
+def _glob_match(path: str, pattern: str) -> bool:
+    return _glob_to_regex(pattern).match(path) is not None
 
 
 def _matches_any(path: str, patterns: Iterable[str]) -> bool:
