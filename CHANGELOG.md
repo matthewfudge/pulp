@@ -8,6 +8,22 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0231"></a>
+## [0.23.1] - 2026-04-20
+
+- chore: bump SDK to v0.23.1 ([#509](https://github.com/danielraffel/pulp/pull/509))
+- audio(android): oboe — clean up input stream on output-start failure (#500) ([#507](https://github.com/danielraffel/pulp/pull/507))
+- view(win): UIA shutdown UAF — disconnect provider before delete (#500) ([#508](https://github.com/danielraffel/pulp/pull/508))
+- android: audio focus follow-ups — transient routing + stop-race (#500) ([#505](https://github.com/danielraffel/pulp/pull/505))
+- fix(osc): Receiver::stop() — shutdown before close to avoid FD-reuse UB (#490) ([#503](https://github.com/danielraffel/pulp/pull/503))
+- ci: post-merge review sweep workflow — catch delayed Codex comments ([#502](https://github.com/danielraffel/pulp/pull/502))
+- ci(auto-release): fix regressions from #498 (skip-trailer + revert) (#500 P1) ([#501](https://github.com/danielraffel/pulp/pull/501))
+- ci(auto-release): diff against latest tag, not event.before (self-heal) ([#498](https://github.com/danielraffel/pulp/pull/498))
+- docs(policies): add non-goals.md documenting deliberate scope boundaries ([#497](https://github.com/danielraffel/pulp/pull/497))
+- view(win): UIA Phase 2 — host provider + event hooks (#247) ([#485](https://github.com/danielraffel/pulp/pull/485))
+- midi: SysExAccumulator — shared F0/F7 aggregation state machine (#86) ([#484](https://github.com/danielraffel/pulp/pull/484))
+- android: PulpAudioController + intent-driven FGS lifecycle (#333) ([#483](https://github.com/danielraffel/pulp/pull/483))
+
 <a id="v0230"></a>
 ## [0.23.0] - 2026-04-20
 
@@ -399,6 +415,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.23.1]: https://github.com/danielraffel/pulp/releases/tag/v0.23.1
 [0.23.0]: https://github.com/danielraffel/pulp/releases/tag/v0.23.0
 [0.22.0]: https://github.com/danielraffel/pulp/releases/tag/v0.22.0
 [0.21.0]: https://github.com/danielraffel/pulp/releases/tag/v0.21.0
