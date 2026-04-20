@@ -229,3 +229,55 @@ TEST_CASE("read_project_cli_min_version returns empty when absent",
     auto v = read_project_cli_min_version(tmp.path);
     REQUIRE_FALSE(v.comparable);
 }
+
+// Codex 2026-04-21 review on #546: the earlier scanner treated any line
+// containing the `cli_min_version` substring as a real config entry and
+// grabbed the next quoted value. A commented example therefore produced
+// a false skew warning in `pulp doctor --versions`. The fix strips
+// in-line `#` comments before matching, so the commented line is
+// silently ignored and `read_project_cli_min_version` returns empty.
+TEST_CASE("read_project_cli_min_version ignores commented-out examples",
+          "[version-diag][issue-499][codex-546]") {
+    TempDir tmp;
+    auto toml = tmp.path / "pulp.toml";
+    write_file(toml,
+               "[pulp]\n"
+               "sdk_version = \"0.24.0\"\n"
+               "# cli_min_version = \"0.22.0\"\n"
+               "# Example: cli_min_version = \"0.23.0\"\n");
+    auto v = read_project_cli_min_version(tmp.path);
+    REQUIRE_FALSE(v.comparable);
+}
+
+// Key-boundary check: a key whose name CONTAINS `cli_min_version` as a
+// substring must not alias onto the real key. Guards against the
+// substring-aliasing half of the #546 finding.
+TEST_CASE("read_project_cli_min_version ignores substring-matching keys",
+          "[version-diag][issue-499][codex-546]") {
+    TempDir tmp;
+    auto toml = tmp.path / "pulp.toml";
+    write_file(toml,
+               "[pulp]\n"
+               "legacy_cli_min_version_history = \"0.22.0\"\n"
+               "sdk_version = \"0.24.0\"\n");
+    auto v = read_project_cli_min_version(tmp.path);
+    REQUIRE_FALSE(v.comparable);
+}
+
+// Real entry still reads correctly when it follows comments and
+// unrelated keys — proves the fix didn't break the happy path.
+TEST_CASE("read_project_cli_min_version still reads through comments",
+          "[version-diag][issue-499][codex-546]") {
+    TempDir tmp;
+    auto toml = tmp.path / "pulp.toml";
+    write_file(toml,
+               "[pulp]\n"
+               "# cli_min_version = \"0.22.0\"  # not this one\n"
+               "cli_min_version = \"0.23.0\"\n"
+               "# trailing comment\n");
+    auto v = read_project_cli_min_version(tmp.path);
+    REQUIRE(v.comparable);
+    REQUIRE(v.major == 0);
+    REQUIRE(v.minor == 23);
+    REQUIRE(v.patch == 0);
+}

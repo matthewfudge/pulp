@@ -141,6 +141,39 @@ if [ "$MODE" = "status" ]; then
     exit 0
 fi
 
+# ── Queue-file truncation recovery (#528) ───────────────────────────────────
+# A crash between open(O_TRUNC) and the subsequent write() in Shipyard can
+# leave the machine-global job queue at zero bytes. Any subsequent Shipyard
+# invocation then dies with JSONDecodeError, which blocks autonomous
+# ship cycles. Defensively re-initialize the file when we see it truncated.
+#
+# IMPORTANT: this must run *before* the "already installed" short-circuit
+# below — rerunning the installer is the documented recovery path for a
+# stuck Shipyard, so the queue repair cannot be gated on a fresh install.
+#
+# Platform layout matches shipyard.core.config._default_state_dir():
+#   macOS   → ~/Library/Application Support/shipyard/queue/queue.json
+#   Windows → ~/AppData/Local/shipyard/queue/queue.json
+#   Linux   → ~/.local/state/shipyard/queue/queue.json
+
+repair_truncated_queue_file() {
+    local state_dir=""
+    case "$PLATFORM" in
+        darwin-*)  state_dir="$HOME/Library/Application Support/shipyard" ;;
+        windows-*) state_dir="$HOME/AppData/Local/shipyard" ;;
+        linux-*)   state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/shipyard" ;;
+        *)         return 0 ;;
+    esac
+
+    local queue_file="$state_dir/queue/queue.json"
+    if [ -f "$queue_file" ] && [ ! -s "$queue_file" ]; then
+        echo "→ Shipyard queue file is empty — reinitializing (#528)"
+        echo '{"jobs": []}' > "$queue_file"
+    fi
+}
+
+repair_truncated_queue_file
+
 # ── Skip if already installed and we're not forcing ─────────────────────────
 
 if [ "$MODE" = "install" ] && [ -x "$INSTALLED" ] && [ -L "$SYMLINK" ]; then
@@ -192,31 +225,10 @@ chmod +x "$INSTALLED"
 ln -sf "$INSTALLED" "$SYMLINK"
 echo "→ Symlinked $SYMLINK → $INSTALLED"
 
-# ── Queue-file truncation recovery (#528) ───────────────────────────────────
-# A crash between open(O_TRUNC) and the subsequent write() in Shipyard can
-# leave the machine-global job queue at zero bytes. Any subsequent Shipyard
-# invocation then dies with JSONDecodeError, which blocks autonomous
-# ship cycles. Defensively re-initialize the file when we see it truncated.
-#
-# Platform layout matches shipyard.core.config._default_state_dir():
-#   macOS   → ~/Library/Application Support/shipyard/queue/queue.json
-#   Windows → ~/AppData/Local/shipyard/queue/queue.json
-#   Linux   → ~/.local/state/shipyard/queue/queue.json
-
-case "$PLATFORM" in
-    darwin-*)  SHIPYARD_STATE_DIR="$HOME/Library/Application Support/shipyard" ;;
-    windows-*) SHIPYARD_STATE_DIR="$HOME/AppData/Local/shipyard" ;;
-    linux-*)   SHIPYARD_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/shipyard" ;;
-    *)         SHIPYARD_STATE_DIR="" ;;
-esac
-
-if [ -n "$SHIPYARD_STATE_DIR" ]; then
-    SHIPYARD_QUEUE_FILE="$SHIPYARD_STATE_DIR/queue/queue.json"
-    if [ -f "$SHIPYARD_QUEUE_FILE" ] && [ ! -s "$SHIPYARD_QUEUE_FILE" ]; then
-        echo "→ Shipyard queue file is empty — reinitializing (#528)"
-        echo '{"jobs": []}' > "$SHIPYARD_QUEUE_FILE"
-    fi
-fi
+# Re-repair the queue file on fresh-install path too (covers --force and
+# first-time install). The pre-short-circuit call above handles the
+# "already installed but queue truncated" case.
+repair_truncated_queue_file
 
 # ── Final report ────────────────────────────────────────────────────────────
 

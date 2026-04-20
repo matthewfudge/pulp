@@ -360,16 +360,35 @@ clean_shutdown() {
     adb_cmd shell am force-stop "${PACKAGE}" || true
     # Logcat ring was cleared at launch (stage 2), so a full dump now
     # contains every log line from this activity's lifetime. Scan it for
-    # FATAL exceptions. nativeOnShutdown only fires on a real onDestroy
-    # not on force-stop, so we don't require that marker here.
+    # FATAL exceptions ATTRIBUTED TO OUR APP ONLY. nativeOnShutdown only
+    # fires on a real onDestroy not on force-stop, so we don't require
+    # that marker here.
+    #
+    # Codex 2026-04-21 review on #556: a naive `grep FATAL EXCEPTION`
+    # over a shared emulator's full logcat dump treats every other
+    # process's crash as a Pulp regression and exits 8. Correlate with
+    # the AndroidRuntime process line so only our package counts. We
+    # still print context lines when a real Pulp FATAL is found so
+    # triage is easy.
     local dump="${SMOKE_TMP}/dump_shutdown.txt"
     adb_cmd logcat -d > "${dump}" 2>/dev/null || true
-    if grep -E "FATAL EXCEPTION|AndroidRuntime: Process: ${PACKAGE}, PID" "${dump}" >/dev/null 2>&1; then
-        echo "android-smoke: FATAL exception detected during smoke run" >&2
-        grep -E "FATAL EXCEPTION|AndroidRuntime: Process:" "${dump}" >&2 || true
+    if grep -F "AndroidRuntime: Process: ${PACKAGE}," "${dump}" >/dev/null 2>&1; then
+        echo "android-smoke: FATAL exception detected in ${PACKAGE} during smoke run" >&2
+        # Print the FATAL EXCEPTION block AND the corresponding process
+        # line so the failure surface is obvious. We intentionally match
+        # the literal ${PACKAGE}, on the AndroidRuntime line — a crash
+        # in a sibling process (that produced an unrelated FATAL EXCEPTION
+        # with no matching "Process: com.pulp.app," line) no longer fails
+        # the smoke.
+        grep -B1 -A20 -F "AndroidRuntime: Process: ${PACKAGE}," "${dump}" >&2 || true
         exit 8
     fi
-    echo "  no FATAL exceptions detected in logcat"
+    # Informational: note any unrelated FATALs so failures elsewhere on
+    # the emulator aren't completely invisible, but do not fail the run.
+    if grep -F "FATAL EXCEPTION" "${dump}" >/dev/null 2>&1; then
+        echo "  (info) unrelated FATAL EXCEPTION observed in another process — ignored" >&2
+    fi
+    echo "  no FATAL exceptions attributed to ${PACKAGE} in logcat"
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────

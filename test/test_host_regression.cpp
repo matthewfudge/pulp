@@ -823,12 +823,19 @@ TEST_CASE("Scanner → load → process → unload round-trip on real CLAP plugi
     // Point the scanner at the parent directory of the built CLAP so it
     // discovers PulpGain via the normal path (NOT default_paths, which
     // would collide with system-installed bundles on the dev's machine).
+    // Codex 2026-04-21 review on #545: `extra_paths` alone does not
+    // suppress the default scan roots — the scanner still enumerated
+    // every user/system CLAP, which can execute unrelated plugin
+    // `clap_entry` code during CI. `only_extra_paths = true` restricts
+    // the scan to the bundle under test so the lane is hermetic and
+    // cannot flake on a developer's installed plugins.
     auto parent = clap_path.parent_path().string();
     ScanOptions opts;
     opts.scan_vst3 = false;
     opts.scan_au = false;
     opts.scan_lv2 = false;
     opts.scan_clap = true;
+    opts.only_extra_paths = true;
     opts.extra_paths.push_back(parent);
 
     PluginScanner scanner;
@@ -873,3 +880,39 @@ TEST_CASE("Scanner → load → process → unload round-trip on real CLAP plugi
     slot->release();
 }
 #endif
+
+// Codex 2026-04-21 review on #545: sanity-check that `only_extra_paths`
+// actually suppresses the default scan roots. Uses an empty scratch
+// directory so the scanner has nothing legitimate to find — under the
+// fix, the plugin count is zero; under the old behaviour it would
+// happily enumerate every user/system CLAP on the dev's machine.
+TEST_CASE("PluginScanner::scan honors only_extra_paths",
+          "[host][scanner][issue-545][codex-545]") {
+    using pulp::host::PluginScanner;
+    using pulp::host::ScanOptions;
+
+    auto scratch = std::filesystem::temp_directory_path() /
+        ("pulp-scanner-hermetic-" +
+         std::to_string(static_cast<uint64_t>(std::chrono::steady_clock::now()
+             .time_since_epoch().count())));
+    std::filesystem::create_directories(scratch);
+
+    ScanOptions opts;
+    opts.scan_vst3 = true;
+    opts.scan_au = true;
+    opts.scan_clap = true;
+    opts.scan_lv2 = false;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back(scratch.string());
+
+    PluginScanner scanner;
+    auto plugins = scanner.scan(opts);
+
+    std::filesystem::remove_all(scratch);
+
+    // Empty scratch dir + only_extra_paths → zero results. If the old
+    // behaviour leaked back in, this assertion fires because the dev's
+    // installed plugins would be picked up.
+    REQUIRE(plugins.empty());
+}
+

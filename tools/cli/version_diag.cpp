@@ -17,6 +17,13 @@
 
 #ifdef _WIN32
 #  include <cstdlib>   // _dupenv_s
+#  include <io.h>       // _isatty, _fileno
+#  define pulp_isatty(fd)   _isatty(fd)
+#  define pulp_fileno(stream) _fileno(stream)
+#else
+#  include <unistd.h>   // isatty, fileno
+#  define pulp_isatty(fd)   ::isatty(fd)
+#  define pulp_fileno(stream) ::fileno(stream)
 #endif
 
 namespace pulp::cli::version_diag {
@@ -46,14 +53,46 @@ fs::path user_home_dir_local() {
 // read_pulp_toml_value helper. We keep a local copy so this
 // translation unit has no link dependency on cli_common.cpp, which
 // would pull in the entire CLI runtime.
+//
+// Codex 2026-04-21 review on #546: the earlier version matched any
+// substring containing `key`, so a commented example like
+// `# cli_min_version = "0.24.0"` triggered a false skew warning. Now
+// we strip the line's `#` comment first, then insist the key appears
+// as a full token (preceded by line-start/whitespace and followed by
+// whitespace/'=') before reading the quoted value.
 std::string read_toml_scalar(const fs::path& toml, const std::string& key) {
     if (!fs::exists(toml)) return {};
     std::ifstream f(toml);
     if (!f.is_open()) return {};
     std::string line;
     while (std::getline(f, line)) {
-        auto pos = line.find(key);
+        // Strip in-line comments. TOML comments start with `#`; we don't
+        // need full TOML-grammar support here (no `#` inside quoted
+        // values in the surfaces we parse), so a straight first-`#` cut
+        // matches the intent and avoids the commented-example false
+        // positive.
+        auto hash = line.find('#');
+        if (hash != std::string::npos) line.resize(hash);
+
+        // Locate the key with explicit boundary checks — preceded by
+        // start-of-line or whitespace, followed by whitespace or '='.
+        // Prevents `some_key_ending_in_cli_min_version = ...` and
+        // similar substring aliasing.
+        std::size_t pos = 0;
+        while ((pos = line.find(key, pos)) != std::string::npos) {
+            bool left_ok = (pos == 0) ||
+                           line[pos - 1] == ' ' ||
+                           line[pos - 1] == '\t';
+            auto after = pos + key.size();
+            bool right_ok = (after >= line.size()) ||
+                            line[after] == '=' ||
+                            line[after] == ' ' ||
+                            line[after] == '\t';
+            if (left_ok && right_ok) break;
+            pos = after;
+        }
         if (pos == std::string::npos) continue;
+
         auto q1 = line.find('"', pos);
         auto q2 = (q1 == std::string::npos) ? std::string::npos : line.find('"', q1 + 1);
         if (q1 != std::string::npos && q2 != std::string::npos) {
@@ -63,17 +102,32 @@ std::string read_toml_scalar(const fs::path& toml, const std::string& key) {
     return {};
 }
 
-// Tiny ANSI helpers so this module stays decoupled from the CLI's
-// global color state. Output is safe on all platforms — a terminal
-// without ANSI support just shows the escape codes as literals when
-// colour is forced on, which is why we gate on isatty elsewhere in
-// the CLI. For version diagnostics, the test harness will see
-// uncoloured content because stdout is piped.
-const char* ansi_bold()   { return "\x1b[1m"; }
-const char* ansi_reset()  { return "\x1b[0m"; }
-const char* ansi_green()  { return "\x1b[32m"; }
-const char* ansi_yellow() { return "\x1b[33m"; }
-const char* ansi_dim()    { return "\x1b[2m"; }
+// Tiny ANSI helpers, gated on `stdout is a TTY and NO_COLOR/--no-color
+// are unset` so `pulp doctor --versions` stays script-friendly when
+// piped into CI logs. Matches the rest of the CLI's
+// cli_common::init_color() policy without pulling the whole runtime
+// into this TU. Codex 2026-04-21 review on #546.
+bool should_emit_color() {
+    static const bool enabled = []() {
+        // NO_COLOR (https://no-color.org/) — any non-empty value disables.
+        if (const char* nc = std::getenv("NO_COLOR")) {
+            if (nc[0] != '\0') return false;
+        }
+        // PULP_NO_COLOR — explicit opt-out for our own CI lanes.
+        if (const char* pnc = std::getenv("PULP_NO_COLOR")) {
+            if (pnc[0] != '\0') return false;
+        }
+        // TTY detection. Piped stdout means the consumer is machine-
+        // parsing WARN/OK tokens — never inject escape codes there.
+        return pulp_isatty(pulp_fileno(stdout)) != 0;
+    }();
+    return enabled;
+}
+const char* ansi_bold()   { return should_emit_color() ? "\x1b[1m"  : ""; }
+const char* ansi_reset()  { return should_emit_color() ? "\x1b[0m"  : ""; }
+const char* ansi_green()  { return should_emit_color() ? "\x1b[32m" : ""; }
+const char* ansi_yellow() { return should_emit_color() ? "\x1b[33m" : ""; }
+const char* ansi_dim()    { return should_emit_color() ? "\x1b[2m"  : ""; }
 
 }  // namespace
 

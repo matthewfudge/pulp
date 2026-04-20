@@ -23,6 +23,7 @@
 #include <pulp/host/scan_blacklist.hpp>
 #include <pulp/host/scanner.hpp>
 #include <pulp/midi/buffer.hpp>
+#include <pulp/platform/child_process.hpp>
 #include <pulp/view/plugin_manager_panel.hpp>
 
 #include <algorithm>
@@ -152,12 +153,28 @@ public:
     void start_rescan() override {
         if (scanning_.exchange(true)) return;
         if (worker_.joinable()) worker_.join();
-        worker_ = std::thread([this] {
+
+        // Codex 2026-04-21 review on #538: `ScanBlacklist` is backed by
+        // an unsynchronized `unordered_map`. Passing `&blacklist_` into
+        // the scan worker while the UI thread mutates the same map via
+        // `set_blacklisted()` is a data race — undefined behaviour and
+        // potentially a crash. Take an immutable snapshot under our own
+        // mutex before handing it to the worker so the UI thread's
+        // writes can't collide with the scanner's reads. The live
+        // `blacklist_` is still the source of truth for persistence and
+        // the next scan; this snapshot is scan-scoped.
+        auto blacklist_snapshot = std::make_shared<pulp::host::ScanBlacklist>();
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            *blacklist_snapshot = blacklist_;  // value copy
+        }
+
+        worker_ = std::thread([this, blacklist_snapshot] {
             progress_ = 0.0f;
             PluginScanner scanner;
             ScanOptions opts;
             opts.scan_lv2 = false;
-            opts.blacklist = &blacklist_;
+            opts.blacklist = blacklist_snapshot.get();
             opts.on_progress = [this](const std::string&, int done, int total) {
                 progress_ = total > 0
                     ? std::clamp(static_cast<float>(done) / static_cast<float>(total),
@@ -208,18 +225,31 @@ public:
         }
     }
     void reveal_in_file_manager(const std::string& path) override {
-        std::string cmd;
+        // Codex 2026-04-21 review on #538: the earlier version built a
+        // shell string by concatenating the path and ran `std::system`,
+        // which breaks quoting on any legitimate path containing a
+        // single quote (or worse, crafted metacharacters). Switch to
+        // `pulp::platform::ChildProcess` — argv-based spawn, no shell
+        // interpolation. Non-blocking fire-and-forget via the existing
+        // `run` helper with a tight timeout so a hung GUI can't pin the
+        // demo thread.
+        using pulp::platform::ChildProcess;
+        pulp::platform::ProcessOptions opts;
+        opts.timeout_ms = 5'000;
 #if defined(__APPLE__)
-        cmd = "open -R '" + path + "'";
+        (void)ChildProcess::run("/usr/bin/open", {"-R", path}, opts);
 #elif defined(_WIN32)
-        cmd = "explorer /select,\"" + path + "\"";
+        // Windows explorer.exe /select,<path> wants a single argv entry
+        // with the comma; CreateProcess then passes it unchanged. No
+        // shell, no interpolation.
+        (void)ChildProcess::run("explorer.exe", {"/select," + path}, opts);
 #else
-        // xdg-open reveals the parent directory; not a perfect highlight,
-        // but enough for a demo.
+        // xdg-open reveals the parent directory; not a perfect highlight
+        // but enough for a demo. Argv-based — safe for exotic parent
+        // paths.
         auto parent = std::filesystem::path(path).parent_path().string();
-        cmd = "xdg-open '" + parent + "'";
+        (void)ChildProcess::run("xdg-open", {parent}, opts);
 #endif
-        std::system(cmd.c_str());
     }
 
 private:

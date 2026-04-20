@@ -203,6 +203,11 @@ def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
                 seg += re.escape(c)
         tokens.append(seg)
 
+    # See version_bump_check._glob_to_regex for the rationale — this
+    # mirror must preserve '/' boundaries around '**' so zero-segment
+    # matches don't collapse the surrounding slashes. Codex 2026-04-21
+    # review on #554 flagged the old emitter as letting
+    # `tools/cli/**/*.cpp` match `tools/clicmd.cpp`.
     out = ""
     for i, tok in enumerate(tokens):
         is_first = i == 0
@@ -211,18 +216,19 @@ def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
             if is_first and is_last:
                 out += ".*"
             elif is_first:
-                out += "(?:.*/)?"
+                out += "(?:[^/]+/)*"
             elif is_last:
                 if out.endswith("/"):
                     out = out[:-1]
                 out += "(?:/.*)?"
             else:
-                if out.endswith("/"):
-                    out = out[:-1]
-                out += "(?:.*/)?"
+                if not out.endswith("/"):
+                    out += "/"
+                out += "(?:[^/]+/)*"
         else:
             if not is_first:
-                if not (out.endswith("/") or out.endswith(")?")):
+                if not out.endswith("/") and not out.endswith(")?") \
+                   and not out.endswith(")*"):
                     out += "/"
             out += tok
 

@@ -253,7 +253,13 @@ std::vector<PluginInfo> PluginScanner::scan(const ScanOptions& options) {
     int scanned = 0;
 
     auto scan_format = [&](PluginFormat fmt) {
-        auto paths = default_paths(fmt);
+        // Codex 2026-04-21 review on #545: honor only_extra_paths so
+        // hermetic lanes (tests, offline tools) don't silently pull in
+        // the machine's installed plugin collection.
+        std::vector<std::string> paths;
+        if (!options.only_extra_paths) {
+            paths = default_paths(fmt);
+        }
         for (auto& extra : options.extra_paths) paths.push_back(extra);
 
         for (auto& dir : paths) {
@@ -274,7 +280,11 @@ std::vector<PluginInfo> PluginScanner::scan(const ScanOptions& options) {
     if (options.scan_lv2)   scan_format(PluginFormat::LV2);
 
 #ifdef __APPLE__
-    if (options.scan_au) {
+    // AU enumeration uses CoreAudio's AudioComponentFindNext, which walks
+    // the system component registry — `extra_paths` doesn't apply. Honor
+    // `only_extra_paths` by skipping AU entirely when the caller wants a
+    // hermetic path-list scan. Codex 2026-04-21 review on #545.
+    if (options.scan_au && !options.only_extra_paths) {
         auto au_plugins = scan_audio_units();
         all.insert(all.end(), au_plugins.begin(), au_plugins.end());
     }

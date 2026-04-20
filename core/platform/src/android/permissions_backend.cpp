@@ -61,19 +61,31 @@ std::vector<Pending>& pending_queue() {
 }
 
 void on_permission_result(pulp::android::Permission ap, bool granted) {
-    RequestCallback cb;
+    // Codex 2026-04-21 review on #539 P2: dispatch EVERY pending request
+    // for this permission, not just the first match. Multiple callers
+    // can race to request the same permission before the OS result
+    // returns; under the old code only one got its callback invoked
+    // and the rest leaked forever, violating the exactly-once contract.
+    // Collect all matching callbacks under the lock, then fire them
+    // outside the lock so a reentrant call can't deadlock.
+    std::vector<RequestCallback> callbacks;
     {
         std::lock_guard<std::mutex> lock(pending_mutex());
         auto& q = pending_queue();
-        for (auto it = q.begin(); it != q.end(); ++it) {
+        auto it = q.begin();
+        while (it != q.end()) {
             if (it->android_perm == ap) {
-                cb = std::move(it->cb);
-                q.erase(it);
-                break;
+                callbacks.push_back(std::move(it->cb));
+                it = q.erase(it);
+            } else {
+                ++it;
             }
         }
     }
-    if (cb) cb(granted ? PermissionState::Granted : PermissionState::Denied);
+    const auto state = granted ? PermissionState::Granted : PermissionState::Denied;
+    for (auto& cb : callbacks) {
+        if (cb) cb(state);
+    }
 }
 
 struct BridgeInstaller {

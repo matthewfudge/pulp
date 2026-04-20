@@ -451,6 +451,18 @@ class GateFixtureTests(unittest.TestCase):
             ("CMakeLists.txt", "core/**"),
             # Prefix that looks like a subdir but isn't.
             ("coretools/foo.cpp", "core/**"),
+            # Codex 2026-04-21 review on #554 — zero-segment '**'
+            # collapse must preserve the surrounding '/' boundaries.
+            # `tools/cli/**/*.cpp` must NOT match `tools/clicmd.cpp`
+            # (the '/' after `cli` is a required anchor).
+            ("tools/clicmd.cpp", "tools/cli/**/*.cpp"),
+            # Same check with two middle '**': `core/**/src/**/*.cpp`
+            # must NOT match `coresrc/foo.cpp` (both '/' anchors are
+            # required).
+            ("coresrc/foo.cpp", "core/**/src/**/*.cpp"),
+            # Middle '**' zero-segment between concrete directories:
+            # `a/**/b/*.txt` must NOT match `ab/foo.txt`.
+            ("ab/foo.txt", "a/**/b/*.txt"),
         ]
         for path, pattern in positives:
             self.assertTrue(
