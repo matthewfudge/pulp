@@ -149,7 +149,31 @@ int cmd_host(const std::vector<std::string>& args) {
     auto slot = PluginSlot::load(info);
     if (!slot) {
         std::fprintf(stderr, "pulp host: failed to load '%s'\n", path.c_str());
-        std::fprintf(stderr, "  (VST3/AU/LV2 loaders are not yet implemented)\n");
+        switch (format) {
+#if !PULP_HOST_HAS_VST3
+            case PluginFormat::VST3:
+                std::fprintf(stderr, "  VST3 host loader not available in this build.\n"
+                                     "  Rebuild with -DPULP_HAS_VST3=ON and the VST3 SDK at external/vst3sdk.\n");
+                break;
+#endif
+#if !PULP_HOST_HAS_AU
+            case PluginFormat::AudioUnit:
+            case PluginFormat::AudioUnitV3:
+                std::fprintf(stderr, "  AU host loader not available in this build (macOS only).\n"
+                                     "  Rebuild with -DPULP_HAS_AU=ON on Apple platforms.\n");
+                break;
+#endif
+#if !PULP_HOST_HAS_LV2
+            case PluginFormat::LV2:
+                std::fprintf(stderr, "  LV2 host loader not available in this build.\n"
+                                     "  Rebuild with -DPULP_HAS_LV2=ON.\n");
+                break;
+#endif
+            default:
+                std::fprintf(stderr, "  The plug-in bundle may be malformed, unsigned, or ABI-incompatible.\n"
+                                     "  Re-scan with `pulp host scan` for a structured diagnosis.\n");
+                break;
+        }
         return 1;
     }
 
