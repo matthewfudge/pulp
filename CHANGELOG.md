@@ -8,14 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0300"></a>
+## [0.30.0] - 2026-04-20
+
+- cli: release-discovery Slice 3 migration-doc infrastructure (#548) ([#571](https://github.com/danielraffel/pulp/pull/571))
+- ci(coverage): fix cache-value silent failure + filter Catch2 spam + add cobertura output ([#573](https://github.com/danielraffel/pulp/pull/573))
+
 <a id="v0291"></a>
 ## [0.29.1] - 2026-04-20
 
 - fix: Codex post-merge sweep (2026-04-21 wave 2) ([#574](https://github.com/danielraffel/pulp/pull/574))
 
 <a id="v0290"></a>
-## [0.30.0]
-
 ## [0.29.0] - 2026-04-20
 
 - cli: ~/.pulp/projects.json registry + pulp projects commands (#552 Slice 1b) ([#563](https://github.com/danielraffel/pulp/pull/563))
@@ -483,6 +487,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.30.0]: https://github.com/danielraffel/pulp/releases/tag/v0.30.0
 [0.29.1]: https://github.com/danielraffel/pulp/releases/tag/v0.29.1
 [0.29.0]: https://github.com/danielraffel/pulp/releases/tag/v0.29.0
 [0.28.0]: https://github.com/danielraffel/pulp/releases/tag/v0.28.0
