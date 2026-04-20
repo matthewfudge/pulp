@@ -209,3 +209,41 @@ a `ParameterEventQueue`. When adding new CLI hosting commands, include
 `pulp/host/parameter_event_queue.hpp` and pass an empty queue if you
 have no automation to deliver. See `docs/reference/host-thread-rules.md`
 for the full contract.
+
+## `pulp doctor --versions` — version diagnostics (#499 Slice 1)
+
+The first slice of the release-discovery UX (issue #499) is a pure
+diagnostic that short-circuits the doctor pipeline: it prints
+CLI/SDK/Plugin versions side-by-side plus advisory skew warnings and
+always exits 0. Lives in `tools/cli/version_diag.{hpp,cpp}` with
+`cmd_doctor` as the only caller.
+
+Gotchas:
+
+- **`version_diag` is deliberately decoupled from `cli_common`.** It
+  re-implements its own tiny `read_toml_scalar` / `user_home_dir_local`
+  helpers so the unit-test binary can link just `version_diag.cpp` —
+  no pulp::runtime link surface. If you add a new helper, keep it
+  local unless you've also evaluated the test impact.
+- **Always exit 0 even on WARN.** Skew is advisory. Making this
+  command gate on skew would break scripts that invoke
+  `pulp doctor --versions` as a routine health check in a pipeline.
+  This is a design choice, not an oversight.
+- **Untagged builds are silently skipped.** Anything that doesn't
+  parse as `M.N.P` (e.g. `0.24.0-dev`, a git SHA) has
+  `Semver{.comparable = false}`. Skew analysis short-circuits on
+  non-comparable inputs per the design doc.
+- **Plugin lookup prefers the repo's `.claude-plugin/plugin.json`.**
+  The installed-plugin layout inside `~/.claude/plugins/pulp/` or
+  `~/.claude-plugin/pulp/` is an open question in the design doc —
+  the lookup is best-effort and deliberately forgiving; when in
+  doubt it reports "(not found)" instead of failing.
+- **`cli_min_version` is optional and additive.** The field only
+  becomes meaningful from the first release that needs it; before
+  then it's silently absent and skew analysis skips. Don't
+  retroactively add it to every `pulp.toml` in the repo.
+
+Follow-up slices (2-6) are tracked against #499: update-check,
+migration docs, `/upgrade` skill, mode enforcement, and plugin ↔ CLI
+skew detection. Do not land them piecemeal under Slice 1's PR; file
+new issues and PRs.

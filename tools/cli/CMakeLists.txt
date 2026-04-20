@@ -30,7 +30,8 @@ add_executable(pulp-cli
     create_targets.cpp
     package_registry.cpp
     package_commands.cpp
-    tool_registry.cpp)
+    tool_registry.cpp
+    version_diag.cpp)
 set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp")
 target_compile_features(pulp-cli PRIVATE cxx_std_20)
 target_link_libraries(pulp-cli PRIVATE pulp::runtime pulp::tool-audio pulp::ship pulp::view pulp::format pulp::inspect pulp::host)
@@ -75,6 +76,15 @@ if(PULP_BUILD_TESTS)
     # doctor may exit 0 or 1 depending on environment, but should not crash
     set_tests_properties(cli-doctor PROPERTIES
         PASS_REGULAR_EXPRESSION "checks passed")
+
+    # Issue #499 Slice 1: `pulp doctor --versions` must print the
+    # version diagnostics header and exit 0 regardless of skew — skew
+    # warnings are advisory, not failures.
+    add_test(NAME cli-doctor-versions
+        COMMAND pulp-cli doctor --versions
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(cli-doctor-versions PROPERTIES
+        PASS_REGULAR_EXPRESSION "Pulp Version Diagnostics")
 
     add_test(NAME cli-doctor-ci
         COMMAND pulp-cli doctor --ci

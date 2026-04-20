@@ -238,3 +238,24 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE(bogus.stderr_output.find("unknown subcommand") != std::string::npos);
     REQUIRE(bogus.stderr_output.find("Usage:") != std::string::npos);
 }
+
+// Issue #499 Slice 1: `pulp doctor --versions` is the foundation of
+// the release-discovery UX. Verify the subcommand is wired, always
+// exits 0 (skew findings are advisory), and surfaces the diagnostic
+// header + CLI version line on stdout. This catches the class of
+// silent-failure bug described in #295: an --versions flag that is
+// parsed but routes to a no-op would pass CI green without this test.
+TEST_CASE("pulp doctor --versions prints diagnostics and exits 0",
+          "[cli][shellout][doctor][issue-499]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto r = run_pulp({"doctor", "--versions"}, 30000);
+    REQUIRE_FALSE(r.timed_out);
+    // Exit code is always 0 — skew is advisory, not a hard failure.
+    REQUIRE(r.exit_code == 0);
+    // The report header must be on stdout so scripts can distinguish
+    // this output from the default `pulp doctor` pipeline.
+    REQUIRE(r.stdout_output.find("Pulp Version Diagnostics") != std::string::npos);
+    // We always print the CLI line, even when no project is active.
+    REQUIRE(r.stdout_output.find("CLI:") != std::string::npos);
+}

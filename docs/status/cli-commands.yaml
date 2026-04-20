@@ -246,7 +246,7 @@ commands:
 
   - name: doctor
     status: usable
-    summary: Diagnose environment issues. Default mode checks compiler, CMake, git-lfs, platform deps, and either the active checkout or the installed SDK workflow. Optional `android` and `ios` subcommands check mobile dev environments and emit per-host install hints (#8 / #355).
+    summary: Diagnose environment issues. Default mode checks compiler, CMake, git-lfs, platform deps, and either the active checkout or the installed SDK workflow. Optional `android` and `ios` subcommands check mobile dev environments and emit per-host install hints (#8 / #355). `--versions` surfaces CLI/SDK/Plugin version skew (#499).
     args:
       - name: target
         kind: positional
@@ -260,6 +260,9 @@ commands:
       - name: --dry-run
         kind: flag
         description: Show what --fix would do without doing it
+      - name: --versions
+        kind: flag
+        description: Print CLI/SDK/Plugin version diagnostics and advisory skew warnings (always exits 0)
     docs: reference/cli.md#doctor
 
   - name: clean
