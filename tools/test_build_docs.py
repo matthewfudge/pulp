@@ -31,6 +31,46 @@ def render(md: str) -> str:
     return html_out.strip()
 
 
+class CodeBlockTests(unittest.TestCase):
+    def test_fenced_block_has_no_leading_newline(self):
+        # Regression: the renderer used to emit <pre><code> and the first
+        # code line as separate list entries, then '\n'.join() injected a
+        # newline between them. <pre> preserves whitespace, so the user saw
+        # a phantom blank line at the top of every code block.
+        md = "```bash\ngit clone foo\ncd foo\n```"
+        html_out = bd.md_to_html(md)
+        # Must NOT start the code body with a newline
+        self.assertNotIn("<code class=\"language-bash\">\n", html_out)
+        self.assertNotIn("<code>\n", html_out)
+        # Must contain the code text directly after the opening tag
+        self.assertIn(
+            '<code class="language-bash">git clone foo\ncd foo</code>',
+            html_out,
+        )
+
+    def test_fenced_block_wrapped_in_figure_with_copy_button(self):
+        md = "```python\nprint('hi')\n```"
+        html_out = bd.md_to_html(md)
+        self.assertIn('<figure class="code-block">', html_out)
+        self.assertIn('class="copy-btn"', html_out)
+        self.assertIn('aria-label="Copy code to clipboard"', html_out)
+        self.assertIn('data-copy-label="Copy"', html_out)
+        self.assertIn('data-copied-label="Copied"', html_out)
+
+    def test_fenced_block_without_language_omits_language_label(self):
+        md = "```\nfoo\n```"
+        html_out = bd.md_to_html(md)
+        self.assertNotIn('class="code-lang"', html_out)
+        # But still wraps in figure + has copy button
+        self.assertIn('<figure class="code-block">', html_out)
+        self.assertIn('class="copy-btn"', html_out)
+
+    def test_fenced_block_with_language_includes_language_label(self):
+        md = "```bash\necho hi\n```"
+        html_out = bd.md_to_html(md)
+        self.assertIn('<span class="code-lang" aria-hidden="true">bash</span>', html_out)
+
+
 class LinkRenderingTests(unittest.TestCase):
     def test_plain_link_renders(self):
         html = render("See [LICENSE.md](https://example.com/LICENSE.md) for the full text.")
