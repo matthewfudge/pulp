@@ -32,8 +32,15 @@ class PulpAudioFocus(context: Context) {
                     if (PulpApplication.nativeLoaded) nativeOnAudioFocusLost()
                 }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                    Log.i(TAG, "Audio focus lost transiently — ducking")
-                    if (PulpApplication.nativeLoaded) nativeOnAudioFocusDuck()
+                    // Non-ducking transient loss: the listener should pause
+                    // output (phone call, navigation prompt). Distinct from
+                    // LOSS_TRANSIENT_CAN_DUCK, which just attenuates.
+                    // #500: previously both variants collapsed into duck(),
+                    // so AudioFocusState::lost_transient was unreachable
+                    // via the Android path. Route to the dedicated JNI
+                    // entry so subscribers can distinguish pause vs duck.
+                    Log.i(TAG, "Audio focus lost transiently — pausing")
+                    if (PulpApplication.nativeLoaded) nativeOnAudioFocusLostTransient()
                 }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                     Log.i(TAG, "Audio focus can duck")
@@ -64,6 +71,7 @@ class PulpAudioFocus(context: Context) {
     fun hasFocus(): Boolean = hasAudioFocus
 
     private external fun nativeOnAudioFocusLost()
+    private external fun nativeOnAudioFocusLostTransient()
     private external fun nativeOnAudioFocusDuck()
     private external fun nativeOnAudioFocusGained()
 

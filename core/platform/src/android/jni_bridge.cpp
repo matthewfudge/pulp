@@ -298,6 +298,18 @@ Java_com_pulp_audio_PulpAudioFocus_nativeOnAudioFocusLost(JNIEnv*, jobject) {
         pulp::audio::AudioFocusState::lost);
 }
 
+// #500: previously AUDIOFOCUS_LOSS_TRANSIENT in Kotlin collapsed into
+// nativeOnAudioFocusDuck, so AudioFocusState::lost_transient was
+// unreachable from the Android path. Dedicated entry point now routes
+// it correctly so subscribers can differentiate pause-transiently (we
+// WILL get focus back shortly) from duck (attenuate but keep playing).
+extern "C" JNIEXPORT void JNICALL
+Java_com_pulp_audio_PulpAudioFocus_nativeOnAudioFocusLostTransient(JNIEnv*, jobject) {
+    PULP_LOGI("Audio focus lost transiently");
+    pulp::audio::AudioFocusRegistry::instance().publish(
+        pulp::audio::AudioFocusState::lost_transient);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_pulp_audio_PulpAudioFocus_nativeOnAudioFocusDuck(JNIEnv*, jobject) {
     PULP_LOGI("Audio focus duck");
