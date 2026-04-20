@@ -355,6 +355,11 @@ def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
                 seg += re.escape(c)
         tokens.append(seg)
 
+    # Emit with preserved '/' boundaries so '**' can collapse to zero
+    # segments without deleting the surrounding slash anchors. Without
+    # this, `tools/cli/**/*.cpp` incorrectly matches `tools/clicmd.cpp`
+    # because the old emitter stripped the '/' before the middle '**'.
+    # See Codex 2026-04-21 review on #554.
     out = ""
     for i, tok in enumerate(tokens):
         is_first = i == 0
@@ -363,23 +368,38 @@ def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
             if is_first and is_last:
                 out += ".*"
             elif is_first:
-                # leading '**/' — zero or more segments followed by '/'.
-                out += "(?:.*/)?"
+                # Leading '**/' — zero or more '<segment>/' runs. Emits a
+                # trailing '/' only when at least one segment matches,
+                # so the next concrete token supplies its own boundary.
+                out += "(?:[^/]+/)*"
             elif is_last:
-                # trailing '/**' — match either '' or '/<rest>'.
+                # Trailing '/**' — match either '' or '/<rest>'. We keep
+                # the preceding '/' out of the match so `a/**` also
+                # matches `a` itself, matching fnmatch intuition.
                 if out.endswith("/"):
                     out = out[:-1]
                 out += "(?:/.*)?"
             else:
-                # middle '/**/' — zero or more segments between two slashes.
-                if out.endswith("/"):
-                    out = out[:-1]
-                out += "(?:.*/)?"
+                # Middle '/**/' — the preceding '/' stays in place as a
+                # required boundary. The '**' itself expands to zero or
+                # more full segments, each carrying its own trailing '/'.
+                # That preserves `tools/cli/**/*.cpp` anchoring on `tools/cli/`
+                # and forbids `tools/clicmd.cpp`. Old emitter stripped the
+                # '/' here, which was the #554 bug.
+                if not out.endswith("/"):
+                    out += "/"
+                out += "(?:[^/]+/)*"
         else:
             if not is_first:
                 # Only add a separator if the preceding emission hasn't
-                # already supplied one (leading/middle ** tokens end in '/').
-                if not (out.endswith("/") or out.endswith(")?")):
+                # already supplied one. After a middle '**' group the
+                # emission ends in ')*' whose last character before the
+                # quantifier is '/', and the preceding concrete token
+                # already left a '/' in `out`, so the boundary is
+                # guaranteed. Trailing '**' ends in ')?', which already
+                # contains its own optional '/'. Leading '**' similarly.
+                if not out.endswith("/") and not out.endswith(")?") \
+                   and not out.endswith(")*"):
                     out += "/"
             out += tok
 

@@ -75,6 +75,15 @@ struct ScanOptions {
     bool scan_lv2 = true;
     std::vector<std::string> extra_paths;  // Additional scan directories
 
+    // Codex 2026-04-21 review on #545: when a test or hermetic tool
+    // supplies explicit extra_paths and wants ONLY those searched (not
+    // the platform defaults that pull in the user's installed plugin
+    // collection), set this to true. Fixes the non-hermetic
+    // test_host_regression scan that otherwise walked every system
+    // VST3/AU/CLAP on the dev's machine and could execute arbitrary
+    // third-party `clap_entry` code during a CI run.
+    bool only_extra_paths = false;
+
     // Callback for progress reporting during scan
     using ProgressCallback = std::function<void(const std::string& current_path, int scanned, int total)>;
     ProgressCallback on_progress;

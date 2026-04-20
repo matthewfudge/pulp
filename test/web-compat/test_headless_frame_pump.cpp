@@ -138,3 +138,41 @@ TEST_CASE("headless load loop repeatedly services chained rAF callbacks",
     REQUIRE(env.engine.evaluate("globalThis.__issue542Frames")
                 .getWithDefault<int32_t>(0) == 4);
 }
+
+// Codex 2026-04-21 review on #553: the post-load microtask drain in
+// `load_demo` previously called `service_frame_callbacks()` in a bounded
+// 64-iter loop. Because a real demo's tick() self-rearms via rAF, that
+// would have rendered 64 full frames of animation before `load_demo`
+// returned, skewing initial capture state. The fix was to restrict the
+// post-ready drain to `pump_message_loop()` only — this test pins that
+// behaviour down so a future refactor cannot silently re-introduce the
+// 64-frame startup burst.
+TEST_CASE("post-ready microtask drain must not render rAF frames",
+          "[view][widget-bridge][issue-542][codex-553]") {
+    Env env;
+
+    // Arm a self-rearming rAF chain. Each tick increments a counter and
+    // schedules the next frame — representative of the demo's ticking
+    // behaviour.
+    env.engine.evaluate(
+        "globalThis.__driftFrames = 0;"
+        "function __driftTick() {"
+        "    globalThis.__driftFrames += 1;"
+        "    window.requestAnimationFrame(__driftTick);"
+        "}"
+        "window.requestAnimationFrame(__driftTick);"
+        "void 0"
+    );
+
+    // Microtask-only drain: 64 pumps, no service_frame_callbacks. The
+    // counter must stay at 0 — rAF callbacks are frame-scheduled, not
+    // microtask-scheduled.
+    for (int i = 0; i < 64; ++i) {
+        env.engine.pump_message_loop();
+    }
+
+    const auto drifted_frames =
+        env.engine.evaluate("globalThis.__driftFrames")
+            .getWithDefault<int32_t>(-1);
+    REQUIRE(drifted_frames == 0);
+}

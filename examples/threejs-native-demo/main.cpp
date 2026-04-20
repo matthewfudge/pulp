@@ -1362,14 +1362,27 @@ std::string current_iso8601_utc_threejs() {
 }
 
 std::string current_short_sha_threejs() {
+    // Codex 2026-04-21 review on #541: MSVC's CRT exposes the pipe
+    // helpers as `_popen` / `_pclose`; bare `popen` / `pclose` are
+    // POSIX spellings that don't link on Windows. Mirror the pattern
+    // already used in tools/mcp/pulp_mcp.cpp so `PULP_BENCHMARK`-enabled
+    // Windows builds don't fail to link.
+#if defined(_WIN32)
+    std::FILE* pipe = _popen("git rev-parse --short HEAD 2>NUL", "r");
+#else
     std::FILE* pipe = ::popen("git rev-parse --short HEAD 2>/dev/null", "r");
+#endif
     if (!pipe) return "unknown";
     char buf[64] = {0};
     std::string out;
     while (std::fgets(buf, sizeof(buf), pipe) != nullptr) {
         out += buf;
     }
+#if defined(_WIN32)
+    _pclose(pipe);
+#else
     ::pclose(pipe);
+#endif
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ')) {
         out.pop_back();
     }
@@ -1541,6 +1554,18 @@ int run_particle_benchmark(const ParticleBenchmarkConfig& cfg) {
 
     if (cfg.output_path.empty()) {
         std::cerr << "--benchmark-seconds requires --output=<path>\n";
+        return 2;
+    }
+
+    // Codex 2026-04-21 review on #541: this harness is particle-only for
+    // the Slice 0.5 re-eval. `--widget=<anything-else>` used to silently
+    // run the particle workload while writing the user-supplied label
+    // into the output JSON, which corrupts benchmark comparisons. Reject
+    // any unsupported value up front so baselines stay honest.
+    if (cfg.widget != "particles") {
+        std::cerr << "Unsupported --widget=\"" << cfg.widget
+                  << "\"; only 'particles' is implemented in this lane.\n"
+                  << "Add a real harness before re-enabling. (Codex #541)\n";
         return 2;
     }
 
@@ -1746,8 +1771,17 @@ bool load_demo(DemoEnvironment& env, int width, int height, DemoMode mode,
         }
     }
 
+    // Post-ready drain: the module promise already settled in the loop
+    // above; this second pass just lets any trailing microtasks (module
+    // `export default` finalization, promise `.then` queues) flush before
+    // we hand control back to the caller. We intentionally do NOT call
+    // `service_frame_callbacks()` here — rAF self-rearms, so draining
+    // frames would render 64 real frames of animation before `load_demo`
+    // returns, skewing initial capture state (frame counter, scene age).
+    // Codex 2026-04-21 review on #553. The hang itself is fixed by the
+    // bounded service_frame_callbacks pump above (#542), not by this
+    // drain.
     for (int i = 0; i < 64; ++i) {
-        if (env.bridge) env.bridge->service_frame_callbacks();
         env.engine.pump_message_loop();
     }
 
