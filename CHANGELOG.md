@@ -8,10 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0240"></a>
-## [0.26.0]
+<a id="v0260"></a>
+## [0.26.0] - 2026-04-20
 
-## [0.25.0]
+- bench: Slice 0.5 honest re-eval on Three.js particles — PerfCounters + threejs-native-demo benchmark mode ([#541](https://github.com/danielraffel/pulp/pull/541))
+- host: end-to-end regression coverage (#52) ([#545](https://github.com/danielraffel/pulp/pull/545))
+- canvas: migrate sdf_atlas to SkSpan SkFont overloads ([#544](https://github.com/danielraffel/pulp/pull/544))
+
+<a id="v0251"></a>
+## [0.25.1] - 2026-04-20
+
+- examples(threejs): flush rAF in headless loader loop (fix #542) ([#553](https://github.com/danielraffel/pulp/pull/553))
+
+<a id="v0250"></a>
+## [0.25.0] - 2026-04-20
 
 - fix: Codex sweep rollup - sysex, view header, scan AU/AUv3, post-merge limit (#500 #529) ([#540](https://github.com/danielraffel/pulp/pull/540))
 
@@ -445,6 +455,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.26.0]: https://github.com/danielraffel/pulp/releases/tag/v0.26.0
 [0.25.1]: https://github.com/danielraffel/pulp/releases/tag/v0.25.1
 [0.25.0]: https://github.com/danielraffel/pulp/releases/tag/v0.25.0
 [0.24.0]: https://github.com/danielraffel/pulp/releases/tag/v0.24.0
