@@ -217,6 +217,7 @@ pulp doctor             # show all checks
 pulp doctor --fix       # auto-fix issues where possible
 pulp doctor --ci        # non-interactive, exit codes only
 pulp doctor --dry-run   # show what --fix would do
+pulp doctor --versions  # CLI/SDK/Plugin version diagnostics (#499 Slice 1)
 ```
 
 Checks are platform-gated — only relevant checks run on each OS:
@@ -231,6 +232,34 @@ Mode-specific checks:
 For AAX-specific setup details and download guidance, see [AAX Setup](../guides/aax.md).
 
 Exit code is 0 if all checks pass, 1 if any fail.
+
+`pulp doctor --versions` is a dedicated diagnostic (not a drift-check)
+that prints the three surface versions side-by-side plus advisory
+skew warnings:
+
+- **CLI** — the version baked into the running `pulp` binary
+- **Plugin** — read from `.claude-plugin/plugin.json` in the active
+  repo (falls back to `~/.claude/plugins/pulp/plugin.json` for
+  installed plugin layouts)
+- **SDK** — the active project's SDK version, from `pulp.toml`
+  (standalone projects) or `CMakeLists.txt` (source-tree mode)
+
+Skew warnings fire when the project's `pulp.toml` declares a
+`cli_min_version` higher than the installed CLI, or when the
+project SDK is newer than the running CLI. Warnings are advisory
+— the command always exits 0 so it's safe to wire into scripts.
+
+The first release that defines the following optional `pulp.toml`
+field activates the `cli_min_version` check:
+
+```toml
+sdk_version = "0.24.0"
+cli_min_version = "0.24.0"   # optional — warn if installed CLI is older
+```
+
+Untagged CLI builds (anything not matching `M.N.P` exactly) are
+skipped silently, matching the design's forward-compatible
+convention.
 
 ### ci-local
 

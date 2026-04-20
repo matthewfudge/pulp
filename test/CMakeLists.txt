@@ -73,6 +73,21 @@ target_include_directories(pulp-test-cli-upgrade-url PRIVATE ${CMAKE_SOURCE_DIR}
 target_link_libraries(pulp-test-cli-upgrade-url PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-upgrade-url)
 
+# CLI version diagnostics (#499 Slice 1): pure-logic tests for the
+# semver parser, plugin.json scraper, and skew analyzer that sit
+# behind `pulp doctor --versions`. version_diag is deliberately free
+# of cli_common link deps so we can compile it straight into the test.
+add_executable(pulp-test-cli-version-diag
+    test_cli_version_diag.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/version_diag.cpp
+)
+target_include_directories(pulp-test-cli-version-diag PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-cli-version-diag PRIVATE
+    Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-version-diag)
+
 # Child process tests
 add_executable(pulp-test-child-process test_child_process.cpp)
 target_link_libraries(pulp-test-child-process PRIVATE pulp::platform Catch2::Catch2WithMain)

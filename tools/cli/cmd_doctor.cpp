@@ -1,6 +1,7 @@
 // cmd_doctor.cpp — pulp doctor command
 
 #include "cli_common.hpp"
+#include "version_diag.hpp"
 
 #include <iostream>
 
@@ -17,13 +18,15 @@ int cmd_doctor(const std::vector<std::string>& args) {
     bool fix_mode = false;
     bool ci_mode = false;
     bool dry_run = false;
+    bool versions_mode = false;   // --versions: issue #499 Slice 1
     for (auto& arg : args) {
         if (arg == "--fix") fix_mode = true;
         else if (arg == "--ci") ci_mode = true;
         else if (arg == "--dry-run") dry_run = true;
+        else if (arg == "--versions") versions_mode = true;
         else if (arg.rfind("--", 0) == 0) {
             std::cerr << "pulp doctor: unknown flag: " << arg << "\n";
-            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run]\n";
+            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions]\n";
             return 2;
         } else if (mode.empty()) {
             mode = arg;
@@ -32,8 +35,51 @@ int cmd_doctor(const std::vector<std::string>& args) {
 
     if (!mode.empty() && mode != "android" && mode != "ios") {
         std::cerr << "pulp doctor: unknown subcommand '" << mode << "'\n";
-        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run]\n";
+        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions]\n";
         return 2;
+    }
+
+    // `pulp doctor --versions` is a dedicated diagnostic (issue #499
+    // Slice 1). It short-circuits the rest of the doctor pipeline on
+    // purpose — skew warnings are advisory and must not gate the
+    // environment-readiness exit code, so mixing the two would just
+    // confuse scripts that parse doctor's output.
+    if (versions_mode) {
+        using pulp::cli::version_diag::VersionReport;
+        VersionReport report;
+        report.cli = pulp::cli::version_diag::parse_semver(PULP_SDK_VERSION);
+
+        // For plugin lookup we prefer the repo root (if we're inside one)
+        // so developers hacking on the plugin see a matching version.
+        fs::path plugin_json = pulp::cli::version_diag::locate_plugin_json(
+            standalone_mode ? fs::path{} : active_root);
+        report.plugin_json_path = plugin_json;
+        report.plugin = pulp::cli::version_diag::read_plugin_version(plugin_json);
+
+        // Project SDK version. For standalone projects it lives in
+        // `pulp.toml`; for source-tree use it lives in CMakeLists.txt.
+        // Only populate when a project is genuinely present — we don't
+        // want to parrot back the CLI's own baked-in version as "the
+        // project's SDK" when no project exists.
+        if (!active_root.empty()) {
+            report.project_root = active_root;
+            std::string project_sdk_raw;
+            if (standalone_mode) {
+                project_sdk_raw = read_pulp_toml_value(active_root, "sdk_version");
+            } else {
+                project_sdk_raw = read_project_cmake_version(active_root);
+            }
+            report.project_sdk = pulp::cli::version_diag::parse_semver(project_sdk_raw);
+            report.project_cli_min =
+                pulp::cli::version_diag::read_project_cli_min_version(active_root);
+        }
+
+        // Always return 0 — skew findings are advisory. The rendered
+        // "WARN" lines communicate the actionable information; gating
+        // exit code on them would make this command unusable inside
+        // scripts that gate on `pulp doctor` more broadly.
+        (void)pulp::cli::version_diag::render_report(report);
+        return 0;
     }
 
     if (!ci_mode) {
