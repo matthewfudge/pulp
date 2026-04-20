@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0231"></a>
+## [0.24.0]
+
 ## [0.23.1] - 2026-04-20
 
 - chore: bump SDK to v0.23.1 ([#509](https://github.com/danielraffel/pulp/pull/509))

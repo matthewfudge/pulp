@@ -937,6 +937,12 @@ add_executable(pulp-test-preset-browser test_preset_browser.cpp)
 target_link_libraries(pulp-test-preset-browser PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-preset-browser)
 
+# Plugin manager panel UI tests (issue #494)
+add_executable(pulp-test-plugin-manager-panel test_plugin_manager_panel.cpp)
+target_link_libraries(pulp-test-plugin-manager-panel PRIVATE
+    pulp::view pulp::host Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-plugin-manager-panel)
+
 # DSP expansion tests (FIR, Ballistics, LogRamp, ProcessorChain, LookupTable, TPT)
 add_executable(pulp-test-dsp-expansion test_dsp_expansion.cpp)
 target_link_libraries(pulp-test-dsp-expansion PRIVATE pulp::signal Catch2::Catch2WithMain)

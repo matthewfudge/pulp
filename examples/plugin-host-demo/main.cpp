@@ -10,6 +10,8 @@
 //   pulp-plugin-host-demo --path <file.clap>   # load a specific bundle
 //   pulp-plugin-host-demo --id <clap-id>       # pick a specific descriptor
 //                                              # inside a multi-plugin bundle
+//   pulp-plugin-host-demo --manage             # headless plugin-manager UX
+//                                              # (issue #494 demo)
 //
 // This is a validation harness for Feature 5 Phase 1. It is not a DAW —
 // there is no audio device I/O, no UI, no graph editor. Those land in
@@ -18,14 +20,21 @@
 
 #include <pulp/audio/buffer.hpp>
 #include <pulp/host/plugin_slot.hpp>
+#include <pulp/host/scan_blacklist.hpp>
 #include <pulp/host/scanner.hpp>
 #include <pulp/midi/buffer.hpp>
+#include <pulp/view/plugin_manager_panel.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -100,6 +109,184 @@ int list_plugins() {
     return 0;
 }
 
+// ── Real-world PluginManagerPanel model ─────────────────────────────────
+//
+// Wraps `PluginScanner` + a persistent `ScanBlacklist` behind the
+// `pulp::view::PluginManagerModel` interface so the UI panel can drive
+// an actual host workflow. The rescan runs on a background thread so
+// the UI stays responsive — the widget polls `progress_fraction()` /
+// `is_scanning()` during paint.
+class LiveManagerModel : public pulp::view::PluginManagerModel {
+public:
+    explicit LiveManagerModel(std::filesystem::path blacklist_path)
+        : blacklist_path_(std::move(blacklist_path))
+    {
+        blacklist_.load_from(blacklist_path_.string());
+    }
+
+    ~LiveManagerModel() override {
+        if (worker_.joinable()) worker_.join();
+    }
+
+    std::vector<pulp::view::PluginManagerRow>
+    rows(pulp::view::PluginManagerBucket b) const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        switch (b) {
+            case pulp::view::PluginManagerBucket::scanned:     return scanned_;
+            case pulp::view::PluginManagerBucket::failed:      return failed_;
+            case pulp::view::PluginManagerBucket::blacklisted: return blacklisted_snapshot();
+        }
+        return {};
+    }
+
+    std::vector<std::string> search_paths(PluginFormat fmt) const override {
+        return PluginScanner::default_paths(fmt);
+    }
+    void add_search_path(PluginFormat, std::string) override {
+        // The live scanner uses default_paths(); a per-user path list is
+        // Workstream 03 slice 3.8 territory. Left as a no-op here so the
+        // demo surface mirrors the real widget API.
+    }
+    void remove_search_path(PluginFormat, const std::string&) override {}
+
+    void start_rescan() override {
+        if (scanning_.exchange(true)) return;
+        if (worker_.joinable()) worker_.join();
+        worker_ = std::thread([this] {
+            progress_ = 0.0f;
+            PluginScanner scanner;
+            ScanOptions opts;
+            opts.scan_lv2 = false;
+            opts.blacklist = &blacklist_;
+            opts.on_progress = [this](const std::string&, int done, int total) {
+                progress_ = total > 0
+                    ? std::clamp(static_cast<float>(done) / static_cast<float>(total),
+                                 0.0f, 1.0f)
+                    : 0.0f;
+            };
+            auto plugins = scanner.scan(opts);
+
+            std::lock_guard<std::mutex> lk(mu_);
+            scanned_.clear();
+            for (const auto& p : plugins) {
+                pulp::view::PluginManagerRow row;
+                row.format = p.format;
+                row.name = p.name;
+                row.path = p.path;
+                row.last_scan_unix = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                scanned_.push_back(std::move(row));
+            }
+            progress_ = 1.0f;
+            scanning_ = false;
+        });
+    }
+    void start_rescan(const std::string& path) override {
+        // Single-plugin rescan just removes any cached failure and kicks
+        // the generic rescan. A richer implementation would call into
+        // pulp-scan-worker for the one bundle.
+        std::lock_guard<std::mutex> lk(mu_);
+        failed_.erase(std::remove_if(failed_.begin(), failed_.end(),
+            [&](const auto& r) { return r.path == path; }), failed_.end());
+        // Fire-and-forget.
+        start_rescan();
+    }
+    float progress_fraction() const override { return progress_.load(); }
+    bool is_scanning() const override { return scanning_.load(); }
+
+    bool is_blacklisted(const std::string& path) const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        return blacklist_.is_blacklisted(path);
+    }
+    void set_blacklisted(const std::string& path, bool on,
+                         const std::string& reason) override {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (on) blacklist_.blacklist(path, reason.empty() ? "user" : reason);
+            else    blacklist_.clear(path);
+            blacklist_.save_to(blacklist_path_.string());
+        }
+    }
+    void reveal_in_file_manager(const std::string& path) override {
+        std::string cmd;
+#if defined(__APPLE__)
+        cmd = "open -R '" + path + "'";
+#elif defined(_WIN32)
+        cmd = "explorer /select,\"" + path + "\"";
+#else
+        // xdg-open reveals the parent directory; not a perfect highlight,
+        // but enough for a demo.
+        auto parent = std::filesystem::path(path).parent_path().string();
+        cmd = "xdg-open '" + parent + "'";
+#endif
+        std::system(cmd.c_str());
+    }
+
+private:
+    std::vector<pulp::view::PluginManagerRow> blacklisted_snapshot() const {
+        std::vector<pulp::view::PluginManagerRow> out;
+        for (const auto& [path, entry] : blacklist_.entries()) {
+            pulp::view::PluginManagerRow r;
+            r.path = path;
+            r.reason = entry.reason;
+            r.last_scan_unix = entry.mtime;
+            out.push_back(std::move(r));
+        }
+        return out;
+    }
+
+    std::filesystem::path blacklist_path_;
+    mutable std::mutex mu_;
+    pulp::host::ScanBlacklist blacklist_;
+    std::vector<pulp::view::PluginManagerRow> scanned_, failed_;
+    std::atomic<float> progress_{1.0f};
+    std::atomic<bool> scanning_{false};
+    std::thread worker_;
+};
+
+int manage_demo() {
+    // Demonstrate the end-to-end plugin manager UX headlessly. A real
+    // host would mount the `PluginManagerPanel` widget in its window.
+    const auto blacklist_path =
+        std::filesystem::temp_directory_path() / "pulp-host-demo-blacklist.txt";
+
+    LiveManagerModel model(blacklist_path);
+    pulp::view::PluginManagerPanel panel(model);
+    panel.set_bounds({0, 0, 1200, 600});
+
+    std::printf("Plugin manager demo — triggering rescan…\n");
+    panel.trigger_rescan();
+
+    // Poll until the background scan finishes. The widget would do this
+    // naturally via repaint; here we spin briefly for the CLI output.
+    for (int i = 0; i < 400 && model.is_scanning(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    panel.refresh();
+
+    auto print_bucket = [&](pulp::view::PluginManagerBucket b, const char* title) {
+        std::printf("\n%s (%d)\n",
+                    title, panel.visible_count(b));
+        for (const auto& r : panel.rows(b)) {
+            std::printf("  [%-4s] %s\n    %s\n",
+                        format_name(r.format),
+                        r.name.empty() ? "(no name)" : r.name.c_str(),
+                        r.path.c_str());
+        }
+    };
+    print_bucket(pulp::view::PluginManagerBucket::scanned,     "Scanned");
+    print_bucket(pulp::view::PluginManagerBucket::failed,      "Failed");
+    print_bucket(pulp::view::PluginManagerBucket::blacklisted, "Blacklisted");
+
+    std::printf("\nA11y labels:\n  %s\n  %s\n  %s\n",
+        panel.column_access_label(pulp::view::PluginManagerBucket::scanned).c_str(),
+        panel.column_access_label(pulp::view::PluginManagerBucket::failed).c_str(),
+        panel.column_access_label(pulp::view::PluginManagerBucket::blacklisted).c_str());
+
+    std::printf("\nBlacklist persisted at: %s\n", blacklist_path.string().c_str());
+    return 0;
+}
+
 PluginInfo pick_plugin(const std::vector<PluginInfo>& plugins,
                        const std::string& filter_path,
                        const std::string& filter_id) {
@@ -117,17 +304,21 @@ int main(int argc, char** argv) {
     std::string filter_path;
     std::string filter_id;
     bool list_only = false;
+    bool manage_mode = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string_view a = argv[i];
         if (a == "--list") {
             list_only = true;
+        } else if (a == "--manage") {
+            manage_mode = true;
         } else if (a == "--path" && i + 1 < argc) {
             filter_path = argv[++i];
         } else if (a == "--id" && i + 1 < argc) {
             filter_id = argv[++i];
         } else if (a == "--help" || a == "-h") {
-            std::printf("Usage: %s [--list] [--path <bundle>] [--id <clap-id>]\n", argv[0]);
+            std::printf("Usage: %s [--list] [--manage] "
+                        "[--path <bundle>] [--id <clap-id>]\n", argv[0]);
             return 0;
         } else {
             std::fprintf(stderr, "Unknown arg: %s\n", argv[i]);
@@ -136,6 +327,7 @@ int main(int argc, char** argv) {
     }
 
     if (list_only) return list_plugins();
+    if (manage_mode) return manage_demo();
 
     PluginScanner scanner;
     ScanOptions opts;
