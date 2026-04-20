@@ -78,12 +78,19 @@ jobs:
           echo "Repo:     $repo"
           echo "Lookback: ${lookback}h (cutoff ${cutoff})"
 
-          # List PRs merged since cutoff.
-          # gh pr list --state merged gives mergedAt; filter locally.
+          # List PRs merged since cutoff. Codex post-merge review:
+          # - `--base main` filter: without it, merges into feature/develop
+          #   branches are ingested too, polluting the tracker.
+          # - `--search` with `is:merged merged:>DATE` lets the GitHub
+          #   search backend do the time filter server-side, eliminating
+          #   the `--limit 100` hard cap that was a silent data-loss
+          #   risk in a busy 48h window.
           mapfile -t prs < <(
-              gh pr list --repo "$repo" --state merged --limit 100 \
+              gh pr list --repo "$repo" \
+                  --base main \
+                  --search "is:merged merged:>${cutoff}" \
                   --json number,title,mergedAt \
-                  --jq ".[] | select(.mergedAt > \"${cutoff}\") | .number"
+                  --jq ".[] | .number"
           )
 
           echo "Recently-merged PR count: ${#prs[@]}"
@@ -113,38 +120,44 @@ jobs:
               title=$(gh pr view "$pr" --repo "$repo" --json title --jq '.title')
               merged_at=$(gh pr view "$pr" --repo "$repo" --json mergedAt --jq '.mergedAt')
 
-              entry=$(python3 -c "
-import json, sys
-pr = sys.argv[1]
-title = sys.argv[2]
-merged_at = sys.argv[3]
-review = json.loads(sys.argv[4])
-top = json.loads(sys.argv[5])
-# Classify each comment's severity by looking for P0/P1/P2/P3 badges
-# in the body (Codex uses \`\`\`P1 Badge\`\`\` markdown shields).
-def classify(body):
-    import re
-    m = re.search(r'P([0-3]) Badge', body or '')
-    return m.group(0) if m else 'unlabeled'
-items = []
-for c in review + top:
-    items.append({
-        'author': c['author'],
-        'path': c['path'],
-        'line': c['line'],
-        'severity': classify(c['body']),
-        'url': c['url'],
-        # Keep a short excerpt to help humans scan — full body in the URL
-        'excerpt': (c['body'] or '')[:200].replace('\n', ' ').strip(),
-    })
-print(json.dumps({
-    'pr': int(pr),
-    'title': title,
-    'merged_at': merged_at,
-    'count': len(items),
-    'items': items,
-}))
-" "$pr" "$title" "$merged_at" "$review" "$top")
+              # Same YAML-indent trap as #501's auto-release.yml (fixed
+              # in #510): Python body at column 1 inside a 10-space-
+              # indented `run: |` block terminates the scalar. This
+              # workflow hit the same bug — every cron fire since #502
+              # merged failed silently. Fix: heredoc from stdin so
+              # script indentation follows YAML indentation.
+              entry=$(python3 - "$pr" "$title" "$merged_at" "$review" "$top" <<'PYEOF'
+          import json, sys, re
+          pr = sys.argv[1]
+          title = sys.argv[2]
+          merged_at = sys.argv[3]
+          review = json.loads(sys.argv[4])
+          top = json.loads(sys.argv[5])
+          # Classify each comment's severity by looking for P0/P1/P2/P3 badges
+          # in the body (Codex uses `P1 Badge` markdown shields).
+          def classify(body):
+              m = re.search(r'P([0-3]) Badge', body or '')
+              return m.group(0) if m else 'unlabeled'
+          items = []
+          for c in review + top:
+              items.append({
+                  'author': c['author'],
+                  'path': c['path'],
+                  'line': c['line'],
+                  'severity': classify(c['body']),
+                  'url': c['url'],
+                  # Keep a short excerpt to help humans scan — full body in the URL
+                  'excerpt': (c['body'] or '')[:200].replace('\n', ' ').strip(),
+              })
+          print(json.dumps({
+              'pr': int(pr),
+              'title': title,
+              'merged_at': merged_at,
+              'count': len(items),
+              'items': items,
+          }))
+          PYEOF
+          )
               findings_jsonl="${findings_jsonl}${entry}"$'\n'
               echo "  PR #$pr — $count bot comment(s)"
           done
