@@ -109,7 +109,12 @@ struct UiaSession {
     HWND hwnd = nullptr;
     View* root = nullptr;
     bool clients_listening = false;
-    PulpHostProvider* host_provider = nullptr;  // refcounted; released in shutdown
+    // Atomic so shutdown can null it BEFORE we tell UIA there is no
+    // provider for this HWND. The WM_GETOBJECT handler and every
+    // event-raising helper load this with acquire ordering; shutdown
+    // uses exchange(nullptr, acq_rel) as the publication barrier. See
+    // #514 for the race this closes.
+    std::atomic<PulpHostProvider*> host_provider{nullptr};  // refcounted; released in shutdown
 };
 
 // Small utilities. BSTR ownership follows COM rules (caller frees via
@@ -190,7 +195,10 @@ void* init_accessibility(View& root, void* hwnd) {
     session->hwnd = static_cast<HWND>(hwnd);
     session->root = &root;
     session->clients_listening = UiaClientsAreListening() ? true : false;
-    session->host_provider = new PulpHostProvider(session);
+    // Release store so a concurrent WM_GETOBJECT reader sees a fully
+    // constructed PulpHostProvider through its acquire load.
+    session->host_provider.store(new PulpHostProvider(session),
+                                 std::memory_order_release);
     runtime::log_info(
         "Windows UIA: session ready (clients_listening={})",
         session->clients_listening);
@@ -200,11 +208,37 @@ void* init_accessibility(View& root, void* hwnd) {
 void shutdown_accessibility(void* handle) {
     auto* session = static_cast<UiaSession*>(handle);
     if (!session) return;
-    // Detach the provider from any cached UIA client references.
+
+    // #514: Null the atomic FIRST, BEFORE we tell UIA there is no
+    // provider for this HWND. The race we are closing:
+    //
+    //   T1 (shutdown):  UiaReturnRawElementProvider(hwnd, 0, 0, nullptr);
+    //   T2 (UI thread): WM_GETOBJECT arrives → pulp_uia_handle_wm_getobject
+    //                   loads session->host_provider (still non-null) and
+    //                   calls UiaReturnRawElementProvider(..., host_provider)
+    //                   → UIA AddRef()'s the provider we are about to
+    //                   Release(). Our Release drops to refcount 0, delete,
+    //                   and the cached client holds a dangling pointer
+    //                   with session_ pointing at freed memory. UAF.
+    //
+    // Closing the window by publishing null to the handler first means
+    // any concurrent WM_GETOBJECT (or event-raise) sees null via its
+    // acquire load and returns early without handing the provider back
+    // out to UIA. Only then is it safe to:
+    //   1) tell UIA we have no provider for the HWND,
+    //   2) drain in-flight UIA calls via UiaDisconnectProvider, and
+    //   3) drop our ref.
+    auto* hp = session->host_provider.exchange(nullptr,
+                                               std::memory_order_acq_rel);
+
+    // After the exchange above, WM_GETOBJECT / notify_* helpers will
+    // load nullptr and return without touching hp. Now tell UIA there
+    // is no provider for this window.
     if (session->hwnd) {
         UiaReturnRawElementProvider(session->hwnd, 0, 0, nullptr);
     }
-    if (session->host_provider) {
+
+    if (hp) {
         // #500 / #485: PulpHostProvider holds a raw UiaSession*, but
         // UIA clients cache provider pointers and can make method
         // calls on them asynchronously. If we simply Release() our ref
@@ -217,9 +251,8 @@ void shutdown_accessibility(void* handle) {
         // rejects all subsequent calls (returning UIA_E_ELEMENTNOTAVAILABLE).
         // After it returns, no UIA-originated call can reach the
         // provider, so our session deletion below is safe.
-        UiaDisconnectProvider(session->host_provider);
-        session->host_provider->Release();
-        session->host_provider = nullptr;
+        UiaDisconnectProvider(hp);
+        hp->Release();
     }
     runtime::log_info("Windows UIA: session shutdown");
     delete session;
@@ -227,11 +260,12 @@ void shutdown_accessibility(void* handle) {
 
 void accessibility_tree_changed(void* handle) {
     auto* session = static_cast<UiaSession*>(handle);
-    if (!session || !session->host_provider) return;
+    if (!session) return;
+    auto* hp = session->host_provider.load(std::memory_order_acquire);
+    if (!hp) return;
     if (!UiaClientsAreListening()) return;
     UiaRaiseStructureChangedEvent(
-        session->host_provider,
-        StructureChangeType_ChildrenBulkAdded, nullptr, 0);
+        hp, StructureChangeType_ChildrenBulkAdded, nullptr, 0);
 }
 
 // ── Phase 2: WM_GETOBJECT handler ────────────────────────────────────────
@@ -242,18 +276,25 @@ extern "C" LRESULT pulp_uia_handle_wm_getobject(void* handle,
                                                  WPARAM wParam,
                                                  LPARAM lParam) {
     auto* session = static_cast<UiaSession*>(handle);
-    if (!session || !session->host_provider) return 0;
+    if (!session) return 0;
+    // Acquire-load to pair with shutdown's exchange-release: once
+    // shutdown has nulled host_provider we must NOT republish a stale
+    // pointer to UIA, or UIA will AddRef a provider we are about to
+    // Release → UAF (#514).
+    auto* hp = session->host_provider.load(std::memory_order_acquire);
+    if (!hp) return 0;
     // UIA_RootObjectId == UiaRootObjectId (negative magic from UIA)
     if (static_cast<long>(lParam) != UiaRootObjectId) return 0;
-    return UiaReturnRawElementProvider(hwnd, wParam, lParam,
-                                       session->host_provider);
+    return UiaReturnRawElementProvider(hwnd, wParam, lParam, hp);
 }
 
 // ── Phase 2 event-raising helpers ────────────────────────────────────────
 
 void notify_accessibility_value_changed(void* handle, View& /*target*/) {
     auto* session = static_cast<UiaSession*>(handle);
-    if (!session || !session->host_provider) return;
+    if (!session) return;
+    auto* hp = session->host_provider.load(std::memory_order_acquire);
+    if (!hp) return;
     if (!UiaClientsAreListening()) return;
     // Phase 3 will resolve the target View to its per-widget provider and
     // raise property-change on THAT provider. Until per-widget providers
@@ -263,26 +304,29 @@ void notify_accessibility_value_changed(void* handle, View& /*target*/) {
     VariantInit(&old_v);
     VariantInit(&new_v);
     UiaRaiseAutomationPropertyChangedEvent(
-        session->host_provider, UIA_ValueValuePropertyId, old_v, new_v);
+        hp, UIA_ValueValuePropertyId, old_v, new_v);
 }
 
 void notify_accessibility_focus_changed(void* handle, View& /*target*/) {
     auto* session = static_cast<UiaSession*>(handle);
-    if (!session || !session->host_provider) return;
+    if (!session) return;
+    auto* hp = session->host_provider.load(std::memory_order_acquire);
+    if (!hp) return;
     if (!UiaClientsAreListening()) return;
-    UiaRaiseAutomationEvent(session->host_provider,
-                            UIA_AutomationFocusChangedEventId);
+    UiaRaiseAutomationEvent(hp, UIA_AutomationFocusChangedEventId);
 }
 
 void notify_accessibility_name_changed(void* handle, View& /*target*/) {
     auto* session = static_cast<UiaSession*>(handle);
-    if (!session || !session->host_provider) return;
+    if (!session) return;
+    auto* hp = session->host_provider.load(std::memory_order_acquire);
+    if (!hp) return;
     if (!UiaClientsAreListening()) return;
     VARIANT old_v, new_v;
     VariantInit(&old_v);
     VariantInit(&new_v);
     UiaRaiseAutomationPropertyChangedEvent(
-        session->host_provider, UIA_NamePropertyId, old_v, new_v);
+        hp, UIA_NamePropertyId, old_v, new_v);
 }
 
 } // namespace pulp::view
