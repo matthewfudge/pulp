@@ -40,6 +40,11 @@ class PulpAudioFocus(context: Context) {
                     // via the Android path. Route to the dedicated JNI
                     // entry so subscribers can distinguish pause vs duck.
                     Log.i(TAG, "Audio focus lost transiently — pausing")
+                    // Codex post-merge review on #505: mirror the LOSS path
+                    // and clear hasAudioFocus so callers checking hasFocus()
+                    // during the transient don't see stale `true` and keep
+                    // pushing audio.
+                    hasAudioFocus = false
                     if (PulpApplication.nativeLoaded) nativeOnAudioFocusLostTransient()
                 }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {

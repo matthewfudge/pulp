@@ -206,11 +206,6 @@ jobs:
 
           echo "sdk:    prev=$sdk_prev tag=$sdk_tag head=$sdk_after should_tag=$sdk_should_tag"
           echo "plugin: prev=$plugin_prev tag=$plugin_tag head=$plugin_after should_tag=$plugin_should_tag"
-          echo "plugin_before=$plugin_before" >> "$GITHUB_OUTPUT"
-          echo "plugin_after=$plugin_after"   >> "$GITHUB_OUTPUT"
-
-          echo "sdk:    $sdk_before (from ${sdk_before_ref}) -> $sdk_after (HEAD)"
-          echo "plugin: $plugin_before (from ${plugin_before_ref}) -> $plugin_after (HEAD)"
 
       - name: Create tags for moved surfaces
         if: steps.guard.outputs.skip == '0'
