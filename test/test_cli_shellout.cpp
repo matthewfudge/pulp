@@ -324,3 +324,48 @@ TEST_CASE("pulp upgrade --notes with no hop prints the empty-notes line",
     REQUIRE(r.exit_code == 0);
     REQUIRE(r.stdout_output.find("No migration notes apply") != std::string::npos);
 }
+
+// Issue #549 Slice 4: the `/upgrade` Claude Code slash command shells out
+// to `pulp upgrade --notes --json` and parses the resulting document.
+// The slash command hardcodes the JSON key names as part of its parsing
+// step (.claude/commands/upgrade.md) — if the CLI renames any of them
+// without updating the skill, the slash command silently falls back to
+// empty context. Guard the exact keys the slash command reads.
+//
+// Separate from the existing issue-548 JSON test because Slice 4 also
+// cares about (a) the document being parseable even when entries is
+// empty and (b) every key the .claude/commands/upgrade.md parsing step
+// relies on — `summary`, `body`, `applies_if` included.
+TEST_CASE("pulp upgrade --notes --json is slash-command-parseable",
+          "[cli][shellout][upgrade][issue-549]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    // Real hop over the seeded migration docs — we expect >=1 entry so
+    // the JSON document isn't a degenerate "entries": [] case.
+    auto hop = run_pulp({"upgrade", "--notes", "--json",
+                        "--from", "0.23.0", "--to", "0.29.0"}, 15000);
+    REQUIRE_FALSE(hop.timed_out);
+    REQUIRE(hop.exit_code == 0);
+
+    // Every key the `/upgrade` slash command reads must be present. The
+    // slash command's parsing step in .claude/commands/upgrade.md
+    // treats these as a stable public surface.
+    for (const char* key : {"\"from\":", "\"to\":", "\"entries\":",
+                            "\"version\":", "\"breaking\":",
+                            "\"summary\":", "\"applies_if\":",
+                            "\"body\":"}) {
+        INFO("missing slash-command-required key: " << key);
+        REQUIRE(hop.stdout_output.find(key) != std::string::npos);
+    }
+
+    // Degenerate hop: the slash command still needs to see a
+    // well-formed document so its JSON parser doesn't choke on empty
+    // output — `entries: []` is the contract, not an empty string.
+    auto noop = run_pulp({"upgrade", "--notes", "--json",
+                         "--from", "0.29.0", "--to", "0.29.0"}, 15000);
+    REQUIRE_FALSE(noop.timed_out);
+    REQUIRE(noop.exit_code == 0);
+    REQUIRE(noop.stdout_output.find("\"from\":")    != std::string::npos);
+    REQUIRE(noop.stdout_output.find("\"to\":")      != std::string::npos);
+    REQUIRE(noop.stdout_output.find("\"entries\":") != std::string::npos);
+}
