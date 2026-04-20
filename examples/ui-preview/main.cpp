@@ -23,6 +23,18 @@
 #include <cstdlib>
 #include <filesystem>
 
+#ifdef PULP_BENCHMARK
+#include <pulp/render/bench/perf_counters.hpp>
+#include <pulp/view/visualization_bridge.hpp>
+#include <choc/text/choc_JSON.h>
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <string>
+#include <thread>
+#include <unistd.h>
+#endif
+
 #if defined(__APPLE__)
 #include <dispatch/dispatch.h>
 #endif
@@ -90,7 +102,7 @@ AutomationConfig load_automation_config() {
     return config;
 }
 
-bool parse_point(const std::string& text, Point& point) {
+bool parse_point(const std::string& text, pulp::view::Point& point) {
     auto comma = text.find(",");
     if (comma == std::string::npos) return false;
     try {
@@ -153,8 +165,8 @@ View* find_first_matching_view(View& root, const AutomationConfig& config) {
     return nullptr;
 }
 
-Point center_in_root(const View& root, const View& target) {
-    Point center{
+pulp::view::Point center_in_root(const View& root, const View& target) {
+    pulp::view::Point center{
         target.bounds().width * 0.5f,
         target.bounds().height * 0.5f,
     };
@@ -181,6 +193,250 @@ bool write_view_tree(const std::string& path, View& root, int width, int height)
     return true;
 }
 
+#ifdef PULP_BENCHMARK
+
+// ── Zero-copy benchmark mode (Slice 0 of #516) ──────────────────────────────
+//
+// Headless frame-paced loop that drives VisualizationBridge with a
+// deterministic sine sweep. No WindowHost is created. Emits a JSON
+// blob matching tools/scripts/bench_diff.py's documented schema on the
+// `--output=<path>` file.
+//
+// NOTE: the JSON key naming is deliberately mixed:
+//   - `audio_to_triplebuffer_copy`  (no _us suffix — legacy consumer)
+//   - `triplebuffer_publish_latency` (no _us suffix — legacy consumer)
+//   - `gpu_upload_us`, `gpu_readback_us`, `gpu_dispatch_us`,
+//     `total_frame_us` (with _us suffix)
+// bench_diff.py has already shipped and consumes these exact field
+// names — do not "fix" the inconsistency.
+
+struct BenchmarkConfig {
+    bool enabled = false;
+    int seconds = 10;
+    std::string widget = "oscilloscope";
+    std::string output_path;
+    int target_fps = 60;
+};
+
+std::string current_iso8601_utc() {
+    const auto now = std::chrono::system_clock::now();
+    const auto tt = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_utc{};
+#if defined(_WIN32)
+    gmtime_s(&tm_utc, &tt);
+#else
+    gmtime_r(&tt, &tm_utc);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
+    return buf;
+}
+
+std::string current_short_sha() {
+    // Shell out to `git rev-parse --short HEAD`. Best-effort: if we're
+    // running from a detached tarball the return will be empty and the
+    // JSON will carry "unknown".
+    std::FILE* pipe = ::popen("git rev-parse --short HEAD 2>/dev/null", "r");
+    if (!pipe) return "unknown";
+    char buf[64] = {0};
+    std::string out;
+    while (std::fgets(buf, sizeof(buf), pipe) != nullptr) {
+        out += buf;
+    }
+    ::pclose(pipe);
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ')) {
+        out.pop_back();
+    }
+    return out.empty() ? std::string("unknown") : out;
+}
+
+std::string current_host_short() {
+    char buf[256] = {0};
+    if (::gethostname(buf, sizeof(buf) - 1) == 0) {
+        std::string nodename = buf;
+        auto dot = nodename.find('.');
+        if (dot != std::string::npos) nodename.resize(dot);
+        return nodename;
+    }
+    return "unknown";
+}
+
+std::string current_platform_tag() {
+#if defined(__APPLE__)
+#if defined(__aarch64__)
+    return "darwin-arm64";
+#else
+    return "darwin-x86_64";
+#endif
+#elif defined(_WIN32)
+#if defined(_M_ARM64)
+    return "windows-arm64";
+#else
+    return "windows-x86_64";
+#endif
+#elif defined(__linux__)
+#if defined(__aarch64__)
+    return "linux-arm64";
+#else
+    return "linux-x86_64";
+#endif
+#else
+    return "unknown";
+#endif
+}
+
+int run_benchmark(const BenchmarkConfig& cfg) {
+    using namespace pulp::view;
+
+    std::cout << "Pulp zero-copy benchmark\n"
+              << "  widget:        " << cfg.widget << "\n"
+              << "  seconds:       " << cfg.seconds << "\n"
+              << "  target FPS:    " << cfg.target_fps << "\n"
+              << "  output:        " << cfg.output_path << "\n";
+
+    if (cfg.output_path.empty()) {
+        std::cerr << "--benchmark-seconds requires --output=<path>\n";
+        return 2;
+    }
+
+    // Build the bridge and wire up perf counters.
+    VisualizationBridge bridge;
+    VisualizationConfig vcfg;
+    vcfg.fft_size = 1024;
+    vcfg.hop_size = 256;
+    vcfg.num_channels = 2;
+    vcfg.sample_rate = 44100.0f;
+    vcfg.capture_waveform = (cfg.widget == "oscilloscope");
+    vcfg.waveform_length = 1024;
+    bridge.configure(vcfg);
+
+    pulp::render::bench::PerfCounters counters;
+    counters.reset();
+    bridge.set_bench_counters(&counters);
+
+    // Deterministic stereo sine sweep input. One audio block per
+    // frame; 256 samples/block at 44.1 kHz is ~5.8 ms of audio per
+    // rendered frame — close enough to real-time cadence that the
+    // per-frame costs mean the right thing.
+    constexpr int kBlockSize = 256;
+    std::vector<float> ch0(kBlockSize);
+    std::vector<float> ch1(kBlockSize);
+    const float* channels[2] = {ch0.data(), ch1.data()};
+
+    const int total_frames = cfg.target_fps * cfg.seconds;
+    const double frame_budget_us = 1.0e6 / static_cast<double>(cfg.target_fps);
+
+    double phase0 = 0.0;
+    double phase1 = 0.0;
+    const double two_pi = 6.283185307179586476925286766559;
+    const double sr = static_cast<double>(vcfg.sample_rate);
+
+    for (int f = 0; f < total_frames; ++f) {
+        const double frame_t0 = pulp::render::bench::now_us();
+
+        // Sine sweep: 100 Hz → 4 kHz over `cfg.seconds`, left/right
+        // slightly detuned so the FFT bins are non-trivial.
+        const double sweep_progress =
+            static_cast<double>(f) / static_cast<double>(std::max(1, total_frames - 1));
+        const double freq_l = 100.0 + sweep_progress * 3900.0;
+        const double freq_r = freq_l * 1.01;
+        const double dp0 = two_pi * freq_l / sr;
+        const double dp1 = two_pi * freq_r / sr;
+        for (int i = 0; i < kBlockSize; ++i) {
+            ch0[i] = static_cast<float>(std::sin(phase0));
+            ch1[i] = static_cast<float>(std::sin(phase1));
+            phase0 += dp0;
+            phase1 += dp1;
+            if (phase0 > two_pi) phase0 -= two_pi;
+            if (phase1 > two_pi) phase1 -= two_pi;
+        }
+        bridge.process(channels, /*num_channels=*/2, kBlockSize);
+
+        const double frame_dt = pulp::render::bench::now_us() - frame_t0;
+        counters.total_frame_total_us.fetch_add(
+            frame_dt, std::memory_order_relaxed);
+        counters.sample_count.fetch_add(1.0, std::memory_order_relaxed);
+
+        // Frame-pace to the target FPS. If the work finished under
+        // budget, sleep out the remainder so that `total_frame_us`
+        // reflects real work, not wall-clock cadence.
+        const double remaining_us = frame_budget_us - frame_dt;
+        if (remaining_us > 1.0) {
+            std::this_thread::sleep_for(
+                std::chrono::microseconds(static_cast<int64_t>(remaining_us)));
+        }
+    }
+
+    const auto snap = counters.snapshot_and_reset();
+    const double n = std::max(1.0, snap.sample_count);
+
+    auto per_frame_us = choc::value::createObject("");
+    per_frame_us.addMember("audio_to_triplebuffer_copy",
+                           snap.audio_copy_total_us / n);
+    per_frame_us.addMember("triplebuffer_publish_latency",
+                           snap.triplebuffer_publish_total_us / n);
+    per_frame_us.addMember("gpu_upload_us",
+                           snap.gpu_upload_total_us / n);
+    per_frame_us.addMember("gpu_readback_us",
+                           snap.gpu_readback_total_us / n);
+    per_frame_us.addMember("gpu_dispatch_us",
+                           snap.gpu_dispatch_total_us / n);
+    per_frame_us.addMember("total_frame_us",
+                           snap.total_frame_total_us / n);
+
+    auto per_frame_bytes = choc::value::createObject("");
+    per_frame_bytes.addMember("cpu_to_gpu_bytes",
+                              snap.cpu_to_gpu_bytes_total / n);
+    per_frame_bytes.addMember("gpu_to_cpu_bytes",
+                              snap.gpu_to_cpu_bytes_total / n);
+
+    // Memory-bandwidth fraction: memory-moving buckets / (samples * budget).
+    // GPU dispatch is compute, not bandwidth — excluded.
+    const double memory_us_total = snap.audio_copy_total_us
+                                 + snap.triplebuffer_publish_total_us
+                                 + snap.gpu_upload_total_us
+                                 + snap.gpu_readback_total_us;
+    const double budget_total_us = snap.sample_count * frame_budget_us;
+    const double memory_bandwidth_fraction =
+        budget_total_us > 0.0 ? (memory_us_total / budget_total_us) : 0.0;
+
+    auto root = choc::value::createObject("");
+    root.addMember("host", current_host_short());
+    root.addMember("date", current_iso8601_utc());
+    root.addMember("pulp_commit", current_short_sha());
+    root.addMember("platform", current_platform_tag());
+    root.addMember("widget", cfg.widget);
+    root.addMember("seconds", static_cast<int64_t>(cfg.seconds));
+    root.addMember("target_fps", static_cast<int64_t>(cfg.target_fps));
+    root.addMember("samples", static_cast<int64_t>(snap.sample_count));
+    root.addMember("per_frame_us", per_frame_us);
+    root.addMember("per_frame_bytes", per_frame_bytes);
+    root.addMember("frame_budget_us", static_cast<int64_t>(frame_budget_us));
+    root.addMember("memory_bandwidth_fraction", memory_bandwidth_fraction);
+
+    auto json_str = choc::json::toString(root, /*pretty=*/true);
+
+    auto out_path = std::filesystem::path(cfg.output_path);
+    if (out_path.has_parent_path()) {
+        std::filesystem::create_directories(out_path.parent_path());
+    }
+    std::ofstream out(out_path);
+    if (!out.is_open()) {
+        std::cerr << "Failed to open " << cfg.output_path << " for writing\n";
+        return 1;
+    }
+    out << json_str << "\n";
+    out.close();
+
+    std::cout << "Benchmark complete. samples=" << static_cast<int64_t>(snap.sample_count)
+              << " memory_bandwidth_fraction="
+              << (memory_bandwidth_fraction * 100.0) << "%\n"
+              << "JSON written to " << cfg.output_path << "\n";
+    return 0;
+}
+
+#endif  // PULP_BENCHMARK
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -189,6 +445,17 @@ int main(int argc, char* argv[]) {
     std::string view_tree_path;
     std::string script_path;
     int render_w = 360, render_h = 480;
+
+#ifdef PULP_BENCHMARK
+    BenchmarkConfig bench_cfg;
+#endif
+
+    auto starts_with = [](const char* s, const char* prefix) -> bool {
+        while (*prefix) {
+            if (*s++ != *prefix++) return false;
+        }
+        return true;
+    };
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--screenshot") == 0) {
@@ -206,7 +473,25 @@ int main(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--view-tree-out") == 0 && i + 1 < argc) {
             view_tree_path = argv[++i];
         }
+#ifdef PULP_BENCHMARK
+        else if (starts_with(argv[i], "--benchmark-seconds=")) {
+            bench_cfg.enabled = true;
+            try { bench_cfg.seconds = std::stoi(argv[i] + 20); } catch (...) {}
+        } else if (starts_with(argv[i], "--widget=")) {
+            bench_cfg.widget = argv[i] + 9;
+        } else if (starts_with(argv[i], "--output=")) {
+            bench_cfg.output_path = argv[i] + 9;
+        } else if (starts_with(argv[i], "--target-fps=")) {
+            try { bench_cfg.target_fps = std::stoi(argv[i] + 13); } catch (...) {}
+        }
+#endif
     }
+
+#ifdef PULP_BENCHMARK
+    if (bench_cfg.enabled) {
+        return run_benchmark(bench_cfg);
+    }
+#endif
 
     if (view_tree_path.empty()) {
         if (const char* env_path = std::getenv("PULP_VIEW_TREE_OUT")) view_tree_path = env_path;
@@ -372,7 +657,7 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
-                    Point click_point{};
+                    pulp::view::Point click_point{};
                     if (!automation_copy.click_point.empty()) {
                         if (!parse_point(automation_copy.click_point, click_point)) {
                             fail("invalid automation click point");

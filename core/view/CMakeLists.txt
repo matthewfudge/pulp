@@ -363,7 +363,15 @@ elseif(UNIX)
     endif()
 endif()
 
-# Link against render for native GPU bridge (Three.js, WebGPU canvas)
+# Link against render for native GPU bridge (Three.js, WebGPU canvas).
+# When PULP_BENCHMARK is on, visualization_bridge.hpp pulls a public
+# header from pulp::render (perf_counters.hpp) — downstream consumers
+# must be able to resolve the include path, so the link goes PUBLIC in
+# that case. Off-by-default production builds keep the PRIVATE link.
 if(TARGET pulp-render)
-    target_link_libraries(pulp-view PRIVATE pulp::render)
+    if(PULP_BENCHMARK)
+        target_link_libraries(pulp-view PUBLIC pulp::render)
+    else()
+        target_link_libraries(pulp-view PRIVATE pulp::render)
+    endif()
 endif()
