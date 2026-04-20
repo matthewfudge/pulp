@@ -29,13 +29,13 @@ Uses JSON configs (zero-dep).
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -316,11 +316,78 @@ def write_version(repo: Path, vf: VersionFile, new: str) -> bool:
 # ── Matching / heuristics ───────────────────────────────────────────────
 
 
+@lru_cache(maxsize=None)
+def _glob_to_regex(pattern: str) -> "re.Pattern[str]":
+    """Translate a gitignore-style glob into an anchored regex.
+
+    Semantics (needed because Python's stdlib ``fnmatch`` and
+    ``pathlib.PurePath.match`` both fail to treat ``**`` as "zero or more
+    path segments" — they require at least one intermediate segment, so
+    ``tools/cli/**/*.cpp`` does NOT match ``tools/cli/cmd_doctor.cpp``):
+
+        - ``**`` matches zero or more path segments (including zero).
+        - ``*``  matches zero or more characters within a single segment.
+        - ``?``  matches exactly one character within a single segment.
+        - Patterns are anchored at both ends.
+
+    This is the single source of truth for matching changed-file paths
+    against ``versioning.json``'s trigger_paths / public_api_paths /
+    internal_only_paths / generated_globs. See 2026-04-20 incident
+    (#538/#540/#541/#546) where the previous ``fnmatch``-based matcher
+    silently failed to flag SDK changes touching ``tools/cli/*.cpp``.
+    """
+    parts = pattern.split("/")
+    n = len(parts)
+
+    STARSTAR = object()
+    tokens: list = []
+    for part in parts:
+        if part == "**":
+            tokens.append(STARSTAR)
+            continue
+        seg = ""
+        for c in part:
+            if c == "*":
+                seg += "[^/]*"
+            elif c == "?":
+                seg += "[^/]"
+            else:
+                seg += re.escape(c)
+        tokens.append(seg)
+
+    out = ""
+    for i, tok in enumerate(tokens):
+        is_first = i == 0
+        is_last = i == n - 1
+        if tok is STARSTAR:
+            if is_first and is_last:
+                out += ".*"
+            elif is_first:
+                # leading '**/' — zero or more segments followed by '/'.
+                out += "(?:.*/)?"
+            elif is_last:
+                # trailing '/**' — match either '' or '/<rest>'.
+                if out.endswith("/"):
+                    out = out[:-1]
+                out += "(?:/.*)?"
+            else:
+                # middle '/**/' — zero or more segments between two slashes.
+                if out.endswith("/"):
+                    out = out[:-1]
+                out += "(?:.*/)?"
+        else:
+            if not is_first:
+                # Only add a separator if the preceding emission hasn't
+                # already supplied one (leading/middle ** tokens end in '/').
+                if not (out.endswith("/") or out.endswith(")?")):
+                    out += "/"
+            out += tok
+
+    return re.compile("^" + out + "$")
+
+
 def _glob_match(path: str, pattern: str) -> bool:
-    if pattern.startswith("**/"):
-        tail = pattern[3:]
-        return fnmatch.fnmatchcase(path, tail) or fnmatch.fnmatchcase(path, pattern)
-    return fnmatch.fnmatchcase(path, pattern)
+    return _glob_to_regex(pattern).match(path) is not None
 
 
 def _matches_any(path: str, patterns: Iterable[str]) -> bool:
@@ -492,6 +559,13 @@ def assess_surfaces(
     verdicts: list[Verdict] = []
     for s in cfg.surfaces:
         heur = heuristic_for_surface(s, changed, base, head)
+        # "Did the diff touch ANY of this surface's trigger paths?" is a
+        # weaker condition than the heuristic (which also requires a
+        # meaningful, non-comment diff). We use it to decide whether an
+        # explicit trailer override is allowed to take effect even when the
+        # heuristic is "none" (e.g. the author knows a comment-only change
+        # is still API-visible via the docstring).
+        trigger_touched = any(_matches_any(p, s.trigger_paths) for p in changed)
 
         override = surface_trailer_override(trailers, cfg.trailer_version_bump, s.name)
         final = heur
@@ -500,15 +574,21 @@ def assess_surfaces(
         if skip_requested:
             final = "none"
         elif override in LEVELS:
-            # Only raise, never lower. And only if the surface was actually touched.
-            if heur != "none" and LEVELS.index(override) > LEVELS.index(heur):
-                final = override
-            elif heur != "none":
-                final = heur
-            else:
-                # Surface not touched; ignore the override to avoid
-                # rubber-stamping unrelated bumps.
+            # Only raise, never lower. The override applies whenever the
+            # surface's trigger paths were touched at all — even if the
+            # diff-content heuristic fell through to "none" (comments only,
+            # whitespace only, etc.). This lets authors force a bump on a
+            # touched surface without the script second-guessing them.
+            # Untouched surfaces still ignore the override to avoid
+            # rubber-stamping unrelated bumps.
+            if not trigger_touched:
                 final = "none"
+            elif heur == "none":
+                final = override
+            elif LEVELS.index(override) > LEVELS.index(heur):
+                final = override
+            else:
+                final = heur
 
         # Promote via conventional-commit subjects on commits that touched
         # THIS surface — never from commits that only touched unrelated
