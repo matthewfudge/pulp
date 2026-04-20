@@ -167,6 +167,35 @@ Four bugs caught in Codex review of the Phase 0/1 series:
 - MidiInput nodes' `midi_out` is drained at the END of `process()`, not
   the start. Hosts call `inject_midi()` before each `process()` to refill.
 
+## PluginManagerPanel (issue #494)
+
+`pulp::view::PluginManagerPanel` sits on top of the scanner backend and
+gives host apps a ready-made "manage plugins" UI. The widget is
+header-only (`core/view/include/pulp/view/plugin_manager_panel.hpp`)
+and drives everything through `PluginManagerModel`:
+
+- Tests use `InMemoryPluginManagerModel` — pre-populate `scanned_rows`,
+  `failed_rows`, and `paths_by_format`, then assert on `visible_count`,
+  `rows`, and context-menu activations. The model exposes
+  `rescan_count`, `single_rescan_count`, `last_reveal_path` counters
+  for verifying the widget wired through.
+- Real hosts subclass `PluginManagerModel` and back `start_rescan()`
+  with either `PluginScanner::scan()` on a worker thread or the
+  out-of-process `pulp-scan-worker` binary. `examples/plugin-host-demo
+  --manage` shows the threaded-scanner pattern end-to-end.
+- Blacklist persistence goes through `pulp::host::ScanBlacklist::save_to
+  /load_from`; the widget itself is stateless beyond the filter string.
+  `set_blacklisted(path, true)` must save to disk so the row stays
+  blacklisted across sessions.
+- The widget does not render a native popup for right-click; it exposes
+  `context_menu_path()`, `context_menu_items()`, `context_menu_label()`,
+  and `activate_context_item()` so hosts can wire their own popup
+  (or tests can drive menu activation directly).
+
+When adding new context-menu items or bucket semantics, remember to
+extend `test_plugin_manager_panel.cpp` in the same commit — the
+`[issue-494]` tag on those cases is the canary for regression.
+
 ## Phase 3 — `.pulpgraph` save/load
 
 `pulp::host::GraphSerializer::to_json(graph, layout)` /
