@@ -165,3 +165,60 @@ Keep these in sync when the workflow meaningfully changes:
 
 If the workflow grows stable enough for broader reuse, keep this skill aligned
 with the actual shipped demo modes and focused validation commands.
+
+## Benchmark Mode (Slice 0.5 of #516)
+
+When `PULP_BENCHMARK=ON`, `pulp-threejs-native-demo` exposes a
+headless benchmark that drives the JS→GPU upload path without a
+visible window:
+
+```bash
+pulp-threejs-native-demo --benchmark-seconds=10 --widget=particles \
+                         --particle-count=10000 --target-fps=60 \
+                         --output=planning/bench/particles-N10000.json
+```
+
+The benchmark bypasses the full `three.webgpu.js` module loader and
+calls `__gpuQueueDrawBufferedImpl` directly with a vertex-buffer
+payload shaped like `THREE.BufferGeometry.setAttribute('position',
+new THREE.BufferAttribute(new Float32Array(count * 3), 3))`. It
+exercises the exact `widget_bridge.cpp` WriteBuffer path a real
+Three.js particles scene would hit.
+
+Gotchas:
+
+- **V8 + a complete Skia tree are both required.** The benchmark
+  depends on the native GPU bridge paths which are gated on
+  `PULP_HAS_SKIA`. If `external/skia-build/` only contains `include/`
+  + `modules/` without `build/mac-gpu/lib/`, `cmake` silently sets
+  `PULP_HAS_SKIA=FALSE` and every native WebGPU call in
+  `widget_bridge.cpp` short-circuits on its `#ifndef PULP_HAS_SKIA
+  return false` guard. The benchmark harness detects this and fails
+  fast rather than emitting zero counters.
+- **The full `three.webgpu.js` module loader has been seen to hang
+  at `status: 'starting'` headless on some hosts** (module runs to
+  completion with empty error, but top-level state never transitions
+  to `'ready'`). The benchmark works around this by using a minimal
+  JS harness; the in-window demo may still hit the hang when invoked
+  headlessly via `--capture`. If that happens, fix the loader, don't
+  paper over it in the harness.
+- **`base64_decode_us` will be zero for the particle benchmark** —
+  that counter only fires on the `__gpuComputeDispatchImpl`
+  `bufferDataBase64` lane (#535), not the vertex-buffer lane. Don't
+  read a zero there as a bug.
+
+## Decision 1 status (#516)
+
+The zero-copy JS↔GPU initiative (#516) ran Decision 1 twice:
+
+1. Slice 0 (PRs #518, #526) measured `ui-preview`'s oscilloscope +
+   spectrogram — wrong workload, C++-driven, never exercises the
+   upload path.
+2. Slice 0.5 measured this benchmark on Three.js particles — honest
+   workload, 0.036% → 0.26% of frame budget at 1K → 100K points.
+
+Both landed NO-GO; Slice 0.5 supersedes Slice 0's verdict. See
+`planning/zero-copy-decision-1-re-evaluation-2026-04-20.md`. The
+new `PerfCounters` fields (`base64_decode_total_us`,
+`gpu_buffer_upload_count`, `gpu_buffer_bytes_resident_peak`) stay
+merged for future workload-specific re-evaluations.

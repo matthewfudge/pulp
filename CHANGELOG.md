@@ -8,13 +8,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0251"></a>
-## [0.25.1] - 2026-04-20
+<a id="v0240"></a>
+## [0.26.0]
 
-- examples(threejs): flush rAF in headless loader loop (fix #542) ([#553](https://github.com/danielraffel/pulp/pull/553))
-
-<a id="v0250"></a>
-## [0.25.0] - 2026-04-20
+## [0.25.0]
 
 - fix: Codex sweep rollup - sysex, view header, scan AU/AUv3, post-merge limit (#500 #529) ([#540](https://github.com/danielraffel/pulp/pull/540))
 
