@@ -5,8 +5,12 @@ This directory is the machine-readable dependency inventory and update-validatio
 ## Files
 
 - `manifest.json` — source of truth for tracked third-party dependencies, pins, licenses, and documentation requirements
-- `audit.py` — audits `DEPENDENCIES.md` / `NOTICE.md` coverage and optionally checks upstream refs/tags
+- `audit.py` — audits `DEPENDENCIES.md`, `NOTICE.md`, and `docs/reference/licensing.md` coverage against `manifest.json`; optionally checks upstream refs/tags
 - `validate_hosts.py` — runs outer-loop validation locally and on optional SSH targets
+
+The audit script covers all four attribution surfaces (`manifest.json`,
+`DEPENDENCIES.md`, `NOTICE.md`, `docs/reference/licensing.md`) so drift
+between them is caught at PR time rather than after release.
 
 ## Usage
 

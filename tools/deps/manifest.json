@@ -76,6 +76,22 @@
       ]
     },
     {
+      "name": "cpp-httplib",
+      "category": "runtime",
+      "license": "MIT",
+      "version": "vendored-snapshot",
+      "source_kind": "vendored",
+      "repository": "https://github.com/yhirose/cpp-httplib.git",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "external/cpp-httplib/httplib.h",
+        "core/runtime/include/pulp/runtime/http.hpp",
+        "core/runtime/src/http.cpp"
+      ]
+    },
+    {
       "name": "Dawn",
       "category": "render",
       "license": "BSD-3-Clause",
@@ -89,6 +105,23 @@
         "CMakeLists.txt",
         "tools/build-skia.sh",
         "tools/cmake/FindSkia.cmake"
+      ]
+    },
+    {
+      "name": "dr_libs",
+      "category": "audio",
+      "license": "Public domain (Unlicense)",
+      "version": "vendored-snapshot",
+      "source_kind": "vendored",
+      "repository": "https://github.com/mackron/dr_libs.git",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "external/dr_libs/dr_flac.h",
+        "external/dr_libs/dr_mp3.h",
+        "external/dr_libs/dr_wav.h",
+        "core/audio/CMakeLists.txt"
       ]
     },
     {
@@ -109,20 +142,33 @@
       ]
     },
     {
-      "name": "miniz",
-      "category": "runtime",
-      "license": "MIT",
-      "version": "3.0.2",
+      "name": "Inter",
+      "category": "fonts",
+      "license": "SIL OFL 1.1",
+      "version": "vendored-snapshot",
       "source_kind": "vendored",
-      "repository": "https://github.com/richgel999/miniz.git",
-      "upstream": { "kind": "git-tag", "ref": "3.0.2" },
+      "repository": "https://github.com/rsms/inter",
+      "upstream": { "kind": "none" },
       "documented_in_dependencies_md": true,
       "documented_in_notice_md": true,
       "source_files": [
-        "external/miniz/miniz.h",
-        "external/miniz/miniz.c",
-        "core/runtime/include/pulp/runtime/zip.hpp",
-        "core/runtime/src/zip.cpp"
+        "external/fonts/Inter-Regular.ttf",
+        "external/fonts/README.md"
+      ]
+    },
+    {
+      "name": "JetBrains Mono",
+      "category": "fonts",
+      "license": "SIL OFL 1.1",
+      "version": "vendored-snapshot",
+      "source_kind": "vendored",
+      "repository": "https://github.com/JetBrains/JetBrainsMono",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "external/fonts/JetBrainsMono-Regular.ttf",
+        "external/fonts/README.md"
       ]
     },
     {
@@ -140,18 +186,52 @@
       ]
     },
     {
-      "name": "Oboe",
-      "category": "audio",
+      "name": "Mbed TLS",
+      "category": "runtime",
       "license": "Apache-2.0",
-      "version": "1.9.0",
-      "source_kind": "FetchContent",
-      "repository": "https://github.com/google/oboe",
-      "upstream": { "kind": "tag", "ref": "1.9.0" },
+      "version": "v3.6.2",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/Mbed-TLS/mbedtls.git",
+      "upstream": { "kind": "git-tag", "ref": "v3.6.2" },
       "documented_in_dependencies_md": true,
-      "documented_in_notice_md": false,
-      "platforms": ["android"],
+      "documented_in_notice_md": true,
       "source_files": [
-        "tools/cmake/PulpAndroid.cmake"
+        "CMakeLists.txt",
+        "core/runtime/CMakeLists.txt"
+      ]
+    },
+    {
+      "name": "miniz",
+      "category": "runtime",
+      "license": "MIT",
+      "version": "3.0.2",
+      "source_kind": "vendored",
+      "repository": "https://github.com/richgel999/miniz.git",
+      "upstream": { "kind": "git-tag", "ref": "3.0.2" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "external/miniz/miniz.h",
+        "external/miniz/miniz.c",
+        "core/runtime/include/pulp/runtime/zip.hpp",
+        "core/runtime/src/zip.cpp"
+      ]
+    },
+    {
+      "name": "msdfgen",
+      "category": "canvas",
+      "license": "MIT",
+      "version": "1.12",
+      "source_kind": "planned-fetchcontent",
+      "repository": "https://github.com/Chlumsky/msdfgen",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "DEPENDENCIES.md",
+        "NOTICE.md",
+        "core/canvas/include/pulp/canvas/msdf_atlas.hpp",
+        "core/canvas/src/msdf_atlas.cpp"
       ]
     },
     {
@@ -185,17 +265,18 @@
       ]
     },
     {
-      "name": "pybind11",
-      "category": "bindings",
-      "license": "BSD-3-Clause",
-      "version": "v2.13.6",
+      "name": "Oboe",
+      "category": "audio",
+      "license": "Apache-2.0",
+      "version": "1.9.0",
       "source_kind": "fetchcontent",
-      "repository": "https://github.com/pybind/pybind11.git",
-      "upstream": { "kind": "git-tag", "ref": "v2.13.6" },
+      "repository": "https://github.com/google/oboe.git",
+      "upstream": { "kind": "git-tag", "ref": "1.9.0" },
       "documented_in_dependencies_md": true,
       "documented_in_notice_md": true,
+      "platforms": ["android"],
       "source_files": [
-        "bindings/python/CMakeLists.txt"
+        "tools/cmake/PulpAndroid.cmake"
       ]
     },
     {
@@ -213,6 +294,20 @@
         "external/pugixml/pugixml.cpp",
         "core/runtime/include/pulp/runtime/xml.hpp",
         "core/runtime/src/xml.cpp"
+      ]
+    },
+    {
+      "name": "pybind11",
+      "category": "bindings",
+      "license": "BSD-3-Clause",
+      "version": "v2.13.6",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/pybind/pybind11.git",
+      "upstream": { "kind": "git-tag", "ref": "v2.13.6" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "bindings/python/CMakeLists.txt"
       ]
     },
     {
@@ -243,6 +338,21 @@
         "CMakeLists.txt",
         "tools/build-skia.sh",
         "tools/cmake/FindSkia.cmake"
+      ]
+    },
+    {
+      "name": "three.js",
+      "category": "render",
+      "license": "MIT",
+      "version": "077dd13c0e869d9f3dbe55875686f920367de457",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/mrdoob/three.js.git",
+      "upstream": { "kind": "git-branch", "ref": "dev" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Optional, only fetched when PULP_BUILD_TESTS and PULP_ENABLE_GPU are ON (native WebGPU bridge demos/tests).",
+      "source_files": [
+        "CMakeLists.txt"
       ]
     },
     {

@@ -51,6 +51,17 @@ case $? in
     *) echo "[pre-push] version_bump_check: internal error" >&2 ;;
 esac
 
+# Dependency attribution drift — fails if manifest entries are missing from
+# DEPENDENCIES.md, NOTICE.md, or docs/reference/licensing.md. Advisory by
+# default; PULP_ENFORCE_PREPUSH=1 promotes it along with the other gates.
+DEPS_AUDIT="$ROOT/tools/deps/audit.py"
+if [ -f "$DEPS_AUDIT" ]; then
+    if ! "$PYTHON" "$DEPS_AUDIT" --strict >/dev/null; then
+        echo "[pre-push] deps-audit: attribution drift detected — run \`python3 tools/deps/audit.py --strict\` for details." >&2
+        fail=1
+    fi
+fi
+
 if [ "$fail" = "0" ]; then
     echo "[pre-push] gates clean." >&2
     exit 0

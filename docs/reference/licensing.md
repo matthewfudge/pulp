@@ -8,14 +8,32 @@ Pulp is released under the **MIT License**. You can use it for any purpose — c
 
 Pulp builds on excellent open-source software. Every dependency that Pulp bundles, fetches automatically, or redistributes is compatible with MIT licensing — there is no copyleft in the shipped dependency chain.
 
+Tables are sorted alphabetically (case-insensitive) by name. Entries here must stay in sync with [`DEPENDENCIES.md`](https://github.com/danielraffel/pulp/blob/main/DEPENDENCIES.md), [`NOTICE.md`](https://github.com/danielraffel/pulp/blob/main/NOTICE.md), and [`tools/deps/manifest.json`](https://github.com/danielraffel/pulp/blob/main/tools/deps/manifest.json) (the machine-readable source of truth).
+
 ### Core Dependencies (Always Used)
 
 | Name | License | Purpose | Link |
 |------|---------|---------|------|
 | **Catch2** | BSL-1.0 | Unit testing framework | [github.com/catchorg/Catch2](https://github.com/catchorg/Catch2) |
 | **CHOC** | ISC | JS engine, MIDI utilities, audio file I/O, WebView, networking | [github.com/Tracktion/choc](https://github.com/Tracktion/choc) |
+| **cpp-httplib** | MIT | HTTP client (GET/POST/download) used by `pulp-runtime` | [github.com/yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) |
+| **dr_libs** | Public domain (Unlicense) / MIT-0 | FLAC, MP3, WAV decode (`dr_flac`, `dr_mp3`, `dr_wav`) | [github.com/mackron/dr_libs](https://github.com/mackron/dr_libs) |
+| **Highway** | Apache-2.0 | Portable SIMD abstraction (SSE/NEON/AVX) | [github.com/google/highway](https://github.com/google/highway) |
+| **Mbed TLS** | Apache-2.0 (dual-licensed; Pulp uses the Apache-2.0 option) | Cryptographic primitives (SHA-256, RSA, AES) | [github.com/Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) |
+| **miniz** | MIT | ZIP/GZIP compression | [github.com/richgel999/miniz](https://github.com/richgel999/miniz) |
+| **msdfgen** | MIT | Multi-channel SDF glyph generation (planned) | [github.com/Chlumsky/msdfgen](https://github.com/Chlumsky/msdfgen) |
 | **nanosvg** | zlib | SVG parsing and rasterization | [github.com/memononen/nanosvg](https://github.com/memononen/nanosvg) |
+| **pugixml** | MIT | XML parsing and generation | [github.com/zeux/pugixml](https://github.com/zeux/pugixml) |
 | **Yoga** | MIT | Layout engine for Flexbox/Grid-style native UI | [github.com/facebook/yoga](https://github.com/facebook/yoga) |
+
+### Embedded Fonts
+
+Embedded at build time for deterministic text rendering. Both fonts are redistributed under the SIL OFL 1.1, which explicitly permits bundling in software.
+
+| Name | License | Purpose | Link |
+|------|---------|---------|------|
+| **Inter** | SIL OFL 1.1 | Embedded UI font (`Inter-Regular.ttf`) | [github.com/rsms/inter](https://github.com/rsms/inter) |
+| **JetBrains Mono** | SIL OFL 1.1 | Embedded monospace font (`JetBrainsMono-Regular.ttf`) | [github.com/JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) |
 
 ### Plugin Format SDKs
 
@@ -26,6 +44,12 @@ Pulp builds on excellent open-source software. Every dependency that Pulp bundle
 | **LV2** | ISC | LV2 plugin format headers | [github.com/lv2/lv2](https://github.com/lv2/lv2) |
 | **VST3 SDK** | MIT | VST3 plugin format (pluginterfaces + base) | [github.com/steinbergmedia/vst3sdk](https://github.com/steinbergmedia/vst3sdk) |
 
+### Platform-Specific Dependencies
+
+| Name | License | Purpose | Link |
+|------|---------|---------|------|
+| **Oboe** | Apache-2.0 | Android audio backend (AAudio/OpenSL ES abstraction) | [github.com/google/oboe](https://github.com/google/oboe) |
+
 ## Optional Vendor SDK Integrations
 
 Some optional integrations depend on separately licensed SDKs that Pulp does not bundle, fetch, export, or redistribute. These SDKs are outside Pulp's MIT dependency chain and are only supported through explicit opt-in local configuration.
@@ -33,6 +57,7 @@ Some optional integrations depend on separately licensed SDKs that Pulp does not
 | Name | License | Purpose | Distribution |
 |------|---------|---------|--------------|
 | **AAX SDK** | Separately licensed by Avid | Optional AAX plugin format support | Developer obtains it independently and points `PULP_AAX_SDK_DIR` at an out-of-tree SDK copy |
+| **ARA SDK** | MIT-compatible (Celemony) | Optional ARA 2.x integration (pitch correction, spectral editing, clip-aware workflows) | Developer obtains it independently (`https://github.com/Celemony/ARA_SDK`), keeps it out-of-tree, points `PULP_ARA_SDK_DIR` at it, and sets `PULP_ENABLE_ARA=ON`. Never bundled. |
 | **ASIO SDK** | Proprietary (Steinberg) | Optional ASIO device I/O support (planned) | Developer obtains it independently; never bundled or exported by Pulp |
 
 Pulp's MIT license does not grant any rights to these vendor SDKs or to any related Avid/PACE tooling.
@@ -44,16 +69,20 @@ See [AAX Setup](../guides/aax.md) for the supported local workflow.
 |------|---------|---------|------|
 | **Dawn** | BSD-3-Clause | WebGPU implementation (Metal, D3D12, Vulkan) | [dawn.googlesource.com](https://dawn.googlesource.com/dawn) |
 | **SDL3** | zlib | Cross-platform windowing and input | [github.com/libsdl-org/SDL](https://github.com/libsdl-org/SDL) |
-| **Skia Graphite** | BSD-3-Clause | 2D GPU rendering engine | [skia.org](https://skia.org) |
+| **Skia** | BSD-3-Clause | 2D GPU rendering engine (Graphite backend) | [skia.org](https://skia.org) |
 | **WebGPU-distribution** | MIT | WebGPU C API wrapper for Dawn | [github.com/eliemichel/WebGPU-distribution](https://github.com/eliemichel/WebGPU-distribution) |
 
 ### Optional Dependencies
 
+Fetched only when the corresponding CMake option or platform gate is enabled.
+
 | Name | License | Purpose | Link |
 |------|---------|---------|------|
+| **DRACO** | Apache-2.0 | Optional glTF mesh decompression; fetched only when `PULP_ENABLE_DRACO=ON` | [github.com/google/draco](https://github.com/google/draco) |
 | **Emscripten** | MIT | C++ to WebAssembly compiler (for WAMv2/WebCLAP) | [emscripten.org](https://emscripten.org) |
-| **node-addon-api** | MIT | Node.js bindings via Node-API | [github.com/niclamusic/node-addon-api](https://github.com/niclamusic/node-addon-api) |
+| **node-addon-api** | MIT | Node.js bindings via Node-API | [github.com/nodejs/node-addon-api](https://github.com/nodejs/node-addon-api) |
 | **pybind11** | BSD-3-Clause | Python bindings for HeadlessHost | [github.com/pybind/pybind11](https://github.com/pybind/pybind11) |
+| **three.js** | MIT | Native WebGPU bridge demos and tests; fetched only when `PULP_BUILD_TESTS` and `PULP_ENABLE_GPU` are ON | [github.com/mrdoob/three.js](https://github.com/mrdoob/three.js) |
 
 ## Standards and Specifications
 
@@ -93,11 +122,13 @@ Pulp follows strict rules. Implementation is from specs, SDK documentation, and 
 
 Before adding any bundled dependency to Pulp:
 
-1. **Check the license** — must be MIT, BSD, Apache 2.0, ISC, zlib, BSL-1.0, or public domain
+1. **Check the license** — must be MIT, BSD, Apache 2.0, ISC, zlib, BSL-1.0, SIL OFL 1.1 (fonts), or public domain
 2. **Add to DEPENDENCIES.md** — alphabetical order, with version, license, and purpose
 3. **Add to NOTICE.md** — full license text, alphabetical order
-4. **No copyleft** — GPL, LGPL, AGPL, SSPL are not allowed
-5. **MPL-2.0** — requires case-by-case review (weak copyleft)
-6. **Vendor SDKs stay separate** — optional AAX/ASIO-style SDKs must remain developer-supplied, out-of-tree, and excluded from `NOTICE.md`
+4. **Add to docs/reference/licensing.md** — same table row, matching license string
+5. **Update tools/deps/manifest.json** — machine-readable inventory consumed by `tools/deps/audit.py`
+6. **No copyleft** — GPL, LGPL, AGPL, SSPL are not allowed
+7. **MPL-2.0** — requires case-by-case review (weak copyleft)
+8. **Vendor SDKs stay separate** — optional AAX/ASIO-style SDKs must remain developer-supplied, out-of-tree, and excluded from `NOTICE.md`
 
-Dependency update workflow is tracked in `tools/deps/manifest.json` and audited by `tools/deps/audit.py`.
+Dependency update workflow is tracked in `tools/deps/manifest.json` and audited by `tools/deps/audit.py`. Run `python3 tools/deps/audit.py --strict` before proposing a dependency change; the audit script will also run in CI (tracked alongside the skill-sync and version-bump gates).
