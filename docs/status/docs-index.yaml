@@ -244,6 +244,11 @@ docs:
     kind: guide
     summary: 10 practical recipes — form layout, modal, scroll list, tabs, meter, themes, hover, keys, drag, presets
 
+  - slug: coverage
+    path: guides/coverage.md
+    kind: guide
+    summary: Test coverage — Codecov dashboard, 20 flags, local runs, per-PR interpretation, phase roadmap
+
   - slug: design-tokens
     path: guides/design-tokens.md
     kind: guide

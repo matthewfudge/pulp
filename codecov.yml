@@ -1,0 +1,173 @@
+# codecov.yml — Codecov config for public/#566 Phase 1 (measurement baseline).
+#
+# Primary consumers (in order): Pulp developers, dispatched agents, CI
+# enforcement, contributors reading PR comments. Public dashboard is a
+# byproduct, not the design goal. See #566 for the framing and
+# planning/coverage-tooling-decision-2026-04-21.md for the full stack.
+#
+# Keep this file in sync with:
+#   - scripts/run_coverage.sh COVERAGE_IGNORE_REGEX (same exclude set)
+#   - .github/workflows/coverage.yml (upload step `flags:` list)
+#   - docs/guides/coverage.md (human-readable explanation)
+# Phase 2 adds ci/coverage-targets.yaml alongside this for the diff-cover
+# gate; Phase 4 introduces doc_path_map.json to prevent drift.
+
+coverage:
+  status:
+    # Project-wide status: "did we get worse?" Not a hard gate — we
+    # already have continue-on-error on the coverage job and Phase 3
+    # is where per-PR enforcement lands.
+    project:
+      default:
+        target: auto
+        threshold: 1%          # allow 1% drop without failing
+        informational: true    # Phase 1 is measurement; no blocking yet
+
+    # Patch status: "is new code covered?" Advisory in Phase 1; the
+    # authoritative patch gate comes from diff-cover in Phase 3.
+    patch:
+      default:
+        target: 75%
+        informational: true
+
+  # Exclude lists mirror scripts/run_coverage.sh COVERAGE_IGNORE_REGEX
+  # so Codecov and our local tooling count the same set of files.
+  # External FetchContent sources (Dawn, Skia, mbedTLS, QuickJS,
+  # Catch2, etc.) and our test trees are never counted as coverage-
+  # bearing. See planning/coverage-tooling-decision-2026-04-21.md §4.
+  ignore:
+    - "external/**"
+    - "_deps/**"
+    - "test/**"
+    - "examples/**"
+    - "build/**"
+    - "build-coverage/**"
+    - "**/Catch2/**"
+    - "**/catch2/**"
+
+# PR comment. Focused on reach + diff + flags + tree so contributors
+# see "how many lines of THIS PR are covered by THIS PR's tests"
+# front-and-centre. Tree view lets them jump to an uncovered file.
+comment:
+  layout: "reach, diff, flags, tree"
+  behavior: default
+  require_changes: true        # only post when coverage data is present
+
+# Flags carve up the codebase along the three axes we care about:
+# subsystem, platform, and surface. Defined per the canonical table
+# in issue #566. Cross-filter from the dashboard: e.g. `audio AND
+# linux` answers "what's audio coverage on Linux specifically?" —
+# useful when an ALSA-only regression would otherwise hide inside a
+# healthy multi-platform subsystem number.
+#
+# 13 core subsystems + 4 platforms + 3 surfaces = 20 flags (Phase 1
+# baseline). Adding a new subsystem adds a new flag + tier entry
+# here + a row in docs/reference/modules.md (Phase 4's doc-sync
+# gate will keep those three honest).
+flags:
+  # Core subsystems (13) — one flag per top-level core/** directory.
+  audio:
+    paths:
+      - core/audio/
+    carryforward: true
+  canvas:
+    paths:
+      - core/canvas/
+    carryforward: true
+  events:
+    paths:
+      - core/events/
+    carryforward: true
+  format:
+    paths:
+      - core/format/
+    carryforward: true
+  host:
+    paths:
+      - core/host/
+    carryforward: true
+  midi:
+    paths:
+      - core/midi/
+    carryforward: true
+  osc:
+    paths:
+      - core/osc/
+    carryforward: true
+  platform:
+    paths:
+      - core/platform/
+    carryforward: true
+  render:
+    paths:
+      - core/render/
+    carryforward: true
+  runtime:
+    paths:
+      - core/runtime/
+    carryforward: true
+  signal:
+    paths:
+      - core/signal/
+    carryforward: true
+  state:
+    paths:
+      - core/state/
+    carryforward: true
+  view:
+    paths:
+      - core/view/
+    carryforward: true
+
+  # Platform flags (4) — cross-cut the subsystem flags. "What's host
+  # coverage on Windows?" is answered by cross-filtering `host AND
+  # windows`. Paths cover all subsystems because any subsystem can
+  # have a Windows shim under its own `platform/windows/` tree.
+  android:
+    paths:
+      - core/platform/src/android/
+      - android/
+      - core/render/platform/android/
+      - core/**/android/
+    carryforward: true
+  apple:
+    paths:
+      - apple/
+      - core/**/macos/
+      - core/**/ios/
+      - core/**/mac/
+    carryforward: true
+  linux:
+    paths:
+      - core/**/linux/
+      - core/**/alsa/
+    carryforward: true
+  windows:
+    paths:
+      - core/**/windows/
+      - core/**/wasapi/
+    carryforward: true
+
+  # Surface flags (3) — non-core but first-party:
+  cli:
+    paths:
+      - tools/cli/
+    carryforward: true
+  ship:
+    paths:
+      - ship/
+    carryforward: true
+  tools:
+    # Everything under tools/ except the CLI (which already has its
+    # own flag above). Codecov's glob takes first-matching-flag per
+    # file, and more-specific `tools/cli/` wins over the broader
+    # `tools/` here.
+    paths:
+      - tools/
+    carryforward: true
+
+# carryforward: true on every flag — when a PR doesn't touch
+# a given subsystem, carry over the last known coverage for that
+# flag from main so the dashboard doesn't report a false 0%. Standard
+# Codecov practice for multi-job uploads (we have one job per OS
+# starting in Phase 1 PR 4).
