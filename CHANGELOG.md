@@ -8,9 +8,30 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0231"></a>
-## [0.24.0]
+<a id="v0240"></a>
+## [0.24.0] - 2026-04-20
 
+- view: PluginManagerPanel widget over scanner backend (#494) ([#538](https://github.com/danielraffel/pulp/pull/538))
+- platform: cross-platform pulp::platform::Permissions backends (#495) ([#539](https://github.com/danielraffel/pulp/pull/539))
+- render: GPU compute staging buffer pool (zero-copy Slice 1) ([#536](https://github.com/danielraffel/pulp/pull/536))
+- host/view: P2 rollup — VST3 FUID + LV2 URI identity, placeholder-node pass-through, createComputeBuffer base64 upload (#491) ([#535](https://github.com/danielraffel/pulp/pull/535))
+- install-shipyard: defensively reinitialize truncated queue.json (#528) ([#534](https://github.com/danielraffel/pulp/pull/534))
+- ci(android): re-gate emulator smoke — HVF unsupported on macos-latest ([#533](https://github.com/danielraffel/pulp/pull/533))
+- docs: close #523 remaining gaps — accuracy audit follow-ups ([#531](https://github.com/danielraffel/pulp/pull/531))
+- ci(android): re-enable emulator smoke test with correct ABI + intent ([#530](https://github.com/danielraffel/pulp/pull/530))
+- ci: release watchdog — three layers against silent release failures ([#512](https://github.com/danielraffel/pulp/pull/512))
+- docs: remove stale Intel Mac + AUv3-not-implemented + phase1-snapshot drift ([#521](https://github.com/danielraffel/pulp/pull/521))
+- bench: Slice 0 zero-copy perf counters + ui-preview benchmark mode ([#526](https://github.com/danielraffel/pulp/pull/526))
+- view(win): UIA shutdown — atomic null-first before disconnect (#514) ([#520](https://github.com/danielraffel/pulp/pull/520))
+- docs: document pulp pr + reconcile CLAUDE.md ship guidance (#523) ([#525](https://github.com/danielraffel/pulp/pull/525))
+- bench: treat missing memory_bandwidth_fraction as unknown, not zero ([#524](https://github.com/danielraffel/pulp/pull/524))
+- bench: tools/scripts/bench_diff.py — zero-copy bench diff harness (#517) ([#518](https://github.com/danielraffel/pulp/pull/518))
+- fix(ci): auto-release — trailer-aware bump detection (#513) ([#519](https://github.com/danielraffel/pulp/pull/519))
+- fix(ci+android): Codex post-merge sweep — stale vars, sweep scope, focus flag (#500) ([#515](https://github.com/danielraffel/pulp/pull/515))
+- fix(ci): auto-release.yml YAML indent — every run since #501 failed silently ([#510](https://github.com/danielraffel/pulp/pull/510))
+- lv2: serialize midi_out back to atom output port (#491) ([#511](https://github.com/danielraffel/pulp/pull/511))
+
+<a id="v0231"></a>
 ## [0.23.1] - 2026-04-20
 
 - chore: bump SDK to v0.23.1 ([#509](https://github.com/danielraffel/pulp/pull/509))
@@ -417,6 +438,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.24.0]: https://github.com/danielraffel/pulp/releases/tag/v0.24.0
 [0.23.1]: https://github.com/danielraffel/pulp/releases/tag/v0.23.1
 [0.23.0]: https://github.com/danielraffel/pulp/releases/tag/v0.23.0
 [0.22.0]: https://github.com/danielraffel/pulp/releases/tag/v0.22.0
