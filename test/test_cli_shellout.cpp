@@ -24,6 +24,26 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Platform-aware setenv/unsetenv: Windows MSVC doesn't provide POSIX
+// `setenv` / `unsetenv` — it uses `_putenv_s` instead (empty string
+// value for unset). Wrap both so every test body stays portable.
+inline int pulp_setenv(const char* name, const char* value, int /*overwrite*/) {
+#if defined(_WIN32)
+    return _putenv_s(name, value);
+#else
+    return ::setenv(name, value, 1);
+#endif
+}
+
+inline int pulp_unsetenv(const char* name) {
+#if defined(_WIN32)
+    return _putenv_s(name, "");
+#else
+    return ::unsetenv(name);
+#endif
+}
+
+
 // The pulp CLI binary lands at <build>/tools/cli/pulp once `pulp-cli`
 // has been built. The test runner's working directory at invocation
 // time is <build>/test, so "../tools/cli/pulp" is the relative path.
@@ -362,13 +382,13 @@ TEST_CASE("pulp with update.mode=off never prints a banner",
 #ifdef _WIN32
     _putenv_s("PULP_HOME", tmp.string().c_str());
 #else
-    setenv("PULP_HOME", tmp.string().c_str(), 1);
+    pulp_setenv("PULP_HOME", tmp.string().c_str(), 1);
 #endif
     auto r = exec(bin.string(), {"help"}, 10000);
 #ifdef _WIN32
     _putenv_s("PULP_HOME", "");
 #else
-    unsetenv("PULP_HOME");
+    pulp_unsetenv("PULP_HOME");
 #endif
     fs::remove_all(tmp);
 
@@ -413,7 +433,7 @@ TEST_CASE("pulp with update.mode=manual prints the manual notice",
 #ifdef _WIN32
     _putenv_s("PULP_HOME", tmp.string().c_str());
 #else
-    setenv("PULP_HOME", tmp.string().c_str(), 1);
+    pulp_setenv("PULP_HOME", tmp.string().c_str(), 1);
 #endif
     // Use `doctor --versions` — it's not on the banner_blocked list,
     // so the dispatch hook runs for it. `help` IS blocked.
@@ -421,7 +441,7 @@ TEST_CASE("pulp with update.mode=manual prints the manual notice",
 #ifdef _WIN32
     _putenv_s("PULP_HOME", "");
 #else
-    unsetenv("PULP_HOME");
+    pulp_unsetenv("PULP_HOME");
 #endif
     fs::remove_all(tmp);
 
@@ -574,6 +594,22 @@ TEST_CASE("pulp docs build-site resolves mkdocs.yml from project root",
     fs::path subdir = repo_root / "tools";
     REQUIRE(fs::exists(subdir));
 
+    // Pulp #597: pulp_binary() resolves from current_path() / "../tools/cli/pulp"
+    // — that assumes the test is run from <build>/test. When we change
+    // cwd below to <repo>/tools, the relative resolution points at
+    // <repo>/tools/cli/pulp (source, not built), which doesn't exist,
+    // and run_pulp silently returns exit_code=-1 without launching the
+    // CLI — making the regression test vacuous. Resolve the absolute
+    // binary path BEFORE the cwd change and pipe it through PULP_CLI_PATH,
+    // which pulp_binary() honors as an explicit override.
+    fs::path absolute_pulp_bin = fs::absolute(pulp_binary());
+    REQUIRE(fs::exists(absolute_pulp_bin));
+    // fs::path::c_str() returns const wchar_t* on Windows, so stringify
+    // explicitly so the pulp_setenv(const char*, const char*, int) overload
+    // resolves on every platform.
+    const std::string absolute_pulp_bin_str = absolute_pulp_bin.string();
+    pulp_setenv("PULP_CLI_PATH", absolute_pulp_bin_str.c_str(), 1);
+
     fs::path saved_cwd = fs::current_path();
     std::error_code ec;
     fs::current_path(subdir, ec);
@@ -587,6 +623,7 @@ TEST_CASE("pulp docs build-site resolves mkdocs.yml from project root",
                      60000);
 
     fs::current_path(saved_cwd, ec);  // always restore
+    pulp_unsetenv("PULP_CLI_PATH");
 
     REQUIRE_FALSE(r.timed_out);
     // Permit mkdocs-missing ("command not found" path, rc != 0 with
