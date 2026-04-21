@@ -331,29 +331,91 @@ Slice 2 wires a 24h update-check cache plus a config surface for
 
 Gotchas:
 
-- **Slice 2 does NOT implement the interactive y/N prompt.** Full
-  auto/prompt/manual/off enforcement lands in Slice 5. Today's `prompt`
-  mode prints the one-shot informational banner only. Don't
-  retroactively add interactive blocking to `prompt` mode without
-  reading the design doc Section A first.
-- **`update.channel = "beta"` is accepted by the allow-list but
-  ignored.** Reserved for Slice 5. Accepting it now means users can
-  set it ahead of time without the config reader errors; don't surface
-  it in the `pulp config --help` Examples until Slice 5 honours it.
 - **Anonymous GitHub API only.** 60 req/hr/IP. The 24h cache default
   keeps us well under that. Do NOT add authenticated fetches — the
   design is explicit about "no GitHub App, no auth".
-- **`std::async(std::launch::async, ...)` is stored in a static
-  future** so the destructor doesn't block `main` on Windows. The
-  refresh thread finishes in < 2s normally and the process exits
-  either way — don't replace with `std::thread::detach` without
-  thinking about signal delivery and CRT finalization on Windows.
+- **Background refresh is a detached `std::thread`.** Codex 2026-04-21
+  wave 2 P1 flagged the original `std::async` + static-future
+  pattern as blocking on destructor; the current
+  `std::thread(...).detach()` is correct. Do NOT regress this back
+  to `std::async` without understanding the Windows CRT finalization
+  path — the process must be able to exit while the fetch thread is
+  still in-flight.
 - **Cache file is atomic via `.tmp` + rename.** A torn write just
   forces a re-fetch on the next invocation, not corruption. Cross-device
   rename falls back to `copy_file` + `remove`.
 - **Commit trailer block must be contiguous.** Version-bump + skill
   trailers live on the tip commit. Do NOT split with blank lines —
   `git interpret-trailers --parse` treats them as non-trailers.
+
+## Mode enforcement + pending-upgrade (#499 Slice 5 / #550)
+
+Slice 5 wires all four `update.mode` values into the dispatch path in
+`pulp_cli.cpp` and adds the auto-mode staging + Windows tombstone
+cleanup. Key layout:
+
+- **`tools/cli/update_mode.{hpp,cpp}`** — pure-logic core: `Mode` enum,
+  snooze read/write, pending-upgrade JSON round-trip, tombstone path
+  helpers, mode-specific banner composers, decision helpers
+  (`decide_prompt_banner`, `should_stage_auto_download`). No
+  `cli_common` link dep — same standalone-test pattern as
+  `update_check`. Unit tests in
+  `test/test_cli_update_mode.cpp` mock the filesystem via per-test
+  tmpdirs and inject time via explicit epoch-seconds arguments.
+- **`tools/cli/pulp_cli.cpp`** — `maybe_emit_update_banner_and_refresh`
+  now consumes `update_mode`. Decision tree:
+  - `off` → zero I/O, zero network, zero banner.
+  - `prompt` → one-shot banner per new version (Slice 2 behavior,
+    preserved); 24h snooze via `~/.pulp/update-snooze` when it's set
+    (writes happen from `cmd_config` on mode-change and from the
+    `/upgrade` Claude skill on user decline — the dispatch path
+    never writes the snooze itself, it only reads it).
+  - `manual` → one-liner per new version ("Run `pulp upgrade` when
+    you're ready."), suppressed after `banner_shown_for_version`
+    matches.
+  - `auto` → writes `~/.pulp/pending-upgrade`, prints "downloaded,
+    will complete on next invocation". The actual binary swap lives
+    in `cmd_upgrade` — Slice 5 does NOT download in the background
+    thread, only stages intent via the marker file. This preserves
+    Section G's "no binary is ever replaced without the user's
+    session touching `pulp` again".
+- **`tools/cli/cmd_config.cpp`** — `pulp config set update.mode ...`
+  now clears `~/.pulp/update-snooze` as a side effect. Reason: a mode
+  change is itself an act of re-engagement with update management,
+  so an existing 24h snooze would otherwise silence the new mode's
+  behavior. Also adds the `update.bump_projects` allow-list entry
+  (values: `prompt | auto | off`, default `prompt`) as a **reserved
+  stub for Slice 7 (#564)** — accept it now, implement in Slice 7.
+- **Banner shapes** (locked, tested verbatim in `test_cli_update_mode.cpp`):
+  - manual: `Pulp vX.Y.Z available (you have vA.B.C). Run \`pulp upgrade\` when you're ready.`
+  - auto staged: `Pulp vX.Y.Z downloaded. The upgrade will complete on your next \`pulp\` invocation.`
+  - auto completed: `Pulp CLI upgraded to vX.Y.Z. Run \`pulp upgrade --notes\` to see what changed.`
+
+Gotchas specific to Slice 5:
+
+- **Windows tombstone pattern (`*.pulp.old`).** The swap in
+  `cmd_upgrade` on Windows can't overwrite a file-locked running exe
+  in place. The rustup/pip/Python pattern is: `MoveFileEx(exe,
+  exe.pulp.old, REPLACE_EXISTING)` (rename-out the old bytes),
+  then copy the new binary into the original path. On the NEXT
+  invocation of the new binary, `cleanup_tombstone()` deletes the
+  `.pulp.old` file. macOS/Linux overwrite the running inode fine —
+  `cleanup_tombstone()` is a no-op there. Always call cleanup from
+  the dispatch hook (top of `main`) so the sweep is universal.
+- **Never replace the binary mid-command.** Design Section G is
+  explicit: the auto-mode dispatch path only stages — it must not
+  call `cmd_upgrade` directly or start a download that can race
+  `main()`'s exit. The staging path here is intentionally a
+  marker-write + user-facing notice, not a network fetch.
+- **`decide_prompt_banner` is pure.** Never call it from the snooze
+  write path — it'd double-count the banner against the
+  `banner_shown_for_version` counter. The snooze file is written by
+  (a) `cmd_config` on mode change (as a clear) and (b) the
+  `/upgrade` Claude skill on explicit decline. Nowhere else.
+- **`update.bump_projects` is an accept-only stub in Slice 5.**
+  Don't wire behavior for it yet; Slice 7 (#564) owns that. If you're
+  tempted to check the value here, stop — it should round-trip
+  through `pulp config get/set` only.
 
 ## Migration notes + `pulp upgrade --notes` (#499 Slice 3 / #548)
 

@@ -120,6 +120,43 @@ target_link_libraries(pulp-test-cli-projects-registry PRIVATE
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-projects-registry)
 
+# CLI update-check (#499 Slice 2 / #547): pure-logic tests for the
+# ~/.pulp/update-cache.json round-trip, is_cache_stale boundary,
+# semver comparison, banner composition, TOML writer, and the
+# Fetcher injection. update_check.cpp is deliberately free of
+# cli_common link deps so the tests compile standalone. The #547
+# PR added this test source but forgot the CMake target — Slice 5
+# (#550) wires it in as part of the mode-enforcement work since
+# the two modules share the cache file + banner hooks.
+add_executable(pulp-test-cli-update-check
+    test_cli_update_check.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/update_check.cpp
+)
+target_include_directories(pulp-test-cli-update-check PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-cli-update-check PRIVATE
+    Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-update-check)
+
+# CLI update-mode (#499 Slice 5 / #550): pure-logic tests for the
+# auto/prompt/manual/off state machine, 24h snooze expiration,
+# pending-upgrade marker JSON round-trip, and Windows tombstone
+# cleanup. Filesystem is mocked via per-test tmp dirs; time enters
+# via explicit epoch-seconds arguments. update_mode.cpp depends on
+# update_check.cpp for is_newer(), so both TUs are linked in.
+add_executable(pulp-test-cli-update-mode
+    test_cli_update_mode.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/update_mode.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/update_check.cpp
+)
+target_include_directories(pulp-test-cli-update-mode PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-cli-update-mode PRIVATE
+    Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-update-mode)
+
 # CLI migration index (#499 Slice 3 / #548): pure-logic tests for the
 # applies_if expression evaluator, hop filter, text/JSON renderers,
 # and the Python codegen round-trip. The generated translation unit
