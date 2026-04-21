@@ -206,8 +206,25 @@ jobs:
         # VM so the system-packages split is irrelevant here; this
         # matches how actions/setup-python's `--user` install would
         # behave in an isolated tooling venv, minus the extra venv step.
-        run: python3 -m pip install --user --break-system-packages 'gcovr>=8.2'
+        # pip --user on macOS installs to $(python3 -m site --user-base)/bin
+        # (e.g. /Users/runner/Library/Python/3.13/bin) which is NOT on PATH
+        # by default on macos-latest runners. Add it after install so
+        # scripts/run_coverage.sh can find `gcovr` later. Linux runners also
+        # benefit (user-base bin is off PATH there too on some distros);
+        # Windows gcovr lands in %APPDATA%\Python\Scripts which we handle
+        # via the separate `shell: bash` that adds python's Scripts dir below.
         shell: bash
+        run: |
+          python3 -m pip install --user --break-system-packages 'gcovr>=8.2'
+          user_base=$(python3 -m site --user-base)
+          echo "${user_base}/bin" >> "$GITHUB_PATH"
+          # Windows pip --user uses %APPDATA%\Python\PythonXY\Scripts which
+          # `python3 -m site --user-base` doesn't expose — append the Scripts
+          # dir directly from sysconfig on that runner only.
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            scripts=$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts", f"{sysconfig.get_default_scheme()}_user"))')
+            echo "${scripts}" >> "$GITHUB_PATH"
+          fi
 
       - name: run_coverage.sh fixture tests (#569 / #570)
         # Assert the canonical ignore-regex excludes _deps/catch2-build
