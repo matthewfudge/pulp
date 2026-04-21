@@ -18,7 +18,7 @@ When the user says any of: **"push to main"**, **"ship this"**, **"ship it"**,
 **"we're done"**, **"merge this"**, **"push it"**, **"run CI"**, **"push a PR"** —
 run `shipyard pr` (not `gh pr create` + `shipyard ship` separately).
 
-`shipyard pr` is the single orchestrator (Shipyard v0.19.1+; pinned as v0.20.0
+`shipyard pr` is the single orchestrator (Shipyard v0.19.1+; pinned as v0.21.0
 in `tools/shipyard.toml`). It:
 
 1. Calls `tools/scripts/skill_sync_check.py` (resolved via Shipyard's
