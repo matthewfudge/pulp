@@ -67,6 +67,7 @@ add_executable(pulp-cli
     projects_registry.cpp
     cmd_projects.cpp
     update_check.cpp
+    update_mode.cpp
     migration_runtime.cpp
     "${_pulp_migration_index_src}")
 set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp")

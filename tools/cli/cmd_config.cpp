@@ -9,12 +9,16 @@
 //   pulp config set update.check_interval_hours 24
 //   pulp config list
 //
-// Full auto/prompt/manual/off enforcement lands in Slice 5 (#499).
-// This slice only owns the config surface + banner emission; pushing
-// the mode value anywhere other than the banner check happens later.
+// Slice 5 (#550) wires the auto/prompt/manual/off modes into the
+// invocation path in pulp_cli.cpp and clears the 24h snooze on any
+// mode change (a mode change means the user has re-engaged with
+// update management, so suppressing further notices would be wrong).
+// Slice 5 also reserves the `update.bump_projects` key for Slice 7 —
+// Slice 7 (#564) is where the actual project-bump behavior lands.
 
 #include "cli_common.hpp"
 #include "update_check.hpp"
+#include "update_mode.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -24,6 +28,7 @@
 #include <vector>
 
 namespace uc = pulp::cli::update_check;
+namespace um = pulp::cli::update_mode;
 
 namespace {
 
@@ -52,7 +57,13 @@ bool is_allowed_key(const std::string& section, const std::string& key) {
     if (section == "update") {
         return key == "mode" ||
                key == "check_interval_hours" ||
-               key == "channel";
+               key == "channel" ||
+               // Slice 5 (#550) reserves this key for Slice 7 (#564)
+               // which implements per-project SDK bump behavior.
+               // Accepting it now lets users configure ahead of time;
+               // Slice 7 will make the value functional. Allowed:
+               // prompt | auto | off. Default: prompt.
+               key == "bump_projects";
     }
     return false;
 }
@@ -78,6 +89,12 @@ std::string validate_value(const std::string& section,
         if (value == "stable" || value == "beta") return {};
         return "update.channel must be one of: stable, beta";
     }
+    if (section == "update" && key == "bump_projects") {
+        // Reserved for Slice 7 (#564). Values locked now so Slice 7
+        // doesn't have to re-open the allow-list on day one.
+        if (value == "prompt" || value == "auto" || value == "off") return {};
+        return "update.bump_projects must be one of: prompt, auto, off";
+    }
     return {};
 }
 
@@ -92,10 +109,24 @@ int usage() {
     std::cout << "  update.mode                   auto | prompt | manual | off  (default: prompt)\n";
     std::cout << "  update.check_interval_hours   default: 24\n";
     std::cout << "  update.channel                stable | beta                 (default: stable)\n";
+    std::cout << "  update.bump_projects          prompt | auto | off           (default: prompt)\n";
+    std::cout << "                                [reserved — Slice 7 (#564) implements the behavior]\n";
     std::cout << "\nExamples:\n";
     std::cout << "  pulp config set update.mode manual\n";
     std::cout << "  pulp config get update.mode\n";
+    std::cout << "\nNotes:\n";
+    std::cout << "  Changing update.mode clears the 24h snooze at ~/.pulp/update-snooze\n";
+    std::cout << "  so the new mode takes effect on the next invocation.\n";
     return 0;
+}
+
+// Return the snooze file path (same layout as the banner hook uses).
+// Empty when PULP_HOME resolution fails — mirror caller contract of
+// config_path_or_empty().
+fs::path snooze_path_or_empty() {
+    auto home = pulp_home();
+    if (home.empty()) return {};
+    return home / "update-snooze";
 }
 
 }  // namespace
@@ -175,6 +206,18 @@ int cmd_config(const std::vector<std::string>& args) {
         f << rewritten;
         std::cout << "Set " << section << "." << key << " = " << args[2] << "\n";
         std::cout << "    " << path.string() << "\n";
+
+        // A mode change means the user has re-engaged with update
+        // management. Clear the 24h snooze so the new mode takes
+        // effect on the next invocation. Without this, a user who
+        // dismissed a banner yesterday and switches to `auto` today
+        // would still wait 24h for the first auto-download attempt.
+        if (section == "update" && key == "mode") {
+            auto snooze = snooze_path_or_empty();
+            if (!snooze.empty()) {
+                (void)um::clear_snooze(snooze);  // best-effort
+            }
+        }
         return 0;
     }
 
@@ -195,6 +238,7 @@ int cmd_config(const std::vector<std::string>& args) {
         show("mode", "prompt");
         show("check_interval_hours", "24");
         show("channel", "stable");
+        show("bump_projects", "prompt");
         return 0;
     }
 

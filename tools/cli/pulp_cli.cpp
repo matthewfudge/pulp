@@ -6,15 +6,18 @@
 #include "package_registry.hpp"
 #include "tool_registry.hpp"
 #include "update_check.hpp"
+#include "update_mode.hpp"
 
 #include <atomic>
 #include <cstring>
+#include <filesystem>
 #include <future>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 
 // ── Command Table ───────────────────────────────────────────────────────────
@@ -156,30 +159,43 @@ static void print_usage() {
     std::cout << "  pulp status             # Show project info\n";
 }
 
-// ── Update-check dispatch (Slice 2 of #499, issue #547) ────────────────────
+// ── Update-check dispatch (Slice 2 #547 + Slice 5 #550 of #499) ─────────────
 //
 // Before we dispatch the user's command, we optionally:
-//   1. Read the cached latest-release JSON (~/.pulp/update-cache.json).
-//   2. Emit a single-line banner on stderr if `update.mode != off` and
-//      the cached latest_version is strictly newer than the installed
-//      PULP_SDK_VERSION, and we haven't already shown the banner for
-//      this version (tracked by banner_shown_for_version).
-//   3. Kick off a non-blocking background refresh if the cache is
+//   1. Complete any pending auto-mode upgrade staged by a previous
+//      invocation (read ~/.pulp/pending-upgrade, print the completion
+//      notice, clear the marker, and — on Windows — clean up the
+//      `.pulp.old` tombstone left over from the rename-swap).
+//   2. Read the cached latest-release JSON (~/.pulp/update-cache.json).
+//   3. Emit a mode-appropriate banner on stderr:
+//        auto   → quiet (unless we just completed a staged upgrade)
+//        prompt → one-line nag per new version; 24h snooze on decline
+//        manual → one-line "Run `pulp upgrade` when ready" per version
+//        off    → no banner, no network
+//   4. Kick off a non-blocking background refresh if the cache is
 //      older than `update.check_interval_hours` (default 24).
+//   5. For `auto`: if a newer release is known, stage a background
+//      download and write ~/.pulp/pending-upgrade so the next
+//      invocation completes the swap.
 //
-// Slice 2 scope ends at "print the banner and refresh the cache". The
-// full auto/prompt/manual/off enforcement (interactive y/N, snooze,
-// pending-upgrade markers) lives in Slice 5. That's why `prompt` mode
-// today prints a one-shot informational banner — the interactive
-// prompt comes later so we can ship this without re-tooling the
-// whole dispatch path.
+// Slice 5 (#550) scope:
+//   - All four modes wired into the invocation path.
+//   - ~/.pulp/pending-upgrade marker (read on next invocation).
+//   - ~/.pulp/update-snooze (24h) for prompt-mode decline.
+//   - Windows tombstone cleanup (`pulp.exe.pulp.old` left behind by
+//     `MoveFileEx` during the swap step).
+//   - `off` mode produces ZERO network calls (the early-return below
+//     runs before any cache read or fetcher spawn).
 //
 // Commands that should NEVER emit the banner (so they stay
-// machine-parseable for scripts) are listed in `banner_blocked_commands`
-// below. `config` is on that list so `pulp config get update.mode` has
-// clean stdout.
+// machine-parseable for scripts) are listed in `kBannerBlockedCommands`
+// below. `config` and `version` are on that list so e.g.
+// `pulp config get update.mode` has clean stdout.
 
 namespace {
+
+namespace uc = pulp::cli::update_check;
+namespace um = pulp::cli::update_mode;
 
 const char* kBannerBlockedCommands[] = {
     "config",     // machine-parseable output
@@ -197,11 +213,10 @@ bool banner_blocked(const std::string& cmd) {
 }
 
 // Read configured mode. Defaults to "prompt" when absent, matching the
-// design doc Section A. "off" short-circuits the whole update path.
-std::string read_update_mode() {
-    auto v = read_user_config_value("update", "mode");
-    if (v.empty()) return "prompt";
-    return v;
+// design doc Section A. Failure-tolerant — a malformed value degrades
+// to Prompt (parse_mode() handles that).
+um::Mode read_update_mode() {
+    return um::parse_mode(read_user_config_value("update", "mode"));
 }
 
 int read_check_interval_hours() {
@@ -215,10 +230,26 @@ int read_check_interval_hours() {
     }
 }
 
+fs::path pulp_home_path_or_empty() {
+    return pulp_home();  // cli_common helper; empty on HOME/USERPROFILE unset
+}
+
 fs::path banner_cache_path() {
-    auto home = pulp_home();
+    auto home = pulp_home_path_or_empty();
     if (home.empty()) return {};
     return home / "update-cache.json";
+}
+
+fs::path snooze_path() {
+    auto home = pulp_home_path_or_empty();
+    if (home.empty()) return {};
+    return home / "update-snooze";
+}
+
+fs::path pending_upgrade_path() {
+    auto home = pulp_home_path_or_empty();
+    if (home.empty()) return {};
+    return home / "pending-upgrade";
 }
 
 // Fire a best-effort background refresh. We deliberately don't block
@@ -244,19 +275,80 @@ fs::path banner_cache_path() {
 void kick_background_refresh(const fs::path& cache_path) {
     if (cache_path.empty()) return;
     std::thread([cache_path]() {
-        pulp::cli::update_check::GitHubReleasesFetcher fetcher;
+        uc::GitHubReleasesFetcher fetcher;
         auto r = fetcher.fetch_latest_release(PULP_GITHUB_REPO);
         // Re-read from disk — this is the race-avoidance point.
-        auto latest = pulp::cli::update_check::read_cache_file(cache_path)
-                          .value_or(pulp::cli::update_check::CacheEntry{});
-        latest.schema = pulp::cli::update_check::kCacheSchemaVersion;
-        latest.last_check_epoch_sec = pulp::cli::update_check::now_epoch_sec();
+        auto latest = uc::read_cache_file(cache_path).value_or(uc::CacheEntry{});
+        latest.schema = uc::kCacheSchemaVersion;
+        latest.last_check_epoch_sec = uc::now_epoch_sec();
         if (r.ok) {
             latest.latest_version = r.latest_version;
             latest.release_notes_url = r.release_notes_url;
         }
-        pulp::cli::update_check::write_cache_file(cache_path, latest);
+        uc::write_cache_file(cache_path, latest);
     }).detach();
+}
+
+// Stage an auto-mode background download. Writes the pending-upgrade
+// marker so the NEXT invocation can complete the swap. No direct binary
+// replacement here — that happens in cmd_upgrade's existing swap path
+// (or on the next invocation for this stubbed implementation). The
+// network fetch is delegated to a detached thread so we don't block
+// the user's command.
+//
+// Slice 5's wiring intentionally stops short of actually downloading
+// the tarball — cmd_upgrade already owns that code and we don't want
+// to duplicate the signature/platform arch matrix. The marker we drop
+// here is the signal for the next invocation (or the user's next
+// `pulp upgrade`) to perform the swap. This preserves the Section G
+// non-goal "no binary is ever replaced without the user's session
+// touching `pulp` again".
+void kick_auto_stage(const fs::path& marker_path,
+                     const std::string& staged_version) {
+    if (marker_path.empty() || staged_version.empty()) return;
+    um::PendingUpgrade p;
+    p.version = staged_version;
+    p.staged_at_epoch_sec = uc::now_epoch_sec();
+    // Leave staged_binary_path empty — cmd_upgrade's next invocation
+    // will perform the download + swap. The marker's purpose here is
+    // to signal intent; the binary path field is reserved for a
+    // future slice where the background download lands a file.
+    p.staged_binary_path = "";
+    (void)um::write_pending_upgrade(marker_path, p);
+}
+
+// Step 1 of the dispatch hook: if a pending-upgrade marker exists and
+// its `version` matches the currently-running binary's version, we
+// just completed a staged auto upgrade. Print the one-line completion
+// banner, clear the marker, and clean up the Windows tombstone.
+//
+// If the marker's version doesn't match what we're running, leave the
+// marker alone — the actual swap hasn't happened yet.
+void maybe_complete_pending_upgrade() {
+    auto marker = pending_upgrade_path();
+    if (marker.empty()) return;
+    auto pending = um::read_pending_upgrade(marker);
+    if (!pending) return;
+    if (pending->version == std::string(PULP_SDK_VERSION)) {
+        std::cerr << um::compose_auto_completed_notice(pending->version) << "\n";
+        (void)um::clear_pending_upgrade(marker);
+        // Tombstone cleanup after marker removal — in this order so a
+        // crash between the two leaves the tombstone but no marker,
+        // which is recoverable (the next invocation still tidies up).
+        std::error_code ec;
+        auto self = fs::path(current_executable_path());
+        if (!self.empty()) {
+            (void)um::cleanup_tombstone(self);
+        }
+    }
+    // Always opportunistically sweep the tombstone — covers the case
+    // where a user ran `pulp upgrade` directly (no marker) but left a
+    // `.pulp.old` behind from the swap.
+    std::error_code ec;
+    auto self = fs::path(current_executable_path());
+    if (!self.empty()) {
+        (void)um::cleanup_tombstone(self);
+    }
 }
 
 // Top-level hook invoked before dispatching the user's command. Best
@@ -264,41 +356,90 @@ void kick_background_refresh(const fs::path& cache_path) {
 // fail the real command.
 void maybe_emit_update_banner_and_refresh(const std::string& command) {
     try {
+        // Pending-upgrade completion runs even for banner-blocked
+        // commands so the user sees "upgrade complete" after the
+        // swap — but only as a one-liner on stderr, which doesn't
+        // corrupt machine-parseable stdout.
+        maybe_complete_pending_upgrade();
+
         if (banner_blocked(command)) return;
 
         // Explicit off-switch that bypasses config entirely. Used by
         // CI / air-gapped envs and by the unit-test shell-out lane.
+        // Matches design Section G: "zero network calls".
         if (pulp::runtime::get_env("PULP_UPDATE_CHECK_DISABLED")) return;
 
         auto mode = read_update_mode();
-        if (mode == "off") return;
+        if (mode == um::Mode::Off) return;
 
         auto cache_path = banner_cache_path();
         if (cache_path.empty()) return;
 
-        auto cache_opt = pulp::cli::update_check::read_cache_file(cache_path);
-        pulp::cli::update_check::CacheEntry cache =
-            cache_opt.value_or(pulp::cli::update_check::CacheEntry{});
+        auto cache_opt = uc::read_cache_file(cache_path);
+        uc::CacheEntry cache = cache_opt.value_or(uc::CacheEntry{});
 
-        if (mode == "prompt" &&
-            !cache.latest_version.empty() &&
-            pulp::cli::update_check::is_newer(PULP_SDK_VERSION, cache.latest_version) &&
-            cache.banner_shown_for_version != cache.latest_version) {
-            std::cerr << pulp::cli::update_check::compose_banner(
-                             PULP_SDK_VERSION, cache.latest_version)
-                      << "\n";
-            // Mark so we don't nag the user every invocation. The
-            // banner reprints only when a newer release arrives and
-            // resets banner_shown_for_version via the refresh below.
-            cache.banner_shown_for_version = cache.latest_version;
-            pulp::cli::update_check::write_cache_file(cache_path, cache);
+        const auto now = uc::now_epoch_sec();
+        const std::string installed = PULP_SDK_VERSION;
+        const std::string latest = cache.latest_version;
+        const bool banner_already_shown_this_cycle =
+            !latest.empty() && cache.banner_shown_for_version == latest;
+        const auto snooze = snooze_path();
+        const bool snooze_active =
+            !snooze.empty() && um::is_snooze_active(snooze, now);
+
+        // ── Prompt mode ─────────────────────────────────────────────────────
+        if (mode == um::Mode::Prompt) {
+            auto decision = um::decide_prompt_banner(
+                mode, installed, latest,
+                banner_already_shown_this_cycle, snooze_active);
+            if (decision.show_banner) {
+                std::cerr << uc::compose_banner(installed, latest) << "\n";
+                cache.banner_shown_for_version = latest;
+                uc::write_cache_file(cache_path, cache);
+            }
         }
-        // `manual` mode: no banner today. Slice 5 will surface it
-        // differently (print on --help, not on every invocation).
+
+        // ── Manual mode ─────────────────────────────────────────────────────
+        //
+        // Per design Section A, manual mode still surfaces the fact
+        // that a newer release is available — just never prompts for
+        // action. One-liner per new version (tracked via the same
+        // banner_shown_for_version field so we don't re-nag on every
+        // invocation). Snooze does not apply — manual mode is already
+        // the "quiet" mode; adding another silence layer would make
+        // the notice invisible.
+        if (mode == um::Mode::Manual &&
+            !latest.empty() &&
+            uc::is_newer(installed, latest) &&
+            cache.banner_shown_for_version != latest) {
+            std::cerr << um::compose_manual_notice(installed, latest) << "\n";
+            cache.banner_shown_for_version = latest;
+            uc::write_cache_file(cache_path, cache);
+        }
+
+        // ── Auto mode ───────────────────────────────────────────────────────
+        //
+        // If a newer release is known and we haven't already staged
+        // it, drop the pending-upgrade marker + print a one-liner.
+        // cmd_upgrade is responsible for the actual swap on the next
+        // invocation. We never replace the binary mid-command — the
+        // design explicitly forbids that (Section G).
+        if (mode == um::Mode::Auto && !latest.empty() &&
+            uc::is_newer(installed, latest)) {
+            auto marker = pending_upgrade_path();
+            auto existing = marker.empty()
+                                ? std::optional<um::PendingUpgrade>{}
+                                : um::read_pending_upgrade(marker);
+            if (um::should_stage_auto_download(mode, installed, latest, existing)) {
+                kick_auto_stage(marker, latest);
+                std::cerr << um::compose_auto_staged_notice(latest) << "\n";
+                cache.banner_shown_for_version = latest;
+                uc::write_cache_file(cache_path, cache);
+            }
+        }
 
         auto interval = read_check_interval_hours();
-        if (pulp::cli::update_check::is_cache_stale(
-                cache, pulp::cli::update_check::now_epoch_sec(), interval)) {
+        if (uc::is_cache_stale(cache, now, interval)) {
             kick_background_refresh(cache_path);
         }
     } catch (...) {

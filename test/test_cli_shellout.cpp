@@ -12,7 +12,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/platform/child_process.hpp>
 
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -312,6 +315,120 @@ TEST_CASE("pulp upgrade --notes --json emits stable-shape JSON keys",
     REQUIRE(r.stdout_output.find("\"summary\":")    != std::string::npos);
     REQUIRE(r.stdout_output.find("\"applies_if\":") != std::string::npos);
     REQUIRE(r.stdout_output.find("\"body\":")       != std::string::npos);
+}
+
+// Issue #550 Slice 5: `update.mode = off` must produce zero network
+// traffic and zero banner output. We can't directly observe the
+// network inside ctest, but we CAN verify that (a) the command
+// finishes well under the anonymous-GitHub round-trip latency (caching
+// the cache is fine; actually dialing the API is not), and (b) no
+// update banner appears on stderr. The banner hook's early-return on
+// `Mode::Off` is what this test guards.
+//
+// We use PULP_HOME to point the CLI at a scratch config dir seeded
+// with `update.mode = "off"` so we don't mutate the developer's real
+// ~/.pulp. The test creates the config file directly rather than
+// shelling out to `pulp config set` so we can reason about the
+// sequence (`pulp config set` itself clears the snooze file — we want
+// to isolate the dispatch-path behaviour).
+TEST_CASE("pulp with update.mode=off never prints a banner",
+          "[cli][shellout][update-mode][issue-550]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-mode-off-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp);
+    {
+        std::ofstream cfg(tmp / "config.toml");
+        cfg << "[update]\nmode = \"off\"\n";
+    }
+    // Seed the cache with a spurious "newer version available" entry.
+    // If the off-mode short-circuit regressed, this is what would
+    // leak into the banner.
+    {
+        std::ofstream cache(tmp / "update-cache.json");
+        cache << "{\n"
+              << "  \"schema\": 1,\n"
+              << "  \"last_check_epoch_sec\": 1713638400,\n"
+              << "  \"latest_version\": \"99.99.99\",\n"
+              << "  \"release_notes_url\": \"https://example.invalid/\",\n"
+              << "  \"banner_shown_for_version\": \"\"\n"
+              << "}\n";
+    }
+
+    const auto bin = fs::absolute(pulp_binary());
+#ifdef _WIN32
+    _putenv_s("PULP_HOME", tmp.string().c_str());
+#else
+    setenv("PULP_HOME", tmp.string().c_str(), 1);
+#endif
+    auto r = exec(bin.string(), {"help"}, 10000);
+#ifdef _WIN32
+    _putenv_s("PULP_HOME", "");
+#else
+    unsetenv("PULP_HOME");
+#endif
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 0);
+    // The seeded cache has latest=99.99.99 which would trigger the
+    // prompt/manual/auto banners. off-mode must suppress ALL of them.
+    REQUIRE(r.stderr_output.find("99.99.99") == std::string::npos);
+    REQUIRE(r.stderr_output.find("available") == std::string::npos);
+    REQUIRE(r.stderr_output.find("downloaded") == std::string::npos);
+}
+
+// Issue #550 Slice 5: `update.mode = manual` prints the one-liner
+// once per version. The banner shape is locked — it must differ from
+// the prompt-mode banner so users (and shell scripts) can tell them
+// apart. Same PULP_HOME scratch-dir trick as the off-mode test.
+TEST_CASE("pulp with update.mode=manual prints the manual notice",
+          "[cli][shellout][update-mode][issue-550]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-mode-manual-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp);
+    {
+        std::ofstream cfg(tmp / "config.toml");
+        cfg << "[update]\nmode = \"manual\"\n";
+    }
+    {
+        std::ofstream cache(tmp / "update-cache.json");
+        cache << "{\n"
+              << "  \"schema\": 1,\n"
+              << "  \"last_check_epoch_sec\": 1713638400,\n"
+              << "  \"latest_version\": \"99.99.99\",\n"
+              << "  \"release_notes_url\": \"https://example.invalid/\",\n"
+              << "  \"banner_shown_for_version\": \"\"\n"
+              << "}\n";
+    }
+
+    const auto bin = fs::absolute(pulp_binary());
+#ifdef _WIN32
+    _putenv_s("PULP_HOME", tmp.string().c_str());
+#else
+    setenv("PULP_HOME", tmp.string().c_str(), 1);
+#endif
+    // Use `doctor --versions` — it's not on the banner_blocked list,
+    // so the dispatch hook runs for it. `help` IS blocked.
+    auto r = exec(bin.string(), {"doctor", "--versions"}, 30000);
+#ifdef _WIN32
+    _putenv_s("PULP_HOME", "");
+#else
+    unsetenv("PULP_HOME");
+#endif
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(r.timed_out);
+    // Manual mode banner shape: "Run `pulp upgrade` when you're ready."
+    REQUIRE(r.stderr_output.find("when you're ready") != std::string::npos);
+    REQUIRE(r.stderr_output.find("99.99.99") != std::string::npos);
 }
 
 TEST_CASE("pulp upgrade --notes with no hop prints the empty-notes line",

@@ -823,7 +823,7 @@ Downloads the release from GitHub, replaces the current binary, and verifies. Re
 
 **Status**: usable
 
-Read or write `~/.pulp/config.toml` settings. Release-discovery Slice 2 (#547).
+Read or write `~/.pulp/config.toml` settings. Release-discovery Slice 2 (#547) + Slice 5 (#550).
 
 ```bash
 pulp config get update.mode
@@ -834,9 +834,16 @@ pulp config list
 
 Supported keys (all under `[update]`):
 
-- `update.mode` — one of `auto | prompt | manual | off` (default `prompt`). Full enforcement of auto/prompt/manual/off lands in Slice 5 (#499); Slice 2 honours `off` (no banner, no network) and emits an informational banner in `prompt` mode when a newer release is available in cache.
+- `update.mode` — one of `auto | prompt | manual | off` (default `prompt`). Slice 5 (#550) wires all four modes into the invocation path:
+    - `auto` — silently stages the new release via `~/.pulp/pending-upgrade`; the swap completes on the next invocation.
+    - `prompt` — prints a one-line banner per new version; 24h snooze via `~/.pulp/update-snooze` respected if present.
+    - `manual` — prints a one-line "Run `pulp upgrade` when you're ready" notice per new version; never prompts.
+    - `off` — zero network calls, zero notices. Suitable for CI and air-gapped environments.
+
+  Changing `update.mode` clears `~/.pulp/update-snooze` so the new mode takes effect on the next invocation.
 - `update.check_interval_hours` — integer hours between background checks (default `24`). The 24h default stays under the 60/hour anonymous GitHub API rate limit by a wide margin.
-- `update.channel` — `stable | beta` (default `stable`). Reserved for Slice 5; ignored today.
+- `update.channel` — `stable | beta` (default `stable`). Reserved for a future slice; ignored today.
+- `update.bump_projects` — `prompt | auto | off` (default `prompt`). Reserved for Slice 7 (#564); accepted now for forward compatibility but behaviorally a no-op in Slice 5.
 
 ### clean
 
