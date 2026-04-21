@@ -176,6 +176,7 @@
         "tools/cli/migration_index.hpp",
         "tools/cli/migration_runtime.cpp",
         "tools/scripts/build_migration_index.py",
+        "tools/scripts/cli_version_check.sh",
         "docs/migrations/**",
         ".claude/commands/upgrade.md"
       ]

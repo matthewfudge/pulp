@@ -44,6 +44,11 @@ int compare_semver(const Semver& a, const Semver& b);
 // diagnostic. The plugin manifest is a stable, well-known shape.
 Semver read_plugin_version(const fs::path& plugin_json_path);
 
+// Parse ".claude-plugin/plugin.json" -> min_cli_version field. Returns
+// empty Semver if the field is absent — older plugin builds shipped
+// without it, so this is forward-compatible by design (Slice 6, #551).
+Semver read_plugin_min_cli_version(const fs::path& plugin_json_path);
+
 // Locate the plugin.json the diagnostic should report on, in order:
 //   1. explicit override path (if non-empty and exists)
 //   2. inside the current repo checkout: <repo>/.claude-plugin/plugin.json
@@ -87,6 +92,7 @@ struct ProjectEntry {
 struct VersionReport {
     Semver cli;                  // PULP_SDK_VERSION of the running binary
     Semver plugin;               // .claude-plugin/plugin.json "version"
+    Semver plugin_min_cli;       // .claude-plugin/plugin.json "min_cli_version" (Slice 6, #551)
     Semver project_sdk;          // project's own CMake/pulp.toml sdk_version
     Semver project_cli_min;      // project's pulp.toml cli_min_version
     fs::path project_root;       // for report lines
@@ -96,9 +102,10 @@ struct VersionReport {
     // ancestor projects surfaced by `--scan-parents`. See issue #552.
     std::vector<ProjectEntry> projects;
 
-    // Analyse and return user-visible findings. Rules (Slice 1 + 1b):
+    // Analyse and return user-visible findings. Rules (Slice 1 + 1b + 6):
     //   - project_cli_min set AND project_cli_min > cli  -> Warn "upgrade CLI"
     //   - project_sdk set AND project_sdk > cli          -> Warn "CLI behind project SDK"
+    //   - plugin_min_cli set AND plugin_min_cli > cli    -> Warn "upgrade CLI for plugin"
     //   - for each projects[] entry: same rules, message names the project
     //   - missing-on-disk entries                        -> Warn "path missing"
     //   - otherwise                                      -> Info "compatible"
