@@ -108,21 +108,6 @@
       ]
     },
     {
-      "name": "DRACO",
-      "category": "render",
-      "license": "Apache-2.0",
-      "version": "1.5.7",
-      "source_kind": "fetchcontent",
-      "repository": "https://github.com/google/draco.git",
-      "upstream": { "kind": "git-tag", "ref": "1.5.7" },
-      "documented_in_dependencies_md": true,
-      "documented_in_notice_md": true,
-      "notes": "Optional, only fetched when PULP_ENABLE_DRACO=ON. Codex 2026-04-21 wave 2 P2 on #565: reclassified from the developer-supplied vendor-SDK carve-out into the normal dependency graph so strict audits and upstream-drift checks cover it.",
-      "source_files": [
-        "CMakeLists.txt"
-      ]
-    },
-    {
       "name": "dr_libs",
       "category": "audio",
       "license": "Public domain (Unlicense)",
@@ -137,6 +122,21 @@
         "external/dr_libs/dr_mp3.h",
         "external/dr_libs/dr_wav.h",
         "core/audio/CMakeLists.txt"
+      ]
+    },
+    {
+      "name": "DRACO",
+      "category": "render",
+      "license": "Apache-2.0",
+      "version": "1.5.7",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/google/draco.git",
+      "upstream": { "kind": "git-tag", "ref": "1.5.7" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Optional, only fetched when PULP_ENABLE_DRACO=ON. Codex 2026-04-21 wave 2 P2 on #565: reclassified from the developer-supplied vendor-SDK carve-out into the normal dependency graph so strict audits and upstream-drift checks cover it.",
+      "source_files": [
+        "CMakeLists.txt"
       ]
     },
     {
@@ -201,6 +201,22 @@
       ]
     },
     {
+      "name": "Material Design Icons",
+      "category": "docs",
+      "license": "Apache-2.0",
+      "version": "bundled-with-mkdocs-material",
+      "source_kind": "transitive-python",
+      "repository": "https://github.com/Templarian/MaterialDesign",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Icon set bundled inside mkdocs-material and redistributed as SVG assets in the generated docs site (generouscorp.com/pulp/). Added 2026-04-22 under #582 follow-up.",
+      "source_files": [
+        "mkdocs.yml",
+        "requirements-docs.txt"
+      ]
+    },
+    {
       "name": "Mbed TLS",
       "category": "runtime",
       "license": "Apache-2.0",
@@ -230,6 +246,71 @@
         "external/miniz/miniz.c",
         "core/runtime/include/pulp/runtime/zip.hpp",
         "core/runtime/src/zip.cpp"
+      ]
+    },
+    {
+      "name": "mkdocs",
+      "category": "docs",
+      "license": "BSD-2-Clause",
+      "version": "transitive-of-mkdocs-material",
+      "source_kind": "python-pip",
+      "repository": "https://github.com/mkdocs/mkdocs",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Static site generator. Pulled in transitively via mkdocs-material. Its built-in theme assets (search JS, sitemap generation) are redistributed in the generated docs site (generouscorp.com/pulp/). Added 2026-04-22 under #582 follow-up.",
+      "source_files": [
+        "mkdocs.yml",
+        "requirements-docs.txt"
+      ]
+    },
+    {
+      "name": "mkdocs-awesome-pages-plugin",
+      "category": "docs",
+      "license": "MIT",
+      "version": ">=2.9,<3",
+      "source_kind": "python-pip",
+      "repository": "https://github.com/lukasgeiter/mkdocs-awesome-pages-plugin",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "MkDocs plugin that customises navigation ordering. Executed at build time only; no JS/CSS from this plugin is redistributed. Listed for attribution completeness since it is a declared docs build dependency. Added 2026-04-22 under #582 follow-up.",
+      "source_files": [
+        "requirements-docs.txt",
+        "mkdocs.yml"
+      ]
+    },
+    {
+      "name": "mkdocs-git-revision-date-localized-plugin",
+      "category": "docs",
+      "license": "MIT",
+      "version": ">=1.2,<2",
+      "source_kind": "python-pip",
+      "repository": "https://github.com/timvink/mkdocs-git-revision-date-localized-plugin",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "MkDocs plugin that injects git-revision dates into page metadata. Build-time only. Added 2026-04-22 under #582 follow-up.",
+      "source_files": [
+        "requirements-docs.txt",
+        "mkdocs.yml"
+      ]
+    },
+    {
+      "name": "mkdocs-material",
+      "category": "docs",
+      "license": "MIT",
+      "version": ">=9.5,<10",
+      "source_kind": "python-pip",
+      "repository": "https://github.com/squidfunk/mkdocs-material",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "MkDocs Material theme. CSS, JS, SVG icons, and search worker from this theme are redistributed in the generated docs site (generouscorp.com/pulp/). Added 2026-04-22 under #582 follow-up after the MkDocs Material parallel-build lane landed without attribution coverage.",
+      "source_files": [
+        "requirements-docs.txt",
+        "mkdocs.yml",
+        ".github/workflows/docs-material.yml"
       ]
     },
     {
@@ -323,6 +404,38 @@
       "documented_in_notice_md": true,
       "source_files": [
         "bindings/python/CMakeLists.txt"
+      ]
+    },
+    {
+      "name": "Pygments",
+      "category": "docs",
+      "license": "BSD-2-Clause",
+      "version": "transitive-of-mkdocs-material",
+      "source_kind": "python-pip",
+      "repository": "https://github.com/pygments/pygments",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Syntax highlighter used by mkdocs + pymdownx.highlight. Redistributed as inline HTML/CSS class output in the generated docs site (generouscorp.com/pulp/). Added 2026-04-22 under #582 follow-up.",
+      "source_files": [
+        "requirements-docs.txt",
+        "mkdocs.yml"
+      ]
+    },
+    {
+      "name": "pymdown-extensions",
+      "category": "docs",
+      "license": "MIT",
+      "version": ">=10.7,<11",
+      "source_kind": "python-pip",
+      "repository": "https://github.com/facelessuser/pymdown-extensions",
+      "upstream": { "kind": "none" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Markdown extension bundle used by mkdocs-material (admonitions, tabs, superfences, highlight, emoji, etc.). Added 2026-04-22 under #582 follow-up.",
+      "source_files": [
+        "requirements-docs.txt",
+        "mkdocs.yml"
       ]
     },
     {
