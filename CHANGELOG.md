@@ -8,9 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0320"></a>
-## [0.33.0]
+<a id="v0330"></a>
+## [0.33.0] - 2026-04-20
 
+- Ship feature/pulp-pr-shipyard-version-guard ([#606](https://github.com/danielraffel/pulp/pull/606))
+- chore(deps): bump pinned Shipyard v0.21.0 → v0.21.1 ([#604](https://github.com/danielraffel/pulp/pull/604))
+
+<a id="v0320"></a>
 ## [0.32.0] - 2026-04-20
 
 - cli: release-discovery Slice 7 pulp project bump + undo (#564) ([#599](https://github.com/danielraffel/pulp/pull/599))
@@ -519,6 +523,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.33.0]: https://github.com/danielraffel/pulp/releases/tag/v0.33.0
 [0.32.0]: https://github.com/danielraffel/pulp/releases/tag/v0.32.0
 [0.31.1]: https://github.com/danielraffel/pulp/releases/tag/v0.31.1
 [0.31.0]: https://github.com/danielraffel/pulp/releases/tag/v0.31.0
