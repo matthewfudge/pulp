@@ -173,6 +173,24 @@ flags:
       - tools/
     carryforward: true
 
+  # OS flags (3) — Phase 1 PR 4 cross-platform coverage matrix. These
+  # are NOT path-scoped; every file measured on a given matrix leg is
+  # tagged with that OS's flag at upload time via the corresponding
+  # matrix entry in .github/workflows/coverage.yml. Federate with the
+  # subsystem + platform + surface flags above for cross-filtering:
+  # `host AND os-windows` answers "what fraction of core/host is
+  # exercised when tests run on Windows?" — a different question from
+  # `host AND windows` (which reads "what fraction of the windows/
+  # shim files are covered at all"). See docs/guides/coverage.md
+  # §"Multi-OS coverage" for the rationale on Codecov-flag unions vs
+  # llvm-profdata merge.
+  os-linux:
+    carryforward: true
+  os-macos:
+    carryforward: true
+  os-windows:
+    carryforward: true
+
 # carryforward: true on every flag — when a PR doesn't touch
 # a given subsystem, carry over the last known coverage for that
 # flag from main so the dashboard doesn't report a false 0%. Standard
