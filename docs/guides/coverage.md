@@ -154,7 +154,7 @@ Source → Clang -fprofile-instr-generate -fcoverage-mapping
 
 ## Multi-OS coverage
 
-Phase 1 PR 4 extends the coverage workflow to run on
+The coverage workflow runs on
 `{ubuntu-latest, macos-latest, windows-latest}`. Each OS produces its
 own `coverage.cobertura.xml` and uploads to Codecov with an OS-tag
 flag (`os-linux`, `os-macos`, `os-windows`). Codecov unions same-file
@@ -163,15 +163,51 @@ profdata across architectures (llvm-profdata merge is not
 architecture-portable, see
 `planning/coverage-tooling-decision-2026-04-21.md` §7).
 
+Cross-filter useful combinations on the dashboard:
+
+- `host AND os-windows` — how much of `core/host` is exercised when
+  the test binary runs on Windows? Different from `host AND windows`,
+  which reads "how much of the files under `core/host/**/windows/`
+  are covered at all."
+- `audio AND os-macos` — how much of `core/audio` is exercised on
+  macOS specifically? Catches Apple-only regressions (CoreAudio
+  paths, AudioUnit adapter) that a single aggregate `audio` number
+  would hide.
+- `os-linux` alone — what's our Linux-lane coverage floor? Useful as
+  a reference when you flip a test over to Windows and want to
+  sanity-check the delta.
+
+Each OS uses Clang source-based coverage — MSVC is rejected by
+`tools/cmake/PulpInstrumentation.cmake` because MSVC's
+`/fsanitize-coverage` and llvm-cov emit incompatible profile shapes.
+On Windows runners that means clang++ from the bundled LLVM
+(`C:\Program Files\LLVM\bin`), not `cl.exe`. macOS uses Apple Clang
+from the active Xcode toolchain (resolved via `xcrun` when the bin
+is not already on PATH).
+
+The per-OS legs do NOT fail-fast: a flake on one OS does not cancel
+the others, so the Codecov dashboard still gets partial cross-OS
+coverage even when (say) Windows hits a transient toolchain issue.
+The `coverage-diff-gate` job downstream stays pinned to the Linux
+Cobertura XML — diff-cover is a single-XML tool and running it
+against three XMLs would produce three PR comments with
+slightly-different numbers for the same metric.
+
+The per-OS runs-on labels resolve through the shared
+`tools/scripts/resolve_runs_on.py` helper (same pattern as
+`sanitizers.yml`). Set `PULP_COVERAGE_<OS>_RUNS_ON_JSON` as a repo
+variable to route any one leg to Namespace or a self-hosted runner
+without a workflow edit.
+
 ## Phase roadmap (#566)
 
 - **Phase 0** — spike & stack decision (done, see planning doc above).
 - **Phase 1** (this phase) — measurement baseline
   - PR 1: infra fixes (#569, #570 — landed)
   - PR 2: Codecov integration (landed)
-  - PR 3: diff-cover advisory gate (this change — advisory until
+  - PR 3: diff-cover advisory gate (landed — advisory until
     2026-05-04)
-  - PR 4: cross-platform matrix
+  - PR 4: cross-platform matrix (landed)
 - **Phase 2** — per-tier targets encoded in
   `ci/coverage-targets.yaml`. Audio-critical subsystems (`audio`,
   `format`, `host`, `midi`, `signal`, `platform`) ≥ 80% line / 70%

@@ -66,11 +66,27 @@ if ! command -v llvm-cov >/dev/null 2>&1; then
 fi
 
 echo "=== Configuring coverage build in ${BUILD_DIR} ==="
+
+# On Windows we need `clang-cl`, not plain `clang`. Some bundled deps
+# (mbedtls, notably) pass MSVC-style flags like /W3 and /utf-8 when
+# they detect a Windows host — plain `clang.exe` in GCC-driver mode
+# rejects those as "no such file or directory", breaking the build.
+# `clang-cl` is Clang's MSVC-compatible driver: it accepts MSVC flags
+# AND the GCC-style `-fprofile-instr-generate -fcoverage-mapping` that
+# PulpInstrumentation.cmake emits for source-based coverage.
+if [ "${OS:-}" = "Windows_NT" ] || [ -n "${MSYSTEM:-}" ]; then
+    CLANG_C=clang-cl
+    CLANG_CXX=clang-cl
+else
+    CLANG_C=clang
+    CLANG_CXX=clang++
+fi
+
 cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DPULP_ENABLE_COVERAGE=ON \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++
+    -DCMAKE_C_COMPILER="${CLANG_C}" \
+    -DCMAKE_CXX_COMPILER="${CLANG_CXX}"
 
 # Issue #570: if build-coverage/CMakeCache.txt was previously populated
 # with PULP_ENABLE_COVERAGE:BOOL=OFF (e.g. from a non-coverage run

@@ -4,6 +4,16 @@ name: Coverage
 # Local equivalent: scripts/run_coverage.sh.
 # Full design: planning/coverage-sanitizers-spec-2026-04-16.md
 #              planning/coverage-tooling-decision-2026-04-21.md (Phase 0 spike)
+#
+# #566 Phase 1 PR 4: cross-platform coverage matrix. The `coverage`
+# job runs on {ubuntu-latest, macos-latest, windows-latest}, each OS
+# produces its own Cobertura XML and uploads to Codecov tagged with
+# an OS-axis flag (`os-linux`, `os-macos`, `os-windows`) so Codecov
+# can union same-file coverage across OSes via the flag mechanism.
+# We do NOT try to merge profdata across architectures —
+# llvm-profdata merge is not architecture-portable; cross-OS unions
+# happen at the Codecov flag layer. See
+# planning/coverage-tooling-decision-2026-04-21.md §7.
 
 on:
   pull_request:
@@ -11,15 +21,112 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      linux_runner_selector_json:
+        description: "Optional JSON runs-on override for Linux coverage"
+        required: false
+        default: ""
+        type: string
+      macos_runner_selector_json:
+        description: "Optional JSON runs-on override for macOS coverage"
+        required: false
+        default: ""
+        type: string
+      windows_runner_selector_json:
+        description: "Optional JSON runs-on override for Windows coverage"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: coverage-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ── Resolve per-OS runs-on via shared helper ───────────────────────────
+  # Uses tools/scripts/resolve_runs_on.py in `default` mode (same pattern
+  # as sanitizers.yml). Each OS resolves to, in priority order:
+  #   1. workflow_dispatch input (e.g. linux_runner_selector_json)
+  #   2. repo variable override (e.g. PULP_COVERAGE_LINUX_RUNS_ON_JSON)
+  #   3. hard-coded default label (ubuntu-latest / macos-latest / windows-latest)
+  # No behavior change when the repo variables are unset — matches today's
+  # single-job baseline on Linux and adds macOS/Windows on the standard
+  # GitHub-hosted labels. Set PULP_COVERAGE_<OS>_RUNS_ON_JSON to route any
+  # one leg to Namespace without a code change.
+  resolve-runners:
+    runs-on: ubuntu-latest
+    outputs:
+      linux_runs_on: ${{ steps.resolve.outputs.linux_runs_on }}
+      macos_runs_on: ${{ steps.resolve.outputs.macos_runs_on }}
+      windows_runs_on: ${{ steps.resolve.outputs.windows_runs_on }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+          lfs: false
+      - id: resolve
+        env:
+          EXPLICIT_LINUX_RUNNER_SELECTOR_JSON: ${{ inputs.linux_runner_selector_json || '' }}
+          EXPLICIT_MACOS_RUNNER_SELECTOR_JSON: ${{ inputs.macos_runner_selector_json || '' }}
+          EXPLICIT_WINDOWS_RUNNER_SELECTOR_JSON: ${{ inputs.windows_runner_selector_json || '' }}
+          LINUX_RUNS_ON_JSON: ${{ vars.PULP_COVERAGE_LINUX_RUNS_ON_JSON }}
+          MACOS_RUNS_ON_JSON: ${{ vars.PULP_COVERAGE_MACOS_RUNS_ON_JSON }}
+          WINDOWS_RUNS_ON_JSON: ${{ vars.PULP_COVERAGE_WINDOWS_RUNS_ON_JSON }}
+        run: |
+          set -euo pipefail
+          resolve() {
+            python3 tools/scripts/resolve_runs_on.py \
+              --target-name "$1" \
+              --mode default \
+              --explicit-env "$2" \
+              --override-env "$3" \
+              --default-label "$4"
+          }
+          linux=$(resolve \
+            "Coverage (Linux)" \
+            EXPLICIT_LINUX_RUNNER_SELECTOR_JSON \
+            LINUX_RUNS_ON_JSON \
+            ubuntu-latest)
+          macos=$(resolve \
+            "Coverage (macOS)" \
+            EXPLICIT_MACOS_RUNNER_SELECTOR_JSON \
+            MACOS_RUNS_ON_JSON \
+            macos-latest)
+          windows=$(resolve \
+            "Coverage (Windows)" \
+            EXPLICIT_WINDOWS_RUNNER_SELECTOR_JSON \
+            WINDOWS_RUNS_ON_JSON \
+            windows-latest)
+          {
+            echo "linux_runs_on=${linux}"
+            echo "macos_runs_on=${macos}"
+            echo "windows_runs_on=${windows}"
+          } >>"${GITHUB_OUTPUT}"
+
   coverage:
-    runs-on: ubuntu-24.04
-    name: Coverage report (Linux, Clang)
+    needs: resolve-runners
+    name: Coverage report (${{ matrix.label }}, Clang)
+    strategy:
+      # Don't cancel other OSes when one fails — coverage is advisory
+      # and we want every OS to attempt an upload independently so the
+      # Codecov dashboard has the widest cross-OS picture possible even
+      # when one leg flakes.
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            label: Linux
+            flag: os-linux
+            runs_on_json: ${{ needs.resolve-runners.outputs.linux_runs_on }}
+          - os: macos
+            label: macOS
+            flag: os-macos
+            runs_on_json: ${{ needs.resolve-runners.outputs.macos_runs_on }}
+          - os: windows
+            label: Windows
+            flag: os-windows
+            runs_on_json: ${{ needs.resolve-runners.outputs.windows_runs_on }}
+    runs-on: ${{ fromJSON(matrix.runs_on_json) }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -27,6 +134,7 @@ jobs:
           lfs: true
 
       - name: Install Linux dependencies + Clang tooling
+        if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -36,20 +144,97 @@ jobs:
             libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev \
             libxrender-dev libxss-dev libxtst-dev libwayland-dev wayland-protocols
 
+      - name: Verify Clang tooling (macOS)
+        # macOS runners ship Apple Clang with llvm-cov / llvm-profdata
+        # already on PATH in Xcode's toolchain. Surface any missing
+        # tool early with a clear message instead of mid-build. xcrun
+        # --find resolves through the active Xcode even when PATH
+        # doesn't include the bin directly.
+        if: matrix.os == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in clang llvm-profdata llvm-cov; do
+            if ! command -v "${tool}" >/dev/null 2>&1; then
+              path=$(xcrun --find "${tool}" 2>/dev/null || true)
+              if [ -n "${path}" ]; then
+                bin_dir=$(dirname "${path}")
+                echo "Found ${tool} via xcrun: ${path}"
+                # $GITHUB_PATH applies to SUBSEQUENT steps only, so also
+                # export into this step's $PATH for the version checks
+                # below and anything else downstream in-step.
+                echo "${bin_dir}" >> "$GITHUB_PATH"
+                export PATH="${bin_dir}:${PATH}"
+              else
+                echo "ERROR: ${tool} not found on macOS runner" >&2
+                exit 1
+              fi
+            fi
+          done
+          clang --version
+          llvm-profdata --help | head -1 || true
+          llvm-cov --version | head -1
+
+      - name: Install Clang toolchain (Windows)
+        # windows-latest ships LLVM/Clang at C:\Program Files\LLVM\bin
+        # but not always on PATH in the default shell. Add it
+        # unconditionally; scripts/run_coverage.sh needs
+        # clang + llvm-profdata + llvm-cov reachable from bash.
+        # PULP_ENABLE_COVERAGE requires Clang — MSVC is rejected by
+        # tools/cmake/PulpInstrumentation.cmake because llvm-cov and
+        # MSVC's /fsanitize-coverage emit incompatible profile shapes.
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $llvmBin = "C:\Program Files\LLVM\bin"
+          if (-not (Test-Path $llvmBin)) {
+            Write-Host "LLVM not preinstalled, installing via choco"
+            choco install llvm --no-progress -y
+          }
+          Add-Content $env:GITHUB_PATH $llvmBin
+          Write-Host "Added $llvmBin to PATH"
+
       - name: Install coverage reporting tools (gcovr)
         # gcovr bridges Clang source-based coverage → Cobertura XML,
         # which Codecov (PR 2) and diff-cover (PR 3) consume.
         # Pin >=8.2 for the --llvm-profdata-executable path used by
         # scripts/run_coverage.sh.
-        run: python3 -m pip install --user 'gcovr>=8.2'
+        #
+        # --break-system-packages bypasses PEP 668's
+        # "externally-managed-environment" block that macos-latest's
+        # Homebrew Python applies by default. The runner is a throwaway
+        # VM so the system-packages split is irrelevant here; this
+        # matches how actions/setup-python's `--user` install would
+        # behave in an isolated tooling venv, minus the extra venv step.
+        # pip --user on macOS installs to $(python3 -m site --user-base)/bin
+        # (e.g. /Users/runner/Library/Python/3.13/bin) which is NOT on PATH
+        # by default on macos-latest runners. Add it after install so
+        # scripts/run_coverage.sh can find `gcovr` later. Linux runners also
+        # benefit (user-base bin is off PATH there too on some distros);
+        # Windows gcovr lands in %APPDATA%\Python\Scripts which we handle
+        # via the separate `shell: bash` that adds python's Scripts dir below.
         shell: bash
+        run: |
+          python3 -m pip install --user --break-system-packages 'gcovr>=8.2'
+          user_base=$(python3 -m site --user-base)
+          echo "${user_base}/bin" >> "$GITHUB_PATH"
+          # Windows pip --user uses %APPDATA%\Python\PythonXY\Scripts which
+          # `python3 -m site --user-base` doesn't expose — append the Scripts
+          # dir directly from sysconfig on that runner only.
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            scripts=$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts", f"{sysconfig.get_default_scheme()}_user"))')
+            echo "${scripts}" >> "$GITHUB_PATH"
+          fi
 
       - name: run_coverage.sh fixture tests (#569 / #570)
         # Assert the canonical ignore-regex excludes _deps/catch2-build
         # spam (#569) AND that the stale-cache guard trips loudly
         # instead of silently producing empty profdata (#570). Runs
         # before the heavy build so a regex/guard regression fails
-        # fast without burning the full coverage build.
+        # fast without burning the full coverage build. Linux-only —
+        # the fixture is pure-Python and the behavior it checks is
+        # script-level, not platform-specific, so one leg is enough.
+        if: matrix.os == 'linux'
         run: python3 tools/scripts/test_run_coverage.py
         shell: bash
 
@@ -59,16 +244,29 @@ jobs:
 
       - name: Run coverage suite
         # Coverage never fails the run — thresholds come later per
-        # the #290 hardening initiative.
+        # the #290 hardening initiative. `continue-on-error` combined
+        # with `strategy.fail-fast: false` above means a flake on any
+        # one OS doesn't cancel the others, so the Codecov dashboard
+        # still gets partial multi-OS coverage data.
+        #
+        # On Windows, pin CMAKE_GENERATOR=Ninja so cmake doesn't fall
+        # back to the default "Visual Studio 17 2022" generator, which
+        # ignores -DCMAKE_CXX_COMPILER=clang++ and picks MSVC cl.exe
+        # instead. Pulp's coverage build requires Clang source-based
+        # instrumentation (PulpInstrumentation.cmake rejects MSVC),
+        # so the VS-generator path fails silently with no profraw
+        # emitted. Ninja honours CMAKE_C/CXX_COMPILER cleanly.
         continue-on-error: true
-        run: scripts/run_coverage.sh
         shell: bash
+        env:
+          CMAKE_GENERATOR: ${{ matrix.os == 'windows' && 'Ninja' || '' }}
+        run: scripts/run_coverage.sh
 
       - name: Upload HTML report
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: coverage-report-${{ github.sha }}
+          name: coverage-report-${{ matrix.os }}-${{ github.sha }}
           path: build-coverage/coverage/
           retention-days: 30
 
@@ -76,7 +274,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: coverage-summary-${{ github.sha }}
+          name: coverage-summary-${{ matrix.os }}-${{ github.sha }}
           path: build-coverage/coverage/summary.txt
           retention-days: 90
 
@@ -87,6 +285,11 @@ jobs:
         # → no cobertura → Codecov upload "succeeds" with no files → dashboard
         # stays empty. We had exactly this class of silent failure until
         # state_tree.hpp missing <algorithm> was caught on 2026-04-21.
+        #
+        # Pin shell: bash so the POSIX `test` + `wc -c <` syntax works on
+        # the windows runner too (default shell there is pwsh, which treats
+        # `<` as a reserved redirection operator and errors out).
+        shell: bash
         run: |
           test -s build-coverage/coverage.cobertura.xml || {
             echo "::error::coverage.cobertura.xml is missing or empty."
@@ -96,38 +299,45 @@ jobs:
           echo "coverage.cobertura.xml size: $(wc -c < build-coverage/coverage.cobertura.xml) bytes"
 
       - name: Upload Cobertura XML
-        # PR 1 lands the XML artifact, PR 2 wires it into Codecov below,
-        # and PR 3 wires it into diff-cover. Keep the retention short —
-        # once Codecov is live the XML lives there.
+        # Linux XML keeps the historical name `coverage-cobertura-${sha}`
+        # so the downstream `coverage-diff-gate` job continues to
+        # download the canonical per-SHA artifact unchanged. diff-cover
+        # is a single-XML tool and pinning it to Linux keeps its
+        # base-vs-head comparison architecturally stable. macOS and
+        # Windows upload under OS-suffixed names so reviewers can pull
+        # a specific leg's XML without ambiguity.
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: coverage-cobertura-${{ github.sha }}
+          name: ${{ matrix.os == 'linux' && format('coverage-cobertura-{0}', github.sha) || format('coverage-cobertura-{0}-{1}', matrix.os, github.sha) }}
           path: build-coverage/coverage.cobertura.xml
           retention-days: 14
           if-no-files-found: error
 
       - name: Upload coverage to Codecov
-        # #566 Phase 1 PR 2: Codecov measurement baseline. The repo
-        # is public so tokenless upload is supported.
+        # #566 Phase 1 PR 4 adds a per-OS flag on each matrix leg
+        # (`os-linux`, `os-macos`, `os-windows`) so Codecov can
+        # cross-filter coverage by OS. Cross-OS unions of the same
+        # file happen at the Codecov flag layer — NOT via
+        # llvm-profdata merge, which is not architecture-portable
+        # (see planning decision doc §7).
         #
-        # Subsystem / platform / surface slicing comes from the
-        # `component_management` block in codecov.yml — components
-        # split a single upload by path, which is Codecov's
-        # canonical mechanism for that breakdown and avoids the
+        # Subsystem / platform / surface breakdown comes from the
+        # `component_management` block in codecov.yml, which slices
+        # each upload by path (#603 made this switch on main after
+        # Codecov rejected the 20-flag-per-upload pattern with
         # "Multiple flags detected. Please ensure one flag per
-        # upload." rejection we hit on 2026-04-20 when this step
-        # still attached all 20 flags to a single cobertura file.
-        # codecov.yml's component paths mirror the old flag paths
-        # 1:1, so the dashboard surface is unchanged.
+        # upload."). A single per-OS flag per upload is the
+        # supported shape.
         #
         # fail_ci_if_error: false — coverage is still advisory in
         # Phase 1. Phase 3 adds a diff-cover gate for per-PR
-        # enforcement.
+        # enforcement (see coverage-diff-gate below, pinned to Linux).
         if: always()
         uses: codecov/codecov-action@v5
         with:
           files: build-coverage/coverage.cobertura.xml
+          flags: ${{ matrix.flag }}
           # Token makes upload more reliable (avoids tokenless rate limits);
           # action silently falls back to tokenless if the secret is unset
           # (e.g. in forked-PR context where secrets aren't exposed).
@@ -137,6 +347,13 @@ jobs:
 
   coverage-diff-gate:
     # #566 Phase 1 PR 3: per-PR diff coverage advisory gate.
+    # #566 Phase 1 PR 4: still pinned to the Linux Cobertura XML.
+    # diff-cover is a single-XML tool; "of the lines this PR adds,
+    # how many are covered?" is answered cleanly by one comparison.
+    # Cross-OS unions happen at the Codecov dashboard layer via the
+    # os-* flags. Running diff-cover against three XMLs would produce
+    # three PR comments for the same metric with slightly different
+    # numbers — more noise than signal for an advisory gate.
     #
     # Runs only on pull_request events — the gate question "of the lines
     # this PR adds, how many are covered?" is meaningless on a direct
@@ -172,11 +389,13 @@ jobs:
         run: git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
         shell: bash
 
-      - name: Download Cobertura XML from coverage job
-        # Downloads the artifact produced by the `coverage` job above.
-        # If the coverage job failed or was skipped the artifact may be
-        # missing; the next step handles that case by rendering a
-        # graceful fallback comment instead of hard-failing.
+      - name: Download Cobertura XML from coverage job (Linux)
+        # Downloads the Linux artifact produced by the matrix `coverage`
+        # job above. Linux keeps the historical name
+        # `coverage-cobertura-${sha}` so this step needs no matrix
+        # awareness. If the coverage job failed or was skipped the
+        # artifact may be missing; the next step handles that case by
+        # rendering a graceful fallback comment instead of hard-failing.
         uses: actions/download-artifact@v6
         with:
           name: coverage-cobertura-${{ github.sha }}

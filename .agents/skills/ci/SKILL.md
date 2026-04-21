@@ -648,10 +648,11 @@ Locally:
 
 ## Coverage workflow (`#566` Phase 1)
 
-`.github/workflows/coverage.yml` has two jobs:
+`.github/workflows/coverage.yml` has three jobs:
 
-- `coverage` — builds with Clang source-based coverage, runs the test suite, uploads HTML + summary + Cobertura artifacts, and pushes to Codecov using the 20 flags defined in `codecov.yml`. Has `continue-on-error: true` — never blocks a merge.
-- `coverage-diff-gate` — downloads the Cobertura XML from the upstream job, runs `diff-cover --fail-under=75` against `origin/<base>`, and upserts a "Diff coverage (Phase 1 advisory)" PR comment rendered by `tools/scripts/coverage_diff_comment.py`. Advisory-only until **2026-05-04**; flips to required on that date per `docs/guides/coverage.md`.
+- `resolve-runners` — shared-helper resolver (`tools/scripts/resolve_runs_on.py`) that picks per-OS runs-on labels in priority order: workflow_dispatch input → `PULP_COVERAGE_<OS>_RUNS_ON_JSON` repo variable → hard-coded default (`ubuntu-latest` / `macos-latest` / `windows-latest`). Same pattern as `sanitizers.yml`. Change runner for one OS by setting the repo variable — no workflow edit required.
+- `coverage` — matrix over {linux, macos, windows}. Each leg builds with Clang source-based coverage, runs the test suite, uploads HTML + summary + Cobertura artifacts, and pushes to Codecov with the 20 subsystem/platform/surface flags from `codecov.yml` PLUS a per-OS flag (`os-linux`, `os-macos`, `os-windows`). Has `continue-on-error: true` and `fail-fast: false` — a flake on any one OS never cancels the others and never blocks a merge.
+- `coverage-diff-gate` — downloads the **Linux** Cobertura XML from the upstream matrix (canonical artifact name `coverage-cobertura-${sha}`), runs `diff-cover --fail-under=75` against `origin/<base>`, and upserts a "Diff coverage (Phase 1 advisory)" PR comment rendered by `tools/scripts/coverage_diff_comment.py`. Advisory-only until **2026-05-04**; flips to required on that date per `docs/guides/coverage.md`.
 
 Gotchas:
 
@@ -659,6 +660,9 @@ Gotchas:
 - **Fork PRs**: the comment-upsert step has an `if:` guard skipping forks because `GITHUB_TOKEN` is read-only on fork heads; otherwise the job would hard-fail with 403 even though the gate is advisory.
 - **The comment renderer is unit-tested.** When touching `tools/scripts/coverage_diff_comment.py`, run `python3 tools/scripts/test_coverage_diff_comment.py` locally — the workflow also runs it as a pre-flight fixture check so a regression fails fast.
 - **Adding a new core subsystem** means adding a flag in `codecov.yml`, listing it in the `flags:` csv in the `coverage` job's Codecov upload step, and documenting it in `docs/guides/coverage.md` — three-way change kept in sync manually until Phase 4's doc-sync gate lands.
+- **Per-OS coverage (Phase 1 PR 4)**: each matrix leg tags its Codecov upload with an OS flag so `host AND os-windows` answers "what fraction of `core/host` is exercised when tests run on Windows?" — a different question from `host AND windows` (which is "what fraction of `core/host/**/windows/` shim files are covered at all"). Cross-OS unions of the same file happen at the Codecov flag layer, NOT via `llvm-profdata merge` (not architecture-portable — see planning decision doc §7).
+- **Windows coverage uses Clang, not MSVC.** `tools/cmake/PulpInstrumentation.cmake` rejects MSVC because `/fsanitize-coverage` and llvm-cov emit incompatible profile shapes. The Windows matrix leg adds `C:\Program Files\LLVM\bin` to PATH and builds with clang++; the `windows-msvc-release-gate` job in `build.yml` keeps the MSVC release-path green separately.
+- **diff-cover is pinned to the Linux XML on purpose.** It's a single-XML tool; running it against three XMLs would produce three PR comments for the same metric with slightly different numbers — more noise than signal for an advisory gate. Cross-OS comparison happens on the Codecov dashboard, not in PR comments.
 
 ## IWYU advisory gate (`#594` Phase 2)
 
