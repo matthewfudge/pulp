@@ -8,9 +8,23 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0300"></a>
-## [0.7.0]
+<a id="v0310"></a>
+## [0.31.0] - 2026-04-20
 
+- cli: release-discovery Slice 5 auto/prompt/manual/off enforcement (#550) ([#590](https://github.com/danielraffel/pulp/pull/590))
+- docs: retire legacy renderer + API nav + Doxygen version (#577 PR 4) ([#591](https://github.com/danielraffel/pulp/pull/591))
+- chore(shipyard): bump pin v0.20.0 → v0.21.0 ([#589](https://github.com/danielraffel/pulp/pull/589))
+- docs: switchover to MkDocs Material (#577 PR 3) ([#588](https://github.com/danielraffel/pulp/pull/588))
+- docs: MkDocs hooks + Doxygen + flat URLs (#577 PR 2) ([#587](https://github.com/danielraffel/pulp/pull/587))
+- chore(shipyard): bump pin v0.8.0→v0.20.0 + drop `pulp pr --native` workaround ([#585](https://github.com/danielraffel/pulp/pull/585))
+- fix: Codex post-merge sweep (2026-04-21 wave 3) ([#581](https://github.com/danielraffel/pulp/pull/581))
+- cli: release-discovery Slice 4 /upgrade Claude Code skill (#549) ([#583](https://github.com/danielraffel/pulp/pull/583))
+- ci(coverage): diff-cover advisory PR-comment gate (#566 Phase 1 PR 3) ([#580](https://github.com/danielraffel/pulp/pull/580))
+- docs: add MkDocs Material parallel build (#577 PR 1) ([#582](https://github.com/danielraffel/pulp/pull/582))
+- ci(coverage): wire Codecov dashboard + 20-flag carve-up (#566 Phase 1 PR 2) ([#578](https://github.com/danielraffel/pulp/pull/578))
+- docs: fix renderer inline-code-inside-link-text shattering ([#575](https://github.com/danielraffel/pulp/pull/575))
+
+<a id="v0300"></a>
 ## [0.30.0] - 2026-04-20
 
 - cli: release-discovery Slice 3 migration-doc infrastructure (#548) ([#571](https://github.com/danielraffel/pulp/pull/571))
@@ -489,6 +503,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.31.0]: https://github.com/danielraffel/pulp/releases/tag/v0.31.0
 [0.30.0]: https://github.com/danielraffel/pulp/releases/tag/v0.30.0
 [0.29.1]: https://github.com/danielraffel/pulp/releases/tag/v0.29.1
 [0.29.0]: https://github.com/danielraffel/pulp/releases/tag/v0.29.0
