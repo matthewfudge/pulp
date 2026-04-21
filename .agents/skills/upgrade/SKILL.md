@@ -55,6 +55,32 @@ requirement. If `pulp` is not on PATH, tell the user to install first
 (`curl -fsSL https://raw.githubusercontent.com/danielraffel/pulp/main/install.sh | sh`)
 and stop.
 
+### Plugin ↔ CLI skew banner (Slice 6, #551)
+
+Before running any `pulp` command, source the shared skew-check helper
+so the user sees a single-line hint when the installed CLI is older
+than the plugin's declared `min_cli_version`:
+
+```bash
+source "$(git rev-parse --show-toplevel 2>/dev/null || echo .)/tools/scripts/cli_version_check.sh"
+pulp_cli_version_check   # no-ops silently if already checked this session
+```
+
+Behaviour:
+
+- Banner (stderr, at most once per session):
+  `[pulp] Claude plugin requires CLI >= v<MIN> but installed CLI is v<HAVE>. Run \`pulp upgrade\` or \`/upgrade\` in Claude Code.`
+- Silent when CLI ≥ min, when the plugin manifest omits
+  `min_cli_version` (older plugin builds), or when either version is
+  non-numeric (dev builds).
+- Overrides: `PULP_SKEW_CHECK_DISABLE=1` turns it off;
+  `PULP_SKEW_CHECK_CACHE` overrides the session-marker directory.
+
+The same skew logic is surfaced by `pulp doctor --versions` inline, so
+users who prefer running the diagnostic directly see the finding there
+too — the helper is a convenience for skill authors, not a second
+source of truth.
+
 1. **Identify the active plugin directory** (so the skill can resolve
    `docs/migrations/` for full-body lookups):
 
@@ -248,4 +274,6 @@ skill AND the slash command AND the test in the same PR.
 - Slice 1 (diagnostics): #546 (`pulp doctor --versions`)
 - Slice 2 (update check): #562 (`pulp upgrade --check-only`)
 - Slice 3 (migration index): #571 (`pulp upgrade --notes --json`)
-- This slice: #549
+- Slice 4 (this skill): #549
+- Slice 6 (plugin ↔ CLI skew): #551 (`min_cli_version` +
+  `tools/scripts/cli_version_check.sh` + `plugin_min_cli` JSON field)

@@ -371,6 +371,114 @@ TEST_CASE("analyze is silent when a per-project SDK matches the CLI",
     }
 }
 
+// ── Slice 6 (#551) — plugin ↔ CLI skew detection ─────────────────────
+
+TEST_CASE("read_plugin_min_cli_version scrapes min_cli_version field",
+          "[version-diag][issue-551]") {
+    TempDir tmp;
+    auto plugin_json = tmp.path / ".claude-plugin" / "plugin.json";
+    write_file(plugin_json, R"({
+        "name": "pulp",
+        "version": "0.8.0",
+        "min_cli_version": "0.31.0",
+        "description": "test"
+    })");
+
+    auto v = read_plugin_min_cli_version(plugin_json);
+    REQUIRE(v.comparable);
+    REQUIRE(v.major == 0);
+    REQUIRE(v.minor == 31);
+    REQUIRE(v.patch == 0);
+}
+
+TEST_CASE("read_plugin_min_cli_version is empty when the field is absent",
+          "[version-diag][issue-551]") {
+    // Forward-compatible: older plugin builds (pre-Slice 6) shipped no
+    // min_cli_version field. The helper must return empty, not choke,
+    // so the skew analyzer silently skips the check.
+    TempDir tmp;
+    auto plugin_json = tmp.path / ".claude-plugin" / "plugin.json";
+    write_file(plugin_json, R"({
+        "name": "pulp",
+        "version": "0.7.0"
+    })");
+    auto v = read_plugin_min_cli_version(plugin_json);
+    REQUIRE_FALSE(v.comparable);
+    REQUIRE(v.raw.empty());
+}
+
+TEST_CASE("analyze warns when plugin_min_cli exceeds installed CLI",
+          "[version-diag][issue-551]") {
+    VersionReport r;
+    r.cli = parse_semver("0.20.0");
+    r.plugin = parse_semver("0.8.0");
+    r.plugin_min_cli = parse_semver("0.31.0");
+
+    auto findings = r.analyze();
+    bool saw_warn = false;
+    for (auto& f : findings) {
+        if (f.severity == SkewSeverity::Warn &&
+            f.message.find("Claude plugin requires CLI") != std::string::npos &&
+            f.message.find("pulp upgrade") != std::string::npos) {
+            saw_warn = true;
+        }
+    }
+    REQUIRE(saw_warn);
+}
+
+TEST_CASE("analyze is silent when plugin_min_cli is satisfied by CLI",
+          "[version-diag][issue-551]") {
+    VersionReport r;
+    r.cli = parse_semver("0.31.0");
+    r.plugin = parse_semver("0.8.0");
+    r.plugin_min_cli = parse_semver("0.31.0");  // equal — satisfied
+
+    auto findings = r.analyze();
+    for (auto& f : findings) {
+        if (f.severity == SkewSeverity::Warn) {
+            REQUIRE(f.message.find("Claude plugin requires") == std::string::npos);
+        }
+    }
+}
+
+TEST_CASE("analyze skips plugin_min_cli check when the field is absent",
+          "[version-diag][issue-551]") {
+    // Backward-compat: a plugin manifest without min_cli_version must
+    // never surface a skew warning. This is the "older plugin build"
+    // path the design doc calls out explicitly.
+    VersionReport r;
+    r.cli = parse_semver("0.20.0");
+    r.plugin = parse_semver("0.7.0");
+    // plugin_min_cli deliberately empty.
+    auto findings = r.analyze();
+    for (auto& f : findings) {
+        REQUIRE(f.message.find("Claude plugin requires") == std::string::npos);
+    }
+}
+
+TEST_CASE("render_report_json exposes plugin_min_cli as a top-level field",
+          "[version-diag][issue-551]") {
+    // The /upgrade slash command + plugin skills rely on this key to
+    // make a skew decision. Renaming or dropping it breaks the helper
+    // at `.agents/skills/_common/cli_version_check.sh`.
+    VersionReport r;
+    r.cli = parse_semver("0.20.0");
+    r.plugin = parse_semver("0.8.0");
+    r.plugin_min_cli = parse_semver("0.31.0");
+
+    std::stringstream capture;
+    auto* prev = std::cout.rdbuf(capture.rdbuf());
+    int rc = render_report_json(r);
+    std::cout.rdbuf(prev);
+
+    REQUIRE(rc == 0);
+    auto out = capture.str();
+    REQUIRE(out.find("\"plugin_min_cli\":") != std::string::npos);
+    // Skew finding should also land in findings[] so JSON consumers
+    // don't need to re-run the comparison themselves.
+    REQUIRE(out.find("Claude plugin requires") != std::string::npos);
+}
+
 TEST_CASE("render_report_json emits JSON with projects[] and findings[]",
           "[version-diag][issue-552]") {
     // Capture std::cout via a redirected rdbuf so we can test without

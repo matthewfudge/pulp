@@ -182,6 +182,30 @@ Semver read_plugin_version(const fs::path& plugin_json_path) {
     return out;
 }
 
+Semver read_plugin_min_cli_version(const fs::path& plugin_json_path) {
+    Semver out;
+    if (plugin_json_path.empty() || !fs::exists(plugin_json_path)) return out;
+
+    std::ifstream f(plugin_json_path);
+    if (!f.is_open()) return out;
+
+    std::stringstream buf;
+    buf << f.rdbuf();
+    auto body = buf.str();
+
+    // Same cheap scan as read_plugin_version — the key is a stable
+    // top-level JSON string. Absent field → empty Semver (no skew
+    // check). Added in Slice 6 (#551); older plugin manifests won't
+    // have this field and must silently no-op.
+    static const std::regex mcv_re(
+        R"RE("min_cli_version"\s*:\s*"([^"]+)")RE");
+    std::smatch m;
+    if (std::regex_search(body, m, mcv_re)) {
+        return parse_semver(m[1].str());
+    }
+    return out;
+}
+
 fs::path locate_plugin_json(const fs::path& active_repo_root,
                             const fs::path& override_path) {
     if (!override_path.empty() && fs::exists(override_path)) {
@@ -220,6 +244,22 @@ std::vector<SkewFinding> VersionReport::analyze() const {
             findings.push_back({
                 SkewSeverity::Warn,
                 "Project requires CLI >= v" + project_cli_min.raw +
+                    " but installed CLI is v" + cli.raw +
+                    " — run `pulp upgrade`",
+            });
+        }
+    }
+
+    // Rule 1b (Slice 6 / #551): Claude plugin's `min_cli_version` is
+    // ahead of the installed CLI. This is the exact mirror of the
+    // project-side cli_min_version rule, but from the plugin's
+    // perspective — the same skew banner the plugin-side skill prints
+    // on first invocation, surfaced via `pulp doctor --versions` too.
+    if (cli.comparable && plugin_min_cli.comparable) {
+        if (compare_semver(plugin_min_cli, cli) > 0) {
+            findings.push_back({
+                SkewSeverity::Warn,
+                "Claude plugin requires CLI >= v" + plugin_min_cli.raw +
                     " but installed CLI is v" + cli.raw +
                     " — run `pulp upgrade`",
             });
@@ -311,6 +351,15 @@ int render_report(const VersionReport& report) {
                            (report.plugin_json_path.empty()
                                 ? std::string{}
                                 : "   (" + report.plugin_json_path.string() + ")"));
+        if (report.plugin_min_cli.comparable) {
+            // Plugin min_cli_version is a Slice 6 (#551) field. Render
+            // it right under the Plugin line so the requirement sits
+            // next to the plugin version it's attached to. Four extra
+            // spaces of indent (instead of the usual two) visually
+            // subordinate it to the Plugin line above.
+            std::cout << "    needs CLI >= v"
+                      << report.plugin_min_cli.raw << "\n";
+        }
     } else {
         line("Plugin:", "(not found — install the Claude Code plugin to enable checks)");
     }
@@ -441,6 +490,8 @@ int render_report_json(const VersionReport& report) {
     write_semver_json(std::cout, report.cli);
     std::cout << ",\n  \"plugin\": ";
     write_semver_json(std::cout, report.plugin);
+    std::cout << ",\n  \"plugin_min_cli\": ";
+    write_semver_json(std::cout, report.plugin_min_cli);
     std::cout << ",\n  \"plugin_json_path\": \""
               << json_escape(report.plugin_json_path.generic_string())
               << "\"";

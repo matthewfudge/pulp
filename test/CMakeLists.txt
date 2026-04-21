@@ -73,6 +73,22 @@ if(TARGET pulp-cli)
 endif()
 catch_discover_tests(pulp-test-cli-shellout)
 
+# Plugin ↔ CLI skew banner helper (#551 Slice 6): shells out to bash
+# with a staged `pulp` shim and asserts the banner copy + once-per-
+# session semantics of `.agents/skills/_common/cli_version_check.sh`.
+# The test file is POSIX-only (invokes /bin/bash) — on Windows we skip
+# to avoid forcing a bash-for-Windows dependency into CI. The helper
+# itself is plain POSIX shell, so wgpu/macOS don't factor in.
+if(NOT WIN32)
+    add_executable(pulp-test-cli-skew-banner test_cli_skew_banner.cpp)
+    target_link_libraries(pulp-test-cli-skew-banner PRIVATE
+        pulp::platform Catch2::Catch2WithMain)
+    target_compile_definitions(pulp-test-cli-skew-banner PRIVATE
+        PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+    catch_discover_tests(pulp-test-cli-skew-banner
+        PROPERTIES ENVIRONMENT "PULP_REPO_ROOT=${CMAKE_SOURCE_DIR}")
+endif()
+
 # CLI ship shell-out behaviour tests — launches the built `pulp` binary
 # for the non-destructive ship subcommand branches.
 add_executable(pulp-test-cli-ship-shellout test_cli_ship_shellout.cpp)

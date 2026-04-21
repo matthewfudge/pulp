@@ -93,6 +93,11 @@ int cmd_doctor(const std::vector<std::string>& args) {
             standalone_mode ? fs::path{} : active_root);
         report.plugin_json_path = plugin_json;
         report.plugin = pulp::cli::version_diag::read_plugin_version(plugin_json);
+        // Slice 6 (#551): pick up the plugin's declared `min_cli_version`
+        // so the diagnostic surfaces plugin ↔ CLI skew alongside the
+        // existing project ↔ CLI checks.
+        report.plugin_min_cli =
+            pulp::cli::version_diag::read_plugin_min_cli_version(plugin_json);
 
         // Project SDK version. For standalone projects it lives in
         // `pulp.toml`; for source-tree use it lives in CMakeLists.txt.

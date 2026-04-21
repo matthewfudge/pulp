@@ -288,16 +288,25 @@ Gotchas:
   becomes meaningful from the first release that needs it; before
   then it's silently absent and skew analysis skips. Don't
   retroactively add it to every `pulp.toml` in the repo.
+- **Plugin `min_cli_version` mirrors the same semantics (Slice 6,
+  #551).** A plugin `plugin.json` with no `min_cli_version` skips the
+  check silently; a newer `min_cli_version` emits the same advisory
+  WARN finding in `analyze()` and an inline "needs CLI: >= vX.Y.Z"
+  line under the Plugin entry in the human report. The JSON surface
+  adds a `plugin_min_cli` top-level field alongside `cli` and
+  `plugin` — do not rename it; `tools/scripts/cli_version_check.sh`
+  and the `upgrade` skill parse it by key.
 
 Slice 1b (#552) extended the diagnostic with `--scan-parents` and
 `--json` plus the `~/.pulp/projects.json` registry — see the section
 above for registry gotchas. The `--versions` core remains pure-logic
 and scoped to `version_diag.{hpp,cpp}`.
 
-Follow-up slices (2-6) are tracked against #499: update-check,
-migration docs, `/upgrade` skill, mode enforcement, and plugin ↔ CLI
-skew detection. Do not land them piecemeal under Slice 1's PR; file
-new issues and PRs.
+Follow-up slices tracked against #499: Slice 2 (update-check), Slice 3
+(migration docs), Slice 4 (`/upgrade` skill), Slice 5 (mode
+enforcement), Slice 6 (plugin ↔ CLI skew — `min_cli_version` +
+`plugin_min_cli` JSON + `tools/scripts/cli_version_check.sh`). Do not
+land them piecemeal under Slice 1's PR; file new issues and PRs.
 
 ## `pulp config` + update-check (#499 Slice 2 / #547)
 

@@ -285,12 +285,15 @@ closest ancestor to the current directory comes first). Resolving
 surfaces both so the ambiguity is visible.
 
 `--json` emits the same information as a single JSON object with a
-stable shape — `{"cli": {...}, "plugin": {...}, "project_sdk": {...},
-"projects": [{"path": ..., "sdk": {...}, "cli_min": {...},
-"missing_on_disk": bool, "scanned": bool}, ...], "findings": [...]}`.
-Scripts should use the `findings[]` array for user-visible warnings;
-per-field semver fields carry `comparable: true` only when they
-parse as pure `M.N.P`.
+stable shape — `{"cli": {...}, "plugin": {...}, "plugin_min_cli":
+{...}, "project_sdk": {...}, "projects": [{"path": ..., "sdk": {...},
+"cli_min": {...}, "missing_on_disk": bool, "scanned": bool}, ...],
+"findings": [...]}`. Scripts should use the `findings[]` array for
+user-visible warnings; per-field semver fields carry
+`comparable: true` only when they parse as pure `M.N.P`.
+`plugin_min_cli` is populated from the plugin's `plugin.json`
+`min_cli_version` field (release-discovery Slice 6, #551); absent in
+older plugin builds.
 
 ### projects
 

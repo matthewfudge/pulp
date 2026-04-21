@@ -12,6 +12,23 @@ requires:
 
 Validate branches and ship code safely. This skill handles all CI workflows for Pulp across local machines and VMs.
 
+## Pre-flight: plugin ↔ CLI skew check
+
+Before shelling out to `pulp` (or `shipyard pr`, which ultimately
+invokes `pulp`), source the shared skew-check helper so a user on an
+outdated CLI sees a one-line hint rather than running into obscure
+flag-missing errors mid-ship:
+
+```bash
+source "$(git rev-parse --show-toplevel)/tools/scripts/cli_version_check.sh"
+pulp_cli_version_check
+```
+
+This is advisory only — the helper never blocks. See the `upgrade`
+skill for the full banner contract and override knobs
+(`PULP_SKEW_CHECK_DISABLE`, `PULP_SKEW_CHECK_CACHE`). Release-discovery
+Slice 6 (#551).
+
 ## Shipping a PR: route through `shipyard pr`
 
 When the user says any of: **"push to main"**, **"ship this"**, **"ship it"**,

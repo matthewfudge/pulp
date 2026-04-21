@@ -14,6 +14,21 @@ requires:
 
 Build, deploy, and debug Pulp on Android. This skill captures the architecture decisions and hard-won gotchas from the Android platform bringup.
 
+## Pre-flight: plugin ↔ CLI skew check
+
+Before running `pulp doctor android` / `pulp build` / `pulp ship` for
+Android work, source the shared skew-check helper so a user on an
+outdated CLI sees a one-line hint (stderr, once per session) before
+wrestling with a confusing flag-missing error:
+
+```bash
+source "$(git rev-parse --show-toplevel)/tools/scripts/cli_version_check.sh"
+pulp_cli_version_check
+```
+
+Advisory only. Full contract in the `upgrade` skill. Release-discovery
+Slice 6 (#551).
+
 ## Architecture Overview
 
 ```

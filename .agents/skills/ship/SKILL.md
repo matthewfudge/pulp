@@ -21,6 +21,21 @@ triggers:
 
 The `pulp ship` command handles the full distribution pipeline: code signing, Apple notarization, platform-specific packaging, update feed generation, and Android APK/AAB builds.
 
+## Pre-flight: plugin ↔ CLI skew check
+
+Before running `pulp ship ...`, source the shared skew-check helper so
+a user on an outdated CLI sees a one-line hint (stderr, once per
+session) when the installed CLI is older than the plugin's declared
+`min_cli_version`:
+
+```bash
+source "$(git rev-parse --show-toplevel)/tools/scripts/cli_version_check.sh"
+pulp_cli_version_check
+```
+
+Advisory only — never blocks. Full contract + override knobs in the
+`upgrade` skill. Release-discovery Slice 6 (#551).
+
 ## Subcommands
 
 | Command | Platform | What It Does |
