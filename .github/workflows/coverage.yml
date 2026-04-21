@@ -158,8 +158,13 @@ jobs:
             if ! command -v "${tool}" >/dev/null 2>&1; then
               path=$(xcrun --find "${tool}" 2>/dev/null || true)
               if [ -n "${path}" ]; then
+                bin_dir=$(dirname "${path}")
                 echo "Found ${tool} via xcrun: ${path}"
-                echo "$(dirname "${path}")" >> "$GITHUB_PATH"
+                # $GITHUB_PATH applies to SUBSEQUENT steps only, so also
+                # export into this step's $PATH for the version checks
+                # below and anything else downstream in-step.
+                echo "${bin_dir}" >> "$GITHUB_PATH"
+                export PATH="${bin_dir}:${PATH}"
               else
                 echo "ERROR: ${tool} not found on macOS runner" >&2
                 exit 1
@@ -246,6 +251,11 @@ jobs:
         # → no cobertura → Codecov upload "succeeds" with no files → dashboard
         # stays empty. We had exactly this class of silent failure until
         # state_tree.hpp missing <algorithm> was caught on 2026-04-21.
+        #
+        # Pin shell: bash so the POSIX `test` + `wc -c <` syntax works on
+        # the windows runner too (default shell there is pwsh, which treats
+        # `<` as a reserved redirection operator and errors out).
+        shell: bash
         run: |
           test -s build-coverage/coverage.cobertura.xml || {
             echo "::error::coverage.cobertura.xml is missing or empty."
