@@ -84,6 +84,37 @@
 #             shipped via `shipyard pr` now read as first-party and
 #             reviewers see the commit's own rationale without
 #             clicking through to the diff.
+#   v0.23.0 — daemon wait primitive (Shipyard #150) so long-poll
+#             callers (like the macOS GUI) can block on ship-state
+#             changes instead of polling. Unused from pulp-side
+#             currently; it's the building block v0.25.0's daemon
+#             IPC shortcut relies on.
+#   v0.24.0 — `shipyard pr` walks past the mechanical "chore: bump
+#             versions" commit when composing the PR title and body
+#             (Shipyard #151). Previously the auto-PR text pointed
+#             at the bump commit (generic, uninformative) instead
+#             of the feature commit that actually explained the
+#             change. Pulp PR #624 was the canonical repro: title
+#             read "chore: bump versions" and the body was
+#             "Automated by `shipyard pr`." — the tool-branding
+#             text was also scrubbed. v0.24.0 resolves both.
+#   v0.25.0 — two semantic changes pulp benefits from directly:
+#               * `Version-Bump: <surface>=<level>` trailer is now
+#                 authoritative (Shipyard #152). Previously, if an
+#                 author wrote `=patch` but the heuristic classified
+#                 the diff as minor, the heuristic silently won.
+#                 v0.25.0 uses the trailer exactly as written (with
+#                 a `reason` string as the justification-of-record).
+#                 Pulp's `tools/scripts/version_bump_check.py` is
+#                 synced with this behaviour in the same PR that
+#                 bumps the pin.
+#               * `shipyard ship-state list` is served from the
+#                 running daemon via IPC when available, bypassing
+#                 the ~5-6s PyInstaller cold-start on every call
+#                 (Shipyard #154). The macOS GUI polls this every
+#                 7s, so the CPU-time saving compounds. Pulp's
+#                 `pulp pr` also hits this path during skill-sync
+#                 and version-bump preflight.
 #
 # Cumulative additions from earlier releases still in effect:
 #   v0.4–v0.8 — release-bot helpers, `shipyard doctor release-chain`,
@@ -98,7 +129,7 @@
 # in `tools/install-shipyard.sh` (v0.22.1+ `SHIPYARD_VERSION` support).
 # The older `~/.pulp/bin/shipyard` path is cleaned up on install to
 # prevent shadow-on-PATH bugs.
-version = "v0.22.9"
+version = "v0.25.0"
 
 # Public release source. The bootstrap script downloads from
 # https://github.com/{repo}/releases/download/{version}/{asset}

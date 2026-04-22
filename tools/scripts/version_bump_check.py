@@ -15,11 +15,19 @@ Heuristics (per surface, deliberately conservative):
     - If only internal_only_paths changed       → patch-suggested
     - If any public_api_paths changed (non-comment/whitespace diff)
                                                 → minor-required
-    - If a Version-Bump: <surface>=<level>      → that level wins (after
-      path filtering — a plugin-only `BREAKING` does not bump the SDK)
+    - If a Version-Bump: <surface>=<level>      → that level is
+      authoritative (Shipyard v0.25.0 / PR #152): used as-is, not
+      just as a ceiling. Can lower a minor-heuristic to patch when the
+      author judges wide-surface-area diffs as still semver-patch.
+      The `reason="..."` string is the justification-of-record.
+      Still path-filtered — a plugin-only `Version-Bump: sdk=major`
+      is ignored when the SDK's trigger_paths weren't touched.
     - Conventional-commit subjects (`feat:`, `fix:`, `BREAKING:` or `!:`
       in subjects) may RAISE the heuristic verdict on a surface whose
-      trigger_paths were actually touched. Cannot lower it.
+      trigger_paths were actually touched. Cannot lower it. Skipped
+      entirely when an explicit `<surface>=<level>` trailer is present
+      (otherwise a `feat:` could silently revert an author-declared
+      `=patch` back to `=minor`, defeating the trailer).
     - Revert commits (subject starts with `Revert` or `Revert-Of:` trailer)
       suppress signals from the reverted work.
 
@@ -590,32 +598,43 @@ def assess_surfaces(
         override = surface_trailer_override(trailers, cfg.trailer_version_bump, s.name)
         final = heur
         skip_requested = (override == "skip")
+        explicit_level = override in LEVELS
 
         if skip_requested:
             final = "none"
-        elif override in LEVELS:
-            # Only raise, never lower. The override applies whenever the
-            # surface's trigger paths were touched at all — even if the
-            # diff-content heuristic fell through to "none" (comments only,
-            # whitespace only, etc.). This lets authors force a bump on a
-            # touched surface without the script second-guessing them.
-            # Untouched surfaces still ignore the override to avoid
-            # rubber-stamping unrelated bumps.
+        elif explicit_level:
+            # `Version-Bump: <surface>=<level> reason="..."` is authoritative
+            # (Shipyard v0.25.0 / PR #152): the author stated the level AND
+            # accepted accountability via the `reason` string. Use it exactly —
+            # this is *not* "can only raise". Patch can override a minor
+            # heuristic when the author judges that a wide-surface-area diff
+            # is still semver-patch (e.g. a bug fix that touches many files).
+            # The reason string is the justification-of-record; reviewers can
+            # still push back in PR review. Silently falling back to the
+            # heuristic when the author asked for a lower level defeats the
+            # entire point of the trailer. Untouched surfaces still ignore
+            # the override to avoid rubber-stamping unrelated bumps.
             if not trigger_touched:
                 final = "none"
-            elif heur == "none":
-                final = override
-            elif LEVELS.index(override) > LEVELS.index(heur):
+            elif heur != "none":
                 final = override
             else:
-                final = heur
+                # Surface has trigger-touched paths but the content
+                # heuristic saw nothing meaningful (comments only, etc.).
+                # Honor the override — the author knows the change is
+                # API-visible even if the byte-diff doesn't show it.
+                final = override
 
         # Promote via conventional-commit subjects on commits that touched
         # THIS surface — never from commits that only touched unrelated
         # paths. A plugin-only `feat:` cannot raise the SDK ceiling. An
         # explicit `Version-Bump: <surface>=skip` on the tip commit is
         # authoritative and is NOT raised back up by conv-commit subjects.
-        if heur != "none" and not skip_requested:
+        # Same reasoning for an explicit `<surface>=<level>` trailer:
+        # otherwise a `feat:` in a commit subject would silently raise an
+        # author-declared `=patch` back to `=minor`, defeating the
+        # trailer's purpose (Shipyard v0.25.0 / PR #152).
+        if heur != "none" and not skip_requested and not explicit_level:
             conv_ceiling = "none"
             for sha, subject, body in git_log_subjects_and_bodies(base, head):
                 if is_revert_commit(subject, {}):
