@@ -7,6 +7,7 @@
 #include <pulp/runtime/log.hpp>
 #include <clap/ext/preset-load.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 
@@ -175,6 +176,20 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
 
     // Build MIDI from CLAP note events
     midi::MidiBuffer midi_in, midi_out;
+    // Track whether any native CLAP_EVENT_MIDI2 packet was delivered so we
+    // can skip the MIDI 1.0 → UMP synthesis path when the host is speaking
+    // UMP natively. The host still sends CLAP_EVENT_NOTE_* in parallel for
+    // note events; those populate midi_in for the MPE tracker and plugins
+    // that only consume MIDI 1.0.
+    bool host_delivered_ump = false;
+    // Clear the UMP sidecar up-front: we append to it directly when the
+    // host sends CLAP_EVENT_MIDI2 during the event loop below.
+    if (self->ump_enabled) {
+        self->ump_buffer.clear();
+    }
+    // One-time debug log when a plugin that didn't opt into MPE drops a
+    // note-expression event.
+    bool note_expression_drop_logged = false;
     if (in_events) {
         uint32_t event_count = in_events->size(in_events);
         for (uint32_t i = 0; i < event_count; ++i) {
@@ -195,6 +210,134 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
                     static_cast<uint8_t>(ev->velocity * 127.0));
                 me.sample_offset = static_cast<int32_t>(hdr->time);
                 midi_in.add(me);
+            } else if (hdr->type == CLAP_EVENT_NOTE_CHOKE) {
+                // NOTE_CHOKE has no MIDI 1.0 equivalent (the host is
+                // telling the plugin "force-release this voice, no
+                // matching note-off is coming"). The closest analogue is
+                // a zero-velocity note-off on the same (channel, key).
+                // See clap/events.h around CLAP_EVENT_NOTE_CHOKE — the
+                // velocity field is spec-ignored.
+                auto* ev = reinterpret_cast<const clap_event_note_t*>(hdr);
+                auto me = midi::MidiEvent::note_off(
+                    static_cast<uint8_t>(ev->channel),
+                    static_cast<uint8_t>(ev->key),
+                    0);
+                me.sample_offset = static_cast<int32_t>(hdr->time);
+                midi_in.add(me);
+            } else if (hdr->type == CLAP_EVENT_NOTE_EXPRESSION) {
+                // CLAP per-note expression. Pulp already has an MPE
+                // sidecar (`MpeBuffer`); map the expression to the
+                // closest MIDI 1.0 message and let the MPE tracker turn
+                // it into per-note state below. Only do this when the
+                // plugin opted into MPE — otherwise there is no sensible
+                // channel-wide interpretation (e.g. a per-note pressure
+                // would collapse onto whichever voice happens to share
+                // the channel). Plugins that consume UMP can access
+                // per-note expressions natively via the UMP sidecar;
+                // future work can extend that path.
+                auto* ev = reinterpret_cast<const clap_event_note_expression_t*>(hdr);
+                if (!self->mpe_enabled) {
+                    if (!note_expression_drop_logged) {
+                        runtime::log_debug(
+                            "CLAP: dropping CLAP_EVENT_NOTE_EXPRESSION; "
+                            "plugin did not opt in to MPE");
+                        note_expression_drop_logged = true;
+                    }
+                } else {
+                    const auto channel = static_cast<uint8_t>(
+                        ev->channel < 0 ? 0 : ev->channel & 0x0F);
+                    // NOTE: ev->key selects the target note for per-note
+                    // routing. The MIDI 1.0 synthesis path below emits
+                    // channel-wide messages (channel AT, pitch bend,
+                    // CCs); the MpeVoiceTracker narrows them back to the
+                    // matching member-channel voice by convention. A
+                    // future pass can route via the UMP sidecar for true
+                    // per-note fidelity.
+                    const auto t = static_cast<int32_t>(hdr->time);
+                    midi::MidiEvent me{};
+                    bool emitted = false;
+                    switch (ev->expression_id) {
+                        case CLAP_NOTE_EXPRESSION_PRESSURE: {
+                            // 0..1 → channel aftertouch (7-bit).
+                            const double v = std::clamp(ev->value, 0.0, 1.0);
+                            const uint8_t v7 = static_cast<uint8_t>(v * 127.0 + 0.5);
+                            me = {choc::midi::ShortMessage(
+                                static_cast<uint8_t>(0xD0 | (channel & 0x0F)),
+                                v7, 0), t, 0.0};
+                            emitted = true;
+                            break;
+                        }
+                        case CLAP_NOTE_EXPRESSION_TUNING: {
+                            // ±120 semitones → 14-bit pitch bend clamped
+                            // to ±2 semitones default MPE member range.
+                            // We normalise the raw value to the ±48st
+                            // member-bend default so the MpeVoiceTracker
+                            // expands it back correctly.
+                            const double norm = std::clamp(
+                                ev->value / static_cast<double>(
+                                    midi::MpeVoiceTracker::kDefaultMemberBendSemitones),
+                                -1.0, 1.0);
+                            const int bend14 = static_cast<int>(
+                                std::lround(8192.0 + norm * 8191.0));
+                            const auto pb = static_cast<uint16_t>(
+                                std::clamp(bend14, 0, 16383));
+                            me = midi::MidiEvent::pitch_bend(channel, pb);
+                            me.sample_offset = t;
+                            emitted = true;
+                            break;
+                        }
+                        case CLAP_NOTE_EXPRESSION_BRIGHTNESS: {
+                            // Brightness / timbre → CC 74.
+                            const double v = std::clamp(ev->value, 0.0, 1.0);
+                            const auto v7 = static_cast<uint8_t>(v * 127.0 + 0.5);
+                            me = midi::MidiEvent::cc(channel, 74, v7);
+                            me.sample_offset = t;
+                            emitted = true;
+                            break;
+                        }
+                        case CLAP_NOTE_EXPRESSION_VOLUME: {
+                            // Volume (log domain in CLAP spec) → CC 7.
+                            const double v = std::clamp(ev->value, 0.0, 4.0);
+                            const auto v7 = static_cast<uint8_t>(
+                                (v / 4.0) * 127.0 + 0.5);
+                            me = midi::MidiEvent::cc(channel, 7, v7);
+                            me.sample_offset = t;
+                            emitted = true;
+                            break;
+                        }
+                        case CLAP_NOTE_EXPRESSION_PAN: {
+                            // 0..1 → CC 10.
+                            const double v = std::clamp(ev->value, 0.0, 1.0);
+                            const auto v7 = static_cast<uint8_t>(v * 127.0 + 0.5);
+                            me = midi::MidiEvent::cc(channel, 10, v7);
+                            me.sample_offset = t;
+                            emitted = true;
+                            break;
+                        }
+                        case CLAP_NOTE_EXPRESSION_VIBRATO:
+                        case CLAP_NOTE_EXPRESSION_EXPRESSION:
+                        default:
+                            // Vibrato / expression and any future/unknown
+                            // IDs have no universally sensible MIDI 1.0
+                            // mapping; UMP-aware plugins should consume
+                            // these via the native UMP sidecar.
+                            break;
+                    }
+                    if (emitted) {
+                        midi_in.add(me);
+                    }
+                }
+            } else if (hdr->type == CLAP_EVENT_MIDI) {
+                // Raw MIDI 1.0 event — the host's fallback channel for
+                // CC, pitch bend, channel aftertouch, poly aftertouch,
+                // and program change. `port_index` is informational for
+                // multi-port plugins; single-port plugins accept all.
+                auto* ev = reinterpret_cast<const clap_event_midi_t*>(hdr);
+                midi::MidiEvent me{
+                    choc::midi::ShortMessage(ev->data[0], ev->data[1], ev->data[2]),
+                    static_cast<int32_t>(hdr->time),
+                    0.0};
+                midi_in.add(me);
             } else if (hdr->type == CLAP_EVENT_MIDI_SYSEX) {
                 // Workstream 01 — route CLAP sysex into MidiBuffer's
                 // variable-length sidecar (issue #239).
@@ -205,6 +348,27 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
                         static_cast<int32_t>(hdr->time),
                         0.0);
                 }
+#if defined(CLAP_VERSION_GE) && CLAP_VERSION_GE(1, 1, 0)
+            } else if (hdr->type == CLAP_EVENT_MIDI2) {
+                // Native MIDI 2.0 UMP packet — append directly to the
+                // UMP sidecar when the plugin opted in. We flag
+                // host_delivered_ump so the MIDI 1.0 → UMP synthesis
+                // path below does not double-append the same voice
+                // events. CLAP_EVENT_MIDI2 is an enum value (not a
+                // #define), so we gate on CLAP_VERSION_GE(1,1,0), which
+                // is the release that introduced it.
+                if (self->ump_enabled) {
+                    auto* ev = reinterpret_cast<const clap_event_midi2_t*>(hdr);
+                    midi::UmpPacket p{};
+                    p.words[0] = ev->data[0];
+                    p.words[1] = ev->data[1];
+                    p.words[2] = ev->data[2];
+                    p.words[3] = ev->data[3];
+                    p.word_count = midi::UmpPacket::size_for_type(p.message_type());
+                    self->ump_buffer.add(p, static_cast<int32_t>(hdr->time));
+                    host_delivered_ump = true;
+                }
+#endif
             }
         }
     }
@@ -247,13 +411,25 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
         self->processor->set_mpe_input(nullptr);
     }
 
-    // UMP sidecar: until CLAP ships CLAP_EVENT_MIDI2, synthesise the UMP
-    // stream by converting the inbound MIDI 1.0 events to MIDI 2.0
-    // Channel Voice packets. Plugins that declare supports_ump see the
-    // same sample-ordered stream the host would otherwise deliver natively.
+    // UMP sidecar. Two paths, depending on what the host delivers:
+    //   1. Native: the host sent at least one CLAP_EVENT_MIDI2 this
+    //      block. Those packets were appended to self->ump_buffer during
+    //      the event loop above, so the buffer already holds the
+    //      host's authoritative UMP stream. Do NOT run the MIDI 1.0
+    //      synthesis — CLAP forbids sending the same note event as both
+    //      NOTE_* and MIDI2 (events.h note), so the NOTE_* events we
+    //      kept in midi_in for MPE/MIDI1 consumers are the
+    //      complementary half of the stream, not duplicates of UMP.
+    //   2. Fallback: the host speaks MIDI 1.0 only. Convert the
+    //      inbound CLAP_EVENT_NOTE_* / CLAP_EVENT_MIDI stream to MIDI
+    //      2.0 Channel Voice packets so supports_ump plugins see a
+    //      full-resolution view.
     if (self->ump_enabled) {
-        self->ump_buffer.clear();
-        midi::midi1_to_ump(midi_in, self->ump_buffer);
+        if (!host_delivered_ump) {
+            // Buffer was cleared up-front; populate from the MIDI 1.0
+            // stream only when the host didn't deliver native UMP.
+            midi::midi1_to_ump(midi_in, self->ump_buffer);
+        }
         self->processor->set_ump_input(&self->ump_buffer);
     } else {
         self->processor->set_ump_input(nullptr);
@@ -284,6 +460,41 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
                 ev.value = static_cast<double>(current);
                 out_events->try_push(out_events, &ev.header);
             }
+        }
+
+        // Bridge processor-emitted MIDI (midi_out) back to the host.
+        // Before this loop, plugins that produced CC, pitch bend, channel
+        // aftertouch, program change, etc. had those events silently
+        // dropped by the CLAP adapter. Sort first so the host sees
+        // sample-ordered events (required by CLAP out-events contract).
+        midi_out.sort();
+        for (const auto& me : midi_out) {
+            clap_event_midi_t ev{};
+            ev.header.size = sizeof(ev);
+            ev.header.type = CLAP_EVENT_MIDI;
+            ev.header.time = static_cast<uint32_t>(
+                me.sample_offset < 0 ? 0 : me.sample_offset);
+            ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ev.header.flags = 0;
+            ev.port_index = 0;
+            ev.data[0] = me.data()[0];
+            ev.data[1] = me.size() > 1 ? me.data()[1] : uint8_t{0};
+            ev.data[2] = me.size() > 2 ? me.data()[2] : uint8_t{0};
+            out_events->try_push(out_events, &ev.header);
+        }
+        for (const auto& se : midi_out.sysex()) {
+            if (se.data.empty()) continue;
+            clap_event_midi_sysex_t ev{};
+            ev.header.size = sizeof(ev);
+            ev.header.type = CLAP_EVENT_MIDI_SYSEX;
+            ev.header.time = static_cast<uint32_t>(
+                se.sample_offset < 0 ? 0 : se.sample_offset);
+            ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            ev.header.flags = 0;
+            ev.port_index = 0;
+            ev.buffer = se.data.data();
+            ev.size = static_cast<uint32_t>(se.data.size());
+            out_events->try_push(out_events, &ev.header);
         }
     }
 
