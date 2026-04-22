@@ -585,16 +585,35 @@ jobs:
         # they aren't in the report at all. The merge takes max(hits)
         # per (filename, line) across the inputs so a line counted
         # as covered on any OS is treated as covered overall.
-        # Missing inputs are skipped (next step handles "all missing").
+        #
+        # Exit-code policy (Codex post-merge review on PR #654):
+        # the script returns 1 ONLY when every input XML is missing
+        # or empty — that case is intentionally tolerated (the
+        # diff-cover step renders the "no XML" fallback). Any other
+        # non-zero exit means a real merge failure (malformed input,
+        # bug in the script, etc.) and MUST fail the gate — otherwise
+        # a corrupted artifact silently bypasses the required 75%
+        # coverage check. Don't replace the explicit `if` with a
+        # blanket `|| ...` chain.
         shell: bash
         run: |
-          mkdir -p coverage-artifact
+          set +e
           python3 tools/scripts/merge_cobertura.py \
               --out coverage-artifact/coverage.cobertura.xml \
               coverage-artifact-linux/coverage.cobertura.xml \
               coverage-artifact-macos/coverage.cobertura.xml \
-              coverage-artifact-windows/coverage.cobertura.xml \
-              || echo "merge_cobertura: every input missing — diff-cover step will render fallback."
+              coverage-artifact-windows/coverage.cobertura.xml
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            exit 0
+          elif [ "$rc" -eq 1 ]; then
+            echo "::warning::merge_cobertura: every input missing — diff-cover step will render the fallback report."
+            mkdir -p coverage-artifact
+            exit 0
+          else
+            echo "::error::merge_cobertura failed with exit ${rc} (not the expected all-missing sentinel). Failing the required diff-coverage gate; investigate the per-OS coverage artifacts."
+            exit "$rc"
+          fi
 
       - name: Run diff-cover (required)
         id: diff_cover
