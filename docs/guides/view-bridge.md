@@ -108,6 +108,60 @@ void MyPlugin::on_view_closed(view::View&) {
 }
 ```
 
+### Embedding native child views inside plugin editors
+
+`PluginViewHost` mirrors `WindowHost`'s native-child attach / resize /
+detach API, and `View::plugin_view_host()` is populated across the whole
+editor subtree before `on_view_opened()` fires. That means a nested custom
+view can embed a `WebViewPanel` (or any other native child surface) without
+singletons or format-specific hooks:
+
+```cpp
+class WebViewSlot : public view::View {
+public:
+  void attach_if_needed() {
+    if (attached_ || !plugin_view_host() || !panel_) return;
+    auto size = plugin_view_host()->get_size();
+    attached_ = plugin_view_host()->attach_native_child_view(
+        panel_->native_handle(), 0, 0, size.width, size.height);
+  }
+
+  void sync_to_host() {
+    if (!attached_ || !plugin_view_host() || !panel_) return;
+    auto size = plugin_view_host()->get_size();
+    plugin_view_host()->set_native_child_view_bounds(
+        panel_->native_handle(), 0, 0, size.width, size.height);
+  }
+
+  void detach_if_needed() {
+    if (!attached_ || !plugin_view_host() || !panel_) return;
+    plugin_view_host()->detach_native_child_view(panel_->native_handle());
+    attached_ = false;
+  }
+
+private:
+  std::unique_ptr<view::WebViewPanel> panel_;
+  bool attached_ = false;
+};
+
+void MyPlugin::on_view_opened(view::View& root) {
+  static_cast<MyRootView&>(root).webview_slot().attach_if_needed();
+}
+
+void MyPlugin::on_view_resized(view::View& root, uint32_t, uint32_t) {
+  static_cast<MyRootView&>(root).webview_slot().sync_to_host();
+}
+
+void MyPlugin::on_view_closed(view::View& root) {
+  static_cast<MyRootView&>(root).webview_slot().detach_if_needed();
+}
+```
+
+Views added before the host exists still inherit the final
+`PluginViewHost*` when the editor opens, so deeply nested children can call
+`plugin_view_host()` just like children added later. See
+`examples/webview-plugin/` for a complete runnable example.
+
 ### Multiple views for one processor
 
 ViewBridge can host a primary editor plus secondary views (inspector,

@@ -7,8 +7,8 @@ Pulp versions three surfaces independently:
   CLI binary's `pulp --version`.
 - **Claude Code plugin** — `.claude-plugin/plugin.json` `version`
   and `.claude-plugin/marketplace.json` `version`.
-- **Shipyard pinned binary** — `tools/install-shipyard.sh` +
-  `tools/deps/manifest.json`. This is an upstream release we
+- **Shipyard pinned binary** — `tools/shipyard.toml`, consumed by
+  `tools/install-shipyard.sh`. This is an upstream release we
   consume, not a surface we ship; see [Dependency Update
   Workflow](https://github.com/danielraffel/pulp/blob/main/CLAUDE.md#dependency-update-workflow) for pin bumps.
 
@@ -218,11 +218,13 @@ A bypass is a recorded admission that the author thought about the rule and deci
 
 ## Shipyard-binary pin bumps
 
-When a new Shipyard release drops, the pin lives in `tools/install-shipyard.sh` and `tools/deps/manifest.json`. Bumping it is a normal dependency-pin update, not a Pulp-versioning event:
+When a new Shipyard release drops, the pin lives in `tools/shipyard.toml`
+(consumed by `tools/install-shipyard.sh`). Bumping it is a normal
+dependency-pin update, not a Pulp-versioning event:
 
 ```bash
 python3 tools/deps/audit.py --strict --check-upstream --format markdown
-# edit tools/install-shipyard.sh and tools/deps/manifest.json
+# edit tools/shipyard.toml
 python3 tools/deps/validate_hosts.py
 ```
 

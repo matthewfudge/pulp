@@ -115,6 +115,16 @@
 #                 7s, so the CPU-time saving compounds. Pulp's
 #                 `pulp pr` also hits this path during skill-sync
 #                 and version-bump preflight.
+#   v0.26.0 — daemon subscribe-replay now uses blocking `put()`
+#             instead of `put_nowait()`, so a long-running daemon no
+#             longer stops accepting fresh IPC subscribers once the
+#             replay ring grows past 64 events. This is the load-
+#             bearing fix for the macOS GUI dropping into "polling"
+#             mode with no active PR cards after an hour-plus of
+#             daemon uptime. Also bumps the IPC protocol to 2,
+#             advertises the daemon's own `shipyard_version` in
+#             hello/status frames, and teaches `shipyard doctor`
+#             to flag daemon-vs-CLI version drift.
 #
 # Cumulative additions from earlier releases still in effect:
 #   v0.4–v0.8 — release-bot helpers, `shipyard doctor release-chain`,
@@ -129,7 +139,7 @@
 # in `tools/install-shipyard.sh` (v0.22.1+ `SHIPYARD_VERSION` support).
 # The older `~/.pulp/bin/shipyard` path is cleaned up on install to
 # prevent shadow-on-PATH bugs.
-version = "v0.25.0"
+version = "v0.26.0"
 
 # Public release source. The bootstrap script downloads from
 # https://github.com/{repo}/releases/download/{version}/{asset}
