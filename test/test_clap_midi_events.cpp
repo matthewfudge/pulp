@@ -480,6 +480,261 @@ TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION dropped when MPE not opted in",
     REQUIRE(g_capturing->captured_midi.empty());
 }
 
+// Helper: build a note-expression event with common MPE-opted-in defaults.
+namespace {
+clap_event_note_expression_t make_note_expression(uint32_t expr_id,
+                                                   uint8_t channel,
+                                                   uint8_t key,
+                                                   double value,
+                                                   uint32_t time) {
+    clap_event_note_expression_t ev{};
+    ev.header = make_header(sizeof(ev), CLAP_EVENT_NOTE_EXPRESSION, time);
+    ev.expression_id = expr_id;
+    ev.note_id = -1;
+    ev.port_index = 0;
+    ev.channel = channel;
+    ev.key = key;
+    ev.value = value;
+    return ev;
+}
+
+// Locate the first MidiEvent in `captured` with the given status byte (top
+// nibble = message type, low nibble = channel).
+const midi::MidiEvent* find_status(const midi::MidiBuffer& captured,
+                                    uint8_t status_byte) {
+    for (const auto& got : captured) {
+        if (got.data()[0] == status_byte) return &got;
+    }
+    return nullptr;
+}
+} // namespace
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION tuning → pitch bend when MPE opted in",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    // 1 semitone of tuning; default member-bend range is ±48 semitones, so
+    // norm = 1.0/48 ≈ 0.02083 → bend14 ≈ 8192 + 0.02083*8191 = 8363.67 →
+    // rounded to 8364 → low 7 bits = 0x2C, high 7 bits = 0x41.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_TUNING, /*channel*/2, /*key*/64,
+        /*value*/1.0, /*time*/9));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    const auto* pb = find_status(g_capturing->captured_midi, 0xE2);
+    REQUIRE(pb != nullptr);
+    REQUIRE(pb->is_pitch_bend());
+    REQUIRE(pb->channel() == 2);
+    REQUIRE(pb->sample_offset == 9);
+    // Center is 8192; 1 semitone over a ±48st range should round to a
+    // specific 14-bit value — pin it so a regression in the scaling
+    // constant is caught loudly.
+    const int bend14 = pb->data()[1] | (pb->data()[2] << 7);
+    REQUIRE(bend14 == 8363);  // lround(8192 + (1.0/48.0) * 8191.0)
+}
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION tuning clamps huge positive value to +max",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    // 200 semitones is far past the ±48st member-bend range; should
+    // clamp to bend14 = 16383 (data[1]=0x7F, data[2]=0x7F).
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_TUNING, /*channel*/0, /*key*/60,
+        /*value*/200.0, /*time*/0));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    const auto* pb = find_status(g_capturing->captured_midi, 0xE0);
+    REQUIRE(pb != nullptr);
+    REQUIRE(pb->is_pitch_bend());
+    REQUIRE(pb->data()[1] == 0x7F);
+    REQUIRE(pb->data()[2] == 0x7F);
+}
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION brightness → CC 74 when MPE opted in",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    // value 1.0 → v7 = round(1.0 * 127) = 127.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_BRIGHTNESS, /*channel*/3, /*key*/60,
+        /*value*/1.0, /*time*/7));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    const auto* cc = find_status(g_capturing->captured_midi, 0xB3);
+    REQUIRE(cc != nullptr);
+    REQUIRE(cc->is_cc());
+    REQUIRE(cc->channel() == 3);
+    REQUIRE(cc->cc_number() == 74);
+    REQUIRE(cc->cc_value() == 127);
+    REQUIRE(cc->sample_offset == 7);
+}
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION brightness clamps negative to 0",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_BRIGHTNESS, /*channel*/0, /*key*/60,
+        /*value*/-0.5, /*time*/0));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    const auto* cc = find_status(g_capturing->captured_midi, 0xB0);
+    REQUIRE(cc != nullptr);
+    REQUIRE(cc->cc_number() == 74);
+    REQUIRE(cc->cc_value() == 0);
+}
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION volume → CC 7 with 0..4 → 0..127 scaling",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    // value 2.0 (half of max=4) → v7 = round(0.5 * 127) = 64.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_VOLUME, /*channel*/4, /*key*/60,
+        /*value*/2.0, /*time*/3));
+    // value 4.0 (max) → 127.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_VOLUME, /*channel*/4, /*key*/60,
+        /*value*/4.0, /*time*/4));
+    // value 10.0 should clamp to 4 → v7 = 127.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_VOLUME, /*channel*/4, /*key*/60,
+        /*value*/10.0, /*time*/5));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+
+    // Collect all CC 7 / channel 4 events.
+    std::vector<const midi::MidiEvent*> cc7;
+    for (const auto& got : g_capturing->captured_midi) {
+        if (got.data()[0] == 0xB4 && got.data()[1] == 7) cc7.push_back(&got);
+    }
+    REQUIRE(cc7.size() == 3);
+    REQUIRE(cc7[0]->cc_value() == 64);
+    REQUIRE(cc7[0]->sample_offset == 3);
+    REQUIRE(cc7[1]->cc_value() == 127);
+    REQUIRE(cc7[1]->sample_offset == 4);
+    REQUIRE(cc7[2]->cc_value() == 127);  // clamped
+}
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION pan → CC 10 with 0..1 → 0..127 scaling",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    // value 0.5 → v7 = round(0.5 * 127 + 0.5) = 64.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_PAN, /*channel*/5, /*key*/60,
+        /*value*/0.5, /*time*/14));
+    // value 0 → 0, extreme-left.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_PAN, /*channel*/5, /*key*/60,
+        /*value*/0.0, /*time*/15));
+    // value 1.0 → 127, extreme-right.
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_PAN, /*channel*/5, /*key*/60,
+        /*value*/1.0, /*time*/16));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+
+    std::vector<const midi::MidiEvent*> cc10;
+    for (const auto& got : g_capturing->captured_midi) {
+        if (got.data()[0] == 0xB5 && got.data()[1] == 10) cc10.push_back(&got);
+    }
+    REQUIRE(cc10.size() == 3);
+    REQUIRE(cc10[0]->cc_value() == 64);
+    REQUIRE(cc10[1]->cc_value() == 0);
+    REQUIRE(cc10[2]->cc_value() == 127);
+}
+
+TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION vibrato / expression dropped silently when MPE opted in",
+          "[clap][midi][issue-pending]") {
+    // Covers the default-arm of the expression switch: vibrato and
+    // expression IDs leave `emitted = false`, so no MIDI event is added
+    // to midi_in even though MPE is opted in.
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_VIBRATO, /*channel*/0, /*key*/60,
+        /*value*/0.5, /*time*/0));
+    events.push(make_note_expression(
+        CLAP_NOTE_EXPRESSION_EXPRESSION, /*channel*/0, /*key*/60,
+        /*value*/0.5, /*time*/1));
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    // No MIDI event should have been added from either expression.
+    REQUIRE(g_capturing->captured_midi.empty());
+}
+
+// ── Inbound: CLAP_EVENT_MIDI_SYSEX ──────────────────────────────────────
+
+TEST_CASE("CLAP_EVENT_MIDI_SYSEX decodes into MidiBuffer sysex sidecar",
+          "[clap][midi][issue-pending]") {
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    static const uint8_t kPayload[] = {0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7};
+    InputEventList events;
+    clap_event_midi_sysex_t ev{};
+    ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI_SYSEX, 21);
+    ev.port_index = 0;
+    ev.buffer = kPayload;
+    ev.size = sizeof(kPayload);
+    events.push(ev);
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    // The sysex stream survives as a sidecar entry on MidiBuffer.
+    REQUIRE(g_capturing->captured_midi.sysex().size() == 1);
+    const auto& sx = g_capturing->captured_midi.sysex()[0];
+    REQUIRE(sx.sample_offset == 21);
+    REQUIRE(sx.data.size() == sizeof(kPayload));
+    for (std::size_t i = 0; i < sx.data.size(); ++i) {
+        REQUIRE(sx.data[i] == kPayload[i]);
+    }
+}
+
+TEST_CASE("CLAP_EVENT_MIDI_SYSEX with empty payload is dropped",
+          "[clap][midi][issue-pending]") {
+    // Covers the `ev->buffer && ev->size > 0` guard — a zero-length or
+    // null-buffer sysex must NOT be added to the sidecar.
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    clap_event_midi_sysex_t ev{};
+    ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI_SYSEX, 5);
+    ev.port_index = 0;
+    ev.buffer = nullptr;
+    ev.size = 0;
+    events.push(ev);
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    REQUIRE(g_capturing->captured_midi.sysex().empty());
+    REQUIRE(g_capturing->captured_midi.empty());
+}
+
 // ── Inbound: CLAP_EVENT_MIDI2 ───────────────────────────────────────────
 
 #if defined(CLAP_VERSION_GE) && CLAP_VERSION_GE(1, 1, 0)
@@ -511,6 +766,116 @@ TEST_CASE("CLAP_EVENT_MIDI2 routed straight to UMP sidecar when opted in",
     REQUIRE(got.packet.channel() == 1);
     REQUIRE(got.packet.note_number() == 60);
     REQUIRE(got.packet.velocity_16() == 0xFFFF);
+}
+
+TEST_CASE("CLAP_EVENT_MIDI2 skips MIDI 1.0 → UMP synthesis when host is native",
+          "[clap][midi][issue-pending]") {
+    // If the host delivers even one CLAP_EVENT_MIDI2, the adapter must
+    // NOT also run midi1_to_ump over the NOTE_ON stream. Otherwise the
+    // plugin would see two UMP packets for a single voice event. The
+    // native MIDI2 packet is the authoritative source, and any NOTE_*
+    // events co-delivered by the host are complementary (for MIDI 1.0
+    // consumers), not duplicates.
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = true;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    // One native MIDI2 note-on packet.
+    auto packet = midi::UmpPacket::note_on_2(/*group*/0, /*channel*/0,
+                                              /*note*/72, /*vel16*/0x8000);
+    clap_event_midi2_t e2{};
+    e2.header = make_header(sizeof(e2), CLAP_EVENT_MIDI2, 1);
+    e2.port_index = 0;
+    e2.data[0] = packet.words[0];
+    e2.data[1] = packet.words[1];
+    e2.data[2] = 0;
+    e2.data[3] = 0;
+    events.push(e2);
+    // Plus a co-delivered CLAP_EVENT_NOTE_ON (MIDI 1.0 path).
+    clap_event_note_t en{};
+    en.header = make_header(sizeof(en), CLAP_EVENT_NOTE_ON, 1);
+    en.note_id = -1;
+    en.port_index = 0;
+    en.channel = 0;
+    en.key = 72;
+    en.velocity = 1.0;
+    events.push(en);
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    // UMP sidecar must contain EXACTLY the native packet — not two
+    // copies (native + synthesised from the MIDI 1.0 NOTE_ON).
+    REQUIRE(g_capturing->had_ump_input);
+    REQUIRE(g_capturing->captured_ump.size() == 1);
+    REQUIRE(g_capturing->captured_ump[0].sample_offset == 1);
+    REQUIRE(g_capturing->captured_ump[0].packet.velocity_16() == 0x8000);
+    // The NOTE_ON still reaches midi_in for MIDI 1.0 consumers / MPE.
+    REQUIRE(g_capturing->captured_midi.size() == 1);
+    REQUIRE(g_capturing->captured_midi[0].is_note_on());
+    REQUIRE(g_capturing->captured_midi[0].note() == 72);
+}
+
+TEST_CASE("UMP sidecar is cleared on every process() when opted in",
+          "[clap][midi][issue-pending]") {
+    // A block with a native MIDI2 packet leaves ump_buffer holding one
+    // entry; the next block must start from an empty buffer so the
+    // plugin doesn't see stale data. This pins the
+    // `if (self->ump_enabled) self->ump_buffer.clear();` line at the
+    // top of each process() call.
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = true;
+    Harness h(make_capturing);
+
+    // Block 1: deliver a native MIDI2 note-on.
+    {
+        InputEventList events;
+        auto packet = midi::UmpPacket::note_on_2(
+            /*group*/0, /*channel*/2, /*note*/60, /*vel16*/0x4000);
+        clap_event_midi2_t ev{};
+        ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI2, 0);
+        ev.port_index = 0;
+        ev.data[0] = packet.words[0];
+        ev.data[1] = packet.words[1];
+        ev.data[2] = 0;
+        ev.data[3] = 0;
+        events.push(ev);
+        REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+        REQUIRE(g_capturing->captured_ump.size() == 1);
+    }
+    // Block 2: deliver nothing. The UMP sidecar should be empty — the
+    // previous packet must not leak through.
+    {
+        InputEventList events;
+        REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+        REQUIRE(g_capturing->had_ump_input);
+        REQUIRE(g_capturing->captured_ump.empty());
+    }
+}
+
+TEST_CASE("CLAP_EVENT_MIDI2 dropped when plugin did not opt in to UMP",
+          "[clap][midi][issue-pending]") {
+    // Pins the `if (self->ump_enabled)` guard on the MIDI2 branch.
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    auto packet = midi::UmpPacket::note_on_2(
+        /*group*/0, /*channel*/0, /*note*/60, /*vel16*/0xFFFF);
+    clap_event_midi2_t ev{};
+    ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI2, 0);
+    ev.port_index = 0;
+    ev.data[0] = packet.words[0];
+    ev.data[1] = packet.words[1];
+    ev.data[2] = 0;
+    ev.data[3] = 0;
+    events.push(ev);
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    // Plugin didn't opt in — no UMP sidecar exposed, packet is dropped.
+    REQUIRE_FALSE(g_capturing->had_ump_input);
+    REQUIRE(g_capturing->captured_ump.empty());
+    REQUIRE(g_capturing->captured_midi.empty());
 }
 #endif
 
@@ -567,4 +932,54 @@ TEST_CASE("midi_out sysex surfaces on CLAP out_events",
     REQUIRE(sysexes[0]->size == 5);
     REQUIRE(sysexes[0]->buffer[0] == 0xF0);
     REQUIRE(sysexes[0]->buffer[4] == 0xF7);
+}
+
+TEST_CASE("midi_out program change (2-byte) clamps size padding on CLAP out_events",
+          "[clap][midi][issue-pending]") {
+    // Covers the `me.size() > 2 ? ... : uint8_t{0}` padding branch of
+    // the outbound short-message loop — a 2-byte message like program
+    // change must still write a zero into data[2].
+    g_pending_emit.clear();
+    g_pending_sysex.clear();
+    auto pc = midi::MidiEvent::program_change(/*ch*/1, /*program*/42);
+    pc.sample_offset = 8;
+    g_pending_emit = {pc};
+
+    Harness h(make_emitting);
+    InputEventList in;
+    OutputEventList out;
+    REQUIRE(h.run(in, &out) == CLAP_PROCESS_CONTINUE);
+
+    auto midis = out.by_type<clap_event_midi_t>(CLAP_EVENT_MIDI);
+    REQUIRE(midis.size() == 1);
+    REQUIRE(midis[0]->header.time == 8);
+    REQUIRE(midis[0]->data[0] == 0xC1);
+    REQUIRE(midis[0]->data[1] == 42);
+    REQUIRE(midis[0]->data[2] == 0);
+}
+
+TEST_CASE("midi_out empty sysex payload is skipped on CLAP out_events",
+          "[clap][midi][issue-pending]") {
+    // Covers the `if (se.data.empty()) continue;` guard in the outbound
+    // sysex loop.
+    g_pending_emit.clear();
+    g_pending_sysex.clear();
+    midi::MidiBuffer::SysexEvent empty_se;
+    empty_se.data = {};
+    empty_se.sample_offset = 3;
+    midi::MidiBuffer::SysexEvent real_se;
+    real_se.data = {0xF0, 0x7E, 0xF7};
+    real_se.sample_offset = 4;
+    g_pending_sysex = {empty_se, real_se};
+
+    Harness h(make_emitting);
+    InputEventList in;
+    OutputEventList out;
+    REQUIRE(h.run(in, &out) == CLAP_PROCESS_CONTINUE);
+
+    // The empty entry is dropped; only the non-empty one surfaces.
+    auto sysexes = out.by_type<clap_event_midi_sysex_t>(CLAP_EVENT_MIDI_SYSEX);
+    REQUIRE(sysexes.size() == 1);
+    REQUIRE(sysexes[0]->size == 3);
+    REQUIRE(sysexes[0]->header.time == 4);
 }
