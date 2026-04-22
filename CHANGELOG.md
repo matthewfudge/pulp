@@ -8,11 +8,15 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0360"></a>
+## [0.36.0] - 2026-04-22
+
+- feat(view): finish plugin-host editor embedding rollout ([#653](https://github.com/danielraffel/pulp/pull/653))
+- coverage: union per-OS Cobertura XMLs before diff-cover (#635) ([#654](https://github.com/danielraffel/pulp/pull/654))
+- skills: post-merge audit + CLAUDE.md table refresh + path-map fixes ([#652](https://github.com/danielraffel/pulp/pull/652))
+- skills: add clap, vst3, auv3 format skills + skill_path_map entries ([#650](https://github.com/danielraffel/pulp/pull/650))
+
 <a id="v0350"></a>
-## [0.12.0]
-
-## [0.36.0]
-
 ## [0.35.0] - 2026-04-22
 
 - au: wire AU v2 effect MIDI input + aufx→aumf for accepts_midi ([#638](https://github.com/danielraffel/pulp/pull/638))
@@ -561,6 +565,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.36.0]: https://github.com/danielraffel/pulp/releases/tag/v0.36.0
 [0.35.0]: https://github.com/danielraffel/pulp/releases/tag/v0.35.0
 [0.34.0]: https://github.com/danielraffel/pulp/releases/tag/v0.34.0
 [0.33.0]: https://github.com/danielraffel/pulp/releases/tag/v0.33.0
