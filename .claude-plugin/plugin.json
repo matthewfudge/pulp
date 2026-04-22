@@ -24,7 +24,5 @@
     "midi"
   ],
   "skills": "./.agents/skills",
-  "commands": "./.claude/commands",
-  "hooks": "./hooks/hooks.json",
-  "mcpServers": "./.mcp.json"
+  "commands": "./.claude/commands"
 }
