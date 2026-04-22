@@ -736,6 +736,15 @@ if(PULP_HAS_CLAP)
     )
     target_link_libraries(pulp-test-clap-entry PRIVATE pulp::format clap Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-clap-entry)
+
+    # CLAP inbound/outbound MIDI event coverage — pins the CLAP_EVENT_MIDI,
+    # CLAP_EVENT_NOTE_EXPRESSION, CLAP_EVENT_NOTE_CHOKE, CLAP_EVENT_MIDI2
+    # handlers added alongside feature/clap-midi-cc-coverage.
+    add_executable(pulp-test-clap-midi-events test_clap_midi_events.cpp
+        ${CMAKE_SOURCE_DIR}/core/format/src/clap_adapter.cpp
+    )
+    target_link_libraries(pulp-test-clap-midi-events PRIVATE pulp::format clap Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-clap-midi-events)
 endif()
 
 # LV2 adapter tests
