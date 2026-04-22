@@ -20,6 +20,15 @@
         "external/ara-sdk/**"
       ]
     },
+    "auv3": {
+      "paths": [
+        "core/format/src/au_adapter.mm",
+        "core/format/src/au_entry.mm",
+        "core/format/src/au_audio_unit.h",
+        "core/format/src/au_view_controller_ios.mm",
+        "tools/cmake/PulpInfoPlist.au.in"
+      ]
+    },
     "android": {
       "paths": [
         "core/render/platform/android/**",
@@ -56,6 +65,11 @@
         "tools/install-shipyard.sh",
         "tools/scripts/install-githooks.sh",
         ".githooks/**"
+      ]
+    },
+    "clap": {
+      "paths": [
+        "core/format/src/clap_adapter.cpp"
       ]
     },
     "cli-maintenance": {
@@ -209,6 +223,14 @@
         "core/format/src/au_adapter.mm",
         "core/format/src/au_view_controller_ios.mm",
         "examples/view-bridge-demo/**"
+      ]
+    },
+    "vst3": {
+      "paths": [
+        "core/format/src/vst3_adapter.cpp",
+        "core/format/include/pulp/format/vst3_adapter.hpp",
+        "core/format/include/pulp/format/vst3_entry.hpp",
+        "tools/cmake/PulpInfoPlist.vst3.in"
       ]
     },
     "webview-ui": {
