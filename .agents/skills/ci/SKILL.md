@@ -36,7 +36,7 @@ When the user says any of: **"push to main"**, **"ship this"**, **"ship it"**,
 run `shipyard pr` (not `gh pr create` + `shipyard ship` separately).
 
 `shipyard pr` is the single orchestrator (Shipyard v0.19.1+; pinned at
-v0.25.0 in `tools/shipyard.toml`). It:
+v0.26.0 in `tools/shipyard.toml`). It:
 
 1. Calls `tools/scripts/skill_sync_check.py` (resolved via Shipyard's
    `[validation]` path-discovery, explicit in `.shipyard/config.toml`) and
@@ -62,8 +62,20 @@ Backward compatibility: raw `shipyard ship` / `shipyard run` still work for
 diagnostics, experimental branches, or when `shipyard pr` itself is being
 debugged. Do not use them as the primary ship path.
 
-### Behaviour notes at the current pin (v0.25.0)
+### Behaviour notes at the current pin (v0.26.0)
 
+- **Long-running daemons keep accepting fresh subscribers** (Shipyard
+  v0.26.0). The subscribe-replay path now uses blocking `put()`
+  instead of `put_nowait()`, so once the replay ring grows past 64
+  events the daemon no longer silently stops handing new IPC clients
+  their initial snapshot. This was the root cause of the macOS GUI
+  falling back to "polling" mode and showing no active PRs after
+  enough ship-state churn.
+- **Daemon/CLI drift is now diagnosable over IPC** (Shipyard v0.26.0).
+  IPC protocol is bumped to 2, daemon hello/status frames advertise
+  the daemon's own `shipyard_version`, and `shipyard doctor` flags a
+  daemon-vs-CLI version mismatch explicitly instead of leaving stale
+  subscribers to fail mysteriously.
 - **Auto-PR titles and bodies use the feature commit** (Shipyard v0.24.0 /
   Shipyard #151). The orchestrator walks past the mechanical
   `chore: bump versions` commit when composing the title/body, and scrubs

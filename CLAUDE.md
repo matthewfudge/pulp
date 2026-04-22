@@ -477,7 +477,7 @@ See `docs/guides/versioning.md` for the full three-layer enforcement design.
 
 ### Versioning & Skill-Sync Policy
 
-Pulp versions three surfaces independently: SDK/CLI (`CMakeLists.txt`), Claude plugin (`.claude-plugin/plugin.json` + `marketplace.json`), and Shipyard-binary pin (`tools/install-shipyard.sh` — covered by the Dependency Update Workflow, not this policy).
+Pulp versions three surfaces independently: SDK/CLI (`CMakeLists.txt`), Claude plugin (`.claude-plugin/plugin.json` + `marketplace.json`), and Shipyard-binary pin (`tools/shipyard.toml`, consumed by `tools/install-shipyard.sh` — covered by the Dependency Update Workflow, not this policy).
 
 **Enforcement (three layers, one source of truth):**
 
@@ -492,7 +492,7 @@ Pulp versions three surfaces independently: SDK/CLI (`CMakeLists.txt`), Claude p
 3. `git commit` + `gh pr create` + `shipyard ship` — one command, merges on green.
 4. `.github/workflows/auto-release.yml` — on merge to main, tags the new version(s) and the existing tag-triggered release workflows build + publish binaries.
 
-Shipyard v0.19.1+ (pinned as v0.21.0 in `tools/shipyard.toml`) auto-discovers Pulp's `tools/scripts/` layout; `.shipyard/config.toml [validation]` additionally pins the paths explicitly for reproducibility.
+Shipyard v0.19.1+ (pinned as v0.26.0 in `tools/shipyard.toml`) auto-discovers Pulp's `tools/scripts/` layout; `.shipyard/config.toml [validation]` additionally pins the paths explicitly for reproducibility.
 
 **Bypass trailers** (tip commit, never PR body — audit trail lives in git):
 
