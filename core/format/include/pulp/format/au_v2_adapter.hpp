@@ -92,15 +92,22 @@ protected:
     /// Plug-ins packaged as ``aufx`` still have this override wired — the
     /// host just never calls it — so leaving the path here for ``aufx``
     /// plug-ins is harmless.
+    // NB: AudioUnitSDK declares these as `AUSDK_RTSAFE` (which expands to
+    // `[[clang::nonblocking]]`). Propagating that attribute into an
+    // `override` declaration compiles under older Xcode but Xcode 16.4 /
+    // Clang 17+ rejects the attribute position with
+    // "expected ';' at end of declaration list". The attribute is a
+    // static-analysis hint only — dropping it has no runtime effect, and
+    // matches the pattern used by `PulpAUInstrument::HandleNoteOn/Off`.
     OSStatus HandleMIDIEvent(UInt8 inStatus, UInt8 inChannel,
                              UInt8 inData1, UInt8 inData2,
-                             UInt32 inStartFrame) AUSDK_RTSAFE override;
+                             UInt32 inStartFrame) override;
 
     /// System-exclusive payload (F0 … F7). ``AUMIDIBase::HandleSysEx`` does
     /// not carry a per-event sample offset at this SDK layer — we enqueue
     /// the sysex with ``sample_offset == 0`` so it is delivered at the
     /// block boundary.
-    OSStatus HandleSysEx(const UInt8* inData, UInt32 inLength) AUSDK_RTSAFE override;
+    OSStatus HandleSysEx(const UInt8* inData, UInt32 inLength) override;
 
 private:
     std::unique_ptr<Processor> processor_;
