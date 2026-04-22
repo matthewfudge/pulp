@@ -8,9 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0340"></a>
-## [0.35.0]
+<a id="v0350"></a>
+## [0.35.0] - 2026-04-22
 
+- au: wire AU v2 effect MIDI input + aufx→aumf for accepts_midi ([#638](https://github.com/danielraffel/pulp/pull/638))
+- coverage: add android kotlin jacoco lane ([#637](https://github.com/danielraffel/pulp/pull/637))
+- coverage: add apple swift coverage lane ([#636](https://github.com/danielraffel/pulp/pull/636))
+- clap: wire CLAP_EVENT_MIDI + CC/NE/choke/UMP events; emit MIDI on out_events ([#627](https://github.com/danielraffel/pulp/pull/627))
+- coverage: expand Python tooling lane ([#634](https://github.com/danielraffel/pulp/pull/634))
+
+<a id="v0340"></a>
 ## [0.34.0] - 2026-04-22
 
 - feat: persist processor-owned plugin state in adapter blobs ([#628](https://github.com/danielraffel/pulp/pull/628))
@@ -550,6 +557,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.35.0]: https://github.com/danielraffel/pulp/releases/tag/v0.35.0
 [0.34.0]: https://github.com/danielraffel/pulp/releases/tag/v0.34.0
 [0.33.0]: https://github.com/danielraffel/pulp/releases/tag/v0.33.0
 [0.32.0]: https://github.com/danielraffel/pulp/releases/tag/v0.32.0
