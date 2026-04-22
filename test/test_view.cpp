@@ -1,10 +1,50 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/view/plugin_view_host.hpp>
 #include <pulp/view/view.hpp>
+#include <pulp/view/window_host.hpp>
 #include <pulp/view/widgets.hpp>
 
 using namespace pulp::view;
 using Catch::Matchers::WithinAbs;
+
+namespace {
+
+class DummyWindowHost final : public WindowHost {
+public:
+    void show() override {}
+    void hide() override {}
+    bool is_visible() const override { return false; }
+    void repaint() override {}
+    void set_close_callback(std::function<void()>) override {}
+    void run_event_loop() override {}
+};
+
+class DummyPluginViewHost final : public PluginViewHost {
+public:
+    NativeViewHandle native_handle() override { return nullptr; }
+    void attach_to_parent(NativeViewHandle) override {}
+    void detach() override {}
+    void repaint() override {}
+    void set_size(uint32_t width, uint32_t height) override { size_ = {width, height}; }
+    Size get_size() const override { return size_; }
+
+private:
+    Size size_{};
+};
+
+class HostAwareView final : public View {
+public:
+    void on_attached() override {
+        seen_window_host = window_host();
+        seen_plugin_view_host = plugin_view_host();
+    }
+
+    WindowHost* seen_window_host = nullptr;
+    PluginViewHost* seen_plugin_view_host = nullptr;
+};
+
+} // namespace
 
 TEST_CASE("Geometry types", "[view][geometry]") {
     SECTION("Point arithmetic") {
@@ -72,6 +112,45 @@ TEST_CASE("View child management", "[view]") {
     REQUIRE(root.child_count() == 0);
     REQUIRE(detached);
     REQUIRE(removed->parent() == nullptr);
+}
+
+TEST_CASE("View host references propagate across subtrees", "[view][hosts]") {
+    View root;
+
+    auto branch = std::make_unique<View>();
+    auto grandchild = std::make_unique<View>();
+    auto* grandchild_ptr = grandchild.get();
+    branch->add_child(std::move(grandchild));
+    auto* branch_ptr = branch.get();
+    root.add_child(std::move(branch));
+
+    DummyWindowHost window_host;
+    DummyPluginViewHost plugin_view_host;
+    root.set_window_host(&window_host);
+    root.set_plugin_view_host(&plugin_view_host);
+
+    REQUIRE(root.window_host() == &window_host);
+    REQUIRE(root.plugin_view_host() == &plugin_view_host);
+    REQUIRE(branch_ptr->window_host() == &window_host);
+    REQUIRE(branch_ptr->plugin_view_host() == &plugin_view_host);
+    REQUIRE(grandchild_ptr->window_host() == &window_host);
+    REQUIRE(grandchild_ptr->plugin_view_host() == &plugin_view_host);
+
+    auto attached_after_host = std::make_unique<HostAwareView>();
+    auto* attached_after_host_ptr = attached_after_host.get();
+    branch_ptr->add_child(std::move(attached_after_host));
+
+    REQUIRE(attached_after_host_ptr->seen_window_host == &window_host);
+    REQUIRE(attached_after_host_ptr->seen_plugin_view_host == &plugin_view_host);
+
+    auto removed = root.remove_child(branch_ptr);
+    REQUIRE(removed != nullptr);
+    REQUIRE(removed->window_host() == nullptr);
+    REQUIRE(removed->plugin_view_host() == nullptr);
+    REQUIRE(removed->child_at(0)->window_host() == nullptr);
+    REQUIRE(removed->child_at(0)->plugin_view_host() == nullptr);
+    REQUIRE(attached_after_host_ptr->window_host() == nullptr);
+    REQUIRE(attached_after_host_ptr->plugin_view_host() == nullptr);
 }
 
 TEST_CASE("View hit testing", "[view]") {

@@ -223,7 +223,9 @@ public:
         (void)options; // width/height ignored — iOS windows are fullscreen
     }
 
-    ~IOSWindowHost() override = default;
+    ~IOSWindowHost() override {
+        root_.set_window_host(nullptr);
+    }
 
     void show() override {
         // iOS windows are managed by the app lifecycle
@@ -326,6 +328,7 @@ public:
         stop_display_link();
         skia_surface_.reset();
         gpu_surface_.reset();
+        root_.set_window_host(nullptr);
     }
 
     void show() override {}
@@ -490,10 +493,14 @@ namespace pulp::view {
 std::unique_ptr<WindowHost> WindowHost::create(View& root, const WindowOptions& options) {
 #ifdef PULP_HAS_SKIA
     if (options.use_gpu) {
-        return std::make_unique<IOSGpuWindowHost>(root, options);
+        auto host = std::make_unique<IOSGpuWindowHost>(root, options);
+        root.set_window_host(host.get());
+        return host;
     }
 #endif
-    return std::make_unique<IOSWindowHost>(root, options);
+    auto host = std::make_unique<IOSWindowHost>(root, options);
+    root.set_window_host(host.get());
+    return host;
 }
 
 } // namespace pulp::view

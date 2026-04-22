@@ -63,6 +63,11 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/webview-palette/CMakeLists.txt)
     add_subdirectory(webview-palette)
 endif()
 
+# Phase 7: plugin-editor WebView proof (macOS hosts only)
+if(APPLE AND NOT PULP_IOS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/webview-plugin/CMakeLists.txt)
+    add_subdirectory(webview-plugin)
+endif()
+
 # Phase 7: optional Monaco WebView proof (requires prebundled Monaco assets)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/webview-monaco/CMakeLists.txt)
     add_subdirectory(webview-monaco)
