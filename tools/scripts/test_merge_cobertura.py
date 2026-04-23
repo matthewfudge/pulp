@@ -171,7 +171,12 @@ class MainCliTests(unittest.TestCase):
             reparsed = mc.parse_xml(out)
             self.assertEqual(reparsed, {"core/foo.cpp": {1: 1}})
 
-    def test_all_missing_inputs_fails(self) -> None:
+    def test_all_missing_inputs_returns_dedicated_sentinel(self) -> None:
+        """Codex P1 review on PR #660: the all-missing case must use a
+        DEDICATED exit code (2), not the catch-all "uncaught exception"
+        code 1, so the CI workflow can distinguish a benign
+        "no artifacts uploaded" from a real failure (parse error,
+        script bug). Pin the contract here."""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             out = tmp / "merged.xml"
@@ -183,8 +188,38 @@ class MainCliTests(unittest.TestCase):
                     str(tmp / "b.xml"),
                 ]
             )
-            self.assertEqual(rc, 1)
+            self.assertEqual(rc, mc.EXIT_ALL_INPUTS_MISSING)
+            self.assertEqual(rc, 2, "exit code 2 is the workflow contract; do not change without updating coverage.yml")
             self.assertFalse(out.exists(), "should not write merged XML when every input is missing")
+
+    def test_corrupt_xml_input_exits_with_real_error_code(self) -> None:
+        """Codex P1 review on PR #660: a malformed Cobertura artifact
+        (e.g. truncated upload causing ParseError) must NOT take the
+        all-missing fallback path — that would silently bypass the
+        required diff-coverage gate. Exit code 1 (real-error) ensures
+        the workflow's `rc -eq 2` branch does not match."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            corrupt = tmp / "corrupt.xml"
+            corrupt.write_text("<<<this is not valid XML>>>")
+            out = tmp / "merged.xml"
+            rc = mc.main(["--out", str(out), str(corrupt)])
+            self.assertEqual(rc, 1, "corrupt-input failure must use the real-error exit code, not the all-missing sentinel (2)")
+            self.assertNotEqual(rc, mc.EXIT_ALL_INPUTS_MISSING)
+
+    def test_corrupt_xml_with_other_valid_inputs_still_fails(self) -> None:
+        """Even when a usable input is present alongside a corrupt one,
+        the corrupt input fails the merge — partial coverage from the
+        good legs would otherwise hide the corruption and silently
+        downgrade the gate's strictness."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            good = _write_xml(tmp, "good.xml", {"core/foo.cpp": {1: 5}})
+            corrupt = tmp / "corrupt.xml"
+            corrupt.write_text("<coverage><not-closed>")
+            out = tmp / "merged.xml"
+            rc = mc.main(["--out", str(out), str(good), str(corrupt)])
+            self.assertEqual(rc, 1)
 
 
 if __name__ == "__main__":
