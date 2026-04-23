@@ -50,9 +50,27 @@ diff-cover, which reads only line-hit data.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+# Mirrors COVERAGE_IGNORE_REGEX in scripts/run_coverage.sh — paths the
+# Pulp coverage pipeline treats as not-coverage-bearing (third-party
+# vendored code, test code itself, build trees, etc.). Centralised
+# here so the merge step honours the same exclude set as the per-OS
+# cobertura generation. The Windows leg was leaking test/ files into
+# the cobertura because its IGNORE_REGEX matched on `/test/` only and
+# the Windows path separator is `\` — after this script normalises
+# backslashes to forward slashes (above), the same regex applies
+# cleanly. Codex P1 follow-up on PR #660.
+_IGNORE_RE = re.compile(
+    r"(^|/)(_deps|external|test|[Cc]atch2|build|build-coverage|examples|fetchcontent-src)/"
+)
+
+
+def _is_ignored(path: str) -> bool:
+    return bool(_IGNORE_RE.search(path))
 
 
 class CorruptCoberturaError(Exception):
@@ -92,6 +110,27 @@ def parse_xml(path: Path) -> dict[str, dict[int, int]]:
     for cls in root.iter("class"):
         filename = cls.get("filename")
         if not filename:
+            continue
+        # Normalise Windows backslash separators to forward slashes so
+        # the same logical source file from different OSes hashes to a
+        # single key in the merge. Without this, the Windows artifact
+        # produces e.g. "core\format\src\clap_adapter.cpp" and the
+        # Linux/macOS artifacts produce "core/format/src/clap_adapter.cpp"
+        # — diff-cover then matches the backslash variant against the
+        # PR diff, finds it has 0 hits (the test ran on Linux, not
+        # Windows), and silently reports 0% coverage. Real production
+        # code shipped through PR #660 hit this; reverting the merge
+        # to the Linux-only XML masks it but reintroduces issue #635.
+        # See Codex P1 follow-up on PR #660.
+        filename = filename.replace("\\", "/")
+        # Drop paths the coverage pipeline doesn't consider source-code-
+        # under-test (test/, _deps/, external/, etc.). The per-OS
+        # cobertura generation already filters these via
+        # COVERAGE_IGNORE_REGEX in run_coverage.sh, but the Windows
+        # leg historically leaked `test\*` entries because its regex
+        # matched on `/test/` only — backslash paths slipped past. Now
+        # filtered uniformly here after slash normalisation.
+        if _is_ignored(filename):
             continue
         per_line = out.setdefault(filename, {})
         lines_el = cls.find("lines")
