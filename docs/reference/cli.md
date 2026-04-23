@@ -88,6 +88,7 @@ pulp build --target PulpGain_VST3  # Build specific target
 pulp build -j8                # Parallel jobs
 pulp build --watch            # Build and watch for changes
 pulp build --watch --test     # Build, watch, run tests on change
+pulp build --allow-unsupported-sdk # Bypass the CLI-vs-project SDK guard (unsupported)
 ```
 
 Extra arguments are passed through to `cmake --build`.
@@ -95,6 +96,7 @@ Extra arguments are passed through to `cmake --build`.
 The `--watch` flag enters a file-watching loop after the initial build. It polls source files every 500ms and rebuilds on changes. Combine with `--test` to run tests after each successful rebuild and `--validate` to run quick dlopen checks.
 
 For standalone projects (detected via `pulp.toml`), automatically sets `CMAKE_PREFIX_PATH` to the hinted local SDK when available, otherwise to the cached SDK release.
+Before configure/build, `pulp build` also compares the active project's pinned `sdk_version` / `cli_min_version` against the running CLI. If the project is ahead, it fails fast and points at `pulp upgrade`; use `--allow-unsupported-sdk` only as an explicit unsupported escape hatch.
 On Windows, `pulp build` also selects a Visual Studio generator automatically when no active MSVC shell is detected on `PATH`.
 
 ### test
@@ -763,6 +765,7 @@ pulp dev --run pulp-gain-standalone           # Watch, rebuild, relaunch app on 
 pulp dev --design ui.js                       # Watch, rebuild pulp-design-tool, relaunch with ui.js
 pulp dev --target pulp-format                 # Pass --target to cmake --build
 pulp dev --run my-app -- --arg1 --arg2        # Arguments after `--` go to the launched binary
+pulp dev --allow-unsupported-sdk             # Bypass the CLI-vs-project SDK guard (unsupported)
 ```
 
 Flags:
@@ -775,7 +778,10 @@ Flags:
 | `--run TARGET` | Launch TARGET from the build dir; relaunch on rebuild |
 | `--design SCRIPT` | Build `pulp-design-tool` and launch it with SCRIPT |
 | `--target T` | Pass `--target T` to `cmake --build` |
+| `--allow-unsupported-sdk` | Bypass the CLI-vs-project SDK compatibility guard and continue anyway (unsupported) |
 | `-- args...` | Arguments passed to the launched app |
+
+`pulp dev` runs the same active-project compatibility preflight as `pulp build`. If the project pins an SDK or `cli_min_version` newer than the installed CLI, the command stops before SDK resolution/build and points at `pulp upgrade`.
 
 ### scan
 

@@ -9,6 +9,9 @@ commands:
       - name: --js-engine
         kind: option
         description: "JS engine backend: auto (default), quickjs, jsc (Apple only), v8 (requires V8 libs). Forces reconfigure."
+      - name: --allow-unsupported-sdk
+        kind: flag
+        description: Bypass the CLI-vs-project SDK compatibility guard and continue anyway (unsupported)
       - name: extra_args
         kind: passthrough
         description: Passed through to cmake --build (e.g., --target, -j)
@@ -781,6 +784,9 @@ commands:
       - name: --target
         kind: option
         description: Pass --target to cmake --build
+      - name: --allow-unsupported-sdk
+        kind: flag
+        description: Bypass the CLI-vs-project SDK compatibility guard and continue anyway (unsupported)
       - name: passthrough
         kind: passthrough
         description: Arguments after `--` are forwarded to the launched binary

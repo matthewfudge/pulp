@@ -117,6 +117,9 @@ std::string read_pulp_toml_value(const fs::path& project_root, const std::string
 std::string read_sdk_version(const fs::path& project_root);
 fs::path read_sdk_path_hint(const fs::path& project_root);
 fs::path read_sdk_checkout_hint(const fs::path& project_root);
+bool enforce_project_cli_compatibility(const fs::path& project_root,
+                                       const std::string& command_name,
+                                       bool allow_unsupported_sdk);
 std::string read_user_config_value(const std::string& section, const std::string& key);
 
 // Write/update `key = "value"` under `[section]` in ~/.pulp/config.toml.

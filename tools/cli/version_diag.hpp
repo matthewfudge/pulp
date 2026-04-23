@@ -72,6 +72,20 @@ struct SkewFinding {
     std::string message;
 };
 
+// Build/dev execution preflight. Unlike `analyze()`, this is intended
+// for commands that must fail fast when a project's pinned SDK or
+// cli_min_version is ahead of the installed CLI. `doctor --versions`
+// stays advisory; execution commands can opt into this stricter lane.
+struct ExecutionPreflight {
+    bool supported = true;
+    Semver required_cli;               // highest comparable requirement
+    std::vector<std::string> blockers; // human-readable reasons
+};
+
+ExecutionPreflight analyze_execution_preflight(const Semver& cli,
+                                               const Semver& project_sdk,
+                                               const Semver& project_cli_min);
+
 // A single registered project's version snapshot, used for per-project
 // skew lines in `pulp doctor --versions`. Populated by cmd_doctor from
 // `~/.pulp/projects.json` (or the `--scan-parents` ancestor walk) and

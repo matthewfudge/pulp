@@ -323,6 +323,11 @@ Gotchas:
   command gate on skew would break scripts that invoke
   `pulp doctor --versions` as a routine health check in a pipeline.
   This is a design choice, not an oversight.
+- **Execution commands can be stricter than `doctor --versions`.**
+  `pulp build` / `pulp dev` may reuse the same semver parsing for a
+  hard preflight while `doctor --versions` itself remains advisory.
+  Keep that split explicit: diagnostics stay 0-exit, execution paths
+  decide whether to block.
 - **Untagged builds are silently skipped.** Anything that doesn't
   parse as `M.N.P` (e.g. `0.24.0-dev`, a git SHA) has
   `Semver{.comparable = false}`. Skew analysis short-circuits on

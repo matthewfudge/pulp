@@ -234,6 +234,40 @@ Semver read_project_cli_min_version(const fs::path& project_root) {
     return parse_semver(raw);
 }
 
+ExecutionPreflight analyze_execution_preflight(const Semver& cli,
+                                               const Semver& project_sdk,
+                                               const Semver& project_cli_min) {
+    ExecutionPreflight out;
+
+    auto note_required = [&](const Semver& required) {
+        if (!required.comparable) return;
+        if (!out.required_cli.comparable ||
+            compare_semver(required, out.required_cli) > 0) {
+            out.required_cli = required;
+        }
+    };
+
+    if (cli.comparable && project_cli_min.comparable &&
+        compare_semver(project_cli_min, cli) > 0) {
+        out.supported = false;
+        out.blockers.push_back(
+            "Project declares cli_min_version v" + project_cli_min.raw +
+            " but installed CLI is v" + cli.raw);
+        note_required(project_cli_min);
+    }
+
+    if (cli.comparable && project_sdk.comparable &&
+        compare_semver(project_sdk, cli) > 0) {
+        out.supported = false;
+        out.blockers.push_back(
+            "Project pins SDK v" + project_sdk.raw +
+            " but installed CLI is v" + cli.raw);
+        note_required(project_sdk);
+    }
+
+    return out;
+}
+
 std::vector<SkewFinding> VersionReport::analyze() const {
     std::vector<SkewFinding> findings;
 
