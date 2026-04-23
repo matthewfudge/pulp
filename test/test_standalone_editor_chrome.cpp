@@ -1,0 +1,198 @@
+#include <catch2/catch_test_macros.hpp>
+#include <pulp/format/detail/standalone_editor_chrome.hpp>
+
+#include <vector>
+
+using namespace pulp::format;
+using namespace pulp::format::detail;
+using namespace pulp::view;
+
+namespace {
+
+class StubWindowHost final : public WindowHost {
+public:
+    std::function<void()> idle_callback_;
+    int repaint_calls_ = 0;
+
+    void show() override {}
+    void hide() override {}
+    bool is_visible() const override { return false; }
+    void repaint() override { ++repaint_calls_; }
+    void set_idle_callback(std::function<void()> cb) override {
+        idle_callback_ = std::move(cb);
+    }
+    void set_close_callback(std::function<void()>) override {}
+    void run_event_loop() override {}
+};
+
+struct StubScriptedUi {
+    int poll_calls_ = 0;
+    std::function<void()> repaint_callback_;
+
+    void poll() { ++poll_calls_; }
+    void set_repaint_callback(std::function<void()> cb) {
+        repaint_callback_ = std::move(cb);
+    }
+};
+
+struct StubSettingsPoller {
+    int poll_calls_ = 0;
+    void poll() { ++poll_calls_; }
+};
+
+} // namespace
+
+TEST_CASE("Standalone settings callbacks rebind after successful apply",
+          "[standalone][chrome]") {
+    SettingsPanel panel;
+    bool apply_called = false;
+    bool rebind_called = false;
+    bool signal_changed = false;
+    bool file_loaded = false;
+    bool transport_called = false;
+
+    auto callbacks = make_standalone_settings_callbacks(
+        panel,
+        StandaloneSettingsActions{
+            .apply_config = [&](const StandaloneConfig&) {
+                apply_called = true;
+                return true;
+            },
+            .rebind_after_apply = [&](SettingsPanel& rebound_panel) {
+                rebind_called = (&rebound_panel == &panel);
+            },
+            .on_test_signal_changed = [&](const TestSignalConfig&) {
+                signal_changed = true;
+            },
+            .on_file_load = [&](const std::string& path) {
+                file_loaded = (path == "/tmp/test.wav");
+            },
+            .on_file_transport = [&](bool play, bool loop) {
+                transport_called = play && !loop;
+            },
+        });
+
+    callbacks.on_config_apply(StandaloneConfig{});
+    callbacks.on_test_signal_changed(TestSignalConfig{});
+    callbacks.on_file_load("/tmp/test.wav");
+    callbacks.on_file_transport(true, false);
+
+    REQUIRE(apply_called);
+    REQUIRE(rebind_called);
+    REQUIRE(signal_changed);
+    REQUIRE(file_loaded);
+    REQUIRE(transport_called);
+}
+
+TEST_CASE("Standalone settings callbacks skip rebind when apply fails",
+          "[standalone][chrome]") {
+    SettingsPanel panel;
+    bool rebind_called = false;
+
+    auto callbacks = make_standalone_settings_callbacks(
+        panel,
+        StandaloneSettingsActions{
+            .apply_config = [](const StandaloneConfig&) { return false; },
+            .rebind_after_apply = [&](SettingsPanel&) { rebind_called = true; },
+        });
+
+    callbacks.on_config_apply(StandaloneConfig{});
+    REQUIRE_FALSE(rebind_called);
+}
+
+TEST_CASE("Standalone editor chrome keeps the editor root when settings are hidden",
+          "[standalone][chrome]") {
+    auto editor_root = std::make_unique<View>();
+    auto* editor_ptr = editor_root.get();
+    StandaloneConfig config;
+    config.show_settings_tab = false;
+
+    auto chrome = make_standalone_editor_chrome(
+        std::move(editor_root), config, nullptr, nullptr, nullptr, {});
+
+    REQUIRE(&chrome.window_root() == editor_ptr);
+    REQUIRE(chrome.settings_panel() == nullptr);
+    REQUIRE(chrome.tab_panel() == nullptr);
+    REQUIRE(chrome.extra_window_height() == 0.0f);
+    REQUIRE(chrome.chrome_label() == std::string_view("editor-only"));
+}
+
+TEST_CASE("Standalone editor chrome wraps editor and settings in a tab panel",
+          "[standalone][chrome]") {
+    auto editor_root = std::make_unique<View>();
+    StandaloneConfig config;
+    config.show_settings_tab = true;
+
+    auto chrome = make_standalone_editor_chrome(
+        std::move(editor_root), config, nullptr, nullptr, nullptr, {});
+
+    REQUIRE(chrome.tab_panel() != nullptr);
+    REQUIRE(&chrome.window_root() == chrome.tab_panel());
+    REQUIRE(chrome.settings_panel() != nullptr);
+    REQUIRE(chrome.tab_panel()->tab_count() == 2);
+    REQUIRE(chrome.extra_window_height() == 32.0f);
+    REQUIRE(chrome.chrome_label() == std::string_view("tabs"));
+}
+
+TEST_CASE("Standalone idle callback polls scripted UI before settings",
+          "[standalone][chrome]") {
+    StubWindowHost window;
+    std::vector<std::string> calls;
+
+    install_standalone_idle_callback(
+        window,
+        [&] { calls.push_back("scripted"); },
+        [&] { calls.push_back("settings"); });
+
+    REQUIRE(window.idle_callback_ != nullptr);
+    window.idle_callback_();
+    REQUIRE(calls == std::vector<std::string>{"scripted", "settings"});
+}
+
+TEST_CASE("Standalone idle callback still polls settings without scripted UI",
+          "[standalone][chrome]") {
+    StubWindowHost window;
+    bool settings_polled = false;
+
+    install_standalone_idle_callback(window, {}, [&] { settings_polled = true; });
+
+    REQUIRE(window.idle_callback_ != nullptr);
+    window.idle_callback_();
+    REQUIRE(settings_polled);
+}
+
+TEST_CASE("Standalone repaint helper routes scripted UI repaint through the window",
+          "[standalone][chrome]") {
+    StubWindowHost window;
+    StubScriptedUi scripted_ui;
+
+    install_scripted_ui_repaint_callback(&scripted_ui, window);
+
+    REQUIRE(scripted_ui.repaint_callback_ != nullptr);
+    scripted_ui.repaint_callback_();
+    REQUIRE(window.repaint_calls_ == 1);
+}
+
+TEST_CASE("Standalone pointer idle helper polls scripted UI and settings",
+          "[standalone][chrome]") {
+    StubWindowHost window;
+    StubScriptedUi scripted_ui;
+    StubSettingsPoller settings;
+
+    install_standalone_idle_callback(window, &scripted_ui, &settings);
+
+    REQUIRE(window.idle_callback_ != nullptr);
+    window.idle_callback_();
+    REQUIRE(scripted_ui.poll_calls_ == 1);
+    REQUIRE(settings.poll_calls_ == 1);
+}
+
+TEST_CASE("Standalone log helper formats the chrome mode",
+          "[standalone][chrome]") {
+    auto editor_root = std::make_unique<View>();
+    auto chrome = make_standalone_editor_chrome(
+        std::move(editor_root), StandaloneConfig{}, nullptr, nullptr, nullptr, {});
+
+    log_standalone_window_open(640, 360, false, false, chrome);
+    SUCCEED();
+}

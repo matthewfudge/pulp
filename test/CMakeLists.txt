@@ -660,6 +660,11 @@ add_executable(pulp-test-test-signal test_test_signal.cpp)
 target_link_libraries(pulp-test-test-signal PRIVATE pulp::standalone Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-test-signal)
 
+# Standalone editor chrome helpers
+add_executable(pulp-test-standalone-editor-chrome test_standalone_editor_chrome.cpp)
+target_link_libraries(pulp-test-standalone-editor-chrome PRIVATE pulp::standalone Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-standalone-editor-chrome)
+
 # STFT and audio visualization signal tests
 add_executable(pulp-test-stft test_stft.cpp)
 target_link_libraries(pulp-test-stft PRIVATE pulp::signal Catch2::Catch2WithMain)
