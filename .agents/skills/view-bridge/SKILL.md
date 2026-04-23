@@ -180,6 +180,27 @@ its own view hierarchy informed by `view.metadata`. Canvas-command
 streaming is the next increment — see the "Not yet wired" section of
 the protocol doc.
 
+### AU editor `dealloc` ordering — never call `bridge->close()` explicitly
+
+When a `ViewBridge` and a `PluginViewHost` are owned by the same C++
+scope (a struct, an Obj-C class's ivars), C++ destroys members in
+REVERSE declaration order. AU's editor wrappers
+(`PulpAUEditorOwnership` for AU v2 Cocoa view, `PulpAUViewController`
+for AUv3 iOS) declare the bridge first and the host second so the
+host (which holds `View& root_`) is torn down BEFORE the bridge that
+owns the View. The host's destructor can then safely call
+`root_.set_plugin_view_host(nullptr)` to clear the back-pointer; then
+`~ViewBridge` fires `Processor::on_view_closed` and resets the View.
+
+Calling `bridge->close()` explicitly inside dealloc reverses that
+order — the View dies first, the host's `~PluginViewHost` then
+dereferences a dangling `root_` reference, and AU editor close
+crashes the host process. Codex P1 review on PR #653 caught the
+crash; the fix was to remove the explicit close (PR #667 / pulp
+`fix/au-editor-uaf-on-close`). Don't reintroduce it. The full
+rationale lives in the `auv2`, `auv3`, and `ios` skills since those
+files are dual-/triple-mapped.
+
 ## References
 
 - `core/format/include/pulp/format/view_bridge.hpp` — public API
