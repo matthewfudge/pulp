@@ -164,6 +164,39 @@
 #             so a 20-minute lane shows progress instead of a dead
 #             terminal, and the bundled Python is bumped to 3.13
 #             with lazy-imported rich for further startup wins.
+#   v0.30.0 / v0.31.0 / v0.32.0 / v0.33.0 — internal iteration on
+#             the release-workflow + CLIXML decode path that
+#             ultimately shipped clean in v0.34.0/v0.35.0. Those
+#             intermediate tags either had broken release.yml
+#             (pre-PEP-668-fix) or were partial CLIXML-decode
+#             drops. Pulp never pinned them; the jump is v0.29.0
+#             → v0.35.0 directly.
+#   v0.34.0 — PEP 668 fix in the tagged release.yml so the
+#             auto-release pipeline can install CLI deps on
+#             externally-managed Python environments (Namespace
+#             runners especially). Also finishes `--skip-target`
+#             semantics and SSH preflight messaging.
+#   v0.35.0 — ssh-windows bundle-apply transport: raw stderr now
+#             lands at `<log>.bundle-apply-stderr` *before* the
+#             CLIXML decoder runs, so when the decoder falls back
+#             (malformed / truncated envelopes) we have bytes on
+#             disk to analyse instead of gibberish on stderr.
+#             Lands Pulp-side issue Shipyard #200 (I filed 4/23
+#             after #188/#189 turned out to only cover run-step
+#             stderr, not the bundle-apply transport path).
+#   v0.36.0 — `install.sh` preserves the Developer-ID notarization
+#             on the extracted binary (v0.29.0 signed the binary
+#             but the installer path was stripping xattrs, so
+#             every fresh install went through Gatekeeper deep-scan
+#             again). Restores the ~4-5x cold-start win across
+#             installs, not just first-run.
+#   v0.37.0 — stuck-queued watch annotation: when a GitHub Actions
+#             check stays `queued` past N minutes, shipyard now
+#             annotates the summary row with "(stuck queued Xm —
+#             infra issue?)" instead of just showing blank status
+#             forever. Would've named the Namespace Windows
+#             queue-stuck case on 4/23 in one glance instead of
+#             after multiple `gh run view` loops.
 #
 # Cumulative additions from earlier releases still in effect:
 #   v0.4–v0.8 — release-bot helpers, `shipyard doctor release-chain`,
@@ -178,7 +211,7 @@
 # in `tools/install-shipyard.sh` (v0.22.1+ `SHIPYARD_VERSION` support).
 # The older `~/.pulp/bin/shipyard` path is cleaned up on install to
 # prevent shadow-on-PATH bugs.
-version = "v0.29.0"
+version = "v0.37.0"
 
 # Public release source. The bootstrap script downloads from
 # https://github.com/{repo}/releases/download/{version}/{asset}
