@@ -1397,13 +1397,27 @@ catch_discover_tests(pulp-test-host-regression)
 # how the caller invokes ctest.
 if(DEFINED ENV{PULP_STRESS_FLAKY_TESTS} AND NOT "$ENV{PULP_STRESS_FLAKY_TESTS}" STREQUAL "")
     if(WIN32)
+        # PowerShell branch already shows full stdout; that's intentional —
+        # the failing iteration's Catch2 assertion context + RNG seed need
+        # to land in the ctest log so the failure is replayable. Per-
+        # success noise is the cost.
         add_test(NAME pulp-test-signal-graph-hot-reload-stress
             COMMAND powershell -Command
                 "for ($i = 1; $i -le 100; $i++) { & '$<TARGET_FILE:pulp-test-host-regression>' 'SignalGraph hot-reload mid-audio is race-free via snapshot publish' --rng-seed=time; if ($LASTEXITCODE -ne 0) { Write-Host \"stress failed on iteration $i\"; exit 1 } } Write-Host 'stress ok (100/100)'")
     else()
+        # POSIX branch buffers each iteration's stdout into a temp file
+        # and only prints it on failure. Codex P2 review on PR #674
+        # caught the original `>/dev/null` shape that discarded the
+        # failure diagnostic — the whole point of the stress harness is
+        # to capture a replayable seed when an iteration fails, so
+        # silently dropping Catch2's assertion context defeats it.
+        # On success, the per-iteration buffer is overwritten on the
+        # next loop; only the final iteration's (or first failure's)
+        # contents survive in /tmp, with the loop's own "stress ok"
+        # / "stress failed on iteration N" line as the visible signal.
         add_test(NAME pulp-test-signal-graph-hot-reload-stress
             COMMAND bash -c
-                "set -e; for i in $(seq 1 100); do '$<TARGET_FILE:pulp-test-host-regression>' 'SignalGraph hot-reload mid-audio is race-free via snapshot publish' --rng-seed=time >/dev/null || { echo \"stress failed on iteration $i\"; exit 1; }; done; echo 'stress ok (100/100)'")
+                "set -e; out=$(mktemp); trap 'rm -f \"$out\"' EXIT; for i in $(seq 1 100); do if ! '$<TARGET_FILE:pulp-test-host-regression>' 'SignalGraph hot-reload mid-audio is race-free via snapshot publish' --rng-seed=time >\"$out\" 2>&1; then echo \"stress failed on iteration $i — Catch2 output:\"; cat \"$out\"; exit 1; fi; done; echo 'stress ok (100/100)'")
     endif()
     set_tests_properties(pulp-test-signal-graph-hot-reload-stress PROPERTIES
         LABELS "host;graph;hot-reload;race;stress;issue-669"
