@@ -185,6 +185,41 @@ TEST_CASE("analyze warns when project SDK is ahead of the installed CLI",
     REQUIRE(saw_warn);
 }
 
+TEST_CASE("execution preflight blocks when project requirements exceed installed CLI",
+          "[version-diag][issue-682]") {
+    auto preflight = analyze_execution_preflight(parse_semver("0.33.0"),
+                                                 parse_semver("0.38.0"),
+                                                 parse_semver("0.36.0"));
+    REQUIRE_FALSE(preflight.supported);
+    REQUIRE(preflight.required_cli.comparable);
+    REQUIRE(preflight.required_cli.raw == "0.38.0");
+    REQUIRE(preflight.blockers.size() == 2);
+
+    bool saw_sdk = false;
+    bool saw_cli_min = false;
+    for (const auto& blocker : preflight.blockers) {
+        if (blocker.find("SDK v0.38.0") != std::string::npos) saw_sdk = true;
+        if (blocker.find("cli_min_version v0.36.0") != std::string::npos) saw_cli_min = true;
+    }
+    REQUIRE(saw_sdk);
+    REQUIRE(saw_cli_min);
+}
+
+TEST_CASE("execution preflight ignores satisfied and non-comparable requirements",
+          "[version-diag][issue-682]") {
+    auto satisfied = analyze_execution_preflight(parse_semver("0.38.0"),
+                                                 parse_semver("0.38.0"),
+                                                 parse_semver("0.37.0"));
+    REQUIRE(satisfied.supported);
+    REQUIRE(satisfied.blockers.empty());
+
+    auto noncomparable = analyze_execution_preflight(parse_semver("0.38.0-dev"),
+                                                     parse_semver("0.39.0"),
+                                                     parse_semver("0.39.0"));
+    REQUIRE(noncomparable.supported);
+    REQUIRE(noncomparable.blockers.empty());
+}
+
 TEST_CASE("analyze emits a compatible Info line when CLI >= project SDK",
           "[version-diag][issue-499]") {
     VersionReport r;

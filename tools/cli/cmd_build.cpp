@@ -29,6 +29,7 @@ int cmd_build(const std::vector<std::string>& args) {
     bool watch_mode = false;
     bool watch_test = false;
     bool watch_validate = false;
+    bool allow_unsupported_sdk = false;
     std::string test_filter;
     std::vector<std::string> passthrough_args;
     for (auto& arg : args) {
@@ -49,6 +50,10 @@ int cmd_build(const std::vector<std::string>& args) {
             watch_test = true;
             continue;
         }
+        if (arg == "--allow-unsupported-sdk") {
+            allow_unsupported_sdk = true;
+            continue;
+        }
         if (arg.rfind("--js-engine=", 0) == 0) {
             js_engine = arg.substr(12);
             if (js_engine != "auto" && js_engine != "quickjs" && js_engine != "jsc" && js_engine != "v8") {
@@ -59,6 +64,12 @@ int cmd_build(const std::vector<std::string>& args) {
         } else {
             passthrough_args.push_back(arg);
         }
+    }
+
+    if (!enforce_project_cli_compatibility(project_root,
+                                           "pulp build",
+                                           allow_unsupported_sdk)) {
+        return 1;
     }
 
     if (needs_configure) {

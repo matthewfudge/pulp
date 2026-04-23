@@ -239,6 +239,68 @@ TEST_CASE("pulp validate --strict is a recognized flag",
             != std::string::npos);
 }
 
+TEST_CASE("pulp build fails fast when standalone SDK is ahead of the installed CLI",
+          "[cli][shellout][build][issue-682]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-build-skew-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp);
+    {
+        std::ofstream f(tmp / "pulp.toml");
+        f << "[pulp]\n"
+          << "sdk_version = \"99.0.0\"\n"
+          << "cli_min_version = \"99.0.0\"\n";
+    }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    auto r = exec(bin.string(), {"build"}, 10000);
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 1);
+    auto combined = r.stdout_output + r.stderr_output;
+    REQUIRE(combined.find("requires a newer Pulp CLI") != std::string::npos);
+    REQUIRE(combined.find("pulp upgrade 99.0.0") != std::string::npos);
+    REQUIRE(combined.find("pulp doctor --versions") != std::string::npos);
+    REQUIRE(combined.find("--allow-unsupported-sdk") != std::string::npos);
+}
+
+TEST_CASE("pulp build allows explicit unsupported SDK bypass",
+          "[cli][shellout][build][issue-682]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-build-allow-skew-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp);
+    {
+        std::ofstream f(tmp / "pulp.toml");
+        f << "[pulp]\n"
+          << "sdk_version = \"99.0.0\"\n"
+          << "cli_min_version = \"99.0.0\"\n";
+    }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    auto r = exec(bin.string(), {"build", "--allow-unsupported-sdk"}, 10000);
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code != 0);
+    auto combined = r.stdout_output + r.stderr_output;
+    REQUIRE(combined.find("requires a newer Pulp CLI") == std::string::npos);
+    REQUIRE(combined.find("pulp upgrade 99.0.0") == std::string::npos);
+}
+
 // #8 / #355 — `pulp doctor android` and `pulp doctor ios` are
 // recognized subcommands; bogus subcommand fails with exit 2 + Usage.
 TEST_CASE("pulp doctor android|ios are recognized subcommands",
@@ -275,6 +337,37 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE(bogus.exit_code == 2);
     REQUIRE(bogus.stderr_output.find("unknown subcommand") != std::string::npos);
     REQUIRE(bogus.stderr_output.find("Usage:") != std::string::npos);
+}
+
+TEST_CASE("pulp dev fails fast when standalone SDK is ahead of the installed CLI",
+          "[cli][shellout][dev][issue-682]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-dev-skew-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp);
+    {
+        std::ofstream f(tmp / "pulp.toml");
+        f << "[pulp]\n"
+          << "sdk_version = \"99.0.0\"\n"
+          << "cli_min_version = \"99.0.0\"\n";
+    }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    auto r = exec(bin.string(), {"dev"}, 10000);
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 1);
+    auto combined = r.stdout_output + r.stderr_output;
+    REQUIRE(combined.find("requires a newer Pulp CLI") != std::string::npos);
+    REQUIRE(combined.find("pulp upgrade 99.0.0") != std::string::npos);
+    REQUIRE(combined.find("--allow-unsupported-sdk") != std::string::npos);
 }
 
 // Issue #499 Slice 1: `pulp doctor --versions` is the foundation of

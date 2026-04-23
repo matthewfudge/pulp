@@ -2,6 +2,8 @@
 
 #include "cli_common.hpp"
 
+#include "version_diag.hpp"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -773,6 +775,49 @@ fs::path read_sdk_path_hint(const fs::path& project_root) {
 fs::path read_sdk_checkout_hint(const fs::path& project_root) {
     auto value = read_pulp_toml_value(project_root, "sdk_checkout");
     return value.empty() ? fs::path{} : fs::path(value);
+}
+
+bool enforce_project_cli_compatibility(const fs::path& project_root,
+                                       const std::string& command_name,
+                                       bool allow_unsupported_sdk) {
+    if (allow_unsupported_sdk || project_root.empty()) return true;
+
+    namespace vd = pulp::cli::version_diag;
+    auto cli = vd::parse_semver(PULP_SDK_VERSION);
+    auto project_sdk = vd::parse_semver(read_sdk_version(project_root));
+    auto project_cli_min = vd::read_project_cli_min_version(project_root);
+    auto preflight = vd::analyze_execution_preflight(cli, project_sdk, project_cli_min);
+    if (preflight.supported) return true;
+
+    auto format_semver = [](const vd::Semver& value) {
+        return value.raw.empty() ? std::string("(unknown)")
+                                 : "v" + value.raw;
+    };
+
+    std::cerr << "Error: " << command_name
+              << " blocked: project requires a newer Pulp CLI.\n";
+    std::cerr << "  Installed CLI: " << format_semver(cli) << "\n";
+    if (!project_sdk.raw.empty()) {
+        std::cerr << "  Project SDK:   " << format_semver(project_sdk) << "\n";
+    }
+    if (project_cli_min.comparable) {
+        std::cerr << "  CLI minimum:   " << format_semver(project_cli_min) << "\n";
+    }
+    std::cerr << "  Project root:  " << project_root.string() << "\n";
+    for (const auto& blocker : preflight.blockers) {
+        std::cerr << "  - " << blocker << "\n";
+    }
+    std::cerr << "\n";
+    if (preflight.required_cli.comparable) {
+        std::cerr << "Run `pulp upgrade " << preflight.required_cli.raw
+                  << "` and retry.\n";
+    } else {
+        std::cerr << "Run `pulp upgrade` and retry.\n";
+    }
+    std::cerr << "Use `pulp doctor --versions` to inspect the mismatch.\n";
+    std::cerr << "If you need to bypass this guard, rerun with "
+              << "`--allow-unsupported-sdk` (unsupported).\n";
+    return false;
 }
 
 std::string read_user_config_value(const std::string& section, const std::string& key) {

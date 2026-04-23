@@ -22,6 +22,7 @@ int cmd_dev(const std::vector<std::string>& args) {
     std::string launch_target;
     std::vector<std::string> launch_args;
     std::vector<std::string> build_args;
+    bool allow_unsupported_sdk = false;
     bool after_separator = false;
 
     for (size_t i = 0; i < args.size(); ++i) {
@@ -37,6 +38,7 @@ int cmd_dev(const std::vector<std::string>& args) {
             std::cout << "  --run TARGET           Launch TARGET from build dir, relaunch on rebuild\n";
             std::cout << "  --design SCRIPT        Launch design tool with SCRIPT, relaunch on rebuild\n";
             std::cout << "  --target T             Pass --target T to cmake --build\n";
+            std::cout << "  --allow-unsupported-sdk  Bypass the CLI-vs-project SDK guard (unsupported)\n";
             std::cout << "  -- args...             Arguments passed to the launched app\n\n";
             std::cout << "Examples:\n";
             std::cout << "  pulp dev                          # Watch and rebuild\n";
@@ -63,6 +65,8 @@ int cmd_dev(const std::vector<std::string>& args) {
         } else if (args[i].rfind("--test-filter=", 0) == 0) {
             test_filter = args[i].substr(14);
             run_tests = true;
+        } else if (args[i] == "--allow-unsupported-sdk") {
+            allow_unsupported_sdk = true;
         } else if (args[i] == "--validate") {
             run_validate = true;
         } else if (args[i] == "--run" && i + 1 < args.size()) {
@@ -94,10 +98,20 @@ int cmd_dev(const std::vector<std::string>& args) {
         }
     }
 
+    if (!enforce_project_cli_compatibility(project_root,
+                                           "pulp dev",
+                                           allow_unsupported_sdk)) {
+        return 1;
+    }
+
     // Ensure configured
     if (!fs::exists(build_dir / "CMakeCache.txt")) {
         std::cout << "Project not configured. Building first...\n";
-        int rc = cmd_build({});
+        std::vector<std::string> bootstrap_args;
+        if (allow_unsupported_sdk) {
+            bootstrap_args.push_back("--allow-unsupported-sdk");
+        }
+        int rc = cmd_build(bootstrap_args);
         if (rc != 0) return rc;
     }
 
