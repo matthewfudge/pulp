@@ -1,4 +1,5 @@
 #include <pulp/format/standalone.hpp>
+#include <pulp/format/detail/standalone_editor_chrome.hpp>
 #include <pulp/format/editor_ui.hpp>
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/format/view_bridge.hpp>
@@ -205,24 +206,14 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     const uint32_t h = bridge->size_hints().preferred_height;
     auto desc = processor_->descriptor();
 
-    view::View* window_root = root.get();
-    auto extra_window_height = 0.0f;
-    auto* settings_ptr = static_cast<SettingsPanel*>(nullptr);
-    std::unique_ptr<SettingsPanel> settings_panel;
-    std::unique_ptr<view::TabPanel> tab_panel;
-
-    if (config_.show_settings_tab) {
-        settings_panel = std::make_unique<SettingsPanel>();
-        settings_ptr = settings_panel.get();
-        settings_panel->bind_systems(audio_system_.get(), midi_system_.get());
-        settings_panel->set_current_config(config_);
-        settings_panel->set_input_meter_bridge(&input_meter_bridge_);
-        settings_panel->set_callbacks({
-            .on_config_apply = [this, settings_ptr](const StandaloneConfig& cfg) {
-                if (apply_config(cfg)) {
-                    // Re-bind systems after restart (they may be recreated)
-                    settings_ptr->bind_systems(audio_system_.get(), midi_system_.get());
-                }
+    auto chrome = detail::make_standalone_editor_chrome(
+        std::move(root), config_, audio_system_.get(), midi_system_.get(), &input_meter_bridge_,
+        detail::StandaloneSettingsActions{
+            .apply_config = [this](const StandaloneConfig& cfg) {
+                return apply_config(cfg);
+            },
+            .rebind_after_apply = [this](SettingsPanel& settings_panel) {
+                settings_panel.bind_systems(audio_system_.get(), midi_system_.get());
             },
             .on_test_signal_changed = [this](const TestSignalConfig& cfg) {
                 test_signal_.set_config(cfg);
@@ -235,23 +226,17 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
                 if (play) test_signal_.play(); else test_signal_.stop();
             },
         });
-
-        tab_panel = std::make_unique<view::TabPanel>();
-        tab_panel->flex().flex_grow = 1.0f;
-        tab_panel->add_tab("Editor", std::move(root));
-        tab_panel->add_tab("Settings", std::move(settings_panel));
-        window_root = tab_panel.get();
-        extra_window_height = 32.0f;
-    }
+    auto* settings_ptr = chrome.settings_panel();
+    auto& window_root = chrome.window_root();
 
     view::WindowOptions opts;
     opts.title = desc.name + " — Standalone";
     opts.width = static_cast<float>(w);
-    opts.height = static_cast<float>(h) + extra_window_height;
+    opts.height = static_cast<float>(h) + chrome.extra_window_height();
     opts.resizable = true;
     opts.use_gpu = use_gpu;
 
-    auto window = view::WindowHost::create(*window_root, opts);
+    auto window = view::WindowHost::create(window_root, opts);
     if (!window) {
         runtime::log_error("Standalone: WindowHost::create() failed");
         bridge->close();
@@ -263,11 +248,7 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     bridge->notify_attached();
 
     auto* scripted_ui_ptr = bridge->scripted_ui();
-    if (scripted_ui_ptr) {
-        scripted_ui_ptr->set_repaint_callback([&window] {
-            if (window) window->repaint();
-        });
-    }
+    detail::install_scripted_ui_repaint_callback(scripted_ui_ptr, *window);
 
     // Close the ViewBridge *before* stop() tears down the Processor.
     // `bridge->close()` dispatches Processor::on_view_closed(*view),
@@ -281,7 +262,7 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
 
 #if !defined(__ANDROID__) && defined(PULP_HAS_INSPECT)
     // Create inspector overlay — activated via Cmd+I / Ctrl+I
-    auto* inspector_host = window_root;
+    auto* inspector_host = &window_root;
     auto inspector = std::make_unique<inspect::InspectorOverlay>(*inspector_host);
     auto* inspector_ptr = inspector.get();
     inspect::install_inspector_hooks(*inspector);
@@ -324,23 +305,12 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         runtime::log_info("Standalone: inspector enabled via PULP_INSPECTOR env var");
     }
 #else
-    if (scripted_ui_ptr) {
-        window->set_idle_callback([scripted_ui_ptr, settings_ptr] {
-            if (scripted_ui_ptr) scripted_ui_ptr->poll();
-            if (settings_ptr) settings_ptr->poll();
-        });
-    } else {
-        window->set_idle_callback([settings_ptr] {
-            if (settings_ptr) settings_ptr->poll();
-        });
-    }
+    detail::install_standalone_idle_callback(*window, scripted_ui_ptr, settings_ptr);
 #endif
 
     window->show();
 
-    runtime::log_info("Standalone: editor window open ({}x{}, gpu={}, mode={}, chrome={}, inspector=ready)",
-                      w, h, use_gpu, bridge->uses_script_ui() ? "scripted" : "autoui",
-                      config_.show_settings_tab ? "tabs" : "editor-only");
+    detail::log_standalone_window_open(w, h, use_gpu, bridge->uses_script_ui(), chrome);
 
     // Blocks until the window is closed. The close callback above has
     // already fired bridge->close() (before stop() reset processor_),
