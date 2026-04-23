@@ -274,6 +274,30 @@ TEST_CASE("Standalone host sync installs a resize callback and applies initial s
     REQUIRE(seen_sizes[1].height == 500);
 }
 
+TEST_CASE("Standalone host sync skips zero-sized initial host content",
+          "[standalone][chrome]") {
+    StubWindowHost window;
+    window.content_size_ = {0, 0};
+    auto chrome = make_standalone_editor_chrome(
+        std::make_unique<View>(), StandaloneConfig{}, nullptr, nullptr, nullptr, {});
+
+    std::vector<WindowHost::ContentSize> seen_sizes;
+    sync_standalone_editor_host(
+        window,
+        chrome,
+        [&](uint32_t width, uint32_t height) {
+            seen_sizes.push_back({width, height});
+        });
+
+    REQUIRE(window.resize_callback_ != nullptr);
+    REQUIRE(seen_sizes.empty());
+
+    window.resize_callback_(900, 532);
+    REQUIRE(seen_sizes.size() == 1);
+    REQUIRE(seen_sizes[0].width == 900);
+    REQUIRE(seen_sizes[0].height == 500);
+}
+
 TEST_CASE("Standalone bridge attach forwards host sizing through bridge resize",
           "[standalone][chrome]") {
     StubWindowHost window;

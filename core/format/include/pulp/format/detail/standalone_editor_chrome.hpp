@@ -151,7 +151,9 @@ inline void sync_standalone_editor_host(
         chrome, std::forward<ResizeFn>(resize));
     const auto host_content_size = window.get_content_size();
     window.set_resize_callback(callback);
-    callback(host_content_size.width, host_content_size.height);
+    if (host_content_size.width > 0 && host_content_size.height > 0) {
+        callback(host_content_size.width, host_content_size.height);
+    }
 }
 
 template <typename Bridge>
