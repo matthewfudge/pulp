@@ -140,6 +140,9 @@ For a standalone app that should behave like a single-pane WebView shell:
 - `examples/webview-plugin/main.cpp` is the current kiosk-style proof
 - if the page is dark on first launch, seed `WebViewOptions::initial_html`
   with a dark placeholder so the host opens into the final visual family
+- if you want the standalone bundle to ship a custom app icon, keep that in
+  the example `CMakeLists.txt` via `pulp_app_icon(...)`; it stays optional and
+  should not be wired through the runtime WebView code itself
 
 ## Validation Loop
 
