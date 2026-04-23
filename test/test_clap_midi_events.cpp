@@ -768,22 +768,32 @@ TEST_CASE("CLAP_EVENT_MIDI2 routed straight to UMP sidecar when opted in",
     REQUIRE(got.packet.velocity_16() == 0xFFFF);
 }
 
-TEST_CASE("CLAP_EVENT_MIDI2 skips MIDI 1.0 → UMP synthesis when host is native",
+TEST_CASE("Mixed CLAP_EVENT_MIDI2 + NOTE_ON: both reach UMP sidecar",
           "[clap][midi][issue-pending]") {
-    // If the host delivers even one CLAP_EVENT_MIDI2, the adapter must
-    // NOT also run midi1_to_ump over the NOTE_ON stream. Otherwise the
-    // plugin would see two UMP packets for a single voice event. The
-    // native MIDI2 packet is the authoritative source, and any NOTE_*
-    // events co-delivered by the host are complementary (for MIDI 1.0
-    // consumers), not duplicates.
+    // Real CLAP hosts mix transports: notes flow through CLAP_EVENT_NOTE_*
+    // while CCs / pitch bend / aftertouch flow through CLAP_EVENT_MIDI2.
+    // A `supports_ump` processor reads `ump_input` as its primary stream
+    // and would lose every note if midi1_to_ump synthesis were skipped
+    // when MIDI2 is present.
+    //
+    // This test models that mixed shape: one native MIDI2 note-on packet
+    // (representing what would in practice be a CC/PB/AT — using a note
+    // here only because the harness already has a UMP note helper) AND
+    // a separate co-delivered CLAP_EVENT_NOTE_ON on a different note.
+    // Both must appear in the UMP sidecar after process() returns. The
+    // earlier shape of this test (PR #627 v1) asserted the synthesis
+    // was skipped, but Codex P1 review on PR #627 showed that
+    // assumption silently dropped real-world note streams. Inverted to
+    // pin the corrected behaviour.
     g_pending_opts_mpe = false;
     g_pending_opts_ump = true;
     Harness h(make_capturing);
 
     InputEventList events;
-    // One native MIDI2 note-on packet.
+    // One native MIDI2 packet (note 60, here standing in for any
+    // non-NOTE_* event the host might deliver natively as MIDI2).
     auto packet = midi::UmpPacket::note_on_2(/*group*/0, /*channel*/0,
-                                              /*note*/72, /*vel16*/0x8000);
+                                              /*note*/60, /*vel16*/0x4000);
     clap_event_midi2_t e2{};
     e2.header = make_header(sizeof(e2), CLAP_EVENT_MIDI2, 1);
     e2.port_index = 0;
@@ -792,9 +802,10 @@ TEST_CASE("CLAP_EVENT_MIDI2 skips MIDI 1.0 → UMP synthesis when host is native
     e2.data[2] = 0;
     e2.data[3] = 0;
     events.push(e2);
-    // Plus a co-delivered CLAP_EVENT_NOTE_ON (MIDI 1.0 path).
+    // A separate CLAP_EVENT_NOTE_ON on a different note — this is the
+    // case that previously got dropped from the UMP buffer.
     clap_event_note_t en{};
-    en.header = make_header(sizeof(en), CLAP_EVENT_NOTE_ON, 1);
+    en.header = make_header(sizeof(en), CLAP_EVENT_NOTE_ON, 2);
     en.note_id = -1;
     en.port_index = 0;
     en.channel = 0;
@@ -803,12 +814,22 @@ TEST_CASE("CLAP_EVENT_MIDI2 skips MIDI 1.0 → UMP synthesis when host is native
     events.push(en);
 
     REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
-    // UMP sidecar must contain EXACTLY the native packet — not two
-    // copies (native + synthesised from the MIDI 1.0 NOTE_ON).
+    // UMP sidecar contains BOTH: the native MIDI2 packet (note 60) AND
+    // a synthesised packet from the NOTE_ON (note 72). The earlier
+    // (buggy) behaviour produced size() == 1 here.
     REQUIRE(g_capturing->had_ump_input);
-    REQUIRE(g_capturing->captured_ump.size() == 1);
-    REQUIRE(g_capturing->captured_ump[0].sample_offset == 1);
-    REQUIRE(g_capturing->captured_ump[0].packet.velocity_16() == 0x8000);
+    REQUIRE(g_capturing->captured_ump.size() == 2);
+    // Spec doesn't pin ordering between native and synthesised entries
+    // beyond preserving sample_offset within each path; assert presence
+    // by note rather than position.
+    bool saw_60 = false;
+    bool saw_72 = false;
+    for (const auto& entry : g_capturing->captured_ump) {
+        if (entry.packet.note_number() == 60) saw_60 = true;
+        if (entry.packet.note_number() == 72) saw_72 = true;
+    }
+    REQUIRE(saw_60);
+    REQUIRE(saw_72);
     // The NOTE_ON still reaches midi_in for MIDI 1.0 consumers / MPE.
     REQUIRE(g_capturing->captured_midi.size() == 1);
     REQUIRE(g_capturing->captured_midi[0].is_note_on());
