@@ -184,6 +184,36 @@ struct ClaudeBundle {
 /// `parse_claude_html` for the static-HTML pipeline.
 std::optional<ClaudeBundle> parse_claude_bundle(const std::string& html);
 
+/// Options for the `--execute-bundle` import lane.
+struct ClaudeRuntimeOptions {
+    /// Hard cap on bytes of bundled JS to evaluate. Bundles larger than
+    /// this short-circuit back to the static parser so we don't crash
+    /// the QuickJS parser stack on a 10 MB minified blob. Default ~6 MB
+    /// covers a typical react.development + react-dom.development +
+    /// app.bundle combo (~4.3 MB) with headroom.
+    size_t max_total_js_bytes = 6 * 1024 * 1024;
+
+    /// Override the JS engine backend. nullopt -> platform default
+    /// (auto: JSC on Apple, QuickJS elsewhere). Useful for tests that
+    /// want deterministic engine choice.
+    std::optional<int> engine_override;  // pulp::view::JsEngineType opaque to header
+
+    /// If non-null, populated with a human-readable explanation when the
+    /// runtime path bails out and the caller should fall back to the
+    /// static parser. Empty when `parse_claude_html_with_runtime` returns
+    /// a non-empty IR.
+    std::string* error_out = nullptr;
+};
+
+/// Run the Claude Design bundle in a headless JS engine and harvest the
+/// materialized DOM into a `DesignIR`. The success bar is "more than 9
+/// elements" (the loader-shell baseline that the static parser
+/// produces). On any failure — missing bundle envelope, JS engine error,
+/// empty walker output — returns the result of `parse_claude_html(html)`
+/// so the caller's behavior never drops below the static-parse floor.
+DesignIR parse_claude_html_with_runtime(const std::string& html,
+                                        ClaudeRuntimeOptions opts = {});
+
 /// Build the starter `bridge_handlers.cpp` text the CLI emits next to
 /// the generated JS view when `--from claude` runs. Pure string-builder;
 /// no I/O. The output references `pulp::view::EditorBridge` and shows

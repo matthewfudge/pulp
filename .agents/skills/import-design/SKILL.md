@@ -47,7 +47,8 @@ Ask the user or detect from context:
 
 **Claude Design (manual HTML export — pulp #468)**:
 - Anthropic Labs has no MCP / public API. The user runs Claude Design, exports the canvas as Standalone HTML (or "Send to Local Coding Agent"), and hands you the resulting file.
-- Run `pulp import-design --from claude --file <path>` — the parser delegates to the Stitch HTML pipeline and tags the IR as Claude.
+- Run `pulp import-design --from claude --file <path>` — the parser delegates to the Stitch HTML pipeline and tags the IR as Claude. **This is the static path** — it sees only the loader-shell HTML wrapping the bundled React app (~9 elements: title, bundler placeholders, inline styles, the `<script>` blob).
+- Add `--execute-bundle` to invoke the **native-runtime path**: Pulp parses the JSON envelope, decodes the gzip+base64 asset map, evaluates the React + React-DOM + app payloads in a headless `ScriptEngine`, then walks the materialized DOM into the `DesignIR`. Falls back to the static path on any harness failure (engine error, walker output below the 9-node loader-shell floor, JS payload too large). Use this when the user's Claude export is a real bundled-React app and they need the actual editor tree, not just the shell.
 - The CLI also writes a `bridge_handlers.cpp` scaffold next to the generated JS (override path with `--bridge-output`, skip with `--no-bridge-scaffold`). The scaffold demonstrates registering `pulp::view::EditorBridge` handlers and attaching to a `WebViewPanel` (or future `JsRuntime`).
 
 **File-based fallback**:
@@ -181,7 +182,8 @@ pulp import-design --from figma --file design.json
 pulp import-design --from stitch --file screen.html
 pulp import-design --from v0 --file component.tsx
 pulp import-design --from pencil --file design.json
-pulp import-design --from claude --file design.html   # writes ui.js + bridge_handlers.cpp scaffold
+pulp import-design --from claude --file design.html   # writes ui.js + bridge_handlers.cpp scaffold (static parser — loader-shell only)
+pulp import-design --from claude --file design.html --execute-bundle   # runs the bundled React app in QuickJS, walks the materialized DOM (#468)
 
 # With validation
 pulp import-design --from pencil --file design.json --validate --reference source.png --diff diff.png

@@ -7,7 +7,7 @@ endif()
 
 # Collect files from numbered args
 set(INPUT_FILES "")
-foreach(I RANGE 1 10)
+foreach(I RANGE 1 16)
     if(DEFINED FILE${I})
         list(APPEND INPUT_FILES "${FILE${I}}")
     endif()

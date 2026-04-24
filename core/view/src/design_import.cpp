@@ -1,7 +1,13 @@
 #include <pulp/view/design_import.hpp>
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/zip.hpp>
+#include <pulp/view/script_engine.hpp>
+#include <pulp/view/widget_bridge.hpp>
+#include <pulp/view/view.hpp>
+#include <pulp/state/store.hpp>
 #include <choc/text/choc_JSON.h>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -241,6 +247,418 @@ std::optional<ClaudeBundle> parse_claude_bundle(const std::string& html) {
     }
 
     return bundle;
+}
+
+// ── parse_claude_html_with_runtime (pulp #468 harness) ───────────────────
+//
+// Boot a headless ScriptEngine + WidgetBridge, build the bundler
+// template into document.body via the import-runtime prelude, evaluate
+// each JS payload in template-script order, then walk the materialized
+// DOM into a DesignIR. Falls back to parse_claude_html on any failure
+// — the static-parser floor is the contract.
+
+namespace {
+
+// Convert a JSON node (produced by __pulpImportRuntime__.walkDomJson)
+// into an IRNode. Mirrors the structure parse_stitch_html produces so
+// downstream codegen rules apply unchanged.
+IRNode json_to_ir_node(const choc::value::ValueView& v);
+
+void json_children_to_ir(const choc::value::ValueView& children, IRNode& parent) {
+    if (!children.isArray()) return;
+    for (uint32_t i = 0; i < children.size(); ++i) {
+        auto child_view = children[i];
+        if (!child_view.isObject()) continue;
+        IRNode child = json_to_ir_node(child_view);
+        // Skip empty text/comment markers entirely.
+        if (child.type == "#text" && child.text_content.empty()) continue;
+        if (child.type == "#error") continue;
+        parent.children.push_back(std::move(child));
+    }
+}
+
+IRNode json_to_ir_node(const choc::value::ValueView& v) {
+    IRNode node;
+    if (!v.isObject()) {
+        node.type = "frame";
+        return node;
+    }
+    auto get_str = [&](const char* k) -> std::string {
+        if (!v.hasObjectMember(k)) return {};
+        auto val = v[k];
+        if (!val.isString()) return {};
+        return std::string(val.getString());
+    };
+
+    auto type_str = get_str("type");
+    if (type_str == "#text") {
+        node.type = "text";
+        node.text_content = get_str("text");
+        return node;
+    }
+
+    // Map common HTML tags to the IR vocabulary parse_stitch_html uses.
+    // Containers -> "frame", text-bearing tags -> "text", inputs -> "input".
+    if (type_str == "div" || type_str == "section" || type_str == "article" ||
+        type_str == "aside" || type_str == "header" || type_str == "footer" ||
+        type_str == "nav" || type_str == "main" || type_str == "ul" ||
+        type_str == "ol" || type_str == "li" || type_str == "form") {
+        node.type = "frame";
+    } else if (type_str == "span" || type_str == "p" || type_str == "label" ||
+               type_str == "h1" || type_str == "h2" || type_str == "h3" ||
+               type_str == "h4" || type_str == "h5" || type_str == "h6" ||
+               type_str == "a" || type_str == "strong" || type_str == "em" ||
+               type_str == "small" || type_str == "code") {
+        node.type = "text";
+    } else if (type_str == "button") {
+        node.type = "button";
+    } else if (type_str == "input" || type_str == "textarea" || type_str == "select") {
+        node.type = "input";
+    } else if (type_str == "img" || type_str == "image") {
+        node.type = "image";
+    } else if (type_str == "canvas") {
+        node.type = "canvas";
+    } else if (type_str == "svg") {
+        node.type = "frame";  // treat SVG roots as containers; children below
+    } else if (!type_str.empty()) {
+        node.type = type_str;
+    } else {
+        node.type = "frame";
+    }
+
+    node.name = get_str("id");
+    if (node.name.empty()) node.name = get_str("class");
+    if (node.name.empty()) node.name = node.type;
+
+    auto text_content = get_str("text");
+    if (!text_content.empty() && node.type == "text") {
+        node.text_content = text_content;
+    } else if (!text_content.empty()) {
+        // Container with collapsed text — preserve as a child text node so
+        // the codegen still emits a label.
+        IRNode text_child;
+        text_child.type = "text";
+        text_child.name = "text";
+        text_child.text_content = text_content;
+        node.children.push_back(std::move(text_child));
+    }
+
+    // Collect attributes (incl. data-pulp-role markers) for downstream.
+    if (v.hasObjectMember("attrs") && v["attrs"].isObject()) {
+        auto attrs = v["attrs"];
+        for (uint32_t i = 0; i < attrs.size(); ++i) {
+            auto m = attrs.getObjectMemberAt(i);
+            if (m.value.isString()) {
+                node.attributes[std::string(m.name)] = std::string(m.value.getString());
+            }
+        }
+    }
+    auto class_str = get_str("class");
+    if (!class_str.empty()) node.attributes["class"] = class_str;
+
+    // Detect audio widget from id/class/data-pulp-role.
+    auto role = node.attributes.count("data-pulp-role")
+        ? node.attributes["data-pulp-role"] : std::string{};
+    auto detect_source = node.name + " " + class_str + " " + role;
+    node.audio_widget = detect_audio_widget(detect_source);
+
+    // Style props -> IRStyle. Only the common ones are mapped; anything
+    // else stays in attributes for future extension.
+    if (v.hasObjectMember("style") && v["style"].isObject()) {
+        auto style = v["style"];
+        auto style_str = [&](const char* k) -> std::optional<std::string> {
+            if (!style.hasObjectMember(k)) return std::nullopt;
+            auto sv = style[k];
+            if (!sv.isString()) return std::nullopt;
+            return std::string(sv.getString());
+        };
+        node.style.background_color = style_str("backgroundColor");
+        node.style.color = style_str("color");
+        node.style.border = style_str("border");
+        node.style.box_shadow = style_str("boxShadow");
+        node.style.font_family = style_str("fontFamily");
+        node.style.font_style = style_str("fontStyle");
+        node.style.text_align = style_str("textAlign");
+        node.style.text_transform = style_str("textTransform");
+        node.style.cursor = style_str("cursor");
+        node.style.overflow = style_str("overflow");
+        node.style.position = style_str("position");
+        node.style.transform = style_str("transform");
+        node.style.filter = style_str("filter");
+        auto try_float = [&](const char* k) -> std::optional<float> {
+            auto s = style_str(k);
+            if (!s) return std::nullopt;
+            try {
+                // Strip "px" / "%" suffix if present.
+                std::string num = *s;
+                while (!num.empty() && (std::isspace(static_cast<unsigned char>(num.back()))
+                                        || std::isalpha(static_cast<unsigned char>(num.back()))
+                                        || num.back() == '%')) {
+                    num.pop_back();
+                }
+                if (num.empty()) return std::nullopt;
+                return std::stof(num);
+            } catch (...) { return std::nullopt; }
+        };
+        node.style.opacity = try_float("opacity");
+        node.style.border_radius = try_float("borderRadius");
+        node.style.font_size = try_float("fontSize");
+        node.style.letter_spacing = try_float("letterSpacing");
+        node.style.line_height = try_float("lineHeight");
+        node.style.width = try_float("width");
+        node.style.height = try_float("height");
+        node.style.min_width = try_float("minWidth");
+        node.style.min_height = try_float("minHeight");
+        node.style.max_width = try_float("maxWidth");
+        node.style.max_height = try_float("maxHeight");
+        auto fw = style_str("fontWeight");
+        if (fw) {
+            try { node.style.font_weight = std::stoi(*fw); } catch (...) {}
+        }
+    }
+
+    if (v.hasObjectMember("children")) {
+        json_children_to_ir(v["children"], node);
+    }
+    return node;
+}
+
+// Count materialized IRNodes recursively.
+size_t count_ir_nodes(const IRNode& n) {
+    size_t total = 1;
+    for (const auto& c : n.children) total += count_ir_nodes(c);
+    return total;
+}
+
+// JSON-encode an arbitrary string for safe injection into a JS string literal.
+std::string json_string_literal(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    out += '"';
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '<':  out += "\\u003C"; break;  // defensive: avoid </script> closure
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    out += '"';
+    return out;
+}
+
+void set_runtime_error(ClaudeRuntimeOptions& opts, const std::string& msg) {
+    if (opts.error_out) *opts.error_out = msg;
+}
+
+} // namespace
+
+DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOptions opts) {
+    auto static_fallback = [&](const std::string& reason) -> DesignIR {
+        set_runtime_error(opts, reason);
+        return parse_claude_html(html);
+    };
+
+    auto bundle = parse_claude_bundle(html);
+    if (!bundle) {
+        return static_fallback("no bundler envelope (parse_claude_bundle returned nullopt)");
+    }
+
+    // Cap total JS bytes — an unbounded eval risks the QuickJS parser
+    // stack on a 10+ MB minified blob. We err on the side of falling
+    // back; the static path still produces the loader-shell IR.
+    size_t total_js = 0;
+    for (auto idx : bundle->javascript_indices) {
+        if (idx < bundle->assets.size()) total_js += bundle->assets[idx].data.size();
+    }
+    if (total_js > opts.max_total_js_bytes) {
+        std::ostringstream ss;
+        ss << "bundled JS too large (" << total_js << " > " << opts.max_total_js_bytes
+           << " bytes); rerun with a higher max_total_js_bytes to attempt eval";
+        return static_fallback(ss.str());
+    }
+    if (bundle->javascript_indices.empty()) {
+        return static_fallback("bundle has no javascript_indices");
+    }
+
+    // Boot the harness: ScriptEngine + minimal View/StateStore/WidgetBridge.
+    // The WidgetBridge is what wires up the web-compat preludes, including
+    // `__pulpImportRuntime__`. We don't render anything — the View is a
+    // sink for the materialized native widgets.
+    try {
+        ScriptEngine engine;
+        View root;
+        state::StateStore store;
+        std::unique_ptr<WidgetBridge> bridge_ptr;
+        try {
+            bridge_ptr = std::make_unique<WidgetBridge>(engine, root, store);
+        } catch (const std::exception& e) {
+            return static_fallback(std::string("WidgetBridge ctor failed: ") + e.what());
+        } catch (...) {
+            return static_fallback("WidgetBridge ctor failed: unknown exception");
+        }
+        WidgetBridge& bridge = *bridge_ptr;
+
+        // WidgetBridge defers the appendChild/insertBefore/etc. wiring
+        // (kDomOpsInit) until the first load_script() call. The harness
+        // bypasses load_script and goes straight to engine.evaluate(),
+        // so prime it with an empty script to force those bindings on.
+        // (Tracked as a known follow-up: see issue #468 thread re:
+        // duplicated dom-ops sources of truth.)
+        try {
+            bridge.load_script("");
+        } catch (const std::exception& e) {
+            return static_fallback(std::string("dom-ops priming failed: ") + e.what());
+        } catch (...) {
+            return static_fallback("dom-ops priming failed: unknown exception");
+        }
+
+        // Inject the template HTML as a JS string and call buildDom.
+        // `JSON.parse(...)` would be cleaner but the template is already
+        // unwrapped HTML (not JSON-encoded), so a direct string literal
+        // assignment is what we need.
+        {
+            std::string js = "globalThis.__pulpImportRuntime__.resetBody();"
+                             "globalThis.__pulpImportRuntime__.buildDom(";
+            js += json_string_literal(bundle->template_html);
+            js += ");void 0";
+            try {
+                engine.evaluate(js);
+                // buildDom catches its own exceptions and stashes the
+                // message; surface it as a soft signal.
+                try {
+                    auto last = engine.evaluate(
+                        "globalThis.__pulpImportRuntime__._lastError || ''");
+                    if (last.isString()) {
+                        std::string s(last.getString());
+                        if (!s.empty()) {
+                            set_runtime_error(opts,
+                                std::string("buildDom soft error: ") + s);
+                        }
+                    }
+                } catch (...) { /* ignore probe failure */ }
+            } catch (const std::exception& e) {
+                return static_fallback(std::string("buildDom failed: ") + e.what());
+            } catch (...) {
+                return static_fallback("buildDom failed: unknown exception");
+            }
+        }
+
+        // Evaluate each JS payload in template-script order. Wrap each in
+        // a try/catch so a single payload's runtime error doesn't abort
+        // the whole harness — React's dev build especially likes to throw
+        // on missing browser features that we can't easily polyfill.
+        for (auto idx : bundle->javascript_indices) {
+            if (idx >= bundle->assets.size()) continue;
+            const auto& asset = bundle->assets[idx];
+            std::string source(asset.data.begin(), asset.data.end());
+            // Trailing `;void 0` so the payload's last expression doesn't
+            // produce a value the engine has to convert back to choc.
+            // (The CHOC QuickJS path can recurse on cyclical objects;
+            // documented in the codebase memory.)
+            source += "\n;void 0";
+            try {
+                engine.evaluate(source);
+            } catch (const std::exception& e) {
+                // Soft-fail and keep going. The walker may still see a
+                // partial commit if React got past the first render.
+                std::string msg = std::string("payload ") + std::to_string(idx)
+                    + " threw: " + e.what();
+                set_runtime_error(opts, msg);
+                // continue intentionally
+            } catch (...) {
+                std::string msg = std::string("payload ") + std::to_string(idx)
+                    + " threw: unknown exception";
+                set_runtime_error(opts, msg);
+                // continue intentionally
+            }
+        }
+
+        // Drain any pending microtasks / animation frames the bundle
+        // queued during its synchronous boot.
+        try {
+            engine.pump_message_loop();
+            bridge.service_frame_callbacks();
+            engine.pump_message_loop();
+        } catch (const std::exception& e) {
+            return static_fallback(std::string("microtask drain failed: ") + e.what());
+        } catch (...) {
+            return static_fallback("microtask drain failed: unknown exception");
+        }
+
+        // Walk the materialized DOM into a JSON tree.
+        std::string walked;
+        try {
+            auto val = engine.evaluate(
+                "globalThis.__pulpImportRuntime__.walkDomJson()");
+            if (!val.isString()) {
+                return static_fallback("walkDomJson did not return a string");
+            }
+            walked = std::string(val.getString());
+        } catch (const std::exception& e) {
+            return static_fallback(std::string("walkDomJson threw: ") + e.what());
+        } catch (...) {
+            return static_fallback("walkDomJson threw: unknown exception");
+        }
+
+        if (walked.empty()) {
+            return static_fallback("walkDomJson returned empty string");
+        }
+
+        choc::value::Value tree;
+        try {
+            tree = choc::json::parse(walked);
+        } catch (const std::exception& e) {
+            return static_fallback(std::string("choc::json::parse failed: ") + e.what());
+        } catch (...) {
+            return static_fallback("choc::json::parse failed: unknown exception");
+        }
+        if (!tree.isObject()) {
+            return static_fallback("walkDomJson result was not a JSON object");
+        }
+
+        DesignIR ir;
+        try {
+            ir.source = DesignSource::claude;
+            ir.root = json_to_ir_node(tree);
+            ir.root.type = "frame";
+            if (ir.root.name.empty()) ir.root.name = "ClaudeImport";
+        } catch (const std::exception& e) {
+            return static_fallback(std::string("json_to_ir_node failed: ") + e.what());
+        } catch (...) {
+            return static_fallback("json_to_ir_node failed: unknown exception");
+        }
+
+        // Success bar from the issue: more than 9 elements means the
+        // walker actually saw the React commit, not just the loader
+        // shell. If we're at-or-below the static-parse floor, fall back
+        // so the caller never gets worse than the current behavior.
+        size_t nodes = count_ir_nodes(ir.root);
+        if (nodes <= 9) {
+            std::ostringstream ss;
+            ss << "runtime walker produced only " << nodes
+               << " nodes (<= loader-shell floor of 9); falling back to static parser";
+            return static_fallback(ss.str());
+        }
+
+        // Clear error_out on success.
+        if (opts.error_out) opts.error_out->clear();
+        return ir;
+    } catch (const std::exception& e) {
+        return static_fallback(std::string("harness boot failed: ") + e.what());
+    } catch (...) {
+        return static_fallback("harness boot failed: unknown exception");
+    }
 }
 
 std::string render_claude_bridge_scaffold(const std::string& generated_js_path) {
