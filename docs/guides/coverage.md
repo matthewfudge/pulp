@@ -6,8 +6,10 @@ Python tooling lane on Linux covering `tools/scripts/**`,
 `tools/deps/**`, `tools/local-ci/**`, top-level `tools/*.py`,
 `tools/packages/**`, and `core/view/js/embed_js.py`, plus a Swift
 package lane on macOS covering the Apple Swift sources that compile in
-`apple/`, and a Kotlin/Android lane for JVM-unit-testable Android
-sources. Coverage percentages are only actionable after the represented
+`apple/`, a Linux native binding lane that represents
+`bindings/python/bindings.cpp`, and a Kotlin/Android lane for
+JVM-unit-testable Android sources. Coverage percentages are only
+actionable after the represented
 local-source surface is trustworthy on Codecov; path/classification
 drift and language-lane ingestion bugs come before ordinary test-gap
 work.
@@ -31,11 +33,10 @@ The control plane in `codecov.yml`, `.github/workflows/coverage.yml`,
 correctly represented surface is a test-gap problem; a missing or `null`
 surface is a Codecov-truth problem.
 
-The repo is still in Phase 1 until the remaining perimeter-expansion
-bucket is either represented on Codecov or explicitly accepted as out
-of scope in `#641` and the coverage status tracker. Do not treat the
-ordinary tranche issues as active ranking work until that finish line is
-met.
+The Phase 1 representation stack is rebaselined in
+`docs/reports/coverage-compliance-status.md`. Use that corrected
+`main` snapshot for Phase 2 ranking; do not rank ordinary tranche work
+from older pre-`#715` Codecov numbers.
 
 ## Where the numbers live
 
@@ -315,24 +316,28 @@ Today the intended represented surface is:
 - **Swift** coverage for the Apple Swift package sources under
   `apple/Sources/PulpSwift/**` on macOS via
   `tools/scripts/run_swift_coverage.py`.
+- **Python bindings** native coverage for
+  `bindings/python/bindings.cpp` through the Linux coverage lane.
 - **Kotlin/Android** coverage for `android/app/src/main/kotlin/**`
   via the Coverage workflow's JaCoCo upload.
 
 Still out of scope today:
 
 - iOS-only Apple code that does not compile in the macOS SwiftPM lane
-  yet (for example `apple/Sources/PulpSwift/PulpAudioSession.swift`) —
-  `#656`.
+  yet (for example `apple/Sources/PulpSwift/PulpAudioSession.swift`);
+  classified by `#656` and deferred unless simulator/runtime coverage is
+  added through `#77`.
 - Swift outside the `apple/` package lane (for example
-  `tools/local-ci/macos_window_probe.swift`) — `#656`.
+  `tools/local-ci/macos_window_probe.swift`); classified by `#656`.
 - Authored JavaScript assets (for example `core/view/js/**`,
   `android/app/src/main/assets/*.js`,
   `core/format/src/wasm/wam-plugin.js`, and
   `tools/browser-host/plugins/*.js`) — `#659`.
 - Android emulator / device instrumentation coverage and any Android
   runtime behavior not hit by JVM unit tests — `#77`.
-- Optional bindings under `bindings/python/**` and `bindings/nodejs/**`
-  unless a dedicated opt-in coverage lane enables them — `#657`.
+- Node bindings under `bindings/nodejs/**`; the Python binding surface
+  is represented separately through `bindings/python/bindings.cpp` -
+  `#657`.
 - Shell and PowerShell scripts; they are tested indirectly today but do
   not surface as first-class Codecov lines — `#657`.
 
