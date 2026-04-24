@@ -440,6 +440,27 @@ bool any_unhealthy(const std::vector<CacheEntry>& entries) {
     return false;
 }
 
+bool blocks_preflight(const std::vector<CacheEntry>& entries) {
+    // Stale-ref directories don't actually break configure/build —
+    // CMake's override path keys on the *current* sanitized ref, so
+    // leftover `<dep>-<oldref>` dirs are simply ignored or refetched.
+    // Only states that genuinely prevent a successful configure/build
+    // should gate the preflight (see fetchcontent_cache.hpp for the
+    // full rationale and the Codex P1 review on PR #753).
+    for (const auto& e : entries) {
+        switch (e.status) {
+            case CacheStatus::Dangling:
+            case CacheStatus::RootOwned:
+            case CacheStatus::Unknown:
+                return true;
+            case CacheStatus::Healthy:
+            case CacheStatus::StaleCommit:
+                break;
+        }
+    }
+    return false;
+}
+
 namespace {
 
 const char* glyph_for(CacheStatus s) {
@@ -490,12 +511,22 @@ int render_report(const std::vector<CacheEntry>& entries,
 int render_preflight(const std::vector<CacheEntry>& entries,
                      const fs::path& cache_root,
                      std::ostream& out) {
-    if (!any_unhealthy(entries)) return 0;
+    // Preflight only blocks on states that genuinely break configure
+    // (dangling symlinks, root-owned dirs, unknown). Stale-ref dirs
+    // are surfaced by `pulp doctor --caches` but never gate the build
+    // — see blocks_preflight() and the Codex P1 review on PR #753.
+    if (!blocks_preflight(entries)) return 0;
     out << "pulp: FetchContent cache has unhealthy entries — would fail at "
            "configure time:\n";
     out << "  cache root: " << cache_root.string() << "\n";
     for (const auto& e : entries) {
-        if (e.status == CacheStatus::Healthy) continue;
+        // Skip both Healthy and StaleCommit here: the preflight gate
+        // is for blocking states only. Stale entries remain visible in
+        // `pulp doctor --caches` and are cleaned by `--fix`.
+        if (e.status == CacheStatus::Healthy
+            || e.status == CacheStatus::StaleCommit) {
+            continue;
+        }
         out << "  " << glyph_for(e.status) << "  " << e.name
             << "  (" << status_label(e.status) << ")\n";
         if (!e.reason.empty()) {

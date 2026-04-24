@@ -843,7 +843,11 @@ bool cache_preflight_check(const fs::path& project_root,
     }
     auto env = fcc::make_real_env(cache_root, refs);
     auto entries = fcc::discover_fetchcontent_cache(env);
-    if (!fcc::any_unhealthy(entries)) return true;
+    // Only gate on states that genuinely break configure/build —
+    // StaleCommit entries are harmless because CMake's override path
+    // keys on the *current* sanitized ref. See blocks_preflight() and
+    // the Codex P1 review on PR #753.
+    if (!fcc::blocks_preflight(entries)) return true;
 
     std::cerr << "Error: " << command_name
               << " blocked by FetchContent cache health check.\n";

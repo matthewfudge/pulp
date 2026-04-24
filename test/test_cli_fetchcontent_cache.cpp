@@ -381,6 +381,190 @@ TEST_CASE("discover: FetchContent scratch dirs do not register as stale-commit",
     CHECK_FALSE(fcc::any_unhealthy(entries));
 }
 
+// ── Codex P1 (PR #753): stale-ref entries must NOT block preflight ─────────
+//
+// CMake's pulp_register_fetchcontent_source override path keys on the
+// CURRENT sanitized ref (`<dep>-<ref>`), so leftover `<dep>-<oldref>`
+// directories are normally harmless — configure either ignores them or
+// refetches. Hard-failing `pulp build`/`pulp test` on every stale entry
+// would block every developer with an older cache after any pin bump.
+//
+// The contract is:
+//   - any_unhealthy()       → still true (StaleCommit warrants reporting)
+//   - blocks_preflight()    → false (StaleCommit alone never gates build)
+//   - render_preflight()    → returns 0, emits nothing for stale-only state
+//   - apply_fixes()         → still removes stale entries on `--fix`
+
+TEST_CASE("preflight: stale-ref-only state does NOT block build/test",
+          "[fetchcontent_cache][issue-744][pr-753]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "choc-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    MockState state;
+    state.children = {entry};
+
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_symlink = false;
+    info.is_directory = true;
+    info.is_user_writable = true;
+    state.lstat_results[entry] = info;
+
+    fcc::DeclaredRefs refs{
+        {"choc", "f0f5cdf5a938b8b779fea6c083571cce5ccab925"}};
+    auto env = make_mock_env(root, refs, state);
+
+    auto entries = fcc::discover_fetchcontent_cache(env);
+    REQUIRE(entries.size() == 1);
+    REQUIRE(entries[0].status == fcc::CacheStatus::StaleCommit);
+
+    // The doctor report still flags it (any_unhealthy stays true so
+    // `pulp doctor --caches` exits non-zero and `--fix` cleans it).
+    CHECK(fcc::any_unhealthy(entries));
+
+    // But preflight must NOT block: this is the bug Codex flagged.
+    CHECK_FALSE(fcc::blocks_preflight(entries));
+
+    // render_preflight: silent + exit 0 when only stale entries exist.
+    std::stringstream out;
+    int rc = fcc::render_preflight(entries, root, out);
+    CHECK(rc == 0);
+    CHECK(out.str().empty());
+}
+
+TEST_CASE("preflight: dangling symlinks DO block build/test",
+          "[fetchcontent_cache][issue-744][pr-753]") {
+    // Counter-test: confirm we still gate on truly broken states.
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "threejs-077dd13c0e869d9f3dbe55875686f920367de457";
+    MockState state;
+    state.children = {entry};
+
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_symlink = true;
+    info.symlink_target = "/Users/me/Code/three.js";
+    info.is_user_writable = true;
+    state.lstat_results[entry] = info;
+
+    fcc::DeclaredRefs refs{
+        {"threejs", "077dd13c0e869d9f3dbe55875686f920367de457"}};
+    auto env = make_mock_env(root, refs, state);
+
+    auto entries = fcc::discover_fetchcontent_cache(env);
+    REQUIRE(entries.size() == 1);
+    REQUIRE(entries[0].status == fcc::CacheStatus::Dangling);
+    CHECK(fcc::blocks_preflight(entries));
+
+    std::stringstream out;
+    int rc = fcc::render_preflight(entries, root, out);
+    CHECK(rc == 1);
+    CHECK_FALSE(out.str().empty());
+}
+
+TEST_CASE("preflight: mixed stale + dangling reports only the dangling entry",
+          "[fetchcontent_cache][issue-744][pr-753]") {
+    // When both stale and blocking states are present, preflight blocks
+    // (because of the dangling), but the rendered report should only
+    // mention the truly blocking entries — listing stale entries here
+    // would mislead the user into thinking the build was blocked by them.
+    fs::path root = "/fake/cache";
+    fs::path stale    = root / "choc-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    fs::path dangling = root / "threejs-077dd13c0e869d9f3dbe55875686f920367de457";
+    MockState state;
+    state.children = {stale, dangling};
+
+    fcc::StatInfo stale_info;
+    stale_info.exists = true;
+    stale_info.is_symlink = false;
+    stale_info.is_directory = true;
+    stale_info.is_user_writable = true;
+    state.lstat_results[stale] = stale_info;
+
+    fcc::StatInfo dangling_info;
+    dangling_info.exists = true;
+    dangling_info.is_symlink = true;
+    dangling_info.symlink_target = "/Users/me/Code/three.js";
+    dangling_info.is_user_writable = true;
+    state.lstat_results[dangling] = dangling_info;
+
+    fcc::DeclaredRefs refs{
+        {"choc",    "f0f5cdf5a938b8b779fea6c083571cce5ccab925"},
+        {"threejs", "077dd13c0e869d9f3dbe55875686f920367de457"}};
+    auto env = make_mock_env(root, refs, state);
+
+    auto entries = fcc::discover_fetchcontent_cache(env);
+    REQUIRE(entries.size() == 2);
+    CHECK(fcc::blocks_preflight(entries));
+
+    std::stringstream out;
+    int rc = fcc::render_preflight(entries, root, out);
+    CHECK(rc == 1);
+    auto s = out.str();
+    CHECK(s.find("threejs") != std::string::npos);
+    CHECK(s.find("choc-aaaaa") == std::string::npos);
+}
+
+// ── Codex P2 (PR #753): --caches --json exit code reflects health ──────────
+//
+// `render_report_json` itself always returns 0, but the cmd_doctor
+// caller is responsible for setting the exit code via any_unhealthy().
+// The tests below exercise the underlying contract render_report_json
+// satisfies (data surface always succeeds) and confirm that
+// any_unhealthy() — which the JSON path now calls — returns the right
+// value for the unhealthy fixture.
+
+TEST_CASE("render_report_json: data surface always returns 0",
+          "[fetchcontent_cache][issue-744][pr-753]") {
+    fs::path root = "/fake/cache";
+    fs::path stale = root / "choc-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    MockState state;
+    state.children = {stale};
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_directory = true;
+    info.is_user_writable = true;
+    state.lstat_results[stale] = info;
+
+    fcc::DeclaredRefs refs{
+        {"choc", "f0f5cdf5a938b8b779fea6c083571cce5ccab925"}};
+    auto env = make_mock_env(root, refs, state);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+
+    // The function itself is a pure data surface — exit 0 always.
+    std::stringstream out;
+    CHECK(fcc::render_report_json(entries, root, out) == 0);
+
+    // But any_unhealthy() — which cmd_doctor now uses for the JSON
+    // exit code — correctly reports the unhealthy fixture as non-zero.
+    CHECK(fcc::any_unhealthy(entries));
+
+    // And the JSON body itself reflects the same health verdict.
+    CHECK(out.str().find("\"healthy\": false") != std::string::npos);
+}
+
+TEST_CASE("render_report_json: healthy fixture reports healthy=true",
+          "[fetchcontent_cache][issue-744][pr-753]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "choc-f0f5cdf5a938b8b779fea6c083571cce5ccab925";
+    MockState state;
+    state.children = {entry};
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_directory = true;
+    info.is_user_writable = true;
+    state.lstat_results[entry] = info;
+
+    fcc::DeclaredRefs refs{
+        {"choc", "f0f5cdf5a938b8b779fea6c083571cce5ccab925"}};
+    auto env = make_mock_env(root, refs, state);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+
+    std::stringstream out;
+    CHECK(fcc::render_report_json(entries, root, out) == 0);
+    CHECK_FALSE(fcc::any_unhealthy(entries));
+    CHECK(out.str().find("\"healthy\": true") != std::string::npos);
+}
+
 // ── default_cache_root respects PULP_SHARED_FETCHCONTENT_SOURCE_DIR ────────
 
 TEST_CASE("default_cache_root: PULP_SHARED_FETCHCONTENT_SOURCE_DIR override",

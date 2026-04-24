@@ -149,8 +149,24 @@ std::vector<CacheEntry> discover_fetchcontent_cache(const DiscoveryEnv& env);
 
 // Aggregate health: true iff no entry is in a `✗` state (Dangling,
 // StaleCommit, or RootOwned). Used to decide the `pulp doctor --caches`
-// exit code and the `pulp build` / `pulp test` preflight gate.
+// exit code (any non-Healthy entry warrants reporting + a non-zero exit
+// from the diagnostic command).
 bool any_unhealthy(const std::vector<CacheEntry>& entries);
+
+// Subset of `any_unhealthy` used by the `pulp build` / `pulp test`
+// preflight gate. StaleCommit entries are EXCLUDED from this predicate:
+// CMake's override path is keyed on the *current* sanitized ref, so
+// leftover `<dep>-<oldref>` directories are normally harmless — configure
+// either ignores them or refetches. Hard-failing the build on a stale
+// pin would block every developer with an older cache after any
+// dependency bump, even though the actual build would succeed. Stale
+// entries are still surfaced by `pulp doctor --caches` and cleaned up
+// by `--fix`; they just don't gate the build.
+//
+// This predicate reports true only for states that genuinely break
+// configure/build (Dangling symlinks, RootOwned directories CMake can't
+// touch, Unknown/lstat-failed entries).
+bool blocks_preflight(const std::vector<CacheEntry>& entries);
 
 // Render the human-readable cache report to the given stream. Returns
 // 0 if all entries are healthy, 1 otherwise — callers can use this

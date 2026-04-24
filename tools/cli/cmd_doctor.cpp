@@ -104,7 +104,14 @@ int cmd_doctor(const std::vector<std::string>& args) {
         auto entries = fcc::discover_fetchcontent_cache(env);
 
         if (json_mode) {
-            return fcc::render_report_json(entries, cache_root, std::cout);
+            // render_report_json itself always returns 0 (JSON is a
+            // pure data surface), but automation needs a usable exit
+            // code so it can detect unhealthy state without parsing
+            // the JSON. Mirror the human-readable mode: exit non-zero
+            // iff any entry is unhealthy. See Codex P2 review on
+            // PR #753.
+            (void)fcc::render_report_json(entries, cache_root, std::cout);
+            return fcc::any_unhealthy(entries) ? 1 : 0;
         }
 
         int rc = fcc::render_report(entries, cache_root, std::cout);
