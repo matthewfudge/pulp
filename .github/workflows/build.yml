@@ -191,13 +191,34 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ccache --no-progress -y
 
-      # ── Caches (#420) ──────────────────────────────────────────────────
+      # ── Caches (#420, #683) ───────────────────────────────────────────
       # FetchContent source cache: Skia / Dawn / Yoga / SDL3 / Catch2 /
       # mbedtls / CHOC / CLAP / LV2 / VST3 SDK, keyed on setup.sh's
       # content (which pins every ref). Hit → setup.sh finds everything
       # already unpacked and returns in seconds. Cold → ~3-5 min
       # downloading + unpacking.
-      - name: Cache FetchContent sources
+      #
+      # #683: each cache step is split into two lanes so the Namespace
+      # Linux/macOS matrix entries use Namespace-hosted cache storage
+      # (keeps GH Actions cache quota bounded) while Windows + any
+      # GitHub-hosted fallback keeps the stock actions/cache.
+      # Namespace Windows instances don't support caching (per Namespace,
+      # 2026-04-23), so the Windows leg always takes the actions/cache
+      # path.
+      - name: Cache FetchContent sources (Namespace)
+        if: matrix.provider == 'namespace' && runner.os != 'Windows'
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          path: |
+            ~/Library/Caches/Pulp/fetchcontent-src
+            ~/.cache/Pulp/fetchcontent-src
+            ~/AppData/Local/Pulp/Cache/fetchcontent-src
+          key: ${{ runner.os }}-${{ matrix.key || 'build' }}-fetchcontent-${{ hashFiles('setup.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.key || 'build' }}-fetchcontent-
+
+      - name: Cache FetchContent sources (GitHub-hosted + Windows)
+        if: matrix.provider != 'namespace' || runner.os == 'Windows'
         uses: actions/cache@v4
         with:
           path: |
@@ -212,7 +233,21 @@ jobs:
       # on CMakeLists + PR ref so each PR has its own warm cache. The
       # restore-key fallback shares warm cache across PRs on the same
       # base branch, so first-run-per-PR starts near-warm.
-      - name: Cache ccache
+      - name: Cache ccache (Namespace)
+        if: matrix.provider == 'namespace' && runner.os != 'Windows'
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+            ~/AppData/Local/ccache
+          key: ${{ runner.os }}-${{ matrix.key || 'build' }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'tools/cmake/*.cmake') }}-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.key || 'build' }}-ccache-${{ hashFiles('**/CMakeLists.txt', 'tools/cmake/*.cmake') }}-
+            ${{ runner.os }}-${{ matrix.key || 'build' }}-ccache-
+
+      - name: Cache ccache (GitHub-hosted + Windows)
+        if: matrix.provider != 'namespace' || runner.os == 'Windows'
         uses: actions/cache@v4
         with:
           path: |

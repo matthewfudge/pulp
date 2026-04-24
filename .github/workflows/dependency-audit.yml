@@ -25,3 +25,4 @@ jobs:
         with:
           name: dependency-audit
           path: dependency-audit.md
+          retention-days: 7

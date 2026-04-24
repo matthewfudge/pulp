@@ -282,7 +282,7 @@ jobs:
         with:
           name: coverage-report-${{ matrix.os }}-${{ github.sha }}
           path: build-coverage/coverage/
-          retention-days: 30
+          retention-days: 7
 
       - name: Upload summary
         if: always()
@@ -290,7 +290,7 @@ jobs:
         with:
           name: coverage-summary-${{ matrix.os }}-${{ github.sha }}
           path: build-coverage/coverage/summary.txt
-          retention-days: 90
+          retention-days: 7
 
       - name: Upload Python HTML report
         if: always() && matrix.os == 'linux'
@@ -298,7 +298,7 @@ jobs:
         with:
           name: coverage-python-report-${{ github.sha }}
           path: build-coverage/python/html/
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: error
 
       - name: Upload Python summary
@@ -307,7 +307,7 @@ jobs:
         with:
           name: coverage-python-summary-${{ github.sha }}
           path: build-coverage/python/summary.txt
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: error
 
       - name: Upload Apple summary
@@ -316,7 +316,7 @@ jobs:
         with:
           name: coverage-apple-summary-${{ github.sha }}
           path: build-coverage/apple/summary.txt
-          retention-days: 90
+          retention-days: 7
           if-no-files-found: error
 
       - name: Verify Cobertura XML exists
@@ -556,7 +556,7 @@ jobs:
           path: |
             android/app/build/reports/jacoco/jacocoDebugUnitTestReport/**
             android/app/build/reports/tests/testDebugUnitTest/**
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: error
 
       - name: Upload Android Kotlin coverage to Codecov
@@ -821,7 +821,7 @@ jobs:
             coverage-diff.md
             coverage-diff-comment.md
             coverage-tier.md
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: warn
 
       - name: Upsert PR comment with diff-coverage summary

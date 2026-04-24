@@ -149,12 +149,14 @@ jobs:
         with:
           name: pulp-${{ matrix.platform }}
           path: pulp-${{ matrix.platform }}.*
+          retention-days: 7
 
       - name: Upload SDK artifact
         uses: actions/upload-artifact@v6
         with:
           name: pulp-sdk-${{ matrix.platform }}
           path: pulp-sdk-${{ matrix.platform }}.*
+          retention-days: 7
 
   # ── Portable-binary smoke gate (#391) ─────────────────────────────
   #

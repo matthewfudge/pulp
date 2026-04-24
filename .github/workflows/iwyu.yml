@@ -230,5 +230,5 @@ jobs:
           path: |
             iwyu-raw.txt
             changed-files.txt
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: warn
