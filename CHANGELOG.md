@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0430"></a>
+## [0.43.0] - 2026-04-24
+
+- feat(view): web-compat shims for bundled-React imports (pulp #468 PR 1/2) ([#730](https://github.com/danielraffel/pulp/pull/730))
+- chore: bump Shipyard pin v0.40.0 to v0.46.0 ([#719](https://github.com/danielraffel/pulp/pull/719))
+
 <a id="v0421"></a>
 ## [0.42.1] - 2026-04-24
 
@@ -16,10 +22,6 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - coverage: lift events async updater support ([#648](https://github.com/danielraffel/pulp/pull/648))
 
 <a id="v0420"></a>
-## [0.16.0]
-
-## [0.43.0]
-
 ## [0.42.0] - 2026-04-24
 
 - feat(view): add EditorBridge detach_webview ([#728](https://github.com/danielraffel/pulp/pull/728))
@@ -647,6 +649,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.43.0]: https://github.com/danielraffel/pulp/releases/tag/v0.43.0
 [0.42.1]: https://github.com/danielraffel/pulp/releases/tag/v0.42.1
 [0.42.0]: https://github.com/danielraffel/pulp/releases/tag/v0.42.0
 [0.41.1]: https://github.com/danielraffel/pulp/releases/tag/v0.41.1
