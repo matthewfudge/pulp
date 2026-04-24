@@ -78,22 +78,37 @@ fn env_for_fixture(name: &str) -> Vec<(String, String)> {
 }
 
 fn normalise(mut v: Value, fixture: &str) -> Value {
-    // The absolute `project_root` in expected.json is the path on the
-    // machine where we captured it — which is this machine. The parity
-    // test always runs against the same repo, so this is stable. But
-    // in case someone checks this out to a different location, rewrite
-    // `project_root` to a sentinel before comparison so the diff is
-    // about the SHAPE, not the path.
-    let fx_root = fixture_dir(fixture).to_string_lossy().into_owned();
+    // `project_root` is an absolute path. It differs between:
+    //   - the machine where expected.json was captured (`/Users/.../pulp-rs-proto/.../fixtures/ok_plain`)
+    //   - the CI runner where this test runs (`/home/runner/.../fixtures/ok_plain` on Linux,
+    //     `C:\...\fixtures\ok_plain` on Windows).
+    // Strip everything before `fixtures/<name>` so the diff is about
+    // SHAPE, not path. Handles forward + back slashes.
+    let target = format!("fixtures/{fixture}");
+    let target_back = format!("fixtures\\{fixture}");
     if let Some(obj) = v.as_object_mut() {
         if let Some(pr) = obj.get_mut("project_root") {
             if let Some(s) = pr.as_str() {
-                if s.starts_with(&fx_root) {
-                    *pr = Value::String(format!(
-                        "<FIXTURE:{}>{}",
-                        fixture,
-                        &s[fx_root.len()..]
-                    ));
+                let normalized = s.replace('\\', "/");
+                if let Some(idx) = normalized.find(&target) {
+                    let tail = &normalized[idx + target.len()..];
+                    *pr = Value::String(format!("<FIXTURE:{fixture}>{tail}"));
+                } else if let Some(idx) = s.find(&target_back) {
+                    let tail = &s[idx + target_back.len()..].replace('\\', "/");
+                    *pr = Value::String(format!("<FIXTURE:{fixture}>{tail}"));
+                }
+            }
+        }
+        // plugin_json_path has the same portability problem — a path
+        // under `fixtures/<name>/...` becomes `<FIXTURE:name>/...`.
+        if let Some(pj) = obj.get_mut("plugin_json_path") {
+            if let Some(s) = pj.as_str() {
+                if !s.is_empty() {
+                    let normalized = s.replace('\\', "/");
+                    if let Some(idx) = normalized.find(&target) {
+                        let tail = &normalized[idx + target.len()..];
+                        *pj = Value::String(format!("<FIXTURE:{fixture}>{tail}"));
+                    }
                 }
             }
         }
