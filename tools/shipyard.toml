@@ -197,6 +197,17 @@
 #             forever. Would've named the Namespace Windows
 #             queue-stuck case on 4/23 in one glance instead of
 #             after multiple `gh run view` loops.
+#   v0.38.0 — ssh-windows UTF-8 prelude: shipyard prepends
+#             `chcp.com 65001 >nul 2>&1 &` to every command
+#             dispatched through the ssh-windows backend so
+#             non-ASCII argv (em-dashes in test names, etc.)
+#             survives the remote host's default OEM code page.
+#             Lands Pulp-side issue Shipyard #208 (I filed 4/23
+#             after 46 ctest filter-no-match failures traced
+#             back to Namespace Windows image's CP-1252 default).
+#             With this in place, Pulp's own build.yml `chcp 65001`
+#             workaround (PR #697) can be reverted — shipyard now
+#             owns the fix for every consumer.
 #
 # Cumulative additions from earlier releases still in effect:
 #   v0.4–v0.8 — release-bot helpers, `shipyard doctor release-chain`,
@@ -211,7 +222,7 @@
 # in `tools/install-shipyard.sh` (v0.22.1+ `SHIPYARD_VERSION` support).
 # The older `~/.pulp/bin/shipyard` path is cleaned up on install to
 # prevent shadow-on-PATH bugs.
-version = "v0.37.0"
+version = "v0.38.0"
 
 # Public release source. The bootstrap script downloads from
 # https://github.com/{repo}/releases/download/{version}/{asset}
