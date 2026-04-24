@@ -144,6 +144,14 @@ struct DoctorArgs {
     /// Emit JSON output instead of human-readable text.
     #[arg(long)]
     json: bool,
+
+    /// Catch-all for flags / subcommands the Rust side doesn't
+    /// declare (`--android`, `--ios`, `--fix`, `--ci`, `--dry-run`,
+    /// `--scan-parents`). Kept as a trailing tail so `fallthrough`
+    /// can forward the user's exact invocation to pulp-cpp without
+    /// clap rejecting unknown flags at parse time.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    tail: Vec<String>,
 }
 
 #[derive(clap::Args, Debug)]
