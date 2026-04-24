@@ -12,4 +12,7 @@ This runs available validators:
 - **clap-validator** — CLAP plugin validation (if installed)
 - **pluginval** — VST3 validation (if installed)
 
-If no validators are installed, suggest: `pulp doctor` to check the environment.
+Before launching any validator, `pulp validate` runs a discovery preflight (#743). If any validator has a broken code signature (e.g. a copy of `pluginval` ripped out of its `.app` bundle, where amfid will SIGKILL the process at launch with exit 137 and zero stderr), `pulp validate` aborts with the exact path + remediation instead of letting the run die mid-validation.
+
+If no validators are installed, run: `pulp doctor --validators` to confirm and see install commands.
+If `pulp validate` aborts with "broken code signature", run: `pulp doctor --validators --fix` to clean up user-owned copies (root-owned copies print a sudo one-liner instead of auto-elevating).
