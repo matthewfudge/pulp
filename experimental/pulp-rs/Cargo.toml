@@ -1,0 +1,31 @@
+# pulp-rs
+#
+# EXPERIMENTAL Rust prototype of the Pulp CLI.
+#
+# This crate is NOT production code and is NOT shipped.
+# It exists to evaluate whether rewriting `tools/cli/*.cpp` in Rust
+# is worthwhile. See GitHub issue #686 for the decision framework.
+#
+# Phase 1: scaffold only (clap skeleton + stub doctor command).
+# Phase 2: port `pulp doctor --versions --json` to parity with C++.
+#
+# This crate is intentionally NOT wired into CMake. It runs only via cargo.
+
+[package]
+name = "pulp-rs"
+version = "0.0.1"
+edition = "2021"
+description = "Experimental Rust prototype of the Pulp CLI (not for production)"
+publish = false
+
+[[bin]]
+name = "pulp-rs"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+semver = "1"
+anyhow = "1"
