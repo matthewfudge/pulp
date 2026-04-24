@@ -49,10 +49,16 @@ use crate::error::{CliError, Result};
 use crate::registry::{self, Project};
 
 /// Subcommands under `pulp-rs projects`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Sub {
     /// Show registered projects.
     List,
+    /// Register a project directory (default: CWD).
+    Add(Option<PathBuf>),
+    /// Remove a project by path.
+    Remove(PathBuf),
+    /// Drop any entries whose paths have vanished on disk.
+    Prune,
 }
 
 /// Parse the post-`projects` argument slice into a [`Sub`].
@@ -64,9 +70,22 @@ pub enum Sub {
 /// # Errors
 ///
 /// Returns [`CliError::UnknownSubcommand`] for any unrecognised input.
+/// Returns [`CliError::BadUsage`] when `remove` is called without a
+/// path argument.
 pub fn parse_sub(args: &[String]) -> Result<Sub> {
     match args.first().map(String::as_str) {
         Some("list" | "ls") => Ok(Sub::List),
+        Some("add") => {
+            let target = args.get(1).map(PathBuf::from);
+            Ok(Sub::Add(target))
+        }
+        Some("remove" | "rm") => {
+            let target = args.get(1).ok_or_else(|| {
+                CliError::BadUsage("pulp projects remove: a path argument is required".to_owned())
+            })?;
+            Ok(Sub::Remove(PathBuf::from(target)))
+        }
+        Some("prune") => Ok(Sub::Prune),
         _ => Err(CliError::UnknownSubcommand),
     }
 }
@@ -98,7 +117,150 @@ pub fn run_with_registry(
 ) -> Result<()> {
     match sub {
         Sub::List => do_list(reg_path, json, out),
+        Sub::Add(target) => do_add(reg_path, target.as_deref(), json, out),
+        Sub::Remove(target) => do_remove(reg_path, &target, json, out),
+        Sub::Prune => do_prune(reg_path, json, out),
     }
+}
+
+fn do_add(reg_path: &Path, target: Option<&Path>, json: bool, out: &mut impl Write) -> Result<()> {
+    let target_owned: PathBuf = match target {
+        Some(t) if t.is_absolute() => t.to_path_buf(),
+        Some(t) => std::env::current_dir()
+            .map_err(|e| CliError::io("<cwd>", e))?
+            .join(t),
+        None => std::env::current_dir().map_err(|e| CliError::io("<cwd>", e))?,
+    };
+
+    if !target_owned.exists() {
+        return Err(CliError::BadUsage(format!(
+            "pulp projects add: path does not exist: {}",
+            target_owned.display()
+        )));
+    }
+    if !target_owned.is_dir() {
+        return Err(CliError::BadUsage(format!(
+            "pulp projects add: path is not a directory: {}",
+            target_owned.display()
+        )));
+    }
+
+    let name = target_owned
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    match registry::add_project(reg_path, &target_owned, &name) {
+        Ok(list) => {
+            if json {
+                let obj = json!({
+                    "ok": true,
+                    "registry": generic_str(reg_path),
+                    "added": {
+                        "path": target_owned.to_string_lossy(),
+                        "name": name,
+                    },
+                    "total": list.len(),
+                });
+                let s = serde_json::to_string_pretty(&obj).unwrap_or_default();
+                writeln!(out, "{s}").map_err(io_err)?;
+            } else {
+                writeln!(
+                    out,
+                    "{}Registered{} {} at {}",
+                    color::green(),
+                    color::reset(),
+                    name,
+                    target_owned.display()
+                )
+                .map_err(io_err)?;
+            }
+            Ok(())
+        }
+        Err((_, e)) => Err(CliError::Other(format!(
+            "pulp projects add: failed to write registry at {}: {}",
+            reg_path.display(),
+            e
+        ))),
+    }
+}
+
+fn do_remove(reg_path: &Path, target: &Path, json: bool, out: &mut impl Write) -> Result<()> {
+    let target_owned: PathBuf = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| CliError::io("<cwd>", e))?
+            .join(target)
+    };
+
+    let removed =
+        registry::remove_project(reg_path, &target_owned).map_err(|e| CliError::io(reg_path, e))?;
+    if json {
+        let obj = json!({
+            "ok": removed,
+            "registry": generic_str(reg_path),
+            "removed": removed.then(|| target_owned.to_string_lossy().into_owned()),
+        });
+        let s = serde_json::to_string_pretty(&obj).unwrap_or_default();
+        writeln!(out, "{s}").map_err(io_err)?;
+        if !removed {
+            return Err(CliError::Other(format!(
+                "pulp projects remove: not found in registry: {}",
+                target_owned.display()
+            )));
+        }
+        return Ok(());
+    }
+    if removed {
+        writeln!(
+            out,
+            "{}Removed{} {}",
+            color::green(),
+            color::reset(),
+            target_owned.display()
+        )
+        .map_err(io_err)?;
+        Ok(())
+    } else {
+        Err(CliError::Other(format!(
+            "pulp projects remove: not found in registry: {}",
+            target_owned.display()
+        )))
+    }
+}
+
+fn do_prune(reg_path: &Path, json: bool, out: &mut impl Write) -> Result<()> {
+    let dropped = registry::prune_missing(reg_path).map_err(|e| CliError::io(reg_path, e))?;
+    if json {
+        let obj = json!({
+            "registry": generic_str(reg_path),
+            "dropped": dropped,
+            "count": dropped.len(),
+        });
+        let s = serde_json::to_string_pretty(&obj).unwrap_or_default();
+        writeln!(out, "{s}").map_err(io_err)?;
+        return Ok(());
+    }
+    if dropped.is_empty() {
+        writeln!(
+            out,
+            "Nothing to prune — every registered project still exists on disk."
+        )
+        .map_err(io_err)?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "Pruned {} entr{}:",
+        dropped.len(),
+        if dropped.len() == 1 { "y" } else { "ies" }
+    )
+    .map_err(io_err)?;
+    for p in &dropped {
+        writeln!(out, "  - {p}").map_err(io_err)?;
+    }
+    Ok(())
 }
 
 fn do_list(reg_path: &Path, json: bool, out: &mut impl Write) -> Result<()> {
@@ -303,5 +465,103 @@ mod tests {
             parse_sub(&["wat".to_owned()]),
             Err(CliError::UnknownSubcommand)
         ));
+    }
+
+    #[test]
+    fn parse_sub_accepts_add_with_and_without_path() {
+        assert!(matches!(
+            parse_sub(&["add".to_owned()]).unwrap(),
+            Sub::Add(None)
+        ));
+        match parse_sub(&["add".to_owned(), "/tmp/xyz".to_owned()]).unwrap() {
+            Sub::Add(Some(p)) => assert_eq!(p, PathBuf::from("/tmp/xyz")),
+            other => panic!("expected Sub::Add(Some), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_sub_remove_requires_path() {
+        assert!(matches!(
+            parse_sub(&["remove".to_owned()]),
+            Err(CliError::BadUsage(_))
+        ));
+    }
+
+    #[test]
+    fn parse_sub_accepts_prune() {
+        assert!(matches!(
+            parse_sub(&["prune".to_owned()]).unwrap(),
+            Sub::Prune
+        ));
+    }
+
+    #[test]
+    fn add_registers_new_project_in_json_lane() {
+        let td = tempfile::tempdir().unwrap();
+        let reg = td.path().join("projects.json");
+        let target = td.path().join("demo");
+        std::fs::create_dir_all(&target).unwrap();
+        let mut buf = Vec::new();
+        run_with_registry(Sub::Add(Some(target)), &reg, true, &mut buf).unwrap();
+        let v: Value = serde_json::from_slice(&buf).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["total"], 1);
+    }
+
+    #[test]
+    fn remove_known_entry_is_ok() {
+        let td = tempfile::tempdir().unwrap();
+        let reg = td.path().join("projects.json");
+        let target = td.path().join("demo");
+        std::fs::create_dir_all(&target).unwrap();
+        registry::add_project(&reg, &target, "Demo").unwrap();
+        let mut buf = Vec::new();
+        run_with_registry(Sub::Remove(target), &reg, true, &mut buf).unwrap();
+        let v: Value = serde_json::from_slice(&buf).unwrap();
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn remove_missing_entry_errors() {
+        let td = tempfile::tempdir().unwrap();
+        let reg = td.path().join("projects.json");
+        // Plant an empty registry so the read path has something to read.
+        registry::write(&reg, &[]).unwrap();
+        let mut buf = Vec::new();
+        let err = run_with_registry(Sub::Remove(td.path().join("ghost")), &reg, false, &mut buf)
+            .unwrap_err();
+        assert!(err.to_string().contains("not found in registry"));
+    }
+
+    #[test]
+    fn prune_reports_nothing_when_all_exist() {
+        let td = tempfile::tempdir().unwrap();
+        let reg = td.path().join("projects.json");
+        let target = td.path().join("demo");
+        std::fs::create_dir_all(&target).unwrap();
+        registry::add_project(&reg, &target, "Demo").unwrap();
+        let mut buf = Vec::new();
+        run_with_registry(Sub::Prune, &reg, false, &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Nothing to prune"));
+    }
+
+    #[test]
+    fn prune_drops_missing_entries_in_json_lane() {
+        let td = tempfile::tempdir().unwrap();
+        let reg = td.path().join("projects.json");
+        registry::write(
+            &reg,
+            &[registry::Project {
+                path: "/tmp/__pulp_rs_does_not_exist_4f1c__".to_owned(),
+                name: "ghost".to_owned(),
+                registered_at: String::new(),
+            }],
+        )
+        .unwrap();
+        let mut buf = Vec::new();
+        run_with_registry(Sub::Prune, &reg, true, &mut buf).unwrap();
+        let v: Value = serde_json::from_slice(&buf).unwrap();
+        assert_eq!(v["count"], 1);
     }
 }
