@@ -10,13 +10,19 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use pulp_rs::cmd;
 use pulp_rs::error::CliError;
+use pulp_rs::help;
 
 #[derive(Parser, Debug)]
 #[command(
     name = "pulp-rs",
     about = "Experimental Rust prototype of the Pulp CLI (not for production)",
     disable_version_flag = true,
-    disable_help_subcommand = true
+    disable_help_subcommand = true,
+    // Prevent clap from printing its generated help banner when the
+    // user invokes `pulp-rs` with no args. The C++ CLI prints its own
+    // usage banner and exits 0; we match that exactly by handling
+    // `Option<Command>::None` in `real_main`.
+    arg_required_else_help = false
 )]
 struct Cli {
     #[command(subcommand)]
@@ -25,6 +31,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Print the usage banner and exit 0 — parity with C++ `pulp help`.
+    Help,
+
     /// Print installed CLI + plugin versions.
     Version(VersionArgs),
 
@@ -33,6 +42,13 @@ enum Command {
 
     /// Manage the `~/.pulp/projects.json` registry. Phase 4 ports `list`.
     Projects(ProjectsArgs),
+
+    /// Per-project SDK pin: `bump`, `undo`. Phase 6b.
+    Project(ProjectArgs),
+
+    /// Scan system paths for VST3 / AU / CLAP / LV2 plug-ins. Phase 6b
+    /// (file-enumeration stub — see `UPSTREAM_SYNC.md`).
+    Scan(ScanArgs),
 
     /// Read + write `~/.pulp/config.toml`. Phase 5.
     Config(ConfigArgs),
@@ -94,6 +110,23 @@ struct ProjectsArgs {
     /// Emit JSON instead of the human-readable table.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(clap::Args, Debug)]
+struct ProjectArgs {
+    /// The subcommand word (`bump`, `undo`) plus any tail flags /
+    /// positional arguments.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    tail: Vec<String>,
+}
+
+#[derive(clap::Args, Debug)]
+struct ScanArgs {
+    /// The full tail — parsed by `cmd::scan::parse_args` so the flag
+    /// surface stays in lockstep with the C++ CLI without fighting
+    /// clap over `--format`.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    tail: Vec<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -205,12 +238,17 @@ fn real_main() -> Result<(), ExitCode> {
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
-    let command = cli.command.ok_or_else(|| {
-        eprintln!("unknown subcommand");
-        ExitCode::from(2)
-    })?;
+    // Bare invocation — parity with C++ `pulp` (no args). The C++
+    // CLI prints the usage banner and exits 0.
+    let Some(command) = cli.command else {
+        return match help::write_usage(&mut out) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(map_err(&e)),
+        };
+    };
 
     match command {
+        Command::Help => cmd::help::run(&mut out).map_err(|e| map_err(&e)),
         Command::Version(args) => cmd::version::run(args.json, &mut out).map_err(|e| map_err(&e)),
         Command::Doctor(args) => {
             cmd::doctor::run(args.versions, args.json, &mut out).map_err(|e| map_err(&e))
@@ -249,6 +287,31 @@ fn real_main() -> Result<(), ExitCode> {
                 ExitCode::from(2)
             })?;
             cmd::projects::run(sub, json, &mut out).map_err(|e| map_err(&e))
+        }
+        Command::Project(args) => {
+            let sub = cmd::project::parse_sub(&args.tail).map_err(|e| match e {
+                CliError::UnknownSubcommand => {
+                    eprintln!("pulp-rs project: unknown subcommand");
+                    eprintln!("  supported: bump, undo, help");
+                    ExitCode::from(2)
+                }
+                CliError::BadUsage(msg) => {
+                    eprintln!("{msg}");
+                    ExitCode::from(2)
+                }
+                other => {
+                    eprintln!("pulp-rs project: {other}");
+                    ExitCode::from(2)
+                }
+            })?;
+            map_exit(cmd::project::run(sub, &mut out))
+        }
+        Command::Scan(args) => {
+            let parsed = cmd::scan::parse_args(&args.tail).map_err(|e| {
+                eprintln!("{e}");
+                ExitCode::from(2)
+            })?;
+            cmd::scan::run(&parsed, &mut out).map_err(|e| map_err(&e))
         }
         Command::Config(args) => {
             let sub = cmd::config::parse_sub(&args.tail).map_err(|e| match e {
@@ -375,10 +438,28 @@ fn clap_exit_code(err: &clap::error::Error) -> ExitCode {
     use clap::error::ErrorKind;
     match err.kind() {
         ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument => {
-            // Match the C++ CLI's wording exactly — the parity test
-            // on subcommand errors greps for this string.
-            eprintln!("unknown subcommand");
-            ExitCode::from(2)
+            // Match the C++ CLI's fuzzy suggester: print "Unknown
+            // command: …\nDid you mean: pulp-rs <closest>?" so a user
+            // who typed `buld` gets pointed at `build`. Falls back to
+            // `Run `pulp-rs help` for usage` when no candidate is
+            // within the distance-3 threshold (C++ uses the same
+            // inclusive bound in `pulp_cli.cpp`).
+            //
+            // Exit code mirrors the C++ CLI: 1 for unknown-command
+            // (parity with `pulp xyz` → `Unknown command: xyz` +
+            // exit 1). `clap` defaults to 2 for every parse error; we
+            // override here so parity tests can grep for `exit 1`.
+            extract_typed_token(err).map_or_else(
+                || {
+                    eprintln!("unknown subcommand");
+                    ExitCode::from(2)
+                },
+                |typed| {
+                    let hint = help::suggest_hint(&typed, "pulp-rs", 3);
+                    eprint!("{hint}");
+                    ExitCode::from(1)
+                },
+            )
         }
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
             let _ = err.print();
@@ -389,4 +470,26 @@ fn clap_exit_code(err: &clap::error::Error) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Pluck the typo'd token out of a clap error. clap's public API
+/// doesn't expose the offending arg directly, so we read it out of
+/// `ContextKind::InvalidArg` / `ContextKind::InvalidSubcommand`. When
+/// the error doesn't carry a recognisable token we return `None`
+/// and the caller falls back to the generic message.
+fn extract_typed_token(err: &clap::error::Error) -> Option<String> {
+    use clap::error::ContextKind;
+    use clap::error::ContextValue;
+
+    let kinds = [ContextKind::InvalidSubcommand, ContextKind::InvalidArg];
+    for kind in kinds {
+        if let Some(v) = err.get(kind) {
+            match v {
+                ContextValue::String(s) => return Some(s.clone()),
+                ContextValue::Strings(v) if !v.is_empty() => return Some(v[0].clone()),
+                _ => {}
+            }
+        }
+    }
+    None
 }

@@ -9,9 +9,12 @@
 
 pub mod config;
 pub mod doctor;
+pub mod help;
 pub mod orchestrate;
 pub mod pr;
+pub mod project;
 pub mod projects;
+pub mod scan;
 pub mod sdk;
 pub mod upgrade;
 pub mod version;
