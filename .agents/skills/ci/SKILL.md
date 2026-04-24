@@ -855,3 +855,15 @@ Gotchas surfaced while landing the four-phase SignalGraph follow-up:
   sends the XML to Codecov. Keep it separate from the Clang-based
   `coverage.yml` matrix — Android coverage is a Gradle/SDK lane, not a
   native profraw lane.
+
+- **Release-time workflows must declare `permissions: contents: write`.**
+  Both `release-cli.yml` and `sign-and-release.yml` write to the
+  GitHub Releases API (create the release, upload artifacts, fetch
+  generate-release-notes content). Without an explicit job-level
+  permissions block they inherit a read-only `GITHUB_TOKEN` on
+  `push: tags` events and the `Create GitHub Release` step fails with
+  `Resource not accessible by integration` — silent release failure
+  that lost ~30 sign-and-release runs across v0.20.x → v0.41.0. See
+  `ship` SKILL.md § "`sign-and-release.yml` must declare …" for the
+  full gotcha; pulp #720 + #724 for the history. When adding a new
+  release-time workflow, add the same block.
