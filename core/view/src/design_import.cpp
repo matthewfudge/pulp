@@ -17,6 +17,7 @@ std::optional<DesignSource> parse_design_source(const std::string& name) {
     if (name == "stitch") return DesignSource::stitch;
     if (name == "v0")     return DesignSource::v0;
     if (name == "pencil") return DesignSource::pencil;
+    if (name == "claude") return DesignSource::claude;
     return std::nullopt;
 }
 
@@ -26,8 +27,19 @@ const char* design_source_name(DesignSource source) {
         case DesignSource::stitch: return "Stitch";
         case DesignSource::v0:     return "v0";
         case DesignSource::pencil: return "Pencil";
+        case DesignSource::claude: return "Claude Design";
     }
     return "unknown";
+}
+
+DesignIR parse_claude_html(const std::string& html) {
+    // Claude Design exports the same HTML+CSS shape as other web tools,
+    // so parse with the existing Stitch HTML pipeline and re-tag the
+    // source. Per pulp #468 (manual-export framing), users hand the
+    // exported HTML over directly — no Anthropic API integration.
+    auto ir = parse_stitch_html(html);
+    ir.source = DesignSource::claude;
+    return ir;
 }
 
 // ── Audio widget detection ──────────────────────────────────────────────
