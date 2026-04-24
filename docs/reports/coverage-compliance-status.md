@@ -1,11 +1,11 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-04-23
+Last reviewed: 2026-04-24
 
 This is the durable tracker for the repo-wide coverage compliance
-program under `#641`. The repo is still in the "get the intended source
-surface onto Codecov" phase; ordinary test-gap ranking and closure stay
-parked until that represented surface is stable on `main`.
+program under `#641`. The Phase 1 representation stack has now landed
+on `main`; this document records the corrected Codecov baseline that
+Phase 2 planning should use.
 
 ## Goal
 
@@ -21,19 +21,26 @@ Target tiers remain unchanged in `ci/coverage-targets.yaml`:
 
 ## Three-phase program
 
-### Phase 1 — Representation / Codecov truth
+### Phase 1 - Representation / Codecov truth
 
-Finish line:
+Status: code and workflow slices are merged; this rebaseline is the
+closeout artifact.
 
-- `windows` is not `null` on `main`
-- `dsl` is a real component on `main`
-- `apple/Sources/**` materializes on Codecov
-- `android/app/src/main/kotlin/**` materializes on Codecov
-- the clearly known remaining "still not on Codecov" bucket is
-  explicitly listed and tracked
-- this status document is rebaselined from the corrected `main` surface
+Finish line state:
 
-### Phase 2 — Gap planning
+- `windows` is non-null on `main` (`0.0%` at the current baseline).
+- `dsl` is a real component on `main` (`63.38%`).
+- `apple/Sources/**` materializes on Codecov for the macOS Swift package
+  lane and the native `PulpBridge.cpp` lane.
+- `android/app/src/main/kotlin/**` materializes on Codecov.
+- `bindings/python/bindings.cpp` materializes on Codecov.
+- the clearly known remaining "still not on Codecov" buckets are listed
+  below as explicit follow-up or out-of-scope surfaces.
+- this status document is rebaselined from the corrected `main` surface.
+
+### Phase 2 - Gap planning
+
+Status: next.
 
 Finish line:
 
@@ -44,7 +51,9 @@ Finish line:
 - the repo has an actionable issue / PR roadmap for closing measured
   gaps
 
-### Phase 3 — Gap closure
+### Phase 3 - Gap closure
+
+Status: parked until Phase 2 produces the tranche plan.
 
 Finish line:
 
@@ -54,96 +63,141 @@ Finish line:
 - deferred or exceptional surfaces stay documented explicitly instead of
   silently omitted
 
-## Current state
+## Corrected main baseline
 
-- `#647` merged to `main` at `773c2be332995483248fe82d497b832080c320df`
-  on 2026-04-23.
-- GitHub Actions for `#647` were green across the required hosted build
-  and coverage checks.
-- Shipyard validation for the same SHA passed on `mac` and `ubuntu`.
-  The `windows` Shipyard target failed before validation started because
-  `C:\\Users\\danielraffel\\shipyard.bundle` was present but locked on the
-  remote host. That is tracked separately in `#671` as CI infra, not as
-  a verdict on `#647`.
-- Public Codecov `main` has now moved to `773c2be3`.
-  Current observed `main` snapshot:
-  - overall tracked coverage: `56.77%` over `57,503` lines
-  - `dsl`: `86.88%`
-  - `windows`: `20.54%`
-  - `android`: `14.17%`
-  - `linux`: `25.58%`
-  - `apple`: `33.41%`
-- `android/app/src/main/kotlin/**` is now visible on Codecov `main`.
-- `windows` is no longer `null` on `main`.
-- `dsl` is now a real component on `main`.
-- `apple/Sources/PulpSwift/**` is still not visible on Codecov `main`
-  even though the merged PR branch did materialize
-  `PulpBridge.swift`, `PulpParameter.swift`, and `PulpViews.swift`.
-  Phase 1 therefore remains open on Apple ingestion fidelity.
+Source:
+
+- Codecov public totals and components API for `main` commit
+  `abe2b07a820d9e705864a3ecd3f0350772f694d1`
+- GitHub Actions Coverage run `24886403280`, completed successfully
+  across Android/Kotlin, Linux/Clang, Windows/Clang, and macOS/Clang
+
+Current observed `main` snapshot:
+
+- overall tracked coverage: `39.28%` over `68,001` lines in `551` files
+- `audio`: `20.95%`
+- `canvas`: `64.06%`
+- `dsl`: `63.38%`
+- `events`: `24.14%`
+- `format`: `43.86%`
+- `host`: `33.38%`
+- `midi`: `45.2%`
+- `osc`: `60.25%`
+- `platform`: `35.41%`
+- `render`: `55.87%`
+- `runtime`: `46.89%`
+- `signal`: `61.85%`
+- `state`: `50.94%`
+- `view`: `42.41%`
+- `android`: `13.83%`
+- `apple`: `29.93%`
+- `linux`: `0.0%`
+- `windows`: `0.0%`
+- `cli`: `21.38%`
+- `ship`: `31.45%`
+- `tools`: `34.07%`
+
+Representation proof points from the same Codecov snapshot:
+
+- Apple files now visible:
+  - `apple/Sources/PulpSwift/PulpBridge.cpp`: `70.78%`
+  - `apple/Sources/PulpSwift/PulpBridge.swift`: `98.7%`
+  - `apple/Sources/PulpSwift/PulpParameter.swift`: `100.0%`
+  - `apple/Sources/PulpSwift/PulpViews.swift`: `79.79%`
+- Python perimeter files now visible, including top-level `tools/*.py`,
+  `tools/packages/**`, `tools/deps/**`, `tools/local-ci/**`,
+  `tools/scripts/**`, and `core/view/js/embed_js.py`.
+- `bindings/python/bindings.cpp` is visible as a counted file
+  (`0.0%`, `0/121` lines). It is represented but still a test gap.
+- `tools/packages/freshness_check.py` and
+  `tools/packages/validate_registry.py` are visible as counted files.
+- Python test modules remain intentionally omitted from the reported
+  source set.
 
 ## Clearly known still not on Codecov
 
-Raw LOC counts here are approximate and are only used to size the
-remaining Phase 1 work. They are not exact Codecov denominators.
+These are explicit perimeter decisions after the corrected baseline.
+They should not be treated as silent omissions while Phase 2 ranks the
+represented surface.
 
-- broader authored JavaScript: about `23.9k` raw lines — `#659`
-- broader Python outside the current tooling lane: about `5.2k` raw
-  lines — `#658`
-- shell and PowerShell scripts: about `2.5k` raw lines — `#657`
-- optional bindings under `bindings/**`: about `0.6k` raw lines — `#657`
-- Swift / Apple-adjacent roots still outside the surfaced package
-  subset:
+- Authored JavaScript source roots remain out of the represented surface
+  until a dedicated JS lane is added - tracked by `#659`.
+- `bindings/nodejs/bindings.cpp` remains explicitly out of scope for now
+  because the repo does not have a supported Node binding CI/test lane -
+  tracked by `#657`.
+- Shell and PowerShell scripts remain explicitly out of scope for now.
+  They are tested indirectly where practical, but do not surface as
+  first-class Codecov lines - tracked by `#657`.
+- iOS-only Swift and standalone Swift outside the macOS SwiftPM lane stay
+  outside the represented surface unless a later simulator/runtime lane
+  pulls them in. Known examples:
   - `apple/Sources/PulpSwift/PulpAudioSession.swift`
-  - `apple/Sources/PulpSwift/PulpBridge.cpp`
-  - `apple/Sources/PulpSwift/PulpBridge.h`
+  - `templates/ios-auv3/HostApp/ContentView.swift`
+  - `templates/ios-auv3/HostApp/PulpHostApp.swift`
   - `tools/local-ci/macos_window_probe.swift`
-  tracked by `#656`
-- mobile runtime coverage outside the current source-only lanes:
-  - Android emulator / device instrumentation coverage
-  - iOS simulator / runtime app coverage where we decide it belongs in
-    the represented surface
-  tracked by `#77`
+  tracked by `#77`; the Apple perimeter classification work in `#656`
+  is closed.
+- `apple/Sources/PulpSwift/PulpBridge.h` is a declaration-only C header
+  and is not materialized as an executable-line Codecov row. The
+  implementation in `PulpBridge.cpp` is now represented and tested.
+- Optional native surfaces that are not compiled by the current coverage
+  configure, such as AAX/ARA runtime sources, Android native device
+  shims, and Web/WASM-specific sources, remain outside the measured
+  graph unless Phase 2 decides to add focused follow-up issues.
 
-The rough remainder beyond this list is mostly metric mismatch between
-raw local LOC and Codecov executable-line accounting, not a clean
-backlog bucket.
-
-## Active Phase 1 issue map
+## Phase 1 issue map
 
 ### Control plane and verification
 
 - `#641` authoritative umbrella and phase tracker
 - `#639` Codecov control plane and dashboard truth follow-up
-- `#647` merged representation tranche
-- `#671` Windows Shipyard bundle-lock infra failure during post-merge
-  validation
+- `#647` merged representation tranche for `dsl`, `windows`, and the
+  durable status report
+- `#715` merged Python coverage normalization / zero-file visibility fix
 
-### Perimeter-expansion work
+### Completed perimeter-expansion work
 
-- `#656` expand Swift / Apple perimeter beyond the current package lane
-- `#658` expand Python perimeter beyond the current tooling lane
+- `#656` Swift / Apple perimeter classification, with
+  `PulpBridge.cpp` represented through `#678`
+- `#658` Python perimeter expansion, implemented through `#677` and
+  normalized by `#715`
+- `#679` / `#680` `bindings/python/bindings.cpp` representation
+- `#633` Android/Kotlin JaCoCo lane
+- `#615` Apple Swift package lane
+
+### Remaining explicit perimeter follow-ups
+
 - `#659` add a JavaScript source lane for authored repo assets
 - `#657` classify optional bindings and shell / PowerShell surfaces in
-  the true-source baseline
-- `#77` decide and, if in-scope, add mobile runtime coverage from
+  docs; after this rebaseline lands, the remaining implementation
+  decision is whether to keep Node and scripts out of scope or file
+  dedicated future lanes
+- `#77` decide and, if in scope, add mobile runtime coverage from
   Android instrumentation and iOS simulator / runtime app paths
 
 ### Supporting infrastructure
 
-- `#655` provision Android SDK / NDK on `ssh ubuntu` and `ssh windows`
-  validation hosts. This is useful supporting infra but not a blocker
-  for hosted Codecov truth on `main`.
+- `#671` Windows Shipyard bundle-lock infra failure: closed
+- `#692` Windows Namespace capacity fallback for PR lanes: closed
+- `#655` Android SDK / NDK provisioning on SSH validation hosts remains
+  useful supporting infra but is not a blocker for hosted Codecov truth
+  on `main`
 - `#568` historical multi-language expansion umbrella. Active execution
   now rolls up through `#641`.
-- `#632` first Python widening to `tools/deps/**` and
-  `tools/local-ci/**`
 
-## Parked until Phase 1 completes
+## Phase 2 starting point
 
-Do not start ordinary tranche ranking or closure work from the stale
-pre-`#647` main snapshot.
+Phase 2 should start from the component snapshot above, not from older
+pre-`#715` numbers. The first planning pass should:
 
-### Phase 2 / Phase 3 issues
+1. Rank below-target counted components against `ci/coverage-targets.yaml`.
+2. Separate "represented but zero/low coverage" files from intentionally
+   unrepresented surfaces.
+3. Refresh or close the parked tranche issues based on the corrected
+   numbers.
+4. Post the final Phase 1 closeout and Phase 2 entry note on `#641`.
+
+### Phase 2 / Phase 3 issues to re-evaluate
 
 - `#640` audio / platform tranche
 - `#642` events tranche
@@ -153,22 +207,11 @@ pre-`#647` main snapshot.
 - `#646` render tranche
 - `#493` host / format / view and related hardening gaps
 
-### Parked draft PRs
+### Parked draft PRs to re-evaluate
 
 - `#648` draft events tranche
 - `#649` draft CLI / tools tranche
 - `#666` draft state / ship hardening split from `#647`
-
-## Rebaseline checklist after `#647`
-
-1. Keep the corrected `main` snapshot above as the current baseline for
-   everything that already landed.
-2. Investigate why `apple/Sources/PulpSwift/**` materialized on the PR
-   branch but not on merged `main`.
-3. Do not start Phase 2 ranking until Apple package sources are either
-   visible on `main` or explicitly accepted as still out of scope.
-4. Once Apple is resolved, refresh the final corrected `main` baseline
-   and only then begin measured gap planning.
 
 ## Control-plane invariants
 
