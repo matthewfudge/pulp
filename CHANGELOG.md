@@ -8,11 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0410"></a>
+## [0.41.0] - 2026-04-24
+
+- feat(view): add pulp::view::EditorBridge for renderer-agnostic editor↔processor JSON dispatch (#709, unblocks #468) ([#711](https://github.com/danielraffel/pulp/pull/711))
+- fix(events): Timer UAF — move mutable state into shared_ptr<Impl> (#716) ([#717](https://github.com/danielraffel/pulp/pull/717))
+- test(coverage): surface bindings/python on Codecov ([#680](https://github.com/danielraffel/pulp/pull/680))
+- test(coverage): surface PulpBridge in native lane ([#678](https://github.com/danielraffel/pulp/pull/678))
+- ci(coverage): widen Python perimeter representation ([#677](https://github.com/danielraffel/pulp/pull/677))
+- test: use ASCII hyphens in TEST_CASE names — no em-dashes (#707) ([#710](https://github.com/danielraffel/pulp/pull/710))
+- chore: bump Shipyard pin v0.38.0 → v0.40.0 (closes ssh-windows bundle-apply split-brain) ([#702](https://github.com/danielraffel/pulp/pull/702))
+
 <a id="v0402"></a>
-## [0.14.0]
-
-## [0.41.0]
-
 ## [0.40.2] - 2026-04-23
 
 - fix/release vst3 tag drift ([#701](https://github.com/danielraffel/pulp/pull/701))
@@ -615,6 +622,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.41.0]: https://github.com/danielraffel/pulp/releases/tag/v0.41.0
 [0.40.2]: https://github.com/danielraffel/pulp/releases/tag/v0.40.2
 [0.40.1]: https://github.com/danielraffel/pulp/releases/tag/v0.40.1
 [0.40.0]: https://github.com/danielraffel/pulp/releases/tag/v0.40.0
