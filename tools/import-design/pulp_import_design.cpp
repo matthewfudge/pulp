@@ -46,6 +46,9 @@ static void print_usage() {
     std::cout << "  --bridge-output <path>  Path to write bridge handler scaffold (default: bridge_handlers.cpp,\n";
     std::cout << "                          only emitted for --from claude)\n";
     std::cout << "  --no-bridge-scaffold    Skip bridge handler scaffold (claude only)\n";
+    std::cout << "  --execute-bundle  Run the bundled React app in a headless JS engine and\n";
+    std::cout << "                    walk the materialized DOM (--from claude only).\n";
+    std::cout << "                    Falls back to the static parser on any harness failure.\n";
     std::cout << "  --help            Show this help\n\n";
     std::cout << "Examples:\n";
     std::cout << "  pulp import-design --from figma --file design.json\n";
@@ -112,6 +115,7 @@ int main(int argc, char* argv[]) {
     int render_height = 280;
     std::string bridge_output = "bridge_handlers.cpp";  // claude scaffold output
     bool emit_bridge_scaffold = true;                    // default on for --from claude
+    bool execute_bundle = false;                         // pulp #468 native-runtime path
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--from") == 0 && i + 1 < argc) {
@@ -166,6 +170,8 @@ int main(int argc, char* argv[]) {
             bridge_output = argv[++i];
         } else if (std::strcmp(argv[i], "--no-bridge-scaffold") == 0) {
             emit_bridge_scaffold = false;
+        } else if (std::strcmp(argv[i], "--execute-bundle") == 0) {
+            execute_bundle = true;
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             print_usage();
             return 0;
@@ -242,17 +248,38 @@ int main(int argc, char* argv[]) {
 
     // Parse based on source
     DesignIR ir;
+    std::string runtime_error;  // captures --execute-bundle fallback reason
     try {
         switch (*source) {
             case DesignSource::figma:  ir = parse_figma_json(content); break;
             case DesignSource::stitch: ir = parse_stitch_html(content); break;
             case DesignSource::v0:     ir = parse_v0_tsx(content); break;
             case DesignSource::pencil: ir = parse_pencil_json(content); break;
-            case DesignSource::claude: ir = parse_claude_html(content); break;
+            case DesignSource::claude:
+                if (execute_bundle) {
+                    ClaudeRuntimeOptions ropts;
+                    ropts.error_out = &runtime_error;
+                    // Allow up to 16 MB for the largest realistic Claude
+                    // exports (3.1 MB Spectr app + 1.1 MB react-dom +
+                    // 0.1 MB react with growth headroom).
+                    ropts.max_total_js_bytes = 16 * 1024 * 1024;
+                    ir = parse_claude_html_with_runtime(content, ropts);
+                } else {
+                    ir = parse_claude_html(content);
+                }
+                break;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error parsing " << design_source_name(*source) << " input: " << e.what() << "\n";
         return 1;
+    }
+
+    if (execute_bundle && !runtime_error.empty()) {
+        // Surface the harness-fallback reason so users can tell when the
+        // bundle eval lane bailed out vs. produced a real materialized IR.
+        std::cout << "[execute-bundle] runtime fallback: " << runtime_error << "\n";
+    } else if (execute_bundle) {
+        std::cout << "[execute-bundle] runtime path produced the IR (no fallback)\n";
     }
 
     ir.source = *source;

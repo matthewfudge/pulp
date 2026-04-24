@@ -134,7 +134,8 @@
         "tools/import-design/**",
         "tools/design/**",
         "core/view/src/design_import*",
-        "core/view/include/pulp/view/design_import.hpp"
+        "core/view/include/pulp/view/design_import.hpp",
+        "core/view/js/import-runtime.js"
       ]
     },
     "jsfx-subset": {

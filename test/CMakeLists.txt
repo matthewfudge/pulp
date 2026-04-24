@@ -1175,6 +1175,23 @@ add_executable(pulp-test-web-compat-react-shims test_web_compat_react_shims.cpp)
 target_link_libraries(pulp-test-web-compat-react-shims PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-web-compat-react-shims)
 
+# pulp #468 — Claude Design bundle envelope parser (base64+gzip JSON
+# envelope unpacking, template script-order resolution).
+add_executable(pulp-test-design-import-claude-bundle test_design_import_claude_bundle.cpp)
+target_link_libraries(pulp-test-design-import-claude-bundle
+    PRIVATE pulp::view pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-design-import-claude-bundle)
+
+# pulp #468 — `--execute-bundle` harness end-to-end. Boots the
+# ScriptEngine + WidgetBridge, builds a synthetic React-like bundle on
+# the fly, asserts the materialized DOM walker produces an IR deeper
+# than the loader-shell baseline. The optional [.fixture] case runs
+# against PULP_CLAUDE_BUNDLE_FIXTURE if set (Spectr's editor.html).
+add_executable(pulp-test-design-import-claude-runtime test_design_import_claude_runtime.cpp)
+target_link_libraries(pulp-test-design-import-claude-runtime
+    PRIVATE pulp::view pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-design-import-claude-runtime)
+
 # Screenshot comparison tests (visual diff for design import validation)
 if(APPLE)
     add_executable(pulp-test-screenshot-compare test_screenshot_compare.cpp)
