@@ -38,6 +38,12 @@ serde      = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror  = "1"
 toml       = "0.8"
+# `rand` drives `pulp-rs create`'s VST3 UID generator (4 random u32s
+# per project). The C++ side uses `std::random_device` + `std::mt19937`;
+# `rand = "0.8"` gives us a portable `thread_rng` with the same
+# cryptographically-weak "just make it unique" guarantee. No other
+# command uses it today.
+rand       = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 # `toml_edit` is the comment- and whitespace-preserving writer for
 # `config.toml` — a plain `toml` round-trip would drop inline comments
 # and blank-line layout, which users notice. See `src/config.rs`.
