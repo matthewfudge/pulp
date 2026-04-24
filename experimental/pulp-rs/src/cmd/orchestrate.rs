@@ -130,11 +130,23 @@ pub fn build_with<S: Spawner>(
         return Ok(rc);
     }
     if args.validate {
-        writeln!(
-            out,
-            "pulp-rs build --validate: not ported (validator integration stays on the C++ binary)."
-        )
-        .map_err(io_err)?;
+        // Phase 7: delegate the entire `build --validate` invocation
+        // to pulp-cpp so the validator chain (pluginval / auval /
+        // clap-validator) runs against the same build. Fall back to
+        // a warning + continued Rust build when pulp-cpp is absent,
+        // preserving pre-Phase-7 behaviour for Rust-only sandboxes.
+        let cpp_argv = crate::fallthrough::current_argv_tail();
+        match crate::fallthrough::delegate(&cpp_argv)? {
+            crate::fallthrough::Outcome::Delegated(rc) => return Ok(rc),
+            crate::fallthrough::Outcome::Disabled | crate::fallthrough::Outcome::NotFound => {
+                writeln!(
+                    out,
+                    "pulp-rs build --validate: validator chain not ported; \
+                     install pulp-cpp to enable. Continuing without validation."
+                )
+                .map_err(io_err)?;
+            }
+        }
     }
 
     if !proj.is_configured() {

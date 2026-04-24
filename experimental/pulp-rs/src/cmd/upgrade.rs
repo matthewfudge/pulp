@@ -281,6 +281,20 @@ fn do_install_stub<F: Fetcher>(
     fetcher: &F,
     out: &mut impl Write,
 ) -> Result<()> {
+    // Phase 7: try the real install via pulp-cpp first. When the
+    // legacy binary is present it handles download + binary swap
+    // end-to-end, which is what the user actually asked for. If
+    // pulp-cpp is unavailable, fall back to the pre-Phase-7 stub
+    // (check-only + pending-upgrade marker) so CI / Rust-only
+    // sandboxes still see a coherent result.
+    let cpp_argv = crate::fallthrough::current_argv_tail();
+    if let crate::fallthrough::Outcome::Delegated(rc) = crate::fallthrough::delegate(&cpp_argv)? {
+        if rc == 0 {
+            return Ok(());
+        }
+        return Err(CliError::Other(format!("pulp-cpp upgrade exited {rc}")));
+    }
+
     // Reuse the discovery path; it writes the cache as a side effect.
     // When the JSON lane is active we suppress the human stub-notice
     // after it so callers still get a single valid JSON document.
@@ -288,7 +302,8 @@ fn do_install_stub<F: Fetcher>(
 
     // Plant a pending-upgrade marker so downstream tooling can see
     // that an install was attempted. The real install swap lives on
-    // the C++ side for now — this prototype deliberately stops short.
+    // the C++ side for now — this prototype deliberately stops short
+    // when pulp-cpp isn't around to do the real work.
     if let Some(home) = crate::config::pulp_home() {
         let marker = home.join("pending-upgrade");
         if let Err(e) = std::fs::create_dir_all(&home) {
