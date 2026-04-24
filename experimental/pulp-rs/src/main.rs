@@ -34,8 +34,10 @@ enum Command {
     /// Print the usage banner and exit 0 — parity with C++ `pulp help`.
     Help,
 
-    /// Print installed CLI + plugin versions.
-    Version(VersionArgs),
+    /// Print installed CLI + plugin versions, or `bump <component>`
+    /// / `check [--with-bump-check]`. Phase 5 for `show`, Phase 6e
+    /// for `bump` / `check`.
+    Version(PkgTailArgs),
 
     /// Environment diagnostics. Phase 2 ports `--versions --json`.
     Doctor(DoctorArgs),
@@ -131,13 +133,6 @@ struct PkgTailArgs {
     /// CLI stays byte-exact.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     tail: Vec<String>,
-}
-
-#[derive(clap::Args, Debug)]
-struct VersionArgs {
-    /// Emit the version snapshot as JSON.
-    #[arg(long)]
-    json: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -301,7 +296,18 @@ fn real_main() -> Result<(), ExitCode> {
 
     match command {
         Command::Help => cmd::help::run(&mut out).map_err(|e| map_err(&e)),
-        Command::Version(args) => cmd::version::run(args.json, &mut out).map_err(|e| map_err(&e)),
+        Command::Version(args) => {
+            let parsed = match cmd::version::parse(&args.tail) {
+                Ok(c) => c,
+                Err(CliError::BadUsage(msg)) => {
+                    eprintln!("{msg}");
+                    eprintln!("{}", cmd::version::usage_hint());
+                    return Err(ExitCode::from(2));
+                }
+                Err(other) => return Err(map_err(&other)),
+            };
+            map_exit(cmd::version::run_system(&parsed, &mut out))
+        }
         Command::Doctor(args) => {
             cmd::doctor::run(args.versions, args.json, &mut out).map_err(|e| map_err(&e))
         }
