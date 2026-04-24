@@ -108,9 +108,17 @@
     // ── window.postMessage (no-op so feature-detects pass) ───────────────
     // Real cross-frame postMessage doesn't apply in our JS engine, but
     // some libs read `typeof window.postMessage === 'function'` to choose
-    // between MessageChannel and window-bound paths.
+    // between MessageChannel and window-bound paths. React 18's scheduler
+    // checks `window.postMessage` specifically — and in this runtime
+    // `window` is a distinct object created in web-compat-document.js, so
+    // assigning on globalThis alone doesn't cover the check. Mirror onto
+    // both. (pulp #468 Codex P2.)
     if (typeof globalThis.postMessage !== "function") {
         globalThis.postMessage = function () {};
+    }
+    if (typeof globalThis.window === "object" && globalThis.window !== null
+            && typeof globalThis.window.postMessage !== "function") {
+        globalThis.window.postMessage = globalThis.postMessage;
     }
 
     // ── URLSearchParams ──────────────────────────────────────────────────

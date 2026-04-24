@@ -114,6 +114,64 @@ TEST_CASE("createDocumentFragment reports nodeType=11",
     REQUIRE(result == "11|#document-fragment");
 }
 
+// Codex P1 on PR #730: DocumentFragment MUST flatten on insert — the
+// fragment's children move into the parent and the fragment node itself
+// is never inserted. React 18's reconciler stages commits in fragments,
+// so without this the materialized tree has phantom wrapper divs.
+TEST_CASE("appendChild(fragment) flattens fragment children into the parent",
+          "[view][web-compat][issue-468]") {
+    auto result = run_in_bridge(R"(
+        var parent = document.createElement('div');
+        var frag = document.createDocumentFragment();
+        var a = document.createElement('span');
+        var b = document.createElement('span');
+        var c = document.createElement('span');
+        frag.appendChild(a);
+        frag.appendChild(b);
+        frag.appendChild(c);
+        var before = frag._children.length;
+        parent.appendChild(frag);
+        return [
+            'before=' + before,
+            'parent=' + parent._children.length,
+            'frag=' + frag._children.length,
+            'first=' + (parent._children[0] === a),
+            'last=' + (parent._children[2] === c),
+            'parentOfA=' + (a._parentElement === parent)
+        ].join(',');
+    )");
+    REQUIRE(result ==
+            "before=3,parent=3,frag=0,first=true,last=true,parentOfA=true");
+}
+
+TEST_CASE("insertBefore(fragment) flattens fragment children in order",
+          "[view][web-compat][issue-468]") {
+    auto result = run_in_bridge(R"(
+        var parent = document.createElement('div');
+        var first = document.createElement('span');
+        var third = document.createElement('span');
+        parent.appendChild(first);
+        parent.appendChild(third);
+        var frag = document.createDocumentFragment();
+        var a = document.createElement('span');
+        var b = document.createElement('span');
+        frag.appendChild(a);
+        frag.appendChild(b);
+        // Insert the fragment before `third` — expect first, a, b, third.
+        parent.insertBefore(frag, third);
+        return [
+            'count=' + parent._children.length,
+            'order=' +
+                (parent._children[0] === first) + ',' +
+                (parent._children[1] === a) + ',' +
+                (parent._children[2] === b) + ',' +
+                (parent._children[3] === third),
+            'frag=' + frag._children.length
+        ].join('|');
+    )");
+    REQUIRE(result == "count=4|order=true,true,true,true|frag=0");
+}
+
 // ── Observer constructors exist and are no-ops ──────────────────────────
 
 TEST_CASE("MutationObserver / IntersectionObserver / ResizeObserver / PerformanceObserver are constructible no-ops",
@@ -207,6 +265,21 @@ TEST_CASE("MessageChannel constructs, exposes port1/port2, and postMessage doesn
         return ok ? 'ok' : 'broken';
     )");
     REQUIRE(result == "ok");
+}
+
+// Codex P2 on PR #730: React 18's scheduler specifically checks
+// `window.postMessage` (not just `globalThis.postMessage`). `window` is a
+// distinct object in this runtime, so the scheduler shim needs to mirror.
+TEST_CASE("postMessage is available on both globalThis AND window",
+          "[view][web-compat][issue-468]") {
+    auto result = run_in_bridge(R"(
+        return [
+            'globalThis=' + (typeof globalThis.postMessage),
+            'window=' + (typeof window.postMessage),
+            'same=' + (globalThis.postMessage === window.postMessage)
+        ].join('|');
+    )");
+    REQUIRE(result == "globalThis=function|window=function|same=true");
 }
 
 // ── URLSearchParams ────────────────────────────────────────────────────
