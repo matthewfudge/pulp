@@ -272,6 +272,11 @@ pub fn parse_run_args(args: &[String]) -> RunArgs {
 /// When `target` is `Some`, the filename must match stem-or-full.
 /// When `None`, the first executable regular file that passes
 /// heuristic filters (no "-test", no "cmake", no `.` in name) wins.
+///
+/// On macOS, if the directory scan yields nothing AND no target was
+/// named, the search falls back to `<build>/*.app/Contents/MacOS/*`
+/// and `<app_search_root>/*.app/Contents/MacOS/*` — matching the C++
+/// `find_app_bundle` path in `cmd_run.cpp`.
 #[must_use]
 pub fn find_run_binary(proj: &ActiveProject, target: Option<&str>) -> Option<PathBuf> {
     let roots: Vec<PathBuf> = if proj.standalone {
@@ -300,6 +305,56 @@ pub fn find_run_binary(proj: &ActiveProject, target: Option<&str>) -> Option<Pat
                 if let Some(p) = scan_dir_for_binary(&entry.path(), target) {
                     return Some(p);
                 }
+            }
+        }
+    }
+
+    // Only the no-target auto-pick path falls through to the .app
+    // bundle search on macOS — a named target never matches a bundle
+    // name (C++ behaviour).
+    #[cfg(target_os = "macos")]
+    if target.is_none() {
+        if let Some(p) = find_app_bundle(&proj.build_dir) {
+            return Some(p);
+        }
+        let app_search_root = if proj.standalone {
+            proj.build_dir.join("bin")
+        } else {
+            proj.build_dir.join("examples")
+        };
+        if let Some(p) = find_app_bundle(&app_search_root) {
+            return Some(p);
+        }
+    }
+
+    None
+}
+
+/// macOS-only: find `<search_dir>/*.app/Contents/MacOS/<binary>` where
+/// `<binary>` is the first executable regular file.
+#[cfg(any(target_os = "macos", test))]
+fn find_app_bundle(search_dir: &Path) -> Option<PathBuf> {
+    let rd = std::fs::read_dir(search_dir).ok()?;
+    for entry in rd.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.ends_with(".app") {
+            continue;
+        }
+        let macos_dir = entry.path().join("Contents").join("MacOS");
+        if !macos_dir.is_dir() {
+            continue;
+        }
+        let Ok(inner) = std::fs::read_dir(&macos_dir) else {
+            continue;
+        };
+        for exec in inner.flatten() {
+            let p = exec.path();
+            if p.is_file() && is_executable(&p) {
+                return Some(p);
             }
         }
     }
@@ -1039,6 +1094,31 @@ mod tests {
         }
         let found = find_run_binary(&proj, Some("my-app")).expect("found");
         assert_eq!(found, target);
+    }
+
+    #[test]
+    fn find_app_bundle_picks_first_executable_in_macos_dir() {
+        let td = tempfile::tempdir().unwrap();
+        let bundle = td.path().join("My.app/Contents/MacOS");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let app = bundle.join("My");
+        std::fs::write(&app, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&app).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&app, perms).unwrap();
+        }
+        let found = find_app_bundle(td.path()).expect("found");
+        assert_eq!(found, app);
+    }
+
+    #[test]
+    fn find_app_bundle_ignores_non_app_directories() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(td.path().join("NotAnApp/Contents/MacOS")).unwrap();
+        assert!(find_app_bundle(td.path()).is_none());
     }
 
     #[test]
