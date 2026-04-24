@@ -97,6 +97,56 @@ std::optional<std::vector<uint8_t>> inflate_raw(const uint8_t* data, size_t size
     mz_inflateEnd(&stream);
     return std::nullopt;
 }
+
+// Like inflate_raw, but for a deflate stream that may be followed by trailing
+// bytes (e.g. a gzip trailer + the next member's header). Reports how many
+// input bytes were consumed up to and including MZ_STREAM_END so the caller
+// can continue past the stream. Codex P2 on PR #747 — required for
+// concatenated RFC 1952 gzip members.
+std::optional<std::vector<uint8_t>> inflate_raw_consumed(
+        const uint8_t* data, size_t size, size_t* consumed_in) {
+    std::vector<uint8_t> result;
+    result.resize(size > 0 ? size * 4 : 64);
+
+    mz_stream stream{};
+    stream.next_in = data;
+    stream.avail_in = static_cast<unsigned int>(size);
+    stream.next_out = result.data();
+    stream.avail_out = static_cast<unsigned int>(result.size());
+
+    if (mz_inflateInit2(&stream, -MZ_DEFAULT_WINDOW_BITS) != MZ_OK)
+        return std::nullopt;
+
+    // MZ_NO_FLUSH so the decoder reports MZ_STREAM_END the moment the
+    // deflate stream ends, instead of treating any remaining input as
+    // garbage and erroring out. total_in then names the boundary.
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        int status = mz_inflate(&stream, MZ_NO_FLUSH);
+        if (status == MZ_STREAM_END) {
+            result.resize(stream.total_out);
+            if (consumed_in) *consumed_in = stream.total_in;
+            mz_inflateEnd(&stream);
+            return result;
+        }
+        if (status == MZ_BUF_ERROR || status == MZ_OK) {
+            // Need more output room (or we ran out of input prematurely).
+            // Doubling output is the right move for MZ_BUF_ERROR; if
+            // avail_in is already 0 we'll loop here briefly and the
+            // attempt counter will bound it.
+            size_t old_size = result.size();
+            result.resize(old_size * 2);
+            stream.next_out = result.data() + stream.total_out;
+            stream.avail_out =
+                static_cast<unsigned int>(result.size() - stream.total_out);
+            continue;
+        }
+        mz_inflateEnd(&stream);
+        return std::nullopt;
+    }
+
+    mz_inflateEnd(&stream);
+    return std::nullopt;
+}
 }  // namespace
 
 std::optional<std::vector<uint8_t>> gzip_compress(const uint8_t* data, size_t size, int level) {
@@ -132,36 +182,68 @@ std::optional<std::vector<uint8_t>> gzip_compress(const uint8_t* data, size_t si
 
 std::optional<std::vector<uint8_t>> gzip_decompress(const uint8_t* data, size_t size) {
     // RFC 1952 gzip path — detect via magic bytes 0x1f 0x8b.
+    //
+    // Loop over concatenated members (Codex P2 on PR #747). RFC 1952 §2.2
+    // permits a gzip file to contain multiple members back-to-back; tools
+    // like `pigz`, `cat a.gz b.gz`, and gzip producers that split streams
+    // emit them. Each member has its own header + deflate stream + 8-byte
+    // trailer (CRC32 + ISIZE). The output is the concatenation of every
+    // member's inflated payload.
     if (size >= 2 && data[0] == kGzipID1 && data[1] == kGzipID2) {
-        auto header_len = parse_gzip_header(data, size);
-        if (!header_len || *header_len + kGzipTrailerSize > size)
-            return std::nullopt;
-        const size_t deflate_size = size - *header_len - kGzipTrailerSize;
-        auto inflated = inflate_raw(data + *header_len, deflate_size);
-        if (!inflated)
-            return std::nullopt;
+        std::vector<uint8_t> all;
+        size_t pos = 0;
+        while (pos < size && data[pos] == kGzipID1
+                          && (pos + 1 < size) && data[pos + 1] == kGzipID2) {
+            const uint8_t* member = data + pos;
+            const size_t member_max = size - pos;
 
-        // Verify CRC32 + ISIZE in the trailer. ISIZE is uncompressed-size
-        // mod 2^32; matches truncation on >=4 GiB inputs which we don't
-        // expect in practice but the check is still correct.
-        const uint8_t* trailer = data + size - kGzipTrailerSize;
-        const uint32_t expected_crc =
-            static_cast<uint32_t>(trailer[0]) |
-            (static_cast<uint32_t>(trailer[1]) << 8) |
-            (static_cast<uint32_t>(trailer[2]) << 16) |
-            (static_cast<uint32_t>(trailer[3]) << 24);
-        const uint32_t expected_isize =
-            static_cast<uint32_t>(trailer[4]) |
-            (static_cast<uint32_t>(trailer[5]) << 8) |
-            (static_cast<uint32_t>(trailer[6]) << 16) |
-            (static_cast<uint32_t>(trailer[7]) << 24);
-        const uint32_t actual_crc = static_cast<uint32_t>(
-            mz_crc32(MZ_CRC32_INIT, inflated->data(), inflated->size()));
-        const uint32_t actual_isize =
-            static_cast<uint32_t>(inflated->size() & 0xFFFFFFFFu);
-        if (actual_crc != expected_crc || actual_isize != expected_isize)
-            return std::nullopt;
-        return inflated;
+            auto header_len = parse_gzip_header(member, member_max);
+            if (!header_len || *header_len + kGzipTrailerSize > member_max)
+                return std::nullopt;
+
+            // Deflate stream starts right after the header. Use the
+            // consuming variant so we can find where this member's
+            // deflate ends (and the trailer begins) — the deflate
+            // payload's length isn't recorded anywhere in the header.
+            size_t deflate_consumed = 0;
+            const size_t deflate_max = member_max - *header_len - kGzipTrailerSize;
+            auto inflated = inflate_raw_consumed(
+                member + *header_len, deflate_max, &deflate_consumed);
+            if (!inflated)
+                return std::nullopt;
+
+            // Trailer is exactly the 8 bytes immediately after the
+            // consumed deflate stream.
+            const uint8_t* trailer = member + *header_len + deflate_consumed;
+            if (trailer + kGzipTrailerSize > data + size)
+                return std::nullopt;
+
+            const uint32_t expected_crc =
+                static_cast<uint32_t>(trailer[0]) |
+                (static_cast<uint32_t>(trailer[1]) << 8) |
+                (static_cast<uint32_t>(trailer[2]) << 16) |
+                (static_cast<uint32_t>(trailer[3]) << 24);
+            const uint32_t expected_isize =
+                static_cast<uint32_t>(trailer[4]) |
+                (static_cast<uint32_t>(trailer[5]) << 8) |
+                (static_cast<uint32_t>(trailer[6]) << 16) |
+                (static_cast<uint32_t>(trailer[7]) << 24);
+            const uint32_t actual_crc = static_cast<uint32_t>(
+                mz_crc32(MZ_CRC32_INIT, inflated->data(), inflated->size()));
+            const uint32_t actual_isize =
+                static_cast<uint32_t>(inflated->size() & 0xFFFFFFFFu);
+            if (actual_crc != expected_crc || actual_isize != expected_isize)
+                return std::nullopt;
+
+            all.insert(all.end(), inflated->begin(), inflated->end());
+            pos += *header_len + deflate_consumed + kGzipTrailerSize;
+        }
+        // Stray trailing bytes that don't start another gzip member are
+        // a structural error per RFC 1952 — the well-formed contract is
+        // "concatenated complete members." Reject it rather than silently
+        // returning a partial decode.
+        if (pos != size) return std::nullopt;
+        return all;
     }
 
     // Backward-compatibility zlib (RFC 1950) path — historical callers and

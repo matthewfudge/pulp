@@ -230,3 +230,49 @@ TEST_CASE("gzip_decompress rejects truncated header", "[runtime][zip][issue-468]
     auto out = gzip_decompress(kPartial, sizeof(kPartial));
     REQUIRE_FALSE(out.has_value());
 }
+
+// Codex P2 on PR #747: RFC 1952 §2.2 permits multiple gzip members
+// concatenated back-to-back. Tools like pigz, `cat a.gz b.gz`, and
+// any producer that splits streams emit them. The decoder must inflate
+// each member and concatenate the outputs, not treat the whole input as
+// one member.
+TEST_CASE("gzip_decompress handles concatenated RFC 1952 members",
+          "[runtime][zip][issue-468]") {
+    using namespace pulp::runtime;
+    const std::string a = "first member payload\n";
+    const std::string b = "second member payload\n";
+    const std::string c = "third\n";
+
+    auto ga = gzip_compress(a);
+    auto gb = gzip_compress(b);
+    auto gc = gzip_compress(c);
+    REQUIRE(ga.has_value());
+    REQUIRE(gb.has_value());
+    REQUIRE(gc.has_value());
+
+    // Concatenate the three single-member gzip streams.
+    std::vector<uint8_t> concat;
+    concat.insert(concat.end(), ga->begin(), ga->end());
+    concat.insert(concat.end(), gb->begin(), gb->end());
+    concat.insert(concat.end(), gc->begin(), gc->end());
+
+    auto inflated = gzip_decompress(concat.data(), concat.size());
+    REQUIRE(inflated.has_value());
+    const std::string round_trip(inflated->begin(), inflated->end());
+    REQUIRE(round_trip == a + b + c);
+}
+
+TEST_CASE("gzip_decompress rejects trailing garbage after the last member",
+          "[runtime][zip][issue-468]") {
+    using namespace pulp::runtime;
+    auto g = gzip_compress(std::string{"hello\n"});
+    REQUIRE(g.has_value());
+
+    // Append non-gzip bytes after the trailer; per RFC 1952 a well-formed
+    // stream is "concatenated complete members," so a stray suffix must
+    // be rejected (silent partial decode would lose the suffix).
+    g->push_back('?');
+    g->push_back('?');
+    auto out = gzip_decompress(g->data(), g->size());
+    REQUIRE_FALSE(out.has_value());
+}
