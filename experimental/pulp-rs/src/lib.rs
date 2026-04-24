@@ -81,6 +81,8 @@ pub mod config;
 pub mod diag;
 pub mod error;
 pub mod parse;
+pub mod proc;
+pub mod project;
 pub mod registry;
 pub mod update;
 pub mod version_info;
