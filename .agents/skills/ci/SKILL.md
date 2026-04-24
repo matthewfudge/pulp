@@ -64,6 +64,14 @@ debugged. Do not use them as the primary ship path.
 
 ### Behaviour notes at the current pin (v0.29.0)
 
+- **Release SDKs are expected to include desktop WebView symbols**
+  (pulp #695). `.github/workflows/release-cli.yml` now configures the
+  release build with `-DPULP_BUILD_WEBVIEW=ON`, installs Linux's
+  `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`, and verifies the staged
+  `pulp-view` archive still contains `WebViewPanel` and
+  `make_webview_embedded_resource_fetcher`. If you touch the release
+  workflow or `tools/scripts/release-cli-local.sh`, preserve that
+  contract or WebView-using downstream SDK consumers will link-fail.
 - **macOS binary is signed + notarized** (Shipyard v0.29.0). On
   macOS 26.3+ XProtect skips the deep scan for notarized binaries,
   cutting `shipyard pr` cold-start ~4-5x (from ~5-6s to ~1-1.5s).
