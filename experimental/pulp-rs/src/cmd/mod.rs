@@ -7,10 +7,12 @@
 //!
 //! [`main`]: ../../../src/main.rs
 
+pub mod audit;
 pub mod config;
 pub mod doctor;
 pub mod help;
 pub mod orchestrate;
+pub mod pkg;
 pub mod pr;
 pub mod project;
 pub mod projects;

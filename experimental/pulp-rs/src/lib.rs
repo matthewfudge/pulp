@@ -83,6 +83,7 @@ pub mod diag;
 pub mod error;
 pub mod help;
 pub mod parse;
+pub mod pkg;
 pub mod proc;
 pub mod project;
 pub mod registry;

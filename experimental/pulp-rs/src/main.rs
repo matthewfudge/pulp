@@ -79,6 +79,38 @@ enum Command {
 
     /// Manage the `$PULP_HOME/cache/` directory. Phase 6.
     Cache(CacheArgs),
+
+    /// Add a registry package to the project. Phase 6c.
+    Add(PkgTailArgs),
+
+    /// Remove an installed package. Phase 6c.
+    Remove(PkgTailArgs),
+
+    /// List installed packages (`--json` optional). Phase 6c.
+    List(PkgTailArgs),
+
+    /// Fuzzy-search the package registry. Phase 6c.
+    Search(PkgTailArgs),
+
+    /// Check / apply registry package upgrades. Phase 6c.
+    Update(PkgTailArgs),
+
+    /// Recommend packages by description / file / alternative. Phase 6c.
+    Suggest(PkgTailArgs),
+
+    /// Manage `[project].targets` in pulp.toml. Phase 6c.
+    Target(PkgTailArgs),
+
+    /// Dependency audit: internal flags, or delegate to `tools/audit.py`. Phase 6c.
+    Audit(PkgTailArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct PkgTailArgs {
+    /// The full tail, parsed per-command so flag parity with the C++
+    /// CLI stays byte-exact.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    tail: Vec<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -395,6 +427,39 @@ fn real_main() -> Result<(), ExitCode> {
                 ExitCode::from(2)
             })?;
             cmd::orchestrate::cache(&sub, args.json, &mut out).map_err(|e| map_err(&e))
+        }
+        Command::Add(args) => {
+            let parsed = cmd::pkg::parse_add_args(&args.tail);
+            map_exit(cmd::pkg::run_add(&parsed, &mut out))
+        }
+        Command::Remove(args) => map_exit(cmd::pkg::run_remove(&args.tail, &mut out)),
+        Command::List(args) => {
+            let json = args.tail.iter().any(|a| a == "--json");
+            cmd::pkg::run_list(json, &mut out).map_err(|e| map_err(&e))
+        }
+        Command::Search(args) => {
+            let parsed = cmd::pkg::parse_search_args(&args.tail).map_err(|e| {
+                eprintln!("{e}");
+                ExitCode::from(2)
+            })?;
+            cmd::pkg::run_search(&parsed, &mut out).map_err(|e| map_err(&e))
+        }
+        Command::Update(args) => map_exit(cmd::pkg::run_update(&args.tail, &mut out)),
+        Command::Suggest(args) => {
+            let parsed = cmd::pkg::parse_suggest_args(&args.tail).map_err(|e| {
+                eprintln!("{e}");
+                ExitCode::from(2)
+            })?;
+            map_exit(cmd::pkg::run_suggest(&parsed, &mut out))
+        }
+        Command::Target(args) => {
+            let sub = cmd::pkg::parse_target_sub(&args.tail);
+            map_exit(cmd::pkg::run_target(&sub, &mut out))
+        }
+        Command::Audit(args) => {
+            let (flags, rest) = cmd::audit::parse_args(&args.tail);
+            let spawner = pulp_rs::proc::SystemSpawner;
+            map_exit(cmd::audit::run(flags, &rest, &spawner, &mut out))
         }
     }
 }

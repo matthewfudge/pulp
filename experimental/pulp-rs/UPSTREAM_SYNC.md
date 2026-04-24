@@ -5,9 +5,9 @@
 ## Current anchor
 
 ```
-last_synced_sha = cadf06e2ff97b2bea517e20663dbfe2ab56d4d4a
+last_synced_sha = c3c5db0c5f662a3697e592fd0492ecb8e1c2f852
 last_synced_date = 2026-04-23
-last_synced_phase = Phase 6b (help + project bump/undo + scan + fuzzy suggester + bare-invocation)
+last_synced_phase = Phase 6c (package manager: add/remove/list/search/update/suggest/target + audit)
 ```
 
 ## Watched files
@@ -37,7 +37,10 @@ tools/cli/cmd_project.cpp        # added in Phase 6b (bump/undo; migration-note 
 tools/cli/project_bump.cpp       # added in Phase 6b (pure-logic pin finder, rewrite, undo-batch JSON)
 tools/cli/project_bump.hpp       # added in Phase 6b (header)
 tools/cli/cmd_host.cpp           # added in Phase 6b (scan lives here alongside host; scan-only watched)
-tools/cli/pulp_cli.cpp           # added in Phase 6b (usage banner + fuzzy suggester + bare-invocation)
+tools/cli/pulp_cli.cpp           # added in Phase 6b (usage banner + fuzzy suggester + bare-invocation); Phase 6c adds the inline if-ladder dispatch for add/remove/list/search/update/suggest/target + handle_audit
+tools/cli/package_commands.cpp   # added in Phase 6c — 8 command entrypoints + audit_* helpers
+tools/cli/package_commands.hpp   # added in Phase 6c
+tools/cli/package_registry.hpp   # added in Phase 6c — registry struct + license verdict + on-disk format
 tools/cli/cli_common.cpp         # partial — pulp_home / read_sdk_version / read_user_config_value
 tools/cli/cli_common.hpp         # partial
 ```
@@ -78,6 +81,14 @@ Run the post-implementation audit checklist (below) after every phase. The table
 | `config` | **Ported-partial** | `get/set/list` real; empty-invocation differs; `update.mode` snooze-clear side effect may be missing |
 | `scan` | **Ported-partial** | Phase 6b — file-enumeration stub: walks `~/Library/Audio/Plug-Ins/{CLAP,VST3,Components}` + LV2 dirs, prints `[FMT] N plugin(s)` in the same shape as `cmd_host.cpp cmd_scan`. Plug-in metadata (vendor, version, unique-ID) omitted — the C++ path reads them via `pulp::host::PluginScanner::scan()`, which requires dlopen+factory inspection. Rust stub uses file basename as the "name" column |
 | Fuzzy "Did you mean…?" | **Ported** | Phase 6b — Levenshtein suggester in `src/help.rs`; matches C++ threshold of `dist <= 3`. Emits `Unknown command: <typed>\nDid you mean: pulp-rs <closest>?` for close matches, else falls back to `Run `pulp-rs help` for usage` |
+| `list` | **Ported** | Phase 6c — 3-column table + `--json` array. Lock-file enrichment pulls license + category from registry. |
+| `remove` | **Ported** | Phase 6c — lock edit + CMake regen + `DEPENDENCIES.md` / `NOTICE.md` strip. Matches C++ exit-1 on unknown package. |
+| `update` | **Ported** | Phase 6c — dry-run diff by default; `--apply` writes lock + regenerates `cmake/pulp-packages.cmake`. |
+| `suggest` | **Ported** | Phase 6c — `--description` / `--analyze` / `--alternative` / `--format json`. `--analyze` parses `#include` lines and matches tags. |
+| `target` | **Ported** | Phase 6c — `list` / `add` / `remove` with platform-arch whitelist parity + pulp.toml splice writer. |
+| `add` | **Ported-partial** | Phase 6c — license gate (`Allowed` / `ReviewRequired` / `Rejected` + restricted-vs-rejected tier), platform guard, CMake gen, metadata MD updates. Missing: the C++ path's `--lane <module>` flag (not in scope for 6c). |
+| `search` | **Ported-partial** | Phase 6c — local-registry fuzzy search + JSON. `--refresh` recognised but **no-op** (the C++ path shells out to `curl`; Rust stub prints "no packages found" when refresh is requested on an empty registry). |
+| `audit` | **Ported-partial** | Phase 6c — `--packages` / `--platforms` / `--licenses` run Rust-native checks over lock + registry + targets. No-flag invocation delegates to `tools/audit.py` via `Spawner`. Exit codes OR'd matching C++ `handle_audit`. |
 | `create` | **Deferred** | 712 LOC — template tree + CMake-list injection + random VST3 UID |
 | `design` | **Deferred** | Depends on `design_binding.cpp` |
 | `docs` | **Deferred** | 699 LOC — YAML walker + mkdocs subprocess |
@@ -87,12 +98,11 @@ Run the post-implementation audit checklist (below) after every phase. The table
 | `audio` | **Stays in C++** | Uses `pulp::tools::audio::*` directly |
 | `host` | **Stays in C++** | Uses `pulp::host::{PluginScanner, PluginSlot}` directly |
 | `tool` | **Deferred** | Lives in `pulp::cli::tools::` namespace with registry lookup |
-| `add` / `remove` / `list` / `search` / `update` / `suggest` / `target` / `audit` | **Deferred** | Entire package-manager subsystem in `pulp::cli::pkg::` namespace. 8 commands. Big enough to deserve its own phase (6c / 9) |
 | `ci-local` / `add-component` | **Already-delegate** | Python-script shims — unchanged |
 | `design-debug` / `inspect` / `import-design` / `export-tokens` | **Already-delegate** | Built-binary shims — unchanged |
 | `install` (legacy) | **Already-delegate** | Alias for `cache fetch skia` |
 
-**Revised completion (post-Phase-6b):** ~33% feature-complete (6 Ported + 11 Ported-partial at their core paths) against ~30 distinct user-visible commands, plus two cross-cutting UX parity fixes (bare invocation + fuzzy suggester). Phase 8 (swap) is still NOT ready — the `pulp-cpp` fallthrough path would absorb 7 remaining gaps (`dev`, `create`, `docs`, `design`, `tool`, the 8-command package-manager subsystem counted as one chunk, and full `host`). Deferred list shrank from 12 items to 8 in Phase 6b (removed: `help` bare, `project` singular, `scan` stub, `bare-invocation` UX, plus the `help` subcommand UX item).
+**Revised completion (post-Phase-6c):** ~55% feature-complete (11 Ported + 14 Ported-partial at their core paths) against ~30 distinct user-visible commands, plus two cross-cutting UX parity fixes (bare invocation + fuzzy suggester). Phase 8 (swap) is meaningfully closer — the `pulp-cpp` fallthrough path would absorb 6 remaining gaps (`dev`, `create`, `docs`, `design`, `tool`, and full `host`). Deferred list shrank from 8 items to 5 in Phase 6c (removed: the 8-command package-manager subsystem is now 5 Ported + 3 Ported-partial).
 
 ## Deferred list (needs porting in future phases)
 
@@ -104,9 +114,8 @@ Explicitly classified as deferred with scope reasons — NOT swept under the rug
 - `design` — design-tool binary resolution
 - `tool` (`pulp::cli::tools::`) — registry lookup + install/uninstall/path/run/doctor subcommands
 - `scan` — host-linked path — current Rust port is a file-enumeration stub; deep metadata (vendor, version, unique-id) is deferred because it needs `pulp::host::PluginScanner`
-- Package-manager subsystem (8 commands: `add / remove / list / search / update / suggest / target / audit`)
 
-Phase 6c / 6d / 6e / 7 / 8 scope decisions pick subsets of this list based on swap-day cost-benefit. The package-manager subsystem is a meaningful chunk; `dev` + `create` + `docs` + `design` + `tool` are expensive.
+Phase 6d / 6e / 7 / 8 scope decisions pick subsets of this list based on swap-day cost-benefit. `dev` + `create` + `docs` + `design` + `tool` are each expensive; most likely candidate for Phase 8 swap is the C++ fallthrough path.
 
 ## How to check for drift
 
@@ -140,6 +149,9 @@ git log --oneline <last_synced_sha>..origin/main -- \
     tools/cli/project_bump.hpp \
     tools/cli/cmd_host.cpp \
     tools/cli/pulp_cli.cpp \
+    tools/cli/package_commands.cpp \
+    tools/cli/package_commands.hpp \
+    tools/cli/package_registry.hpp \
     tools/cli/cli_common.cpp \
     tools/cli/cli_common.hpp
 ```
@@ -250,4 +262,5 @@ Each phase that re-syncs against upstream gets an entry below.
 | 2026-04-24 | Phase 4 | f794a16f... | *(fill in via `git log --oneline be3fe863..f794a16f -- watched-files`)* | projects list port; plan absorb any post-Phase-2 version_diag tweaks |
 | 2026-04-23 | Phase 5 | 2a8269c1... | none — `git log f794a16f..2a8269c1 -- tools/cli/version_diag* tools/cli/projects_registry* tools/cli/cmd_doctor.cpp tools/cli/cmd_projects.cpp tools/cli/cli_common.*` is empty, so Phase 2/4 stays current | version + config + upgrade ports; adds cmd_version.cpp, cmd_config.cpp, cmd_upgrade.cpp, update_check.cpp/hpp, update_mode.cpp/hpp to watched files; 8 new fixtures (3 version, 3 config, 3 upgrade templates) |
 | 2026-04-23 | Phase 6 | 2a8269c1... | none since Phase 5 — no commits on any watched file between Phase-5 bump and the Phase-6 kickoff | `pr` (happy-path shipyard delegation, `--native` rejected), `projects add/remove/prune` (extends Phase-4 list), `sdk` status+clean (install stubbed), `build` (no `--watch`), `test`, `run`, `clean`, `status` (partial — no SDK info, no git branch), `cache` status+clean (fetch stubbed). Adds `proc::Spawner` / `project::ActiveProject` shared plumbing; adds cmd_pr.cpp, cmd_sdk.cpp, cmd_build.cpp, cmd_run.cpp, cmd_misc.cpp to watched files. 1 parity fixture (sdk/empty), 10 new integration tests (`orchestrate_parity_test.rs`). Deferred: `dev` (watch_loop), `create` (template tree), `docs` (YAML walker), `design` (design_binding), and the 4 C++-linked commands (host, audio, ship, validate) by policy. |
+| 2026-04-23 | Phase 6c | c3c5db0c... | `git log cadf06e2..c3c5db0c -- tools/cli/package_commands.cpp tools/cli/package_commands.hpp tools/cli/package_registry.hpp tools/cli/pulp_cli.cpp` is empty — the package-manager surface is unchanged between the Phase-6b anchor and the Phase-6c anchor, so the port mirrors the C++ code at `cadf06e2`. | **Ports:** `list` (3-col table + `--json`), `remove` (inverse of add, with metadata strip), `update` (dry-run + `--apply`), `suggest` (description / analyze / alternative / JSON), `target` (list/add/remove + pulp.toml splice writer), `audit` (`--packages` / `--platforms` / `--licenses` internal; default delegates to `tools/audit.py` via `Spawner`). **Ported-partial:** `add` (full license-gate + platform-guard + CMake gen; C++ `--lane` flag not ported), `search` (local registry fuzzy-search + JSON; `--refresh` recognised but a no-op — the C++ path shells out to `curl`). **New modules:** `src/pkg/registry.rs` (JSON registry + lock file readers, `BTreeMap`-backed deterministic iteration, `find_project_root` + `search`), `src/pkg/license.rs` (SPDX verdict + tier + explanation mirrors), `src/pkg/targets.rs` (`PlatformTarget` parse + pulp.toml splice writer), `src/pkg/metadata.rs` (alphabetical `DEPENDENCIES.md` / `NOTICE.md` insertion), `src/pkg/cmake.rs` (pure `FetchContent` renderer — matches C++ line-by-line), `src/cmd/pkg.rs` (7-command dispatch), `src/cmd/audit.rs` (flag parse + Rust-native + Spawner delegate). **Fixtures:** 4 project fixtures (`empty_project`, `one_package`, `multi_platform`, `license_conflict`), each with `CMakeLists.txt` + `core/` marker + `tools/packages/registry.json` + optional `packages.lock.json` / `pulp.toml`. **Tests added:** 29 integration tests (`pkg_parity_test.rs`) + ~60 unit tests across `src/pkg/*` + `src/cmd/pkg.rs` + `src/cmd/audit.rs`; total suite 359 passing. **Deviations:** `search --refresh` is a no-op (no HTTP fetch); `add --lane` not surfaced; `audit` passthrough assumes `python3` on PATH (matches C++ behavior). Adds `tools/cli/package_commands.cpp`, `package_commands.hpp`, `package_registry.hpp` to watched files. |
 | 2026-04-23 | Phase 6b | cadf06e2... | none on already-watched files between Phase 6 and Phase 6b — the 12 commits between `2a8269c1` and `cadf06e2` touched plugin-planning / shipyard pin / CLAP unaligned access / MSVC /utf-8 / stress harness, none of which modify the Rust-mirrored CLI surface. New files added to the watched set: `cmd_project.cpp`, `project_bump.cpp`, `project_bump.hpp`, `cmd_host.cpp` (scan slice only), `pulp_cli.cpp` (banner + fuzzy suggester + bare-invocation). | **Ports:** `help` top-level subcommand + bare-invocation parity (prints usage banner, exit 0); fuzzy "Did you mean…?" suggester with C++ `dist<=3` threshold; `project` singular (`bump` with full flag surface incl. `--all`, `--dry-run`, `--force-dirty`, `--allow-downgrade`, `--verify-builds`, positional + `--to` + `--to=` forms) and `project undo [<timestamp>]` with undo-batch JSON round-trip; `scan` as a file-enumeration stub (walks CLAP/VST3/AU/LV2 system roots, prints `[FMT] N plugin(s)` groups matching the C++ writer shape). **New modules:** `src/help.rs` (shared usage banner + Levenshtein), `src/bump.rs` (pure-logic pin discovery + rewrite + undo-batch serde), `src/cmd/help.rs`, `src/cmd/project.rs`, `src/cmd/scan.rs`. **Fixtures:** 5 project-bump fixtures (fetch-content, pulp_add_project, project-version, dynamic-branch, no-pin); 2 scan fixtures (mixed-formats, empty); 1 help fixture (captured C++ banner). **Tests added:** 7 help-parity, 14 project-parity, 6 scan-parity; total suite 275 passing. **Deviations:** migration-note rendering (`migration_runtime.cpp`) stubbed — Rust port prints a one-line pointer to the C++ binary for per-hop notes. Scan's plug-in-metadata column uses file basename instead of the vendor/version/unique-id the C++ host pulls from dlopen+factory. Bare-invocation exit code is 0 (matches C++ `pulp` argv<2). Unknown-command exits 1 (matches C++); clap's default of 2 is overridden in `clap_exit_code`. |
