@@ -326,6 +326,98 @@ TEST_CASE("first-existing priority path wins even when a healthy copy is further
     REQUIRE(pv.path == fs::path("/usr/local/bin/pluginval"));
 }
 
+TEST_CASE("apply_fixes preserves Broken status when fs::remove fails",
+          "[doctor][validators][issue-743][codex-p1]") {
+    // P1 from Codex review on PR #749. If fs::remove fails (permission
+    // flip mid-doctor, sticky bit, racing process) we MUST NOT report
+    // success — the broken binary is still on disk and `pulp validate`
+    // will keep aborting. The fix counts as still_missing, the report
+    // stays Broken with an "auto-fix failed" reason, and auto_fixed
+    // does not increment.
+    //
+    // Trigger fs::remove failure by passing a non-empty directory:
+    // single-arg fs::remove only removes empty dirs/files, so a dir
+    // with a child returns ec = "Directory not empty". This is the
+    // most portable way to provoke a deterministic ec without needing
+    // elevated privileges or permission-bit fiddling.
+    TempDir tmp;
+    auto fake_dir = tmp.path / "broken-pluginval-dir";
+    fs::create_directories(fake_dir);
+    { std::ofstream f(fake_dir / "child"); f << "x"; }
+
+    std::vector<vd::ValidatorReport> reports;
+    vd::ValidatorReport r;
+    r.name = "pluginval";
+    r.format = "VST3";
+    r.status = vd::ValidatorStatus::Broken;
+    r.path = fake_dir;
+    r.ownership = vd::PathOwnership::UserOwned;
+    r.fixable_without_sudo = true;
+    r.reason = "signature check failed";
+    r.remediation = "rm " + fake_dir.string();
+    reports.push_back(std::move(r));
+
+    auto outcome = vd::apply_fixes(reports, /*dry_run=*/false);
+    REQUIRE(outcome.auto_fixed == 0);
+    REQUIRE(outcome.still_missing == 1);
+    // Path is still on disk — fs::remove couldn't delete a non-empty
+    // dir. That's the whole point: the diagnostic must not lie.
+    REQUIRE(fs::exists(fake_dir));
+    // Status stays Broken so `has_broken_validator` keeps returning
+    // true and `pulp validate` keeps aborting until the user fixes
+    // the underlying problem.
+    REQUIRE(reports.front().status == vd::ValidatorStatus::Broken);
+    REQUIRE(reports.front().reason.find("auto-fix failed") !=
+            std::string::npos);
+    REQUIRE(vd::has_broken_validator(reports));
+    REQUIRE(vd::compute_exit_code(reports) == 1);
+}
+
+TEST_CASE("discovery skips non-executable candidates and falls through to runnable paths",
+          "[doctor][validators][issue-743][codex-p2]") {
+    // P2 from Codex review on PR #749. If a high-priority path exists
+    // but is not executable (zero-byte placeholder, world-writable
+    // text file someone left behind), discovery should skip it and
+    // continue scanning the priority list rather than picking a
+    // garbage file and reporting it as Healthy or Broken.
+    StubEnv env;
+    // pluginval: a stale non-exec file at the rip target, AND a
+    // perfectly healthy cask bundle copy further down the list.
+    env.existing.insert("/usr/local/bin/pluginval");
+    env.owners["/usr/local/bin/pluginval"] = env.current_uid;
+    // No entry in env.verdicts; no entry in env.path_executable for
+    // this path — the StubEnv treats unregistered paths as
+    // non-existent for both predicates, so we need to explicitly
+    // mark the cask path as executable but the rip target as not.
+    // The build() lambda uses `existing` for both path_exists and
+    // path_executable; override path_executable below.
+
+    env.existing.insert(
+        "/Applications/pluginval.app/Contents/MacOS/pluginval");
+    env.owners["/Applications/pluginval.app/Contents/MacOS/pluginval"] = 0;
+    env.verdicts["/Applications/pluginval.app/Contents/MacOS/pluginval"] = true;
+    env.verdict_text["/Applications/pluginval.app/Contents/MacOS/pluginval"] =
+        "accepted\nsource=Notarized Developer ID";
+
+    auto e = env.build();
+    // Override path_executable so /usr/local/bin/pluginval is present
+    // but NOT executable, and the cask path IS executable. This mirrors
+    // the failure mode the P2 review describes (stale non-exec
+    // placeholder masking a runnable cask copy further down).
+    e.path_executable = [](const fs::path& p) {
+        return p == fs::path(
+            "/Applications/pluginval.app/Contents/MacOS/pluginval");
+    };
+
+    auto reports = vd::discover_validators(e);
+    const auto& pv = find_report(reports, "pluginval");
+    // Discovery should have skipped the non-exec placeholder and
+    // landed on the healthy cask path.
+    REQUIRE(pv.status == vd::ValidatorStatus::Healthy);
+    REQUIRE(pv.path == fs::path(
+        "/Applications/pluginval.app/Contents/MacOS/pluginval"));
+}
+
 TEST_CASE("apply_fixes is a no-op on a fully healthy environment",
           "[doctor][validators][issue-743]") {
     // `pulp doctor --validators --fix` on a healthy env must not mutate

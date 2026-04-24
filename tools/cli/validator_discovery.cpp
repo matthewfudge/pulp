@@ -323,6 +323,14 @@ std::vector<ValidatorReport> discover_validators(const DiscoveryEnv& env) {
         auto paths = validator_priority_paths(meta.name, env);
         for (const auto& p : paths) {
             if (!env.path_exists || !env.path_exists(p)) continue;
+            // P2 (Codex review on PR #749): require the candidate to
+            // be executable before selecting it. A stale non-exec
+            // file at a high-priority location (e.g. someone touched
+            // /usr/local/bin/pluginval to a zero-byte placeholder)
+            // would otherwise mask runnable copies further down the
+            // list and produce incorrect Healthy/Broken outcomes.
+            // env.path_executable defaults to access(p, X_OK).
+            if (env.path_executable && !env.path_executable(p)) continue;
             // Found a candidate. Validate it.
             std::string verdict;
             bool ok = env.assess_signature
@@ -392,15 +400,27 @@ FixOutcome apply_fixes(std::vector<ValidatorReport>& reports, bool dry_run) {
                     if (!dry_run) {
                         std::error_code ec;
                         fs::remove(r.path, ec);
-                        // Whether the remove succeeded or not, the
-                        // user-meaningful state is "this path is gone
-                        // (or should be)". Flip the status to Missing
-                        // so the post-fix render shows it for what it
-                        // now is, with the install hint as remediation.
+                        if (ec) {
+                            // P1 (Codex review on PR #749): if
+                            // fs::remove fails (e.g. permission flip
+                            // mid-doctor, sticky bit, racing process)
+                            // the broken binary is still on disk and
+                            // `pulp validate` will still abort on it
+                            // next run. Keep the report as Broken so
+                            // the user sees the failure verbatim;
+                            // bump `still_missing` so summaries
+                            // distinguish "tried-and-failed" from
+                            // "auto-fixed". Do NOT increment auto_fixed.
+                            r.reason = "auto-fix failed: " + ec.message();
+                            ++o.still_missing;
+                            break;
+                        }
+                        // Successful removal: flip to Missing so the
+                        // post-fix render shows the install hint as
+                        // the next step.
                         r.status = ValidatorStatus::Missing;
-                        r.reason = ec ? ("removed with errors: " + ec.message())
-                                      : "broken copy removed; reinstall via the install hint";
-                        // Restore the install hint as remediation.
+                        r.reason = "broken copy removed; "
+                                   "reinstall via the install hint";
                         for (const auto& m : kValidators) {
                             if (r.name == m.name) {
                                 r.remediation = m.install_hint;
