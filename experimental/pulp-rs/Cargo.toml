@@ -6,30 +6,56 @@
 # It exists to evaluate whether rewriting `tools/cli/*.cpp` in Rust
 # is worthwhile. See GitHub issue #686 for the decision framework.
 #
-# Phase 1: scaffold only (clap skeleton + stub doctor command).
-# Phase 2: port `pulp doctor --versions --json` to parity with C++.
-#
 # This crate is intentionally NOT wired into CMake. It runs only via cargo.
 
 [package]
-name = "pulp-rs"
-version = "0.0.1"
-edition = "2021"
+name        = "pulp-rs"
+version     = "0.0.1"
+edition     = "2021"
+rust-version = "1.79"
 description = "Experimental Rust prototype of the Pulp CLI (not for production)"
-publish = false
+license     = "MIT"
+publish     = false
+
+# The library crate is the surface that tests, benches, and the binary
+# all depend on. Keeping `main.rs` a thin wrapper means integration
+# tests can link directly against `pulp_rs::*` without subprocess spawn.
+[lib]
+name = "pulp_rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "pulp-rs"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
-semver = "1"
-anyhow = "1"
-regex = "1"
+anyhow     = "1"
+clap       = { version = "4", features = ["derive"] }
+is-terminal = "0.4"
+regex      = "1"
+semver     = "1"
+serde      = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror  = "1"
+toml       = "0.8"
 
 [dev-dependencies]
-tempfile = "3"
+assert_cmd = "2"
+criterion  = { version = "0.5", features = ["html_reports"] }
+insta      = { version = "1", features = ["json"] }
+predicates = "3"
+proptest   = "1"
+tempfile   = "3"
+
+[[bench]]
+name    = "hot_paths"
+harness = false
+
+# Release profile tuned for a fast, small CLI binary.
+# These settings matter most when benchmarking cold-start time — we want
+# the binary the user would ship, not a debug build.
+[profile.release]
+codegen-units = 1
+lto           = "thin"     # "fat" LTO regresses compile time 3x for ~2% binary-size gain
+panic         = "abort"
+strip         = "symbols"

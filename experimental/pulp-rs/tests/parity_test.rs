@@ -34,7 +34,10 @@ const CLI_VERSION: &str = "0.37.0";
 
 fn fixture_dir(name: &str) -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    PathBuf::from(manifest).join("tests").join("fixtures").join(name)
+    PathBuf::from(manifest)
+        .join("tests")
+        .join("fixtures")
+        .join(name)
 }
 
 fn run_pulp_rs(cwd: &Path, extra_env: &[(&str, &str)]) -> String {
@@ -43,7 +46,7 @@ fn run_pulp_rs(cwd: &Path, extra_env: &[(&str, &str)]) -> String {
     cmd.args(["doctor", "--versions", "--json"]);
     cmd.current_dir(cwd);
     // Ensure the prototype's CLI version matches the captured C++
-    // fixtures. Also clear PULP_HOME unless the caller overrides it.
+    // fixtures. Also clear `PULP_HOME` unless the caller overrides it.
     cmd.env("PULP_RS_CLI_VERSION", CLI_VERSION);
     for (k, v) in extra_env {
         cmd.env(k, v);
@@ -57,9 +60,9 @@ fn run_pulp_rs(cwd: &Path, extra_env: &[(&str, &str)]) -> String {
     String::from_utf8(out.stdout).expect("pulp-rs stdout not utf8")
 }
 
-/// Per-fixture extra env overrides (beyond PULP_RS_CLI_VERSION).
-/// `registered_projects` needs PULP_HOME pointing at a planted
-/// projects.json; everything else uses an isolated empty PULP_HOME.
+/// Per-fixture extra env overrides (beyond `PULP_RS_CLI_VERSION`).
+/// `registered_projects` needs `PULP_HOME` pointing at a planted
+/// projects.json; everything else uses an isolated empty `PULP_HOME`.
 fn env_for_fixture(name: &str) -> Vec<(String, String)> {
     let tmp = tempfile::tempdir().expect("tempdir");
     let home = tmp.path().to_path_buf();
@@ -160,11 +163,7 @@ fn fixtures_match_cpp_expected_json() {
             eprintln!("--- expected (C++) ---\n{expected}");
             eprintln!("--- got (Rust) ---\n{got}");
         }
-        panic!(
-            "{} of {} fixtures diverged",
-            failures.len(),
-            FIXTURES.len()
-        );
+        panic!("{} of {} fixtures diverged", failures.len(), FIXTURES.len());
     }
 }
 

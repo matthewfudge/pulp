@@ -47,8 +47,8 @@ fn doctor_versions_json_has_required_shape() {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    let parsed: Value = serde_json::from_slice(&output.stdout)
-        .expect("pulp-rs stdout was not valid JSON");
+    let parsed: Value =
+        serde_json::from_slice(&output.stdout).expect("pulp-rs stdout was not valid JSON");
 
     let obj = parsed
         .as_object()

@@ -1,20 +1,16 @@
-// pulp-rs — experimental Rust prototype of the Pulp CLI.
-//
-// Phase 1: clap skeleton + stubbed `doctor --versions [--json]`.
-// Not production. Not shipped. Not wired into CMake. See README.md.
+//! `pulp-rs` binary entry point.
+//!
+//! This file is intentionally thin: parse flags with `clap`, pick the
+//! right `cmd::*` dispatcher, map library errors to process exit codes
+//! that match the C++ CLI.
 
+use std::io::{self, Write};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use pulp_rs::cmd;
 
-mod cmake_version;
-mod doctor;
-mod findings;
-mod plugin_json;
-mod projects_registry;
-mod pulp_toml;
-mod semver_compat;
-
+/// Prototype version string printed by `pulp-rs version`.
 const VERSION_STRING: &str = "pulp-rs v0.0.1-experimental";
 
 #[derive(Parser, Debug)]
@@ -22,7 +18,7 @@ const VERSION_STRING: &str = "pulp-rs v0.0.1-experimental";
     name = "pulp-rs",
     about = "Experimental Rust prototype of the Pulp CLI (not for production)",
     disable_version_flag = true,
-    disable_help_subcommand = true,
+    disable_help_subcommand = true
 )]
 struct Cli {
     #[command(subcommand)]
@@ -34,13 +30,16 @@ enum Command {
     /// Print the prototype's version string.
     Version,
 
-    /// Diagnostics (stubbed in Phase 1; will port `pulp doctor` in Phase 2).
+    /// Environment diagnostics. Phase 2 ports `--versions --json`.
     Doctor(DoctorArgs),
+
+    /// Manage the `~/.pulp/projects.json` registry. Phase 4 ports `list`.
+    Projects(ProjectsArgs),
 }
 
 #[derive(clap::Args, Debug)]
 struct DoctorArgs {
-    /// Emit the version-diagnostics view (will match `pulp doctor --versions`).
+    /// Emit the version-diagnostics view (matches `pulp doctor --versions`).
     #[arg(long)]
     versions: bool,
 
@@ -49,49 +48,89 @@ struct DoctorArgs {
     json: bool,
 }
 
+#[derive(clap::Args, Debug)]
+struct ProjectsArgs {
+    /// `list` (or `ls`). Other subcommands (`add`, `remove`) are not
+    /// ported yet — use the C++ CLI for those.
+    subcommand: Option<String>,
+
+    /// Emit JSON instead of the human-readable table.
+    #[arg(long)]
+    json: bool,
+}
+
 fn main() -> ExitCode {
-    // We handle unknown subcommands ourselves to match Pulp CLI convention
-    // (exit 2, "unknown subcommand" on stderr). clap's default would exit 2
-    // but with a different message; intercept via try_parse.
+    match real_main() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(code) => code,
+    }
+}
+
+fn real_main() -> Result<(), ExitCode> {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
-        Err(err) => {
-            // clap already prints its own error; distinguish "unknown subcommand"
-            // by kind for parity with the C++ CLI.
-            use clap::error::ErrorKind;
-            match err.kind() {
-                ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument => {
-                    eprintln!("unknown subcommand");
-                    return ExitCode::from(2);
-                }
-                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
-                    let _ = err.print();
-                    return ExitCode::SUCCESS;
-                }
-                _ => {
-                    let _ = err.print();
-                    return ExitCode::from(2);
-                }
-            }
-        }
+        Err(err) => return Err(clap_exit_code(&err)),
     };
 
-    let Some(command) = cli.command else {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    let command = cli.command.ok_or_else(|| {
         eprintln!("unknown subcommand");
-        return ExitCode::from(2);
-    };
+        ExitCode::from(2)
+    })?;
 
     match command {
         Command::Version => {
-            println!("{VERSION_STRING}");
-            ExitCode::SUCCESS
+            writeln!(out, "{VERSION_STRING}").map_err(|e| io_exit(&e))?;
+            Ok(())
         }
-        Command::Doctor(args) => match doctor::run(args.versions, args.json) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
+        Command::Doctor(args) => {
+            cmd::doctor::run(args.versions, args.json, &mut out).map_err(|e| {
                 eprintln!("pulp-rs: {e}");
                 ExitCode::from(1)
-            }
-        },
+            })
+        }
+        Command::Projects(args) => {
+            // Treat `pulp-rs projects` with no subcommand as `list` —
+            // consistent with the C++ CLI printing help + exit(1), but
+            // the prototype's default target today is strictly `list`
+            // since that's what Phase 4 ports.
+            let args_vec = args.subcommand.clone().map(|s| vec![s]).unwrap_or_default();
+            let sub = cmd::projects::parse_sub(&args_vec).map_err(|_| {
+                eprintln!("pulp-rs projects: unknown subcommand");
+                eprintln!("  only `list` / `ls` is ported; use the C++ CLI for add/remove");
+                ExitCode::from(2)
+            })?;
+            cmd::projects::run(sub, args.json, &mut out).map_err(|e| {
+                eprintln!("pulp-rs: {e}");
+                ExitCode::from(1)
+            })
+        }
     }
+}
+
+fn clap_exit_code(err: &clap::error::Error) -> ExitCode {
+    use clap::error::ErrorKind;
+    match err.kind() {
+        ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument => {
+            // Match the C++ CLI's wording exactly — the parity test
+            // on subcommand errors greps for this string.
+            eprintln!("unknown subcommand");
+            ExitCode::from(2)
+        }
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+            let _ = err.print();
+            ExitCode::SUCCESS
+        }
+        _ => {
+            let _ = err.print();
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn io_exit(e: &io::Error) -> ExitCode {
+    eprintln!("pulp-rs: {e}");
+    ExitCode::from(1)
 }
