@@ -50,6 +50,17 @@ Ask the user or detect from context:
 - Run `pulp import-design --from claude --file <path>` — the parser delegates to the Stitch HTML pipeline and tags the IR as Claude.
 - The CLI also writes a `bridge_handlers.cpp` scaffold next to the generated JS (override path with `--bridge-output`, skip with `--no-bridge-scaffold`). The scaffold demonstrates registering `pulp::view::EditorBridge` handlers and attaching to a `WebViewPanel` (or future `JsRuntime`).
 
+**Claude Design export file shapes (2026-04-24)**:
+Claude's "standalone HTML" export comes in two shapes — know which one you have before you spend time on the output:
+
+1. **Static HTML** — plain DOM markup (or Claude artifacts that render without a build step). Parses cleanly through the current static walker; produces real `pulp::view` output plus the bridge scaffold.
+
+2. **Bundled-React envelope** — the inline `<script>` is NOT raw JS. It's a JSON envelope mapping UUID → `{mime, compressed, data}`, where `data` is **base64-encoded gzip-compressed** asset payloads (JS bundles + woff2 fonts). A single export observed in the wild was 1.86 MB on disk / 4.3 MB of JS inflated across 3 assets + 13 woff2 fonts. The JS half is typically `react.development.js` + the app code.
+
+**The static walker handles case 1 today.** For case 2 it captures ~9 elements of shell (loader div, `#__bundler_loading` / `#__bundler_thumbnail`, `<style>` and `<script>` bodies as labels) — NOT the actual editor UI, because the UI only materializes after React executes the bundled JS. Consumer-side diagnostic: if `--from claude` output reports `"9 elements: 1 containers, 0 widgets, 8 labels"` and the input file is >500 KB, it's almost certainly a bundled-React export hitting case 2.
+
+Case 2 requires the **native-runtime import path** (`--execute-bundle`, tracked in pulp #468 + #731): unpack the envelope → run the JS in Pulp's JS engine against the `web-compat-*` polyfill layer → walk the materialized DOM → lower to `pulp::view` calls. Until that lane ships, case-2 inputs should either be re-exported as static HTML or deferred. The web-compat shims landed in pulp #730 (nodeType/nodeName on Element, MessageChannel/queueMicrotask polyfills, observer stubs) — that's the prerequisite; the harness itself lands in #731.
+
 **File-based fallback**:
 - Read the file and parse based on --from source type
 

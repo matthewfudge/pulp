@@ -157,6 +157,52 @@ Flags:
 Automation (crons, agents) should branch on exit code 3 specifically rather
 than parsing error strings.
 
+### Quiescent working tree required — no edits during a shipyard run
+
+`shipyard run` and `shipyard ship` read the live working tree throughout
+the configure / build / test stages — there is no sandbox, snapshot, or
+content-hash guard at the shipyard pin as of v0.46.0. Any file write
+between `shipyard run` starting and a stage reading the tree corrupts
+the run non-deterministically. This matters because:
+
+- The build is ~30 minutes of SSH/local work; you lose the whole cycle,
+  not a checkpoint.
+- The failure surfaces as a misleading compile error deep in the log
+  (e.g. `error: no member named 'X' in 'Y'` when a .cpp file referenced
+  in CMakeLists.txt was deleted on a parallel branch mid-configure).
+  Nothing in the error points at the root cause.
+- Switching branches in the same worktree also counts as an edit — git
+  changes the files on disk.
+
+**Discipline (agent-applicable)**:
+
+- Before starting any edit in the repo, check whether a `shipyard run`
+  or `shipyard ship` is in flight locally or queued. Shipyard prints a
+  dim one-liner at run start warning about this (Shipyard #238 fix);
+  agents running it via `run_in_background` must still self-enforce
+  since the banner scrolls past.
+- For genuine parallel work on two branches, use separate git worktrees
+  (`git worktree add ../pulp-other-feature other-branch`) — each
+  worktree has its own file tree, so edits don't cross-contaminate.
+- If you must interleave, queue the shipyard ship **after** all edits
+  are committed and the branch is static.
+
+**Recovery when this bites**:
+
+- `shipyard ship` exits non-zero with a real failure log; the PR is not
+  merged. Revert to a clean tree state on the target branch
+  (`git checkout <branch>` + `git status` shows no diff), then re-run
+  `shipyard ship`. It should pass the second time.
+- Don't diagnose the original compile error — it's a race symptom, not
+  a real bug in your PR.
+
+**Longer-term fix tracked**: Shipyard #249 proposes tree-hash drift
+detection (fail-fast at each stage boundary instead of silent 30-minute
+builds). Until that ships, the discipline above is load-bearing.
+
+Related: Shipyard #238 (doc-only fix, landed 2026-04-24), #249 (P2
+follow-up with tree-hash proposal).
+
 ## Tool selection: Shipyard (primary)
 
 **Shipyard is Pulp's primary CI tool.** All merges, validations, and
