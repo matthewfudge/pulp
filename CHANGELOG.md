@@ -8,6 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0401"></a>
+## [0.40.1] - 2026-04-23
+
+- codex/release 0.40.1 ([#698](https://github.com/danielraffel/pulp/pull/698))
+- chore: bump Shipyard pin v0.37.0 → v0.38.0 + revert chcp workaround ([#699](https://github.com/danielraffel/pulp/pull/699))
+- codex/issue 695 release sdk webview ([#696](https://github.com/danielraffel/pulp/pull/696))
+- fix(test): keep Catch2 failure output in POSIX stress loop (#669) ([#676](https://github.com/danielraffel/pulp/pull/676))
+- ci(windows): set UTF-8 code page before ctest on Namespace runners ([#697](https://github.com/danielraffel/pulp/pull/697))
+- codex/issue 682 cli sdk compat gate ([#691](https://github.com/danielraffel/pulp/pull/691))
+
 <a id="v0400"></a>
 ## [0.40.0] - 2026-04-23
 
@@ -27,10 +37,6 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - chore: bump Shipyard pin v0.26.0 → v0.29.0 ([#668](https://github.com/danielraffel/pulp/pull/668))
 
 <a id="v0380"></a>
-## [0.40.0]
-
-## [0.39.0]
-
 ## [0.38.0] - 2026-04-22
 
 - fix(view): drop explicit bridge close from AU editor dealloc paths ([#667](https://github.com/danielraffel/pulp/pull/667))
@@ -599,6 +605,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.40.1]: https://github.com/danielraffel/pulp/releases/tag/v0.40.1
 [0.40.0]: https://github.com/danielraffel/pulp/releases/tag/v0.40.0
 [0.39.0]: https://github.com/danielraffel/pulp/releases/tag/v0.39.0
 [0.38.0]: https://github.com/danielraffel/pulp/releases/tag/v0.38.0
