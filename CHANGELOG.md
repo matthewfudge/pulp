@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0421"></a>
+## [0.42.1] - 2026-04-24
+
+- test: split state and ship hardening from #647 ([#666](https://github.com/danielraffel/pulp/pull/666))
+- fix(release): add contents:write to sign-and-release macOS job (#724) ([#725](https://github.com/danielraffel/pulp/pull/725))
+- coverage: lift events async updater support ([#648](https://github.com/danielraffel/pulp/pull/648))
+
 <a id="v0420"></a>
 ## [0.42.0] - 2026-04-24
 
@@ -636,6 +643,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.42.1]: https://github.com/danielraffel/pulp/releases/tag/v0.42.1
 [0.42.0]: https://github.com/danielraffel/pulp/releases/tag/v0.42.0
 [0.41.1]: https://github.com/danielraffel/pulp/releases/tag/v0.41.1
 [0.41.0]: https://github.com/danielraffel/pulp/releases/tag/v0.41.0
