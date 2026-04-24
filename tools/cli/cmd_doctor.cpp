@@ -1,6 +1,7 @@
 // cmd_doctor.cpp — pulp doctor command
 
 #include "cli_common.hpp"
+#include "fetchcontent_cache.hpp"
 #include "projects_registry.hpp"
 #include "version_diag.hpp"
 
@@ -54,17 +55,19 @@ int cmd_doctor(const std::vector<std::string>& args) {
     bool dry_run = false;
     bool versions_mode = false;   // --versions: issue #499 Slice 1
     bool scan_parents = false;    // --scan-parents: issue #552 Slice 1b
-    bool json_mode = false;       // --json (only meaningful with --versions today)
+    bool caches_mode = false;     // --caches: issue #744
+    bool json_mode = false;       // --json (works with --versions and --caches)
     for (auto& arg : args) {
         if (arg == "--fix") fix_mode = true;
         else if (arg == "--ci") ci_mode = true;
         else if (arg == "--dry-run") dry_run = true;
         else if (arg == "--versions") versions_mode = true;
         else if (arg == "--scan-parents") scan_parents = true;
+        else if (arg == "--caches") caches_mode = true;
         else if (arg == "--json") json_mode = true;
         else if (arg.rfind("--", 0) == 0) {
             std::cerr << "pulp doctor: unknown flag: " << arg << "\n";
-            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--scan-parents] [--json]\n";
+            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--scan-parents] [--caches] [--json]\n";
             return 2;
         } else if (mode.empty()) {
             mode = arg;
@@ -73,8 +76,72 @@ int cmd_doctor(const std::vector<std::string>& args) {
 
     if (!mode.empty() && mode != "android" && mode != "ios") {
         std::cerr << "pulp doctor: unknown subcommand '" << mode << "'\n";
-        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--scan-parents] [--json]\n";
+        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--scan-parents] [--caches] [--json]\n";
         return 2;
+    }
+
+    // `pulp doctor --caches` (issue #744) — discovery + healing for the
+    // shared FetchContent cache (`~/Library/Caches/Pulp/fetchcontent-src`
+    // on macOS, equivalent paths on Linux/Windows). Short-circuits the
+    // rest of the doctor pipeline for the same reason --versions does:
+    // the cache check has its own exit-code semantics (1 on any [!!]
+    // entry) and mixing them would muddy the contract.
+    if (caches_mode) {
+        namespace fcc = pulp::cli::fetchcontent_cache;
+        auto cache_root = fcc::default_cache_root();
+
+        // Pull declared refs from the active project's CMakeLists.txt
+        // (or the SDK's CMakeLists for source-tree mode). Stale-commit
+        // detection only fires when we have something to compare
+        // against; a missing CMakeLists is fine — entries fall through
+        // to symlink/ownership-only classification.
+        fcc::DeclaredRefs refs;
+        if (!active_root.empty()) {
+            refs = fcc::parse_declared_refs_from_file(
+                active_root / "CMakeLists.txt");
+        }
+        auto env = fcc::make_real_env(cache_root, refs);
+        auto entries = fcc::discover_fetchcontent_cache(env);
+
+        if (json_mode) {
+            return fcc::render_report_json(entries, cache_root, std::cout);
+        }
+
+        int rc = fcc::render_report(entries, cache_root, std::cout);
+
+        if (fix_mode && fcc::any_unhealthy(entries)) {
+            std::cout << "\n";
+            if (dry_run) {
+                std::cout << "Dry-run — would remove fixable entries:\n";
+            } else {
+                std::cout << "Healing fixable entries...\n";
+            }
+            auto results = fcc::apply_fixes(entries, dry_run);
+            int healed = 0, failed = 0;
+            for (size_t i = 0; i < results.size(); ++i) {
+                const auto& r = results[i];
+                const auto& e = entries[i];
+                if (r.outcome == fcc::FixOutcome::Skipped) continue;
+                std::cout << "  " << fcc::fix_outcome_label(r.outcome)
+                          << ": " << e.name;
+                if (!r.error.empty()) std::cout << " (" << r.error << ")";
+                std::cout << "\n";
+                if (r.outcome == fcc::FixOutcome::Removed) ++healed;
+                if (r.outcome == fcc::FixOutcome::Failed) ++failed;
+            }
+            std::cout << "\nHealed " << healed << " entr"
+                      << (healed == 1 ? "y" : "ies");
+            if (failed > 0) std::cout << ", " << failed << " failed";
+            std::cout << ".\n";
+            // Re-run discovery so the exit code reflects post-fix
+            // state. A successful heal pass should drop us back to 0.
+            if (!dry_run && healed > 0 && failed == 0) {
+                auto env2 = fcc::make_real_env(cache_root, refs);
+                auto entries2 = fcc::discover_fetchcontent_cache(env2);
+                rc = fcc::any_unhealthy(entries2) ? 1 : 0;
+            }
+        }
+        return rc;
     }
 
     // `pulp doctor --versions` is a dedicated diagnostic (issue #499

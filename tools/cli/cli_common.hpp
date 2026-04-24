@@ -120,6 +120,19 @@ fs::path read_sdk_checkout_hint(const fs::path& project_root);
 bool enforce_project_cli_compatibility(const fs::path& project_root,
                                        const std::string& command_name,
                                        bool allow_unsupported_sdk);
+
+// FetchContent cache preflight (issue #744). Discovers the shared
+// FetchContent source cache for the active project and renders a
+// compact remediation message to stderr if any entry is in a `[!!]`
+// state. Returns true when the caller may proceed, false when the
+// caller should abort with a non-zero exit code.
+//
+// Honours `PULP_SKIP_CACHE_PREFLIGHT=1` as an opt-out — useful for CI
+// environments that can't auto-heal and want to fail at configure
+// time anyway. Honours an empty `project_root` (returns true; no
+// CMakeLists to read).
+bool cache_preflight_check(const fs::path& project_root,
+                           const std::string& command_name);
 std::string read_user_config_value(const std::string& section, const std::string& key);
 
 // Write/update `key = "value"` under `[section]` in ~/.pulp/config.toml.

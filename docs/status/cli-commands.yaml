@@ -4,7 +4,7 @@
 commands:
   - name: build
     status: usable
-    summary: Configure and build the project. Auto-detects CMake reconfiguration needs. Works with repo and standalone projects.
+    summary: Configure and build the project. Auto-detects CMake reconfiguration needs. Works with repo and standalone projects. When configure is needed, runs the FetchContent cache preflight from `pulp doctor --caches` first and aborts with a clear remediation message on any dangling-symlink / stale-commit entry — bypass via `PULP_SKIP_CACHE_PREFLIGHT=1` (#744).
     args:
       - name: --js-engine
         kind: option
@@ -19,7 +19,7 @@ commands:
 
   - name: test
     status: usable
-    summary: Run the test suite via CTest. Builds first if needed. Works with repo and standalone projects.
+    summary: Run the test suite via CTest. Builds first if needed. When a cold-start build is triggered, runs the FetchContent cache preflight from `pulp doctor --caches` first and aborts with a clear remediation message on any dangling-symlink / stale-commit entry — bypass via `PULP_SKIP_CACHE_PREFLIGHT=1` (#744). Works with repo and standalone projects.
     args:
       - name: extra_args
         kind: passthrough
@@ -342,14 +342,14 @@ commands:
 
   - name: doctor
     status: usable
-    summary: Diagnose environment issues. Default mode checks compiler, CMake, git-lfs, platform deps, and either the active checkout or the installed SDK workflow. Optional `android` and `ios` subcommands check mobile dev environments and emit per-host install hints (#8 / #355). `--versions` surfaces CLI/SDK/Plugin version skew (#499).
+    summary: Diagnose environment issues. Default mode checks compiler, CMake, git-lfs, platform deps, and either the active checkout or the installed SDK workflow. Optional `android` and `ios` subcommands check mobile dev environments and emit per-host install hints (#8 / #355). `--versions` surfaces CLI/SDK/Plugin version skew (#499). `--caches` audits the FetchContent shared-source cache for dangling symlinks, stale-commit entries, and root-owned dirs (#744); `--caches --fix` auto-heals user-owned drift without sudo.
     args:
       - name: target
         kind: positional
         description: Optional `android` or `ios` to check the mobile dev environment instead of the default core checks.
       - name: --fix
         kind: flag
-        description: Auto-fix issues where possible (with confirmation)
+        description: Auto-fix issues where possible (with confirmation). With --caches, removes dangling symlinks and stale-commit entries the user owns; root-owned entries are reported but never auto-deleted.
       - name: --ci
         kind: flag
         description: Non-interactive mode, exit codes only
@@ -362,9 +362,12 @@ commands:
       - name: --scan-parents
         kind: flag
         description: With --versions, also walk the CWD's ancestor directories for CMakeLists.txt files invoking pulp_add_* macros and surface them inline (never auto-registered; opt-in escape hatch for projects created outside `pulp create`)
+      - name: --caches
+        kind: flag
+        description: Audit the Pulp FetchContent shared-source cache (~/Library/Caches/Pulp/fetchcontent-src on macOS, equivalent paths elsewhere). Exits 1 on any dangling-symlink, stale-commit, or root-owned entry. Same discovery code runs as a preflight inside `pulp build` and `pulp test`; bypass via PULP_SKIP_CACHE_PREFLIGHT=1 (#744).
       - name: --json
         kind: flag
-        description: With --versions, emit the diagnostic as a single JSON object (stable schema — see reference/cli.md#doctor)
+        description: With --versions or --caches, emit the diagnostic as a single JSON object (stable schema — see reference/cli.md#doctor)
     docs: reference/cli.md#doctor
 
   - name: clean

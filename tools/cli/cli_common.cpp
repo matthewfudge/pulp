@@ -2,6 +2,7 @@
 
 #include "cli_common.hpp"
 
+#include "fetchcontent_cache.hpp"
 #include "version_diag.hpp"
 
 #include <algorithm>
@@ -817,6 +818,36 @@ bool enforce_project_cli_compatibility(const fs::path& project_root,
     std::cerr << "Use `pulp doctor --versions` to inspect the mismatch.\n";
     std::cerr << "If you need to bypass this guard, rerun with "
               << "`--allow-unsupported-sdk` (unsupported).\n";
+    return false;
+}
+
+bool cache_preflight_check(const fs::path& project_root,
+                           const std::string& command_name) {
+    namespace fcc = pulp::cli::fetchcontent_cache;
+
+    // Escape hatch — CI environments that intentionally maintain a
+    // sealed cache can opt out. Mirrors the `--allow-unsupported-sdk`
+    // shape used by the version preflight above.
+    if (const char* skip = std::getenv("PULP_SKIP_CACHE_PREFLIGHT");
+        skip && skip[0] != '\0' && std::string(skip) != "0") {
+        return true;
+    }
+
+    auto cache_root = fcc::default_cache_root();
+    if (cache_root.empty()) return true;  // no derivable cache root → nothing to check
+
+    fcc::DeclaredRefs refs;
+    if (!project_root.empty()) {
+        refs = fcc::parse_declared_refs_from_file(
+            project_root / "CMakeLists.txt");
+    }
+    auto env = fcc::make_real_env(cache_root, refs);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+    if (!fcc::any_unhealthy(entries)) return true;
+
+    std::cerr << "Error: " << command_name
+              << " blocked by FetchContent cache health check.\n";
+    (void)fcc::render_preflight(entries, cache_root, std::cerr);
     return false;
 }
 

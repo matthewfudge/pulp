@@ -72,6 +72,18 @@ int cmd_build(const std::vector<std::string>& args) {
         return 1;
     }
 
+    // FetchContent cache preflight (issue #744). Cheap (<1s on a
+    // typical cache); fails fast with a clear remediation message
+    // instead of letting `cmake configure` blow up 200 lines into the
+    // log on a dangling symlink. Skipped only when the user has set
+    // PULP_SKIP_CACHE_PREFLIGHT or when no cache root is derivable.
+    // Only runs when we'd actually be invoking configure — incremental
+    // rebuilds shouldn't pay the (small) cache-scan cost.
+    if (needs_configure
+        && !cache_preflight_check(project_root, "pulp build")) {
+        return 1;
+    }
+
     if (needs_configure) {
         std::string configure_cmd = "cmake -B " + build_dir.string() + " -S " + project_root.string();
         append_windows_visual_studio_generator_args(configure_cmd);

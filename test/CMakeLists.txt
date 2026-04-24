@@ -146,6 +146,22 @@ target_link_libraries(pulp-test-cli-projects-registry PRIVATE
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-projects-registry)
 
+# CLI FetchContent cache discovery + heal (#744): pure-logic tests for
+# the four `pulp doctor --caches` acceptance scenarios — healthy /
+# dangling-symlink / stale-commit / root-owned. fetchcontent_cache.cpp
+# is deliberately free of cli_common link deps so the tests link it
+# standalone (same pattern as projects_registry / version_diag).
+add_executable(pulp-test-cli-fetchcontent-cache
+    test_cli_fetchcontent_cache.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/fetchcontent_cache.cpp
+)
+target_include_directories(pulp-test-cli-fetchcontent-cache PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-cli-fetchcontent-cache PRIVATE
+    Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-fetchcontent-cache)
+
 # CLI package commands (#643): local-only tests for target/search/list/
 # update/suggest/audit/add/remove behavior against staged project files
 # and registry fixtures. Stays off remote fetch / archive extraction /
