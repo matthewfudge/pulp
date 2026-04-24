@@ -265,6 +265,42 @@ test that asserts `-LE validation` stays in the workflow; it is wired
 into `.github/workflows/workflow-lint.yml` so any future PR touching
 `.github/workflows/**` runs it automatically.
 
+### `sign-and-release.yml` must declare `contents: write` (#724)
+
+Every release workflow that uses `softprops/action-gh-release@v2` with
+`generate_release_notes: true` — or that otherwise PATCHes the release
+entry — needs an explicit job-level `permissions: contents: write`
+block. Without it the job inherits a read-only token on `push: tags`
+events in many repo configurations, and the final `Create GitHub
+Release` step fails with:
+
+```
+Skip retry — your GitHub token/PAT does not have the required
+permission to create a release
+##[error]Resource not accessible by integration
+```
+
+Everything up to that point — checkout, VST3 SDK clone, configure,
+build, codesign, notarize, artifact upload — succeeds, and the
+pipeline still exits non-zero. macOS-signed artifacts never land on
+the release. Classic silent-release-failure pattern.
+
+The fix is a four-line addition at the job header:
+
+```yaml
+jobs:
+  build-and-sign-macos:
+    runs-on: macos-14
+    permissions:
+      contents: write
+```
+
+Cross-reference: `release-cli.yml` already sets this on its
+release-creating job (line ~360). If you add a new release-time
+workflow, do the same. The regression test
+`tools/scripts/test_release_workflow_test_step.py` now includes
+`SignAndReleaseContentsWriteTest` to block reintroduction.
+
 ## Doctor Checks
 
 `pulp doctor` validates Android toolchain:

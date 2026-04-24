@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Regression tests for the v0.41.0 release-pipeline failure modes (#720).
+"""Regression tests for the release-pipeline failure modes (#720, #724).
 
-Two distinct failures were silently breaking the release pipeline:
+Three distinct failures were silently breaking the release pipeline:
 
 1. **sign-and-release.yml** ran the full ctest suite, which includes
    auval-Pulp* validation tests. On hosted GitHub macOS runners, the
@@ -22,8 +22,19 @@ Two distinct failures were silently breaking the release pipeline:
    Pulp's documented JS engine policy (CLAUDE.md) is QuickJS on Linux,
    so the CLI must not link JSC-GTK at all.
 
+3. **sign-and-release.yml** had no `permissions:` block, so the job
+   inherited a read-only GITHUB_TOKEN. The final `Create GitHub
+   Release` step (softprops/action-gh-release@v2 with
+   generate_release_notes: true) then failed with "Resource not
+   accessible by integration" — the generate-release-notes endpoint
+   requires contents:write. Every prior step succeeded, but the
+   pipeline still exited non-zero and macOS artifacts never landed on
+   the release. Filed as pulp #724 after v0.41.1 exposed the gap (the
+   Linux + auval fixes got past the earlier failures, surfacing this
+   one).
+
 These tests assert the workflow keeps the load-bearing flags so a
-future edit cannot silently re-introduce either failure mode.
+future edit cannot silently re-introduce any of the failure modes.
 
 Run:
     python3 tools/scripts/test_release_workflow_test_step.py
@@ -169,6 +180,55 @@ class ReleaseCliLinuxNoWebView(unittest.TestCase):
             "PULP_BUILD_WEBVIEW=ON so the SDK tarball still ships "
             "WebViewPanel symbols. See the `Prepare SDK build dir (Linux)` "
             "step in release-cli.yml.",
+        )
+
+
+class SignAndReleaseContentsWriteTest(unittest.TestCase):
+    """#724: sign-and-release.yml must declare `contents: write` on its
+    macOS job so the final `Create GitHub Release` step can call the
+    generate-release-notes API. Without this scope, every sign-and-release
+    run fails at the last step with `Resource not accessible by integration`
+    and macOS-signed artifacts never land on the release — classic silent
+    release failure pattern (CLAUDE.md § Silent release failures are critical).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        root = Path(__file__).resolve().parent.parent.parent
+        cls.workflow_path = root / ".github" / "workflows" / "sign-and-release.yml"
+        cls.text = cls.workflow_path.read_text(encoding="utf-8")
+
+    def test_macos_job_declares_contents_write(self) -> None:
+        """The build-and-sign-macos job must have `contents: write`.
+
+        The regex matches across the job's header to the first `steps:`
+        key, so reordering within the header is fine — only the presence
+        of the scope matters.
+        """
+        # Match the build-and-sign-macos job block up to its `steps:`.
+        macos_job = re.search(
+            r"build-and-sign-macos:\s*\n([\s\S]{1,800}?)^\s{4}steps:",
+            self.text,
+            re.MULTILINE,
+        )
+        self.assertTrue(
+            macos_job,
+            "sign-and-release.yml must define a `build-and-sign-macos` job "
+            "with a `steps:` block. If the job was renamed, update this test "
+            "to match.",
+        )
+        job_header = macos_job.group(1)
+        self.assertRegex(
+            job_header,
+            r"permissions:\s*\n\s*contents:\s*write",
+            "sign-and-release.yml `build-and-sign-macos` job must declare "
+            "`permissions: contents: write` (issue #724). Without this, the "
+            "final `Create GitHub Release` step fails with `Resource not "
+            "accessible by integration` because softprops/action-gh-release@v2 "
+            "calls the generate-release-notes API which requires the scope. "
+            "Every sign-and-release run then silently fails, macOS-signed "
+            "artifacts never land on the release, and the next release is a "
+            "ghost.",
         )
 
 
