@@ -23,8 +23,10 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 // Concrete JsRuntime definition so attach_native_runtime can link in
@@ -235,6 +237,26 @@ TEST_CASE("EditorBridge::get_uint: clamps negatives to zero, handles type coerci
     CHECK(EditorBridge::get_uint(obj, "absent", 5) == 5u);
 }
 
+// Codex P2 on PR #711: floats above SIZE_MAX must clamp, not invoke
+// undefined behavior via direct float→size_t cast.
+TEST_CASE("EditorBridge::get_uint: clamps floats above SIZE_MAX to size_t max",
+          "[editor_bridge][issue-709]")
+{
+    const double huge = 1e30;        // way above 2^64 ≈ 1.8e19
+    const double huger = 1e300;      // exponent overflow territory
+    auto obj = choc::value::createObject("");
+    obj.addMember("huge_f64",  huge);
+    obj.addMember("huger_f64", huger);
+    obj.addMember("huge_f32",  static_cast<float>(1e30f));
+    obj.addMember("neg_huge",  -1e20);
+
+    constexpr auto kMax = std::numeric_limits<std::size_t>::max();
+    CHECK(EditorBridge::get_uint(obj, "huge_f64",  0) == kMax);
+    CHECK(EditorBridge::get_uint(obj, "huger_f64", 0) == kMax);
+    CHECK(EditorBridge::get_uint(obj, "huge_f32",  0) == kMax);
+    CHECK(EditorBridge::get_uint(obj, "neg_huge",  99) == 0u);  // negative still clamps to 0
+}
+
 TEST_CASE("EditorBridge::get_string: returns empty on missing or wrong-type",
           "[editor_bridge][issue-709]")
 {
@@ -333,34 +355,22 @@ TEST_CASE("EditorBridge::dispatch_webview_message: malformed payload_json errors
     CHECK(response_has_error(r, "malformed JSON"));
 }
 
-// ── Move semantics ───────────────────────────────────────────────────────
+// ── Non-movable / non-copyable (Codex P1 on PR #711) ─────────────────────
+//
+// attach_webview installs a callback that captures a reference to the
+// bridge. Allowing moves would let an attached bridge be relocated out
+// from under that callback. EditorBridge enforces non-movability at
+// the type level so the mistake surfaces at compile time, and these
+// static_asserts lock that contract in.
 
-TEST_CASE("EditorBridge: move constructor preserves registered handlers",
-          "[editor_bridge][issue-709]")
-{
-    EditorBridge a;
-    int hits = 0;
-    a.add_handler("x", [&](const auto&) { ++hits; return EditorBridge::ok_response(); });
-
-    EditorBridge b{std::move(a)};
-    CHECK(b.has_handler("x"));
-    CHECK(b.handler_count() == 1);
-    CHECK(response_ok(b.dispatch_json(R"({"type":"x"})")));
-    CHECK(hits == 1);
-}
-
-TEST_CASE("EditorBridge: move assignment transfers handlers",
-          "[editor_bridge][issue-709]")
-{
-    EditorBridge src, dst;
-    int hits = 0;
-    src.add_handler("y", [&](const auto&) { ++hits; return EditorBridge::ok_response(); });
-
-    dst = std::move(src);
-    CHECK(dst.has_handler("y"));
-    CHECK(response_ok(dst.dispatch_json(R"({"type":"y"})")));
-    CHECK(hits == 1);
-}
+static_assert(!std::is_copy_constructible_v<EditorBridge>,
+              "EditorBridge must not be copyable");
+static_assert(!std::is_copy_assignable_v<EditorBridge>,
+              "EditorBridge must not be copy-assignable");
+static_assert(!std::is_move_constructible_v<EditorBridge>,
+              "EditorBridge must not be move-constructible");
+static_assert(!std::is_move_assignable_v<EditorBridge>,
+              "EditorBridge must not be move-assignable");
 
 // ── Renderer attach helpers ──────────────────────────────────────────────
 //

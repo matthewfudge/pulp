@@ -4,6 +4,9 @@
 
 #include <choc/text/choc_JSON.h>
 
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -16,8 +19,7 @@ struct EditorBridge::Impl {
 
 EditorBridge::EditorBridge() : impl_(std::make_unique<Impl>()) {}
 EditorBridge::~EditorBridge() = default;
-EditorBridge::EditorBridge(EditorBridge&&) noexcept = default;
-EditorBridge& EditorBridge::operator=(EditorBridge&&) noexcept = default;
+// Move ops are deleted in the header — see comment there.
 
 void EditorBridge::add_handler(std::string_view type, Handler fn) {
     impl_->handlers[std::string(type)] = std::move(fn);
@@ -137,13 +139,42 @@ std::size_t EditorBridge::get_uint(const choc::value::ValueView& v,
                                    const char* key,
                                    std::size_t dflt) noexcept
 {
+    // Clamp BOTH ends before casting. C++ float-to-int conversion is
+    // undefined behavior when the source value doesn't fit the target
+    // type, and a malformed editor payload can easily exceed SIZE_MAX
+    // (or even overflow the float's exponent). Codex flagged this on
+    // PR #711.
+    constexpr auto kMaxAsDouble = static_cast<double>(
+        std::numeric_limits<std::size_t>::max());
+    constexpr auto kMaxAsInt64 = std::numeric_limits<std::size_t>::max() >
+                                  static_cast<std::size_t>(
+                                      std::numeric_limits<int64_t>::max())
+                                      ? std::numeric_limits<int64_t>::max()
+                                      : static_cast<int64_t>(
+                                          std::numeric_limits<std::size_t>::max());
+
+    auto clamp_double = [](double x) -> std::size_t {
+        if (x < 0.0) return std::size_t{0};
+        if (!(x < kMaxAsDouble)) return std::numeric_limits<std::size_t>::max();
+        return static_cast<std::size_t>(x);
+    };
+
     try {
         if (!v.isObject() || !v.hasObjectMember(key)) return dflt;
         const auto e = v[key];
-        if (e.isInt32())   { const auto x = e.getInt32();   return x < 0 ? std::size_t{0} : static_cast<std::size_t>(x); }
-        if (e.isInt64())   { const auto x = e.getInt64();   return x < 0 ? std::size_t{0} : static_cast<std::size_t>(x); }
-        if (e.isFloat64()) { const auto x = e.getFloat64(); return x < 0 ? std::size_t{0} : static_cast<std::size_t>(x); }
-        if (e.isFloat32()) { const auto x = e.getFloat32(); return x < 0 ? std::size_t{0} : static_cast<std::size_t>(x); }
+        if (e.isInt32()) {
+            const auto x = e.getInt32();
+            return x < 0 ? std::size_t{0} : static_cast<std::size_t>(x);
+        }
+        if (e.isInt64()) {
+            const auto x = e.getInt64();
+            if (x < 0) return std::size_t{0};
+            // On 32-bit size_t, an int64 may exceed SIZE_MAX.
+            if (x > kMaxAsInt64) return std::numeric_limits<std::size_t>::max();
+            return static_cast<std::size_t>(x);
+        }
+        if (e.isFloat64()) return clamp_double(e.getFloat64());
+        if (e.isFloat32()) return clamp_double(static_cast<double>(e.getFloat32()));
         return dflt;
     } catch (...) {
         return dflt;

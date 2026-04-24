@@ -88,10 +88,20 @@ public:
     EditorBridge();
     ~EditorBridge();
 
+    // Non-copyable AND non-movable.
+    //
+    // attach_webview() and attach_native_runtime() install callbacks
+    // that reference this bridge's internal state. Allowing moves
+    // would let an attached bridge be relocated out from under those
+    // callbacks (vector reallocation, std::optional emplace, move-
+    // construction of an editor that contains one), and the next
+    // inbound message would dereference a moved-from instance with
+    // a null impl. Requiring construction-in-place surfaces that
+    // mistake at compile time. (Codex review on PR #711.)
     EditorBridge(const EditorBridge&) = delete;
     EditorBridge& operator=(const EditorBridge&) = delete;
-    EditorBridge(EditorBridge&&) noexcept;
-    EditorBridge& operator=(EditorBridge&&) noexcept;
+    EditorBridge(EditorBridge&&) = delete;
+    EditorBridge& operator=(EditorBridge&&) = delete;
 
     /// Register a handler for the given message `type`. Replacing an
     /// existing handler for the same type is allowed and silent.

@@ -68,9 +68,14 @@ public:
     EditorBridge();
     ~EditorBridge();
 
-    // Move-only.
-    EditorBridge(EditorBridge&&) noexcept;
-    EditorBridge& operator=(EditorBridge&&) noexcept;
+    // Non-copyable AND non-movable. attach_webview / attach_native_runtime
+    // install callbacks that reference this bridge instance, so moving an
+    // attached bridge would dangle them. Construct in-place; static_asserts
+    // in the test suite lock this in. (Codex P1 review on PR #711.)
+    EditorBridge(const EditorBridge&)            = delete;
+    EditorBridge& operator=(const EditorBridge&) = delete;
+    EditorBridge(EditorBridge&&)                 = delete;
+    EditorBridge& operator=(EditorBridge&&)      = delete;
 
     // Registration.
     void          add_handler   (std::string_view type, Handler fn);
