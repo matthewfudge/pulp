@@ -5,9 +5,9 @@
 ## Current anchor
 
 ```
-last_synced_sha = f794a16f0c04f1444701a235e9fd1830a01472dc
-last_synced_date = 2026-04-24
-last_synced_phase = Phase 2 + Phase 4 (doctor --versions --json + projects list)
+last_synced_sha = 2a8269c1db2c8137b1f0180f5a9d530ea0594bd1
+last_synced_date = 2026-04-23
+last_synced_phase = Phase 5 (version + config + upgrade)
 ```
 
 ## Watched files
@@ -21,7 +21,14 @@ tools/cli/projects_registry.cpp
 tools/cli/projects_registry.hpp
 tools/cli/cmd_doctor.cpp
 tools/cli/cmd_projects.cpp       # added in Phase 4
-tools/cli/cli_common.cpp         # partial — only pulp_home / read_sdk_version / similar readers
+tools/cli/cmd_version.cpp        # added in Phase 5
+tools/cli/cmd_config.cpp         # added in Phase 5
+tools/cli/cmd_upgrade.cpp        # added in Phase 5
+tools/cli/update_check.cpp       # added in Phase 5
+tools/cli/update_check.hpp       # added in Phase 5
+tools/cli/update_mode.cpp        # added in Phase 5 (banner snooze/clear helpers)
+tools/cli/update_mode.hpp        # added in Phase 5
+tools/cli/cli_common.cpp         # partial — pulp_home / read_sdk_version / read_user_config_value
 tools/cli/cli_common.hpp         # partial
 ```
 
@@ -42,6 +49,13 @@ git log --oneline <last_synced_sha>..origin/main -- \
     tools/cli/projects_registry.hpp \
     tools/cli/cmd_doctor.cpp \
     tools/cli/cmd_projects.cpp \
+    tools/cli/cmd_version.cpp \
+    tools/cli/cmd_config.cpp \
+    tools/cli/cmd_upgrade.cpp \
+    tools/cli/update_check.cpp \
+    tools/cli/update_check.hpp \
+    tools/cli/update_mode.cpp \
+    tools/cli/update_mode.hpp \
     tools/cli/cli_common.cpp \
     tools/cli/cli_common.hpp
 ```
@@ -73,3 +87,4 @@ Each phase that re-syncs against upstream gets an entry below.
 |---|---|---|---|---|
 | 2026-04-24 | Phase 2 initial | be3fe863... | N/A — first port | doctor --versions --json port; 5 fixtures captured |
 | 2026-04-24 | Phase 4 | f794a16f... | *(fill in via `git log --oneline be3fe863..f794a16f -- watched-files`)* | projects list port; plan absorb any post-Phase-2 version_diag tweaks |
+| 2026-04-23 | Phase 5 | 2a8269c1... | none — `git log f794a16f..2a8269c1 -- tools/cli/version_diag* tools/cli/projects_registry* tools/cli/cmd_doctor.cpp tools/cli/cmd_projects.cpp tools/cli/cli_common.*` is empty, so Phase 2/4 stays current | version + config + upgrade ports; adds cmd_version.cpp, cmd_config.cpp, cmd_upgrade.cpp, update_check.cpp/hpp, update_mode.cpp/hpp to watched files; 8 new fixtures (3 version, 3 config, 3 upgrade templates) |
