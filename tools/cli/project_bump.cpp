@@ -356,9 +356,8 @@ PinSite find_toml_string_value(const std::string& toml_source,
                                const std::string& key,
                                PinKind kind) {
     PinSite site;
-    std::regex re("(^[ \\t]*" + key + "[ \\t]*=[ \\t]*\")([^\"]*)(\")",
-                  std::regex_constants::ECMAScript |
-                  std::regex_constants::multiline);
+    std::regex re("(^|[\\r\\n])[ \\t]*" + key + "[ \\t]*=[ \\t]*\"([^\"]*)(\")",
+                  std::regex_constants::ECMAScript);
     std::smatch m;
     if (!std::regex_search(toml_source, m, re)) return site;
     site.kind = kind;

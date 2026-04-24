@@ -162,6 +162,23 @@ TEST_CASE("pulp.toml scalar detector rewrites sdk_version and sdk_path",
     REQUIRE(path.current_pin == "/Users/example/.pulp/sdk/local/0.40.0");
 }
 
+TEST_CASE("pulp.toml scalar detector handles CRLF line endings",
+          "[project-bump][issue-244]") {
+    std::string toml =
+        "[pulp]\r\n"
+        "sdk_version = \"0.40.0\"\r\n"
+        "sdk_path = \"C:/Users/example/.pulp/sdk/0.40.0\"\r\n";
+
+    auto version = pb::find_toml_string_value(toml, "sdk_version",
+                                              pb::PinKind::PulpTomlSdkVersion);
+    REQUIRE(version.kind == pb::PinKind::PulpTomlSdkVersion);
+    REQUIRE(version.current_pin == "0.40.0");
+
+    auto rewritten = pb::rewrite_pin(toml, version, "0.41.0", false);
+    REQUIRE(rewritten);
+    REQUIRE(rewritten->find("sdk_version = \"0.41.0\"") != std::string::npos);
+}
+
 // ── Dynamic pin refusal ────────────────────────────────────────────────────
 
 TEST_CASE("refuse_dynamic_pin rejects branch names and SHAs",
