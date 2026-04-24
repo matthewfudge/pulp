@@ -8,6 +8,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest import mock
 
 
@@ -103,6 +104,116 @@ class CoveragercTests(unittest.TestCase):
             ]
         )
         self.assertEqual(rpc._normalized_source_roots(surfaces), ["tools", "core/view/js"])
+
+    def test_report_source_files_recurses_into_non_package_tooling_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            for rel_path in (
+                "tools/audit.py",
+                "tools/test_audit.py",
+                "tools/packages/freshness_check.py",
+                "tools/packages/validate_registry.py",
+                "tools/packages/_private.py",
+                "core/view/js/embed_js.py",
+            ):
+                path = root / rel_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("print('covered by inventory')\n", encoding="utf-8")
+
+            with mock.patch.object(rpc, "REPO_ROOT", root):
+                files = rpc._report_source_files(
+                    ["tools", "core/view/js"],
+                    [
+                        "tools/test_*.py",
+                        "tools/packages/_*.py",
+                        "core/view/js/_*.py",
+                    ],
+                )
+
+            self.assertEqual(
+                [path.relative_to(root).as_posix() for path in files],
+                [
+                    "tools/audit.py",
+                    "tools/packages/freshness_check.py",
+                    "tools/packages/validate_registry.py",
+                    "core/view/js/embed_js.py",
+                ],
+            )
+
+    def test_touch_report_source_files_marks_unexecuted_sources_measured(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            source = root / "tools/packages/freshness_check.py"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("print('zero hit source')\n", encoding="utf-8")
+            omitted = root / "tools/packages/_private.py"
+            omitted.write_text("print('not reportable')\n", encoding="utf-8")
+
+            touched: list[str] = []
+            fake_data = mock.Mock()
+            fake_data.touch_file.side_effect = touched.append
+            fake_cov = mock.Mock()
+            fake_cov.get_data.return_value = fake_data
+
+            with mock.patch.object(rpc, "REPO_ROOT", root):
+                rpc._touch_report_source_files(
+                    fake_cov,
+                    ["tools"],
+                    ["tools/packages/_*.py"],
+                )
+
+            self.assertEqual(touched, ["tools/packages/freshness_check.py"])
+
+    def test_rewrite_cobertura_filenames_uses_repo_relative_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            for rel_path in (
+                "tools/audit.py",
+                "tools/deps/audit.py",
+                "core/view/js/embed_js.py",
+            ):
+                path = root / rel_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("print('source')\n", encoding="utf-8")
+
+            xml = root / "coverage.xml"
+            xml.write_text(
+                """<?xml version="1.0" ?>
+<coverage>
+  <sources>
+    <source>core/view/js</source>
+    <source>tools</source>
+  </sources>
+  <packages>
+    <package name="">
+      <classes>
+        <class name="audit.py" filename="audit.py" />
+        <class name="deps/audit.py" filename="deps/audit.py" />
+        <class name="embed_js.py" filename="embed_js.py" />
+      </classes>
+    </package>
+  </packages>
+</coverage>
+""",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(rpc, "REPO_ROOT", root):
+                rpc._rewrite_cobertura_filenames(xml)
+
+            tree = ET.parse(xml)
+            self.assertEqual(
+                [source.text for source in tree.findall("./sources/source")],
+                ["."],
+            )
+            self.assertEqual(
+                [node.get("filename") for node in tree.findall(".//class")],
+                [
+                    "tools/audit.py",
+                    "tools/deps/audit.py",
+                    "core/view/js/embed_js.py",
+                ],
+            )
 
 
 class MainFlowTests(unittest.TestCase):
