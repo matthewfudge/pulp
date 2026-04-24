@@ -15,13 +15,22 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "pulp/view/editor_bridge.hpp"
+#include "pulp/view/web_view.hpp"
 
 #include <choc/containers/choc_Value.h>
 #include <choc/text/choc_JSON.h>
 
 #include <atomic>
+#include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
+#include <utility>
+
+// Concrete JsRuntime definition so attach_native_runtime can link in
+// tests. The framework forward-declares JsRuntime; the stub body
+// never touches members, so an empty class satisfies the reference.
+namespace pulp::view { class JsRuntime {}; }
 
 using Catch::Approx;
 using pulp::view::EditorBridge;
@@ -338,4 +347,104 @@ TEST_CASE("EditorBridge: move constructor preserves registered handlers",
     CHECK(b.handler_count() == 1);
     CHECK(response_ok(b.dispatch_json(R"({"type":"x"})")));
     CHECK(hits == 1);
+}
+
+TEST_CASE("EditorBridge: move assignment transfers handlers",
+          "[editor_bridge][issue-709]")
+{
+    EditorBridge src, dst;
+    int hits = 0;
+    src.add_handler("y", [&](const auto&) { ++hits; return EditorBridge::ok_response(); });
+
+    dst = std::move(src);
+    CHECK(dst.has_handler("y"));
+    CHECK(response_ok(dst.dispatch_json(R"({"type":"y"})")));
+    CHECK(hits == 1);
+}
+
+// ── Renderer attach helpers ──────────────────────────────────────────────
+//
+// attach_webview wires a WebViewPanel's set_message_handler through to
+// the bridge's dispatch path. A minimal in-process WebViewPanel stub
+// exercises that wiring without requiring a real WebView backend.
+
+namespace {
+
+class StubWebViewPanel : public pulp::view::WebViewPanel {
+public:
+    // Exposed so tests can drive the bridge-registered handler
+    // (simulating JS `window.postMessage`).
+    std::string deliver(const pulp::view::WebViewMessage& message) {
+        REQUIRE(static_cast<bool>(handler_));
+        return handler_(message);
+    }
+
+    // ── Pure virtuals from WebViewPanel ─────────────────────────────
+    bool is_ready() const override { return true; }
+    void set_ready_handler(ReadyHandler) override {}
+    pulp::view::NativeViewHandle native_handle() override { return {}; }
+    void navigate(const std::string&) override {}
+    void set_html(const std::string&) override {}
+    void evaluate_js(const std::string&) override {}
+    void evaluate_js(const std::string&, EvalCallback) override {}
+    void bind(const std::string&, JsCallback) override {}
+    void set_message_handler(MessageHandler handler) override {
+        handler_ = std::move(handler);
+    }
+    void post_message(const pulp::view::WebViewMessage&) override {}
+    void set_size(uint32_t, uint32_t) override {}
+
+private:
+    MessageHandler handler_;
+};
+
+} // namespace
+
+TEST_CASE("EditorBridge::attach_webview routes WebViewPanel messages through dispatch",
+          "[editor_bridge][issue-709]")
+{
+    EditorBridge bridge;
+    int called_with = 0;
+    bridge.add_handler("set_value", [&](const auto& payload) {
+        called_with = static_cast<int>(
+            EditorBridge::get_float(payload, "value", 0.0f));
+        return EditorBridge::ok_response();
+    });
+
+    StubWebViewPanel panel;
+    bridge.attach_webview(panel);
+
+    pulp::view::WebViewMessage msg;
+    msg.type = "set_value";
+    msg.payload_json = R"({"value":42})";
+    const auto resp = panel.deliver(msg);
+    CHECK(response_ok(resp));
+    CHECK(called_with == 42);
+
+    // Unknown type through the WebView path still yields the
+    // framework-level unknown_type error.
+    msg.type = "not_registered";
+    msg.payload_json = "null";
+    const auto resp2 = panel.deliver(msg);
+    CHECK(response_has_error(resp2, "unknown message type"));
+}
+
+TEST_CASE("EditorBridge::attach_native_runtime is a no-op stub for #468",
+          "[editor_bridge][issue-709][issue-468]")
+{
+    // The native-JS-runtime attach path is a declared seam for pulp
+    // #468; the body is intentionally empty until JsRuntime exposes a
+    // concrete postMessage primitive. This test locks in the stub's
+    // no-throw, no-observable-effect behavior so a future wiring
+    // change can't silently mutate the surface without updating here.
+    EditorBridge bridge;
+    bridge.add_handler("ping", [](const auto&) { return EditorBridge::ok_response(); });
+    const auto count_before = bridge.handler_count();
+
+    pulp::view::JsRuntime rt;
+    bridge.attach_native_runtime(rt, "spectr");
+    CHECK(bridge.handler_count() == count_before);
+
+    // Dispatch still works after the stub attach — no state mutated.
+    CHECK(response_ok(bridge.dispatch_json(R"({"type":"ping"})")));
 }

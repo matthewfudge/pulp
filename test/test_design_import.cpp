@@ -10,12 +10,35 @@ TEST_CASE("parse_design_source recognizes valid sources", "[view][import]") {
     REQUIRE(parse_design_source("stitch") == DesignSource::stitch);
     REQUIRE(parse_design_source("v0") == DesignSource::v0);
     REQUIRE(parse_design_source("pencil") == DesignSource::pencil);
+    REQUIRE(parse_design_source("claude") == DesignSource::claude);
     REQUIRE_FALSE(parse_design_source("unknown").has_value());
 }
 
 TEST_CASE("design_source_name returns display names", "[view][import]") {
     REQUIRE(std::string(design_source_name(DesignSource::figma)) == "Figma");
     REQUIRE(std::string(design_source_name(DesignSource::v0)) == "v0");
+    REQUIRE(std::string(design_source_name(DesignSource::claude)) == "Claude Design");
+}
+
+// pulp #709 / #468 — Claude Design imports are manually-exported HTML
+// parsed via the Stitch HTML pipeline and re-tagged as Claude.
+TEST_CASE("parse_claude_html delegates to Stitch pipeline and tags source",
+          "[view][import][issue-709][issue-468]") {
+    const auto html = std::string{
+        R"(<!DOCTYPE html><html><body>
+              <div class="container">
+                <h1>Hello Claude</h1>
+                <button>Click me</button>
+              </div>
+           </body></html>)"};
+
+    const auto ir = parse_claude_html(html);
+    REQUIRE(ir.source == DesignSource::claude);
+    // Same HTML fed directly to parse_stitch_html should produce a
+    // tree of the same shape; delegation is the contract, not a new
+    // parser implementation.
+    const auto stitch_ir = parse_stitch_html(html);
+    REQUIRE(ir.root.children.size() == stitch_ir.root.children.size());
 }
 
 // ── Audio widget detection ──────────────────────────────────────────────
