@@ -103,6 +103,26 @@ enum Command {
 
     /// Dependency audit: internal flags, or delegate to `tools/audit.py`. Phase 6c.
     Audit(PkgTailArgs),
+
+    /// Unified development loop: configure + build (+ optional test /
+    /// run). Phase 6d — watch loop stubbed.
+    Dev(PkgTailArgs),
+
+    /// Scaffold a new plugin project. Phase 6d — `--ci` non-interactive
+    /// path ported; interactive path rejects.
+    Create(PkgTailArgs),
+
+    /// Local documentation reader: `index`, `search`, `open`, `show`,
+    /// `check`, `build-site`, `build-api`. Phase 6d.
+    Docs(PkgTailArgs),
+
+    /// Launch the design tool binary against a script. Phase 6d —
+    /// `--watch` stubbed.
+    Design(PkgTailArgs),
+
+    /// Manage third-party tools (`list`, `install`, `uninstall`, `path`,
+    /// `run`, `doctor`). Phase 6d — `install` stubbed.
+    Tool(PkgTailArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -460,6 +480,60 @@ fn real_main() -> Result<(), ExitCode> {
             let (flags, rest) = cmd::audit::parse_args(&args.tail);
             let spawner = pulp_rs::proc::SystemSpawner;
             map_exit(cmd::audit::run(flags, &rest, &spawner, &mut out))
+        }
+        Command::Dev(args) => {
+            let parsed = cmd::dev::parse_args(&args.tail);
+            let cwd = read_cwd()?;
+            let spawner = pulp_rs::proc::SystemSpawner;
+            map_exit(cmd::dev::run(&cwd, &parsed, &spawner, &mut out))
+        }
+        Command::Create(args) => {
+            let parsed = cmd::create::parse_args(&args.tail);
+            let cwd = read_cwd()?;
+            map_exit(cmd::create::run(&cwd, &parsed, &mut out))
+        }
+        Command::Docs(args) => {
+            let sub = cmd::docs::parse_sub(&args.tail).map_err(|e| match e {
+                CliError::UnknownSubcommand => {
+                    eprintln!("Unknown docs subcommand");
+                    ExitCode::from(2)
+                }
+                CliError::BadUsage(msg) => {
+                    eprintln!("{msg}");
+                    ExitCode::from(2)
+                }
+                other => {
+                    eprintln!("pulp-rs docs: {other}");
+                    ExitCode::from(2)
+                }
+            })?;
+            let cwd = read_cwd()?;
+            let spawner = pulp_rs::proc::SystemSpawner;
+            map_exit(cmd::docs::run(&cwd, &sub, &spawner, &mut out))
+        }
+        Command::Design(args) => {
+            let parsed = cmd::design::parse_args(&args.tail);
+            let cwd = read_cwd()?;
+            let spawner = pulp_rs::proc::SystemSpawner;
+            map_exit(cmd::design::run(&cwd, &parsed, &spawner, &mut out))
+        }
+        Command::Tool(args) => {
+            let sub = cmd::tool::parse_sub(&args.tail).map_err(|e| match e {
+                CliError::UnknownSubcommand => {
+                    eprintln!("pulp-rs tool: unknown subcommand");
+                    ExitCode::from(2)
+                }
+                CliError::BadUsage(msg) => {
+                    eprintln!("{msg}");
+                    ExitCode::from(2)
+                }
+                other => {
+                    eprintln!("pulp-rs tool: {other}");
+                    ExitCode::from(2)
+                }
+            })?;
+            let spawner = pulp_rs::proc::SystemSpawner;
+            map_exit(cmd::tool::run(&sub, &spawner, &mut out))
         }
     }
 }

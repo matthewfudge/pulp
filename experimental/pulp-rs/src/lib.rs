@@ -87,6 +87,7 @@ pub mod pkg;
 pub mod proc;
 pub mod project;
 pub mod registry;
+pub mod tool_registry;
 pub mod update;
 pub mod version_info;
 
