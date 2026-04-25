@@ -27,9 +27,33 @@ function isReactInternal(key: string): boolean {
         key === 'children' ||
         key === 'key' ||
         key === 'ref' ||
-        key === 'id' ||
-        key.startsWith('on')   // onClick, onChange, etc. — handled separately
+        key === 'id'
     );
+}
+
+/// Returns true if the prop is an event handler (onX) that we route
+/// through the bridge's global `on(id, eventName, fn)` registrar.
+function isEventHandler(key: string): boolean {
+    return key.startsWith('on') && key.length > 2 && key[2] === key[2]?.toUpperCase();
+}
+
+/// Map a React-style on* prop to the bridge event name. The bridge
+/// dispatches:
+///   on_click → 'click'        (Button, Panel, etc.)
+///   on_change → 'change'      (Knob, Fader, Checkbox, TextEditor)
+///   on_toggle → 'toggle'      (Toggle, ToggleButton)
+///   mouseenter / mouseleave   (Hover)
+///   dismiss                   (Modal close)
+function eventNameFor(propName: string): string {
+    return propName.slice(2).toLowerCase();
+}
+
+function applyEventHandler(id: string, key: string, value: unknown): void {
+    if (typeof value !== 'function') return;
+    const eventName = eventNameFor(key);
+    // Wrap the React handler so the bridge's __dispatch__ can call it.
+    // The bridge passes positional args after id+eventName; just forward.
+    call('on', id, eventName, (...a: unknown[]) => (value as (...x: unknown[]) => void)(...a));
 }
 
 /// Apply a single prop to its corresponding bridge setter.
@@ -116,6 +140,10 @@ export function applyAllProps(instance: PulpInstance): void {
     for (const key of Object.keys(props)) {
         if (isReactInternal(key)) continue;
         if (key === 'children') continue;  // text children handled by caller
+        if (isEventHandler(key)) {
+            applyEventHandler(id, key, props[key]);
+            continue;
+        }
         applyOne(id, type, key, props[key]);
     }
 }
@@ -135,7 +163,11 @@ export function applyChangedProps(
         if (isReactInternal(key)) continue;
         if (key === 'children') continue;
         if (oldProps[key] !== newProps[key]) {
-            applyOne(id, type, key, newProps[key]);
+            if (isEventHandler(key)) {
+                applyEventHandler(id, key, newProps[key]);
+            } else {
+                applyOne(id, type, key, newProps[key]);
+            }
             mutated = true;
         }
     }

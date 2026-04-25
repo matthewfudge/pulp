@@ -184,3 +184,38 @@ describe('HostConfig — unsupported text-as-child', () => {
         unmount(root);
     });
 });
+
+describe('HostConfig — event handlers', () => {
+    it('routes onClick props through the bridge `on(id, "click", fn)` registrar', () => {
+        const root = createRoot('root');
+        const handler = () => { /* noop for now */ };
+        render(
+            createElement(View, { onClick: handler }),
+            root,
+        );
+        const onCalls = calls('on');
+        expect(onCalls).toHaveLength(1);
+        expect(onCalls[0]?.args[1]).toBe('click');
+        // The third arg is the wrapped handler, not the original — we
+        // forward via a closure so the bridge can pass extra args.
+        expect(typeof onCalls[0]?.args[2]).toBe('function');
+        unmount(root);
+    });
+
+    it('forwards bridge __dispatch__ args to the React handler', () => {
+        const root = createRoot('root');
+        const received: unknown[] = [];
+        const handler = (...args: unknown[]) => { received.push(...args); };
+        render(
+            createElement(View, { onChange: handler }),
+            root,
+        );
+        const onCall = bridge.calls.find(c => c.fn === 'on' && c.args[1] === 'change');
+        expect(onCall).toBeDefined();
+        // Simulate a bridge dispatch by invoking the wrapped handler.
+        const wrappedFn = onCall?.args[2] as (...args: unknown[]) => void;
+        wrappedFn(0.42);
+        expect(received).toEqual([0.42]);
+        unmount(root);
+    });
+});

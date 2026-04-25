@@ -139,12 +139,12 @@ export function createMockBridge(): MockBridge {
         'createCheckbox', 'createToggle', 'createToggleButton', 'createCombo',
         'createListBox', 'createModal', 'createTextEditor', 'createScrollView',
         'createImage', 'createIcon', 'createProgress', 'createMeter', 'createXYPad',
-        'createGrid', 'removeWidget', 'moveWidget',
+        'createGrid', 'removeWidget', 'moveWidget', 'insertChild',
         'setFlex', 'setBackground', 'setBackgroundGradient', 'setBorder',
         'setBorderSide', 'setOpacity', 'setVisible', 'setPosition',
         'setText', 'setTextColor', 'setTextAlign',
         'setSpectrumData', 'setWaveformData', 'setMeterLevel', 'setProgress',
-        'setValue', 'setTheme', 'layout',
+        'setValue', 'setTheme', 'layout', 'on',
     ];
     const saved: Record<string, unknown> = {};
     return {
