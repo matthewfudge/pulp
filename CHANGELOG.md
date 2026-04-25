@@ -8,9 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0450"></a>
-## [0.19.0]
+<a id="v0451"></a>
+## [0.45.1] - 2026-04-24
 
+- feat(import-design): execute inline template scripts (Babel-standalone) (#758) ([#759](https://github.com/danielraffel/pulp/pull/759))
+
+<a id="v0450"></a>
 ## [0.45.0] - 2026-04-24
 
 - feat(doctor): pulp doctor --caches + build/test preflight (#744) ([#753](https://github.com/danielraffel/pulp/pull/753))
@@ -662,6 +665,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.45.1]: https://github.com/danielraffel/pulp/releases/tag/v0.45.1
 [0.45.0]: https://github.com/danielraffel/pulp/releases/tag/v0.45.0
 [0.43.0]: https://github.com/danielraffel/pulp/releases/tag/v0.43.0
 [0.42.1]: https://github.com/danielraffel/pulp/releases/tag/v0.42.1
