@@ -40,7 +40,7 @@ fn normalise_rust_banner(s: &str) -> String {
 #[test]
 fn help_banner_matches_cpp_output() {
     let expected = fs::read_to_string(fixture_dir().join("expected_cpp.txt")).expect("fixture");
-    let output = Command::cargo_bin("pulp-rs")
+    let output = Command::cargo_bin("pulp")
         .expect("binary")
         .arg("help")
         .env_remove("NO_COLOR")
@@ -57,7 +57,7 @@ fn help_banner_matches_cpp_output() {
 
 #[test]
 fn help_banner_exit_code_is_zero() {
-    Command::cargo_bin("pulp-rs")
+    Command::cargo_bin("pulp")
         .expect("binary")
         .arg("help")
         .assert()
@@ -66,7 +66,7 @@ fn help_banner_exit_code_is_zero() {
 
 #[test]
 fn bare_invocation_prints_banner_and_exits_zero() {
-    let output = Command::cargo_bin("pulp-rs")
+    let output = Command::cargo_bin("pulp")
         .expect("binary")
         .output()
         .expect("run");
@@ -88,7 +88,7 @@ fn bare_invocation_prints_banner_and_exits_zero() {
 
 #[test]
 fn unknown_command_suggests_close_match() {
-    let output = Command::cargo_bin("pulp-rs")
+    let output = Command::cargo_bin("pulp")
         .expect("binary")
         .arg("buld")
         .output()
@@ -110,7 +110,7 @@ fn unknown_command_suggests_projects_for_project_typo() {
     // Distance 1 edge case: `projets` is closer to `projects` than
     // any other command — make sure we don't accidentally suggest
     // `project` (the singular).
-    let output = Command::cargo_bin("pulp-rs")
+    let output = Command::cargo_bin("pulp")
         .expect("binary")
         .arg("projets")
         .output()
@@ -125,7 +125,7 @@ fn unknown_command_suggests_projects_for_project_typo() {
 
 #[test]
 fn unknown_command_falls_back_when_no_close_match() {
-    let output = Command::cargo_bin("pulp-rs")
+    let output = Command::cargo_bin("pulp")
         .expect("binary")
         .arg("xyzxyzxyz")
         .output()
@@ -147,7 +147,7 @@ fn unknown_command_does_not_suggest_deferred_commands_silently() {
     // `audo` is closer to `audio` than to `add`/`audit`. Make sure
     // the suggester reaches into the full known-commands list, not
     // just the native-Rust ports.
-    let output = Command::cargo_bin("pulp-rs")
+    let output = Command::cargo_bin("pulp")
         .expect("binary")
         .arg("audo")
         .output()

@@ -76,7 +76,10 @@ endif()
 # Cargo state into the source tree (it would otherwise default to
 # `experimental/pulp-rs/target/`).
 set(_pulp_rs_target_dir "${CMAKE_CURRENT_BINARY_DIR}/cargo-target")
-set(_pulp_rs_bin_name "pulp-rs${CMAKE_EXECUTABLE_SUFFIX}")
+# Phase 8 binary swap (#767 / #686): the Cargo `[[bin]] name` is now
+# `pulp` (was `pulp-rs`). Cargo emits `target/<profile>/pulp[.exe]`,
+# so this matches the new binary basename.
+set(_pulp_rs_bin_name "pulp${CMAKE_EXECUTABLE_SUFFIX}")
 set(_pulp_rs_cargo_bin "${_pulp_rs_target_dir}/${_pulp_rs_target_subdir}/${_pulp_rs_bin_name}")
 set(_pulp_rs_dest_bin   "${CMAKE_BINARY_DIR}/${_pulp_rs_bin_name}")
 

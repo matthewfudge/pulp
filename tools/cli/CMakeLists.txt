@@ -77,7 +77,14 @@ add_executable(pulp-cli
     migration_runtime.cpp
     validator_discovery.cpp
     "${_pulp_migration_index_src}")
-set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp")
+# Phase 8 binary swap (#767 / #686): the C++ CLI was historically the
+# user-facing `pulp` binary. With the Rust binary now ready, the C++
+# side renames to `pulp-cpp` and the Rust binary takes the `pulp`
+# slot. Rollback for users: `PULP_USE_CPP=1 pulp …` execs into
+# `pulp-cpp` (handled at the top of `experimental/pulp-rs/src/main.rs`).
+# The CMake target name (`pulp-cli`) does NOT change — only the file
+# basename — so all ctest entries below keep working.
+set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp-cpp")
 target_compile_features(pulp-cli PRIVATE cxx_std_20)
 target_link_libraries(pulp-cli PRIVATE pulp::runtime pulp::tool-audio pulp::ship pulp::view pulp::format pulp::inspect pulp::host)
 target_include_directories(pulp-cli PRIVATE
