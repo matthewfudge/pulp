@@ -28,6 +28,15 @@ int cmd_test(const std::vector<std::string>& args) {
 
     auto build_dir = project_root / "build";
     if (!fs::exists(build_dir / "CMakeCache.txt")) {
+        // FetchContent cache preflight (issue #744) — same gate cmd_build
+        // applies. Catching it here too means `pulp test` cold-starts
+        // produce the same fail-fast remediation message instead of
+        // tunneling through cmd_build's stdout. cmd_build runs its own
+        // preflight on the configure path, so a healthy cache makes the
+        // second call a no-op.
+        if (!cache_preflight_check(project_root, "pulp test")) {
+            return 1;
+        }
         std::cout << "Build directory not found, building first...\n";
         int rc = cmd_build({});
         if (rc != 0) return rc;

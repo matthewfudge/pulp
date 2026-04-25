@@ -65,6 +65,7 @@ add_executable(pulp-cli
     tool_registry.cpp
     version_diag.cpp
     projects_registry.cpp
+    fetchcontent_cache.cpp
     cmd_projects.cpp
     project_bump.cpp
     cmd_project.cpp
@@ -229,4 +230,26 @@ if(PULP_BUILD_TESTS)
     set_tests_properties(cli-doctor-versions-json PROPERTIES
         ENVIRONMENT "PULP_HOME=${CMAKE_BINARY_DIR}/test-tmp/pulp-home-json"
         PASS_REGULAR_EXPRESSION "\"projects\":")
+
+    # `pulp doctor --caches` (#744): on a fresh empty cache root the
+    # command should exit 0 and report "no entries". Using a brand-new
+    # tempdir as the cache root via the documented env-var override
+    # means the test never touches the developer's real
+    # ~/Library/Caches/Pulp/.
+    add_test(NAME cli-doctor-caches-empty
+        COMMAND pulp-cli doctor --caches
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(cli-doctor-caches-empty PROPERTIES
+        ENVIRONMENT "PULP_SHARED_FETCHCONTENT_SOURCE_DIR=${CMAKE_BINARY_DIR}/test-tmp/fcc-empty-744"
+        PASS_REGULAR_EXPRESSION "Pulp FetchContent cache")
+
+    # `pulp doctor --caches --json` should emit the documented JSON
+    # shape so scripts can parse it. Also exercises the JSON renderer
+    # on the empty path.
+    add_test(NAME cli-doctor-caches-json
+        COMMAND pulp-cli doctor --caches --json
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(cli-doctor-caches-json PROPERTIES
+        ENVIRONMENT "PULP_SHARED_FETCHCONTENT_SOURCE_DIR=${CMAKE_BINARY_DIR}/test-tmp/fcc-empty-744"
+        PASS_REGULAR_EXPRESSION "\"healthy\":")
 endif()

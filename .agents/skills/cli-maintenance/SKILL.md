@@ -387,6 +387,85 @@ enforcement), Slice 6 (plugin ↔ CLI skew — `min_cli_version` +
 `plugin_min_cli` JSON + `tools/scripts/cli_version_check.sh`). Do not
 land them piecemeal under Slice 1's PR; file new issues and PRs.
 
+## `pulp doctor --caches` — FetchContent cache health (#744)
+
+Like `--versions`, `--caches` is a dedicated diagnostic that
+short-circuits the doctor pipeline. It scans Pulp's shared FetchContent
+source cache (the one `pulp_register_fetchcontent_source` populates) and
+classifies each entry as healthy, dangling-symlink, stale-commit, or
+root-owned. Lives in `tools/cli/fetchcontent_cache.{hpp,cpp}` with
+`cmd_doctor` and the `cache_preflight_check` helper in
+`cli_common.cpp` as the only callers.
+
+Gotchas:
+
+- **Same `cli_common`-decoupling rule as `version_diag`.**
+  `fetchcontent_cache.cpp` reimplements `user_home_dir_local` and a
+  small env-string helper so the unit-test binary
+  (`test/test_cli_fetchcontent_cache.cpp`) can link only
+  `fetchcontent_cache.cpp` and Catch2 — no pulp::runtime, no
+  cli_common. If you add a helper, keep it local unless you check the
+  test impact first.
+- **DiscoveryEnv is the unit-test seam.** All filesystem access goes
+  through `DiscoveryEnv::lstat` / `stat_follow` / `list_dir` callables
+  set up by `make_real_env`. Tests construct their own env with
+  deterministic mock callables — they never touch
+  `~/Library/Caches/Pulp/`. Adding new classification logic? Put the
+  syscalls behind the env so the new behaviour can be covered without
+  prepping a fixture cache on the dev's machine.
+- **FetchContent scratch dirs (`<dep>-src`/`-build`/`-subbuild`)**
+  always coexist with the populated source dir we created. They are
+  CMake's own working state, not entries we own. Discovery treats any
+  trailing segment of `src`, `build`, or `subbuild` as scratch and
+  classifies them Healthy regardless of declared REF — clobbering them
+  defeats the configure-time cache. The
+  `discover: FetchContent scratch dirs do not register as stale-commit`
+  test pins this behaviour.
+- **`--fix` only touches user-owned entries.** Root-owned classification
+  is the safety gate: an entry whose POSIX uid is not `geteuid()` gets
+  `RootOwned` even when the underlying state would otherwise be
+  Dangling or StaleCommit, and `apply_fixes` skips it. Agents must
+  never silently elevate; the user has to run `sudo rm` themselves.
+  On Windows, ownership is treated as user-writable (POSIX uid is a
+  no-op concept on the platform that hosts the cache under the user's
+  profile by definition).
+- **Stale-commit needs both a declared REF AND a cached REF.** When
+  `pulp_register_fetchcontent_source` is called without a `REF`
+  argument (some optional deps are floated by branch), the entry is
+  classified Healthy regardless of directory contents. Adding a new
+  cache classification? Mirror this guard so missing-data inputs
+  don't fire false positives.
+- **Comments in `CMakeLists.txt` are stripped before the regex pass.**
+  The `parse_declared_refs_from_text` helper does a line-by-line
+  first-`#` cut before scanning. A commented-out
+  `pulp_register_fetchcontent_source(foo REF bar)` does NOT pollute
+  the declared-refs map, which keeps stale-commit detection honest
+  for example/documentation snippets in CMakeLists.
+- **Preflight is gated on `needs_configure`.** `pulp build` only runs
+  the preflight when CMake will reconfigure; incremental rebuilds
+  skip it (the cache scan is cheap but the gate matters more — a
+  healthy cache that fits a stale `CMakeCache.txt` would surface the
+  bad path eventually but not on the cheap incremental loop).
+  `pulp test` mirrors the rule: preflight only runs when a cold-start
+  build is needed (no `CMakeCache.txt`).
+- **`PULP_SKIP_CACHE_PREFLIGHT=1` bypasses the preflight, NOT the
+  doctor command.** Set it in CI environments that intentionally
+  curate the cache and would rather see CMake's native error than
+  the early gate. `pulp doctor --caches` always runs its scan
+  regardless — the diagnostic is the diagnostic.
+- **JSON shape is committed.** `pulp doctor --caches --json` prints
+  `{"cache_root", "healthy", "entries": [{"name", "path", "status",
+  "is_symlink", "resolved_target", "declared_ref", "cached_ref",
+  "dep_name", "reason", "remediation", "fixable"}]}`. `status`
+  values are `healthy`, `dangling-symlink`, `stale-commit`,
+  `root-owned`, `unknown`. Don't rename keys; scripts and the
+  rust-cli port (#740 family) parse them by name.
+
+Adjacent modules to coordinate with: `tools/cmake/PulpFetchContent.cmake`
+(the cache-root and sanitize-suffix logic — `default_cache_root` and
+`sanitize_ref` in `fetchcontent_cache.cpp` MUST mirror it), and the
+build / test commands that call `cache_preflight_check`.
+
 ## `pulp config` + update-check (#499 Slice 2 / #547)
 
 Slice 2 wires a 24h update-check cache plus a config surface for

@@ -97,6 +97,9 @@ The `--watch` flag enters a file-watching loop after the initial build. It polls
 
 For standalone projects (detected via `pulp.toml`), automatically sets `CMAKE_PREFIX_PATH` to the hinted local SDK when available, otherwise to the cached SDK release.
 Before configure/build, `pulp build` also compares the active project's pinned `sdk_version` / `cli_min_version` against the running CLI. If the project is ahead, it fails fast and points at `pulp upgrade`; use `--allow-unsupported-sdk` only as an explicit unsupported escape hatch.
+
+When `pulp build` decides a CMake reconfigure is required, it also runs the FetchContent cache preflight from `pulp doctor --caches` first. If the shared cache (`~/Library/Caches/Pulp/fetchcontent-src/` on macOS, `$XDG_CACHE_HOME/pulp/fetchcontent-src/` on Linux, `%LOCALAPPDATA%/Pulp/fetchcontent-src/` on Windows) contains a dangling symlink or stale-commit entry, `pulp build` aborts with a one-screen remediation message instead of letting `cmake` blow up 200 lines into the configure log. Run `pulp doctor --caches --fix` to heal user-owned drift, or set `PULP_SKIP_CACHE_PREFLIGHT=1` to bypass the gate (#744).
+
 On Windows, `pulp build` also selects a Visual Studio generator automatically when no active MSVC shell is detected on `PATH`.
 
 ### test
@@ -111,6 +114,8 @@ pulp test -R Gain             # Run tests matching "Gain"
 ```
 
 Extra arguments are passed through to `ctest`.
+
+When `pulp test` triggers a cold-start build (no `build/CMakeCache.txt`), the FetchContent cache preflight from `pulp doctor --caches` runs first and aborts with a clear remediation message on any unhealthy entry — same gate `pulp build` applies, same `PULP_SKIP_CACHE_PREFLIGHT=1` bypass (#744).
 
 ### status
 
@@ -222,6 +227,10 @@ pulp doctor --dry-run                # show what --fix would do
 pulp doctor --versions               # CLI/SDK/Plugin version diagnostics (#499 Slice 1)
 pulp doctor --versions --scan-parents # ALSO walk CWD ancestors for pulp_add_* projects (#552)
 pulp doctor --versions --json        # emit the diagnostic as stable JSON (#552)
+pulp doctor --caches                 # FetchContent shared-source cache health (#744)
+pulp doctor --caches --fix           # heal user-owned dangling/stale-commit entries
+pulp doctor --caches --fix --dry-run # preview heal without removing anything
+pulp doctor --caches --json          # emit the cache report as stable JSON
 ```
 
 Checks are platform-gated — only relevant checks run on each OS:
@@ -296,6 +305,44 @@ user-visible warnings; per-field semver fields carry
 `plugin_min_cli` is populated from the plugin's `plugin.json`
 `min_cli_version` field (release-discovery Slice 6, #551); absent in
 older plugin builds.
+
+**FetchContent cache health (#744).** `pulp doctor --caches` audits
+the shared-source FetchContent cache that Pulp uses to avoid
+re-cloning external SDKs across builds. The cache root is the same
+path `pulp_register_fetchcontent_source` populates:
+
+- macOS: `~/Library/Caches/Pulp/fetchcontent-src/`
+- Linux: `$XDG_CACHE_HOME/pulp/fetchcontent-src/` (default `~/.cache/pulp/fetchcontent-src/`)
+- Windows: `%LOCALAPPDATA%/Pulp/fetchcontent-src/`
+
+Each cache entry is classified as one of:
+
+| Status | Meaning | `--fix` action |
+|--------|---------|----------------|
+| `[ok]` | Healthy — entry exists and (if a symlink) target exists, cached REF matches the declared `pulp_register_fetchcontent_source(... REF ...)` in the active project's `CMakeLists.txt`. | (no-op) |
+| `[!!] dangling-symlink` | Entry is a symlink whose target no longer exists. CMake's `FETCHCONTENT_SOURCE_DIR_*` override would fail at configure time. | `rm` the symlink — next configure refetches. |
+| `[!!] stale-commit` | The directory name's REF suffix differs from the declared REF. The pin in `CMakeLists.txt` advanced but the user's old cache is still authoritative. | `rm -rf` the entry — next configure refetches. |
+| `[!!] root-owned` | Entry is not user-writable (likely owned by root from a stray `sudo`). | Reported only; agent never tries to `sudo rm`. Manual: `sudo rm -rf <path>`. |
+
+Exit code is 0 when every entry is `[ok]`, 1 otherwise. The same
+discovery code runs as a preflight inside `pulp build` and `pulp test`
+when a CMake reconfigure is needed — set `PULP_SKIP_CACHE_PREFLIGHT=1`
+to bypass the gate (intended for sealed CI environments that can't
+auto-heal).
+
+`--caches --fix` removes only user-owned entries marked `[!!]
+dangling-symlink` or `[!!] stale-commit`. Root-owned entries are
+report-only by design — automatic `sudo` is out of scope so agents
+don't silently elevate. `--caches --fix --dry-run` previews what
+would be removed without touching the filesystem.
+
+`--caches --json` emits a stable shape:
+`{"cache_root": "...", "healthy": bool, "entries": [{"name", "path",
+"status", "is_symlink", "resolved_target", "declared_ref",
+"cached_ref", "dep_name", "reason", "remediation", "fixable"}, ...]}`.
+The `status` field uses the lowercased label set above
+(`healthy`, `dangling-symlink`, `stale-commit`, `root-owned`,
+`unknown`).
 
 ### projects
 
