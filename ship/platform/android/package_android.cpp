@@ -38,15 +38,17 @@ static int exec_status(const std::string& cmd, int timeout_ms = 120000) {
 }
 
 #ifdef _WIN32
+static std::string wrap_for_cmd_c(const std::string& cmd);
+
 static std::string exec_cmd_win(const std::string& cmd, int timeout_ms = 120000) {
-    auto r = pulp::platform::exec("cmd.exe", {"/c", cmd}, timeout_ms);
+    auto r = pulp::platform::exec("cmd.exe", {"/c", wrap_for_cmd_c(cmd)}, timeout_ms);
     auto result = r.stdout_output;
     while (!result.empty() && (result.back() == '\n' || result.back() == '\r'))
         result.pop_back();
     return result;
 }
 static int exec_status_win(const std::string& cmd, int timeout_ms = 120000) {
-    auto r = pulp::platform::exec("cmd.exe", {"/c", cmd}, timeout_ms);
+    auto r = pulp::platform::exec("cmd.exe", {"/c", wrap_for_cmd_c(cmd)}, timeout_ms);
     return r.exit_code;
 }
 #endif
@@ -74,6 +76,43 @@ static std::string shell_quote(const std::string& s) {
 #endif
 }
 
+static std::string shell_quote_path(const fs::path& path) {
+    return "\"" + path.string() + "\"";
+}
+
+static std::string shell_quote_arg(const std::string& arg) {
+    return shell_quote(arg);
+}
+
+static std::string shell_quote_path_arg(const std::string& prefix, const fs::path& path) {
+    return shell_quote(prefix + path.string());
+}
+
+#ifdef _WIN32
+static std::string wrap_for_cmd_c(const std::string& cmd) {
+    // `cmd.exe /c` strips the first and last quote when the command begins
+    // with a quoted executable. Add an outer pair so the executable's quotes
+    // survive and the remaining quoted arguments are parsed normally.
+    return (!cmd.empty() && cmd.front() == '"') ? "\"" + cmd + "\"" : cmd;
+}
+#endif
+
+static std::string shell_invoke_path(const fs::path& path) {
+#ifdef _WIN32
+    return shell_quote_path(path);
+#else
+    return shell_quote(path.string());
+#endif
+}
+
+static std::string shell_invoke_command(const std::string& command) {
+#ifdef _WIN32
+    return command.find_first_of(" \t\\/") != std::string::npos ? shell_quote(command) : command;
+#else
+    return shell_quote(command);
+#endif
+}
+
 // Platform-aware command execution
 static std::string run_cmd(const std::string& cmd, int timeout_ms = 120000) {
 #ifdef _WIN32
@@ -89,6 +128,23 @@ static int run_status(const std::string& cmd, int timeout_ms = 120000) {
 #else
     return exec_status(cmd, timeout_ms);
 #endif
+}
+
+static int run_status_in_directory(const fs::path& directory,
+                                   const std::string& cmd,
+                                   int timeout_ms = 120000) {
+    pulp::platform::ProcessOptions options;
+    options.timeout_ms = timeout_ms;
+    options.working_directory = directory.string();
+#ifdef _WIN32
+    auto r = pulp::platform::ChildProcess::run("cmd.exe", {"/c", wrap_for_cmd_c(cmd)}, options);
+#else
+    auto r = pulp::platform::ChildProcess::run(
+        "/bin/sh",
+        {"-c", cmd},
+        options);
+#endif
+    return r.exit_code;
 }
 
 static std::string resolve_password(const std::string& password) {
@@ -224,8 +280,8 @@ bool zipalign_apk(const fs::path& input_apk, const fs::path& output_apk) {
     auto tool = find_android_build_tool("zipalign");
     if (tool.empty()) return false;
 
-    std::string cmd = "\"" + tool.string() + "\" -f 4 \""
-        + input_apk.string() + "\" \"" + output_apk.string() + "\"";
+    std::string cmd = shell_invoke_path(tool) + " -f 4 "
+        + shell_quote_path(input_apk) + " " + shell_quote_path(output_apk);
     return run_status(cmd) == 0;
 }
 
@@ -237,14 +293,14 @@ bool sign_apk(const fs::path& apk_path, const AndroidKeystoreConfig& keystore) {
     auto key_pass = resolve_password(
         keystore.key_password.empty() ? keystore.store_password : keystore.key_password);
 
-    std::string cmd = "\"" + tool.string() + "\" sign"
-        " --ks \"" + keystore.keystore_path.string() + "\""
-        " --ks-key-alias \"" + keystore.key_alias + "\""
-        " --ks-pass pass:" + shell_quote(store_pass) +
-        " --key-pass pass:" + shell_quote(key_pass) +
+    std::string cmd = shell_invoke_path(tool) + " sign"
+        " --ks " + shell_quote_path(keystore.keystore_path) +
+        " --ks-key-alias " + shell_quote(keystore.key_alias) +
+        " --ks-pass " + shell_quote_arg("pass:" + store_pass) +
+        " --key-pass " + shell_quote_arg("pass:" + key_pass) +
         " --v2-signing-enabled true"
         " --v3-signing-enabled true"
-        " \"" + apk_path.string() + "\"";
+        " " + shell_quote_path(apk_path);
     return run_status(cmd) == 0;
 }
 
@@ -283,8 +339,9 @@ AndroidSigningInfo check_android_signing(const fs::path& path) {
         return info;
     }
 
-    auto output = run_cmd("\"" + tool.string() + "\" verify --print-certs --verbose \""
-                          + path.string() + "\" 2>&1");
+    auto output = run_cmd(shell_invoke_path(tool)
+                          + " verify --print-certs --verbose "
+                          + shell_quote_path(path) + " 2>&1");
 
     info.is_signed = output.find("Verified using") != std::string::npos;
     info.v2_signed = output.find("Verified using v2 scheme") != std::string::npos
@@ -336,8 +393,7 @@ AndroidPackageResult build_android_package(
     }
 
     // Build command
-    std::string cmd = "cd \"" + gradle_project_dir.string() + "\" && \""
-        + gradlew.string() + "\"" + tasks;
+    std::string cmd = shell_invoke_path(gradlew) + tasks;
 
     if (!abi_filter.empty())
         cmd += " -Pandroid.injected.build.abi=" + abi_filter;
@@ -347,14 +403,15 @@ AndroidPackageResult build_android_package(
         auto store_pass = resolve_password(keystore->store_password);
         auto key_pass = resolve_password(
             keystore->key_password.empty() ? keystore->store_password : keystore->key_password);
-        cmd += " -Pandroid.injected.signing.store.file=\"" + keystore->keystore_path.string() + "\"";
-        cmd += " -Pandroid.injected.signing.store.password=" + shell_quote(store_pass);
-        cmd += " -Pandroid.injected.signing.key.alias=" + keystore->key_alias;
-        cmd += " -Pandroid.injected.signing.key.password=" + shell_quote(key_pass);
+        cmd += " " + shell_quote_path_arg("-Pandroid.injected.signing.store.file=",
+                                           keystore->keystore_path);
+        cmd += " " + shell_quote_arg("-Pandroid.injected.signing.store.password=" + store_pass);
+        cmd += " " + shell_quote_arg("-Pandroid.injected.signing.key.alias=" + keystore->key_alias);
+        cmd += " " + shell_quote_arg("-Pandroid.injected.signing.key.password=" + key_pass);
     }
 
     // Run Gradle (can take minutes for a full build)
-    int rc = run_status(cmd, 600000);
+    int rc = run_status_in_directory(gradle_project_dir, cmd, 600000);
     if (rc != 0) {
         result.error = "Gradle build failed (exit code " + std::to_string(rc) + ")";
         return result;
@@ -405,19 +462,19 @@ bool aab_to_apks(const fs::path& aab_path,
     if (auto env = get_env("BUNDLETOOL"))
         bundletool = *env;
 
-    std::string cmd = bundletool + " build-apks"
-        " --bundle=\"" + aab_path.string() + "\""
-        " --output=\"" + output_apks.string() + "\""
+    std::string cmd = shell_invoke_command(bundletool) + " build-apks"
+        " " + shell_quote_path_arg("--bundle=", aab_path) +
+        " " + shell_quote_path_arg("--output=", output_apks) +
         " --overwrite";
 
     if (keystore) {
         auto store_pass = resolve_password(keystore->store_password);
         auto key_pass = resolve_password(
             keystore->key_password.empty() ? keystore->store_password : keystore->key_password);
-        cmd += " --ks=\"" + keystore->keystore_path.string() + "\"";
-        cmd += " --ks-key-alias=" + keystore->key_alias;
-        cmd += " --ks-pass=pass:" + shell_quote(store_pass);
-        cmd += " --key-pass=pass:" + shell_quote(key_pass);
+        cmd += " " + shell_quote_path_arg("--ks=", keystore->keystore_path);
+        cmd += " " + shell_quote_arg("--ks-key-alias=" + keystore->key_alias);
+        cmd += " " + shell_quote_arg("--ks-pass=pass:" + store_pass);
+        cmd += " " + shell_quote_arg("--key-pass=pass:" + key_pass);
     }
 
     return run_status(cmd) == 0;

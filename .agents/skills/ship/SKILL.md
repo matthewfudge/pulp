@@ -160,6 +160,22 @@ export ANDROID_HOME=~/Library/Android/sdk  # macOS
 - Ensure `android/` project exists (`pulp create --targets android`)
 - Check Gradle output in the terminal for specific errors
 
+### Android package tests fail only on Windows
+
+Pulp executes Android package helpers through `cmd.exe /c` on Windows. Android
+SDK tools and Gradle wrappers may resolve to `.bat` files there, so command
+strings that begin with a quoted batch path need an outer command quote so
+`cmd.exe` does not strip the executable quote while preserving the remaining
+quoted arguments. For Gradle and bundletool `name=value` parameters that
+contain paths or passwords, quote the whole `name=value` token rather than only
+the value (`"--output=C:\path\file.apks"`, not `--output="C:\path\file.apks"`),
+because Windows batch `%~1`/`shift` parsing does not normalize embedded quotes
+the same way POSIX shells do. Gradle wrapper invocations should use the
+ChildProcess `working_directory` option instead of inlining `cd ... && gradlew`
+into the shell string, so fake wrappers and real Gradle builds write artifacts
+relative to the project root consistently. Keep this in mind when touching
+`ship/platform/android/package_android.cpp`.
+
 ### Released CLI tarball crashes on user machines
 
 Symptom: `dyld: Library not loaded: @rpath/libwgpu_native.dylib` or
