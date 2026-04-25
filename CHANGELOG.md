@@ -8,11 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0470"></a>
+## [0.47.0] - 2026-04-25
+
+- feat: harden project SDK bump flow ([#735](https://github.com/danielraffel/pulp/pull/735))
+- fix(import-design): use runtime gzip_decompress for bundle assets — unblocks ReactDOM + Babel-standalone ([#760](https://github.com/danielraffel/pulp/pull/760))
+
 <a id="v0460"></a>
-## [0.21.0]
-
-## [0.47.0]
-
 ## [0.46.0] - 2026-04-24
 
 - feat(doctor): validator discovery + auto-heal broken-signature pluginval/clap-validator/auval (#743) ([#749](https://github.com/danielraffel/pulp/pull/749))
@@ -674,6 +676,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.47.0]: https://github.com/danielraffel/pulp/releases/tag/v0.47.0
 [0.46.0]: https://github.com/danielraffel/pulp/releases/tag/v0.46.0
 [0.45.1]: https://github.com/danielraffel/pulp/releases/tag/v0.45.1
 [0.45.0]: https://github.com/danielraffel/pulp/releases/tag/v0.45.0
