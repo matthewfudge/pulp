@@ -14,12 +14,17 @@ use pulp_rs::help;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "pulp-rs",
-    about = "Experimental Rust prototype of the Pulp CLI (not for production)",
+    // Phase 8 binary swap (#767 / #686): the user-facing binary name
+    // is now `pulp` (was `pulp-rs`). The Cargo `[[bin]] name` was
+    // also flipped in the same diff so `target/release/pulp` is what
+    // ships. The C++ CLI is now `pulp-cpp` and is reached via the
+    // fallthrough wrapper or via the `PULP_USE_CPP=1` rollback.
+    name = "pulp",
+    about = "Pulp audio plugin framework CLI (Rust binary; C++ delegate is `pulp-cpp`)",
     disable_version_flag = true,
     disable_help_subcommand = true,
     // Prevent clap from printing its generated help banner when the
-    // user invokes `pulp-rs` with no args. The C++ CLI prints its own
+    // user invokes `pulp` with no args. The C++ CLI prints its own
     // usage banner and exits 0; we match that exactly by handling
     // `Option<Command>::None` in `real_main`.
     arg_required_else_help = false
