@@ -167,6 +167,8 @@ export const PulpHostConfig: HostConfig<
             // parentId stays undefined until attached
             props: { ...props },
             childIds: [],
+            onBridge: false,
+            pendingChildren: [],
         };
     },
 
@@ -275,50 +277,80 @@ export const PulpHostConfig: HostConfig<
 };
 
 // ── attach helper ──────────────────────────────────────────────────
+//
+// Lifecycle invariant: a child only lands on the bridge when its parent
+// is already on the bridge. React calls appendInitialChild bottom-up,
+// so when leaves are attached to mid-tree containers, the containers
+// are not yet on the bridge — calling createX(child, parentId) at that
+// point would route the child to the bridge's implicit root_ via
+// resolve_parent's silent fallback. Instead, we record the attach as
+// "pending" and drain it once the parent's own attach (or attachToRoot)
+// flips its onBridge flag.
+//
+// Containers (root) ARE always on the bridge — the WidgetBridge's root_
+// View exists at construction. So attachToRoot is the trigger that
+// recursively flushes the pending tree.
 function attach(parent: Instance, child: Instance, index?: number): void {
     const wasAttachedElsewhere = child.parentId !== undefined && child.parentId !== parent.id;
-    if (wasAttachedElsewhere) {
-        // Existing widget being moved between parents — use moveWidget if
-        // the bridge exposes it, else fall back to remove + recreate.
-        if (typeof g.moveWidget === 'function') {
-            call('moveWidget', child.id, parent.id, index ?? parent.childIds.length);
-        } else {
-            if (typeof g.removeWidget === 'function') call('removeWidget', child.id);
-            createWidget(child.type, child.id, parent.id, child.props);
-            applyAllProps(child);
-        }
-    } else if (child.parentId === undefined) {
-        // First-time attach.
-        createWidget(child.type, child.id, parent.id, child.props);
-        applyAllProps(child);
-        // Text-bearing widgets that took text-as-child need a setText if
-        // we already set it via createX — Label/Button do this correctly
-        // because createWidget passed the text into createLabel/createButton
-        // directly. So this is a no-op for first-mount text.
+
+    // Bookkeeping (always runs, regardless of bridge state)
+    child.parentId = parent.id;
+    const insertIdx = index !== undefined && index >= 0 ? index : parent.childIds.length;
+    if (insertIdx === parent.childIds.length) {
+        parent.childIds.push(child.id);
     } else {
-        // Same parent, just reordering — needs insertChild bridge fn.
-        // For v0 this is treated as a no-op if the bridge doesn't expose
-        // it; React will still see correct order in our childIds bookkeeping.
-        // TODO: wire the (yet-to-be-added) insertChild(parent_id, child_id, index) bridge call.
+        parent.childIds.splice(insertIdx, 0, child.id);
     }
 
-    child.parentId = parent.id;
-    if (index !== undefined && index >= 0) {
-        parent.childIds.splice(index, 0, child.id);
+    if (wasAttachedElsewhere && child.onBridge) {
+        // Existing on-bridge widget being moved between parents.
+        if (typeof g.moveWidget === 'function') {
+            call('moveWidget', child.id, parent.id, insertIdx);
+        } else {
+            // Fallback: remove + recreate. Loses any subtree state.
+            if (typeof g.removeWidget === 'function') call('removeWidget', child.id);
+            child.onBridge = false;
+            if (parent.onBridge) materialize(parent, child);
+        }
+        return;
+    }
+
+    if (parent.onBridge) {
+        // Parent is live; child can land on the bridge immediately.
+        materialize(parent, child);
     } else {
-        parent.childIds.push(child.id);
+        // Defer until the parent itself reaches the bridge.
+        parent.pendingChildren.push({ child, index: insertIdx });
     }
 }
 
-function attachToRoot(container: Container, child: Instance, index = -1, _before?: Instance): void {
-    if (child.parentId === undefined) {
-        createWidget(child.type, child.id, container.rootId, child.props);
-        applyAllProps(child);
-    }
+function attachToRoot(container: Container, child: Instance, _index = -1, _before?: Instance): void {
     child.parentId = container.rootId;
-    // Container child order tracking is implicit via React's commit order
-    // for v0; reorder support comes in with insertChild + container.childIds.
-    void index;
+    // The bridge's root is always on the bridge — materialize immediately
+    // and flush the entire deferred subtree.
+    materializeUnder(container.rootId, child);
+}
+
+/// Emit createX + applyAllProps for a single child whose parent is on
+/// the bridge, then recursively drain the child's pendingChildren.
+function materialize(parent: Instance, child: Instance): void {
+    materializeUnder(parent.id, child);
+}
+
+function materializeUnder(parentId: string, child: Instance): void {
+    if (child.onBridge) return;
+    createWidget(child.type, child.id, parentId, child.props);
+    applyAllProps(child);
+    child.onBridge = true;
+    // Drain any pending grand-children that were queued before this
+    // descriptor reached the bridge.
+    if (child.pendingChildren.length > 0) {
+        const drained = child.pendingChildren;
+        child.pendingChildren = [];
+        for (const { child: gc } of drained) {
+            materializeUnder(child.id, gc);
+        }
+    }
 }
 
 function detach(parent: Instance, child: Instance): void {

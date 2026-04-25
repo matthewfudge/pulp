@@ -208,6 +208,17 @@ export interface PulpInstance {
     props: Record<string, unknown>;
     /// Children IDs in order — for insertBefore reorder.
     childIds: string[];
+    /// True once the bridge createX call has been emitted for this widget.
+    /// React calls appendInitialChild bottom-up (leaves before parents),
+    /// so we cannot eagerly create on the bridge — the parent doesn't
+    /// exist yet, and Pulp's resolve_parent silently falls back to root.
+    /// Track on-bridge state and queue child attaches until the parent
+    /// reaches the bridge via a root-level appendChildToContainer.
+    onBridge: boolean;
+    /// Children whose attach was deferred until this descriptor lands on
+    /// the bridge. Drained by attach() once onBridge flips true.
+    /// Each entry is the child descriptor and the index it should land at.
+    pendingChildren: Array<{ child: PulpInstance; index: number }>;
 }
 
 // ── Container ──────────────────────────────────────────────────────
