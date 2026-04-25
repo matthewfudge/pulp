@@ -420,6 +420,35 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE(bogus.stderr_output.find("Usage:") != std::string::npos);
 }
 
+// Issue #743: `pulp doctor --validators` is a recognized flag and
+// produces a per-validator OK/FAIL/WARN report. We don't assert the
+// per-tool verdicts (they depend on host install state) — just that
+// the parser accepts the flag, the section header renders, and the
+// exit code is in the documented set (0 = all healthy, 1 = at least
+// one validator missing or broken). An exit code of 2 would mean the
+// flag parser rejected --validators, which is exactly the regression
+// this test guards against.
+TEST_CASE("pulp doctor --validators is a recognized flag",
+          "[cli][shellout][doctor][issue-743]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto r = exec(bin.string(), {"doctor", "--validators"}, 30000);
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code != 2);  // parser accepted the flag
+    REQUIRE(r.stdout_output.find("Pulp Doctor") != std::string::npos);
+    REQUIRE(r.stdout_output.find("Validators") != std::string::npos);
+
+    // --fix --dry-run is the safest flag combo to exercise: no fs
+    // mutation, but the heal pipeline still runs end-to-end. Also
+    // verifies that --fix combined with --validators is accepted.
+    auto dry = exec(bin.string(),
+                    {"doctor", "--validators", "--fix", "--dry-run"}, 30000);
+    REQUIRE_FALSE(dry.timed_out);
+    REQUIRE(dry.exit_code != 2);
+    REQUIRE(dry.stdout_output.find("Pulp Doctor") != std::string::npos);
+}
+
 TEST_CASE("pulp dev fails fast when standalone SDK is ahead of the installed CLI",
           "[cli][shellout][dev][issue-682]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }

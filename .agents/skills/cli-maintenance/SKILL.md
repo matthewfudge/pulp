@@ -184,6 +184,50 @@ Gotchas:
 - **Exit code still follows `failed > 0` first.** `--strict` only
   adds "OR any skipped-missing-tool" on top. Genuine validator
   failures still fail without `--strict`.
+- **Validator-discovery preflight (#743).** Before launching any
+  validator binary, `pulp validate` runs the same discovery used by
+  `pulp doctor --validators` and aborts cleanly if any candidate has
+  a broken code signature (the "ripped from .app bundle" pattern,
+  where amfid SIGKILLs the binary at launch with exit 137 / zero
+  stderr). If you add a new validator to `cmd_validate.cpp`, also
+  add it to the priority list in `tools/cli/validator_discovery.cpp`
+  so the preflight covers it.
+
+### `pulp doctor --validators` (#743)
+
+Discovers `auval` / `pluginval` / `clap-validator` across well-known
+paths (system → cask app bundle → PATH → `~/.cargo/bin`) and verifies
+each candidate's code signature is intact. The pure-logic core lives
+in `tools/cli/validator_discovery.{hpp,cpp}` (no `cli_common` link
+deps — same isolation pattern as `version_diag` / `projects_registry`),
+so unit tests in `test/test_cli_validator_discovery.cpp` can stub
+`path_exists` / `path_owner_uid` / `assess_signature` without shelling
+out to `spctl`.
+
+Signature assessment runs `codesign --verify` first (authoritative
+integrity check) and only treats specific verdicts as Broken:
+
+- "invalid resource directory" / "directory or signature have been modified"
+- "invalid Info.plist" / "plist or signature have been modified"
+- "a sealed resource is missing or invalid"
+- "main executable failed strict validation"
+
+Anything else — including unsigned `cargo` binaries and system CLI
+tools that `spctl` rejects with "code is valid but does not seem to
+be an app" — is treated as Healthy because amfid won't kill them at
+launch. The naive `spctl --assess` check the issue spec proposed
+catches the failure mode but ALSO false-positives on `auval` and
+cargo-installed `clap-validator`; the layered check fixes that.
+
+`--fix` removes broken **user-owned** copies (uid matches `getuid()`).
+Broken **root-owned** copies print `sudo rm <path>` and never
+auto-elevate — that's the safety boundary the spec is explicit about.
+
+When adding a new validator: extend the `kValidators` array in
+`validator_discovery.cpp`, add its priority paths to
+`validator_priority_paths()`, and add a unit-test scenario covering
+all four states (Healthy, user-owned Broken, root-owned Broken,
+Missing).
 
 ## `pulp upgrade` — self-update
 

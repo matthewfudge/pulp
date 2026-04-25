@@ -1,6 +1,7 @@
 // cmd_validate.cpp — pulp validate command
 
 #include "cli_common.hpp"
+#include "validator_discovery.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -47,6 +48,36 @@ int cmd_validate(const std::vector<std::string>& args) {
     if (!fs::exists(build_dir)) {
         std::cerr << "Build directory not found. Run `pulp build` first.\n";
         return 1;
+    }
+
+    // Validator-discovery preflight (#743). Catches the ripped-out-of-
+    // bundle failure mode (`/usr/local/bin/pluginval` with a detached
+    // signature → amfid SIGKILLs it mid-run, exit 137, zero stderr) by
+    // running `spctl --assess` on each validator before we shell out.
+    // Missing validators are left to the existing `--strict` advisory
+    // below; only *broken* copies abort here, because broken copies
+    // silently kill the run in a way the user can't diagnose without
+    // already knowing about this class of failure.
+    {
+        namespace vd = pulp::cli::validator_discovery;
+        auto env = vd::make_default_env();
+        auto reports = vd::discover_validators(env);
+        if (vd::has_broken_validator(reports)) {
+            std::cerr << "\n" << color::red()
+                      << "pulp validate: aborting — one or more validators "
+                         "have a broken code signature." << color::reset()
+                      << "\n"
+                      << "This is almost always a copy of the validator "
+                         "ripped out of its .app\nbundle; running it would "
+                         "be killed by amfid (exit 137) with no useful\n"
+                         "diagnostic. Details:\n\n";
+            std::cerr << vd::render_report(reports, g_color_enabled);
+            std::cerr << "\nRun " << color::cyan()
+                      << "`pulp doctor --validators --fix`" << color::reset()
+                      << " to clean up user-owned copies, or follow the\n"
+                         "`fix:` line above for root-owned copies.\n";
+            return 1;
+        }
     }
 
     int total = 0, passed = 0, failed = 0, skipped = 0;

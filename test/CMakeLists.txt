@@ -131,6 +131,23 @@ target_link_libraries(pulp-test-cli-version-diag PRIVATE
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-version-diag)
 
+# CLI validator discovery (#743): pure-logic tests for the
+# `pulp doctor --validators` discovery + healing core, with a
+# hand-rolled DiscoveryEnv so the 4 acceptance scenarios are hermetic
+# (no spctl shellout, no PATH dependence). validator_discovery.cpp is
+# deliberately free of cli_common link deps — same pattern as
+# version_diag / projects_registry.
+add_executable(pulp-test-cli-validator-discovery
+    test_cli_validator_discovery.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/validator_discovery.cpp
+)
+target_include_directories(pulp-test-cli-validator-discovery PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-cli-validator-discovery PRIVATE
+    Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-validator-discovery)
+
 # CLI projects registry (#499 / #552 Slice 1b): pure-logic tests for
 # the ~/.pulp/projects.json read/write surface and the opt-in
 # parent-directory scan. projects_registry is deliberately free of

@@ -342,14 +342,14 @@ commands:
 
   - name: doctor
     status: usable
-    summary: Diagnose environment issues. Default mode checks compiler, CMake, git-lfs, platform deps, and either the active checkout or the installed SDK workflow. Optional `android` and `ios` subcommands check mobile dev environments and emit per-host install hints (#8 / #355). `--versions` surfaces CLI/SDK/Plugin version skew (#499). `--caches` audits the FetchContent shared-source cache for dangling symlinks, stale-commit entries, and root-owned dirs (#744); `--caches --fix` auto-heals user-owned drift without sudo.
+    summary: Diagnose environment issues. Default mode checks compiler, CMake, git-lfs, platform deps, and either the active checkout or the installed SDK workflow. Optional `android` and `ios` subcommands check mobile dev environments and emit per-host install hints (#8 / #355). `--versions` surfaces CLI/SDK/Plugin version skew (#499). `--validators` surfaces plugin-format validator install + signature integrity, with `--fix` healing user-owned breakage (#743). `--caches` audits the FetchContent shared-source cache for dangling symlinks, stale-commit entries, and root-owned dirs (#744); `--caches --fix` auto-heals user-owned drift without sudo.
     args:
       - name: target
         kind: positional
         description: Optional `android` or `ios` to check the mobile dev environment instead of the default core checks.
       - name: --fix
         kind: flag
-        description: Auto-fix issues where possible (with confirmation). With --caches, removes dangling symlinks and stale-commit entries the user owns; root-owned entries are reported but never auto-deleted.
+        description: Auto-fix issues where possible (with confirmation). With --validators, removes broken user-owned validator copies; root-owned breakage prints a sudo one-liner instead of auto-elevating. With --caches, removes dangling symlinks and stale-commit entries the user owns; root-owned entries are reported but never auto-deleted.
       - name: --ci
         kind: flag
         description: Non-interactive mode, exit codes only
@@ -359,6 +359,9 @@ commands:
       - name: --versions
         kind: flag
         description: Print CLI/SDK/Plugin version diagnostics and advisory skew warnings (always exits 0)
+      - name: --validators
+        kind: flag
+        description: Discover auval / pluginval / clap-validator across well-known paths, verify each candidate's code signature is intact (catches the "ripped out of .app bundle" signature drift that causes amfid to SIGKILL pluginval mid-run), and report ✓/✗/⚠. Exit 0 only when every validator is Healthy. (#743)
       - name: --scan-parents
         kind: flag
         description: With --versions, also walk the CWD's ancestor directories for CMakeLists.txt files invoking pulp_add_* macros and surface them inline (never auto-registered; opt-in escape hatch for projects created outside `pulp create`)

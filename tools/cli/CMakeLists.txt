@@ -72,6 +72,7 @@ add_executable(pulp-cli
     update_check.cpp
     update_mode.cpp
     migration_runtime.cpp
+    validator_discovery.cpp
     "${_pulp_migration_index_src}")
 set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp")
 target_compile_features(pulp-cli PRIVATE cxx_std_20)
@@ -136,6 +137,17 @@ if(PULP_BUILD_TESTS)
     # Accept any exit code; the test just verifies it doesn't crash.
     set_tests_properties(cli-doctor-ci PROPERTIES
         PASS_REGULAR_EXPRESSION ".*")
+
+    # Issue #743: `pulp doctor --validators` always renders the
+    # "Validators" header and exits 0/1 (never 2 = unknown flag).
+    # Per-tool verdicts depend on host install state, so the regex only
+    # asserts the section banner. Exit-code-not-2 protection lives in
+    # test_cli_shellout.cpp ([cli][shellout][doctor][issue-743]).
+    add_test(NAME cli-doctor-validators
+        COMMAND pulp-cli doctor --validators
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(cli-doctor-validators PROPERTIES
+        PASS_REGULAR_EXPRESSION "Validators")
 
     add_test(NAME cli-status
         COMMAND pulp-cli status

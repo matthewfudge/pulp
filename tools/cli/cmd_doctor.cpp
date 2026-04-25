@@ -3,6 +3,7 @@
 #include "cli_common.hpp"
 #include "fetchcontent_cache.hpp"
 #include "projects_registry.hpp"
+#include "validator_discovery.hpp"
 #include "version_diag.hpp"
 
 #include <algorithm>
@@ -54,6 +55,7 @@ int cmd_doctor(const std::vector<std::string>& args) {
     bool ci_mode = false;
     bool dry_run = false;
     bool versions_mode = false;   // --versions: issue #499 Slice 1
+    bool validators_mode = false; // --validators: issue #743
     bool scan_parents = false;    // --scan-parents: issue #552 Slice 1b
     bool caches_mode = false;     // --caches: issue #744
     bool json_mode = false;       // --json (works with --versions and --caches)
@@ -62,12 +64,13 @@ int cmd_doctor(const std::vector<std::string>& args) {
         else if (arg == "--ci") ci_mode = true;
         else if (arg == "--dry-run") dry_run = true;
         else if (arg == "--versions") versions_mode = true;
+        else if (arg == "--validators") validators_mode = true;
         else if (arg == "--scan-parents") scan_parents = true;
         else if (arg == "--caches") caches_mode = true;
         else if (arg == "--json") json_mode = true;
         else if (arg.rfind("--", 0) == 0) {
             std::cerr << "pulp doctor: unknown flag: " << arg << "\n";
-            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--scan-parents] [--caches] [--json]\n";
+            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--validators] [--scan-parents] [--caches] [--json]\n";
             return 2;
         } else if (mode.empty()) {
             mode = arg;
@@ -76,7 +79,7 @@ int cmd_doctor(const std::vector<std::string>& args) {
 
     if (!mode.empty() && mode != "android" && mode != "ios") {
         std::cerr << "pulp doctor: unknown subcommand '" << mode << "'\n";
-        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--scan-parents] [--caches] [--json]\n";
+        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--validators] [--scan-parents] [--caches] [--json]\n";
         return 2;
     }
 
@@ -149,6 +152,64 @@ int cmd_doctor(const std::vector<std::string>& args) {
             }
         }
         return rc;
+    }
+
+    // `pulp doctor --validators` (issue #743) — discover plugin-format
+    // validators (auval / pluginval / clap-validator), surface broken
+    // copies (signature-detached, ripped from a .app bundle, etc.) and
+    // optionally heal user-owned breakage with `--fix`. Mirrors the
+    // structure of `--versions` above: short-circuits the rest of the
+    // doctor pipeline so script consumers can read its exit code in
+    // isolation. Exits 0 only when every validator is Healthy.
+    if (validators_mode) {
+        namespace vd = pulp::cli::validator_discovery;
+        auto env = vd::make_default_env();
+        auto reports = vd::discover_validators(env);
+
+        if (!ci_mode) {
+            std::cout << color::bold() << "Pulp Doctor — Validators"
+                      << color::reset() << "\n";
+            std::cout << "===========\n\n";
+        }
+
+        // Render the pre-fix view first so the user can see what was
+        // found before we mutate anything.
+        std::cout << vd::render_report(reports, !ci_mode && g_color_enabled);
+
+        if (fix_mode) {
+            auto outcome = vd::apply_fixes(reports, dry_run);
+            std::cout << "\n";
+            auto plural = [](int n, const char* singular,
+                             const char* plural) {
+                return n == 1 ? singular : plural;
+            };
+            if (dry_run) {
+                std::cout << color::dim() << "[dry-run] would auto-fix "
+                          << outcome.auto_fixed << " broken user-owned "
+                          << plural(outcome.auto_fixed, "copy", "copies")
+                          << "\n" << color::reset();
+            } else if (outcome.auto_fixed > 0) {
+                std::cout << color::green() << "Auto-fixed "
+                          << outcome.auto_fixed
+                          << " broken user-owned validator "
+                          << plural(outcome.auto_fixed, "copy", "copies")
+                          << ".\n" << color::reset();
+                // Re-render so the user sees the post-fix state.
+                std::cout << "\n" << vd::render_report(
+                    reports, !ci_mode && g_color_enabled);
+            }
+            if (outcome.needs_sudo > 0) {
+                std::cout << color::yellow() << outcome.needs_sudo
+                          << " broken root-owned validator "
+                          << plural(outcome.needs_sudo, "copy", "copies")
+                          << " require"
+                          << (outcome.needs_sudo == 1 ? "s" : "")
+                          << " sudo. Run the `fix:` lines above "
+                             "manually.\n" << color::reset();
+            }
+        }
+
+        return vd::compute_exit_code(reports);
     }
 
     // `pulp doctor --versions` is a dedicated diagnostic (issue #499

@@ -146,6 +146,16 @@ pulp validate --report out.json  # Write JSON report to file
 pulp validate --strict     # CI gate: skipped-because-missing-tool ⇒ exit 1
 ```
 
+**Validator-discovery preflight (#743).** Before launching any validator,
+`pulp validate` runs the same discovery that powers `pulp doctor --validators`.
+If any validator on disk has a broken code signature (the classic case:
+a copy of `pluginval` ripped out of its `.app` bundle, where amfid will
+SIGKILL the process at launch with exit 137 and zero stderr), `pulp
+validate` aborts with the exact path + remediation instead of letting
+the run die mid-validation. Run `pulp doctor --validators --fix` to
+clean up user-owned broken copies, or follow the printed sudo one-liner
+for root-owned ones.
+
 **Missing-validator policy.** If `clap-validator`, `pluginval`, `auval`,
 or the AAX validator is not installed, affected plugins are reported as
 `SKIPPED`. The default mode prints a loud warning listing which tools
@@ -227,6 +237,9 @@ pulp doctor --dry-run                # show what --fix would do
 pulp doctor --versions               # CLI/SDK/Plugin version diagnostics (#499 Slice 1)
 pulp doctor --versions --scan-parents # ALSO walk CWD ancestors for pulp_add_* projects (#552)
 pulp doctor --versions --json        # emit the diagnostic as stable JSON (#552)
+pulp doctor --validators             # discover auval / pluginval / clap-validator + verify signatures (#743)
+pulp doctor --validators --fix       # ALSO remove user-owned broken copies; root-owned breakage prints sudo one-liner
+pulp doctor --validators --dry-run   # preview what --fix would do
 pulp doctor --caches                 # FetchContent shared-source cache health (#744)
 pulp doctor --caches --fix           # heal user-owned dangling/stale-commit entries
 pulp doctor --caches --fix --dry-run # preview heal without removing anything
@@ -305,6 +318,47 @@ user-visible warnings; per-field semver fields carry
 `plugin_min_cli` is populated from the plugin's `plugin.json`
 `min_cli_version` field (release-discovery Slice 6, #551); absent in
 older plugin builds.
+
+#### `--validators` (#743)
+
+`pulp doctor --validators` is a dedicated diagnostic that discovers the
+three plugin-format validators `pulp validate` shells out to —
+`auval`, `pluginval`, `clap-validator` — and verifies each candidate's
+code signature is intact. It catches the failure mode where a binary
+copied OUT of its `.app` bundle (commonly `/usr/local/bin/pluginval`
+copied from `/Applications/pluginval.app/Contents/MacOS/`) retains a
+signature claim that references peer files inside the bundle. macOS
+amfid kills such a binary at launch with exit 137 and zero stderr —
+the user has no diagnostic without already knowing this exists.
+
+Per-validator output is one of:
+
+- `OK auval: /usr/bin/auval (valid signature on disk …)`
+- `FAIL pluginval: /usr/local/bin/pluginval — invalid Info.plist (plist or signature have been modified). Root-owned — sudo required.`
+- `WARN clap-validator: not installed. Run `cargo install clap-validator`.`
+
+`--fix` removes broken **user-owned** copies in place (counted in the
+`Auto-fixed` summary). Broken **root-owned** copies are never
+auto-elevated — the doctor prints a `sudo rm <path>` one-liner for the
+user to run manually. `--fix --dry-run` previews the same actions
+without mutating anything. `--fix` is a no-op on a fully healthy env.
+
+Discovery walks each validator's well-known paths in priority order
+(system path → cask app bundle → PATH lookup → `~/.cargo/bin`) and
+stops at the first existing candidate. The first-existing path wins
+deliberately: that's the binary the user's shell will dispatch, so
+that's the copy `pulp validate` will SIGKILL on if it's broken.
+Masking it with a healthy copy further down the list would defeat the
+diagnostic.
+
+Exit code is 0 only when every validator is Healthy. Missing validators
+also contribute to a non-zero exit because a host without the validators
+can't run `pulp validate` at all — the doctor must surface that.
+
+`pulp validate` runs the same discovery as a preflight before launching
+any validator. If any validator is in the Broken state, `pulp validate`
+aborts with the exact remediation instead of letting amfid SIGKILL the
+run mid-validation.
 
 **FetchContent cache health (#744).** `pulp doctor --caches` audits
 the shared-source FetchContent cache that Pulp uses to avoid
