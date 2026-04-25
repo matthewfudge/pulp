@@ -260,7 +260,6 @@ target_link_libraries(pulp-test-cli-project-command PRIVATE
     pulp::ship
     pulp::view
     pulp::format
-    pulp::inspect
     pulp::host
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-project-command)
