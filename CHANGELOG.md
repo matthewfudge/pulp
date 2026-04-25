@@ -8,15 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0450"></a>
+## [0.45.0] - 2026-04-24
+
+- feat(doctor): pulp doctor --caches + build/test preflight (#744) ([#753](https://github.com/danielraffel/pulp/pull/753))
+- test(host): add audio-thread handshake to second hot-reload race test (#669) ([#754](https://github.com/danielraffel/pulp/pull/754))
+- feat(test): sandbox E2E harness for CLI + Claude plugin (#732) ([#736](https://github.com/danielraffel/pulp/pull/736))
+- fix(clap): filter non-core event namespaces + loop state_save on short writes ([#748](https://github.com/danielraffel/pulp/pull/748))
+- ci/namespace default ([#752](https://github.com/danielraffel/pulp/pull/752))
+- fix(runtime): make gzip_compress/decompress actually handle gzip (RFC 1952) ([#747](https://github.com/danielraffel/pulp/pull/747))
+- feat(view): --execute-bundle harness for Claude Design import (pulp #468) ([#731](https://github.com/danielraffel/pulp/pull/731))
+
 <a id="v0430"></a>
-## [0.18.0]
-
-## [0.45.0]
-
-## [0.17.0]
-
-## [0.44.0]
-
 ## [0.43.0] - 2026-04-24
 
 - feat(view): web-compat shims for bundled-React imports (pulp #468 PR 1/2) ([#730](https://github.com/danielraffel/pulp/pull/730))
@@ -657,6 +660,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.45.0]: https://github.com/danielraffel/pulp/releases/tag/v0.45.0
 [0.43.0]: https://github.com/danielraffel/pulp/releases/tag/v0.43.0
 [0.42.1]: https://github.com/danielraffel/pulp/releases/tag/v0.42.1
 [0.42.0]: https://github.com/danielraffel/pulp/releases/tag/v0.42.0
