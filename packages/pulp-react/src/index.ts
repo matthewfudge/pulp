@@ -9,7 +9,7 @@
 // Plus all the intrinsics from intrinsics.ts.
 
 import createReactReconciler from 'react-reconciler';
-import { ConcurrentRoot } from 'react-reconciler/constants.js';
+import { LegacyRoot } from 'react-reconciler/constants.js';
 import type { ReactElement } from 'react';
 import type { OpaqueRoot } from 'react-reconciler';
 
@@ -57,7 +57,12 @@ export function render(element: ReactElement, container?: PulpContainer): PulpCo
     if (!rec) {
         const fiberRoot = reconciler.createContainer(
             c,
-            ConcurrentRoot,
+            // LegacyRoot = synchronous mode. Matches the v0 architecture
+            // doc ("Concurrent mode: deferred for v0") and means each
+            // render() returns after the bridge calls have all been
+            // emitted — no microtask gap, which is what tests and
+            // AOT-bundled plugin code both expect.
+            LegacyRoot,
             null,
             false,
             null,

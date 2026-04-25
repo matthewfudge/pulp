@@ -10,6 +10,17 @@
 
 import type { PulpInstance } from './types.js';
 
+// Bridge globals are looked up through globalThis at call time so the
+// mock-bridge install path picks them up. See host-config.ts for the
+// matching pattern.
+type AnyFn = (...args: unknown[]) => unknown;
+const g = globalThis as unknown as Record<string, AnyFn | undefined>;
+function call(name: string, ...args: unknown[]): void {
+    const fn = g[name];
+    if (typeof fn !== 'function') return; // optional bridge fns are fine to skip
+    fn(...args);
+}
+
 /// Returns true if the prop is purely React-internal (not a bridge setter).
 function isReactInternal(key: string): boolean {
     return (
@@ -32,63 +43,63 @@ function applyOne(id: string, type: string, key: string, value: unknown): void {
 
     switch (key) {
         // Flex / layout — all forwarded through setFlex
-        case 'direction':       return setFlex(id, 'direction', value as string);
-        case 'gap':             return setFlex(id, 'gap', value as number);
-        case 'rowGap':          return setFlex(id, 'row_gap', value as number);
-        case 'columnGap':       return setFlex(id, 'column_gap', value as number);
-        case 'padding':         return setFlex(id, 'padding', value as number);
-        case 'paddingTop':      return setFlex(id, 'padding_top', value as number);
-        case 'paddingRight':    return setFlex(id, 'padding_right', value as number);
-        case 'paddingBottom':   return setFlex(id, 'padding_bottom', value as number);
-        case 'paddingLeft':     return setFlex(id, 'padding_left', value as number);
-        case 'margin':          return setFlex(id, 'margin', value as number);
-        case 'marginTop':       return setFlex(id, 'margin_top', value as number);
-        case 'marginRight':     return setFlex(id, 'margin_right', value as number);
-        case 'marginBottom':    return setFlex(id, 'margin_bottom', value as number);
-        case 'marginLeft':      return setFlex(id, 'margin_left', value as number);
-        case 'flexGrow':        return setFlex(id, 'flex_grow', value as number);
-        case 'flexShrink':      return setFlex(id, 'flex_shrink', value as number);
-        case 'flexBasis':       return setFlex(id, 'flex_basis', value as number);
-        case 'flexWrap':        return setFlex(id, 'flex_wrap', value ? 1 : 0);
-        case 'order':           return setFlex(id, 'order', value as number);
-        case 'width':           return setFlex(id, 'width', value as number);
-        case 'height':          return setFlex(id, 'height', value as number);
-        case 'minWidth':        return setFlex(id, 'min_width', value as number);
-        case 'minHeight':       return setFlex(id, 'min_height', value as number);
-        case 'maxWidth':        return setFlex(id, 'max_width', value as number);
-        case 'maxHeight':       return setFlex(id, 'max_height', value as number);
-        case 'alignItems':      return setFlex(id, 'align_items', value as string);
-        case 'alignSelf':       return setFlex(id, 'align_self', value as string);
-        case 'justifyContent':  return setFlex(id, 'justify_content', value as string);
+        case 'direction':       return call('setFlex', id, 'direction', value as string);
+        case 'gap':             return call('setFlex', id, 'gap', value as number);
+        case 'rowGap':          return call('setFlex', id, 'row_gap', value as number);
+        case 'columnGap':       return call('setFlex', id, 'column_gap', value as number);
+        case 'padding':         return call('setFlex', id, 'padding', value as number);
+        case 'paddingTop':      return call('setFlex', id, 'padding_top', value as number);
+        case 'paddingRight':    return call('setFlex', id, 'padding_right', value as number);
+        case 'paddingBottom':   return call('setFlex', id, 'padding_bottom', value as number);
+        case 'paddingLeft':     return call('setFlex', id, 'padding_left', value as number);
+        case 'margin':          return call('setFlex', id, 'margin', value as number);
+        case 'marginTop':       return call('setFlex', id, 'margin_top', value as number);
+        case 'marginRight':     return call('setFlex', id, 'margin_right', value as number);
+        case 'marginBottom':    return call('setFlex', id, 'margin_bottom', value as number);
+        case 'marginLeft':      return call('setFlex', id, 'margin_left', value as number);
+        case 'flexGrow':        return call('setFlex', id, 'flex_grow', value as number);
+        case 'flexShrink':      return call('setFlex', id, 'flex_shrink', value as number);
+        case 'flexBasis':       return call('setFlex', id, 'flex_basis', value as number);
+        case 'flexWrap':        return call('setFlex', id, 'flex_wrap', value ? 1 : 0);
+        case 'order':           return call('setFlex', id, 'order', value as number);
+        case 'width':           return call('setFlex', id, 'width', value as number);
+        case 'height':          return call('setFlex', id, 'height', value as number);
+        case 'minWidth':        return call('setFlex', id, 'min_width', value as number);
+        case 'minHeight':       return call('setFlex', id, 'min_height', value as number);
+        case 'maxWidth':        return call('setFlex', id, 'max_width', value as number);
+        case 'maxHeight':       return call('setFlex', id, 'max_height', value as number);
+        case 'alignItems':      return call('setFlex', id, 'align_items', value as string);
+        case 'alignSelf':       return call('setFlex', id, 'align_self', value as string);
+        case 'justifyContent':  return call('setFlex', id, 'justify_content', value as string);
 
         // Visual style
-        case 'background':         return setBackground(id, value as string);
-        case 'backgroundGradient': return setBackgroundGradient(id, value as string);
+        case 'background':         return call('setBackground', id, value as string);
+        case 'backgroundGradient': return call('setBackgroundGradient', id, value as string);
         case 'border': {
             const b = value as { color: string; width?: number; radius?: number };
-            return setBorder(id, b.color, b.width ?? 1, b.radius ?? 0);
+            return call('setBorder', id, b.color, b.width ?? 1, b.radius ?? 0);
         }
-        case 'borderTop':    { const b = value as { color: string; width: number }; return setBorderSide(id, 'top', b.width, b.color); }
-        case 'borderRight':  { const b = value as { color: string; width: number }; return setBorderSide(id, 'right', b.width, b.color); }
-        case 'borderBottom': { const b = value as { color: string; width: number }; return setBorderSide(id, 'bottom', b.width, b.color); }
-        case 'borderLeft':   { const b = value as { color: string; width: number }; return setBorderSide(id, 'left', b.width, b.color); }
-        case 'opacity':      return setOpacity(id, value as number);
-        case 'visible':      return setVisible(id, value as boolean);
+        case 'borderTop':    { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'top', b.width, b.color); }
+        case 'borderRight':  { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'right', b.width, b.color); }
+        case 'borderBottom': { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'bottom', b.width, b.color); }
+        case 'borderLeft':   { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'left', b.width, b.color); }
+        case 'opacity':      return call('setOpacity', id, value as number);
+        case 'visible':      return call('setVisible', id, value as boolean);
 
         // Text
-        case 'text':       return setText(id, String(value));
-        case 'textColor':  return setTextColor(id, value as string);
-        case 'textAlign':  return setTextAlign(id, value as 'left' | 'center' | 'right');
+        case 'text':       return call('setText', id, String(value));
+        case 'textColor':  return call('setTextColor', id, value as string);
+        case 'textAlign':  return call('setTextAlign', id, value as 'left' | 'center' | 'right');
 
         // Widget-specific data
         case 'data':
             // <Spectrum data={...}> + <Waveform data={...}> share the prop
             // name; we route based on widget type at the call site.
-            if (type === 'Spectrum') return setSpectrumData(id, value as number[] | Float32Array);
-            if (type === 'Waveform') return setWaveformData(id, value as number[] | Float32Array);
+            if (type === 'Spectrum') return call('setSpectrumData', id, value as number[] | Float32Array);
+            if (type === 'Waveform') return call('setWaveformData', id, value as number[] | Float32Array);
             return;
-        case 'level':    return setMeterLevel(id, value as number);
-        case 'value':    return setValue(id, value as number);
+        case 'level':    return call('setMeterLevel', id, value as number);
+        case 'value':    return call('setValue', id, value as number);
 
         default:
             // Unknown prop — silently ignore. We could warn here in DEV
@@ -136,8 +147,8 @@ export function applyChangedProps(
         if (key === 'children') continue;
         if (!(key in newProps)) {
             // Specific resets we can do meaningfully
-            if (key === 'visible')  { setVisible(id, true); mutated = true; }
-            if (key === 'opacity')  { setOpacity(id, 1.0); mutated = true; }
+            if (key === 'visible')  { call('setVisible', id, true); mutated = true; }
+            if (key === 'opacity')  { call('setOpacity', id, 1.0); mutated = true; }
             // Other setters: no-op — let the next mount cycle handle it
         }
     }

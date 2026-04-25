@@ -29,6 +29,11 @@ mkdir -p dist
     --jsx-factory=createElement \
     --jsx-fragment=Fragment \
     --define:process.env.NODE_ENV='"production"' \
-    --outfile="$OUT"
+    --outfile="$OUT.body"
+
+# Prepend the QuickJS-friendly shim so the bundle evaluates without
+# crashing on missing browser APIs (setTimeout/queueMicrotask/etc).
+cat shim.js "$OUT.body" > "$OUT"
+rm -f "$OUT.body"
 
 echo "wrote $(pwd)/$OUT ($(wc -c < $OUT) bytes)"

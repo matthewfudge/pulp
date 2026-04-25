@@ -1,0 +1,4 @@
+node_modules/
+dist/
+test/smoke-fixture/dist/
+*.tgz

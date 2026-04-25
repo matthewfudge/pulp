@@ -38,7 +38,11 @@ declare global {
     /// pulp #772 adds this as a non-DOM-coupled alternative to the
     /// __domAppend reparent path in core/view/src/widget_bridge.cpp:1550.
     /// If absent at runtime, fall back to remove + create at parent.
-    function moveWidget?(id: string, newParentId: string, index: number): void;
+    /// Declared as a const so consumers can branch on `typeof moveWidget`.
+    const moveWidget: ((id: string, newParentId: string, index: number) => void) | undefined;
+    /// insertBefore on an existing sibling under the same parent.
+    /// Symmetric with moveWidget; absent on older runtimes.
+    const insertChild: ((parentId: string, childId: string, index: number) => void) | undefined;
 
     // ── Flex / Yoga layout ──────────────────────────────────────────
     function setFlex(
@@ -107,7 +111,8 @@ declare global {
     // ── Layout flush + frame service ────────────────────────────────
     /// Force a layout pass on the root container. Used in
     /// `resetAfterCommit` so the host config owns commit-time flush.
-    function layout?(): void;
+    /// Declared as a const so consumers can branch on `typeof layout`.
+    const layout: (() => void) | undefined;
 }
 
 /// Test-only mock-bridge for unit tests. Replaces all the global

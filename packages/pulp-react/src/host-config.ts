@@ -38,34 +38,55 @@ type EventPriority = number;
 const NoEventPriority = 0;
 let currentUpdatePriority: EventPriority = NoEventPriority;
 
+// All bridge globals are resolved through globalThis at call time so the
+// mock-bridge install path (test/host-config.test.ts) and any later
+// runtime swap (e.g. test isolation) are picked up. Bare global
+// references would bind once at module load and miss the mocks.
+type AnyFn = (...args: unknown[]) => unknown;
+const g = globalThis as unknown as Record<string, AnyFn | undefined>;
+function call(name: string, ...args: unknown[]): unknown {
+    const fn = g[name];
+    if (typeof fn !== 'function') {
+        throw new Error('@pulp/react: bridge function ' + name + ' is not installed');
+    }
+    return fn(...args);
+}
+
 // ── element-name → bridge createX dispatch ──────────────────────────
 function createWidget(type: Type, id: string, parentId: string, props: Props): void {
     switch (type) {
         case 'View':
-        case 'Col':         return createCol(id, parentId);
-        case 'Row':         return createRow(id, parentId);
-        case 'Panel':       return createPanel(id, parentId);
-        case 'Label':       return createLabel(id, asText(props.children) ?? (props.text as string ?? ''), parentId);
-        case 'Button':      return createButton
-                                ? createButton(id, asText(props.children) ?? (props.text as string ?? ''), parentId)
-                                : (createPanel(id, parentId), createLabel(id + '_l', asText(props.children) ?? '', id));
-        case 'TextEditor':  return createTextEditor(id, parentId);
-        case 'ScrollView':  return createScrollView(id, parentId);
-        case 'Modal':       return createModal(id, parentId);
-        case 'Knob':        return createKnob(id, parentId);
-        case 'Fader':       return createFader(id, (props.orientation as 'vertical' | 'horizontal') ?? 'vertical', parentId);
-        case 'Spectrum':    return createSpectrum(id, parentId);
-        case 'Waveform':    return createWaveform(id, parentId);
-        case 'Meter':       return createMeter(id, parentId);
-        case 'Progress':    return createProgress(id, parentId);
-        case 'XYPad':       return createXYPad(id, parentId);
-        case 'Checkbox':    return createCheckbox(id, parentId);
-        case 'Toggle':      return createToggle(id, parentId);
-        case 'Combo':       return createCombo(id, parentId);
-        case 'ListBox':     return createListBox(id, parentId);
-        case 'Canvas':      return createCanvas(id, parentId);
-        case 'Image':       return createImage(id, parentId);
-        case 'Icon':        return createIcon(id, parentId);
+        case 'Col':         call('createCol', id, parentId); return;
+        case 'Row':         call('createRow', id, parentId); return;
+        case 'Panel':       call('createPanel', id, parentId); return;
+        case 'Label':       call('createLabel', id, asText(props.children) ?? (props.text as string ?? ''), parentId); return;
+        case 'Button': {
+            const text = asText(props.children) ?? (props.text as string ?? '');
+            if (typeof g.createButton === 'function') {
+                call('createButton', id, text, parentId);
+            } else {
+                call('createPanel', id, parentId);
+                call('createLabel', id + '_l', text, id);
+            }
+            return;
+        }
+        case 'TextEditor':  call('createTextEditor', id, parentId); return;
+        case 'ScrollView':  call('createScrollView', id, parentId); return;
+        case 'Modal':       call('createModal', id, parentId); return;
+        case 'Knob':        call('createKnob', id, parentId); return;
+        case 'Fader':       call('createFader', id, (props.orientation as 'vertical' | 'horizontal') ?? 'vertical', parentId); return;
+        case 'Spectrum':    call('createSpectrum', id, parentId); return;
+        case 'Waveform':    call('createWaveform', id, parentId); return;
+        case 'Meter':       call('createMeter', id, parentId); return;
+        case 'Progress':    call('createProgress', id, parentId); return;
+        case 'XYPad':       call('createXYPad', id, parentId); return;
+        case 'Checkbox':    call('createCheckbox', id, parentId); return;
+        case 'Toggle':      call('createToggle', id, parentId); return;
+        case 'Combo':       call('createCombo', id, parentId); return;
+        case 'ListBox':     call('createListBox', id, parentId); return;
+        case 'Canvas':      call('createCanvas', id, parentId); return;
+        case 'Image':       call('createImage', id, parentId); return;
+        case 'Icon':        call('createIcon', id, parentId); return;
         default: {
             // Should be unreachable thanks to the typed intrinsics in types.ts.
             const _exhaustive: never = type;
@@ -116,6 +137,11 @@ export const PulpHostConfig: HostConfig<
             ? currentUpdatePriority
             : DefaultEventPriority;
     },
+    /// React 18 name for the same thing — react-reconciler@0.29 calls this
+    /// from `requestUpdateLane`. Without it, every render throws
+    /// "getCurrentEventPriority is not a function". Keep both names so the
+    /// host config works on both 0.29 (React 18) and 0.31 (React 19).
+    getCurrentEventPriority() { return DefaultEventPriority; },
 
     // ── Host context (no scoped state needed for v0) ────────────────
     getRootHostContext() { return {}; },
@@ -195,7 +221,7 @@ export const PulpHostConfig: HostConfig<
     },
     removeChildFromContainer(_container, child) {
         // Detach from root and let the bridge clean up the subtree.
-        if (typeof removeWidget === 'function') removeWidget(child.id);
+        if (typeof g.removeWidget === 'function') call('removeWidget', child.id);
     },
 
     clearContainer(_container) {
@@ -219,7 +245,7 @@ export const PulpHostConfig: HostConfig<
             const oldText = asText(oldProps.children) ?? (oldProps.text as string | undefined);
             const newText = asText(newProps.children) ?? (newProps.text as string | undefined);
             if (oldText !== newText && newText !== undefined) {
-                if (typeof setText === 'function') setText(instance.id, newText);
+                if (typeof g.setText === 'function') call('setText', instance.id, newText);
             }
         }
     },
@@ -234,7 +260,7 @@ export const PulpHostConfig: HostConfig<
         // Own commit-time layout/repaint flush. The bridge's individual
         // setX calls don't all self-flush layout, so we trigger one
         // explicit pass per React commit. Mirrors Ink's resetAfterCommit.
-        if (typeof layout === 'function') layout();
+        if (typeof g.layout === 'function') call('layout');
     },
 
     // ── Misc required no-ops / passthroughs ────────────────────────
@@ -254,10 +280,10 @@ function attach(parent: Instance, child: Instance, index?: number): void {
     if (wasAttachedElsewhere) {
         // Existing widget being moved between parents — use moveWidget if
         // the bridge exposes it, else fall back to remove + recreate.
-        if (typeof moveWidget === 'function') {
-            moveWidget(child.id, parent.id, index ?? parent.childIds.length);
+        if (typeof g.moveWidget === 'function') {
+            call('moveWidget', child.id, parent.id, index ?? parent.childIds.length);
         } else {
-            if (typeof removeWidget === 'function') removeWidget(child.id);
+            if (typeof g.removeWidget === 'function') call('removeWidget', child.id);
             createWidget(child.type, child.id, parent.id, child.props);
             applyAllProps(child);
         }
@@ -298,7 +324,7 @@ function attachToRoot(container: Container, child: Instance, index = -1, _before
 function detach(parent: Instance, child: Instance): void {
     const idx = parent.childIds.indexOf(child.id);
     if (idx >= 0) parent.childIds.splice(idx, 1);
-    if (typeof removeWidget === 'function') removeWidget(child.id);
+    if (typeof g.removeWidget === 'function') call('removeWidget', child.id);
     child.parentId = undefined;
 }
 
