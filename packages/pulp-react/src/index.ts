@@ -68,7 +68,6 @@ export function render(element: ReactElement, container?: PulpContainer): PulpCo
             null,
             '@pulp/react',
             (err: Error) => { console.error('[@pulp/react] recoverable error:', err); },
-            (err: Error) => { console.error('[@pulp/react] caught error:', err); },
             null,
         );
         rec = { container: c, fiberRoot };
