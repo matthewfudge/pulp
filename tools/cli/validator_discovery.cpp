@@ -14,6 +14,13 @@
 #  include <unistd.h>
 #endif
 
+// MSVC ships POSIX-style pipe helpers under the `_popen` / `_pclose`
+// names; alias them so the cross-platform call sites below stay tidy.
+#if defined(_WIN32)
+#  define popen  _popen
+#  define pclose _pclose
+#endif
+
 namespace pulp::cli::validator_discovery {
 
 namespace {
