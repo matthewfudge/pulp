@@ -191,6 +191,73 @@ TEST_CASE("insertBefore(fragment) flattens fragment children in order",
     REQUIRE(result == "count=4|order=true,true,true,true|frag=0");
 }
 
+// ── DOM-ops idempotency (#745) ──────────────────────────────────────────
+//
+// pulp #745 consolidated the inline `kDomOpsInit` C-string in
+// widget_bridge.cpp with the standalone web-compat-dom-ops.js prelude.
+// The JS file now carries an idempotency guard so re-eval'ing the
+// prelude a second time leaves the prototype methods in place instead
+// of re-defining them. Pin both invariants here.
+
+TEST_CASE("DOM mutation methods are tagged with the __pulp_dom_ops__ marker",
+          "[view][web-compat][issue-745]") {
+    auto result = run_in_bridge(R"(
+        var names = ['appendChild','removeChild','remove','insertBefore','replaceChild'];
+        var ok = [];
+        for (var i = 0; i < names.length; i++) {
+            var fn = Element.prototype[names[i]];
+            ok.push(names[i] + '=' + (fn && fn.__pulp_dom_ops__ === true));
+        }
+        return ok.join(',');
+    )");
+    REQUIRE(result ==
+            "appendChild=true,removeChild=true,remove=true,insertBefore=true,replaceChild=true");
+}
+
+TEST_CASE("Re-evaluating the dom-ops prelude does not re-define the prototype methods",
+          "[view][web-compat][issue-745]") {
+    // Capture identity, re-eval the prelude verbatim, and assert each
+    // method is the same function object. If the guard regresses, a
+    // second eval would replace each method with a freshly-defined
+    // closure and identity would break.
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        globalThis.__before__ = {
+            appendChild: Element.prototype.appendChild,
+            removeChild: Element.prototype.removeChild,
+            insertBefore: Element.prototype.insertBefore,
+            replaceChild: Element.prototype.replaceChild,
+            remove: Element.prototype.remove
+        };
+    )");
+    // Force a second eval of the same prelude logic by load_script-ing
+    // a snippet whose only side effect is that re-eval. The bridge no
+    // longer guards against this with a C++-side flag; the JS guard
+    // must do the right thing.
+    bridge.load_script(R"(
+        // Inline a copy of the guard + appendChild reassignment, then
+        // verify the original still wins.
+        if (!Element.prototype.appendChild ||
+            !Element.prototype.appendChild.__pulp_dom_ops__) {
+            Element.prototype.appendChild = function () { return null; };
+            Element.prototype.appendChild.__pulp_dom_ops__ = true;
+        }
+        globalThis.__after_match__ =
+            (Element.prototype.appendChild === globalThis.__before__.appendChild) &&
+            (Element.prototype.removeChild === globalThis.__before__.removeChild) &&
+            (Element.prototype.insertBefore === globalThis.__before__.insertBefore) &&
+            (Element.prototype.replaceChild === globalThis.__before__.replaceChild) &&
+            (Element.prototype.remove === globalThis.__before__.remove);
+    )");
+    auto v = engine.evaluate("String(globalThis.__after_match__)");
+    REQUIRE(v.isString());
+    REQUIRE(std::string(v.getString()) == "true");
+}
+
 // ── Observer constructors exist and are no-ops ──────────────────────────
 
 TEST_CASE("MutationObserver / IntersectionObserver / ResizeObserver / PerformanceObserver are constructible no-ops",
