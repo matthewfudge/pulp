@@ -109,6 +109,17 @@ const vd::ValidatorReport& find_report(
 
 }  // namespace
 
+// The validator-discovery scenarios are macOS-shaped end-to-end:
+// hard-coded POSIX paths (`/usr/bin/auval`, `/usr/local/bin/pluginval`),
+// uid-based ownership, and the rip-from-bundle / amfid SIGKILL failure
+// mode that motivated #743. None of those map to Windows (no `auval`,
+// no Gatekeeper, fs::path stringification flips slashes so the StubEnv
+// hash lookups miss). The production code already neutralises Windows
+// behaviour (see `make_default_env()`'s _WIN32 branches), so gating
+// the tests off on Windows keeps coverage honest without disabling
+// anything load-bearing for that platform.
+#if !defined(_WIN32)
+
 TEST_CASE("healthy cask install reports OK for every validator",
           "[doctor][validators][issue-743]") {
     // Scenario (a) — each validator's first-priority existing path
@@ -448,3 +459,15 @@ TEST_CASE("apply_fixes is a no-op on a fully healthy environment",
     REQUIRE(outcome.healthy == 3);
     REQUIRE(vd::compute_exit_code(reports) == 0);
 }
+
+#else  // _WIN32
+
+// Windows has no auval / Gatekeeper, and the priority paths are POSIX-shaped.
+// Keep at least one compiled assertion so the binary still builds and links
+// cleanly on the Windows CI lane (Catch2 main is provided by the harness).
+TEST_CASE("validator discovery is macOS-only on Windows",
+          "[doctor][validators][issue-743][windows]") {
+    SUCCEED("validator discovery scenarios are gated to non-Windows hosts");
+}
+
+#endif  // !_WIN32
