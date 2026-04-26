@@ -38,9 +38,43 @@ std::string resolve_clap_binary(const std::string& path) {
 
 }  // namespace
 
+// Filename-only fallback used when descriptor enumeration fails for
+// any reason (missing entry, init failure, exception thrown across
+// the dlopen boundary). The user sees the bundle in scan output but
+// without bundled metadata — better than dropping it silently and
+// far better than aborting the whole scan.
+PluginInfo make_filename_fallback(const std::string& path) {
+    PluginInfo info;
+    info.path = path;
+    info.format = PluginFormat::CLAP;
+    info.name = fs::path(path).stem().string();
+    info.unique_id = info.name;
+    return info;
+}
+
 // Called from scanner.cpp — enumerate descriptors by briefly loading
 // the bundle, reading clap_plugin_factory, and extracting metadata per
 // descriptor. The bundle is unloaded before return.
+//
+// EVERY call into the loaded bundle (entry->init, entry->get_factory,
+// factory->get_plugin_count, factory->get_plugin_descriptor) is
+// wrapped in try/catch because the plugin's static init or descriptor
+// accessor can throw arbitrary C++ exceptions across the C ABI of
+// CLAP. Pulp #812 surfaced exactly this: a Pulp-built plugin with a
+// malformed JSON config threw `choc::json::ParseError` from inside
+// its bridge code at dlopen time, the unhandled exception walked up
+// past the C boundary, and `pulp scan` aborted with SIGABRT —
+// killing the entire scan even though all the *other* plugins
+// scanned cleanly. The catch boundary turns those crashes into
+// per-plugin warnings + filename-fallback entries, so one bad
+// neighbor can't take down the whole report.
+//
+// `catch (...)` is the broad sweep deliberately: the throwing plugin
+// might use a different C++ runtime than this binary (e.g. statically-
+// linked libc++) and we can't reliably name its exception types.
+// Worst case the unwind is incompatible and we still abort — same
+// as today, no regression — but in the common case (Pulp-built
+// plugins linking the shared system C++ runtime) this catches.
 std::vector<PluginInfo> scan_clap_bundle_descriptors(const std::string& path) {
     std::vector<PluginInfo> results;
 
@@ -49,13 +83,7 @@ std::vector<PluginInfo> scan_clap_bundle_descriptors(const std::string& path) {
     if (!handle) {
         runtime::log_warn("CLAP scan: dlopen failed for '{}': {}",
                           binary, dlerror() ? dlerror() : "unknown");
-        // Fallback to filename-only entry.
-        PluginInfo info;
-        info.path = path;
-        info.format = PluginFormat::CLAP;
-        info.name = fs::path(path).stem().string();
-        info.unique_id = info.name;
-        results.push_back(std::move(info));
+        results.push_back(make_filename_fallback(path));
         return results;
     }
 
@@ -63,34 +91,75 @@ std::vector<PluginInfo> scan_clap_bundle_descriptors(const std::string& path) {
     if (!entry || !entry->init || !entry->get_factory) {
         runtime::log_warn("CLAP scan: no clap_entry in '{}'", binary);
         dlclose(handle);
-        PluginInfo info;
-        info.path = path;
-        info.format = PluginFormat::CLAP;
-        info.name = fs::path(path).stem().string();
-        info.unique_id = info.name;
-        results.push_back(std::move(info));
+        results.push_back(make_filename_fallback(path));
         return results;
     }
 
-    if (!entry->init(path.c_str())) {
+    bool init_ok = false;
+    try {
+        init_ok = entry->init(path.c_str());
+    } catch (const std::exception& e) {
+        runtime::log_warn("CLAP scan: entry->init threw for '{}': {} (#812 guard)",
+                          path, e.what());
+        dlclose(handle);
+        results.push_back(make_filename_fallback(path));
+        return results;
+    } catch (...) {
+        runtime::log_warn("CLAP scan: entry->init threw unknown exception for '{}' (#812 guard)",
+                          path);
+        dlclose(handle);
+        results.push_back(make_filename_fallback(path));
+        return results;
+    }
+    if (!init_ok) {
         runtime::log_warn("CLAP scan: entry->init failed for '{}'", path);
         dlclose(handle);
         return results;
     }
 
-    const auto* factory = static_cast<const clap_plugin_factory_t*>(
-        entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
+    const clap_plugin_factory_t* factory = nullptr;
+    try {
+        factory = static_cast<const clap_plugin_factory_t*>(
+            entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
+    } catch (const std::exception& e) {
+        runtime::log_warn("CLAP scan: get_factory threw for '{}': {} (#812 guard)",
+                          path, e.what());
+    } catch (...) {
+        runtime::log_warn("CLAP scan: get_factory threw unknown exception for '{}' (#812 guard)",
+                          path);
+    }
 
     if (!factory || !factory->get_plugin_count || !factory->get_plugin_descriptor) {
-        entry->deinit();
+        try { entry->deinit(); } catch (...) {}
         dlclose(handle);
+        if (results.empty()) results.push_back(make_filename_fallback(path));
         return results;
     }
 
-    const uint32_t count = factory->get_plugin_count(factory);
+    uint32_t count = 0;
+    try {
+        count = factory->get_plugin_count(factory);
+    } catch (const std::exception& e) {
+        runtime::log_warn("CLAP scan: get_plugin_count threw for '{}': {} (#812 guard)",
+                          path, e.what());
+    } catch (...) {
+        runtime::log_warn("CLAP scan: get_plugin_count threw unknown exception for '{}' (#812 guard)",
+                          path);
+    }
     results.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
-        const auto* desc = factory->get_plugin_descriptor(factory, i);
+        const clap_plugin_descriptor_t* desc = nullptr;
+        try {
+            desc = factory->get_plugin_descriptor(factory, i);
+        } catch (const std::exception& e) {
+            runtime::log_warn("CLAP scan: get_plugin_descriptor[{}] threw for '{}': {} (#812 guard)",
+                              i, path, e.what());
+            continue;
+        } catch (...) {
+            runtime::log_warn("CLAP scan: get_plugin_descriptor[{}] threw unknown for '{}' (#812 guard)",
+                              i, path);
+            continue;
+        }
         if (!desc) continue;
 
         PluginInfo info;
@@ -149,8 +218,11 @@ std::vector<PluginInfo> scan_clap_bundle_descriptors(const std::string& path) {
         results.push_back(std::move(info));
     }
 
-    entry->deinit();
+    try { entry->deinit(); } catch (...) {
+        runtime::log_warn("CLAP scan: entry->deinit threw for '{}' (#812 guard)", path);
+    }
     dlclose(handle);
+    if (results.empty()) results.push_back(make_filename_fallback(path));
     return results;
 }
 
