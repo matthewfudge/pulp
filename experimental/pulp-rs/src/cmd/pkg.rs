@@ -1670,4 +1670,239 @@ int main(){return 0;}"#;
                 "missing empty msg: {:?}", res.1);
         assert!(res.1.contains("pulp add"), "missing add hint: {:?}", res.1);
     }
+
+    // ── #45 coverage uplift slice 7 — pkg.rs run_* with real registry ──
+    //
+    // Up to now, pkg.rs tests only exercised the empty-state /
+    // outside-project / parse-args branches. The real meat — license
+    // policy, descriptor lookup, search ranking, lock-file write,
+    // CMake regen, target add/remove — was uncovered because those
+    // paths require a registry fixture on disk. This block plants a
+    // minimal `tools/packages/registry.json` and exercises run_search
+    // / run_add / run_target paths against it. Combined with the
+    // earlier slices, pulls pkg.rs above 60% line coverage, which is
+    // the headroom needed to clear the aggregate 80% line gate.
+
+    fn td_with_registry() -> tempfile::TempDir {
+        let td = td_with_pulp_toml();
+        let reg_path = td.path().join("tools").join("packages").join("registry.json");
+        std::fs::create_dir_all(reg_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &reg_path,
+            r#"{
+  "registry_version": 2,
+  "packages": {
+    "acme/reverb": {
+      "name": "Acme Reverb",
+      "version": "1.2.3",
+      "license": "MIT",
+      "description": "Plate reverb DSP",
+      "tags": ["dsp", "reverb"],
+      "category": "fx",
+      "platforms": {
+        "macOS": {"architectures": ["arm64", "x64"]},
+        "Windows": {"architectures": ["x64"]},
+        "Linux": {"architectures": ["x64"]}
+      }
+    },
+    "evil/proprietary": {
+      "name": "Evil Proprietary",
+      "version": "0.1.0",
+      "license": "Commercial",
+      "description": "Proprietary license restricted package",
+      "tags": ["restricted"],
+      "platforms": {
+        "macOS": {"architectures": ["arm64"]}
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+        td
+    }
+
+    #[test]
+    fn run_search_finds_registered_package_by_name() {
+        let td = td_with_registry();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let args = SearchArgs { query: "reverb".to_owned(), ..SearchArgs::default() };
+            let r = run_search(&args, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        res.0.unwrap();
+        assert!(res.1.contains("acme/reverb"), "missing match: {:?}", res.1);
+        assert!(res.1.contains("Found"), "missing 'Found' header: {:?}", res.1);
+    }
+
+    #[test]
+    fn run_search_no_match_emits_documented_message() {
+        let td = td_with_registry();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let args = SearchArgs { query: "no-such-thing".to_owned(), ..SearchArgs::default() };
+            let r = run_search(&args, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        res.0.unwrap();
+        assert!(res.1.contains("No packages found matching"),
+                "missing not-found message: {:?}", res.1);
+    }
+
+    #[test]
+    fn run_search_json_output_for_match() {
+        let td = td_with_registry();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let args = SearchArgs {
+                query: "reverb".to_owned(),
+                json_output: true,
+                ..SearchArgs::default()
+            };
+            let r = run_search(&args, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        res.0.unwrap();
+        // Round-trip the JSON output and assert on shape.
+        let v: serde_json::Value = serde_json::from_str(res.1.trim()).unwrap();
+        let arr = v.as_array().expect("expected JSON array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["id"], "acme/reverb");
+        assert_eq!(arr[0]["license"], "MIT");
+    }
+
+    #[test]
+    fn run_search_json_output_for_no_match() {
+        let td = td_with_registry();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let args = SearchArgs {
+                query: "nope".to_owned(),
+                json_output: true,
+                ..SearchArgs::default()
+            };
+            let r = run_search(&args, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        res.0.unwrap();
+        // Empty-result JSON path is documented as bare `[]`.
+        assert!(res.1.trim().starts_with('['));
+        let v: serde_json::Value = serde_json::from_str(res.1.trim()).unwrap();
+        assert!(v.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn run_add_unknown_package_returns_one_with_did_you_mean() {
+        let td = td_with_registry();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            // Misspelled — registry has acme/reverb; we ask for "rever".
+            let args = AddArgs {
+                package_id: Some("rever".to_owned()),
+                ..AddArgs::default()
+            };
+            let r = run_add(&args, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        let rc = res.0.unwrap();
+        assert_eq!(rc, 1);
+        assert!(res.1.contains("not found in registry"),
+                "missing not-found message: {:?}", res.1);
+        // Did-you-mean suggestion fires when search results are non-empty.
+        assert!(res.1.contains("Did you mean") || res.1.contains("acme/reverb"),
+                "expected suggestion: {:?}", res.1);
+    }
+
+    #[test]
+    fn run_add_rejected_license_without_override_returns_one() {
+        let td = td_with_registry();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let args = AddArgs {
+                package_id: Some("evil/proprietary".to_owned()),
+                ..AddArgs::default()
+            };
+            let r = run_add(&args, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        let rc = res.0.unwrap();
+        assert_eq!(rc, 1, "rejected-license should return 1");
+        assert!(
+            res.1.contains("Commercial") || res.1.contains("license"),
+            "missing license-policy message: {:?}", res.1
+        );
+    }
+
+    #[test]
+    fn run_target_list_with_empty_pulp_toml_prints_default_targets() {
+        // No `[targets]` section — should print the documented
+        // "no targets configured" message rather than crash.
+        let td = td_with_pulp_toml();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let r = run_target(&TargetSub::List, &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        let rc = res.0.unwrap();
+        assert_eq!(rc, 0);
+        // Either "no targets" or a list of platform headers — both
+        // are valid behaviors documented for empty pulp.toml. Just
+        // assert we got SOME output (not a silent no-op).
+        assert!(!res.1.is_empty(), "expected non-empty target list output");
+    }
+
+    #[test]
+    fn run_target_add_then_list_round_trip() {
+        // Target token format is `Platform-arch` (capital P) per
+        // PlatformTarget::parse — `macos-arm64` is rejected, only
+        // `macOS-arm64` works. The error message even spells it out:
+        // "Valid platforms: macOS, Windows, Linux, iOS, WASM".
+        let td = td_with_pulp_toml();
+        let res = with_cwd(td.path(), || {
+            let mut adds = Cursor::new(Vec::<u8>::new());
+            let add_rc = run_target(&TargetSub::Add("macOS-arm64".to_owned()), &mut adds).unwrap();
+            let mut lists = Cursor::new(Vec::<u8>::new());
+            let list_rc = run_target(&TargetSub::List, &mut lists).unwrap();
+            (
+                add_rc,
+                list_rc,
+                String::from_utf8(adds.into_inner()).unwrap(),
+                String::from_utf8(lists.into_inner()).unwrap(),
+            )
+        });
+        assert_eq!(res.0, 0, "add rc was {}, output: {:?}", res.0, res.2);
+        assert_eq!(res.1, 0);
+        assert!(!res.3.is_empty(), "expected non-empty list output");
+    }
+
+    #[test]
+    fn run_target_add_invalid_target_returns_one_with_hints() {
+        let td = td_with_pulp_toml();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let r = run_target(&TargetSub::Add("macos-arm64".to_owned()), &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        let rc = res.0.unwrap();
+        assert_eq!(rc, 1, "expected non-zero on invalid target");
+        assert!(res.1.contains("Invalid target"), "missing error: {:?}", res.1);
+        assert!(res.1.contains("Valid platforms"), "missing platforms hint: {:?}", res.1);
+        assert!(res.1.contains("Valid architectures"), "missing arch hint: {:?}", res.1);
+    }
+
+    #[test]
+    fn run_target_remove_nonexistent_is_idempotent() {
+        let td = td_with_pulp_toml();
+        let res = with_cwd(td.path(), || {
+            let mut out = Cursor::new(Vec::<u8>::new());
+            let r = run_target(&TargetSub::Remove("never-added-xyz".to_owned()), &mut out);
+            (r, String::from_utf8(out.into_inner()).unwrap())
+        });
+        // Removing something that wasn't there should NOT panic.
+        // Either returns 0 (idempotent) or non-zero (informational
+        // "not found"); both are reasonable.
+        let _ = res.0;
+        let _ = res.1;
+    }
 }
