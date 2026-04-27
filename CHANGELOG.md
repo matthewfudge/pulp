@@ -8,9 +8,64 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0471"></a>
-## [0.48.0]
+<a id="v0480"></a>
+## [0.48.0] - 2026-04-27
 
+- feat(view): add canvasSetTransform / canvasClip / canvasGlobalCompositeOperation (#896) ([#897](https://github.com/danielraffel/pulp/pull/897))
+- fix(cli): MSVCRT-correct shell_quote for Windows backslash paths (#776) ([#872](https://github.com/danielraffel/pulp/pull/872))
+- fix(view): drain QuickJS jobs to empty (Codex P2 on #769) (#769) ([#874](https://github.com/danielraffel/pulp/pull/874))
+- docs(ci): route shipyard pin bumps through shipyard pin bump ([#844](https://github.com/danielraffel/pulp/pull/844))
+- test(cli): cover ship command validation paths ([#835](https://github.com/danielraffel/pulp/pull/835))
+- fix(coverage): classify inspect Codecov surface ([#842](https://github.com/danielraffel/pulp/pull/842))
+- test(platform): cover child process edge paths ([#832](https://github.com/danielraffel/pulp/pull/832))
+- fix(render): harden GPU graph data setters ([#839](https://github.com/danielraffel/pulp/pull/839))
+- test(tools): cover CLI release packager ([#838](https://github.com/danielraffel/pulp/pull/838))
+- test(signal): cover filter design edge paths ([#833](https://github.com/danielraffel/pulp/pull/833))
+- test(midi): cover MIDI-CI edge paths ([#829](https://github.com/danielraffel/pulp/pull/829))
+- test(events): cover event loop lifecycle edges ([#834](https://github.com/danielraffel/pulp/pull/834))
+- test(midi): cover RPN parser edge paths ([#830](https://github.com/danielraffel/pulp/pull/830))
+- test(packages): cover registry validation tools ([#837](https://github.com/danielraffel/pulp/pull/837))
+- test(tools): cover CLI sync checker ([#836](https://github.com/danielraffel/pulp/pull/836))
+- test(signal): cover utility helper edges ([#831](https://github.com/danielraffel/pulp/pull/831))
+- fix(midi): reject malformed raw MIDI data bytes ([#828](https://github.com/danielraffel/pulp/pull/828))
+- test(audio): cover file helper edges ([#822](https://github.com/danielraffel/pulp/pull/822))
+- test(audio): cover OGG reader edges ([#826](https://github.com/danielraffel/pulp/pull/826))
+- test(signal): cover multi-channel meter edges ([#827](https://github.com/danielraffel/pulp/pull/827))
+- test(signal): cover DSP helper edges ([#825](https://github.com/danielraffel/pulp/pull/825))
+- fix(signal): zero-initialize Mat3 multiplication ([#824](https://github.com/danielraffel/pulp/pull/824))
+- test(platform): cover helper edge paths ([#823](https://github.com/danielraffel/pulp/pull/823))
+- test(signal): cover spectrogram edge paths ([#820](https://github.com/danielraffel/pulp/pull/820))
+- test(midi): cover keyboard and sequence edges ([#819](https://github.com/danielraffel/pulp/pull/819))
+- test(audio): cover reader helper edges ([#821](https://github.com/danielraffel/pulp/pull/821))
+- test(midi): cover UMP conversion edges ([#817](https://github.com/danielraffel/pulp/pull/817))
+- test(midi): cover MPE synth voice edges ([#818](https://github.com/danielraffel/pulp/pull/818))
+- test(midi): cover running status parser edges ([#816](https://github.com/danielraffel/pulp/pull/816))
+- test(midi): cover MPE tracker edge paths ([#815](https://github.com/danielraffel/pulp/pull/815))
+- test(cli): cover pr command dispatch ([#814](https://github.com/danielraffel/pulp/pull/814))
+- test(signal): cover dynamics helper edges ([#813](https://github.com/danielraffel/pulp/pull/813))
+- test(cli): cover project command dispatch ([#811](https://github.com/danielraffel/pulp/pull/811))
+- test(platform): cover environment diff edges ([#810](https://github.com/danielraffel/pulp/pull/810))
+- test(signal): cover fft helper edges ([#809](https://github.com/danielraffel/pulp/pull/809))
+- test(midi): cover MIDI file edge round trips ([#808](https://github.com/danielraffel/pulp/pull/808))
+- test(audio): cover channel set helpers ([#807](https://github.com/danielraffel/pulp/pull/807))
+- test(audio): cover mapped reader and offline processing ([#806](https://github.com/danielraffel/pulp/pull/806))
+- test(cli): cover common helper edges ([#805](https://github.com/danielraffel/pulp/pull/805))
+- test(signal): cover oversampling helper edges ([#804](https://github.com/danielraffel/pulp/pull/804))
+- fix(render): harden texture atlas edge cases ([#801](https://github.com/danielraffel/pulp/pull/801))
+- test(signal): cover matrix helper edges ([#803](https://github.com/danielraffel/pulp/pull/803))
+- test(cli): cover create shellout scaffolding ([#802](https://github.com/danielraffel/pulp/pull/802))
+- test(events): cover volume detector lifecycle edges ([#795](https://github.com/danielraffel/pulp/pull/795))
+- test(tools): cover version and skill gate helpers ([#800](https://github.com/danielraffel/pulp/pull/800))
+- test(cli): cover docs shellout reader paths ([#799](https://github.com/danielraffel/pulp/pull/799))
+- test(audio): cover format registry dispatch paths ([#798](https://github.com/danielraffel/pulp/pull/798))
+- test(audio): cover streaming WAV writer edges ([#797](https://github.com/danielraffel/pulp/pull/797))
+- test(cli): cover tool registry local paths ([#796](https://github.com/danielraffel/pulp/pull/796))
+- test(audio): cover AIFF reader edge paths ([#794](https://github.com/danielraffel/pulp/pull/794))
+- test(cli): cover package registry helpers ([#793](https://github.com/danielraffel/pulp/pull/793))
+- test(events): cover socket IPC message flow ([#788](https://github.com/danielraffel/pulp/pull/788))
+- test(ship): cover android package helpers ([#789](https://github.com/danielraffel/pulp/pull/789))
+
+<a id="v0471"></a>
 ## [0.47.1] - 2026-04-25
 
 - fix(project): close standalone bump edge cases ([#770](https://github.com/danielraffel/pulp/pull/770))
@@ -689,6 +744,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.48.0]: https://github.com/danielraffel/pulp/releases/tag/v0.48.0
 [0.47.1]: https://github.com/danielraffel/pulp/releases/tag/v0.47.1
 [0.47.0]: https://github.com/danielraffel/pulp/releases/tag/v0.47.0
 [0.46.0]: https://github.com/danielraffel/pulp/releases/tag/v0.46.0
