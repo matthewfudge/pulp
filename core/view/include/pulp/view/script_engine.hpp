@@ -95,4 +95,23 @@ choc::value::Value ScriptEngine::invoke(std::string_view name, Args&&... args) {
     return engine_->invoke(name, arg_values, sizeof...(args));
 }
 
+// Thin non-owning bridge adapter for EditorBridge::attach_native_runtime.
+// Forward-declared as `class JsRuntime` in editor_bridge.hpp so that header
+// need not include script_engine.hpp. Construct one from any ScriptEngine.
+class JsRuntime {
+public:
+    explicit JsRuntime(ScriptEngine& engine) : engine_(engine) {}
+
+    void register_function(const std::string& name, NativeFunction fn) {
+        engine_.register_function(name, std::move(fn));
+    }
+
+    choc::value::Value evaluate(const std::string& code) {
+        return engine_.evaluate(code);
+    }
+
+private:
+    ScriptEngine& engine_;
+};
+
 } // namespace pulp::view

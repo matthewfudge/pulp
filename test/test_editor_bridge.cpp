@@ -15,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "pulp/view/editor_bridge.hpp"
+#include "pulp/view/script_engine.hpp"
 #include "pulp/view/web_view.hpp"
 
 #include <choc/containers/choc_Value.h>
@@ -28,11 +29,6 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-
-// Concrete JsRuntime definition so attach_native_runtime can link in
-// tests. The framework forward-declares JsRuntime; the stub body
-// never touches members, so an empty class satisfies the reference.
-namespace pulp::view { class JsRuntime {}; }
 
 using Catch::Approx;
 using pulp::view::EditorBridge;
@@ -473,22 +469,82 @@ TEST_CASE("EditorBridge::detach_webview clears the WebViewPanel message handler"
     CHECK_FALSE(panel.has_message_handler());
 }
 
-TEST_CASE("EditorBridge::attach_native_runtime is a no-op stub for #468",
+TEST_CASE("EditorBridge::attach_native_runtime round-trips via raw native callable",
           "[editor_bridge][issue-709][issue-468]")
 {
-    // The native-JS-runtime attach path is a declared seam for pulp
-    // #468; the body is intentionally empty until JsRuntime exposes a
-    // concrete postMessage primitive. This test locks in the stub's
-    // no-throw, no-observable-effect behavior so a future wiring
-    // change can't silently mutate the surface without updating here.
+    pulp::view::ScriptEngine engine;
+    pulp::view::JsRuntime runtime(engine);
+
     EditorBridge bridge;
     bridge.add_handler("ping", [](const auto&) { return EditorBridge::ok_response(); });
-    const auto count_before = bridge.handler_count();
+    bridge.add_handler("echo", [](const auto& p) {
+        return EditorBridge::ok_response(p);
+    });
 
-    pulp::view::JsRuntime rt;
-    bridge.attach_native_runtime(rt, "spectr");
-    CHECK(bridge.handler_count() == count_before);
+    bridge.attach_native_runtime(runtime, "__pulpNativePost");
 
-    // Dispatch still works after the stub attach — no state mutated.
+    // Raw native callable: JS calls __pulpNativePost(jsonString) → response object.
+    SECTION("known type returns ok") {
+        auto result = engine.evaluate(
+            R"(__pulpNativePost(JSON.stringify({type:"ping"})))");
+        REQUIRE(result.isObject());
+        CHECK(result["ok"].getBool() == true);
+    }
+
+    SECTION("unknown type returns error") {
+        auto result = engine.evaluate(
+            R"(__pulpNativePost(JSON.stringify({type:"nope"})))");
+        REQUIRE(result.isObject());
+        CHECK(result["ok"].getBool() == false);
+        const std::string err(result["error"].getString());
+        CHECK(err.find("unknown message type") != std::string::npos);
+    }
+
+    SECTION("malformed JSON returns error") {
+        auto result = engine.evaluate(R"(__pulpNativePost("not json"))");
+        REQUIRE(result.isObject());
+        CHECK(result["ok"].getBool() == false);
+    }
+}
+
+TEST_CASE("EditorBridge::attach_native_runtime installs window.pulp.postMessage",
+          "[editor_bridge][issue-709][issue-468]")
+{
+    pulp::view::ScriptEngine engine;
+    pulp::view::JsRuntime runtime(engine);
+
+    EditorBridge bridge;
+    bridge.add_handler("ping", [](const auto&) { return EditorBridge::ok_response(); });
+
+    bridge.attach_native_runtime(runtime, "__pulpNativePost");
+
+    // window.pulp.postMessage wraps the native callable with JSON encode/decode.
+    SECTION("pulp.postMessage dispatches and returns parsed response") {
+        auto result = engine.evaluate(
+            R"(pulp.postMessage("ping", {}))");
+        REQUIRE(result.isObject());
+        CHECK(result["ok"].getBool() == true);
+    }
+
+    SECTION("pulp.postMessage with no payload") {
+        auto result = engine.evaluate(
+            R"(pulp.postMessage("ping"))");
+        REQUIRE(result.isObject());
+        CHECK(result["ok"].getBool() == true);
+    }
+}
+
+TEST_CASE("EditorBridge::attach_native_runtime empty handler_name is a no-op",
+          "[editor_bridge][issue-709][issue-468]")
+{
+    pulp::view::ScriptEngine engine;
+    pulp::view::JsRuntime runtime(engine);
+
+    EditorBridge bridge;
+    bridge.add_handler("ping", [](const auto&) { return EditorBridge::ok_response(); });
+
+    REQUIRE_NOTHROW(bridge.attach_native_runtime(runtime, ""));
+
+    // C++-side dispatch still works normally.
     CHECK(response_ok(bridge.dispatch_json(R"({"type":"ping"})")));
 }

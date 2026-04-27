@@ -1,5 +1,6 @@
 #include "pulp/view/editor_bridge.hpp"
 
+#include "pulp/view/script_engine.hpp"
 #include "pulp/view/web_view.hpp"
 
 #include <choc/text/choc_JSON.h>
@@ -112,12 +113,35 @@ void EditorBridge::detach_webview(WebViewPanel& panel) {
     panel.set_message_handler({});
 }
 
-void EditorBridge::attach_native_runtime(JsRuntime& /*runtime*/,
-                                         std::string_view /*handler_name*/) {
-    // Stub for pulp #468 (Claude Design import lane). The full wiring
-    // lands when JsRuntime exposes a postMessage-equivalent primitive
-    // that calls back into C++. The interface is defined here so #468
-    // plugs in without designing a parallel dispatch model.
+void EditorBridge::attach_native_runtime(JsRuntime& runtime,
+                                         std::string_view handler_name) {
+    if (handler_name.empty()) return;
+
+    // Register a C++ callable under handler_name so JS can call it synchronously.
+    // Receives a single JSON string (the full envelope), returns the response JSON.
+    runtime.register_function(
+        std::string(handler_name),
+        [this](const choc::value::Value* args, size_t n) -> choc::value::Value {
+            std::string json;
+            if (n > 0 && args[0].isString())
+                json = std::string(args[0].getString());
+            return choc::json::parse(dispatch_json(json));
+        });
+
+    // Mirror the WebView bootstrap: install window.pulp.postMessage so the
+    // executed React bundle can call the same API regardless of renderer.
+    const std::string h_quoted = choc::json::toString(
+        choc::value::createString(std::string(handler_name)));
+    runtime.evaluate(
+        "(function() {"
+        "  var _h = globalThis[" + h_quoted + "];"
+        "  if (!_h) return;"
+        "  var _root = (typeof window !== 'undefined') ? window : globalThis;"
+        "  _root.pulp = _root.pulp || {};"
+        "  _root.pulp.postMessage = function(type, payload) {"
+        "    return _h(JSON.stringify({type: type, payload: payload || {}}));"
+        "  };"
+        "})();");
 }
 
 // ── Static helpers ──────────────────────────────────────────────────────

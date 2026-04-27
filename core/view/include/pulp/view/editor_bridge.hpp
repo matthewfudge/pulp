@@ -57,7 +57,7 @@ class WebViewPanel;
 
 // Forward-declared so EditorBridge can expose attach_native_runtime()
 // before the JS engine surface is fully available in this header. The
-// concrete JsRuntime type lives in pulp/view/js_engine.hpp.
+// concrete JsRuntime type lives in pulp/view/script_engine.hpp.
 class JsRuntime;
 
 /// Renderer-agnostic dispatcher for editor↔processor JSON messages.
