@@ -710,6 +710,8 @@ struct DrawCommand {
         set_line_dash,      ///< intervals stored in `floats`, phase in f[0]
         draw_image,         ///< source path/url in `text`, dst rect in f[0..3]
         write_pixels,       ///< RGBA bytes in `text` (binary), w/h in f[0..1], dst in f[2..3]
+        // ── issue-925: setBoxShadow / draw_box_shadow ─────────────────
+        draw_box_shadow,    ///< x/y/w/h in f[0..3], blur in f[4], spread/offsets via floats payload
         // ── issue-926: save_backdrop_filter for frosted-glass overlays ─
         save_backdrop_filter, ///< x/y/w/h in f[0..3], blur_radius in f[4]
         // ── issue-929: real clearRect that replaces pixels ────────────
