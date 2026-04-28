@@ -42,6 +42,15 @@ void CoreGraphicsCanvas::clip_rect(float x, float y, float w, float h) {
     CGContextClipToRect(ctx_, CGRectMake(x, y, w, h));
 }
 
+void CoreGraphicsCanvas::clear_rect(float x, float y, float w, float h) {
+    // CoreGraphics's CGContextClearRect punches through to fully transparent
+    // pixels (alpha=0). The base Canvas::clear_rect default is a SrcOver
+    // transparent fill which is a visual no-op on a CGBitmapContext — that's
+    // the bug Codex flagged in pulp #934 / #943. Use the platform primitive
+    // so macOS/iOS CPU paths actually clear destination pixels.
+    CGContextClearRect(ctx_, CGRectMake(x, y, w, h));
+}
+
 void CoreGraphicsCanvas::apply_fill_color() {
     CGContextSetRGBFillColor(ctx_,
         fill_color_.r, fill_color_.g,

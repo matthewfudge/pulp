@@ -22,6 +22,7 @@ public:
     void scale(float sx, float sy) override;
     void rotate(float radians) override;
     void clip_rect(float x, float y, float w, float h) override;
+    void clear_rect(float x, float y, float w, float h) override;
 
     void set_fill_color(Color c) override;
     void set_stroke_color(Color c) override;
