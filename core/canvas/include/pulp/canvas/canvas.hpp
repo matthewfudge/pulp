@@ -317,6 +317,22 @@ public:
     virtual void fill_circle(float cx, float cy, float radius) = 0;
     virtual void stroke_circle(float cx, float cy, float radius) = 0;
 
+    /// Clear a rectangular region to transparent black (rgba 0,0,0,0).
+    /// Equivalent to CanvasRenderingContext2D.clearRect — replaces existing
+    /// pixels rather than compositing over them. Pixel backends (SkiaCanvas)
+    /// override with a kSrc/kClear paint so the underlying texels actually
+    /// become transparent; the default falls back to a SrcOver fill with a
+    /// transparent color (a no-op on most surfaces, but keeps recording /
+    /// introspection backends inert). See pulp issue #929 — without this,
+    /// ctx.clearRect() on the canvas widget would not clear residual or
+    /// parent-painted pixels.
+    virtual void clear_rect(float x, float y, float w, float h) {
+        // Default: best-effort SrcOver fill with transparent color. Pixel
+        // backends should override to use kSrc / kClear blend.
+        set_fill_color(Color::rgba(0.0f, 0.0f, 0.0f, 0.0f));
+        fill_rect(x, y, w, h);
+    }
+
     // ── Arcs ─────────────────────────────────────────────────────────────
     virtual void stroke_arc(float cx, float cy, float radius,
                            float start_angle, float end_angle) = 0;
@@ -627,7 +643,9 @@ struct DrawCommand {
         // ── issue-916: Canvas2D API gaps ──────────────────────────────
         set_line_dash,      ///< intervals stored in `floats`, phase in f[0]
         draw_image,         ///< source path/url in `text`, dst rect in f[0..3]
-        write_pixels        ///< RGBA bytes in `text` (binary), w/h in f[0..1], dst in f[2..3]
+        write_pixels,       ///< RGBA bytes in `text` (binary), w/h in f[0..1], dst in f[2..3]
+        // ── issue-929: real clearRect that replaces pixels ────────────
+        clear_rect          ///< clear rect, x/y/w/h in f[0..3]
     };
 
     Type type;
@@ -673,6 +691,7 @@ public:
     void set_line_cap(LineCap cap) override;
     void set_line_join(LineJoin join) override;
     void fill_rect(float x, float y, float w, float h) override;
+    void clear_rect(float x, float y, float w, float h) override;
     void stroke_rect(float x, float y, float w, float h) override;
     void fill_rounded_rect(float x, float y, float w, float h, float radius) override;
     void stroke_rounded_rect(float x, float y, float w, float h, float radius) override;
