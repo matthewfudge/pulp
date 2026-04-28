@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0560"></a>
+## [0.57.0]
+
 ## [0.56.0] - 2026-04-28
 
 - feat(view): setBoxShadow JS bridge + draw_box_shadow Canvas primitive (#925) ([#936](https://github.com/danielraffel/pulp/pull/936))
