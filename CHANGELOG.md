@@ -8,9 +8,17 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0490"></a>
-## [0.50.0]
+<a id="v0500"></a>
+## [0.50.0] - 2026-04-28
 
+- fix(view): auto-wire WidgetBridge repaint callback to root.request_repaint() (#899) ([#913](https://github.com/danielraffel/pulp/pull/913))
+- feat(build): bridge experimental/pulp-rs into the CMake build graph ([#778](https://github.com/danielraffel/pulp/pull/778))
+- fix(view): bound QuickJS pump_message_loop against runaway microtasks (#902) ([#909](https://github.com/danielraffel/pulp/pull/909))
+- test(cli): isolate ship shell-out tests from user signing config (#901) ([#910](https://github.com/danielraffel/pulp/pull/910))
+- fix(ci): install PyYAML before coverage_tier_check tests (#900) ([#907](https://github.com/danielraffel/pulp/pull/907))
+- fix(cmake): install binary-data encoder alongside PulpUtils.cmake (Codex P1 on #905) ([#908](https://github.com/danielraffel/pulp/pull/908))
+
+<a id="v0490"></a>
 ## [0.49.0] - 2026-04-27
 
 - fix(canvas): compose canvasSetTransform onto parent View transform (Codex P1 on #897) ([#906](https://github.com/danielraffel/pulp/pull/906))
@@ -752,6 +760,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.50.0]: https://github.com/danielraffel/pulp/releases/tag/v0.50.0
 [0.49.0]: https://github.com/danielraffel/pulp/releases/tag/v0.49.0
 [0.48.0]: https://github.com/danielraffel/pulp/releases/tag/v0.48.0
 [0.47.1]: https://github.com/danielraffel/pulp/releases/tag/v0.47.1
