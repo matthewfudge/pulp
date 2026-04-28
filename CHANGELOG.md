@@ -8,16 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0580"></a>
-## [0.59.0]
+<a id="v0590"></a>
+## [0.59.0] - 2026-04-28
 
+- feat(canvas): register external/fonts/*.ttf with SkFontMgr at startup (#932) ([#956](https://github.com/danielraffel/pulp/pull/956))
+- test(view): cover canvasSetLineDash JS bridge fn (#952) ([#954](https://github.com/danielraffel/pulp/pull/954))
+
+<a id="v0580"></a>
 ## [0.58.0] - 2026-04-28
 
 - feat(cli): pulp loop — leveraged-prototype focus mode (Slice 1 of #940) ([#950](https://github.com/danielraffel/pulp/pull/950))
 
 <a id="v0570"></a>
-## [0.58.0]
-
 ## [0.57.0] - 2026-04-28
 
 - fix(view): canvas widget transparent by default + real clearRect (#929) ([#934](https://github.com/danielraffel/pulp/pull/934))
@@ -808,6 +810,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.59.0]: https://github.com/danielraffel/pulp/releases/tag/v0.59.0
 [0.58.0]: https://github.com/danielraffel/pulp/releases/tag/v0.58.0
 [0.57.0]: https://github.com/danielraffel/pulp/releases/tag/v0.57.0
 [0.56.0]: https://github.com/danielraffel/pulp/releases/tag/v0.56.0
