@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0510"></a>
+## [0.52.0]
+
 ## [0.51.0] - 2026-04-28
 
 - feat(view): register web-API globals natively (#915) ([#918](https://github.com/danielraffel/pulp/pull/918))

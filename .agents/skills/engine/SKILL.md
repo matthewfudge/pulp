@@ -47,6 +47,19 @@ for React 18 dev. Add new files to `core/view/CMakeLists.txt`'s
 `core/view/src/widget_bridge.cpp` (`embed_js.cmake` only embeds the
 constants; the bridge constructor evaluates them).
 
+### Canvas2D surface coverage (issue-916)
+
+`web-compat-canvas.js` exposes `CanvasRenderingContext2D.prototype`
+with the standard methods plus the gap-list closures from issue-916:
+
+| Method | Notes |
+|--------|-------|
+| `measureText(text)` | Returns a full HTML5 `TextMetrics` object — `width` + `actualBoundingBox{Left,Right,Ascent,Descent}` + `fontBoundingBox{Ascent,Descent}`. Routed through `canvasMeasureText` which calls `SkiaCanvas::measure_text_with_font` for surface-less metrics. |
+| `drawImage(img, …)` | 3 / 5 / 9-arg signatures supported; the 9-arg `(sx,sy,sw,sh,dx,dy,dw,dh)` form currently ignores the source rect — file a follow-up if a plugin needs sprite-sheet slicing. |
+| `setLineDash([…])` / `getLineDash()` | Even-length patterns are taken verbatim; odd-length patterns are duplicated per the HTML5 spec. Phase comes from `lineDashOffset`. |
+| `getImageData(x,y,w,h)` | Returns `{data: Uint8ClampedArray, width, height}`. The bridge currently returns zero-filled pixels (no live surface handle from JS-call context); consumers that need real pixels should round-trip through a render-host integration. |
+| `putImageData(img, dx, dy)` | Decodes the typed array to base64 across the bridge and applies via `Canvas::write_pixels` on backends that implement it (Skia today). |
+
 ## Commands
 
 ### `status` — Show current engine configuration
