@@ -265,12 +265,19 @@ fn do_check_only<F: Fetcher>(args: &UpgradeArgs, fetcher: &F, out: &mut impl Wri
             .map_err(|e| CliError::io("<stdout>", e))?;
     }
     if newer {
-        writeln!(
-            out,
-            "A newer release is available. Run `pulp-rs upgrade --install` (stub)."
-        )
-        .map_err(|e| CliError::io("<stdout>", e))?;
-    } else {
+        // Suppress the "Run --install" hint when we're already on the
+        // install path — `do_install` calls `do_check_only` first to
+        // refresh the cache, and printing the hint right before the
+        // success line is confusing UX. Also drop the stale "(stub)"
+        // suffix — the Phase 8 install path is no longer a stub.
+        if !args.install {
+            writeln!(
+                out,
+                "A newer release is available. Run `pulp upgrade --install` to install it."
+            )
+            .map_err(|e| CliError::io("<stdout>", e))?;
+        }
+    } else if !args.install {
         writeln!(out, "You're on the latest release.").map_err(|e| CliError::io("<stdout>", e))?;
     }
     Ok(())
