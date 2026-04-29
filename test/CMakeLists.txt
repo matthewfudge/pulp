@@ -1359,6 +1359,11 @@ add_executable(pulp-test-canvas-widget test_canvas_widget.cpp)
 target_link_libraries(pulp-test-canvas-widget PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-canvas-widget)
 
+# SvgPathWidget tests (issue-965)
+add_executable(pulp-test-svg-path-widget test_svg_path_widget.cpp)
+target_link_libraries(pulp-test-svg-path-widget PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-svg-path-widget)
+
 # ScrollView tests
 add_executable(pulp-test-scroll-view test_scroll_view.cpp)
 target_link_libraries(pulp-test-scroll-view PRIVATE pulp::view Catch2::Catch2WithMain)
