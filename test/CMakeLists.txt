@@ -1329,6 +1329,11 @@ add_executable(pulp-test-widget-bridge test_widget_bridge.cpp)
 target_link_libraries(pulp-test-widget-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-widget-bridge)
 
+# Typography inheritance — pulp #969 (CSS-style cascade)
+add_executable(pulp-test-typography-inheritance test_typography_inheritance.cpp)
+target_link_libraries(pulp-test-typography-inheritance PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-typography-inheritance)
+
 # Editor bridge tests (pulp #709 — renderer-agnostic envelope/dispatcher)
 add_executable(pulp-test-editor-bridge test_editor_bridge.cpp)
 target_link_libraries(pulp-test-editor-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
