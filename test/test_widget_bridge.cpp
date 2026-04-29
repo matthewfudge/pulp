@@ -98,6 +98,127 @@ TEST_CASE("WidgetBridge creates toggle from JS", "[view][bridge]") {
     REQUIRE(dynamic_cast<Toggle*>(w) != nullptr);
 }
 
+TEST_CASE("WidgetBridge creates range slider from JS",
+          "[view][bridge][issue-966]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createRangeSlider('morph', '');
+        setMin('morph', 0);
+        setMax('morph', 1);
+        setStep('morph', 0.001);
+        setValue('morph', 0.4);
+    )");
+
+    auto* w = bridge.widget("morph");
+    REQUIRE(w != nullptr);
+    auto* range = dynamic_cast<RangeSlider*>(w);
+    REQUIRE(range != nullptr);
+    REQUIRE_THAT(range->min_value(), WithinAbs(0.0, 0.0001));
+    REQUIRE_THAT(range->max_value(), WithinAbs(1.0, 0.0001));
+    REQUIRE_THAT(range->step(), WithinAbs(0.001, 0.0001));
+    // Quantised to nearest 0.001 — 0.4 is already a clean step.
+    REQUIRE_THAT(range->value(), WithinAbs(0.4, 0.001));
+}
+
+TEST_CASE("WidgetBridge range slider setOrientation and setAccentColor",
+          "[view][bridge][issue-966]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createRangeSlider('volume', '');
+        setOrientation('volume', 'vertical');
+        setAccentColor('volume', '#ff8844');
+    )");
+
+    auto* range = dynamic_cast<RangeSlider*>(bridge.widget("volume"));
+    REQUIRE(range != nullptr);
+    REQUIRE(range->orientation() == RangeSlider::Orientation::vertical);
+    REQUIRE(range->has_accent_color());
+
+    auto c = range->accent_color();
+    // #ff8844 → r≈1.0, g≈0.533, b≈0.267
+    REQUIRE_THAT(c.r, WithinAbs(1.0, 0.01));
+    REQUIRE_THAT(c.g, WithinAbs(0.533, 0.02));
+    REQUIRE_THAT(c.b, WithinAbs(0.267, 0.02));
+
+    // Empty hex clears the override.
+    bridge.load_script("setAccentColor('volume', '')");
+    REQUIRE_FALSE(range->has_accent_color());
+}
+
+TEST_CASE("WidgetBridge range slider get/setValue round-trip",
+          "[view][bridge][issue-966]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createRangeSlider('scrub', '');
+        setMin('scrub', 0);
+        setMax('scrub', 100);
+        setStep('scrub', 5);
+        setValue('scrub', 47);
+    )");
+
+    auto* range = dynamic_cast<RangeSlider*>(bridge.widget("scrub"));
+    REQUIRE(range != nullptr);
+    // 47 quantised to step=5 → 45.
+    REQUIRE_THAT(range->value(), WithinAbs(45.0, 0.0001));
+
+    auto js_val = engine.evaluate("getValue('scrub')").getWithDefault<double>(-1);
+    REQUIRE_THAT(js_val, WithinAbs(45.0, 0.0001));
+}
+
+TEST_CASE("WidgetBridge range slider drag dispatches change event",
+          "[view][bridge][issue-966]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    // The bridge dispatches via __dispatch__, which the script wires to
+    // a JS-side recorder. Confirms the dispatch path actually fires —
+    // matching the same pattern Knob/Fader callbacks use.
+    bridge.load_script(R"(
+        var changes = [];
+        __dispatch__ = function(id, type, value) {
+            changes.push({id: id, type: type, value: value});
+        };
+        createRangeSlider('scrub', '');
+        setMin('scrub', 0);
+        setMax('scrub', 1);
+    )");
+
+    auto* range = dynamic_cast<RangeSlider*>(bridge.widget("scrub"));
+    REQUIRE(range != nullptr);
+    range->set_bounds({0, 0, 200, 24});
+
+    // Simulate a click in the middle of the track.
+    MouseEvent ev;
+    ev.position = {100, 12};
+    ev.is_down = true;
+    range->on_mouse_event(ev);
+
+    auto count = engine.evaluate("changes.length").getWithDefault<double>(0);
+    REQUIRE(count >= 1);
+    auto type = engine.evaluate("changes[0].type").getWithDefault<std::string>("");
+    REQUIRE(type == "change");
+    auto val = engine.evaluate("changes[0].value").getWithDefault<double>(-1);
+    REQUIRE_THAT(val, WithinAbs(0.5, 0.05));
+}
+
 TEST_CASE("WidgetBridge creates modal overlay from JS", "[view][bridge]") {
     ScriptEngine engine;
     View root;

@@ -369,6 +369,195 @@ TEST_CASE("Fader horizontal orientation", "[view][widget]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
 }
 
+// ── RangeSlider (pulp issue-966) ────────────────────────────────────────────
+
+TEST_CASE("RangeSlider default state matches HTML <input type=\"range\">",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    REQUIRE_THAT(rs.min_value(), WithinAbs(0.0, 0.0001));
+    REQUIRE_THAT(rs.max_value(), WithinAbs(1.0, 0.0001));
+    // Default step is 0 (continuous) — HTML defaults to 1 but plugins
+    // overwhelmingly want continuous values. Callers opt into stepping.
+    REQUIRE_THAT(rs.step(), WithinAbs(0.0, 0.0001));
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+    REQUIRE(rs.orientation() == RangeSlider::Orientation::horizontal);
+    REQUIRE_FALSE(rs.has_accent_color());
+}
+
+TEST_CASE("RangeSlider clamps value to [min,max]", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(-1.0f);
+    rs.set_max(1.0f);
+
+    rs.set_value(2.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(1.0, 0.0001));
+
+    rs.set_value(-5.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(-1.0, 0.0001));
+
+    rs.set_value(0.5f);
+    REQUIRE_THAT(rs.value(), WithinAbs(0.5, 0.0001));
+}
+
+TEST_CASE("RangeSlider quantises to step", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(0.0f);
+    rs.set_max(1.0f);
+    rs.set_step(0.1f);
+
+    rs.set_value(0.34f);
+    REQUIRE_THAT(rs.value(), WithinAbs(0.3, 0.0001));
+
+    rs.set_value(0.36f);
+    REQUIRE_THAT(rs.value(), WithinAbs(0.4, 0.0001));
+
+    // Step that doesn't divide the range cleanly: max reachable step
+    // before exceeding hi must clamp back inside the range.
+    rs.set_step(0.3f);
+    rs.set_value(1.0f);
+    REQUIRE(rs.value() <= 1.0f + 1e-5f);
+    REQUIRE(rs.value() >= 0.0f);
+}
+
+TEST_CASE("RangeSlider step=0 means continuous", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(0.0f);
+    rs.set_max(100.0f);
+    rs.set_step(0.0f);
+    rs.set_value(33.7f);
+    REQUIRE_THAT(rs.value(), WithinAbs(33.7, 0.0001));
+}
+
+TEST_CASE("RangeSlider re-clamps when bounds change", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(0.0f);
+    rs.set_max(10.0f);
+    rs.set_value(7.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(7.0, 0.0001));
+
+    // Tighten the upper bound — the existing value falls outside and
+    // must snap back.
+    rs.set_max(5.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(5.0, 0.0001));
+
+    // Raise the lower bound past the value — same idea in the other
+    // direction.
+    rs.set_min(6.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(6.0, 0.0001));
+}
+
+TEST_CASE("RangeSlider invalid range collapses to min", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(10.0f);
+    rs.set_max(0.0f);  // invalid: max < min
+    rs.set_value(5.0f);
+    // Per HTMLInputElement: invalid range pins value to min.
+    REQUIRE_THAT(rs.value(), WithinAbs(10.0, 0.0001));
+}
+
+TEST_CASE("RangeSlider drag dispatches change with quantised value",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 200, 24});
+    rs.set_min(0.0f);
+    rs.set_max(1.0f);
+    rs.set_step(0.25f);
+
+    std::vector<float> changes;
+    rs.on_change = [&](float v) { changes.push_back(v); };
+
+    // Mouse-down at x=100 (50% across) → expected snap to 0.5.
+    MouseEvent down;
+    down.position = {100, 12};
+    down.is_down = true;
+    rs.on_mouse_event(down);
+
+    REQUIRE(changes.size() == 1);
+    REQUIRE_THAT(changes.back(), WithinAbs(0.5, 0.0001));
+    REQUIRE_THAT(rs.value(), WithinAbs(0.5, 0.0001));
+
+    // Drag to x=180 (90%) → should snap to 1.0.
+    rs.on_mouse_drag({180, 12});
+    REQUIRE_THAT(rs.value(), WithinAbs(1.0, 0.0001));
+    REQUIRE(changes.size() >= 2);
+    REQUIRE_THAT(changes.back(), WithinAbs(1.0, 0.0001));
+
+    // Drag to x=10 (5%) → should snap to 0.
+    rs.on_mouse_drag({10, 12});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+
+    // Mouse up → dragging stops; subsequent drags must not move value.
+    MouseEvent up = down; up.is_down = false;
+    rs.on_mouse_event(up);
+    rs.on_mouse_drag({180, 12});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+}
+
+TEST_CASE("RangeSlider vertical orientation maps y correctly",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 24, 200});
+    rs.set_orientation(RangeSlider::Orientation::vertical);
+    rs.set_min(0.0f);
+    rs.set_max(1.0f);
+
+    // y=0 is top → max value (1.0).
+    MouseEvent ev;
+    ev.position = {12, 0};
+    ev.is_down = true;
+    rs.on_mouse_event(ev);
+    REQUIRE_THAT(rs.value(), WithinAbs(1.0, 0.0001));
+
+    // y=200 is bottom → min value (0.0).
+    rs.on_mouse_drag({12, 200});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+
+    // y=100 → halfway = 0.5.
+    rs.on_mouse_drag({12, 100});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.5, 0.001));
+}
+
+TEST_CASE("RangeSlider renders track + fill + handle",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 200, 24});
+    rs.set_value(0.5f);
+
+    RecordingCanvas canvas;
+    rs.paint(canvas);
+
+    // Track + active fill = 2 rounded rects, handle = 1 circle.
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 2);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
+}
+
+TEST_CASE("RangeSlider at minimum draws track but skips empty fill",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 200, 24});
+    rs.set_value(0.0f);  // exactly at min — no active fill to draw
+
+    RecordingCanvas canvas;
+    rs.paint(canvas);
+
+    // Only the background track rounded rect — fill is zero-width and
+    // skipped. Handle still renders.
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
+}
+
+TEST_CASE("RangeSlider accent color overrides theme fill",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 100, 20});
+    rs.set_value(0.6f);
+    rs.set_accent_color(Color::rgba8(255, 64, 32, 255));
+    REQUIRE(rs.has_accent_color());
+
+    rs.clear_accent_color();
+    REQUIRE_FALSE(rs.has_accent_color());
+}
+
 TEST_CASE("Toggle state", "[view][widget]") {
     Toggle toggle;
     REQUIRE_FALSE(toggle.is_on());
