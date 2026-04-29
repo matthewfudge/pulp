@@ -504,3 +504,92 @@ TEST_CASE("CanvasWidget draws on top of sibling-painted parent surface",
 }
 
 #endif  // PULP_HAS_SKIA
+
+// pulp #964 / #967 — Spectr's FilterBank scenario, asserted at the
+// command-stream level so the test runs without Skia.
+//
+// A parent View has a green setBackground() applied. It contains two
+// empty CanvasWidget children that occupy the full bounds and have
+// NO draw commands queued — exactly what Spectr's React port produces
+// for FilterBank's two canvas children on first frame.
+//
+// Contract: View::paint_all + CanvasWidget::paint together must NOT
+// emit any opaque-white fill_rect that covers the wrap's bounds. The
+// only fill_rect we expect at full bounds is the parent's green bg
+// fill. If a future change re-introduces an opaque default in View,
+// CanvasWidget, or anywhere between, the recorded stream will pick it
+// up and this test fails.
+TEST_CASE("FilterBank repro: empty canvas children don't paint opaque white",
+          "[canvas_widget][issue-964][issue-967]") {
+    RecordingCanvas rc;
+
+    View wrap;
+    wrap.set_bounds({0, 0, 64, 64});
+    wrap.set_background_color(pulp::canvas::Color::rgba8(0, 200, 0, 255));
+
+    auto cw1 = std::make_unique<CanvasWidget>();
+    cw1->set_bounds({0, 0, 64, 64});
+    auto cw2 = std::make_unique<CanvasWidget>();
+    cw2->set_bounds({0, 0, 64, 64});
+    wrap.add_child(std::move(cw1));
+    wrap.add_child(std::move(cw2));
+
+    wrap.paint_all(rc);
+
+    // Walk the command stream, tracking the most recent set_fill_color
+    // (RecordingCanvas captures color separately from fill_rect). For
+    // each fill_rect that covers the full wrap bounds, classify by the
+    // active fill colour: only green (parent's bg) is allowed. Any
+    // opaque-white or other full-bounds fill is the bug.
+    pulp::canvas::Color last_fill{};
+    int full_bounds_fills = 0;
+    bool saw_opaque_white = false;
+    bool saw_green_bg = false;
+    for (const auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::set_fill_color) {
+            last_fill = cmd.color;
+            continue;
+        }
+        if (cmd.type != DrawCommand::Type::fill_rect) continue;
+        const bool covers_full = (cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+                                  cmd.f[2] == 64.0f && cmd.f[3] == 64.0f);
+        if (!covers_full) continue;
+        ++full_bounds_fills;
+        const uint8_t r8 = last_fill.r8();
+        const uint8_t g8 = last_fill.g8();
+        const uint8_t b8 = last_fill.b8();
+        const uint8_t a8 = last_fill.a8();
+        if (r8 == 255 && g8 == 255 && b8 == 255 && a8 == 255) {
+            saw_opaque_white = true;
+        }
+        if (r8 == 0 && g8 == 200 && b8 == 0 && a8 == 255) {
+            saw_green_bg = true;
+        }
+    }
+
+    INFO("full_bounds_fills=" << full_bounds_fills
+         << " saw_green=" << saw_green_bg
+         << " saw_white=" << saw_opaque_white);
+    REQUIRE(saw_green_bg);
+    REQUIRE_FALSE(saw_opaque_white);
+    REQUIRE(full_bounds_fills == 1);
+}
+
+// pulp #967 — A bare View with no setBackground() must emit zero
+// fill_rect commands of any kind. HTML <div> default is transparent.
+TEST_CASE("Bare View with no setBackground emits no background fill",
+          "[view][issue-967]") {
+    RecordingCanvas rc;
+
+    View v;
+    v.set_bounds({0, 0, 32, 32});
+    REQUIRE_FALSE(v.has_background_color());
+
+    v.paint_all(rc);
+
+    int fill_rect_count = 0;
+    for (const auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_rect) ++fill_rect_count;
+    }
+    REQUIRE(fill_rect_count == 0);
+}
