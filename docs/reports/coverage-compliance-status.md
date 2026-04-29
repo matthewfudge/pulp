@@ -1,11 +1,29 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-04-24
+Last reviewed: 2026-04-29 02:10 EDT
 
 This is the durable tracker for the repo-wide coverage compliance
-program under `#641`. The Phase 1 representation stack has now landed
-on `main`; this document records the corrected Codecov baseline that
-Phase 2 planning should use.
+program under `#641`.
+
+## Current Phase
+
+- Phase 1 - Representation / Codecov truth: complete.
+- Phase 2 - Gap planning: complete enough to execute from the tracker
+  map and tranche issues.
+- Phase 3 - Gap closure: active. The work is now small, focused
+  coverage PRs that move represented components toward their tier
+  targets.
+
+The authoritative live tracker remains `#641`. The high-leverage
+host/format/view tracker remains `#493`. Component tranche trackers are:
+
+- `#640` audio / platform
+- `#642` events
+- `#643` CLI / tools
+- `#644` ship
+- `#645` MIDI / signal
+- `#646` render
+- `#493` host / format / view
 
 ## Goal
 
@@ -19,205 +37,119 @@ Target tiers remain unchanged in `ci/coverage-targets.yaml`:
 - `70%`: `render`, `view`, `cli`
 - `50%`: `events`, `runtime`, `state`, `canvas`, `osc`, `ship`, `tools`
 
-## Three-phase program
+## Latest Complete Codecov Snapshot
 
-### Phase 1 - Representation / Codecov truth
+Latest complete Codecov `main` report observed while updating this doc:
 
-Status: code and workflow slices are merged; this rebaseline is the
-closeout artifact.
+- commit: `e9c994d1bb2c42f1a50e4775a5886b6348808fb0`
+- PR: `#851` - `test(signal): cover meter channel-count guards`
+- state: complete
+- overall tracked coverage: `48.40%`
+- covered lines: `34,608 / 71,492`
+- missed lines: `35,511`
+- partial lines: `1,373`
+- files: `560`
+- sessions: `4`
 
-Finish line state:
+Current component coverage from the same Codecov API snapshot:
 
-- `windows` is non-null on `main` (`0.0%` at the current baseline).
-- `dsl` is a real component on `main` (`63.38%`).
-- `apple/Sources/**` materializes on Codecov for the macOS Swift package
-  lane and the native `PulpBridge.cpp` lane.
-- `android/app/src/main/kotlin/**` materializes on Codecov.
-- `bindings/python/bindings.cpp` materializes on Codecov.
-- the clearly known remaining "still not on Codecov" buckets are listed
-  below as explicit follow-up or out-of-scope surfaces.
-- this status document is rebaselined from the corrected `main` surface.
+| Component | Coverage | Target | Gap |
+| --- | ---: | ---: | ---: |
+| `audio` | `37.20%` | `80%` | `42.80` |
+| `platform` | `38.95%` | `80%` | `41.05` |
+| `host` | `44.16%` | `80%` | `35.84` |
+| `cli` | `40.84%` | `70%` | `29.16` |
+| `format` | `51.92%` | `80%` | `28.08` |
+| `view` | `45.17%` | `70%` | `24.83` |
+| `midi` | `55.72%` | `80%` | `24.28` |
+| `render` | `64.43%` | `70%` | `5.57` |
+| `signal` | `75.40%` | `80%` | `4.60` |
+| `tools` | `46.93%` | `50%` | `3.07` |
 
-### Phase 2 - Gap planning
+Components currently above their configured Phase 3 tier floor in this
+snapshot include `canvas`, `events`, `runtime`, `state`, `osc`, and
+`ship`. Non-tier reporting components include `android`, `apple`,
+`linux`, `windows`, `dsl`, and `inspect`.
 
-Status: next.
+## Queue State
 
-Finish line:
+The active codecov code-PR queue has been drained. The only open PR with
+the `codecov` label at this review is this doc refresh:
 
-- counted components are ranked from the corrected `main` baseline
-- major low-coverage files and components are grouped into tranche issues
-- remaining out-of-scope surfaces are either accepted for now or have
-  explicit expansion issues
-- the repo has an actionable issue / PR roadmap for closing measured
-  gaps
+- `#774` - `docs: refresh coverage compliance handoff`
 
-### Phase 3 - Gap closure
+Final code PRs merged during the 2026-04-29 drain:
 
-Status: parked until Phase 2 produces the tranche plan.
+- `#849` view label paint coverage -
+  `4148c6723f3951c6861e13cdbd502b90111f8f5f`
+- `#867` embedded Python bindings state coverage -
+  `bd13a2add545b9cfa4db530c9f66171dfb8fb69e`
+- `#850` runner resolver coverage -
+  `55857f15361e591972eef58f955427745cec0198`
+- `#971` version bump helper coverage -
+  `dc4bc66e55f0d9f85fbc2c4f8d0910ca7224e032`
+- `#886` iOS audio-session event label coverage -
+  `0f260b812ed9d4a8b6bb76293d02f768fac046b7`
+- `#853` audio frame-fill invalid-dimension coverage -
+  `c05384aaef731ccee481c7f47e6089ba8ef42afe`
+- `#851` signal meter channel-count guard coverage -
+  `e9c994d1bb2c42f1a50e4775a5886b6348808fb0`
 
-Finish line:
+The previously listed stale open PR queue from `#840` through `#895`
+has been resolved; those code coverage tranches are no longer active
+open work.
 
-- planned coverage tranches are implemented and merged
-- target components move materially toward or to their configured
-  thresholds
-- deferred or exceptional surfaces stay documented explicitly instead of
-  silently omitted
+## Phase 3 Finish Line
 
-## Corrected main baseline
+Phase 3 is done when the planned represented-surface tranches have been
+implemented or explicitly deferred, and the remaining gaps are
+documented rather than silently ignored.
 
-Source:
+Practical finish criteria for the current plan:
 
-- Codecov public totals and components API for `main` commit
-  `abe2b07a820d9e705864a3ecd3f0350772f694d1`
-- GitHub Actions Coverage run `24886403280`, completed successfully
-  across Android/Kotlin, Linux/Clang, Windows/Clang, and macOS/Clang
+- `audio`, `platform`, `host`, `format`, `midi`, and `signal` move
+  materially toward the `80%` tier, with any hardware-bound platform
+  shims either covered through deterministic seams or documented as
+  deferred.
+- `view`, `render`, and `cli` move toward the `70%` tier, prioritizing
+  large represented files before small tail cleanup.
+- `tools` crosses the `50%` infrastructure floor, then further tooling
+  slices are handled only when they are high leverage or support the
+  coverage system itself.
+- `canvas`, `events`, `runtime`, `state`, `osc`, and `ship` stay above
+  their `50%` infrastructure floor while ordinary feature work continues
+  to satisfy the required diff-coverage gate.
+- Deferred surfaces remain explicit in the tracker set: authored
+  JavaScript (`#659`), Node bindings plus shell/PowerShell
+  classification (`#657`), optional native surfaces (`#737`), and
+  mobile runtime / simulator coverage (`#77`).
 
-Current observed `main` snapshot:
+## Next Tranche Order
 
-- overall tracked coverage: `39.28%` over `68,001` lines in `551` files
-- `audio`: `20.95%`
-- `canvas`: `64.06%`
-- `dsl`: `63.38%`
-- `events`: `24.14%`
-- `format`: `43.86%`
-- `host`: `33.38%`
-- `midi`: `45.2%`
-- `osc`: `60.25%`
-- `platform`: `35.41%`
-- `render`: `55.87%`
-- `runtime`: `46.89%`
-- `signal`: `61.85%`
-- `state`: `50.94%`
-- `view`: `42.41%`
-- `android`: `13.83%`
-- `apple`: `29.93%`
-- `linux`: `0.0%`
-- `windows`: `0.0%`
-- `cli`: `21.38%`
-- `ship`: `31.45%`
-- `tools`: `34.07%`
+Use the latest complete Codecov file ranking and the tracker issues to
+choose the next small PR. As of the `c05384aa` snapshot, the highest
+remaining misses are concentrated in:
 
-Representation proof points from the same Codecov snapshot:
+- `#640`: `audio` / `platform`, especially platform device shims and
+  deterministic platform helpers.
+- `#493`: `host` / `format` / `view`, especially real slot adapters,
+  `widget_bridge.cpp`, and macOS view-host surfaces.
+- `#643`: `cli` / `tools`, especially large command modules and
+  low-coverage Python helpers.
+- `#645`: `midi` / `signal`, with `signal` close to the 80% tier and
+  `midi` still led by platform MIDI shims and MPE tracker paths.
+- `#646`: `render`, now close to the 70% tier and best handled through
+  GPU-off-safe helper targets when possible.
 
-- Apple files now visible:
-  - `apple/Sources/PulpSwift/PulpBridge.cpp`: `70.78%`
-  - `apple/Sources/PulpSwift/PulpBridge.swift`: `98.7%`
-  - `apple/Sources/PulpSwift/PulpParameter.swift`: `100.0%`
-  - `apple/Sources/PulpSwift/PulpViews.swift`: `79.79%`
-- Python perimeter files now visible, including top-level `tools/*.py`,
-  `tools/packages/**`, `tools/deps/**`, `tools/local-ci/**`,
-  `tools/scripts/**`, and `core/view/js/embed_js.py`.
-- `bindings/python/bindings.cpp` is visible as a counted file
-  (`0.0%`, `0/121` lines). It is represented but still a test gap.
-- `tools/packages/freshness_check.py` and
-  `tools/packages/validate_registry.py` are visible as counted files.
-- Python test modules remain intentionally omitted from the reported
-  source set.
+Keep the tranche size small: one subsystem slice, local focused
+validation, Codecov patch/diff proof, tracker update, then merge when
+GitHub branch protection is green and `mergeStateStatus` is `CLEAN`.
 
-## Clearly known still not on Codecov
-
-These are explicit perimeter decisions after the corrected baseline.
-They should not be treated as silent omissions while Phase 2 ranks the
-represented surface.
-
-- Authored JavaScript source roots remain out of the represented surface
-  until a dedicated JS lane is added - tracked by `#659`.
-- `bindings/nodejs/bindings.cpp` remains explicitly out of scope for now
-  because the repo does not have a supported Node binding CI/test lane -
-  tracked by `#657`.
-- Shell and PowerShell scripts remain explicitly out of scope for now.
-  They are tested indirectly where practical, but do not surface as
-  first-class Codecov lines - tracked by `#657`.
-- iOS-only Swift and standalone Swift outside the macOS SwiftPM lane stay
-  outside the represented surface unless a later simulator/runtime lane
-  pulls them in. Known examples:
-  - `apple/Sources/PulpSwift/PulpAudioSession.swift`
-  - `templates/ios-auv3/HostApp/ContentView.swift`
-  - `templates/ios-auv3/HostApp/PulpHostApp.swift`
-  - `tools/local-ci/macos_window_probe.swift`
-  tracked by `#77`; the Apple perimeter classification work in `#656`
-  is closed.
-- `apple/Sources/PulpSwift/PulpBridge.h` is a declaration-only C header
-  and is not materialized as an executable-line Codecov row. The
-  implementation in `PulpBridge.cpp` is now represented and tested.
-- Optional native surfaces that are not compiled by the current coverage
-  configure, such as AAX/ARA runtime sources, Android native device
-  shims, and Web/WASM-specific sources, remain outside the measured
-  graph unless Phase 2 decides to add focused follow-up issues.
-
-## Phase 1 issue map
-
-### Control plane and verification
-
-- `#641` authoritative umbrella and phase tracker
-- `#639` Codecov control plane and dashboard truth follow-up
-- `#647` merged representation tranche for `dsl`, `windows`, and the
-  durable status report
-- `#715` merged Python coverage normalization / zero-file visibility fix
-
-### Completed perimeter-expansion work
-
-- `#656` Swift / Apple perimeter classification, with
-  `PulpBridge.cpp` represented through `#678`
-- `#658` Python perimeter expansion, implemented through `#677` and
-  normalized by `#715`
-- `#679` / `#680` `bindings/python/bindings.cpp` representation
-- `#633` Android/Kotlin JaCoCo lane
-- `#615` Apple Swift package lane
-
-### Remaining explicit perimeter follow-ups
-
-- `#659` add a JavaScript source lane for authored repo assets
-- `#657` classify optional bindings and shell / PowerShell surfaces in
-  docs; after this rebaseline lands, the remaining implementation
-  decision is whether to keep Node and scripts out of scope or file
-  dedicated future lanes
-- `#77` decide and, if in scope, add mobile runtime coverage from
-  Android instrumentation and iOS simulator / runtime app paths
-
-### Supporting infrastructure
-
-- `#671` Windows Shipyard bundle-lock infra failure: closed
-- `#692` Windows Namespace capacity fallback for PR lanes: closed
-- `#655` Android SDK / NDK provisioning on SSH validation hosts remains
-  useful supporting infra but is not a blocker for hosted Codecov truth
-  on `main`
-- `#568` historical multi-language expansion umbrella. Active execution
-  now rolls up through `#641`.
-
-## Phase 2 starting point
-
-Phase 2 should start from the component snapshot above, not from older
-pre-`#715` numbers. The first planning pass should:
-
-1. Rank below-target counted components against `ci/coverage-targets.yaml`.
-2. Separate "represented but zero/low coverage" files from intentionally
-   unrepresented surfaces.
-3. Refresh or close the parked tranche issues based on the corrected
-   numbers.
-4. Post the final Phase 1 closeout and Phase 2 entry note on `#641`.
-
-### Phase 2 / Phase 3 issues to re-evaluate
-
-- `#640` audio / platform tranche
-- `#642` events tranche
-- `#643` CLI / tools tranche
-- `#644` ship tranche
-- `#645` midi / signal tranche
-- `#646` render tranche
-- `#493` host / format / view and related hardening gaps
-
-### Parked draft PRs to re-evaluate
-
-- `#648` draft events tranche
-- `#649` draft CLI / tools tranche
-- `#666` draft state / ship hardening split from `#647`
-
-## Control-plane invariants
+## Control-Plane Invariants
 
 - Every top-level `core/*` directory must have matching subsystem
   entries in `codecov.yml` `flags:` and `component_management:`.
-- Platform axes must match the live repo path conventions, including
+- Platform axes must match live repo path conventions, including
   `core/**/win/**` for Windows.
 - Swift upload artifacts must be repo-relative LCOV with `SF:` paths
   rooted under `apple/Sources/**`.
@@ -229,18 +161,13 @@ pre-`#715` numbers. The first planning pass should:
 - The authoritative program tracker is `#641`, not the older language
   umbrella `#568`.
 
-## Validation commands for this slice
+## Validation Commands
 
-- `python3 tools/scripts/test_codecov_config.py`
-- `python3 tools/scripts/test_run_swift_coverage.py`
-- `python3 tools/scripts/test_coverage_diff_comment.py`
-- `tools/check-docs.sh`
+For doc-only refreshes:
 
-## Follow-ups not solved by this doc
-
-- If another top-level `core/*` subsystem is added, update `codecov.yml`
-  in the same change; the structural test should fail immediately if the
-  mapping is missed.
-- `docs/reference/modules.md` still lacks a `#dsl` section even though
-  `docs/status/modules.yaml` points at one. That is real docs drift, but
-  it is outside this coverage-compliance slice.
+```bash
+tools/check-docs.sh
+PULP_ENFORCE_PREPUSH=1 python3 tools/scripts/skill_sync_check.py --base origin/main --mode=report
+python3 tools/scripts/version_bump_check.py --base origin/main --config tools/scripts/versioning.json --mode=report
+git diff --check
+```
