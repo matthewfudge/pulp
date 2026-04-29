@@ -5,7 +5,10 @@
 #import <Cocoa/Cocoa.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <pulp/state/store.hpp>
+#include <pulp/view/script_engine.hpp>
 #include <pulp/view/view.hpp>
+#include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/window_host.hpp>
 
 #include <chrono>
@@ -149,6 +152,114 @@ TEST_CASE("PulpView mouseUp survives mouseDown handler that unmounts the target"
         // `view_is_in_tree` check rejects the dangling pointer and the
         // up event drops cleanly.
         REQUIRE_NOTHROW([contentView mouseUp:up]);
+
+        host->hide();
+    }
+}
+
+// pulp #1006 — full integration: a JSX `onClick={fn}` flows through
+// @pulp/react's prop-applier into a bare `on(id, 'click', fn)` bridge
+// call (no addEventListener, no explicit registerClick). A real
+// NSLeftMouseDown + NSLeftMouseUp pair on the contentView must reach
+// the JS handler. Pre-#1006 the bridge stored the callback in
+// __callbacks__ but never wired View::on_click, so post-#992 mouseUp
+// found `_dragTarget->on_click == nullptr` and silently dropped the
+// click — the user-facing symptom that every <RailBtn onClick=...>
+// stayed dead in Spectr.
+TEST_CASE("PulpView NSEvent click dispatches JS on(id,'click') subscriber",
+          "[view][hosts][bridge][issue-1006]") {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+
+        View root;
+        WindowOptions opts;
+        opts.title = "PulpView issue-1006";
+        opts.width = 200.0f;
+        opts.height = 100.0f;
+        opts.resizable = false;
+        opts.use_gpu = false;
+
+        auto host = WindowHost::create(root, opts);
+        REQUIRE(host != nullptr);
+        // hit_test walks the live bounds; the host only resizes the
+        // root during paint, so set bounds up front so the synthetic
+        // event lands on the child without depending on a paint cycle.
+        root.set_bounds({0, 0, 200, 100});
+
+        pulp::state::StateStore store;
+        pulp::view::ScriptEngine engine;
+        pulp::view::WidgetBridge bridge(engine, root, store);
+
+        // createCol → child View added to root with the given id; the
+        // subsequent `on('clear', 'click', fn)` is exactly the call the
+        // @pulp/react prop-applier emits for `<RailBtn onClick={fn}>`.
+        // Pin a preferred size so Yoga doesn't shrink the child to 0
+        // during paint-driven layout (test stays deterministic).
+        bridge.load_script(R"(
+            var clicks = 0;
+            createCol('clear', '');
+            setFlex('clear', 'width', 200);
+            setFlex('clear', 'height', 100);
+            on('clear', 'click', function() { clicks += 1; });
+        )");
+
+        auto* child_ptr = bridge.widget("clear");
+        REQUIRE(child_ptr != nullptr);
+
+        host->show();
+        auto* nswindow = (__bridge NSWindow*)host->native_window_handle();
+        REQUIRE(nswindow != nil);
+        auto* contentView = nswindow.contentView;
+        REQUIRE(contentView != nil);
+
+        for (int i = 0; i < 20; ++i) {
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        }
+
+        const NSPoint local = NSMakePoint(40.0, 50.0);
+        const NSPoint window_pt = [contentView convertPoint:local toView:nil];
+
+        NSEvent* down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+                                           location:window_pt
+                                      modifierFlags:0
+                                          timestamp:0
+                                       windowNumber:nswindow.windowNumber
+                                            context:nil
+                                        eventNumber:0
+                                         clickCount:1
+                                           pressure:1.0];
+        NSEvent* up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp
+                                         location:window_pt
+                                    modifierFlags:0
+                                        timestamp:0
+                                     windowNumber:nswindow.windowNumber
+                                          context:nil
+                                      eventNumber:0
+                                       clickCount:1
+                                         pressure:0.0];
+
+        // Sanity: hit_test must find the child under the click point;
+        // otherwise mouseDown sets _dragTarget=nullptr and mouseUp has
+        // no view to dispatch the click to.
+        {
+            auto* target = root.hit_test({static_cast<float>(local.x),
+                                          static_cast<float>(local.y)});
+            REQUIRE(target == child_ptr);
+        }
+
+        [contentView mouseDown:down];
+        [contentView mouseUp:up];
+
+        // mouseUp queues the click handler via dispatch_async on the
+        // main queue (post-#992). Drain the run loop until it fires.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        int clicks = 0;
+        while (clicks == 0 && std::chrono::steady_clock::now() < deadline) {
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            clicks = engine.evaluate("clicks").getWithDefault<int>(0);
+        }
+
+        REQUIRE(clicks == 1);
 
         host->hide();
     }
