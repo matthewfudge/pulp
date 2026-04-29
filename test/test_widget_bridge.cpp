@@ -2589,3 +2589,55 @@ TEST_CASE("Canvas::draw_box_shadow CPU fallback approximates shadow as "
     // (steps = ceil(blur/2) + 1 = 21 for blur=40).
     REQUIRE(backing.count(DrawCommand::Type::fill_rounded_rect) >= 5);
 }
+
+// ── pulp #965 — SvgPathWidget JS bridge integration ──────────────────────────
+
+#include <pulp/view/svg_path_widget.hpp>
+
+TEST_CASE("WidgetBridge createSvgPath produces an SvgPathWidget the bridge can address",
+          "[view][bridge][issue-965]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createSvgPath('icon', '')");
+    bridge.load_script("setSvgPath('icon', 'M 0 0 L 10 0 L 10 10 Z')");
+    bridge.load_script("setSvgViewBox('icon', 10, 10)");
+    bridge.load_script("setSvgFill('icon', '#ff0000')");
+    bridge.load_script("setSvgStroke('icon', '#000000')");
+    bridge.load_script("setSvgStrokeWidth('icon', 2.0)");
+
+    auto* w = dynamic_cast<SvgPathWidget*>(bridge.widget("icon"));
+    REQUIRE(w != nullptr);
+    REQUIRE(w->path_data() == "M 0 0 L 10 0 L 10 10 Z");
+    REQUIRE(w->segments().size() == 4);
+    REQUIRE(w->viewbox_width() == 10.0f);
+    REQUIRE(w->viewbox_height() == 10.0f);
+    REQUIRE(w->has_fill());
+    REQUIRE(w->has_stroke());
+    REQUIRE(w->stroke_width() == 2.0f);
+    REQUIRE(w->fill_color().r8() == 255);
+    REQUIRE(w->fill_color().g8() == 0);
+    REQUIRE(w->fill_color().b8() == 0);
+}
+
+TEST_CASE("WidgetBridge setSvgFill 'none' disables fill",
+          "[view][bridge][issue-965]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createSvgPath('a', '')");
+    bridge.load_script("setSvgPath('a', 'M0 0L1 1')");
+    bridge.load_script("setSvgFill('a', 'none')");
+    bridge.load_script("setSvgStroke('a', '#222222')");
+    bridge.load_script("setSvgStrokeWidth('a', 1.5)");
+
+    auto* w = dynamic_cast<SvgPathWidget*>(bridge.widget("a"));
+    REQUIRE(w != nullptr);
+    REQUIRE_FALSE(w->has_fill());
+    REQUIRE(w->has_stroke());
+}

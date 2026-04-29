@@ -164,6 +164,7 @@ target_sources(pulp-view PRIVATE
     src/screenshot_compare.cpp
     src/app_framework.cpp
     src/canvas_widget.cpp
+    src/svg_path_widget.cpp
     src/visualization_bridge.cpp
     src/frame_clock.cpp
     src/window_manager.cpp
