@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0620"></a>
+## [0.63.0]
+
 ## [0.62.0] - 2026-04-29
 
 - fix(view): honor z_index() and default overflow to visible (#972) ([#996](https://github.com/danielraffel/pulp/pull/996))
