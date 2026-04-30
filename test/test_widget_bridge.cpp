@@ -288,6 +288,88 @@ TEST_CASE("WidgetBridge stale click callbacks are inert after bridge destruction
     REQUIRE_NOTHROW(global_click_handler("button", 0x10));
 }
 
+// pulp #1006 — JSX `onClick={fn}` flows through @pulp/react's prop-applier
+// into a bare `on(id, 'click', fn)` bridge call (no addEventListener,
+// no registerClick). Before the fix, this stored the JS callback in
+// __callbacks__ but never wired View::on_click on the native side, so
+// real NSEvent / Win32 mouse events fired View::on_mouse_down/up but
+// never dispatched 'click' through the bridge — the React handler
+// silently dropped on the floor.
+TEST_CASE("WidgetBridge on(id,'click',fn) auto-wires View::on_click", "[view][bridge][issue-1006]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var clicks = 0;
+        createToggleButton('clear', '');
+        on('clear', 'click', function() { clicks += 1; });
+    )");
+
+    auto* button = bridge.widget("clear");
+    REQUIRE(button != nullptr);
+
+    // The smoking gun: without the fix, `View::on_click` is empty and
+    // the deferred mac-host dispatch (which reads exactly this field
+    // post-#992) has nothing to call. With the fix, `on()` delegates
+    // to registerClick(id), which installs the native callback that
+    // emits __dispatch__('clear', 'click', 0).
+    REQUIRE(static_cast<bool>(button->on_click));
+
+    // Drive the native callback directly to verify it routes through
+    // __dispatch__ to the JS subscriber registered above.
+    button->on_click();
+    REQUIRE(engine.evaluate("clicks").getWithDefault<int>(-1) == 1);
+
+    // The full mouse-down/up path through the View should also fire
+    // the JS handler exactly once (matches mac-host mouseUp path that
+    // calls `click_handler()` after view_is_in_tree validation).
+    button->on_mouse_down({4, 4});
+    button->on_mouse_up({4, 4});
+    button->on_click();
+    REQUIRE(engine.evaluate("clicks").getWithDefault<int>(-1) == 2);
+}
+
+// pulp #1006 — repeated `on(id, 'click', fn)` calls (which @pulp/react
+// performs on every commitUpdate) must remain idempotent on the native
+// side. registerClick is overwriting-by-design (it stores its lambda
+// on view->on_click), but registerPointer chains (each call wraps the
+// previous handler). The auto-wire in `on()` guards re-registration
+// via __nativeRegistered__ so pointer events don't grow an O(N) chain.
+TEST_CASE("WidgetBridge on() native registration is idempotent", "[view][bridge][issue-1006]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var pointer_events = 0;
+        createCol('panel', '');
+        on('panel', 'pointerdown', function() { pointer_events += 1; });
+        on('panel', 'pointerdown', function() { pointer_events += 1; });
+        on('panel', 'pointerdown', function() { pointer_events += 1; });
+    )");
+
+    auto* panel = bridge.widget("panel");
+    REQUIRE(panel != nullptr);
+    REQUIRE(static_cast<bool>(panel->on_pointer_event));
+
+    MouseEvent down;
+    down.position = {10, 10};
+    down.is_down = true;
+    panel->on_pointer_event(down);
+
+    // Three subscriptions but each call to on() overwrites the
+    // __callbacks__ slot, so a single dispatch fires once. If the
+    // pointer chain wasn't guarded, this would grow with each
+    // re-registration into a multi-fire chain.
+    auto count = engine.evaluate("pointer_events").getWithDefault<int>(-1);
+    REQUIRE(count == 1);
+}
+
 TEST_CASE("WidgetBridge getLayoutRect accounts for scroll offsets", "[view][bridge][layout]") {
     ScriptEngine engine;
     View root;
