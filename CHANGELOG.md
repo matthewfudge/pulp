@@ -8,6 +8,23 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0681"></a>
+## [0.68.1] - 2026-04-30
+
+- feat(view): RN style-prop bridge primitives (pulp #1026) ([#1044](https://github.com/danielraffel/pulp/pull/1044))
+- test(cli): cover mcp server protocol paths ([#1076](https://github.com/danielraffel/pulp/pull/1076))
+- test(view): cover button widget edge paths ([#1069](https://github.com/danielraffel/pulp/pull/1069))
+- fix(audio): make empty focus subscriptions inert ([#1032](https://github.com/danielraffel/pulp/pull/1032))
+- ci(compat): seed compat-sync gate (#1029) ([#1068](https://github.com/danielraffel/pulp/pull/1068))
+- test(render): cover gpu surface state edges ([#1046](https://github.com/danielraffel/pulp/pull/1046))
+- test(platform): cover child process edge paths ([#1021](https://github.com/danielraffel/pulp/pull/1021))
+- test(signal): cover biquad edge paths ([#1077](https://github.com/danielraffel/pulp/pull/1077))
+- test(cli): cover projects registry edge paths ([#1025](https://github.com/danielraffel/pulp/pull/1025))
+- test(render): cover atlas cache edge paths ([#1064](https://github.com/danielraffel/pulp/pull/1064))
+- test(cli): cover docs search edge paths ([#1063](https://github.com/danielraffel/pulp/pull/1063))
+- test(audio): cover subsection reader edges ([#1061](https://github.com/danielraffel/pulp/pull/1061))
+- test(runtime): cover range edge paths ([#1034](https://github.com/danielraffel/pulp/pull/1034))
+
 <a id="v0680"></a>
 ## [0.68.0] - 2026-04-30
 
@@ -17,8 +34,6 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - test(audio): cover BufferView clear accessors ([#1033](https://github.com/danielraffel/pulp/pull/1033))
 
 <a id="v0670"></a>
-## [0.68.0]
-
 ## [0.67.0] - 2026-04-30
 
 - feat(cli): emit classnames.json from import-design --from claude (#1035) ([#1048](https://github.com/danielraffel/pulp/pull/1048))
@@ -948,6 +963,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.68.1]: https://github.com/danielraffel/pulp/releases/tag/v0.68.1
 [0.68.0]: https://github.com/danielraffel/pulp/releases/tag/v0.68.0
 [0.67.0]: https://github.com/danielraffel/pulp/releases/tag/v0.67.0
 [0.66.0]: https://github.com/danielraffel/pulp/releases/tag/v0.66.0
