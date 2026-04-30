@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0650"></a>
+## [0.66.0]
+
 ## [0.65.0] - 2026-04-29
 
 - fix(view): canvasRect/canvasStrokeRect honour active fillStyle when no color arg (pulp #968) ([#1003](https://github.com/danielraffel/pulp/pull/1003))
