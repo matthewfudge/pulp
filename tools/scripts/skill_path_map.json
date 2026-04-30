@@ -1,24 +1,31 @@
 {
   "$schema": "./skill_path_map.schema.json",
   "schema_version": 1,
-  "_comment": "Skill name -> glob patterns. When a diff touches any pattern, the corresponding SKILL.md must be updated in the same diff or a Skill-Update: skip trailer must appear on the tip commit. Paired with tools/scripts/versioning.json. Every subdir under .agents/skills/ MUST have an entry here; skill_sync_check.py fails if one is missing. Dual/triple ownership is permitted — and expected — for files that span multiple domains: e.g. core/format/src/au_adapter.mm is owned by both `auv3` (the adapter) and `view-bridge` (editor attach lifecycle), because a change to that file reasonably requires guidance updates on both sides. Dual ownership is not a mistake to collapse; use it when a single file legitimately teaches two skills.",
+  "_comment": "Skill name -> glob patterns. When a diff touches any pattern, the corresponding SKILL.md must be updated in the same diff or a Skill-Update: skip trailer must appear on the tip commit. Paired with tools/scripts/versioning.json. Every subdir under .agents/skills/ MUST have an entry here; skill_sync_check.py fails if one is missing. Dual/triple ownership is permitted — and expected — for files that span multiple domains: e.g. core/format/src/au_adapter.mm is owned by both `auv3` (the adapter) and `view-bridge` (editor attach lifecycle), because a change to that file reasonably requires guidance updates on both sides. Dual ownership is not a mistake to collapse; use it when a single file legitimately teaches two skills. Empty-match contract: every glob in `paths` MUST match at least one tracked file (enforced by SkillPathMapTests in tools/scripts/test_skill_sync_check.py — mirrors PR #1005's coverage-exclude fix (efefe144 + b258730c)). Patterns that are intentionally future-facing (e.g. developer-supplied SDKs that ship outside the source tree) MUST be declared in `_doc.expected_empty` with a one-line reason, NOT under `paths`, so they don't hide silent typos in real path entries.",
   "skills": {
     "aax": {
       "paths": [
         "core/format/src/aax*",
         "core/format/include/pulp/format/aax*",
-        "external/AAX-SDK/**",
         "tools/cmake/PulpAAX.cmake"
-      ]
+      ],
+      "_doc": {
+        "expected_empty": {
+          "external/AAX-SDK/**": "Avid AAX SDK is developer-supplied per the vendor-SDK carve-out in CLAUDE.md; never committed to the source tree."
+        }
+      }
     },
     "ara": {
       "paths": [
         "core/format/src/ara*",
-        "core/format/src/ara/**",
         "core/format/include/pulp/format/ara*",
-        "core/format/include/pulp/format/ara/**",
-        "external/ara-sdk/**"
-      ]
+        "core/format/include/pulp/format/ara/**"
+      ],
+      "_doc": {
+        "expected_empty": {
+          "external/ara-sdk/**": "ARA SDK is developer-supplied per the vendor-SDK carve-out in CLAUDE.md; never committed to the source tree."
+        }
+      }
     },
     "auv3": {
       "paths": [
@@ -49,7 +56,6 @@
       "paths": [
         "core/format/src/au_v2_adapter.cpp",
         "core/format/src/au_v2_instrument.cpp",
-        "core/format/src/au_v2_entry.*",
         "core/format/src/au_v2_cocoa_view.mm",
         "core/format/include/pulp/format/au_v2_adapter.hpp",
         "core/format/include/pulp/format/au_v2_instrument.hpp",
@@ -91,33 +97,24 @@
       "paths": [
         "tools/scripts/cmajor_external.py",
         "tools/scripts/test_cmajor_external.py",
-        "examples/cmajor-*/**",
-        "core/**/*cmajor*"
+        "examples/cmajor-*/**"
       ]
     },
     "engine": {
       "paths": [
-        "core/view/src/js_bridge*",
-        "core/view/include/**/js_bridge*",
-        "core/view/src/engine*",
-        "core/view/js/web-compat-*.js",
-        "external/quickjs*/**",
-        "tools/cmake/PulpJsEngine.cmake"
+        "core/view/js/web-compat-*.js"
       ]
     },
     "faust": {
       "paths": [
-        "examples/faust-*/**",
-        "tools/scripts/faust*",
-        "core/signal/**/*faust*"
+        "examples/faust-*/**"
       ]
     },
     "hosting": {
       "paths": [
         "core/host/**",
         "examples/plugin-host-demo/**",
-        "tools/cli/commands/host.cpp",
-        "tools/cli/commands/scan.cpp"
+        "tools/cli/cmd_host.cpp"
       ]
     },
     "ios": {
@@ -142,15 +139,12 @@
       "paths": [
         "tools/scripts/jsfx_subset.py",
         "tools/scripts/test_jsfx_subset.py",
-        "examples/jsfx-*/**",
-        "core/signal/**/*jsfx*"
+        "examples/jsfx-*/**"
       ]
     },
     "mpe": {
       "paths": [
-        "core/midi/src/*mpe*",
         "core/midi/include/**/*mpe*",
-        "core/midi/src/*ump*",
         "core/midi/include/**/*ump*",
         "examples/mpe-*/**"
       ]
@@ -158,12 +152,6 @@
     "packages": {
       "paths": [
         "tools/packages/**",
-        "tools/cli/cmd_add.cpp",
-        "tools/cli/cmd_audit.cpp",
-        "tools/cli/cmd_fetch.cpp",
-        "tools/cli/cmd_install.cpp",
-        "tools/cli/cmd_remove.cpp",
-        "tools/cli/cmd_search.cpp",
         "DEPENDENCIES.md",
         "NOTICE.md",
         "tools/deps/manifest.json"
@@ -180,7 +168,6 @@
       "paths": [
         "core/canvas/src/*sdf*",
         "core/canvas/src/*msdf*",
-        "core/canvas/src/*psdf*",
         "core/canvas/include/**/*sdf*",
         "core/canvas/include/**/*msdf*",
         "core/canvas/include/**/*psdf*",
@@ -200,17 +187,12 @@
       "paths": [
         "core/runtime/src/*stream*",
         "core/runtime/include/**/*stream*",
-        "core/events/src/*stream*",
-        "core/events/include/**/*stream*",
-        "examples/streams-*/**"
+        "examples/stream-*/**"
       ]
     },
     "threejs-bridge": {
       "paths": [
-        "core/view/src/threejs*",
-        "core/view/include/**/threejs*",
-        "examples/threejs-*/**",
-        "tools/scripts/threejs*"
+        "examples/threejs-*/**"
       ]
     },
     "upgrade": {
@@ -252,9 +234,6 @@
     },
     "webview-ui": {
       "paths": [
-        "core/view/src/webview*",
-        "core/view/include/**/webview*",
-        "core/view/platform/**/webview*",
         "examples/webview-*/**"
       ]
     }
