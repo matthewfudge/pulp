@@ -9,6 +9,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0660"></a>
+## [0.25.0]
+
+## [0.67.0]
+
 ## [0.66.0] - 2026-04-30
 
 - fix(view): register canvasFillRect bridge name (pulp #964) ([#1012](https://github.com/danielraffel/pulp/pull/1012))
