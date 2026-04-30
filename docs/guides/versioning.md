@@ -236,6 +236,31 @@ All three bypass trailers live on the tip commit, never in the PR body. The audi
 
 A bypass is a recorded admission that the author thought about the rule and decided it doesn't apply. Empty-reason bypasses are rejected.
 
+### `Version-Bump:` trailer parsing rules (#1054)
+
+`tools/scripts/version_bump_check.py` rejects malformed bypass
+trailers loudly instead of silently accepting them:
+
+- **Surface name is anchored.** The `<surface>` token must be a
+  recognized surface (currently `sdk`, `plugin`) on a word boundary —
+  `Version-Bump: mysdk=skip reason="x"` no longer parses as `sdk=skip`.
+- **`reason="..."` is required and must be non-empty.** Trailers with
+  no `reason=`, `reason=""`, or whitespace-only `reason="   "` fall
+  through and the gate stays active. The reason string is the
+  audit-trail-of-record per CLAUDE.md; an empty justification defeats
+  the trailer's purpose.
+- **Unknown-surface typos surface a `[trailer-warning]`.** A trailer
+  like `Version-Bump: cli=skip reason="x"` (no `cli` surface exists)
+  used to silently parse as absent, leaving the author guessing why
+  the gate still failed. The diagnostic now prints the offending
+  trailer alongside a `Did you mean?` Levenshtein suggestion (distance
+  ≤ max(2, len/3)) before the per-surface verdicts. Bogus levels and
+  the legacy `none` sentinel are reported with the same shape.
+
+The contract is locked in by `test_version_bump_check.py`'s
+`SurfaceTrailerOverrideHardening`, `CollectTrailerDiagnosticsHardening`,
+and `TrailerParsingEdgeCases` test classes.
+
 The compat-update gate uses the same three-layer pattern as the
 version-bump and skill-update gates; see [compat-sync.md](compat-sync.md)
 for the path map, requirement kinds, and rollout state (#1029 / #1027).
