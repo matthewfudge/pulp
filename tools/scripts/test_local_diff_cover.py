@@ -180,5 +180,83 @@ class ObjectDiscoveryParityTests(unittest.TestCase):
             )
 
 
+class DiffCoverExcludeContractTests(unittest.TestCase):
+    """Locks in the diff_cover_excludes pattern + flag-shape contract.
+
+    Anti-drift for the latent bug surfaced on PR #1005: every entry in
+    `diff_cover_excludes` was a silent no-op since #919. Two compounding
+    causes:
+
+      1. PATTERN MATCHING — diff-cover's `--exclude` matches via fnmatch
+         against the file's basename and absolute path only; literal
+         relative paths like `tools/cli/cmd_loop.cpp` match neither and
+         do nothing. Entries must be a basename (no slash) or a glob.
+      2. ARGPARSE OVERWRITE — diff-cover's `--exclude` is `nargs='+'`
+         with default action; repeated `--exclude=foo --exclude=bar`
+         keeps only the LAST entry. Both the local script and the
+         workflow must splat all entries under a single `--exclude
+         val1 val2 ...` flag, not a per-entry `--exclude=PATH` loop.
+
+    These tests make the next regression load.
+    """
+
+    WORKFLOW = REPO_ROOT / ".github" / "workflows" / "coverage.yml"
+
+    def test_local_script_uses_single_exclude_flag_form(self) -> None:
+        text = SCRIPT.read_text()
+        # Old broken shape — must NOT appear:
+        self.assertNotIn(
+            '("--exclude=${excl}")', text,
+            "local_diff_cover.sh appends --exclude=PATH per entry; "
+            "argparse nargs='+' silently keeps only the last one. "
+            "Build a list and splat under a single --exclude flag.",
+        )
+        # New shape: collect entries into EXCLUDE_LIST then pass under one --exclude.
+        self.assertIn(
+            '"--exclude" "${EXCLUDE_LIST[@]}"', text,
+            "local_diff_cover.sh must build the diff-cover invocation "
+            "with all excludes under a single --exclude flag (multi-value), "
+            "not as repeated --exclude=PATH flags.",
+        )
+
+    def test_workflow_uses_single_exclude_flag_form(self) -> None:
+        text = self.WORKFLOW.read_text()
+        # Old broken shape:
+        self.assertNotIn(
+            '"--exclude=$e"', text,
+            ".github/workflows/coverage.yml appends --exclude=PATH per entry; "
+            "argparse nargs='+' silently keeps only the last one. "
+            "Splat all entries under a single --exclude flag instead.",
+        )
+        # New shape:
+        self.assertIn(
+            '("--exclude" "${EXCLUDES[@]}")', text,
+            ".github/workflows/coverage.yml must build the diff-cover "
+            "invocation with all excludes under a single --exclude flag.",
+        )
+
+    def test_diff_cover_exclude_patterns_match_via_basename_or_glob(self) -> None:
+        """Each `diff_cover_excludes` entry must be either a basename
+        (no slash) or contain a glob character (`*`). Literal relative
+        paths like `tools/cli/cmd_loop.cpp` don't match diff-cover's
+        fnmatch-against-basename-or-abspath check and silently exclude
+        nothing."""
+        with CONFIG.open() as f:
+            config = json.load(f)
+        excludes = config.get("diff_cover_excludes", [])
+        self.assertIsInstance(excludes, list)
+        for pattern in excludes:
+            is_basename = "/" not in pattern
+            is_glob = "*" in pattern
+            self.assertTrue(
+                is_basename or is_glob,
+                f"diff_cover_excludes entry {pattern!r} is a literal "
+                f"relative path; diff-cover's --exclude won't match it "
+                f"(fnmatch checks basename + absolute path only). "
+                f"Use a basename like 'cmd_loop.cpp' or a glob like "
+                f"'**/cmd_loop.cpp' instead.",
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
