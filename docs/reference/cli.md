@@ -434,10 +434,13 @@ produce per-project skew reports.
 
 ```bash
 pulp projects list                       # show registered projects
+pulp projects list --json                # machine-parseable JSON output (Phase 8 parity, #244)
 pulp projects add                        # register the current directory
 pulp projects add ~/code/my-plugin       # register a specific directory
 pulp projects remove ~/code/old-plugin   # forget a project by path
 ```
+
+`--json` emits the same shape the Rust CLI port emits, so cross-binary consumers see byte-identical output. Schema: `{registry, projects: [{path, name, registered_at, missing_on_disk}]}`. `missing_on_disk` is `true` when the project directory has been deleted since registration.
 
 The registry is a plain JSON file with one top-level `projects`
 array; each entry has `path`, `name`, and `registered_at`. The
@@ -482,6 +485,8 @@ pulp project bump --verify-builds     # build after bump; roll back on failure
 pulp project undo                     # revert the newest batch
 pulp project undo <timestamp>         # revert a specific batch
 ```
+
+**Cross-binary parity (Phase 8):** `pulp project bump` and `pulp project undo` round-trip byte-exactly between the C++ and Rust CLI implementations. A bump written by one binary's `bump` is correctly understood by the other binary's `undo`, including the optional `notes:[...]` field the Rust port emits. The C++ undo-batch parser silently skips unknown ARRAY / OBJECT fields it doesn't recognize so future schema additions don't desync the parser.
 
 **Safety rails:** branch pins (`GIT_TAG main`) and SHA pins are
 skipped with a diagnostic; dirty pin-bearing files are gated behind
@@ -1015,9 +1020,15 @@ pulp scan --format au               # Only AU v2
 pulp scan --format auv3             # Only AUv3
 pulp scan --format lv2              # Only LV2
 pulp scan -f clap                   # Short alias for --format
+pulp scan --no-load                 # Filesystem-only walk (#812 escape hatch)
+pulp scan --help                    # Print usage; never opens any plug-in
 ```
 
 Output is one line per plug-in: `[<format>]` header per section, then `<name>  <bundle-path>`.
+
+`--no-load` skips the dlopen step entirely. Names are filename-derived; vendor / version / unique-id metadata is not surfaced. The trade-off: `--no-load` cannot crash on a malformed plug-in whose static-init code throws across the dlopen boundary (#812). Use it when the rich path errors out with `libc++abi: terminating` or when you want a quick path-only listing.
+
+`pulp scan --help` is short-circuited — it does NOT dlopen any plug-in, so it remains safe even when one of the installed plug-ins would crash the rich path.
 
 ### host
 
