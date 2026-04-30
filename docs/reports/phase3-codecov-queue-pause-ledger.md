@@ -30,6 +30,15 @@ This local ledger records the open `codecov` PR validation runs paused to free N
   `BLOCKED` or `UNSTABLE` until the queue is reopened and fresh
   validation runs are dispatched.
 
+## Local-Only Work Prepared During Pause
+
+These branches were prepared after the Namespace pause began. They have
+not been pushed, PR'd, or dispatched to Namespace.
+
+| Branch | Head | Scope | Files | Local Validation | Resume Action |
+| --- | --- | --- | --- | --- | --- |
+| `local/phase3-docs-generate-coverage-643` | `1f1b0bbf` | #643 tooling tranche for `tools/docs_generate.py` paths | `tools/scripts/test_docs_generate.py` | `python3 tools/scripts/test_docs_generate.py`; `python3 tools/scripts/test_run_python_coverage.py`; skill-sync report; version-bump report; `git diff --check`. Full local Python coverage command blocked because this machine lacks `coverage.py >= 7.10`. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
+
 ## Cancelled/Paused Runs
 
 | PR | State | Branch | Head | Runs | Title |
