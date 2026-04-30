@@ -11,7 +11,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v0680"></a>
 ## [0.68.0] - 2026-04-30
 
-- fix(view): bubble click up to ancestor on_click handler (pulp #1067) — the actual close on the React onClick chain. #1006/#1008's auto-wire put the handler on the right widget; this fix bubbles the click target up the parent chain so clicks on a Label child of a `<button>` find the parent's handler. Resolves the post-v0.66.0 symptom where clicks survived but never fired the React handler.
+- fix(view): bubble click up to ancestor on_click handler (#1067) ([#1073](https://github.com/danielraffel/pulp/pull/1073))
+- test(view): cover text editor edge paths ([#1023](https://github.com/danielraffel/pulp/pull/1023))
+- docs: codify phase 3 coverage operating loop ([#1030](https://github.com/danielraffel/pulp/pull/1030))
+- test(audio): cover BufferView clear accessors ([#1033](https://github.com/danielraffel/pulp/pull/1033))
 
 <a id="v0670"></a>
 ## [0.67.0] - 2026-04-30
@@ -943,6 +946,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.68.0]: https://github.com/danielraffel/pulp/releases/tag/v0.68.0
 [0.67.0]: https://github.com/danielraffel/pulp/releases/tag/v0.67.0
 [0.66.0]: https://github.com/danielraffel/pulp/releases/tag/v0.66.0
 [0.65.0]: https://github.com/danielraffel/pulp/releases/tag/v0.65.0
