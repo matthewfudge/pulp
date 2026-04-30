@@ -510,6 +510,33 @@ def heuristic_for_surface(
     return "patch"
 
 
+# Valid trailer levels (per the documented grammar). `none` is a sentinel
+# inside the heuristic pipeline only; it is NOT accepted from a trailer.
+_TRAILER_LEVELS = frozenset({"patch", "minor", "major", "skip"})
+
+# Anchored surface-name match: surface name must be at the start of the
+# value OR follow a whitespace / comma / semicolon boundary. Prevents
+# `mysdk=skip` from silently parsing as `sdk=skip` (substring bug
+# documented in issue #1054).
+def _surface_name_regex(surface_name: str) -> "re.Pattern[str]":
+    return re.compile(
+        rf"(?:^|[\s,;]){re.escape(surface_name)}\s*=\s*([A-Za-z]+)\b"
+    )
+
+
+# Reason="..." must be present AND non-empty for any trailer that wants
+# to be honored as a bypass. Issue #1054: `Version-Bump: sdk=skip` (no
+# reason) and `Version-Bump: sdk=skip reason=""` previously parsed as
+# valid skip overrides — silent acceptance of a bypass without the
+# author recording WHY defeats the trailer's purpose.
+_REASON_RE = re.compile(r'reason\s*=\s*"([^"]*)"')
+
+
+def _has_nonempty_reason(value: str) -> bool:
+    m = _REASON_RE.search(value)
+    return bool(m and m.group(1).strip())
+
+
 def surface_trailer_override(
     trailers: dict[str, list[str]],
     trailer_key: str,
@@ -525,17 +552,149 @@ def surface_trailer_override(
     `major` heuristic to "no bump needed", bypassing the gate. Codex
     review on PR #629 caught this. Reject `none` here as defense-in-
     depth; the call site at `assess_surfaces` also filters it out.
+
+    Issue #1054 hardening:
+        - Surface match is anchored on a word boundary; `mysdk=skip` no
+          longer parses as `sdk=skip`.
+        - A non-empty `reason="..."` is required. Bypasses without a
+          reason (or with `reason=""`) fall through, and the gate
+          remains active. `collect_trailer_diagnostics` emits a clear
+          diagnostic so the author understands why their bypass was
+          rejected.
     """
+    pat = _surface_name_regex(surface_name)
     for v in trailers.get(trailer_key.lower(), []):
-        m = re.search(rf"{re.escape(surface_name)}\s*=\s*([A-Za-z]+)", v)
+        m = pat.search(v)
         if not m:
             continue
         level = m.group(1).lower()
         if level == "none":
             continue
-        if level in LEVELS or level == "skip":
-            return level
+        if level not in _TRAILER_LEVELS:
+            continue
+        # Bypass without a recorded justification is rejected — the
+        # `reason="..."` string is the audit-trail-of-record. See
+        # collect_trailer_diagnostics for the user-visible message.
+        if not _has_nonempty_reason(v):
+            continue
+        return level
     return None
+
+
+# ── Trailer diagnostics (issue #1054) ───────────────────────────────────
+
+
+def _suggest_surface(unknown: str, known: list[str]) -> str | None:
+    """Return the closest known surface name (Levenshtein-ish) or None.
+
+    Only suggests when the edit distance is small enough that a typo is
+    plausible — otherwise returns None and the caller skips the hint.
+    """
+    if not known:
+        return None
+    # Tiny distance = max(2, len/3): tolerates 1-char typos always,
+    # and ~33% mangling on longer names (`pluggin` for `plugin`).
+    threshold = max(2, len(unknown) // 3)
+    best = None
+    best_dist = threshold + 1
+    for cand in known:
+        # Standard iterative DP Levenshtein (small strings).
+        a, b = unknown, cand
+        if abs(len(a) - len(b)) > threshold:
+            continue
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, 1):
+            cur = [i]
+            for j, cb in enumerate(b, 1):
+                ins = cur[j - 1] + 1
+                dele = prev[j] + 1
+                sub = prev[j - 1] + (0 if ca == cb else 1)
+                cur.append(min(ins, dele, sub))
+            prev = cur
+        d = prev[-1]
+        if d < best_dist:
+            best_dist = d
+            best = cand
+    return best
+
+
+def collect_trailer_diagnostics(
+    trailers: dict[str, list[str]],
+    trailer_key: str,
+    known_surfaces: list[str],
+) -> list[str]:
+    """Inspect every `Version-Bump:` trailer and return human-readable
+    diagnostics for shapes that look like bypass attempts but were
+    rejected by `surface_trailer_override`.
+
+    Detects (issue #1054):
+        - Unknown surface names (`Version-Bump: cli=skip reason="x"`
+          when no `cli` surface exists) — suggests the closest known
+          surface if one looks like a typo.
+        - Missing or empty `reason="..."` — the bypass parses
+          structurally but is rejected because the audit-trail string
+          is empty.
+        - The `none` sentinel — silently rejected by parser (only valid
+          inside heuristic pipeline).
+        - Malformed level values not in {patch,minor,major,skip}.
+
+    Returns a list of `[trailer-warning] ...` strings. Empty list when
+    every trailer is either canonical or absent.
+    """
+    diagnostics: list[str] = []
+    # Match any `<token>=<level>` that LOOKS like a bypass attempt, even
+    # if the surface or level is unknown. Anchored the same way as
+    # `_surface_name_regex` so we only flag values that could have been
+    # intended as bypasses (not arbitrary `=` characters in prose).
+    bypass_re = re.compile(
+        r"(?:^|[\s,;])([A-Za-z][A-Za-z0-9_-]*)\s*=\s*([A-Za-z]+)\b"
+    )
+    for v in trailers.get(trailer_key.lower(), []):
+        for m in bypass_re.finditer(v):
+            surface = m.group(1)
+            level = m.group(2).lower()
+
+            # Sentinel `none` is a known-bad value (#629).
+            if level == "none":
+                diagnostics.append(
+                    f"[trailer-warning] `{surface}=none` is not a valid "
+                    "bypass level — only patch/minor/major/skip are accepted."
+                )
+                continue
+
+            if level not in _TRAILER_LEVELS:
+                diagnostics.append(
+                    f"[trailer-warning] `{surface}={level}` has an "
+                    "unrecognised level. Valid levels: patch, minor, "
+                    "major, skip."
+                )
+                continue
+
+            if surface not in known_surfaces:
+                hint = _suggest_surface(surface, known_surfaces)
+                if hint:
+                    diagnostics.append(
+                        f"[trailer-warning] `{surface}={level}` references "
+                        f"unknown surface `{surface}`. Did you mean "
+                        f"`{hint}`?  Known surfaces: "
+                        f"{', '.join(sorted(known_surfaces))}."
+                    )
+                else:
+                    diagnostics.append(
+                        f"[trailer-warning] `{surface}={level}` references "
+                        f"unknown surface `{surface}`. Known surfaces: "
+                        f"{', '.join(sorted(known_surfaces))}."
+                    )
+                continue
+
+            if not _has_nonempty_reason(v):
+                diagnostics.append(
+                    f"[trailer-warning] `{surface}={level}` is missing a "
+                    'non-empty `reason="..."`. Bypass without a recorded '
+                    "justification is rejected — add a reason explaining "
+                    "why this surface should not bump."
+                )
+    return diagnostics
 
 
 # ── Version bumping arithmetic ──────────────────────────────────────────
@@ -706,10 +865,20 @@ def render_report(
     mode: str,
     base: str,
     repo: Path,
+    diagnostics: list[str] | None = None,
 ) -> tuple[str, int]:
     lines: list[str] = []
     failures = 0
     warnings = 0
+    # Surface trailer-shape diagnostics first so authors see them BEFORE
+    # the per-surface verdicts. Issue #1054: a malformed bypass trailer
+    # used to silently no-op (or worse, silently bypass via substring
+    # match) — now we tell the author exactly which trailer was rejected
+    # and why, so they don't have to guess.
+    if diagnostics:
+        for d in diagnostics:
+            lines.append(d)
+        lines.append("")
     for v in verdicts:
         if v.final_level == "none":
             lines.append(f"[{v.surface.name}] {v.surface.label}: no bump needed")
@@ -984,11 +1153,23 @@ def main(argv: list[str]) -> int:
 
     verdicts = assess_surfaces(cfg, changed, args.base, args.head, root)
 
+    # Issue #1054: surface trailer-shape diagnostics so authors see
+    # exactly which malformed bypass trailer was rejected, instead of
+    # the generic "missing version bump" error.
+    range_trailers = git_range_trailers(args.base, args.head)
+    known_surfaces = [s.name for s in cfg.surfaces]
+    diagnostics = collect_trailer_diagnostics(
+        range_trailers, cfg.trailer_version_bump, known_surfaces
+    )
+
     if args.mode == "apply":
         edited = apply_bumps(verdicts, args.base, root)
         # Re-assess after editing: re-read current versions and re-check.
         verdicts_after = assess_surfaces(cfg, changed, args.base, args.head, root)
-        text, code = render_report(verdicts_after, mode="report", base=args.base, repo=root)
+        text, code = render_report(
+            verdicts_after, mode="report", base=args.base, repo=root,
+            diagnostics=diagnostics,
+        )
         if edited:
             print("Edited files:")
             for e in edited:
@@ -1012,7 +1193,9 @@ def main(argv: list[str]) -> int:
                 return 1
         return code
 
-    text, code = render_report(verdicts, args.mode, args.base, root)
+    text, code = render_report(
+        verdicts, args.mode, args.base, root, diagnostics=diagnostics,
+    )
     if text:
         print(text)
 
