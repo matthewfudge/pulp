@@ -336,6 +336,35 @@ file). When changing scanner.scan() signatures, update cmd_host.cpp's
 ScanOptions construction in lockstep — the cross-format loop builds an
 options struct per iteration.
 
+#### `pulp scan --no-load` (#812)
+
+Filesystem-only enumeration mode. The default `pulp scan` opens each
+discovered bundle via `dlopen` to read entry-point metadata; one
+malformed plugin throwing in static-init aborts the whole scan
+(`libc++abi: terminating`). `--no-load` lists bundles by path/format
+without dlopen — the safe escape hatch when a host plugin crashes
+the scanner. `pulp scan --help` short-circuits before plugin
+enumeration so users can discover the flag even when the underlying
+scan path is broken.
+
+#### Cross-binary `pulp project bump` ↔ `undo` parity (#244)
+
+C++ and Rust both serialize `bump-undo-*.json` records but with
+slightly different field sets — Rust writes a transient `notes:[...]`
+array that the C++ writer never emits. The C++ JSON parser was
+desync-prone on unknown ARRAY/OBJECT values; hardened in commit
+`8f29b1fd` to skip them cleanly. When extending the undo schema,
+keep both writers + the C++ parser in lockstep, and add a fixture-
+level test in `test/test_cli_project_bump.cpp` that round-trips both
+directions.
+
+#### `pulp projects list --json` (#244)
+
+The Rust binary always had a `--json` lane; the C++ port for parity
+landed via `70e94dd7`. `pulp projects` is the only `projects`
+subcommand with `--json` today — `add`/`remove` are write-only and
+report success via exit code.
+
 ### `pulp coverage diff` — local diff-coverage gate
 
 `pulp coverage diff` (in `tools/cli/cmd_coverage.cpp`) is a thin
