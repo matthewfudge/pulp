@@ -68,6 +68,24 @@ Note: `shipyard cloud run build` printed older saved run IDs for #1136
 and #1137, but `gh run list` confirmed the fresh workflow_dispatch run
 IDs above.
 
+### 2026-05-01 Batch 3: Build Gate Refill
+
+A third build-only batch was queued after #1136-#1139. #1131 was not
+queued because its `Diff coverage required` check is red and needs
+coverage-gate triage before a build-only re-run can make it mergeable.
+
+| PR | Branch | Head | Workflow | New Run | Status at Dispatch |
+| --- | --- | --- | --- | --- | --- |
+| #1132 | `codex/midi-sysex-sidecar-tests` | `2695097458c4` | Build and Test | `25202770455` | queued |
+| #1133 | `feature/audio-channel-set-coverage-640-next` | `df227394cd7e` | Build and Test | `25202770462` | queued |
+| #1134 | `codex/coverage-phase3-tranche-20260430095455` | `1dbd12f64ba0` | Build and Test | `25202770509` | queued |
+| #1135 | `feature/signal-processor-chain-reset-coverage-645` | `89242ca0bfa5` | Build and Test | `25202770726` | queued |
+
+Held for triage: #1131 `feature/audio-window-enumerator-coverage-640-next`
+has passing `codecov/patch` but failing `Diff coverage required`, so it
+likely needs a coverage workflow re-run or a patch rather than build-only
+refill.
+
 ## Local-Only Work Prepared During Pause
 
 These branches were prepared after the Namespace pause began. They have
