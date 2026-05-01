@@ -182,8 +182,11 @@ Last live check: 2026-05-01 15:44:30 EDT.
   tools/scripts/test_android_target.py` passed and reported 100% for
   `tools/local-ci/android_target.py`.
 - Local-only progress: `pulp-validate-hosts-coverage-643` is refreshed
-  against current `origin/main` and locally validated; hold for the next
-  remote refill window.
+  against current `origin/main` at `5ea4ab99e276` as a single local
+  feature commit and locally validated with 100% target coverage.
+  Validation: `python3 tools/scripts/test_validate_hosts.py` reported 9
+  passing tests; focused coverage over `tools/deps/validate_hosts.py`
+  passed at 100%. No real SSH host validation was run.
 - Local-only progress: `pulp-compat-sync-extra-643` is refreshed against
   current `origin/main` at `a424f549f574` as a single local feature
   commit and locally validated. Validation:
