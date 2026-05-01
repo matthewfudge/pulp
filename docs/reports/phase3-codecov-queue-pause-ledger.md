@@ -26,21 +26,21 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 13:16:45 EDT.
+Last live check: 2026-05-01 13:24:04 EDT.
 
-- Open `codecov` PRs: 8.
+- Open `codecov` PRs: 7.
 - Merge state: remaining open Codecov PRs are currently blocked on
   active/queued lanes, with no current failure candidate.
-- GitHub Actions pressure: 22 active runs, with 17 queued and 5 in
+- GitHub Actions pressure: 10 active runs, with 6 queued and 4 in
   progress.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
-  upload is run `25224271442` for `99d852ec1e6a` (#1200), currently
+  upload is run `25224721564` for `7ad9308f6cc1` (#1205), currently
   queued; when that run, or a newer main coverage run, completes and
   Codecov ingests it, the project dashboard should reflect the merged
   PRs through that main commit.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
-  #1097, #1088, #1203, #1115, #1195, #1083, #1096, and #1200 after
+  #1097, #1088, #1203, #1115, #1195, #1083, #1096, #1200, and #1205 after
   required `linux`/`macos`/`windows` wrappers and Codecov patch gates were
   green.
 - Active triage: #1202 failed its first Linux Namespace build because the
@@ -62,7 +62,9 @@ Last live check: 2026-05-01 13:16:45 EDT.
 - Refill: opened #1205 from `local/phase3-bench-diff-coverage-643`,
   branch `feature/bench-diff-coverage-643`, head `6a190c5b7f45`.
   Applied `codecov`, linked #641/#643, and dispatched Namespace run
-  `25222999092`.
+  `25222999092`. Merged as `7ad9308f6cc1f62d971f89e782d8887b40153953`
+  after required wrappers and Codecov patch were green; stale branch runs
+  `25223019523` and `25222998771` were cancelled after merge.
 - Refill: opened #1206 from `local/phase3-check-docs-consistency-coverage-643`,
   branch `feature/check-docs-consistency-coverage-643`, head
   `01c963a046a1`. Applied `codecov`, linked #641/#643, and dispatched
@@ -99,6 +101,13 @@ Last live check: 2026-05-01 13:16:45 EDT.
   `pulp-coverage-tier-check-extra-643` are refreshed against current
   `origin/main` and locally validated; hold for the next remote refill
   window.
+- Local-only progress: `pulp-skill-sync-extra-643` is refreshed against
+  current `origin/main` at `07161e6a5a37` and locally validated with 94%
+  target coverage; hold for the next remote refill window.
+- Local-only progress: `pulp-version-bump-extra-643` is refreshed against
+  current `origin/main` at `fbb4d93e63e8` and locally validated with 92%
+  target coverage; it is ahead by two local commits, so squash before
+  queueing if we want a single feature commit.
 - Operating mode: keep polling, merge PRs as soon as required
   `linux`/`macos`/`windows` wrappers are green, cancel leftover advisory
   PR-head runs after merge, and only refill when the active queue drains
