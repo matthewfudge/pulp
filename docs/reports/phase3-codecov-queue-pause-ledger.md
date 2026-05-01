@@ -190,16 +190,16 @@ branches in separate worktrees.
 | #1102 | `feature/midi-running-status-coverage-645-next` | `core/midi/src/running_status.cpp` lines `92-97` | patched/pushed head `a412d3c88316`; CI queued |
 | #1086 | `feature/audio-hotplug-coverage-640` | `core/audio/include/pulp/audio/device.hpp` lines `89-94,116-121,125-126` | patched/pushed head `77b98ed1a2e8`; CI queued |
 | #1085 | `feature/audio-load-measurer-coverage-640` | `core/audio/include/pulp/audio/load_measurer.hpp` lines `35-38,40-41,43-47,49,78-79` | patched/pushed head `9dbd9544a65b`; CI queued |
-| #1082 | `feature/render-loop-coverage-646` | `core/render/src/render_loop.cpp` and `core/render/src/render_loop_state.hpp` lifecycle/state lines | worker assigned |
+| #1082 | `feature/render-loop-coverage-646` | `core/render/src/render_loop.cpp` and `core/render/src/render_loop_state.hpp` lifecycle/state lines | patched/pushed head `c53953830003`; CI queued. Worker labeled `pulp-test-render-loop` tests with `coverage` and validated focused CMake/CTest plus skill/version checks. |
 | #1066 | `feature/signal-filter-meter-coverage-645` | `core/signal/include/pulp/signal/multi_channel_meter.hpp` line `151` | patched/pushed head `bf60924fc794`; CI queued |
 | #1062 | `codex/coverage-midi-edge-644` | `core/midi/include/pulp/midi/message.hpp` factory/masking lines | patched/pushed head `8a9bd9efc2ba`; CI queued |
 | #1051 | `feature/signal-poly-math-coverage-645` | `core/signal/include/pulp/signal/poly_math.hpp` lines `51-55` | patched/pushed head `0a202abb8816`; CI queued |
-| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing | worker assigned for log/harness triage |
+| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing | patched/pushed head `49d950e5e470`; CI queued. Worker made coverage summary artifact uploads advisory after confirming Windows coverage, Cobertura XML, Codecov upload, and diff gate had already completed. |
 
 Local disk note: after completed Codecov worktrees pushed their fixes, their
 generated `build/` directories plus stale generated build outputs from
 older Codecov worktrees were removed. Source worktrees and branches were
-left intact. Free space recovered from about `192 MiB` to about `3.6 GiB`.
+left intact. Free space recovered from about `192 MiB` to about `4.7 GiB`.
 
 ## Local-Only Work Prepared During Pause
 
