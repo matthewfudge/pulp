@@ -214,6 +214,25 @@ coverage merges and is held for a branch refresh.
   runs across 25 branches, so do not refill Namespace until the current
   batch drains.
 
+### Live Queue Audit 2026-05-01 02:55 EDT
+
+- Open `codecov` PRs: 44.
+- Merge-now set: none. All open Codecov PRs currently report
+  `mergeStateStatus=BLOCKED`.
+- GitHub Actions pressure: 60 queued workflow runs and 4 in progress for
+  `danielraffel/pulp`, so do not add another PR-event refresh batch yet.
+- Watch first: #1143, #1142, #1139, #1137, #1140. #1143 has Linux,
+  Windows, diff coverage, Codecov patch, and advisory coverage/sanitizer
+  lanes green, but its required `macOS (ARM64) [namespace]` build wrapper
+  is still queued. #1142 is similarly waiting on macOS build and macOS
+  coverage. #1139/#1137 are still waiting on macOS Namespace lanes, with
+  #1137 also waiting on the Linux build wrapper.
+- Local-only progress continues while the queue drains. Workers were
+  assigned to refresh `local/phase3-merge-cobertura-extra-643`,
+  `local/phase3-lcov-cobertura-extra-643`, and
+  `local/phase3-run-python-coverage-extra-643` against current
+  `origin/main`; no push, PR, or Namespace dispatch until capacity returns.
+
 ## Real Diff-Gap Patch Queue
 
 These PRs were inspected after the pause. The failures are not just stale
