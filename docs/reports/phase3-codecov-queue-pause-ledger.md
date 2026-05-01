@@ -144,6 +144,21 @@ Follow-up refresh after `main` advanced through #1141 and #1131:
 | --- | --- | --- | --- | --- | --- |
 | #1139 | `codex/events-phase3-coverage-tranche` | `539bbb76c41a` | `25204395492` | `25204395482` | pending; fresh PR-event checks queued with sanitizer run `25204395501` and IWYU run `25204395484` |
 
+### 2026-05-01 Batch 6: PR-Event Branch Refresh
+
+After #1139 merged and GitHub Actions pressure dropped to 18 active
+runs, the next four patched/stale Codecov PRs were refreshed with
+`gh pr update-branch` so branch protection gets fresh `pull_request`
+contexts. Pressure after dispatch rose to 39 active runs, with 24 queued
+and 13 in progress, so hold further refill until this batch drains.
+
+| PR | Branch | Refreshed Head | Build Run | Coverage Run | Sanitizer Run | IWYU Run | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| #1051 | `feature/signal-poly-math-coverage-645` | `0675a09ecabd` | `25207650057` | `25207650060` | `25207650064` | `25207650080` | queued/in progress |
+| #1062 | `codex/coverage-midi-edge-644` | `4fdcb2605585` | `25207651042` | `25207651053` | `25207651046` | `25207651044` | queued/in progress |
+| #1066 | `feature/signal-filter-meter-coverage-645` | `cd2aafe8be87` | `25207652324` | `25207652319` | `25207652379` | `25207652327` | queued/in progress |
+| #1075 | `feature/cli-host-coverage-643` | `e3e7b0c6bedc` | `25207653425` | `25207653428` | `25207653415` | `25207653416` | queued/in progress |
+
 ## Merge Waves While Queue Is In Flight
 
 These PRs were already green/mergeable when the paused queue was
