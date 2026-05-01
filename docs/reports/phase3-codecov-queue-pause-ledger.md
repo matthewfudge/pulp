@@ -26,9 +26,9 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 18:11:35 EDT.
+Last live check: 2026-05-01 18:14:37 EDT.
 
-- Open `codecov` PRs: 1.
+- Open `codecov` PRs: 2.
 - Merge state: #1211 merged cleanly as `827227339a0609358ba0371a86417a868ee9879e`.
   #1207 also merged cleanly as `9da7b03a522a2c08042bbfe6f3149612ed02bb82`
   after the long Windows release-path gate completed. #1212 merged
@@ -43,10 +43,13 @@ Last live check: 2026-05-01 18:11:35 EDT.
   cleanly as `a147af718361001323755ac01da395d271fe4ee2`. #1219 merged
   cleanly as `4e93da00dddab17b75531d2fcda1b0511e3a4e9c`. #1220 merged
   cleanly as `3d2ebe6e6af57f10a29c2e17439e926221af8521`. #1221 is open
-  from `feature/phase3-deps-audit-extra-643` at `eb0db9ab7922`.
-- GitHub Actions pressure: #1221 has PR-event Build/Coverage checks active
-  on Namespace-backed lanes and no failed checks. Main post-merge push and
-  workflow-run jobs are also active after #1218/#1219/#1220 merged.
+  from `feature/phase3-deps-audit-extra-643` at `eb0db9ab7922`. #1222 is
+  open from `feature/phase3-run-swift-coverage-extra-643` at
+  `b11ec33712ce`.
+- GitHub Actions pressure: #1221 and #1222 have PR-event Build/Coverage
+  checks active on Namespace-backed lanes and no failed checks. Main
+  post-merge push and workflow-run jobs are also active after
+  #1218/#1219/#1220 merged.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The main coverage run for #1213
   completed successfully at `ea03a328ef33`; #1214's merge should start
@@ -236,6 +239,20 @@ Last live check: 2026-05-01 18:11:35 EDT.
   `run_python_coverage.py --pattern tools/deps/test_audit.py --pattern
   tools/deps/test_audit_extra.py`, and `git diff --check`. Focused
   coverage reported 100% for `tools/deps/audit.py`.
+- Refill: opened #1222 from
+  `local/phase3-run-swift-coverage-extra-643`, branch
+  `feature/phase3-run-swift-coverage-extra-643`, head `b11ec33712ce`.
+  Applied `codecov`, linked #641/#643, and PR-event checks are
+  queued/running. Local validation after rebasing onto `origin/main` at
+  `3d2ebe6e6af5` included `python3 -m unittest
+  tools/scripts/test_run_swift_coverage.py
+  tools/scripts/test_run_swift_coverage_extra.py`, venv-backed
+  `run_python_coverage.py --pattern tools/scripts/test_run_swift_coverage.py
+  --pattern tools/scripts/test_run_swift_coverage_extra.py`, direct
+  `python3 tools/scripts/run_swift_coverage.py`, and `git diff --check`.
+  Focused Python coverage reported 100% for
+  `tools/scripts/run_swift_coverage.py`; direct Swift coverage reported
+  91.68% Apple source coverage.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
@@ -1095,7 +1112,7 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `local/phase3-audit-top-level-coverage-643` | `51f8cf52` | #643 tooling tranche for `tools/audit.py` paths | `tools/scripts/test_audit_top_level.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_audit_top_level.py` reports 9 tests; `uv run --with pytest python -m pytest tools/scripts/test_audit_top_level.py -q` reports 9 tests; `uv run --with 'coverage>=7.10' python tools/scripts/run_python_coverage.py --pattern tools/scripts/test_audit_top_level.py` passed and reported 100% for `tools/audit.py`; skill-sync report; version-bump report; `git diff --check`; `git diff --check origin/main...HEAD`; final status clean and ahead 2. System `python3` lacks pytest and coverage, so those validations used `uv run --with`. | Hold local-only while Namespace pressure is high; when capacity returns, consider squashing the two local commits, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-pulp-sandbox-extra-643` | `85be094c` | #643 tooling tranche for `tools/sandbox-e2e/pulp_sandbox.py` paths | `tools/sandbox-e2e/test_pulp_sandbox_unit.py` | Refreshed against current `origin/main`; temp-venv `pytest tools/sandbox-e2e/test_pulp_sandbox_unit.py` reports 17 tests; shared `run_python_coverage.py --pattern tools/sandbox-e2e/test_pulp_sandbox_unit.py` exits with the expected `matched tests are outside the configured Python coverage surfaces`; direct temp-venv coverage over the pytest run reports 100% for `tools/sandbox-e2e/pulp_sandbox.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean. System `python3` lacked pytest and coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `feature/phase3-embed-js-coverage-643` | `92d94f04` | #643 tooling tranche for `core/view/js/embed_js.py` paths | `tools/scripts/test_embed_js.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_embed_js.py` reports 6 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_embed_js.py` passed and reported 100% for `core/view/js/embed_js.py`; `python3 tools/scripts/test_run_python_coverage.py` reports 23 tests; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1211; duplicate workflow-dispatch build `25230693088` was cancelled; #1211 merged as `827227339a0609358ba0371a86417a868ee9879e` after required gates were green. | Merged. |
-| `local/phase3-run-swift-coverage-extra-643` | `d6d08c37` | #643 tooling tranche for `tools/scripts/run_swift_coverage.py` paths and script entrypoint | `tools/scripts/test_run_swift_coverage_extra.py` | Refreshed locally; `python3 -m unittest tools/scripts/test_run_swift_coverage.py tools/scripts/test_run_swift_coverage_extra.py` reports 18 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_run_swift_coverage.py --pattern tools/scripts/test_run_swift_coverage_extra.py` passed and reported 100% for `tools/scripts/run_swift_coverage.py`; direct `python3 tools/scripts/run_swift_coverage.py` passed 10 Swift tests and reported 91.68% Apple source coverage; `git diff --check` passed; final tracked status clean and ahead 1. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`; use PR-event Namespace checks unless a targeted diagnostic dispatch is needed. |
+| `feature/phase3-run-swift-coverage-extra-643` | `b11ec337` | #643 tooling tranche for `tools/scripts/run_swift_coverage.py` paths and script entrypoint | `tools/scripts/test_run_swift_coverage_extra.py` | Rebased onto current `origin/main` at `3d2ebe6e`; `python3 -m unittest tools/scripts/test_run_swift_coverage.py tools/scripts/test_run_swift_coverage_extra.py` reports 18 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_run_swift_coverage.py --pattern tools/scripts/test_run_swift_coverage_extra.py` passed and reported 100% for `tools/scripts/run_swift_coverage.py`; direct `python3 tools/scripts/run_swift_coverage.py` passed 10 Swift tests and reported 91.68% Apple source coverage; `git diff --check` passed; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1222, then exited with no local targets remaining as expected for the Namespace-only route; #1222 is labeled `codecov` and linked from #641/#643. | Queued: monitor #1222 and merge once required gates are green. |
 | `local/phase3-android-target-coverage-643` | `8cabe643` | #643 tooling tranche for `tools/local-ci/android_target.py` paths | `tools/scripts/test_android_target.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_android_target.py` reports 16 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_android_target.py` passed and reported 100% for `tools/local-ci/android_target.py`; skill-sync report; version-bump report; compat-sync report; docs-sync report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. System `python3` lacked coverage, so the worker created `build-coverage/python-venv` with `coverage>=7.10`. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-validate-hosts-coverage-643` | `d3f7ef05` | #643 tooling tranche for `tools/deps/validate_hosts.py` paths | `tools/scripts/test_validate_hosts.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_validate_hosts.py` reports 9 tests and only mocked/local commands; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_validate_hosts.py` passed and reported 100% for `tools/deps/validate_hosts.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. No SSH, VM, or remote validation work was run. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-compat-sync-extra-643` | `19978518` | #643 tooling tranche for `tools/scripts/compat_sync_check.py` paths | `tools/scripts/test_compat_sync_check_extra.py` | Refreshed locally; venv-backed `tools/scripts/test_compat_sync_check.py` and `tools/scripts/test_compat_sync_check_extra.py` passed; venv-backed `tools/scripts/run_python_coverage.py --pattern 'tools/scripts/test_compat_sync_check*.py'` passed and reported 100% for `tools/scripts/compat_sync_check.py` with 340 statements, 0 misses, 178 branches, and 0 partials; `git diff --check -- tools/scripts/test_compat_sync_check_extra.py` passed; final tracked status clean. | Hold local-only while Namespace pressure is high; when capacity returns, consider squashing the two local commits, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`; use PR-event Namespace checks unless a targeted diagnostic dispatch is needed. |
