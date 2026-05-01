@@ -26,22 +26,21 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 16:15:41 EDT.
+Last live check: 2026-05-01 16:25:18 EDT.
 
-- Open `codecov` PRs: 4.
-- Merge state: #1207 remains open and blocked on `Windows MSVC
-  release-path gate`, with no current failure candidate. #1211, #1212,
-  and #1213 are running fresh validation. #1210 merged cleanly.
-- GitHub Actions pressure: 9 active runs, with 3 queued and 6 in
-  progress. This includes main-branch post-merge coverage work after
-  #1210 plus the remaining PR-event Build/Coverage runs; the duplicate
-  `workflow_dispatch` Build and Test run for #1213 has a cancellation
-  request pending.
+- Open `codecov` PRs: 3.
+- Merge state: #1211 merged cleanly as `827227339a0609358ba0371a86417a868ee9879e`.
+  #1207, #1212, and #1213 are still open; their merge states briefly
+  reported `UNKNOWN` while GitHub recomputed after `main` moved.
+- GitHub Actions pressure: #1212 and #1213 still have PR-event
+  Build/Coverage checks active. #1207 has no active checks in the latest
+  rollup after the long Windows release-path gate cleared, but its merge
+  state still needs a fresh poll after recomputation.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
-  main-branch `Coverage` push runs. The newest main coverage upload is
-  run `25231070245` for `e858f561c89e` (#1210), currently in progress;
-  after it completes and Codecov ingests it, the project dashboard should
-  reflect merged PRs through that main commit.
+  main-branch `Coverage` push runs. #1211 should start a new main
+  coverage run for `827227339a06`; after it completes and Codecov ingests
+  it, the project dashboard should reflect merged PRs through that main
+  commit.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
   #1097, #1088, #1203, #1115, #1195, #1083, #1096, #1200, #1205, #1078,
   #1196, #1197, #1198, #1202, and #1201 after required
@@ -146,6 +145,8 @@ Last live check: 2026-05-01 16:15:41 EDT.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test run `25231259746` (#1213) for the same reason.
 - Merged #1210 as `e858f561c89e69b7ccb82b8d607b420775f9a0b9` after
+  required wrappers and Codecov patch were green.
+- Merged #1211 as `827227339a0609358ba0371a86417a868ee9879e` after
   required wrappers and Codecov patch were green.
 - Local-only progress: `pulp-auto-release-decision-extra-643` is now the
   preferred #643 `tools/scripts/auto_release_decision.py` tranche. It is
@@ -933,7 +934,7 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `local/phase3-add-component-coverage-643` | `558ab84f` | #643 tooling tranche for `tools/add-component.py` paths | `tools/scripts/test_add_component.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_add_component.py` reports 8 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_add_component.py` passed and reported 98% for `tools/add-component.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-audit-top-level-coverage-643` | `51f8cf52` | #643 tooling tranche for `tools/audit.py` paths | `tools/scripts/test_audit_top_level.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_audit_top_level.py` reports 9 tests; `uv run --with pytest python -m pytest tools/scripts/test_audit_top_level.py -q` reports 9 tests; `uv run --with 'coverage>=7.10' python tools/scripts/run_python_coverage.py --pattern tools/scripts/test_audit_top_level.py` passed and reported 100% for `tools/audit.py`; skill-sync report; version-bump report; `git diff --check`; `git diff --check origin/main...HEAD`; final status clean and ahead 2. System `python3` lacks pytest and coverage, so those validations used `uv run --with`. | Hold local-only while Namespace pressure is high; when capacity returns, consider squashing the two local commits, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-pulp-sandbox-extra-643` | `85be094c` | #643 tooling tranche for `tools/sandbox-e2e/pulp_sandbox.py` paths | `tools/sandbox-e2e/test_pulp_sandbox_unit.py` | Refreshed against current `origin/main`; temp-venv `pytest tools/sandbox-e2e/test_pulp_sandbox_unit.py` reports 17 tests; shared `run_python_coverage.py --pattern tools/sandbox-e2e/test_pulp_sandbox_unit.py` exits with the expected `matched tests are outside the configured Python coverage surfaces`; direct temp-venv coverage over the pytest run reports 100% for `tools/sandbox-e2e/pulp_sandbox.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean. System `python3` lacked pytest and coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
-| `local/phase3-embed-js-coverage-643` | `4827bce0` | #643 tooling tranche for `core/view/js/embed_js.py` paths | `tools/scripts/test_embed_js.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_embed_js.py` reports 6 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_embed_js.py` passed and reported 100% for `core/view/js/embed_js.py`; `python3 tools/scripts/test_run_python_coverage.py` reports 23 tests; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
+| `feature/phase3-embed-js-coverage-643` | `92d94f04` | #643 tooling tranche for `core/view/js/embed_js.py` paths | `tools/scripts/test_embed_js.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_embed_js.py` reports 6 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_embed_js.py` passed and reported 100% for `core/view/js/embed_js.py`; `python3 tools/scripts/test_run_python_coverage.py` reports 23 tests; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1211; duplicate workflow-dispatch build `25230693088` was cancelled; #1211 merged as `827227339a0609358ba0371a86417a868ee9879e` after required gates were green. | Merged. |
 | `local/phase3-run-swift-coverage-extra-643` | `4cdbd161` | #643 tooling tranche for `tools/scripts/run_swift_coverage.py` paths | `tools/scripts/test_run_swift_coverage_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_run_swift_coverage.py` reports 5 tests; `python3 tools/scripts/test_run_swift_coverage_extra.py` reports 9 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_run_swift_coverage.py --pattern tools/scripts/test_run_swift_coverage_extra.py` passed and reported 96% for `tools/scripts/run_swift_coverage.py`; `python3 tools/scripts/run_swift_coverage.py` passed, SwiftPM tests passed, LCOV generated with 3 `apple/Sources` entries, 91.68% line coverage; skill-sync report; docs-sync report; version-bump report; compat-sync report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-android-target-coverage-643` | `8cabe643` | #643 tooling tranche for `tools/local-ci/android_target.py` paths | `tools/scripts/test_android_target.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_android_target.py` reports 16 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_android_target.py` passed and reported 100% for `tools/local-ci/android_target.py`; skill-sync report; version-bump report; compat-sync report; docs-sync report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. System `python3` lacked coverage, so the worker created `build-coverage/python-venv` with `coverage>=7.10`. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-validate-hosts-coverage-643` | `d3f7ef05` | #643 tooling tranche for `tools/deps/validate_hosts.py` paths | `tools/scripts/test_validate_hosts.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_validate_hosts.py` reports 9 tests and only mocked/local commands; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_validate_hosts.py` passed and reported 100% for `tools/deps/validate_hosts.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean and ahead 1. No SSH, VM, or remote validation work was run. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
