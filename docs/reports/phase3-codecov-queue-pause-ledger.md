@@ -26,23 +26,24 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 13:24:04 EDT.
+Last live check: 2026-05-01 14:19:34 EDT.
 
-- Open `codecov` PRs: 7.
-- Merge state: remaining open Codecov PRs are currently blocked on
-  active/queued lanes, with no current failure candidate.
-- GitHub Actions pressure: 10 active runs, with 6 queued and 4 in
+- Open `codecov` PRs: 1.
+- Merge state: #1206 is the only remaining open Codecov PR from the
+  current batch and is blocked on `macOS (ARM64) [namespace]`, with no
+  current failure candidate.
+- GitHub Actions pressure: 5 active runs, with 2 queued and 3 in
   progress.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
-  upload is run `25224721564` for `7ad9308f6cc1` (#1205), currently
-  queued; when that run, or a newer main coverage run, completes and
+  upload is run `25226868772` for `42464b4bc328` (#1201), currently
+  in progress; when that run, or a newer main coverage run, completes and
   Codecov ingests it, the project dashboard should reflect the merged
   PRs through that main commit.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
-  #1097, #1088, #1203, #1115, #1195, #1083, #1096, #1200, and #1205 after
-  required `linux`/`macos`/`windows` wrappers and Codecov patch gates were
-  green.
+  #1097, #1088, #1203, #1115, #1195, #1083, #1096, #1200, #1205, #1078,
+  #1196, #1197, #1198, #1202, and #1201 after required
+  `linux`/`macos`/`windows` wrappers and Codecov patch gates were green.
 - Active triage: #1202 failed its first Linux Namespace build because the
   fake `amixer` test replaced `PATH` and hid `grep`/`head`/`tr`. Pushed
   fix `b9e086fa` to prepend the fake bin directory instead; fresh
@@ -69,6 +70,13 @@ Last live check: 2026-05-01 13:24:04 EDT.
   branch `feature/check-docs-consistency-coverage-643`, head
   `01c963a046a1`. Applied `codecov`, linked #641/#643, and dispatched
   Namespace run `25223345260`.
+- Merged #1078 as `81be4ee00e02e367feec32c3c6885d0785179efa`,
+  #1196 as `dfae8e9f4a3b7b019b091dd8786f354612e8e4ae`, #1197 as
+  `f1d06c6210c1ee81686b72d449ab3f40308e6e3e`, #1198 as
+  `10212599092d2a313996ab120ef128178173a467`, #1202 as
+  `00b0871a6dea89fecb14d4aca8502e5c52507416`, and #1201 as
+  `42464b4bc3282e056e57e6ebb7820f4b91a974a9`. Cancelled leftover branch
+  coverage run `25216712973` for #1201 after merge.
 - Local-only progress: `pulp-check-format-validation-coverage-643` is
   refreshed and locally validated, but held while the current queue
   drains because the validator itself reports pre-existing missing
