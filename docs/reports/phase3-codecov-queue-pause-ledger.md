@@ -26,26 +26,23 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 17:22:10 EDT.
+Last live check: 2026-05-01 17:24:02 EDT.
 
-- Open `codecov` PRs: 3.
+- Open `codecov` PRs: 2.
 - Merge state: #1211 merged cleanly as `827227339a0609358ba0371a86417a868ee9879e`.
   #1207 also merged cleanly as `9da7b03a522a2c08042bbfe6f3149612ed02bb82`
   after the long Windows release-path gate completed. #1212 merged
   cleanly as `cb954187cc2e7cc00b6cd972f6f2767a9b01af58`. #1213 merged
   cleanly as `ea03a328ef3351eeaada61259321d9849f6f4fa4`. #1214 merged
   cleanly as `e1ef408071456dbe9a66297c912edb6dcca8523b`. #1216 merged
-  cleanly as `57527d7569f8ebd8882779d10e8ad5b7e92cf259`. #1217 is open
-  from `feature/phase3-package-cli-extra-643` at `f2727c976227`, and
-  #1218 is open from `feature/phase3-docs-sync-check-extra-643` at
-  `6960c4d280ee`.
-- GitHub Actions pressure: #1215, #1217, and #1218 have PR-event
-  Build/Coverage checks active. #1215 is waiting only on the rerun Linux
+  cleanly as `57527d7569f8ebd8882779d10e8ad5b7e92cf259`. #1217 merged
+  cleanly as `bc9765f4ddb79b6e9c8c4e3e4aa4e601daecd619`. #1218 is open
+  from `feature/phase3-docs-sync-check-extra-643` at `6960c4d280ee`.
+- GitHub Actions pressure: #1215 and #1218 have PR-event Build/Coverage
+  checks active. #1215 is waiting only on the rerun Linux
   Namespace Build job after the unrelated `BufferingReader restart clears
-  finished state and stale buffered data` failure. #1217 has no failed
-  checks and is still waiting on Linux/Windows Namespace Build plus Windows
-  coverage. #1218 has fresh PR-event checks running on Namespace-backed
-  lanes.
+  finished state and stale buffered data` failure. #1218 has fresh
+  PR-event checks running on Namespace-backed lanes and no failed checks.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The main coverage run for #1213
   completed successfully at `ea03a328ef33`; #1214's merge should start
@@ -179,7 +176,9 @@ Last live check: 2026-05-01 17:22:10 EDT.
   and venv-backed `run_python_coverage.py --pattern
   tools/scripts/test_package_cli.py --pattern
   tools/scripts/test_package_cli_extra.py`, which reported 100% target
-  coverage for `tools/scripts/package_cli.py`.
+  coverage for `tools/scripts/package_cli.py`. Merged as
+  `bc9765f4ddb79b6e9c8c4e3e4aa4e601daecd619` after required wrappers,
+  Namespace platform jobs, Codecov patch, and diff coverage were green.
 - Refill: opened #1218 from
   `local/phase3-docs-sync-check-extra-643`, branch
   `feature/phase3-docs-sync-check-extra-643`, head `6960c4d280ee`.
@@ -1046,7 +1045,7 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `feature/phase3-coverage-diff-comment-extra-643` | `cd1f91eb` | #643 tooling tranche for `tools/scripts/coverage_diff_comment.py` CLI and report-rendering edges | `tools/scripts/test_coverage_diff_comment_extra.py` | Rebased onto current `origin/main`; `python3 tools/scripts/test_coverage_diff_comment.py` reports 11 tests; `python3 tools/scripts/test_coverage_diff_comment_extra.py` reports 5 tests; `python3 -m unittest discover -s tools/scripts -p 'test_coverage_diff_comment*.py'` reports 16 tests; venv-backed `run_python_coverage.py --pattern tools/scripts/test_coverage_diff_comment.py --pattern tools/scripts/test_coverage_diff_comment_extra.py` passed and reported 100% for `tools/scripts/coverage_diff_comment.py`; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1213, then exited with no local targets remaining as expected for the Namespace-only route. Duplicate workflow-dispatch build `25231259746` was cancelled. #1213 merged as `ea03a328ef3351eeaada61259321d9849f6f4fa4` after required gates were green. | Merged. |
 | `local/phase3-cmajor-external-extra-643` | `14dda8af` | #643 tooling tranche for `tools/scripts/cmajor_external.py` edges | `tools/scripts/test_cmajor_external_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_cmajor_external.py` reports 4 tests; `python3 tools/scripts/test_cmajor_external_extra.py` reports 9 tests; temp-venv focused `run_python_coverage.py --pattern tools/scripts/test_cmajor_external.py --pattern tools/scripts/test_cmajor_external_extra.py` passed and reported 100% for `tools/scripts/cmajor_external.py`; skill-sync report; version-bump report; `git diff --check`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `feature/phase3-jsfx-subset-extra-643` | `a62d0b27` | #643 tooling tranche for `tools/scripts/jsfx_subset.py` parser and human-output edges | `tools/scripts/test_jsfx_subset_extra.py` | Rebased onto current `origin/main`; `python3 -m unittest tools.scripts.test_jsfx_subset tools.scripts.test_jsfx_subset_extra` reports 10 tests; venv-backed `run_python_coverage.py --pattern tools/scripts/test_jsfx_subset.py --pattern tools/scripts/test_jsfx_subset_extra.py` passed and reported 100% for `tools/scripts/jsfx_subset.py`; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1214, then exited with no local targets remaining as expected for the Namespace-only route. Duplicate workflow-dispatch build `25231763147` has a cancellation request pending. #1214 merged as `e1ef408071456dbe9a66297c912edb6dcca8523b` after required wrappers, Codecov patch, and platform coverage contexts were green. | Merged. |
-| `feature/phase3-package-cli-extra-643` | `f2727c97` | #643 tooling tranche for `tools/scripts/package_cli.py` cache, rpath, and macOS packaging edges | `tools/scripts/test_package_cli_extra.py` | Rebased onto current `origin/main` at `e1ef4080`; `python3 -m unittest tools/scripts/test_package_cli.py tools/scripts/test_package_cli_extra.py` reports 17 tests; `uv run --with 'coverage>=7.10' python tools/scripts/run_python_coverage.py --pattern tools/scripts/test_package_cli.py --pattern tools/scripts/test_package_cli_extra.py` passed and reported 100% for `tools/scripts/package_cli.py` with 125 statements, 0 misses, 54 branches, and 0 partials; `git diff --check` clean; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1217, then exited with no local targets remaining as expected for the Namespace-only route. | Queued: monitor #1217 and merge once required gates are green. |
+| `feature/phase3-package-cli-extra-643` | `f2727c97` | #643 tooling tranche for `tools/scripts/package_cli.py` cache, rpath, and macOS packaging edges | `tools/scripts/test_package_cli_extra.py` | Rebased onto current `origin/main` at `e1ef4080`; `python3 -m unittest tools/scripts/test_package_cli.py tools/scripts/test_package_cli_extra.py` reports 17 tests; `uv run --with 'coverage>=7.10' python tools/scripts/run_python_coverage.py --pattern tools/scripts/test_package_cli.py --pattern tools/scripts/test_package_cli_extra.py` passed and reported 100% for `tools/scripts/package_cli.py` with 125 statements, 0 misses, 54 branches, and 0 partials; `git diff --check` clean; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1217, then exited with no local targets remaining as expected for the Namespace-only route. #1217 merged as `bc9765f4ddb79b6e9c8c4e3e4aa4e601daecd619` after required gates were green. | Merged. |
 | `local/phase3-resolve-runs-on-extra-643` | `6b526d1e` | #643 tooling tranche for `tools/scripts/resolve_runs_on.py` edges | `tools/scripts/test_resolve_runs_on_extra.py` | Refreshed against current `origin/main` at `4afbf2c1`; `python3 tools/scripts/test_resolve_runs_on.py` reports 18 tests; `python3 tools/scripts/test_resolve_runs_on_extra.py` reports 2 tests; temp-venv focused `run_python_coverage.py --pattern tools/scripts/test_resolve_runs_on.py --pattern tools/scripts/test_resolve_runs_on_extra.py` passed and reported 100% for `tools/scripts/resolve_runs_on.py`; skill-sync report; version-bump report; `git diff --check`; final status clean. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. The coverage helper emitted a first-invocation no-data warning, but the combined focused run exited 0 with 100% target coverage. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-merge-cobertura-extra-643` | `6ef34bd1` | #643 tooling tranche for `tools/scripts/merge_cobertura.py` edges | `tools/scripts/test_merge_cobertura_extra.py` | Refreshed against current `origin/main` at `4afbf2c1`; `python3 tools/scripts/test_merge_cobertura.py` reports 14 tests; `python3 tools/scripts/test_merge_cobertura_extra.py` reports 3 tests; temp-venv focused `run_python_coverage.py --pattern tools/scripts/test_merge_cobertura.py --pattern tools/scripts/test_merge_cobertura_extra.py` passed and reported 100% for `tools/scripts/merge_cobertura.py`; skill-sync report; version-bump report; `git diff --check`; final status clean. System `python3` lacked coverage, so the focused run used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-lcov-cobertura-extra-643` | `de77ccf3` | #643 tooling tranche for `tools/scripts/lcov_cobertura.py` zero-hit, demangler, missing-tool, and entrypoint edges | `tools/scripts/test_lcov_cobertura_extra.py` | Refreshed locally; `python3 tools/scripts/test_lcov_cobertura_extra.py` passed; throwaway-venv `tools/scripts/run_python_coverage.py --pattern 'tools/scripts/test_lcov_cobertura*.py'` passed and reported 100% line/branch coverage for `tools/scripts/lcov_cobertura.py`; `git diff --check` passed; final tracked status clean. System `python3` lacked coverage, so the coverage sweep used a temporary venv outside the repo. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`; use PR-event Namespace checks unless a targeted diagnostic dispatch is needed. |
