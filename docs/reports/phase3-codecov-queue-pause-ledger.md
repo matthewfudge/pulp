@@ -194,8 +194,15 @@ Last live check: 2026-05-01 15:14:35 EDT.
   tools/scripts/test_coverage_tier_check_extra.py` passed and reported
   100% for `tools/scripts/coverage_tier_check.py`.
 - Local-only progress: `pulp-skill-sync-extra-643` is refreshed against
-  current `origin/main` at `07161e6a5a37` and locally validated with 94%
-  target coverage; hold for the next remote refill window.
+  current `origin/main` at `08f996796d20` as a single local feature
+  commit and locally validated with 94% target coverage. Validation:
+  `python3 tools/scripts/test_skill_sync_check_extra.py` reported 11
+  passing tests; `python3 tools/scripts/test_skill_sync_check.py`
+  reported 4 passing tests; `python3 tools/scripts/test_gates.py`
+  reported 39 passing tests; venv-backed `run_python_coverage.py
+  --pattern tools/scripts/test_skill_sync_check.py --pattern
+  tools/scripts/test_skill_sync_check_extra.py` passed and reported 94%
+  for `tools/scripts/skill_sync_check.py`.
 - Local-only progress: `pulp-version-bump-extra-643` is refreshed against
   current `origin/main` at `842ef5e244ea` as a single local feature
   commit and locally validated with 92% target coverage. Validation:
