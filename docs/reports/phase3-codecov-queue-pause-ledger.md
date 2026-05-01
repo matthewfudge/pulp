@@ -97,8 +97,14 @@ Last live check: 2026-05-01 14:29:01 EDT.
   tools/scripts/test_docs_generate.py` passed and reported 97% for
   `tools/docs_generate.py`.
 - Local-only progress: `pulp-list-limitations-coverage-643` is refreshed
-  against current `origin/main` and locally validated; hold for the next
-  remote refill window.
+  against current `origin/main` at `03d631cdf935` as a single local
+  feature commit and locally validated with 98% target coverage.
+  Validation: `python3 tools/test_list_limitations.py` reported 8 passing
+  tests; `python3 tools/scripts/test_run_python_coverage.py` reported 23
+  passing tests; `uv run --with 'coverage>=7.10' python
+  tools/scripts/run_python_coverage.py --pattern
+  tools/test_list_limitations.py` passed and reported 98% for
+  `tools/list_limitations.py`.
 - Local-only progress: `pulp-mkdocs-hooks-coverage-643` and
   `pulp-encode-binary-data-coverage-643` are refreshed against current
   `origin/main` and locally validated; hold for the next remote refill
