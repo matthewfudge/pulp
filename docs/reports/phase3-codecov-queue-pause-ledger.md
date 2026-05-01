@@ -157,8 +157,14 @@ Last live check: 2026-05-01 14:42:38 EDT.
   report --enforce` passed with no mapped paths touched. Coverage was not
   rerun because the system interpreter lacks `coverage.py`.
 - Local-only progress: `pulp-build-migration-index-extra-643` is
-  refreshed against current `origin/main` and locally validated; hold for
-  the next remote refill window.
+  refreshed against current `origin/main` at `02b52f4bff09` as a single
+  local feature commit and locally validated with 100% target coverage.
+  Validation: `python3 tools/scripts/test_build_migration_index.py &&
+  python3 tools/scripts/test_build_migration_index_extra.py` reported
+  7 + 9 passing tests; venv-backed `run_python_coverage.py --pattern
+  tools/scripts/test_build_migration_index.py --pattern
+  tools/scripts/test_build_migration_index_extra.py` passed and reported
+  100% for `tools/scripts/build_migration_index.py`.
 - Local-only progress: `pulp-docs-sync-check-extra-643` and
   `pulp-coverage-tier-check-extra-643` are refreshed against current
   `origin/main` and locally validated; hold for the next remote refill
