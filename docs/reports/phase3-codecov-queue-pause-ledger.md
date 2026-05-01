@@ -26,13 +26,16 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 15:08:06 EDT.
+Last live check: 2026-05-01 15:14:35 EDT.
 
-- Open `codecov` PRs: 1.
+- Open `codecov` PRs: 2.
 - Merge state: #1207 remains open and blocked on `Windows MSVC
-  release-path gate`, with no current failure candidate. #1208 merged.
-- GitHub Actions pressure: 3 active runs, with 1 queued and 2 in
-  progress.
+  release-path gate`, with no current failure candidate. #1209 was opened
+  as the next small refill tranche and is running fresh validation.
+- GitHub Actions pressure: 5 active runs, with 0 queued and 5 in
+  progress. This still includes duplicate `workflow_dispatch` Build and
+  Test run `25228924648` for #1209 while GitHub processes the cancellation
+  request.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
   upload is run `25228714974` for `4d45182c7800` (#1208), currently
@@ -84,10 +87,18 @@ Last live check: 2026-05-01 15:08:06 EDT.
   check` passing, and 97% target coverage. Merged as
   `4d45182c7800ac61594db1cc48625b8129882751` after required gates were
   green; no leftover branch runs were active after merge.
+- Refill: opened #1209 from `local/phase3-mkdocs-hooks-coverage-643`,
+  branch `feature/mkdocs-hooks-coverage-643`, head `9e2f898db95c`.
+  Applied `codecov`, linked #641/#643, and fresh PR-event Build and
+  Coverage workflows are running. Local validation was rerun with
+  `python3 tools/scripts/test_mkdocs_hooks.py` and reported 6 passing
+  tests; prepared coverage validation reported 96% target coverage.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
   merge-eligible Namespace child jobs.
+- Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
+  Build and Test run `25228924648` (#1209) for the same reason.
 - Merged #1078 as `81be4ee00e02e367feec32c3c6885d0785179efa`,
   #1196 as `dfae8e9f4a3b7b019b091dd8786f354612e8e4ae`, #1197 as
   `f1d06c6210c1ee81686b72d449ab3f40308e6e3e`, #1198 as
