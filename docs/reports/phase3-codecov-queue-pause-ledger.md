@@ -190,6 +190,7 @@ coverage merges and is held for a branch refresh.
 | #1140 | `3695a6af7163` | merged from `CLEAN`; required `linux`, `macos`, and `windows` contexts, diff coverage, and Codecov patch were green |
 | #1085 | `5aac29496436` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` contexts, diff coverage, and Codecov patch were green, only advisory macOS sanitizer lanes were still pending |
 | #1138 | `44cff0532848` | merged from `CLEAN`; durable coverage guide now codifies the no-idle Phase 3 loop and Namespace-default validation posture |
+| #1082 | `b0903cd8ed4b` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` contexts plus Codecov patch were green, only advisory macOS sanitizer/coverage lanes were still pending |
 
 ## Conflict And Failure Triage
 
@@ -273,6 +274,16 @@ coverage merges and is held for a branch refresh.
 | #1072 | `feature/design-import-edge-coverage-493` | `2d78c1d52a77` | `25206705148` | `25206705135` | `25206705153` | `25206705144` | queued/in progress |
 | #1074 | `feature/audio-format-registry-compressed-640` | `12bed93ae611` | `25206705263` | `25206705261` | `25206705389` | `25206705221` | queued/in progress |
 
+### Merge Update 2026-05-01 03:38 EDT
+
+- #1082 merged as `b0903cd8ed4b` after required `linux`, `macos`,
+  and `windows` wrappers, Codecov patch, and the relevant platform build
+  lanes were green. Advisory macOS sanitizer/coverage jobs were still
+  queued at merge time.
+- Tracker comments posted to #641 and #646.
+- Open `codecov` PRs: 39 immediately after the merge; fresh
+  merge-candidate poll returned none.
+
 ## Real Diff-Gap Patch Queue
 
 These PRs were inspected after the pause. The failures are not just stale
@@ -288,7 +299,7 @@ branches in separate worktrees.
 | #1102 | `feature/midi-running-status-coverage-645-next` | `core/midi/src/running_status.cpp` lines `92-97` | patched/pushed head `a412d3c88316`; CI queued |
 | #1086 | `feature/audio-hotplug-coverage-640` | `core/audio/include/pulp/audio/device.hpp` lines `89-94,116-121,125-126` | patched/pushed head `77b98ed1a2e8`; CI queued |
 | #1085 | `feature/audio-load-measurer-coverage-640` | `core/audio/include/pulp/audio/load_measurer.hpp` lines `35-38,40-41,43-47,49,78-79` | patched/pushed head `9dbd9544a65b`; merged as `5aac29496436` after required wrappers passed |
-| #1082 | `feature/render-loop-coverage-646` | `core/render/src/render_loop.cpp` and `core/render/src/render_loop_state.hpp` lifecycle/state lines | patched/pushed head `c53953830003`; CI queued. Worker labeled `pulp-test-render-loop` tests with `coverage` and validated focused CMake/CTest plus skill/version checks. |
+| #1082 | `feature/render-loop-coverage-646` | `core/render/src/render_loop.cpp` and `core/render/src/render_loop_state.hpp` lifecycle/state lines | patched/pushed head `c53953830003`; merged as `b0903cd8ed4b` after required wrappers and Codecov patch passed |
 | #1066 | `feature/signal-filter-meter-coverage-645` | `core/signal/include/pulp/signal/multi_channel_meter.hpp` line `151` | patched/pushed head `bf60924fc794`; CI queued |
 | #1062 | `codex/coverage-midi-edge-644` | `core/midi/include/pulp/midi/message.hpp` factory/masking lines | patched/pushed head `8a9bd9efc2ba`; CI queued |
 | #1051 | `feature/signal-poly-math-coverage-645` | `core/signal/include/pulp/signal/poly_math.hpp` lines `51-55` | patched/pushed head `0a202abb8816`; CI queued |
