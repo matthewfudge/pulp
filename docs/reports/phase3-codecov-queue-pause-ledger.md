@@ -26,19 +26,20 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 14:29:01 EDT.
+Last live check: 2026-05-01 14:42:38 EDT.
 
-- Open `codecov` PRs: 1.
-- Merge state: #1207 is the only remaining open Codecov PR and is
-  running fresh validation, with no current failure candidate.
+- Open `codecov` PRs: 2.
+- Merge state: #1207 and #1208 are running fresh PR-event validation,
+  with no current failure candidate.
 - GitHub Actions pressure: 6 active runs, with 2 queued and 4 in
-  progress.
+  progress. This still includes duplicate `workflow_dispatch` Build and
+  Test runs `25227025413` and `25227667875` while GitHub processes the
+  cancellation requests.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
-  upload is run `25226868772` for `42464b4bc328` (#1201), currently
-  in progress; when that run, or a newer main coverage run, completes and
-  Codecov ingests it, the project dashboard should reflect the merged
-  PRs through that main commit.
+  upload is run `25227196680` for `4ddee1e67e0c` (#1206), completed
+  successfully at 2026-05-01 14:40:51 EDT; after Codecov ingestion, the
+  project dashboard should reflect merged PRs through that main commit.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
   #1097, #1088, #1203, #1115, #1195, #1083, #1096, #1200, #1205, #1078,
   #1196, #1197, #1198, #1202, and #1201 after required
@@ -77,6 +78,16 @@ Last live check: 2026-05-01 14:29:01 EDT.
   Namespace run `25227006300`. Local validation:
   `python3 tools/scripts/test_encode_binary_data.py` reported 6 passing
   tests.
+- Refill: opened #1208 from `local/phase3-docs-generate-coverage-643`,
+  branch `feature/phase3-docs-generate-coverage-643`, head
+  `92c88abff663`. Applied `codecov`, linked #641/#643, and fresh
+  PR-event Build and Coverage workflows are running. Local validation
+  previously reported 13 passing docs-generate tests, `docs_generate.py
+  check` passing, and 97% target coverage.
+- Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
+  Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
+  because the PR-event Build and Test workflows are already producing the
+  merge-eligible Namespace child jobs.
 - Merged #1078 as `81be4ee00e02e367feec32c3c6885d0785179efa`,
   #1196 as `dfae8e9f4a3b7b019b091dd8786f354612e8e4ae`, #1197 as
   `f1d06c6210c1ee81686b72d449ab3f40308e6e3e`, #1198 as
