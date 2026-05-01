@@ -216,6 +216,7 @@ coverage merges and is held for a branch refresh.
 | #1045 | `2e4a0ed2e256` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers plus Codecov patch were green, only advisory macOS coverage/sanitizer lanes were still pending |
 | #1137 | `ea731cbf365c` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers, Codecov patch, and diff coverage were green, only advisory macOS sanitizer lanes were still pending |
 | #1143 | `d36fddc2cd9f` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers, Codecov patch, diff coverage, and platform build/coverage lanes were green, only advisory macOS UBSan was still pending |
+| #1075 | `c34f11f7138c` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers plus Codecov patch were green. Red Windows coverage job was advisory artifact-upload plumbing: tests, Cobertura existence check, and Codecov upload succeeded |
 
 ## Conflict And Failure Triage
 
@@ -390,6 +391,15 @@ coverage merges and is held for a branch refresh.
   build/coverage lanes were green. Pending macOS UBSan was advisory.
 - Tracker comments posted to #641 and #646.
 
+### Merge Update 2026-05-01 05:27 EDT
+
+- #1075 merged as `c34f11f7138c` after required `linux`, `macos`, and
+  `windows` wrappers plus Codecov patch were green. The red Windows
+  coverage job was advisory artifact-upload plumbing: coverage suite,
+  Cobertura existence check, and Codecov upload succeeded; only the
+  Cobertura artifact upload step failed.
+- Tracker comments posted to #641 and #643.
+
 ## Real Diff-Gap Patch Queue
 
 These PRs were inspected after the pause. The failures are not just stale
@@ -409,7 +419,7 @@ branches in separate worktrees.
 | #1066 | `feature/signal-filter-meter-coverage-645` | `core/signal/include/pulp/signal/multi_channel_meter.hpp` line `151` | patched/pushed head `bf60924fc794`; CI queued |
 | #1062 | `codex/coverage-midi-edge-644` | `core/midi/include/pulp/midi/message.hpp` factory/masking lines | patched/pushed head `8a9bd9efc2ba`; CI queued |
 | #1051 | `feature/signal-poly-math-coverage-645` | `core/signal/include/pulp/signal/poly_math.hpp` lines `51-55` | patched/pushed head `0a202abb8816`; CI queued |
-| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing, then fresh skill-sync gate required a `ci` skill bypass for `.github/workflows/coverage.yml` | patched/pushed head `4469868e669b`; local skill-sync/version-bump reports and `git diff --check` passed. Fresh PR checks are queued with no current failures. |
+| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing, then fresh skill-sync gate required a `ci` skill bypass for `.github/workflows/coverage.yml` | patched/pushed head `4469868e669b`; merged as `c34f11f7138c` after required wrappers and Codecov patch passed. Red Windows coverage job was advisory artifact-upload plumbing; the coverage suite, Cobertura existence check, and Codecov upload succeeded. |
 
 Additional local-only workers started while Namespace was saturated:
 
