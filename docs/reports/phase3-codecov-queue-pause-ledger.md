@@ -26,17 +26,18 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 16:42:09 EDT.
+Last live check: 2026-05-01 16:44:22 EDT.
 
-- Open `codecov` PRs: 2.
+- Open `codecov` PRs: 3.
 - Merge state: #1211 merged cleanly as `827227339a0609358ba0371a86417a868ee9879e`.
   #1207 also merged cleanly as `9da7b03a522a2c08042bbfe6f3149612ed02bb82`
   after the long Windows release-path gate completed. #1212 merged
   cleanly as `cb954187cc2e7cc00b6cd972f6f2767a9b01af58`. #1213 merged
-  cleanly as `ea03a328ef3351eeaada61259321d9849f6f4fa4`. #1214 and
-  #1215 are still open and running PR-event validation.
-- GitHub Actions pressure: #1214 and #1215 have PR-event Build/Coverage
-  checks active.
+  cleanly as `ea03a328ef3351eeaada61259321d9849f6f4fa4`. #1214, #1215,
+  and #1216 are still open and running PR-event validation.
+- GitHub Actions pressure: #1214, #1215, and #1216 have PR-event
+  Build/Coverage checks active. #1216's duplicate workflow-dispatch build
+  has a cancellation request pending.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. #1211 should start a new main
   coverage run for `827227339a06`; after it completes and Codecov ingests
@@ -150,6 +151,16 @@ Last live check: 2026-05-01 16:42:09 EDT.
   'coverage>=7.10' python -m coverage report -m
   tools/scripts/auto_release_decision.py`, which reported 100% target
   coverage for `tools/scripts/auto_release_decision.py`.
+- Refill: opened #1216 from `local/phase3-check-status-ladder-extra-643`,
+  branch `feature/phase3-check-status-ladder-extra-643`, head
+  `67038aa94490`. Applied `codecov`, linked #641/#643, and PR-event
+  Build and Coverage workflows are running. Local validation was
+  refreshed with `python3 tools/test_check_status_ladder.py` and
+  `uvx --from 'coverage>=7.10' coverage run --branch
+  --include='*/tools/check_status_ladder.py'
+  tools/test_check_status_ladder.py`, followed by coverage report, which
+  reported 100% line/branch coverage for
+  `tools/check_status_ladder.py`.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
@@ -169,6 +180,8 @@ Last live check: 2026-05-01 16:42:09 EDT.
   Build and Test run `25231763147` (#1214) for the same reason.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test run `25232091712` (#1215) for the same reason.
+- Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
+  Build and Test run `25232344234` (#1216) for the same reason.
 - Merged #1210 as `e858f561c89e69b7ccb82b8d607b420775f9a0b9` after
   required wrappers and Codecov patch were green.
 - Merged #1211 as `827227339a0609358ba0371a86417a868ee9879e` after
@@ -965,7 +978,7 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `local/phase3-docs-generate-coverage-643` | `9b0a323c` | #643 tooling tranche for `tools/docs_generate.py` paths | `tools/scripts/test_docs_generate.py` | Refreshed against current `origin/main` at `2c5135b0`; `python3 -m unittest tools.scripts.test_docs_generate` reports 13 tests; `python3 tools/docs_generate.py check` reports `docs-generate: OK`; `uv run --with 'coverage>=7.10' python tools/scripts/run_python_coverage.py --pattern tools/scripts/test_docs_generate.py` passed and reported 97% for `tools/docs_generate.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-list-limitations-coverage-643` | `94ad054c` | #643 tooling tranche for `tools/list_limitations.py` paths plus shared coverage-runner behavior needed by this tranche | `tools/test_list_limitations.py`, `tools/scripts/run_python_coverage.py` | Refreshed against current `origin/main`; `python3 -m unittest tools/test_list_limitations.py` reports 8 tests; `python3 -m unittest tools/scripts/test_run_python_coverage.py` reports 23 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/test_list_limitations.py` passed and reported 98% for `tools/list_limitations.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; final status clean. System `python3` lacked coverage, so the worker created `build-coverage/python-venv` with `coverage>=7.10` and `PyYAML`. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-check-docs-status-extra-643` | `9287808c` | #643 tooling tranche for `tools/check_format_validation.py` paths | `tools/test_check_format_validation.py`, `tools/scripts/run_python_coverage.py`, `tools/scripts/test_run_python_coverage.py` | Rebased onto current `origin/main`; `python3 -m unittest tools.test_check_docs_consistency tools.scripts.test_check_docs_consistency` reports 18 tests; `python3 -m unittest tools.test_check_format_validation` reports 8 tests; `python3 -m unittest tools.scripts.test_run_python_coverage` reports 23 tests; `python3 -m unittest tools.test_check_format_validation tools.test_check_status_ladder tools.scripts.test_run_python_coverage` reports 40 tests; `uv run --with 'coverage>=7.10' python tools/scripts/run_python_coverage.py --pattern tools/test_check_format_validation.py` passed and reported 98% for `tools/check_format_validation.py`; `git diff --check` clean. This supersedes older duplicate branch `local/phase3-check-format-validation-coverage-643` at `389c6963`. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
-| `local/phase3-check-status-ladder-extra-643` | `c94b8e65` | #643 tooling tranche for `tools/check_status_ladder.py` paths | `tools/test_check_status_ladder.py` | Rebased onto current `origin/main`; `python3 tools/test_check_status_ladder.py` reports 13 tests; `uvx --from 'coverage>=7.10' coverage run --branch --include='*/tools/check_status_ladder.py' tools/test_check_status_ladder.py` passed; `uvx --from 'coverage>=7.10' coverage report -m tools/check_status_ladder.py` reported 100% line/branch coverage for `tools/check_status_ladder.py`; `git diff --check HEAD` clean. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
+| `feature/phase3-check-status-ladder-extra-643` | `67038aa9` | #643 tooling tranche for `tools/check_status_ladder.py` paths | `tools/test_check_status_ladder.py` | Rebased onto current `origin/main`; `python3 tools/test_check_status_ladder.py` reports 13 tests; `uvx --from 'coverage>=7.10' coverage run --branch --include='*/tools/check_status_ladder.py' tools/test_check_status_ladder.py` passed; `uvx --from 'coverage>=7.10' coverage report -m tools/check_status_ladder.py` reported 100% line/branch coverage for `tools/check_status_ladder.py`; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1216, then exited with no local targets remaining as expected for the Namespace-only route. Duplicate workflow-dispatch build `25232344234` has a cancellation request pending. | Queued: monitor #1216 and merge once required gates are green. |
 | `feature/bench-diff-coverage-643` | `6a190c5b` | #643 tooling tranche for `tools/scripts/bench_diff.py` paths | `tools/scripts/test_bench_diff.py` | Refreshed against current `origin/main` at `daa0aa70`; `python3 tools/scripts/test_bench_diff.py` reports 8 tests; temp-venv focused coverage passed and reported 98% for `tools/scripts/bench_diff.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`; `git diff --check`; final status clean and ahead 1. System `python3` lacked coverage, so the focused run used a temporary venv outside the repo and removed it afterward. `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1205, then exited with no local targets remaining as expected for the Namespace-only route. Explicit Namespace run dispatched as `25222999092`; #1205 is labeled `codecov` and linked from #641/#643. | Queued: monitor #1205 and merge once required gates are green. |
 | `feature/check-docs-consistency-coverage-643` | `01c963a` | #643 tooling tranche for `tools/check-docs-consistency.py` paths | `tools/scripts/test_check_docs_consistency.py` | Rebased onto current `origin/main` at `2c5135b0`; `python3 -m unittest tools.scripts.test_check_docs_consistency` reports 9 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_check_docs_consistency.py` passed and reported 98% for `tools/check-docs-consistency.py`; `python3 tools/check-docs-consistency.py` passed; skill-sync report; version-bump report; compat-sync report; `git diff --check origin/main...HEAD`; final status clean. `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1206, then exited with no local targets remaining as expected for the Namespace-only route. Explicit Namespace run dispatched as `25223345260`; #1206 is labeled `codecov` and linked from #641/#643. | Queued: monitor #1206 and merge once required gates are green. |
 | `local/phase3-mkdocs-hooks-coverage-643` | `caf52bf1` | #643 tooling tranche for `tools/mkdocs_hooks.py` paths | `tools/scripts/test_mkdocs_hooks.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_mkdocs_hooks.py` reports 6 tests; `python3 -m unittest tools.scripts.test_mkdocs_hooks` reports 6 tests; temp-venv focused coverage over `tools/scripts/test_mkdocs_hooks.py` passed and reported 96% for `tools/mkdocs_hooks.py`; skill-sync report; version-bump report; compat-sync report; `git diff --check origin/main...HEAD`; final tracked status clean. Ignored generated coverage/cache artifacts are present under `build-coverage/` and `__pycache__/`. | Hold local-only while Namespace pressure is high; when capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
