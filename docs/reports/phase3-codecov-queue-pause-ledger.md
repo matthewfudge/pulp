@@ -159,6 +159,17 @@ and 13 in progress, so hold further refill until this batch drains.
 | #1066 | `feature/signal-filter-meter-coverage-645` | `cd2aafe8be87` | `25207652324` | `25207652319` | `25207652379` | `25207652327` | queued/in progress |
 | #1075 | `feature/cli-host-coverage-643` | `e3e7b0c6bedc` | `25207653425` | `25207653428` | `25207653415` | `25207653416` | queued/in progress |
 
+### 2026-05-01 Batch 7: One-PR Refill
+
+After stale duplicate workflow-dispatch and already-merged PR runs were
+cancelled, only current PR-event work plus main advisory push workflows
+remained in the queue. A single stale PR was refreshed to avoid flooding
+Namespace while #1190, #1191, and #1188 continue draining.
+
+| PR | Branch | Refreshed Head | Build Run | Coverage Run | Sanitizer Run | IWYU Run | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| #1128 | `feature/audio-workgroup-coverage-640-next` | `494233c87fe0` | `25212496127` | `25212496120` | `25212496122` | `25212496131` | queued/in progress |
+
 ## Merge Waves While Queue Is In Flight
 
 These PRs were already green/mergeable when the paused queue was
