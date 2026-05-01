@@ -26,19 +26,16 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 15:14:35 EDT.
+Last live check: 2026-05-01 15:39:56 EDT.
 
-- Open `codecov` PRs: 2.
+- Open `codecov` PRs: 1.
 - Merge state: #1207 remains open and blocked on `Windows MSVC
-  release-path gate`, with no current failure candidate. #1209 was opened
-  as the next small refill tranche and is running fresh validation.
-- GitHub Actions pressure: 5 active runs, with 0 queued and 5 in
-  progress. This still includes duplicate `workflow_dispatch` Build and
-  Test run `25228924648` for #1209 while GitHub processes the cancellation
-  request.
+  release-path gate`, with no current failure candidate. #1209 merged.
+- GitHub Actions pressure: 2 active runs, with 1 queued and 1 in
+  progress.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
-  upload is run `25228714974` for `4d45182c7800` (#1208), currently
+  upload is run `25229919355` for `87e3966a4664` (#1209), currently
   queued; after it completes and Codecov ingests it, the project
   dashboard should reflect merged PRs through that main commit.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
@@ -93,6 +90,8 @@ Last live check: 2026-05-01 15:14:35 EDT.
   Coverage workflows are running. Local validation was rerun with
   `python3 tools/scripts/test_mkdocs_hooks.py` and reported 6 passing
   tests; prepared coverage validation reported 96% target coverage.
+  Merged as `87e3966a46641c97a41dc6a256fd9b2bd288fcbb` after required
+  gates were green; no leftover branch runs were active after merge.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
