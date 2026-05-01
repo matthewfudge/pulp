@@ -26,21 +26,21 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 16:01:38 EDT.
+Last live check: 2026-05-01 16:10:44 EDT.
 
 - Open `codecov` PRs: 3.
 - Merge state: #1207 remains open and blocked on `Windows MSVC
-  release-path gate`, with no current failure candidate. #1210 and #1211
-  are running fresh validation.
-- GitHub Actions pressure: 6 active runs, with 2 queued and 4 in
-  progress. This still includes duplicate `workflow_dispatch` Build and
-  Test run `25230693088` for #1211 while GitHub processes the cancellation
-  request.
+  release-path gate`, with no current failure candidate. #1211 and #1212
+  are running fresh validation. #1210 merged cleanly.
+- GitHub Actions pressure: 8 active runs, with 2 queued and 6 in
+  progress. This includes main-branch post-merge coverage work after
+  #1210 plus the remaining PR-event Build/Coverage runs; the duplicate
+  `workflow_dispatch` Build and Test run for #1212 was cancelled.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
-  main-branch `Coverage` push runs. The newest surviving main coverage
-  upload is run `25229919355` for `87e3966a4664` (#1209), currently
-  queued; after it completes and Codecov ingests it, the project
-  dashboard should reflect merged PRs through that main commit.
+  main-branch `Coverage` push runs. The newest main coverage upload is
+  run `25231070245` for `e858f561c89e` (#1210), currently in progress;
+  after it completes and Codecov ingests it, the project dashboard should
+  reflect merged PRs through that main commit.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
   #1097, #1088, #1203, #1115, #1195, #1083, #1096, #1200, #1205, #1078,
   #1196, #1197, #1198, #1202, and #1201 after required
@@ -107,6 +107,15 @@ Last live check: 2026-05-01 16:01:38 EDT.
   Coverage workflows are running. Local validation was rerun with
   `python3 tools/scripts/test_embed_js.py` and reported 6 passing tests;
   prepared coverage validation reported 100% target coverage.
+- Refill: opened #1212 from `local/phase3-iwyu-annotate-extra-643`, branch
+  `feature/phase3-iwyu-annotate-extra-643`, head `e2d34d3193fa`.
+  Applied `codecov`, linked #641/#643, and PR-event Build and Coverage
+  workflows are running. Local validation was refreshed with
+  `python3 tools/scripts/test_iwyu_annotate.py`,
+  `python3 tools/scripts/test_iwyu_annotate_extra.py`, and venv-backed
+  `run_python_coverage.py --pattern tools/scripts/test_iwyu_annotate.py
+  --pattern tools/scripts/test_iwyu_annotate_extra.py`, which reported
+  100% target coverage for `tools/scripts/iwyu_annotate.py`.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
@@ -117,6 +126,16 @@ Last live check: 2026-05-01 16:01:38 EDT.
   Build and Test run `25230061797` (#1210) for the same reason.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test run `25230693088` (#1211) for the same reason.
+- Queue cleanup: requested and confirmed cancellation of duplicate
+  `workflow_dispatch` Build and Test run `25231034599` (#1212) for the
+  same reason.
+- Merged #1210 as `e858f561c89e69b7ccb82b8d607b420775f9a0b9` after
+  required wrappers and Codecov patch were green.
+- Local-only progress: `pulp-auto-release-decision-extra-643` prepared an
+  alternate #643 `tools/scripts/auto_release_decision.py` tranche at
+  `334c2ccf`. It reports 24 passing tests and 100% target coverage, but
+  overlaps the existing `local/phase3-auto-release-extra-643` row; do not
+  queue both without consolidating or deliberately choosing one.
 - Merged #1078 as `81be4ee00e02e367feec32c3c6885d0785179efa`,
   #1196 as `dfae8e9f4a3b7b019b091dd8786f354612e8e4ae`, #1197 as
   `f1d06c6210c1ee81686b72d449ab3f40308e6e3e`, #1198 as
@@ -910,7 +929,7 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `local/phase3-version-bump-extra-643` | `de289cb1` | #643 tooling tranche for `tools/scripts/version_bump_check.py` paths | `tools/scripts/test_version_bump_check_extra.py` | Refreshed against current `origin/main`; `python3 -m unittest tools.scripts.test_version_bump_check_extra` reports 19 tests; temp-venv branch coverage over the same tests passed and reported 89% for `tools/scripts/version_bump_check.py` and 92% total; skill-sync report; version-bump report; `git diff --check`; final status clean. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-auto-release-extra-643` | `26076d92` | #643 tooling tranche for `tools/scripts/auto_release_decision.py` CLI and parser edges | `tools/scripts/test_auto_release_decision_extra.py` | Refreshed against current `origin/main`; temp-venv `python tools/scripts/test_auto_release_decision.py` reports 19 tests; temp-venv `python tools/scripts/test_auto_release_decision_extra.py` reports 6 tests; temp-venv focused `run_python_coverage.py --pattern tools/scripts/test_auto_release_decision.py --pattern tools/scripts/test_auto_release_decision_extra.py` passed and reported 100% for `tools/scripts/auto_release_decision.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-iwyu-annotate-extra-643` | `e49d948a` | #643 tooling tranche for `tools/scripts/iwyu_annotate.py` edges | `tools/scripts/test_iwyu_annotate_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_iwyu_annotate.py` reports 16 tests; `python3 tools/scripts/test_iwyu_annotate_extra.py` reports 8 tests; temp-venv coverage over both test files passed and reported 99% for `tools/scripts/iwyu_annotate.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
-| `local/phase3-coverage-diff-comment-extra-643` | `178046cc` | #643 tooling tranche for `tools/scripts/coverage_diff_comment.py` CLI and report-rendering edges | `tools/scripts/test_coverage_diff_comment_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_coverage_diff_comment.py` reports 11 tests; `python3 tools/scripts/test_coverage_diff_comment_extra.py` reports 2 tests; temp-venv coverage over both test files passed and reported 98% for `tools/scripts/coverage_diff_comment.py`; skill-sync report; version-bump report; `git diff --check origin/main...HEAD`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
+| `local/phase3-coverage-diff-comment-extra-643` | `659d3c75` | #643 tooling tranche for `tools/scripts/coverage_diff_comment.py` CLI and report-rendering edges | `tools/scripts/test_coverage_diff_comment_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_coverage_diff_comment.py` reports 11 tests; `python3 tools/scripts/test_coverage_diff_comment_extra.py` reports 5 tests; `python3 -m unittest discover -s tools/scripts -p 'test_coverage_diff_comment*.py'` reports 16 tests; temp-venv coverage over both test files passed and reported 100% line/branch coverage for `tools/scripts/coverage_diff_comment.py`; `git diff --check` clean. System `python3` lacked coverage, so the worker used `uvx --from 'coverage>=7.10' coverage` for the focused coverage run. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-cmajor-external-extra-643` | `14dda8af` | #643 tooling tranche for `tools/scripts/cmajor_external.py` edges | `tools/scripts/test_cmajor_external_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_cmajor_external.py` reports 4 tests; `python3 tools/scripts/test_cmajor_external_extra.py` reports 9 tests; temp-venv focused `run_python_coverage.py --pattern tools/scripts/test_cmajor_external.py --pattern tools/scripts/test_cmajor_external_extra.py` passed and reported 100% for `tools/scripts/cmajor_external.py`; skill-sync report; version-bump report; `git diff --check`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-jsfx-subset-extra-643` | `e56a0490` | #643 tooling tranche for `tools/scripts/jsfx_subset.py` parser and human-output edges | `tools/scripts/test_jsfx_subset_extra.py` | Refreshed against current `origin/main`; temp-venv `python -m unittest tools.scripts.test_jsfx_subset tools.scripts.test_jsfx_subset_extra` reports 10 tests; temp-venv coverage over the same tests passed and reported 68% for `tools/scripts/jsfx_subset.py`; skill-sync report; version-bump report; `git diff --check`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed it afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-package-cli-extra-643` | `92f12b73` | #643 tooling tranche for `tools/scripts/package_cli.py` cache, rpath, and macOS packaging edges | `tools/scripts/test_package_cli_extra.py` | Refreshed against current `origin/main`; `python3 tools/scripts/test_package_cli.py` reports 10 tests; `python3 tools/scripts/test_package_cli_extra.py` reports 5 tests; temp-venv focused `run_python_coverage.py --pattern tools/scripts/test_package_cli.py --pattern tools/scripts/test_package_cli_extra.py` passed and reported 98% for `tools/scripts/package_cli.py`; skill-sync report; version-bump report; `git diff --check`. System `python3` lacked coverage, so the worker used a temporary venv outside the repo and removed generated coverage output afterward. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
