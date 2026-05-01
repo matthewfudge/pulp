@@ -1,15 +1,16 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-04-30 EDT
+Last updated: 2026-05-01 EDT
 
-This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work. Branches, PRs, commits, labels, and tracker comments stay intact; only queued GitHub Actions validation attempts are cancellable and replaceable.
+This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
-## Pause Policy
+## Queue Policy
 
-- Do not dispatch new Codecov Namespace runs while this pause is active.
-- Continue local-only tranche preparation, review, and failure triage.
+- Reopen Codecov validation in small batches; do not dump the full paused queue back into Namespace at once.
+- While a batch is in flight, continue local-only tranche preparation, review, and failure triage.
 - Merge `UNSTABLE` PRs only when GitHub branch protection shows all required checks are green and the PR can merge normally.
-- Resume Codecov in small batches by branch and pinned head SHA using `shipyard cloud run build <branch> --require-sha <sha>` or the workflow-specific equivalent.
+- Dispatch by branch and pinned head SHA using `shipyard cloud run build <branch> --provider namespace --require-sha <sha> --no-wait` or the workflow-specific equivalent.
+- If one lane is slow or stuck, prefer `shipyard cloud retarget`/`shipyard cloud add-lane` so existing useful runs are preserved instead of cancelled wholesale.
 
 ## Snapshot Summary
 
@@ -29,6 +30,26 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 - Expected side effect: cancelled validation attempts may leave PRs
   `BLOCKED` or `UNSTABLE` until the queue is reopened and fresh
   validation runs are dispatched.
+
+## Resume Batches
+
+### 2026-05-01 Batch 1: Build Gate Refill
+
+Namespace capacity check showed no queued or in-progress GitHub workflow
+runs for `danielraffel/pulp`, so the first refill batch replaced only the
+cancelled `Build and Test` gates for recent Codecov PRs. Existing passing
+Codecov/version/docs/license results were left intact.
+
+| PR | Branch | Head | Workflow | New Run | Status at Dispatch |
+| --- | --- | --- | --- | --- | --- |
+| #1140 | `feature/status-ladder-coverage-643` | `bf87273e0534` | Build and Test | `25202620106` | in progress |
+| #1141 | `feature/ship-appcast-coverage-644-next` | `2d2c119b4c8d` | Build and Test | `25202620128` | in progress |
+| #1142 | `codex/package-tools-coverage-643` | `cb6fb9c4e9c3` | Build and Test | `25202620088` | in progress |
+| #1143 | `feature/render-compute-coverage-646` | `2b2ccde36e63` | Build and Test | `25202620280` | in progress |
+
+Next refill rule: when this batch drops below four active Codecov build
+runs, dispatch the next merge-ready paused PRs by pinned SHA and update
+this table before adding more local-only tranche PRs.
 
 ## Local-Only Work Prepared During Pause
 
