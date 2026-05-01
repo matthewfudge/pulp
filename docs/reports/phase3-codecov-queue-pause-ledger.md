@@ -26,13 +26,13 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 14:19:34 EDT.
+Last live check: 2026-05-01 14:25:07 EDT.
 
-- Open `codecov` PRs: 1.
-- Merge state: #1206 is the only remaining open Codecov PR from the
-  current batch and is blocked on `macOS (ARM64) [namespace]`, with no
-  current failure candidate.
-- GitHub Actions pressure: 5 active runs, with 2 queued and 3 in
+- Open `codecov` PRs: 2.
+- Merge state: #1206 remains blocked on `macOS (ARM64) [namespace]`.
+  #1207 was opened as the next small refill tranche and is queued/running
+  fresh validation. Neither has a current failure candidate.
+- GitHub Actions pressure: 7 active runs, with 4 queued and 3 in
   progress.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
@@ -70,6 +70,12 @@ Last live check: 2026-05-01 14:19:34 EDT.
   branch `feature/check-docs-consistency-coverage-643`, head
   `01c963a046a1`. Applied `codecov`, linked #641/#643, and dispatched
   Namespace run `25223345260`.
+- Refill: opened #1207 from `local/phase3-encode-binary-data-coverage-643`,
+  branch `feature/encode-binary-data-coverage-643`, head
+  `f151cf6b6c7b`. Applied `codecov`, linked #641/#643, and dispatched
+  Namespace run `25227006300`. Local validation:
+  `python3 tools/scripts/test_encode_binary_data.py` reported 6 passing
+  tests.
 - Merged #1078 as `81be4ee00e02e367feec32c3c6885d0785179efa`,
   #1196 as `dfae8e9f4a3b7b019b091dd8786f354612e8e4ae`, #1197 as
   `f1d06c6210c1ee81686b72d449ab3f40308e6e3e`, #1198 as
