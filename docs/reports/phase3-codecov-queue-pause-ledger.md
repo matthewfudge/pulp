@@ -26,12 +26,12 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 12:28:05 EDT.
+Last live check: 2026-05-01 12:36:20 EDT.
 
 - Open `codecov` PRs: 10.
 - Merge state: remaining open Codecov PRs are currently blocked on
   active/queued lanes, with no current failure candidate.
-- GitHub Actions pressure: 33 active runs, with 24 queued and 8 in
+- GitHub Actions pressure: 26 active runs, with 21 queued and 5 in
   progress.
 - Just merged: #1117, #1204, #1199, #1194, #1125, #1116, #1113, #1104,
   #1097, #1088, #1203, and #1115 after required `linux`/`macos`/`windows`
@@ -48,6 +48,10 @@ Last live check: 2026-05-01 12:28:05 EDT.
   GitHub 404. A fallback `workflow_dispatch` did not replace the stale
   queued PR-event check in the PR rollup for #1078. Filed Shipyard #265
   to make this recovery path explicit.
+- Queue cleanup: cancelled duplicate active/queued `workflow_dispatch`
+  build runs `25222305579`, `25216296162`, `25216004212`, and
+  `25215881987` because they do not satisfy the current PR-event branch
+  protection contexts and were consuming runner capacity.
 - Operating mode: keep polling, merge PRs as soon as required
   `linux`/`macos`/`windows` wrappers are green, cancel leftover advisory
   PR-head runs after merge, and only refill when the active queue drains
