@@ -42,10 +42,12 @@ Last live check: 2026-05-01 12:23:15 EDT.
   PR-event checks are running. The stale queued coverage run for the old
   head was cancelled.
 - Retarget investigation: `shipyard cloud retarget` can plan a
-  Namespace/GitHub-hosted lane move, but `--apply` needs `actions:write`
-  to cancel the old job. A fallback `workflow_dispatch` did not replace
-  the stale queued PR-event check in the PR rollup for #1078. Filed
-  Shipyard #265 to make this recovery path explicit.
+  Namespace/GitHub-hosted lane move, but `--apply` failed while trying
+  to cancel the old job. `gh` already has `workflow` scope and Shipyard
+  doctor reports cloud auth ready; the job-level cancel endpoint returned
+  GitHub 404. A fallback `workflow_dispatch` did not replace the stale
+  queued PR-event check in the PR rollup for #1078. Filed Shipyard #265
+  to make this recovery path explicit.
 - Operating mode: keep polling, merge PRs as soon as required
   `linux`/`macos`/`windows` wrappers are green, cancel leftover advisory
   PR-head runs after merge, and only refill when the active queue drains
@@ -300,7 +302,7 @@ coverage merges and is held for a branch refresh.
 | #1137 | `feature/audio-platform-helper-coverage-640-next` | `e4ea28dfc2e0` | Pushed a test isolation fix after macOS Namespace exposed a parallel CTest temp-dir collision in `test_cli_projects_registry.cpp`. Focused local `pulp-test-cli-projects-registry "add_project falls back to directory basename when no name hint"` passed; skill-sync/version-bump reports and `git diff --check` passed. Merged as `ea731cbf365c` after required wrappers, Codecov patch, and diff coverage passed; advisory macOS sanitizer lanes were still pending. |
 | #1079 | `feature/volume-detector-coverage-642` | `5efc687e53a0` | Conflict resolved after #1045 landed overlapping service-discovery coverage. Kept the non-duplicated lifecycle coverage from #1079, dropped the now-duplicated backend registration failure test, validated `pulp-test-network-service-discovery`, focused `[issue-642]`, broad `NSD|MountedVolumeListChangeDetector|LockingAsyncUpdater` CTest, skill-sync report, version-bump report, and `git diff --check`, then force-with-lease pushed. Merged as `da004f90e21c` after required wrappers, Namespace platform checks, Codecov patch, diff coverage, and coverage lanes were green. |
 | #1202 | `feature/system-volume-coverage-640` | `b9e086fa7dfb` | Linux Namespace exposed that the fake `amixer` PATH hid normal shell tools used by the production pipeline. Patched the test to prepend the fake bin directory, not replace `PATH`; local `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`, `cmake --build build --target pulp-test-system-volume -j4`, direct test binary, focused CTest, skill-sync report, version-bump report, and `git diff --check` passed. Pushed to existing PR; fresh PR-event checks are running. |
-| Shipyard #265 | `shipyard cloud retarget` | n/a | Filed `cloud retarget: support useful fallback when job cancellation is denied` after #1078 showed that retarget could identify the queued macOS lane, but apply failed without `actions:write`; a plain GitHub-hosted `workflow_dispatch` started a new run but did not replace the stale queued PR-event check in the PR rollup. |
+| Shipyard #265 | `shipyard cloud retarget` | n/a | Filed `cloud retarget: support useful fallback when job cancellation is denied` after #1078 showed that retarget could identify the queued macOS lane, but apply failed while calling the job-level cancel endpoint. Follow-up evidence showed `gh` already has `workflow` scope and the endpoint returns GitHub 404, so the issue is likely unsupported job-level cancellation rather than only token scope. A plain GitHub-hosted `workflow_dispatch` started a new run but did not replace the stale queued PR-event check in the PR rollup. |
 
 ### Live Queue Audit 2026-05-01 02:12 EDT
 
