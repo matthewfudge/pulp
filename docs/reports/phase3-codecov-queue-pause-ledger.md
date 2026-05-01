@@ -26,9 +26,9 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 18:09:02 EDT.
+Last live check: 2026-05-01 18:11:35 EDT.
 
-- Open `codecov` PRs: 0.
+- Open `codecov` PRs: 1.
 - Merge state: #1211 merged cleanly as `827227339a0609358ba0371a86417a868ee9879e`.
   #1207 also merged cleanly as `9da7b03a522a2c08042bbfe6f3149612ed02bb82`
   after the long Windows release-path gate completed. #1212 merged
@@ -42,9 +42,11 @@ Last live check: 2026-05-01 18:09:02 EDT.
   cleanly as `00b0871a6dea89fecb14d4aca8502e5c52507416`. #1218 merged
   cleanly as `a147af718361001323755ac01da395d271fe4ee2`. #1219 merged
   cleanly as `4e93da00dddab17b75531d2fcda1b0511e3a4e9c`. #1220 merged
-  cleanly as `3d2ebe6e6af57f10a29c2e17439e926221af8521`.
-- GitHub Actions pressure: no open `codecov` PRs. Main post-merge push and
-  workflow-run jobs are active after #1218/#1219/#1220 merged.
+  cleanly as `3d2ebe6e6af57f10a29c2e17439e926221af8521`. #1221 is open
+  from `feature/phase3-deps-audit-extra-643` at `eb0db9ab7922`.
+- GitHub Actions pressure: #1221 has PR-event Build/Coverage checks active
+  on Namespace-backed lanes and no failed checks. Main post-merge push and
+  workflow-run jobs are also active after #1218/#1219/#1220 merged.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The main coverage run for #1213
   completed successfully at `ea03a328ef33`; #1214's merge should start
@@ -223,6 +225,17 @@ Last live check: 2026-05-01 18:09:02 EDT.
   Focused coverage reported 100% for
   `tools/scripts/version_bump_check.py`. #1220 merged as
   `3d2ebe6e6af57f10a29c2e17439e926221af8521`.
+- Refill: opened #1221 from
+  `local/phase3-deps-audit-extra-643`, branch
+  `feature/phase3-deps-audit-extra-643`, head `eb0db9ab7922`.
+  Applied `codecov`, linked #641/#643, and PR-event Build and Coverage
+  workflows are queued/running. Local validation after rebasing onto
+  `origin/main` at `3d2ebe6e6af5` included `python3
+  tools/deps/test_audit.py`, `python3 tools/deps/test_audit_extra.py`,
+  `python3 tools/deps/audit.py --strict`, venv-backed
+  `run_python_coverage.py --pattern tools/deps/test_audit.py --pattern
+  tools/deps/test_audit_extra.py`, and `git diff --check`. Focused
+  coverage reported 100% for `tools/deps/audit.py`.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
@@ -1103,7 +1116,7 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `feature/phase3-run-python-coverage-extra-643` | `a113961a` | #643 tooling tranche for `tools/scripts/run_python_coverage.py` edges plus script entrypoint | `tools/scripts/test_run_python_coverage_extra.py` | Rebased against current `origin/main`; `python3 tools/scripts/test_run_python_coverage.py` reports 23 tests; `python3 tools/scripts/test_run_python_coverage_extra.py` reports 8 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_run_python_coverage.py --pattern tools/scripts/test_run_python_coverage_extra.py` passed and reported 100% for `tools/scripts/run_python_coverage.py`; `git diff --check origin/main...HEAD` passed; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1219, then exited with no local targets remaining as expected for the Namespace-only route; #1219 is labeled `codecov` and linked from #641/#643. #1219 merged as `4e93da00dddab17b75531d2fcda1b0511e3a4e9c` after required gates were green. | Merged. |
 | `local/phase3-cli-sync-check-extra-643` | `f9d365b2` | #643 tooling tranche for `tools/scripts/cli_sync_check.py` one-sided mismatch and entrypoint edges | `tools/scripts/test_cli_sync_check_extra.py` | Refreshed locally; `python3 -m unittest tools.scripts.test_cli_sync_check tools.scripts.test_cli_sync_check_extra` reports 16 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/scripts/test_cli_sync_check.py --pattern tools/scripts/test_cli_sync_check_extra.py` passed and reported 100% for `tools/scripts/cli_sync_check.py` with 130 statements, 0 misses, 72 branches, and 0 partials; `git diff --check` passed; final tracked status clean. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`; use PR-event Namespace checks unless a targeted diagnostic dispatch is needed. |
 | `local/phase3-local-ci-extra-643` | `ab30a9b0` | #643 tooling tranche for `tools/local-ci/local_ci.py` helper edges | `tools/local-ci/test_local_ci.py`, `tools/local-ci/test_local_ci_extra.py` | Rebased onto current `origin/main`; `python3 -m unittest discover -s tools/local-ci -p 'test_local_ci_extra.py'` reports 18 tests; `python3 -m unittest discover -s tools/local-ci -p 'test_local_ci*.py'` reports 231 tests; focused coverage over `test_local_ci*.py` passed and reported 76% for `tools/local-ci/local_ci.py`; `git diff --check HEAD` clean. This is a small improvement on a very large file, so prefer higher-yield prepared tranches before queueing this one. | Hold local-only unless the queue needs lower-yield local-ci coverage; otherwise keep for a later tranche or split into narrower follow-ups. |
-| `local/phase3-deps-audit-extra-643` | `a7c80bf9` | #643 tooling tranche for `tools/deps/audit.py` parser and defensive branches | `tools/deps/test_audit_extra.py` | Refreshed locally; `python3 tools/deps/test_audit.py` reports 10 tests; `python3 tools/deps/test_audit_extra.py` reports 14 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/deps/test_audit.py --pattern tools/deps/test_audit_extra.py` passed and reported 100% for `tools/deps/audit.py` with 308 statements, 0 misses, and 154 branches; `python3 tools/deps/audit.py --strict` passed; `git diff --check` passed; final tracked status clean. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`; use PR-event Namespace checks unless a targeted diagnostic dispatch is needed. |
+| `feature/phase3-deps-audit-extra-643` | `eb0db9ab` | #643 tooling tranche for `tools/deps/audit.py` parser and defensive branches | `tools/deps/test_audit_extra.py` | Rebased onto current `origin/main` at `3d2ebe6e`; `python3 tools/deps/test_audit.py` reports 10 tests; `python3 tools/deps/test_audit_extra.py` reports 14 tests; venv-backed `tools/scripts/run_python_coverage.py --pattern tools/deps/test_audit.py --pattern tools/deps/test_audit_extra.py` passed and reported 100% for `tools/deps/audit.py` with 308 statements, 0 misses, and 154 branches; `python3 tools/deps/audit.py --strict` passed; `git diff --check` passed; `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows` created #1221, then exited with no local targets remaining as expected for the Namespace-only route; #1221 is labeled `codecov` and linked from #641/#643. | Queued: monitor #1221 and merge once required gates are green. |
 | `local/phase3-pulp-sandbox-extra-643` | `85be094c` | Duplicate historical ledger row superseded by the refreshed row above. | `tools/sandbox-e2e/test_pulp_sandbox_unit.py` | Same refreshed local-only result as above; keep one branch, do not open duplicate PRs. | Ignore this duplicate row when reopening the queue; use the refreshed row above. |
 | `local/phase3-freshness-extra-643` | `335252df` | #643 tooling tranche for `tools/packages/freshness_check.py` edges plus shared coverage-runner behavior needed by this tranche | `tools/packages/test_freshness_check_extra.py`, `tools/scripts/run_python_coverage.py`, `tools/scripts/test_run_python_coverage.py` | Rebased onto current `origin/main`; `python3 -m unittest tools/packages/test_package_validation_tools.py tools/packages/test_freshness_check_extra.py` reports 22 tests; `python3 -m unittest tools/scripts/test_run_python_coverage.py` reports 24 tests; venv-backed `run_python_coverage.py --pattern tools/packages/test_package_validation_tools.py --pattern tools/packages/test_freshness_check_extra.py` passed and reported 100% for `tools/packages/freshness_check.py`; final status clean and ahead 1. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-pkg-freshness-extra-643` | `55bee1c5` | #643 alternate tooling tranche for `tools/packages/freshness_check.py` edges | `tools/packages/test_freshness_check_extra.py` | Superseded by `local/phase3-freshness-extra-643`; do not open separately because the alternate branch drags unrelated LV2 coverage files against current `origin/main`. | Ignore unless a future manual comparison is needed. |
