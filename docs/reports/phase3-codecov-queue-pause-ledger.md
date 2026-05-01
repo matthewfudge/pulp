@@ -617,6 +617,23 @@ left intact. Free space recovered from about `192 MiB` to about `4.7 GiB`.
   - #1113 `feature/runtime-expression-coverage-641-next` -> `93c2aea2bd75`.
 - Fresh PR rollups show all five active with no current failed checks.
 
+### Queue Refill 2026-05-01 09:10 EDT
+
+- Subagent triage confirmed #1104, #1097, #1096, #1088, #1083, and #1078 were
+  idle, behind current `main`, and blocked only by stale wrapper checks.
+  Refreshed the batch:
+  - #1104 `feature/cli-create-coverage-643` -> `d4c908848517`.
+  - #1097 `feature/view-toolbar-coverage-493` -> `4a7000d7b2f9`.
+  - #1096 `feature/render-pure-coverage-646` -> `96d7629eb340`.
+  - #1088 `feature/events-async-helper-coverage-642` -> `130557461f64`.
+  - #1083 `feature/platform-registry-coverage-640` -> `7453f8672bd4`.
+  - #1078 `feature/runtime-gzip-header-coverage-641` -> `3a93e12603f8`.
+- Fresh PR rollups show all six active with no current failed checks.
+  Repository active-run count was about `85`; stop blind refilling here and
+  switch to watch/fix/merge until capacity drains.
+- #1072 was intentionally not refreshed because it already had active queued
+  macOS checks.
+
 ## Local-Only Work Prepared During Pause
 
 These branches were prepared after the Namespace pause began. They have
