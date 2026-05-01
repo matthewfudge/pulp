@@ -174,10 +174,16 @@ Last live check: 2026-05-01 15:44:30 EDT.
   tools/scripts/test_run_swift_coverage_extra.py` reported 14 passing
   tests; direct runs of `test_run_swift_coverage.py` and
   `test_run_swift_coverage_extra.py` reported 5 and 9 passing tests.
-- Local-only progress: `pulp-android-target-coverage-643` and
-  `pulp-validate-hosts-coverage-643` are refreshed against current
-  `origin/main` and locally validated; hold for the next remote refill
-  window.
+- Local-only progress: `pulp-android-target-coverage-643` is refreshed
+  against current `origin/main` at `acf6832c9036` as a single local
+  feature commit and locally validated with 100% target coverage.
+  Validation: `python3 tools/scripts/test_android_target.py` reported 16
+  passing tests; venv-backed `run_python_coverage.py --pattern
+  tools/scripts/test_android_target.py` passed and reported 100% for
+  `tools/local-ci/android_target.py`.
+- Local-only progress: `pulp-validate-hosts-coverage-643` is refreshed
+  against current `origin/main` and locally validated; hold for the next
+  remote refill window.
 - Local-only progress: `pulp-compat-sync-extra-643` is refreshed against
   current `origin/main` at `a424f549f574` as a single local feature
   commit and locally validated. Validation:
