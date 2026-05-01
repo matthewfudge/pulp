@@ -175,6 +175,27 @@ coverage merges and is held for a branch refresh.
 | #1089 | `feature/view-file-browser-coverage-493` | `86cbe4ca12e9` | Conflict resolved and pushed. The first refreshed run failed `Enforce version & skill sync`; a metadata-only empty commit added `Version-Bump: sdk=skip reason="test-only file browser coverage; no SDK release surface change"`. Local worker validated skill-sync, version-bump with required-bump enforcement, and `git diff --check origin/main...HEAD`. Fresh PR checks are queued. |
 | #1131 | `feature/audio-window-enumerator-coverage-640-next` | `f5af90f4f5af` | Pushed coverage-harness fix for Windows `.exe` object discovery in `scripts/run_coverage.sh`; `bash -n`, `test_run_coverage.py`, skill-sync report, version-bump report, and `git diff --check` passed. Local CMake validation was not rerun after the harness patch because the laptop filesystem had only about 150-211 MiB free; the earlier excerpt binary validation was already green and the platform-sensitive coverage fix now needs CI/Namespace. |
 
+## Real Diff-Gap Patch Queue
+
+These PRs were inspected after the pause. The failures are not just stale
+branch-protection checks; the repo diff-coverage gate reported concrete
+uncovered changed lines. Assigned items have workers patching their own
+branches in separate worktrees.
+
+| PR | Branch | Gap | Current Action |
+| --- | --- | --- | --- |
+| #1123 | `feature/host-scan-cache-coverage-493-next` | `core/host/src/scan_cache.cpp` lines `184-188,195,198` | worker assigned |
+| #1120 | `feature/descriptor-validation-coverage-493-next` | `core/format/src/descriptor_validation.cpp` lines `41-43,69-72` | worker assigned |
+| #1119 | `feature/state-undo-history-coverage-641-next` | `core/state/include/pulp/state/edit_history.hpp` lines `47-49` | worker assigned |
+| #1102 | `feature/midi-running-status-coverage-645-next` | `core/midi/src/running_status.cpp` lines `92-97` | worker assigned |
+| #1086 | `feature/audio-hotplug-coverage-640` | `core/audio/include/pulp/audio/device.hpp` lines `89-94,116-121,125-126` | worker assigned |
+| #1085 | `feature/audio-load-measurer-coverage-640` | `core/audio/include/pulp/audio/load_measurer.hpp` lines `35-38,40-41,43-47,49,78-79` | assign next worker when a slot frees |
+| #1082 | `feature/render-loop-coverage-646` | `core/render/src/render_loop.cpp` and `core/render/src/render_loop_state.hpp` lifecycle/state lines | assign next worker when a slot frees |
+| #1066 | `feature/signal-filter-meter-coverage-645` | `core/signal/include/pulp/signal/multi_channel_meter.hpp` line `151` | assign next worker when a slot frees |
+| #1062 | `codex/coverage-midi-edge-644` | `core/midi/include/pulp/midi/message.hpp` factory/masking lines | assign next worker when a slot frees |
+| #1051 | `feature/signal-poly-math-coverage-645` | `core/signal/include/pulp/signal/poly_math.hpp` lines `51-55` | assign next worker when a slot frees |
+| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing | rerun after harness/queue clears or patch summary upload if repeatable |
+
 ## Local-Only Work Prepared During Pause
 
 These branches were prepared after the Namespace pause began. They have
