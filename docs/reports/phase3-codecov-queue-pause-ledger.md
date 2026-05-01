@@ -26,13 +26,16 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 15:39:56 EDT.
+Last live check: 2026-05-01 15:44:30 EDT.
 
-- Open `codecov` PRs: 1.
+- Open `codecov` PRs: 2.
 - Merge state: #1207 remains open and blocked on `Windows MSVC
-  release-path gate`, with no current failure candidate. #1209 merged.
-- GitHub Actions pressure: 2 active runs, with 1 queued and 1 in
-  progress.
+  release-path gate`, with no current failure candidate. #1210 was opened
+  as the next small refill tranche and is running fresh validation.
+- GitHub Actions pressure: 5 active runs, with 1 queued and 4 in
+  progress. This still includes duplicate `workflow_dispatch` Build and
+  Test run `25230061797` for #1210 while GitHub processes the cancellation
+  request.
 - Codecov dashboard watch: recent rapid main merges cancelled most older
   main-branch `Coverage` push runs. The newest surviving main coverage
   upload is run `25229919355` for `87e3966a4664` (#1209), currently
@@ -92,12 +95,20 @@ Last live check: 2026-05-01 15:39:56 EDT.
   tests; prepared coverage validation reported 96% target coverage.
   Merged as `87e3966a46641c97a41dc6a256fd9b2bd288fcbb` after required
   gates were green; no leftover branch runs were active after merge.
+- Refill: opened #1210 from
+  `local/phase3-coverage-tier-check-extra-643`, branch
+  `feature/phase3-coverage-tier-check-extra-643`, head `f1d96a882462`.
+  Applied `codecov`, linked #641/#643, and fresh PR-event Build and
+  Coverage workflows are running. Local validation had passed with 100%
+  target coverage before queueing.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test runs `25227025413` (#1207) and `25227667875` (#1208)
   because the PR-event Build and Test workflows are already producing the
   merge-eligible Namespace child jobs.
 - Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
   Build and Test run `25228924648` (#1209) for the same reason.
+- Queue cleanup: requested cancellation of duplicate `workflow_dispatch`
+  Build and Test run `25230061797` (#1210) for the same reason.
 - Merged #1078 as `81be4ee00e02e367feec32c3c6885d0785179efa`,
   #1196 as `dfae8e9f4a3b7b019b091dd8786f354612e8e4ae`, #1197 as
   `f1d06c6210c1ee81686b72d449ab3f40308e6e3e`, #1198 as
@@ -157,8 +168,12 @@ Last live check: 2026-05-01 15:39:56 EDT.
   tools/scripts/test_embed_js.py` passed and reported 100% for
   `core/view/js/embed_js.py`.
 - Local-only progress: `pulp-run-swift-coverage-extra-643` is refreshed
-  against current `origin/main` and locally validated; hold for the next
-  remote refill window.
+  against current `origin/main` at `22a1cabab8ab` as a single local
+  feature commit and locally validated. Validation: `python3 -m unittest
+  tools/scripts/test_run_swift_coverage.py
+  tools/scripts/test_run_swift_coverage_extra.py` reported 14 passing
+  tests; direct runs of `test_run_swift_coverage.py` and
+  `test_run_swift_coverage_extra.py` reported 5 and 9 passing tests.
 - Local-only progress: `pulp-android-target-coverage-643` and
   `pulp-validate-hosts-coverage-643` are refreshed against current
   `origin/main` and locally validated; hold for the next remote refill
