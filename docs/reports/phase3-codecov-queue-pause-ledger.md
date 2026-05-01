@@ -217,6 +217,7 @@ coverage merges and is held for a branch refresh.
 | #1137 | `ea731cbf365c` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers, Codecov patch, and diff coverage were green, only advisory macOS sanitizer lanes were still pending |
 | #1143 | `d36fddc2cd9f` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers, Codecov patch, diff coverage, and platform build/coverage lanes were green, only advisory macOS UBSan was still pending |
 | #1075 | `c34f11f7138c` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers plus Codecov patch were green. Red Windows coverage job was advisory artifact-upload plumbing: tests, Cobertura existence check, and Codecov upload succeeded |
+| #1133 | `e1a22a1ffd93` | merged from `UNSTABLE`; required `linux`, `macos`, and `windows` wrappers, Codecov patch, diff coverage, and coverage/build lanes were green, only advisory macOS ASan/UBSan jobs were still pending |
 
 ## Conflict And Failure Triage
 
@@ -399,6 +400,13 @@ coverage merges and is held for a branch refresh.
   Cobertura existence check, and Codecov upload succeeded; only the
   Cobertura artifact upload step failed.
 - Tracker comments posted to #641 and #643.
+
+### Merge Update 2026-05-01 05:33 EDT
+
+- #1133 merged as `e1a22a1ffd93` after required `linux`, `macos`, and
+  `windows` wrappers, Codecov patch, diff coverage, and coverage/build
+  lanes were green. Pending macOS ASan/UBSan jobs were advisory.
+- Tracker comments posted to #641 and #640.
 
 ## Real Diff-Gap Patch Queue
 
