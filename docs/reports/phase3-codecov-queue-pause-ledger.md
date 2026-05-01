@@ -212,7 +212,7 @@ branches in separate worktrees.
 | #1066 | `feature/signal-filter-meter-coverage-645` | `core/signal/include/pulp/signal/multi_channel_meter.hpp` line `151` | patched/pushed head `bf60924fc794`; CI queued |
 | #1062 | `codex/coverage-midi-edge-644` | `core/midi/include/pulp/midi/message.hpp` factory/masking lines | patched/pushed head `8a9bd9efc2ba`; CI queued |
 | #1051 | `feature/signal-poly-math-coverage-645` | `core/signal/include/pulp/signal/poly_math.hpp` lines `51-55` | patched/pushed head `0a202abb8816`; CI queued |
-| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing | patched/pushed head `49d950e5e470`; CI queued. Worker made coverage summary artifact uploads advisory after confirming Windows coverage, Cobertura XML, Codecov upload, and diff gate had already completed. |
+| #1075 | `feature/cli-host-coverage-643` | diff gate passed; failure was Windows coverage summary upload plumbing, then fresh skill-sync gate required a `ci` skill bypass for `.github/workflows/coverage.yml` | patched/pushed head `4469868e669b`; local skill-sync/version-bump reports and `git diff --check` passed. Fresh PR checks are queued with no current failures. |
 
 Additional local-only workers started while Namespace was saturated:
 
