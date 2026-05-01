@@ -86,6 +86,39 @@ has passing `codecov/patch` but failing `Diff coverage required`, so it
 likely needs a coverage workflow re-run or a patch rather than build-only
 refill.
 
+## Merge Waves While Queue Is In Flight
+
+These PRs were already green/mergeable when the paused queue was
+reopened, so they were squash-merged without consuming additional
+Namespace capacity. #1099 became conflicted after the preceding view
+coverage merges and is held for a branch refresh.
+
+| PR | Merge SHA | Result |
+| --- | --- | --- |
+| #1065 | `a428365ded95` | merged |
+| #1080 | `9c5a455d1cd9` | merged |
+| #1081 | `bb8e9ba00a32` | merged |
+| #1087 | `c89bd020f53c` | merged |
+| #1090 | `fd7ff5386993` | merged |
+| #1091 | `4210ff8f2c14` | merged |
+| #1092 | `72a6421776b3` | merged |
+| #1093 | `6da560926231` | merged |
+| #1094 | `4ffa26b1e3a9` | merged |
+| #1095 | `296e521c97c9` | merged |
+| #1098 | `c3aff2bf92cd` | merged |
+| #1099 | pending | merge conflict after view merges; refresh branch before retry |
+| #1100 | `bd4829234834` | merged |
+| #1101 | `e22fb97b12e9` | merged |
+| #1103 | `ac8f62ffccf2` | merged |
+| #1105 | `cc02d524888c` | merged |
+| #1106 | `3436fb6fa16b` | merged |
+| #1107 | `ba2b79f69e1b` | merged |
+| #1108 | `a7e21a107ba7` | merged |
+| #1109 | `d19d71b1d938` | merged |
+| #1110 | `02d32afb3fc1` | merged |
+| #1111 | `5841a31279e6` | merged |
+| #1112 | `fef94b10e89c` | merged |
+
 ## Local-Only Work Prepared During Pause
 
 These branches were prepared after the Namespace pause began. They have
@@ -127,6 +160,8 @@ not been pushed, PR'd, or dispatched to Namespace.
 | `local/phase3-deps-audit-extra-643` | `0b94d497` | #643 tooling tranche for `tools/deps/audit.py` edges | `tools/deps/test_audit_extra.py` | `python3 -m unittest tools.deps.test_audit_extra -v`; `python3 -m unittest tools.deps.test_audit -v`; `python3 -m unittest tools.scripts.test_run_python_coverage -v`; venv-backed `run_python_coverage.py --pattern tools/deps/test_audit.py --pattern tools/deps/test_audit_extra.py` reports 99% for target; tranche-scoped skill-sync report; tranche-scoped version-bump report; `git diff --check`; `git diff --cached --check`. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-pulp-sandbox-extra-643` | `a585b261` | #643 tooling tranche for `tools/sandbox-e2e/pulp_sandbox.py` edges | `tools/sandbox-e2e/test_pulp_sandbox_unit.py` | venv-backed `python -m pytest tools/sandbox-e2e/test_pulp_sandbox_unit.py -q` reports 10 passed; venv-backed coverage run over `tools/sandbox-e2e` reports 91% for `pulp_sandbox.py`; worktree clean. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 | `local/phase3-freshness-extra-643` | `07bbd1d` | #643 tooling tranche for `tools/packages/freshness_check.py` edges | `tools/packages/test_freshness_check_extra.py` | `python3 -m unittest tools/packages/test_package_validation_tools.py tools/packages/test_freshness_check_extra.py` reports 14 tests OK; focused branch coverage for `tools/packages/freshness_check.py` improved from 75% to 98%; `git diff --check --cached`; worktree clean after commit. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
+| `local/phase3-pkg-freshness-extra-643` | `55bee1c5` | #643 alternate tooling tranche for `tools/packages/freshness_check.py` edges | `tools/packages/test_freshness_check_extra.py` | `python3 tools/packages/test_freshness_check_extra.py`; `python3 tools/packages/test_package_validation_tools.py`; focused branch coverage for `tools/packages/freshness_check.py` reports 99%. | Compare against `local/phase3-freshness-extra-643`; choose or merge the better test set before opening one freshness PR. |
+| `local/phase3-validate-registry-extra-643` | `2915248b` | #643 tooling tranche for `tools/packages/validate_registry.py` edges | `tools/scripts/test_validate_registry_extra.py` | `python3 tools/scripts/test_validate_registry_extra.py` reports 7 tests OK; venv-backed `run_python_coverage.py --pattern tools/scripts/test_validate_registry_extra.py` exits 0; focused coverage for `tools/packages/validate_registry.py` reports 99%. | When capacity returns, rename/push as a feature branch, run `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`, then dispatch Namespace with `shipyard cloud run build <branch> --require-sha HEAD`. |
 
 ## Cancelled/Paused Runs
 
