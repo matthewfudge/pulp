@@ -604,6 +604,7 @@ TEST_CASE("MemoryMappedAudioReader leaves destinations untouched past EOF",
     REQUIRE(dest[0] == -7.0f);
     REQUIRE(dest[1] == -8.0f);
 
+    reader.close();
     std::filesystem::remove(path);
 }
 
