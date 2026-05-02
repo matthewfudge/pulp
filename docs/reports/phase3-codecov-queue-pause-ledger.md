@@ -108,7 +108,11 @@ Last live check: 2026-05-01 20:58:45 EDT.
   `local/phase3-skill-sync-extra-643`, branch
   `feature/phase3-skill-sync-extra-643`, head `eca11f92c418`.
   Applied `codecov`, linked #641/#643, and PR-event checks are
-  queued/running. Local validation after rebasing onto `origin/main` at
+  queued/running. Build and Test attempt 1 was cancelled after the Linux
+  Namespace job sat in `Test (non-Windows)` for nearly an hour with a stale
+  workflow `updatedAt`; attempt 2 is running under the same workflow run
+  `25237965433` with fresh required platform jobs. Local validation after
+  rebasing onto `origin/main` at
   `a12411e49798` included 4 base tests, 20 extra tests, 39 gate tests,
   venv-backed `run_python_coverage.py --pattern
   tools/scripts/test_skill_sync_check.py --pattern
@@ -207,8 +211,9 @@ Last live check: 2026-05-01 20:58:45 EDT.
   CTest cases, and diff checks.
 - GitHub Actions pressure: #1231, #1237, #1238, #1239, and #1240 have PR-event
   Build/Coverage checks active or queued on Namespace-backed lanes and no
-  failed checks. #1231 remains blocked on a long-running Linux Namespace
-  test step; the newer batch is draining normally.
+  failed checks, except transient cancelled attempt-1 contexts on #1231
+  while Build and Test attempt 2 replaces them. The newer batch is draining
+  normally.
 - Local-only progress: `pulp-check-docs-status-extra-643` refreshed cleanly
   at `05dadc14` with 10 format-validation tests, 23 coverage-runner
   tests, `tools/check-docs.sh`, and 100% target coverage for
