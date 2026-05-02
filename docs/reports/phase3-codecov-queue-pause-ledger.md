@@ -26,9 +26,9 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 
 ## Current Watch Point
 
-Last live check: 2026-05-01 20:58:45 EDT.
+Last live check: 2026-05-01 21:04:05 EDT.
 
-- Open `codecov` PRs: 5.
+- Open `codecov` PRs: 4.
 - Merge state: #1211 merged cleanly as `827227339a0609358ba0371a86417a868ee9879e`.
   #1207 also merged cleanly as `9da7b03a522a2c08042bbfe6f3149612ed02bb82`
   after the long Windows release-path gate completed. #1212 merged
@@ -63,6 +63,7 @@ Last live check: 2026-05-01 20:58:45 EDT.
   #1234 merged cleanly as `8a9eadc47004911a6c4a7e33b646cbd52b096935`.
   #1235 merged cleanly as `39b3b76858e486a607f047b800bcde69abc0bdb1`.
   #1236 merged cleanly as `69bbe8a467d2900cb462498bd0e4211a156d79a7`.
+  #1237 merged cleanly as `f6e092ba647553a4eb1864f42594afe8973009c3`.
 - Refill: opened #1227 from
   `local/phase3-android-target-coverage-643`, branch
   `feature/phase3-android-target-coverage-643`, head `92135ab5df18`.
@@ -179,13 +180,14 @@ Last live check: 2026-05-01 20:58:45 EDT.
 - Refill: opened #1237 from
   `local/phase3-lcov-cobertura-extra-643`, branch
   `feature/phase3-lcov-cobertura-extra-643`, head `d1d7686b99a9`.
-  Applied `codecov`, linked #641/#643, and PR-event checks are
-  queued/running. Local validation after rebasing onto `origin/main` at
+  Applied `codecov`, linked #641/#643, and PR-event checks passed.
+  Local validation after rebasing onto `origin/main` at
   `8a9eadc47004` included 8 base tests, 11 extra tests, focused
   `run_python_coverage.py --pattern tools/scripts/test_lcov_cobertura.py
   --pattern tools/scripts/test_lcov_cobertura_extra.py`, docs-sync,
   skill-sync, version-bump, CLI sync, and diff cleanliness checks;
   focused coverage reported 100% for `tools/scripts/lcov_cobertura.py`.
+  Merged cleanly as `f6e092ba647553a4eb1864f42594afe8973009c3`.
 - Refill: opened #1238 from
   `local/phase3-eq-curve-view-edges-493`, branch
   `feature/phase3-eq-curve-view-edges-493`, head `e13679518661`.
@@ -209,7 +211,7 @@ Last live check: 2026-05-01 20:58:45 EDT.
   queued/running. The branch was rebased after #1236 merged; local
   validation included `pulp-test-theme "[theme]"`, 17 matching focused
   CTest cases, and diff checks.
-- GitHub Actions pressure: #1231, #1237, #1238, #1239, and #1240 have PR-event
+- GitHub Actions pressure: #1231, #1238, #1239, and #1240 have PR-event
   Build/Coverage checks active or queued on Namespace-backed lanes and no
   failed checks, except transient cancelled attempt-1 contexts on #1231
   while Build and Test attempt 2 replaces them. The newer batch is draining
