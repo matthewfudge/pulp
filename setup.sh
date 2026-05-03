@@ -720,6 +720,29 @@ if [ "$PLATFORM" = "Linux" ]; then
     fi
 fi
 
+# ── Optional: lcov (for full LCOV_EXCL_* marker support) ──────────────────
+#
+# Issue #1058: Pulp's coverage pipeline (scripts/run_coverage.sh +
+# tools/scripts/local_diff_cover.sh) pipes the raw .lcov from
+# `llvm-cov export` through `lcov --filter region` so source-level
+# `LCOV_EXCL_START` / `LCOV_EXCL_STOP` markers actually propagate to
+# diff-cover. The pipeline still works without lcov (it falls back to
+# the unfiltered .lcov + a warning); installing lcov just unlocks the
+# per-block exclusions.
+
+step "Checking lcov (optional, for LCOV_EXCL markers)"
+
+if command -v lcov &>/dev/null; then
+    info "lcov: $(lcov --version 2>&1 | head -1)"
+else
+    warn "lcov not found — LCOV_EXCL_START/STOP markers won't be honored in coverage reports"
+    if [ "$PLATFORM" = "macOS" ]; then
+        echo "    Optional fix: brew install lcov"
+    elif [ "$PLATFORM" = "Linux" ]; then
+        echo "    Optional fix: sudo apt install lcov"
+    fi
+fi
+
 # ── Summary before build ───────────────────────────────────────────────────
 
 if [ $ERRORS -gt 0 ]; then
