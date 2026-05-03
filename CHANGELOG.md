@@ -8,6 +8,27 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0692"></a>
+## [0.69.2] - 2026-05-03
+
+- fix(view): ScrollView::hit_test honors pointer_events (Codex P1, closes #1170) ([#1289](https://github.com/danielraffel/pulp/pull/1289))
+- fix(view): parse font-family CSS lists and pick first non-empty family (pulp #1151) ([#1174](https://github.com/danielraffel/pulp/pull/1174))
+- feat(cli): versioned import-design detection (pulp #1031) ([#1047](https://github.com/danielraffel/pulp/pull/1047))
+- test(midi): cover UMP helper factories ([#1277](https://github.com/danielraffel/pulp/pull/1277))
+- test(cli): cover version diag file-reader edges ([#1281](https://github.com/danielraffel/pulp/pull/1281))
+- test(cli): cover common config edge paths ([#1268](https://github.com/danielraffel/pulp/pull/1268))
+- test(view): cover widget bridge gpu fallbacks ([#1267](https://github.com/danielraffel/pulp/pull/1267))
+- test: cover python binding edge paths ([#1264](https://github.com/danielraffel/pulp/pull/1264))
+- fix(ship): tolerate malformed appcast lengths ([#1262](https://github.com/danielraffel/pulp/pull/1262))
+- test(canvas): cover CPU fallback helpers ([#1265](https://github.com/danielraffel/pulp/pull/1265))
+- test: cover scan blacklist edge cases ([#1255](https://github.com/danielraffel/pulp/pull/1255))
+- test(cli): cover import-design tool shellout paths ([#1272](https://github.com/danielraffel/pulp/pull/1272))
+- test(format): cover remote view session edges ([#1258](https://github.com/danielraffel/pulp/pull/1258))
+- test: cover widget paint edge paths ([#1270](https://github.com/danielraffel/pulp/pull/1270))
+- test(platform): cover nested permission override clear ([#1249](https://github.com/danielraffel/pulp/pull/1249))
+- test: cover i18n parser edge cases ([#1259](https://github.com/danielraffel/pulp/pull/1259))
+- test(events): cover action broadcaster missing listener removal ([#1254](https://github.com/danielraffel/pulp/pull/1254))
+
 <a id="v0691"></a>
 ## [0.69.1] - 2026-05-02
 
@@ -155,8 +176,6 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - test(view): cover widget bridge raf cancellation ([#1065](https://github.com/danielraffel/pulp/pull/1065))
 
 <a id="v0690"></a>
-## [0.26.0]
-
 ## [0.69.0] - 2026-04-30
 
 - feat(canvas): public font-registration API for plugins (pulp #1150) ([#1175](https://github.com/danielraffel/pulp/pull/1175))
@@ -1120,6 +1139,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.69.2]: https://github.com/danielraffel/pulp/releases/tag/v0.69.2
 [0.69.1]: https://github.com/danielraffel/pulp/releases/tag/v0.69.1
 [0.69.0]: https://github.com/danielraffel/pulp/releases/tag/v0.69.0
 [0.68.1]: https://github.com/danielraffel/pulp/releases/tag/v0.68.1
