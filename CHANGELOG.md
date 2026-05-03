@@ -8,6 +8,19 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0722"></a>
+## [0.72.2] - 2026-05-03
+
+- fix(view): make overflow:visible hit_test extension symmetric on all 4 sides (pulp #1148 slice a) ([#1343](https://github.com/danielraffel/pulp/pull/1343))
+- fix(view): overlay_contains walks overflow:visible children (closes pulp #1320) ([#1328](https://github.com/danielraffel/pulp/pull/1328))
+- fix(view, mac): NSWindow resize triggers root View relayout (closes pulp #1321) ([#1327](https://github.com/danielraffel/pulp/pull/1327))
+- fix(ci): remove silent-no-op patterns from skill_path_map.json (closes #1053) ([#1325](https://github.com/danielraffel/pulp/pull/1325))
+- fix(ci): thread lcov --remove through coverage pipeline so LCOV_EXCL markers propagate (closes #1058) ([#1326](https://github.com/danielraffel/pulp/pull/1326))
+- fix(ci): make codecov component classification mutually exclusive (closes #1055) ([#1324](https://github.com/danielraffel/pulp/pull/1324))
+- fix(ci): add core/dsl/** to infrastructure tier (closes #1056) ([#1319](https://github.com/danielraffel/pulp/pull/1319))
+- fix(ci): per-surface Version-Bump: skip requires non-empty reason (closes #1054) ([#1318](https://github.com/danielraffel/pulp/pull/1318))
+- fix(ci): flip pre-push gates from advisory to enforcing by default (closes #1144) ([#1317](https://github.com/danielraffel/pulp/pull/1317))
+
 <a id="v0721"></a>
 ## [0.72.1] - 2026-05-03
 
@@ -1164,6 +1177,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.72.2]: https://github.com/danielraffel/pulp/releases/tag/v0.72.2
 [0.72.1]: https://github.com/danielraffel/pulp/releases/tag/v0.72.1
 [0.72.0]: https://github.com/danielraffel/pulp/releases/tag/v0.72.0
 [0.71.0]: https://github.com/danielraffel/pulp/releases/tag/v0.71.0
