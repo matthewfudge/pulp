@@ -20,7 +20,21 @@
       "core/view/include/pulp/view/view.hpp",
       "core/view/include/pulp/view/geometry.hpp"
     ],
-    "_notes_on_consumer_surfaces": "The same prop can have different status across consumer surfaces. 'css/*' tracks what core/view/js/web-compat-style-decl.js (the DOM-lite el.style adapter) routes; 'rn/*' tracks what packages/pulp-react/src/prop-applier.ts (the React renderer for @pulp/react JSX intrinsics) routes; 'yoga/*' tracks the underlying Yoga-shaped layout surface in core/view/include/pulp/view/geometry.hpp::FlexStyle. Where a prop is supported by one consumer but not another, both are noted explicitly in 'notes'."
+    "_notes_on_consumer_surfaces": "The same prop can have different status across consumer surfaces. 'css/*' tracks what core/view/js/web-compat-style-decl.js (the DOM-lite el.style adapter) routes; 'rn/*' tracks what packages/pulp-react/src/prop-applier.ts (the React renderer for @pulp/react JSX intrinsics) routes; 'yoga/*' tracks the underlying Yoga-shaped layout surface in core/view/include/pulp/view/geometry.hpp::FlexStyle. Where a prop is supported by one consumer but not another, both are noted explicitly in 'notes'.",
+    "last-triage": "2026-05-03",
+    "triage-branch": "audit/compat-triage-2026-05-03",
+    "batch-labels": {
+      "batch:logical-properties": "CSS / RN / Yoga RTL-adjacent shorthands (margin*Inline*, padding*Block*, start/end, direction)",
+      "batch:typography": "Label widget plumbing \u2014 text-shadow, text-decoration[Line/Style/Color], word-break, line-clamp, fontVariant",
+      "batch:transforms": "setTransform extension \u2014 rotateX/Y/Z, scale[XY], skew[XY], perspective, transformOrigin",
+      "batch:effects": "Skia paint primitives \u2014 outline, mixBlendMode, filter, mask, clipPath, background-image url(), shadow*",
+      "batch:layout": "Yoga-side or shorthand \u2014 alignContent, aspectRatio (real), grid-{areas,auto-*}, flex shorthand, border-* flat props",
+      "batch:animation": "CSS transition + animation engine \u2014 currently stubs",
+      "batch:interaction": "Already-bridge-registered but not wired through prop-applier \u2014 cursor, pointer-events, user-select, touch-action",
+      "batch:lists": "List intrinsic emulation \u2014 list-style*, marker rendering",
+      "batch:scroll-augmentation": "Augment ScrollView intrinsic \u2014 scroll-behavior, scroll-snap, scroll-margin/padding, overscroll-behavior",
+      "meta:pseudo-classes": "Pseudo-class selector model (:hover, :focus, :active) \u2014 orthogonal to property triage"
+    }
   },
   "css": {
     "css/display": {
@@ -44,7 +58,8 @@
       ],
       "tests": [],
       "notes": "Yoga's underlying view model is exclusively flex. 'block' is silently aliased to 'flex'. RN's display enum is {none, flex, contents} which matches us better than CSS. The Display enum on the C++ View has no direct field -- visibility is implemented via View::set_visible. There is no 'partial' display rendering -- non-flex values render as flex with default direction.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/position": {
       "status": "supported",
@@ -253,7 +268,8 @@
       ],
       "tests": [],
       "notes": "MAJOR GAP -- the parser exists but the layout backend doesn't honor it. The setFlex switch in widget_bridge.cpp:1624-1685 has no 'aspect_ratio' branch.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/boxSizing": {
       "status": "missing",
@@ -265,7 +281,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op. typeof guard in JS prevents a runtime error but the value is never honored. Yoga's box model is content-box-equivalent.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/margin": {
       "status": "supported",
@@ -369,7 +386,8 @@
       ],
       "tests": [],
       "notes": "Not handled (bare break in switch).",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/marginInlineEnd": {
       "status": "missing",
@@ -380,7 +398,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/marginBlockStart": {
       "status": "missing",
@@ -391,7 +410,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/marginBlockEnd": {
       "status": "missing",
@@ -402,7 +422,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/padding": {
       "status": "supported",
@@ -500,7 +521,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/paddingInlineEnd": {
       "status": "missing",
@@ -511,7 +533,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/paddingBlockStart": {
       "status": "missing",
@@ -522,7 +545,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/paddingBlockEnd": {
       "status": "missing",
@@ -533,7 +557,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/gap": {
       "status": "supported",
@@ -604,7 +629,8 @@
       ],
       "tests": [],
       "notes": "MAJOR GAP -- Pulp's FlexDirection enum (geometry.hpp:61) only has {row, column}. Reverse modes silently fall through to default 'col'.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/flexWrap": {
       "status": "partial",
@@ -618,7 +644,8 @@
       ],
       "tests": [],
       "notes": "FlexStyle.flex_wrap is a bool -- wrap-reverse cannot be expressed.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/flexFlow": {
       "status": "partial",
@@ -633,7 +660,8 @@
       ],
       "tests": [],
       "notes": "Inherits the underlying flexDirection/flexWrap limitations.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/flexGrow": {
       "status": "supported",
@@ -670,7 +698,8 @@
       ],
       "tests": [],
       "notes": "Yoga supports 'auto' and percentages; Pulp accepts only px float.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/justifyContent": {
       "status": "supported",
@@ -709,7 +738,8 @@
       ],
       "tests": [],
       "notes": "FlexAlign enum has {start, center, end, stretch, auto_} -- no baseline support.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/alignSelf": {
       "status": "partial",
@@ -726,7 +756,8 @@
       ],
       "tests": [],
       "notes": "Same enum as align-items.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/alignContent": {
       "status": "missing",
@@ -737,7 +768,8 @@
       ],
       "tests": [],
       "notes": "MAJOR GAP -- silently dropped. Multi-line flex layouts have no cross-axis alignment control.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/order": {
       "status": "supported",
@@ -759,7 +791,8 @@
       "unsupportedValues": [],
       "tests": [],
       "notes": "Misnamed -- second token is mapped to justify_content rather than justify_items (which Yoga doesn't support).",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/placeContent": {
       "status": "partial",
@@ -770,7 +803,8 @@
       ],
       "tests": [],
       "notes": "align_content half is silently dropped (see css/alignContent).",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/overflow": {
       "status": "partial",
@@ -787,7 +821,8 @@
       ],
       "tests": [],
       "notes": "View::Overflow enum has only {visible, hidden}. Scroll requires using the ScrollView intrinsic.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/overflowX": {
       "status": "missing",
@@ -798,7 +833,8 @@
       ],
       "tests": [],
       "notes": "Per-axis overflow not honored.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/overflowY": {
       "status": "missing",
@@ -809,7 +845,8 @@
       ],
       "tests": [],
       "notes": "Per-axis overflow not honored.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/visibility": {
       "status": "partial",
@@ -823,7 +860,8 @@
       ],
       "tests": [],
       "notes": "setVisibility IS registered (widget_bridge.cpp:1814) so the primary path works.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/opacity": {
       "status": "supported",
@@ -896,7 +934,8 @@
       ],
       "tests": [],
       "notes": "Background shorthand supports only color OR a gradient.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundImage": {
       "status": "partial",
@@ -913,7 +952,8 @@
       ],
       "tests": [],
       "notes": "url() image backgrounds not implemented.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundSize": {
       "status": "missing",
@@ -928,7 +968,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op. Tied to backgroundImage url() which is also missing.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundPosition": {
       "status": "missing",
@@ -941,7 +982,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundRepeat": {
       "status": "missing",
@@ -957,7 +999,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundAttachment": {
       "status": "missing",
@@ -968,7 +1011,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundClip": {
       "status": "missing",
@@ -982,7 +1026,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/backgroundOrigin": {
       "status": "missing",
@@ -993,7 +1038,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/border": {
       "status": "partial",
@@ -1014,7 +1060,8 @@
       ],
       "tests": [],
       "notes": "Border style is parsed but discarded -- only solid is rendered.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/borderWidth": {
       "status": "supported",
@@ -1045,7 +1092,8 @@
       ],
       "tests": [],
       "notes": "Renderer always paints solid.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/borderColor": {
       "status": "supported",
@@ -1088,7 +1136,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/borderRight": {
       "status": "partial",
@@ -1101,7 +1150,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/borderBottom": {
       "status": "partial",
@@ -1114,7 +1164,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/borderLeft": {
       "status": "partial",
@@ -1127,7 +1178,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/borderTopWidth": {
       "status": "supported",
@@ -1272,7 +1324,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op. Affects accessibility focus rings.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/outlineWidth": {
       "status": "missing",
@@ -1283,7 +1336,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/outlineColor": {
       "status": "missing",
@@ -1294,7 +1348,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/outlineStyle": {
       "status": "missing",
@@ -1305,7 +1360,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/outlineOffset": {
       "status": "missing",
@@ -1316,7 +1372,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/boxShadow": {
       "status": "supported",
@@ -1340,7 +1397,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/cursor": {
       "status": "supported",
@@ -1403,7 +1461,8 @@
       ],
       "tests": [],
       "notes": "FAMOUS BUG -- web-compat-style-decl.js:465 strips quotes from a list and passes the entire 'JetBrains Mono, monospace' as one face name. Should split on comma. Tracked in #932 / #927.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/fontSize": {
       "status": "supported",
@@ -1462,7 +1521,8 @@
       ],
       "tests": [],
       "notes": "RN supports fontVariant; Pulp does not.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/letterSpacing": {
       "status": "supported",
@@ -1543,7 +1603,8 @@
       ],
       "tests": [],
       "notes": "Single-keyword only. Cannot express 'underline dashed red'.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/textDecorationLine": {
       "status": "missing",
@@ -1554,7 +1615,8 @@
       ],
       "tests": [],
       "notes": "RN distinguishes textDecoration[Line/Style/Color]; we collapse to one.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/textDecorationStyle": {
       "status": "missing",
@@ -1569,7 +1631,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/textDecorationColor": {
       "status": "missing",
@@ -1580,7 +1643,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/textOverflow": {
       "status": "supported",
@@ -1605,7 +1669,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/whiteSpace": {
       "status": "partial",
@@ -1622,7 +1687,8 @@
       ],
       "tests": [],
       "notes": "Bridge accepts the string but layout enforcement varies.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/wordBreak": {
       "status": "missing",
@@ -1636,7 +1702,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/overflowWrap": {
       "status": "missing",
@@ -1647,7 +1714,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/wordWrap": {
       "status": "missing",
@@ -1658,7 +1726,8 @@
       ],
       "tests": [],
       "notes": "Legacy alias of overflow-wrap. Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/lineClamp": {
       "status": "missing",
@@ -1669,7 +1738,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op. Both 'line-clamp' and '-webkit-line-clamp' route here.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/webkitLineClamp": {
       "status": "missing",
@@ -1680,7 +1750,8 @@
       ],
       "tests": [],
       "notes": "Silent no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/transform": {
       "status": "partial",
@@ -1707,7 +1778,8 @@
       ],
       "tests": [],
       "notes": "MAJOR GAP -- only 5 of CSS transform's ~12 functions are honored. RN supports a richer set.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:transforms"
     },
     "css/transformOrigin": {
       "status": "supported",
@@ -1735,7 +1807,8 @@
       ],
       "tests": [],
       "notes": "No 3D transform support.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:transforms"
     },
     "css/perspectiveOrigin": {
       "status": "missing",
@@ -1746,7 +1819,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:transforms"
     },
     "css/backfaceVisibility": {
       "status": "supported",
@@ -1774,7 +1848,8 @@
       ],
       "tests": [],
       "notes": "Pulp ignores the property name and the timing function; only duration is propagated.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/transitionDuration": {
       "status": "supported",
@@ -1799,7 +1874,8 @@
       ],
       "tests": [],
       "notes": "All declared transitions animate everything (or nothing depending on backend). Cannot scope.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/transitionTimingFunction": {
       "status": "missing",
@@ -1814,7 +1890,8 @@
       ],
       "tests": [],
       "notes": "Not honored.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/transitionDelay": {
       "status": "missing",
@@ -1826,7 +1903,8 @@
       ],
       "tests": [],
       "notes": "Not honored.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animation": {
       "status": "partial",
@@ -1837,7 +1915,8 @@
       ],
       "tests": [],
       "notes": "MAJOR GAP -- widget_bridge.cpp:3208 setAnimation is registered but the body is `(void)id; (void)prop;...` -- a stub. CSS @keyframes animations are silently dropped.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationName": {
       "status": "missing",
@@ -1848,7 +1927,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationDuration": {
       "status": "missing",
@@ -1859,7 +1939,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationTimingFunction": {
       "status": "missing",
@@ -1870,7 +1951,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationDelay": {
       "status": "missing",
@@ -1881,7 +1963,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationIterationCount": {
       "status": "missing",
@@ -1892,7 +1975,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationDirection": {
       "status": "missing",
@@ -1903,7 +1987,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationFillMode": {
       "status": "missing",
@@ -1914,7 +1999,8 @@
       ],
       "tests": [],
       "notes": "Stub no-op.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/animationPlayState": {
       "status": "missing",
@@ -1925,7 +2011,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:animation"
     },
     "css/filter": {
       "status": "supported",
@@ -1974,7 +2061,8 @@
       ],
       "tests": [],
       "notes": "RN supports mixBlendMode in New Architecture; Pulp does not.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/isolation": {
       "status": "missing",
@@ -1986,7 +2074,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/touchAction": {
       "status": "partial",
@@ -1999,7 +2088,8 @@
       ],
       "tests": [],
       "notes": "Set but not consumed by the C++ hit-test path.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:interaction"
     },
     "css/gridTemplateColumns": {
       "status": "partial",
@@ -2016,7 +2106,8 @@
       ],
       "tests": [],
       "notes": "Forwarded as a string. Renderer honors only what the underlying GridStyle parser accepts. CSS Grid is largely unsupported because Yoga is flex-only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridTemplateRows": {
       "status": "partial",
@@ -2031,7 +2122,8 @@
       ],
       "tests": [],
       "notes": "Same caveat as gridTemplateColumns.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridColumn": {
       "status": "partial",
@@ -2045,7 +2137,8 @@
       ],
       "tests": [],
       "notes": "Numeric only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridRow": {
       "status": "partial",
@@ -2059,7 +2152,8 @@
       ],
       "tests": [],
       "notes": "Numeric only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridTemplateAreas": {
       "status": "missing",
@@ -2070,7 +2164,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridArea": {
       "status": "missing",
@@ -2081,7 +2176,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridAutoColumns": {
       "status": "missing",
@@ -2092,7 +2188,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridAutoRows": {
       "status": "missing",
@@ -2103,7 +2200,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/gridAutoFlow": {
       "status": "missing",
@@ -2114,51 +2212,56 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "css/listStyle": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "Pulp has no list intrinsic; lists are emulated with Col + Label children.",
-      "issue": ""
+      "notes": "Pulp has no list intrinsic; lists are emulated with Col + Label children. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:lists, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:lists"
     },
     "css/listStyleType": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "See listStyle.",
-      "issue": ""
+      "notes": "See listStyle. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:lists, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:lists"
     },
     "css/listStylePosition": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "See listStyle.",
-      "issue": ""
+      "notes": "See listStyle. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:lists, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:lists"
     },
     "css/listStyleImage": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "See listStyle.",
-      "issue": ""
+      "notes": "See listStyle. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:lists, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:lists"
     },
     "css/tableLayout": {
       "status": "wontfix",
@@ -2169,7 +2272,8 @@
       ],
       "tests": [],
       "notes": "No table primitives in Pulp.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no table primitive)"
     },
     "css/borderCollapse": {
       "status": "wontfix",
@@ -2180,7 +2284,8 @@
       ],
       "tests": [],
       "notes": "See tableLayout.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no table primitive)"
     },
     "css/borderSpacing": {
       "status": "wontfix",
@@ -2191,7 +2296,8 @@
       ],
       "tests": [],
       "notes": "See tableLayout.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no table primitive)"
     },
     "css/captionSide": {
       "status": "wontfix",
@@ -2202,7 +2308,8 @@
       ],
       "tests": [],
       "notes": "See tableLayout.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no table primitive)"
     },
     "css/emptyCells": {
       "status": "wontfix",
@@ -2213,7 +2320,8 @@
       ],
       "tests": [],
       "notes": "See tableLayout.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no table primitive)"
     },
     "css/columns": {
       "status": "wontfix",
@@ -2224,7 +2332,8 @@
       ],
       "tests": [],
       "notes": "Multi-column layout out of scope; not aligned with Yoga or RN.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (multi-column out of scope)"
     },
     "css/columnCount": {
       "status": "wontfix",
@@ -2235,7 +2344,8 @@
       ],
       "tests": [],
       "notes": "See columns.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (multi-column out of scope)"
     },
     "css/columnWidth": {
       "status": "wontfix",
@@ -2246,7 +2356,8 @@
       ],
       "tests": [],
       "notes": "See columns.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (multi-column out of scope)"
     },
     "css/columnRule": {
       "status": "wontfix",
@@ -2257,62 +2368,68 @@
       ],
       "tests": [],
       "notes": "See columns.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (multi-column out of scope)"
     },
     "css/scrollBehavior": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "ScrollView intrinsic handles its own scrolling.",
-      "issue": ""
+      "notes": "ScrollView intrinsic handles its own scrolling. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:scroll-augmentation, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:scroll-augmentation"
     },
     "css/scrollSnapType": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "Not in initial scope.",
-      "issue": ""
+      "notes": "Not in initial scope. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:scroll-augmentation, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:scroll-augmentation"
     },
     "css/scrollMargin": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "Not in initial scope.",
-      "issue": ""
+      "notes": "Not in initial scope. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:scroll-augmentation, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:scroll-augmentation"
     },
     "css/scrollPadding": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "Not in initial scope.",
-      "issue": ""
+      "notes": "Not in initial scope. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:scroll-augmentation, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:scroll-augmentation"
     },
     "css/overscrollBehavior": {
-      "status": "wontfix",
+      "status": "missing",
       "mapsTo": "n/a",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "Not in initial scope.",
-      "issue": ""
+      "notes": "Not in initial scope. [promoted from wontfix-by-omission on 2026-05-03 \u2014 see batch batch:scroll-augmentation, umbrella issue TBD]",
+      "issue": "",
+      "batch": "batch:scroll-augmentation"
     },
     "css/clipPath": {
       "status": "missing",
@@ -2327,7 +2444,8 @@
       ],
       "tests": [],
       "notes": "Custom clip paths not supported.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/mask": {
       "status": "missing",
@@ -2338,7 +2456,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/maskImage": {
       "status": "missing",
@@ -2349,7 +2468,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "css/willChange": {
       "status": "wontfix",
@@ -2360,7 +2480,8 @@
       ],
       "tests": [],
       "notes": "Hint to compositor -- Pulp's renderer is GPU all the time.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (browser-only optimization hint)"
     },
     "css/contain": {
       "status": "wontfix",
@@ -2371,7 +2492,8 @@
       ],
       "tests": [],
       "notes": "Browser-only optimization hint.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (browser-only optimization hint)"
     },
     "css/contentVisibility": {
       "status": "wontfix",
@@ -2382,7 +2504,8 @@
       ],
       "tests": [],
       "notes": "Browser-only optimization hint.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (browser-only optimization hint)"
     },
     "css/all": {
       "status": "wontfix",
@@ -2396,7 +2519,8 @@
       ],
       "tests": [],
       "notes": "CSS-cascade reset not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (CSS-cascade reset not modeled)"
     },
     "css/direction": {
       "status": "missing",
@@ -2408,7 +2532,8 @@
       ],
       "tests": [],
       "notes": "RTL writing direction not modeled. Affects logical inset/margin/padding mapping (currently always LTR).",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/writingMode": {
       "status": "missing",
@@ -2421,7 +2546,8 @@
       ],
       "tests": [],
       "notes": "Vertical writing modes not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "css/verticalAlign": {
       "status": "missing",
@@ -2432,7 +2558,8 @@
       ],
       "tests": [],
       "notes": "Not relevant in flex-only layout. Could add for Label baseline alignment.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "css/quotes": {
       "status": "wontfix",
@@ -2443,7 +2570,8 @@
       ],
       "tests": [],
       "notes": "Generated content not in scope.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no pseudo-element model)"
     },
     "css/content": {
       "status": "wontfix",
@@ -2454,7 +2582,8 @@
       ],
       "tests": [],
       "notes": "::before/::after not supported (no pseudo-element model).",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no pseudo-element model)"
     },
     "css/counterReset": {
       "status": "wontfix",
@@ -2465,7 +2594,8 @@
       ],
       "tests": [],
       "notes": "CSS counters not in scope.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no pseudo-element model)"
     },
     "css/counterIncrement": {
       "status": "wontfix",
@@ -2476,7 +2606,8 @@
       ],
       "tests": [],
       "notes": "Not in scope.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (no pseudo-element model)"
     },
     "css/resize": {
       "status": "missing",
@@ -2489,7 +2620,8 @@
       ],
       "tests": [],
       "notes": "User-resizable elements not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:interaction"
     },
     "css/printMargin": {
       "status": "wontfix",
@@ -2500,7 +2632,8 @@
       ],
       "tests": [],
       "notes": "Print media is out of scope for a GPU plugin renderer.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (print media out of scope for GPU plugin renderer)"
     },
     "css/pageBreakBefore": {
       "status": "wontfix",
@@ -2511,7 +2644,8 @@
       ],
       "tests": [],
       "notes": "Print only.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (print only)"
     },
     "css/pageBreakAfter": {
       "status": "wontfix",
@@ -2522,7 +2656,8 @@
       ],
       "tests": [],
       "notes": "Print only.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (print only)"
     },
     "css/float": {
       "status": "wontfix",
@@ -2535,7 +2670,8 @@
       ],
       "tests": [],
       "notes": "CSS float not relevant under a flex-only layout model.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (flex-only layout)"
     },
     "css/clear": {
       "status": "wontfix",
@@ -2546,7 +2682,8 @@
       ],
       "tests": [],
       "notes": "Float-companion property -- not relevant.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (flex-only layout)"
     },
     "css/__pseudo_classes_note": {
       "status": "missing",
@@ -2566,7 +2703,8 @@
       ],
       "tests": [],
       "notes": "Pulp routes hover/click/etc. through bridge event registrations (registerHover, registerClick) rather than through CSS pseudo-classes. JSX consumers wire interactivity via on* event props, not via CSS.",
-      "issue": ""
+      "issue": "",
+      "batch": "meta:pseudo-classes"
     }
   },
   "rn": {
@@ -2579,7 +2717,8 @@
       ],
       "tests": [],
       "notes": "Symmetric with css/alignContent -- also missing in the @pulp/react TS surface (types.ts FlexProps).",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/alignItems": {
       "status": "supported",
@@ -2628,7 +2767,8 @@
       ],
       "tests": [],
       "notes": "MAJOR -- aspect-ratio is in RN's layout-props surface but not at the @pulp/react JSX surface.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderBottomWidth": {
       "status": "missing",
@@ -2639,7 +2779,8 @@
       ],
       "tests": [],
       "notes": "RN prop is flat top-level, Pulp uses object shape. Convert: <View style={{borderBottomWidth: 2}} /> -> <View borderBottom={{color:'#000', width:2}} />. Awkward for RN ports.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderEndWidth": {
       "status": "missing",
@@ -2650,7 +2791,8 @@
       ],
       "tests": [],
       "notes": "Logical property; not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/borderLeftWidth": {
       "status": "missing",
@@ -2661,7 +2803,8 @@
       ],
       "tests": [],
       "notes": "Same as borderBottomWidth.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderRightWidth": {
       "status": "missing",
@@ -2672,7 +2815,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderStartWidth": {
       "status": "missing",
@@ -2683,7 +2827,8 @@
       ],
       "tests": [],
       "notes": "Logical property.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/borderTopWidth": {
       "status": "missing",
@@ -2694,7 +2839,8 @@
       ],
       "tests": [],
       "notes": "Same as borderBottomWidth.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderWidth": {
       "status": "missing",
@@ -2705,7 +2851,8 @@
       ],
       "tests": [],
       "notes": "User can call <View border={{color:'#000', width:N}} /> as workaround.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderRadius": {
       "status": "missing",
@@ -2716,7 +2863,8 @@
       ],
       "tests": [],
       "notes": "Workaround: <View border={{color:'transparent', width:0, radius:R}} />.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderTopLeftRadius": {
       "status": "missing",
@@ -2727,7 +2875,8 @@
       ],
       "tests": [],
       "notes": "Bridge has setBorderTopLeftRadius -- needs prop wiring.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderTopRightRadius": {
       "status": "missing",
@@ -2738,7 +2887,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderBottomLeftRadius": {
       "status": "missing",
@@ -2749,7 +2899,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderBottomRightRadius": {
       "status": "missing",
@@ -2760,7 +2911,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderColor": {
       "status": "missing",
@@ -2771,7 +2923,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderTopColor": {
       "status": "missing",
@@ -2782,7 +2935,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderBottomColor": {
       "status": "missing",
@@ -2793,7 +2947,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderLeftColor": {
       "status": "missing",
@@ -2804,7 +2959,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderRightColor": {
       "status": "missing",
@@ -2815,7 +2971,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/borderStyle": {
       "status": "missing",
@@ -2828,7 +2985,8 @@
       ],
       "tests": [],
       "notes": "Renderer always solid.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/borderCurve": {
       "status": "wontfix",
@@ -2840,7 +2998,8 @@
       ],
       "tests": [],
       "notes": "iOS-only super-ellipse corner shape.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (iOS-only super-ellipse)"
     },
     "rn/bottom": {
       "status": "supported",
@@ -2877,7 +3036,8 @@
       ],
       "tests": [],
       "notes": "RTL not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/display": {
       "status": "missing",
@@ -2890,7 +3050,8 @@
       ],
       "tests": [],
       "notes": "@pulp/react users opt out via the boolean `visible` prop. No 'contents' equivalent.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/end": {
       "status": "missing",
@@ -2901,7 +3062,8 @@
       ],
       "tests": [],
       "notes": "Logical position; not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/flex": {
       "status": "missing",
@@ -2912,7 +3074,8 @@
       ],
       "tests": [],
       "notes": "Common RN pattern; awkward to port.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/flexBasis": {
       "status": "partial",
@@ -2926,7 +3089,8 @@
       ],
       "tests": [],
       "notes": "TS type is 'number' only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/flexDirection": {
       "status": "partial",
@@ -2942,7 +3106,8 @@
       ],
       "tests": [],
       "notes": "ALSO MAJOR -- types.ts FlexDirection = 'row' | 'col'. Pulp uses 'col' instead of 'column' (RN convention) -- porting RN code requires renaming. And no reverse modes.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/flexGrow": {
       "status": "supported",
@@ -2978,7 +3143,8 @@
       ],
       "tests": [],
       "notes": "TS type is `boolean` -- RN's enum has 'wrap-reverse' which we cannot express.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/gap": {
       "status": "supported",
@@ -3070,7 +3236,8 @@
       ],
       "tests": [],
       "notes": "Logical property.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/marginHorizontal": {
       "status": "missing",
@@ -3081,7 +3248,8 @@
       ],
       "tests": [],
       "notes": "RN-specific shorthand for marginLeft + marginRight.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/marginLeft": {
       "status": "supported",
@@ -3114,7 +3282,8 @@
       ],
       "tests": [],
       "notes": "Logical.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/marginTop": {
       "status": "supported",
@@ -3136,7 +3305,8 @@
       ],
       "tests": [],
       "notes": "RN-specific shorthand for marginTop + marginBottom.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/maxHeight": {
       "status": "supported",
@@ -3201,7 +3371,8 @@
       ],
       "tests": [],
       "notes": "Plumbing missing in prop-applier; ScrollView intrinsic exposes scroll.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/padding": {
       "status": "supported",
@@ -3236,7 +3407,8 @@
       ],
       "tests": [],
       "notes": "Logical.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/paddingHorizontal": {
       "status": "missing",
@@ -3247,7 +3419,8 @@
       ],
       "tests": [],
       "notes": "Common RN pattern; awkward to port.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/paddingLeft": {
       "status": "supported",
@@ -3280,7 +3453,8 @@
       ],
       "tests": [],
       "notes": "Logical.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/paddingTop": {
       "status": "supported",
@@ -3302,7 +3476,8 @@
       ],
       "tests": [],
       "notes": "Common RN pattern; awkward to port.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/position": {
       "status": "supported",
@@ -3351,7 +3526,8 @@
       ],
       "tests": [],
       "notes": "Logical position.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/top": {
       "status": "supported",
@@ -3398,7 +3574,8 @@
       ],
       "tests": [],
       "notes": "RN exposes inset; @pulp/react does not.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/insetInline": {
       "status": "missing",
@@ -3409,7 +3586,8 @@
       ],
       "tests": [],
       "notes": "Logical.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/insetBlock": {
       "status": "missing",
@@ -3420,7 +3598,8 @@
       ],
       "tests": [],
       "notes": "Logical.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/boxSizing": {
       "status": "missing",
@@ -3432,7 +3611,8 @@
       ],
       "tests": [],
       "notes": "Yoga's box model is content-box-equivalent.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "rn/isolation": {
       "status": "missing",
@@ -3444,7 +3624,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/backgroundColor": {
       "status": "supported",
@@ -3468,7 +3649,8 @@
       ],
       "tests": [],
       "notes": "Different shape from RN.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/backfaceVisibility": {
       "status": "missing",
@@ -3480,7 +3662,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:transforms"
     },
     "rn/opacity": {
       "status": "supported",
@@ -3502,7 +3685,8 @@
       ],
       "tests": [],
       "notes": "Android-only Material elevation. Pulp uses boxShadow as the cross-platform equivalent.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (Android-only; use boxShadow)"
     },
     "rn/boxShadow": {
       "status": "missing",
@@ -3514,7 +3698,8 @@
       ],
       "tests": [],
       "notes": "Could be exposed analogously to `border={...}` shape.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/shadowColor": {
       "status": "missing",
@@ -3525,7 +3710,8 @@
       ],
       "tests": [],
       "notes": "iOS shadow* family -- superseded by boxShadow in modern RN.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/shadowOffset": {
       "status": "missing",
@@ -3536,7 +3722,8 @@
       ],
       "tests": [],
       "notes": "iOS-only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/shadowOpacity": {
       "status": "missing",
@@ -3547,7 +3734,8 @@
       ],
       "tests": [],
       "notes": "iOS-only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/shadowRadius": {
       "status": "missing",
@@ -3558,7 +3746,8 @@
       ],
       "tests": [],
       "notes": "iOS-only.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/filter": {
       "status": "missing",
@@ -3570,7 +3759,8 @@
       ],
       "tests": [],
       "notes": "Easy add.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/mixBlendMode": {
       "status": "missing",
@@ -3581,7 +3771,8 @@
       ],
       "tests": [],
       "notes": "Not handled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/outlineColor": {
       "status": "missing",
@@ -3592,7 +3783,8 @@
       ],
       "tests": [],
       "notes": "setOutline never registered.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/outlineOffset": {
       "status": "missing",
@@ -3603,7 +3795,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/outlineStyle": {
       "status": "missing",
@@ -3614,7 +3807,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/outlineWidth": {
       "status": "missing",
@@ -3625,7 +3819,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:effects"
     },
     "rn/pointerEvents": {
       "status": "missing",
@@ -3639,7 +3834,8 @@
       ],
       "tests": [],
       "notes": "Easy add.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:interaction"
     },
     "rn/cursor": {
       "status": "missing",
@@ -3651,7 +3847,8 @@
       ],
       "tests": [],
       "notes": "Easy add.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:interaction"
     },
     "rn/userSelect": {
       "status": "missing",
@@ -3666,7 +3863,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:interaction"
     },
     "rn/transform": {
       "status": "missing",
@@ -3677,7 +3875,8 @@
       ],
       "tests": [],
       "notes": "MAJOR -- RN's transform is an array of objects; @pulp/react has none of it.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:transforms"
     },
     "rn/transformOrigin": {
       "status": "missing",
@@ -3688,7 +3887,8 @@
       ],
       "tests": [],
       "notes": "Easy add.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:transforms"
     },
     "rn/color": {
       "status": "supported",
@@ -3712,7 +3912,8 @@
       ],
       "tests": [],
       "notes": "Documented gap in prop-applier; reflects pulp#932 / pulp#927.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/fontSize": {
       "status": "supported",
@@ -3762,7 +3963,8 @@
       ],
       "tests": [],
       "notes": "Not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/letterSpacing": {
       "status": "supported",
@@ -3816,7 +4018,8 @@
       ],
       "tests": [],
       "notes": "Android-only in RN; could map to flex align.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textDecorationColor": {
       "status": "missing",
@@ -3827,7 +4030,8 @@
       ],
       "tests": [],
       "notes": "Not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textDecorationLine": {
       "status": "missing",
@@ -3841,7 +4045,8 @@
       ],
       "tests": [],
       "notes": "Use bridge setTextDecoration via CSS surface; @pulp/react does not surface.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textDecorationStyle": {
       "status": "missing",
@@ -3852,7 +4057,8 @@
       ],
       "tests": [],
       "notes": "Not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textShadowColor": {
       "status": "missing",
@@ -3863,7 +4069,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textShadowOffset": {
       "status": "missing",
@@ -3874,7 +4081,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textShadowRadius": {
       "status": "missing",
@@ -3885,7 +4093,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/textTransform": {
       "status": "missing",
@@ -3899,7 +4108,8 @@
       ],
       "tests": [],
       "notes": "Easy add.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/verticalAlign": {
       "status": "missing",
@@ -3910,7 +4120,8 @@
       ],
       "tests": [],
       "notes": "Not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:typography"
     },
     "rn/writingDirection": {
       "status": "missing",
@@ -3923,7 +4134,8 @@
       ],
       "tests": [],
       "notes": "RTL not modeled.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "rn/includeFontPadding": {
       "status": "wontfix",
@@ -3934,7 +4146,8 @@
       ],
       "tests": [],
       "notes": "Android-only legacy padding control.",
-      "issue": ""
+      "issue": "",
+      "batch": "wontfix-arch (Android-only legacy)"
     }
   },
   "yoga": {
@@ -3951,7 +4164,8 @@
       ],
       "tests": [],
       "notes": "FlexDirection enum at geometry.hpp:61 has only 2 values. Yoga upstream has 4.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/flexWrap": {
       "status": "partial",
@@ -3965,7 +4179,8 @@
       ],
       "tests": [],
       "notes": "Bool can only express two states.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/flexGrow": {
       "status": "supported",
@@ -4002,7 +4217,8 @@
       ],
       "tests": [],
       "notes": "Yoga upstream supports YGAuto / percent; Pulp accepts only px float.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/justifyContent": {
       "status": "supported",
@@ -4034,7 +4250,8 @@
       ],
       "tests": [],
       "notes": "Yoga has YGAlignBaseline; Pulp does not.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/alignSelf": {
       "status": "partial",
@@ -4051,7 +4268,8 @@
       ],
       "tests": [],
       "notes": "Same as alignItems.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/alignContent": {
       "status": "missing",
@@ -4062,7 +4280,8 @@
       ],
       "tests": [],
       "notes": "MAJOR -- multi-line flex cross-axis distribution unimplementable.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/width": {
       "status": "supported",
@@ -4153,7 +4372,8 @@
       ],
       "tests": [],
       "notes": "Yoga upstream supports it. Pulp's parser exists in CSS shim but the field is missing.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/margin": {
       "status": "supported",
@@ -4229,7 +4449,8 @@
       ],
       "tests": [],
       "notes": "Logical edge.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/marginEnd": {
       "status": "missing",
@@ -4240,7 +4461,8 @@
       ],
       "tests": [],
       "notes": "Logical edge.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/marginHorizontal": {
       "status": "missing",
@@ -4251,7 +4473,8 @@
       ],
       "tests": [],
       "notes": "Yoga shorthand.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/marginVertical": {
       "status": "missing",
@@ -4262,7 +4485,8 @@
       ],
       "tests": [],
       "notes": "Yoga shorthand.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/padding": {
       "status": "supported",
@@ -4338,7 +4562,8 @@
       ],
       "tests": [],
       "notes": "Logical edge.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/paddingEnd": {
       "status": "missing",
@@ -4349,7 +4574,8 @@
       ],
       "tests": [],
       "notes": "Logical edge.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/paddingHorizontal": {
       "status": "missing",
@@ -4360,7 +4586,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/paddingVertical": {
       "status": "missing",
@@ -4371,7 +4598,8 @@
       ],
       "tests": [],
       "notes": "",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/borderWidth": {
       "status": "missing",
@@ -4382,7 +4610,8 @@
       ],
       "tests": [],
       "notes": "Yoga's BORDER edges contribute to content-box sizing. Pulp's borders are paint-only, not measured by layout. This breaks parity with Yoga measurement when borders are large.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/borderTopWidth": {
       "status": "missing",
@@ -4393,7 +4622,8 @@
       ],
       "tests": [],
       "notes": "Same as borderWidth.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/borderRightWidth": {
       "status": "missing",
@@ -4404,7 +4634,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/borderBottomWidth": {
       "status": "missing",
@@ -4415,7 +4646,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/borderLeftWidth": {
       "status": "missing",
@@ -4426,7 +4658,8 @@
       ],
       "tests": [],
       "notes": "Same.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/position": {
       "status": "supported",
@@ -4504,7 +4737,8 @@
       ],
       "tests": [],
       "notes": "Logical position.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/end": {
       "status": "missing",
@@ -4515,7 +4749,8 @@
       ],
       "tests": [],
       "notes": "Logical position.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     },
     "yoga/gap": {
       "status": "supported",
@@ -4573,7 +4808,8 @@
       ],
       "tests": [],
       "notes": "Yoga has YGDisplay {flex, none, contents}; Pulp models only flex+visibility.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/overflow": {
       "status": "partial",
@@ -4587,7 +4823,8 @@
       ],
       "tests": [],
       "notes": "Yoga has YGOverflow {visible, hidden, scroll}; Pulp omits scroll (use ScrollView intrinsic).",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:layout"
     },
     "yoga/direction": {
       "status": "missing",
@@ -4600,7 +4837,8 @@
       ],
       "tests": [],
       "notes": "Yoga supports direction for RTL; Pulp does not.",
-      "issue": ""
+      "issue": "",
+      "batch": "batch:logical-properties"
     }
   },
   "react": {
