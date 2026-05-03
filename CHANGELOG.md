@@ -155,6 +155,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - test(view): cover widget bridge raf cancellation ([#1065](https://github.com/danielraffel/pulp/pull/1065))
 
 <a id="v0690"></a>
+## [0.26.0]
+
 ## [0.69.0] - 2026-04-30
 
 - feat(canvas): public font-registration API for plugins (pulp #1150) ([#1175](https://github.com/danielraffel/pulp/pull/1175))
