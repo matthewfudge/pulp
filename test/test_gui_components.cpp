@@ -428,12 +428,17 @@ TEST_CASE("ShapeButton reports hover and pressed states to draw callback",
     REQUIRE(saw_hover);
     REQUIRE(saw_pressed);
 
+    // pulp #1171 (Codex P2 on #1069) — verify hover state actually
+    // resets after on_mouse_leave(). The previous version pre-set
+    // saw_hover=true and only OR'd new values into it, so a regression
+    // where leave failed to clear hover would not be caught.
     btn.on_mouse_leave();
-    saw_hover = true;
+    saw_hover = false;
     saw_pressed = false;
     canvas.clear();
     btn.paint(canvas);
     REQUIRE_FALSE(saw_pressed);
+    REQUIRE_FALSE(saw_hover);
 }
 
 TEST_CASE("ImageButton chooses normal hover and pressed image paths",

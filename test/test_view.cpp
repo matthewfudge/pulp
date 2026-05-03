@@ -1211,6 +1211,9 @@ TEST_CASE("View per-corner radii setters flip has_corner_radii",
     v.set_corner_radius_tl(8.0f);
     REQUIRE(v.has_corner_radii());
     REQUIRE_THAT(v.corner_radius_tl(), WithinAbs(8.0f, 1e-5f));
+    // pulp #1171 — when a per-corner setter is the FIRST setter (no
+    // prior set_border_radius), there's no uniform radius to seed from,
+    // so unset corners stay 0.
     REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(0.0f, 1e-5f));
 
     v.set_corner_radius_tr(12.0f);
@@ -1219,6 +1222,70 @@ TEST_CASE("View per-corner radii setters flip has_corner_radii",
     REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(12.0f, 1e-5f));
     REQUIRE_THAT(v.corner_radius_bl(), WithinAbs(4.0f,  1e-5f));
     REQUIRE_THAT(v.corner_radius_br(), WithinAbs(2.0f,  1e-5f));
+}
+
+// pulp #1171 (Codex P2 on #1044) — uniform set_border_radius() followed
+// by a single per-corner override must NOT zero the other three corners.
+// Previously: set_border_radius(10); set_corner_radius_tl(2);
+// rendered as {2, 0, 0, 0}, silently discarding the uniform 10.
+TEST_CASE("set_border_radius + per-corner override seeds remaining corners",
+          "[view][border][issue-1171][codex-p2]") {
+    View v;
+    v.set_border_radius(10.0f);
+    REQUIRE_FALSE(v.has_corner_radii());
+
+    v.set_corner_radius_tl(2.0f);
+    REQUIRE(v.has_corner_radii());
+
+    REQUIRE_THAT(v.corner_radius_tl(), WithinAbs(2.0f,  1e-5f));
+    REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(10.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_bl(), WithinAbs(10.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_br(), WithinAbs(10.0f, 1e-5f));
+}
+
+TEST_CASE("set_border_radius + multiple per-corner overrides — promote runs once",
+          "[view][border][issue-1171][codex-p2]") {
+    View v;
+    v.set_border_radius(8.0f);
+    v.set_corner_radius_tr(4.0f);
+    // After the first per-corner setter, has_corner_radii_ flips true
+    // and subsequent setters MUST NOT re-promote (which would clobber
+    // the already-overridden TR back to 8). promote_uniform_to_per_corner
+    // is guarded on `!has_corner_radii_`.
+    v.set_corner_radius_bl(0.0f);
+    REQUIRE_THAT(v.corner_radius_tl(), WithinAbs(8.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(4.0f, 1e-5f));  // not 8
+    REQUIRE_THAT(v.corner_radius_bl(), WithinAbs(0.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_br(), WithinAbs(8.0f, 1e-5f));
+}
+
+TEST_CASE("simulate_click bubble does NOT walk past `this` receiver",
+          "[view][simulate_click][issue-1171][codex-p2]") {
+    // Build: outer (PARENT) > root (this) > child.
+    // outer has on_click set. root + child have no on_click.
+    // Calling root->simulate_click(...) MUST NOT bubble up to outer —
+    // that would leak the synthetic click across component boundaries
+    // (the bug Codex flagged on #1073).
+    View outer;
+    outer.set_bounds({0, 0, 200, 200});
+    bool outer_clicked = false;
+    outer.on_click = [&]() { outer_clicked = true; };
+
+    auto root_owned = std::make_unique<View>();
+    root_owned->set_bounds({10, 10, 100, 100});
+    auto* root = root_owned.get();
+    outer.add_child(std::move(root_owned));
+
+    auto child_owned = std::make_unique<View>();
+    child_owned->set_bounds({5, 5, 50, 50});
+    root->add_child(std::move(child_owned));
+
+    // Click at root-local {30,30} which is inside child's bounds.
+    // hit_test resolves to child (no on_click). Bubble walks up to
+    // root — and STOPS there per the fix (root == this). Without the
+    // fix it would walk past root to outer and fire outer.on_click.
+    root->simulate_click({30, 30});
+    REQUIRE_FALSE(outer_clicked);
 }
 
 TEST_CASE("View::paint_all routes background through path API when per-corner radii set",
