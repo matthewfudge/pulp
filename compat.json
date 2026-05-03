@@ -24,17 +24,18 @@
     "last-triage": "2026-05-03",
     "triage-branch": "audit/compat-triage-2026-05-03",
     "batch-labels": {
-      "batch:logical-properties": "CSS / RN / Yoga RTL-adjacent shorthands (margin*Inline*, padding*Block*, start/end, direction)",
-      "batch:typography": "Label widget plumbing \u2014 text-shadow, text-decoration[Line/Style/Color], word-break, line-clamp, fontVariant",
-      "batch:transforms": "setTransform extension \u2014 rotateX/Y/Z, scale[XY], skew[XY], perspective, transformOrigin",
-      "batch:effects": "Skia paint primitives \u2014 outline, mixBlendMode, filter, mask, clipPath, background-image url(), shadow*",
-      "batch:layout": "Yoga-side or shorthand \u2014 alignContent, aspectRatio (real), grid-{areas,auto-*}, flex shorthand, border-* flat props",
-      "batch:animation": "CSS transition + animation engine \u2014 currently stubs",
-      "batch:interaction": "Already-bridge-registered but not wired through prop-applier \u2014 cursor, pointer-events, user-select, touch-action",
-      "batch:lists": "List intrinsic emulation \u2014 list-style*, marker rendering",
-      "batch:scroll-augmentation": "Augment ScrollView intrinsic \u2014 scroll-behavior, scroll-snap, scroll-margin/padding, overscroll-behavior",
+      "batch:logical-properties": "#1332 \u2014 CSS / RN / Yoga RTL-adjacent shorthands (margin*Inline*, padding*Block*, start/end, direction)",
+      "batch:typography": "#1333 \u2014 Label widget plumbing \u2014 text-shadow, text-decoration[Line/Style/Color], word-break, line-clamp, fontVariant",
+      "batch:transforms": "#1334 \u2014 setTransform extension \u2014 rotateX/Y/Z, scale[XY], skew[XY], perspective, transformOrigin",
+      "batch:effects": "#1337 \u2014 Skia paint primitives \u2014 outline, mixBlendMode, filter, mask, clipPath, background-image url(), shadow*",
+      "batch:layout": "#1339 \u2014 Yoga-side or shorthand \u2014 alignContent, aspectRatio (real), grid-{areas,auto-*}, flex shorthand, border-* flat props",
+      "batch:animation": "#1340 \u2014 CSS transition + animation engine \u2014 currently stubs",
+      "batch:interaction": "#1331 \u2014 Already-bridge-registered but not wired through prop-applier \u2014 cursor, pointer-events, user-select, touch-action",
+      "batch:lists": "#1335 \u2014 List intrinsic emulation \u2014 list-style*, marker rendering",
+      "batch:scroll-augmentation": "#1336 \u2014 Augment ScrollView intrinsic \u2014 scroll-behavior, scroll-snap, scroll-margin/padding, overscroll-behavior",
       "meta:pseudo-classes": "Pseudo-class selector model (:hover, :focus, :active) \u2014 orthogonal to property triage"
-    }
+    },
+    "umbrella-issue": "#1330"
   },
   "css": {
     "css/display": {
