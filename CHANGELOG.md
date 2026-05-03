@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0710"></a>
+## [0.71.0] - 2026-05-03
+
+- feat(import-design): wire @pulp/css-adapt into emitted output (#1039) ([#1060](https://github.com/danielraffel/pulp/pull/1060))
+- docs(skill/import-design): record v0.69 audit lessons + #1148 pattern ([#1298](https://github.com/danielraffel/pulp/pull/1298))
+- fix(ci): auto-release.yml stranded-fix watchdog must honor Version-Bump: skip (closes #1308) ([#1310](https://github.com/danielraffel/pulp/pull/1310))
+
 <a id="v0700"></a>
 ## [0.70.0] - 2026-05-03
 
@@ -1146,6 +1153,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.71.0]: https://github.com/danielraffel/pulp/releases/tag/v0.71.0
 [0.70.0]: https://github.com/danielraffel/pulp/releases/tag/v0.70.0
 [0.69.2]: https://github.com/danielraffel/pulp/releases/tag/v0.69.2
 [0.69.1]: https://github.com/danielraffel/pulp/releases/tag/v0.69.1
