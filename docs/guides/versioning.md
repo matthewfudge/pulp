@@ -26,10 +26,12 @@ Layer 1 (fast, per-edit, agent-specific)
     hooks/scripts/cli-plugin-sync.sh, Claude Code PostToolUse hooks
     → advisory "hint" mode output only
 
-Layer 2 (pre-push, agent-agnostic, advisory)
+Layer 2 (pre-push, agent-agnostic, ENFORCING — pulp #1144)
     .githooks/pre-push
-    → same scripts, "report" mode, warns by default
-    → PULP_ENFORCE_PREPUSH=1 upgrades to hard fail
+    → same scripts, "report" mode, BLOCKS push by default
+    → PULP_DISABLE_PREPUSH_GATES=1 demotes to advisory (the old default)
+    → PULP_DISABLE_PREPUSH_DIFF_COVER=1 demotes the diff-cover gate only
+    → PULP_SKIP_PREPUSH=1 skips ALL gates (true emergencies)
 
 Layer 3 (PR gate, authoritative)
     .github/workflows/version-skill-check.yml
@@ -85,11 +87,15 @@ tools/scripts/install-githooks.sh
 git config core.hooksPath .githooks
 ```
 
-After that, every `git push` runs both scripts. By default warnings print but don't block — set `PULP_ENFORCE_PREPUSH=1` (CI does this) to upgrade to hard failures. Single-push bypass for emergencies:
+After that, every `git push` runs both scripts. **As of pulp #1144 the gates block the push by default** — fix the violation locally rather than burning a 20-min CI roundtrip. Bypass knobs (use sparingly; CI runs the same gates regardless):
 
 ```bash
-PULP_SKIP_PREPUSH=1 git push
+PULP_DISABLE_PREPUSH_GATES=1 git push          # demote skill/version/compat/deps to advisory
+PULP_DISABLE_PREPUSH_DIFF_COVER=1 git push     # demote diff-cover gate only
+PULP_SKIP_PREPUSH=1 git push                   # skip ALL gates (true emergencies)
 ```
+
+The legacy `PULP_ENFORCE_PREPUSH=1` and `PULP_ENFORCE_PREPUSH_DIFF_COVER=1` env vars are accepted as silent no-ops — they used to *promote* advisory warnings to hard failures, which is now the default. Setting them just confirms what you already get.
 
 ---
 
