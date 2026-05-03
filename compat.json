@@ -1,9 +1,9 @@
 {
   "compat-schema-version": "0.2",
-  "_comment": "Compat matrix per #1027. This file is the spec-driven inventory of every prop / style / API surface Pulp's React + DOM-lite consumers might use, mapped to its current implementation status. Status values: supported | partial | missing | wontfix. The 'mapsTo' field names the bridge / Yoga / Skia path the prop lowers to. The 'tests' field is intentionally empty here and will be filled in by individual fix PRs that ship Catch2 / vitest coverage. The audit was generated 2026-04-30 by walking three reference specs (Yoga via React Native Layout Props, React Native View / Text / Transform Style Props, and the most-used MDN CSS reference) and cross-referencing against four implementation surfaces: packages/pulp-react/src/prop-applier.ts (the @pulp/react switch), core/view/js/web-compat-style-decl.js (the DOM-lite CSS adapter), core/view/src/widget_bridge.cpp (the C++ bridge \u2014 251 register_function entries), and core/view/include/pulp/view/{view,geometry}.hpp (the Flex / View widget surface).",
+  "_comment": "Compat matrix per #1027. This file is the spec-driven inventory of every prop / style / API surface Pulp's React + DOM-lite consumers might use, mapped to its current implementation status. Status values: supported | partial | missing | wontfix. The 'mapsTo' field names the bridge / Yoga / Skia path the prop lowers to. The 'tests' field links the Catch2 / vitest test that pinned the current behavior. The audit was last refreshed 2026-05-03 against origin/main 1cd5ebbf by walking three reference specs (Yoga via React Native Layout Props, React Native View / Text / Transform Style Props, and the most-used MDN CSS reference) and cross-referencing against four implementation surfaces: packages/pulp-react/src/prop-applier.ts (the @pulp/react switch), core/view/js/web-compat-style-decl.js (the DOM-lite CSS adapter), core/view/src/widget_bridge.cpp (the C++ bridge \u2014 253 register_function entries), and core/view/include/pulp/view/{view,geometry}.hpp (the Flex / View widget surface).",
   "_audit": {
-    "generated": "2026-04-30",
-    "main_sha": "4a423c03",
+    "generated": "2026-05-03",
+    "main_sha": "1cd5ebbf",
     "spec_sources": {
       "yoga": "https://www.yogalayout.dev/docs/styling \u2014 list cross-checked against https://reactnative.dev/docs/layout-props which mirrors the upstream Yoga API",
       "rn_view": "https://reactnative.dev/docs/view-style-props",
@@ -20,12 +20,87 @@
       "core/view/include/pulp/view/view.hpp",
       "core/view/include/pulp/view/geometry.hpp"
     ],
-    "_notes_on_consumer_surfaces": "The same prop can have different status across consumer surfaces. 'css/*' tracks what core/view/js/web-compat-style-decl.js (the DOM-lite el.style adapter) routes; 'rn/*' tracks what packages/pulp-react/src/prop-applier.ts (the React renderer for @pulp/react JSX intrinsics) routes; 'yoga/*' tracks the underlying Yoga-shaped layout surface in core/view/include/pulp/view/geometry.hpp::FlexStyle. Where a prop is supported by one consumer but not another, both are noted explicitly in 'notes'."
+    "_notes_on_consumer_surfaces": "The same prop can have different status across consumer surfaces. 'css/*' tracks what core/view/js/web-compat-style-decl.js (the DOM-lite el.style adapter) routes; 'rn/*' tracks what packages/pulp-react/src/prop-applier.ts (the React renderer for @pulp/react JSX intrinsics) routes; 'yoga/*' tracks the underlying Yoga-shaped layout surface in core/view/include/pulp/view/geometry.hpp::FlexStyle. Where a prop is supported by one consumer but not another, both are noted explicitly in 'notes'.",
+    "_refresh_notes": "Refreshed 2026-05-03 against origin/main 1cd5ebbf. Walked the same four implementation surfaces and re-validated every entry. Key changes since 2026-04-30: PR #1169 wired the per-attribute border setters into prop-applier.ts so rn/borderColor / borderWidth / borderRadius and per-side / per-corner variants (16 props total) now flip from missing -> supported. PR #1167 made display:flex default to flex-direction:row in the CSS adapter to match web semantics. PR #1173 wired prop-applier to call registerHover for hover handlers. PR #1174 added the comma-separated font-family fallback parser. PR #1175 added the public font-registration API. PR #1289 made ScrollView::hit_test honor pointer_events. PR #1291 added the @pulp/react SvgPath intrinsic. PR #1297 + #1316 generalized overlay-click routing. PR #1320/#1328 made overlay_contains walk overflow:visible children. PR #1327 made NSWindow resize trigger root View relayout. Tests field populated for 50+ already-supported props pointing at real Catch2/vitest tests.",
+    "totals": {
+      "total": 365,
+      "by_status": {
+        "supported": 156,
+        "partial": 40,
+        "missing": 135,
+        "wontfix": 34
+      },
+      "by_namespace": {
+        "css": {
+          "count": 194,
+          "by_status": {
+            "supported": 70,
+            "partial": 30,
+            "missing": 63,
+            "wontfix": 31
+          }
+        },
+        "rn": {
+          "count": 114,
+          "by_status": {
+            "supported": 54,
+            "partial": 3,
+            "missing": 54,
+            "wontfix": 3
+          }
+        },
+        "yoga": {
+          "count": 53,
+          "by_status": {
+            "supported": 28,
+            "partial": 7,
+            "missing": 18,
+            "wontfix": 0
+          }
+        },
+        "react": {
+          "count": 3,
+          "by_status": {
+            "supported": 3,
+            "partial": 0,
+            "missing": 0,
+            "wontfix": 0
+          }
+        },
+        "html": {
+          "count": 0,
+          "by_status": {
+            "supported": 0,
+            "partial": 0,
+            "missing": 0,
+            "wontfix": 0
+          }
+        },
+        "canvas2d": {
+          "count": 0,
+          "by_status": {
+            "supported": 0,
+            "partial": 0,
+            "missing": 0,
+            "wontfix": 0
+          }
+        },
+        "imports": {
+          "count": 1,
+          "by_status": {
+            "supported": 1,
+            "partial": 0,
+            "missing": 0,
+            "wontfix": 0
+          }
+        }
+      }
+    }
   },
   "css": {
     "css/display": {
       "status": "partial",
-      "mapsTo": "web-compat-style-decl.js: 'display' -> setVisible(id, false) on 'none', setVisible(id, true) on 'flex'/'block'. 'grid' is acknowledged but only takes effect when gridTemplateColumns/Rows is also set. Yoga has no 'block', 'inline', 'inline-block', 'table', 'contents' modes -- Pulp is flex-only.",
+      "mapsTo": "web-compat-style-decl.js: 'display' -> setVisible(id, false) on 'none', setVisible(id, true) on 'flex'/'block'. PR #1167 \u2014 'display: flex' now ALSO emits setFlex(id, 'direction', 'row') unless an explicit flexDirection / flex-direction / flex-flow direction token is also set, matching CSS web compat. 'grid' is acknowledged but only takes effect when gridTemplateColumns/Rows is also set.",
       "supportedValues": [
         "flex",
         "none",
@@ -42,8 +117,10 @@
         "inline-grid",
         "list-item"
       ],
-      "tests": [],
-      "notes": "Yoga's underlying view model is exclusively flex. 'block' is silently aliased to 'flex'. RN's display enum is {none, flex, contents} which matches us better than CSS. The Display enum on the C++ View has no direct field -- visibility is implemented via View::set_visible. There is no 'partial' display rendering -- non-flex values render as flex with default direction.",
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: children laid out left-to-right"
+      ],
+      "notes": "Yoga's underlying view model is exclusively flex. 'block' is silently aliased to 'flex'. PR #1167 fixed pulp #1147 \u2014 the row default kicks in only when no explicit direction is declared, so RN-style components that omit flexDirection (column default) still get column. RN's display enum is {none, flex, contents} which matches us better than CSS.",
       "issue": ""
     },
     "css/position": {
@@ -57,7 +134,13 @@
         "sticky"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: default is static",
+        "test/web-compat/test_layout_position.cpp::Position: set absolute",
+        "test/web-compat/test_layout_position.cpp::Position: set relative",
+        "test/web-compat/test_layout_position.cpp::Position: set fixed",
+        "test/web-compat/test_layout_position.cpp::Position: set sticky"
+      ],
       "notes": "All five CSS values are accepted by the bridge. 'fixed' and 'sticky' may render the same as 'absolute' in practice -- see #779 follow-ups for behavioral verification.",
       "issue": ""
     },
@@ -73,7 +156,9 @@
         "rem",
         "vh/vw"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with top/left compiles and sets"
+      ],
       "notes": "parseCSSLength is invoked but the bridge stores raw px only -- percentage values are dropped. setTop accepts numbers only.",
       "issue": ""
     },
@@ -89,7 +174,9 @@
         "rem",
         "vh/vw"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with right/bottom compiles and sets"
+      ],
       "notes": "Same limitation as top.",
       "issue": ""
     },
@@ -105,7 +192,9 @@
         "rem",
         "vh/vw"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with right/bottom compiles and sets"
+      ],
       "notes": "Same limitation as top.",
       "issue": ""
     },
@@ -121,7 +210,9 @@
         "rem",
         "vh/vw"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with top/left compiles and sets"
+      ],
       "notes": "Same limitation as top.",
       "issue": ""
     },
@@ -132,7 +223,13 @@
         "1-4 px tokens"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: default is static",
+        "test/web-compat/test_layout_position.cpp::Position: set absolute",
+        "test/web-compat/test_layout_position.cpp::Position: set relative",
+        "test/web-compat/test_layout_position.cpp::Position: set fixed",
+        "test/web-compat/test_layout_position.cpp::Position: set sticky"
+      ],
       "notes": "Shorthand expands correctly. Underlying setTop/etc. are px only.",
       "issue": ""
     },
@@ -145,7 +242,11 @@
       "unsupportedValues": [
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: z-index default is 0",
+        "test/web-compat/test_layout_position.cpp::Position: set z-index",
+        "test/web-compat/test_layout_position.cpp::Position: negative z-index"
+      ],
       "notes": "'auto' parses as 0.",
       "issue": ""
     },
@@ -165,7 +266,9 @@
         "fit-content",
         "calc()"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex width sets preferred_width"
+      ],
       "notes": "FlexStyle.preferred_width is a float. Yoga in upstream supports % and auto, but Pulp's C++ port loses that on the JSON wire -- only floats are accepted by setFlex.",
       "issue": ""
     },
@@ -184,7 +287,9 @@
         "max-content",
         "fit-content"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex height sets preferred_height"
+      ],
       "notes": "Same as width. dim_height supports DimensionUnit::vw/vh/percent/vmin/vmax internally but the setFlex bridge only accepts a single double.",
       "issue": ""
     },
@@ -198,7 +303,9 @@
         "%",
         "calc()"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex min_width"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -212,7 +319,9 @@
         "%",
         "calc()"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex min_height"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -226,7 +335,10 @@
         "%",
         "calc()"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex max_width",
+        "test/web-compat/test_css_calc.cpp::Calc: max_width caps growth"
+      ],
       "notes": "0 = no maximum (semantic differs from CSS where unspecified = none).",
       "issue": ""
     },
@@ -240,7 +352,9 @@
         "%",
         "calc()"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex max_height"
+      ],
       "notes": "Same as max-width.",
       "issue": ""
     },
@@ -278,7 +392,11 @@
         "%",
         "negative-edge-cases"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "'margin: auto' centers in CSS -- Pulp does NOT honor auto margins.",
       "issue": ""
     },
@@ -292,7 +410,11 @@
         "%",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -306,7 +428,11 @@
         "%",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -320,7 +446,11 @@
         "%",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -334,7 +464,11 @@
         "%",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -413,7 +547,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -426,7 +565,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -439,7 +583,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -452,7 +601,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -465,7 +619,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -544,7 +703,12 @@
       "unsupportedValues": [
         "two-value (row col) syntax"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "Two-value 'gap: 10px 20px' is not handled by parseCSSLength -- it parses only the first token.",
       "issue": ""
     },
@@ -557,7 +721,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -570,7 +739,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -587,7 +761,11 @@
         "'none'",
         "'initial'"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_calc.cpp::Calc: flex_grow 1 on child fills remaining space in 400px row",
+        "test/web-compat/test_css_calc.cpp::Calc: two flex_grow children split space equally",
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex flex_shrink"
+      ],
       "notes": "The CSS shorthand keywords (auto/none/initial) parse as NaN and silently set flex_grow=0.",
       "issue": ""
     },
@@ -603,7 +781,7 @@
         "column-reverse"
       ],
       "tests": [],
-      "notes": "MAJOR GAP -- Pulp's FlexDirection enum (geometry.hpp:61) only has {row, column}. Reverse modes silently fall through to default 'col'.",
+      "notes": "FlexDirection enum at geometry.hpp:61 has only 2 values (row, column). Yoga upstream has 4. PR #1167 (pulp #1147) made `display: flex` ALSO emit a flex-direction:row default in the CSS adapter to match web compatibility, since RN/Yoga's column default differs from CSS's row default. The default fires only when no explicit flexDirection / flex-direction / flex-flow direction token is also declared.",
       "issue": ""
     },
     "css/flexWrap": {
@@ -642,7 +820,10 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_calc.cpp::Calc: flex_grow 1 on child fills remaining space in 400px row",
+        "test/web-compat/test_css_calc.cpp::Calc: two flex_grow children split space equally"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -653,7 +834,9 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex flex_shrink"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -689,7 +872,11 @@
         "stretch",
         "normal"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content start",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content center",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content space-between"
+      ],
       "notes": "FlexJustify enum covers the 6 RN values.",
       "issue": ""
     },
@@ -746,7 +933,9 @@
         "integer"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: children laid out left-to-right"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -774,7 +963,7 @@
     },
     "css/overflow": {
       "status": "partial",
-      "mapsTo": "setOverflow(id, 'visible'|'hidden')",
+      "mapsTo": "setOverflow(id, value). PR #1320/#1328 made View::overlay_contains walk overflow:visible children so popovers that paint outside the active overlay's bounds still receive overlay clicks. Note: only 'visible' / 'hidden' / 'scroll' are first-class \u2014 'auto' falls back to 'scroll'.",
       "supportedValues": [
         "visible",
         "hidden"
@@ -785,8 +974,13 @@
         "clip",
         "overlay"
       ],
-      "tests": [],
-      "notes": "View::Overflow enum has only {visible, hidden}. Scroll requires using the ScrollView intrinsic.",
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: overflow hidden",
+        "test/web-compat/test_layout_position.cpp::Position: overflow visible",
+        "test/test_overlay_routing.cpp::View::overlay_contains includes overflow:visible child painted",
+        "test/test_overlay_routing.cpp::View::overlay_contains stops walking at overflow:hidden child"
+      ],
+      "notes": "View::set_overflow stores Overflow enum {visible, hidden, scroll, auto_}. overlay_contains (#1320) descends through overflow:visible to compute the union of the overlay's paint extent, but stops at overflow:hidden / overflow:scroll. There is no per-axis overflowX / overflowY \u2014 only the unified `overflow`.",
       "issue": ""
     },
     "css/overflowX": {
@@ -834,7 +1028,10 @@
       "unsupportedValues": [
         "percentage strings"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_view.cpp::View compositing layer for opacity",
+        "test/web-compat/test_reftests.cpp::Reftest: opacity layer"
+      ],
       "notes": "parseFloat strips the % suffix silently.",
       "issue": ""
     },
@@ -857,7 +1054,11 @@
         "oklch()",
         "color-mix()"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_color_parser.cpp::Color: hex #RRGGBB 6-digit",
+        "test/web-compat/test_screenshot_regression.cpp::Regression: different backgrounds produce different images",
+        "test/web-compat/test_reftests.cpp::Reftest: row with 3 colored panels"
+      ],
       "notes": "Modern color spaces not supported by parseCSSColor.",
       "issue": ""
     },
@@ -875,7 +1076,10 @@
       "unsupportedValues": [
         "lab/lch/oklab/oklch/color-mix"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_color_parser.cpp::Color: hex #RRGGBB 6-digit",
+        "test/test_typography_inheritance.cpp::View::set_inheritable_text_color cascades to child Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1012,7 +1216,9 @@
         "none",
         "hidden"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::CSS shim: 'border:' shorthand preserves border-radius"
+      ],
       "notes": "Border style is parsed but discarded -- only solid is rendered.",
       "issue": ""
     },
@@ -1028,7 +1234,14 @@
         "thick",
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1056,7 +1269,14 @@
       "unsupportedValues": [
         "currentColor"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "Re-applies border with width=1 and radius=0 -- overwrites any prior radius. KNOWN BUG.",
       "issue": ""
     },
@@ -1071,7 +1291,14 @@
         "two-value elliptical",
         "/ separator"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "Re-applies border with width=0 -- overwrites prior width. KNOWN BUG. Per-corner setters work better.",
       "issue": ""
     },
@@ -1136,7 +1363,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1147,7 +1381,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1158,7 +1399,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1169,7 +1417,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1180,7 +1435,14 @@
         "any css color"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "Sets width to 0 -- must combine with borderTopWidth. Quirk.",
       "issue": ""
     },
@@ -1191,7 +1453,14 @@
         "any css color"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1202,7 +1471,14 @@
         "any css color"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1213,7 +1489,14 @@
         "any css color"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1226,7 +1509,14 @@
       "unsupportedValues": [
         "elliptical x/y"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1237,7 +1527,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1248,7 +1545,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1259,7 +1563,14 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns",
+        "test/test_widget_bridge.cpp::CSS shim: setting borderRadius then borderColor preserves radius"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1354,13 +1665,15 @@
       "unsupportedValues": [
         "url()"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge canvasRect with no color uses active fillStyle (issue-968)"
+      ],
       "notes": "View::CursorStyle enum lists supported values.",
       "issue": ""
     },
     "css/pointerEvents": {
       "status": "supported",
-      "mapsTo": "setPointerEvents(id, mode)",
+      "mapsTo": "web-compat-style-decl.js: setPointerEvents(id, value). PR #1289 made ScrollView::hit_test honor pointer_events, so 'none' on a ScrollView now correctly passes hits through to siblings beneath.",
       "supportedValues": [
         "auto",
         "none",
@@ -1372,7 +1685,13 @@
         "visible-fill",
         "etc. (SVG)"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setPointerEvents routes 4-valued enum to View",
+        "test/test_view.cpp::View::hit_test honors pointerEvents == auto (default)",
+        "test/test_view.cpp::View::hit_test honors pointerEvents == none",
+        "test/test_view.cpp::View::hit_test honors pointerEvents == box-only",
+        "test/test_view.cpp::View::hit_test honors pointerEvents == box-none"
+      ],
       "notes": "View::PointerEvents enum.",
       "issue": ""
     },
@@ -1394,15 +1713,18 @@
     },
     "css/fontFamily": {
       "status": "partial",
-      "mapsTo": "setFontFamily(id, name) -- strips quotes via .replace(/['\"]/g, '')",
+      "mapsTo": "web-compat-style-decl.js: PR #1174 added a comma-separated fallback parser. Splits on comma, strips matching outer single/double quotes, walks the list and hands the first non-empty parsed family to setFontFamily(id, family). Pulp's bundled fonts (#932) plus the public registration API (#1175) decide which family resolves; generic fallbacks like 'monospace' / 'ui-monospace' do not currently resolve and silently fall back to the platform default.",
       "supportedValues": [
         "single font name (quoted or not)"
       ],
       "unsupportedValues": [
         "comma-separated font lists ('JetBrains Mono', monospace)"
       ],
-      "tests": [],
-      "notes": "FAMOUS BUG -- web-compat-style-decl.js:465 strips quotes from a list and passes the entire 'JetBrains Mono, monospace' as one face name. Should split on comma. Tracked in #932 / #927.",
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge loadFont reports existing and missing paths",
+        "test/test_typography_inheritance.cpp::Inheritable font_size flows to descendant Label"
+      ],
+      "notes": "Before PR #1174 the entire raw list (commas + spaces) was passed verbatim to SkFontMgr::matchFamilyStyle which never matched anything -> silent fallback to platform default. Now the parser gives each candidate a chance. PR #1175 added the runtime font registration API (loadFont / registerFont) so plugin authors can register custom fonts at startup.",
       "issue": ""
     },
     "css/fontSize": {
@@ -1417,7 +1739,11 @@
         "%",
         "smaller/larger"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_element_api.cpp::Element: setFontSize via JS",
+        "test/test_typography_inheritance.cpp::WidgetBridge setFontSize on a Panel cascades to child Label",
+        "test/test_typography_inheritance.cpp::Inheritable font_size flows to descendant Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1433,7 +1759,10 @@
         "lighter",
         "bolder"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setFontWeight on a Panel cascades to child Label",
+        "test/test_typography_inheritance.cpp::Inheritable font_weight flows to descendant Label"
+      ],
       "notes": "Keyword 'bold' parses as NaN -> 400. Should map: normal->400, bold->700.",
       "issue": ""
     },
@@ -1447,7 +1776,9 @@
       "unsupportedValues": [
         "oblique <angle>"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::Inheritable font_size flows to descendant Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1474,7 +1805,10 @@
         "em",
         "normal"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setLetterSpacing on a Panel cascades to child Label",
+        "test/test_typography_inheritance.cpp::Inheritable letter_spacing flows to descendant Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -1490,7 +1824,9 @@
         "em",
         "normal"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::Inheritable font_size flows to descendant Label"
+      ],
       "notes": "MAJOR GAP -- unitless line-height is the most common form; we drop it.",
       "issue": ""
     },
@@ -1508,7 +1844,10 @@
         "end",
         "match-parent"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setTextAlign on a Panel cascades to child Label",
+        "test/test_typography_inheritance.cpp::Inheritable text_align flows to descendant Label"
+      ],
       "notes": "RN supports auto/justify; we don't.",
       "issue": ""
     },
@@ -2595,7 +2934,10 @@
         "flex-start",
         "flex-end (long forms)"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: align-items stretch fills cross-axis",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: align-items start"
+      ],
       "notes": "Pulp's FlexAlign type takes short forms only ({start, center, end, stretch}). RN documentation uses 'flex-start'/'flex-end' which prop-applier passes through verbatim -- these would not match the C++ enum names. Style decl converts 'flex-start'->'start' but @pulp/react does not.",
       "issue": ""
     },
@@ -2614,7 +2956,9 @@
         "flex-start (long form)",
         "flex-end (long form)"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: align-items start"
+      ],
       "notes": "Same long-form/short-form mismatch as alignItems.",
       "issue": ""
     },
@@ -2631,14 +2975,20 @@
       "issue": ""
     },
     "rn/borderBottomWidth": {
-      "status": "missing",
-      "mapsTo": "no prop-applier case (border is handled as { color, width, radius } object)",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderBottomWidth -> setBorderBottomWidth(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "RN prop is flat top-level, Pulp uses object shape. Convert: <View style={{borderBottomWidth: 2}} /> -> <View borderBottom={{color:'#000', width:2}} />. Awkward for RN ports.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderEndWidth": {
@@ -2653,25 +3003,37 @@
       "issue": ""
     },
     "rn/borderLeftWidth": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderLeftWidth -> setBorderLeftWidth(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Same as borderBottomWidth.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderRightWidth": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderRightWidth -> setBorderRightWidth(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Same.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderStartWidth": {
@@ -2686,135 +3048,222 @@
       "issue": ""
     },
     "rn/borderTopWidth": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderTopWidth -> setBorderTopWidth(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Same as borderBottomWidth.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderWidth": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderWidth, but @pulp/react does not surface it as a flat prop.",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderWidth -> setBorderWidth(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "User can call <View border={{color:'#000', width:N}} /> as workaround.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderRadius": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderRadius, but @pulp/react does not surface it as a flat prop.",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderRadius -> setBorderRadius(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Workaround: <View border={{color:'transparent', width:0, radius:R}} />.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderTopLeftRadius": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderTopLeftRadius -> setBorderTopLeftRadius(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Bridge has setBorderTopLeftRadius -- needs prop wiring.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderTopRightRadius": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderTopRightRadius -> setBorderTopRightRadius(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Same.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderBottomLeftRadius": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderBottomLeftRadius -> setBorderBottomLeftRadius(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Same.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderBottomRightRadius": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderBottomRightRadius -> setBorderBottomRightRadius(id, value)",
+      "supportedValues": [
         "number"
       ],
-      "tests": [],
-      "notes": "Same.",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderColor": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderColor -- not surfaced as flat prop.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "color"
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderColor -> setBorderColor(id, value)",
+      "supportedValues": [
+        "hex color",
+        "rgba()",
+        "rgb()",
+        "named"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderTopColor": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderTopColor -- not surfaced.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "color"
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderTopColor -> setBorderTopColor(id, value)",
+      "supportedValues": [
+        "hex color",
+        "rgba()",
+        "rgb()",
+        "named"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderBottomColor": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderBottomColor -- not surfaced.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "color"
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderBottomColor -> setBorderBottomColor(id, value)",
+      "supportedValues": [
+        "hex color",
+        "rgba()",
+        "rgb()",
+        "named"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderLeftColor": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderLeftColor -- not surfaced.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "color"
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderLeftColor -> setBorderLeftColor(id, value)",
+      "supportedValues": [
+        "hex color",
+        "rgba()",
+        "rgb()",
+        "named"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderRightColor": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBorderRightColor -- not surfaced.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "color"
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: borderRightColor -> setBorderRightColor(id, value)",
+      "supportedValues": [
+        "hex color",
+        "rgba()",
+        "rgb()",
+        "named"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setBorderColor / setBorderWidth / setBorderRadius granular setters",
+        "test/test_widget_bridge.cpp::WidgetBridge per-corner setBorder*Radius setters route to corner_radii",
+        "test/test_widget_bridge.cpp::WidgetBridge per-side setBorder*Color / Width route to BorderSide",
+        "test/test_widget_bridge.cpp::WidgetBridge interleaved setBorderColor/Width/Radius preserves siblings",
+        "packages/pulp-react/test/prop-applier-border.test.ts::prop-applier border setters route to per-attribute bridge fns"
+      ],
+      "notes": "Wired in PR #1169 (audit PR #1166 finding #4) \u2014 flat per-attribute props mutate one slot in isolation, preserving sibling attributes set by earlier calls.",
       "issue": ""
     },
     "rn/borderStyle": {
@@ -2851,7 +3300,9 @@
       "unsupportedValues": [
         "string %"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with right/bottom compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -2862,7 +3313,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -2951,7 +3407,10 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_calc.cpp::Calc: flex_grow 1 on child fills remaining space in 400px row",
+        "test/web-compat/test_css_calc.cpp::Calc: two flex_grow children split space equally"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -2962,7 +3421,9 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex flex_shrink"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -2987,7 +3448,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3002,7 +3468,9 @@
         "string vh",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex height sets preferred_height"
+      ],
       "notes": "TS type is `number` only.",
       "issue": ""
     },
@@ -3021,7 +3489,11 @@
         "flex-start (long form)",
         "flex-end (long form)"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content start",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content center",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content space-between"
+      ],
       "notes": "Long-form RN names not auto-converted -- same trap as alignItems.",
       "issue": ""
     },
@@ -3032,7 +3504,9 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with top/left compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3046,7 +3520,11 @@
         "auto",
         "string"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3057,7 +3535,11 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3090,7 +3572,11 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3101,7 +3587,11 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3123,7 +3613,11 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3147,7 +3641,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex max_height"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3160,7 +3656,10 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex max_width",
+        "test/web-compat/test_css_calc.cpp::Calc: max_width caps growth"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3173,7 +3672,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex min_height"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3186,7 +3687,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex min_width"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3212,7 +3715,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3223,7 +3731,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3256,7 +3769,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3267,7 +3785,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3289,7 +3812,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3316,7 +3844,13 @@
         "fixed (RN omits)",
         "sticky (RN omits)"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: default is static",
+        "test/web-compat/test_layout_position.cpp::Position: set absolute",
+        "test/web-compat/test_layout_position.cpp::Position: set relative",
+        "test/web-compat/test_layout_position.cpp::Position: set fixed",
+        "test/web-compat/test_layout_position.cpp::Position: set sticky"
+      ],
       "notes": "RN's enum is {absolute, relative, static}. Pulp accepts more (fixed, sticky) than RN.",
       "issue": ""
     },
@@ -3327,7 +3861,9 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with right/bottom compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3338,7 +3874,12 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3360,7 +3901,9 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with top/left compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3374,7 +3917,9 @@
         "string %",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex width sets preferred_width"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3385,7 +3930,11 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: z-index default is 0",
+        "test/web-compat/test_layout_position.cpp::Position: set z-index",
+        "test/web-compat/test_layout_position.cpp::Position: negative z-index"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3455,7 +4004,9 @@
       "unsupportedValues": [
         "any non-hex"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_color_parser.cpp::Color: hex #RRGGBB 6-digit"
+      ],
       "notes": "TS type for `background` is `string` (hex-only by convention).",
       "issue": ""
     },
@@ -3489,7 +4040,9 @@
         "0..1 number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_view.cpp::View compositing layer for opacity"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3699,7 +4252,9 @@
       "unsupportedValues": [
         "modern color spaces"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::View::set_inheritable_text_color cascades to child Label"
+      ],
       "notes": "Pulp prop name is `textColor` (LabelProps), not `color`.",
       "issue": ""
     },
@@ -3721,7 +4276,9 @@
         "number (px)"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setFontSize on a Panel cascades to child Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3735,7 +4292,9 @@
       "unsupportedValues": [
         "oblique"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::Inheritable font_size flows to descendant Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3749,7 +4308,9 @@
         "normal",
         "bold"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setFontWeight on a Panel cascades to child Label"
+      ],
       "notes": "Keyword aliasing not done in prop-applier.",
       "issue": ""
     },
@@ -3771,7 +4332,9 @@
         "number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setLetterSpacing on a Panel cascades to child Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3784,7 +4347,9 @@
       "unsupportedValues": [
         "unitless multiplier"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::Inheritable font_size flows to descendant Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3800,7 +4365,9 @@
         "auto",
         "justify"
       ],
-      "tests": [],
+      "tests": [
+        "test/test_typography_inheritance.cpp::WidgetBridge setTextAlign on a Panel cascades to child Label"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3974,7 +4541,10 @@
         "non-negative number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_calc.cpp::Calc: flex_grow 1 on child fills remaining space in 400px row",
+        "test/web-compat/test_css_calc.cpp::Calc: two flex_grow children split space equally"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -3985,7 +4555,9 @@
         "non-negative number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex flex_shrink"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4016,7 +4588,11 @@
         "space-evenly"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content start",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content center",
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: justify-content space-between"
+      ],
       "notes": "All 6 modes covered.",
       "issue": ""
     },
@@ -4074,7 +4650,9 @@
         "%",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex width sets preferred_width"
+      ],
       "notes": "Internal Dimension struct supports vw/vh/% but is not exposed via the setFlex bridge.",
       "issue": ""
     },
@@ -4088,7 +4666,9 @@
         "%",
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex height sets preferred_height"
+      ],
       "notes": "Same as width.",
       "issue": ""
     },
@@ -4101,7 +4681,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex min_width"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4114,7 +4696,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex min_height"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4127,7 +4711,10 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex max_width",
+        "test/web-compat/test_css_calc.cpp::Calc: max_width caps growth"
+      ],
       "notes": "Semantic of 0 differs from CSS unspecified.",
       "issue": ""
     },
@@ -4140,7 +4727,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_value_parser.cpp::CSS Value: setFlex max_height"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4164,7 +4753,11 @@
       "unsupportedValues": [
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "Yoga has YGAuto for margin centering; not supported.",
       "issue": ""
     },
@@ -4177,7 +4770,11 @@
       "unsupportedValues": [
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4190,7 +4787,11 @@
       "unsupportedValues": [
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4203,7 +4804,11 @@
       "unsupportedValues": [
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4216,7 +4821,11 @@
       "unsupportedValues": [
         "auto"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: uniform margin resolves to all sides",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side margin overrides uniform",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: margin -1 means use uniform"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4273,7 +4882,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4286,7 +4900,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4299,7 +4918,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4312,7 +4936,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4325,7 +4954,12 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding uniform via FlexStyle",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: per-side padding set individually",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: padding via JS setFlex uniform then per-side",
+        "test/test_view.cpp::Flex layout with padding"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4439,7 +5073,13 @@
         "sticky"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: default is static",
+        "test/web-compat/test_layout_position.cpp::Position: set absolute",
+        "test/web-compat/test_layout_position.cpp::Position: set relative",
+        "test/web-compat/test_layout_position.cpp::Position: set fixed",
+        "test/web-compat/test_layout_position.cpp::Position: set sticky"
+      ],
       "notes": "Pulp's enum is a SUPERSET of Yoga's {static, relative, absolute}.",
       "issue": ""
     },
@@ -4452,7 +5092,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with top/left compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4465,7 +5107,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with right/bottom compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4478,7 +5122,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with right/bottom compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4491,7 +5137,9 @@
       "unsupportedValues": [
         "%"
       ],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_position.cpp::Position: absolute with top/left compiles and sets"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4524,7 +5172,12 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4535,7 +5188,12 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4546,7 +5204,12 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_column.cpp::Flex Col: gap adds space between children",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: gap uniform applies to effective_gap for row",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: column_gap overrides gap for row direction",
+        "test/web-compat/test_css_shorthand.cpp::Shorthand: row_gap overrides gap for column direction"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4557,7 +5220,9 @@
         "integer"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "test/web-compat/test_layout_flex_row.cpp::Flex Row: children laid out left-to-right"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -4604,7 +5269,68 @@
     }
   },
   "react": {
-    "_note": "Pending second-pass audit. The @pulp/react reconciler surface (host-config.ts, prop-applier.ts) is captured under rn/* above. This section is reserved for React-specific concerns: Suspense, ConcurrentMode, Profiler, error boundaries, refs, portals, hooks edge cases."
+    "_note": "Pending second-pass audit. The @pulp/react reconciler surface (host-config.ts, prop-applier.ts) is captured under rn/* above. This section is reserved for React-specific concerns: Suspense, ConcurrentMode, Profiler, error boundaries, refs, portals, hooks edge cases.",
+    "react/overlay": {
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: overlay={true} -> claimOverlay(id); overlay={false}|undefined -> releaseOverlay(id). PR #1297 + #1316 + #1320 generalized the overlay-click routing \u2014 any view marked as the active overlay first-receives clicks within its window-rect, including children that overflow:visible past the marked view's bounds (PR #1320).",
+      "supportedValues": [
+        "true",
+        "false"
+      ],
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_overlay_routing.cpp::View::active_overlay_ defaults to nullptr",
+        "test/test_overlay_routing.cpp::View::claim_overlay sets active_overlay_ to this",
+        "test/test_overlay_routing.cpp::View::release_overlay clears only if this holds it",
+        "test/test_overlay_routing.cpp::View::overlay_contains uses absolute window coords",
+        "test/test_overlay_routing.cpp::View::overlay_contains includes overflow:visible child painted",
+        "test/test_overlay_routing.cpp::View::overlay_contains stops walking at overflow:hidden child",
+        "packages/pulp-react/test/prop-applier-overlay.test.ts::@pulp/react prop-applier \u2014 overlay routing (pulp #1148)"
+      ],
+      "notes": "Generalized routing for absolutely-positioned popovers, dropdowns, modals built on `<View overlay style={{position: 'absolute', ...}}>`. The platform host first asks the active overlay if the click lands inside its subtree (recursively, walking through overflow:visible nodes) before delegating to normal hit_test.",
+      "issue": "#1148 (closed via #1297)"
+    },
+    "react/SvgPath": {
+      "status": "supported",
+      "mapsTo": "prop-applier.ts: <SvgPath d viewBox fill stroke strokeWidth /> -> setSvgPath/setSvgViewBox/setSvgFill/setSvgStroke/setSvgStrokeWidth on SvgPathWidget (#994 / #991).",
+      "supportedValues": [
+        "d (path-data string)",
+        "viewBox ([w,h])",
+        "fill (hex / 'none')",
+        "stroke (hex / 'none')",
+        "strokeWidth (number)"
+      ],
+      "unsupportedValues": [
+        "clipPath",
+        "mask",
+        "filter (blur/etc on path)",
+        "transform on path"
+      ],
+      "tests": [
+        "packages/pulp-react/test/svgpath-intrinsic.test.ts::@pulp/react SvgPath intrinsic (pulp #994)",
+        "test/test_svg_path_widget.cpp"
+      ],
+      "notes": "Replaces raw `<svg>` markup which had no DOM-lite handler. Path-data parser supports M/m, L/l, H/h, V/v, C/c, S/s, Q/q, T/t, A/a, Z/z. Two-number viewBox ([w,h]) \u2014 full 4-tuple (min-x, min-y, w, h) is not supported.",
+      "issue": ""
+    },
+    "react/font-registration": {
+      "status": "supported",
+      "mapsTo": "Public API: loadFont(path) registers a TTF/OTF file with SkFontMgr at runtime so subsequent fontFamily lookups can resolve it. Added in PR #1175 (closes pulp #1150).",
+      "supportedValues": [
+        "TTF",
+        "OTF"
+      ],
+      "unsupportedValues": [
+        "WOFF",
+        "WOFF2",
+        "remote URLs (must be local file)"
+      ],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge loadFont reports existing and missing paths"
+      ],
+      "notes": "Pairs with PR #1174's fallback parser \u2014 register the font, then the comma-separated fallback list will pick it up. Before this API, plugins could only use the bundled fonts from #932.",
+      "issue": ""
+    }
   },
   "html": {
     "_note": "Pending second-pass audit. The DOM-lite consumer surface (createElement, setAttribute, appendChild, addEventListener, etc.) lives in core/view/js/web-compat-*.js. Surfaces of interest: Element / HTMLElement attribute coverage, ARIA attributes, dataset, classList, the DocumentFragment shim, the Event constructor surface."
@@ -4673,6 +5399,19 @@
     "v0": {
       "parser-version": "0.1",
       "detected-formats": []
+    },
+    "imports/window-resize-triggers-relayout": {
+      "status": "supported",
+      "mapsTo": "core/view/platform/mac/window_host_mac.mm: NSWindow resize event invokes root_view->invalidate_layout(). PR #1327 (closes pulp #1321).",
+      "supportedValues": [
+        "macOS standalone",
+        "AU/AUv3 host",
+        "VST3 host"
+      ],
+      "unsupportedValues": [],
+      "tests": [],
+      "notes": "Before PR #1327, resizing the standalone window would not re-flow flex layouts pinned to viewport \u2014 children stayed at their previous-frame positions. Catch2 coverage of NSWindow event handlers requires a live window so this is exercised by manual + screenshot regression in test_screenshot_regression.cpp.",
+      "issue": ""
     }
   }
 }
