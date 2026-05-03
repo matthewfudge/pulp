@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
 # Pulp pre-push hook (agent-agnostic).
 #
-# Runs the versioning + skill-sync gates against origin/main before pushing.
-# Advisory by default — warnings print but don't block. Set
-# PULP_ENFORCE_PREPUSH=1 to upgrade warnings to hard errors (CI does this).
+# Runs the versioning + skill-sync + compat-sync + deps-audit + diff-coverage
+# gates against origin/main before pushing. **Enforcing by default** as of
+# pulp #1144 — gate failures block the push locally so contributors don't
+# burn 20-min CI roundtrips on the same problem.
 #
 # Install once via tools/scripts/install-githooks.sh (or setup.sh):
 #   git config core.hooksPath .githooks
 #
-# To skip on a single push (emergencies only):
-#   PULP_SKIP_PREPUSH=1 git push
+# Bypass knobs (use sparingly — CI runs the same gates):
+#   PULP_DISABLE_PREPUSH_GATES=1   # demote ALL gates to advisory (skill/version/compat/deps)
+#   PULP_DISABLE_PREPUSH_DIFF_COVER=1  # demote diff-cover gate only
+#   PULP_SKIP_PREPUSH=1            # skip ALL gates entirely (true emergencies)
+#
+# Migration note (pulp #1144): the old `PULP_ENFORCE_PREPUSH=1` and
+# `PULP_ENFORCE_PREPUSH_DIFF_COVER=1` env vars used to *promote* advisory
+# warnings to hard failures. Defaults are now flipped — promotion is the
+# default; the new env vars *demote* failures back to advisory. The legacy
+# env vars are accepted as silent no-ops (they were the default anyway —
+# setting them just confirmed the new default behavior).
 
 set -u
 
@@ -53,8 +63,7 @@ case $? in
     *) echo "[pre-push] version_bump_check: internal error" >&2 ;;
 esac
 
-# Compat-sync (#1029). Advisory unless PULP_ENFORCE_PREPUSH=1 — the
-# script reads the env var directly, so just pass --mode=report.
+# Compat-sync (#1029).
 if [ -f "$CSC" ] && [ -f "$COMPAT_MAP" ]; then
     "$PYTHON" "$CSC" --base "$BASE" --mode=report
     case $? in
@@ -65,8 +74,7 @@ if [ -f "$CSC" ] && [ -f "$COMPAT_MAP" ]; then
 fi
 
 # Dependency attribution drift — fails if manifest entries are missing from
-# DEPENDENCIES.md, NOTICE.md, or docs/reference/licensing.md. Advisory by
-# default; PULP_ENFORCE_PREPUSH=1 promotes it along with the other gates.
+# DEPENDENCIES.md, NOTICE.md, or docs/reference/licensing.md.
 DEPS_AUDIT="$ROOT/tools/deps/audit.py"
 if [ -f "$DEPS_AUDIT" ]; then
     if ! "$PYTHON" "$DEPS_AUDIT" --strict >/dev/null; then
@@ -77,37 +85,55 @@ fi
 
 # Local diff-coverage check — mirror the CI `Diff coverage required` gate
 # (75% by default; threshold lives in tools/scripts/coverage_config.json).
-# Advisory by default; PULP_ENFORCE_PREPUSH_DIFF_COVER=1 upgrades to hard
-# fail. We only run the script when the diff actually touches a mapped
-# coverage surface (core/, tools/cli/, tools/scripts/) — otherwise we'd
-# pay the configure+build cost on doc-only or workflow-only PRs that
-# CI's coverage workflow itself bypasses for the gate.
+# We only run the script when the diff actually touches a mapped coverage
+# surface (core/, tools/cli/, tools/scripts/) — otherwise we'd pay the
+# configure+build cost on doc-only or workflow-only PRs that CI's coverage
+# workflow itself bypasses for the gate.
+diff_cover_failed=0
 DIFF_COVER_SH="$ROOT/tools/scripts/local_diff_cover.sh"
 if [ -f "$DIFF_COVER_SH" ] && [ "${PULP_SKIP_DIFF_COVER:-0}" != "1" ]; then
     if changed=$(git diff --name-only "$BASE...HEAD" 2>/dev/null); then
         if echo "$changed" | grep -qE '^(core/|tools/cli/|tools/scripts/)'; then
             echo "[pre-push] running local diff-coverage check (set PULP_SKIP_DIFF_COVER=1 to bypass)…" >&2
             if ! bash "$DIFF_COVER_SH"; then
-                if [ "${PULP_ENFORCE_PREPUSH_DIFF_COVER:-0}" = "1" ]; then
-                    echo "[pre-push] PULP_ENFORCE_PREPUSH_DIFF_COVER=1 — blocking push due to diff-coverage failure." >&2
-                    fail=1
-                else
-                    echo "[pre-push] diff-coverage advisory: failure above is non-blocking (export PULP_ENFORCE_PREPUSH_DIFF_COVER=1 to block)." >&2
-                fi
+                diff_cover_failed=1
             fi
         fi
     fi
 fi
 
-if [ "$fail" = "0" ]; then
+# pulp #1144 — defaults are flipped: gate failures BLOCK the push.
+# `PULP_DISABLE_PREPUSH_GATES=1` demotes the four primary gates back
+# to advisory; `PULP_DISABLE_PREPUSH_DIFF_COVER=1` demotes the
+# diff-cover gate only.
+
+if [ "$fail" = "0" ] && [ "$diff_cover_failed" = "0" ]; then
     echo "[pre-push] gates clean." >&2
     exit 0
 fi
 
-if [ "${PULP_ENFORCE_PREPUSH:-0}" = "1" ]; then
-    echo "[pre-push] PULP_ENFORCE_PREPUSH=1 — blocking push due to gate failures above." >&2
-    exit 1
+# Apply demotion knobs.
+disable_main="${PULP_DISABLE_PREPUSH_GATES:-0}"
+disable_diff="${PULP_DISABLE_PREPUSH_DIFF_COVER:-0}"
+
+if [ "$diff_cover_failed" = "1" ] && [ "$disable_diff" = "1" ]; then
+    echo "[pre-push] PULP_DISABLE_PREPUSH_DIFF_COVER=1 — diff-coverage failure DEMOTED to advisory." >&2
+    diff_cover_failed=0
 fi
 
-echo "[pre-push] warnings above are advisory (export PULP_ENFORCE_PREPUSH=1 to block)." >&2
-exit 0
+if [ "$fail" = "1" ] && [ "$disable_main" = "1" ]; then
+    echo "[pre-push] PULP_DISABLE_PREPUSH_GATES=1 — skill/version/compat/deps gate failures DEMOTED to advisory." >&2
+    fail=0
+fi
+
+if [ "$fail" = "0" ] && [ "$diff_cover_failed" = "0" ]; then
+    echo "[pre-push] gate failures present but demoted by env override; push allowed. Fix before merging." >&2
+    exit 0
+fi
+
+echo "[pre-push] gate failure(s) above; blocking push." >&2
+echo "[pre-push] To bypass (use sparingly; CI still runs the same gates):" >&2
+echo "[pre-push]   PULP_DISABLE_PREPUSH_GATES=1 git push          # demote skill/version/compat/deps" >&2
+echo "[pre-push]   PULP_DISABLE_PREPUSH_DIFF_COVER=1 git push     # demote diff-cover only" >&2
+echo "[pre-push]   PULP_SKIP_PREPUSH=1 git push                   # skip ALL gates (emergencies)" >&2
+exit 1

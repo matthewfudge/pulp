@@ -482,8 +482,8 @@ Pulp versions three surfaces independently: SDK/CLI (`CMakeLists.txt`), Claude p
 **Enforcement (three layers, one source of truth):**
 
 1. **Agent hooks (Layer 1)** — `hooks/scripts/cli-plugin-sync.sh` runs `version_bump_check.py` and `skill_sync_check.py` in `--mode=hint` on every PostToolUse so you see drift while iterating. Advisory only.
-2. **Pre-push hook (Layer 2)** — `.githooks/pre-push` runs both scripts in `--mode=report`. Advisory by default; `PULP_ENFORCE_PREPUSH=1` upgrades to hard failure.
-3. **CI + Shipyard (Layer 3, authoritative)** — `.github/workflows/version-skill-check.yml` and the `validation.gates` stage in `.shipyard/config.toml` both invoke the same scripts in `--mode=report` with `PULP_ENFORCE_PREPUSH=1`. No bypass other than the commit trailers below.
+2. **Pre-push hook (Layer 2)** — `.githooks/pre-push` runs both scripts in `--mode=report`. **Enforcing by default** (pulp #1144 — was advisory pre-#1144 and burned 80+ minutes per multi-touch PR on CI roundtrips). `PULP_DISABLE_PREPUSH_GATES=1` demotes back to advisory; `PULP_SKIP_PREPUSH=1` skips entirely (emergencies only).
+3. **CI + Shipyard (Layer 3, authoritative)** — `.github/workflows/version-skill-check.yml` and the `validation.gates` stage in `.shipyard/config.toml` both invoke the same scripts in `--mode=report`. CI is hard-failing (no env-var demotion). No bypass other than the commit trailers below.
 
 **Shipping a PR** — when the user says any of "push a PR", "ship this", "ship it", "we're done", "merge this", or "push it", invoke `shipyard pr` (the existing `ci` skill routes through this). Never run `gh pr create` + `shipyard ship` separately; never run the version-bump or skill-sync scripts by hand. `shipyard pr` orchestrates:
 
@@ -611,8 +611,9 @@ pulp coverage diff pulp-test-widget-bridge
 The threshold + surface filters live in
 `tools/scripts/coverage_config.json` — edit there once and CI
 (`.github/workflows/coverage.yml`) plus this local script stay in
-sync. The pre-push hook runs this check advisory-by-default;
-`PULP_ENFORCE_PREPUSH_DIFF_COVER=1` upgrades it to a hard block.
+sync. The pre-push hook runs this check enforcing-by-default
+(pulp #1144); `PULP_DISABLE_PREPUSH_DIFF_COVER=1` demotes it to
+advisory if you genuinely need to push a known coverage gap.
 
 The Claude Code slash command `/coverage-diff` invokes the same
 script with the same args, so all four invocation surfaces share
