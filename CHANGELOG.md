@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0720"></a>
+## [0.72.0] - 2026-05-03
+
+- feat(view): generalize overlay-click routing for React popovers (closes pulp #1148) ([#1297](https://github.com/danielraffel/pulp/pull/1297))
+
 <a id="v0710"></a>
 ## [0.71.0] - 2026-05-03
 
@@ -1153,6 +1158,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.72.0]: https://github.com/danielraffel/pulp/releases/tag/v0.72.0
 [0.71.0]: https://github.com/danielraffel/pulp/releases/tag/v0.71.0
 [0.70.0]: https://github.com/danielraffel/pulp/releases/tag/v0.70.0
 [0.69.2]: https://github.com/danielraffel/pulp/releases/tag/v0.69.2
