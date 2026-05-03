@@ -81,15 +81,21 @@ jobs:
           # here keeps the two layers in lock-step instead of having
           # the post-merge layer second-guess the explicit opt-out.
           #
-          # Match shape: unscoped `Version-Bump: skip reason="..."` ONLY.
+          # Match shape: unscoped `Version-Bump: skip reason="<non-empty>"` ONLY.
           # Per-surface forms like `Version-Bump: sdk=skip` mean "skip
           # this surface's bump" but don't opt out of the whole release
           # gate (they're handled by the per-surface verdict pipeline
           # in version_bump_check.py). Mirrors the same matching shape
           # as `_range_has_version_bump_skip_trailer()` in
-          # tools/scripts/version_bump_check.py.
+          # tools/scripts/version_bump_check.py — including the
+          # requirement that the reason be NON-EMPTY (Codex P2 on the
+          # original #1310 fix; the earlier regex allowed bare
+          # `reason=` with no value, but the Python gate rejects it).
+          # If the two layers disagreed on validity, an author could
+          # write `reason=""` that passes here but fails at PR time
+          # (or vice-versa) — making the bypass inconsistent.
           if echo "$body" | git interpret-trailers --parse | \
-              grep -iE '^version-bump:[[:space:]]+skip[[:space:]]+reason='; then
+              grep -iE '^version-bump:[[:space:]]+skip\b.*reason[[:space:]]*=[[:space:]]*"[^"]+"'; then
               echo "Version-Bump: skip trailer present — no tagging."
               echo "skip=1" >> "$GITHUB_OUTPUT"
               exit 0
