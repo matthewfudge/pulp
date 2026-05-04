@@ -3715,3 +3715,59 @@ TEST_CASE("WidgetBridge claimOverlay / releaseOverlay drive View::active_overlay
     // Cleanup so the global state doesn't leak into the next test.
     pulp::view::View::active_overlay_ = nullptr;
 }
+
+// pulp #1361 — claimOverlay must install on_overlay_dismissed so React
+// `<View overlay onDismissed>` consumers can flip setOpen(false) when the
+// framework dismisses the overlay via ESC or outside-click.
+TEST_CASE("WidgetBridge claimOverlay installs dismiss callback that fires "
+          "__dispatch__('id', 'dismiss', 0) [issue-1361]",
+          "[view][bridge][issue-1361]") {
+    pulp::view::View::active_overlay_ = nullptr;
+
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createPanel('popover', '')");
+    auto* popover = bridge.widget("popover");
+    REQUIRE(popover != nullptr);
+
+    // Install a JS-side recorder for __dispatch__ so we can observe the
+    // bridge firing the 'dismiss' event when dismiss_active_overlay()
+    // runs.
+    bridge.load_script(
+        "globalThis.__dismissLog = [];"
+        "const __orig = globalThis.__dispatch__;"
+        "globalThis.__dispatch__ = (id, type, val) => {"
+        "  if (type === 'dismiss') globalThis.__dismissLog.push(id);"
+        "  return __orig ? __orig(id, type, val) : undefined;"
+        "}");
+
+    bridge.load_script("claimOverlay('popover')");
+    REQUIRE(pulp::view::View::active_overlay_ == popover);
+    REQUIRE(static_cast<bool>(popover->on_overlay_dismissed));
+
+    // Simulate the platform host's ESC / outside-click dismissal path.
+    pulp::view::View::dismiss_active_overlay();
+    REQUIRE(pulp::view::View::active_overlay_ == nullptr);
+
+    // The dismiss callback should have fired __dispatch__('popover', 'dismiss', 0).
+    auto count = engine.evaluate("globalThis.__dismissLog.length")
+                       .getWithDefault<double>(-1);
+    REQUIRE(count == 1);
+    auto first_id = engine.evaluate("globalThis.__dismissLog[0]")
+                          .getWithDefault<std::string>("");
+    REQUIRE(first_id == "popover");
+
+    // releaseOverlay (the JSX-unmount path) must clear the dismiss
+    // callback so a subsequent dismiss_active_overlay() can't re-fire on
+    // the now-detached widget.
+    pulp::view::View::active_overlay_ = popover;  // simulate re-claim
+    popover->on_overlay_dismissed = []() {};      // re-install (claim path)
+    bridge.load_script("releaseOverlay('popover')");
+    REQUIRE_FALSE(static_cast<bool>(popover->on_overlay_dismissed));
+
+    pulp::view::View::active_overlay_ = nullptr;
+}

@@ -259,3 +259,177 @@ TEST_CASE("View overlay routing: ComboBox::active_popup_ is independent "
     REQUIRE(View::active_overlay_ == &v);
     // ComboBox state is in its own static; not touched by claim_overlay.
 }
+
+// ── pulp #1361 — auto-dismissal (ESC + outside-click) ─────────────────────
+//
+// Before #1361, `active_overlay_` had no auto-dismissal: only React
+// unmount or the View destructor cleared the slot. ESC and outside-click
+// both failed silently. The fix adds:
+//   - `View::dismiss_active_overlay()` — releases the slot AND fires
+//     `on_overlay_dismissed` so React state can sync.
+//   - Mac window host wires this into the ESC keypath and the
+//     outside-click path (the latter previously called `release_overlay()`
+//     which didn't fire the callback).
+//
+// These tests pin the View-level invariant. Mac-host integration is
+// covered indirectly — we don't spin up an NSView in unit tests.
+
+TEST_CASE("View::dismiss_active_overlay clears the slot [issue-1361]",
+          "[view][overlay][1361]") {
+    OverlayGuard g;
+    TestView v;
+    v.claim_overlay();
+    REQUIRE(View::active_overlay_ == &v);
+
+    View::dismiss_active_overlay();
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("View::dismiss_active_overlay fires on_overlay_dismissed callback "
+          "[issue-1361]",
+          "[view][overlay][1361]") {
+    OverlayGuard g;
+    TestView v;
+    int dismiss_calls = 0;
+    v.on_overlay_dismissed = [&dismiss_calls]() { ++dismiss_calls; };
+
+    v.claim_overlay();
+    View::dismiss_active_overlay();
+    REQUIRE(dismiss_calls == 1);
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("View::dismiss_active_overlay is a no-op when nothing is claimed "
+          "[issue-1361]",
+          "[view][overlay][1361]") {
+    OverlayGuard g;
+    TestView v;
+    int dismiss_calls = 0;
+    v.on_overlay_dismissed = [&dismiss_calls]() { ++dismiss_calls; };
+
+    // Slot is empty — must not fire callback or crash.
+    View::dismiss_active_overlay();
+    REQUIRE(dismiss_calls == 0);
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("View::release_overlay does NOT fire on_overlay_dismissed "
+          "[issue-1361]",
+          "[view][overlay][1361]") {
+    // release_overlay() is the JSX-unmount / destructor path. React already
+    // knows the popover is closing — firing on_overlay_dismissed there
+    // would loop back into the JSX setOpen(false) handler unnecessarily.
+    OverlayGuard g;
+    TestView v;
+    int dismiss_calls = 0;
+    v.on_overlay_dismissed = [&dismiss_calls]() { ++dismiss_calls; };
+
+    v.claim_overlay();
+    v.release_overlay();
+    REQUIRE(dismiss_calls == 0);
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("View destructor does NOT fire on_overlay_dismissed [issue-1361]",
+          "[view][overlay][1361]") {
+    // Same rationale as release_overlay — destructor is unmount-time, the
+    // JS side already torn down the React component. Plus firing a JS
+    // callback that touches the (now-destroyed) View would dangle.
+    OverlayGuard g;
+    int dismiss_calls = 0;
+    {
+        TestView v;
+        v.on_overlay_dismissed = [&dismiss_calls]() { ++dismiss_calls; };
+        v.claim_overlay();
+    }  // dtor runs
+    REQUIRE(dismiss_calls == 0);
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("ESC dismisses active_overlay without disturbing other holders "
+          "[issue-1361]",
+          "[view][overlay][1361]") {
+    // Sanity: the ESC path always calls dismiss_active_overlay() on the
+    // current holder. A different View's claim must remain untouched
+    // when not in the slot at the time of dismissal.
+    OverlayGuard g;
+    TestView a, b;
+    int a_calls = 0, b_calls = 0;
+    a.on_overlay_dismissed = [&a_calls]() { ++a_calls; };
+    b.on_overlay_dismissed = [&b_calls]() { ++b_calls; };
+
+    a.claim_overlay();
+    REQUIRE(View::active_overlay_ == &a);
+
+    // Simulate the ESC path.
+    View::dismiss_active_overlay();
+    REQUIRE(a_calls == 1);
+    REQUIRE(b_calls == 0);
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("Outside-click dismissal: dismiss_active_overlay is the "
+          "release-and-notify path [issue-1361]",
+          "[view][overlay][1361]") {
+    // The mac mouseDown outside-click branch (window_host_mac.mm) used to
+    // call `release_overlay()`, which silently cleared the slot without
+    // notifying React. The fix routes that branch through
+    // `dismiss_active_overlay()` — this test pins the contract:
+    // the call SHOULD fire the dismiss callback so JS state can sync.
+    OverlayGuard g;
+    TestView popover;
+    popover.set_bounds({100.0f, 100.0f, 200.0f, 150.0f});
+
+    int dismiss_calls = 0;
+    popover.on_overlay_dismissed = [&dismiss_calls]() { ++dismiss_calls; };
+    popover.claim_overlay();
+
+    // Verify the click really IS outside (mirrors the host's
+    // overlay_contains() guard before calling dismiss_active_overlay).
+    Point outside_pt{50.0f, 50.0f};
+    REQUIRE_FALSE(popover.overlay_contains(outside_pt));
+
+    // Host's outside-click branch calls dismiss_active_overlay().
+    View::dismiss_active_overlay();
+    REQUIRE(dismiss_calls == 1);
+    REQUIRE(View::active_overlay_ == nullptr);
+}
+
+TEST_CASE("Inside-click does NOT dismiss the overlay [issue-1361]",
+          "[view][overlay][1361]") {
+    // The host's mouseDown branch only calls dismiss_active_overlay()
+    // when the click falls OUTSIDE the overlay. Inside clicks route
+    // into the overlay's hit_test subtree and the slot stays claimed.
+    // This test pins overlay_contains() returning true keeps the slot
+    // intact — no call site invokes dismiss in that branch.
+    OverlayGuard g;
+    TestView popover;
+    popover.set_bounds({100.0f, 100.0f, 200.0f, 150.0f});
+
+    int dismiss_calls = 0;
+    popover.on_overlay_dismissed = [&dismiss_calls]() { ++dismiss_calls; };
+    popover.claim_overlay();
+
+    // Click inside the popover bounds.
+    Point inside_pt{200.0f, 175.0f};
+    REQUIRE(popover.overlay_contains(inside_pt));
+
+    // No dismiss call — the slot stays claimed for the next click.
+    REQUIRE(View::active_overlay_ == &popover);
+    REQUIRE(dismiss_calls == 0);
+}
+
+TEST_CASE("Pre-existing release_overlay path still works without callback "
+          "[issue-1361][regression]",
+          "[view][overlay][1361][regression]") {
+    // Regression: legacy callers (the bridge's releaseOverlay JS function,
+    // plus the View destructor) must still clear the slot via release_overlay
+    // — that path is independent of the new dismiss callback.
+    OverlayGuard g;
+    TestView v;
+    // No on_overlay_dismissed callback assigned at all.
+    v.claim_overlay();
+    REQUIRE(View::active_overlay_ == &v);
+    v.release_overlay();
+    REQUIRE(View::active_overlay_ == nullptr);
+}
