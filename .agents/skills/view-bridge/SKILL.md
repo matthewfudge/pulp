@@ -132,6 +132,17 @@ Phase 4's `attach_remote_view(url)` (WebSocket-backed) will land as a
 4. **Hard-coding `editor_size()` when you actually want resize
    bounds.** Override `view_size()` and return a `ViewSize` with
    real min/max; hosts use those to constrain user-drag resize.
+5. **Forgetting that adapters must read `bridge.size_hints().min_*`
+   when building the host's `WindowOptions`.** The bridge caches
+   `Processor::view_size()` in `size_hints_`, but each adapter is
+   responsible for forwarding `min_width`/`min_height` (and
+   `preferred_*`) into its window/host options. The standalone
+   adapter centralizes this in `detail::make_standalone_window_options`
+   so the chrome-height shift is applied consistently (#1362). Other
+   adapters wiring an OS window (e.g. host apps registering a
+   `WindowHost::Factory`) need the same propagation; reading only
+   `preferred_*` leaves the OS host with a zero minimum and lets
+   plugins shrink below their declared floor.
 
 ## Tests
 
