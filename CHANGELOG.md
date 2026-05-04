@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0724"></a>
+## [0.72.4] - 2026-05-03
+
+- fix(view/skia): shape fills honor active gradient_shader_ (closes #1350) ([#1353](https://github.com/danielraffel/pulp/pull/1353))
+- fix(view): inline <svg width/height> attrs reserve flex layout space (closes pulp #1147) ([#1347](https://github.com/danielraffel/pulp/pull/1347))
+- feat(view): translate CSS :hover rules to mouseenter/mouseleave listeners (closes #1323, #1149 part b) ([#1345](https://github.com/danielraffel/pulp/pull/1345))
+- fix(view): wire Canvas2D shim methods so FilterBank renders (closes pulp #1346 + augments #1322) ([#1348](https://github.com/danielraffel/pulp/pull/1348))
+
 <a id="v0723"></a>
 ## [0.72.3] - 2026-05-03
 
@@ -1183,6 +1191,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.72.4]: https://github.com/danielraffel/pulp/releases/tag/v0.72.4
 [0.72.3]: https://github.com/danielraffel/pulp/releases/tag/v0.72.3
 [0.72.2]: https://github.com/danielraffel/pulp/releases/tag/v0.72.2
 [0.72.1]: https://github.com/danielraffel/pulp/releases/tag/v0.72.1
