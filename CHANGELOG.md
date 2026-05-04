@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0726"></a>
+## [0.72.6] - 2026-05-03
+
+- fix(format): StandaloneApp honors view_size().min_* (closes pulp #1362) ([#1364](https://github.com/danielraffel/pulp/pull/1364))
+- audit(compat): refresh matrix from spec walk + post-#1027 surface ([#1366](https://github.com/danielraffel/pulp/pull/1366))
+- feat(@pulp/react): synthesize event for JSX handlers (closes pulp #1352) ([#1363](https://github.com/danielraffel/pulp/pull/1363))
+
 <a id="v0725"></a>
 ## [0.72.5] - 2026-05-03
 
@@ -1196,6 +1203,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.72.6]: https://github.com/danielraffel/pulp/releases/tag/v0.72.6
 [0.72.5]: https://github.com/danielraffel/pulp/releases/tag/v0.72.5
 [0.72.4]: https://github.com/danielraffel/pulp/releases/tag/v0.72.4
 [0.72.3]: https://github.com/danielraffel/pulp/releases/tag/v0.72.3
