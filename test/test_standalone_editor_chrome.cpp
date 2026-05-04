@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <pulp/format/detail/standalone_editor_chrome.hpp>
 
 #include <memory>
@@ -567,4 +568,78 @@ TEST_CASE("Standalone log helper formats the chrome mode",
 
     log_standalone_window_open(640, 360, false, false, chrome);
     SUCCEED();
+}
+
+TEST_CASE("make_standalone_window_options propagates min_* from ViewSize",
+          "[standalone][chrome][issue-1362]") {
+    auto editor_root = std::make_unique<View>();
+    auto chrome = make_standalone_editor_chrome(
+        std::move(editor_root),
+        StandaloneConfig{.show_settings_tab = false},
+        nullptr, nullptr, nullptr, {});
+
+    pulp::format::ViewSize hints;
+    hints.preferred_width = 1320;
+    hints.preferred_height = 860;
+    hints.min_width = 800;
+    hints.min_height = 600;
+
+    auto opts = make_standalone_window_options(hints, chrome, "Plug — Standalone", false);
+
+    REQUIRE(opts.title == "Plug — Standalone");
+    REQUIRE(opts.width == Catch::Approx(1320.0f));
+    REQUIRE(opts.height == Catch::Approx(860.0f));
+    REQUIRE(opts.min_width == Catch::Approx(800.0f));
+    REQUIRE(opts.min_height == Catch::Approx(600.0f));
+    REQUIRE(opts.resizable);
+    REQUIRE_FALSE(opts.use_gpu);
+}
+
+TEST_CASE("make_standalone_window_options leaves min_* at zero when unset",
+          "[standalone][chrome][issue-1362]") {
+    auto editor_root = std::make_unique<View>();
+    auto chrome = make_standalone_editor_chrome(
+        std::move(editor_root),
+        StandaloneConfig{.show_settings_tab = false},
+        nullptr, nullptr, nullptr, {});
+
+    // Default ViewSize: zero min_* — the platform window host should
+    // see "no minimum" rather than a stale clamp.
+    pulp::format::ViewSize hints;
+    hints.preferred_width = 600;
+    hints.preferred_height = 400;
+
+    auto opts = make_standalone_window_options(hints, chrome, "X", true);
+
+    REQUIRE(opts.min_width == Catch::Approx(0.0f));
+    REQUIRE(opts.min_height == Catch::Approx(0.0f));
+    REQUIRE(opts.use_gpu);
+}
+
+TEST_CASE("make_standalone_window_options extends min_height when chrome adds rows",
+          "[standalone][chrome][issue-1362]") {
+    // Settings tab adds 32px of chrome — the height min must rise in
+    // lockstep with the preferred-height extension so the editor area
+    // can never be squeezed below its declared min.
+    auto editor_root = std::make_unique<View>();
+    auto chrome = make_standalone_editor_chrome(
+        std::move(editor_root),
+        StandaloneConfig{.show_settings_tab = true},
+        nullptr, nullptr, nullptr, {});
+    REQUIRE(chrome.extra_window_height() == Catch::Approx(32.0f));
+
+    pulp::format::ViewSize hints;
+    hints.preferred_width = 1320;
+    hints.preferred_height = 860;
+    hints.min_width = 800;
+    hints.min_height = 600;
+
+    auto opts = make_standalone_window_options(hints, chrome, "Plug", false);
+
+    // Preferred height = preferred_height + chrome.extra_window_height()
+    REQUIRE(opts.height == Catch::Approx(892.0f));
+    // Min height is shifted by the same chrome amount so the editor
+    // area's own minimum is never violated.
+    REQUIRE(opts.min_width == Catch::Approx(800.0f));
+    REQUIRE(opts.min_height == Catch::Approx(632.0f));
 }
