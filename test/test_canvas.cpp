@@ -1018,6 +1018,53 @@ TEST_CASE("Unregistered families don't resolve through the registry (#1150)",
         "/this/path/does/not/exist/font.ttf", "AlsoAnything"));
 }
 
+// pulp #1350 — fill_rect / fill_rounded_rect / fill_circle on SkiaCanvas
+// must honor an active linear gradient set via set_fill_gradient_linear,
+// matching the behavior of fill_current_path. Pre-fix the rect-family
+// helpers all went through a free `make_fill_paint(Color)` that only
+// knew about the solid fill color, so a Canvas2D consumer that called
+// `ctx.fillStyle = ctx.createLinearGradient(...); ctx.fillRect(...)`
+// got a flat first-stop color instead of the gradient.
+TEST_CASE("SkiaCanvas::fill_rect honors active linear gradient",
+          "[canvas][skia][gradient][issue-1350]") {
+    constexpr int kW = 64;
+    constexpr int kH = 8;
+    SkImageInfo info = SkImageInfo::Make(kW, kH, kN32_SkColorType,
+                                         kPremul_SkAlphaType,
+                                         SkColorSpace::MakeSRGB());
+    auto surface = SkSurfaces::Raster(info);
+    REQUIRE(surface != nullptr);
+    auto* sk_canvas = surface->getCanvas();
+    REQUIRE(sk_canvas != nullptr);
+    sk_canvas->clear(SK_ColorBLACK);
+
+    SkiaCanvas canvas(sk_canvas);
+
+    Color stops[2] = {
+        Color::rgba(1.0f, 0.0f, 0.0f, 1.0f),  // red at x=0
+        Color::rgba(0.0f, 1.0f, 0.0f, 1.0f),  // green at x=kW
+    };
+    float positions[2] = {0.0f, 1.0f};
+    canvas.set_fill_gradient_linear(0.0f, 0.0f,
+                                     static_cast<float>(kW), 0.0f,
+                                     stops, positions, 2);
+    canvas.fill_rect(0.0f, 0.0f,
+                     static_cast<float>(kW), static_cast<float>(kH));
+
+    // Read back two pixels at the gradient endpoints. If the rect ignored
+    // the gradient and used the solid fill_color_ default, both pixels
+    // would be identical white. With the fix they must differ — and the
+    // left pixel must skew red while the right pixel skews green.
+    SkPixmap pm;
+    REQUIRE(surface->peekPixels(&pm));
+    SkColor left = pm.getColor(2, kH / 2);
+    SkColor right = pm.getColor(kW - 3, kH / 2);
+
+    REQUIRE(left != right);
+    REQUIRE(SkColorGetR(left)  > SkColorGetG(left));   // left is red-dominant
+    REQUIRE(SkColorGetG(right) > SkColorGetR(right));  // right is green-dominant
+}
+
 #endif  // PULP_HAS_SKIA
 
 // ── pulp #929 — Canvas::clear_rect default + CoreGraphics override ──────────
