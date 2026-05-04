@@ -1597,4 +1597,92 @@ TEST_CASE("CoreGraphicsCanvas::fill_path honors active linear gradient",
     REQUIRE(green_dominant > 0);
 }
 
+// pulp #1368 — CoreGraphicsCanvas tracks save_count() and supports
+// restore_to_count() for the CanvasWidget::paint defensive bracket.
+TEST_CASE("CoreGraphicsCanvas tracks save_count and restore_to_count",
+          "[canvas][cg][issue-1368]") {
+    constexpr int W = 16;
+    constexpr int H = 16;
+    auto build_ctx = [&](std::vector<uint8_t>& pixels) {
+        auto colorSpace = CGColorSpaceCreateDeviceRGB();
+        CGContextRef ctx = CGBitmapContextCreate(
+            pixels.data(), static_cast<size_t>(W), static_cast<size_t>(H),
+            8, static_cast<size_t>(W) * 4u, colorSpace,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+        CGColorSpaceRelease(colorSpace);
+        return ctx;
+    };
+    std::vector<uint8_t> pixels(static_cast<size_t>(W) * H * 4u, 0u);
+    CGContextRef ctx = build_ctx(pixels);
+    {
+        CoreGraphicsCanvas canvas(ctx, static_cast<float>(W),
+                                  static_cast<float>(H));
+        const int baseline = canvas.save_count();
+
+        canvas.save();
+        canvas.save();
+        canvas.save();
+        REQUIRE(canvas.save_count() == baseline + 3);
+
+        // Pop two levels — depth drops by exactly two.
+        canvas.restore_to_count(baseline + 1);
+        REQUIRE(canvas.save_count() == baseline + 1);
+
+        // restore_to_count to original baseline drops the last leftover.
+        canvas.restore_to_count(baseline);
+        REQUIRE(canvas.save_count() == baseline);
+
+        // restore_to_count below baseline is a clamped no-op (no underflow).
+        canvas.restore_to_count(baseline - 5);
+        REQUIRE(canvas.save_count() == baseline);
+    }
+    CGContextRelease(ctx);
+}
+
 #endif  // __APPLE__
+
+// pulp #1368 — Canvas's default save_count() / restore_to_count() impls
+// are no-op fallbacks for backends that don't implement an introspectable
+// save stack. CanvasWidget's defensive bracket relies on the contract that
+// these are safe to call on any Canvas. Exercise the defaults via a
+// minimal Canvas subclass that doesn't override either method.
+namespace {
+
+class MinimalCanvas final : public pulp::canvas::Canvas {
+public:
+    void save() override {}
+    void restore() override {}
+    void translate(float, float) override {}
+    void scale(float, float) override {}
+    void rotate(float) override {}
+    void clip_rect(float, float, float, float) override {}
+    void set_fill_color(pulp::canvas::Color) override {}
+    void set_stroke_color(pulp::canvas::Color) override {}
+    void set_line_width(float) override {}
+    void set_line_cap(pulp::canvas::LineCap) override {}
+    void set_line_join(pulp::canvas::LineJoin) override {}
+    void fill_rect(float, float, float, float) override {}
+    void stroke_rect(float, float, float, float) override {}
+    void fill_rounded_rect(float, float, float, float, float) override {}
+    void stroke_rounded_rect(float, float, float, float, float) override {}
+    void fill_circle(float, float, float) override {}
+    void stroke_circle(float, float, float) override {}
+    void stroke_arc(float, float, float, float, float) override {}
+    void stroke_line(float, float, float, float) override {}
+    void set_font(const std::string&, float) override {}
+    void set_text_align(pulp::canvas::TextAlign) override {}
+    void fill_text(const std::string&, float, float) override {}
+    float measure_text(const std::string&) override { return 0.0f; }
+};
+
+} // namespace
+
+TEST_CASE("Canvas default save_count is 0 and restore_to_count is a no-op",
+          "[canvas][issue-1368]") {
+    MinimalCanvas mc;
+    REQUIRE(mc.save_count() == 0);
+    mc.restore_to_count(0);
+    mc.restore_to_count(-3);
+    mc.restore_to_count(99);
+    REQUIRE(mc.save_count() == 0);
+}
