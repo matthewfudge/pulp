@@ -269,8 +269,8 @@ unregister callback/missing-id cleanup, null host/root close behavior,
 and missing-handler send/broadcast paths. It remains unpushed and
 undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-param-attachment-edges-493` at `80bc3351`, refreshed
-from `cf7957c3` onto current `origin/main` and covering ParamAttachment
+`local/phase3-param-attachment-edges-493` at `61a5fdc2`, refreshed
+from `80bc3351` onto current `origin/main` `0447498e` and covering ParamAttachment
 fader/toggle/combo callback forwarding, missing parameter-id no-op
 behavior, and `poll_bindings()` external-change propagation. It remains
 unpushed and undispatched.
