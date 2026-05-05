@@ -257,8 +257,8 @@ refreshed from `3e45d531` onto current `origin/main` `0447498e` and covering
 VisualizationBridge disabled-waveform, zero-channel, and waveform
 capture-length clamp paths. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-waveform-editor-edges-493` at `761d4c15`, refreshed
-from `9e28c887` onto current `origin/main` and covering WaveformEditor
+`local/phase3-waveform-editor-edges-493` at `1cf964ba`, refreshed
+from `761d4c15` onto current `origin/main` `0447498e` and covering WaveformEditor
 selection, visible-range, and playhead clamps, paint overlay output,
 key scroll/release handling, and mouse selection extension paths. It
 remains unpushed and undispatched.
