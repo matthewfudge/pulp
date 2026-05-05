@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 07:42 PDT
+Last reviewed: 2026-05-05 07:46 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -341,11 +341,12 @@ fader/toggle/combo callback forwarding, missing parameter-id no-op
 behavior, and `poll_bindings()` external-change propagation. It remains
 unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-input-events-edges-493` at `d96d76a6`, refreshed from
-`235f98b2` onto current `origin/main` `0447498e` and covering InputEvents
-wheel/meta mouse helper paths, ended/cancelled gesture deltas, key
-release/repeat main-modifier checks, and missing pointer-capture
-release behavior. It remains unpushed and undispatched.
+`local/phase3-input-events-edges-493` at `361242e4`, refreshed from
+`235f98b2` onto current `origin/main` `0447498e`, then refreshed again
+onto current `origin/main` `c18785c9`, covering InputEvents wheel/meta
+mouse helper paths, ended/cancelled gesture deltas, key release/repeat
+main-modifier checks, and missing pointer-capture release behavior. It
+remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-widget-bridge-dom-493` at `d332d795`, refreshed from
 `d2eec1b9` onto current `origin/main` `0447498e` and covering WidgetBridge native
