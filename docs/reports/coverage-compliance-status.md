@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 04:04 PDT
+Last reviewed: 2026-05-05 04:17 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -142,6 +142,10 @@ Additional #640 audio progress is queued locally as
 `1ab6e24b` onto current `origin/main` `0447498e`, covering
 AudioFocusRegistry inactive-listener skip behavior when a listener is
 removed or the registry is reset during dispatch. It remains unpushed and
+undispatched. Additional #640 audio progress is queued locally as
+`local/phase3-audio-data-shape-640` at `cdfa7ee1`, created from current
+`origin/main` `0447498e`, covering AudioFileData helper shape semantics
+and WAV writer first-channel-empty rejection. It remains unpushed and
 undispatched. Additional #643 tools progress is queued locally as
 `local/phase3-audio-tools-model-store-643` at `9743ccd7`, refreshed from
 `a88ddfe8` onto current `origin/main` `0447498e`, covering `tools/audio`
