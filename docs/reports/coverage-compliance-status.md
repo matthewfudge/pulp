@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 04:36 PDT
+Last reviewed: 2026-05-05 04:41 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -200,7 +200,11 @@ refreshed from `c3b79d68` onto current `origin/main`, then refreshed
 again to `1dfeb616` on `origin/main` `0447498e`, covering
 PluginScanner VST3/LV2 format-lane merging, final name ordering, LV2
 URI identity, VST3 stem fallback identity, and hermetic scanner fixture
-paths. It remains unpushed and undispatched.
+paths. It remains unpushed and undispatched. Additional #493 host progress
+is queued locally as `local/phase3-background-scanner-restart-493` at
+`b109a24f`, created from current `origin/main` `0447498e`, covering
+BackgroundScanner restart after a completed-but-unjoined worker. It
+remains unpushed and undispatched.
 Additional #643 CLI/tools progress is queued locally as
 `local/phase3-fetchcontent-cache-edges-643` at `e5b13514`, refreshed
 from `b056ca59` onto current `origin/main` `0447498e`, covering
