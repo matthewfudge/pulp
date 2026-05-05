@@ -15,15 +15,10 @@
 //!
 //! # `check` semantics caveat
 //!
-//! The C++ side compares the project's CMakeLists.txt `VERSION` against
-//! a compile-time `PULP_SDK_VERSION`. The Rust binary has no such macro
-//! — its version comes from `CARGO_PKG_VERSION` (or
-//! `PULP_RS_CLI_VERSION` for tests). Until Phase 8 swaps the Rust
-//! binary in as the SDK CLI, the reported "SDK version consistent /
-//! mismatch" line compares the project against the Rust CLI version.
-//! In the interim this still catches drift between CMakeLists.txt /
-//! CHANGELOG / plugin.json / marketplace.json, which is where the
-//! majority of historical drift bugs have come from.
+//! The Rust binary now receives the SDK version through the CMake build
+//! bridge, so the reported "SDK version consistent / mismatch" line
+//! compares projects against the released CLI version. Direct Cargo
+//! prototype builds fall back to the crate version.
 
 use std::io::Write;
 use std::path::Path;

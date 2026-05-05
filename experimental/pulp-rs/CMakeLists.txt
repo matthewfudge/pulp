@@ -85,6 +85,7 @@ set(_pulp_rs_dest_bin   "${CMAKE_BINARY_DIR}/${_pulp_rs_bin_name}")
 add_custom_target(pulp-rust-cli ALL
     COMMAND ${CMAKE_COMMAND} -E env
         "CARGO_TARGET_DIR=${_pulp_rs_target_dir}"
+        "PULP_RS_BUILD_VERSION=${PROJECT_VERSION}"
         ${CARGO_EXECUTABLE} build ${_pulp_rs_cargo_args}
         --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml"
     BYPRODUCTS "${_pulp_rs_cargo_bin}"
