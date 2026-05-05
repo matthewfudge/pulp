@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 13:35 PDT
+Last reviewed: 2026-05-05 13:39 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -370,9 +370,10 @@ onto current `origin/main` `c18785c9`, then onto current `origin/main`
 state, generated knob display-format branches, and sync propagation to
 toggles and existing faders. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-image-cache-trim-493` at `9422522f`, refreshed from
+`local/phase3-image-cache-trim-493` at `dca796b7`, refreshed from
 `d9a0fc92` onto current `origin/main` `0447498e`, then refreshed again
-onto current `origin/main` `c18785c9`, covering ImageCache byte-budget
+onto current `origin/main` `c18785c9`, then onto current `origin/main`
+`83271a94`, covering ImageCache byte-budget
 lowering, least-recently-used trimming, and releaser behavior. It
 remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
