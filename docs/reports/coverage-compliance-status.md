@@ -152,12 +152,13 @@ from `908b3a49` to `1dc45105`, then onto current `origin/main`
 fallback behavior. It has no remote branch ref and remains unpushed and
 undispatched.
 Additional #640 audio progress is queued locally as
-`local/phase3-audio-focus-dispatch-640` at `94bc6a2a`, refreshed from
+`local/phase3-audio-focus-dispatch-640` at `69b4d18c`, refreshed from
 `1ab6e24b` to `d766f4b9`, then onto current `origin/main` `bd036171`,
-then onto current `origin/main` `b7ec8f08`, covering
-AudioFocusRegistry inactive-listener skip behavior when a listener is
-removed or the registry is reset during dispatch. It remains unpushed and
-undispatched. Additional #640 audio progress is queued locally as
+then onto current `origin/main` `b7ec8f08`, then onto current
+`origin/main` `6c8b9920`, covering AudioFocusRegistry inactive-listener
+skip behavior when a listener is removed or the registry is reset during
+dispatch. It remains unpushed and undispatched. Additional #640 audio
+progress is queued locally as
 `local/phase3-audio-data-shape-640` at `c9ae1343`, created from current
 `origin/main` `0447498e`, then refreshed onto current `origin/main`
 `8fa55f5e`, then onto current `origin/main` `b7ec8f08`, then onto
