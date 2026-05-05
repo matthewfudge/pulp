@@ -8,6 +8,26 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0770"></a>
+## [0.77.0] - 2026-05-05
+
+- fix(view/css): translate width/height percent values through to Yoga (closes pulp #1423) ([#1426](https://github.com/danielraffel/pulp/pull/1426))
+- codex/shipyard rust docs ([#1441](https://github.com/danielraffel/pulp/pull/1441))
+- feat(yoga): aspect-ratio support across FlexStyle, CSS shim, and @pulp/react (pulp #1434 batch 5) ([#1437](https://github.com/danielraffel/pulp/pull/1437))
+- feat(view/css): translate `white-space: nowrap` to native single-line layout (closes #1410) ([#1411](https://github.com/danielraffel/pulp/pull/1411))
+- fix(harness): catalog-hygiene sweep + css OOS reclassification (refs pulp #1434) ([#1436](https://github.com/danielraffel/pulp/pull/1436))
+- feat(harness): rn surface adapter via auto-discover (closes #1392 partial, #1393 partial) ([#1396](https://github.com/danielraffel/pulp/pull/1396))
+- feat(@pulp/react): SvgRect + SvgLine intrinsics (closes pulp #1416) ([#1421](https://github.com/danielraffel/pulp/pull/1421))
+- fix(harness/yoga): claim display:flex+none, add inline-block/inline-flex routing (closes pulp #1420) ([#1422](https://github.com/danielraffel/pulp/pull/1422))
+- feat(harness): css surface adapter via auto-discover (closes #1392 partial, #1393 partial) ([#1397](https://github.com/danielraffel/pulp/pull/1397))
+- feat(harness): canvas2d surface adapter via auto-discover (closes #1392 partial, #1393 partial) ([#1399](https://github.com/danielraffel/pulp/pull/1399))
+- feat(harness): html surface adapter via auto-discover (closes #1392 partial, #1393 partial) ([#1398](https://github.com/danielraffel/pulp/pull/1398))
+- fix(view): host idle pumps must drain timers, not just rAF (pulp #1412) ([#1425](https://github.com/danielraffel/pulp/pull/1425))
+- feat(harness): auto-discover surface adapters via pkgutil + decorator (closes #1401) ([#1415](https://github.com/danielraffel/pulp/pull/1415))
+- test(view): regression guard for overflow:hidden parent clip-rect (refs pulp #1409) ([#1414](https://github.com/danielraffel/pulp/pull/1414))
+- fix(view/css): translate `text-overflow: ellipsis` to native truncation (closes #1407) ([#1408](https://github.com/danielraffel/pulp/pull/1408))
+- fix(harness/yoga): normalize annotated catalog values before exact-string match ([#1417](https://github.com/danielraffel/pulp/pull/1417))
+
 <a id="v0760"></a>
 ## [0.76.0] - 2026-05-04
 
@@ -1260,6 +1280,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.77.0]: https://github.com/danielraffel/pulp/releases/tag/v0.77.0
 [0.76.0]: https://github.com/danielraffel/pulp/releases/tag/v0.76.0
 [0.75.6]: https://github.com/danielraffel/pulp/releases/tag/v0.75.6
 [0.75.5]: https://github.com/danielraffel/pulp/releases/tag/v0.75.5
