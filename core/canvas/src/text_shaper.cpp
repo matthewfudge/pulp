@@ -59,17 +59,39 @@ static ShapedLayout layout_from_segments(const std::vector<ShapedSegment>& segme
     // Skips the wrapping loop entirely so segments past `max_width` are
     // not silently dropped.
     if (max_lines == 1) {
+        // Find a representative whitespace width so newlines collapsed
+        // into spaces under CSS `white-space: nowrap` contribute the
+        // same advance the engine would have used for a literal space.
+        // Falls back to a line-height-relative estimate (≈ space/line
+        // ratio in typical fonts) when the input has no whitespace
+        // segments to sample.
+        float whitespace_width = 0.0f;
+        for (const auto& seg : segments) {
+            if (seg.is_whitespace && !seg.is_newline) {
+                whitespace_width = seg.width;
+                break;
+            }
+        }
+        if (whitespace_width == 0.0f && line_height > 0)
+            whitespace_width = line_height * 0.18f;
+
         ShapedLayout::Line line;
         line.first_segment = 0;
         line.segment_count = static_cast<int>(segments.size());
         line.y = 0;
         float w = 0;
         for (const auto& seg : segments) {
-            // Treat hard newlines as their own zero-width markers under
-            // nowrap; skip their contribution to width but keep them in
-            // the segment range so materialized text matches the input.
-            if (!seg.is_newline) w += seg.width;
-            if (materialize) line.text += seg.text;
+            if (seg.is_newline) {
+                // CSS `white-space: nowrap` collapses hard breaks into
+                // a single space — both visually (materialized text)
+                // and in width (so #1407's overflow detection sees the
+                // collapsed advance).
+                w += whitespace_width;
+                if (materialize) line.text += ' ';
+            } else {
+                w += seg.width;
+                if (materialize) line.text += seg.text;
+            }
         }
         line.width = w;
         result.lines.push_back(std::move(line));
