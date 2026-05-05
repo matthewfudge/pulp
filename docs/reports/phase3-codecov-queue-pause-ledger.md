@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 10:54 PDT
+Last updated: 2026-05-05 13:07 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -23,6 +23,12 @@ This local ledger records the open `codecov` PR validation runs paused to free N
 - Open `codecov` PRs in snapshot: 73
 - Queued/in-progress Codecov-branch workflow runs selected for cancellation: 193
 - Selected workflows: Build and Test, Coverage, Sanitizer Tests
+- Local checkpoint at 2026-05-05 13:07 PDT: `origin/main` is `24047ba3`.
+  The refreshed #643 CLI/tool tranches recorded below are validated on that
+  base. The #640 audio/platform tranches refreshed earlier this session are
+  validated on `b567dbeb` and are now one mainline commit behind after the
+  unrelated view/CSS `boxShadow` mainline advance; keep them local-only and
+  rebase/re-smoke before any later push/CI resume.
 
 ## Pause Update 2026-05-04
 
