@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 20:57 PDT
+Last reviewed: 2026-05-04 21:03 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -200,6 +200,11 @@ Additional #493 view progress is queued locally as
 `local/phase3-splash-screen-493` at `38f2c93d`, covering SplashScreen
 advance/dismiss callback behavior, dismiss-on-click gating, and
 text/image paint output. It remains unpushed and undispatched.
+Additional #493 view progress is queued locally as
+`local/phase3-appearance-manager-493` at `b96abb6b`, covering
+AppearanceTracker repeated lock callbacks and locked poll no-op
+behavior, plus ThemeManager locked-theme, locked-appearance callback,
+and unlock behavior. It remains unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 
