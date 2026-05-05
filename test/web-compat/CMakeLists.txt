@@ -25,12 +25,22 @@ add_executable(pulp-test-web-compat-layout
     test_layout_grid.cpp
     test_layout_position.cpp
     test_layout_nested.cpp
+    test_layout_aspect_ratio.cpp
 )
 target_link_libraries(pulp-test-web-compat-layout PRIVATE pulp::view Catch2::Catch2WithMain)
 target_include_directories(pulp-test-web-compat-layout PRIVATE ${WEBCOMPAT_INCLUDE_DIR})
 target_compile_definitions(pulp-test-web-compat-layout PRIVATE
     PULP_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}/test"
 )
+# pulp #1434 — test_layout_aspect_ratio.cpp exercises the CSS shim via
+# document.createElement + appendChild, which (like the events / prelude
+# targets) deep-recurses through QuickJS↔C++ DOM ops. Match the prelude
+# stack size so the CSS-shim end-to-end tests don't blow the default.
+if(APPLE)
+    target_link_options(pulp-test-web-compat-layout PRIVATE -Wl,-stack_size,0x2000000)
+elseif(UNIX)
+    target_link_options(pulp-test-web-compat-layout PRIVATE -Wl,-z,stacksize=16777216)
+endif()
 catch_discover_tests(pulp-test-web-compat-layout)
 
 # Event tests

@@ -243,15 +243,19 @@
       "issue": ""
     },
     "css/aspectRatio": {
-      "status": "partial",
-      "mapsTo": "web-compat-style-decl.js parses '16/9' and calls setFlex(id, 'aspect_ratio', ratio); but FlexStyle has NO aspect_ratio field, so setFlex silently drops it",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js parses '<n>', '<num>/<den>', and 'auto'; calls setFlex(id, 'aspect_ratio', ratio); widget_bridge writes FlexStyle.aspect_ratio; yoga_layout dispatches to YGNodeStyleSetAspectRatio",
+      "supportedValues": [
+        "number",
+        "ratio (n/d)",
+        "auto"
       ],
-      "tests": [],
-      "notes": "MAJOR GAP -- the parser exists but the layout backend doesn't honor it. The setFlex switch in widget_bridge.cpp:1624-1685 has no 'aspect_ratio' branch.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "test/web-compat/test_layout_aspect_ratio.cpp"
+      ],
+      "notes": "pulp #1434 — three value forms accepted: plain number ('1.5'), 'width / height' ratio ('16/9' -> 1.778), and 'auto' (clears slot). Both 'aspectRatio' (camelCase) and 'aspect-ratio' (kebab-case) work; setProperty auto-converts kebab to camel.",
+      "issue": "1434"
     },
     "css/backdropFilter": {
       "status": "supported",
@@ -2660,16 +2664,18 @@
       "issue": ""
     },
     "rn/aspectRatio": {
-      "status": "missing",
-      "mapsTo": "@pulp/react does not expose aspectRatio. CSS surface attempts to set it via setFlex 'aspect_ratio' but FlexStyle has no field.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "number",
-        "string"
+      "status": "supported",
+      "mapsTo": "@pulp/react FlexProps.aspectRatio -> setFlex(id, 'aspect_ratio', value) -> FlexStyle.aspect_ratio -> YGNodeStyleSetAspectRatio",
+      "supportedValues": [
+        "number"
       ],
-      "tests": [],
-      "notes": "MAJOR -- aspect-ratio is in RN's layout-props surface but not at the @pulp/react JSX surface.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-aspect-ratio.test.ts",
+        "test/web-compat/test_layout_aspect_ratio.cpp"
+      ],
+      "notes": "pulp #1434 — JSX surface accepts numeric aspectRatio (RN parity per oracle 'kind: number'). String forms ('16/9', 'auto') reach FlexStyle through the CSS shim path (web-compat-style-decl.js), not the @pulp/react TS surface.",
+      "issue": "1434"
     },
     "rn/backfaceVisibility": {
       "status": "missing",
@@ -4259,15 +4265,17 @@
       "issue": ""
     },
     "yoga/aspectRatio": {
-      "status": "missing",
-      "mapsTo": "no FlexStyle field; setFlex 'aspect_ratio' silently dropped",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "FlexStyle.aspect_ratio (std::optional<float>) -> YGNodeStyleSetAspectRatio",
+      "supportedValues": [
+        "number"
       ],
-      "tests": [],
-      "notes": "Yoga upstream supports it. Pulp's parser exists in CSS shim but the field is missing.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "test/web-compat/test_layout_aspect_ratio.cpp"
+      ],
+      "notes": "pulp #1434 — added FlexStyle.aspect_ratio + Yoga dispatch + bridge setFlex 'aspect_ratio' branch + @pulp/react aspectRatio prop. CSS shim accepts plain numbers ('1.5'), 'width/height' ratios ('16/9'), and 'auto' (clears slot).",
+      "issue": "1434"
     },
     "yoga/margin": {
       "status": "supported",
