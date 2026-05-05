@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 03:58 PDT
+Last reviewed: 2026-05-05 04:02 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -148,6 +148,12 @@ undispatched. Additional #643 tools progress is queued locally as
 model registry URL resolution, legacy/malformed model metadata,
 model/bundle JSON serialization/defaults, and excerpt-find guard and
 unsupported-input paths. It remains unpushed and undispatched.
+Additional #643 CLI progress is queued locally as
+`local/phase3-cli-config-command-643` at `76b36dcf`, refreshed from
+`af1ef6f8` onto current `origin/main` `0447498e`, covering `pulp config`
+set/get/list, snooze clearing, malformed update keys, and invalid
+update-key diagnostics against an isolated `PULP_HOME`. It remains
+unpushed and undispatched.
 Additional #640 platform progress is queued locally as
 `local/phase3-platform-environment-dispatch-640` at `422a64cc`,
 refreshed from `b271d2e6` onto current `origin/main` `0447498e`,
