@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 06:35 PDT
+Last reviewed: 2026-05-05 06:39 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -390,6 +390,13 @@ covering NamedPipe closed/missing endpoint fail-closed behavior, POSIX
 FIFO round-trip, cleanup, move-ownership, and create-failure paths. The
 refreshed branch remains unpushed and undispatched; #1286 still points
 at the old remote head until Namespace capacity returns.
+Additional #643 CLI helper progress is refreshed locally as
+`feature/phase3-create-targets-coverage-643` at `79a3489c`, rebased from
+the paused #1271 remote head `62ca4512` onto current `origin/main`
+`0447498e`, covering create-target optional format suffixes, duplicate
+suppression, and empty standalone app target filtering. The refreshed
+branch remains unpushed and undispatched; #1271 still points at the old
+remote head until Namespace capacity returns.
 Additional #640 audio progress is refreshed locally as
 `feature/phase3-mmap-reader-extra-640` at `84470694`, rebased from the
 paused #1280 remote head `ed2ba7bf` onto current `origin/main`
