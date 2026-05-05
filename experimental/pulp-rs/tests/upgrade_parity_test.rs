@@ -59,7 +59,7 @@ fn run(name: &str, extra_env: &[(&str, &str)]) -> std::process::Output {
     let home = tempfile::tempdir().expect("tempdir");
     plant_cache(name, home.path());
 
-    let mut cmd = assert_cmd::Command::cargo_bin("pulp-rs").expect("binary");
+    let mut cmd = assert_cmd::Command::cargo_bin("pulp").expect("binary");
     cmd.args(["upgrade", "--check-only", "--json"])
         .env("PULP_HOME", home.path())
         .env("PULP_RS_CLI_VERSION", "0.37.0");
@@ -120,7 +120,7 @@ fn upgrade_check_only_human_lane_reports_installed_and_latest() {
     let home = tempfile::tempdir().unwrap();
     plant_cache("fresh_cache", home.path());
 
-    let output = assert_cmd::Command::cargo_bin("pulp-rs")
+    let output = assert_cmd::Command::cargo_bin("pulp")
         .unwrap()
         .args(["upgrade", "--check-only"])
         .env("PULP_HOME", home.path())
@@ -139,7 +139,7 @@ fn upgrade_check_only_human_lane_reports_installed_and_latest() {
 fn upgrade_notes_lane_emits_from_to_json() {
     // No network needed for --notes with explicit --from/--to.
     let home = tempfile::tempdir().unwrap();
-    let output = assert_cmd::Command::cargo_bin("pulp-rs")
+    let output = assert_cmd::Command::cargo_bin("pulp")
         .unwrap()
         .args([
             "upgrade", "--notes", "--json", "--from", "0.30.0", "--to", "0.40.0",
@@ -168,7 +168,7 @@ fn upgrade_install_dry_run_plants_pending_marker() {
     let home = tempfile::tempdir().unwrap();
     plant_cache("fresh_cache", home.path());
 
-    let output = assert_cmd::Command::cargo_bin("pulp-rs")
+    let output = assert_cmd::Command::cargo_bin("pulp")
         .unwrap()
         .args(["upgrade", "--install", "--json"])
         .env("PULP_HOME", home.path())
@@ -185,7 +185,7 @@ fn upgrade_install_dry_run_plants_pending_marker() {
 }
 
 /// Phase 8: integration-level coverage for the build-artifact guard.
-/// `pulp-rs upgrade --install` invoked from cargo's target/ tree
+/// `pulp upgrade --install` invoked from cargo's target/ tree
 /// must refuse to clobber the running binary unless the user opts
 /// into the live path explicitly.
 #[test]
@@ -193,7 +193,7 @@ fn upgrade_install_refuses_when_running_under_cargo_target() {
     let home = tempfile::tempdir().unwrap();
     plant_cache("fresh_cache", home.path());
 
-    let output = assert_cmd::Command::cargo_bin("pulp-rs")
+    let output = assert_cmd::Command::cargo_bin("pulp")
         .unwrap()
         .args(["upgrade", "--install"])
         .env("PULP_HOME", home.path())

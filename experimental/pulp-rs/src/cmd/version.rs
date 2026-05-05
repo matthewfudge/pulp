@@ -190,7 +190,9 @@ fn show(json: bool, out: &mut impl Write) -> Result<()> {
         return Ok(());
     }
 
-    writeln!(out, "pulp-rs v{} (prototype)", snap.cli.raw).map_err(io_err)?;
+    // Phase 8 binary swap (#767 / #686): user-facing label is now
+    // `pulp` (was `pulp-rs (prototype)`). The C++ delegate is `pulp-cpp`.
+    writeln!(out, "pulp v{}", snap.cli.raw).map_err(io_err)?;
     if !snap.plugin.raw.is_empty() {
         writeln!(out, "Claude plugin: v{}", snap.plugin.raw).map_err(io_err)?;
     }

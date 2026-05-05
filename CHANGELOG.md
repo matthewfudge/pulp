@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0780"></a>
+## [0.78.0] - 2026-05-05
+
+- feat(cli): make the Rust CLI the default `pulp` binary and ship the C++ delegate as `pulp-cpp` in release artifacts.
+
 <a id="v0770"></a>
 ## [0.77.0] - 2026-05-05
 
