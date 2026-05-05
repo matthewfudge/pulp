@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 01:49 PDT
+Last reviewed: 2026-05-05 01:51 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -267,8 +267,8 @@ unregister callback/missing-id cleanup, null host/root close behavior,
 and missing-handler send/broadcast paths. It remains unpushed and
 undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-param-attachment-edges-493` at `cf7957c3`, refreshed
-from `0d6600ec` onto current `origin/main` and covering ParamAttachment
+`local/phase3-param-attachment-edges-493` at `80bc3351`, refreshed
+from `cf7957c3` onto current `origin/main` and covering ParamAttachment
 fader/toggle/combo callback forwarding, missing parameter-id no-op
 behavior, and `poll_bindings()` external-change propagation. It remains
 unpushed and undispatched.
