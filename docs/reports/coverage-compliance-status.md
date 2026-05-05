@@ -446,12 +446,13 @@ round-trip, cleanup, move-ownership, and create-failure paths. The
 refreshed branch remains unpushed and undispatched; #1286 still points at
 the old remote head until Namespace capacity returns.
 Additional #643 CLI helper progress is refreshed locally as
-`feature/phase3-create-targets-coverage-643` at `ad7aebbe`, rebased from
+`feature/phase3-create-targets-coverage-643` at `61be2d26`, rebased from
 the paused #1271 remote head `62ca4512` onto current `origin/main`
-`50ff5822`, covering create-target optional format suffixes, duplicate
-suppression, and empty standalone app target filtering. The refreshed
-branch remains unpushed and undispatched; #1271 still points at the old
-remote head until Namespace capacity returns.
+`50ff5822`, then onto current `origin/main` `b7ec8f08`, covering
+create-target optional format suffixes, duplicate suppression, and empty
+standalone app target filtering. The refreshed branch remains unpushed
+and undispatched; #1271 still points at the old remote head until
+Namespace capacity returns.
 Additional #493 CLI package progress is refreshed locally as
 `feature/phase3-package-commands-coverage-493` at `5fa859ab`, rebased
 from the paused #1273 remote head `c52cd486` onto current `origin/main`
