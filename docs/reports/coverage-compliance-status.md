@@ -329,9 +329,10 @@ onto current `origin/main` `c18785c9`, covering FileBrowser sorted-row
 paint clipping and MultiDocumentPanel active/inactive tab paint output.
 It remains unpushed and undispatched.
 Additional #493 view progress is reconciled locally on the #1285 resume
-path as `feature/phase3-splash-screen-coverage-493` at `836eaf0a`,
+path as `feature/phase3-splash-screen-coverage-493` at `437d9ac5`,
 refreshed from paused remote head `d3cd9f47` onto current `origin/main`
-`50ff5822`, then `b7ec8f08`, then `6c8b9920`, and incorporating/superseding
+`50ff5822`, then `b7ec8f08`, then `6c8b9920`, then `24047ba3`, and
+incorporating/superseding
 `local/phase3-splash-screen-493` (`1dd00e70`), after superseding local
 refresh `7cba95e3` on `0447498e`. It covers SplashScreen
 advance/dismiss callback behavior, dismiss-on-click gating, and
