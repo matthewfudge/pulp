@@ -182,11 +182,12 @@ close-on-reopen and failed-open state/header
 finalization behavior. It remains unpushed and undispatched. Additional
 #640 audio progress is
 queued locally as
-`local/phase3-frame-fill-edges-640` at `1a1bb59e`, created from current
+`local/phase3-frame-fill-edges-640` at `3ccadef4`, created from current
 `origin/main` `0447498e`, then refreshed from `1611b10d` onto current
 `origin/main` `bd036171`, then onto current `origin/main` `b7ec8f08`,
 then onto current `origin/main` `6c8b9920`, then onto current
-`origin/main` `dba0fd4b`, covering
+`origin/main` `dba0fd4b`, then onto current `origin/main` `b567dbeb`,
+covering
 `zero_fill_short_read()` tail-fill, read-count clamp, null-buffer, and
 non-positive-dimension guard paths. It remains unpushed and
 undispatched. Additional #643 tools progress is
