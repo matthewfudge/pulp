@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 08:53 PDT
+Last reviewed: 2026-05-05 09:11 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -159,10 +159,12 @@ Additional #640 audio progress is queued locally as
 `8fa55f5e`, covering AIFF invalid COMM metadata and unsupported PCM
 bit-depth rejection. It remains unpushed and undispatched. Additional
 #640 audio progress is queued locally as
-`local/phase3-streaming-writer-reopen-640` at `6f8dad35`, created from
-current `origin/main` `0447498e`, covering StreamingWriter close-on-reopen
-and failed-open state/header finalization behavior. It remains unpushed
-and undispatched. Additional #640 audio progress is queued locally as
+`local/phase3-streaming-writer-reopen-640` at `be1b0ec3`, created from
+current `origin/main` `0447498e`, then refreshed from `6f8dad35` onto
+current `origin/main` `bd036171`, covering StreamingWriter
+close-on-reopen and failed-open state/header finalization behavior. It
+remains unpushed and undispatched. Additional #640 audio progress is
+queued locally as
 `local/phase3-frame-fill-edges-640` at `1611b10d`, created from current
 `origin/main` `0447498e`, covering `zero_fill_short_read()` tail-fill,
 read-count clamp, null-buffer, and non-positive-dimension guard paths. It
