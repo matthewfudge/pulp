@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 14:36 PDT
+Last reviewed: 2026-05-05 14:41 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -322,18 +322,20 @@ auto-layout/manual-position preservation, unnamed node/multi-port
 painting, and feedback/MIDI edge paint colors. It remains unpushed and
 undispatched.
 Additional #493 view/widget progress is queued locally as
-`local/phase3-new-widgets-input-493` at `3b4a06a1`, refreshed from
+`local/phase3-new-widgets-input-493` at `ba19ff03`, refreshed from
 `7b5927ad` onto current `origin/main` `0447498e`, then refreshed again
 onto current `origin/main` `8fa55f5e`, then refreshed again onto current
-`origin/main` `83271a94`, covering MidiKeyboard vertical drag
+`origin/main` `83271a94`, then refreshed again onto current
+`origin/main` `9a67a517`, covering MidiKeyboard vertical drag
 release/miss behavior and note-name/highlight painting, plus
 FileDropZone rejected-drop reset behavior and idle/valid/invalid/no-icon
 paint paths. It remains unpushed and undispatched.
 Additional #493 view/file-browser progress is queued locally as
-`local/phase3-file-browser-paint-493` at `d37c7cd8`, refreshed from
+`local/phase3-file-browser-paint-493` at `f7ff2469`, refreshed from
 `57a12010` onto current `origin/main` `0447498e`, then refreshed again
 onto current `origin/main` `c18785c9`, then refreshed again onto current
-`origin/main` `83271a94`, covering FileBrowser sorted-row paint clipping
+`origin/main` `83271a94`, then refreshed again onto current
+`origin/main` `9a67a517`, covering FileBrowser sorted-row paint clipping
 and MultiDocumentPanel active/inactive tab paint output. It remains
 unpushed and undispatched.
 Additional #493 view progress is reconciled locally on the #1285 resume
