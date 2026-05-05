@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 18:50 PDT
+Last reviewed: 2026-05-04 18:59 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -135,7 +135,11 @@ undispatched. Additional #640 platform progress is queued locally as
 `local/phase3-platform-environment-dispatch-640` at `49d0611a`,
 covering Environment token self-move, listener removal before dispatch,
 and reset-during-dispatch skip behavior. It remains unpushed and
-undispatched.
+undispatched. Additional #645 MIDI progress is queued locally as
+`local/phase3-midi-ci-edges-645` at `9b7e547f`, covering MIDI-CI
+malformed header rejection, directly addressed discovery inquiries,
+short discovery replies, and reserved-byte profile matching. It remains
+unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 
