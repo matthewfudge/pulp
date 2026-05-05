@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 15:20 PDT
+Last reviewed: 2026-05-05 15:30 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -431,16 +431,20 @@ Additional #493 view progress is queued locally as
 `origin/main` `83271a94`, then onto current `origin/main` `7e9795b4`, covering WidgetBridge native DOM subtree moves,
 recursive DOM removal widget-map cleanup, root/missing layout helper paths,
 and the root-aware `getLayoutRect("")` registration fix. It remains
-unpushed and undispatched. Additional #643
-tools progress is queued locally as
-`local/phase3-harness-verifier-643` at `345c0039`, refreshed from
-`b94b48c0` onto current `origin/main` `0447498e` and covering `tools/harness`
-status/verifier helper paths, current yoga and CSS harness baselines,
-adapter unit-test discovery from
+unpushed and undispatched. Additional #643 tools progress is queued
+locally as `local/phase3-harness-verifier-643` at `08353da0`,
+refreshed from `345c0039` onto current `origin/main` `7e9795b4`,
+covering `tools/harness` status/verifier helper paths, the current Yoga
+baseline of total 53 / PASS 21 / DIVERGE 20 / NOT_IMPL 12, the current
+CSS catalog total of 199 entries with the `backfaceVisibility`
+supported-but-not-wired fixture, adapter unit-test discovery from
 `test/harness/test_*.py` including the current RN adapter coverage,
 compat-sync's unknown-requirement hard-error expectation, and Python
-coverage-runner discovery/omit rules for harness tests. It remains
-unpushed and undispatched. Additional #493 format/view progress is
+coverage-runner discovery/omit rules for harness tests. The venv-backed
+Python coverage runner passed at 84% total line coverage with
+`tools/harness/status.py` at 97%, `tools/harness/verifier.py` at 90%,
+and `tools/scripts/run_python_coverage.py` at 100%. It remains unpushed
+and undispatched. Additional #493 format/view progress is
 queued locally as `local/phase3-settings-panel-edges-493` at
 `f076664e`, created from current `origin/main` `0447498e`, covering
 SettingsPanel no-device fallback sample-rate/buffer-size lists, latency
