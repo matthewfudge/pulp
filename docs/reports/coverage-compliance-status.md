@@ -431,8 +431,9 @@ process-context defaults, release forwarding, and null-processor
 prepare/process/release guard behavior. It remains unpushed and
 undispatched.
 Additional #643 tools progress is queued locally as
-`local/phase3-check-format-validation-coverage-643` at `4a0217fb`,
-refreshed from `76a2541b` onto current `origin/main` `0447498e`,
+`local/phase3-check-format-validation-coverage-643` at `96b9dfd8`,
+refreshed from `76a2541b` onto current `origin/main` `0447498e`, then
+onto current `origin/main` `24047ba3`,
 covering `tools/check_format_validation.py` parser, mode, reporting, and
 read-error branches. It remains unpushed and undispatched.
 Additional #643 CLI ship progress is refreshed locally as
