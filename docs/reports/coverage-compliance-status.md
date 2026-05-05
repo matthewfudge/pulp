@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 07:57 PDT
+Last reviewed: 2026-05-05 07:59 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -314,10 +314,11 @@ onto current `origin/main` `c18785c9`, covering AutoUi generated toggle
 state, generated knob display-format branches, and sync propagation to
 toggles and existing faders. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-image-cache-trim-493` at `a3ca7f7c`, refreshed from
-`d9a0fc92` onto current `origin/main` `0447498e` and covering ImageCache
-byte-budget lowering, least-recently-used trimming, and releaser
-behavior. It remains unpushed and undispatched.
+`local/phase3-image-cache-trim-493` at `9422522f`, refreshed from
+`d9a0fc92` onto current `origin/main` `0447498e`, then refreshed again
+onto current `origin/main` `c18785c9`, covering ImageCache byte-budget
+lowering, least-recently-used trimming, and releaser behavior. It
+remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-visualization-bridge-edges-493` at `a39f609c`,
 refreshed from `3e45d531` onto current `origin/main` `0447498e` and covering
