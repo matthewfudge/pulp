@@ -5870,15 +5870,20 @@
       "issue": "964"
     },
     "canvas2d/createConicGradient": {
-      "status": "missing",
-      "mapsTo": "ctx.createConicGradient -> shim returns an empty linear gradient as a graceful fallback (consumer code can assign to fillStyle without throwing). Bridge has no conic shader.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "true conic gradient"
+      "status": "partial",
+      "mapsTo": "ctx.createConicGradient(startAngle, x, y) -> CanvasGradient with _kind='conic'; flushed via canvasSetConicGradient when assigned to fillStyle. Skia routes through SkGradientShader::MakeSweep (real sweep). CG degrades to first-stop colour (no native conic shader).",
+      "supportedValues": [
+        "Skia backend: real conic sweep with multiple stops",
+        "CG backend: first-stop colour fallback (visually degraded)"
       ],
-      "tests": [],
-      "notes": "Conic gradients need a Skia conic shader — not yet plumbed through. Silent degradation to linear (likely invisible). File a follow-up before any plugin actually depends on conic.",
-      "issue": ""
+      "unsupportedValues": [
+        "CG backend: true conic sweep (no CGContextDrawConicGradient API)"
+      ],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1434][bridge-thin]"
+      ],
+      "notes": "pulp #1434 bridge-thin gap-fill. Skia path is fully spec-compliant; CG path silently degrades — file a follow-up if a CG-targeted plugin needs the sweep.",
+      "issue": "1434"
     },
     "canvas2d/createPattern": {
       "status": "missing",
@@ -5888,7 +5893,7 @@
         "repeated-image patterns"
       ],
       "tests": [],
-      "notes": "Patterns are rare in audio plugin UIs. Callers must guard against null.",
+      "notes": "Deferred from pulp #1434 bridge-thin gap-fill — needs real image-resource plumbing (handle vs. opaque path), not just a bridge fn. Patterns are rare in audio plugin UIs. Callers must guard against null. File a follow-up when chart-library imports actually need it.",
       "issue": ""
     },
     "canvas2d/addColorStop": {
@@ -5994,15 +5999,18 @@
       "issue": ""
     },
     "canvas2d/miterLimit": {
-      "status": "missing",
-      "mapsTo": "Tracked locally; not pushed to bridge.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "miterLimit propagation to canvas paint"
+      "status": "supported",
+      "mapsTo": "ctx.miterLimit -> canvasSetMiterLimit (web-compat-canvas.js _syncLineState). Sticky stroke state. Skia honours via SkPaint::setStrokeMiter; CG via CGContextSetMiterLimit. Spec: assigning ≤ 0 / NaN / Infinity is silently ignored (validated at the shim level).",
+      "supportedValues": [
+        "any positive finite number",
+        "spec default = 10"
       ],
-      "tests": [],
-      "notes": "Silent no-op — bridge has no canvasSetMiterLimit. File a follow-up if needed.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1434][bridge-thin]"
+      ],
+      "notes": "pulp #1434 bridge-thin gap-fill. Side note: this PR also wired SkPaint::setStrokeJoin + setStrokeCap from line_join_/line_cap_ — those were stored but never applied on Skia before.",
+      "issue": "1434"
     },
     "canvas2d/globalAlpha": {
       "status": "supported",
@@ -6096,22 +6104,33 @@
       "issue": ""
     },
     "canvas2d/imageSmoothingEnabled": {
-      "status": "missing",
-      "mapsTo": "Tracked as a JS field; not pushed to bridge.",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "ctx.imageSmoothingEnabled -> canvasSetImageSmoothing (web-compat-canvas.js _syncImageSmoothingState, flushed before drawImage). Skia translates to SkSamplingOptions(kLinear/kNearest); CG to CGContextSetInterpolationQuality(kCGInterpolationLow/None).",
+      "supportedValues": [
+        "true (smoothed bilinear/bicubic by default)",
+        "false (nearest-neighbour, pixel-art preservation)"
+      ],
       "unsupportedValues": [],
-      "tests": [],
-      "notes": "Silent no-op. Skia/CG default to enabled smoothing.",
-      "issue": ""
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1434][bridge-thin]"
+      ],
+      "notes": "pulp #1434 bridge-thin gap-fill. Spec defaults match Skia/CG defaults so unmodified callers see no change.",
+      "issue": "1434"
     },
     "canvas2d/imageSmoothingQuality": {
-      "status": "missing",
-      "mapsTo": "Tracked as a JS field; not pushed to bridge.",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "ctx.imageSmoothingQuality -> canvasSetImageSmoothing 3rd arg. Skia: low=kLinear, medium=kLinear+mipmap, high=Mitchell cubic. CG: low/medium/high -> kCGInterpolationLow/Medium/High. Unknown strings coerce to 'low'.",
+      "supportedValues": [
+        "low",
+        "medium",
+        "high"
+      ],
       "unsupportedValues": [],
-      "tests": [],
-      "notes": "Silent no-op.",
-      "issue": ""
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1434][bridge-thin]"
+      ],
+      "notes": "pulp #1434 bridge-thin gap-fill.",
+      "issue": "1434"
     },
     "canvas2d/direction": {
       "status": "missing",
