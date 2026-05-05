@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 06:31 PDT
+Last reviewed: 2026-05-05 06:35 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -382,6 +382,13 @@ from the paused #1287 remote head `cb0a4acb` onto current `origin/main`
 `0447498e`, covering deterministic `pulp audio` usage/parser errors and
 missing-bundle JSON behavior through real CLI shellout tests. The
 refreshed branch remains unpushed and undispatched; #1287 still points
+at the old remote head until Namespace capacity returns.
+Additional #641 runtime progress is refreshed locally as
+`feature/phase3-named-pipe-coverage-641` at `eba02124`, rebased from the
+paused #1286 remote head `2d59c4c` onto current `origin/main` `0447498e`,
+covering NamedPipe closed/missing endpoint fail-closed behavior, POSIX
+FIFO round-trip, cleanup, move-ownership, and create-failure paths. The
+refreshed branch remains unpushed and undispatched; #1286 still points
 at the old remote head until Namespace capacity returns.
 Additional #640 audio progress is refreshed locally as
 `feature/phase3-mmap-reader-extra-640` at `84470694`, rebased from the
