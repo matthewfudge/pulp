@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 08:24 PDT
+Last reviewed: 2026-05-05 08:27 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -260,8 +260,9 @@ reset-all paths, plus LiveConstantEditor visibility, paint, slider drag,
 header guard, and missing-row drag paths. It remains unpushed and
 undispatched.
 Additional #493 view/code-editor progress is queued locally as
-`local/phase3-code-editor-doc-mru-493` at `f09fd8d6`, refreshed from
-`e8e3545b` onto current `origin/main` `0447498e` and covering FileBasedDocument
+`local/phase3-code-editor-doc-mru-493` at `130cb1a8`, refreshed from
+`e8e3545b` onto current `origin/main` `0447498e`, then refreshed again
+onto current `origin/main` `c18785c9`, covering FileBasedDocument
 successful load/save-as dirty-state behavior and RecentlyOpenedFilesList
 remove/missing-path behavior. It remains unpushed and undispatched.
 Additional #493 view/graph-editor progress is queued locally as
