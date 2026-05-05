@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 09:33 PDT
+Last reviewed: 2026-05-05 09:37 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -204,8 +204,9 @@ from `55c46d02` to `4008bd73`, then onto current `origin/main`
 `ChildProcess::read_available_output()` while stdout is available
 before process completion. It remains unpushed and undispatched.
 Additional #645 MIDI progress is queued locally as
-`local/phase3-midi-ci-edges-645` at `f66f0d4`, refreshed from
-`c3f7e68b` onto current `origin/main` `0447498e`, covering MIDI-CI
+`local/phase3-midi-ci-edges-645` at `6226f5af`, refreshed from
+`c3f7e68b` to `f66f0d4`, then onto current `origin/main`
+`bd036171`, covering MIDI-CI
 malformed header rejection, directly addressed discovery inquiries,
 short discovery replies, and reserved-byte profile matching. It remains
 unpushed and undispatched. Additional #645 MIDI/MPE progress is queued
