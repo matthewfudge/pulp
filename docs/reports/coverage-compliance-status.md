@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 05:52 PDT
+Last reviewed: 2026-05-05 05:55 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -361,6 +361,11 @@ current `origin/main` `0447498e`, covering HeadlessHost MIDI-overload
 process-context defaults, release forwarding, and null-processor
 prepare/process/release guard behavior. It remains unpushed and
 undispatched.
+Additional #643 tools progress is queued locally as
+`local/phase3-check-format-validation-coverage-643` at `4a0217fb`,
+refreshed from `76a2541b` onto current `origin/main` `0447498e`,
+covering `tools/check_format_validation.py` parser, mode, reporting, and
+read-error branches. It remains unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 

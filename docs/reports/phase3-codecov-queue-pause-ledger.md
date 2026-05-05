@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 05:52 PDT
+Last updated: 2026-05-05 05:55 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -158,6 +158,21 @@ sync/version/docs/compat guard reports; and `git diff --check` against
 third-party/platform warnings were observed during build. It remains
 unpushed and undispatched. Resume note: when Namespace capacity returns,
 rename/push as a feature branch and run
+`shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`
+only as part of a small resume batch.
+
+Additional local-only progress at 2026-05-05 05:55 PDT: refreshed
+`local/phase3-check-format-validation-coverage-643` from `76a2541b` to
+`4a0217fb`, covering `tools/check_format_validation.py` parser, mode,
+reporting, and read-error branches for the #643 tools tranche on current
+`origin/main` `0447498e`. Local validation included:
+`python3 tools/scripts/test_check_format_validation.py` passing 9 tests;
+`python3 tools/check_format_validation.py --mode=warn` returning 0 with
+the current four missing production-validation warnings; sync/version/
+docs/compat guard reports; and `git diff --check` against `origin/main`,
+the worktree, and the index. It remains unpushed and undispatched.
+Resume note: when Namespace capacity returns, rename/push as a feature
+branch and run
 `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`
 only as part of a small resume batch.
 
