@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 10:10 PDT
+Last reviewed: 2026-05-05 10:14 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -121,8 +121,9 @@ onto current `origin/main` `50ff5822`, and covering AudioBridge
 first-pop, max-channel clamp, zero-sample analysis, and MeterBallistics
 tiny-value clamp paths. Both remain unpushed and undispatched.
 Additional #645 signal progress is queued locally as
-`local/phase3-adsr-edges-645` at `bd746f3c`, refreshed from
-`e4844caa` onto current `origin/main` `0447498e`, covering ADSR
+`local/phase3-adsr-edges-645` at `0c9e7d4d`, refreshed from
+`e4844caa` onto current `origin/main` `0447498e`, then refreshed again
+from `bd746f3c` onto current `origin/main` `bd036171`, covering ADSR
 immediate stage, idle `note_off`, and reset edge paths, plus
 `local/phase3-noise-gate-edges-645` at `717067d6`, refreshed from
 `98f73bb8` onto current `origin/main` `0447498e`, covering NoiseGate
