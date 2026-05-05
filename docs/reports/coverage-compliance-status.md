@@ -172,12 +172,13 @@ current `origin/main` `6c8b9920`, covering AIFF invalid COMM metadata
 and unsupported PCM bit-depth rejection. It remains
 unpushed and undispatched. Additional
 #640 audio progress is queued locally as
-`local/phase3-streaming-writer-reopen-640` at `8693c84d`, created from
+`local/phase3-streaming-writer-reopen-640` at `c03c7104`, created from
 current `origin/main` `0447498e`, then refreshed from `6f8dad35` onto
 current `origin/main` `bd036171`, then onto current `origin/main`
-`b7ec8f08`, covering StreamingWriter close-on-reopen and failed-open
-state/header finalization behavior. It remains unpushed and
-undispatched. Additional #640 audio progress is
+`b7ec8f08`, then onto current `origin/main` `6c8b9920`, covering
+StreamingWriter close-on-reopen and failed-open state/header
+finalization behavior. It remains unpushed and undispatched. Additional
+#640 audio progress is
 queued locally as
 `local/phase3-frame-fill-edges-640` at `2161075e`, created from current
 `origin/main` `0447498e`, then refreshed from `1611b10d` onto current
