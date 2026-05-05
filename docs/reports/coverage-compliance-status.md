@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 02:55 PDT
+Last reviewed: 2026-05-05 02:58 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -235,8 +235,8 @@ collapse, left-key consumed-state behavior, selected-row paint highlight,
 and expanded/collapsed disclosure paint output. It remains unpushed and
 undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-modal-overlay-edges-493` at `95a7b597`, refreshed from
-`0f30dc7a` onto current `origin/main` and covering ModalOverlay
+`local/phase3-modal-overlay-edges-493` at `ba5f804e`, refreshed from
+`95a7b597` onto current `origin/main` `0447498e` and covering ModalOverlay
 key-release/no-callback Escape behavior, backdrop alpha paint output,
 and backdrop-click dismissal hit/flag guards. It remains unpushed and
 undispatched.
