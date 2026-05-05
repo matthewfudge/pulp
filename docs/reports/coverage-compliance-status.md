@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 18:31 PDT
+Last reviewed: 2026-05-04 18:42 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -126,7 +126,12 @@ Additional #640 audio progress is queued locally as
 `local/phase3-audio-focus-dispatch-640` at `3c36343d`, covering
 AudioFocusRegistry inactive-listener skip behavior when a listener is
 removed or the registry is reset during dispatch. It remains unpushed
-and undispatched.
+and undispatched. Additional #643 tools progress is queued locally as
+`local/phase3-audio-tools-model-store-643` at `a88ddfe8`, covering
+`tools/audio` model registry URL resolution, legacy/malformed model
+metadata, model/bundle JSON serialization/defaults, and excerpt-find
+guard and unsupported-input paths. It remains unpushed and
+undispatched.
 
 ## Phase 3 Operating Loop
 
