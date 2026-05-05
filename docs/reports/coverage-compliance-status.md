@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 21:49 PDT
+Last reviewed: 2026-05-04 21:56 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -233,6 +233,11 @@ Additional #493 view progress is queued locally as
 WaveformEditor selection, visible-range, and playhead clamps, paint
 overlay output, key scroll/release handling, and mouse selection
 extension paths. It remains unpushed and undispatched.
+Additional #493 view progress is queued locally as
+`local/phase3-window-manager-edges-493` at `5d62f37a`, covering
+WindowManager unregister callback/missing-id cleanup, null host/root
+close behavior, and missing-handler send/broadcast paths. It remains
+unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 
