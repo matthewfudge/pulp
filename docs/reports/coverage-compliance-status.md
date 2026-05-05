@@ -227,7 +227,8 @@ queued locally as
 `local/phase3-child-process-read-output-640` at `ca647d70`, refreshed
 from `55c46d02` to `4008bd73`, then onto current `origin/main`
 `bd036171`, then onto current `origin/main` `b7ec8f08`, then onto
-current `origin/main` `6c8b9920`, covering
+current `origin/main` `6c8b9920`, then to `73543f6b` on current
+`origin/main` `b567dbeb`, covering
 `ChildProcess::read_available_output()` while stdout is available before
 process completion. It remains unpushed and undispatched.
 Additional #645 MIDI progress is queued locally as
