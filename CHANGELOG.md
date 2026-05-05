@@ -11,7 +11,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v0781"></a>
 ## [0.78.1] - 2026-05-05
 
-- fix(cli): bake SDK version into Rust release binary
+- fix(cli): bake SDK version into Rust release binary ([#1466](https://github.com/danielraffel/pulp/pull/1466))
+- fix(view/text): textAlign 'auto' + 'justify' (refs pulp #1434 Triage #11) ([#1458](https://github.com/danielraffel/pulp/pull/1458))
+- fix(view/css): parse boxShadow shorthand → setBoxShadow bridge (refs pulp #1434, Triage #15) ([#1461](https://github.com/danielraffel/pulp/pull/1461))
+- fix(view): yoga value-aliasing for flex-start/flex-end + column/row-reverse + baseline (closes pulp #1434 rn batch B) ([#1452](https://github.com/danielraffel/pulp/pull/1452))
 
 <a id="v0780"></a>
 ## [0.78.0] - 2026-05-05
