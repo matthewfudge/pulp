@@ -281,8 +281,8 @@ wheel/meta mouse helper paths, ended/cancelled gesture deltas, key
 release/repeat main-modifier checks, and missing pointer-capture
 release behavior. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-widget-bridge-dom-493` at `d2eec1b9`, refreshed from
-`df183299` onto current `origin/main` and covering WidgetBridge native
+`local/phase3-widget-bridge-dom-493` at `d332d795`, refreshed from
+`d2eec1b9` onto current `origin/main` `0447498e` and covering WidgetBridge native
 DOM subtree moves, recursive DOM removal widget-map cleanup,
 root/missing layout helper paths, and the root-aware `getLayoutRect("")`
 registration fix. It remains unpushed and undispatched. Additional #643
