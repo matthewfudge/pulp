@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0756"></a>
+## [0.75.6] - 2026-05-04
+
+- fix(@pulp/react): prop-applier auto-arms registerPointer/Wheel + routes overflow (closes #1381, #1387 gaps #1+#4) ([#1388](https://github.com/danielraffel/pulp/pull/1388))
+
 <a id="v0755"></a>
 ## [0.75.5] - 2026-05-04
 
@@ -1245,6 +1250,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.75.6]: https://github.com/danielraffel/pulp/releases/tag/v0.75.6
 [0.75.5]: https://github.com/danielraffel/pulp/releases/tag/v0.75.5
 [0.75.4]: https://github.com/danielraffel/pulp/releases/tag/v0.75.4
 [0.75.2]: https://github.com/danielraffel/pulp/releases/tag/v0.75.2
