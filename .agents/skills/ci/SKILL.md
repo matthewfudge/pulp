@@ -76,6 +76,13 @@ signed/notarized `.dmg`, so the version and asset metadata must move together.
   `make_webview_embedded_resource_fetcher`. If you touch the release
   workflow or `tools/scripts/release-cli-local.sh`, preserve that
   contract or WebView-using downstream SDK consumers will link-fail.
+- **Phase 8 CLI flip ships two CLI binaries.** Release CLI jobs must
+  preserve Rust `pulp` as the user-facing binary and C++ `pulp-cpp`
+  as the fallthrough delegate in the same archive. Smoke both names:
+  `pulp version --json` for the Rust path, and at least one C++-owned
+  command through `PULP_RS_CPP_BINARY=/path/to/pulp-cpp pulp ...` or a
+  direct `pulp-cpp ...` invocation. Do not resurrect `pulp-rs` as the
+  shipped binary name.
 - **macOS binary is signed + notarized** (Shipyard v0.29.0). On
   macOS 26.3+ XProtect skips the deep scan for notarized binaries,
   cutting `shipyard pr` cold-start ~4-5x (from ~5-6s to ~1-1.5s).

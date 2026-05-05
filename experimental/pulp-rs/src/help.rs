@@ -250,12 +250,12 @@ pub fn known_commands() -> Vec<&'static str> {
 ///
 /// Returns [`CliError::Io`] if `out` fails a write.
 pub fn write_usage(out: &mut impl Write) -> Result<()> {
-    write_usage_with_banner(out, "pulp-rs")
+    write_usage_with_banner(out, "pulp")
 }
 
 /// Like [`write_usage`] but lets callers override the banner name.
-/// The bare `pulp-rs help` banner says `pulp-rs`; a hypothetical
-/// `pulp` shim could reuse the same table with a different header.
+/// Tests can reuse the same table with a different header when they
+/// need to compare against legacy captures.
 ///
 /// # Errors
 ///
@@ -342,7 +342,7 @@ pub fn closest<'a>(typed: &str, candidates: &[&'a str]) -> Option<(&'a str, usiz
 ///
 /// ```text
 /// Unknown command: xzv
-/// Did you mean: pulp-rs build?
+/// Did you mean: pulp build?
 /// ```
 ///
 /// When no candidate is within the distance threshold, the hint
@@ -350,7 +350,7 @@ pub fn closest<'a>(typed: &str, candidates: &[&'a str]) -> Option<(&'a str, usiz
 ///
 /// ```text
 /// Unknown command: xzv
-/// Run `pulp-rs help` for usage
+/// Run `pulp help` for usage
 /// ```
 ///
 /// `threshold` is the inclusive distance ceiling; the C++ CLI uses
@@ -391,12 +391,12 @@ mod tests {
     }
 
     #[test]
-    fn usage_banner_starts_with_pulp_rs_header() {
+    fn usage_banner_starts_with_pulp_header() {
         let mut buf = Vec::new();
         write_usage(&mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
-        assert!(s.starts_with("pulp-rs — Pulp audio plugin framework CLI"));
-        assert!(s.contains("Usage: pulp-rs <command> [options]"));
+        assert!(s.starts_with("pulp — Pulp audio plugin framework CLI"));
+        assert!(s.contains("Usage: pulp <command> [options]"));
     }
 
     #[test]
@@ -429,17 +429,17 @@ mod tests {
 
     #[test]
     fn suggest_hint_prints_did_you_mean_within_threshold() {
-        let h = suggest_hint("buld", "pulp-rs", 3);
+        let h = suggest_hint("buld", "pulp", 3);
         assert!(h.contains("Unknown command: buld"));
-        assert!(h.contains("Did you mean: pulp-rs build?"));
+        assert!(h.contains("Did you mean: pulp build?"));
     }
 
     #[test]
     fn suggest_hint_falls_back_when_far_off() {
         // "xyzxyzxyz" is at distance >3 from every known command.
-        let h = suggest_hint("xyzxyzxyz", "pulp-rs", 3);
+        let h = suggest_hint("xyzxyzxyz", "pulp", 3);
         assert!(h.contains("Unknown command: xyzxyzxyz"));
-        assert!(h.contains("Run `pulp-rs help` for usage"));
+        assert!(h.contains("Run `pulp help` for usage"));
     }
 
     #[test]

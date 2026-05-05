@@ -185,7 +185,7 @@ fn upgrade_install_dry_run_plants_pending_marker() {
 }
 
 /// Phase 8: integration-level coverage for the build-artifact guard.
-/// `pulp-rs upgrade --install` invoked from cargo's target/ tree
+/// `pulp upgrade --install` invoked from cargo's target/ tree
 /// must refuse to clobber the running binary unless the user opts
 /// into the live path explicitly.
 #[test]
@@ -193,7 +193,7 @@ fn upgrade_install_refuses_when_running_under_cargo_target() {
     let home = tempfile::tempdir().unwrap();
     plant_cache("fresh_cache", home.path());
 
-    let output = assert_cmd::Command::cargo_bin("pulp-rs")
+    let output = assert_cmd::Command::cargo_bin("pulp")
         .unwrap()
         .args(["upgrade", "--install"])
         .env("PULP_HOME", home.path())

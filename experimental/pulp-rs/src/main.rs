@@ -659,9 +659,9 @@ fn clap_exit_code(err: &clap::error::Error) -> ExitCode {
 
             // No pulp-cpp on PATH (or fallthrough disabled). Match
             // the C++ CLI's fuzzy suggester: print "Unknown command:
-            // …\nDid you mean: pulp-rs <closest>?" so a user who
+            // …\nDid you mean: pulp <closest>?" so a user who
             // typed `buld` gets pointed at `build`. Falls back to
-            // `Run `pulp-rs help` for usage` when no candidate is
+            // `Run `pulp help` for usage` when no candidate is
             // within the distance-3 threshold (C++ uses the same
             // inclusive bound in `pulp_cli.cpp`).
             //
@@ -675,7 +675,7 @@ fn clap_exit_code(err: &clap::error::Error) -> ExitCode {
                     ExitCode::from(2)
                 },
                 |typed| {
-                    let hint = help::suggest_hint(&typed, "pulp-rs", 3);
+                    let hint = help::suggest_hint(&typed, "pulp", 3);
                     eprint!("{hint}");
                     ExitCode::from(1)
                 },

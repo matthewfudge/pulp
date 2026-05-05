@@ -103,10 +103,10 @@ jobs:
         shell: bash
 
       # Phase 8: post-swap there are TWO CLI binaries shipping side by
-       # side — `pulp` (Rust, the user-facing default) at the top of
-       # the build dir, and `pulp-cpp` (C++, the fallthrough delegate
-       # for library-linked subcommands like ship/validate/host) under
-       # `tools/cli/`. The release tarball must include both.
+      # side — `pulp` (Rust, the user-facing default) at the top of
+      # the build dir, and `pulp-cpp` (C++, the fallthrough delegate
+      # for library-linked subcommands like ship/validate/host) under
+      # `tools/cli/`. The release tarball must include both.
       - name: Strip binaries (Unix)
         if: runner.os != 'Windows'
         run: |
