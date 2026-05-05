@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 23:19 PDT
+Last reviewed: 2026-05-04 23:23 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -142,9 +142,10 @@ undispatched. Additional #640 platform progress is queued locally as
 `ChildProcess::read_available_output()` while stdout is available
 before process completion. It remains unpushed and undispatched.
 Additional #645 MIDI progress is queued locally as
-`local/phase3-midi-ci-edges-645` at `9b7e547f`, covering MIDI-CI
-malformed header rejection, directly addressed discovery inquiries,
-short discovery replies, and reserved-byte profile matching. It remains
+`local/phase3-midi-ci-edges-645` at `c3f7e68b`, refreshed from
+`9b7e547f` onto current `origin/main`, covering MIDI-CI malformed
+header rejection, directly addressed discovery inquiries, short
+discovery replies, and reserved-byte profile matching. It remains
 unpushed and undispatched. Additional #645 MIDI/MPE progress is queued
 locally as `local/phase3-mpe-allocator-edges-645` at `fc198dec`,
 fixing the MpeVoiceAllocator release-steal glide refcount path and
