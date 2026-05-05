@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 04:41 PDT
+Last reviewed: 2026-05-05 04:54 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -130,8 +130,12 @@ Chorus dry/reset/phase-wrap behavior and Reverb zero-decay, damping
 clamp, dry-mix, and reset paths, plus
 `local/phase3-oscillator-edges-645` at `8f2e043`, refreshed from
 `8f51cba4` onto current `origin/main` `0447498e`, covering
-Oscillator reset, phase wrap, getter, and PolyBLEP edge paths. All four
-remain unpushed and undispatched.
+Oscillator reset, phase wrap, getter, and PolyBLEP edge paths, plus
+`local/phase3-signal-helper-edges-645` at `be2d441f`, created from
+current `origin/main` `0447498e`, covering FirFilter empty-coefficient
+passthrough/reset, LookupTable indexed clamps and zero-length buffer
+no-ops, and LadderFilter buffer/reset/resonance-clamp finite-output
+paths. All five remain unpushed and undispatched.
 Additional #646 render progress is queued locally as
 `feature/phase3-sdl3-surface-fallback-646` at `1dc45105`, refreshed
 from `908b3a49` onto current `origin/main` `0447498e`, covering SDL3
