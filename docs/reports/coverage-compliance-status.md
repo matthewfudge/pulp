@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 00:06 PDT
+Last reviewed: 2026-05-05 00:09 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -220,10 +220,11 @@ Additional #493 view progress is queued locally as
 advance/dismiss callback behavior, dismiss-on-click gating, and
 text/image paint output. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-appearance-manager-493` at `b96abb6b`, covering
-AppearanceTracker repeated lock callbacks and locked poll no-op
-behavior, plus ThemeManager locked-theme, locked-appearance callback,
-and unlock behavior. It remains unpushed and undispatched.
+`local/phase3-appearance-manager-493` at `31d4e8ff`, refreshed from
+`b96abb6b` onto current `origin/main` and covering AppearanceTracker
+repeated lock callbacks and locked poll no-op behavior, plus ThemeManager
+locked-theme, locked-appearance callback, and unlock behavior. It remains
+unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-tree-view-edges-493` at `76b99bee`, covering TreeView
 disclosure collapse, left-key consumed-state behavior, selected-row
