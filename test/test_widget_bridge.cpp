@@ -1317,6 +1317,143 @@ TEST_CASE("WidgetBridge requestAnimationFrame callbacks continue during poll loo
     REQUIRE(engine.evaluate("frame_count").getWithDefault<int>(-1) == 3);
 }
 
+// pulp #1412 — host idle pump must drain timers, not just rAF + async results.
+//
+// The platform host idle entry point (Mac CVDisplayLink, iOS CADisplayLink,
+// Android AChoreographer) is the only thing that drives the bridge per
+// vsync when no input event fires. PRs #1400/#1404/#1405 wired the host
+// idle to call poll_async_results(), which only drains async-shell
+// results and rAF frame callbacks — NOT setTimeout / setInterval. The
+// fix routes the host idle through poll_async_results() AND
+// service_frame_callbacks() so timers also fire. These tests exercise
+// the combined "host idle pump" pattern directly.
+
+namespace {
+// Mirrors what the host idle paths now do per-vsync:
+//   ScriptedUiSession::poll() → bridge.poll_async_results()
+//                              + bridge.service_frame_callbacks()
+//   Android android_render_frame() → same pair.
+inline void host_idle_pump(WidgetBridge& bridge) {
+    bridge.poll_async_results();
+    bridge.service_frame_callbacks();
+}
+}  // namespace
+
+TEST_CASE("WidgetBridge host idle pump fires setTimeout callbacks",
+          "[view][bridge][issue-1412]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var fired = 0;
+        setTimeout(function () { fired += 1; }, 50);
+    )");
+
+    // Before the deadline, the timer must not fire even after several
+    // host idle pumps.
+    host_idle_pump(bridge);
+    REQUIRE(engine.evaluate("fired").getWithDefault<int>(-1) == 0);
+
+    // Walk past the 50ms deadline with the same per-vsync pump the
+    // host idle paths run. With only poll_async_results() this loop
+    // would never fire `fired += 1` — that's the #1412 bug.
+    for (int i = 0; i < 60; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        host_idle_pump(bridge);
+        if (engine.evaluate("fired").getWithDefault<int>(-1) >= 1)
+            break;
+    }
+
+    REQUIRE(engine.evaluate("fired").getWithDefault<int>(-1) == 1);
+}
+
+TEST_CASE("WidgetBridge host idle pump fires setInterval callbacks repeatedly",
+          "[view][bridge][issue-1412]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var hits = 0;
+        var id = setInterval(function () {
+            hits += 1;
+            if (hits >= 3) clearInterval(id);
+        }, 50);
+    )");
+
+    // Pump on the same cadence the host idle would, walking ~250ms
+    // simulated wall time so the interval re-arms ~3 times.
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        host_idle_pump(bridge);
+        if (engine.evaluate("hits").getWithDefault<int>(-1) >= 3)
+            break;
+    }
+
+    REQUIRE(engine.evaluate("hits").getWithDefault<int>(-1) >= 3);
+}
+
+TEST_CASE("WidgetBridge host idle pump drains rAF + setTimeout in same call",
+          "[view][bridge][issue-1412]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var raf_count = 0;
+        var timer_count = 0;
+        window.requestAnimationFrame(function () { raf_count += 1; });
+        // 0ms timeout: deadline already in the past by the time the
+        // host idle pump runs, so it must fire on the first pump.
+        setTimeout(function () { timer_count += 1; }, 0);
+    )");
+
+    // A single host idle pump must drain BOTH the rAF callback (via
+    // poll_async_results → __flushFrames__) AND the expired timer
+    // (via service_frame_callbacks → __flushTimers__).
+    host_idle_pump(bridge);
+
+    REQUIRE(engine.evaluate("raf_count").getWithDefault<int>(-1) == 1);
+    REQUIRE(engine.evaluate("timer_count").getWithDefault<int>(-1) == 1);
+}
+
+TEST_CASE("WidgetBridge poll_async_results alone does NOT fire setTimeout (regression guard)",
+          "[view][bridge][issue-1412]") {
+    // This test is the inverse of the fix: it asserts the historical
+    // behavior that was the actual #1412 bug. It documents WHY the
+    // host idle pump can't be just poll_async_results().
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var fired = 0;
+        setTimeout(function () { fired += 1; }, 0);
+    )");
+
+    // Pump only poll_async_results several times across enough wall
+    // time that a 0ms timer would have fired if it were drained.
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        bridge.poll_async_results();
+    }
+
+    REQUIRE(engine.evaluate("fired").getWithDefault<int>(-1) == 0);
+
+    // Now the full host idle pump must drain it.
+    host_idle_pump(bridge);
+    REQUIRE(engine.evaluate("fired").getWithDefault<int>(-1) == 1);
+}
+
 TEST_CASE("WidgetBridge execAsync preserves JSON-heavy results", "[view][bridge][async]") {
     ScriptEngine engine;
     View root;
