@@ -4673,18 +4673,18 @@
       "issue": ""
     },
     "yoga/display": {
-      "status": "partial",
-      "mapsTo": "View::set_visible (no Yoga 'display' field -- flex is implicit)",
+      "status": "supported",
+      "mapsTo": "View::set_visible (display:none) + flex layout default (display:flex)",
       "supportedValues": [
-        "flex (implicit)",
-        "none (via setVisible(false))"
+        "flex",
+        "none"
       ],
       "unsupportedValues": [
         "contents"
       ],
       "tests": [],
-      "notes": "Yoga has YGDisplay {flex, none, contents}; Pulp models only flex+visibility.",
-      "issue": ""
+      "notes": "pulp #1420: claim flex+none as supported. CSS translator at web-compat-style-decl.js:86-118 routes display:none to setVisible(false) and display:flex to setVisible(true)+setFlex(direction). 'flex' is implicit in pulp's layout model; 'none' uses View visibility. Yoga has YGDisplay {flex, none, contents}; pulp doesn't model 'contents'.",
+      "issue": "https://github.com/danielraffel/pulp/issues/1420"
     },
     "yoga/overflow": {
       "status": "partial",
