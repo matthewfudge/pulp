@@ -143,7 +143,8 @@ refreshed from `b271d2e6` onto current `origin/main` `0447498e`,
 covering Environment token self-move, listener removal before dispatch,
 and reset-during-dispatch skip behavior. It remains unpushed and
 undispatched. Additional #640 platform progress is queued locally as
-`local/phase3-child-process-read-output-640` at `55c46d02`, covering
+`local/phase3-child-process-read-output-640` at `4008bd73`, refreshed from
+`55c46d02` onto current `origin/main` `0447498e`, covering
 `ChildProcess::read_available_output()` while stdout is available
 before process completion. It remains unpushed and undispatched.
 Additional #645 MIDI progress is queued locally as
