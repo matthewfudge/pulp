@@ -1087,7 +1087,14 @@ CSSStyleDeclaration.prototype._applyProperty = function(key, value) {
         // Display / flex direction
         case "display":
             if (resolved === "none") { setVisible(id, false); }
-            else if (resolved === "flex" || resolved === "block") { setVisible(id, true); }
+            // pulp #1420 — inline-block ≡ block, inline-flex ≡ flex in pulp's
+            // non-text-flowing layout (matches RN + CSS formatting-context
+            // semantics where there is no inline flow). 4 of these were
+            // silently dropped by Spectr today.
+            else if (resolved === "flex" || resolved === "block" ||
+                     resolved === "inline-block" || resolved === "inline-flex") {
+                setVisible(id, true);
+            }
             else if (resolved === "grid") { /* grid mode set via gridTemplateColumns */ }
             break;
         case "flexDirection":

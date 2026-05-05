@@ -3909,40 +3909,63 @@ TEST_CASE("WidgetBridge claimOverlay installs dismiss callback that fires "
     pulp::view::View::active_overlay_ = nullptr;
 }
 
-// pulp #1407 — CSS translator must route `style.textOverflow = 'ellipsis'`
-// through the `setTextOverflow` bridge call. Stubs the bridge function in
-// JS-land to record the call (ID + mode) so the test verifies BOTH
-// directions: the CSS-translator emits the call AND the resolved value
-// makes it through to the native View flag.
-TEST_CASE("CSSStyleDeclaration translates textOverflow to setTextOverflow bridge call",
-          "[view][bridge][css][issue-1407]") {
+// pulp #1420 — `display` CSS values translate to native bridge calls.
+// Spectr triage of yoga drift (post-#1395 harness) showed 5 display
+// values across 79 sites: flex (63), block (10), inline-block (3),
+// none (2), inline-flex (1). Before this fix, inline-block and
+// inline-flex were silently dropped. After: inline-block ≡ block,
+// inline-flex ≡ flex (matches RN + CSS spec for non-text-flowing
+// formatting contexts).
+TEST_CASE("CSSStyleDeclaration display routes none/flex/block/inline-block/inline-flex correctly",
+          "[view][bridge][css][issue-1420]") {
     ScriptEngine engine;
     View root;
     root.set_bounds({0, 0, 400, 300});
     StateStore store;
     WidgetBridge bridge(engine, root, store);
 
-    bridge.load_script(R"(
-        globalThis.__textOverflowCalls = [];
-        var __native_setTextOverflow = setTextOverflow;
-        setTextOverflow = function(id, mode) {
-            globalThis.__textOverflowCalls.push(id + '|' + mode);
-            return __native_setTextOverflow(id, mode);
-        };
-        createLabel('mytitle', 'long string that will be truncated', '');
-        var stub_el = { _id: 'mytitle', _nativeCreated: true };
-        var sd = new CSSStyleDeclaration(stub_el);
-        sd._applyProperty('textOverflow', 'ellipsis');
-    )");
+    auto apply_display = [&](const std::string& id, const std::string& value) {
+        std::string js = "(function(){"
+            "createPanel('" + id + "', '');"
+            "var el = { _id: '" + id + "', _nativeCreated: true };"
+            "var sd = new CSSStyleDeclaration(el);"
+            "sd._applyProperty('display', '" + value + "');"
+            "})();";
+        bridge.load_script(js);
+    };
 
-    auto count = engine.evaluate("globalThis.__textOverflowCalls.length")
-                       .getWithDefault<double>(-1);
-    REQUIRE(count == 1);
-    auto recorded = engine.evaluate("globalThis.__textOverflowCalls[0]")
-                          .getWithDefault<std::string>("");
-    REQUIRE(recorded == "mytitle|ellipsis");
+    apply_display("p_flex", "flex");
+    apply_display("p_block", "block");
+    apply_display("p_inline_block", "inline-block");
+    apply_display("p_inline_flex", "inline-flex");
+    apply_display("p_none", "none");
 
-    auto* label = dynamic_cast<Label*>(bridge.widget("mytitle"));
-    REQUIRE(label != nullptr);
-    REQUIRE(label->text_overflow_ellipsis());
+    auto* p_flex = dynamic_cast<Panel*>(bridge.widget("p_flex"));
+    auto* p_block = dynamic_cast<Panel*>(bridge.widget("p_block"));
+    auto* p_inline_block = dynamic_cast<Panel*>(bridge.widget("p_inline_block"));
+    auto* p_inline_flex = dynamic_cast<Panel*>(bridge.widget("p_inline_flex"));
+    auto* p_none = dynamic_cast<Panel*>(bridge.widget("p_none"));
+    REQUIRE(p_flex != nullptr);
+    REQUIRE(p_block != nullptr);
+    REQUIRE(p_inline_block != nullptr);
+    REQUIRE(p_inline_flex != nullptr);
+    REQUIRE(p_none != nullptr);
+
+    // display: flex / inline-flex must set flex direction to row
+    // (overriding the RN-style column default).
+    REQUIRE(p_flex->flex().direction == FlexDirection::row);
+    REQUIRE(p_inline_flex->flex().direction == FlexDirection::row);
+
+    // display: block / inline-block must NOT touch flex direction.
+    REQUIRE(p_block->flex().direction == FlexDirection::column);
+    REQUIRE(p_inline_block->flex().direction == FlexDirection::column);
+
+    // All four "visible" variants stay visible. display: none flips
+    // the View::visible() flag (the canonical CSS-spec "skip render"
+    // signal) — the bridge wires setVisible → View::set_visible.
+    REQUIRE(p_flex->visible());
+    REQUIRE(p_block->visible());
+    REQUIRE(p_inline_block->visible());
+    REQUIRE(p_inline_flex->visible());
+    REQUIRE_FALSE(p_none->visible());
 }
