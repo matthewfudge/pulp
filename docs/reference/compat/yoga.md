@@ -40,6 +40,18 @@ which mirrors the upstream Yoga API.
 
 ## Recent updates
 
+- **2026-05-05 (pulp #1434 batch 4)** — React Native shorthand aliases
+  `yoga/marginHorizontal`, `yoga/marginVertical`, `yoga/paddingHorizontal`,
+  `yoga/paddingVertical` now fan out to the existing per-edge FlexStyle
+  fields (`margin_left + margin_right`, `margin_top + margin_bottom`,
+  `padding_left + padding_right`, `padding_top + padding_bottom`). No
+  new FlexStyle fields — both JS-side translators
+  (`web-compat-style-decl.js` for the DOM-lite el.style adapter and
+  `prop-applier.ts` for the @pulp/react JSX intrinsic) decompose the
+  shorthand before reaching the bridge. Reclassified NOT-IMPL → DIVERGE
+  (parity with `yoga/marginLeft` etc — `auto` remains unsupported on
+  margin, `%` remains unsupported on padding). progress_pct 69.81% →
+  77.36%.
 - **2026-05-05 (pulp #1423)** — `yoga/width` and `yoga/height` now
   accept percentage values (`'100%'`, `'50%'`). The CSS translator
   passes `'NN%'` strings verbatim to the bridge; `FlexStyle.dim_width`

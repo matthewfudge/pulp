@@ -33,6 +33,14 @@ specifics are out of scope.
 
 ## Recently changed
 
+- **2026-05-05 (pulp #1434 batch 4)** — added `css/marginHorizontal`,
+  `css/marginVertical`, `css/paddingHorizontal`, `css/paddingVertical`
+  RN-shorthand entries. The DOM-lite el.style adapter now recognizes
+  these aliases and fans them out to the matching pair of per-edge
+  `setFlex` calls (`margin_left + margin_right`, etc.). Web CSS does
+  not define these properties; they ship for cross-tool import-readiness
+  so RN snippets pasted into a DOM-lite plugin work as written. css
+  total entry count 195 → 199; progress 55.38% → 56.28%.
 - `css/border` / `css/borderRadius` / `css/borderColor`: flipped from
   `partial` (clobbered each other) to `supported`. PR #1169 routed each
   through its dedicated per-attribute setter so unset siblings are

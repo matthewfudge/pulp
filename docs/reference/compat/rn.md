@@ -27,6 +27,13 @@ Spec walk:
 
 ## Recently changed
 
+- **2026-05-05 (pulp #1434 batch 4)** — RN shorthand aliases
+  `rn/marginHorizontal`, `rn/marginVertical`, `rn/paddingHorizontal`,
+  `rn/paddingVertical` are now surfaced at the `@pulp/react` JSX
+  intrinsic. The prop-applier fans out each alias to the matching pair
+  of per-edge `setFlex(margin_*|padding_*, value)` calls. Reclassified
+  missing → supported (PASS on the harness rn surface). Lets RN
+  snippets that write `style={{ marginHorizontal: 8 }}` port verbatim.
 - New `rn/d`, `rn/viewBox`, `rn/fill`, `rn/stroke`, `rn/strokeWidth`
   entries. Wired by the `@pulp/react` `<SvgPath>` JSX intrinsic in
   PR #1291 (pulp #994). Bridge surface lands on `SvgPathWidget`.
@@ -44,17 +51,15 @@ Spec walk:
 2. `rn/flex` shorthand — RN's `style={{flex: 1}}` is the most common
    pattern in tutorials. `@pulp/react` users must type
    `flexGrow={1} flexShrink={1} flexBasis={0}`.
-3. `rn/marginHorizontal`, `rn/marginVertical`, `rn/paddingHorizontal`,
-   `rn/paddingVertical` — RN-specific shorthands not surfaced.
-4. `rn/marginStart` / `rn/marginEnd`, `rn/paddingStart` / `rn/paddingEnd`
+3. `rn/marginStart` / `rn/marginEnd`, `rn/paddingStart` / `rn/paddingEnd`
    — direction-aware logical props not wired (Yoga RTL is also
    unsupported).
-5. `rn/shadowColor` / `rn/shadowOffset` / `rn/shadowOpacity` /
+4. `rn/shadowColor` / `rn/shadowOffset` / `rn/shadowOpacity` /
    `rn/shadowRadius` — iOS shadow surface; routed via
    `boxShadow` instead.
-6. `rn/elevation` — Android-only; not modeled.
-7. `rn/borderCurve` — iOS 13+ continuous-corners; not modeled.
-8. `rn/mixBlendMode`, `rn/isolation` — not yet wired (Skia / CG can
+5. `rn/elevation` — Android-only; not modeled.
+6. `rn/borderCurve` — iOS 13+ continuous-corners; not modeled.
+7. `rn/mixBlendMode`, `rn/isolation` — not yet wired (Skia / CG can
    support; bridge plumbing absent).
 
 ## SvgPath (#994 / #1291)
