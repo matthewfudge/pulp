@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 20:17 PDT
+Last reviewed: 2026-05-04 20:28 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -175,6 +175,11 @@ LiveConstantRegistry duplicate registration, clamp, callback, missing
 key, reset, and reset-all paths, plus LiveConstantEditor visibility,
 paint, slider drag, header guard, and missing-row drag paths. It
 remains unpushed and undispatched.
+Additional #493 view/code-editor progress is queued locally as
+`local/phase3-code-editor-doc-mru-493` at `8595aab3`, covering
+FileBasedDocument successful load/save-as dirty-state behavior and
+RecentlyOpenedFilesList remove/missing-path behavior. It remains
+unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 
