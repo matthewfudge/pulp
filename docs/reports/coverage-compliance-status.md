@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 10:52 PDT
+Last reviewed: 2026-05-05 10:54 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -164,10 +164,11 @@ undispatched. Additional #640 audio progress is queued locally as
 AudioFileData helper shape semantics and WAV writer first-channel-empty
 rejection. It remains unpushed and undispatched.
 Additional #640 audio progress is queued locally as
-`local/phase3-aiff-pcm-edges-640` at `89d91749`, created from current
+`local/phase3-aiff-pcm-edges-640` at `4bf1d89a`, created from current
 `origin/main` `0447498e`, then refreshed onto current `origin/main`
-`8fa55f5e`, covering AIFF invalid COMM metadata and unsupported PCM
-bit-depth rejection. It remains unpushed and undispatched. Additional
+`8fa55f5e`, then onto current `origin/main` `b7ec8f08`, covering AIFF
+invalid COMM metadata and unsupported PCM bit-depth rejection. It remains
+unpushed and undispatched. Additional
 #640 audio progress is queued locally as
 `local/phase3-streaming-writer-reopen-640` at `be1b0ec3`, created from
 current `origin/main` `0447498e`, then refreshed from `6f8dad35` onto
