@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 14:46 PDT
+Last reviewed: 2026-05-05 14:50 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -366,13 +366,13 @@ TreeView disclosure collapse, left-key consumed-state behavior,
 selected-row paint highlight, and expanded/collapsed disclosure paint
 output. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-modal-overlay-edges-493` at `3496e7e6`, refreshed from
+`local/phase3-modal-overlay-edges-493` at `67fe482e`, refreshed from
 `95a7b597` onto current `origin/main` `0447498e`, then refreshed again
 onto current `origin/main` `c18785c9`, then onto current `origin/main`
-`83271a94`, covering ModalOverlay
-key-release/no-callback Escape behavior, backdrop alpha paint output,
-and backdrop-click dismissal hit/flag guards. It remains unpushed and
-undispatched.
+`83271a94`, then refreshed again onto current `origin/main` `7e9795b4`,
+covering ModalOverlay key-release/no-callback Escape behavior, backdrop
+alpha paint output, and backdrop-click dismissal hit/flag guards. It
+remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-auto-ui-edges-493` at `1ea687bf`, refreshed from
 `39c0e3a1` onto current `origin/main` `0447498e`, then refreshed again
