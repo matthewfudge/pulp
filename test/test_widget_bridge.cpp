@@ -4494,3 +4494,110 @@ TEST_CASE("setTop/setRight/setBottom/setLeft accept percent strings directly",
     REQUIRE(child->left_unit() == DimensionUnit::percent);
     REQUIRE_THAT(child->left(), WithinAbs(0.0f, 0.001f));
 }
+
+// ── pulp #1434 (rn batch C) — dimension percent strings ─────────────────────
+//
+// `min_width`/`min_height`/`max_width`/`max_height`/`flex_basis` accept
+// either a number (px) or a percentage string (`'50%'`). `flex_basis`
+// also accepts `'auto'`. Yoga's `YGNodeStyleSet*Percent` /
+// `YGNodeStyleSetFlexBasisAuto` APIs are dispatched on
+// `FlexStyle::dim_*.unit` in `yoga_layout.cpp`.
+
+TEST_CASE("setFlex min/max width/height accept percent strings",
+          "[view][bridge][css][issue-1434-rn-batch-c]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 200});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('child', '');
+        setFlex('child', 'min_width', '25%');
+        setFlex('child', 'min_height', '15%');
+        setFlex('child', 'max_width', '75%');
+        setFlex('child', 'max_height', '90%');
+    )");
+
+    auto* child = bridge.widget("child");
+    REQUIRE(child != nullptr);
+    const auto& f = child->flex();
+
+    REQUIRE(f.dim_min_width.unit == DimensionUnit::percent);
+    REQUIRE_THAT(f.dim_min_width.value, WithinAbs(25.0f, 0.001f));
+    REQUIRE(f.dim_min_height.unit == DimensionUnit::percent);
+    REQUIRE_THAT(f.dim_min_height.value, WithinAbs(15.0f, 0.001f));
+    REQUIRE(f.dim_max_width.unit == DimensionUnit::percent);
+    REQUIRE_THAT(f.dim_max_width.value, WithinAbs(75.0f, 0.001f));
+    REQUIRE(f.dim_max_height.unit == DimensionUnit::percent);
+    REQUIRE_THAT(f.dim_max_height.value, WithinAbs(90.0f, 0.001f));
+}
+
+TEST_CASE("setFlex min/max width/height numeric path stays px",
+          "[view][bridge][css][issue-1434-rn-batch-c]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('child', '');
+        setFlex('child', 'min_width', 50);
+        setFlex('child', 'min_height', 30);
+        setFlex('child', 'max_width', 200);
+        setFlex('child', 'max_height', 150);
+    )");
+
+    const auto& f = bridge.widget("child")->flex();
+    REQUIRE(f.dim_min_width.unit == DimensionUnit::px);
+    REQUIRE_THAT(f.min_width, WithinAbs(50.0f, 0.001f));
+    REQUIRE_THAT(f.min_height, WithinAbs(30.0f, 0.001f));
+    REQUIRE_THAT(f.max_width, WithinAbs(200.0f, 0.001f));
+    REQUIRE_THAT(f.max_height, WithinAbs(150.0f, 0.001f));
+}
+
+TEST_CASE("setFlex flex_basis accepts 'auto', percent string, and number",
+          "[view][bridge][css][issue-1434-rn-batch-c]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a','');  setFlex('a', 'flex_basis', 'auto');
+        createPanel('b','');  setFlex('b', 'flex_basis', '40%');
+        createPanel('c','');  setFlex('c', 'flex_basis', 80);
+    )");
+
+    const auto& fa = bridge.widget("a")->flex();
+    REQUIRE(fa.dim_flex_basis.unit == DimensionUnit::auto_);
+
+    const auto& fb = bridge.widget("b")->flex();
+    REQUIRE(fb.dim_flex_basis.unit == DimensionUnit::percent);
+    REQUIRE_THAT(fb.dim_flex_basis.value, WithinAbs(40.0f, 0.001f));
+
+    const auto& fc = bridge.widget("c")->flex();
+    REQUIRE(fc.dim_flex_basis.unit == DimensionUnit::px);
+    REQUIRE_THAT(fc.flex_basis, WithinAbs(80.0f, 0.001f));
+}
+
+TEST_CASE("max_width percent caps the child at the resolved pixel size",
+          "[view][bridge][css][issue-1434-rn-batch-c]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 200});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('child', '');
+        setFlex('child', 'max_width', '50%');
+        setFlex('child', 'flex_grow', 1);
+    )");
+
+    auto* child = bridge.widget("child");
+    REQUIRE(child != nullptr);
+
+    root.layout_children();
+    REQUIRE(child->bounds().width <= 200.5f);
+}
