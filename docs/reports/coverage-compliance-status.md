@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 06:54 PDT
+Last reviewed: 2026-05-05 06:58 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -420,13 +420,14 @@ fail-closed and EOF no-copy behavior. The refreshed branch remains
 unpushed and undispatched; #1280 still points at the old remote head
 until Namespace capacity returns.
 Additional #493 view progress is refreshed locally as
-`feature/view-text-editor-coverage-493-next` at `f377ef5c`, rebased from
+`feature/view-text-editor-coverage-493-next` at `40606e1d`, rebased from
 the paused #1282 remote head `03e5e3cd` onto current `origin/main`
-`0447498e`, covering TextEditor key-up/unhandled-key, modifier/word and
-shift navigation, delete/redo, shift-click, and exact double-click word
-selection paths. The refreshed branch remains unpushed and undispatched;
-#1282 still points at the old remote head until Namespace capacity
-returns.
+`50ff5822` after superseding local refresh `f377ef5c` on `0447498e`,
+covering TextEditor key-up/unhandled-key, modifier/word and shift
+navigation, delete/redo, shift-click, and exact double-click word
+selection paths. The refreshed branch remains unpushed and
+undispatched; #1282 still points at the old remote head until Namespace
+capacity returns.
 
 ## Phase 3 Operating Loop
 
