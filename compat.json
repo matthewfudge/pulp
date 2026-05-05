@@ -4902,17 +4902,21 @@
     "_note": "The @pulp/react reconciler surface (host-config.ts, prop-applier.ts) is captured under rn/* above (prop-applier covers ~70 props). This section is reserved for React-specific features that aren't single-prop entries: Suspense, ConcurrentMode, Profiler, error boundaries, refs, portals, hooks edge cases (useTransition, useDeferredValue, useId, useSyncExternalStore). As of 2026-05-04 the renderer is built on react-reconciler@0.31 and supports the basic function-component + useState + useEffect + useRef + useMemo / useCallback set; concurrent features are not exercised. File-issue follow-up: enumerate observed React features end-to-end and populate per-feature entries. Currently empty pending that audit."
   },
   "html": {
-    "_note": "Populated 2026-05-04 from web-compat-element.js (~836 LOC) and web-compat-document.js (~1527 LOC). Tracks the DOM-lite consumer surface: createElement / setAttribute / appendChild / addEventListener / Element / HTMLElement attributes / dataset / classList / events / style sheet support. Spec source: https://developer.mozilla.org/en-US/docs/Web/API/Element + HTMLElement subclasses. Recent additions since 2026-04-30: html/svg width/height attribute replay (#1347 / pulp #1147), html/span/p/label widget mapping confirmed (Label widget, not View), html/style :hover stylesheet support (#1345 / pulp #1149 part b).",
+    "_note": "Populated 2026-05-04 from web-compat-element.js (~836 LOC) and web-compat-document.js (~1527 LOC). Tracks the DOM-lite consumer surface: createElement / setAttribute / appendChild / addEventListener / Element / HTMLElement attributes / dataset / classList / events / style sheet support. Spec source: https://developer.mozilla.org/en-US/docs/Web/API/Element + HTMLElement subclasses. Recent additions since 2026-04-30: html/svg width/height attribute replay (#1347 / pulp #1147), html/span/p/label widget mapping confirmed (Label widget, not View), html/style :hover stylesheet support (#1345 / pulp #1149 part b). 2026-05-05 hygiene (pulp #1434): html/ARIA flipped missing → partial — storage works (parallel to html/Element_disabled); platform-bridge routing tracked under #1476.",
     "html/ARIA": {
-      "status": "missing",
-      "mapsTo": "ARIA attributes (aria-label, role, etc.) are stored in _attributes but NOT routed to platform accessibility APIs.",
-      "supportedValues": [],
+      "status": "partial",
+      "mapsTo": "ARIA attributes (aria-label, role, etc.) are stored in _attributes via setAttribute and round-trip through getAttribute; the html-compat layer does NOT yet forward them onto the platform accessibility bridge (which already exists — macOS/iOS/Android done, Windows UIA + Linux AT-SPI in flight under #217).",
+      "supportedValues": [
+        "aria-* attribute storage / read-back via setAttribute / getAttribute"
+      ],
       "unsupportedValues": [
-        "all aria-* attribute -> screen-reader propagation"
+        "aria-label -> bridge.setAccessibilityLabel routing",
+        "role -> bridge.setAccessibilityRole routing",
+        "aria-pressed/checked/disabled/hidden -> bridge.setAccessibilityState routing"
       ],
       "tests": [],
-      "notes": "MAJOR GAP — accessibility surface needs dedicated work. File a follow-up issue.",
-      "issue": ""
+      "notes": "Storage portion of the html-compat ARIA surface works (parallel to html/Element_disabled — stored, not routed). Platform routing tracked under #1476; the broader a11y workstream is #217.",
+      "issue": "1476"
     },
     "html/DocumentFragment": {
       "status": "partial",
