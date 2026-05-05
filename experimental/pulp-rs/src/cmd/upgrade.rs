@@ -4,10 +4,8 @@
 //!
 //! Phase 5 ports the *discovery* half of the C++ `pulp upgrade` path:
 //! check for a newer release, print the delta, stage a pending-upgrade
-//! marker. The *install* half (download + swap the binary) is
-//! deliberately stubbed to a dry-run notice — hot-swapping the running
-//! test binary is hostile to `cargo test`, and the prototype isn't
-//! shipped so nobody's waiting on a live install.
+//! marker, and install a release binary when requested. Tests use a
+//! dry-run override so they never hot-swap the running test binary.
 //!
 //! # Flag surface
 //!
@@ -407,20 +405,15 @@ fn write_pending_marker(args: &UpgradeArgs, out: &mut impl Write) -> Result<()> 
     Ok(())
 }
 
-/// Installed-version probe with `--from` override and the env
-/// fallback used by the shared [`version_info`] code path.
+/// Installed-version probe with `--from` override and the shared
+/// CLI-version fallback.
 fn effective_installed(args: &UpgradeArgs) -> String {
     if let Some(ref v) = args.from_override {
         if !v.is_empty() {
             return v.clone();
         }
     }
-    if let Ok(v) = std::env::var("PULP_RS_CLI_VERSION") {
-        if !v.is_empty() {
-            return v;
-        }
-    }
-    env!("CARGO_PKG_VERSION").to_owned()
+    crate::build_info::cli_version_string()
 }
 
 /// Normalise an incoming version string so a leading `v` doesn't
@@ -796,7 +789,7 @@ mod tests {
     fn effective_installed_empty_from_override_falls_through_to_env() {
         let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Empty string → not used, fall through to PULP_RS_CLI_VERSION
-        // / CARGO_PKG_VERSION. Pin the env var to make this hermetic.
+        // / baked version. Pin the env var to make this hermetic.
         std::env::set_var("PULP_RS_CLI_VERSION", "1.2.3");
         let args = UpgradeArgs {
             from_override: Some(String::new()),
@@ -807,11 +800,11 @@ mod tests {
     }
 
     #[test]
-    fn effective_installed_falls_back_to_cargo_pkg_version() {
+    fn effective_installed_falls_back_to_baked_version() {
         let _l = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("PULP_RS_CLI_VERSION");
         let args = UpgradeArgs::default();
-        // Whatever Cargo.toml says — we just assert non-empty.
+        // Whatever the build baked in — we just assert non-empty.
         assert!(!effective_installed(&args).is_empty());
     }
 }
