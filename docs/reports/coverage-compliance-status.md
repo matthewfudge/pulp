@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 05:44 PDT
+Last reviewed: 2026-05-05 05:52 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -355,6 +355,12 @@ queued locally as `local/phase3-settings-panel-edges-493` at
 SettingsPanel no-device fallback sample-rate/buffer-size lists, latency
 label refresh, input-channel fallback apply behavior, and test-tone
 disable/reselect callback paths. It remains unpushed and undispatched.
+Additional #493 format progress is queued locally as
+`local/phase3-headless-host-edges-493` at `950b73f4`, created from
+current `origin/main` `0447498e`, covering HeadlessHost MIDI-overload
+process-context defaults, release forwarding, and null-processor
+prepare/process/release guard behavior. It remains unpushed and
+undispatched.
 
 ## Phase 3 Operating Loop
 

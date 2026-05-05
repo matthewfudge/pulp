@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 05:44 PDT
+Last updated: 2026-05-05 05:52 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -137,6 +137,27 @@ reports; and `git diff --check` against `origin/main`, the worktree, and
 the index. Existing third-party/platform warnings were observed during
 build. It remains unpushed and undispatched. Resume note: when Namespace
 capacity returns, rename/push as a feature branch and run
+`shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`
+only as part of a small resume batch.
+
+Additional local-only progress at 2026-05-05 05:52 PDT: added
+`local/phase3-headless-host-edges-493` at `950b73f4`, covering
+HeadlessHost MIDI-overload process-context defaults, release forwarding,
+and null-processor prepare/process/release guard paths for the #493
+format tranche on current `origin/main` `0447498e`. Local validation
+included:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF -DFETCHCONTENT_SOURCE_DIR_MBEDTLS=/Users/danielraffel/Library/Caches/Pulp/fetchcontent-src/mbedtls-v3.6.2-tar`;
+`cmake --build build --target pulp-test-headless -j10`; focused Catch
+filters for `HeadlessHost MIDI overload defaults process context`,
+`HeadlessHost release forwards every call`, and `HeadlessHost
+no-processor guards leave buffers untouched`; `[headless][issue-493]`;
+exact CTest selector `HeadlessHost MIDI overload|HeadlessHost release
+forwards|HeadlessHost no-processor`; full `pulp-test-headless`;
+sync/version/docs/compat guard reports; and `git diff --check` against
+`origin/main`, the worktree, and the index. Existing
+third-party/platform warnings were observed during build. It remains
+unpushed and undispatched. Resume note: when Namespace capacity returns,
+rename/push as a feature branch and run
 `shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`
 only as part of a small resume batch.
 
