@@ -465,10 +465,11 @@ create-failure paths. The
 refreshed branch remains unpushed and undispatched; #1286 still points at
 the old remote head until Namespace capacity returns.
 Additional #643 CLI helper progress is refreshed locally as
-`feature/phase3-create-targets-coverage-643` at `b9b2e829`, rebased from
+`feature/phase3-create-targets-coverage-643` at `05f0acda`, rebased from
 the paused #1271 remote head `62ca4512` onto current `origin/main`
 `50ff5822`, then onto current `origin/main` `b7ec8f08`, then
-`cf5ea658`, covering create-target optional format suffixes, duplicate
+`cf5ea658`, then onto current `origin/main` `24047ba3`, covering
+create-target optional format suffixes, duplicate
 suppression, and empty standalone app target filtering. The refreshed
 branch remains unpushed and undispatched; #1271 still points at the old
 remote head until
