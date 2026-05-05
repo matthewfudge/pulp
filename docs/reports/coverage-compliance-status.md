@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 05:55 PDT
+Last reviewed: 2026-05-05 06:10 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -366,6 +366,13 @@ Additional #643 tools progress is queued locally as
 refreshed from `76a2541b` onto current `origin/main` `0447498e`,
 covering `tools/check_format_validation.py` parser, mode, reporting, and
 read-error branches. It remains unpushed and undispatched.
+Additional #643 CLI ship progress is refreshed locally as
+`feature/phase3-cli-ship-coverage-643-next` at `64c4424c`, rebased from
+the paused #1274 remote head `c924f1e8` onto current `origin/main`
+`0447498e`, covering `pulp ship sign` missing-identity guidance in a
+valid project/build-cache shellout path. The refreshed branch remains
+unpushed and undispatched; #1274 still points at the old remote head
+until Namespace capacity returns.
 
 ## Phase 3 Operating Loop
 
