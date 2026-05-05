@@ -768,11 +768,11 @@ that checkout's `build/` directory.
 Use `--script` to point at a different JS entry, and `--build-dir` when you are working from a
 nonstandard build tree such as a separate worktree build directory.
 
-When run outside a Pulp checkout, `pulp design` can currently auto-bind only when the `pulp`
-binary itself lives inside a Pulp build tree such as `.../build/tools/cli/pulp`. Generic
-PATH-installed or symlinked CLI setups are not fully SDK-mode aware yet; use `--build-dir` and
-`--script` explicitly in split layouts where the project repo and the Pulp SDK live in different
-directories.
+When run outside a Pulp checkout, `pulp design` can currently auto-bind only when the CLI
+binary lives inside a Pulp build tree such as `.../build/pulp` (Rust) with its
+`.../build/tools/cli/pulp-cpp` delegate. Generic PATH-installed or symlinked CLI setups
+are not fully SDK-mode aware yet; use `--build-dir` and `--script` explicitly in split
+layouts where the project repo and the Pulp SDK live in different directories.
 
 The selected build environment is the authority for supported behavior. `pulp design` prints the
 chosen root, build dir, and script path so the provenance is explicit.

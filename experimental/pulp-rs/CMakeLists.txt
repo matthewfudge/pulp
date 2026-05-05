@@ -3,16 +3,10 @@
 # binary alongside `pulp-cpp` (the C++ CLI), and `cmake --install`
 # drops both under `${CMAKE_INSTALL_BINDIR}`.
 #
-# Phase 8 binary-swap context (issues #686, #767):
-#
-#   - At this PR (#1 of the swap pair), the Rust crate's `[[bin]]`
-#     is still `pulp-rs` and the C++ target output is still `pulp`.
-#     This file installs the Rust binary as `pulp-rs` so neither
-#     replaces the other — both coexist.
-#   - PR #2 will rename the Cargo bin to `pulp` and the C++ output
-#     to `pulp-cpp`, flipping the user's default. That edit lands
-#     here as a one-line `OUTPUT_NAME` change in `tools/cli/CMakeLists.txt`
-#     plus a Cargo.toml `name` rename — no logic change in this file.
+# Phase 8 binary-swap context (issues #686, #767): the Rust crate's
+# `[[bin]]` is now `pulp`, and the C++ target output is `pulp-cpp`.
+# `cmake --install` drops both under the active prefix so Rust owns the
+# user-facing command while C++ remains available for fallthrough.
 #
 # Escape hatches (in priority order):
 #
@@ -26,8 +20,8 @@
 #
 # Cross-platform notes:
 #
-#   - Cargo emits `target/release/pulp-rs` on Unix and
-#     `target/release/pulp-rs.exe` on Windows. Both are surfaced
+#   - Cargo emits `target/release/pulp` on Unix and
+#     `target/release/pulp.exe` on Windows. Both are surfaced
 #     under `${CMAKE_BINARY_DIR}` with the platform-correct suffix.
 #   - The Rust crate is publishable standalone via plain
 #     `cargo build` from `experimental/pulp-rs/`. This CMake file
@@ -99,7 +93,7 @@ add_custom_target(pulp-rust-cli ALL
     USES_TERMINAL
     VERBATIM)
 
-# Surface the binary at `${CMAKE_BINARY_DIR}/pulp-rs[.exe]` so
+# Surface the binary at `${CMAKE_BINARY_DIR}/pulp[.exe]` so
 # every consumer (tests, scripts, packagers, the sandbox-e2e
 # harness #732) has a stable path independent of the Cargo target
 # layout.
@@ -107,12 +101,12 @@ add_custom_command(TARGET pulp-rust-cli POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${_pulp_rs_cargo_bin}"
             "${_pulp_rs_dest_bin}"
-    COMMENT "Staging pulp-rs at ${_pulp_rs_dest_bin}"
+    COMMENT "Staging Rust pulp at ${_pulp_rs_dest_bin}"
     VERBATIM)
 
 # Install into the active prefix's bindir so `cmake --install`
-# emits both `pulp-cpp` (a.k.a. today's `pulp`) and `pulp-rs`
-# side-by-side. We install the staged copy under
+# emits both Rust `pulp` and C++ `pulp-cpp` side-by-side. We install
+# the staged copy under
 # `${CMAKE_BINARY_DIR}` (not the cargo-target subdir) so install
 # behavior is independent of Cargo's internal layout.
 set(_pulp_rs_install_bindir "${CMAKE_INSTALL_BINDIR}")

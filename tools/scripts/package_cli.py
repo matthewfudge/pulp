@@ -21,7 +21,7 @@ single-binary contract, so pre-swap release lanes stay byte-identical.
 
 Usage (called from .github/workflows/release-cli.yml):
     python3 tools/scripts/package_cli.py \\
-        --binary build/tools/cli/pulp \\
+        --binary build/pulp \\
         --cpp-binary build/tools/cli/pulp-cpp \\
         --build-dir build \\
         --platform darwin-arm64 \\

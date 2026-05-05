@@ -48,7 +48,14 @@ directly and one of which it may hand off to `pulp project bump`:
 | Shipyard pin | `tools/install-shipyard.sh` | Dependency Update Workflow (out of scope) |
 
 `pulp upgrade` downloads the new CLI binary and replaces the installed
-one. `pulp upgrade --notes` prints migration notes for the hop without
+one. After the Phase 8 Rust cutover, release archives are dual-binary:
+Rust `pulp` is the user-facing CLI and sibling `pulp-cpp` is installed
+as the C++ fallthrough delegate. A healthy install has both
+`~/.pulp/bin/pulp` and `~/.pulp/bin/pulp-cpp`; use `PULP_USE_CPP=1
+pulp <args>` or direct `pulp-cpp <args>` only for rollback/debug
+comparisons. Do not hand-swap binaries in user/system locations.
+
+`pulp upgrade --notes` prints migration notes for the hop without
 downloading anything. `pulp upgrade --notes --json` emits the same data
 as a stable-shape JSON document for agent consumption (the `/upgrade`
 slash command is the primary consumer).
