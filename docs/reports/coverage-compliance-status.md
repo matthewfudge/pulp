@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 06:10 PDT
+Last reviewed: 2026-05-05 06:15 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -372,6 +372,13 @@ the paused #1274 remote head `c924f1e8` onto current `origin/main`
 `0447498e`, covering `pulp ship sign` missing-identity guidance in a
 valid project/build-cache shellout path. The refreshed branch remains
 unpushed and undispatched; #1274 still points at the old remote head
+until Namespace capacity returns.
+Additional #640 audio progress is refreshed locally as
+`feature/phase3-mmap-reader-extra-640` at `84470694`, rebased from the
+paused #1280 remote head `ed2ba7bf` onto current `origin/main`
+`0447498e`, covering `MemoryMappedAudioReader` unsupported-file
+fail-closed and EOF no-copy behavior. The refreshed branch remains
+unpushed and undispatched; #1280 still points at the old remote head
 until Namespace capacity returns.
 
 ## Phase 3 Operating Loop
