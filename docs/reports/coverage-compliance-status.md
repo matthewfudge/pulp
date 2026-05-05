@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 06:43 PDT
+Last reviewed: 2026-05-05 06:49 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -404,6 +404,14 @@ from the paused #1273 remote head `c52cd486` onto current `origin/main`
 installed package does not support a newly added target. The refreshed
 branch remains unpushed and undispatched; #1273 still points at the old
 remote head until Namespace capacity returns.
+Additional #493 design-import progress is refreshed locally as
+`feature/phase3-design-import-bundle-coverage-493` at `ddd6e9af`,
+rebased from the paused #1269 remote head `923b04f1` onto current
+`origin/main` `50ff5822`, covering Claude bundle malformed template/
+manifest handling, malformed asset skips, referenced-JS indexing, and
+bundled classname extraction through font-face-leading styles. The
+refreshed branch remains unpushed and undispatched; #1269 still points
+at the old remote head until Namespace capacity returns.
 Additional #640 audio progress is refreshed locally as
 `feature/phase3-mmap-reader-extra-640` at `84470694`, rebased from the
 paused #1280 remote head `ed2ba7bf` onto current `origin/main`
