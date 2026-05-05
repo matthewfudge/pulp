@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 09:21 PDT
+Last reviewed: 2026-05-05 09:24 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -192,11 +192,11 @@ official Python coverage runner intentionally excludes
 `tools/scripts/test_*.py`, so this guard has no measured non-test source
 surface in that focused runner. It remains unpushed and undispatched.
 Additional #640 platform progress is queued locally as
-`local/phase3-platform-environment-dispatch-640` at `422a64cc`,
-refreshed from `b271d2e6` onto current `origin/main` `0447498e`,
-covering Environment token self-move, listener removal before dispatch,
-and reset-during-dispatch skip behavior. It remains unpushed and
-undispatched. Additional #640 platform progress is queued locally as
+`local/phase3-platform-environment-dispatch-640` at `cfb1874d`,
+refreshed from `b271d2e6` to `422a64cc`, then onto current `origin/main`
+`bd036171`, covering Environment token self-move, listener removal before
+dispatch, and reset-during-dispatch skip behavior. It remains unpushed
+and undispatched. Additional #640 platform progress is queued locally as
 `local/phase3-child-process-read-output-640` at `4008bd73`, refreshed from
 `55c46d02` onto current `origin/main` `0447498e`, covering
 `ChildProcess::read_available_output()` while stdout is available
