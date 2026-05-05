@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 05:18 PDT
+Last reviewed: 2026-05-05 05:44 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -349,7 +349,12 @@ adapter unit-test discovery from
 `test/harness/test_*.py` including the current RN adapter coverage,
 compat-sync's unknown-requirement hard-error expectation, and Python
 coverage-runner discovery/omit rules for harness tests. It remains
-unpushed and undispatched.
+unpushed and undispatched. Additional #493 format/view progress is
+queued locally as `local/phase3-settings-panel-edges-493` at
+`f076664e`, created from current `origin/main` `0447498e`, covering
+SettingsPanel no-device fallback sample-rate/buffer-size lists, latency
+label refresh, input-channel fallback apply behavior, and test-tone
+disable/reselect callback paths. It remains unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 

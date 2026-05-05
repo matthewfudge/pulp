@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 05:18 PDT
+Last updated: 2026-05-05 05:44 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -119,6 +119,26 @@ Additional local-only progress at 2026-05-05 05:11 PDT: added
 PluginSlot invalid descriptor fail-closed dispatch across CLAP, AU,
 AUv3, VST3, and LV2 loader paths for the #493 host tranche on current
 `origin/main` `0447498e`. It remains unpushed and undispatched.
+
+Additional local-only progress at 2026-05-05 05:44 PDT: added
+`local/phase3-settings-panel-edges-493` at `f076664e`, covering
+SettingsPanel no-audio-device fallback sample-rate/buffer-size lists,
+latency-label refresh, input-channel fallback apply behavior, and
+test-tone disable/reselect callback paths for the #493 format/view
+tranche on current `origin/main` `0447498e`. Local validation included:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF -DFETCHCONTENT_SOURCE_DIR_MBEDTLS=/Users/danielraffel/Library/Caches/Pulp/fetchcontent-src/mbedtls-v3.6.2-tar`;
+`cmake --build build --target pulp-test-standalone-editor-chrome -j10`;
+focused Catch filters for `SettingsPanel uses fallback rates when no
+audio devices are enumerated` and `SettingsPanel test tone toggle emits
+disabled config`; `[standalone][settings][issue-493]`; exact CTest
+selector `SettingsPanel uses fallback rates|SettingsPanel test tone
+toggle`; full `pulp-test-standalone-editor-chrome`; sync/version guard
+reports; and `git diff --check` against `origin/main`, the worktree, and
+the index. Existing third-party/platform warnings were observed during
+build. It remains unpushed and undispatched. Resume note: when Namespace
+capacity returns, rename/push as a feature branch and run
+`shipyard pr --skip-target mac --skip-target ubuntu --skip-target windows`
+only as part of a small resume batch.
 
 Additional local-only progress at 2026-05-04 23:39 PDT, refreshed at
 2026-05-05 03:34 PDT: refreshed
