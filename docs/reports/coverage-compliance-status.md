@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 23:23 PDT
+Last reviewed: 2026-05-04 23:27 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -147,10 +147,12 @@ Additional #645 MIDI progress is queued locally as
 header rejection, directly addressed discovery inquiries, short
 discovery replies, and reserved-byte profile matching. It remains
 unpushed and undispatched. Additional #645 MIDI/MPE progress is queued
-locally as `local/phase3-mpe-allocator-edges-645` at `fc198dec`,
-fixing the MpeVoiceAllocator release-steal glide refcount path and
-covering unmatched MpeGlideDetector note-off/reset behavior. It remains
-unpushed and undispatched. Additional #493 host scanner progress is
+locally as `local/phase3-mpe-allocator-edges-645` at `83ce06b3`,
+refreshed from `fc198dec` onto current `origin/main`, fixing the
+MpeVoiceAllocator release-steal glide refcount path, documenting the
+releasing-steal invariant in the MPE skill, and covering unmatched
+MpeGlideDetector note-off/reset behavior. It remains unpushed and
+undispatched. Additional #493 host scanner progress is
 queued locally as `local/phase3-host-scanner-order-493` at `c3b79d68`,
 covering PluginScanner VST3/LV2 format-lane merging, final name
 ordering, LV2 URI identity, VST3 stem fallback identity, and hermetic
