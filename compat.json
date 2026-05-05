@@ -1028,15 +1028,15 @@
       "status": "partial",
       "mapsTo": "setFlex(id, 'flex_basis', px)",
       "supportedValues": [
-        "px"
+        "px",
+        "%",
+        "auto"
       ],
       "unsupportedValues": [
-        "%",
-        "auto",
         "content"
       ],
       "tests": [],
-      "notes": "Yoga supports 'auto' and percentages; Pulp accepts only px float.",
+      "notes": "Yoga supports 'auto' and percentages; Pulp accepts only px float. pulp #1434 rn batch C: % and auto wired via FlexStyle::dim_flex_basis.",
       "issue": ""
     },
     "css/flexDirection": {
@@ -1321,7 +1321,7 @@
       "issue": ""
     },
     "css/height": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'height', px)",
       "supportedValues": [
         "px (number)"
@@ -1676,59 +1676,59 @@
       "issue": ""
     },
     "css/maxHeight": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'max_height', px)",
       "supportedValues": [
-        "px (number)"
+        "px (number)",
+        "%"
       ],
       "unsupportedValues": [
-        "%",
         "calc()"
       ],
       "tests": [],
-      "notes": "Same as max-width.",
+      "notes": "Same as max-width. pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API.",
       "issue": ""
     },
     "css/maxWidth": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'max_width', px)",
       "supportedValues": [
-        "px (number)"
+        "px (number)",
+        "%"
       ],
       "unsupportedValues": [
-        "%",
         "calc()"
       ],
       "tests": [],
-      "notes": "0 = no maximum (semantic differs from CSS where unspecified = none).",
+      "notes": "0 = no maximum (semantic differs from CSS where unspecified = none). pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API.",
       "issue": ""
     },
     "css/minHeight": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'min_height', px)",
       "supportedValues": [
-        "px (number)"
+        "px (number)",
+        "%"
       ],
       "unsupportedValues": [
-        "%",
         "calc()"
       ],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API.",
       "issue": ""
     },
     "css/minWidth": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'min_width', px)",
       "supportedValues": [
-        "px (number)"
+        "px (number)",
+        "%"
       ],
       "unsupportedValues": [
-        "%",
         "calc()"
       ],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API.",
       "issue": ""
     },
     "css/mixBlendMode": {
@@ -2609,7 +2609,7 @@
       "issue": ""
     },
     "css/width": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'width', px)",
       "supportedValues": [
         "px (number)"
@@ -3243,14 +3243,15 @@
       "status": "partial",
       "mapsTo": "setFlex(id, 'flex_basis', n)",
       "supportedValues": [
-        "number (px)"
+        "number (px)",
+        "string % (e.g. '40%')",
+        "'auto'"
       ],
       "unsupportedValues": [
-        "string %",
-        "auto"
+        "content"
       ],
       "tests": [],
-      "notes": "TS type is 'number' only.",
+      "notes": "TS type is 'number' only. pulp #1434 rn batch C: bridge accepts number / \"NN%\" / \"auto\"; FlexStyle::dim_flex_basis.unit drives YGNodeStyleSetFlexBasis{,Percent,Auto}.",
       "issue": ""
     },
     "rn/flexDirection": {
@@ -3378,18 +3379,18 @@
       "issue": ""
     },
     "rn/height": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'height', n)",
       "supportedValues": [
-        "number"
+        "number (px)",
+        "string % (e.g. '50%')"
       ],
       "unsupportedValues": [
-        "string %",
         "string vh",
         "auto"
       ],
       "tests": [],
-      "notes": "TS type is `number` only.",
+      "notes": "TS type is `number` only. pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_height.unit. auto remains a follow-up.",
       "issue": ""
     },
     "rn/includeFontPadding": {
@@ -3613,52 +3614,48 @@
       "status": "supported",
       "mapsTo": "setFlex(id, 'max_height', n)",
       "supportedValues": [
-        "number"
+        "number (px)",
+        "string % (e.g. '50%')"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_max_height.unit; yoga_layout.cpp routes to YGNodeStyleSetMaxHeightPercent. pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_max_height.unit \u2192 YGNodeStyleSetMaxHeightPercent.",
       "issue": ""
     },
     "rn/maxWidth": {
       "status": "supported",
       "mapsTo": "setFlex(id, 'max_width', n)",
       "supportedValues": [
-        "number"
+        "number (px)",
+        "string % (e.g. '50%')"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_max_width.unit; yoga_layout.cpp routes to YGNodeStyleSetMaxWidthPercent. pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_max_width.unit \u2192 YGNodeStyleSetMaxWidthPercent.",
       "issue": ""
     },
     "rn/minHeight": {
       "status": "supported",
       "mapsTo": "setFlex(id, 'min_height', n)",
       "supportedValues": [
-        "number"
+        "number (px)",
+        "string % (e.g. '50%')"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_min_height.unit; yoga_layout.cpp routes to YGNodeStyleSetMinHeightPercent. pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_min_height.unit \u2192 YGNodeStyleSetMinHeightPercent.",
       "issue": ""
     },
     "rn/minWidth": {
       "status": "supported",
       "mapsTo": "setFlex(id, 'min_width', n)",
       "supportedValues": [
-        "number"
+        "number (px)",
+        "string % (e.g. '50%')"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_min_width.unit; yoga_layout.cpp routes to YGNodeStyleSetMinWidthPercent. pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_min_width.unit \u2192 YGNodeStyleSetMinWidthPercent.",
       "issue": ""
     },
     "rn/mixBlendMode": {
@@ -4175,17 +4172,17 @@
       "issue": "994"
     },
     "rn/width": {
-      "status": "supported",
+      "status": "partial",
       "mapsTo": "setFlex(id, 'width', n)",
       "supportedValues": [
-        "number"
+        "number (px)",
+        "string % (e.g. '50%')"
       ],
       "unsupportedValues": [
-        "string %",
         "auto"
       ],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: prop-applier forwards string|number; bridge dispatches percent via FlexStyle::dim_width.unit (#1426 path). auto remains a follow-up.",
       "issue": ""
     },
     "rn/writingDirection": {
@@ -4269,15 +4266,15 @@
       "status": "partial",
       "mapsTo": "FlexStyle.flex_basis (float, -1 = preferred)",
       "supportedValues": [
-        "px"
+        "px",
+        "%",
+        "auto"
       ],
       "unsupportedValues": [
-        "auto",
-        "%",
         "content"
       ],
       "tests": [],
-      "notes": "Yoga upstream supports YGAuto / percent; Pulp accepts only px float.",
+      "notes": "Yoga upstream supports YGAuto / percent; Pulp accepts only px float. pulp #1434 rn batch C: bridge accepts NN% and the \"auto\" keyword; FlexStyle::dim_flex_basis drives YGNodeStyleSetFlexBasis{,Percent,Auto}. content remains unsupported.",
       "issue": ""
     },
     "yoga/justifyContent": {
@@ -4374,52 +4371,48 @@
       "status": "supported",
       "mapsTo": "FlexStyle.min_width",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "%"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: bridge populates FlexStyle::dim_min_width.unit; yoga_layout.cpp dispatches to YGNodeStyleSetMinWidthPercent.",
       "issue": ""
     },
     "yoga/minHeight": {
       "status": "supported",
       "mapsTo": "FlexStyle.min_height",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "%"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: bridge populates FlexStyle::dim_min_height.unit; yoga_layout.cpp dispatches to YGNodeStyleSetMinHeightPercent.",
       "issue": ""
     },
     "yoga/maxWidth": {
       "status": "supported",
       "mapsTo": "FlexStyle.max_width (0 = no max)",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "%"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Semantic of 0 differs from CSS unspecified.",
+      "notes": "Semantic of 0 differs from CSS unspecified. pulp #1434 rn batch C: bridge populates FlexStyle::dim_max_width.unit; yoga_layout.cpp dispatches to YGNodeStyleSetMaxWidthPercent.",
       "issue": ""
     },
     "yoga/maxHeight": {
       "status": "supported",
       "mapsTo": "FlexStyle.max_height",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "%"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "pulp #1434 rn batch C: bridge populates FlexStyle::dim_max_height.unit; yoga_layout.cpp dispatches to YGNodeStyleSetMaxHeightPercent.",
       "issue": ""
     },
     "yoga/aspectRatio": {
