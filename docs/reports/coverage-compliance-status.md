@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 01:17 PDT
+Last reviewed: 2026-05-05 01:20 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -205,8 +205,8 @@ auto-layout/manual-position preservation, unnamed node/multi-port
 painting, and feedback/MIDI edge paint colors. It remains unpushed and
 undispatched.
 Additional #493 view/widget progress is queued locally as
-`local/phase3-new-widgets-input-493` at `251cfa5d`, refreshed from
-`741caf74` onto current `origin/main` and covering MidiKeyboard vertical
+`local/phase3-new-widgets-input-493` at `7b5927ad`, refreshed from
+`251cfa5d` onto current `origin/main` and covering MidiKeyboard vertical
 drag release/miss behavior and note-name/highlight painting, plus
 FileDropZone rejected-drop reset behavior and idle/valid/invalid/no-icon
 paint paths. It remains unpushed and undispatched.
