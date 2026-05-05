@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 13:31 PDT
+Last reviewed: 2026-05-05 13:35 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -363,9 +363,10 @@ key-release/no-callback Escape behavior, backdrop alpha paint output,
 and backdrop-click dismissal hit/flag guards. It remains unpushed and
 undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-auto-ui-edges-493` at `f763c914`, refreshed from
+`local/phase3-auto-ui-edges-493` at `1ea687bf`, refreshed from
 `39c0e3a1` onto current `origin/main` `0447498e`, then refreshed again
-onto current `origin/main` `c18785c9`, covering AutoUi generated toggle
+onto current `origin/main` `c18785c9`, then onto current `origin/main`
+`83271a94`, covering AutoUi generated toggle
 state, generated knob display-format branches, and sync propagation to
 toggles and existing faders. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
