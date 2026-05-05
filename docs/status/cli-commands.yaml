@@ -698,6 +698,31 @@ commands:
             summary: Launch an app and capture screenshot plus available UI state; supports shared source flags (--source-mode, --branch, --sha, --prepare-command, --prepare-timeout)
     docs: guides/local-ci.md
 
+  - name: harness
+    status: experimental
+    summary: Catalog-driven coverage harness. Delegates to tools/harness/verifier.py to compare compat.json support claims against machine-derived oracles, starting with the Yoga surface.
+    args:
+      - name: coverage
+        kind: positional
+        required: false
+        description: Optional compatibility subcommand; accepted for the documented `pulp harness coverage` form and stripped before verifier argument parsing.
+      - name: --surface
+        kind: option
+        description: Run one surface adapter, such as yoga. May be repeated.
+      - name: --all
+        kind: flag
+        description: Run every wired surface adapter.
+      - name: --json
+        kind: flag
+        description: Print the JSON report to stdout instead of writing build/docs report files.
+      - name: --no-docs
+        kind: flag
+        description: Skip writing docs/reports/harness-coverage.md.
+      - name: --repo-root
+        kind: option
+        description: Override repo-root discovery.
+    docs: reference/cli.md#harness
+
   - name: add
     status: usable
     summary: Add a third-party package from the registry. License check, platform check, CMake wiring, metadata updates.

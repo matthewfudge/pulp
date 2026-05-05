@@ -31,6 +31,7 @@ Commands:
   coverage       Local coverage tooling (diff-cover gate mirror)
 
   ci-local       Local-first CI across configured hosts
+  harness        Catalog-driven coverage harness (compat.json verifier)
   design-debug   Headless design debug runner
   import-design  Import designs from Figma/Stitch/v0/Pencil
   export-tokens  Export theme as W3C Design Tokens

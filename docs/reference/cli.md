@@ -627,6 +627,20 @@ Namespace profile setup note:
   macOS profile should report `shape.os = "macos"` and
   `shape.machine_arch = "arm64"`
 
+### harness
+
+Run the catalog coverage harness. The command delegates to `tools/harness/verifier.py` and compares `compat.json` support claims against machine-derived oracles. The first wired adapter is the Yoga surface from #1395.
+
+```bash
+pulp harness --surface=yoga
+pulp harness coverage --surface=yoga
+pulp harness --all
+pulp harness --surface=yoga --json
+pulp harness --surface=yoga --no-docs
+```
+
+By default, the harness writes `build/harness-coverage-<sha>.json`, `build/harness-coverage.md`, and `docs/reports/harness-coverage.md`. Use `--json` for stdout-only machine output.
+
 ### ship
 
 **Status**: experimental

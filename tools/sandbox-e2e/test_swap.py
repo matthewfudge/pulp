@@ -538,8 +538,9 @@ def test_doctor_versions_parity_across_binaries(
 #    Rust**: drift items where the C++ side gained a subcommand after
 #    the Rust port's last sync. The fallthrough is the safety net -
 #    even without a Rust-native implementation, the user-facing
-#    behavior must be unchanged. As of 2026-05-04: pulp loop (#940)
-#    and pulp coverage (#919) are help-visible but still C++-owned.
+#    behavior must be unchanged. As of 2026-05-05: pulp loop (#940),
+#    pulp coverage (#919), and pulp harness (#1395) are help-visible
+#    but still C++-owned.
 #
 # We verify both classes the same way: stage a stub pulp-cpp that tags
 # its output. If the Rust binary reaches the stub, we see the tag +
@@ -560,6 +561,7 @@ LIBRARY_LINKED_COMMANDS: tuple[tuple[str, ...], ...] = (
     # a Rust port lands, move the entry to a parity test instead.
     ("loop", "--help"),     # #940 — landed on main 2026-04-28
     ("coverage", "--help"),  # #919 — landed on main 2026-04-28
+    ("harness", "--help"),  # #1395 — landed on main 2026-05-05
 )
 
 

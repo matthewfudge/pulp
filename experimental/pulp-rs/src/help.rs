@@ -161,10 +161,16 @@ pub const COMMANDS: &[Entry] = &[
 ];
 
 /// Script-delegate table — mirrors `script_commands[]`.
-pub const SCRIPT_COMMANDS: &[Entry] = &[Entry {
-    name: "ci-local",
-    summary: "Local-first CI across configured hosts",
-}];
+pub const SCRIPT_COMMANDS: &[Entry] = &[
+    Entry {
+        name: "ci-local",
+        summary: "Local-first CI across configured hosts",
+    },
+    Entry {
+        name: "harness",
+        summary: "Catalog-driven coverage harness (compat.json verifier)",
+    },
+];
 
 /// Binary-delegate table — mirrors `binary_commands[]`.
 pub const BINARY_COMMANDS: &[Entry] = &[
