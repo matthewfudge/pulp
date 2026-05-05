@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 02:19 PDT
+Last reviewed: 2026-05-05 02:23 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -165,11 +165,11 @@ PluginScanner VST3/LV2 format-lane merging, final name ordering, LV2
 URI identity, VST3 stem fallback identity, and hermetic scanner fixture
 paths. It remains unpushed and undispatched.
 Additional #643 CLI/tools progress is queued locally as
-`local/phase3-fetchcontent-cache-edges-643` at `b056ca59`, refreshed
-from `dd7433d8` onto current `origin/main` and covering FetchContent
-cache fallback entry parsing, live symlink classification, file-backed
-declared-ref parsing, label fallbacks, and symlink removal without
-deleting targets. It remains unpushed and undispatched.
+`local/phase3-fetchcontent-cache-edges-643` at `e5b13514`, refreshed
+from `b056ca59` onto current `origin/main` `0447498e`, covering
+FetchContent cache fallback entry parsing, live symlink classification,
+file-backed declared-ref parsing, label fallbacks, and symlink removal
+without deleting targets. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-ui-components-edges-493` at `58940ee2`, refreshed from
 `16cc8df1` onto current `origin/main` and covering ComboBox popup
