@@ -421,9 +421,10 @@ refreshed from `76a2541b` onto current `origin/main` `0447498e`,
 covering `tools/check_format_validation.py` parser, mode, reporting, and
 read-error branches. It remains unpushed and undispatched.
 Additional #643 CLI ship progress is refreshed locally as
-`feature/phase3-cli-ship-coverage-643-next` at `844f501b`, rebased from
+`feature/phase3-cli-ship-coverage-643-next` at `baebedd5`, rebased from
 the paused #1274 remote head `c924f1e8` onto current `origin/main`
 `50ff5822` after superseding local refresh `64c4424c` on `0447498e`,
+then onto current `origin/main` `b7ec8f08`,
 covering `pulp ship sign` missing-identity guidance in a valid
 project/build-cache shellout path. The refreshed branch remains
 unpushed and undispatched; #1274 still points at the old remote head
