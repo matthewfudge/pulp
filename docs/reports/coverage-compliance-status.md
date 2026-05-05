@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 02:46 PDT
+Last reviewed: 2026-05-05 02:48 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -218,8 +218,8 @@ Additional #493 view/file-browser progress is queued locally as
 sorted-row paint clipping and MultiDocumentPanel active/inactive tab
 paint output. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-splash-screen-493` at `0ac19fbd`, refreshed from
-`0e7ebab3` onto current `origin/main` and covering SplashScreen
+`local/phase3-splash-screen-493` at `1dd00e70`, refreshed from
+`0ac19fbd` onto current `origin/main` `0447498e` and covering SplashScreen
 advance/dismiss callback behavior, dismiss-on-click gating, and
 text/image paint output. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
