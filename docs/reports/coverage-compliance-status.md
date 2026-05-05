@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 00:25 PDT
+Last reviewed: 2026-05-05 00:28 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -254,10 +254,11 @@ refreshed from `10405bc2` onto current `origin/main` and covering
 VisualizationBridge disabled-waveform, zero-channel, and waveform
 capture-length clamp paths. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
-`local/phase3-waveform-editor-edges-493` at `a199b6dc`, covering
-WaveformEditor selection, visible-range, and playhead clamps, paint
-overlay output, key scroll/release handling, and mouse selection
-extension paths. It remains unpushed and undispatched.
+`local/phase3-waveform-editor-edges-493` at `9e28c887`, refreshed
+from `a199b6dc` onto current `origin/main` and covering WaveformEditor
+selection, visible-range, and playhead clamps, paint overlay output,
+key scroll/release handling, and mouse selection extension paths. It
+remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-window-manager-edges-493` at `5d62f37a`, covering
 WindowManager unregister callback/missing-id cleanup, null host/root
