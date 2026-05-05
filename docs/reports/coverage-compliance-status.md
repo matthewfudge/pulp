@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 14:05 PDT
+Last reviewed: 2026-05-05 14:08 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -280,10 +280,11 @@ no-op, ScrollView scrolled-child pointer-event hit testing and paint
 clipping/visibility, and ListBox boundary-key and out-of-range mouse
 guards. It remains unpushed and undispatched.
 Additional #493 view/widget progress is queued locally as
-`local/phase3-phase9-widget-edges-493` at `6017bbc7`, refreshed from
+`local/phase3-phase9-widget-edges-493` at `b23e4d25`, refreshed from
 `17e25c73` onto current `origin/main` `0447498e`, then refreshed again
 onto current `origin/main` `50ff5822`, then refreshed again onto current
-`origin/main` `c18785c9`, covering SplitView drag minimum clamps,
+`origin/main` `c18785c9`, then refreshed again onto current `origin/main`
+`83271a94`, covering SplitView drag minimum clamps,
 miss/drag guards, divider grip paint branches, and PropertyList boolean
 editing, category height/paint, and scalar value formatting paths. It
 remains unpushed and undispatched.
