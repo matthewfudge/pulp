@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 04:02 PDT
+Last reviewed: 2026-05-05 04:04 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -154,6 +154,13 @@ Additional #643 CLI progress is queued locally as
 set/get/list, snooze clearing, malformed update keys, and invalid
 update-key diagnostics against an isolated `PULP_HOME`. It remains
 unpushed and undispatched.
+Additional #643 static CI guard progress is queued locally as
+`local/phase3-ruleset-drift-config-643` at `012b224a`, refreshed from
+`390b68f9` onto current `origin/main` `0447498e`, covering
+branch-protection JSON/workflow invariants for ruleset drift checks. The
+official Python coverage runner intentionally excludes
+`tools/scripts/test_*.py`, so this guard has no measured non-test source
+surface in that focused runner. It remains unpushed and undispatched.
 Additional #640 platform progress is queued locally as
 `local/phase3-platform-environment-dispatch-640` at `422a64cc`,
 refreshed from `b271d2e6` onto current `origin/main` `0447498e`,
