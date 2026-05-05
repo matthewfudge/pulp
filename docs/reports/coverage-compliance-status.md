@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 20:36 PDT
+Last reviewed: 2026-05-04 20:43 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -185,6 +185,12 @@ Additional #493 view/graph-editor progress is queued locally as
 GraphEditorView auto-layout/manual-position preservation, unnamed
 node/multi-port painting, and feedback/MIDI edge paint colors. It
 remains unpushed and undispatched.
+Additional #493 view/widget progress is queued locally as
+`local/phase3-new-widgets-input-493` at `741caf74`, covering
+MidiKeyboard vertical drag release/miss behavior and note-name/highlight
+painting, plus FileDropZone rejected-drop reset behavior and
+idle/valid/invalid/no-icon paint paths. It remains unpushed and
+undispatched.
 
 ## Phase 3 Operating Loop
 
