@@ -123,6 +123,14 @@ pub const COMMANDS: &[Entry] = &[
         summary: "Unified dev loop: watch, build, test, run",
     },
     Entry {
+        name: "loop",
+        summary: "Leveraged-prototype focus mode: single-platform watch + rebuild (#940)",
+    },
+    Entry {
+        name: "inspect",
+        summary: "Connect to a running plugin inspector",
+    },
+    Entry {
         name: "scan",
         summary: "Scan system paths for VST3 / AU / CLAP / LV2 plug-ins",
     },
@@ -146,6 +154,10 @@ pub const COMMANDS: &[Entry] = &[
         name: "config",
         summary: "Read or write ~/.pulp/config.toml settings",
     },
+    Entry {
+        name: "coverage",
+        summary: "Local coverage tooling (diff-cover gate mirror)",
+    },
 ];
 
 /// Script-delegate table — mirrors `script_commands[]`.
@@ -159,10 +171,6 @@ pub const BINARY_COMMANDS: &[Entry] = &[
     Entry {
         name: "design-debug",
         summary: "Headless design debug runner",
-    },
-    Entry {
-        name: "inspect",
-        summary: "Launch the component inspector",
     },
     Entry {
         name: "import-design",
