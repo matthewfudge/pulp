@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 10:17 PDT
+Last reviewed: 2026-05-05 10:20 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -129,10 +129,11 @@ immediate stage, idle `note_off`, and reset edge paths, plus
 `98f73bb8` onto current `origin/main` `0447498e`, then refreshed again
 from `717067d6` onto current `origin/main` `bd036171`, covering
 NoiseGate range clamp, instant timing, reset, silence, and buffer paths, plus
-`local/phase3-modulation-reverb-edges-645` at `9cfcc171`, refreshed from
-`971488d5` onto current `origin/main` `0447498e`, covering
-Chorus dry/reset/phase-wrap behavior and Reverb zero-decay, damping
-clamp, dry-mix, and reset paths, plus
+`local/phase3-modulation-reverb-edges-645` at `e6b5c6bc`, refreshed from
+`971488d5` onto current `origin/main` `0447498e`, then refreshed again
+from `9cfcc171` onto current `origin/main` `4bebc7bf`, covering Chorus
+dry/reset/phase-wrap behavior and Reverb zero-decay, damping clamp,
+dry-mix, and reset paths, plus
 `local/phase3-oscillator-edges-645` at `8f2e043`, refreshed from
 `8f51cba4` onto current `origin/main` `0447498e`, covering
 Oscillator reset, phase wrap, getter, and PolyBLEP edge paths, plus
