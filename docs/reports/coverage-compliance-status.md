@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 00:02 PDT
+Last reviewed: 2026-05-05 00:04 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -210,10 +210,10 @@ drag release/miss behavior and note-name/highlight painting, plus
 FileDropZone rejected-drop reset behavior and idle/valid/invalid/no-icon
 paint paths. It remains unpushed and undispatched.
 Additional #493 view/file-browser progress is queued locally as
-`local/phase3-file-browser-paint-493` at `74dd1dd0`, covering
-FileBrowser sorted-row paint clipping and MultiDocumentPanel
-active/inactive tab paint output. It remains unpushed and
-undispatched.
+`local/phase3-file-browser-paint-493` at `74bc4483`, refreshed from
+`74dd1dd0` onto current `origin/main` and covering FileBrowser
+sorted-row paint clipping and MultiDocumentPanel active/inactive tab
+paint output. It remains unpushed and undispatched.
 Additional #493 view progress is queued locally as
 `local/phase3-splash-screen-493` at `38f2c93d`, covering SplashScreen
 advance/dismiss callback behavior, dismiss-on-click gating, and
