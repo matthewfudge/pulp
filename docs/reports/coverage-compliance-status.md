@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-04 19:20 PDT
+Last reviewed: 2026-05-04 19:32 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -148,6 +148,11 @@ queued locally as `local/phase3-host-scanner-order-493` at `c3b79d68`,
 covering PluginScanner VST3/LV2 format-lane merging, final name
 ordering, LV2 URI identity, VST3 stem fallback identity, and hermetic
 scanner fixture paths. It remains unpushed and undispatched.
+Additional #643 CLI/tools progress is queued locally as
+`local/phase3-fetchcontent-cache-edges-643` at `dd7433d8`, covering
+FetchContent cache fallback entry parsing, live symlink classification,
+file-backed declared-ref parsing, label fallbacks, and symlink removal
+without deleting targets. It remains unpushed and undispatched.
 
 ## Phase 3 Operating Loop
 
