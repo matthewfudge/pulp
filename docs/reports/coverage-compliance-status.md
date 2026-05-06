@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 19:50 PDT
+Last reviewed: 2026-05-05 19:53 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -516,12 +516,12 @@ missing-bundle JSON behavior through real CLI shellout tests. The
 refreshed branch remains unpushed and undispatched; #1287 still points at
 the old remote head until Namespace capacity returns.
 Additional #641 runtime progress is refreshed locally as
-`feature/phase3-named-pipe-coverage-641` at `77aabdba`, rebased from the
+`feature/phase3-named-pipe-coverage-641` at `d0094b9e`, rebased from the
 paused #1286 remote head `2d59c4c` onto current `origin/main` `0447498e`,
 then refreshed again onto current `origin/main` `50ff5822`, then
 `b7ec8f08`, then `6c8b9920`, then current `origin/main` `7e9795b4`,
 then current `origin/main` `df01f4f6`, then current `origin/main`
-`a8c4c16`,
+`a8c4c16`, then current `origin/main` `d191cdca`,
 covering NamedPipe closed/missing endpoint fail-closed
 behavior, POSIX FIFO round-trip, cleanup, move-ownership, and
 create-failure paths. The
