@@ -55,7 +55,12 @@ jobs:
           REQUESTED_PROVIDER: ${{ inputs.runner_provider || vars.PULP_DEFAULT_RUNNER_PROVIDER || 'namespace' }}
           EXPLICIT_LINUX_RUNNER_SELECTOR_JSON: ${{ inputs.linux_runner_selector_json || '' }}
           EXPLICIT_WINDOWS_RUNNER_SELECTOR_JSON: ${{ inputs.windows_runner_selector_json || '' }}
-          EXPLICIT_MACOS_RUNNER_SELECTOR_JSON: ${{ inputs.macos_runner_selector_json || '' }}
+          # Falls back to the PULP_LOCAL_MACOS_RUNS_ON_JSON repo var so the
+          # macOS leg routes to the local self-hosted runner (label `sanitizer`)
+          # without a workflow_dispatch input on auto pull_request triggers.
+          # Mirrors Shipyard's local-mac runner pattern; allows Linux + Windows
+          # to fall through to GitHub-hosted defaults via PULP_DEFAULT_RUNNER_PROVIDER='github-hosted'.
+          EXPLICIT_MACOS_RUNNER_SELECTOR_JSON: ${{ inputs.macos_runner_selector_json || vars.PULP_LOCAL_MACOS_RUNS_ON_JSON || '' }}
           NAMESPACE_LINUX_RUNS_ON_JSON: ${{ vars.PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON }}
           NAMESPACE_WINDOWS_RUNS_ON_JSON: ${{ vars.PULP_NAMESPACE_BUILD_WINDOWS_RUNS_ON_JSON }}
           NAMESPACE_MACOS_RUNS_ON_JSON: ${{ vars.PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON }}
