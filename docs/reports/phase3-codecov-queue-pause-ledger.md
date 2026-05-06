@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 19:35 PDT
+Last updated: 2026-05-05 19:36 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -17,6 +17,69 @@ This local ledger records the open `codecov` PR validation runs paused to free N
   `Linux (x64) [namespace]`, `macOS (ARM64) [namespace]`, and
   `Windows (x64) [namespace]`; wait for the lower-case reusable-workflow
   wrappers to settle before declaring a PR mergeable.
+
+## Draft CI Resume Plan
+
+This is planning only. Do not push, update PR branches, dispatch CI, or
+merge until Namespace capacity is explicitly reopened.
+
+When CI resumes, use a two-stage loop:
+
+1. Local readiness sweep. For each held branch, confirm clean status,
+   rebase onto the then-current `origin/main`, run the ledger's focused
+   build/test target plus sync/version/diff guards, and classify the
+   branch as `ready`, `conflict`, `test-fail`, `duplicate/upstream`,
+   `platform-only`, or `source-fix/version-bump`.
+2. CI waves. Push or update only `ready` branches in waves of roughly
+   3-5 PRs. Let PR-event checks run naturally; avoid extra
+   `workflow_dispatch` diagnostics unless a specific failure needs it.
+   Merge green PRs as they clear required checks, quarantine failures,
+   and keep the next wave moving if Namespace capacity is still healthy.
+
+Use individual PRs for already-open branches unless we intentionally
+supersede one. For local-only branches with no remote PR, it is valid to
+create a combined batch PR when the tranches are tightly related,
+test-only, and touch the same target/file family. Good candidates for a
+combined PR include the #640 `test/test_audio_file.cpp` audio-file
+tranches, after one final local rebase/re-smoke. Do not combine source
+behavior fixes with test-only branches; keep those separate so version
+bump and regression risk stay obvious.
+
+Failure handling during CI waves:
+
+- If a PR has a real code/test failure, mark it `quarantined`, keep the
+  failure logs, and continue merging unrelated green PRs.
+- If the failure is external or infrastructure-like, such as SDK
+  download/DNS failures, mark it `rerun-only` and do not patch code
+  unless the same failure reproduces locally or points at branch code.
+- If Codecov patch/diff coverage fails, use that PR's report to add the
+  smallest local coverage fix, then requeue that PR in a later wave.
+- If a branch is already absorbed by `origin/main`, close/supersede it
+  rather than spending another CI run.
+- Required lower-case `linux`, `macos`, and `windows` wrapper contexts
+  still decide mergeability; successful diagnostic dispatches do not
+  replace stale or failed PR-event contexts.
+
+Initial no-CI readiness sweep at 2026-05-05 19:36 PDT:
+
+| Candidate | Local Head | Base | Status | Suggested Action |
+| --- | --- | --- | --- | --- |
+| #1274 CLI ship | `84d9ab05` | `d191cdca` | clean, current, test-only | first CI wave candidate |
+| #1287 CLI audio | `95c6fc6e` | `d191cdca` | clean, current, test-only | first CI wave candidate |
+| #1269 design-import bundle | `3b57ae4e` | `a8c4c16` | clean, test-only, behind current base | rebase/re-smoke before first or second wave |
+| #1271 create-targets | `d3a749f4` | `a8c4c16` | clean, test-only, behind current base | rebase/re-smoke before first or second wave |
+| #1273 package commands | `d72ac3d5` | `a8c4c16` | clean, test-only, behind current base | rebase/re-smoke before first or second wave |
+| #1286 named pipe | `77aabdba` | `a8c4c16` | clean, test-only, behind current base | rebase/re-smoke before runtime wave |
+| #1280 mmap reader | `4f77363e` | `a8c4c16` | clean, test-only, behind current base | rebase/re-smoke before audio wave |
+| local audio tools/model-store | `ae770658` | `a8c4c16` | clean, test-only, no open PR | rebase/re-smoke, then batch with #643 tools or open as a small local-only PR |
+| #646 SDL3 surface fallback | `cc9b6358` | `a8c4c16` | clean, test-only, no remote branch | rebase/re-smoke before render wave |
+| local AudioFocus dispatch | `f819d985` | `d191cdca` | clean, current, includes source fix | keep separate; SDK patch bump required before push/CI |
+| local AudioFileData shape | `204e0972` | `a8c4c16` | clean, test-only, audio-file target | consider combined #640 audio-file batch PR |
+| local AIFF PCM edges | `5a14c78c` | `a8c4c16` | clean, test-only, audio-file target | consider combined #640 audio-file batch PR |
+| local StreamingWriter reopen | `65cdbc1b` | `a8c4c16` | clean, test-only, audio-file target | consider combined #640 audio-file batch PR |
+| local frame-fill edges | `04ce61b2` | `a8c4c16` | clean, test-only, standalone audio target | rebase/re-smoke; include in #640 audio wave |
+| local Environment dispatch | `db85e719` | `a8c4c16` | clean, test-only, platform target | rebase/re-smoke; include in #640 platform wave |
+| local ChildProcess output | `2af4d252` | `a8c4c16` | clean, test-only, platform target | rebase/re-smoke; include in #640 platform wave |
 
 ## Snapshot Summary
 
