@@ -15,13 +15,13 @@ Spec walk: [Yoga Layout — Styling](https://www.yogalayout.dev/docs/styling/),
 cross-checked against [RN Layout Props](https://reactnative.dev/docs/layout-props)
 which mirrors the upstream Yoga API.
 
-## Counts (2026-05-04)
+## Counts (2026-05-06)
 
 | Status | Count |
 |--------|------:|
-| supported | 28 |
-| partial | 7 |
-| missing | 18 |
+| supported | 29 |
+| partial | 6 |
+| missing | 19 |
 | wontfix | 0 |
 
 ## Major gaps (parser routes, FlexStyle has no field)
@@ -38,6 +38,19 @@ which mirrors the upstream Yoga API.
 
 ## Recent updates
 
+- **2026-05-06 (pulp #1545)** — `yoga/flexBasis` promoted partial →
+  supported. The percent / `auto` / px wiring was added in pulp #1434
+  rn batch C (FlexStyle::dim_flex_basis routes to
+  YGNodeStyleSetFlexBasis{,Percent,Auto}); re-verified in #1545 that
+  YGNodeStyleSetFlexBasisPercent fires for `'NN%'` strings end-to-end
+  through the bridge. The `content` keyword stays in
+  `unsupportedValues` because Yoga itself does not expose it (parity
+  with upstream, not a Pulp gap). The `yoga/boxSizing` catalog
+  addition originally bundled into this PR was deferred — the entry
+  is now a forward-dependency placeholder at status `missing`,
+  pinned to pulp #1516 / PR #1538 (the PR that actually adds
+  FlexStyle::box_sizing + YGNodeStyleSetBoxSizing wiring); the
+  catalog will flip to `supported` automatically once #1538 merges.
 - **2026-05-05 (pulp #1434 Triage #14)** — `yoga/flexWrap` now claims
   `wrap-reverse` alongside `wrap` and `nowrap`. `FlexStyle::flex_wrap`
   was converted from `bool` to a tri-state `FlexWrap` enum

@@ -4602,6 +4602,77 @@ TEST_CASE("max_width percent caps the child at the resolved pixel size",
     REQUIRE(child->bounds().width <= 200.5f);
 }
 
+// ── pulp #1545 — yoga/flexBasis% catalog promotion (partial → supported) ────
+//
+// The setFlex flex_basis path was added in pulp #1434 rn batch C; the
+// catalog entry stayed at "partial" until it could be re-verified that
+// YGNodeStyleSetFlexBasisPercent actually drives layout end-to-end (not
+// just stamps the FlexStyle field). This test asserts that:
+//   1. A 50% flex_basis on a single child of a row-direction parent
+//      resolves to half the parent's width after layout.
+//   2. 'auto' flex_basis collapses to the child's intrinsic / zero-px
+//      basis (not a percent of parent), so siblings can share the line.
+// Together these confirm the dispatch chain
+// (bridge → FlexStyle::dim_flex_basis.unit → yoga_layout.cpp dispatch →
+// YGNodeStyleSetFlexBasis{Percent,Auto}) is wired correctly.
+
+TEST_CASE("flex_basis percent resolves against parent main-axis size",
+          "[view][bridge][css][issue-1545]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 100});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        setFlex('', 'direction', 'row');
+        createPanel('a', '');
+        setFlex('a', 'flex_basis', '50%');
+        setFlex('a', 'flex_grow', 0);
+        setFlex('a', 'flex_shrink', 0);
+    )");
+
+    auto* a = bridge.widget("a");
+    REQUIRE(a != nullptr);
+
+    root.layout_children();
+
+    // 50% of the 400px parent main-axis = 200px.
+    REQUIRE_THAT(a->bounds().width, WithinAbs(200.0f, 0.5f));
+}
+
+TEST_CASE("flex_basis 'auto' does not consume parent main-axis as a percent",
+          "[view][bridge][css][issue-1545]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 100});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        setFlex('', 'direction', 'row');
+        createPanel('a', '');
+        setFlex('a', 'flex_basis', 'auto');
+        setFlex('a', 'flex_grow', 1);
+        createPanel('b', '');
+        setFlex('b', 'flex_basis', 'auto');
+        setFlex('b', 'flex_grow', 1);
+    )");
+
+    auto* a = bridge.widget("a");
+    auto* b = bridge.widget("b");
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+
+    root.layout_children();
+
+    // With auto basis + equal flex_grow, the 400px main axis splits
+    // evenly between two siblings. If 'auto' had been mis-dispatched as
+    // a percent, one child would have eaten the full main axis.
+    REQUIRE_THAT(a->bounds().width, WithinAbs(200.0f, 1.0f));
+    REQUIRE_THAT(b->bounds().width, WithinAbs(200.0f, 1.0f));
+}
+
 // ── pulp #1434 (rn batch B) — yoga value-aliasing ───────────────────────────
 //
 // The bridge's setFlex value mapper now accepts the CSS / RN canonical
