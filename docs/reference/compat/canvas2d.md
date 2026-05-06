@@ -63,20 +63,38 @@ conveniences: `canvasFillCircle`, `canvasFillRoundedRect`,
 
 ## Notable gaps
 
-1. **`createConicGradient`** — bridge has no conic shader. Shim returns
-   an empty linear gradient as a fallback so consumer code doesn't
-   throw, but the visual will silently degrade.
-2. **`createPattern`** — returns `null`; bridge has no pattern shader.
-   Per spec, null is permissible when source is unavailable.
-3. **`shadowColor` / `shadowBlur` / `shadowOffsetX` / `shadowOffsetY`**
-   — Canvas2D shadow drop is not wired. Distinct from `boxShadow` on
-   the View widget (which is wired).
-4. **`filter`** — Canvas2D per-context filter chains are not wired.
-5. **`miterLimit`** — tracked locally on the shim but never pushed.
-6. **`imageSmoothingEnabled` / `imageSmoothingQuality`** — tracked
-   locally but never pushed. Skia/CG default to enabled smoothing.
-7. **`direction`** — text rendering direction (ltr/rtl) tracked locally
+1. **`createPattern`** — returns `null`; bridge has no pattern shader.
+   Per spec, null is permissible when source is unavailable. Deferred
+   from pulp #1434 bridge-thin gap-fill — needs real image-resource
+   plumbing, not just a bridge fn.
+2. **`filter`** — Canvas2D per-context filter chains are not wired.
+3. **`direction`** — text rendering direction (ltr/rtl) tracked locally
    but never pushed.
+
+## Recently wired (pulp #1434 bridge-thin gap-fill)
+
+The 2026-05-05 bridge-thin gap-fill PR closed four NOT-IMPL entries
+that were blocked only on a missing bridge fn — Skia and CG already
+exposed the underlying capability:
+
+- **`createConicGradient(startAngle, x, y)`** — Skia routes through
+  `SkGradientShader::MakeSweep` (real conic sweep). CG degrades to the
+  first-stop colour (no native conic shader).
+- **`miterLimit`** — `SkPaint::setStrokeMiter` (Skia) /
+  `CGContextSetMiterLimit` (CG). Sticky stroke state. Spec: non-positive
+  / non-finite values silently ignored.
+- **`imageSmoothingEnabled`** + **`imageSmoothingQuality`** —
+  Skia: `SkSamplingOptions` (`kLinear`, `+mipmap`, Mitchell cubic).
+  CG: `CGContextSetInterpolationQuality` (`Low` / `Medium` / `High`).
+  `enabled = false` collapses to nearest-neighbour for pixel-art.
+
+Side effect: the same PR plumbed `setStrokeCap` and `setStrokeJoin`
+through `SkPaint` — `line_cap_` and `line_join_` were stored on the
+Skia canvas but never applied to the actual paint. `lineCap` and
+`lineJoin` are now visually faithful on the GPU path.
+
+The Canvas2D `shadowColor` / `shadowBlur` / `shadowOffsetX` /
+`shadowOffsetY` quartet landed in pulp #1434 batch 7 (separate slice).
 
 ## Partial / approximated
 

@@ -23,6 +23,7 @@
 // passes after this fix.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/canvas_widget.hpp>
 #include <pulp/view/script_engine.hpp>
@@ -579,3 +580,278 @@ TEST_CASE("Canvas2D shim ignores invalid shadow* assignments",
     // No crash + no exception thrown is the assertion. The drawing
     // happened (we'd see undefined / TypeError otherwise).
 }
+
+// ── pulp #1434 bridge-thin gap-fill ─────────────────────────────────────
+//
+// 4 entries flipped from NOT-IMPL → DIVERGE on the canvas2d catalog:
+//   * createConicGradient — Skia routes through SkGradientShader::MakeSweep
+//   * miterLimit — SkPaint::setStrokeMiter / CGContextSetMiterLimit
+//   * imageSmoothingEnabled — SkSamplingOptions / CGContextSetInterpolationQuality
+//   * imageSmoothingQuality — same
+//
+// createPattern (the 4th NOT-IMPL the triage flagged as "include if scope
+// allows") is deferred to a follow-up — image-resource handling needs
+// real plumbing, not just a bridge fn. Catalog stays NOT-IMPL with a
+// note pointing at this PR's deferred scope.
+
+TEST_CASE("Canvas2D createConicGradient returns CanvasGradient with conic kind",
+          "[view][canvas2d][issue-1434][bridge-thin]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        var g = ctx.createConicGradient(1.5707, 50, 50);  // 90° start
+        g.addColorStop(0, '#ff0000');
+        g.addColorStop(0.5, '#00ff00');
+        g.addColorStop(1, '#0000ff');
+        return [g._kind, g._stops.length, g._params.cx, g._params.cy,
+                Math.round(g._params.startAngle * 1000),
+                g._stops[1].color].join('|');
+    )");
+    REQUIRE(result == "conic|3|50|50|1571|#00ff00");
+}
+
+TEST_CASE("Canvas2D conic gradient flushes via canvasSetConicGradient bridge fn",
+          "[view][canvas2d][issue-1434][bridge-thin]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        var g = ctx.createConicGradient(0, 50, 50);
+        g.addColorStop(0, '#ff0000');
+        g.addColorStop(1, '#0000ff');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 100, 100);
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_conic = false;
+    bool saw_fill_rect_after_conic = false;
+    bool seen_conic = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::set_fill_gradient_conic) {
+            saw_conic = true;
+            seen_conic = true;
+            // Centre + start angle round-trip exactly.
+            REQUIRE(cmd.x == 50.0f);
+            REQUIRE(cmd.y == 50.0f);
+            REQUIRE(cmd.extra == 0.0f);
+            // Two stops in (color, position) pairs.
+            REQUIRE(cmd.gradient_colors.size() == 2);
+            REQUIRE(cmd.gradient_positions.size() == 2);
+            REQUIRE(cmd.gradient_positions[0] == 0.0f);
+            REQUIRE(cmd.gradient_positions[1] == 1.0f);
+        }
+        if (seen_conic && cmd.type == CanvasDrawCmd::Type::fill_rect) {
+            saw_fill_rect_after_conic = true;
+        }
+    }
+    INFO("set_fill_gradient_conic recorded: " << saw_conic);
+    REQUIRE(saw_conic);
+    REQUIRE(saw_fill_rect_after_conic);
+}
+
+TEST_CASE("Canvas2D miterLimit flushes via canvasSetMiterLimit bridge fn",
+          "[view][canvas2d][issue-1434][bridge-thin]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        // Default miterLimit is 10 — assigning the same value is a
+        // no-op in the bridge cache. Pick a non-default value so we
+        // can observe the flush. Spec: assigning happens on the next
+        // stroke (via _syncLineState).
+        ctx.miterLimit = 4.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(50, 0);
+        ctx.stroke();
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_miter = false;
+    bool saw_stroke_after_miter = false;
+    bool seen_miter = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::set_miter_limit) {
+            saw_miter = true;
+            seen_miter = true;
+            REQUIRE(cmd.extra == Catch::Approx(4.5f));
+        }
+        if (seen_miter && cmd.type == CanvasDrawCmd::Type::stroke_path) {
+            saw_stroke_after_miter = true;
+        }
+    }
+    INFO("set_miter_limit recorded: " << saw_miter);
+    REQUIRE(saw_miter);
+    REQUIRE(saw_stroke_after_miter);
+}
+
+TEST_CASE("Canvas2D imageSmoothing flushes via canvasSetImageSmoothing bridge fn",
+          "[view][canvas2d][issue-1434][bridge-thin]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        // Spec defaults: enabled=true, quality="low". Push non-defaults
+        // so the cache invalidates and the bridge fn fires before the
+        // next drawImage.
+        ctx.imageSmoothingEnabled = false;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage('does-not-exist.png', 0, 0, 50, 50);
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_smoothing = false;
+    bool saw_draw_image_after = false;
+    bool seen_smoothing = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::set_image_smoothing) {
+            saw_smoothing = true;
+            seen_smoothing = true;
+            REQUIRE(cmd.int_val == 0);              // enabled = false
+            REQUIRE(cmd.extra   == 2.0f);           // quality = high (2)
+        }
+        if (seen_smoothing && cmd.type == CanvasDrawCmd::Type::draw_image) {
+            saw_draw_image_after = true;
+        }
+    }
+    INFO("set_image_smoothing recorded: " << saw_smoothing);
+    REQUIRE(saw_smoothing);
+    REQUIRE(saw_draw_image_after);
+}
+
+TEST_CASE("Canvas2D imageSmoothing quality coerces unknown values to 'low'",
+          "[view][canvas2d][issue-1434][bridge-thin]") {
+    // The spec restricts quality to "low" | "medium" | "high"; any other
+    // assignment must be ignored (we coerce to "low" so the bridge call
+    // gets a stable value).
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'ultra-bogus';
+        ctx.drawImage('x.png', 0, 0, 1, 1);
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::set_image_smoothing) {
+            saw = true;
+            REQUIRE(cmd.int_val == 1);          // enabled
+            REQUIRE(cmd.extra   == 0.0f);       // coerced to low
+        }
+    }
+    REQUIRE(saw);
+}
+
+TEST_CASE("Canvas2D miterLimit ignores non-positive / non-finite assignments",
+          "[view][canvas2d][issue-1434][bridge-thin]") {
+    // Spec: assigning ≤ 0, NaN, or +/- Infinity to ctx.miterLimit is
+    // silently ignored — the previous valid value persists. The shim
+    // uses isFinite + > 0 as the gate.
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        ctx.miterLimit = 6;
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(10,0); ctx.stroke();
+        ctx.miterLimit = NaN;
+        ctx.miterLimit = 0;
+        ctx.miterLimit = -3;
+        ctx.miterLimit = Infinity;
+        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(20,0); ctx.stroke();
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int miter_cmd_count = 0;
+    float last_miter = 0.0f;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::set_miter_limit) {
+            ++miter_cmd_count;
+            last_miter = cmd.extra;
+        }
+    }
+    // Exactly one bridge flush — the second stroke's _syncLineState
+    // sees no change (NaN / 0 / -3 / Inf all filtered out) and skips.
+    REQUIRE(miter_cmd_count == 1);
+    REQUIRE(last_miter == Catch::Approx(6.0f));
+}
+
+// ── Skia raster sanity test (gated, runs only with PULP_HAS_SKIA) ─────
+#ifdef PULP_HAS_SKIA
+TEST_CASE("Canvas2D conic gradient renders distinct colours via Skia sweep",
+          "[view][canvas2d][issue-1434][bridge-thin][skia]") {
+    // Smoke test: render a conic gradient and confirm the pixels at
+    // (right of centre) and (below centre) differ. With the conic
+    // bridge wired, Skia's MakeSweep distributes red→green→blue around
+    // the centre — so the right and bottom samples should not match.
+    // Pre-fix createConicGradient returned a degenerate linear, which
+    // Skia draws as a flat first-stop colour — those samples would
+    // match exactly.
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        var g = ctx.createConicGradient(0, 32, 32);
+        g.addColorStop(0,   '#ff0000');
+        g.addColorStop(0.33,'#00ff00');
+        g.addColorStop(0.66,'#0000ff');
+        g.addColorStop(1,   '#ff0000');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 64, 64);
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+
+    // Rasterize via SkSurface. CanvasWidget::paint(canvas) replays
+    // commands_ onto the supplied SkiaCanvas.
+    auto info = SkImageInfo::Make(64, 64, kRGBA_8888_SkColorType,
+                                  kPremul_SkAlphaType,
+                                  SkColorSpace::MakeSRGB());
+    auto surface = SkSurfaces::Raster(info);
+    REQUIRE(surface);
+    pulp::canvas::SkiaCanvas skia_canvas(surface->getCanvas());
+    cw->set_bounds({0, 0, 64, 64});
+    cw->paint(skia_canvas);
+
+    SkPixmap pm;
+    REQUIRE(surface->peekPixels(&pm));
+    auto sample = [&](int x, int y) {
+        return *static_cast<const uint32_t*>(pm.addr(x, y));
+    };
+    // Two angularly-distinct points around the centre. With a real
+    // conic sweep these MUST be different colours; with a flat-first-stop
+    // fallback they would match.
+    uint32_t right = sample(60, 32);
+    uint32_t below = sample(32, 60);
+    INFO("right = 0x" << std::hex << right << " below = 0x" << below);
+    REQUIRE(right != below);
+}
+#endif  // PULP_HAS_SKIA

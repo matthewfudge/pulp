@@ -111,17 +111,19 @@ class Canvas2dAdapterClassifyTest(unittest.TestCase):
 
     # ── Oracle-pinned missing ────────────────────────────────────────
 
-    def test_oracle_missing_conic_is_NOT_IMPL(self):
-        """createConicGradient: SKILL gotcha #5 — no canvasSetConicGradient registered."""
+    def test_oracle_partial_conic_is_DIVERGE(self):
+        """createConicGradient: pulp #1434 bridge-thin gap-fill — Skia
+        path is wired (SkGradientShader::MakeSweep), CG degrades to
+        first-stop. Oracle expectedStatus=partial pins this as DIVERGE."""
         e = CatalogEntry(
             surface="canvas2d",
             name="canvas2d/createConicGradient",
-            status="missing",
-            maps_to="ctx.createConicGradient -> shim returns an empty linear gradient.",
+            status="partial",
+            maps_to="ctx.createConicGradient -> canvasSetConicGradient.",
         )
         result = self.adapter.run(e)
-        self.assertEqual(result.status, Status.NOT_IMPL, msg=result.detail)
-        self.assertFalse(result.drifts, msg=result.detail)
+        self.assertEqual(result.status, Status.DIVERGE, msg=result.detail)
+        self.assertIn("cg-conic-degraded", result.detail)
 
     def test_oracle_missing_shadow_is_NOT_IMPL(self):
         """Synthetic NOT-IMPL entry — uses an explicitly fabricated
@@ -295,21 +297,24 @@ class VerifierEndToEndTest(unittest.TestCase):
                 )
 
     def test_known_unimpl_entries_classified_NOT_IMPL(self):
-        """The filter, miterLimit, imageSmoothing*, conic, pattern,
-        direction entries must always be NOT-IMPL.
+        """The filter, pattern, direction entries must always be NOT-IMPL.
 
         issue-1434 batch 7: shadowColor / shadowBlur / shadowOffsetX /
         shadowOffsetY are now PASS — see
-        `test_known_pass_entries_classified_PASS`."""
+        `test_known_pass_entries_classified_PASS`.
+
+        pulp #1434 bridge-thin gap-fill: createConicGradient is now
+        DIVERGE (CG degraded), miterLimit / imageSmoothingEnabled /
+        imageSmoothingQuality are now PASS — see
+        `test_bridge_thin_gap_fill_entries_classified_PASS`.
+
+        createPattern stayed NOT-IMPL — deferred from #1434 because it
+        needs real image-resource plumbing, not just a bridge fn."""
         results = run_surface(REPO_ROOT, "canvas2d")
         by_name = {r.entry.name: r for r in results}
         for name in (
-            "canvas2d/createConicGradient",
             "canvas2d/createPattern",
             "canvas2d/filter",
-            "canvas2d/miterLimit",
-            "canvas2d/imageSmoothingEnabled",
-            "canvas2d/imageSmoothingQuality",
             "canvas2d/direction",
         ):
             with self.subTest(entry=name):
@@ -319,6 +324,45 @@ class VerifierEndToEndTest(unittest.TestCase):
                     Status.NOT_IMPL,
                     msg=f"{name} must be NOT-IMPL: {by_name[name].detail}",
                 )
+
+    def test_bridge_thin_gap_fill_entries_classified_PASS(self):
+        """pulp #1434 bridge-thin gap-fill — three entries flipped from
+        NOT-IMPL → PASS by adding the missing canvas* bridge fns and
+        wiring through to existing Skia / CG capabilities.
+
+        miterLimit, imageSmoothingEnabled, imageSmoothingQuality use
+        Skia primitives that already existed (SkPaint::setStrokeMiter,
+        SkSamplingOptions) and CG primitives that already existed
+        (CGContextSetMiterLimit, CGContextSetInterpolationQuality)."""
+        results = run_surface(REPO_ROOT, "canvas2d")
+        by_name = {r.entry.name: r for r in results}
+        for name in (
+            "canvas2d/miterLimit",
+            "canvas2d/imageSmoothingEnabled",
+            "canvas2d/imageSmoothingQuality",
+        ):
+            with self.subTest(entry=name):
+                self.assertIn(name, by_name)
+                self.assertEqual(
+                    by_name[name].status,
+                    Status.PASS,
+                    msg=f"{name} must be PASS after #1434: {by_name[name].detail}",
+                )
+
+    def test_bridge_thin_conic_classified_DIVERGE(self):
+        """pulp #1434 bridge-thin gap-fill — createConicGradient moves
+        from NOT-IMPL → DIVERGE because the Skia path renders the real
+        sweep via SkGradientShader::MakeSweep but CG has no native
+        conic shader and degrades to the first-stop colour."""
+        results = run_surface(REPO_ROOT, "canvas2d")
+        by_name = {r.entry.name: r for r in results}
+        name = "canvas2d/createConicGradient"
+        self.assertIn(name, by_name)
+        self.assertEqual(
+            by_name[name].status,
+            Status.DIVERGE,
+            msg=f"{name} must be DIVERGE (CG degraded): {by_name[name].detail}",
+        )
 
     def test_shadow_entries_classified_PASS(self):
         """issue-1434 batch 7 — Canvas2D shadow* state setters are
