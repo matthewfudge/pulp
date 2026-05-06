@@ -1850,59 +1850,80 @@
       "issue": ""
     },
     "css/outline": {
-      "status": "partial",
-      "mapsTo": "web-compat calls setOutline if defined -- bridge does NOT register it",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "web-compat shorthand parser fans out to setOutlineWidth + setOutlineStyle + setOutlineColor (web-compat-style-decl.js:851 since pulp #1519).",
+      "supportedValues": [
+        "<width> <style> <color> shorthand"
+      ],
       "unsupportedValues": [
-        "outline-style values beyond solid",
-        "multi-keyword shorthand parsing"
+        "thin/medium/thick keyword for width",
+        "double/groove/ridge/inset/outset (degrade to solid at paint time, same as borderStyle)"
       ],
       "tests": [],
-      "notes": "pulp #1434 batch 1: status flipped missing → partial. CSS translator at web-compat-style-decl.js:525 routes through setOutline. Single-keyword + length + color forms are wired.",
+      "notes": "pulp #1519 — outline cluster now bridge-backed. Shorthand parses `<width>px <style> <color>` and dispatches to the per-attribute setters.",
       "issue": ""
     },
     "css/outlineColor": {
-      "status": "partial",
-      "mapsTo": "web-compat calls setOutline -- never registered",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "setOutlineColor(id, color) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js:864 routes through it.",
+      "supportedValues": [
+        "#hex",
+        "#rgba",
+        "rgb()",
+        "rgba()",
+        "named colors"
+      ],
       "unsupportedValues": [
         "currentColor keyword"
       ],
       "tests": [],
-      "notes": "pulp #1434 batch 1: status flipped missing → partial. CSS translator at web-compat-style-decl.js:538 routes through setOutline (color slot).",
+      "notes": "pulp #1519 — outline color now writes to View::outline_color_; Skia paint strokes the inflated rect with this color.",
       "issue": ""
     },
     "css/outlineOffset": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "setOutlineOffset(id, px) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js routes through it.",
+      "supportedValues": [
+        "<length>px"
+      ],
       "unsupportedValues": [
-        "all"
+        "em/rem/% units (pulp's outline is paint-only and length is resolved at the bridge boundary)"
       ],
       "tests": [],
-      "notes": "Not handled.",
+      "notes": "pulp #1519 — gap between border-box edge and outline. Skia inflates the stroke rect by (offset + width/2).",
       "issue": ""
     },
     "css/outlineStyle": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "setOutlineStyle(id, keyword) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js routes through it; keyword set mirrors borderStyle.",
+      "supportedValues": [
+        "solid",
+        "dashed",
+        "dotted",
+        "none",
+        "hidden",
+        "double (degrades to solid)",
+        "groove (degrades to solid)",
+        "ridge (degrades to solid)",
+        "inset (degrades to solid)",
+        "outset (degrades to solid)"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Not handled.",
+      "notes": "pulp #1519 — line-style enum reused from View::BorderStyle (CSS spec is identical). Skia installs SkDashPathEffect for dashed/dotted at outline-stroke time. Other named styles currently degrade to solid (paint-side gap, same as borderStyle).",
       "issue": ""
     },
     "css/outlineWidth": {
-      "status": "partial",
-      "mapsTo": "web-compat calls setOutline -- never registered",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "setOutlineWidth(id, px) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js:859 routes through it.",
+      "supportedValues": [
+        "<length>px"
+      ],
       "unsupportedValues": [
         "thin/medium/thick keyword forms"
       ],
       "tests": [],
-      "notes": "pulp #1434 batch 1: status flipped missing → partial. CSS translator at web-compat-style-decl.js:533 routes through setOutline (width slot). Numeric px values supported.",
+      "notes": "pulp #1519 — outline stroke thickness. width<=0 short-circuits the paint.",
       "issue": ""
     },
     "css/overflow": {
@@ -3898,47 +3919,70 @@
       "issue": ""
     },
     "rn/outlineColor": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineColor to setOutlineColor (prop-applier.ts since pulp #1519). Bridge writes to View::outline_color_.",
+      "supportedValues": [
+        "#hex",
+        "#rgba",
+        "rgb()",
+        "rgba()",
+        "named colors"
       ],
-      "tests": [],
-      "notes": "setOutline never registered.",
+      "unsupportedValues": [
+        "currentColor keyword"
+      ],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — RN outline cluster. Outline is paint-time only and does NOT affect Yoga layout (parent never reserves space). Skia paint inflates the box by (offset + width/2) and strokes with the parsed color.",
       "issue": ""
     },
     "rn/outlineOffset": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "number"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineOffset to setOutlineOffset (prop-applier.ts since pulp #1519). Bridge writes to View::outline_offset_.",
+      "supportedValues": [
+        "number (px)"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — gap between border-box edge and outline. Paint-only; no Yoga layout impact.",
       "issue": ""
     },
     "rn/outlineStyle": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineStyle to setOutlineStyle (prop-applier.ts since pulp #1519). Bridge maps the CSS keyword to View::BorderStyle (reused — CSS spec is identical for outline + border).",
+      "supportedValues": [
+        "solid",
+        "dashed",
+        "dotted",
+        "none",
+        "hidden",
+        "double (degrades to solid)",
+        "groove (degrades to solid)",
+        "ridge (degrades to solid)",
+        "inset (degrades to solid)",
+        "outset (degrades to solid)"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — Skia installs SkDashPathEffect for dashed/dotted at outline-stroke time. Other named styles currently degrade to solid (paint-side gap, same as borderStyle). none/hidden/zero-width short-circuit the stroke.",
       "issue": ""
     },
     "rn/outlineWidth": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "number"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineWidth to setOutlineWidth (prop-applier.ts since pulp #1519). Bridge writes to View::outline_width_.",
+      "supportedValues": [
+        "number (px)"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — outline stroke thickness. width<=0 short-circuits the paint. Paint-only; no Yoga layout impact.",
       "issue": ""
     },
     "rn/overflow": {
