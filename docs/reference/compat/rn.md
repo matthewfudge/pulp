@@ -27,6 +27,20 @@ Spec walk:
 
 ## Recently changed
 
+- **2026-05-05 (pulp #1434 rn bridge-wires bundle, sub-agent #27 finding)** —
+  7 RN-style props that already had C++ bridge fns registered but no
+  `@pulp/react` JSX dispatch. TS-only PR (no C++ touched): wired
+  `backfaceVisibility`, `cursor`, `filter`, `pointerEvents`,
+  `textTransform`, `transformOrigin`, `userSelect` through the
+  prop-applier to the matching `setX` setters. `transformOrigin`
+  parses CSS strings (`'NN% NN%'` / `'NNpx NNpx'` / `'center'` /
+  keyword pairs like `'left top'`) into two fractional 0..1
+  coordinates before dispatch. Status flips: `backfaceVisibility`,
+  `pointerEvents`, `textTransform`, `transformOrigin`, `filter` →
+  `supported`; `cursor`, `userSelect` → `partial` (CSS spec covers
+  more values than the bridge's enum). rn pass 49 → 54 (+5);
+  progress 60.83% → 66.67% (+5.84pp). Highest-leverage single rn
+  PR remaining in the umbrella; closes 7 entries with zero C++ work.
 - **2026-05-05 (pulp #1434 Triage #10)** — `rn/borderStyle` surfaced
   at the `@pulp/react` JSX layer with the full keyword set: `solid`,
   `dashed`, `dotted`, `double`, `groove`, `ridge`, `inset`, `outset`,
