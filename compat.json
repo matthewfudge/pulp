@@ -6065,29 +6065,37 @@
       "issue": "1346"
     },
     "canvas2d/fillText": {
-      "status": "partial",
-      "mapsTo": "ctx.fillText(text,x,y,maxWidth) -> _syncGlobalState + _syncTextState + _applyFillStyle + canvasFillText(id, text, x, y, size, color). maxWidth is ignored; gradient fillStyle uses the first stop's color.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "maxWidth arg (ignored)",
-        "gradient fillStyle (degrades to first-stop color)"
+      "status": "supported",
+      "mapsTo": "ctx.fillText(text,x,y,maxWidth) -> _syncGlobalState + _syncShadowState + _syncTextState + _applyFillStyle + canvasFillText(id, text, x, y, size, color, maxWidth). maxWidth threads through as the 7th bridge arg in CSS px (<=0 / NaN / Infinity / null all collapse to the no-constraint sentinel). When the natural advance exceeds maxWidth the Skia / CG backend horizontally squeezes the run via SkMatrix::Scale(maxWidth/measured, 1) / CGContextScaleCTM(scale, 1) around the text origin — vertical metrics unchanged, glyph clusters preserved (HarfBuzz / CoreText shape each cluster as a rigid unit).",
+      "supportedValues": [
+        "text + (x, y) origin",
+        "maxWidth horizontal-squeeze (Skia: SkMatrix::Scale; CG: CGContextScaleCTM)",
+        "gradient fillStyle (degrades to first-stop color when no Skia gradient text-fill is wired; pulp #1350)"
       ],
-      "tests": [],
-      "notes": "PR #1348. canvasSetFont parses 'Npx Family' from the JS-side font string.",
-      "issue": "1346"
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1525] fillText threads maxWidth through to bridge",
+        "test/test_canvas2d_shim.cpp [issue-1525] fillText coerces non-finite maxWidth to no-constraint sentinel",
+        "test/test_canvas2d_shim.cpp [issue-1525][skia] fillText with maxWidth horizontally squeezes raster output"
+      ],
+      "notes": "PR #1348 wired the basic surface; pulp #1525 plumbed maxWidth end-to-end and verified glyph cluster handling.",
+      "issue": "1525"
     },
     "canvas2d/strokeText": {
-      "status": "partial",
-      "mapsTo": "ctx.strokeText -> falls back to fillText with the strokeStyle color (bridge has no stroke-text command).",
+      "status": "supported",
+      "mapsTo": "ctx.strokeText(text,x,y,maxWidth) -> _syncGlobalState + _syncShadowState + _syncTextState + _applyStrokeStyle + canvasStrokeText(id, text, x, y, size, color, maxWidth). Records a dedicated stroke_text cmd; the paint loop dispatches to Canvas::stroke_text — Skia builds an SkPaint::kStroke_Style paint, CG sets kCGTextStroke. lineWidth + strokeStyle + strokeCap/Join all honoured. maxWidth squeeze matches fillText.",
       "supportedValues": [
-        "visual approximation of stroked text via solid fill"
+        "true stroked-glyph rendering (Skia: SkPaint::kStroke_Style; CG: kCGTextStroke)",
+        "active strokeStyle + lineWidth",
+        "maxWidth horizontal-squeeze",
+        "backwards-compat fallback to pre-#1525 fillText-with-strokeStyle on hosts without canvasStrokeText"
       ],
-      "unsupportedValues": [
-        "true stroked-glyph rendering"
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1525] strokeText routes through canvasStrokeText with maxWidth"
       ],
-      "tests": [],
-      "notes": "Visually close enough for FilterBank/HUD use; file a follow-up if a plugin needs outlined typography.",
-      "issue": ""
+      "notes": "pulp #1525 added the dedicated bridge fn + Skia / CG overrides. The shim still falls back to fillText-with-strokeStyle on hosts that pre-date this PR (canvasStrokeText absent).",
+      "issue": "1525"
     },
     "canvas2d/measureText": {
       "status": "supported",

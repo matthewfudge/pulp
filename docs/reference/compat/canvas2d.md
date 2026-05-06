@@ -26,9 +26,14 @@ notes per backend where Skia and CG diverge.
 
 | Status | Count |
 |--------|------:|
-| supported | ~38 |
-| partial | ~10 |
+| supported | ~40 |
+| partial | ~8 |
 | missing | ~12 |
+
+`fillText` and `strokeText` flipped `partial → supported` in pulp #1525
+once `maxWidth` was plumbed end-to-end and `strokeText` got its own
+dedicated bridge command (true outlined-glyph rendering, not the
+pre-#1525 fillText-with-stroke-color approximation).
 
 ## Recently expanded (#1348)
 
@@ -148,6 +153,38 @@ Skia canvas but never applied to the actual paint. `lineCap` and
 The Canvas2D `shadowColor` / `shadowBlur` / `shadowOffsetX` /
 `shadowOffsetY` quartet landed in pulp #1434 batch 7 (separate slice).
 
+## Recently changed — `fillText` / `strokeText` maxWidth + true stroked glyphs (pulp #1525)
+
+The Canvas2D `ctx.fillText(text, x, y, maxWidth)` and
+`ctx.strokeText(text, x, y, maxWidth)` calls previously discarded
+`maxWidth` (the JS shim's `void maxWidth;` pre-#1525) and
+`strokeText` re-routed through `fillText` with the strokeStyle as the
+fill colour — visually approximate but spec-incompatible.
+
+The 2026-05-06 PR plumbs both calls end-to-end:
+
+- **`fillText`** — `maxWidth` threads through to the bridge as the 7th
+  arg (`<= 0` / NaN / Infinity / null collapse to the no-constraint
+  sentinel). When the natural advance exceeds `maxWidth`, the backend
+  scales the run horizontally to exactly `maxWidth` px:
+  - Skia: `SkMatrix::Scale(maxWidth/measured, 1.0)` around the text
+    origin (vertical metrics unchanged).
+  - CG: `CGContextScaleCTM(maxWidth/measured, 1.0)` around the origin.
+  - Glyph clusters are preserved by construction — HarfBuzz (Skia path)
+    and CoreText (CG path) shape each cluster as a rigid unit, so
+    horizontal scaling never breaks a ligature or combining sequence.
+- **`strokeText`** — dedicated `canvasStrokeText` bridge fn records a
+  `stroke_text` cmd; the paint loop dispatches to `Canvas::stroke_text`:
+  - Skia: `SkPaint::kStroke_Style` paint at the active `lineWidth` /
+    `strokeStyle`.
+  - CG: `CGContextSetTextDrawingMode(kCGTextStroke)` + active
+    `CGContextSetRGBStrokeColor`.
+  - The shim falls back to the pre-#1525 fillText-with-strokeStyle
+    approximation on legacy hosts (no `canvasStrokeText` registered),
+    so a v0.78 plugin still renders visible text on a v0.77 host.
+- **`measureText`** — unchanged. Reports the natural advance regardless
+  of any subsequent `fillText` `maxWidth` squeeze.
+
 ## Partial / approximated
 
 1. **`arcTo`** — currently emits `lineTo(x1,y1) + lineTo(x2,y2)`,
@@ -158,18 +195,16 @@ The Canvas2D `shadowColor` / `shadowBlur` / `shadowOffsetX` /
 3. **`transform`** (concat-on-right) — bridge only exposes `setTransform`
    (replace). Pure-translation matrices fall through to `translate`;
    anything else is a no-op.
-4. **`strokeText`** — falls back to `fillText` with the stroke color
-   (bridge has no stroke-text command).
-5. **`createRadialGradient`** — bridge models a single-circle radial
+4. **`createRadialGradient`** — bridge models a single-circle radial
    gradient; shim uses the outer circle. Visually equivalent for
    centre-bloom usage where `x0 === x1`, `y0 === y1`, `r0 === 0`.
-6. **`drawImage`** 9-arg form — sprite-sheet slicing
+5. **`drawImage`** 9-arg form — sprite-sheet slicing
    (`sx, sy, sw, sh`) is currently ignored.
-7. **`putImageData`** sub-rect form — `dirtyX/Y/W/H` ignored.
-8. **`setLineDash`** — odd-length spec-doubling is bridge-side; shim
+6. **`putImageData`** sub-rect form — `dirtyX/Y/W/H` ignored.
+7. **`setLineDash`** — odd-length spec-doubling is bridge-side; shim
    passes verbatim. `lineDashOffset` mutation between draws is not
    re-pushed (must re-call `setLineDash`).
-9. **`strokeStyle = gradient`** — bridge has no stroke-gradient setter;
+8. **`strokeStyle = gradient`** — bridge has no stroke-gradient setter;
    degrades to the first stop's color.
 
 ## WebGPU surface
