@@ -57,6 +57,7 @@ inline const char* canvas_cmd_type_name(CanvasDrawCmd::Type t) {
         case CanvasDrawCmd::Type::set_blend_mode: return "set_blend_mode";
         case CanvasDrawCmd::Type::set_fill_gradient_linear: return "set_fill_gradient_linear";
         case CanvasDrawCmd::Type::set_fill_gradient_radial: return "set_fill_gradient_radial";
+        case CanvasDrawCmd::Type::set_fill_gradient_radial_two_circles: return "set_fill_gradient_radial_two_circles";
         case CanvasDrawCmd::Type::set_fill_gradient_conic: return "set_fill_gradient_conic";
         case CanvasDrawCmd::Type::set_fill_pattern: return "set_fill_pattern";
         case CanvasDrawCmd::Type::set_stroke_pattern: return "set_stroke_pattern";
@@ -335,7 +336,12 @@ void CanvasWidget::paint(canvas::Canvas& canvas) {
             canvas.close_path();
             break;
         case CanvasDrawCmd::Type::fill_path:
-            canvas.fill_current_path();
+            // pulp #1522 — int_val carries Canvas2D fillRule arg
+            // (0 = nonzero/winding, 1 = evenodd). Threaded from
+            // ctx.fill(rule) through canvasFillPath in widget_bridge.cpp.
+            canvas.fill_current_path(cmd.int_val == 1
+                                         ? canvas::FillRule::evenodd
+                                         : canvas::FillRule::nonzero);
             break;
         case CanvasDrawCmd::Type::stroke_path:
             canvas.stroke_current_path();
@@ -373,7 +379,11 @@ void CanvasWidget::paint(canvas::Canvas& canvas) {
             break;
         case CanvasDrawCmd::Type::clip:
             // Intersect clip with current path (issue-896).
-            canvas.clip();
+            // pulp #1522 — int_val carries Canvas2D fillRule arg
+            // (0 = nonzero/winding, 1 = evenodd) from ctx.clip(rule).
+            canvas.clip(cmd.int_val == 1
+                            ? canvas::FillRule::evenodd
+                            : canvas::FillRule::nonzero);
             break;
 
         // Arc
@@ -423,6 +433,16 @@ void CanvasWidget::paint(canvas::Canvas& canvas) {
         case CanvasDrawCmd::Type::set_fill_gradient_radial:
             if (!cmd.gradient_colors.empty())
                 canvas.set_fill_gradient_radial(cmd.x, cmd.y, cmd.extra,
+                    cmd.gradient_colors.data(), cmd.gradient_positions.data(),
+                    static_cast<int>(cmd.gradient_colors.size()));
+            break;
+        // pulp #1524 — Canvas2D ctx.createRadialGradient(x0,y0,r0,x1,y1,r1)
+        // two-circle form. Inner circle in (x, y, extra), outer in (x2, y2, w).
+        case CanvasDrawCmd::Type::set_fill_gradient_radial_two_circles:
+            if (!cmd.gradient_colors.empty())
+                canvas.set_fill_gradient_radial_two_circles(
+                    cmd.x, cmd.y, cmd.extra,
+                    cmd.x2, cmd.y2, cmd.w,
                     cmd.gradient_colors.data(), cmd.gradient_positions.data(),
                     static_cast<int>(cmd.gradient_colors.size()));
             break;

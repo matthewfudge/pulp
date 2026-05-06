@@ -324,11 +324,17 @@ void SkiaCanvas::clip_rect(float x, float y, float w, float h) {
     canvas_->clipRect(SkRect::MakeXYWH(x, y, w, h));
 }
 
-void SkiaCanvas::clip() {
+void SkiaCanvas::clip(FillRule rule) {
     GUARD_CANVAS;
     if (!path_builder_) return;
-    // Snapshot the path (don't detach — Canvas2D allows continued use of
-    // the same path after clip()) and intersect with the current clip.
+    // pulp #1522 — apply the requested fill rule before snapshotting.
+    // setFillType is sticky on the builder, so re-set on every clip()
+    // call (subsequent fills using the same path may want a different
+    // rule). Snapshot (don't detach) — Canvas2D allows continued use
+    // of the same path after clip().
+    path_builder_->setFillType(rule == FillRule::evenodd
+                                   ? SkPathFillType::kEvenOdd
+                                   : SkPathFillType::kWinding);
     canvas_->clipPath(path_builder_->snapshot(), /*doAntiAlias=*/true);
 }
 
@@ -1324,6 +1330,23 @@ void SkiaCanvas::set_fill_gradient_conic(float cx, float cy, float start_angle,
     has_gradient_ = gradient_shader_ != nullptr;
 }
 
+// pulp #1524 — Canvas2D `ctx.createRadialGradient(x0,y0,r0,x1,y1,r1)` two-circle
+// form. Skia renders the real two-point-conical gradient via
+// SkGradientShader::MakeTwoPointConical, honouring an offset / sized inner
+// circle (the existing single-circle path silently dropped (x0,y0,r0)).
+void SkiaCanvas::set_fill_gradient_radial_two_circles(
+        float x0, float y0, float r0,
+        float x1, float y1, float r1,
+        const Color* colors, const float* positions, int count) {
+    std::vector<SkColor> sk_colors;
+    std::vector<SkScalar> sk_pos;
+    colors_to_skia(colors, positions, count, sk_colors, sk_pos);
+    gradient_shader_ = SkGradientShader::MakeTwoPointConical(
+        {x0, y0}, r0, {x1, y1}, r1,
+        sk_colors.data(), sk_pos.data(), count, SkTileMode::kClamp);
+    has_gradient_ = gradient_shader_ != nullptr;
+}
+
 void SkiaCanvas::clear_fill_gradient() {
     gradient_shader_ = nullptr;
     has_gradient_ = false;
@@ -1460,7 +1483,7 @@ void SkiaCanvas::close_path() {
     if (path_builder_) path_builder_->close();
 }
 
-void SkiaCanvas::fill_current_path() {
+void SkiaCanvas::fill_current_path(FillRule rule) {
     if (!canvas_ || !path_builder_) return;
     SkPaint paint;
     paint.setAntiAlias(true);
@@ -1472,6 +1495,12 @@ void SkiaCanvas::fill_current_path() {
     paint.setBlendMode(blend_mode_);
     apply_shadow_filter(paint);
     apply_filter(paint);
+    // pulp #1522 — apply the requested Canvas2D fill rule. The path is
+    // detached on draw (Canvas2D fill semantics), so the fill type only
+    // affects this single draw and resets with the next begin_path.
+    path_builder_->setFillType(rule == FillRule::evenodd
+                                   ? SkPathFillType::kEvenOdd
+                                   : SkPathFillType::kWinding);
     canvas_->drawPath(path_builder_->detach(), paint);
 }
 

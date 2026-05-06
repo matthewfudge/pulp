@@ -205,6 +205,47 @@ TEST_CASE("Canvas2D createRadialGradient returns CanvasGradient",
     REQUIRE(result == "radial|2|60");
 }
 
+// pulp #1524 — createRadialGradient with distinct inner+outer circles
+// flushes via the new two-circle bridge fn (canvasSetRadialGradientTwoCircles)
+// and the resulting CanvasDrawCmd carries BOTH circles. Pre-fix, the JS shim
+// stored only the outer circle and dropped (x0, y0, r0) silently.
+TEST_CASE("Canvas2D createRadialGradient flushes two circles via the new bridge fn",
+          "[view][canvas2d][issue-1524]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        var g = ctx.createRadialGradient(20, 30, 5, 80, 70, 50);
+        g.addColorStop(0, '#ff0000');
+        g.addColorStop(1, '#0000ff');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 100, 100);
+    )");
+
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_two_circles = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::set_fill_gradient_radial_two_circles) {
+            saw_two_circles = true;
+            // Inner circle (x0=20, y0=30, r0=5) packed as (x, y, extra).
+            REQUIRE(cmd.x      == Catch::Approx(20.0f));
+            REQUIRE(cmd.y      == Catch::Approx(30.0f));
+            REQUIRE(cmd.extra  == Catch::Approx(5.0f));
+            // Outer circle (x1=80, y1=70, r1=50) packed as (x2, y2, w).
+            REQUIRE(cmd.x2     == Catch::Approx(80.0f));
+            REQUIRE(cmd.y2     == Catch::Approx(70.0f));
+            REQUIRE(cmd.w      == Catch::Approx(50.0f));
+            REQUIRE(cmd.gradient_colors.size() == 2);
+            REQUIRE(cmd.gradient_positions.size() == 2);
+        }
+    }
+    REQUIRE(saw_two_circles);
+}
+
 // ── FilterBank-style command stream records via the shim ─────────────────
 //
 // JS calls ctx.save(); ctx.translate(); ctx.fillStyle = grad; ctx.fillRect();
@@ -1591,6 +1632,289 @@ TEST_CASE("Canvas2D pattern set_fill_pattern reaches Skia without throwing",
 }
 #endif  // PULP_HAS_SKIA
 
+// ── pulp #1522 — Canvas2D fillRule arg threads through to bridge ────────
+//
+// Promotion target: 2 DIVERGE entries → PASS in compat.json:
+//   - canvas2d/fill (fillRule arg accepted but ignored)
+//   - canvas2d/clip (fillRule arg always uses non-zero winding)
+//
+// The web spec for ctx.fill(rule) and ctx.clip(rule) accepts an optional
+// CanvasFillRule string ('nonzero' (default) | 'evenodd'). Pre-fix the
+// JS shim discarded the arg with `void fillRule;` (clip) or didn't take
+// it at all (fill). The bridge had no overload for it, and the Skia / CG
+// backends always painted with the spec default of non-zero winding.
+//
+// Post-fix:
+//   - JS shim threads the arg as an int (0 = nonzero, 1 = evenodd).
+//   - Bridge canvasFillPath/canvasClip read int_val from the arg list.
+//   - CanvasWidget dispatch picks FillRule::evenodd vs FillRule::nonzero.
+//   - Skia: SkPathBuilder::setFillType before drawPath / clipPath.
+//   - CG: CGContextEOFillPath / CGContextEOClip when rule == evenodd.
+TEST_CASE("Canvas2D ctx.fill('evenodd') threads fillRule int_val=1 to bridge",
+          "[view][canvas2d][issue-1522]") {
+    using T = CanvasDrawCmd::Type;
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10);
+        ctx.lineTo(0, 10);
+        ctx.closePath();
+        ctx.fill('evenodd');
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int int_val_for_fill = -1;
+    int seen_fill = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == T::fill_path) {
+            ++seen_fill;
+            int_val_for_fill = cmd.int_val;
+        }
+    }
+    INFO("seen_fill=" << seen_fill << " int_val=" << int_val_for_fill);
+    REQUIRE(seen_fill == 1);
+    REQUIRE(int_val_for_fill == 1);
+}
+
+TEST_CASE("Canvas2D ctx.fill('nonzero') threads fillRule int_val=0 to bridge",
+          "[view][canvas2d][issue-1522]") {
+    using T = CanvasDrawCmd::Type;
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 10, 10);
+        ctx.fill('nonzero');
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int int_val_for_fill = -1;
+    int seen_fill = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == T::fill_path) {
+            ++seen_fill;
+            int_val_for_fill = cmd.int_val;
+        }
+    }
+    INFO("seen_fill=" << seen_fill << " int_val=" << int_val_for_fill);
+    REQUIRE(seen_fill == 1);
+    REQUIRE(int_val_for_fill == 0);
+}
+
+TEST_CASE("Canvas2D ctx.fill() with no arg defaults to nonzero (int_val=0)",
+          "[view][canvas2d][issue-1522]") {
+    using T = CanvasDrawCmd::Type;
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 10, 10);
+        ctx.fill();
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int int_val_for_fill = -1;
+    int seen_fill = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == T::fill_path) {
+            ++seen_fill;
+            int_val_for_fill = cmd.int_val;
+        }
+    }
+    INFO("seen_fill=" << seen_fill << " int_val=" << int_val_for_fill);
+    REQUIRE(seen_fill == 1);
+    REQUIRE(int_val_for_fill == 0);
+}
+
+TEST_CASE("Canvas2D ctx.clip('evenodd') threads fillRule int_val=1 to bridge",
+          "[view][canvas2d][issue-1522]") {
+    using T = CanvasDrawCmd::Type;
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 10, 10);
+        ctx.clip('evenodd');
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int int_val_for_clip = -1;
+    int seen_clip = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == T::clip) {
+            ++seen_clip;
+            int_val_for_clip = cmd.int_val;
+        }
+    }
+    INFO("seen_clip=" << seen_clip << " int_val=" << int_val_for_clip);
+    REQUIRE(seen_clip == 1);
+    REQUIRE(int_val_for_clip == 1);
+}
+
+TEST_CASE("Canvas2D ctx.clip('nonzero') threads fillRule int_val=0 to bridge",
+          "[view][canvas2d][issue-1522]") {
+    using T = CanvasDrawCmd::Type;
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 10, 10);
+        ctx.clip('nonzero');
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int int_val_for_clip = -1;
+    int seen_clip = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == T::clip) {
+            ++seen_clip;
+            int_val_for_clip = cmd.int_val;
+        }
+    }
+    INFO("seen_clip=" << seen_clip << " int_val=" << int_val_for_clip);
+    REQUIRE(seen_clip == 1);
+    REQUIRE(int_val_for_clip == 0);
+}
+
+TEST_CASE("Canvas2D ctx.clip() with no arg defaults to nonzero (int_val=0)",
+          "[view][canvas2d][issue-1522]") {
+    using T = CanvasDrawCmd::Type;
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 64; c.height = 64;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 10, 10);
+        ctx.clip();
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int int_val_for_clip = -1;
+    int seen_clip = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == T::clip) {
+            ++seen_clip;
+            int_val_for_clip = cmd.int_val;
+        }
+    }
+    INFO("seen_clip=" << seen_clip << " int_val=" << int_val_for_clip);
+    REQUIRE(seen_clip == 1);
+    REQUIRE(int_val_for_clip == 0);
+}
+
+#ifdef PULP_HAS_SKIA
+// ── Pixel-level fillRule verification on Skia ────────────────────────────
+//
+// Self-intersecting "rule of two" path: an outer 30x30 square traced
+// clockwise, with an inner 10x10 sub-square also traced clockwise.
+// Under non-zero winding both squares contribute the same direction,
+// so the inner area is filled (winding number = 2 ≠ 0). Under
+// even-odd the inner area cancels (count = 2 mod 2 = 0) and stays
+// hollow.
+//
+// Pre-fix both rules paint the same thing (Skia path always defaults
+// to kWinding because the bridge never sets it). Post-fix evenodd
+// leaves the inner pixel transparent.
+TEST_CASE("Canvas2D fillRule evenodd vs nonzero produce different pixels",
+          "[view][canvas2d][skia][issue-1522]") {
+    auto run_fill = [](const std::string& rule_arg) -> uint32_t {
+        SkImageInfo info = SkImageInfo::Make(40, 40, kRGBA_8888_SkColorType,
+                                             kPremul_SkAlphaType,
+                                             SkColorSpace::MakeSRGB());
+        auto surface = SkSurfaces::Raster(info);
+        REQUIRE(surface != nullptr);
+        auto* sk_canvas = surface->getCanvas();
+        sk_canvas->clear(SK_ColorTRANSPARENT);
+
+        ScriptedBridge env;
+        std::string js = R"(
+            var c = document.createElement('canvas');
+            globalThis.__test_canvas_el__ = c;
+            document.body.appendChild(c);
+            c.width = 40; c.height = 40;
+            var ctx = c.getContext('2d');
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            // outer 30x30 (CW)
+            ctx.moveTo(5, 5);
+            ctx.lineTo(35, 5);
+            ctx.lineTo(35, 35);
+            ctx.lineTo(5, 35);
+            ctx.closePath();
+            // inner 10x10 (CW — same direction as outer)
+            ctx.moveTo(15, 15);
+            ctx.lineTo(25, 15);
+            ctx.lineTo(25, 25);
+            ctx.lineTo(15, 25);
+            ctx.closePath();
+        )";
+        if (rule_arg.empty()) {
+            js += "\n            ctx.fill();";
+        } else {
+            js += "\n            ctx.fill('" + rule_arg + "');";
+        }
+        env.load(js);
+        auto* cw = env.canvas();
+        REQUIRE(cw != nullptr);
+
+        cw->set_bounds({0, 0, 40, 40});
+        pulp::canvas::SkiaCanvas canvas(sk_canvas);
+        cw->paint(canvas);
+
+        SkPixmap pix;
+        REQUIRE(surface->peekPixels(&pix));
+        // sample at (20, 20) — centre of the inner sub-square
+        auto* row = static_cast<const uint8_t*>(pix.addr(0, 20));
+        return (uint32_t(row[4 * 20 + 0]) << 24) |
+               (uint32_t(row[4 * 20 + 1]) << 16) |
+               (uint32_t(row[4 * 20 + 2]) << 8) |
+               (uint32_t(row[4 * 20 + 3]));
+    };
+
+    uint32_t nonzero_centre = run_fill("nonzero");
+    uint32_t evenodd_centre = run_fill("evenodd");
+    INFO("nonzero centre RGBA=0x" << std::hex << nonzero_centre
+         << " evenodd centre RGBA=0x" << std::hex << evenodd_centre);
+
+    // nonzero: inner pixel is filled (alpha != 0, red component dominant).
+    REQUIRE((nonzero_centre & 0xFF) != 0);                  // alpha set
+    REQUIRE(((nonzero_centre >> 24) & 0xFF) >= 0xC0);       // strong red
+
+    // evenodd: inner pixel is hollow (alpha == 0, transparent clear).
+    REQUIRE((evenodd_centre & 0xFF) == 0);                  // alpha zero
+
+    // The two rules MUST produce different output — that's the whole
+    // point of the fix.
+    REQUIRE(nonzero_centre != evenodd_centre);
+}
+#endif  // PULP_HAS_SKIA
+
 // ── pulp #1520 — Canvas2D ctx.direction / ctx.filter ────────────────────
 //
 // canvas2d/direction and canvas2d/filter were the last two NOT-IMPL
@@ -1836,4 +2160,265 @@ TEST_CASE("Canvas2D direction + filter cache invalidates on save/restore",
     // and the post-restore re-assignment.
     REQUIRE(filter_count == 3);
     REQUIRE(dir_count    == 3);
+}
+
+// ── pulp #1527 — getTransform / resetTransform ───────────────────────────
+//
+// HTML5 spec: ctx.getTransform() returns a DOMMatrix-shaped object whose
+// `a, b, c, d, e, f` mirror the current 2D affine transform. The shim
+// keeps a JS-side mirror updated by translate / scale / rotate /
+// setTransform / transform / save / restore so the read can answer
+// synchronously without a bridge round-trip.
+TEST_CASE("Canvas2D getTransform returns identity by default",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        var m = ctx.getTransform();
+        return [m.a, m.b, m.c, m.d, m.e, m.f, m.is2D, m.isIdentity].join(',');
+    )");
+    REQUIRE(result == "1,0,0,1,0,0,true,true");
+}
+
+TEST_CASE("Canvas2D getTransform reflects translate / scale / rotate",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.translate(10, 20);
+        ctx.scale(2, 3);
+        var m = ctx.getTransform();
+        return [m.a, m.b, m.c, m.d, m.e, m.f].join(',');
+    )");
+    // After translate(10,20) then scale(2,3) on identity: a=2,b=0,c=0,d=3,e=10,f=20.
+    REQUIRE(result == "2,0,0,3,10,20");
+}
+
+TEST_CASE("Canvas2D setTransform replaces current transform",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.translate(99, 99);
+        ctx.setTransform(1, 0, 0, 1, 5, 7);
+        var m = ctx.getTransform();
+        return [m.a, m.b, m.c, m.d, m.e, m.f, m.isIdentity].join(',');
+    )");
+    REQUIRE(result == "1,0,0,1,5,7,false");
+}
+
+TEST_CASE("Canvas2D resetTransform returns matrix to identity",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.translate(50, 60);
+        ctx.scale(3, 4);
+        ctx.resetTransform();
+        var m = ctx.getTransform();
+        return [m.a, m.b, m.c, m.d, m.e, m.f, m.isIdentity].join(',');
+    )");
+    REQUIRE(result == "1,0,0,1,0,0,true");
+}
+
+TEST_CASE("Canvas2D save/restore restores prior transform",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.translate(10, 20);
+        ctx.save();
+        ctx.translate(100, 200);
+        var inner = ctx.getTransform();
+        ctx.restore();
+        var outer = ctx.getTransform();
+        return [inner.e, inner.f, outer.e, outer.f].join(',');
+    )");
+    REQUIRE(result == "110,220,10,20");
+}
+
+TEST_CASE("Canvas2D getTransform returns independent copy",
+          "[view][canvas2d][issue-1527]") {
+    // Spec: mutating the returned DOMMatrix must not affect the live ctx
+    // transform. Confirm by mutating m.a and reading the next getTransform.
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.translate(5, 7);
+        var m = ctx.getTransform();
+        m.a = 999; m.e = 999;
+        var m2 = ctx.getTransform();
+        return [m2.a, m2.e].join(',');
+    )");
+    REQUIRE(result == "1,5");
+}
+
+TEST_CASE("Canvas2D getTransform DOMMatrix-shaped fields",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.setTransform(2, 0, 0, 3, 4, 5);
+        var m = ctx.getTransform();
+        // m11/m12/m21/m22/m41/m42 are the DOMMatrix aliases for a/b/c/d/e/f.
+        return [m.m11, m.m12, m.m21, m.m22, m.m41, m.m42, m.is2D].join(',');
+    )");
+    REQUIRE(result == "2,0,0,3,4,5,true");
+}
+
+// ── pulp #1527 — isPointInPath / isPointInStroke ─────────────────────────
+TEST_CASE("Canvas2D isPointInPath: point inside rect path",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(10, 10, 100, 50);
+        return ctx.isPointInPath(50, 30);
+    )");
+    REQUIRE(result == "true");
+}
+
+TEST_CASE("Canvas2D isPointInPath: point outside rect path",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(10, 10, 100, 50);
+        return ctx.isPointInPath(5, 5);
+    )");
+    REQUIRE(result == "false");
+}
+
+TEST_CASE("Canvas2D isPointInPath: works with moveTo + lineTo polygon",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        // Triangle (0,0) -> (100,0) -> (50,100).
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(100, 0);
+        ctx.lineTo(50, 100);
+        ctx.closePath();
+        return [ctx.isPointInPath(50, 30),    // central, low y — inside
+                ctx.isPointInPath(10, 80),    // near left base — outside (sloped)
+                ctx.isPointInPath(-5, 50)].join(',');
+    )");
+    // Triangle vertices (0,0)-(100,0)-(50,100). At y=80 the left edge
+    // crosses at x=40, so x=10 is outside. Origin-side x=-5 is outside.
+    REQUIRE(result == "true,false,false");
+}
+
+TEST_CASE("Canvas2D beginPath resets path mirror",
+          "[view][canvas2d][issue-1527]") {
+    // After beginPath, prior geometry must not contribute to hit tests.
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 100, 100);
+        var hit1 = ctx.isPointInPath(50, 50);
+        ctx.beginPath();
+        ctx.rect(200, 200, 50, 50);
+        var hit2 = ctx.isPointInPath(50, 50);
+        return [hit1, hit2].join(',');
+    )");
+    REQUIRE(result == "true,false");
+}
+
+TEST_CASE("Canvas2D isPointInPath rejects non-finite coordinates",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.rect(0, 0, 100, 100);
+        return [ctx.isPointInPath(NaN, 50),
+                ctx.isPointInPath(50, Infinity)].join(',');
+    )");
+    REQUIRE(result == "false,false");
+}
+
+TEST_CASE("Canvas2D isPointInStroke: point on stroke edge",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.lineWidth = 4;  // half-width = 2px
+        ctx.beginPath();
+        ctx.moveTo(0, 50);
+        ctx.lineTo(100, 50);
+        return [ctx.isPointInStroke(50, 50),     // on the line
+                ctx.isPointInStroke(50, 51),     // 1px below — inside half-width
+                ctx.isPointInStroke(50, 60)].join(','); // 10px below — outside
+    )");
+    REQUIRE(result == "true,true,false");
+}
+
+TEST_CASE("Canvas2D isPointInStroke respects lineWidth changes",
+          "[view][canvas2d][issue-1527]") {
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(0, 50);
+        ctx.lineTo(100, 50);
+        ctx.lineWidth = 2;  // half-width = 1px
+        var thin = ctx.isPointInStroke(50, 53);
+        ctx.lineWidth = 20; // half-width = 10px
+        var thick = ctx.isPointInStroke(50, 53);
+        return [thin, thick].join(',');
+    )");
+    REQUIRE(result == "false,true");
+}
+
+TEST_CASE("Canvas2D isPointInPath / isPointInStroke survive save/restore",
+          "[view][canvas2d][issue-1527]") {
+    // The path mirror is part of the save/restore snapshot, so a save()
+    // of an empty path followed by appending geometry, then restore(),
+    // must roll back the path so isPointInPath returns false.
+    auto result = run_in_bridge(R"(
+        var c = document.createElement('canvas');
+        c.id = 'probe';
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();          // empty path
+        ctx.save();
+        ctx.rect(0, 0, 100, 100);
+        var inside = ctx.isPointInPath(50, 50);
+        ctx.restore();
+        var afterRestore = ctx.isPointInPath(50, 50);
+        return [inside, afterRestore].join(',');
+    )");
+    REQUIRE(result == "true,false");
 }
