@@ -15,11 +15,11 @@ Spec walk: [Yoga Layout — Styling](https://www.yogalayout.dev/docs/styling/),
 cross-checked against [RN Layout Props](https://reactnative.dev/docs/layout-props)
 which mirrors the upstream Yoga API.
 
-## Counts (2026-05-04)
+## Counts (2026-05-06)
 
 | Status | Count |
 |--------|------:|
-| supported | 28 |
+| supported | 30 |
 | partial | 7 |
 | missing | 18 |
 | wontfix | 0 |
@@ -38,6 +38,14 @@ which mirrors the upstream Yoga API.
 
 ## Recent updates
 
+- **2026-05-06 (pulp #1544)** — pure catalog promotion: `yoga/flex` and
+  `yoga/flexFlow` now claim `supported`. Both shorthands have been
+  wired through `core/view/js/web-compat-style-decl.js` for some time
+  (the `flex` case fans out to `setFlex(flex_grow|flex_shrink|flex_basis,
+  ...)`; the `flexFlow` case tokenizes and dispatches
+  `setFlex(direction, ...)` + `setFlex(flex_wrap, ...)`), but neither
+  was listed in the yoga catalog. Mirrors the existing `css/flex` and
+  `css/flexFlow` entries. supported count: 28 → 30.
 - **2026-05-05 (pulp #1434 Triage #14)** — `yoga/flexWrap` now claims
   `wrap-reverse` alongside `wrap` and `nowrap`. `FlexStyle::flex_wrap`
   was converted from `bool` to a tri-state `FlexWrap` enum
