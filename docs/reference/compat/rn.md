@@ -27,6 +27,19 @@ Spec walk:
 
 ## Recently changed
 
+- **2026-05-05 (pulp #1434 rn logical-edge bundle, sub-agent #27 finding)** —
+  11 RN logical-flow props wired through the `@pulp/react` prop-applier
+  with an LTR-only fast path: `marginStart` / `marginEnd` /
+  `paddingStart` / `paddingEnd` route to the matching `*Left` /
+  `*Right` per-edge bridge calls; `borderStartWidth` /
+  `borderEndWidth` route to `setBorderLeftWidth` / `setBorderRightWidth`;
+  `start` / `end` route to `setLeft` / `setRight`. The CSS `inset`
+  shorthand fans out to top/right/bottom/left with the standard
+  1/2/3/4-token expansion (numeric or percent strings forward
+  verbatim). `insetBlock` → top + bottom; `insetInline` → left +
+  right. All 11 entries flipped `missing` → `partial` — the LTR
+  assumption is the honest `unsupportedValues` caveat (true RTL bidi
+  defers to a future direction system).
 - **2026-05-05 (pulp #1434 rn bridge-wires bundle, sub-agent #27 finding)** —
   7 RN-style props that already had C++ bridge fns registered but no
   `@pulp/react` JSX dispatch. TS-only PR (no C++ touched): wired
@@ -38,8 +51,7 @@ Spec walk:
   coordinates before dispatch. Status flips: `backfaceVisibility`,
   `pointerEvents`, `textTransform`, `transformOrigin`, `filter` →
   `supported`; `cursor`, `userSelect` → `partial` (CSS spec covers
-  more values than the bridge's enum). rn pass 49 → 54 (+5);
-  progress 60.83% → 66.67% (+5.84pp). Highest-leverage single rn
+  more values than the bridge's enum). Highest-leverage single rn
   PR remaining in the umbrella; closes 7 entries with zero C++ work.
 - **2026-05-05 (pulp #1434 Triage #10)** — `rn/borderStyle` surfaced
   at the `@pulp/react` JSX layer with the full keyword set: `solid`,
