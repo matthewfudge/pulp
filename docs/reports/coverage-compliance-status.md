@@ -530,12 +530,13 @@ branch remains unpushed and undispatched; #1271 still points at the old
 remote head until
 Namespace capacity returns.
 Additional #493 CLI package progress is refreshed locally as
-`feature/phase3-package-commands-coverage-493` at `8f26959e`, rebased
+`feature/phase3-package-commands-coverage-493` at `d72ac3d5`, rebased
 from the paused #1273 remote head `c52cd486` onto current `origin/main`
 `50ff5822`, then onto current `origin/main` `b7ec8f08`, then
 `cf5ea658`, then onto current `origin/main` `24047ba3`, then onto
-current `origin/main` `df01f4f6`, covering package target compatibility
-warnings when an installed package does not support a newly added target. The refreshed
+current `origin/main` `df01f4f6`, then onto current `origin/main`
+`a8c4c16`, covering package target compatibility warnings when an
+installed package does not support a newly added target. The refreshed
 branch remains unpushed and
 undispatched; #1273 still points at the old remote head until Namespace
 capacity returns.
