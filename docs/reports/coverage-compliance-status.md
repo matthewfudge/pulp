@@ -541,14 +541,15 @@ branch remains unpushed and
 undispatched; #1273 still points at the old remote head until Namespace
 capacity returns.
 Additional #493 design-import progress is refreshed locally as
-`feature/phase3-design-import-bundle-coverage-493` at `9b2f2ed0`,
+`feature/phase3-design-import-bundle-coverage-493` at `3b57ae4e`,
 rebased from the paused #1269 remote head `923b04f1` onto current
 `origin/main` `50ff5822`, then onto current `origin/main` `cf5ea658`,
 then onto current `origin/main` `24047ba3`, then onto current
 `origin/main` `df01f4f6`, then onto current `origin/main` `d11f530e`,
-covering Claude bundle malformed template/manifest handling, malformed
-asset skips, referenced-JS indexing, and bundled classname extraction
-through font-face-leading styles. The
+then onto current `origin/main` `a8c4c16`, covering Claude bundle
+malformed template/manifest handling, malformed asset skips,
+referenced-JS indexing, and bundled classname extraction through
+font-face-leading styles. The
 refreshed branch remains unpushed and undispatched; #1269 still points
 at the old remote head until Namespace capacity returns.
 Additional #640 audio progress is refreshed locally as
