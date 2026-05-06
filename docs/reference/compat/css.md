@@ -33,6 +33,20 @@ specifics are out of scope.
 
 ## Recently changed
 
+- **2026-05-06 (pulp #1519)** — CSS outline cluster fully bridge-backed.
+  `setOutlineColor` / `setOutlineOffset` / `setOutlineStyle` /
+  `setOutlineWidth` now register in `widget_bridge.cpp`; the CSS
+  translator at `web-compat-style-decl.js` fans the `outline:
+  <width> <style> <color>` shorthand out to the per-attribute
+  setters and routes the four longhands through them. View grew
+  `outline_color_` / `outline_offset_` / `outline_style_` /
+  `outline_width_` slots; Skia paint inflates the box by
+  `outline_offset + outline_width / 2` and strokes — outline does
+  NOT take Yoga layout space (paints OUTSIDE the border-box, no
+  parent reservation). Line-style enum reused from
+  `View::BorderStyle` (CSS spec is identical for outline + border).
+  Reclassified `css/outline`, `css/outlineColor`, `css/outlineOffset`,
+  `css/outlineStyle`, `css/outlineWidth` to `supported`.
 - **2026-05-05 (pulp #1434 small-wins bundle, Triage #7+#12+#13+#14)** —
   four catalog/translator items combined into one PR.
   * **Triage #7 cursor enum fan-out** — `setCursor` case ladder now
