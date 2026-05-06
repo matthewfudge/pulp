@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 16:55 PDT
+Last reviewed: 2026-05-05 17:03 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -530,10 +530,11 @@ branch remains unpushed and
 undispatched; #1273 still points at the old remote head until Namespace
 capacity returns.
 Additional #493 design-import progress is refreshed locally as
-`feature/phase3-design-import-bundle-coverage-493` at `45b77a0b`,
+`feature/phase3-design-import-bundle-coverage-493` at `5e1fcbd2`,
 rebased from the paused #1269 remote head `923b04f1` onto current
 `origin/main` `50ff5822`, then onto current `origin/main` `cf5ea658`,
-then onto current `origin/main` `24047ba3`, covering Claude bundle malformed template/manifest handling, malformed
+then onto current `origin/main` `24047ba3`, then onto current
+`origin/main` `df01f4f6`, covering Claude bundle malformed template/manifest handling, malformed
 asset skips, referenced-JS indexing, and bundled classname extraction
 through font-face-leading styles. The
 refreshed branch remains unpushed and undispatched; #1269 still points
