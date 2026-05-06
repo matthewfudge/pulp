@@ -36,6 +36,31 @@ Spec walk:
   needed; underlying `flex_grow` / `flex_shrink` / `flex_basis` were
   already stable. Closes the most-cited rn gap (the doc had this
   under "notable gaps" since the rn surface was first inventoried).
+- **2026-05-06 (pulp #1519)** — RN outline cluster surfaced at the
+  `@pulp/react` JSX layer: `outlineColor`, `outlineOffset`,
+  `outlineStyle`, `outlineWidth` all flipped `missing` → `supported`.
+  Each prop routes through its own per-attribute bridge fn
+  (`setOutlineColor` / `setOutlineOffset` / `setOutlineStyle` /
+  `setOutlineWidth`) so a JSX prop diff that touches one outline-*
+  preserves the others — same shape as the borderColor / borderWidth
+  / borderStyle cluster (#1027 + #1434 Triage #10). The View grew
+  four new slots (`outline_color_`, `outline_offset_`,
+  `outline_style_`, `outline_width_`); the line-style enum is
+  reused from `View::BorderStyle` since the CSS spec lists the
+  identical keyword set for outline + border. Skia paint inflates
+  the box by `outline_offset + outline_width / 2` and strokes —
+  outline does NOT take Yoga layout space (it draws OUTSIDE the
+  border-box and the parent never reserves room for it). Dashed /
+  dotted install `SkDashPathEffect` at outline-stroke time; other
+  named styles (double / groove / ridge / inset / outset) currently
+  degrade to solid (paint-side gap, same as borderStyle); none /
+  hidden / zero-width short-circuit the stroke entirely. The same
+  bridge fns flipped the `css/outline*` entries (`outline`,
+  `outlineColor`, `outlineOffset`, `outlineStyle`, `outlineWidth`)
+  to `supported` — the CSS translator at
+  `core/view/js/web-compat-style-decl.js` now fans the `outline:
+  <width> <style> <color>` shorthand out to the per-attribute
+  setters and routes the four longhands through them.
 - **2026-05-05 (pulp #1434 small-wins bundle, Triage #7+#12+#13+#14)** —
   the `@pulp/react` prop-applier now forwards `cursor`, `userSelect`,
   and `pointerEvents` to the matching bridge fns (previously these
