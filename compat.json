@@ -315,29 +315,37 @@
       "issue": ""
     },
     "css/backgroundAttachment": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "noop",
+      "mapsTo": "web-compat-style-decl.js -> setBackgroundAttachment(id, kw); bridge stores keyword on View::background_attachment_ slot. No paint impact today.",
+      "supportedValues": [
+        "scroll (conformant default — pulp's layout is non-scrolling so the spec behavior coincides with our render path)"
       ],
-      "tests": [],
-      "notes": "Not handled.",
-      "issue": ""
+      "unsupportedValues": [
+        "fixed (needs viewport-relative paint origin; no scroll-context model)",
+        "local (needs scroll-context coupling; no scroll-context model)"
+      ],
+      "tests": [
+        "test/test_widget_bridge.cpp — [issue-1517]"
+      ],
+      "notes": "pulp #1517 — accepts the keyword without crashing; paint impact is exactly zero because pulp doesn't model scroll contexts. `scroll` is the spec-conformant default for our case. Status `noop` means the property is wired through but has no rendered effect.",
+      "issue": "1517"
     },
     "css/backgroundClip": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "border-box",
-        "padding-box",
-        "content-box",
-        "text"
+      "status": "partial",
+      "mapsTo": "web-compat-style-decl.js -> setBackgroundClip(id, kw); bridge stores keyword on View::background_clip_ slot.",
+      "supportedValues": [
+        "border-box (default; pulp paints bg edge-to-edge — same as the spec default)",
+        "padding-box (no-op on solid bg; same visual as border-box)",
+        "content-box (no-op on solid bg; same visual as border-box)"
       ],
-      "tests": [],
-      "notes": "Not handled.",
-      "issue": ""
+      "unsupportedValues": [
+        "text (paint-time SkBlendMode::kSrcIn against text glyphs; deferred to a future PR — slot stores the value so the wiring is ready)"
+      ],
+      "tests": [
+        "test/test_widget_bridge.cpp — [issue-1517]"
+      ],
+      "notes": "pulp #1517 — keyword stored on View; the box-flavor variants are visual no-ops on solid backgrounds (which is what pulp paints today). The `text` variant requires real paint-chain composition and is deferred.",
+      "issue": "1517"
     },
     "css/backgroundColor": {
       "status": "supported",
@@ -380,15 +388,17 @@
       "issue": ""
     },
     "css/backgroundOrigin": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "noop",
+      "mapsTo": "web-compat-style-decl.js -> setBackgroundOrigin(id, kw); bridge stores keyword on View::background_origin_ slot. No paint impact today.",
+      "supportedValues": [
+        "border-box / padding-box / content-box — all accepted, all stored, all paint identically because pulp doesn't paint repeating gradient tiles (the only case where this would matter)"
       ],
-      "tests": [],
-      "notes": "Not handled.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp — [issue-1517]"
+      ],
+      "notes": "pulp #1517 — value stored for round-tripping; paint impact is zero because the property only matters for repeating gradient tiles. When pulp adds gradient-tile paint, the slot is already populated.",
+      "issue": "1517"
     },
     "css/backgroundPosition": {
       "status": "partial",

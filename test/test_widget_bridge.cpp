@@ -3005,6 +3005,59 @@ TEST_CASE("WidgetBridge text-decoration longhand setters preserve siblings",
 
 // ── issue-926: setBackdropFilter ─────────────────────────────────────────────
 
+// pulp #1517 — background sub-properties round-trip through the bridge
+// onto storage-only View slots. Paint impact today is partial (only
+// the keyword is stored; the box-clip / scroll-attachment paint paths
+// haven't landed). The test asserts the wire-through, not paint.
+TEST_CASE("WidgetBridge background sub-properties round-trip onto View slots",
+          "[view][bridge][issue-1517]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('p', '');
+        setBackgroundAttachment('p', 'scroll');
+        setBackgroundClip('p', 'text');
+        setBackgroundOrigin('p', 'padding-box');
+    )");
+
+    auto* p = bridge.widget("p");
+    REQUIRE(p != nullptr);
+    REQUIRE(p->background_attachment() == "scroll");
+    REQUIRE(p->background_clip() == "text");
+    REQUIRE(p->background_origin() == "padding-box");
+
+    // Subsequent writes overwrite (storage-only, no merge logic).
+    bridge.load_script("setBackgroundClip('p', 'border-box')");
+    REQUIRE(p->background_clip() == "border-box");
+}
+
+// pulp #1517 — CSSStyleDeclaration shim forwards camelCase background
+// sub-properties to the bridge setters.
+TEST_CASE("CSSStyleDeclaration forwards background sub-props to bridge",
+          "[view][bridge][css][issue-1517]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('p', '');
+        var s = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s.backgroundAttachment = 'scroll';
+        s.backgroundClip        = 'border-box';
+        s.backgroundOrigin      = 'content-box';
+    )");
+
+    auto* p = bridge.widget("p");
+    REQUIRE(p != nullptr);
+    REQUIRE(p->background_attachment() == "scroll");
+    REQUIRE(p->background_clip() == "border-box");
+    REQUIRE(p->background_origin() == "content-box");
+}
+
 TEST_CASE("WidgetBridge setBackdropFilter sets backdrop_blur on the View",
           "[view][bridge][issue-926]") {
     ScriptEngine engine;
