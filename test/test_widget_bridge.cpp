@@ -5536,3 +5536,82 @@ TEST_CASE("CSSStyleDeclaration forwards gridTemplateAreas",
     REQUIRE(bridge.widget("a")->grid().template_areas.size() == 3);
     REQUIRE(bridge.widget("a")->grid().auto_flow == GridStyle::AutoFlow::column);
 }
+
+// pulp #1516 — setBoxSizing routes to FlexStyle.box_sizing.
+TEST_CASE("setBoxSizing border-box / content-box round-trips onto FlexStyle",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        createPanel('b', '');
+        setBoxSizing('a', 'border-box');
+        setBoxSizing('b', 'content-box');
+    )");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::border_box);
+    REQUIRE(bridge.widget("b")->flex().box_sizing == BoxSizing::content_box);
+
+    // Unknown keyword falls back to content-box. The default for an
+    // unset slot is border-box (matches Yoga 3.x and pulp's implicit
+    // pre-#1516 behavior), but `setBoxSizing` with an explicit unknown
+    // keyword resolves to content-box rather than silently keeping the
+    // prior value — that way `setBoxSizing('id', 'wat')` is a clear
+    // observable rather than a quiet no-op.
+    bridge.load_script("setBoxSizing('a', 'wat')");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::content_box);
+}
+
+// pulp #1516 — CSSStyleDeclaration shim forwards camelCase boxSizing.
+TEST_CASE("CSSStyleDeclaration forwards box-sizing to bridge",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        var s = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        s.boxSizing = 'border-box';
+    )");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::border_box);
+}
+
+// pulp #1516 — load-bearing test. Under border-box (pulp default),
+// declared width=100 + padding=10 yields outer-bounds width=100
+// (content area shrinks). Under content-box (CSS spec default), the
+// same declaration produces outer width=120 (padding adds outside).
+// Yoga 3.x's YGNodeStyleSetBoxSizing does the math.
+TEST_CASE("border-box vs content-box layout math via Yoga",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 400});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('bb', '');
+        createPanel('cb', '');
+        setFlex('bb', 'width',  100);
+        setFlex('bb', 'height', 100);
+        setFlex('bb', 'padding', 10);
+        // bb stays default border-box (matches pulp's pre-#1516 implicit
+        // behavior and Yoga 3.x's own default).
+        setFlex('cb', 'width',  100);
+        setFlex('cb', 'height', 100);
+        setFlex('cb', 'padding', 10);
+        setBoxSizing('cb', 'content-box');
+    )");
+    root.layout_children();
+    auto* bb = bridge.widget("bb");
+    auto* cb = bridge.widget("cb");
+    REQUIRE(bb != nullptr);
+    REQUIRE(cb != nullptr);
+    // border-box: outer == declared (100); content area shrinks.
+    REQUIRE_THAT(bb->bounds().width,  WithinAbs(100.0f, 0.5f));
+    REQUIRE_THAT(bb->bounds().height, WithinAbs(100.0f, 0.5f));
+    // content-box: outer == declared + padding*2 (120).
+    REQUIRE_THAT(cb->bounds().width,  WithinAbs(120.0f, 0.5f));
+    REQUIRE_THAT(cb->bounds().height, WithinAbs(120.0f, 0.5f));
+}
