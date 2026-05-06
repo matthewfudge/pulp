@@ -27,6 +27,15 @@ Spec walk:
 
 ## Recently changed
 
+- **2026-05-06 (pulp #1434 Phase A2-4)** — `rn/filter` extended from
+  `blur(Npx)`-only to the full CSS Filter Effects function set
+  (`brightness` / `contrast` / `grayscale` / `hue-rotate` / `invert` /
+  `opacity` / `saturate` / `sepia` / `drop-shadow` plus chains). The
+  `@pulp/react` prop-applier already forwards the CSS string verbatim
+  (sub-agent #27's bridge-wires bundle); the bridge now parses the
+  full chain and routes to Skia's `SkImageFilters::Compose` +
+  `SkColorFilters::Matrix` via the new
+  `canvas.save_layer_with_filters(...)` API.
 - **2026-05-05 (pulp #1434 rn bridge-wires bundle, sub-agent #27 finding)** —
   7 RN-style props that already had C++ bridge fns registered but no
   `@pulp/react` JSX dispatch. TS-only PR (no C++ touched): wired
