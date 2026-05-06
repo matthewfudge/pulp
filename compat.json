@@ -6058,15 +6058,22 @@
       "issue": "1434"
     },
     "canvas2d/createPattern": {
-      "status": "missing",
-      "mapsTo": "ctx.createPattern -> shim returns null (per spec, returning null is permissible when source unavailable). Bridge has no pattern shader.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "repeated-image patterns"
+      "status": "partial",
+      "mapsTo": "ctx.createPattern(image, repetition) -> CanvasPattern handle, flushed via canvasSetFillPattern / canvasSetStrokePattern. Skia routes through SkShader::MakeImage with SkTileMode per axis (real tiled fill); CG degrades to the active solid colour.",
+      "supportedValues": [
+        "repeat",
+        "repeat-x",
+        "repeat-y",
+        "no-repeat"
       ],
-      "tests": [],
-      "notes": "Deferred from pulp #1434 bridge-thin gap-fill — needs real image-resource plumbing (handle vs. opaque path), not just a bridge fn. Patterns are rare in audio plugin UIs. Callers must guard against null. File a follow-up when chart-library imports actually need it.",
-      "issue": ""
+      "unsupportedValues": [
+        "CG backend (macOS) renders solid fallback — no native CGPattern shader plumbed yet"
+      ],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1434][bridge-thin]"
+      ],
+      "notes": "pulp #1434 bridge-thin gap-fill (sub-agent #24, follow-up to #1480). Skia path is fully spec-compliant for all four repetition values; CG path silently degrades to the previous solid fill. File a follow-up if a CG-targeted plugin actually needs tiled patterns (CGPattern callback dance).",
+      "issue": "1434"
     },
     "canvas2d/addColorStop": {
       "status": "supported",
