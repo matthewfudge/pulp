@@ -1,6 +1,6 @@
 # Coverage Compliance Status
 
-Last reviewed: 2026-05-05 17:48 PDT
+Last reviewed: 2026-05-05 17:53 PDT
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -206,10 +206,11 @@ covering
 non-positive-dimension guard paths. It remains unpushed and
 undispatched. Additional #643 tools progress is
 queued locally as
-`local/phase3-audio-tools-model-store-643` at `a5aa9f8e`, refreshed from
+`local/phase3-audio-tools-model-store-643` at `34ede9bb`, refreshed from
 `a88ddfe8` to `9743ccd7`, then onto current `origin/main` `bd036171`,
 then onto current `origin/main` `7e9795b4`, then onto current
-`origin/main` `df01f4f6`, covering `tools/audio`
+`origin/main` `df01f4f6`, then onto current `origin/main` `42bacd19`,
+covering `tools/audio`
 model registry URL resolution, legacy/malformed model metadata,
 model/bundle JSON serialization/defaults, and
 excerpt-find guard and unsupported-input paths. It remains unpushed and
