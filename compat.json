@@ -2781,15 +2781,17 @@
       "issue": "1434"
     },
     "rn/backfaceVisibility": {
-      "status": "missing",
-      "mapsTo": "Bridge has setBackfaceVisibility -- not surfaced in @pulp/react TS.",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier forwards keyword to setBackfaceVisibility (widget_bridge.cpp:2133).",
+      "supportedValues": [
         "visible",
         "hidden"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR.",
       "issue": ""
     },
     "rn/backgroundColor": {
@@ -3206,15 +3208,22 @@
       "issue": ""
     },
     "rn/cursor": {
-      "status": "missing",
-      "mapsTo": "Bridge has setCursor -- not surfaced in @pulp/react TS.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "auto",
-        "pointer"
+      "status": "partial",
+      "mapsTo": "@pulp/react prop-applier forwards keyword to setCursor (widget_bridge.cpp:3753); bridge maps the CSS keyword set to View::CursorStyle.",
+      "supportedValues": [
+        "default",
+        "pointer",
+        "crosshair",
+        "text",
+        "grab",
+        "grabbing",
+        "not-allowed"
       ],
-      "tests": [],
-      "notes": "Easy add.",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR. Status `partial` because CursorStyle does not yet have slots for every CSS keyword (see Triage #7 follow-up).",
       "issue": ""
     },
     "rn/d": {
@@ -3302,15 +3311,16 @@
       "issue": "994"
     },
     "rn/filter": {
-      "status": "missing",
-      "mapsTo": "Bridge has setFilter -- not surfaced in @pulp/react TS.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "array of filter objects",
-        "css string"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier forwards CSS string to setFilter (widget_bridge.cpp:3767). Bridge currently parses only `blur(Npx)`.",
+      "supportedValues": [
+        "blur(Npx)"
       ],
-      "tests": [],
-      "notes": "Easy add.",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR. Bridge parser today recognizes only blur(); other CSS filter functions (brightness, contrast, drop-shadow, grayscale, invert, opacity, saturate, sepia, hue-rotate) are a follow-up.",
       "issue": ""
     },
     "rn/flex": {
@@ -3972,17 +3982,19 @@
       "issue": ""
     },
     "rn/pointerEvents": {
-      "status": "missing",
-      "mapsTo": "Bridge has setPointerEvents -- not surfaced in @pulp/react TS.",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier forwards keyword to setPointerEvents (widget_bridge.cpp:2107); bridge maps to View::PointerEvents enum.",
+      "supportedValues": [
         "auto",
         "none",
-        "box-none",
-        "box-only"
+        "box-only",
+        "box-none"
       ],
-      "tests": [],
-      "notes": "Easy add.",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR.",
       "issue": ""
     },
     "rn/position": {
@@ -4200,17 +4212,19 @@
       "issue": ""
     },
     "rn/textTransform": {
-      "status": "missing",
-      "mapsTo": "Bridge has setTextTransform -- not surfaced in @pulp/react TS.",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier forwards keyword to setTextTransform (widget_bridge.cpp:3486); bridge maps to View::TextTransform.",
+      "supportedValues": [
+        "none",
         "uppercase",
         "lowercase",
-        "capitalize",
-        "none"
+        "capitalize"
       ],
-      "tests": [],
-      "notes": "Easy add.",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR.",
       "issue": ""
     },
     "rn/top": {
@@ -4248,29 +4262,34 @@
       "issue": ""
     },
     "rn/transformOrigin": {
-      "status": "missing",
-      "mapsTo": "Bridge has setTransformOrigin -- not surfaced in @pulp/react TS.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier parses CSS string (\"NN% NN%\" / \"NNpx NNpx\" / keyword pairs) into two fractional 0..1 coordinates and dispatches to setTransformOrigin (widget_bridge.cpp:3703).",
+      "supportedValues": [
+        "\"NN% NN%\"",
+        "\"NNpx NNpx\"",
+        "\"center\"",
+        "\"left top\" / \"right bottom\" / etc. (keyword pairs)"
       ],
-      "tests": [],
-      "notes": "Easy add.",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR.",
       "issue": ""
     },
     "rn/userSelect": {
-      "status": "missing",
-      "mapsTo": "Bridge has setUserSelect -- not surfaced.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "auto",
-        "text",
+      "status": "partial",
+      "mapsTo": "@pulp/react prop-applier forwards keyword to setUserSelect (widget_bridge.cpp:2176); bridge maps to View::UserSelect.",
+      "supportedValues": [
         "none",
-        "contain",
+        "text",
         "all"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+      ],
+      "notes": "pulp #1434 rn bridge-wires bundle (sub-agent #27 finding) — bridge fn was registered in widget_bridge.cpp; @pulp/react prop-applier dispatch wired in this PR.",
       "issue": ""
     },
     "rn/verticalAlign": {
