@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 19:53 PDT
+Last updated: 2026-05-05 19:56 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -59,6 +59,41 @@ Failure handling during CI waves:
 - Required lower-case `linux`, `macos`, and `windows` wrapper contexts
   still decide mergeability; successful diagnostic dispatches do not
   replace stale or failed PR-event contexts.
+
+Proposed CI cutover plan for discussion:
+
+1. Stop starting new coverage tranches once the current local tranche is
+   recorded. Keep only rebase/re-smoke and failure-fix work active until
+   the first CI wave is settled.
+2. Run a final no-CI sweep over the first-wave candidates: fetch,
+   confirm the branch is clean, rebase onto the then-current
+   `origin/main`, rerun the focused test target plus full test binary,
+   CTest selector, CLI skew/sync guard, skill/version/docs/compat reports,
+   and diff checks. Mark anything that fails locally as `quarantined`
+   before it reaches Namespace.
+3. Start with one canary wave of the already-current, test-only PRs:
+   #1274 CLI ship, #1287 CLI audio, #1269 design-import bundle, #1271
+   create-targets, and #1273 package commands. Add #1286 NamedPipe only if
+   capacity is healthy after those dispatch.
+4. Let the whole wave finish instead of stopping at the first red PR.
+   Merge green PRs as soon as required PR-event `linux`, `macos`, and
+   `windows` contexts are green. Move red PRs to `quarantined` or
+   `rerun-only` with their failure class, then keep the next unrelated
+   wave moving if capacity remains available.
+5. For held local-only tranches, reduce cycles by forming batch PRs only
+   when scopes are naturally related, test-only, and share a target/file
+   family. The best first combined candidates are the #640
+   `test/test_audio_file.cpp` audio-file tranches. Keep source-fix branches
+   such as AudioFocus separate because they need explicit version-bump
+   handling.
+6. For already-open PRs, assume each PR eventually needs its own required
+   PR-event contexts unless we intentionally close/supersede it with a
+   combined PR. A diagnostic `workflow_dispatch` run can find failures
+   cheaply, but it does not make an existing PR mergeable under branch
+   protection.
+7. After each wave, update this ledger with `green/merged`,
+   `quarantined`, `rerun-only`, `superseded`, or `needs-local-fix`, then
+   build the next wave from the remaining ready queue.
 
 Initial no-CI readiness sweep, refreshed through 2026-05-05 19:53 PDT:
 
