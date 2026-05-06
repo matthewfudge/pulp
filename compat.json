@@ -3673,16 +3673,16 @@
       "issue": ""
     },
     "rn/isolation": {
-      "status": "missing",
-      "mapsTo": "no branch",
+      "status": "noop",
+      "mapsTo": "no-op accept — RN models isolation as enum auto|isolate (rn-viewstyle.json:134, RN New Architecture only). Pulp's box composition doesn't currently honor stacking-context isolation, so the value is accepted silently with no rendered effect (same shape as css/willChange / css/animation noop pattern).",
       "supportedValues": [],
       "unsupportedValues": [
         "auto",
         "isolate"
       ],
       "tests": [],
-      "notes": "Not handled.",
-      "issue": ""
+      "notes": "RN's ViewStyle DOES model isolation (oracle defines enum auto|isolate, flagged 'RN New Architecture only'). The earlier wontfix premise ('no RN model') was factually wrong — corrected per Codex P2 review on PR #1565. Pulp accepts the value but the underlying box composition isn't isolated, which matches the noop vocabulary (consumer can pass, no visual effect; same pattern as css/animation, css/willChange). Reclassified missing → noop per pulp #1546 (PURE CATALOG: zero implementation, zero behavior change).",
+      "issue": "https://github.com/danielraffel/pulp/issues/1546"
     },
     "rn/justifyContent": {
       "status": "supported",
@@ -4224,48 +4224,48 @@
       "issue": ""
     },
     "rn/shadowColor": {
-      "status": "missing",
-      "mapsTo": "no branch -- would route to setShadow / setBoxShadow",
+      "status": "wontfix",
+      "mapsTo": "n/a — superseded by `boxShadow` in modern RN (RN 0.71+); pulp implements `boxShadow` (rn/boxShadow=supported). Reclassified per pulp #1546 to drop the iOS-only legacy from the rn denominator.",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "iOS shadow* family -- superseded by boxShadow in modern RN.",
-      "issue": ""
+      "notes": "iOS-only legacy in RN; consumers on modern RN use `boxShadow` (CSS box-shadow syntax) which pulp already supports. Reclassified missing → wontfix per pulp #1546 (PURE CATALOG: zero implementation, zero behavior change).",
+      "issue": "https://github.com/danielraffel/pulp/issues/1546"
     },
     "rn/shadowOffset": {
-      "status": "missing",
-      "mapsTo": "no branch",
+      "status": "wontfix",
+      "mapsTo": "n/a — superseded by `boxShadow` in modern RN (RN 0.71+); pulp implements `boxShadow` (rn/boxShadow=supported). Reclassified per pulp #1546 to drop the iOS-only legacy from the rn denominator.",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "iOS-only.",
-      "issue": ""
+      "notes": "iOS-only legacy in RN; consumers on modern RN use `boxShadow` (CSS box-shadow syntax) which pulp already supports. Reclassified missing → wontfix per pulp #1546 (PURE CATALOG: zero implementation, zero behavior change).",
+      "issue": "https://github.com/danielraffel/pulp/issues/1546"
     },
     "rn/shadowOpacity": {
-      "status": "missing",
-      "mapsTo": "no branch",
+      "status": "wontfix",
+      "mapsTo": "n/a — superseded by `boxShadow` in modern RN (RN 0.71+); pulp implements `boxShadow` (rn/boxShadow=supported). Reclassified per pulp #1546 to drop the iOS-only legacy from the rn denominator.",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "iOS-only.",
-      "issue": ""
+      "notes": "iOS-only legacy in RN; consumers on modern RN use `boxShadow` (CSS box-shadow syntax) which pulp already supports. Reclassified missing → wontfix per pulp #1546 (PURE CATALOG: zero implementation, zero behavior change).",
+      "issue": "https://github.com/danielraffel/pulp/issues/1546"
     },
     "rn/shadowRadius": {
-      "status": "missing",
-      "mapsTo": "no branch",
+      "status": "wontfix",
+      "mapsTo": "n/a — superseded by `boxShadow` in modern RN (RN 0.71+); pulp implements `boxShadow` (rn/boxShadow=supported). Reclassified per pulp #1546 to drop the iOS-only legacy from the rn denominator.",
       "supportedValues": [],
       "unsupportedValues": [
         "all"
       ],
       "tests": [],
-      "notes": "iOS-only.",
-      "issue": ""
+      "notes": "iOS-only legacy in RN; consumers on modern RN use `boxShadow` (CSS box-shadow syntax) which pulp already supports. Reclassified missing → wontfix per pulp #1546 (PURE CATALOG: zero implementation, zero behavior change).",
+      "issue": "https://github.com/danielraffel/pulp/issues/1546"
     },
     "rn/start": {
       "status": "partial",
