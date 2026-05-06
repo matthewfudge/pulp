@@ -568,6 +568,15 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         case 'borderTopRightRadius':    return call('setBorderTopRightRadius', id, value as number);
         case 'borderBottomLeftRadius':  return call('setBorderBottomLeftRadius', id, value as number);
         case 'borderBottomRightRadius': return call('setBorderBottomRightRadius', id, value as number);
+        // pulp #1519 — RN outline cluster. Paint-time ring drawn OUTSIDE
+        // the border-box (no Yoga layout impact). Each prop routes to its
+        // own per-attribute bridge fn so a JSX prop diff that touches one
+        // outline-* preserves the others. Style keyword set mirrors
+        // borderStyle (CSS spec is identical).
+        case 'outlineColor':  return call('setOutlineColor',  id, value as string);
+        case 'outlineOffset': return call('setOutlineOffset', id, value as number);
+        case 'outlineStyle':  return call('setOutlineStyle',  id, value as string);
+        case 'outlineWidth':  return call('setOutlineWidth',  id, value as number);
         case 'opacity':      return call('setOpacity', id, value as number);
         case 'visible':      return call('setVisible', id, value as boolean);
         // pulp #1434 (rn batch — Triage #12) — `display: 'flex' | 'none'`.
@@ -821,12 +830,17 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         // follow-up — backends approximate as left for now).
         case 'textAlign':       return call('setTextAlign', id, value as string);
         // Typography — Label widgets honor these via setX bridge fns.
-        // Note: fontFamily NOT dispatched today — SkFontMgr font registration
-        // (pulp#932) blocks proper resolution and would force Skia to return
-        // a null SkTypeface when JetBrains Mono can't be looked up. The
-        // remaining typography dispatchers are needed though — the
-        // bundle's chrome layout (especially Label widths under #935 auto-grow)
-        // depends on letter-spacing and font-size being set correctly.
+        // pulp #1434 Phase A2-5 — fontFamily IS now dispatched. The
+        // bridge picks the first non-empty family from a comma-
+        // separated CSS list and stores it on the Label or on the
+        // owning View's `inheritable_font_family_` slot for container
+        // cascade. The whole-list fallback chain (full font-stack
+        // resolution) still depends on SkFontMgr registration in
+        // pulp #932 — until that lands, families that aren't already
+        // registered with Skia fall through to the platform default.
+        // Wiring is independent: when #932 lands, no consumer change
+        // is needed — the registry just resolves the same name.
+        case 'fontFamily':      return call('setFontFamily', id, value as string);
         case 'fontSize':        return call('setFontSize', id, value as number);
         case 'fontWeight':      return call('setFontWeight', id, _normalizeFontWeight(value));
         case 'fontStyle':       return call('setFontStyle', id, value as string);

@@ -2468,7 +2468,45 @@ void WidgetBridge::register_api() {
     engine_.register_function("setFontFamily", [this](choc::javascript::ArgumentList args) {
         auto* v = widget(args.get<std::string>(0, ""));
         auto family = args.get<std::string>(1, "");
-        if (auto* l = dynamic_cast<Label*>(v)) l->set_font_family(std::move(family));
+        if (!v) return choc::value::Value();
+        // pulp #1434 Phase A2-5 — comma-separated family list per CSS
+        // spec: split on commas, strip outer quotes, pick the first
+        // non-empty family name. The full SkFontMgr-backed resolver
+        // (which walks the list and picks the first registered family)
+        // is gated on pulp #932 — when that lands the same parsed list
+        // can be passed through verbatim. Today the bridge picks the
+        // first entry as the canonical family name; downstream font
+        // resolution (currently a no-op on Label) sees a clean string.
+        std::string first;
+        {
+            size_t i = 0;
+            while (i < family.size()) {
+                while (i < family.size() && std::isspace(static_cast<unsigned char>(family[i]))) ++i;
+                if (i >= family.size()) break;
+                size_t comma = family.find(',', i);
+                std::string seg = family.substr(i, (comma == std::string::npos ? family.size() : comma) - i);
+                while (!seg.empty() && std::isspace(static_cast<unsigned char>(seg.back()))) seg.pop_back();
+                // Strip outer quotes (CSS spec: quoted family names).
+                if (seg.size() >= 2
+                    && (seg.front() == '"' || seg.front() == '\'')
+                    && seg.back() == seg.front()) {
+                    seg = seg.substr(1, seg.size() - 2);
+                }
+                if (!seg.empty()) { first = std::move(seg); break; }
+                if (comma == std::string::npos) break;
+                i = comma + 1;
+            }
+        }
+        if (auto* l = dynamic_cast<Label*>(v)) {
+            l->set_font_family(first);
+        } else {
+            // pulp #1434 Phase A2-5 — inheritable cascade. Mirrors the
+            // setFontWeight / setLetterSpacing pattern so a container
+            // View's font-family flows down to descendant Labels.
+            // Requires View::set_inheritable_font_family which lands
+            // alongside this PR.
+            v->set_inheritable_font_family(first);
+        }
         return choc::value::Value();
     });
 
@@ -3016,6 +3054,65 @@ void WidgetBridge::register_api() {
         else if (s == "none")     v->set_border_style(View::BorderStyle::none);
         else if (s == "hidden")   v->set_border_style(View::BorderStyle::hidden);
         else                      v->set_border_style(View::BorderStyle::solid);
+        return choc::value::Value();
+    });
+
+    // pulp #1519 — CSS / RN outline cluster. Outline is paint-time only:
+    // it does NOT take up Yoga layout space (parent never reserves room
+    // for it). Each setter mutates one slot in isolation so a JSX prop
+    // diff that touches only `outlineColor` doesn't clobber `outlineWidth`.
+    // Skia paint inflates the box by (offset + width/2) and strokes with
+    // the standard borderStyle dash effect for dashed/dotted; other named
+    // styles (double/groove/ridge/inset/outset) currently degrade to solid
+    // — same paint-side gap as borderStyle.
+    //
+    // setOutlineColor(id, hex) — accepts the same color forms as
+    // setBackground / setBorderColor (#hex / rgb() / named).
+    engine_.register_function("setOutlineColor", [this, parseHexColor](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto hex = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v && !hex.empty()) v->set_outline_color(parseHexColor(hex));
+        return choc::value::Value();
+    });
+
+    // setOutlineOffset(id, px) — gap between border-box edge and outline.
+    engine_.register_function("setOutlineOffset", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto offset = static_cast<float>(args.get<double>(1, 0.0));
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_outline_offset(offset);
+        return choc::value::Value();
+    });
+
+    // setOutlineStyle(id, "solid"|"dashed"|...) — same keyword set as
+    // setBorderStyle. Reuses View::BorderStyle since the CSS spec lists
+    // the same line-style values for both properties.
+    engine_.register_function("setOutlineStyle", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto s = args.get<std::string>(1, "solid");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (s == "dashed")        v->set_outline_style(View::BorderStyle::dashed);
+        else if (s == "dotted")   v->set_outline_style(View::BorderStyle::dotted);
+        else if (s == "double")   v->set_outline_style(View::BorderStyle::double_);
+        else if (s == "groove")   v->set_outline_style(View::BorderStyle::groove);
+        else if (s == "ridge")    v->set_outline_style(View::BorderStyle::ridge);
+        else if (s == "inset")    v->set_outline_style(View::BorderStyle::inset);
+        else if (s == "outset")   v->set_outline_style(View::BorderStyle::outset);
+        else if (s == "none")     v->set_outline_style(View::BorderStyle::none);
+        else if (s == "hidden")   v->set_outline_style(View::BorderStyle::hidden);
+        else                      v->set_outline_style(View::BorderStyle::solid);
+        return choc::value::Value();
+    });
+
+    // setOutlineWidth(id, px) — outline stroke thickness. width<=0 or
+    // outline_style==none/hidden short-circuits the paint.
+    engine_.register_function("setOutlineWidth", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto width = static_cast<float>(args.get<double>(1, 0.0));
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_outline_width(width);
         return choc::value::Value();
     });
 
@@ -4774,6 +4871,39 @@ void WidgetBridge::register_api() {
             if (q == "medium") qi = 1;
             else if (q == "high") qi = 2;
             cmd.extra = static_cast<float>(qi);
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // pulp #1520 — Canvas2D ctx.direction. Sticky text-shaping state
+    // honoured by the SkShaper / HarfBuzz path on the next fillText
+    // / strokeText. The shim coerces unknown strings to "ltr" before
+    // hitting the bridge, so we accept the resolved enum directly.
+    // Args: (id, enumVal) where enumVal ∈ 0=ltr | 1=rtl | 2=inherit.
+    engine_.register_function("canvasSetDirection", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::set_direction;
+            int v = static_cast<int>(args.get<double>(1, 0.0));
+            if (v < 0 || v > 2) v = 0;
+            cmd.int_val = v;
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // pulp #1520 — Canvas2D ctx.filter. Sticky CSS <filter-function-list>
+    // string applied to subsequent fill/stroke/text/image draws. Skia
+    // parses into an SkImageFilter chain (blur, grayscale, sepia, …);
+    // RecordingCanvas captures the raw string for harness assertions;
+    // CG / minimal backends store the value but render unfiltered until
+    // a follow-up wires the parser through (#1503 owns the View-side
+    // parser; canvas2d shares it as it lands).
+    // Args: (id, cssFilterString) — "none" disables.
+    engine_.register_function("canvasSetFilter", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::set_filter;
+            cmd.text = args.get<std::string>(1, "none");
             c->add_command(cmd);
         }
         return choc::value::Value();

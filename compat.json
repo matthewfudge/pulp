@@ -1185,16 +1185,19 @@
       "issue": ""
     },
     "css/fontFamily": {
-      "status": "supported",
-      "mapsTo": "web-compat-style-decl.js: 'fontFamily' -> splits on commas, trims, strips matching outer quotes, picks the first non-empty token, calls setFontFamily(id, name). PR #1174.",
+      "status": "partial",
+      "mapsTo": "web-compat-style-decl.js + widget_bridge.cpp setFontFamily — both layers split CSS lists on commas, trim, strip outer quotes, and pick the first non-empty family. Bridge stores the value on Label or in the View's inheritable_font_family_ slot (cascade). PR #1174 + pulp #1434 Phase A2-5.",
       "supportedValues": [
-        "single font name (quoted or not)"
+        "single font name (quoted or not)",
+        "comma-separated font lists ('JetBrains Mono', ui-monospace, monospace) — first non-empty family wins"
       ],
       "unsupportedValues": [
-        "comma-separated font lists ('JetBrains Mono', monospace)"
+        "whole-list fallback chain (gated on pulp #932 — Skia SkFontMgr font registration). Today only the first family is consulted; if it isn't registered with Skia, fall through is to the platform default rather than the next family in the list."
       ],
-      "tests": [],
-      "notes": "Fixed 2026-04-29 (#1174 / pulp #1151). Generic fallbacks ('monospace', 'ui-monospace', 'sans-serif') are not specially recognized — Skia falls back to the platform default if SkFontMgr can't resolve any of the named families.",
+      "tests": [
+        "test/test_widget_bridge.cpp — [issue-1434-fontfamily]"
+      ],
+      "notes": "Phase A2-5 (pulp #1434) added @pulp/react JSX dispatch and a bridge-side list parser so direct setFontFamily('id', 'A, B, C') calls are now correct (previously the whole comma list was passed verbatim to SkFontMgr, never matched, silent platform fallback). The cascade slot on container Views means container-level fontFamily reaches descendant Labels via parent-walk (mirrors letter_spacing / font_weight). Still partial because the spec-correct fallback chain (try family A, then B, then C) requires SkFontMgr font registration in pulp #932.",
       "issue": "1151"
     },
     "css/fontSize": {
@@ -1885,59 +1888,80 @@
       "issue": ""
     },
     "css/outline": {
-      "status": "partial",
-      "mapsTo": "web-compat calls setOutline if defined -- bridge does NOT register it",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "web-compat shorthand parser fans out to setOutlineWidth + setOutlineStyle + setOutlineColor (web-compat-style-decl.js:851 since pulp #1519).",
+      "supportedValues": [
+        "<width> <style> <color> shorthand"
+      ],
       "unsupportedValues": [
-        "outline-style values beyond solid",
-        "multi-keyword shorthand parsing"
+        "thin/medium/thick keyword for width",
+        "double/groove/ridge/inset/outset (degrade to solid at paint time, same as borderStyle)"
       ],
       "tests": [],
-      "notes": "pulp #1434 batch 1: status flipped missing → partial. CSS translator at web-compat-style-decl.js:525 routes through setOutline. Single-keyword + length + color forms are wired.",
+      "notes": "pulp #1519 — outline cluster now bridge-backed. Shorthand parses `<width>px <style> <color>` and dispatches to the per-attribute setters.",
       "issue": ""
     },
     "css/outlineColor": {
-      "status": "partial",
-      "mapsTo": "web-compat calls setOutline -- never registered",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "setOutlineColor(id, color) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js:864 routes through it.",
+      "supportedValues": [
+        "#hex",
+        "#rgba",
+        "rgb()",
+        "rgba()",
+        "named colors"
+      ],
       "unsupportedValues": [
         "currentColor keyword"
       ],
       "tests": [],
-      "notes": "pulp #1434 batch 1: status flipped missing → partial. CSS translator at web-compat-style-decl.js:538 routes through setOutline (color slot).",
+      "notes": "pulp #1519 — outline color now writes to View::outline_color_; Skia paint strokes the inflated rect with this color.",
       "issue": ""
     },
     "css/outlineOffset": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "setOutlineOffset(id, px) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js routes through it.",
+      "supportedValues": [
+        "<length>px"
+      ],
       "unsupportedValues": [
-        "all"
+        "em/rem/% units (pulp's outline is paint-only and length is resolved at the bridge boundary)"
       ],
       "tests": [],
-      "notes": "Not handled.",
+      "notes": "pulp #1519 — gap between border-box edge and outline. Skia inflates the stroke rect by (offset + width/2).",
       "issue": ""
     },
     "css/outlineStyle": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "setOutlineStyle(id, keyword) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js routes through it; keyword set mirrors borderStyle.",
+      "supportedValues": [
+        "solid",
+        "dashed",
+        "dotted",
+        "none",
+        "hidden",
+        "double (degrades to solid)",
+        "groove (degrades to solid)",
+        "ridge (degrades to solid)",
+        "inset (degrades to solid)",
+        "outset (degrades to solid)"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Not handled.",
+      "notes": "pulp #1519 — line-style enum reused from View::BorderStyle (CSS spec is identical). Skia installs SkDashPathEffect for dashed/dotted at outline-stroke time. Other named styles currently degrade to solid (paint-side gap, same as borderStyle).",
       "issue": ""
     },
     "css/outlineWidth": {
-      "status": "partial",
-      "mapsTo": "web-compat calls setOutline -- never registered",
-      "supportedValues": [],
+      "status": "supported",
+      "mapsTo": "setOutlineWidth(id, px) — registered in widget_bridge.cpp since pulp #1519. CSS translator at web-compat-style-decl.js:859 routes through it.",
+      "supportedValues": [
+        "<length>px"
+      ],
       "unsupportedValues": [
         "thin/medium/thick keyword forms"
       ],
       "tests": [],
-      "notes": "pulp #1434 batch 1: status flipped missing → partial. CSS translator at web-compat-style-decl.js:533 routes through setOutline (width slot). Numeric px values supported.",
+      "notes": "pulp #1519 — outline stroke thickness. width<=0 short-circuits the paint.",
       "issue": ""
     },
     "css/overflow": {
@@ -3508,15 +3532,19 @@
       "issue": ""
     },
     "rn/fontFamily": {
-      "status": "missing",
-      "mapsTo": "intentionally NOT dispatched in prop-applier.ts (line 152 comment) -- pending #932 SkFontMgr fix",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "string"
+      "status": "partial",
+      "mapsTo": "prop-applier.ts case 'fontFamily' -> setFontFamily(id, value). Bridge parses CSS list (first non-empty family wins). Container Views fall through to inheritable_font_family_ for cascade.",
+      "supportedValues": [
+        "string (single family or comma-separated list — first non-empty wins)"
       ],
-      "tests": [],
-      "notes": "Documented gap in prop-applier; reflects pulp#932 / pulp#927.",
-      "issue": ""
+      "unsupportedValues": [
+        "whole-list fallback chain — gated on pulp #932 SkFontMgr registration"
+      ],
+      "tests": [
+        "test/test_widget_bridge.cpp — [issue-1434-fontfamily]"
+      ],
+      "notes": "pulp #1434 Phase A2-5 wired the @pulp/react JSX dispatch and the bridge-side list parser. Cross-engine ready: when pulp #932 lands the registry resolution, no consumer change is needed — the same name flows through.",
+      "issue": "1434"
     },
     "rn/fontSize": {
       "status": "supported",
@@ -3929,47 +3957,70 @@
       "issue": ""
     },
     "rn/outlineColor": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineColor to setOutlineColor (prop-applier.ts since pulp #1519). Bridge writes to View::outline_color_.",
+      "supportedValues": [
+        "#hex",
+        "#rgba",
+        "rgb()",
+        "rgba()",
+        "named colors"
       ],
-      "tests": [],
-      "notes": "setOutline never registered.",
+      "unsupportedValues": [
+        "currentColor keyword"
+      ],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — RN outline cluster. Outline is paint-time only and does NOT affect Yoga layout (parent never reserves space). Skia paint inflates the box by (offset + width/2) and strokes with the parsed color.",
       "issue": ""
     },
     "rn/outlineOffset": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "number"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineOffset to setOutlineOffset (prop-applier.ts since pulp #1519). Bridge writes to View::outline_offset_.",
+      "supportedValues": [
+        "number (px)"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — gap between border-box edge and outline. Paint-only; no Yoga layout impact.",
       "issue": ""
     },
     "rn/outlineStyle": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineStyle to setOutlineStyle (prop-applier.ts since pulp #1519). Bridge maps the CSS keyword to View::BorderStyle (reused — CSS spec is identical for outline + border).",
+      "supportedValues": [
+        "solid",
+        "dashed",
+        "dotted",
+        "none",
+        "hidden",
+        "double (degrades to solid)",
+        "groove (degrades to solid)",
+        "ridge (degrades to solid)",
+        "inset (degrades to solid)",
+        "outset (degrades to solid)"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — Skia installs SkDashPathEffect for dashed/dotted at outline-stroke time. Other named styles currently degrade to solid (paint-side gap, same as borderStyle). none/hidden/zero-width short-circuit the stroke.",
       "issue": ""
     },
     "rn/outlineWidth": {
-      "status": "missing",
-      "mapsTo": "no bridge support",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "number"
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches outlineWidth to setOutlineWidth (prop-applier.ts since pulp #1519). Bridge writes to View::outline_width_.",
+      "supportedValues": [
+        "number (px)"
       ],
-      "tests": [],
-      "notes": "",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-outline.test.ts"
+      ],
+      "notes": "pulp #1519 — outline stroke thickness. width<=0 short-circuits the paint. Paint-only; no Yoga layout impact.",
       "issue": ""
     },
     "rn/overflow": {
@@ -6454,26 +6505,47 @@
       "issue": "1434"
     },
     "canvas2d/direction": {
-      "status": "missing",
-      "mapsTo": "Tracked locally; not pushed to bridge.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "text rendering direction (ltr/rtl) on Canvas2D"
+      "status": "partial",
+      "mapsTo": "ctx.direction -> canvasSetDirection (web-compat-canvas.js _syncDirectionState, flushed before fillText/strokeText). Skia: SkShaper leftToRight flag flipped per direction (RTL emits glyphs in visual order via HarfBuzz). Stored on the canvas state and consumed by both fill_text() and recording capture. inherit currently maps to ltr until per-View writing-direction lookup lands (#1506).",
+      "supportedValues": [
+        "ltr (default, leftToRight shaping)",
+        "rtl (HarfBuzz buffer direction RTL via SkShaper leftToRight=false)",
+        "inherit (treated as ltr; per-View resolution tracked under #1506)"
       ],
-      "tests": [],
-      "notes": "Silent no-op. Yoga RTL is also unsupported (yoga/direction missing).",
-      "issue": ""
+      "unsupportedValues": [
+        "Full Unicode Bidi Algorithm for mixed-script paragraphs (deferred to SkParagraph plumbing under #1506)"
+      ],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1520]"
+      ],
+      "notes": "pulp #1520 — JS shim + bridge + SkShaper direction flag. Real bidi (mixed LTR/RTL paragraphs) shares plumbing with #1506.",
+      "issue": "1520"
     },
     "canvas2d/filter": {
-      "status": "missing",
-      "mapsTo": "Not implemented in shim or bridge.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "Canvas2D filter chains (blur, brightness, etc.)"
+      "status": "partial",
+      "mapsTo": "ctx.filter -> canvasSetFilter (web-compat-canvas.js _syncFilterState, flushed before fill/stroke/text/image draws). Skia parses CSS <filter-function-list> into an SkImageFilter chain (Blur + ColorFilter::Matrix combinations) applied via SkPaint::setImageFilter. Distinct from CSS `filter` on the View element (#1503) — this is per-2D-context state and stacks with save()/restore().",
+      "supportedValues": [
+        "blur(<length>)",
+        "brightness(<num|%>)",
+        "contrast(<num|%>)",
+        "grayscale(<num|%>)",
+        "hue-rotate(<angle>)",
+        "invert(<num|%>)",
+        "opacity(<num|%>)",
+        "saturate(<num|%>)",
+        "sepia(<num|%>)",
+        "none (default; clears any active chain)"
       ],
-      "tests": [],
-      "notes": "Distinct from CSS `filter` on the View — this is the per-context Canvas2D filter. Not yet implemented.",
-      "issue": ""
+      "unsupportedValues": [
+        "drop-shadow(...) (deferred — needs offset+blur+color tuple parsing)",
+        "url(#filter-id) (SVG filter references)",
+        "CG backend renders unfiltered (Skia-only today)"
+      ],
+      "tests": [
+        "test/test_canvas2d_shim.cpp [issue-1520]"
+      ],
+      "notes": "pulp #1520 — JS shim + bridge + Skia parser/chain. Parser is local to skia_canvas.cpp; #1503's CSS filter on View elements is a parallel parser to be unified in a follow-up.",
+      "issue": "1520"
     },
     "canvas2d/shadowColor": {
       "status": "supported",
