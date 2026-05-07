@@ -34,6 +34,66 @@ specifics are out of scope.
 
 ## Recently changed
 
+- **2026-05-07 (Wave 1 drift cleanup + arch reclassification)** —
+  catalog/oracle paperwork only; no C++ or JS source change. Drift
+  count dropped from 35 → 0; PASS count rose by ~17 entries on this
+  surface.
+  * **Drift cleanup (already-shipped subsystems):**
+    - `direction`, `marginInlineStart/End`, `marginBlockStart/End`,
+      `paddingInlineStart/End`, `paddingBlockStart/End` flipped
+      `partial` → `supported` — RTL inheritance via `setDirection`
+      shipped in #1506; logical-edge mapping verified via Bundle 3
+      fast-path; the writing-direction-deferred unsupportedValues
+      were stale.
+    - `maxHeight`, `maxWidth`, `minHeight`, `minWidth` flipped
+      `partial` → `supported` — `calc()` shipped via `resolveCSSLength`
+      (#1576). `min-content` / `max-content` / `fit-content` now
+      tracked as architectural OOS (Yoga doesn't compute content-sized
+      boxes).
+    - `flex` shorthand keywords `'auto'` / `'none'` / `'initial'`
+      cleared from unsupportedValues — yoga A4 #1622 wired these.
+    - `clipPath` flipped `partial` → `supported` — `path()` SVG syntax
+      shipped via clip_path_svg (#1540); url() / circle() / ellipse() /
+      inset() / polygon() / box-keywords reclassified as
+      arch-path-only (Skia path is the universal primitive).
+    - `listStyleType` decimal sibling-index + marker-glyph paint
+      shipped via #1551 catalog hygiene.
+    - `animationDirection`, `animationFillMode` flipped `partial` →
+      `supported` — both 4-value enums fully resolved through the
+      keyframes registry substrate (PR 1 of the #1508 ladder).
+    - `listStylePosition`, `placeItems`, `backgroundOrigin`,
+      `backgroundRepeat`, `backgroundAttachment` flipped to
+      `supported` — harness already verified PASS; catalog claims
+      were stale.
+  * **Architectural reclassification (~22 entries, status flip
+    `supported` → `partial` plus arch-gotcha annotations):**
+    - `display` — non-flex modes (grid / inline / inline-block /
+      table / contents / inline-flex / inline-grid / list-item) are
+      `arch-flex-only` per CLAUDE.md design philosophy.
+    - `cursor` — auto / cell / context-menu / help / progress / wait /
+      zoom-in / zoom-out are `arch-platform-cursor-set` (Pulp ships
+      pointer/text/grab/grabbing + the resize family by design;
+      adding more keywords requires platform-specific glyphs).
+    - `height` / `width` — min-content / max-content / fit-content
+      are `arch-yoga-limit`; em / rem / calc() are deferred until
+      the relative-unit resolver lands.
+    - `borderRadius` two-value elliptical + `/` separator are
+      `arch-skia-rrect-single-radius`.
+    - `background`, `backgroundImage` — url() / image / image-set /
+      conic-gradient / multiple-bg are `partial-deferred-image-loader`.
+    - `backgroundAttachment` `fixed` / `local` are
+      `arch-no-scroll-context`; `backgroundClip text` is
+      `partial-deferred-paint-composition`.
+    - Length-property cluster (`bottom`, `left`, `top`, `right`,
+      `columnGap`, `rowGap`, `gap`, `padding`, `margin`, `letterSpacing`,
+      `lineHeight`, `outlineOffset`, `outlineWidth`, `outline`,
+      `outlineColor`, `transformOrigin`, `fontSize`, `fontStyle`,
+      `opacity`, `border`, `borderTopLeftRadius`, `borderRadius`,
+      `borderWidth`, `textOverflow`, `zIndex`) — flipped `supported`
+      → `partial` to match the harness's DIVERGE verdict; gotchas
+      are deferred relative-unit / arch / paint-pipeline-limit per
+      entry-specific notes.
+
 - **2026-05-07 (pulp #1434 A4 Bundles 2–7)** — css NOT-IMPL closure.
   30 catalog entries flipped `missing` → `partial` / `noop` / `wontfix`.
   Targets the harness drift queue: PASS+DIVERGE coverage on the css
