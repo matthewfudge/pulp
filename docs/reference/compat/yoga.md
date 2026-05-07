@@ -19,6 +19,9 @@ which mirrors the upstream Yoga API.
 
 | Status | Count |
 |--------|------:|
+| supported | 36 |
+| partial | 6 |
+| missing | 12 |
 | supported | 35 |
 | partial | 7 |
 | missing | 11 |
@@ -43,6 +46,19 @@ pulp #1542 lifted the seven logical-edge / direction NOT-IMPLs
 
 ## Recent updates
 
+- **2026-05-06 (pulp #1545)** — `yoga/flexBasis` promoted partial →
+  supported. The percent / `auto` / px wiring was added in pulp #1434
+  rn batch C (FlexStyle::dim_flex_basis routes to
+  YGNodeStyleSetFlexBasis{,Percent,Auto}); re-verified in #1545 that
+  YGNodeStyleSetFlexBasisPercent fires for `'NN%'` strings end-to-end
+  through the bridge. The `content` keyword stays in
+  `unsupportedValues` because Yoga itself does not expose it (parity
+  with upstream, not a Pulp gap). The `yoga/boxSizing` catalog
+  addition originally bundled into this PR was deferred — the entry
+  is now a forward-dependency placeholder at status `missing`,
+  pinned to pulp #1516 / PR #1538 (the PR that actually adds
+  FlexStyle::box_sizing + YGNodeStyleSetBoxSizing wiring); the
+  catalog will flip to `supported` automatically once #1538 merges.
 - **2026-05-06 (pulp #1434 Phase A2-3)** — `yoga/direction` wired at
   the View layer. `View::WritingDirection` enum (ltr / rtl / auto_)
   propagated to Yoga via `YGNodeStyleSetDirection(node, YGDirectionLTR

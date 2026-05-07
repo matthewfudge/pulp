@@ -33,13 +33,14 @@
       "2026-04-30": "Initial population \u2014 361 entries across css/, rn/, yoga/. react/, html/, canvas2d/ stubbed. PR #1166.",
       "2026-05-04": "Refresh after PRs #1167, #1169, #1173, #1174, #1291, #1297, #1344, #1345, #1347, #1348, #1353. Populated canvas2d/ (~60 entries) and html/ (~30 entries). Added rn/d, rn/viewBox, rn/fill, rn/stroke, rn/strokeWidth, rn/overlay (SvgPath + overlay-routing). Updated css/border, css/borderRadius, css/borderColor, css/fontFamily status to reflect per-attribute setter routing. Added css/_hover_pseudo for :hover stylesheet support.",
       "2026-05-05": "pulp #1434 batch 4: React Native shorthand aliases marginHorizontal / marginVertical / paddingHorizontal / paddingVertical now fan out at the JS-side translators (web-compat-style-decl.js + prop-applier.ts) to the existing per-edge bridge setters. Reclassified rn/* + yoga/* entries from missing -> supported and added new css/* entries (4 new keys; css count 195 -> 199).",
+      "2026-05-06": "pulp #1545: yoga catalog work. Promoted yoga/flexBasis from partial -> supported after re-verifying YGNodeStyleSetFlexBasisPercent fires for 'NN%' strings end-to-end through the bridge (test [issue-1545] in test_widget_bridge.cpp). The 'content' keyword stays in unsupportedValues (Yoga itself does not expose it). yoga/boxSizing was also added as a placeholder entry but kept at status `missing` \u2014 the FlexStyle::box_sizing field + YGNodeStyleSetBoxSizing dispatch is a forward dependency on pulp #1516 (PR #1538) and will flip to `supported` once #1538 merges (yoga count stays at 53 + 1 placeholder = 54 total entries).",
       "2026-05-06_1551": "pulp #1551 (Phase A3 Bundle 3 inside pulp #1434 umbrella): pure catalog add of 13 already-implemented css/* meta entries \u2014 `__StyleSheet`, `__matchMedia`, `__pseudo_active` / `__pseudo_disabled` / `__pseudo_focus` / `__pseudo_hover`, `__selector_child` / `__selector_class` / `__selector_descendant` / `__selector_id` / `__selector_tag`, `__setProperty_var`, `__var`. Documents existing wiring in `core/view/js/web-compat-document.js`, `web-compat-style-decl.js`, `css-parser.js` and `web-compat.js`. No code changes; +13 instant supported entries. css count 199 -> 212.",
       "2026-05-06_1544": "pulp #1544: Added yoga/flex and yoga/flexFlow catalog entries documenting the unsupported CSS shorthand surface on the Yoga side (yoga count 53 -> 55). PR #1563."
     },
     "counts": {
       "css": 212,
       "rn": 120,
-      "yoga": 55,
+      "yoga": 56,
       "react": 0,
       "html": 59,
       "canvas2d": 63,
@@ -5053,8 +5054,8 @@
       "issue": ""
     },
     "yoga/flexBasis": {
-      "status": "partial",
-      "mapsTo": "FlexStyle.flex_basis (float, -1 = preferred)",
+      "status": "supported",
+      "mapsTo": "FlexStyle::dim_flex_basis (Dimension { unit, value }) \u2192 YGNodeStyleSetFlexBasis / YGNodeStyleSetFlexBasisPercent / YGNodeStyleSetFlexBasisAuto in build_yoga_subtree (core/view/src/yoga_layout.cpp).",
       "supportedValues": [
         "px",
         "%",
@@ -5063,8 +5064,11 @@
       "unsupportedValues": [
         "content"
       ],
-      "tests": [],
-      "notes": "Yoga upstream supports YGAuto / percent; Pulp accepts only px float. pulp #1434 rn batch C: bridge accepts NN% and the \"auto\" keyword; FlexStyle::dim_flex_basis drives YGNodeStyleSetFlexBasis{,Percent,Auto}. content remains unsupported.",
+      "tests": [
+        "test/test_widget_bridge.cpp [issue-1434-rn-batch-c]",
+        "test/test_widget_bridge.cpp [issue-1545]"
+      ],
+      "notes": "All three Yoga-native value forms route end-to-end. pulp #1434 rn batch C added bridge plumbing (number / 'NN%' / 'auto'); pulp #1545 promoted the entry to supported after re-verifying YGNodeStyleSetFlexBasisPercent is wired and exercised. The `content` keyword is a CSS-3 keyword that Yoga itself does not expose \u2014 treated as out-of-scope (parity with upstream).",
       "issue": ""
     },
     "yoga/justifyContent": {
@@ -5225,6 +5229,18 @@
       ],
       "notes": "pulp #1434 \u2014 added FlexStyle.aspect_ratio + Yoga dispatch + bridge setFlex 'aspect_ratio' branch + @pulp/react aspectRatio prop. CSS shim accepts plain numbers ('1.5'), 'width/height' ratios ('16/9'), and 'auto' (clears slot).",
       "issue": "1434"
+    },
+    "yoga/boxSizing": {
+      "status": "missing",
+      "mapsTo": "Forward dependency on pulp #1516 (PR #1538) which adds FlexStyle::box_sizing + YGNodeStyleSetBoxSizing wiring. This entry will flip to `supported` automatically once #1538 merges. Today there is no FlexStyle::box_sizing field, no setFlex 'box_sizing' branch in widget_bridge.cpp, no YGNodeStyleSetBoxSizing call in yoga_layout.cpp, and only a guarded JS-side setBoxSizing reference in web-compat-style-decl.js.",
+      "supportedValues": [],
+      "unsupportedValues": [
+        "border-box",
+        "content-box"
+      ],
+      "tests": [],
+      "notes": "Yoga 3.2.1 exposes YGNodeStyleSetBoxSizing natively with `border-box` as the spec-compliant default, but Pulp has not yet wired it through. Tracked in pulp #1516 (PR #1538). Catalog stays `missing` until the runtime path lands.",
+      "issue": "1516"
     },
     "yoga/margin": {
       "status": "supported",
@@ -6702,37 +6718,29 @@
       "issue": "1346"
     },
     "canvas2d/fillText": {
-      "status": "supported",
-      "mapsTo": "ctx.fillText(text,x,y,maxWidth) -> _syncGlobalState + _syncShadowState + _syncTextState + _applyFillStyle + canvasFillText(id, text, x, y, size, color, maxWidth). maxWidth threads through as the 7th bridge arg in CSS px (<=0 / NaN / Infinity / null all collapse to the no-constraint sentinel). When the natural advance exceeds maxWidth the Skia / CG backend horizontally squeezes the run via SkMatrix::Scale(maxWidth/measured, 1) / CGContextScaleCTM(scale, 1) around the text origin \u2014 vertical metrics unchanged, glyph clusters preserved (HarfBuzz / CoreText shape each cluster as a rigid unit).",
-      "supportedValues": [
-        "text + (x, y) origin",
-        "maxWidth horizontal-squeeze (Skia: SkMatrix::Scale; CG: CGContextScaleCTM)",
-        "gradient fillStyle (degrades to first-stop color when no Skia gradient text-fill is wired; pulp #1350)"
+      "status": "partial",
+      "mapsTo": "ctx.fillText(text,x,y,maxWidth) -> _syncGlobalState + _syncTextState + _applyFillStyle + canvasFillText(id, text, x, y, size, color). maxWidth is ignored; gradient fillStyle uses the first stop's color.",
+      "supportedValues": [],
+      "unsupportedValues": [
+        "maxWidth arg (ignored)",
+        "gradient fillStyle (degrades to first-stop color)"
       ],
-      "unsupportedValues": [],
-      "tests": [
-        "test/test_canvas2d_shim.cpp [issue-1525] fillText threads maxWidth through to bridge",
-        "test/test_canvas2d_shim.cpp [issue-1525] fillText coerces non-finite maxWidth to no-constraint sentinel",
-        "test/test_canvas2d_shim.cpp [issue-1525][skia] fillText with maxWidth horizontally squeezes raster output"
-      ],
-      "notes": "PR #1348 wired the basic surface; pulp #1525 plumbed maxWidth end-to-end and verified glyph cluster handling.",
-      "issue": "1525"
+      "tests": [],
+      "notes": "PR #1348. canvasSetFont parses 'Npx Family' from the JS-side font string.",
+      "issue": "1346"
     },
     "canvas2d/strokeText": {
-      "status": "supported",
-      "mapsTo": "ctx.strokeText(text,x,y,maxWidth) -> _syncGlobalState + _syncShadowState + _syncTextState + _applyStrokeStyle + canvasStrokeText(id, text, x, y, size, color, maxWidth). Records a dedicated stroke_text cmd; the paint loop dispatches to Canvas::stroke_text \u2014 Skia builds an SkPaint::kStroke_Style paint, CG sets kCGTextStroke. lineWidth + strokeStyle + strokeCap/Join all honoured. maxWidth squeeze matches fillText.",
+      "status": "partial",
+      "mapsTo": "ctx.strokeText -> falls back to fillText with the strokeStyle color (bridge has no stroke-text command).",
       "supportedValues": [
-        "true stroked-glyph rendering (Skia: SkPaint::kStroke_Style; CG: kCGTextStroke)",
-        "active strokeStyle + lineWidth",
-        "maxWidth horizontal-squeeze",
-        "backwards-compat fallback to pre-#1525 fillText-with-strokeStyle on hosts without canvasStrokeText"
+        "visual approximation of stroked text via solid fill"
       ],
-      "unsupportedValues": [],
-      "tests": [
-        "test/test_canvas2d_shim.cpp [issue-1525] strokeText routes through canvasStrokeText with maxWidth"
+      "unsupportedValues": [
+        "true stroked-glyph rendering"
       ],
-      "notes": "pulp #1525 added the dedicated bridge fn + Skia / CG overrides. The shim still falls back to fillText-with-strokeStyle on hosts that pre-date this PR (canvasStrokeText absent).",
-      "issue": "1525"
+      "tests": [],
+      "notes": "Visually close enough for FilterBank/HUD use; file a follow-up if a plugin needs outlined typography.",
+      "issue": ""
     },
     "canvas2d/measureText": {
       "status": "supported",
