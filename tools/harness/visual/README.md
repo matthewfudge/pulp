@@ -72,9 +72,15 @@ Regenerate one golden after an intentional layout contract change:
 pulp harness visual --generate --surface=yoga --entry=yoga/box-sizing
 ```
 
-`pulp harness coverage --surface=yoga --json` includes a `visual_pass` count
-for the checked-in semantic goldens, so coverage reports show both catalog
-oracle progress and visual regression coverage for the same surface.
+`pulp harness coverage --surface=yoga --json` includes two validation
+accounting blocks. `validation_routes` counts supported catalog entries with a
+typed validation route, legacy test reference, or explicit exclusion.
+`visual_coverage` counts supported entries whose typed runtime fixture refs
+resolve to checked-in semantic or raster goldens; `visual_pass` remains as a
+temporary compatibility alias. Runtime refs use prefixes such as
+`semantic:<fixture-id>`, `visual:<fixture-id>`, `dom:<fixture-id>`, and
+`behavior:<fixture-id>`. Non-runtime routes use `unit:<test-id>` or
+`cannot-validate:<tracking-id>`.
 
 To run the smoke in the stable Linux container once Docker is available:
 

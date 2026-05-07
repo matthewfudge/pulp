@@ -1,6 +1,6 @@
 {
-  "compat-schema-version": "0.2",
-  "_comment": "Compat matrix per #1027. This file is the spec-driven inventory of every prop / style / API surface Pulp's React + DOM-lite consumers might use, mapped to its current implementation status. Status values: supported | partial | missing | wontfix. The 'mapsTo' field names the bridge / Yoga / Skia path the prop lowers to. The 'tests' field is intentionally empty here and will be filled in by individual fix PRs that ship Catch2 / vitest coverage. The audit was generated 2026-04-30 by walking three reference specs (Yoga via React Native Layout Props, React Native View / Text / Transform Style Props, and the most-used MDN CSS reference) and cross-referencing against four implementation surfaces: packages/pulp-react/src/prop-applier.ts (the @pulp/react switch), core/view/js/web-compat-style-decl.js (the DOM-lite CSS adapter), core/view/src/widget_bridge.cpp (the C++ bridge — 251 register_function entries), and core/view/include/pulp/view/{view,geometry}.hpp (the Flex / View widget surface).",
+  "compat-schema-version": "0.3",
+  "_comment": "Compat matrix per #1027. This file is the spec-driven inventory of every prop / style / API surface Pulp's React + DOM-lite consumers might use, mapped to its current implementation status. Status values: supported | partial | missing | wontfix. The 'mapsTo' field names the bridge / Yoga / Skia path the prop lowers to. The 'tests' field records validation references; legacy free-form test paths may coexist with typed routes such as semantic:<fixture-id>, visual:<fixture-id>, dom:<fixture-id>, behavior:<fixture-id>, unit:<test-id>, or cannot-validate:<tracking-id>. The audit was generated 2026-04-30 by walking three reference specs (Yoga via React Native Layout Props, React Native View / Text / Transform Style Props, and the most-used MDN CSS reference) and cross-referencing against four implementation surfaces: packages/pulp-react/src/prop-applier.ts (the @pulp/react switch), core/view/js/web-compat-style-decl.js (the DOM-lite CSS adapter), core/view/src/widget_bridge.cpp (the C++ bridge — 251 register_function entries), and core/view/include/pulp/view/{view,geometry}.hpp (the Flex / View widget surface).",
   "_audit": {
     "generated": "2026-05-04",
     "main_sha": "a5f4f5ac",
@@ -36,7 +36,8 @@
       "2026-05-06": "pulp #1545: yoga catalog work. Promoted yoga/flexBasis from partial -> supported after re-verifying YGNodeStyleSetFlexBasisPercent fires for 'NN%' strings end-to-end through the bridge (test [issue-1545] in test_widget_bridge.cpp). The 'content' keyword stays in unsupportedValues (Yoga itself does not expose it). yoga/boxSizing was also added as a placeholder entry but kept at status `missing` — the FlexStyle::box_sizing field + YGNodeStyleSetBoxSizing dispatch is a forward dependency on pulp #1516 (PR #1538) and will flip to `supported` once #1538 merges (yoga count stays at 53 + 1 placeholder = 54 total entries).",
       "2026-05-06_1551": "pulp #1551 (Phase A3 Bundle 3 inside pulp #1434 umbrella): pure catalog add of 13 already-implemented css/* meta entries — `__StyleSheet`, `__matchMedia`, `__pseudo_active` / `__pseudo_disabled` / `__pseudo_focus` / `__pseudo_hover`, `__selector_child` / `__selector_class` / `__selector_descendant` / `__selector_id` / `__selector_tag`, `__setProperty_var`, `__var`. Documents existing wiring in `core/view/js/web-compat-document.js`, `web-compat-style-decl.js`, `css-parser.js` and `web-compat.js`. No code changes; +13 instant supported entries. css count 199 -> 212.",
       "2026-05-06_1544": "pulp #1544: Added yoga/flex and yoga/flexFlow catalog entries documenting the unsupported CSS shorthand surface on the Yoga side (yoga count 53 -> 55). PR #1563.",
-      "2026-05-07": "pulp #1434 A4 Bundles 2-7: css NOT-IMPL closure. 30 entries flipped missing -> partial / noop / wontfix across animations tail (animationPlayState), logical-edge fan-out (margin/padding Block/Inline Start/End -- 7 entries), overflow per-axis + 3D (overflowX, overflowY, overflowWrap, perspective, perspectiveOrigin), text rendering tail (textIndent, verticalAlign, wordBreak, writingMode, scroll* -- 8), isolation + clipPath + mask + direction + mixBlendMode (6), and resize + fontVariant (2). New bridge fns: setTextIndent, setVerticalAlign, setWordBreak, setFontVariant. Extended setAnimation with the \"play_state\" control token. Synthetic __pseudo_classes_note flipped wontfix. Catalog css count holds at 212; missing -> 0."
+      "2026-05-07": "pulp #1434 A4 Bundles 2-7: css NOT-IMPL closure. 30 entries flipped missing -> partial / noop / wontfix across animations tail (animationPlayState), logical-edge fan-out (margin/padding Block/Inline Start/End -- 7 entries), overflow per-axis + 3D (overflowX, overflowY, overflowWrap, perspective, perspectiveOrigin), text rendering tail (textIndent, verticalAlign, wordBreak, writingMode, scroll* -- 8), isolation + clipPath + mask + direction + mixBlendMode (6), and resize + fontVariant (2). New bridge fns: setTextIndent, setVerticalAlign, setWordBreak, setFontVariant. Extended setAnimation with the \"play_state\" control token. Synthetic __pseudo_classes_note flipped wontfix. Catalog css count holds at 212; missing -> 0.",
+      "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts."
     },
     "counts": {
       "css": 212,
@@ -5179,7 +5180,9 @@
         "non-negative number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/flex-grow-shrink"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -5190,7 +5193,9 @@
         "non-negative number"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/flex-grow-shrink"
+      ],
       "notes": "",
       "issue": ""
     },
@@ -5204,8 +5209,9 @@
       ],
       "unsupportedValues": [],
       "tests": [
-        "test/test_widget_bridge.cpp [issue-1434-rn-batch-c]",
-        "test/test_widget_bridge.cpp [issue-1545]"
+        "unit:test/test_widget_bridge.cpp [issue-1434-rn-batch-c]",
+        "unit:test/test_widget_bridge.cpp [issue-1545]",
+        "semantic:yoga/flex-grow-shrink"
       ],
       "notes": "All three Yoga-native value forms route end-to-end. pulp #1434 rn batch C added bridge plumbing (number / 'NN%' / 'auto'); pulp #1545 promoted the entry to supported after re-verifying YGNodeStyleSetFlexBasisPercent is wired and exercised. The CSS-3 `content` keyword (intrinsic-size flex basis) is not modeled by Yoga itself, so it's treated as out-of-scope (parity with upstream Yoga / React Native) rather than as a tracked gap.",
       "issue": ""
@@ -5291,7 +5297,9 @@
         "auto"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/percentage-sizing"
+      ],
       "notes": "pulp #1423 wired px + %; pulp #1434 (sub-agent #12 follow-up) wired 'auto'. percent values route through FlexStyle.dim_width (DimensionUnit::percent) -> YGNodeStyleSetWidthPercent; 'auto' routes through DimensionUnit::auto_ -> YGNodeStyleSetWidthAuto (Figma hug-contents, v0 intrinsic-sizing, Claude Design responsive containers). CSS translator and @pulp/react prop-applier pass 'NN%' / 'auto' strings verbatim to the bridge.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
@@ -5304,7 +5312,9 @@
         "auto"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/percentage-sizing"
+      ],
       "notes": "pulp #1423 wired px + %; pulp #1434 (sub-agent #12 follow-up) wired 'auto' (YGNodeStyleSetHeightAuto via FlexStyle.dim_height.unit == auto_). Same shape as width.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
@@ -5364,7 +5374,8 @@
       ],
       "unsupportedValues": [],
       "tests": [
-        "test/web-compat/test_layout_aspect_ratio.cpp"
+        "unit:test/web-compat/test_layout_aspect_ratio.cpp",
+        "semantic:yoga/aspect-ratio"
       ],
       "notes": "pulp #1434 — added FlexStyle.aspect_ratio + Yoga dispatch + bridge setFlex 'aspect_ratio' branch + @pulp/react aspectRatio prop. CSS shim accepts plain numbers ('1.5'), 'width/height' ratios ('16/9'), and 'auto' (clears slot).",
       "issue": "1434"
@@ -5528,7 +5539,8 @@
       ],
       "unsupportedValues": [],
       "tests": [
-        "test/test_widget_bridge.cpp::\"setFlex padding edges accept percent strings\""
+        "test/test_widget_bridge.cpp::\"setFlex padding edges accept percent strings\"",
+        "semantic:yoga/box-sizing"
       ],
       "notes": "% values flow through the per-edge keys (paddingTop/Right/Bottom/Left/Start/End). The uniform `padding` shorthand is px-only by design — the bridge expands shorthands at the JS layer (web-compat-style-decl.js `padding` case) into per-edge calls that DO carry the unit. CSS spec rejects `padding: auto` (auto is invalid for padding), matching Yoga's lack of a YGNodeStyleSetPaddingAuto API.",
       "issue": ""
@@ -5652,7 +5664,9 @@
         "px"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/box-sizing"
+      ],
       "notes": "Yoga's BORDER edges contribute to content-box sizing. Before #1543, Pulp's borders were paint-only (Skia stroke) and Yoga saw zero border insets, which made box-sizing math wrong when border-box was active. Wired now — borders affect both layout AND paint. % is intentionally not listed as an unsupported gap because the CSS spec rejects `border-width: <%>` (invalid value); Yoga matches the spec by not exposing a YGNodeStyleSetBorderPercent API.",
       "issue": ""
     },
@@ -5711,7 +5725,9 @@
         "sticky"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/position-absolute"
+      ],
       "notes": "Pulp's enum is a SUPERSET of Yoga's {static, relative, absolute}.",
       "issue": ""
     },
@@ -5723,7 +5739,9 @@
         "%"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/position-absolute"
+      ],
       "notes": "pulp #1434 batch 6: percent values route through View::set_top(v, DimensionUnit::percent); yoga_layout.cpp dispatches on top_unit_/right_unit_/bottom_unit_/left_unit_ to call YGNodeStyleSetPositionPercent. CSS translator passes 'NN%' strings verbatim to the bridge. Mirrors the FlexStyle::dim_width path from pulp #1423 (PR #1426) for the View positional fields.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
@@ -5759,7 +5777,9 @@
         "%"
       ],
       "unsupportedValues": [],
-      "tests": [],
+      "tests": [
+        "semantic:yoga/position-absolute"
+      ],
       "notes": "pulp #1434 batch 6: percent values route through View::set_left(v, DimensionUnit::percent); yoga_layout.cpp dispatches on top_unit_/right_unit_/bottom_unit_/left_unit_ to call YGNodeStyleSetPositionPercent. CSS translator passes 'NN%' strings verbatim to the bridge. Mirrors the FlexStyle::dim_width path from pulp #1423 (PR #1426) for the View positional fields.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },

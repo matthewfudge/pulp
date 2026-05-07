@@ -645,7 +645,7 @@ pulp harness visual --verify --all
 pulp harness visual --generate --surface=yoga --entry=yoga/box-sizing
 ```
 
-By default, coverage mode writes `build/harness-coverage-<sha>.json`, `build/harness-coverage.md`, and `docs/reports/harness-coverage.md`. Use `--json` for stdout-only machine output. Coverage JSON includes `visual_pass` per surface, counted from checked-in visual goldens against the current `compat.json` surface total.
+By default, coverage mode writes `build/harness-coverage-<sha>.json`, `build/harness-coverage.md`, and `docs/reports/harness-coverage.md`. Use `--json` for stdout-only machine output. Coverage JSON includes `validation_routes` per surface for supported entries with a typed validation route, legacy test reference, or explicit exclusion. It also includes `visual_coverage`, counted from typed runtime fixture refs that resolve to checked-in goldens; `visual_pass` remains as a compatibility alias.
 
 Visual mode requires the `pulp-test-visual` target to be built first. Use `--build-dir` or `--binary` when the binary is not under the default `build/` or `build-visual/` directories.
 
