@@ -160,6 +160,16 @@ export interface StyleProps {
     /// `'none'` / `'hidden'` skip the stroke entirely.
     borderStyle?: 'solid' | 'dashed' | 'dotted' | 'double' | 'groove'
                 | 'ridge' | 'inset' | 'outset' | 'none' | 'hidden';
+    /// pulp #1514 — CSS list-style cluster. Pulp doesn't model
+    /// HTML `<li>` / `<ul>` / `<ol>` semantics, so these props
+    /// round-trip the value to View slots without painting a
+    /// marker glyph today (catalog: `partial`). Marker glyph
+    /// rendering is the follow-up. `listStyle` is the shorthand
+    /// (`'<type> <position> <image>'` in any order).
+    listStyle?: string;
+    listStyleType?: 'none' | 'disc' | 'circle' | 'square' | 'decimal';
+    listStyleImage?: string;
+    listStylePosition?: 'inside' | 'outside';
     borderTopColor?: string;
     borderRightColor?: string;
     borderBottomColor?: string;
@@ -198,24 +208,19 @@ export interface StyleProps {
     filter?: string;
     pointerEvents?: 'auto' | 'none' | 'box-only' | 'box-none';
     textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
-    /// pulp #1547 — RN-canonical text-decoration longhands. The bridge
-    /// already accepts these via setTextDecoration / setTextDecorationColor /
-    /// setTextDecorationStyle (registered in widget_bridge.cpp for
-    /// #1434); the gap was purely the @pulp/react JSX dispatch.
-    /// `textDecorationLine` accepts the four CSS values plus the RN
-    /// multi-line form (`'underline line-through'`); the C++ side
-    /// parses both spellings.
-    textDecorationLine?: 'none' | 'underline' | 'line-through' | 'overline'
-                       | 'underline line-through';
-    textDecorationColor?: string;
-    textDecorationStyle?: 'solid' | 'double' | 'dotted' | 'dashed' | 'wavy';
-    /// pulp #1547 — RN's `textAlignVertical` is Android-only and has
-    /// no CSS analogue. RN's spec applies WITHIN a text container, but
-    /// pulp's flex-only View model has no inline text-block concept,
-    /// so we map to the closest semantic — `alignItems` on the owning
-    /// View (top → flex-start, center → center, bottom → flex-end).
-    /// `auto` clears the slot.
-    textAlignVertical?: 'auto' | 'top' | 'bottom' | 'center';
+    /// CSS `line-clamp` / `-webkit-line-clamp` (pulp #1552). Maximum
+    /// number of visible text lines on a multi-line Label; setting >0
+    /// implicitly enables wrap on the bridge side. `0` disables clamp
+    /// (CSS spec uses `none`; `0` is the numeric equivalent here).
+    /// Both keys funnel through the same `setLineClamp` bridge fn.
+    lineClamp?: number;
+    webkitLineClamp?: number;
+    /// CSS `background-repeat` keyword (pulp #1552). Storage-only at
+    /// the View level today — paint-time honoring requires
+    /// `background-image: url(...)` / repeating-gradient backgrounds
+    /// which haven't landed yet. Accepts the standard CSS keyword set.
+    backgroundRepeat?: 'repeat' | 'repeat-x' | 'repeat-y' | 'no-repeat'
+                     | 'space' | 'round';
     /// CSS transform-origin: `'NN% NN%'`, `'NNpx NNpx'`, `'center'`,
     /// or two-keyword combos (`'left top'`). Bridge expects fractional
     /// 0..1 coordinates; the prop-applier parses the string before
@@ -234,6 +239,10 @@ export interface StyleProps {
         | string; // also: 'cubic-bezier(...)', 'steps(N, end)'
     animationName?: string;
     animationDuration?: number | string;
+    /// pulp #1516 — CSS box-sizing. Web designs almost universally
+    /// reset to `border-box` via `* { box-sizing: border-box }`;
+    /// Yoga 3.x honors the spec via YGNodeStyleSetBoxSizing.
+    boxSizing?: 'content-box' | 'border-box';
     /// pulp #1434 Phase A2-2 — CSS Grid surface. Grid props live on
     /// StyleProps so JSX can express `display: grid` layouts directly.
     /// Bridge handles template-track parsing, named-area parsing, and

@@ -167,6 +167,22 @@ Pulp uses a PreText-inspired text layout architecture (measure once, reflow fore
 - HarfBuzz, ICU, and SkParagraph are bundled in the Skia pre-built binaries — no separate vendoring needed
 - Fallback to character-width estimation when Skia unavailable
 
+### Layout Model — Flex + Grid only (deliberate)
+
+Pulp's layout engine is **Yoga** (`external/yoga/`), so the layout primitives are exactly what Yoga supports: **CSS Flexbox + CSS Grid** (Grid landed in Yoga 3.0, wired in PR #1509). CSS block flow, table layout, multi-column, floats, and print pagination are **out of scope by design**.
+
+When implementing a feature or assessing a compat gap, **don't reach for non-Yoga layout primitives**. If a property in `compat.json` is marked `wontfix` because it requires block/inline/table/multi-column/float/print primitives, that's the architectural ceiling — not a bug to fix. Reasons:
+
+1. **Yoga is the engine.** Adding non-Yoga layout means either a parallel layout engine (double maintenance) or block/table/columns reimplemented over Yoga (massive refactor).
+2. **React Native parity.** RN is also flex+grid-only. `@pulp/react` and the JS bridge depend on this contract.
+3. **GPU-first render pipeline.** Skia/Dawn favor a single tree-walk layout pass; multi-pass sequential algorithms (block flow, table cell auto-sizing, multi-column balancing, float wrap, paginated layout) don't compose with the render pipeline cleanly.
+4. **Use case is structured panels.** Pulp targets audio plugin UIs + cross-platform apps — knobs, faders, side panels, popovers. Newspaper columns and complex tables are not real Pulp use cases.
+5. **Modern design tools output flex/grid.** Figma, Stitch, v0, Pencil all produce flex containers + grid as their default layout primitives. Tooling alignment matters for the design-import path (#1434).
+
+The honest tradeoff: Pulp will never be a general-purpose web browser. It IS the right shape for cross-platform native UI. CSS coverage at ~95% raw / ~100% on non-OOS denominator IS the architectural ceiling, not a goal to push past by adding layout primitives.
+
+For the user-facing version of this rationale, see `docs/reference/layout-model.md`.
+
 ---
 
 ## Repo Standards
@@ -281,6 +297,42 @@ git worktree remove ../pulp-phase-audio
 ```
 
 Multiple explorations can run simultaneously. Multiple phases can be implemented in parallel if they don't share subsystems. The worktree-manager plugin handles this.
+
+When creating a fresh worktree for a task that references `planning/`, initialize the planning submodule before reading specs or handoffs:
+
+```bash
+git submodule update --init planning
+```
+
+If a named planning file is still missing after initialization, verify the current planning checkout or source planning repo before treating the file as nonexistent.
+
+Fresh worktrees may also have only `external/skia-build/` headers and
+`VERSION.md`, without the platform static libraries. For work that needs
+Skia raster determinism, first check for a populated `SKIA_DIR` or reuse the
+primary checkout's cached `external/skia-build` when it has the required
+`*-gpu/lib/Release` libraries. Skia-dependent smoke tests should either run
+against that locked cache or skip with a clear "locked raster dependency not
+installed" reason; they should not replace the Skia render proof with a fake
+or unrelated renderer.
+
+For the visual-harness Docker smoke, prefer
+`tools/harness/visual/docker-build.sh` over a raw `docker build`. The wrapper
+uses the pinned `linux/amd64` Skia archive and a reusable local buildx cache
+under `~/.cache/pulp/visual-harness/buildx`; the Dockerfile also keeps
+BuildKit cache mounts for apt packages, the Skia release zip, and pip wheels.
+That cache is intentionally machine-local, so repeated runs from new worktrees
+or SSH hosts on the same machine should reuse downloaded inputs.
+
+For future visual fixtures that need interaction or screenshots, reuse Pulp's
+existing hooks before adding platform-specific automation: drive views with
+`View::simulate_click`, `simulate_drag`, and `simulate_hover`; capture headless
+view trees with `pulp::view::render_to_png` / `render_to_file`, or live host
+surfaces with `WindowHost::capture_png()`. Non-Apple platforms require a
+registered screenshot provider via `set_screenshot_provider()`, so cross-
+platform tests should install that provider or report a clear unsupported skip.
+When macOS rendering is the product risk, run the local arm64-darwin smoke in
+addition to the Docker smoke; Docker proves the dependency recipe, not Apple's
+screenshot or live-window capture paths.
 
 ### Status Tracking
 
@@ -753,7 +805,9 @@ Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/cre
 
 ### CI Workflow
 
-**Never merge a PR without green CI on all three platforms (macOS, Ubuntu, Windows).** Use the `ci` skill for all merges — it handles the full workflow.
+Use Shipyard for all merges. Current Pulp branch protection requires the
+macOS lane; Linux and Windows still run in GitHub Actions but are advisory
+unless branch protection changes.
 
 #### The `ship` workflow (primary path for all agents)
 
@@ -776,7 +830,6 @@ pulp pr
 # default ship path:
 shipyard run                              # validate current branch
 shipyard ship                             # resume/operate on an existing Shipyard-managed PR
-shipyard cloud run build <branch>         # dispatch to Namespace
 
 # SSH preflight (v0.20.0+ / Shipyard #106): exit codes are distinct.
 #   0 — success
@@ -793,24 +846,30 @@ The CI skill (`.agents/skills/ci/SKILL.md`) is the single source of truth for la
 
 1. Run `shipyard pr` — never `gh pr create` + `shipyard ship` separately (that bypasses the skill-sync and version-bump gates)
 2. The orchestrator runs skill-sync + version-bump gates, commits any bumps, pushes, opens/tracks the PR, and invokes Shipyard validation
-3. Shipyard validates on macOS (locally), Ubuntu (SSH), and Windows (SSH)
-4. Merges only when ALL targets pass
+3. Shipyard validates the macOS lane through the local self-hosted runner path
+4. GitHub Actions runs Linux and Windows on GitHub-hosted runners as advisory checks
 5. Posts a closeout comment
 
 `local_ci.py` remains in the repo as a legacy fallback but is scheduled for removal (see issue #120).
 
-#### GitHub Actions (backup gate)
+#### GitHub Actions
 
-PRs also trigger `.github/workflows/build.yml` which builds and tests on all three platforms via Namespace runners. This is a redundant safety net — Shipyard's local validation is the primary path.
+PRs trigger `.github/workflows/build.yml` on all three platforms. macOS routes
+to the local self-hosted runner through `PULP_LOCAL_MACOS_RUNS_ON_JSON` when
+that repo variable is set. Linux and Windows use GitHub-hosted runners and are
+advisory unless explicitly required by branch protection.
 
 #### Runner priority (hard rule)
 
-**Always use Namespace for cloud CI. Never rely on GitHub-hosted runners as the primary path.**
+Namespace is decommissioned for Pulp CI. Do not use `--mode namespace` or set
+`*_NAMESPACE_*_RUNS_ON_JSON` repo variables.
 
-1. **Namespace** (default): `shipyard cloud run build <branch>`
-2. **Local VMs** (fallback): `ssh ubuntu`, `ssh win` via `shipyard run`
-3. **GitHub-hosted** (last resort): Only if Namespace is unavailable.
+1. **macOS local runner**: primary required gate.
+2. **GitHub-hosted Linux/Windows**: advisory cross-platform signal.
+3. **SSH Ubuntu/Windows**: use only when a human explicitly asks for those local hosts.
 
-macOS runs locally in parallel with Namespace/SSH Ubuntu/Windows builds.
+If Shipyard tries to probe SSH Ubuntu or Windows for a macOS-focused PR where
+those hosts are not in scope, use `--skip-target ubuntu --skip-target windows`
+and file a Shipyard issue if the CLI should have inferred that from config.
 
 See `docs/guides/local-ci.md` for setup.

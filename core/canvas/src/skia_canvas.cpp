@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <pulp/canvas/skia_canvas.hpp>
 #include <pulp/canvas/bundled_fonts.hpp>
@@ -38,6 +39,7 @@
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkBlendMode.h"
 #include "include/effects/SkImageFilters.h"
+#include "include/core/SkColorFilter.h"
 #include "include/gpu/graphite/Image.h"
 #include "include/gpu/graphite/BackendTexture.h"
 #include "include/gpu/graphite/dawn/DawnGraphiteTypes.h"
@@ -324,17 +326,11 @@ void SkiaCanvas::clip_rect(float x, float y, float w, float h) {
     canvas_->clipRect(SkRect::MakeXYWH(x, y, w, h));
 }
 
-void SkiaCanvas::clip(FillRule rule) {
+void SkiaCanvas::clip() {
     GUARD_CANVAS;
     if (!path_builder_) return;
-    // pulp #1522 — apply the requested fill rule before snapshotting.
-    // setFillType is sticky on the builder, so re-set on every clip()
-    // call (subsequent fills using the same path may want a different
-    // rule). Snapshot (don't detach) — Canvas2D allows continued use
-    // of the same path after clip().
-    path_builder_->setFillType(rule == FillRule::evenodd
-                                   ? SkPathFillType::kEvenOdd
-                                   : SkPathFillType::kWinding);
+    // Snapshot the path (don't detach — Canvas2D allows continued use of
+    // the same path after clip()) and intersect with the current clip.
     canvas_->clipPath(path_builder_->snapshot(), /*doAntiAlias=*/true);
 }
 
@@ -1483,7 +1479,125 @@ void SkiaCanvas::close_path() {
     if (path_builder_) path_builder_->close();
 }
 
-void SkiaCanvas::fill_current_path(FillRule rule) {
+// ── pulp #1521 — native arc / arcTo / ellipse / roundRect path builders ──
+//
+// Replaces the JS shim's bezier approximation with Skia's native arc APIs.
+// Skia ships a closed-form arc-to-cubic implementation behind SkPath::arcTo;
+// we use the (oval, startDeg, sweepDeg, forceMoveTo=false) overload for
+// `arc` / `ellipse` and the (p1, p2, radius) overload for `arcTo`.
+// Per-corner roundRect uses SkRRect::MakeRectRadii.
+//
+// Angles arrive as radians (Canvas2D spec). Skia's arcTo wants degrees.
+// `anticlockwise` flips the sweep sign per the HTML5 spec: when false, the
+// arc is drawn clockwise from start to end; when true, anticlockwise. The
+// shim's normalization (already in JS) ensured `sweep` was in the right
+// direction; we re-normalize here so direct C++ callers (e.g. tests, AOT
+// paths) get the same behavior without going through JS.
+namespace {
+constexpr float kRadToDeg = 57.29577951308232f; // 180 / PI
+constexpr float kTwoPi = 6.283185307179586f;
+
+// Normalize (start, end, anticlockwise) into a (startDeg, sweepDeg) pair
+// matching Canvas2D semantics. Mirrors the JS shim:
+//   sweep = end - start
+//   if anticlockwise && sweep > 0  -> sweep -= 2π
+//   if !anticlockwise && sweep < 0 -> sweep += 2π
+// The full-circle case (|sweep| >= 2π) is clamped to 2π so SkPath::arcTo
+// produces a complete circle rather than wrapping multiple times.
+void normalize_arc_sweep(float start_rad, float end_rad,
+                         bool anticlockwise,
+                         float& start_deg_out, float& sweep_deg_out) {
+    float sweep_rad = end_rad - start_rad;
+    if (anticlockwise) {
+        if (sweep_rad > 0) sweep_rad -= kTwoPi;
+    } else {
+        if (sweep_rad < 0) sweep_rad += kTwoPi;
+    }
+    if (sweep_rad > kTwoPi) sweep_rad = kTwoPi;
+    if (sweep_rad < -kTwoPi) sweep_rad = -kTwoPi;
+    start_deg_out = start_rad * kRadToDeg;
+    sweep_deg_out = sweep_rad * kRadToDeg;
+}
+} // namespace
+
+void SkiaCanvas::arc(float cx, float cy, float radius,
+                     float start_angle, float end_angle,
+                     bool anticlockwise) {
+    if (!path_builder_) return;
+    if (radius <= 0.0f) return;
+    SkRect oval = SkRect::MakeLTRB(cx - radius, cy - radius,
+                                    cx + radius, cy + radius);
+    float start_deg = 0.0f, sweep_deg = 0.0f;
+    normalize_arc_sweep(start_angle, end_angle, anticlockwise,
+                        start_deg, sweep_deg);
+    // forceMoveTo=false so the arc connects to the current point with an
+    // implicit lineTo, matching the Canvas2D spec which says arc() adds
+    // an arc to the current subpath.
+    path_builder_->arcTo(oval, start_deg, sweep_deg, /*forceMoveTo=*/false);
+}
+
+void SkiaCanvas::arc_to(float x1, float y1, float x2, float y2, float radius) {
+    if (!path_builder_) return;
+    if (radius <= 0.0f) {
+        // Spec: a non-positive radius collapses to a lineTo to (x1, y1).
+        path_builder_->lineTo(x1, y1);
+        return;
+    }
+    // The 5-arg SkPath::arcTo overload computes the tangent arc between
+    // the current point, (x1, y1), and (x2, y2). It internally handles
+    // the degenerate collinear case by emitting a lineTo to (x1, y1).
+    path_builder_->arcTo(SkPoint{x1, y1}, SkPoint{x2, y2}, radius);
+}
+
+void SkiaCanvas::ellipse(float cx, float cy, float rx, float ry,
+                         float rotation,
+                         float start_angle, float end_angle,
+                         bool anticlockwise) {
+    if (!path_builder_) return;
+    if (rx <= 0.0f || ry <= 0.0f) return;
+    float start_deg = 0.0f, sweep_deg = 0.0f;
+    normalize_arc_sweep(start_angle, end_angle, anticlockwise,
+                        start_deg, sweep_deg);
+    if (rotation == 0.0f) {
+        SkRect oval = SkRect::MakeLTRB(cx - rx, cy - ry, cx + rx, cy + ry);
+        path_builder_->arcTo(oval, start_deg, sweep_deg, /*forceMoveTo=*/false);
+        return;
+    }
+    // Rotated ellipse: build the arc into a temporary oval-aligned path,
+    // rotate it through SkMatrix around (cx, cy), and append. This keeps
+    // the arc geometry exact (still a real arc, not a bezier approx) but
+    // honours the CSS rotation parameter.
+    SkPathBuilder tmp;
+    SkRect oval = SkRect::MakeLTRB(-rx, -ry, rx, ry);
+    tmp.arcTo(oval, start_deg, sweep_deg, /*forceMoveTo=*/true);
+    SkMatrix m = SkMatrix::I();
+    m.preTranslate(cx, cy);
+    m.preRotate(rotation * kRadToDeg);
+    SkPath rotated = tmp.detach();
+    rotated.transform(m);
+    // Append rotated path into the live builder, preserving the current
+    // subpath. addPath with kAppend_AddPathMode joins the new path to
+    // any existing pen position via a moveTo on the first verb.
+    path_builder_->addPath(rotated);
+}
+
+void SkiaCanvas::round_rect(float x, float y, float w, float h,
+                            float tl_x, float tl_y,
+                            float tr_x, float tr_y,
+                            float br_x, float br_y,
+                            float bl_x, float bl_y) {
+    if (!path_builder_) return;
+    if (w <= 0.0f || h <= 0.0f) return;
+    SkRect rect = SkRect::MakeXYWH(x, y, w, h);
+    SkVector radii[4] = {
+        {tl_x, tl_y}, {tr_x, tr_y}, {br_x, br_y}, {bl_x, bl_y}
+    };
+    SkRRect rr;
+    rr.setRectRadii(rect, radii);
+    path_builder_->addRRect(rr);
+}
+
+void SkiaCanvas::fill_current_path() {
     if (!canvas_ || !path_builder_) return;
     SkPaint paint;
     paint.setAntiAlias(true);
@@ -1495,12 +1609,6 @@ void SkiaCanvas::fill_current_path(FillRule rule) {
     paint.setBlendMode(blend_mode_);
     apply_shadow_filter(paint);
     apply_filter(paint);
-    // pulp #1522 — apply the requested Canvas2D fill rule. The path is
-    // detached on draw (Canvas2D fill semantics), so the fill type only
-    // affects this single draw and resets with the next begin_path.
-    path_builder_->setFillType(rule == FillRule::evenodd
-                                   ? SkPathFillType::kEvenOdd
-                                   : SkPathFillType::kWinding);
     canvas_->drawPath(path_builder_->detach(), paint);
 }
 
@@ -1985,6 +2093,219 @@ void SkiaCanvas::save_layer(float x, float y, float w, float h,
         layer_paint.setImageFilter(
             SkImageFilters::Blur(blur_radius, blur_radius, SkTileMode::kClamp, nullptr));
     }
+
+    canvas_->saveLayer(&bounds, &layer_paint);
+}
+
+// pulp #1434 Phase A2-4 — full CSS filter chain composition.
+//
+// Builds an SkImageFilter chain from the structured FilterChainEntry
+// list. Color-matrix-based filters (brightness / contrast / grayscale
+// / hue-rotate / invert / saturate / sepia) all reduce to an
+// SkColorMatrix wrapped via SkImageFilters::ColorFilter, then composed
+// in order via SkImageFilters::Compose. Blur and drop-shadow are
+// independent SkImageFilter primitives composed into the same chain.
+// The `opacity()` filter function affects the layer alpha rather than
+// a color matrix (matches how CSS treats it — multiplicative on the
+// already-composited layer).
+void SkiaCanvas::save_layer_with_filters(float x, float y, float w, float h,
+                                          float opacity,
+                                          const FilterChainEntry* chain,
+                                          int count) {
+    if (!canvas_) { save(); return; }
+    SkRect bounds = SkRect::MakeXYWH(x, y, w, h);
+    SkPaint layer_paint;
+
+    // Walk the chain. Build a single composed image filter per CSS
+    // semantics: filters are applied in source order, so chain[0] is
+    // the inner-most input to chain[1], etc.
+    sk_sp<SkImageFilter> composed;
+    auto compose = [&composed](sk_sp<SkImageFilter> next) {
+        if (!next) return;
+        composed = composed
+            ? SkImageFilters::Compose(std::move(next), std::move(composed))
+            : std::move(next);
+    };
+
+    for (int i = 0; i < count; ++i) {
+        const FilterChainEntry& f = chain[i];
+        switch (f.kind) {
+            case FilterChainEntry::Kind::blur: {
+                if (f.amount > 0.0f) {
+                    compose(SkImageFilters::Blur(f.amount, f.amount,
+                                                 SkTileMode::kClamp, nullptr));
+                }
+                break;
+            }
+            case FilterChainEntry::Kind::opacity: {
+                // Per CSS — opacity(a) multiplies the alpha channel by
+                // a (0..1). Codex P2 #3195880608: this MUST remain in
+                // the composed chain at its original source-order
+                // position, because subsequent filters (e.g. drop-shadow)
+                // depend on the reduced alpha as their input. Folding
+                // it into the layer alpha would apply opacity AFTER the
+                // shadow was generated, which produces a different and
+                // incorrect result for `opacity(0.5) drop-shadow(...)`.
+                const float a = std::min(std::max(f.amount, 0.0f), 1.0f);
+                float m[20] = {
+                    1, 0, 0, 0, 0,
+                    0, 1, 0, 0, 0,
+                    0, 0, 1, 0, 0,
+                    0, 0, 0, a, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::brightness: {
+                // Per CSS spec — RGB scaled, alpha untouched.
+                const float k = f.amount;
+                float m[20] = {
+                    k, 0, 0, 0, 0,
+                    0, k, 0, 0, 0,
+                    0, 0, k, 0, 0,
+                    0, 0, 0, 1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::contrast: {
+                // Per CSS — c=amount, slope=c, intercept=0.5*(1-c).
+                // SkColorFilters::Matrix expects the translation column
+                // in 0..255 space (Codex P1 #3195880597), so the bias
+                // term is multiplied by 255 to land at mid-gray for
+                // contrast(0). The slope multipliers stay normalized.
+                const float c = f.amount;
+                const float t = 0.5f * (1.0f - c) * 255.0f;
+                float m[20] = {
+                    c, 0, 0, 0, t,
+                    0, c, 0, 0, t,
+                    0, 0, c, 0, t,
+                    0, 0, 0, 1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::grayscale: {
+                // Per CSS spec table — blends towards luminance-weighted gray.
+                // amount=1 is fully gray; amount=0 is identity.
+                const float a = std::min(std::max(f.amount, 0.0f), 1.0f);
+                const float r = 0.2126f, g = 0.7152f, b = 0.0722f;
+                float m[20] = {
+                    1 - a + a * r, a * g,         a * b,         0, 0,
+                    a * r,         1 - a + a * g, a * b,         0, 0,
+                    a * r,         a * g,         1 - a + a * b, 0, 0,
+                    0,             0,             0,             1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::saturate: {
+                // Per CSS spec — saturate(0) is fully gray, saturate(1) is identity.
+                // Same matrix family as grayscale but with amount inverted.
+                const float a = f.amount;
+                const float r = 0.2126f, g = 0.7152f, b = 0.0722f;
+                const float inv_a = 1.0f - a;
+                float m[20] = {
+                    a + inv_a * r, inv_a * g,    inv_a * b,    0, 0,
+                    inv_a * r,    a + inv_a * g, inv_a * b,    0, 0,
+                    inv_a * r,    inv_a * g,    a + inv_a * b, 0, 0,
+                    0,            0,            0,             1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::invert: {
+                // Per CSS spec — amount=1 fully inverts, amount=0 is identity.
+                // SkColorFilters::Matrix expects the translation column in
+                // 0..255 space (Codex P1 #3195880597), so the bias term `a`
+                // is multiplied by 255 to map black->white at invert(1).
+                const float a = std::min(std::max(f.amount, 0.0f), 1.0f);
+                const float k = 1.0f - 2.0f * a;
+                const float t = a * 255.0f;
+                float m[20] = {
+                    k, 0, 0, 0, t,
+                    0, k, 0, 0, t,
+                    0, 0, k, 0, t,
+                    0, 0, 0, 1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::sepia: {
+                // Per CSS spec table — sepia(amount) blends with sepia tone.
+                const float a = std::min(std::max(f.amount, 0.0f), 1.0f);
+                // Identity matrix interpolated towards the sepia matrix.
+                auto lerp = [a](float ident, float sepia_v) {
+                    return ident + a * (sepia_v - ident);
+                };
+                float m[20] = {
+                    lerp(1, 0.393f), lerp(0, 0.769f), lerp(0, 0.189f), 0, 0,
+                    lerp(0, 0.349f), lerp(1, 0.686f), lerp(0, 0.168f), 0, 0,
+                    lerp(0, 0.272f), lerp(0, 0.534f), lerp(1, 0.131f), 0, 0,
+                    0,               0,               0,                1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::hue_rotate: {
+                // Per CSS spec — rotation around the achromatic axis in YIQ.
+                // Standard 3x3 hue-rotation matrix expressed as 4x5 RGB.
+                const float deg = f.angle_deg;
+                const float rad = deg * 3.14159265358979323846f / 180.0f;
+                const float cos_h = std::cos(rad);
+                const float sin_h = std::sin(rad);
+                // Constants from the CSS Filter Effects spec, Appendix A.
+                float m[20] = {
+                    0.213f + cos_h * 0.787f - sin_h * 0.213f,
+                    0.715f - cos_h * 0.715f - sin_h * 0.715f,
+                    0.072f - cos_h * 0.072f + sin_h * 0.928f,
+                    0, 0,
+
+                    0.213f - cos_h * 0.213f + sin_h * 0.143f,
+                    0.715f + cos_h * 0.285f + sin_h * 0.140f,
+                    0.072f - cos_h * 0.072f - sin_h * 0.283f,
+                    0, 0,
+
+                    0.213f - cos_h * 0.213f - sin_h * 0.787f,
+                    0.715f - cos_h * 0.715f + sin_h * 0.715f,
+                    0.072f + cos_h * 0.928f + sin_h * 0.072f,
+                    0, 0,
+
+                    0, 0, 0, 1, 0,
+                };
+                compose(SkImageFilters::ColorFilter(
+                    SkColorFilters::Matrix(m), nullptr));
+                break;
+            }
+            case FilterChainEntry::Kind::drop_shadow: {
+                // Per CSS spec — drop-shadow renders an offset blurred
+                // copy of the layer alpha tinted to ds_color, composited
+                // BELOW the original. SkImageFilters::DropShadow wraps
+                // the input filter so we feed it the chain so far as
+                // input — composes naturally with prior color matrices.
+                SkColor color = SkColorSetARGB(
+                    f.ds_color.a8(), f.ds_color.r8(),
+                    f.ds_color.g8(), f.ds_color.b8());
+                sk_sp<SkImageFilter> input = composed; // chain so far as input
+                composed = SkImageFilters::DropShadow(
+                    f.ds_offset_x, f.ds_offset_y,
+                    f.ds_blur, f.ds_blur,
+                    color,
+                    std::move(input));
+                break;
+            }
+        }
+    }
+
+    if (composed) layer_paint.setImageFilter(composed);
+    if (opacity < 1.0f) layer_paint.setAlphaf(opacity);
 
     canvas_->saveLayer(&bounds, &layer_paint);
 }
