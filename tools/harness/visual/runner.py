@@ -18,6 +18,7 @@ if str(REPO_ROOT_GUESS) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT_GUESS))
 
 from tools.harness.visual import differ  # noqa: E402
+from tools.harness.visual import spec as visual_spec  # noqa: E402
 
 
 def find_repo_root(start: Path) -> Path:
@@ -78,7 +79,8 @@ def resolve_fixtures(repo_root: Path, surface: str, entries: Iterable[str] | Non
 
 
 def golden_path_for(repo_root: Path, surface: str, fixture_path: Path) -> Path:
-    return goldens_dir(repo_root, surface) / f"{entry_name(fixture_path)}.json"
+    fixture = visual_spec.fixture_spec_from_file(fixture_path, default_surface=surface)
+    return visual_spec.golden_path(repo_root, fixture)
 
 
 def locate_binary(repo_root: Path, build_dir: Path | None, override: Path | None) -> Path:
@@ -187,16 +189,108 @@ def visual_pass_counts(repo_root: Path, surfaces: Iterable[str] | None = None) -
     compat_path = repo_root / "compat.json"
     compat = json.loads(compat_path.read_text(encoding="utf-8")) if compat_path.exists() else {}
     surface_list = list(surfaces or sorted(compat))
+    fixture_ids = visual_spec.fixture_ids_with_goldens(repo_root, surface_list)
     out: dict[str, dict[str, Any]] = {}
     for surface in surface_list:
-        golden_count = len(list(goldens_dir(repo_root, surface).glob("*.json")))
-        total = len(compat.get(surface, {}))
+        covered = 0
+        total = 0
+        missing_refs: list[str] = []
+        bucket = compat.get(surface, {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+        for entry, payload in bucket.items():
+            if not isinstance(payload, dict) or _is_catalog_note(entry):
+                continue
+            tests = list(payload.get("tests") or [])
+            refs = visual_spec.validation_refs(tests)
+            if any(ref.excludes_from_visual_denominator for ref in refs):
+                continue
+            if payload.get("status") != "supported":
+                continue
+
+            total += 1
+            runtime_refs = [ref for ref in refs if ref.is_runtime_fixture]
+            if any(ref.target in fixture_ids for ref in runtime_refs):
+                covered += 1
+            for ref in runtime_refs:
+                if ref.target not in fixture_ids:
+                    missing_refs.append(f"{entry}: {ref.raw}")
         out[surface] = {
-            "pass": golden_count,
+            "pass": covered,
             "total": total,
-            "label": f"{golden_count}/{total}" if total else f"{golden_count}/0",
+            "label": f"{covered}/{total}" if total else f"{covered}/0",
+            "missing_refs": missing_refs,
         }
     return out
+
+
+def validation_route_counts(repo_root: Path, surfaces: Iterable[str] | None = None) -> dict[str, dict[str, Any]]:
+    compat_path = repo_root / "compat.json"
+    compat = json.loads(compat_path.read_text(encoding="utf-8")) if compat_path.exists() else {}
+    surface_list = list(surfaces or sorted(compat))
+    fixture_ids = visual_spec.fixture_ids_with_goldens(repo_root, surface_list)
+    out: dict[str, dict[str, Any]] = {}
+    for surface in surface_list:
+        total = 0
+        routed = 0
+        excluded = 0
+        legacy = 0
+        missing_refs: list[str] = []
+        unvalidated_entries: list[str] = []
+        bucket = compat.get(surface, {})
+        if not isinstance(bucket, dict):
+            bucket = {}
+        for entry, payload in bucket.items():
+            if not isinstance(payload, dict) or _is_catalog_note(entry):
+                continue
+            if payload.get("status") != "supported":
+                continue
+
+            total += 1
+            tests = list(payload.get("tests") or [])
+            refs = visual_spec.validation_refs(tests)
+            legacy_refs = [
+                test
+                for test in tests
+                if isinstance(test, str) and visual_spec.parse_validation_ref(test) is None
+            ]
+            if any(ref.excludes_from_visual_denominator for ref in refs):
+                excluded += 1
+                routed += 1
+                continue
+
+            has_route = False
+            for ref in refs:
+                if ref.is_runtime_fixture:
+                    if ref.target in fixture_ids:
+                        has_route = True
+                    else:
+                        missing_refs.append(f"{entry}: {ref.raw}")
+                elif ref.kind == "unit":
+                    has_route = True
+            if legacy_refs:
+                legacy += 1
+                has_route = True
+
+            if has_route:
+                routed += 1
+            else:
+                unvalidated_entries.append(entry)
+        out[surface] = {
+            "pass": routed,
+            "total": total,
+            "label": f"{routed}/{total}" if total else f"{routed}/0",
+            "excluded": excluded,
+            "legacy": legacy,
+            "missing_refs": missing_refs,
+            "unvalidated_entries": unvalidated_entries,
+        }
+    return out
+
+
+def _is_catalog_note(entry_name: str) -> bool:
+    short_name = entry_name.split("/", 1)[-1]
+    return short_name.startswith("__")
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:

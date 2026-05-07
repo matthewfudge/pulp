@@ -704,7 +704,7 @@ commands:
 
   - name: harness
     status: experimental
-    summary: Catalog and visual regression harness. Delegates to tools/harness/verifier.py for compat coverage and tools/harness/visual/runner.py for semantic Yoga layout snapshots.
+    summary: Catalog and visual regression harness. Reports static compat coverage, validation-route accounting, and typed visual-golden coverage; delegates visual snapshots to tools/harness/visual/runner.py.
     args:
       - name: coverage
         kind: positional

@@ -185,8 +185,10 @@ def render_markdown(
     results_by_surface: dict[str, list[Result]],
     sha: str,
     visual_counts: Optional[dict[str, dict]] = None,
+    validation_counts: Optional[dict[str, dict]] = None,
 ) -> str:
     visual_counts = visual_counts or {}
+    validation_counts = validation_counts or {}
     lines: list[str] = []
     lines.append("# Harness coverage")
     lines.append("")
@@ -205,14 +207,15 @@ def render_markdown(
     )
     lines.append("## Summary")
     lines.append("")
-    lines.append("| Surface | Total | PASS | DIVERGE | NO-OP | NOT-IMPL | OOS | PASS % | Progress % | Drift | Visual pass |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| Surface | Total | PASS | DIVERGE | NO-OP | NOT-IMPL | OOS | PASS % | Progress % | Drift | Validation route | Visual covered |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for surface, results in results_by_surface.items():
         counts = StatusCounts.from_results([r.status for r in results])
         drifts = sum(1 for r in results if r.drifts)
         visual = visual_counts.get(surface, {"label": "0/0"})
+        validation = validation_counts.get(surface, {"label": "0/0"})
         lines.append(
-            "| `{}/` | {} | {} | {} | {} | {} | {} | {:.1f}% | {:.1f}% | {} | {} |".format(
+            "| `{}/` | {} | {} | {} | {} | {} | {} | {:.1f}% | {:.1f}% | {} | {} | {} |".format(
                 surface,
                 counts.total,
                 counts.pass_,
@@ -223,6 +226,7 @@ def render_markdown(
                 counts.pass_pct,
                 counts.progress_pct,
                 drifts,
+                validation["label"],
                 visual["label"],
             )
         )
@@ -235,8 +239,10 @@ def render_markdown(
         )
         visual_pass = sum(int(v.get("pass", 0)) for v in visual_counts.values())
         visual_total = sum(int(v.get("total", 0)) for v in visual_counts.values())
+        validation_pass = sum(int(v.get("pass", 0)) for v in validation_counts.values())
+        validation_total = sum(int(v.get("total", 0)) for v in validation_counts.values())
         lines.append(
-            "| **TOTAL** | {} | {} | {} | {} | {} | {} | {:.1f}% | {:.1f}% | {} | {}/{} |".format(
+            "| **TOTAL** | {} | {} | {} | {} | {} | {} | {:.1f}% | {:.1f}% | {} | {}/{} | {}/{} |".format(
                 total_counts.total,
                 total_counts.pass_,
                 total_counts.diverge,
@@ -246,6 +252,8 @@ def render_markdown(
                 total_counts.pass_pct,
                 total_counts.progress_pct,
                 all_drifts,
+                validation_pass,
+                validation_total,
                 visual_pass,
                 visual_total,
             )
@@ -299,11 +307,15 @@ def render_json(
     results_by_surface: dict[str, list[Result]],
     sha: str,
     visual_counts: Optional[dict[str, dict]] = None,
+    validation_counts: Optional[dict[str, dict]] = None,
 ) -> dict:
     visual_counts = visual_counts or {}
+    validation_counts = validation_counts or {}
     out_surfaces = {}
     for surface, results in results_by_surface.items():
         counts = StatusCounts.from_results([r.status for r in results])
+        visual_coverage = visual_counts.get(surface, {"pass": 0, "total": 0, "label": "0/0"})
+        validation_routes = validation_counts.get(surface, {"pass": 0, "total": 0, "label": "0/0"})
         out_surfaces[surface] = {
             "total": counts.total,
             "pass": counts.pass_,
@@ -314,7 +326,9 @@ def render_json(
             "pass_pct": round(counts.pass_pct, 2),
             "progress_pct": round(counts.progress_pct, 2),
             "drift_count": sum(1 for r in results if r.drifts),
-            "visual_pass": visual_counts.get(surface, {"pass": 0, "total": 0, "label": "0/0"}),
+            "validation_routes": validation_routes,
+            "visual_coverage": visual_coverage,
+            "visual_pass": visual_coverage,
             "results": [r.to_dict() for r in results],
         }
     total_counts = StatusCounts.from_results(
@@ -322,8 +336,20 @@ def render_json(
     )
     visual_pass = sum(int(v.get("pass", 0)) for v in visual_counts.values())
     visual_total = sum(int(v.get("total", 0)) for v in visual_counts.values())
+    validation_pass = sum(int(v.get("pass", 0)) for v in validation_counts.values())
+    validation_total = sum(int(v.get("total", 0)) for v in validation_counts.values())
+    validation_routes = {
+        "pass": validation_pass,
+        "total": validation_total,
+        "label": f"{validation_pass}/{validation_total}" if validation_total else f"{validation_pass}/0",
+    }
+    visual_coverage = {
+        "pass": visual_pass,
+        "total": visual_total,
+        "label": f"{visual_pass}/{visual_total}" if visual_total else f"{visual_pass}/0",
+    }
     return {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sha": sha,
         "totals": {
@@ -341,11 +367,9 @@ def render_json(
                 for r in results
                 if r.drifts
             ),
-            "visual_pass": {
-                "pass": visual_pass,
-                "total": visual_total,
-                "label": f"{visual_pass}/{visual_total}" if visual_total else f"{visual_pass}/0",
-            },
+            "validation_routes": validation_routes,
+            "visual_coverage": visual_coverage,
+            "visual_pass": visual_coverage,
         },
         "surfaces": out_surfaces,
     }
@@ -369,8 +393,9 @@ def write_outputs(
     md_path = build_dir / "harness-coverage.md"
 
     visual_counts = visual_runner.visual_pass_counts(repo_root, results_by_surface.keys())
-    json_payload = render_json(results_by_surface, sha, visual_counts)
-    md_payload = render_markdown(results_by_surface, sha, visual_counts)
+    validation_counts = visual_runner.validation_route_counts(repo_root, results_by_surface.keys())
+    json_payload = render_json(results_by_surface, sha, visual_counts, validation_counts)
+    md_payload = render_markdown(results_by_surface, sha, visual_counts, validation_counts)
 
     json_path.write_text(json.dumps(json_payload, indent=2))
     md_path.write_text(md_payload)
@@ -469,9 +494,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     sha = get_short_sha(repo_root)
     visual_counts = visual_runner.visual_pass_counts(repo_root, results_by_surface.keys())
+    validation_counts = visual_runner.validation_route_counts(repo_root, results_by_surface.keys())
 
     if args.json:
-        print(json.dumps(render_json(results_by_surface, sha, visual_counts), indent=2))
+        print(json.dumps(render_json(results_by_surface, sha, visual_counts, validation_counts), indent=2))
         return 0
 
     written = write_outputs(
@@ -488,15 +514,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"# pulp harness coverage @ {sha}")
     print(f"")
     print(f"{'surface':<10} {'total':>6} {'PASS':>6} {'DIVERGE':>8} {'NO-OP':>6} "
-          f"{'NOT-IMPL':>9} {'OOS':>5} {'PASS%':>7} {'drift':>6} {'visual':>8}")
+          f"{'NOT-IMPL':>9} {'OOS':>5} {'PASS%':>7} {'drift':>6} {'valid':>8} {'visual':>8}")
     for surface, results in results_by_surface.items():
         c = StatusCounts.from_results([r.status for r in results])
         drifts = sum(1 for r in results if r.drifts)
         visual = visual_counts.get(surface, {"label": "0/0"})
+        validation = validation_counts.get(surface, {"label": "0/0"})
         print(
             f"{surface:<10} {c.total:>6} {c.pass_:>6} {c.diverge:>8} "
             f"{c.no_op:>6} {c.not_impl:>9} {c.oos:>5} {c.pass_pct:>6.1f}% "
-            f"{drifts:>6} {visual['label']:>8}"
+            f"{drifts:>6} {validation['label']:>8} {visual['label']:>8}"
         )
     if len(results_by_surface) > 1:
         c = total_counts
@@ -508,10 +535,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         visual_pass = sum(int(v.get("pass", 0)) for v in visual_counts.values())
         visual_total = sum(int(v.get("total", 0)) for v in visual_counts.values())
+        validation_pass = sum(int(v.get("pass", 0)) for v in validation_counts.values())
+        validation_total = sum(int(v.get("total", 0)) for v in validation_counts.values())
         print(
             f"{'TOTAL':<10} {c.total:>6} {c.pass_:>6} {c.diverge:>8} "
             f"{c.no_op:>6} {c.not_impl:>9} {c.oos:>5} {c.pass_pct:>6.1f}% "
-            f"{all_drifts:>6} {f'{visual_pass}/{visual_total}':>8}"
+            f"{all_drifts:>6} {f'{validation_pass}/{validation_total}':>8} "
+            f"{f'{visual_pass}/{visual_total}':>8}"
         )
     print()
     for label, path in written.items():
