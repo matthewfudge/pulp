@@ -3155,6 +3155,51 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // pulp #1514 — list-style cluster (listStyle / listStyleType /
+    // listStyleImage / listStylePosition). Pulp doesn't model
+    // <li>/<ul>/<ol> semantics, so the bridge stores the values
+    // verbatim on the View so a later paint pass (or a future
+    // semantic-list surface) can honor them. Marker glyph rendering
+    // is the follow-up; this PR flips the catalog out of `missing`
+    // by wiring the round-trip + JS shorthand parsing.
+    //
+    // setListStyleType(id, "disc"|"circle"|"square"|"decimal"|"none").
+    engine_.register_function("setListStyleType", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto s = args.get<std::string>(1, "disc");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (s == "none")          v->set_list_style_type(View::ListStyleType::none);
+        else if (s == "circle")   v->set_list_style_type(View::ListStyleType::circle);
+        else if (s == "square")   v->set_list_style_type(View::ListStyleType::square);
+        else if (s == "decimal")  v->set_list_style_type(View::ListStyleType::decimal);
+        else                      v->set_list_style_type(View::ListStyleType::disc);
+        return choc::value::Value();
+    });
+
+    // setListStyleImage(id, "url(...)" or "none"). Stored verbatim;
+    // bullet-image rendering is deferred (same caveat as backgroundImage).
+    engine_.register_function("setListStyleImage", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto url = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (url == "none") v->set_list_style_image("");
+        else               v->set_list_style_image(url);
+        return choc::value::Value();
+    });
+
+    // setListStylePosition(id, "outside"|"inside").
+    engine_.register_function("setListStylePosition", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto s = args.get<std::string>(1, "outside");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (s == "inside") v->set_list_style_position(View::ListStylePosition::inside);
+        else               v->set_list_style_position(View::ListStylePosition::outside);
+        return choc::value::Value();
+    });
+
     // pulp #1519 — CSS / RN outline cluster. Outline is paint-time only:
     // it does NOT take up Yoga layout space (parent never reserves room
     // for it). Each setter mutates one slot in isolation so a JSX prop
@@ -3446,6 +3491,21 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // pulp #1516 — CSS box-sizing keyword. Yoga 3.x's
+    // `YGNodeStyleSetBoxSizing` honors the spec, so we just record the
+    // enum on FlexStyle and let `build_yoga_subtree` route it through.
+    // Default `content-box` matches the CSS spec; web designs typically
+    // reset to `border-box` via `* { box-sizing: border-box }`.
+    engine_.register_function("setBoxSizing", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto kw = args.get<std::string>(1, "content-box");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        auto& f = v->flex();
+        f.box_sizing = (kw == "border-box") ? BoxSizing::border_box : BoxSizing::content_box;
+        return choc::value::Value();
+    });
+
     // Canvas drawing
     engine_.register_function("canvasClear", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, ""))))
@@ -3668,12 +3728,7 @@ void WidgetBridge::register_api() {
 
     engine_.register_function("canvasFillPath", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
-            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_path;
-            // pulp #1522 — optional Canvas2D fillRule arg threaded as
-            // an int (0 = nonzero/winding, 1 = evenodd). Older callers
-            // pass no arg and pick up the spec default of nonzero.
-            cmd.int_val = static_cast<int>(args.get<double>(1, 0));
-            c->add_command(cmd);
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_path; c->add_command(cmd);
         }
         return choc::value::Value();
     });
@@ -3681,6 +3736,77 @@ void WidgetBridge::register_api() {
     engine_.register_function("canvasStrokePath", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
             CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::stroke_path; c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // pulp #1521 — native arc subpaths. Each replaces the JS shim's
+    // bezier approximation so Skia / CG see real arc geometry. Args:
+    //   canvasPathArc(id, cx, cy, radius, startAngle, endAngle,
+    //                 anticlockwise:0/1)
+    //   canvasPathArcTo(id, x1, y1, x2, y2, radius)
+    //   canvasPathEllipse(id, cx, cy, rx, ry, rotation, startAngle,
+    //                     endAngle, anticlockwise:0/1)
+    //   canvasPathRoundRect(id, x, y, w, h,
+    //                       tl_x, tl_y, tr_x, tr_y,
+    //                       br_x, br_y, bl_x, bl_y)
+    engine_.register_function("canvasPathArc", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_arc;
+            cmd.x     = (float)args.get<double>(1, 0);
+            cmd.y     = (float)args.get<double>(2, 0);
+            cmd.extra = (float)args.get<double>(3, 0);
+            cmd.x2    = (float)args.get<double>(4, 0);
+            cmd.y2    = (float)args.get<double>(5, 0);
+            cmd.int_val = args.get<double>(6, 0) != 0.0 ? 1 : 0;
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasPathArcTo", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_arc_to;
+            cmd.x     = (float)args.get<double>(1, 0);
+            cmd.y     = (float)args.get<double>(2, 0);
+            cmd.x2    = (float)args.get<double>(3, 0);
+            cmd.y2    = (float)args.get<double>(4, 0);
+            cmd.extra = (float)args.get<double>(5, 0);
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasPathEllipse", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_ellipse;
+            cmd.x     = (float)args.get<double>(1, 0);   // cx
+            cmd.y     = (float)args.get<double>(2, 0);   // cy
+            cmd.w     = (float)args.get<double>(3, 0);   // rx
+            cmd.h     = (float)args.get<double>(4, 0);   // ry
+            cmd.extra = (float)args.get<double>(5, 0);   // rotation
+            cmd.x2    = (float)args.get<double>(6, 0);   // startAngle
+            cmd.y2    = (float)args.get<double>(7, 0);   // endAngle
+            cmd.int_val = args.get<double>(8, 0) != 0.0 ? 1 : 0;
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasPathRoundRect", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_round_rect;
+            cmd.x = (float)args.get<double>(1, 0);
+            cmd.y = (float)args.get<double>(2, 0);
+            cmd.w = (float)args.get<double>(3, 0);
+            cmd.h = (float)args.get<double>(4, 0);
+            cmd.gradient_positions = {
+                (float)args.get<double>(5, 0),  (float)args.get<double>(6, 0),
+                (float)args.get<double>(7, 0),  (float)args.get<double>(8, 0),
+                (float)args.get<double>(9, 0),  (float)args.get<double>(10, 0),
+                (float)args.get<double>(11, 0), (float)args.get<double>(12, 0),
+            };
+            c->add_command(cmd);
         }
         return choc::value::Value();
     });
@@ -3889,6 +4015,44 @@ void WidgetBridge::register_api() {
             }
             return choc::value::Value();
         });
+
+    // ── pulp #1552 — line-clamp + background-repeat ─────────────────────────
+    // CSS `line-clamp` and `-webkit-line-clamp` route through the same
+    // shared case in web-compat-style-decl.js (and the @pulp/react
+    // prop-applier emits both keys via setLineClamp). Numeric only; 0
+    // disables clamping (matches CSS spec, which uses `none`). Wired on
+    // Label only — non-text views ignore the property.
+    engine_.register_function("setLineClamp", [this](choc::javascript::ArgumentList args) {
+        auto* v = widget(args.get<std::string>(0, ""));
+        int n = static_cast<int>(args.get<double>(1, 0.0));
+        if (auto* l = dynamic_cast<Label*>(v)) {
+            l->set_line_clamp(n);
+            // line-clamp implies multi-line — without multi_line_, the
+            // paint path takes the single-line branch and the clamp is a
+            // no-op. Setting > 0 implicitly enables wrap; 0 leaves the
+            // existing multi_line_ flag alone (the user may have set it
+            // independently via white-space / setMultiLine).
+            if (n > 0) l->set_multi_line(true);
+        }
+        return choc::value::Value();
+    });
+
+    // setBackgroundRepeat(id, kw) — CSS background-repeat keyword. Storage-
+    // only on the View (no-op for solid-color backgrounds, which is the
+    // only currently rendered case). Future paint work for
+    // `background-image: url(...)` / repeating gradients consults the
+    // stored slot; setting the keyword today makes the round-trip work
+    // and lets authors express intent without dropping the prop silently.
+    // Accepts: `repeat` / `repeat-x` / `repeat-y` / `no-repeat` /
+    // `space` / `round`. Unknown / empty resets to "" (paint defaults to
+    // CSS initial `repeat`).
+    engine_.register_function("setBackgroundRepeat", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto kw = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_background_repeat(kw);
+        return choc::value::Value();
+    });
 
     // setPosition(id, "static"/"relative"/"absolute"/"fixed") — CSS position
     engine_.register_function("setPosition", [this](choc::javascript::ArgumentList args) {
@@ -5405,14 +5569,10 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
-    // canvasClip(id, fillRule?) — intersect clip region with current path
-    // (issue-896). pulp #1522 added the optional fillRule int (0 =
-    // nonzero/winding, 1 = evenodd). Older callers pass no arg and pick
-    // up the spec default of nonzero.
+    // canvasClip(id) — intersect clip region with current path (issue-896).
     engine_.register_function("canvasClip", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
             CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::clip;
-            cmd.int_val = static_cast<int>(args.get<double>(1, 0));
             c->add_command(cmd);
         }
         return choc::value::Value();
