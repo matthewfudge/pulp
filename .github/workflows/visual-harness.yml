@@ -1,0 +1,79 @@
+name: Visual Harness
+
+on:
+  pull_request:
+    branches: [main, 'develop/**']
+    paths:
+      - '.github/workflows/visual-harness.yml'
+      - 'ci/visual-harness.Dockerfile'
+      - 'docs/reference/text-shaping.md'
+      - 'external/fonts/**'
+      - 'external/skia-build/VERSION.md'
+      - 'tools/deps/manifest.json'
+      - 'tools/harness/visual/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/visual-harness.yml'
+      - 'ci/visual-harness.Dockerfile'
+      - 'docs/reference/text-shaping.md'
+      - 'external/fonts/**'
+      - 'external/skia-build/VERSION.md'
+      - 'tools/deps/manifest.json'
+      - 'tools/harness/visual/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-harness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-docker:
+    name: Linux Docker smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Cache visual harness Docker layers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pulp/visual-harness/buildx
+          key: visual-harness-linux-buildx-${{ hashFiles('ci/visual-harness.Dockerfile', 'tools/harness/visual/docker-build.sh', 'external/fonts/*.ttf', 'tools/deps/manifest.json') }}
+          restore-keys: |
+            visual-harness-linux-buildx-
+
+      - name: Build deterministic visual harness image
+        run: tools/harness/visual/docker-build.sh
+
+      - name: Run deterministic visual harness tests
+        run: docker run --rm --platform linux/amd64 -v "$PWD:/workspace" pulp-visual-harness
+
+  macos-local:
+    name: macOS local smoke
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install locked visual smoke dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'pytest>=8,<9' 'skia-python==144.0.post2'
+
+      - name: Run deterministic visual harness tests
+        env:
+          PULP_VISUAL_REQUIRE_SKIA: '1'
+        run: python -m pytest tools/harness/visual/tests/ -q

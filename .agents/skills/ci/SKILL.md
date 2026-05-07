@@ -392,6 +392,36 @@ python3 tools/local-ci/local_ci.py cloud defaults 2>/dev/null | grep -q "default
 
 If `local_ci.py` doesn't exist, the user likely has an older checkout. Tell them to pull latest main.
 
+## Visual Harness Container
+
+`ci/visual-harness.Dockerfile` and `.github/workflows/visual-harness.yml`
+provide the deterministic visual-harness smoke environment. The Docker image
+downloads the pinned Skia `chrome/m144` Linux release asset, verifies its
+SHA-256, installs the bundled Pulp fonts into fontconfig, and installs
+`skia-python==144.0.post2` for the B.0 SkPicture byte-identity smoke. The
+workflow runs that Linux container and also runs the same pytest smoke on
+macOS arm64 so the future canonical raster lane has a platform signal.
+
+Use it when a fresh worktree has only `external/skia-build` headers/metadata
+and no platform static libraries:
+
+```bash
+tools/harness/visual/docker-build.sh
+docker run --rm -v "$PWD:/workspace" pulp-visual-harness
+```
+
+The wrapper defaults to the pinned Skia `linux-x64` lane (`linux/amd64`) and
+keeps a reusable local buildx cache under
+`~/.cache/pulp/visual-harness/buildx`. The Dockerfile also uses BuildKit cache
+mounts for apt packages, the Skia release zip, and pip wheels, so repeated
+runs on the same Mac/Ubuntu SSH host do not re-download the expensive inputs
+unless the lock or digest changes. Override with `PULP_VISUAL_IMAGE`,
+`PULP_VISUAL_DOCKER_PLATFORM`, or `PULP_VISUAL_DOCKER_CACHE` if a host needs a
+separate cache namespace.
+
+The container is a reproducible smoke/developer environment. It does not
+replace the future canonical arm64-darwin raster-golden gate.
+
 **If Namespace is not the default provider**, the config needs to be updated. The shared config at `~/Library/Application Support/Pulp/local-ci/config.json` must include:
 
 ```json
