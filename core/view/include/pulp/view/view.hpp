@@ -313,6 +313,19 @@ public:
     bool has_background_color() const { return has_bg_; }
     Color background_color() const { return bg_color_; }
 
+    /// CSS `background-repeat` keyword (pulp #1552). Storage-only at the
+    /// View level: paint() of solid-color backgrounds (the only currently
+    /// rendered case) is a no-op for repeat semantics, but the value is
+    /// preserved so future paint logic for `background-image: url(...)` /
+    /// repeating gradients can honor it without an API break. Mirrors
+    /// the strategy used for `text-decoration-style` (pulp #1434 batch 3)
+    /// which also stores the keyword and currently degrades to solid in
+    /// paint. Accepted CSS keywords: `repeat`, `repeat-x`, `repeat-y`,
+    /// `no-repeat`, `space`, `round`. Unknown / empty = `repeat` (CSS
+    /// initial value).
+    void set_background_repeat(std::string kw) { background_repeat_ = std::move(kw); }
+    const std::string& background_repeat() const { return background_repeat_; }
+
     /// Border (optional — painted on top of background)
     void set_border(Color c, float width, float radius = 0) {
         border_color_ = c; border_width_ = width; corner_radius_ = radius; has_border_ = true;
@@ -352,6 +365,29 @@ public:
     void set_border_style(BorderStyle s) { border_style_ = s; }
     BorderStyle border_style() const { return border_style_; }
 
+    /// CSS / RN list-style cluster (pulp #1514). Pulp doesn't model
+    /// HTML <li>/<ul>/<ol> semantics — these slots store the values
+    /// the consumer set so an external paint pass (or future <li>
+    /// semantic surface) can honor them. The bridge round-trips the
+    /// keyword/url; paint-time marker rendering is the follow-up.
+    enum class ListStyleType {
+        none,     ///< No marker.
+        disc,     ///< Filled circle (default for <ul>).
+        circle,   ///< Hollow circle.
+        square,   ///< Filled square.
+        decimal,  ///< Numeric (default for <ol>) — needs sibling-index, not painted yet.
+    };
+    enum class ListStylePosition {
+        outside,  ///< Marker hangs in the margin (CSS default).
+        inside,   ///< Marker is part of the content box.
+    };
+    void set_list_style_type(ListStyleType t) { list_style_type_ = t; }
+    ListStyleType list_style_type() const { return list_style_type_; }
+    void set_list_style_image(std::string url) { list_style_image_ = std::move(url); }
+    const std::string& list_style_image() const { return list_style_image_; }
+    void set_list_style_position(ListStylePosition p) { list_style_position_ = p; }
+    ListStylePosition list_style_position() const { return list_style_position_; }
+
     /// CSS / RN outline cluster (pulp #1519). Outline is a paint-time
     /// ring drawn OUTSIDE the border-box; it does NOT affect Yoga layout
     /// (no parent space reserved). Slotting mirrors border-* but lives
@@ -370,6 +406,7 @@ public:
     float outline_offset() const { return outline_offset_; }
     BorderStyle outline_style() const { return outline_style_; }
     float outline_width() const { return outline_width_; }
+
 
     /// Per-side borders (CSS border-top, border-right, etc.)
     /// pulp #1566 (Codex P2 follow-up to #1543) — track an explicit
@@ -817,6 +854,12 @@ private:
     float corner_radius_ = 0;
     bool has_border_ = false;
     BorderStyle border_style_ = BorderStyle::solid;
+    // pulp #1514 — list-style cluster slots. Stored verbatim; paint-
+    // time marker rendering is deferred. Defaults match CSS spec
+    // (`disc` for the type, `outside` for the position, empty image).
+    ListStyleType list_style_type_ = ListStyleType::disc;
+    std::string list_style_image_{};
+    ListStylePosition list_style_position_ = ListStylePosition::outside;
     // CSS / RN outline cluster (pulp #1519). Defaults: outline_style_
     // is `none` so paint short-circuits unless JS opts in via
     // setOutlineStyle. width=0 also short-circuits as a belt-and-braces
@@ -890,6 +933,7 @@ private:
     float bg_grad_x0_ = 0, bg_grad_y0_ = 0, bg_grad_x1_ = 0, bg_grad_y1_ = 1;
     std::vector<Color> bg_gradient_colors_;
     std::vector<float> bg_gradient_positions_;
+    std::string background_repeat_;  ///< pulp #1552: CSS background-repeat keyword (storage-only)
     bool text_ellipsis_ = false;
     bool white_space_nowrap_ = false;  // pulp #1410
     CursorStyle cursor_ = CursorStyle::default_;

@@ -3003,6 +3003,170 @@ TEST_CASE("WidgetBridge text-decoration longhand setters preserve siblings",
     REQUIRE(lab->text_decoration_style() == Label::TextDecorationStyle::wavy);
 }
 
+// ── pulp #1552: line-clamp + background-repeat ──────────────────────────────
+
+TEST_CASE("WidgetBridge setLineClamp stores count on Label",
+          "[view][bridge][issue-1552]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createLabel('lab', 'one\\ntwo\\nthree\\nfour', '')");
+    auto* lab = dynamic_cast<Label*>(bridge.widget("lab"));
+    REQUIRE(lab != nullptr);
+    // Default: no clamp.
+    REQUIRE(lab->line_clamp() == 0);
+    REQUIRE_FALSE(lab->multi_line());
+
+    // Setting a non-zero clamp also implicitly enables multi_line so the
+    // paint path takes the multi-line branch (the implicit-wrap rule).
+    bridge.load_script("setLineClamp('lab', 2)");
+    REQUIRE(lab->line_clamp() == 2);
+    REQUIRE(lab->multi_line());
+
+    // Update the count — multi_line stays on.
+    bridge.load_script("setLineClamp('lab', 5)");
+    REQUIRE(lab->line_clamp() == 5);
+    REQUIRE(lab->multi_line());
+
+    // 0 clears the slot. multi_line is left as-is (the user may have
+    // set it independently via setMultiLine / white-space).
+    bridge.load_script("setLineClamp('lab', 0)");
+    REQUIRE(lab->line_clamp() == 0);
+    REQUIRE(lab->multi_line());  // sticky from the previous call
+
+    // Negative values are clamped to 0 (defensive — JS shim parseInt
+    // never emits a negative, but we don't want to trust that).
+    bridge.load_script("setLineClamp('lab', -3)");
+    REQUIRE(lab->line_clamp() == 0);
+}
+
+TEST_CASE("WidgetBridge setLineClamp truncates multi-line text in paint",
+          "[view][bridge][issue-1552]") {
+    using namespace pulp::canvas;
+
+    Label label("alpha\nbeta\ngamma\ndelta");
+    label.set_bounds({0, 0, 200, 200});
+    label.set_multi_line(true);
+    label.set_line_clamp(2);
+
+    RecordingCanvas canvas;
+    label.paint(canvas);
+
+    // Verify exactly 2 fill_text commands emitted (one per visible line).
+    auto fills = std::vector<DrawCommand>{};
+    for (auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) fills.push_back(cmd);
+    }
+    REQUIRE(fills.size() == 2);
+    // First line is verbatim, second line gets the U+2026 ellipsis
+    // appended because source lines were dropped.
+    REQUIRE(fills[0].text == "alpha");
+    REQUIRE(fills[1].text == std::string("beta") + "\xe2\x80\xa6");
+
+    // Clamp larger than the source-line count: paint emits all lines
+    // and skips the ellipsis (no source lines were dropped).
+    canvas.clear();
+    label.set_line_clamp(10);
+    label.paint(canvas);
+    fills.clear();
+    for (auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) fills.push_back(cmd);
+    }
+    REQUIRE(fills.size() == 4);
+    REQUIRE(fills[3].text == "delta");  // no ellipsis
+}
+
+TEST_CASE("Label line-clamp shrinks text_h for vertical-align centering",
+          "[view][bridge][issue-1552]") {
+    using namespace pulp::canvas;
+
+    // Codex P2 on PR #1573 — vertical positioning previously used the
+    // *source* newline count for text_h, so a 5-line label clamped to 2
+    // visible lines was offset upward as if the hidden lines still
+    // occupied space. Verify the first visible line's y reflects a
+    // 2-line block centered in the bounds, not a 5-line block.
+
+    constexpr float kBoundsH = 200.0f;
+    constexpr float kFontSize = 14.0f;
+    const float lh = kFontSize * 1.4f;       // Label default line-height
+    const float ascent = kFontSize * 0.85f;  // Label baseline offset
+
+    // Reference: 2-line block (matches the clamped behavior we want).
+    Label two_lines("alpha\nbeta");
+    two_lines.set_bounds({0, 0, 200, kBoundsH});
+    two_lines.set_multi_line(true);
+    two_lines.set_font_size(kFontSize);
+    two_lines.set_vertical_align(TextVerticalAlign::center);
+
+    RecordingCanvas ref_canvas;
+    two_lines.paint(ref_canvas);
+    float ref_first_y = -1.0f;
+    for (auto& cmd : ref_canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) {
+            ref_first_y = cmd.f[1];
+            break;
+        }
+    }
+    REQUIRE(ref_first_y > 0.0f);
+
+    // Subject: 5 source lines, clamp=2. The first visible line's y must
+    // match the 2-line reference (i.e. clamp shrinks the centered block,
+    // it does not push the visible lines off-center).
+    Label clamped("one\ntwo\nthree\nfour\nfive");
+    clamped.set_bounds({0, 0, 200, kBoundsH});
+    clamped.set_multi_line(true);
+    clamped.set_font_size(kFontSize);
+    clamped.set_vertical_align(TextVerticalAlign::center);
+    clamped.set_line_clamp(2);
+
+    RecordingCanvas canvas;
+    clamped.paint(canvas);
+
+    std::vector<DrawCommand> fills;
+    for (auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) fills.push_back(cmd);
+    }
+    REQUIRE(fills.size() == 2);
+    REQUIRE_THAT(fills[0].f[1], WithinAbs(ref_first_y, 1e-3));
+    // Second visible line sits exactly one line-height below the first.
+    REQUIRE_THAT(fills[1].f[1], WithinAbs(ref_first_y + lh, 1e-3));
+
+    // Sanity: the centered y is meaningfully below the top-aligned y
+    // (= ascent). This guards against regressing to the historic bug
+    // where multi-line always painted from the top regardless of
+    // vertical-align (would have ref_first_y == ascent).
+    REQUIRE(ref_first_y > ascent + lh);  // strictly below 1-line top
+}
+
+TEST_CASE("WidgetBridge setBackgroundRepeat round-trips keyword on View",
+          "[view][bridge][issue-1552]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createCol('panel', '')");
+    auto* panel = bridge.widget("panel");
+    REQUIRE(panel != nullptr);
+    REQUIRE(panel->background_repeat().empty());
+
+    bridge.load_script("setBackgroundRepeat('panel', 'no-repeat')");
+    REQUIRE(panel->background_repeat() == "no-repeat");
+
+    bridge.load_script("setBackgroundRepeat('panel', 'repeat-x')");
+    REQUIRE(panel->background_repeat() == "repeat-x");
+
+    bridge.load_script("setBackgroundRepeat('panel', 'space')");
+    REQUIRE(panel->background_repeat() == "space");
+
+    bridge.load_script("setBackgroundRepeat('panel', '')");
+    REQUIRE(panel->background_repeat().empty());
+}
+
 // ── issue-926: setBackdropFilter ─────────────────────────────────────────────
 
 // pulp #1517 — background sub-properties round-trip through the bridge
@@ -5264,6 +5428,98 @@ TEST_CASE("border-style: none short-circuits the stroke",
     }
 }
 
+// ── pulp #1514 — list-style cluster bridge round-trip ────────────────────
+//
+// Pulp doesn't model HTML <li>/<ul>/<ol> semantics; the bridge stores
+// the list-style values verbatim on the View so a future paint pass
+// (or a future semantic-list surface) can honor them. The catalog
+// status is `partial` (stored, not painted) — these tests prove the
+// JS → bridge → View slot round-trip works for every keyword.
+
+TEST_CASE("setListStyleType maps each keyword to the right enum (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');  setListStyleType('a', 'none');
+        createPanel('b', '');  setListStyleType('b', 'disc');
+        createPanel('c', '');  setListStyleType('c', 'circle');
+        createPanel('d', '');  setListStyleType('d', 'square');
+        createPanel('e', '');  setListStyleType('e', 'decimal');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_type() == View::ListStyleType::none);
+    REQUIRE(bridge.widget("b")->list_style_type() == View::ListStyleType::disc);
+    REQUIRE(bridge.widget("c")->list_style_type() == View::ListStyleType::circle);
+    REQUIRE(bridge.widget("d")->list_style_type() == View::ListStyleType::square);
+    REQUIRE(bridge.widget("e")->list_style_type() == View::ListStyleType::decimal);
+}
+
+TEST_CASE("setListStyleType unknown keyword falls back to disc (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('x', '');
+        setListStyleType('x', 'lower-roman');
+    )");
+    // 'lower-roman' isn't in the supported set; bridge defaults to disc
+    // (the CSS spec default for <ul>).
+    REQUIRE(bridge.widget("x")->list_style_type() == View::ListStyleType::disc);
+}
+
+TEST_CASE("setListStyleImage stores url and clears on 'none' (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');  setListStyleImage('a', 'url(bullet.png)');
+        createPanel('b', '');  setListStyleImage('b', 'none');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_image() == "url(bullet.png)");
+    REQUIRE(bridge.widget("b")->list_style_image() == "");
+}
+
+TEST_CASE("setListStylePosition maps each keyword to the right enum (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');  setListStylePosition('a', 'inside');
+        createPanel('b', '');  setListStylePosition('b', 'outside');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_position() == View::ListStylePosition::inside);
+    REQUIRE(bridge.widget("b")->list_style_position() == View::ListStylePosition::outside);
+}
+
+TEST_CASE("setListStylePosition unknown keyword falls back to outside (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('x', '');
+        setListStylePosition('x', 'middle');
+    )");
+    REQUIRE(bridge.widget("x")->list_style_position() == View::ListStylePosition::outside);
+}
+
+TEST_CASE("listStyle shorthand parses type / position / image in any order (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
 // ── pulp #1434 Phase A2-4 — CSS filter chain ─────────────────────────
 //
 // setFilter walks the function-chain string (e.g. "blur(4px)
@@ -5281,6 +5537,37 @@ TEST_CASE("setFilter parses single blur(Npx)",
 
     bridge.load_script(R"(
         createPanel('a', '');
+        createPanel('b', '');
+        createPanel('c', '');
+    )");
+
+    // Drive the actual web-compat-style-decl.js path with three orderings:
+    //   a: type position image
+    //   b: image type position  (CSS spec allows any order)
+    //   c: just "none"          (the most common reset)
+    bridge.load_script(R"(
+        var __ea = { _id: 'a', _nativeCreated: true };
+        var __sda = new CSSStyleDeclaration(__ea);
+        __sda._applyProperty('listStyle', 'square inside url(bullet.png)');
+
+        var __eb = { _id: 'b', _nativeCreated: true };
+        var __sdb = new CSSStyleDeclaration(__eb);
+        __sdb._applyProperty('listStyle', 'url(dot.png) circle outside');
+
+        var __ec = { _id: 'c', _nativeCreated: true };
+        var __sdc = new CSSStyleDeclaration(__ec);
+        __sdc._applyProperty('listStyle', 'none');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_type() == View::ListStyleType::square);
+    REQUIRE(bridge.widget("a")->list_style_position() == View::ListStylePosition::inside);
+    REQUIRE(bridge.widget("a")->list_style_image() == "url(bullet.png)");
+
+    REQUIRE(bridge.widget("b")->list_style_type() == View::ListStyleType::circle);
+    REQUIRE(bridge.widget("b")->list_style_position() == View::ListStylePosition::outside);
+    REQUIRE(bridge.widget("b")->list_style_image() == "url(dot.png)");
+
+    REQUIRE(bridge.widget("c")->list_style_type() == View::ListStyleType::none);
         setFilter('a', 'blur(8px)');
     )");
     const auto& chain = bridge.widget("a")->filter_chain();
@@ -6015,6 +6302,85 @@ TEST_CASE("CSSStyleDeclaration forwards gridTemplateAreas",
     )");
     REQUIRE(bridge.widget("a")->grid().template_areas.size() == 3);
     REQUIRE(bridge.widget("a")->grid().auto_flow == GridStyle::AutoFlow::column);
+}
+
+// pulp #1516 — setBoxSizing routes to FlexStyle.box_sizing.
+TEST_CASE("setBoxSizing border-box / content-box round-trips onto FlexStyle",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        createPanel('b', '');
+        setBoxSizing('a', 'border-box');
+        setBoxSizing('b', 'content-box');
+    )");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::border_box);
+    REQUIRE(bridge.widget("b")->flex().box_sizing == BoxSizing::content_box);
+
+    // Unknown keyword falls back to content-box. The default for an
+    // unset slot is border-box (matches Yoga 3.x and pulp's implicit
+    // pre-#1516 behavior), but `setBoxSizing` with an explicit unknown
+    // keyword resolves to content-box rather than silently keeping the
+    // prior value — that way `setBoxSizing('id', 'wat')` is a clear
+    // observable rather than a quiet no-op.
+    bridge.load_script("setBoxSizing('a', 'wat')");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::content_box);
+}
+
+// pulp #1516 — CSSStyleDeclaration shim forwards camelCase boxSizing.
+TEST_CASE("CSSStyleDeclaration forwards box-sizing to bridge",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        var s = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        s.boxSizing = 'border-box';
+    )");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::border_box);
+}
+
+// pulp #1516 — load-bearing test. Under border-box (pulp default),
+// declared width=100 + padding=10 yields outer-bounds width=100
+// (content area shrinks). Under content-box (CSS spec default), the
+// same declaration produces outer width=120 (padding adds outside).
+// Yoga 3.x's YGNodeStyleSetBoxSizing does the math.
+TEST_CASE("border-box vs content-box layout math via Yoga",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 400});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('bb', '');
+        createPanel('cb', '');
+        setFlex('bb', 'width',  100);
+        setFlex('bb', 'height', 100);
+        setFlex('bb', 'padding', 10);
+        // bb stays default border-box (matches pulp's pre-#1516 implicit
+        // behavior and Yoga 3.x's own default).
+        setFlex('cb', 'width',  100);
+        setFlex('cb', 'height', 100);
+        setFlex('cb', 'padding', 10);
+        setBoxSizing('cb', 'content-box');
+    )");
+    root.layout_children();
+    auto* bb = bridge.widget("bb");
+    auto* cb = bridge.widget("cb");
+    REQUIRE(bb != nullptr);
+    REQUIRE(cb != nullptr);
+    // border-box: outer == declared (100); content area shrinks.
+    REQUIRE_THAT(bb->bounds().width,  WithinAbs(100.0f, 0.5f));
+    REQUIRE_THAT(bb->bounds().height, WithinAbs(100.0f, 0.5f));
+    // content-box: outer == declared + padding*2 (120).
+    REQUIRE_THAT(cb->bounds().width,  WithinAbs(120.0f, 0.5f));
+    REQUIRE_THAT(cb->bounds().height, WithinAbs(120.0f, 0.5f));
 }
 
 // ── pulp #1522 — Canvas2D fillRule arg threads through bridge fns ───────
