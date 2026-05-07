@@ -4,6 +4,7 @@
 #include <pulp/view/animation.hpp>
 #include <pulp/view/frame_clock.hpp>
 #include <pulp/view/image_cache.hpp>
+#include <pulp/view/text_overflow.hpp>
 #include <pulp/view/window_host.hpp>
 #include <pulp/canvas/text_shaper.hpp>
 #include <choc/text/choc_JSON.h>
@@ -436,13 +437,25 @@ void Label::paint(canvas::Canvas& canvas) {
             int v = inh.value();
             if (v == 1) effective_text_align = LabelAlign::center;
             else if (v == 2) effective_text_align = LabelAlign::right;
+            else if (v == 3) effective_text_align = LabelAlign::auto_;
+            else if (v == 4) effective_text_align = LabelAlign::justify;
             else effective_text_align = LabelAlign::left;
         }
+    }
+
+    // pulp #1434 — resolve `auto` at paint time. `auto` is CSS
+    // writing-direction-relative: LTR → left, RTL → right. Pulp doesn't
+    // model RTL yet (yoga/direction is still NOT-IMPL), so `auto`
+    // currently degrades to `left`. When RTL lands, this becomes a
+    // lookup against the writing-direction context.
+    if (effective_text_align == LabelAlign::auto_) {
+        effective_text_align = LabelAlign::left;
     }
 
     float x = 0;
     switch (effective_text_align) {
         case LabelAlign::left:
+        case LabelAlign::auto_: // unreachable — resolved above; keeps switch exhaustive
             canvas.set_text_align(canvas::TextAlign::left);
             break;
         case LabelAlign::center:
@@ -453,26 +466,30 @@ void Label::paint(canvas::Canvas& canvas) {
             canvas.set_text_align(canvas::TextAlign::right);
             x = bounds().width;
             break;
+        case LabelAlign::justify:
+            // pulp #1434 — emit canvas TextAlign::justify so backends
+            // that wire SkParagraph kJustify can render true justified
+            // text. RecordingCanvas / CG fall back to left-alignment
+            // semantics (no kerning-controlled space distribution).
+            // Anchor x at 0 so the first line's leading edge matches a
+            // left-aligned label.
+            canvas.set_text_align(canvas::TextAlign::justify);
+            break;
     }
 
+    // pulp #1407 — track the actually-painted single-line string so the
+    // decoration block below measures the truncated text, not the
+    // original. Multi-line keeps using display_text since it paints the
+    // full string across multiple draw calls.
+    std::string draw_text = display_text;
     if (!multi_line_) {
-        // Text overflow ellipsis
-        if (text_overflow_ellipsis() && effective_text_align == LabelAlign::left) {
-            float avail = bounds().width;
-            float text_w = canvas.measure_text(display_text);
-            if (text_w > avail && display_text.size() > 3) {
-                std::string truncated = display_text;
-                while (truncated.size() > 1) {
-                    truncated.pop_back();
-                    float w = canvas.measure_text(truncated + "...");
-                    if (w <= avail) {
-                        canvas.fill_text(truncated + "...", x, baseline_y);
-                        goto decoration;
-                    }
-                }
-            }
-        }
-        canvas.fill_text(display_text, x, baseline_y);
+        // pulp #1407 — CSS `text-overflow: ellipsis`. Truncate with U+2026
+        // when the measured text exceeds the content-box, regardless of
+        // text-align (CSS truncates at the trailing edge for all three).
+        // UTF-8-safe via codepoint binary-search in truncate_to_width().
+        if (text_overflow_ellipsis())
+            draw_text = truncate_to_width(canvas, display_text, bounds().width);
+        canvas.fill_text(draw_text, x, baseline_y);
     } else {
         float y = effective_font_size * 0.85f;
         size_t pos = 0;
@@ -486,12 +503,14 @@ void Label::paint(canvas::Canvas& canvas) {
     }
 
     // Text decoration (underline, line-through, overline)
-    decoration:
     if (text_decoration_ != TextDecoration::none) {
         auto dec_color = has_decoration_color_ ? decoration_color_ : text_color;
         canvas.set_stroke_color(dec_color);
         canvas.set_line_width(1.0f);
-        float text_w = canvas.measure_text(display_text);
+        // pulp #1407 — measure the actually-drawn (possibly truncated)
+        // text so a decoration line on an ellipsised label doesn't
+        // escape past the visible glyphs.
+        float text_w = canvas.measure_text(draw_text);
         float draw_x = x;
         if (effective_text_align == LabelAlign::center) draw_x = x - text_w * 0.5f;
         else if (effective_text_align == LabelAlign::right) draw_x = x - text_w;

@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/events/events.hpp>
 #include <pulp/events/async_updater.hpp>
+#include <pulp/events/child_process_manager.hpp>
+#include <pulp/events/interprocess_connection.hpp>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -468,14 +470,20 @@ TEST_CASE("ActionBroadcaster adds, removes, and notifies listeners",
     broadcaster.send_action("refresh");
     REQUIRE(seen == std::vector<std::string>{"refresh", "second:refresh"});
 
+    broadcaster.remove_listener(999);
+    broadcaster.send_action("noop-remove");
+    REQUIRE(seen == std::vector<std::string>{
+        "refresh", "second:refresh", "noop-remove", "second:noop-remove"});
+
     broadcaster.remove_listener(first);
     broadcaster.send_action("rebuild");
     REQUIRE(seen == std::vector<std::string>{
-        "refresh", "second:refresh", "second:rebuild"});
+        "refresh", "second:refresh", "noop-remove", "second:noop-remove",
+        "second:rebuild"});
 
     broadcaster.remove_listener(second);
     broadcaster.send_action("ignored");
-    REQUIRE(seen.size() == 3);
+    REQUIRE(seen.size() == 5);
 }
 
 TEST_CASE("ScopedLowPowerModeDisabler is constructible as an RAII guard",
@@ -486,4 +494,58 @@ TEST_CASE("ScopedLowPowerModeDisabler is constructible as an RAII guard",
     }
 
     SUCCEED("destruction completed");
+}
+
+TEST_CASE("InterprocessConnection rejects malformed socket endpoints",
+          "[events][ipc][issue-642]") {
+    InterprocessConnection connection;
+
+    REQUIRE_FALSE(connection.connect("127.0.0.1", IpcTransport::Socket));
+    REQUIRE(connection.state() == IpcState::Error);
+
+    REQUIRE_FALSE(connection.connect("127.0.0.1:not-a-port", IpcTransport::Socket));
+    REQUIRE(connection.state() == IpcState::Error);
+
+    REQUIRE_FALSE(connection.connect("127.0.0.1:70000", IpcTransport::Socket));
+    REQUIRE(connection.state() == IpcState::Error);
+
+    REQUIRE_FALSE(connection.create_server("also-not-a-port", IpcTransport::Socket));
+    REQUIRE(connection.state() == IpcState::Error);
+
+    connection.disconnect();
+    REQUIRE_FALSE(connection.is_connected());
+    REQUIRE(connection.state() == IpcState::Disconnected);
+}
+
+TEST_CASE("InterprocessConnectionServer rejects malformed socket endpoints",
+          "[events][ipc][issue-642]") {
+    InterprocessConnectionServer server;
+
+    REQUIRE_FALSE(server.start("127.0.0.1:not-a-port", IpcTransport::Socket));
+    REQUIRE_FALSE(server.is_running());
+
+    REQUIRE_FALSE(server.start("70000", IpcTransport::Socket));
+    REQUIRE_FALSE(server.is_running());
+
+    server.stop();
+    REQUIRE_FALSE(server.is_running());
+}
+
+TEST_CASE("ChildProcessManager empty lifecycle operations are no-ops",
+          "[events][child_process][issue-642]") {
+    ChildProcessManager manager;
+
+    REQUIRE(manager.active_count() == 0);
+    manager.cleanup();
+    manager.kill_all();
+    manager.wait_all(1);
+    REQUIRE(manager.active_count() == 0);
+
+    ConnectedChildProcess child;
+    REQUIRE_FALSE(child.is_running());
+    REQUIRE(child.pid() == -1);
+    REQUIRE_FALSE(child.send_message("offline"));
+    REQUIRE(child.wait_for_exit(1) == -1);
+    child.kill();
+    REQUIRE_FALSE(child.is_running());
 }

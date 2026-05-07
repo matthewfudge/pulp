@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/canvas/canvas.hpp>
 #include <pulp/view/eq_curve_view.hpp>
 #include <pulp/view/midi_keyboard.hpp>
 #include <pulp/view/color_picker.hpp>
@@ -50,6 +51,26 @@ TEST_CASE("EqCurveView band management", "[view][eq_curve]") {
         eq.set_selected_band(0);
         REQUIRE(eq.selected_band() == 0);
     }
+
+    SECTION("Invalid band operations are no-ops and range setters clamp") {
+        eq.add_band({500.0f, -3.0f, 0.8f, EqCurveView::FilterType::peak, true});
+
+        EqCurveView::Band replacement{2000.0f, 6.0f, 2.0f, EqCurveView::FilterType::notch, true};
+        eq.set_band(3, replacement);
+        eq.remove_band(9);
+        REQUIRE(eq.band_count() == 1);
+        REQUIRE_THAT(eq.bands()[0].frequency, WithinAbs(500.0, 0.1));
+        REQUIRE_THAT(eq.bands()[0].gain_db, WithinAbs(-3.0, 0.1));
+        REQUIRE_THAT(eq.bands()[0].q, WithinAbs(0.8, 0.01));
+
+        eq.set_frequency_range(-20.0f, -10.0f);
+        REQUIRE_THAT(eq.min_frequency(), WithinAbs(1.0, 0.001));
+        REQUIRE_THAT(eq.max_frequency(), WithinAbs(2.0, 0.001));
+
+        eq.set_gain_range(12.0f, 12.0f);
+        REQUIRE_THAT(eq.min_gain(), WithinAbs(12.0, 0.001));
+        REQUIRE_THAT(eq.max_gain(), WithinAbs(13.0, 0.001));
+    }
 }
 
 TEST_CASE("EqCurveView spectrum overlay", "[view][eq_curve]") {
@@ -58,6 +79,68 @@ TEST_CASE("EqCurveView spectrum overlay", "[view][eq_curve]") {
     eq.set_spectrum(spectrum.data(), spectrum.size());
     eq.clear_spectrum();
     // Should not crash
+}
+
+TEST_CASE("EqCurveView hit testing and drag callbacks", "[view][eq_curve][issue-493]") {
+    EqCurveView eq;
+    eq.set_bounds({0, 0, 200, 100});
+    eq.set_frequency_range(100.0f, 10000.0f);
+    eq.set_gain_range(-12.0f, 12.0f);
+    eq.add_band({1000.0f, 0.0f, 1.0f});
+
+    int selected_index = -1;
+    int selected_count = 0;
+    int changed_index = -1;
+    int changed_count = 0;
+    EqCurveView::Band changed_band{};
+    eq.on_band_selected = [&](size_t index) {
+        selected_index = static_cast<int>(index);
+        ++selected_count;
+    };
+    eq.on_band_changed = [&](size_t index, EqCurveView::Band band) {
+        changed_index = static_cast<int>(index);
+        changed_band = band;
+        ++changed_count;
+    };
+
+    eq.on_mouse_down({100, 50});
+    REQUIRE(eq.selected_band() == 0);
+    REQUIRE(selected_index == 0);
+    REQUIRE(selected_count == 1);
+
+    eq.on_mouse_drag({400, -100});
+    REQUIRE(changed_index == 0);
+    REQUIRE(changed_count == 1);
+    REQUIRE_THAT(eq.bands()[0].frequency, WithinAbs(10000.0, 0.1));
+    REQUIRE_THAT(eq.bands()[0].gain_db, WithinAbs(12.0, 0.001));
+    REQUIRE_THAT(changed_band.frequency, WithinAbs(10000.0, 0.1));
+    REQUIRE_THAT(changed_band.gain_db, WithinAbs(12.0, 0.001));
+
+    eq.on_mouse_up({400, -100});
+    eq.on_mouse_drag({0, 100});
+    REQUIRE(changed_count == 1);
+}
+
+TEST_CASE("EqCurveView empty hit does not start a drag", "[view][eq_curve][issue-493]") {
+    EqCurveView eq;
+    eq.set_bounds({0, 0, 200, 100});
+    eq.set_frequency_range(100.0f, 10000.0f);
+    eq.set_gain_range(-12.0f, 12.0f);
+    eq.add_band({1000.0f, 0.0f, 1.0f});
+
+    int selected_count = 0;
+    int changed_count = 0;
+    eq.on_band_selected = [&](size_t) { ++selected_count; };
+    eq.on_band_changed = [&](size_t, EqCurveView::Band) { ++changed_count; };
+
+    eq.on_mouse_down({5, 5});
+    REQUIRE(eq.selected_band() == -1);
+    REQUIRE(selected_count == 0);
+
+    eq.on_mouse_drag({200, 0});
+    REQUIRE(changed_count == 0);
+    REQUIRE_THAT(eq.bands()[0].frequency, WithinAbs(1000.0, 0.1));
+    REQUIRE_THAT(eq.bands()[0].gain_db, WithinAbs(0.0, 0.001));
 }
 
 // ── MidiKeyboard ────────────────────────────────────────────────────────────
@@ -132,6 +215,25 @@ TEST_CASE("ColorPicker hex round-trip", "[view][color_picker]") {
     REQUIRE(picker.color().b8() == 0x00);
 }
 
+TEST_CASE("ColorPicker hex alpha and malformed input are stable",
+          "[view][color_picker][issue-493]") {
+    ColorPicker picker;
+    picker.set_hex("#33669980");
+    REQUIRE(picker.hex() == "#33669980");
+    REQUIRE(picker.color().r8() == 0x33);
+    REQUIRE(picker.color().g8() == 0x66);
+    REQUIRE(picker.color().b8() == 0x99);
+    REQUIRE(picker.color().a8() == 0x80);
+
+    const auto before = picker.hex();
+    picker.set_hex("336699");
+    REQUIRE(picker.hex() == before);
+    picker.set_hex("#3366991234");
+    REQUIRE(picker.hex() == before);
+    REQUIRE_NOTHROW(picker.set_hex("#zzzzzz"));
+    REQUIRE(picker.hex() == before);
+}
+
 TEST_CASE("ColorPicker HSL round-trip", "[view][color_picker]") {
     ColorPicker picker;
     HSL hsl{120.0f, 1.0f, 0.5f};
@@ -148,6 +250,69 @@ TEST_CASE("ColorPicker swatches", "[view][color_picker]") {
         Color::rgba8(0, 0, 255)
     });
     REQUIRE(picker.swatches().size() == 3);
+}
+
+TEST_CASE("ColorPicker mouse editing updates SL hue alpha and swatches",
+          "[view][color_picker][issue-493]") {
+    ColorPicker picker;
+    picker.set_bounds({0, 0, 200, 280});
+    picker.set_hex("#000000ff");
+
+    int changes = 0;
+    picker.on_change = [&](Color) { ++changes; };
+
+    picker.on_mouse_down({90, 90});
+    REQUIRE(changes == 1);
+    REQUIRE(picker.color().r8() > 0);
+
+    picker.on_mouse_down({176, 184});
+    REQUIRE(changes == 2);
+    REQUIRE_THAT(picker.hsl().h, WithinAbs(360.0, 0.1));
+
+    picker.set_show_alpha(true);
+    picker.on_mouse_down({4, 212});
+    REQUIRE(changes == 3);
+    REQUIRE(picker.color().a8() == 0);
+    picker.on_mouse_drag({176, 212});
+    REQUIRE(changes == 4);
+    REQUIRE(picker.color().a8() == 255);
+    picker.on_mouse_up({176, 212});
+    picker.on_mouse_drag({4, 212});
+    REQUIRE(changes == 4);
+
+    picker.set_show_alpha(false);
+    picker.set_swatches({
+        Color::rgba8(255, 0, 0),
+        Color::rgba8(0, 255, 0),
+    });
+
+    picker.on_mouse_down({32, 216});
+    REQUIRE(changes == 5);
+    REQUIRE(picker.color().g8() == 255);
+    REQUIRE(picker.color().r8() == 0);
+}
+
+TEST_CASE("ColorPicker paint positions alpha cursor from normalized alpha",
+          "[view][color_picker][issue-493]") {
+    ColorPicker picker;
+    picker.set_bounds({0, 0, 200, 280});
+    picker.set_show_alpha(true);
+    picker.set_hex("#33669980");
+
+    pulp::canvas::RecordingCanvas canvas;
+    picker.paint(canvas);
+
+    bool found_alpha_cursor = false;
+    for (const auto& command : canvas.commands()) {
+        if (command.type != pulp::canvas::DrawCommand::Type::fill_rect) continue;
+        if (command.f[1] < 209.0f || command.f[1] > 211.0f) continue;
+        if (command.f[2] != 4.0f || command.f[3] != 24.0f) continue;
+
+        found_alpha_cursor = true;
+        REQUIRE(command.f[0] > 86.0f);
+        REQUIRE(command.f[0] < 91.0f);
+    }
+    REQUIRE(found_alpha_cursor);
 }
 
 // ── FileDropZone ────────────────────────────────────────────────────────────
@@ -330,4 +495,75 @@ TEST_CASE("Breadcrumb separator", "[view][breadcrumb]") {
     REQUIRE(bc.separator() == "/");
     bc.set_separator(">");
     REQUIRE(bc.separator() == ">");
+}
+
+TEST_CASE("Breadcrumb empty and out-of-range interactions are stable",
+          "[view][breadcrumb][coverage]") {
+    Breadcrumb bc;
+    auto empty = bc.pop();
+    REQUIRE(empty.label.empty());
+    REQUIRE(empty.id.empty());
+
+    bc.set_items({{"Home", "home"}, {"Settings", "settings"}});
+    bc.pop_to(99);
+    REQUIRE(bc.items().size() == 2);
+
+    int navigate_calls = 0;
+    bc.on_navigate = [&](size_t, const Breadcrumb::Item&) { ++navigate_calls; };
+    bc.on_mouse_down({200, 16});
+    REQUIRE(navigate_calls == 0);
+}
+
+TEST_CASE("Breadcrumb navigation targets later items and ignores separators",
+          "[view][breadcrumb][coverage]") {
+    Breadcrumb bc;
+    bc.set_separator(">");
+    bc.set_items({{"Home", "home"}, {"Settings", "settings"}, {"Audio", "audio"}});
+
+    size_t nav_idx = 999;
+    std::string nav_id;
+    int navigate_calls = 0;
+    bc.on_navigate = [&](size_t idx, const Breadcrumb::Item& item) {
+        nav_idx = idx;
+        nav_id = item.id;
+        ++navigate_calls;
+    };
+
+    bc.on_mouse_down({60, 16});
+    REQUIRE(navigate_calls == 1);
+    REQUIRE(nav_idx == 1);
+    REQUIRE(nav_id == "settings");
+
+    bc.on_mouse_down({45, 16});
+    REQUIRE(navigate_calls == 1);
+}
+
+TEST_CASE("Breadcrumb paint emits background, items, and separators",
+          "[view][breadcrumb][coverage]") {
+    Breadcrumb bc;
+    bc.set_bounds({0, 0, 240, 32});
+    bc.set_separator(">");
+    bc.set_items({{"Home", "home"}, {"Settings", "settings"}, {"Audio", "audio"}});
+
+    pulp::canvas::RecordingCanvas canvas;
+    bc.paint(canvas);
+
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::set_font) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::set_text_align) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_text) == 5);
+
+    int home_text = 0;
+    int separator_text = 0;
+    for (const auto& command : canvas.commands()) {
+        if (command.type != pulp::canvas::DrawCommand::Type::fill_text)
+            continue;
+        if (command.text == "Home")
+            ++home_text;
+        if (command.text == ">")
+            ++separator_text;
+    }
+
+    REQUIRE(home_text == 1);
+    REQUIRE(separator_text == 2);
 }

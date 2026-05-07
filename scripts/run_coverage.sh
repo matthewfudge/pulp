@@ -187,9 +187,13 @@ find "${PROFRAW_DIR}" -name '*.profraw' -print0 \
 # they're built from third-party sources not instrumented by our flags.
 BINARIES=()
 
-# Test executables — first, these drive the actual coverage hits.
+# Test executables — first, these drive the actual coverage hits. On
+# Windows/MSYS, CTest can run `.exe` files whose Unix executable bit is
+# not visible to `find -perm -u+x`; include `.exe` explicitly so their
+# coverage maps reach llvm-cov.
 while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
-    find "${BUILD_DIR}/test" -maxdepth 2 -type f -perm -u+x \
+    find "${BUILD_DIR}/test" -maxdepth 2 -type f \
+         \( -perm -u+x -o -name '*.exe' \) \
          ! -name '*.cmake' ! -name '*.txt' 2>/dev/null || true
 )
 
@@ -198,7 +202,9 @@ while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
 # smoke target is built under bindings/python/, not build/test/, so
 # without this pass its profile data never contributes to report/show.
 while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
-    find "${BUILD_DIR}" -type f -perm -u+x -name 'pulp-test-*' \
+    find "${BUILD_DIR}" -type f \
+         \( -perm -u+x -o -name '*.exe' \) \
+         -name 'pulp-test-*' \
          ! -path "${BUILD_DIR}/test/*" \
          ! -path '*/_deps/*' \
          ! -path '*/external/*' \
@@ -224,6 +230,7 @@ fi
 while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
     find "${BUILD_DIR}" -type f \
          \( -name 'libpulp-*.a' -o -name 'pulp-*.lib' \) \
+         ! -path "${BUILD_DIR}/test/*" \
          2>/dev/null || true
 )
 
@@ -232,7 +239,8 @@ while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
 # anything under /_deps/ or /external/ to avoid third-party objects.
 while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
     find "${BUILD_DIR}/tools" "${BUILD_DIR}/inspect" \
-         -maxdepth 3 -type f -perm -u+x \
+         -maxdepth 3 -type f \
+         \( -perm -u+x -o -name '*.exe' \) \
          ! -name '*.cmake' ! -name '*.txt' ! -name '*.o' \
          2>/dev/null || true
 )
@@ -318,6 +326,7 @@ llvm-cov show \
 # a vendored copy of https://github.com/eriwen/lcov-to-cobertura-xml
 # (Apache 2.0, MIT-compatible).
 COBERTURA_XML="${BUILD_DIR}/coverage.cobertura.xml"
+RAW_LCOV_FILE="${REPORT_DIR}/coverage.raw.lcov"
 LCOV_FILE="${REPORT_DIR}/coverage.lcov"
 LCOV_COBERTURA="${REPO_ROOT}/tools/scripts/lcov_cobertura.py"
 
@@ -332,7 +341,42 @@ llvm-cov export --format=lcov \
     "${BINARIES[@]}" \
     -instr-profile="${PROFDATA}" \
     -ignore-filename-regex="${COVERAGE_IGNORE_REGEX}" \
-    > "${LCOV_FILE}"
+    > "${RAW_LCOV_FILE}"
+
+# Issue #1058: `llvm-cov export --format=lcov` is not gcov-aware and does NOT
+# honor `LCOV_EXCL_START` / `LCOV_EXCL_STOP` markers in source. Without the
+# `lcov --remove` pass below, those markers are silently documentation-only
+# and excluded ranges still appear as Missing in diff-cover output. Run the
+# raw .lcov through `lcov --remove` so its gcov parser strips the excluded
+# ranges before lcov_cobertura.py converts to Cobertura XML. Falls back to
+# a straight copy + warning when `lcov` isn't installed (CI / Linux dev
+# machines often lack it) so the existing pipeline keeps working with the
+# prior behavior.
+echo "=== LCOV → LCOV (honor LCOV_EXCL markers via lcov --filter region) ==="
+if command -v lcov >/dev/null 2>&1; then
+    # The dummy `--remove` pattern matches no real source path, so the
+    # remove step is a no-op file-wise; what we actually want is the
+    # source-aware re-read triggered by `--filter region`, which scans
+    # the SF: source files for LCOV_EXCL_START/STOP and drops the
+    # excluded line ranges. `--ignore-errors unused` keeps the dummy
+    # pattern from being a fatal error in lcov 2.x. If the lcov binary
+    # is too old to recognize `--filter region` (lcov 1.x), fall back
+    # to a straight copy and print a hint.
+    if ! lcov --remove "${RAW_LCOV_FILE}" '/__pulp_unmatched__/*' \
+              --output-file "${LCOV_FILE}" \
+              --filter region \
+              --ignore-errors unused \
+              --rc branch_coverage=1 \
+              >/dev/null 2>&1; then
+        cp "${RAW_LCOV_FILE}" "${LCOV_FILE}"
+        echo "run_coverage.sh: WARN: lcov --filter region failed; falling back to raw .lcov" >&2
+        echo "run_coverage.sh:       (LCOV_EXCL markers will not be honored — needs lcov >= 2.0)" >&2
+    fi
+else
+    cp "${RAW_LCOV_FILE}" "${LCOV_FILE}"
+    echo "run_coverage.sh: note: lcov not installed — LCOV_EXCL markers won't be honored." >&2
+    echo "run_coverage.sh: install with: brew install lcov  /  sudo apt install lcov" >&2
+fi
 
 echo "=== LCOV → Cobertura XML ==="
 python3 "${LCOV_COBERTURA}" "${LCOV_FILE}" \

@@ -5,9 +5,32 @@
 #include <pulp/view/concertina_panel.hpp>
 #include <pulp/view/buttons.hpp>
 #include <pulp/view/lasso.hpp>
+#include <memory>
 
 using namespace pulp::canvas;
 using namespace pulp::view;
+
+namespace {
+
+class ToolbarProbeView final : public View {
+public:
+    int mouse_down_count = 0;
+    int paint_count = 0;
+    Point last_position{-1.0f, -1.0f};
+
+    void on_mouse_down(Point pos) override {
+        ++mouse_down_count;
+        last_position = pos;
+    }
+
+    void paint(pulp::canvas::Canvas& canvas) override {
+        ++paint_count;
+        canvas.set_fill_color(pulp::canvas::Color::rgba8(1, 2, 3));
+        canvas.fill_rect(0, 0, bounds().width, bounds().height);
+    }
+};
+
+}  // namespace
 
 // ── SimpleTableModel ────────────────────────────────────────────────────
 
@@ -115,6 +138,114 @@ TEST_CASE("Toolbar remove item", "[gui][toolbar]") {
     REQUIRE(toolbar.item_count() == 1);
 }
 
+TEST_CASE("Toolbar mouse interaction skips separators and disabled items",
+          "[gui][toolbar][coverage]") {
+    Toolbar toolbar;
+    int play_clicks = 0;
+    int save_clicks = 0;
+    bool loop_state = false;
+    int loop_calls = 0;
+
+    toolbar.add_button("play", "Play", [&]() { ++play_clicks; });
+    toolbar.add_separator();
+    toolbar.add_toggle("loop", "Loop", [&](bool state) {
+        loop_state = state;
+        ++loop_calls;
+    });
+    toolbar.add_spacer();
+    toolbar.add_button("save", "Save", [&]() { ++save_clicks; });
+    toolbar.set_bounds({0, 0, 200, 40});
+
+    toolbar.on_mouse_down({10, 12});
+    REQUIRE(play_clicks == 1);
+
+    toolbar.on_mouse_down({38, 12});
+    REQUIRE(loop_calls == 0);
+
+    toolbar.on_mouse_down({50, 12});
+    REQUIRE(toolbar.is_toggled("loop"));
+    REQUIRE(loop_state);
+    REQUIRE(loop_calls == 1);
+
+    toolbar.set_enabled("loop", false);
+    toolbar.on_mouse_down({50, 12});
+    REQUIRE(toolbar.is_toggled("loop"));
+    REQUIRE(loop_calls == 1);
+
+    toolbar.set_enabled("save", false);
+    toolbar.on_mouse_down({100, 12});
+    REQUIRE(save_clicks == 0);
+
+    toolbar.set_enabled("save", true);
+    toolbar.on_mouse_down({100, 12});
+    REQUIRE(save_clicks == 1);
+}
+
+TEST_CASE("Toolbar forwards custom item clicks with local coordinates",
+          "[gui][toolbar][coverage]") {
+    Toolbar horizontal;
+    horizontal.add_spacer();
+    auto horizontal_custom = std::make_unique<ToolbarProbeView>();
+    auto* horizontal_probe = horizontal_custom.get();
+    horizontal.add_custom("custom", std::move(horizontal_custom));
+
+    horizontal.on_mouse_down({30, 9});
+    REQUIRE(horizontal_probe->mouse_down_count == 1);
+    REQUIRE(horizontal_probe->last_position.x == 6.0f);
+    REQUIRE(horizontal_probe->last_position.y == 9.0f);
+
+    Toolbar vertical;
+    vertical.set_orientation(Toolbar::Orientation::vertical);
+    vertical.add_button("first", "First", []() {});
+    auto vertical_custom = std::make_unique<ToolbarProbeView>();
+    auto* vertical_probe = vertical_custom.get();
+    vertical.add_custom("custom", std::move(vertical_custom));
+
+    vertical.on_mouse_down({7, 44});
+    REQUIRE(vertical_probe->mouse_down_count == 1);
+    REQUIRE(vertical_probe->last_position.x == 7.0f);
+    REQUIRE(vertical_probe->last_position.y == 8.0f);
+}
+
+TEST_CASE("Toolbar paint emits button, separator, custom, and orientation commands",
+          "[gui][toolbar][coverage]") {
+    Toolbar toolbar;
+    toolbar.set_bounds({0, 0, 180, 40});
+    toolbar.add_button("play", "Play", []() {});
+    toolbar.add_separator();
+    toolbar.add_toggle("loop", "Loop", [](bool) {});
+    toolbar.set_toggled("loop", true);
+    toolbar.add_button("empty", "", []() {});
+    toolbar.set_enabled("empty", false);
+
+    auto custom = std::make_unique<ToolbarProbeView>();
+    auto* custom_probe = custom.get();
+    toolbar.add_custom("custom", std::move(custom));
+
+    pulp::canvas::RecordingCanvas canvas;
+    toolbar.paint(canvas);
+
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_rect) >= 2);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_rounded_rect) == 3);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) >= 2);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_text) >= 3);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::save) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::restore) == 1);
+    REQUIRE(custom_probe->paint_count == 1);
+
+    Toolbar vertical;
+    vertical.set_orientation(Toolbar::Orientation::vertical);
+    vertical.set_bounds({0, 0, 40, 140});
+    vertical.add_button("one", "One", []() {});
+    vertical.add_separator();
+    vertical.add_button("two", "Two", []() {});
+
+    pulp::canvas::RecordingCanvas vertical_canvas;
+    vertical.paint(vertical_canvas);
+    REQUIRE(vertical_canvas.count(pulp::canvas::DrawCommand::Type::fill_rounded_rect) == 2);
+    REQUIRE(vertical_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) >= 2);
+}
+
 // ── ConcertinaPanel ─────────────────────────────────────────────────────
 
 TEST_CASE("ConcertinaPanel add sections", "[gui][concertina]") {
@@ -200,6 +331,57 @@ TEST_CASE("TextButton paint covers enabled hover and disabled states",
     btn.paint(canvas);
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) == 1);
     REQUIRE_FALSE(btn.is_enabled());
+}
+
+// pulp #1407 — CSS `text-overflow: ellipsis` on a TextButton truncates the
+// painted label so a long string never bleeds past the rounded background.
+TEST_CASE("TextButton paint truncates long labels with U+2026 when text-overflow set",
+          "[gui][button][issue-1407]") {
+    static constexpr const char* kEllipsis = "\xe2\x80\xa6";
+
+    TextButton btn("Mid-band attenuation with high-shelf compensation");
+    btn.set_bounds({0, 0, 80, 28});
+    btn.set_text_overflow_ellipsis(true);
+
+    RecordingCanvas canvas;
+    btn.paint(canvas);
+
+    std::string drawn;
+    int fill_text_count = 0;
+    for (const auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) { drawn = cmd.text; ++fill_text_count; }
+    }
+    REQUIRE(fill_text_count == 1);
+    REQUIRE(drawn.size() >= 3);
+    REQUIRE(drawn.compare(drawn.size() - 3, 3, kEllipsis) == 0);
+    // Drawn label fits inside the button minus its 8 px horizontal padding.
+    REQUIRE(canvas.measure_text(drawn) <= 80.0f - 16.0f);
+}
+
+// pulp #1407 (Codex post-merge sweep) — a TextButton narrower than its
+// 2 × 8 px horizontal padding budget collapses the available text-box
+// to ≤ 0. Without the non-positive guard inside truncate_to_width, the
+// helper would short-circuit to the full string and visibly leak the
+// label past the button's rounded background. After the guard the
+// tiny button paints just "…", which is what the bounding box can hold.
+TEST_CASE("TextButton paint with tiny width still truncates instead of leaking the label",
+          "[gui][button][issue-1407]") {
+    static constexpr const char* kEllipsis = "\xe2\x80\xa6";
+
+    TextButton btn("Mid-band attenuation with high-shelf compensation");
+    btn.set_bounds({0, 0, 12, 28});  // 12 < 2 * 8 px padding
+    btn.set_text_overflow_ellipsis(true);
+
+    RecordingCanvas canvas;
+    btn.paint(canvas);
+
+    std::string drawn;
+    int fill_text_count = 0;
+    for (const auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) { drawn = cmd.text; ++fill_text_count; }
+    }
+    REQUIRE(fill_text_count == 1);
+    REQUIRE(drawn == kEllipsis);
 }
 
 TEST_CASE("HyperlinkButton paint underlines only while hovered",
@@ -297,12 +479,17 @@ TEST_CASE("ShapeButton reports hover and pressed states to draw callback",
     REQUIRE(saw_hover);
     REQUIRE(saw_pressed);
 
+    // pulp #1171 (Codex P2 on #1069) — verify hover state actually
+    // resets after on_mouse_leave(). The previous version pre-set
+    // saw_hover=true and only OR'd new values into it, so a regression
+    // where leave failed to clear hover would not be caught.
     btn.on_mouse_leave();
-    saw_hover = true;
+    saw_hover = false;
     saw_pressed = false;
     canvas.clear();
     btn.paint(canvas);
     REQUIRE_FALSE(saw_pressed);
+    REQUIRE_FALSE(saw_hover);
 }
 
 TEST_CASE("ImageButton chooses normal hover and pressed image paths",

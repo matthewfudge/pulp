@@ -180,6 +180,62 @@ TEST_CASE("Appcast from_xml stops before malformed item", "[ship][appcast]") {
     REQUIRE(parsed->items.empty());
 }
 
+TEST_CASE("Appcast from_xml tolerates unterminated optional fields", "[ship][appcast]") {
+    auto parsed = Appcast::from_xml(R"(<rss version="2.0">
+  <channel>
+    <title>Partial Feed</title>
+    <link>https://example.com/appcast.xml
+    <description>Partial feed</description>
+    <item>
+      <title>Version 4.1.0</title>
+      <description><![CDATA[unterminated notes</description>
+      <pubDate>Fri, 04 Apr 2026 12:00:00 +0000</pubDate>
+      <sparkle:shortVersionString>4.1.0</sparkle:shortVersionString>
+      <enclosure length="410"
+                 url="https://example.com/Pulp-4.1.0.pkg />
+    </item>
+  </channel>
+</rss>)");
+
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->title == "Partial Feed");
+    REQUIRE(parsed->link.empty());
+    REQUIRE(parsed->description == "Partial feed");
+    REQUIRE(parsed->items.size() == 1);
+    REQUIRE(parsed->items[0].description.empty());
+    REQUIRE(parsed->items[0].download_url.empty());
+    REQUIRE(parsed->items[0].file_size == 410);
+}
+
+TEST_CASE("Appcast from_xml ignores malformed enclosure length", "[ship][appcast]") {
+    auto parsed = Appcast::from_xml(R"(<rss version="2.0">
+  <channel>
+    <title>Malformed Length Feed</title>
+    <item>
+      <title>Version 5.0.0</title>
+      <sparkle:shortVersionString>5.0.0</sparkle:shortVersionString>
+      <enclosure url="https://example.com/Pulp-5.0.0.pkg"
+                 length="12oops"
+                 type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 5.0.1</title>
+      <sparkle:shortVersionString>5.0.1</sparkle:shortVersionString>
+      <enclosure url="https://example.com/Pulp-5.0.1.pkg"
+                 length="999999999999999999999999999999999999"
+                 type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>)");
+
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->items.size() == 2);
+    REQUIRE(parsed->items[0].version == "5.0.0");
+    REQUIRE(parsed->items[0].file_size == 0);
+    REQUIRE(parsed->items[1].version == "5.0.1");
+    REQUIRE(parsed->items[1].file_size == 0);
+}
+
 TEST_CASE("Version comparison", "[ship][version]") {
     REQUIRE(compare_versions("1.0.0", "1.0.0") == 0);
     REQUIRE(compare_versions("1.0.0", "1.0.1") == -1);
