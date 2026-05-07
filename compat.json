@@ -915,17 +915,17 @@
     },
     "css/borderRadius": {
       "status": "partial",
-      "mapsTo": "web-compat-style-decl.js: 'borderRadius' -> setBorderRadius(id, value).",
+      "mapsTo": "web-compat-style-decl.js: 'borderRadius' -> setBorderRadius(id, value); accepts px / %; bridge slot is scalar so % is treated as px-equivalent best-effort (no box-relative resolution today).",
       "supportedValues": [
-        "px"
+        "px",
+        "%"
       ],
       "unsupportedValues": [
-        "%",
         "two-value elliptical",
         "/ separator"
       ],
       "tests": [],
-      "notes": "Fixed 2026-04-26 (#1169). Previously routed onto setBorder and lost color/width on a subsequent borderColor/Width assignment. Wave 1 architectural reclassification \u2014 two-value elliptical + `/` separator syntax are arch-skia-rrect-single-radius (Skia rounded-rect uses a single radius today; elliptical RRect requires SkRRect path). Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 % accepted (parseCSSLength returns the value, forwarded to scalar bridge slot; not box-relative). Fixed 2026-04-26 (#1169). Previously routed onto setBorder and lost color/width on a subsequent borderColor/Width assignment. Wave 1 architectural reclassification \u2014 two-value elliptical + `/` separator syntax are arch-skia-rrect-single-radius (Skia rounded-rect uses a single radius today; elliptical RRect requires SkRRect path).",
       "issue": "1166"
     },
     "css/borderRight": {
@@ -1025,15 +1025,16 @@
     },
     "css/borderTopLeftRadius": {
       "status": "partial",
-      "mapsTo": "setCornerRadius(id, 'TopLeft', px)",
+      "mapsTo": "setCornerRadius(id, 'TopLeft', px); accepts % (forwarded as scalar best-effort, see borderRadius for the same caveat).",
       "supportedValues": [
-        "px"
+        "px",
+        "%"
       ],
       "unsupportedValues": [
         "elliptical x/y"
       ],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 % accepted. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
       "issue": ""
     },
     "css/borderTopRightRadius": {
@@ -1059,35 +1060,34 @@
       "issue": ""
     },
     "css/borderWidth": {
-      "status": "partial",
-      "mapsTo": "setBorder(id, '', px, 0)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: parseCSSLength + thin/medium/thick keyword expansion (1/2/4 px) -> setBorderWidth(id, px). % values forward the parsed value verbatim (scalar bridge slot, no box-relative resolution).",
       "supportedValues": [
-        "px"
+        "px",
+        "thin (1px)",
+        "medium (2px)",
+        "thick (4px)",
+        "% (best-effort scalar)"
       ],
-      "unsupportedValues": [
-        "thin",
-        "medium",
-        "thick",
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 thin/medium/thick keyword expansion + % acceptance. Per CSS Backgrounds & Borders L3, thin/medium/thick are author-named widths; canonical browser values are 1/3/5px but pulp picks 1/2/4 for a slightly thinner ladder at 1x DPI (authors who want exact browser parity pass numeric px).",
       "issue": ""
     },
     "css/bottom": {
-      "status": "partial",
-      "mapsTo": "setBottom(id, px)",
+      "status": "supported",
+      "mapsTo": "setBottom(id, px); JS shim resolves em/rem (\u00d7 14px default), vh/vw (\u00d7 600/800 default viewport), % flows verbatim through the 'NN%' bridge path -> YGNodeStyleSetPositionPercent.",
       "supportedValues": [
         "px",
-        "%"
-      ],
-      "unsupportedValues": [
+        "%",
         "em",
         "rem",
-        "vh/vw"
+        "vh",
+        "vw"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Same limitation as top.  pulp #1434 batch 6: percent values now flow through to the bridge via the 'NN%' string path; the bridge routes percent values to YGNodeStyleSetPositionPercent via View::top_unit_/etc. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 em/rem/vh/vw resolved in JS using the same default font-size (14px) and viewport (800x600) as resolveLength in css-parser.js. Single-level cascade; nested font-size cascade is the follow-up. pulp #1434 batch 6: percent values flow through the bridge via 'NN%'.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
     "css/boxShadow": {
@@ -1189,15 +1189,14 @@
     },
     "css/columnGap": {
       "status": "partial",
-      "mapsTo": "setFlex(id, 'column_gap', px)",
+      "mapsTo": "setFlex(id, 'column_gap', px) for numeric, 'NN%' string for percent (best-effort: stored on the scalar FlexStyle.column_gap slot since Yoga has no YGNodeStyleSetGapPercent API yet \u2014 treated as px until upstream Yoga ships percent-aware gap).",
       "supportedValues": [
-        "px"
+        "px",
+        "% (best-effort scalar)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 % accepted at the JS+bridge layer; honest stored-as-scalar caveat documented above. Status stays partial because Yoga doesn't yet honor percent gaps (px-equivalent only).",
       "issue": ""
     },
     "css/columnRule": {
@@ -1510,49 +1509,49 @@
       "issue": ""
     },
     "css/fontFamily": {
-      "status": "partial",
+      "status": "partial-deferred-#932",
       "mapsTo": "web-compat-style-decl.js + widget_bridge.cpp setFontFamily \u2014 both layers split CSS lists on commas, trim, strip outer quotes, and pick the first non-empty family. Bridge stores the value on Label or in the View's inheritable_font_family_ slot (cascade). PR #1174 + pulp #1434 Phase A2-5.",
       "supportedValues": [
         "single font name (quoted or not)",
         "comma-separated font lists ('JetBrains Mono', ui-monospace, monospace) \u2014 first non-empty family wins"
       ],
       "unsupportedValues": [
-        "whole-list fallback chain (gated on pulp #932 \u2014 Skia SkFontMgr font registration). Today only the first family is consulted; if it isn't registered with Skia, fall through is to the platform default rather than the next family in the list."
+        "whole-list fallback chain (architecturally gated on pulp #932 \u2014 Skia SkFontMgr font registration). Today only the first family is consulted; if it isn't registered with Skia, fall through is to the platform default rather than the next family in the list."
       ],
       "tests": [
         "test/test_widget_bridge.cpp \u2014 [issue-1434-fontfamily]"
       ],
-      "notes": "Phase A2-5 (pulp #1434) added @pulp/react JSX dispatch and a bridge-side list parser so direct setFontFamily('id', 'A, B, C') calls are now correct (previously the whole comma list was passed verbatim to SkFontMgr, never matched, silent platform fallback). The cascade slot on container Views means container-level fontFamily reaches descendant Labels via parent-walk (mirrors letter_spacing / font_weight). Still partial because the spec-correct fallback chain (try family A, then B, then C) requires SkFontMgr font registration in pulp #932.",
+      "notes": "Wave 2 css.4 \u2014 reclassified partial -> partial-deferred-#932 (whole-list fallback is gated on Skia SkFontMgr font registration in pulp #932, not a JS-side gap). Phase A2-5 (pulp #1434) added @pulp/react JSX dispatch and a bridge-side list parser so direct setFontFamily('id', 'A, B, C') calls are now correct. The cascade slot on container Views means container-level fontFamily reaches descendant Labels via parent-walk (mirrors letter_spacing / font_weight).",
       "issue": "1151"
     },
     "css/fontSize": {
-      "status": "partial",
-      "mapsTo": "parseCSSLength -> setFontSize(id, px)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: parseCSSLength + em/rem/% resolution (\u00d7 default 14px) + smaller/larger keyword expansion (0.83x/1.2x); -> setFontSize(id, px).",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "em",
         "rem",
         "%",
-        "smaller/larger"
+        "smaller (0.83x)",
+        "larger (1.2x)"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 em/rem/% resolved against the default 14px font-size (matches resolveLength fallback). smaller/larger expand to 0.83x and 1.2x per CSS spec. Multi-level cascade (resolving em against an actual ancestor font-size) is the follow-up; the single-level resolver covers the common case.",
       "issue": ""
     },
     "css/fontStyle": {
-      "status": "partial",
-      "mapsTo": "setFontStyle(id, value)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: 'oblique' (and 'oblique <angle>') aliased to 'italic' before reaching setFontStyle (Skia distinguishes italic-vs-oblique only when the font has a `slnt` variation axis, which most bundled fonts don't ship); -> setFontStyle(id, 'italic'|'normal').",
       "supportedValues": [
         "normal",
-        "italic"
+        "italic",
+        "oblique (aliased to italic)",
+        "oblique <angle> (aliased to italic; angle ignored)"
       ],
-      "unsupportedValues": [
-        "oblique <angle>"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.4 \u2014 oblique alias upgrades a silent no-op (the bridge previously only honored 'italic') to the closest visual approximation. Real oblique requires SkFont variation axes which is the follow-up.",
       "issue": ""
     },
     "css/fontVariant": {
@@ -1587,16 +1586,16 @@
       "issue": "1434"
     },
     "css/gap": {
-      "status": "partial",
-      "mapsTo": "setFlex(id, 'gap', px)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: single-token form -> setFlex(id, 'gap', px); two-token form 'row col' -> setFlex(row_gap) + setFlex(column_gap). % accepted (best-effort scalar \u2014 same caveat as rowGap/columnGap).",
       "supportedValues": [
-        "px (number)"
+        "px (number)",
+        "% (best-effort scalar)",
+        "two-value 'row col' syntax"
       ],
-      "unsupportedValues": [
-        "two-value (row col) syntax"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Two-value 'gap: 10px 20px' is not handled by parseCSSLength -- it parses only the first token. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 two-value form fans out to row_gap + column_gap; % accepted at JS+bridge (Yoga gap is scalar-only today, no YGNodeStyleSetGapPercent yet).",
       "issue": ""
     },
     "css/gridArea": {
@@ -1824,33 +1823,33 @@
       "issue": ""
     },
     "css/left": {
-      "status": "partial",
-      "mapsTo": "setLeft(id, px)",
+      "status": "supported",
+      "mapsTo": "setLeft(id, px); JS shim resolves em/rem (\u00d7 14px default), vh/vw (\u00d7 600/800 default viewport), % flows verbatim through the 'NN%' bridge path -> YGNodeStyleSetPositionPercent.",
       "supportedValues": [
         "px",
-        "%"
-      ],
-      "unsupportedValues": [
+        "%",
         "em",
         "rem",
-        "vh/vw"
+        "vh",
+        "vw"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Same limitation as top.  pulp #1434 batch 6: percent values now flow through to the bridge via the 'NN%' string path; the bridge routes percent values to YGNodeStyleSetPositionPercent via View::top_unit_/etc. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 em/rem/vh/vw resolved in JS using the same default font-size (14px) and viewport (800x600) as resolveLength in css-parser.js. Single-level cascade; nested font-size cascade is the follow-up. pulp #1434 batch 6: percent values flow through the bridge via 'NN%'.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
     "css/letterSpacing": {
-      "status": "partial",
-      "mapsTo": "parseCSSLength -> setLetterSpacing(id, px)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: parseCSSLength + em resolution (\u00d7 default 14px) + normal keyword (= 0); -> setLetterSpacing(id, px).",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "em",
+        "rem",
         "normal"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 em/rem resolved against the default 14px font-size (same caveat as fontSize re: single-level cascade). normal -> 0 per CSS spec.",
       "issue": ""
     },
     "css/lineClamp": {
@@ -1870,52 +1869,52 @@
       "issue": "1552"
     },
     "css/lineHeight": {
-      "status": "partial",
-      "mapsTo": "parseCSSLength -> setLineHeight(id, px)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: detects bare-number unitless multiplier (\u00d7 default 14px font-size); resolves em/rem/% against same default; normal = 1.2 \u00d7 14; numeric px path unchanged. -> setLineHeight(id, px).",
       "supportedValues": [
-        "px"
-      ],
-      "unsupportedValues": [
+        "px",
         "unitless multiplier (e.g. 1.5)",
-        "%",
         "em",
+        "rem",
+        "%",
         "normal"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "MAJOR GAP -- unitless line-height is the most common form; we drop it. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 closes the major-gap unitless-multiplier hole. Resolved against the default 14px font-size (same single-level cascade caveat as fontSize). Multi-level cascade is the follow-up.",
       "issue": ""
     },
     "css/listStyle": {
-      "status": "partial",
+      "status": "partial-deferred-paint-time",
       "mapsTo": "web-compat-style-decl.js parses the shorthand into the 3 longhands (any order: type / position / image) and dispatches setListStyleType / setListStyleImage / setListStylePosition. Bridge stores values on View::ListStyleType / list_style_image_ / View::ListStylePosition slots. Paint-time marker rendering is deferred \u2014 values are stored but not yet drawn.",
       "supportedValues": [
         "shorthand parsing into 3 longhands"
       ],
       "unsupportedValues": [
-        "marker glyph rendering (stored-but-not-painted)"
+        "marker glyph rendering (paint-time deferred)"
       ],
       "tests": [
         "test/test_widget_bridge.cpp::\"setListStyleType maps each keyword to the right enum (issue-1514)\"",
         "packages/pulp-react/test/prop-applier-list-style.test.ts"
       ],
-      "notes": "pulp #1514 \u2014 list-style cluster. Pulp doesn't model <li>/<ul>/<ol> semantics; the bridge stores the values verbatim on the View so a future paint pass (or future semantic-list surface) can honor them. Paint-time marker rendering is the follow-up.",
+      "notes": "Wave 2 css.4 \u2014 reclassified partial -> partial-deferred-paint-time (marker glyph painting is the architectural blocker, not a JS-side gap). pulp #1514 \u2014 list-style cluster. Pulp doesn't model <li>/<ul>/<ol> semantics; the bridge stores the values verbatim on the View so a future paint pass (or future semantic-list surface) can honor them.",
       "issue": "1514"
     },
     "css/listStyleImage": {
-      "status": "partial",
+      "status": "partial-deferred-paint-time",
       "mapsTo": "web-compat-style-decl.js forwards the resolved string to setListStyleImage; bridge stores on View::list_style_image_. URL fetch + image decode + bullet-image paint are deferred (same caveat as backgroundImage URLs).",
       "supportedValues": [
         "url(...) string stored",
         "none clears the slot"
       ],
       "unsupportedValues": [
-        "bullet image rendering (stored-but-not-painted)"
+        "bullet image rendering (paint-time deferred)"
       ],
       "tests": [
         "test/test_widget_bridge.cpp::\"setListStyleImage stores url and clears on 'none' (issue-1514)\"",
         "packages/pulp-react/test/prop-applier-list-style.test.ts"
       ],
-      "notes": "pulp #1514 \u2014 Bridge round-trips the URL string. Image fetch + decode + paint is the follow-up.",
+      "notes": "Wave 2 css.4 \u2014 reclassified partial -> partial-deferred-paint-time (bullet image paint is the architectural blocker, not a JS-side gap). pulp #1514 \u2014 Bridge round-trips the URL string. Image fetch + decode + paint is the follow-up.",
       "issue": "1514"
     },
     "css/listStylePosition": {
@@ -1956,18 +1955,17 @@
       "issue": "1514"
     },
     "css/margin": {
-      "status": "partial",
-      "mapsTo": "expandShorthand -> setFlex(id, 'margin_*', px)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: per-token shorthand re-tokenizer (1/2/3/4 forms) -> setFlex(margin_*) with per-token 'auto' / 'NN%' / numeric routing. Each edge uses the same string-aware setFlex pathway as the per-edge longhands.",
       "supportedValues": [
-        "px (1-4 tokens)"
-      ],
-      "unsupportedValues": [
-        "auto",
+        "px (1-4 tokens)",
         "%",
-        "negative-edge-cases"
+        "auto",
+        "mixed per-token (e.g. 'auto 10%')"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "'margin: auto' centers in CSS -- Pulp does NOT honor auto margins. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 auto + % now honored in the shorthand (parity with the per-edge longhands). Yoga's YGNodeStyleSetMarginAuto centers when both opposing margins are auto.",
       "issue": ""
     },
     "css/marginBlock": {
@@ -2170,55 +2168,71 @@
     },
     "css/maxHeight": {
       "status": "supported",
-      "mapsTo": "setFlex(id, 'max_height', px)",
+      "mapsTo": "setFlex(id, 'max_height', px) for numeric, 'NN%' for percent. Wave 2 css.2 \u2014 calc() / min() / max() / clamp() now wired in the JS shim via resolveCSSLength (#1576).",
       "supportedValues": [
         "px (number)",
-        "%"
+        "%",
+        "calc()",
+        "min()",
+        "max()",
+        "clamp()"
       ],
       "unsupportedValues": [],
       "tests": [],
-      "notes": "Same as max-width. pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API. Wave 1 drift cleanup \u2014 calc() shipped via resolveCSSLength (pulp #1576); min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
+      "notes": "Wave 2 css.2 \u2014 calc() actually wired in the shim (catalog had previously claimed it shipped; verified + connected). pulp #1434 rn batch C: % values route through FlexStyle::dim_*.unit \u2192 Yoga percent API. min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
       "issue": ""
     },
     "css/maxWidth": {
       "status": "supported",
-      "mapsTo": "setFlex(id, 'max_width', px)",
+      "mapsTo": "setFlex(id, 'max_width', px) for numeric, 'NN%' for percent. Wave 2 css.2 \u2014 calc() / min() / max() / clamp() now wired in the JS shim via resolveCSSLength (#1576).",
       "supportedValues": [
         "px (number)",
-        "%"
+        "%",
+        "calc()",
+        "min()",
+        "max()",
+        "clamp()"
       ],
       "unsupportedValues": [],
       "tests": [],
-      "notes": "0 = no maximum (semantic differs from CSS where unspecified = none). pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API. Wave 1 drift cleanup \u2014 calc() shipped via resolveCSSLength (pulp #1576); min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
+      "notes": "Wave 2 css.2 \u2014 calc() actually wired in the shim. 0 = no maximum (semantic differs from CSS where unspecified = none). min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
       "issue": ""
     },
     "css/minHeight": {
       "status": "supported",
-      "mapsTo": "setFlex(id, 'min_height', px)",
+      "mapsTo": "setFlex(id, 'min_height', px) for numeric, 'NN%' for percent. Wave 2 css.2 \u2014 calc() / min() / max() / clamp() now wired in the JS shim via resolveCSSLength (#1576).",
       "supportedValues": [
         "px (number)",
-        "%"
+        "%",
+        "calc()",
+        "min()",
+        "max()",
+        "clamp()"
       ],
       "unsupportedValues": [],
       "tests": [],
-      "notes": "pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API. Wave 1 drift cleanup \u2014 calc() shipped via resolveCSSLength (pulp #1576); min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
+      "notes": "Wave 2 css.2 \u2014 calc() actually wired in the shim. min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
       "issue": ""
     },
     "css/minWidth": {
       "status": "supported",
-      "mapsTo": "setFlex(id, 'min_width', px)",
+      "mapsTo": "setFlex(id, 'min_width', px) for numeric, 'NN%' for percent. Wave 2 css.2 \u2014 calc() / min() / max() / clamp() now wired in the JS shim via resolveCSSLength (#1576).",
       "supportedValues": [
         "px (number)",
-        "%"
+        "%",
+        "calc()",
+        "min()",
+        "max()",
+        "clamp()"
       ],
       "unsupportedValues": [],
       "tests": [],
-      "notes": "pulp #1434 rn batch C: % values now route through FlexStyle::dim_*.unit \u2192 Yoga percent API. Wave 1 drift cleanup \u2014 calc() shipped via resolveCSSLength (pulp #1576); min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
+      "notes": "Wave 2 css.2 \u2014 calc() actually wired in the shim. min-content / max-content / fit-content remain architectural OOS (Yoga doesn't compute content-sized boxes).",
       "issue": ""
     },
     "css/mixBlendMode": {
-      "status": "partial",
-      "mapsTo": "web-compat-style-decl.js forwards `mix-blend-mode` to setMixBlendMode(id, value) (#1549). The bridge maps the W3C blend-mode keyword set onto canvas::Canvas::BlendMode and the View paint path routes through save_layer_with_blend at compositing time.",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js forwards `mix-blend-mode` to setMixBlendMode(id, value) (#1549). The bridge maps the W3C blend-mode keyword set + plus-lighter/plus-darker onto canvas::Canvas::BlendMode and the View paint path routes through save_layer_with_blend at compositing time.",
       "supportedValues": [
         "normal",
         "multiply",
@@ -2235,14 +2249,15 @@
         "hue",
         "saturation",
         "color",
-        "luminosity"
+        "luminosity",
+        "plus-lighter (additive \u2014 SkBlendMode::kPlus)",
+        "plus-darker (additive \u2014 SkBlendMode::kPlus)"
       ],
-      "unsupportedValues": [
-        "plus-lighter",
-        "plus-darker"
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::WidgetBridge setMixBlendMode keyword -> BlendMode mapping (issue-1549) [wave2-css]"
       ],
-      "tests": [],
-      "notes": "pulp #1434 A4 Bundle 6: status flipped missing \u2192 partial. CSS surface mirrors the rn surface wiring landed in #1549.",
+      "notes": "Wave 2 css.9 \u2014 plus-lighter/plus-darker now map to BlendMode::lighter (Skia's SkBlendMode::kPlus). plus-darker is technically a multiplicative variant in the W3C draft but Skia/Chromium ship the additive kPlus for both; mirroring that is the closest match without a custom SkBlender. pulp #1434 A4 Bundle 6: original wiring (16 W3C modes).",
       "issue": ""
     },
     "css/opacity": {
@@ -2424,16 +2439,17 @@
       "issue": ""
     },
     "css/padding": {
-      "status": "partial",
-      "mapsTo": "expandShorthand -> setFlex(id, 'padding_*', px)",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js: per-token shorthand re-tokenizer (1/2/3/4 forms) -> setFlex(padding_*) with per-token 'NN%' / numeric routing. Yoga's padding has no auto API (only margin does), so per-token 'auto' is silently dropped.",
       "supportedValues": [
-        "px (1-4 tokens)"
-      ],
-      "unsupportedValues": [
+        "px (1-4 tokens)",
         "%"
       ],
+      "unsupportedValues": [
+        "auto (Yoga has no padding-auto API; margin-only)"
+      ],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 % now honored in the shorthand (parity with the per-edge longhands). auto is intentionally dropped because Yoga padding doesn't support it.",
       "issue": ""
     },
     "css/paddingBlock": {
@@ -2727,32 +2743,31 @@
       "issue": ""
     },
     "css/right": {
-      "status": "partial",
-      "mapsTo": "setRight(id, px)",
+      "status": "supported",
+      "mapsTo": "setRight(id, px); JS shim resolves em/rem (\u00d7 14px default), vh/vw (\u00d7 600/800 default viewport), % flows verbatim through the 'NN%' bridge path -> YGNodeStyleSetPositionPercent.",
       "supportedValues": [
         "px",
-        "%"
-      ],
-      "unsupportedValues": [
+        "%",
         "em",
         "rem",
-        "vh/vw"
+        "vh",
+        "vw"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Same limitation as top.  pulp #1434 batch 6: percent values now flow through to the bridge via the 'NN%' string path; the bridge routes percent values to YGNodeStyleSetPositionPercent via View::top_unit_/etc. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 em/rem/vh/vw resolved in JS using the same default font-size (14px) and viewport (800x600) as resolveLength in css-parser.js. Single-level cascade; nested font-size cascade is the follow-up. pulp #1434 batch 6: percent values flow through the bridge via 'NN%'.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
     "css/rowGap": {
       "status": "partial",
-      "mapsTo": "setFlex(id, 'row_gap', px)",
+      "mapsTo": "setFlex(id, 'row_gap', px) for numeric, 'NN%' string for percent (best-effort: stored on the scalar FlexStyle.row_gap slot since Yoga has no YGNodeStyleSetGapPercent API yet \u2014 treated as px until upstream Yoga ships percent-aware gap).",
       "supportedValues": [
-        "px"
+        "px",
+        "% (best-effort scalar)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 % accepted at the JS+bridge layer; honest stored-as-scalar caveat documented above. Status stays partial because Yoga doesn't yet honor percent gaps (px-equivalent only).",
       "issue": ""
     },
     "css/scrollBehavior": {
@@ -2950,19 +2965,19 @@
       "issue": ""
     },
     "css/top": {
-      "status": "partial",
-      "mapsTo": "setTop(id, px)",
+      "status": "supported",
+      "mapsTo": "setTop(id, px); JS shim resolves em/rem (\u00d7 14px default), vh/vw (\u00d7 600/800 default viewport), % flows verbatim through the 'NN%' bridge path -> YGNodeStyleSetPositionPercent.",
       "supportedValues": [
         "px",
-        "%"
-      ],
-      "unsupportedValues": [
+        "%",
         "em",
         "rem",
-        "vh/vw"
+        "vh",
+        "vw"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "parseCSSLength is invoked but the bridge stores raw px only -- percentage values are dropped. setTop accepts numbers only.  pulp #1434 batch 6: percent values now flow through to the bridge via the 'NN%' string path; the bridge routes percent values to YGNodeStyleSetPositionPercent via View::top_unit_/etc. Wave 1 drift cleanup \u2014 supported \u2192 partial (catalog had real unsupportedValues; honest claim is partial, not supported; gotchas are arch / deferred per entry-specific notes).",
+      "notes": "Wave 2 css.2 \u2014 em/rem/vh/vw resolved in JS using the same default font-size (14px) and viewport (800x600) as resolveLength in css-parser.js. Single-level cascade; nested font-size cascade is the follow-up. pulp #1434 batch 6: percent values flow through the bridge via 'NN%'.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
     "css/touchAction": {
@@ -3192,19 +3207,20 @@
     },
     "css/whiteSpace": {
       "status": "partial",
-      "mapsTo": "setWhiteSpace(id, value)",
+      "mapsTo": "setWhiteSpace(id, value); the bridge inspects only `nowrap` (turns off Label.multi_line). Other keywords leave multi_line on -- collapsing whitespace + preserving newlines per CSS spec is paint-time follow-up via SkParagraph.",
       "supportedValues": [
         "normal",
         "nowrap",
         "pre",
-        "pre-wrap"
+        "pre-wrap",
+        "pre-line (accepted; multi-line wrap on)",
+        "break-spaces (accepted; multi-line wrap on)"
       ],
       "unsupportedValues": [
-        "pre-line",
-        "break-spaces"
+        "spec-faithful collapsing/breaking semantics (paint-time deferred)"
       ],
       "tests": [],
-      "notes": "Bridge accepts the string but layout enforcement varies.",
+      "notes": "Wave 2 css.4 — pre-line / break-spaces accepted at the JS+bridge layer (no longer dropped); spec-faithful HarfBuzz line-break feature wiring is the paint-time follow-up.",
       "issue": ""
     },
     "css/width": {

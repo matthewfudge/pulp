@@ -1048,8 +1048,21 @@ TEST_CASE("WidgetBridge setMixBlendMode keyword -> BlendMode mapping",
     bridge.load_script("setMixBlendMode('p', 'multiply');");
     REQUIRE(p->has_non_default_blend_mode());
 
-    // Unknown keyword -> normal (paint-time no-op fallback).
+    // pulp Wave 2 css.9 — `plus-lighter` and `plus-darker` now map to
+    // BlendMode::lighter (Skia's SkBlendMode::kPlus / additive). Both
+    // CSS Compositing & Blending Level 2 keywords share the additive
+    // composition; plus-darker is technically multiplicative in the
+    // W3C draft but Skia / Chromium ship the additive kPlus for both.
     bridge.load_script("setMixBlendMode('p', 'plus-lighter');");
+    REQUIRE(p->mix_blend_mode() == BM::lighter);
+    REQUIRE(p->has_non_default_blend_mode());
+
+    bridge.load_script("setMixBlendMode('p', 'plus-darker');");
+    REQUIRE(p->mix_blend_mode() == BM::lighter);
+    REQUIRE(p->has_non_default_blend_mode());
+
+    // A truly-unknown keyword falls back to normal (paint-time no-op).
+    bridge.load_script("setMixBlendMode('p', 'definitely-not-a-blend-mode');");
     REQUIRE(p->mix_blend_mode() == BM::normal);
     REQUIRE_FALSE(p->has_non_default_blend_mode());
 }
@@ -8227,6 +8240,147 @@ TEST_CASE("CSS logical-edge longhands route to LTR physical edges",
     REQUIRE_THAT(cb.x - pb.x, WithinAbs(10.0f, 0.5f));
 }
 
+// ── pulp Wave 2 css bundle (cheap value-coverage wiring) ────────────────
+//
+// The CSS shim accepts a wider value vocabulary than the bridge fns
+// natively understand, with the resolution math performed JS-side
+// before reaching the bridge. These tests pin the shim->bridge
+// dispatch for the new value forms so DIVERGE doesn't silently
+// regress when the catalog claims them.
+
+TEST_CASE("CSSStyleDeclaration forwards width percent via el.style",
+          "[view][bridge][css][wave2-css]") {
+    // Round-trips `el.style.width = '50%'` through the shim into the
+    // bridge's setFlex dim_width.unit = percent route. Mirrors the
+    // direct setFlex('a','width','50%') test (issue-1434-auto) but
+    // exercises the JS-side _applyProperty('width', '50%') path.
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');
+        var sa = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        sa._applyProperty('width',  '50%');
+        sa._applyProperty('height', '25%');
+    )");
+
+    const auto& fa = bridge.widget("a")->flex();
+    REQUIRE(fa.dim_width.unit  == DimensionUnit::percent);
+    REQUIRE_THAT(fa.dim_width.value,  WithinAbs(50.0f, 0.001f));
+    REQUIRE(fa.dim_height.unit == DimensionUnit::percent);
+    REQUIRE_THAT(fa.dim_height.value, WithinAbs(25.0f, 0.001f));
+}
+
+TEST_CASE("CSSStyleDeclaration fontSize em resolves against default 14px",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.2 — em/rem/% relative-unit resolution. Default
+    // inherited font-size is 14px (matches resolveLength fallback).
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createLabel('half', 'X', 0, 0, 100, 100);
+        createLabel('rem',  'X', 0, 0, 100, 100);
+        createLabel('pct',  'X', 0, 0, 100, 100);
+        createLabel('sm',   'X', 0, 0, 100, 100);
+        createLabel('lg',   'X', 0, 0, 100, 100);
+        var sH = new CSSStyleDeclaration({ _id: 'half', _nativeCreated: true });
+        var sR = new CSSStyleDeclaration({ _id: 'rem',  _nativeCreated: true });
+        var sP = new CSSStyleDeclaration({ _id: 'pct',  _nativeCreated: true });
+        var sS = new CSSStyleDeclaration({ _id: 'sm',   _nativeCreated: true });
+        var sL = new CSSStyleDeclaration({ _id: 'lg',   _nativeCreated: true });
+        sH._applyProperty('fontSize', '0.5em');   // 7
+        sR._applyProperty('fontSize', '2rem');    // 28
+        sP._applyProperty('fontSize', '50%');     // 7
+        sS._applyProperty('fontSize', 'smaller'); // 11.62
+        sL._applyProperty('fontSize', 'larger');  // 16.8
+    )");
+
+    auto* lH = dynamic_cast<Label*>(bridge.widget("half"));
+    auto* lR = dynamic_cast<Label*>(bridge.widget("rem"));
+    auto* lP = dynamic_cast<Label*>(bridge.widget("pct"));
+    auto* lS = dynamic_cast<Label*>(bridge.widget("sm"));
+    auto* lL = dynamic_cast<Label*>(bridge.widget("lg"));
+    REQUIRE(lH != nullptr);
+    REQUIRE(lR != nullptr);
+    REQUIRE(lP != nullptr);
+    REQUIRE(lS != nullptr);
+    REQUIRE(lL != nullptr);
+    REQUIRE_THAT(lH->font_size(), WithinAbs(7.0f,    0.05f));
+    REQUIRE_THAT(lR->font_size(), WithinAbs(28.0f,   0.05f));
+    REQUIRE_THAT(lP->font_size(), WithinAbs(7.0f,    0.05f));
+    REQUIRE_THAT(lS->font_size(), WithinAbs(11.62f,  0.05f));
+    REQUIRE_THAT(lL->font_size(), WithinAbs(16.8f,   0.05f));
+}
+
+TEST_CASE("CSSStyleDeclaration lineHeight unitless multiplies font-size",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.2 — unitless multiplier is the most common CSS form
+    // (e.g. `line-height: 1.5`). Resolved against the default 14px
+    // font-size; nested cascade is the follow-up.
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createLabel('a', 'X', 0, 0, 100, 100);
+        createLabel('b', 'X', 0, 0, 100, 100);
+        createLabel('c', 'X', 0, 0, 100, 100);
+        var sa = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        var sb = new CSSStyleDeclaration({ _id: 'b', _nativeCreated: true });
+        var sc = new CSSStyleDeclaration({ _id: 'c', _nativeCreated: true });
+        sa._applyProperty('lineHeight', '1.5');     // 21
+        sb._applyProperty('lineHeight', 'normal');  // 16.8
+        sc._applyProperty('lineHeight', '150%');    // 21
+    )");
+
+    auto* la = dynamic_cast<Label*>(bridge.widget("a"));
+    auto* lb = dynamic_cast<Label*>(bridge.widget("b"));
+    auto* lc = dynamic_cast<Label*>(bridge.widget("c"));
+    REQUIRE(la != nullptr);
+    REQUIRE(lb != nullptr);
+    REQUIRE(lc != nullptr);
+    REQUIRE_THAT(la->line_height(), WithinAbs(21.0f, 0.05f));
+    REQUIRE_THAT(lb->line_height(), WithinAbs(16.8f, 0.05f));
+    REQUIRE_THAT(lc->line_height(), WithinAbs(21.0f, 0.05f));
+}
+
+TEST_CASE("CSSStyleDeclaration gap two-value fans out to row + column",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.2 — `gap: 10px 20px` is the CSS shorthand for
+    // row-gap + column-gap. The shim splits on whitespace and dispatches
+    // to setFlex(row_gap) + setFlex(column_gap).
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('p', '');
+        var s = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s._applyProperty('gap', '10px 20px');
+    )");
+
+    const auto& f = bridge.widget("p")->flex();
+    REQUIRE_THAT(f.row_gap,    WithinAbs(10.0f, 0.001f));
+    REQUIRE_THAT(f.column_gap, WithinAbs(20.0f, 0.001f));
+}
+
+TEST_CASE("CSSStyleDeclaration mixBlendMode plus-lighter -> kPlus",
+          "[view][bridge][css][wave2-css][issue-1549]") {
+    // Wave 2 css.9 — plus-lighter / plus-darker are CSS Compositing &
+    // Blending Level 2 keywords. Both map to BlendMode::lighter
+    // (Skia's SkBlendMode::kPlus / additive). Previously fell through
+    // to the unknown-keyword normal fallback.
+    using BM = pulp::canvas::Canvas::BlendMode;
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
 // ── pulp Wave 2 canvas2d cheap wiring (DIVERGE → PASS) ───────────────────
 //
 // These tests close the loop on the five compat.json entries that flipped
@@ -8262,6 +8416,31 @@ TEST_CASE("Wave 2 canvas2d — ctx.fill('evenodd') reaches Canvas::fill_current_
     WidgetBridge bridge(engine, root, store);
 
     bridge.load_script(R"(
+        createPanel('a', '');
+        createPanel('b', '');
+        var sa = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        var sb = new CSSStyleDeclaration({ _id: 'b', _nativeCreated: true });
+        sa._applyProperty('mixBlendMode', 'plus-lighter');
+        sb._applyProperty('mixBlendMode', 'plus-darker');
+    )");
+
+    auto* a = bridge.widget("a");
+    auto* b = bridge.widget("b");
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+    REQUIRE(a->mix_blend_mode() == BM::lighter);
+    REQUIRE(b->mix_blend_mode() == BM::lighter);
+    REQUIRE(a->has_non_default_blend_mode());
+    REQUIRE(b->has_non_default_blend_mode());
+}
+
+TEST_CASE("CSSStyleDeclaration borderWidth keyword expansion thin/medium/thick",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.2 — CSS Backgrounds & Borders L3 named widths.
+    // Pulp picks 1/2/4 px (slightly thinner than browsers' canonical
+    // 1/3/5 — see compat.json css/borderWidth note).
+    ScriptEngine engine;
+    View root;
         var c = document.createElement('canvas');
         c.id = 'evenodd-fill';
         c.width = 100; c.height = 100;
@@ -8307,6 +8486,30 @@ TEST_CASE("Wave 2 canvas2d — ctx.clip('evenodd') reaches Canvas::clip with Fil
     WidgetBridge bridge(engine, root, store);
 
     bridge.load_script(R"(
+        createPanel('thin', '');
+        createPanel('med',  '');
+        createPanel('thick','');
+        var st = new CSSStyleDeclaration({ _id: 'thin',  _nativeCreated: true });
+        var sm = new CSSStyleDeclaration({ _id: 'med',   _nativeCreated: true });
+        var sk = new CSSStyleDeclaration({ _id: 'thick', _nativeCreated: true });
+        st._applyProperty('borderWidth', 'thin');
+        sm._applyProperty('borderWidth', 'medium');
+        sk._applyProperty('borderWidth', 'thick');
+    )");
+
+    REQUIRE_THAT(bridge.widget("thin")->border_width(),  WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(bridge.widget("med")->border_width(),   WithinAbs(2.0f, 0.001f));
+    REQUIRE_THAT(bridge.widget("thick")->border_width(), WithinAbs(4.0f, 0.001f));
+}
+
+TEST_CASE("CSSStyleDeclaration fontStyle oblique aliases to italic",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.4 — Skia distinguishes italic-vs-oblique only via
+    // the `slnt` font variation axis, which most bundled fonts don't
+    // ship. Aliasing oblique -> italic upgrades a silent no-op to the
+    // closest visual approximation.
+    ScriptEngine engine;
+    View root;
         var c = document.createElement('canvas');
         c.id = 'evenodd-clip';
         c.width = 100; c.height = 100;
@@ -8349,6 +8552,28 @@ TEST_CASE("Wave 2 canvas2d — ctx.roundRect with 4 distinct corners produces 4 
     WidgetBridge bridge(engine, root, store);
 
     bridge.load_script(R"(
+        createLabel('a', 'X', 0, 0, 100, 100);
+        createLabel('b', 'X', 0, 0, 100, 100);
+        var sa = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        var sb = new CSSStyleDeclaration({ _id: 'b', _nativeCreated: true });
+        sa._applyProperty('fontStyle', 'oblique');
+        sb._applyProperty('fontStyle', 'oblique 14deg');
+    )");
+
+    auto* la = dynamic_cast<Label*>(bridge.widget("a"));
+    auto* lb = dynamic_cast<Label*>(bridge.widget("b"));
+    REQUIRE(la != nullptr);
+    REQUIRE(lb != nullptr);
+    REQUIRE(la->font_style() == 1);   // italic
+    REQUIRE(lb->font_style() == 1);   // italic (angle ignored)
+}
+
+TEST_CASE("CSSStyleDeclaration top em/vh resolves to default font-size/viewport",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.2 — em/rem default to 14 px, vh/vw default to a
+    // 600x800 viewport (matches resolveLength fallback).
+    ScriptEngine engine;
+    View root;
         var c = document.createElement('canvas');
         c.id = 'roundrect-4';
         c.width = 100; c.height = 100;
@@ -8401,6 +8626,34 @@ TEST_CASE("Wave 2 canvas2d — ctx.ellipse with non-zero rotation threads throug
     WidgetBridge bridge(engine, root, store);
 
     bridge.load_script(R"(
+        createPanel('a', '');
+        createPanel('b', '');
+        createPanel('c', '');
+        createPanel('d', '');
+        var sa = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        var sb = new CSSStyleDeclaration({ _id: 'b', _nativeCreated: true });
+        var sc = new CSSStyleDeclaration({ _id: 'c', _nativeCreated: true });
+        var sd = new CSSStyleDeclaration({ _id: 'd', _nativeCreated: true });
+        sa._applyProperty('top',  '2em');   // 28
+        sb._applyProperty('left', '1.5rem');// 21
+        sc._applyProperty('top',  '50vh');  // 300
+        sd._applyProperty('left', '25vw');  // 200
+    )");
+
+    REQUIRE_THAT(bridge.widget("a")->top(),  WithinAbs(28.0f, 0.05f));
+    REQUIRE_THAT(bridge.widget("b")->left(), WithinAbs(21.0f, 0.05f));
+    REQUIRE_THAT(bridge.widget("c")->top(),  WithinAbs(300.0f, 0.05f));
+    REQUIRE_THAT(bridge.widget("d")->left(), WithinAbs(200.0f, 0.05f));
+}
+
+TEST_CASE("CSSStyleDeclaration margin shorthand honors auto + percent per token",
+          "[view][bridge][css][wave2-css]") {
+    // Wave 2 css.2 — margin shorthand re-tokenized so each edge
+    // routes through the same string-aware setFlex pathway as the
+    // per-edge longhands. `margin: auto` centers via Yoga's
+    // YGNodeStyleSetMarginAuto when paired across opposing edges.
+    ScriptEngine engine;
+    View root;
         var c = document.createElement('canvas');
         c.id = 'ellipse-rot';
         c.width = 100; c.height = 100;
@@ -8449,6 +8702,29 @@ TEST_CASE("Wave 2 canvas2d — ctx.strokeText routes through dedicated stroke_te
     WidgetBridge bridge(engine, root, store);
 
     bridge.load_script(R"(
+        createPanel('a', '');
+        createPanel('b', '');
+        var sa = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        var sb = new CSSStyleDeclaration({ _id: 'b', _nativeCreated: true });
+        sa._applyProperty('margin', 'auto');
+        sb._applyProperty('margin', '10% 20px');
+    )");
+
+    const auto& fa = bridge.widget("a")->flex();
+    REQUIRE(fa.dim_margin_top.unit    == DimensionUnit::auto_);
+    REQUIRE(fa.dim_margin_right.unit  == DimensionUnit::auto_);
+    REQUIRE(fa.dim_margin_bottom.unit == DimensionUnit::auto_);
+    REQUIRE(fa.dim_margin_left.unit   == DimensionUnit::auto_);
+
+    const auto& fb = bridge.widget("b")->flex();
+    REQUIRE(fb.dim_margin_top.unit    == DimensionUnit::percent);
+    REQUIRE_THAT(fb.dim_margin_top.value,    WithinAbs(10.0f, 0.001f));
+    REQUIRE(fb.dim_margin_right.unit  == DimensionUnit::px);
+    REQUIRE_THAT(fb.dim_margin_right.value,  WithinAbs(20.0f, 0.001f));
+    REQUIRE(fb.dim_margin_bottom.unit == DimensionUnit::percent);
+    REQUIRE_THAT(fb.dim_margin_bottom.value, WithinAbs(10.0f, 0.001f));
+    REQUIRE(fb.dim_margin_left.unit   == DimensionUnit::px);
+    REQUIRE_THAT(fb.dim_margin_left.value,   WithinAbs(20.0f, 0.001f));
         var c = document.createElement('canvas');
         c.id = 'stroke-text';
         c.width = 200; c.height = 100;
