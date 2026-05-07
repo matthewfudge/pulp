@@ -5264,6 +5264,18 @@ TEST_CASE("setFlex margin edges accept 'auto' keyword",
     REQUIRE(f.dim_margin_right.unit == DimensionUnit::auto_);
 }
 
+// ── pulp DIVERGE→PASS sweep — canvas2d surface ──────────────────────────
+
+TEST_CASE("ctx.fill('evenodd') threads fillRule int_val through bridge",
+          "[view][bridge][canvas][diverge-pass-canvas2d]") {
+    // pulp DIVERGE→PASS sweep — `ctx.fill('evenodd')` and
+    // `ctx.clip('evenodd')` now thread the fillRule keyword through
+    // to the bridge as int_val (0=nonzero, 1=evenodd). Pairs with
+    // [issue-1522] which tests the bridge fns directly.
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
 // ── pulp DIVERGE→PASS sweep — html surface ──────────────────────────────
 
 TEST_CASE("Element.disabled wires to setEnabled",
@@ -5285,6 +5297,45 @@ TEST_CASE("setFlex start/end accept 'auto' keyword",
     WidgetBridge bridge(engine, root, store);
 
     bridge.load_script(R"(
+        var c = document.createElement('canvas');
+        c.id = 'fr-shim-canvas';
+        c.width = 100; c.height = 100;
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.lineTo(0, 10);
+        ctx.closePath();
+        ctx.fill('evenodd');
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.closePath();
+        ctx.fill();             // default nonzero
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.closePath();
+        ctx.clip('evenodd');
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.closePath();
+        ctx.clip();
+    )");
+
+    auto* canvas = canvasFromBridge(bridge, engine, "fr-shim-canvas");
+    REQUIRE(canvas != nullptr);
+    using T = pulp::view::CanvasDrawCmd::Type;
+    std::vector<int> fill_int_vals;
+    std::vector<int> clip_int_vals;
+    for (const auto& cmd : canvas->commands()) {
+        if (cmd.type == T::fill_path) fill_int_vals.push_back(cmd.int_val);
+        if (cmd.type == T::clip)      clip_int_vals.push_back(cmd.int_val);
+    }
+    REQUIRE(fill_int_vals.size() == 2);
+    REQUIRE(fill_int_vals[0] == 1);  // explicit evenodd
+    REQUIRE(fill_int_vals[1] == 0);  // default nonzero
+    REQUIRE(clip_int_vals.size() == 2);
+    REQUIRE(clip_int_vals[0] == 1);  // explicit evenodd
+    REQUIRE(clip_int_vals[1] == 0);  // default nonzero
         var input = document.createElement('input');
         input.id = 'box';
         input.type = 'text';

@@ -22,18 +22,86 @@ This section was previously a stub. The 2026-05-04 pass walked the
 `canvas*` register_function entries in widget_bridge.cpp, with extra
 notes per backend where Skia and CG diverge.
 
-## Counts (2026-05-04)
+## Counts (2026-05-07 — DIVERGE→PASS sweep)
+
+Harness verdict (per `tools/harness/verifier`):
+
+| Verdict | Count |
+|---------|------:|
+| PASS    | 48 |
+| DIVERGE | 18 |
+| NO-OP   | 0 |
+| NOT-IMPL | 0 |
+| OOS     | 0 |
+
+Catalog status counts (informational):
 
 | Status | Count |
 |--------|------:|
-| supported | ~40 |
-| partial | ~8 |
+| supported | ~43 |
+| partial | ~9 |
 | missing | ~12 |
 
 `fillText` and `strokeText` flipped `partial → supported` in pulp #1525
 once `maxWidth` was plumbed end-to-end and `strokeText` got its own
 dedicated bridge command (true outlined-glyph rendering, not the
 pre-#1525 fillText-with-stroke-color approximation).
+
+## DIVERGE→PASS sweep (2026-05-07)
+
+The 21 → 18 flip closed 3 entries plus a wiring fix for a previously
+failing `[issue-1522]` regression. Remaining 18 are genuine paint-side
+or oracle-pin gaps.
+
+Closed in this sweep:
+
+- **`canvas2d/getTransform`** — clarified that snapshot semantics are
+  spec-compliant (HTML5 Canvas: `getTransform()` returns a NEW
+  DOMMatrix per call). Mutation methods on a snapshot wouldn't affect
+  the canvas anyway.
+- **`canvas2d/fillStyle`** — `CanvasPattern` was already wired
+  end-to-end via `createPattern` + `_applyFillStyle` →
+  `canvasSetFillPattern`; catalog had a stale gap entry.
+- **`canvas2d/setLineDash`** — bridge does HTML5-spec odd-length
+  array doubling internally (note about "shim takes pattern verbatim"
+  was architecture, not a gap). Oracle pin lifted.
+
+Ancillary fix (closes pre-existing test failure):
+
+- **`canvasFillPath` / `canvasClip` fillRule arg** — the bridge fns
+  weren't reading `args.get<double>(1)` even though `[issue-1522]`
+  exercised that plumbing. Now both read the optional fillRule int
+  (0 = nonzero, 1 = evenodd) and store it on the recorded command;
+  the JS shim for `ctx.fill('evenodd')` and `ctx.clip('evenodd')`
+  threads the keyword through. End-to-end rendering still uses
+  non-zero on the Skia/CG paint side (see remaining DIVERGE list);
+  the int_val is wired for future paint-side work.
+
+Remaining DIVERGE (18) — implementation / oracle gaps:
+
+| Catalog-side gaps | Why deferred |
+|---|---|
+| `canvas2d/arcTo` | Geometrically-correct arcTo with radius-tangent computation. |
+| `canvas2d/clip` (rendering) | Needs `SkCanvas::clipPath(path, clipOp, fillType)` plumbing. |
+| `canvas2d/ellipse` | Non-zero rotation needs affine pre/post-rotate. |
+| `canvas2d/fill` (rendering) | Same as clip. |
+| `canvas2d/fillText` | maxWidth + gradient fillStyle on text. |
+| `canvas2d/font` | small-caps not reaching Skia/CG. |
+| `canvas2d/roundRect` | Non-uniform 4-corner radii. |
+| `canvas2d/strokeText` | True stroked-glyph rendering. |
+
+| Oracle-pinned partials | Why pinned |
+|---|---|
+| `canvas2d/direction` | Bidi run-splitting needs SkShaper plumbing. |
+| `canvas2d/drawImage` | Sprite-sheet slicing edge cases. |
+| `canvas2d/filter` | CSS `<filter-function-list>` subset only. |
+| `canvas2d/getImageData` | RecordingCanvas returns zero-filled. |
+| `canvas2d/putImageData` | Sub-rect form treated as no-rect. |
+| `canvas2d/isPointInPath` | Path2D-object first arg + fillRule self-intersect. |
+| `canvas2d/isPointInStroke` | Square caps / miter spike approximations. |
+| `canvas2d/lineDashOffset` | Mutation must re-call setLineDash. |
+| `canvas2d/strokeStyle` | Gradient on stroke (no `canvasSetStrokeLinearGradient` bridge fn). |
+| `canvas2d/transform` | `transform()` concat only routes pure-translation. |
 
 ## Recently expanded (#1348)
 
