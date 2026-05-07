@@ -466,6 +466,12 @@ selectors before checking `REQUESTED_PROVIDER`. Otherwise the local macOS repo
 variable is ignored when the provider is `github-hosted`, and the required
 `macos` gate falls back to hosted `macos-15`.
 
+Build and coverage checkouts keep `lfs: false` even on macOS. The repo has
+LFS attributes for historical Skia binary paths, but no current CI input is a
+tracked LFS object; enabling checkout LFS on the reused self-hosted workspace
+causes `git lfs install --local` to fail because Pulp already owns the
+`pre-push` hook.
+
 ### Overrides when you need them
 
 - **Dispatch a specific run on github-hosted** (normal Linux/Windows path, or comparing hosted macOS behaviour):
