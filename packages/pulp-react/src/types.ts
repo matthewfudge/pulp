@@ -160,6 +160,16 @@ export interface StyleProps {
     /// `'none'` / `'hidden'` skip the stroke entirely.
     borderStyle?: 'solid' | 'dashed' | 'dotted' | 'double' | 'groove'
                 | 'ridge' | 'inset' | 'outset' | 'none' | 'hidden';
+    /// pulp #1514 — CSS list-style cluster. Pulp doesn't model
+    /// HTML `<li>` / `<ul>` / `<ol>` semantics, so these props
+    /// round-trip the value to View slots without painting a
+    /// marker glyph today (catalog: `partial`). Marker glyph
+    /// rendering is the follow-up. `listStyle` is the shorthand
+    /// (`'<type> <position> <image>'` in any order).
+    listStyle?: string;
+    listStyleType?: 'none' | 'disc' | 'circle' | 'square' | 'decimal';
+    listStyleImage?: string;
+    listStylePosition?: 'inside' | 'outside';
     borderTopColor?: string;
     borderRightColor?: string;
     borderBottomColor?: string;
@@ -196,14 +206,54 @@ export interface StyleProps {
     backfaceVisibility?: 'hidden' | 'visible';
     cursor?: string;
     filter?: string;
+    /// pulp #1549 — RN `mixBlendMode` (New Architecture only).
+    /// Forwards to `setMixBlendMode(id, kw)`; the bridge maps the W3C
+    /// blend-mode keyword set onto the canvas `BlendMode` enum and the
+    /// View paint path uses `save_layer_with_blend()` so the subtree
+    /// composites back through the requested mode. `'normal'` (or
+    /// unknown keywords) is a paint-time no-op.
+    mixBlendMode?:
+        | 'normal' | 'multiply' | 'screen' | 'overlay'
+        | 'darken' | 'lighten' | 'color-dodge' | 'color-burn'
+        | 'hard-light' | 'soft-light' | 'difference' | 'exclusion'
+        | 'hue' | 'saturation' | 'color' | 'luminosity';
     pointerEvents?: 'auto' | 'none' | 'box-only' | 'box-none';
     textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+    /// CSS `line-clamp` / `-webkit-line-clamp` (pulp #1552). Maximum
+    /// number of visible text lines on a multi-line Label; setting >0
+    /// implicitly enables wrap on the bridge side. `0` disables clamp
+    /// (CSS spec uses `none`; `0` is the numeric equivalent here).
+    /// Both keys funnel through the same `setLineClamp` bridge fn.
+    lineClamp?: number;
+    webkitLineClamp?: number;
+    /// CSS `background-repeat` keyword (pulp #1552). Storage-only at
+    /// the View level today — paint-time honoring requires
+    /// `background-image: url(...)` / repeating-gradient backgrounds
+    /// which haven't landed yet. Accepts the standard CSS keyword set.
+    backgroundRepeat?: 'repeat' | 'repeat-x' | 'repeat-y' | 'no-repeat'
+                     | 'space' | 'round';
     /// CSS transform-origin: `'NN% NN%'`, `'NNpx NNpx'`, `'center'`,
     /// or two-keyword combos (`'left top'`). Bridge expects fractional
     /// 0..1 coordinates; the prop-applier parses the string before
     /// dispatching.
     transformOrigin?: string;
     userSelect?: 'none' | 'text' | 'all';
+    /// pulp #1434 Phase A2-1 — CSS transitions + animations.
+    /// `transition` accepts the full CSS shorthand string; longhand
+    /// fields apply uniformly across the parsed list.
+    transition?: string;
+    transitionProperty?: string;
+    transitionDuration?: number | string;
+    transitionDelay?: number | string;
+    transitionTimingFunction?:
+        | 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out'
+        | string; // also: 'cubic-bezier(...)', 'steps(N, end)'
+    animationName?: string;
+    animationDuration?: number | string;
+    /// pulp #1516 — CSS box-sizing. Web designs almost universally
+    /// reset to `border-box` via `* { box-sizing: border-box }`;
+    /// Yoga 3.x honors the spec via YGNodeStyleSetBoxSizing.
+    boxSizing?: 'content-box' | 'border-box';
     /// pulp #1434 Phase A2-2 — CSS Grid surface. Grid props live on
     /// StyleProps so JSX can express `display: grid` layouts directly.
     /// Bridge handles template-track parsing, named-area parsing, and

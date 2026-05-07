@@ -528,6 +528,63 @@ CSSStyleDeclaration.prototype._applyProperty = function(key, value) {
             break;
         }
 
+        // pulp #1514 — list-style cluster. Pulp doesn't model
+        // <li>/<ul>/<ol> semantics; the bridge stores the values
+        // verbatim. Marker glyph rendering is deferred — flipping
+        // the catalog from `missing` to `partial` documents the
+        // stored-but-not-painted state honestly.
+        //
+        // CSS spec: `list-style: <type> || <position> || <image>`
+        // (any order, space-separated). Detect each token by shape:
+        //   - matches the type keyword set → setListStyleType
+        //   - matches "inside" / "outside" → setListStylePosition
+        //   - starts with "url(" or "none" → setListStyleImage
+        case "listStyle": {
+            // Parse the space-separated shorthand into the 3 longhands.
+            var lsTokens = String(resolved).trim().split(/\s+/);
+            var lsTypes = { "none": 1, "disc": 1, "circle": 1, "square": 1, "decimal": 1 };
+            var lsPos = { "inside": 1, "outside": 1 };
+            var sawType = false;
+            var sawPos = false;
+            var sawImage = false;
+            for (var li = 0; li < lsTokens.length; li++) {
+                var tok = lsTokens[li];
+                if (tok.indexOf("url(") === 0) {
+                    if (typeof setListStyleImage !== "undefined") setListStyleImage(id, tok);
+                    sawImage = true;
+                } else if (lsPos[tok]) {
+                    if (typeof setListStylePosition !== "undefined") setListStylePosition(id, tok);
+                    sawPos = true;
+                } else if (lsTypes[tok]) {
+                    // "none" matches both type and image. CSS spec: "none"
+                    // applies to whichever is unset; if neither, type wins.
+                    // We bias to type — `list-style: none` is overwhelmingly
+                    // a type-reset, not an image-reset.
+                    if (tok === "none" && sawType && !sawImage) {
+                        if (typeof setListStyleImage !== "undefined") setListStyleImage(id, "none");
+                        sawImage = true;
+                    } else {
+                        if (typeof setListStyleType !== "undefined") setListStyleType(id, tok);
+                        sawType = true;
+                    }
+                }
+                // Unknown tokens silently dropped.
+            }
+            break;
+        }
+        case "listStyleType": {
+            if (typeof setListStyleType !== "undefined") setListStyleType(id, resolved);
+            break;
+        }
+        case "listStyleImage": {
+            if (typeof setListStyleImage !== "undefined") setListStyleImage(id, resolved);
+            break;
+        }
+        case "listStylePosition": {
+            if (typeof setListStylePosition !== "undefined") setListStylePosition(id, resolved);
+            break;
+        }
+
         // Opacity
         case "opacity":
             setOpacity(id, parseFloat(resolved) || 0);
@@ -649,16 +706,45 @@ CSSStyleDeclaration.prototype._applyProperty = function(key, value) {
             break;
         }
 
-        // Transition
+        // Transition (pulp #1434 Phase A2-1) — pass the full shorthand
+        // string to the bridge, which parses it into a list of
+        // TransitionSpecs (one per comma-separated entry; supports
+        // duration / delay / easing / property + cubic-bezier + steps).
+        // The legacy parseTransition / setTransitionDuration path is
+        // kept as a fallback for older runtimes.
         case "transition": {
-            var tr = parseTransition(resolved);
-            setTransitionDuration(id, tr.duration);
+            if (typeof setTransition !== "undefined") {
+                setTransition(id, resolved);
+            } else {
+                var tr = parseTransition(resolved);
+                setTransitionDuration(id, tr.duration);
+            }
             break;
         }
         case "transitionDuration": {
             var td = parseFloat(resolved);
             if (resolved.indexOf("ms") >= 0) td /= 1000;
             setTransitionDuration(id, td);
+            break;
+        }
+        case "transitionProperty": {
+            if (typeof setTransitionProperty !== "undefined") {
+                setTransitionProperty(id, resolved);
+            }
+            break;
+        }
+        case "transitionTimingFunction": {
+            if (typeof setTransitionTimingFunction !== "undefined") {
+                setTransitionTimingFunction(id, resolved);
+            }
+            break;
+        }
+        case "transitionDelay": {
+            var dly = parseFloat(resolved);
+            if (resolved.indexOf("ms") >= 0) dly /= 1000;
+            if (typeof setTransitionDelay !== "undefined") {
+                setTransitionDelay(id, dly);
+            }
             break;
         }
 

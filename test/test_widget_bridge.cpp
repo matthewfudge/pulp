@@ -995,6 +995,65 @@ TEST_CASE("WidgetBridge style and layout setters update native view state",
     REQUIRE(engine.evaluate("missing_preset_type").toString() == "undefined");
 }
 
+// pulp #1549 — RN `mixBlendMode` (RN 0.76 New Architecture). The bridge
+// fn `setMixBlendMode` maps W3C blend-mode keywords to the canvas
+// BlendMode enum on the View slot; the @pulp/react prop-applier dispatch
+// is exercised by packages/pulp-react/test/prop-applier-mix-blend-mode.test.ts.
+TEST_CASE("WidgetBridge setMixBlendMode keyword -> BlendMode mapping",
+          "[view][bridge][issue-1549]") {
+    using BM = pulp::canvas::Canvas::BlendMode;
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('p', '');
+    )");
+    auto* p = bridge.widget("p");
+    REQUIRE(p != nullptr);
+
+    // Default is normal — paint-time fast path stays a no-op.
+    REQUIRE(p->mix_blend_mode() == BM::normal);
+    REQUIRE_FALSE(p->has_non_default_blend_mode());
+
+    struct KW { const char* keyword; BM mode; };
+    const KW table[] = {
+        {"normal",      BM::normal},
+        {"multiply",    BM::multiply},
+        {"screen",      BM::screen},
+        {"overlay",     BM::overlay},
+        {"darken",      BM::darken},
+        {"lighten",     BM::lighten},
+        {"color-dodge", BM::color_dodge},
+        {"color-burn",  BM::color_burn},
+        {"hard-light",  BM::hard_light},
+        {"soft-light",  BM::soft_light},
+        {"difference",  BM::difference},
+        {"exclusion",   BM::exclusion},
+        {"hue",         BM::hue},
+        {"saturation",  BM::saturation},
+        {"color",       BM::color},
+        {"luminosity",  BM::luminosity},
+    };
+    for (const auto& row : table) {
+        std::string js = std::string("setMixBlendMode('p', '") + row.keyword + "');";
+        bridge.load_script(js);
+        REQUIRE(p->mix_blend_mode() == row.mode);
+    }
+
+    // Non-default keyword sets has_non_default_blend_mode().
+    bridge.load_script("setMixBlendMode('p', 'multiply');");
+    REQUIRE(p->has_non_default_blend_mode());
+
+    // Unknown keyword -> normal (paint-time no-op fallback).
+    bridge.load_script("setMixBlendMode('p', 'plus-lighter');");
+    REQUIRE(p->mix_blend_mode() == BM::normal);
+    REQUIRE_FALSE(p->has_non_default_blend_mode());
+}
+
 // ── Bridge animation API tests ──────────────────────────────────────────────
 
 TEST_CASE("WidgetBridge setMotionToken from JS", "[view][bridge][animation]") {
@@ -3001,6 +3060,170 @@ TEST_CASE("WidgetBridge text-decoration longhand setters preserve siblings",
     REQUIRE(lab->has_text_decoration_color());
     REQUIRE(lab->text_decoration_color().g8() == 255);
     REQUIRE(lab->text_decoration_style() == Label::TextDecorationStyle::wavy);
+}
+
+// ── pulp #1552: line-clamp + background-repeat ──────────────────────────────
+
+TEST_CASE("WidgetBridge setLineClamp stores count on Label",
+          "[view][bridge][issue-1552]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createLabel('lab', 'one\\ntwo\\nthree\\nfour', '')");
+    auto* lab = dynamic_cast<Label*>(bridge.widget("lab"));
+    REQUIRE(lab != nullptr);
+    // Default: no clamp.
+    REQUIRE(lab->line_clamp() == 0);
+    REQUIRE_FALSE(lab->multi_line());
+
+    // Setting a non-zero clamp also implicitly enables multi_line so the
+    // paint path takes the multi-line branch (the implicit-wrap rule).
+    bridge.load_script("setLineClamp('lab', 2)");
+    REQUIRE(lab->line_clamp() == 2);
+    REQUIRE(lab->multi_line());
+
+    // Update the count — multi_line stays on.
+    bridge.load_script("setLineClamp('lab', 5)");
+    REQUIRE(lab->line_clamp() == 5);
+    REQUIRE(lab->multi_line());
+
+    // 0 clears the slot. multi_line is left as-is (the user may have
+    // set it independently via setMultiLine / white-space).
+    bridge.load_script("setLineClamp('lab', 0)");
+    REQUIRE(lab->line_clamp() == 0);
+    REQUIRE(lab->multi_line());  // sticky from the previous call
+
+    // Negative values are clamped to 0 (defensive — JS shim parseInt
+    // never emits a negative, but we don't want to trust that).
+    bridge.load_script("setLineClamp('lab', -3)");
+    REQUIRE(lab->line_clamp() == 0);
+}
+
+TEST_CASE("WidgetBridge setLineClamp truncates multi-line text in paint",
+          "[view][bridge][issue-1552]") {
+    using namespace pulp::canvas;
+
+    Label label("alpha\nbeta\ngamma\ndelta");
+    label.set_bounds({0, 0, 200, 200});
+    label.set_multi_line(true);
+    label.set_line_clamp(2);
+
+    RecordingCanvas canvas;
+    label.paint(canvas);
+
+    // Verify exactly 2 fill_text commands emitted (one per visible line).
+    auto fills = std::vector<DrawCommand>{};
+    for (auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) fills.push_back(cmd);
+    }
+    REQUIRE(fills.size() == 2);
+    // First line is verbatim, second line gets the U+2026 ellipsis
+    // appended because source lines were dropped.
+    REQUIRE(fills[0].text == "alpha");
+    REQUIRE(fills[1].text == std::string("beta") + "\xe2\x80\xa6");
+
+    // Clamp larger than the source-line count: paint emits all lines
+    // and skips the ellipsis (no source lines were dropped).
+    canvas.clear();
+    label.set_line_clamp(10);
+    label.paint(canvas);
+    fills.clear();
+    for (auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) fills.push_back(cmd);
+    }
+    REQUIRE(fills.size() == 4);
+    REQUIRE(fills[3].text == "delta");  // no ellipsis
+}
+
+TEST_CASE("Label line-clamp shrinks text_h for vertical-align centering",
+          "[view][bridge][issue-1552]") {
+    using namespace pulp::canvas;
+
+    // Codex P2 on PR #1573 — vertical positioning previously used the
+    // *source* newline count for text_h, so a 5-line label clamped to 2
+    // visible lines was offset upward as if the hidden lines still
+    // occupied space. Verify the first visible line's y reflects a
+    // 2-line block centered in the bounds, not a 5-line block.
+
+    constexpr float kBoundsH = 200.0f;
+    constexpr float kFontSize = 14.0f;
+    const float lh = kFontSize * 1.4f;       // Label default line-height
+    const float ascent = kFontSize * 0.85f;  // Label baseline offset
+
+    // Reference: 2-line block (matches the clamped behavior we want).
+    Label two_lines("alpha\nbeta");
+    two_lines.set_bounds({0, 0, 200, kBoundsH});
+    two_lines.set_multi_line(true);
+    two_lines.set_font_size(kFontSize);
+    two_lines.set_vertical_align(TextVerticalAlign::center);
+
+    RecordingCanvas ref_canvas;
+    two_lines.paint(ref_canvas);
+    float ref_first_y = -1.0f;
+    for (auto& cmd : ref_canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) {
+            ref_first_y = cmd.f[1];
+            break;
+        }
+    }
+    REQUIRE(ref_first_y > 0.0f);
+
+    // Subject: 5 source lines, clamp=2. The first visible line's y must
+    // match the 2-line reference (i.e. clamp shrinks the centered block,
+    // it does not push the visible lines off-center).
+    Label clamped("one\ntwo\nthree\nfour\nfive");
+    clamped.set_bounds({0, 0, 200, kBoundsH});
+    clamped.set_multi_line(true);
+    clamped.set_font_size(kFontSize);
+    clamped.set_vertical_align(TextVerticalAlign::center);
+    clamped.set_line_clamp(2);
+
+    RecordingCanvas canvas;
+    clamped.paint(canvas);
+
+    std::vector<DrawCommand> fills;
+    for (auto& cmd : canvas.commands()) {
+        if (cmd.type == DrawCommand::Type::fill_text) fills.push_back(cmd);
+    }
+    REQUIRE(fills.size() == 2);
+    REQUIRE_THAT(fills[0].f[1], WithinAbs(ref_first_y, 1e-3));
+    // Second visible line sits exactly one line-height below the first.
+    REQUIRE_THAT(fills[1].f[1], WithinAbs(ref_first_y + lh, 1e-3));
+
+    // Sanity: the centered y is meaningfully below the top-aligned y
+    // (= ascent). This guards against regressing to the historic bug
+    // where multi-line always painted from the top regardless of
+    // vertical-align (would have ref_first_y == ascent).
+    REQUIRE(ref_first_y > ascent + lh);  // strictly below 1-line top
+}
+
+TEST_CASE("WidgetBridge setBackgroundRepeat round-trips keyword on View",
+          "[view][bridge][issue-1552]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createCol('panel', '')");
+    auto* panel = bridge.widget("panel");
+    REQUIRE(panel != nullptr);
+    REQUIRE(panel->background_repeat().empty());
+
+    bridge.load_script("setBackgroundRepeat('panel', 'no-repeat')");
+    REQUIRE(panel->background_repeat() == "no-repeat");
+
+    bridge.load_script("setBackgroundRepeat('panel', 'repeat-x')");
+    REQUIRE(panel->background_repeat() == "repeat-x");
+
+    bridge.load_script("setBackgroundRepeat('panel', 'space')");
+    REQUIRE(panel->background_repeat() == "space");
+
+    bridge.load_script("setBackgroundRepeat('panel', '')");
+    REQUIRE(panel->background_repeat().empty());
 }
 
 // ── issue-926: setBackdropFilter ─────────────────────────────────────────────
@@ -5264,6 +5487,98 @@ TEST_CASE("border-style: none short-circuits the stroke",
     }
 }
 
+// ── pulp #1514 — list-style cluster bridge round-trip ────────────────────
+//
+// Pulp doesn't model HTML <li>/<ul>/<ol> semantics; the bridge stores
+// the list-style values verbatim on the View so a future paint pass
+// (or a future semantic-list surface) can honor them. The catalog
+// status is `partial` (stored, not painted) — these tests prove the
+// JS → bridge → View slot round-trip works for every keyword.
+
+TEST_CASE("setListStyleType maps each keyword to the right enum (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');  setListStyleType('a', 'none');
+        createPanel('b', '');  setListStyleType('b', 'disc');
+        createPanel('c', '');  setListStyleType('c', 'circle');
+        createPanel('d', '');  setListStyleType('d', 'square');
+        createPanel('e', '');  setListStyleType('e', 'decimal');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_type() == View::ListStyleType::none);
+    REQUIRE(bridge.widget("b")->list_style_type() == View::ListStyleType::disc);
+    REQUIRE(bridge.widget("c")->list_style_type() == View::ListStyleType::circle);
+    REQUIRE(bridge.widget("d")->list_style_type() == View::ListStyleType::square);
+    REQUIRE(bridge.widget("e")->list_style_type() == View::ListStyleType::decimal);
+}
+
+TEST_CASE("setListStyleType unknown keyword falls back to disc (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('x', '');
+        setListStyleType('x', 'lower-roman');
+    )");
+    // 'lower-roman' isn't in the supported set; bridge defaults to disc
+    // (the CSS spec default for <ul>).
+    REQUIRE(bridge.widget("x")->list_style_type() == View::ListStyleType::disc);
+}
+
+TEST_CASE("setListStyleImage stores url and clears on 'none' (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');  setListStyleImage('a', 'url(bullet.png)');
+        createPanel('b', '');  setListStyleImage('b', 'none');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_image() == "url(bullet.png)");
+    REQUIRE(bridge.widget("b")->list_style_image() == "");
+}
+
+TEST_CASE("setListStylePosition maps each keyword to the right enum (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('a', '');  setListStylePosition('a', 'inside');
+        createPanel('b', '');  setListStylePosition('b', 'outside');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_position() == View::ListStylePosition::inside);
+    REQUIRE(bridge.widget("b")->list_style_position() == View::ListStylePosition::outside);
+}
+
+TEST_CASE("setListStylePosition unknown keyword falls back to outside (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('x', '');
+        setListStylePosition('x', 'middle');
+    )");
+    REQUIRE(bridge.widget("x")->list_style_position() == View::ListStylePosition::outside);
+}
+
+TEST_CASE("listStyle shorthand parses type / position / image in any order (issue-1514)",
+          "[view][bridge][css][issue-1514]") {
 // ── pulp #1434 Phase A2-4 — CSS filter chain ─────────────────────────
 //
 // setFilter walks the function-chain string (e.g. "blur(4px)
@@ -5281,6 +5596,37 @@ TEST_CASE("setFilter parses single blur(Npx)",
 
     bridge.load_script(R"(
         createPanel('a', '');
+        createPanel('b', '');
+        createPanel('c', '');
+    )");
+
+    // Drive the actual web-compat-style-decl.js path with three orderings:
+    //   a: type position image
+    //   b: image type position  (CSS spec allows any order)
+    //   c: just "none"          (the most common reset)
+    bridge.load_script(R"(
+        var __ea = { _id: 'a', _nativeCreated: true };
+        var __sda = new CSSStyleDeclaration(__ea);
+        __sda._applyProperty('listStyle', 'square inside url(bullet.png)');
+
+        var __eb = { _id: 'b', _nativeCreated: true };
+        var __sdb = new CSSStyleDeclaration(__eb);
+        __sdb._applyProperty('listStyle', 'url(dot.png) circle outside');
+
+        var __ec = { _id: 'c', _nativeCreated: true };
+        var __sdc = new CSSStyleDeclaration(__ec);
+        __sdc._applyProperty('listStyle', 'none');
+    )");
+
+    REQUIRE(bridge.widget("a")->list_style_type() == View::ListStyleType::square);
+    REQUIRE(bridge.widget("a")->list_style_position() == View::ListStylePosition::inside);
+    REQUIRE(bridge.widget("a")->list_style_image() == "url(bullet.png)");
+
+    REQUIRE(bridge.widget("b")->list_style_type() == View::ListStyleType::circle);
+    REQUIRE(bridge.widget("b")->list_style_position() == View::ListStylePosition::outside);
+    REQUIRE(bridge.widget("b")->list_style_image() == "url(dot.png)");
+
+    REQUIRE(bridge.widget("c")->list_style_type() == View::ListStyleType::none);
         setFilter('a', 'blur(8px)');
     )");
     const auto& chain = bridge.widget("a")->filter_chain();
@@ -5816,6 +6162,252 @@ TEST_CASE("CSSStyleDeclaration forwards width/height auto to bridge",
     REQUIRE(fa.dim_height.unit == DimensionUnit::auto_);
 }
 
+// ── pulp #1434 Phase A2-1 — CSS animations + transitions ──────────────
+//
+// PR 1 of the multi-PR ladder. Establishes the CssEasing /
+// AnimatableProperty / TransitionSpec / CssAnimation /
+// CssKeyframesRegistry types + the parse_transition_shorthand parser
+// + the bridge surface (setTransition / setTransitionProperty /
+// setTransitionDuration / setTransitionDelay /
+// setTransitionTimingFunction / defineKeyframes / setAnimation). PRs
+// 2-5 ladder on this substrate to wire frame-driven playback.
+
+TEST_CASE("parse_transition_shorthand: single property",
+          "[view][bridge][css][issue-1434-anim]") {
+    auto specs = parse_transition_shorthand("opacity 200ms ease");
+    REQUIRE(specs.size() == 1);
+    REQUIRE(specs[0].property_name == "opacity");
+    REQUIRE(specs[0].property == AnimatableProperty::opacity);
+    REQUIRE_THAT(specs[0].duration_seconds, WithinAbs(0.2f, 0.001f));
+    REQUIRE(specs[0].easing.kind == CssEasing::Kind::ease);
+}
+
+TEST_CASE("parse_transition_shorthand: comma-separated entries",
+          "[view][bridge][css][issue-1434-anim]") {
+    auto specs = parse_transition_shorthand(
+        "opacity 200ms ease, transform 300ms ease-in 100ms");
+    REQUIRE(specs.size() == 2);
+    REQUIRE(specs[0].property_name == "opacity");
+    REQUIRE_THAT(specs[0].duration_seconds, WithinAbs(0.2f, 0.001f));
+    REQUIRE_THAT(specs[0].delay_seconds, WithinAbs(0.0f, 0.001f));
+    REQUIRE(specs[1].property_name == "transform");
+    REQUIRE_THAT(specs[1].duration_seconds, WithinAbs(0.3f, 0.001f));
+    REQUIRE_THAT(specs[1].delay_seconds, WithinAbs(0.1f, 0.001f));
+    REQUIRE(specs[1].easing.kind == CssEasing::Kind::ease_in);
+}
+
+TEST_CASE("parse_transition_shorthand: cubic-bezier(...)",
+          "[view][bridge][css][issue-1434-anim]") {
+    auto specs = parse_transition_shorthand(
+        "transform 1s cubic-bezier(0.42, 0, 0.58, 1)");
+    REQUIRE(specs.size() == 1);
+    REQUIRE(specs[0].easing.kind == CssEasing::Kind::cubic_bezier);
+    REQUIRE_THAT(specs[0].easing.p1x, WithinAbs(0.42f, 0.001f));
+    REQUIRE_THAT(specs[0].easing.p1y, WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(specs[0].easing.p2x, WithinAbs(0.58f, 0.001f));
+    REQUIRE_THAT(specs[0].easing.p2y, WithinAbs(1.0f, 0.001f));
+}
+
+TEST_CASE("parse_transition_shorthand: steps(N, end|start)",
+          "[view][bridge][css][issue-1434-anim]") {
+    auto a = parse_transition_shorthand("opacity 1s steps(4, end)");
+    REQUIRE(a[0].easing.kind == CssEasing::Kind::steps_end);
+    REQUIRE(a[0].easing.steps_count == 4);
+    auto b = parse_transition_shorthand("opacity 1s steps(8, jump-start)");
+    REQUIRE(b[0].easing.kind == CssEasing::Kind::steps_start);
+    REQUIRE(b[0].easing.steps_count == 8);
+}
+
+TEST_CASE("parse_transition_shorthand: none clears the list",
+          "[view][bridge][css][issue-1434-anim]") {
+    auto specs = parse_transition_shorthand("none");
+    REQUIRE(specs.empty());
+}
+
+TEST_CASE("CssEasing endpoints: at(0)=0, at(1)=1",
+          "[view][bridge][css][issue-1434-anim]") {
+    CssEasing e;
+    REQUIRE_THAT(e.at(0.0f), WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(e.at(1.0f), WithinAbs(1.0f, 0.001f));
+    e = CssEasing::from_keyword("ease-in-out");
+    REQUIRE_THAT(e.at(0.0f), WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(e.at(1.0f), WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(e.at(0.5f), WithinAbs(0.5f, 0.01f));  // symmetric at midpoint
+}
+
+TEST_CASE("CssAnimation::tick advances and finishes",
+          "[view][bridge][css][issue-1434-anim]") {
+    CssAnimation a{};
+    a.spec.duration_seconds = 1.0f;
+    a.spec.delay_seconds = 0.0f;
+    a.spec.easing.kind = CssEasing::Kind::linear;
+    a.start_value = 0.0f;
+    a.end_value = 100.0f;
+    REQUIRE(a.active);
+    REQUIRE_THAT(a.tick(0.5f), WithinAbs(50.0f, 0.001f));
+    REQUIRE(a.active);
+    REQUIRE_THAT(a.tick(0.5f), WithinAbs(100.0f, 0.001f));
+    REQUIRE(!a.active);
+}
+
+TEST_CASE("setTransition stores TransitionSpecs on the View",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        setTransition('a', 'opacity 200ms ease, transform 300ms ease-in 100ms');
+    )");
+    const auto& ts = bridge.widget("a")->transitions();
+    REQUIRE(ts.size() == 2);
+    REQUIRE(ts[0].property_name == "opacity");
+    REQUIRE(ts[1].property_name == "transform");
+}
+
+TEST_CASE("setTransition('none') clears the list",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        setTransition('a', 'opacity 200ms ease');
+        setTransition('a', 'none');
+    )");
+    REQUIRE(bridge.widget("a")->transitions().empty());
+}
+
+TEST_CASE("View::find_transition_for matches 'all' as fallback",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        setTransition('a', 'all 500ms');
+    )");
+    const auto* m = bridge.widget("a")->find_transition_for("opacity");
+    REQUIRE(m != nullptr);
+    REQUIRE(m->property_name == "all");
+    REQUIRE_THAT(m->duration_seconds, WithinAbs(0.5f, 0.001f));
+}
+
+TEST_CASE("defineKeyframes populates the registry",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        defineKeyframes('fade', JSON.stringify([
+            { offset: 0,   properties: { opacity: '0' } },
+            { offset: 1.0, properties: { opacity: '1' } }
+        ]));
+    )");
+    const auto* block = bridge.css_keyframes_registry().find("fade");
+    REQUIRE(block != nullptr);
+    REQUIRE(block->name == "fade");
+    REQUIRE(block->stops.size() == 2);
+    REQUIRE_THAT(block->stops[0].offset, WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(block->stops[1].offset, WithinAbs(1.0f, 0.001f));
+}
+
+TEST_CASE("setAnimation seeds Animation from registry",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        defineKeyframes('fade', JSON.stringify([
+            { offset: 0,   properties: { opacity: '0' } },
+            { offset: 1.0, properties: { opacity: '1' } }
+        ]));
+        createPanel('a', '');
+        setAnimation('a', 'fade', 0.4, 1, 'normal');
+    )");
+    const auto& anims = bridge.widget("a")->active_animations();
+    REQUIRE(anims.size() == 1);
+    REQUIRE(anims[0].property == AnimatableProperty::opacity);
+    REQUIRE_THAT(anims[0].spec.duration_seconds, WithinAbs(0.4f, 0.001f));
+}
+
+// pulp #1508 Codex audit (P1 #1) — legacy control-token ABI.
+// `setAnimation(id, "name", animName)` is the path
+// web-compat-style-decl.js takes for `style.animationName = ...` and
+// for the `animation:` shorthand. Pre-fix the new positional handler
+// greedily took arg1 as anim_name, so the registry lookup missed on
+// the literal control token "name" and nothing was seeded.
+TEST_CASE("setAnimation legacy control-token: name resolves against registry",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        defineKeyframes('fade-in', JSON.stringify([
+            { offset: 0,   properties: { opacity: '0' } },
+            { offset: 1.0, properties: { opacity: '1' } }
+        ]));
+        createPanel('a', '');
+        // web-compat-style-decl.js path — one control token at a time.
+        setAnimation('a', 'duration', 0.25);
+        setAnimation('a', 'easing', 'ease-in-out');
+        setAnimation('a', 'name', 'fade-in');
+    )");
+    auto* v = bridge.widget("a");
+    REQUIRE(v != nullptr);
+    REQUIRE(v->staged_animation().name == "fade-in");
+    REQUIRE_THAT(v->staged_animation().duration_seconds, WithinAbs(0.25f, 0.001f));
+    // Registry resolution happens at `name` arrival; the staged
+    // duration / easing flow into the seeded Animation.
+    const auto& anims = v->active_animations();
+    REQUIRE(anims.size() == 1);
+    REQUIRE(anims[0].property == AnimatableProperty::opacity);
+    REQUIRE_THAT(anims[0].spec.duration_seconds, WithinAbs(0.25f, 0.001f));
+    REQUIRE(anims[0].spec.easing.kind == CssEasing::Kind::ease_in_out);
+}
+
+// pulp #1508 Codex audit (P1 #1) — legacy control-token form must not
+// look up "duration" in the keyframes registry. Pre-fix this would
+// silently no-op; post-fix it stages duration on the View.
+TEST_CASE("setAnimation legacy control-token: duration stages without registry hit",
+          "[view][bridge][css][issue-1434-anim]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        setAnimation('a', 'duration', 0.5);
+    )");
+    auto* v = bridge.widget("a");
+    REQUIRE(v != nullptr);
+    REQUIRE_THAT(v->staged_animation().duration_seconds, WithinAbs(0.5f, 0.001f));
+    // No keyframes registered, no animation seeded, but no failure.
+    REQUIRE(v->active_animations().empty());
+}
+
+// pulp #1508 Codex audit (P2) — TransitionSpec default easing must be
+// CSS `ease`, not `linear`. CSS spec for transition-timing-function
+// defaults to `ease`; declarations like `transition: opacity 200ms`
+// (no explicit easing token) must inherit that default.
+TEST_CASE("TransitionSpec default-constructed easing == CSS ease",
+          "[view][bridge][css][issue-1434-anim]") {
+    TransitionSpec spec{};
+    REQUIRE(spec.easing.kind == CssEasing::Kind::ease);
+    CssEasing default_easing{};
+    REQUIRE(default_easing.kind == CssEasing::Kind::ease);
+    // And the parse path with no explicit easing token preserves the default.
+    auto specs = parse_transition_shorthand("opacity 200ms");
+    REQUIRE(specs.size() == 1);
+    REQUIRE(specs[0].easing.kind == CssEasing::Kind::ease);
+}
+
 // pulp #1434 Phase A2-5 — fontFamily accepts a CSS comma-separated
 // list and picks the first non-empty family. Outer quotes (single or
 // double) are stripped per CSS spec. Whitespace is trimmed.
@@ -6015,6 +6607,155 @@ TEST_CASE("CSSStyleDeclaration forwards gridTemplateAreas",
     )");
     REQUIRE(bridge.widget("a")->grid().template_areas.size() == 3);
     REQUIRE(bridge.widget("a")->grid().auto_flow == GridStyle::AutoFlow::column);
+}
+
+// pulp #1516 — setBoxSizing routes to FlexStyle.box_sizing.
+TEST_CASE("setBoxSizing border-box / content-box round-trips onto FlexStyle",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        createPanel('b', '');
+        setBoxSizing('a', 'border-box');
+        setBoxSizing('b', 'content-box');
+    )");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::border_box);
+    REQUIRE(bridge.widget("b")->flex().box_sizing == BoxSizing::content_box);
+
+    // Unknown keyword falls back to content-box. The default for an
+    // unset slot is border-box (matches Yoga 3.x and pulp's implicit
+    // pre-#1516 behavior), but `setBoxSizing` with an explicit unknown
+    // keyword resolves to content-box rather than silently keeping the
+    // prior value — that way `setBoxSizing('id', 'wat')` is a clear
+    // observable rather than a quiet no-op.
+    bridge.load_script("setBoxSizing('a', 'wat')");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::content_box);
+}
+
+// pulp #1516 — CSSStyleDeclaration shim forwards camelCase boxSizing.
+TEST_CASE("CSSStyleDeclaration forwards box-sizing to bridge",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('a', '');
+        var s = new CSSStyleDeclaration({ _id: 'a', _nativeCreated: true });
+        s.boxSizing = 'border-box';
+    )");
+    REQUIRE(bridge.widget("a")->flex().box_sizing == BoxSizing::border_box);
+}
+
+// pulp #1516 — load-bearing test. Under border-box (pulp default),
+// declared width=100 + padding=10 yields outer-bounds width=100
+// (content area shrinks). Under content-box (CSS spec default), the
+// same declaration produces outer width=120 (padding adds outside).
+// Yoga 3.x's YGNodeStyleSetBoxSizing does the math.
+TEST_CASE("border-box vs content-box layout math via Yoga",
+          "[view][bridge][css][issue-1516]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 400});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('bb', '');
+        createPanel('cb', '');
+        setFlex('bb', 'width',  100);
+        setFlex('bb', 'height', 100);
+        setFlex('bb', 'padding', 10);
+        // bb stays default border-box (matches pulp's pre-#1516 implicit
+        // behavior and Yoga 3.x's own default).
+        setFlex('cb', 'width',  100);
+        setFlex('cb', 'height', 100);
+        setFlex('cb', 'padding', 10);
+        setBoxSizing('cb', 'content-box');
+    )");
+    root.layout_children();
+    auto* bb = bridge.widget("bb");
+    auto* cb = bridge.widget("cb");
+    REQUIRE(bb != nullptr);
+    REQUIRE(cb != nullptr);
+    // border-box: outer == declared (100); content area shrinks.
+    REQUIRE_THAT(bb->bounds().width,  WithinAbs(100.0f, 0.5f));
+    REQUIRE_THAT(bb->bounds().height, WithinAbs(100.0f, 0.5f));
+    // content-box: outer == declared + padding*2 (120).
+    REQUIRE_THAT(cb->bounds().width,  WithinAbs(120.0f, 0.5f));
+    REQUIRE_THAT(cb->bounds().height, WithinAbs(120.0f, 0.5f));
+}
+
+// ── pulp #1522 — Canvas2D fillRule arg threads through bridge fns ───────
+//
+// `canvasFillPath` and `canvasClip` accept an optional fillRule int
+// (0 = nonzero/winding, 1 = evenodd). The bridge stores it on
+// CanvasDrawCmd::int_val; the widget-level canvas2d shim tests in
+// test_canvas2d_shim.cpp drive ctx.fill('evenodd')/ctx.clip('evenodd')
+// end-to-end. This bridge-level test exercises the fns directly so a
+// regression in the int_val plumbing surfaces here independent of the
+// JS shim parser.
+TEST_CASE("WidgetBridge canvasFillPath / canvasClip thread fillRule int_val",
+          "[view][bridge][canvas][issue-1522]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var c = document.createElement('canvas');
+        c.id = 'fillrule-canvas';
+        c.width = 100; c.height = 100;
+        document.body.appendChild(c);
+        // Drive the bridge fns directly so we exercise int_val plumbing
+        // without going through the JS shim arg parser.
+        canvasBeginPath(c._id);
+        canvasMoveTo(c._id, 0, 0);
+        canvasLineTo(c._id, 10, 0);
+        canvasLineTo(c._id, 10, 10);
+        canvasLineTo(c._id, 0, 10);
+        canvasClosePath(c._id);
+        canvasFillPath(c._id, 1);     // evenodd
+        canvasBeginPath(c._id);
+        canvasMoveTo(c._id, 0, 0);
+        canvasLineTo(c._id, 10, 0);
+        canvasLineTo(c._id, 10, 10);
+        canvasClosePath(c._id);
+        canvasFillPath(c._id);        // default (nonzero)
+        canvasBeginPath(c._id);
+        canvasMoveTo(c._id, 0, 0);
+        canvasLineTo(c._id, 10, 0);
+        canvasLineTo(c._id, 10, 10);
+        canvasClosePath(c._id);
+        canvasClip(c._id, 1);         // evenodd
+        canvasBeginPath(c._id);
+        canvasMoveTo(c._id, 0, 0);
+        canvasLineTo(c._id, 10, 0);
+        canvasLineTo(c._id, 10, 10);
+        canvasClosePath(c._id);
+        canvasClip(c._id);            // default (nonzero)
+    )");
+
+    auto* canvas = canvasFromBridge(bridge, engine, "fillrule-canvas");
+    REQUIRE(canvas != nullptr);
+
+    using T = pulp::view::CanvasDrawCmd::Type;
+    std::vector<int> fill_int_vals;
+    std::vector<int> clip_int_vals;
+    for (const auto& cmd : canvas->commands()) {
+        if (cmd.type == T::fill_path) fill_int_vals.push_back(cmd.int_val);
+        if (cmd.type == T::clip)      clip_int_vals.push_back(cmd.int_val);
+    }
+    REQUIRE(fill_int_vals.size() == 2);
+    REQUIRE(fill_int_vals[0] == 1);   // explicit evenodd
+    REQUIRE(fill_int_vals[1] == 0);   // default nonzero
+    REQUIRE(clip_int_vals.size() == 2);
+    REQUIRE(clip_int_vals[0] == 1);   // explicit evenodd
+    REQUIRE(clip_int_vals[1] == 0);   // default nonzero
 }
 
 // ── pulp #1520 — canvasSetDirection / canvasSetFilter bridge fns ────────
