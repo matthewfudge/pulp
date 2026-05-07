@@ -48,6 +48,18 @@ specifics are out of scope.
   marker glyphs aren't painted today (and `decimal` additionally
   needs sibling-index resolution from the parent's children).
   Marker glyph rendering is the follow-up. css drift -4.
+- **2026-05-06 (pulp #1516)** — `css/boxSizing` flipped from `missing`
+  to `supported`. The JS shim already called `setBoxSizing` if the
+  bridge fn existed, but the bridge never registered it — so every
+  `box-sizing: border-box` declaration silently dropped. This PR adds
+  the bridge fn (`setBoxSizing(id, kw)`), routes it through
+  `FlexStyle::box_sizing`, and wires `YGNodeStyleSetBoxSizing` in
+  `build_yoga_subtree`. Default is `border-box` (matches Yoga 3.x's
+  own default + pulp's implicit pre-fix behavior + what every modern
+  web design expects via `* { box-sizing: border-box }`).
+  `content-box` is opt-in for CSS-spec semantics. High-leverage for
+  design imports — Figma / v0 / Claude Design HTML often emit
+  explicit `boxSizing` declarations that previously vanished.
 - **2026-05-06 (pulp #1552)** — `line-clamp` / `-webkit-line-clamp` /
   `background-repeat` wired end-to-end. `setLineClamp` and
   `setBackgroundRepeat` now register in `widget_bridge.cpp`; the JS
