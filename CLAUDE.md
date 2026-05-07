@@ -789,7 +789,9 @@ Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/cre
 
 ### CI Workflow
 
-**Never merge a PR without green CI on all three platforms (macOS, Ubuntu, Windows).** Use the `ci` skill for all merges — it handles the full workflow.
+Use Shipyard for all merges. Current Pulp branch protection requires the
+macOS lane; Linux and Windows still run in GitHub Actions but are advisory
+unless branch protection changes.
 
 #### The `ship` workflow (primary path for all agents)
 
@@ -812,7 +814,6 @@ pulp pr
 # default ship path:
 shipyard run                              # validate current branch
 shipyard ship                             # resume/operate on an existing Shipyard-managed PR
-shipyard cloud run build <branch>         # dispatch to Namespace
 
 # SSH preflight (v0.20.0+ / Shipyard #106): exit codes are distinct.
 #   0 — success
@@ -829,24 +830,30 @@ The CI skill (`.agents/skills/ci/SKILL.md`) is the single source of truth for la
 
 1. Run `shipyard pr` — never `gh pr create` + `shipyard ship` separately (that bypasses the skill-sync and version-bump gates)
 2. The orchestrator runs skill-sync + version-bump gates, commits any bumps, pushes, opens/tracks the PR, and invokes Shipyard validation
-3. Shipyard validates on macOS (locally), Ubuntu (SSH), and Windows (SSH)
-4. Merges only when ALL targets pass
+3. Shipyard validates the macOS lane through the local self-hosted runner path
+4. GitHub Actions runs Linux and Windows on GitHub-hosted runners as advisory checks
 5. Posts a closeout comment
 
 `local_ci.py` remains in the repo as a legacy fallback but is scheduled for removal (see issue #120).
 
-#### GitHub Actions (backup gate)
+#### GitHub Actions
 
-PRs also trigger `.github/workflows/build.yml` which builds and tests on all three platforms via Namespace runners. This is a redundant safety net — Shipyard's local validation is the primary path.
+PRs trigger `.github/workflows/build.yml` on all three platforms. macOS routes
+to the local self-hosted runner through `PULP_LOCAL_MACOS_RUNS_ON_JSON` when
+that repo variable is set. Linux and Windows use GitHub-hosted runners and are
+advisory unless explicitly required by branch protection.
 
 #### Runner priority (hard rule)
 
-**Always use Namespace for cloud CI. Never rely on GitHub-hosted runners as the primary path.**
+Namespace is decommissioned for Pulp CI. Do not use `--mode namespace` or set
+`*_NAMESPACE_*_RUNS_ON_JSON` repo variables.
 
-1. **Namespace** (default): `shipyard cloud run build <branch>`
-2. **Local VMs** (fallback): `ssh ubuntu`, `ssh win` via `shipyard run`
-3. **GitHub-hosted** (last resort): Only if Namespace is unavailable.
+1. **macOS local runner**: primary required gate.
+2. **GitHub-hosted Linux/Windows**: advisory cross-platform signal.
+3. **SSH Ubuntu/Windows**: use only when a human explicitly asks for those local hosts.
 
-macOS runs locally in parallel with Namespace/SSH Ubuntu/Windows builds.
+If Shipyard tries to probe SSH Ubuntu or Windows for a macOS-focused PR where
+those hosts are not in scope, use `--skip-target ubuntu --skip-target windows`
+and file a Shipyard issue if the CLI should have inferred that from config.
 
 See `docs/guides/local-ci.md` for setup.

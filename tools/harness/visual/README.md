@@ -59,6 +59,23 @@ python3 -m pytest tools/harness/visual/tests/
 If `skia-python==144.0.post2` is not installed, the SkPicture render smoke
 skips with an explicit reason. The pin and font integrity tests still run.
 
+Build the semantic Yoga snapshot binary and verify checked-in B.1 goldens:
+
+```bash
+cmake --build build --target pulp-test-visual
+pulp harness visual --verify --all
+```
+
+Regenerate one golden after an intentional layout contract change:
+
+```bash
+pulp harness visual --generate --surface=yoga --entry=yoga/box-sizing
+```
+
+`pulp harness coverage --surface=yoga --json` includes a `visual_pass` count
+for the checked-in semantic goldens, so coverage reports show both catalog
+oracle progress and visual regression coverage for the same surface.
+
 To run the smoke in the stable Linux container once Docker is available:
 
 ```bash

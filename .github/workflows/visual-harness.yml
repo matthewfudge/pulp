@@ -10,7 +10,10 @@ on:
       - 'external/fonts/**'
       - 'external/skia-build/VERSION.md'
       - 'tools/deps/manifest.json'
+      - 'tools/harness/verifier.py'
       - 'tools/harness/visual/**'
+      - 'test/CMakeLists.txt'
+      - 'test/visual/**'
   push:
     branches: [main]
     paths:
@@ -20,7 +23,10 @@ on:
       - 'external/fonts/**'
       - 'external/skia-build/VERSION.md'
       - 'tools/deps/manifest.json'
+      - 'tools/harness/verifier.py'
       - 'tools/harness/visual/**'
+      - 'test/CMakeLists.txt'
+      - 'test/visual/**'
   workflow_dispatch:
 
 permissions:
@@ -83,3 +89,57 @@ jobs:
         env:
           PULP_VISUAL_REQUIRE_SKIA: '1'
         run: .visual-harness-venv/bin/python -m pytest tools/harness/visual/tests/ -q
+
+  layout-snapshots:
+    name: Yoga layout snapshots
+    runs-on: ${{ fromJSON(vars.PULP_LOCAL_MACOS_RUNS_ON_JSON || '"macos-15"') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Install ccache
+        run: brew install ccache
+
+      - name: Cache FetchContent sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Pulp/fetchcontent-src
+            ~/.cache/Pulp/fetchcontent-src
+          key: ${{ runner.os }}-visual-fetchcontent-${{ hashFiles('setup.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-visual-fetchcontent-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/.cache/ccache
+          key: ${{ runner.os }}-visual-ccache-${{ hashFiles('**/CMakeLists.txt', 'tools/cmake/*.cmake') }}-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-visual-ccache-${{ hashFiles('**/CMakeLists.txt', 'tools/cmake/*.cmake') }}-
+            ${{ runner.os }}-visual-ccache-
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+
+      - name: Configure visual harness
+        run: cmake -S . -B build-visual -DCMAKE_BUILD_TYPE=Release -DPULP_BUILD_EXAMPLES=OFF
+
+      - name: Build visual harness
+        run: cmake --build build-visual --config Release --target pulp-test-visual
+
+      - name: Verify Yoga layout goldens
+        run: python3 tools/harness/verifier.py visual --verify --all --build-dir build-visual
+
+      - name: Ccache stats
+        if: always()
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --show-stats
+          else
+            echo "ccache not available; skipping stats"
+          fi

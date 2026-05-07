@@ -1525,6 +1525,16 @@ add_executable(pulp-test-layout-w3c test_layout_w3c.cpp)
 target_link_libraries(pulp-test-layout-w3c PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-layout-w3c)
 
+# Visual semantic snapshot harness. This is a custom-main Catch2 binary:
+# --self-test runs its focused tests, while --fixture emits a stable JSON
+# snapshot for tools/harness/visual/runner.py.
+add_executable(pulp-test-visual visual/pulp-test-visual.cpp)
+target_link_libraries(pulp-test-visual PRIVATE pulp::view Catch2::Catch2)
+add_test(NAME visual-harness-self-test COMMAND pulp-test-visual --self-test)
+set_tests_properties(visual-harness-self-test PROPERTIES
+    LABELS "visual;harness;yoga"
+    TIMEOUT 30)
+
 # CanvasWidget tests (JS-driven custom drawing)
 add_executable(pulp-test-canvas-widget test_canvas_widget.cpp)
 target_link_libraries(pulp-test-canvas-widget PRIVATE pulp::view Catch2::Catch2WithMain)
