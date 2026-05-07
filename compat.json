@@ -37,7 +37,8 @@
       "2026-05-06_1551": "pulp #1551 (Phase A3 Bundle 3 inside pulp #1434 umbrella): pure catalog add of 13 already-implemented css/* meta entries \u2014 `__StyleSheet`, `__matchMedia`, `__pseudo_active` / `__pseudo_disabled` / `__pseudo_focus` / `__pseudo_hover`, `__selector_child` / `__selector_class` / `__selector_descendant` / `__selector_id` / `__selector_tag`, `__setProperty_var`, `__var`. Documents existing wiring in `core/view/js/web-compat-document.js`, `web-compat-style-decl.js`, `css-parser.js` and `web-compat.js`. No code changes; +13 instant supported entries. css count 199 -> 212.",
       "2026-05-06_1544": "pulp #1544: Added yoga/flex and yoga/flexFlow catalog entries documenting the unsupported CSS shorthand surface on the Yoga side (yoga count 53 -> 55). PR #1563.",
       "2026-05-07": "pulp #1434 A4 Bundles 2-7: css NOT-IMPL closure. 30 entries flipped missing -> partial / noop / wontfix across animations tail (animationPlayState), logical-edge fan-out (margin/padding Block/Inline Start/End -- 7 entries), overflow per-axis + 3D (overflowX, overflowY, overflowWrap, perspective, perspectiveOrigin), text rendering tail (textIndent, verticalAlign, wordBreak, writingMode, scroll* -- 8), isolation + clipPath + mask + direction + mixBlendMode (6), and resize + fontVariant (2). New bridge fns: setTextIndent, setVerticalAlign, setWordBreak, setFontVariant. Extended setAnimation with the \"play_state\" control token. Synthetic __pseudo_classes_note flipped wontfix. Catalog css count holds at 212; missing -> 0.",
-      "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts."
+      "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts.",
+      "2026-05-07_W3css3": "pulp #1434 Wave 3 css.3 + Codex P1 audit follow-through on #1508. css/animationPlayState flipped partial → supported by adding View::tick_animations(dt) which honors the `paused` keyword (no-op when paused, advance-each-CssAnimation otherwise) — the playback driver pause/resume gap the previous A4 Bundle 2 entry had explicitly deferred. Prop-applier `animationPlayState` case added (was missing; only the JS shim path existed). Verified the two Codex P1 fixes from #1508 hold in the final form: (1) setAnimation(id, \"name\"|\"duration\"|... , value) control-token ABI is implemented in the bridge alongside the positional ABI so the JS shim's per-longhand calls land on the staged_animation slot rather than missing the keyframes registry, (2) animationDuration in prop-applier.ts dispatches to setAnimation/duration, not setTransitionDuration. css count holds at 212."
     },
     "counts": {
       "css": 212,
@@ -544,17 +545,19 @@
       "issue": ""
     },
     "css/animationPlayState": {
-      "status": "partial",
-      "mapsTo": "web-compat-style-decl.js forwards `animation-play-state` through setAnimation(id, \"play_state\", value); the bridge stores the keyword on View::animation_play_state_ and on the staged_animation slot. Storage-only today \u2014 the playback driver pause/resume integration is the follow-up to #1508.",
+      "status": "supported",
+      "mapsTo": "web-compat-style-decl.js forwards `animation-play-state` through setAnimation(id, \"play_state\", value); the bridge stores the keyword on View::animation_play_state_. View::tick_animations(dt) honors the keyword by skipping the timeline advance when value is \"paused\" (web spec semantic) \u2014 animations resume on the next tick when the keyword flips back to \"running\".",
       "supportedValues": [
         "running",
         "paused"
       ],
-      "unsupportedValues": [
-        "playback driver pause/resume integration deferred (storage only)"
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp::\"WidgetBridge setAnimation play_state stores on View\"",
+        "test/test_widget_bridge.cpp::\"View::tick_animations honors paused play_state\"",
+        "packages/pulp-react/test/prop-applier-animation.test.ts::\"animationPlayState routes to setAnimation/play_state\""
       ],
-      "tests": [],
-      "notes": "pulp #1434 A4 Bundle 2: status flipped missing \u2192 partial. setAnimation control-token ABI extended with \"play_state\".",
+      "notes": "pulp #1434 Wave 3 css.3: status flipped partial \u2192 supported. View::tick_animations(dt) advances active_animations_ entries in-place but is a no-op when animation_play_state_ == \"paused\", giving the play-state keyword its full pause/resume semantic without coupling the existing seed-only flow to a frame-driven dispatcher. The per-property tween-to-View commit step is the orthogonal PR-2-of-the-original-ladder follow-up; play-state pause/resume is independently testable today.",
       "issue": ""
     },
     "css/animationTimingFunction": {
