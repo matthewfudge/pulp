@@ -54,7 +54,7 @@ public:
 
     // ── Clipping ─────────────────────────────────────────────────────────
     void clip_rect(float x, float y, float w, float h) override;
-    void clip(FillRule rule = FillRule::nonzero) override;
+    void clip() override;
 
     // ── Fill and stroke ──────────────────────────────────────────────────
     void set_fill_color(Color c) override;
@@ -147,8 +147,24 @@ public:
     void quad_to(float cpx, float cpy, float x, float y) override;
     void cubic_to(float cp1x, float cp1y, float cp2x, float cp2y, float x, float y) override;
     void close_path() override;
-    void fill_current_path(FillRule rule = FillRule::nonzero) override;
+    void fill_current_path() override;
     void stroke_current_path() override;
+
+    // pulp #1521 — native arc subpaths via SkPath::arcTo / SkRRect.
+    void arc(float cx, float cy, float radius,
+             float start_angle, float end_angle,
+             bool anticlockwise) override;
+    void arc_to(float x1, float y1, float x2, float y2,
+                float radius) override;
+    void ellipse(float cx, float cy, float rx, float ry,
+                 float rotation,
+                 float start_angle, float end_angle,
+                 bool anticlockwise) override;
+    void round_rect(float x, float y, float w, float h,
+                    float tl_x, float tl_y,
+                    float tr_x, float tr_y,
+                    float br_x, float br_y,
+                    float bl_x, float bl_y) override;
 
     // SDF shapes
     void draw_sdf_shape(SDFShape shape, float x, float y, float w, float h,
@@ -219,6 +235,11 @@ public:
     void save_layer_with_blend(float x, float y, float w, float h,
                                float opacity, float blur_radius,
                                Canvas::BlendMode mode) override;
+    // pulp #1434 Phase A2-4 — full CSS filter chain.
+    void save_layer_with_filters(float x, float y, float w, float h,
+                                  float opacity,
+                                  const FilterChainEntry* chain,
+                                  int count) override;
 
 private:
     // Build the active fill paint, honoring `gradient_shader_` when set
