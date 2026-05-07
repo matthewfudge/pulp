@@ -68,17 +68,18 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install locked visual smoke dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install 'pytest>=8,<9' 'skia-python==144.0.post2'
+          set -euo pipefail
+          if ! command -v python3.12 >/dev/null 2>&1; then
+            echo "python3.12 is required for the locked skia-python macOS wheel" >&2
+            exit 1
+          fi
+          python3.12 -m venv .visual-harness-venv
+          .visual-harness-venv/bin/python -m pip install --upgrade pip
+          .visual-harness-venv/bin/python -m pip install 'pytest>=8,<9' 'skia-python==144.0.post2'
 
       - name: Run deterministic visual harness tests
         env:
           PULP_VISUAL_REQUIRE_SKIA: '1'
-        run: python -m pytest tools/harness/visual/tests/ -q
+        run: .visual-harness-venv/bin/python -m pytest tools/harness/visual/tests/ -q

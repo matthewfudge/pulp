@@ -404,7 +404,10 @@ workflow runs that Linux container and also runs the same pytest smoke on
 macOS arm64 so the future canonical raster lane has a platform signal. The
 `macOS local smoke` job resolves `runs-on` from
 `PULP_LOCAL_MACOS_RUNS_ON_JSON` first and falls back to hosted `macos-15` only
-when the local selector variable is absent.
+when the local selector variable is absent. On the persistent local runner,
+this job deliberately uses the installed `python3.12` and a worktree-local venv
+instead of `actions/setup-python`, because that action defaults to GitHub's
+hosted `/Users/runner` toolcache path and can fail before tests start.
 
 Use it when a fresh worktree has only `external/skia-build` headers/metadata
 and no platform static libraries:

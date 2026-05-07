@@ -85,6 +85,9 @@ canonical raster-golden gate.
 The GitHub `macOS local smoke` job reads `PULP_LOCAL_MACOS_RUNS_ON_JSON` and
 falls back to hosted `macos-15` only when that repo variable is unset. In Pulp's
 normal CI config it should resolve to the local self-hosted `sanitizer` runner.
+That local runner path uses the installed `python3.12` plus a per-checkout venv
+for the locked `skia-python` wheel; it does not use `actions/setup-python`,
+whose hosted-runner toolcache defaults are not writable on the persistent Mac.
 
 The canonical raster-golden gate for future PNG tests is the arm64-darwin
 software/raster lane. The Docker image is the reproducible dependency
