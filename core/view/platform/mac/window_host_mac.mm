@@ -209,6 +209,19 @@ static std::vector<uint8_t> capture_window_screencapture_png(NSWindow* window) {
     pulp::view::View* _focusedView;
 }
 
+- (instancetype)initWithFrame:(NSRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        // pulp #1321: ensure the content view tracks the window's content rect
+        // so AppKit resizes our frame when the user drags the window edge.
+        // Without this, the view's bounds stay at the original frame and Yoga
+        // never reflows on resize.
+        self.autoresizesSubviews = YES;
+        self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    }
+    return self;
+}
+
 - (BOOL)isFlipped { return NO; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent*)e { (void)e; return YES; }
@@ -280,6 +293,23 @@ static pulp::view::Point toLocal(pulp::view::Point pos, pulp::view::View* target
         local.y -= v->bounds().y;
     }
     return local;
+}
+
+// pulp #992 — confirm a cached View* is still attached to the live tree
+// before any dereference. Walks `root` and compares pointers only, so it's
+// safe to call with `needle` pointing into freed memory. Returns false if
+// `needle` was unparented or destroyed between the cached capture (e.g. at
+// mouseDown) and the next event (e.g. mouseUp). Does NOT detect the ABA
+// case where memory was freed and reused at the same address — see #992
+// follow-up issue if profiling shows that's hit; for now a tree walk
+// catches the React-unmount-during-click pattern that actually crashes.
+static bool view_is_in_tree(pulp::view::View* needle, pulp::view::View* root) {
+    if (!needle || !root) return false;
+    if (needle == root) return true;
+    for (size_t i = 0; i < root->child_count(); ++i) {
+        if (view_is_in_tree(needle, root->child_at(i))) return true;
+    }
+    return false;
 }
 
 static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
@@ -356,6 +386,85 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
             }
         }
 
+        // pulp #1148 — generalized overlay-click routing for React popovers.
+        // Any View that called `claim_overlay()` (e.g. via @pulp/react's
+        // `<View overlay>` JSX prop) is checked AFTER the ComboBox path
+        // (which stays exact-as-was per regression test in
+        // test_combo_dropdown.cpp [issue-overlay]) and BEFORE the regular
+        // tree hit_test. If the click falls inside the overlay's window
+        // rect we route it directly there so absolutely-positioned popover
+        // children get the click instead of whatever sibling/ancestor view
+        // happens to occupy that pixel.
+        if (auto* overlay = pulp::view::View::active_overlay_) {
+            if (view_is_in_tree(overlay, self.rootView) &&
+                overlay->overlay_contains({pt.x, pt.y})) {
+                // Hit-test inside the overlay subtree so nested buttons /
+                // labels still receive the click.
+                //
+                // pulp #1313 (Codex P1 on #1297) — only dispatch when
+                // hit_test returns a real view. If hit_test returns
+                // nullptr, the overlay (or some ancestor in its
+                // subtree) failed the visible / enabled / hit_testable
+                // / pointer_events check; force-dispatching to the
+                // overlay anyway would bypass those guards. Fall
+                // through to the standard hit_test below instead.
+                auto local_to_overlay = toLocal(pt, overlay, self.rootView);
+                if (auto* sub = overlay->hit_test(local_to_overlay)) {
+                    // pulp #1314 (Codex P2 on #1297) — when the
+                    // overlay handles a click, the standard ComboBox
+                    // outside-click notification at the bottom of
+                    // mouseDown: is bypassed via the early return
+                    // below. Run it here so an open ComboBox dropdown
+                    // still closes when the user clicks on a separate
+                    // active overlay.
+                    pulp::view::ComboBox::notify_global_click(sub);
+
+                    _dragTarget = sub;
+                    auto local = toLocal(pt, _dragTarget, self.rootView);
+
+                    if (_dragTarget->focusable()) {
+                        if (_focusedView && _focusedView != _dragTarget)
+                            _focusedView->on_focus_changed(false);
+                        _focusedView = _dragTarget;
+                        _focusedView->on_focus_changed(true);
+                    } else if (_focusedView) {
+                        _focusedView->on_focus_changed(false);
+                        _focusedView = nullptr;
+                    }
+
+                    pulp::view::MouseEvent me;
+                    me.position = local;
+                    me.window_position = pt;
+                    me.button = pulp::view::MouseButton::left;
+                    me.modifiers = modifiersFromNSFlags(event.modifierFlags);
+                    me.is_down = true;
+                    me.click_count = static_cast<int>(event.clickCount);
+                    _dragTarget->on_mouse_event(me);
+                    _dragTarget->on_mouse_down(local);
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
+                // hit_test returned null — the overlay's guards rejected
+                // the click. Don't dispatch and don't release_overlay
+                // (the overlay is still mounted, just not currently
+                // interactive at this position). Fall through to the
+                // standard hit_test path below.
+            } else {
+                // Click landed outside the overlay — auto-release so the
+                // overlay's "dismiss on outside click" semantics work without
+                // every JSX caller needing a global click listener. The next
+                // mount cycle will re-claim if the popover is still open.
+                //
+                // pulp #1361 — go through dismiss_active_overlay() (not the
+                // bare release_overlay()) so React state can flip
+                // setOpen(false) via on_overlay_dismissed. Falls through to
+                // the standard hit_test below so the click also activates
+                // whatever view is underneath, matching existing WebView
+                // behavior where outside-click closes-and-clicks-through.
+                pulp::view::View::dismiss_active_overlay();
+            }
+        }
+
         _dragTarget = self.rootView->hit_test(pt);
         pulp::view::ComboBox::notify_global_click(_dragTarget);
 
@@ -398,7 +507,16 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
 - (void)mouseDragged:(NSEvent*)event {
     @try {
         try {
+            // pulp #992 — _dragTarget is captured in mouseDown but the View
+            // it points to may be unmounted (and freed) before the next
+            // drag event arrives, e.g. when a click triggers a React state
+            // change that destroys the widget. Re-validate against the
+            // live tree before any deref.
             if (!_dragTarget || !self.rootView) return;
+            if (!view_is_in_tree(_dragTarget, self.rootView)) {
+                _dragTarget = nullptr;
+                return;
+            }
             auto pt = [self localPoint:event];
             auto local = toLocal(pt, _dragTarget, self.rootView);
             _dragTarget->on_mouse_drag(local);
@@ -420,11 +538,46 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
     @try {
         try {
             if (_dragTarget) {
+                // pulp #992 — _dragTarget may point at a freed View if
+                // the mouseDown handler triggered a React unmount of the
+                // clicked widget (every dropdown selection in Spectr does
+                // this — clicking a band-count item flushes the React
+                // tree and the popover Views are dropped before mouseUp
+                // ever arrives). Drop the up event silently if the
+                // captured pointer is no longer in the live tree, rather
+                // than dereference garbage memory and SIGSEGV.
+                if (!view_is_in_tree(_dragTarget, self.rootView)) {
+                    _dragTarget = nullptr;
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
                 auto pt = [self localPoint:event];
                 auto local = toLocal(pt, _dragTarget, self.rootView);
                 auto released_target = self.rootView ? self.rootView->hit_test(pt) : nullptr;
-                auto click_handler = _dragTarget->on_click;
+                // pulp #1067 — DOM-style click bubbling. `hit_test` returns
+                // the deepest hit-testable view under the cursor, but the
+                // `onClick` handler (registered via `registerClick(id)`) may
+                // live on an ancestor. The classic reproducer: @pulp/react
+                // turns `<button onClick=...>Clear</button>` into a
+                // `<View onClick=...>` parent with a `<Label>Clear</Label>`
+                // child (Spectr's dom-adapter wraps string children in
+                // synthetic Labels). Clicking the visible "Clear" text
+                // hits the Label, which has no `on_click`, so #1006/#1008's
+                // capture-by-_dragTarget path silently dropped the click.
+                // Walk up the parent chain to find the nearest ancestor
+                // (including `_dragTarget` itself) with a registered
+                // handler — mirrors the browser behaviour @pulp/react users
+                // expect.
+                pulp::view::View* click_target = _dragTarget;
+                while (click_target && !click_target->on_click) {
+                    click_target = click_target->parent();
+                }
+                auto click_handler = click_target ? click_target->on_click : std::function<void()>{};
                 auto global_click = self.rootView ? self.rootView->on_global_click : std::function<void(const std::string&, uint16_t)>{};
+                // global_click reports the immediate hit (matches existing
+                // inspect-click behaviour: Cmd-click on a text label tells
+                // the inspector exactly which view was hit, not the
+                // bubbled-to ancestor).
                 auto clicked_id = _dragTarget->id();
                 auto modifiers = modifiersFromNSFlags(event.modifierFlags);
                 _dragTarget->on_mouse_up(local);
@@ -547,6 +700,19 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
                     [self setNeedsDisplay:YES];
                     return;
                 }
+            }
+            // pulp #1361 — generic active_overlay_ ESC dismissal. ModalOverlay,
+            // ComboBox, and CallOutBox already have their own ESC handlers
+            // (ComboBox/CallOutBox sit on the focused view and consume their
+            // own KeyCode::escape; modals are handled above). The generic
+            // `<View overlay>` path has no widget-specific ESC owner — wire
+            // it here so React popovers built from active_overlay_ close on
+            // ESC like every other popover surface.
+            if (pulp::view::View::active_overlay_) {
+                pulp::view::View::dismiss_active_overlay();
+                [self startAnimationTimerIfNeeded];
+                [self setNeedsDisplay:YES];
+                return;
             }
         }
 
@@ -891,6 +1057,20 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
     }
 }
 
+- (void)setFrameSize:(NSSize)newSize {
+    [super setFrameSize:newSize];
+    // pulp #1321: AppKit resizes us during a window resize. Push the new
+    // bounds into the root View immediately and relayout so hit testing,
+    // tracking-area updates, and the next paint all see the new geometry.
+    if (self.rootView) {
+        self.rootView->set_bounds({0, 0,
+            static_cast<float>(newSize.width),
+            static_cast<float>(newSize.height)});
+        self.rootView->layout_children();
+    }
+    [self setNeedsDisplay:YES];
+}
+
 - (void)dealloc {
     [self.animationTimer invalidate];
 }
@@ -924,10 +1104,47 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
         CGSize backing = NSMakeSize(frame.size.width * scale, frame.size.height * scale);
         layer.drawableSize = backing;
 
+        // pulp #1382 — declare the layer opaque and seed its background to
+        // the standalone-app's base dark fill (matches paint_scene RGB
+        // 30,30,46 = 0x1E1E2E). Without this, AppKit auto-clears the
+        // layer to its default `backgroundColor` (clear/white-equivalent
+        // through the window) every time `setNeedsDisplay:YES` fires —
+        // which any hover / mouse event triggers — and the user sees an
+        // opaque-white flash in the canvas region between when AppKit
+        // invalidates and when the next display-link tick produces a
+        // Metal frame. The "live paints white but headless paints dark"
+        // symptom comes from this gap, not from the canvas command list.
+        //
+        // BGRA8Unorm at full opacity, sRGB encoded as the pixel format
+        // expects (0x1E/255 ≈ 0.118, etc).
+        layer.opaque = YES;
+        const CGFloat dark[4] = { 30.0/255.0, 30.0/255.0, 46.0/255.0, 1.0 };
+        CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        layer.backgroundColor = CGColorCreate(cs, dark);
+        CGColorSpaceRelease(cs);
+
         self.layer = layer;
         _metalLayer = layer;
     }
     return self;
+}
+
+// pulp #1382 — `wantsUpdateLayer = YES` tells AppKit to use the
+// layer-based drawing path (calls `-updateLayer` instead of
+// `-drawRect:`) and, critically, NOT to auto-clear the backing layer
+// to opaque background between updates. Combined with `layer.opaque
+// = YES` above, this makes setNeedsDisplay-triggered invalidations a
+// no-op for the layer's own contents — the most-recent Metal frame
+// stays presented until the next display-link tick produces a new one.
+- (BOOL)wantsUpdateLayer {
+    return YES;
+}
+
+- (void)updateLayer {
+    // No-op: Metal frames are produced by MacGpuWindowHost::render_frame
+    // off the display link callback, NOT inside AppKit's update cycle.
+    // We just need this method to exist so AppKit honors
+    // wantsUpdateLayer and skips its own paint pipeline.
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -1151,6 +1368,15 @@ public:
 
             delegate_ = [[PulpWindowDelegate alloc] init];
             delegate_.onResize = ^(float w, float h) {
+                // pulp #1321: belt-and-suspenders relayout — PulpView's
+                // setFrameSize: already pushes new bounds + relayouts when
+                // AppKit resizes the content view, but if a host changed
+                // the frame in some other path we still want the root view
+                // synced before the user's callback fires and before the
+                // next paint.
+                root_.set_bounds({0, 0, w, h});
+                root_.layout_children();
+                [view_ setNeedsDisplay:YES];
                 if (resize_callback_) {
                     resize_callback_(
                         static_cast<uint32_t>(std::max(0.0f, w)),
@@ -1447,6 +1673,25 @@ public:
         resize_callback_ = std::move(cb);
     }
 
+    // pulp #1387 gap #3 — wire the host's idle callback into the
+    // CVDisplayLink dispatch so JS rAF / setTimeout / async-result
+    // queues are pumped each vsync. Without this override the GPU
+    // host inherited the WindowHost base no-op, which dropped
+    // standalone's `scripted_ui->poll()` on the floor: every
+    // requestAnimationFrame() call would queue a callback, set
+    // needs_repaint_=true via request_repaint, render one frame —
+    // and then never fire the JS callback because nothing called
+    // poll_async_results to drain pending_frame_ids_. The CPU host
+    // has set_idle_callback wired to a 30Hz NSTimer (line ~1429);
+    // GPU is now wired vsync-aligned via the display link instead
+    // of a separate timer to keep pump cadence locked to the same
+    // frame the renderer is about to emit.
+    void set_idle_callback(std::function<void()> cb) override {
+        idle_callback_ = std::move(cb);
+        has_idle_callback_.store(static_cast<bool>(idle_callback_),
+                                  std::memory_order_release);
+    }
+
     void run_event_loop() override {
         @autoreleasepool {
             [NSApplication sharedApplication];
@@ -1543,6 +1788,11 @@ private:
     int frame_ok_count_ = 0;
     float width_ = 0, height_ = 0;
     ResizeCallback resize_callback_;
+    // pulp #1387 gap #3 — idle callback wiring. CVDisplayLink reads
+    // has_idle_callback_ on the display thread; idle_callback_ is
+    // invoked on main only.
+    std::function<void()> idle_callback_;
+    std::atomic<bool> has_idle_callback_{false};
 
     static bool view_needs_continuous_frames(View* view) {
         if (!view) return false;
@@ -1631,6 +1881,12 @@ private:
                                    static_cast<uint32_t>(height),
                                    static_cast<float>(scale));
         }
+        // pulp #1321: relayout the root view synchronously so hit testing
+        // and any user resize callback both see the new geometry. paint_scene
+        // also calls set_bounds + layout_children, but that runs at the next
+        // vsync — too late for input handlers fired during the resize drag.
+        root_.set_bounds({0, 0, width, height});
+        root_.layout_children();
         if (resize_callback_) {
             resize_callback_(
                 static_cast<uint32_t>(std::max(0.0f, width)),
@@ -1702,8 +1958,17 @@ private:
         CVOptionFlags, CVOptionFlags*, void* context)
     {
         auto* self = static_cast<MacGpuWindowHost*>(context);
+        // pulp #1387 gap #3 — guard now also fires when an idle
+        // callback is installed, so JS rAF / setTimeout / async-result
+        // queues get a vsync-paced pump even when no native widget is
+        // animating and no prior request_repaint set needs_repaint_.
+        // The idle pump (`scripted_ui->poll()` → `bridge.poll_async_results()`)
+        // drains pending_frame_ids_ via __flushFrames__ and re-arms
+        // needs_repaint_ for any frame that requested another paint.
+        const bool has_idle = self->has_idle_callback_.load(std::memory_order_acquire);
         if (self->needs_repaint_.load(std::memory_order_relaxed) ||
-            self->continuous_frames_.load(std::memory_order_relaxed)) {
+            self->continuous_frames_.load(std::memory_order_relaxed) ||
+            has_idle) {
             bool expected = false;
             if (!self->render_dispatch_queued_.compare_exchange_strong(expected, true,
                                                                        std::memory_order_acq_rel,
@@ -1713,6 +1978,13 @@ private:
             // Dispatch rendering to the main thread (required for Cocoa + Metal)
             dispatch_async(dispatch_get_main_queue(), ^{
                 @autoreleasepool {
+                    // Pump idle FIRST so JS rAF callbacks fire (and any
+                    // request_repaint they trigger arms needs_repaint_)
+                    // before we evaluate whether to render this frame.
+                    if (self->idle_callback_) {
+                        self->idle_callback_();
+                    }
+
                     bool animate = view_needs_continuous_frames(&self->root_);
                     bool tick_subscribers = self->frame_clock_.has_active_subscribers();
                     if (!self->needs_repaint_.load(std::memory_order_relaxed) && !animate && !tick_subscribers) {

@@ -3,9 +3,42 @@
 #include <pulp/view/widgets.hpp>
 #include <pulp/canvas/canvas.hpp>
 
+#include <cstdint>
+#include <memory>
+#include <vector>
+
 using namespace pulp::view;
 using namespace pulp::canvas;
 using Catch::Matchers::WithinAbs;
+
+namespace {
+
+std::vector<DrawCommand> commands_of(const RecordingCanvas& canvas,
+                                     DrawCommand::Type type) {
+    std::vector<DrawCommand> matches;
+    for (const auto& command : canvas.commands()) {
+        if (command.type == type) {
+            matches.push_back(command);
+        }
+    }
+    return matches;
+}
+
+std::shared_ptr<SpriteStrip> make_sprite_strip(
+    int total_width,
+    int total_height,
+    int frame_count,
+    SpriteStrip::Orientation orientation) {
+    std::vector<uint8_t> pixels(static_cast<size_t>(total_width) *
+                                static_cast<size_t>(total_height) * 4u,
+                                0x7f);
+    auto strip = std::make_shared<SpriteStrip>();
+    strip->load(pixels.data(), pixels.size(), total_width, total_height,
+                frame_count, orientation);
+    return strip;
+}
+
+}  // namespace
 
 TEST_CASE("Label renders text", "[view][widget]") {
     Label label("Gain");
@@ -220,6 +253,78 @@ TEST_CASE("Label letter_spacing counts glyphs not UTF-8 bytes",
     REQUIRE(cjk_delta <= 7.0f);
 }
 
+TEST_CASE("Label applies text transforms when painting", "[view][widget]") {
+    Label label("gain stage");
+    label.set_bounds({0, 0, 120, 24});
+
+    RecordingCanvas canvas;
+    label.set_text_transform(Label::TextTransform::uppercase);
+    label.paint(canvas);
+    REQUIRE(commands_of(canvas, DrawCommand::Type::fill_text).front().text == "GAIN STAGE");
+
+    canvas.clear();
+    label.set_text("GAIN STAGE");
+    label.set_text_transform(Label::TextTransform::lowercase);
+    label.paint(canvas);
+    REQUIRE(commands_of(canvas, DrawCommand::Type::fill_text).front().text == "gain stage");
+
+    canvas.clear();
+    label.set_text("gain stage");
+    label.set_text_transform(Label::TextTransform::capitalize);
+    label.paint(canvas);
+    REQUIRE(commands_of(canvas, DrawCommand::Type::fill_text).front().text == "Gain Stage");
+}
+
+TEST_CASE("Label paints explicit lines and decorations", "[view][widget]") {
+    Label label("gain\ntrim");
+    label.set_bounds({0, 0, 120, 60});
+    label.set_multi_line(true);
+    label.set_line_height(18.0f);
+    label.set_text_decoration(Label::TextDecoration::underline);
+
+    RecordingCanvas canvas;
+    label.paint(canvas);
+
+    auto text = commands_of(canvas, DrawCommand::Type::fill_text);
+    REQUIRE(text.size() == 2);
+    REQUIRE(text[0].text == "gain");
+    REQUIRE(text[1].text == "trim");
+    REQUIRE_THAT(text[1].f[1] - text[0].f[1], WithinAbs(18.0, 0.001));
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) == 1);
+}
+
+// pulp #1410 — verify that nowrap puts a Label into single-line paint
+// mode (multi_line=false). Truncation is #1407's surface; this test
+// just confirms the multi_line side-effect path the bridge relies on.
+TEST_CASE("Label with nowrap + multi_line=false paints exactly one fill_text command",
+          "[view][widget][issue-1410]") {
+    Label label("Mid-band attenuation\nwith high-shelf compensation");
+    label.set_bounds({0, 0, 200, 48});
+    label.set_white_space_nowrap(true);
+    label.set_multi_line(false);  // bridge does this side-effect
+
+    RecordingCanvas canvas;
+    label.paint(canvas);
+
+    auto fills = commands_of(canvas, DrawCommand::Type::fill_text);
+    REQUIRE(fills.size() == 1);  // would be 2 in multi_line mode (one per `\n`-split)
+}
+
+TEST_CASE("Label vertical text direction wraps paint in transforms", "[view][widget]") {
+    Label label("Gain");
+    label.set_bounds({0, 0, 32, 80});
+    label.set_text_direction(TextDirection::top_to_bottom);
+
+    RecordingCanvas canvas;
+    label.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::save) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::translate) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::rotate) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::restore) == 1);
+    REQUIRE(commands_of(canvas, DrawCommand::Type::fill_text).front().text == "Gain");
+}
+
 TEST_CASE("Knob value clamping", "[view][widget]") {
     Knob knob;
     knob.set_value(0.5f);
@@ -297,6 +402,295 @@ TEST_CASE("Fader horizontal orientation", "[view][widget]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
 }
 
+TEST_CASE("Knob and Fader render loaded sprite strips",
+          "[view][widget][coverage]") {
+    auto knob_strip = make_sprite_strip(2, 9, 3, SpriteStrip::Orientation::vertical);
+    Knob knob;
+    knob.set_bounds({0, 0, 20, 30});
+    knob.set_value(0.75f);
+    knob.set_sprite_strip(knob_strip);
+
+    RecordingCanvas knob_canvas;
+    knob.paint(knob_canvas);
+
+    REQUIRE(knob_canvas.count(DrawCommand::Type::draw_image) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::save) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::restore) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::stroke_arc) == 0);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::stroke_line) == 0);
+
+    auto knob_clip = commands_of(knob_canvas, DrawCommand::Type::clip_rect).front();
+    REQUIRE_THAT(knob_clip.f[2], WithinAbs(20.0, 0.001));
+    REQUIRE_THAT(knob_clip.f[3], WithinAbs(30.0, 0.001));
+
+    auto knob_scale = commands_of(knob_canvas, DrawCommand::Type::scale).front();
+    REQUIRE_THAT(knob_scale.f[0], WithinAbs(10.0, 0.001));
+    REQUIRE_THAT(knob_scale.f[1], WithinAbs(10.0, 0.001));
+
+    auto knob_translate = commands_of(knob_canvas, DrawCommand::Type::translate).front();
+    REQUIRE_THAT(knob_translate.f[0], WithinAbs(0.0, 0.001));
+    REQUIRE_THAT(knob_translate.f[1], WithinAbs(-6.0, 0.001));
+
+    auto knob_image = commands_of(knob_canvas, DrawCommand::Type::draw_image).front();
+    REQUIRE(knob_image.text.size() == knob_strip->data_size());
+    REQUIRE_THAT(knob_image.f[2], WithinAbs(2.0, 0.001));
+    REQUIRE_THAT(knob_image.f[3], WithinAbs(9.0, 0.001));
+
+    auto fader_strip = make_sprite_strip(12, 4, 3, SpriteStrip::Orientation::horizontal);
+    Fader fader;
+    fader.set_bounds({0, 0, 40, 20});
+    fader.set_value(0.5f);
+    fader.set_sprite_strip(fader_strip);
+
+    RecordingCanvas fader_canvas;
+    fader.paint(fader_canvas);
+
+    REQUIRE(fader_canvas.count(DrawCommand::Type::draw_image) == 1);
+    REQUIRE(fader_canvas.count(DrawCommand::Type::save) == 1);
+    REQUIRE(fader_canvas.count(DrawCommand::Type::restore) == 1);
+    REQUIRE(fader_canvas.count(DrawCommand::Type::fill_rounded_rect) == 0);
+    REQUIRE(fader_canvas.count(DrawCommand::Type::fill_circle) == 0);
+
+    auto fader_clip = commands_of(fader_canvas, DrawCommand::Type::clip_rect).front();
+    REQUIRE_THAT(fader_clip.f[2], WithinAbs(40.0, 0.001));
+    REQUIRE_THAT(fader_clip.f[3], WithinAbs(20.0, 0.001));
+
+    auto fader_scale = commands_of(fader_canvas, DrawCommand::Type::scale).front();
+    REQUIRE_THAT(fader_scale.f[0], WithinAbs(10.0, 0.001));
+    REQUIRE_THAT(fader_scale.f[1], WithinAbs(5.0, 0.001));
+
+    auto fader_translate = commands_of(fader_canvas, DrawCommand::Type::translate).front();
+    REQUIRE_THAT(fader_translate.f[0], WithinAbs(-4.0, 0.001));
+    REQUIRE_THAT(fader_translate.f[1], WithinAbs(0.0, 0.001));
+
+    auto fader_image = commands_of(fader_canvas, DrawCommand::Type::draw_image).front();
+    REQUIRE(fader_image.text.size() == fader_strip->data_size());
+    REQUIRE_THAT(fader_image.f[2], WithinAbs(12.0, 0.001));
+    REQUIRE_THAT(fader_image.f[3], WithinAbs(4.0, 0.001));
+}
+
+// ── RangeSlider (pulp issue-966) ────────────────────────────────────────────
+
+TEST_CASE("RangeSlider default state matches HTML <input type=\"range\">",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    REQUIRE_THAT(rs.min_value(), WithinAbs(0.0, 0.0001));
+    REQUIRE_THAT(rs.max_value(), WithinAbs(1.0, 0.0001));
+    // Default step is 0 (continuous) — HTML defaults to 1 but plugins
+    // overwhelmingly want continuous values. Callers opt into stepping.
+    REQUIRE_THAT(rs.step(), WithinAbs(0.0, 0.0001));
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+    REQUIRE(rs.orientation() == RangeSlider::Orientation::horizontal);
+    REQUIRE_FALSE(rs.has_accent_color());
+}
+
+TEST_CASE("RangeSlider clamps value to [min,max]", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(-1.0f);
+    rs.set_max(1.0f);
+
+    rs.set_value(2.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(1.0, 0.0001));
+
+    rs.set_value(-5.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(-1.0, 0.0001));
+
+    rs.set_value(0.5f);
+    REQUIRE_THAT(rs.value(), WithinAbs(0.5, 0.0001));
+}
+
+TEST_CASE("RangeSlider quantises to step", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(0.0f);
+    rs.set_max(1.0f);
+    rs.set_step(0.1f);
+
+    rs.set_value(0.34f);
+    REQUIRE_THAT(rs.value(), WithinAbs(0.3, 0.0001));
+
+    rs.set_value(0.36f);
+    REQUIRE_THAT(rs.value(), WithinAbs(0.4, 0.0001));
+
+    // Step that doesn't divide the range cleanly: max reachable step
+    // before exceeding hi must clamp back inside the range.
+    rs.set_step(0.3f);
+    rs.set_value(1.0f);
+    REQUIRE(rs.value() <= 1.0f + 1e-5f);
+    REQUIRE(rs.value() >= 0.0f);
+}
+
+TEST_CASE("RangeSlider step=0 means continuous", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(0.0f);
+    rs.set_max(100.0f);
+    rs.set_step(0.0f);
+    rs.set_value(33.7f);
+    REQUIRE_THAT(rs.value(), WithinAbs(33.7, 0.0001));
+}
+
+TEST_CASE("RangeSlider re-clamps when bounds change", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(0.0f);
+    rs.set_max(10.0f);
+    rs.set_value(7.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(7.0, 0.0001));
+
+    // Tighten the upper bound — the existing value falls outside and
+    // must snap back.
+    rs.set_max(5.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(5.0, 0.0001));
+
+    // Raise the lower bound past the value — same idea in the other
+    // direction.
+    rs.set_min(6.0f);
+    REQUIRE_THAT(rs.value(), WithinAbs(6.0, 0.0001));
+}
+
+TEST_CASE("RangeSlider invalid range collapses to min", "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_min(10.0f);
+    rs.set_max(0.0f);  // invalid: max < min
+    rs.set_value(5.0f);
+    // Per HTMLInputElement: invalid range pins value to min.
+    REQUIRE_THAT(rs.value(), WithinAbs(10.0, 0.0001));
+}
+
+TEST_CASE("RangeSlider drag dispatches change with quantised value",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 200, 24});
+    rs.set_min(0.0f);
+    rs.set_max(1.0f);
+    rs.set_step(0.25f);
+
+    std::vector<float> changes;
+    rs.on_change = [&](float v) { changes.push_back(v); };
+
+    // Mouse-down at x=100 (50% across) → expected snap to 0.5.
+    MouseEvent down;
+    down.position = {100, 12};
+    down.is_down = true;
+    rs.on_mouse_event(down);
+
+    REQUIRE(changes.size() == 1);
+    REQUIRE_THAT(changes.back(), WithinAbs(0.5, 0.0001));
+    REQUIRE_THAT(rs.value(), WithinAbs(0.5, 0.0001));
+
+    // Drag to x=180 (90%) → should snap to 1.0.
+    rs.on_mouse_drag({180, 12});
+    REQUIRE_THAT(rs.value(), WithinAbs(1.0, 0.0001));
+    REQUIRE(changes.size() >= 2);
+    REQUIRE_THAT(changes.back(), WithinAbs(1.0, 0.0001));
+
+    // Drag to x=10 (5%) → should snap to 0.
+    rs.on_mouse_drag({10, 12});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+
+    // Mouse up → dragging stops; subsequent drags must not move value.
+    MouseEvent up = down; up.is_down = false;
+    rs.on_mouse_event(up);
+    rs.on_mouse_drag({180, 12});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+}
+
+TEST_CASE("RangeSlider vertical orientation maps y correctly",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 24, 200});
+    rs.set_orientation(RangeSlider::Orientation::vertical);
+    rs.set_min(0.0f);
+    rs.set_max(1.0f);
+
+    // y=0 is top → max value (1.0).
+    MouseEvent ev;
+    ev.position = {12, 0};
+    ev.is_down = true;
+    rs.on_mouse_event(ev);
+    REQUIRE_THAT(rs.value(), WithinAbs(1.0, 0.0001));
+
+    // y=200 is bottom → min value (0.0).
+    rs.on_mouse_drag({12, 200});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.0, 0.0001));
+
+    // y=100 → halfway = 0.5.
+    rs.on_mouse_drag({12, 100});
+    REQUIRE_THAT(rs.value(), WithinAbs(0.5, 0.001));
+}
+
+TEST_CASE("RangeSlider renders track + fill + handle",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 200, 24});
+    rs.set_value(0.5f);
+
+    RecordingCanvas canvas;
+    rs.paint(canvas);
+
+    // Track + active fill = 2 rounded rects, handle = 1 circle.
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 2);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
+}
+
+TEST_CASE("RangeSlider vertical paint draws lower fill and inverted handle",
+          "[view][widget][issue-966][coverage]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 24, 200});
+    rs.set_orientation(RangeSlider::Orientation::vertical);
+    rs.set_track_thickness(6.0f);
+    rs.set_value(0.25f);
+
+    RecordingCanvas canvas;
+    rs.paint(canvas);
+
+    auto rects = commands_of(canvas, DrawCommand::Type::fill_rounded_rect);
+    REQUIRE(rects.size() == 2);
+
+    // Track is centered horizontally and spans the full vertical bounds.
+    REQUIRE_THAT(rects[0].f[0], WithinAbs(9.0, 0.001));
+    REQUIRE_THAT(rects[0].f[1], WithinAbs(0.0, 0.001));
+    REQUIRE_THAT(rects[0].f[2], WithinAbs(6.0, 0.001));
+    REQUIRE_THAT(rects[0].f[3], WithinAbs(200.0, 0.001));
+
+    // Vertical fill grows upward from the bottom for the current value.
+    REQUIRE_THAT(rects[1].f[0], WithinAbs(9.0, 0.001));
+    REQUIRE_THAT(rects[1].f[1], WithinAbs(150.0, 0.001));
+    REQUIRE_THAT(rects[1].f[2], WithinAbs(6.0, 0.001));
+    REQUIRE_THAT(rects[1].f[3], WithinAbs(50.0, 0.001));
+
+    auto handles = commands_of(canvas, DrawCommand::Type::fill_circle);
+    REQUIRE(handles.size() == 1);
+    REQUIRE_THAT(handles.front().f[0], WithinAbs(12.0, 0.001));
+    REQUIRE_THAT(handles.front().f[1], WithinAbs(146.0, 0.001));
+    REQUIRE_THAT(handles.front().f[2], WithinAbs(8.0, 0.001));
+}
+
+TEST_CASE("RangeSlider at minimum draws track but skips empty fill",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 200, 24});
+    rs.set_value(0.0f);  // exactly at min — no active fill to draw
+
+    RecordingCanvas canvas;
+    rs.paint(canvas);
+
+    // Only the background track rounded rect — fill is zero-width and
+    // skipped. Handle still renders.
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
+}
+
+TEST_CASE("RangeSlider accent color overrides theme fill",
+          "[view][widget][issue-966]") {
+    RangeSlider rs;
+    rs.set_bounds({0, 0, 100, 20});
+    rs.set_value(0.6f);
+    rs.set_accent_color(Color::rgba8(255, 64, 32, 255));
+    REQUIRE(rs.has_accent_color());
+
+    rs.clear_accent_color();
+    REQUIRE_FALSE(rs.has_accent_color());
+}
+
 TEST_CASE("Toggle state", "[view][widget]") {
     Toggle toggle;
     REQUIRE_FALSE(toggle.is_on());
@@ -318,6 +712,148 @@ TEST_CASE("Toggle renders switch", "[view][widget]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
     REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) >= 1);
+}
+
+TEST_CASE("Audio widgets render declarative schemas and invalid schema fallback",
+          "[view][widget][schema]") {
+    Knob knob;
+    knob.set_bounds({0, 0, 80, 80});
+    knob.set_value(0.5f);
+    knob.set_widget_schema(R"json({
+        "elements": [
+            { "type": "arc", "color": "control.fill", "radius": "80%", "width": 4,
+              "startAngle": -120, "sweepAngle": { "bind": "value", "range": [0, 240] } },
+            { "type": "circle", "color": "control.thumb", "radius": "25%" },
+            { "type": "line", "color": "text.primary", "innerRadius": "15%",
+              "outerRadius": "65%", "angle": { "bind": "value", "range": [-90, 90] } },
+            { "type": "rect", "color": "bg.surface", "cornerRadius": "5" },
+            { "type": "text", "color": "text.primary", "text": "dB", "fontSize": 12 }
+        ]
+    })json");
+
+    RecordingCanvas knob_canvas;
+    knob.paint(knob_canvas);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::stroke_arc) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::fill_circle) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::stroke_line) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(knob_canvas.count(DrawCommand::Type::fill_text) == 1);
+    REQUIRE(commands_of(knob_canvas, DrawCommand::Type::fill_text).front().text == "dB");
+
+    Fader fader;
+    fader.set_bounds({0, 0, 32, 120});
+    fader.set_value(0.25f);
+    fader.set_widget_schema(R"json({
+        "elements": [
+            { "type": "rect", "color": "control.track" },
+            { "type": "line", "color": "control.fill", "angle": 90,
+              "innerRadius": "4", "outerRadius": "24" }
+        ]
+    })json");
+
+    RecordingCanvas fader_canvas;
+    fader.paint(fader_canvas);
+    REQUIRE(fader_canvas.count(DrawCommand::Type::fill_rect) == 1);
+    REQUIRE(fader_canvas.count(DrawCommand::Type::stroke_line) == 1);
+
+    Toggle toggle;
+    toggle.set_bounds({0, 0, 64, 32});
+    toggle.set_on(true);
+    toggle.set_widget_schema(R"json({
+        "elements": [
+            { "type": "circle", "color": "accent.primary", "radius": "12" }
+        ]
+    })json");
+
+    RecordingCanvas toggle_canvas;
+    toggle.paint(toggle_canvas);
+    REQUIRE(toggle_canvas.count(DrawCommand::Type::fill_circle) == 1);
+
+    Knob invalid;
+    invalid.set_bounds({0, 0, 48, 48});
+    invalid.set_widget_schema("{ not valid json");
+
+    RecordingCanvas invalid_canvas;
+    invalid.paint(invalid_canvas);
+    REQUIRE(invalid_canvas.count(DrawCommand::Type::fill_rect) == 1);
+}
+
+TEST_CASE("Checkbox, toggle button, icons, and image placeholders cover widget paint edges",
+          "[view][widget][controls]") {
+    Checkbox checkbox;
+    checkbox.set_bounds({0, 0, 24, 24});
+
+    RecordingCanvas unchecked_canvas;
+    checkbox.paint(unchecked_canvas);
+    REQUIRE(unchecked_canvas.count(DrawCommand::Type::stroke_rounded_rect) == 1);
+
+    int checkbox_changes = 0;
+    bool last_checked = false;
+    checkbox.on_change = [&](bool checked) {
+        ++checkbox_changes;
+        last_checked = checked;
+    };
+    checkbox.on_mouse_down({12, 12});
+    REQUIRE(checkbox.is_checked());
+    REQUIRE(checkbox_changes == 1);
+    REQUIRE(last_checked);
+
+    RecordingCanvas checked_canvas;
+    checkbox.paint(checked_canvas);
+    REQUIRE(checked_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(checked_canvas.count(DrawCommand::Type::stroke_line) == 2);
+
+    ToggleButton button;
+    button.set_bounds({0, 0, 96, 32});
+    button.set_label("Latch");
+
+    RecordingCanvas off_canvas;
+    button.paint(off_canvas);
+    REQUIRE(off_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(off_canvas.count(DrawCommand::Type::stroke_rounded_rect) == 1);
+    REQUIRE(commands_of(off_canvas, DrawCommand::Type::fill_text).front().text == "Latch");
+
+    int toggle_count = 0;
+    bool toggle_state = false;
+    button.on_toggle = [&](bool on) {
+        ++toggle_count;
+        toggle_state = on;
+    };
+    button.on_mouse_down({4, 4});
+    REQUIRE(button.is_on());
+    REQUIRE(toggle_count == 1);
+    REQUIRE(toggle_state);
+
+    RecordingCanvas on_canvas;
+    button.paint(on_canvas);
+    REQUIRE(on_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(on_canvas.count(DrawCommand::Type::stroke_rounded_rect) == 0);
+
+    for (auto type : {Icon::Type::image_upload, Icon::Type::send,
+                      Icon::Type::search, Icon::Type::close}) {
+        Icon icon(type);
+        icon.set_bounds({0, 0, 32, 32});
+        RecordingCanvas icon_canvas;
+        icon.paint(icon_canvas);
+        REQUIRE(icon_canvas.command_count() > 0);
+    }
+
+    ImageView empty_image;
+    empty_image.set_bounds({0, 0, 96, 48});
+    RecordingCanvas empty_image_canvas;
+    empty_image.paint(empty_image_canvas);
+    REQUIRE(empty_image_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(commands_of(empty_image_canvas, DrawCommand::Type::fill_text).front().text == "IMG");
+
+    ImageView path_image;
+    path_image.set_bounds({0, 0, 120, 48});
+    path_image.set_image_path("/tmp/pulp-widget-preview.png");
+    REQUIRE(path_image.image_path() == "file:///tmp/pulp-widget-preview.png");
+
+    RecordingCanvas path_image_canvas;
+    path_image.paint(path_image_canvas);
+    REQUIRE(path_image_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(commands_of(path_image_canvas, DrawCommand::Type::fill_text).front().text == "pulp-widget-preview.png");
 }
 
 TEST_CASE("Meter set_level", "[view][widget]") {
@@ -555,6 +1091,145 @@ TEST_CASE("SpectrumView empty renders background", "[view][widget]") {
 
     REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
     REQUIRE(canvas.count(DrawCommand::Type::fill_rect) == 0);
+}
+
+TEST_CASE("SpectrumView invalid dB range only draws background",
+          "[view][widget][coverage]") {
+    SpectrumView spectrum;
+    spectrum.set_bounds({0, 0, 300, 100});
+    spectrum.set_style(SpectrumView::Style::bars);
+    spectrum.set_spectrum(std::vector<float>{-80.0f, -40.0f, -12.0f});
+    spectrum.set_range(0.0f, -80.0f);
+
+    RecordingCanvas canvas;
+    spectrum.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rect) == 0);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) == 0);
+}
+
+TEST_CASE("SpectrogramView auto-configures and paints pushed spectrum",
+          "[view][widget][coverage]") {
+    SpectrogramView spectrogram;
+    spectrogram.set_bounds({0, 0, 128, 32});
+
+    RecordingCanvas empty_canvas;
+    spectrogram.paint(empty_canvas);
+    REQUIRE(empty_canvas.count(DrawCommand::Type::fill_rect) == 1);
+
+    std::vector<float> magnitudes{-80.0f, -40.0f, 0.0f};
+    spectrogram.push_spectrum(magnitudes.data(), static_cast<int>(magnitudes.size()));
+
+    REQUIRE(spectrogram.history_columns() == 256);
+    REQUIRE(spectrogram.freq_rows() == 3);
+
+    RecordingCanvas painted_canvas;
+    spectrogram.paint(painted_canvas);
+
+    REQUIRE(painted_canvas.count(DrawCommand::Type::fill_rect) >
+            empty_canvas.count(DrawCommand::Type::fill_rect));
+    REQUIRE(painted_canvas.count(DrawCommand::Type::set_fill_color) >
+            empty_canvas.count(DrawCommand::Type::set_fill_color));
+}
+
+TEST_CASE("SpectrogramView explicit configuration controls painted grid size",
+          "[view][widget][coverage]") {
+    SpectrogramView spectrogram;
+    spectrogram.set_bounds({0, 0, 40, 20});
+    spectrogram.configure(4, 2, pulp::signal::ColorRamp::heat, -60.0f, -20.0f);
+    spectrogram.set_color_ramp(pulp::signal::ColorRamp::grayscale);
+    spectrogram.set_range(-90.0f, -30.0f);
+
+    std::vector<float> magnitudes{-90.0f, -30.0f};
+    spectrogram.push_spectrum(magnitudes.data(), static_cast<int>(magnitudes.size()));
+
+    REQUIRE(spectrogram.history_columns() == 4);
+    REQUIRE(spectrogram.freq_rows() == 2);
+
+    RecordingCanvas canvas;
+    spectrogram.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rect) == 1 + 4 * 2);
+}
+
+TEST_CASE("MultiMeter paints vertical and horizontal channel indicators",
+          "[view][widget][coverage]") {
+    pulp::signal::MultiChannelMeterData data;
+    data.num_channels = 3;
+    data.channels[0].rms = 0.95f;
+    data.channels[0].peak = 0.98f;
+    data.channels[0].clipped = true;
+    data.channels[1].rms = 0.75f;
+    data.channels[1].peak = 0.82f;
+    data.channels[2].rms = 0.35f;
+    data.channels[2].peak = 0.42f;
+
+    MultiMeter vertical;
+    vertical.set_bounds({0, 0, 90, 120});
+    vertical.set_channel_count(20);
+    REQUIRE(vertical.channel_count() == pulp::signal::kMaxMeterChannels);
+
+    vertical.update(data, 0.1f);
+    REQUIRE(vertical.channel_count() == 3);
+    REQUIRE(vertical.ballistics().channels[0].clip_indicator);
+
+    RecordingCanvas vertical_canvas;
+    vertical.paint(vertical_canvas);
+
+    REQUIRE(vertical_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(vertical_canvas.count(DrawCommand::Type::fill_rect) >= 4);
+    REQUIRE(vertical_canvas.count(DrawCommand::Type::stroke_line) >= 6);
+
+    MultiMeter horizontal;
+    horizontal.set_bounds({0, 0, 120, 60});
+    horizontal.set_layout(MultiMeter::Layout::horizontal);
+    horizontal.update(data, 0.1f);
+
+    RecordingCanvas horizontal_canvas;
+    horizontal.paint(horizontal_canvas);
+
+    REQUIRE(horizontal.layout() == MultiMeter::Layout::horizontal);
+    REQUIRE(horizontal_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(horizontal_canvas.count(DrawCommand::Type::fill_rect) >= 4);
+    REQUIRE(horizontal_canvas.count(DrawCommand::Type::stroke_line) >= 6);
+}
+
+TEST_CASE("MultiMeter with no channels paints nothing",
+          "[view][widget][coverage]") {
+    MultiMeter meter;
+    meter.set_bounds({0, 0, 80, 40});
+
+    RecordingCanvas canvas;
+    meter.paint(canvas);
+
+    REQUIRE(canvas.command_count() == 0);
+}
+
+TEST_CASE("CorrelationMeter clamps updates and paints both polarities",
+          "[view][widget][coverage]") {
+    CorrelationMeter meter;
+    meter.set_bounds({0, 0, 100, 20});
+
+    meter.update(2.0f, 1.0f);
+    REQUIRE(meter.display_correlation() > 0.99f);
+
+    RecordingCanvas positive_canvas;
+    meter.paint(positive_canvas);
+
+    REQUIRE(positive_canvas.count(DrawCommand::Type::fill_rounded_rect) == 2);
+    REQUIRE(positive_canvas.count(DrawCommand::Type::stroke_line) == 3);
+    REQUIRE(positive_canvas.count(DrawCommand::Type::fill_rect) == 1);
+
+    meter.update(-2.0f, 1.0f);
+    REQUIRE(meter.display_correlation() < -0.99f);
+
+    RecordingCanvas negative_canvas;
+    meter.paint(negative_canvas);
+
+    REQUIRE(negative_canvas.count(DrawCommand::Type::fill_rounded_rect) == 2);
+    REQUIRE(negative_canvas.count(DrawCommand::Type::stroke_line) == 3);
+    REQUIRE(negative_canvas.count(DrawCommand::Type::fill_rect) == 1);
 }
 
 TEST_CASE("View paint_all paints children", "[view][widget]") {

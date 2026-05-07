@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/view/frame_clock.hpp>
 #include <pulp/view/plugin_view_host.hpp>
 #include <pulp/view/view.hpp>
 #include <pulp/view/window_host.hpp>
@@ -15,9 +17,11 @@ public:
     void show() override {}
     void hide() override {}
     bool is_visible() const override { return false; }
-    void repaint() override {}
+    void repaint() override { ++repaint_count; }
     void set_close_callback(std::function<void()>) override {}
     void run_event_loop() override {}
+
+    int repaint_count = 0;
 };
 
 class DummyPluginViewHost final : public PluginViewHost {
@@ -25,9 +29,11 @@ public:
     NativeViewHandle native_handle() override { return nullptr; }
     void attach_to_parent(NativeViewHandle) override {}
     void detach() override {}
-    void repaint() override {}
+    void repaint() override { ++repaint_count; }
     void set_size(uint32_t width, uint32_t height) override { size_ = {width, height}; }
     Size get_size() const override { return size_; }
+
+    int repaint_count = 0;
 
 private:
     Size size_{};
@@ -114,6 +120,21 @@ TEST_CASE("View child management", "[view]") {
     REQUIRE(removed->parent() == nullptr);
 }
 
+TEST_CASE("View child removal ignores unknown children", "[view][coverage]") {
+    View root;
+    auto child = std::make_unique<View>();
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    View stranger;
+    auto removed = root.remove_child(&stranger);
+
+    REQUIRE(removed == nullptr);
+    REQUIRE(root.child_count() == 1);
+    REQUIRE(root.child_at(0) == child_ptr);
+    REQUIRE(child_ptr->parent() == &root);
+}
+
 TEST_CASE("View host references propagate across subtrees", "[view][hosts]") {
     View root;
 
@@ -177,6 +198,34 @@ TEST_CASE("View hit testing", "[view]") {
     REQUIRE(root.hit_test({50, 50}) == &root);
 }
 
+TEST_CASE("View hit testing honors disabled hit-testable and overflow states",
+          "[view][coverage]") {
+    View root;
+    root.set_bounds({0, 0, 160, 160});
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({20, 20, 40, 20});
+    child->set_overflow(View::Overflow::visible);
+    auto* child_ptr = child.get();
+    auto grandchild = std::make_unique<View>();
+    grandchild->set_bounds({0, 30, 20, 20});
+    auto* grandchild_ptr = grandchild.get();
+    child->add_child(std::move(grandchild));
+    root.add_child(std::move(child));
+
+    REQUIRE(root.hit_test({30, 55}) == grandchild_ptr);
+
+    child_ptr->set_hit_testable(false);
+    REQUIRE(root.hit_test({30, 55}) == &root);
+
+    child_ptr->set_hit_testable(true);
+    child_ptr->set_enabled(false);
+    REQUIRE(root.hit_test({30, 55}) == &root);
+
+    child_ptr->set_enabled(true);
+    REQUIRE(root.hit_test({200, 200}) == nullptr);
+}
+
 TEST_CASE("View theme resolution", "[view][theme]") {
     View root;
     root.set_theme(Theme::dark());
@@ -203,6 +252,54 @@ TEST_CASE("View theme resolution", "[view][theme]") {
     auto c3 = child_ptr->resolve_color("text.primary");
     auto expected3 = Theme::dark().color("text.primary").value();
     REQUIRE(c3 == expected3);
+}
+
+TEST_CASE("View dimensions frame clock and repaint helpers resolve inherited state",
+          "[view][coverage]") {
+    class ResizedView : public View {
+    public:
+        void on_resized() override { ++resized_count; }
+        int resized_count = 0;
+    };
+
+    ResizedView resized;
+    resized.set_bounds({0, 0, 32, 24});
+    resized.set_bounds({0, 0, 32, 24});
+    resized.set_bounds({0, 0, 64, 24});
+    REQUIRE(resized.resized_count == 2);
+
+    View root;
+    Theme theme;
+    theme.dimensions["spacing.tight"] = 7.0f;
+    root.set_theme(theme);
+
+    auto child = std::make_unique<View>();
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    REQUIRE_THAT(child_ptr->resolve_dimension("spacing.tight", 1.0f),
+                 WithinAbs(7.0f, 0.001));
+    REQUIRE_THAT(child_ptr->resolve_dimension("spacing.missing", 3.0f),
+                 WithinAbs(3.0f, 0.001));
+
+    FrameClock clock;
+    root.set_frame_clock(&clock);
+    REQUIRE(root.frame_clock() == &clock);
+    REQUIRE(child_ptr->frame_clock() == &clock);
+    REQUIRE(View{}.frame_clock() == nullptr);
+
+    DummyWindowHost window_host;
+    root.request_repaint();
+    REQUIRE(window_host.repaint_count == 0);
+    root.set_window_host(&window_host);
+    child_ptr->request_repaint();
+    REQUIRE(window_host.repaint_count == 1);
+
+    View plugin_root;
+    DummyPluginViewHost plugin_host;
+    plugin_root.set_plugin_view_host(&plugin_host);
+    plugin_root.request_repaint();
+    REQUIRE(plugin_host.repaint_count == 1);
 }
 
 TEST_CASE("View simulate_click dispatches to target", "[view][events]") {
@@ -245,6 +342,76 @@ TEST_CASE("View simulate_drag calls drag sequence", "[view][events]") {
 
     root.simulate_drag({10, 10}, {190, 190}, 5);
     REQUIRE(drag_count == 5);
+}
+
+TEST_CASE("View pointer capture hover and inspector hooks cover edge paths",
+          "[view][coverage]") {
+    View v;
+
+    v.set_pointer_capture(7);
+    v.set_pointer_capture(7);
+    REQUIRE(v.has_pointer_capture(7));
+    v.release_pointer_capture(3);
+    REQUIRE(v.has_pointer_capture(7));
+    v.release_pointer_capture(7);
+    REQUIRE_FALSE(v.has_pointer_capture(7));
+
+    int hover_enter = 0;
+    int hover_leave = 0;
+    v.on_hover_enter = [&] { ++hover_enter; };
+    v.on_hover_leave = [&] { ++hover_leave; };
+    v.set_hovered(true);
+    v.set_hovered(true);
+    v.set_hovered(false);
+    REQUIRE(hover_enter == 1);
+    REQUIRE(hover_leave == 1);
+
+    View::set_inspector_key_hook({});
+    View::set_inspector_mouse_hook({});
+    REQUIRE_FALSE(View::call_inspector_key_hook(KeyEvent{}));
+    REQUIRE_FALSE(View::call_inspector_mouse_hook(MouseEvent{}));
+
+    int key_calls = 0;
+    int mouse_calls = 0;
+    View::set_inspector_key_hook([&](const KeyEvent& event) {
+        ++key_calls;
+        return event.key == KeyCode::escape;
+    });
+    View::set_inspector_mouse_hook([&](const MouseEvent& event) {
+        ++mouse_calls;
+        return event.is_down;
+    });
+
+    REQUIRE(View::call_inspector_key_hook(KeyEvent{KeyCode::escape}));
+    REQUIRE(View::call_inspector_mouse_hook(MouseEvent{{}, {}, MouseButton::left, 0, 0, 1, true}));
+    REQUIRE(key_calls == 1);
+    REQUIRE(mouse_calls == 1);
+
+    int overlay_calls = 0;
+    int paint_hook_calls = 0;
+    View::overlay_queue().clear();
+    View::overlay_queue().push_back(View::OverlayRequest{
+        [&](pulp::canvas::Canvas& canvas) {
+            ++overlay_calls;
+            canvas.fill_rect(0, 0, 1, 1);
+        }
+    });
+    View::overlay_queue().push_back(View::OverlayRequest{});
+    View::set_inspector_paint_hook([&](pulp::canvas::Canvas& canvas) {
+        ++paint_hook_calls;
+        canvas.fill_rect(1, 1, 1, 1);
+    });
+
+    pulp::canvas::RecordingCanvas canvas;
+    View::paint_overlays(canvas);
+    REQUIRE(View::overlay_queue().empty());
+    REQUIRE(overlay_calls == 1);
+    REQUIRE(paint_hook_calls == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_rect) == 2);
+
+    View::set_inspector_key_hook({});
+    View::set_inspector_mouse_hook({});
+    View::set_inspector_paint_hook({});
 }
 
 TEST_CASE("View keyboard focus traversal", "[view][focus]") {
@@ -396,6 +563,25 @@ TEST_CASE("Flex layout with padding", "[view][layout]") {
     REQUIRE_THAT(child_ptr->bounds().y, WithinAbs(20.0, 0.1));
     REQUIRE_THAT(child_ptr->bounds().width, WithinAbs(160.0, 0.1));
     REQUIRE_THAT(child_ptr->bounds().height, WithinAbs(160.0, 0.1));
+}
+
+TEST_CASE("Grid layout with no columns leaves children unchanged",
+          "[view][layout][coverage]") {
+    View root;
+    root.set_bounds({0, 0, 120, 80});
+    root.set_layout_mode(LayoutMode::grid);
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({5, 6, 7, 8});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    root.layout_children();
+
+    REQUIRE_THAT(child_ptr->bounds().x, WithinAbs(5.0f, 0.001));
+    REQUIRE_THAT(child_ptr->bounds().y, WithinAbs(6.0f, 0.001));
+    REQUIRE_THAT(child_ptr->bounds().width, WithinAbs(7.0f, 0.001));
+    REQUIRE_THAT(child_ptr->bounds().height, WithinAbs(8.0f, 0.001));
 }
 
 TEST_CASE("View compositing layer for opacity", "[view][layer]") {
@@ -577,4 +763,938 @@ TEST_CASE("View transform_matrix does not affect layout or hit testing",
     // — confirming the transform is paint-only and hit-testing ignores it.
     auto* missed = root.hit_test({530.0f, 530.0f});
     REQUIRE(missed != child_ptr);
+}
+
+// ── pulp #972 — z-index paint-order ──────────────────────────────────────────
+
+TEST_CASE("sorted_children_by_z_index returns insertion order at default z=0",
+          "[view][issue-972]") {
+    View parent;
+    auto a = std::make_unique<View>(); auto* a_ptr = a.get();
+    auto b = std::make_unique<View>(); auto* b_ptr = b.get();
+    auto c = std::make_unique<View>(); auto* c_ptr = c.get();
+    parent.add_child(std::move(a));
+    parent.add_child(std::move(b));
+    parent.add_child(std::move(c));
+
+    auto order = parent.sorted_children_by_z_index();
+    REQUIRE(order.size() == 3);
+    REQUIRE(order[0] == a_ptr);
+    REQUIRE(order[1] == b_ptr);
+    REQUIRE(order[2] == c_ptr);
+}
+
+TEST_CASE("sorted_children_by_z_index sorts ascending — higher z comes last",
+          "[view][issue-972]") {
+    // Spectr's bandsMenu repro: insertion order is content, content, popover,
+    // but popover has zIndex=20. Sorted order must paint popover last.
+    View parent;
+    auto content_a = std::make_unique<View>(); auto* a_ptr = content_a.get();
+    auto popover  = std::make_unique<View>(); auto* p_ptr = popover.get();
+    auto content_b = std::make_unique<View>(); auto* b_ptr = content_b.get();
+    popover->set_z_index(20);
+
+    parent.add_child(std::move(content_a));
+    parent.add_child(std::move(popover));
+    parent.add_child(std::move(content_b));
+
+    auto order = parent.sorted_children_by_z_index();
+    REQUIRE(order.size() == 3);
+    REQUIRE(order[0] == a_ptr);    // z=0, inserted 1st
+    REQUIRE(order[1] == b_ptr);    // z=0, inserted 3rd — keeps insertion order at equal z
+    REQUIRE(order[2] == p_ptr);    // z=20 — last → topmost
+}
+
+TEST_CASE("sorted_children_by_z_index is stable for equal z (insertion order)",
+          "[view][issue-972]") {
+    View parent;
+    auto a = std::make_unique<View>(); auto* a_ptr = a.get();
+    auto b = std::make_unique<View>(); auto* b_ptr = b.get();
+    auto c = std::make_unique<View>(); auto* c_ptr = c.get();
+    a->set_z_index(5);
+    b->set_z_index(5);
+    c->set_z_index(5);
+    parent.add_child(std::move(a));
+    parent.add_child(std::move(b));
+    parent.add_child(std::move(c));
+
+    auto order = parent.sorted_children_by_z_index();
+    REQUIRE(order[0] == a_ptr);
+    REQUIRE(order[1] == b_ptr);
+    REQUIRE(order[2] == c_ptr);
+}
+
+TEST_CASE("View::paint_all paints higher-z child last so it lands on top",
+          "[view][issue-972]") {
+    using namespace pulp::canvas;
+
+    // Three siblings stacked at the same bounds with distinct backgrounds.
+    // Popover sits in the MIDDLE of insertion order with z_index=10. The
+    // last full-bounds fill in the recorded stream must be popover's
+    // colour — without #972 it would be content_b's (last by insertion).
+    View parent;
+    parent.set_bounds({0, 0, 100, 100});
+
+    auto content_a = std::make_unique<View>();
+    content_a->set_bounds({0, 0, 100, 100});
+    content_a->set_background_color(Color::rgba8(255, 0, 0, 255));   // red
+
+    auto popover = std::make_unique<View>();
+    popover->set_bounds({0, 0, 100, 100});
+    popover->set_background_color(Color::rgba8(0, 200, 0, 255));     // green
+    popover->set_z_index(10);
+
+    auto content_b = std::make_unique<View>();
+    content_b->set_bounds({0, 0, 100, 100});
+    content_b->set_background_color(Color::rgba8(0, 0, 255, 255));   // blue
+
+    parent.add_child(std::move(content_a));
+    parent.add_child(std::move(popover));
+    parent.add_child(std::move(content_b));
+
+    RecordingCanvas rc;
+    parent.paint_all(rc);
+
+    // Walk full-bounds fill_rects and capture the last one's set_fill_color.
+    Color last_fill{};
+    Color last_full_bounds_fill{};
+    bool saw_full_bounds = false;
+    for (const auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::set_fill_color) {
+            last_fill = cmd.color;
+            continue;
+        }
+        if (cmd.type == DrawCommand::Type::fill_rect &&
+            cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+            cmd.f[2] == 100.0f && cmd.f[3] == 100.0f) {
+            last_full_bounds_fill = last_fill;
+            saw_full_bounds = true;
+        }
+    }
+    REQUIRE(saw_full_bounds);
+    INFO("last_full_bounds rgba=("
+         << int(last_full_bounds_fill.r8()) << ","
+         << int(last_full_bounds_fill.g8()) << ","
+         << int(last_full_bounds_fill.b8()) << ","
+         << int(last_full_bounds_fill.a8()) << ")");
+    REQUIRE(last_full_bounds_fill.r8() == 0);
+    REQUIRE(last_full_bounds_fill.g8() == 200);
+    REQUIRE(last_full_bounds_fill.b8() == 0);
+}
+
+TEST_CASE("View::hit_test returns the highest-z child for overlapping bounds",
+          "[view][issue-972]") {
+    // Three siblings at the same bounds: content (z=0, inserted last),
+    // popover (z=10, inserted middle), content (z=0, inserted first).
+    // Click in the middle should hit the popover, not whichever content
+    // happened to be inserted last.
+    View parent;
+    parent.set_bounds({0, 0, 100, 100});
+
+    auto a = std::make_unique<View>();
+    a->set_bounds({0, 0, 100, 100});
+    auto* a_ptr = a.get();
+
+    auto popover = std::make_unique<View>();
+    popover->set_bounds({0, 0, 100, 100});
+    popover->set_z_index(10);
+    auto* p_ptr = popover.get();
+
+    auto b = std::make_unique<View>();
+    b->set_bounds({0, 0, 100, 100});
+    auto* b_ptr = b.get();
+
+    parent.add_child(std::move(a));
+    parent.add_child(std::move(popover));
+    parent.add_child(std::move(b));
+
+    auto* hit = parent.hit_test({50.0f, 50.0f});
+    REQUIRE(hit == p_ptr);
+    REQUIRE(hit != a_ptr);
+    REQUIRE(hit != b_ptr);
+}
+
+TEST_CASE("View::hit_test falls back to insertion-order topmost at equal z",
+          "[view][issue-972]") {
+    // All siblings at same z=0 (default) — last inserted is visually topmost,
+    // matching legacy behaviour. This locks in the no-regression contract.
+    View parent;
+    parent.set_bounds({0, 0, 100, 100});
+
+    auto a = std::make_unique<View>();
+    a->set_bounds({0, 0, 100, 100});
+    parent.add_child(std::move(a));
+
+    auto b = std::make_unique<View>();
+    b->set_bounds({0, 0, 100, 100});
+    auto* b_ptr = b.get();
+    parent.add_child(std::move(b));
+
+    auto* hit = parent.hit_test({50.0f, 50.0f});
+    REQUIRE(hit == b_ptr);
+}
+
+// ── pulp #972 — overflow:visible default for absolute-positioned popovers ────
+// Symptom on Spectr's bandsMenu: a `position:absolute; top:28; right:0`
+// popover declared inside a 24px-tall flex parent renders nowhere because
+// Pulp previously defaulted overflow to hidden and clipped paint to the
+// parent's content rect. CSS default is `overflow: visible` — children
+// that extend past the parent should still paint. Z-index sorting alone
+// (above) is necessary but not sufficient; the clip was eating the
+// popover's fill regardless of paint order.
+
+TEST_CASE("View default overflow is visible (matches CSS default)",
+          "[view][issue-972]") {
+    View v;
+    REQUIRE(v.overflow() == View::Overflow::visible);
+}
+
+TEST_CASE("View::paint_all does not emit clip_rect when overflow is visible",
+          "[view][issue-972]") {
+    using namespace pulp::canvas;
+    View v;
+    v.set_bounds({0, 0, 100, 24});
+    REQUIRE(v.overflow() == View::Overflow::visible);
+
+    RecordingCanvas rc;
+    v.paint_all(rc);
+
+    for (const auto& cmd : rc.commands()) {
+        // The compositing-layer save_layer / save_backdrop_filter may
+        // emit their own clip-shaped commands as part of layer setup,
+        // but a plain clip_rect at the view's content bounds is the
+        // overflow:hidden marker we explicitly want absent.
+        if (cmd.type == DrawCommand::Type::clip_rect) {
+            const bool covers_bounds = (cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+                                        cmd.f[2] == 100.0f && cmd.f[3] == 24.0f);
+            INFO("Unexpected clip_rect at (" << cmd.f[0] << "," << cmd.f[1]
+                 << "," << cmd.f[2] << "," << cmd.f[3] << ")");
+            REQUIRE_FALSE(covers_bounds);
+        }
+    }
+}
+
+TEST_CASE("View::paint_all emits clip_rect when overflow is explicitly hidden",
+          "[view][issue-972]") {
+    using namespace pulp::canvas;
+    View v;
+    v.set_bounds({0, 0, 100, 24});
+    v.set_overflow(View::Overflow::hidden);
+
+    RecordingCanvas rc;
+    v.paint_all(rc);
+
+    bool saw_bounds_clip = false;
+    for (const auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::clip_rect &&
+            cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+            cmd.f[2] == 100.0f && cmd.f[3] == 24.0f) {
+            saw_bounds_clip = true;
+            break;
+        }
+    }
+    REQUIRE(saw_bounds_clip);
+}
+
+TEST_CASE("Absolute child positioned outside parent's bounds still paints",
+          "[view][issue-972]") {
+    // Spectr bandsMenu repro: 24px-tall parent with a popover-like child
+    // at top:50, left:50 — completely outside the parent's content rect.
+    // With overflow:visible default, the child's translate-from-bounds.x/y
+    // and its own paint commands must reach the canvas without a parent
+    // clip_rect blocking them.
+    using namespace pulp::canvas;
+
+    View parent;
+    parent.set_bounds({0, 0, 100, 24});
+
+    auto popover = std::make_unique<View>();
+    popover->set_bounds({50, 50, 100, 50});
+    popover->set_background_color(Color::rgba8(255, 0, 255, 255));   // magenta
+    parent.add_child(std::move(popover));
+
+    RecordingCanvas rc;
+    parent.paint_all(rc);
+
+    // Verify a magenta fill_rect lands in the recorded stream — the
+    // popover's bg fill is at the child's local origin, which becomes
+    // (50, 50) in parent coords after the translate inside paint_all.
+    Color last_fill{};
+    bool saw_magenta_fill = false;
+    bool saw_parent_clip = false;
+    for (const auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::set_fill_color) {
+            last_fill = cmd.color;
+            continue;
+        }
+        if (cmd.type == DrawCommand::Type::fill_rect &&
+            last_fill.r8() == 255 && last_fill.g8() == 0 &&
+            last_fill.b8() == 255 && last_fill.a8() == 255) {
+            saw_magenta_fill = true;
+        }
+        if (cmd.type == DrawCommand::Type::clip_rect &&
+            cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+            cmd.f[2] == 100.0f && cmd.f[3] == 24.0f) {
+            saw_parent_clip = true;
+        }
+    }
+    REQUIRE(saw_magenta_fill);
+    REQUIRE_FALSE(saw_parent_clip);
+}
+
+// pulp #1409 paint-time probe series — empirical answer to the Spectr
+// [I] "preset items render outside overlay" report. The framework
+// already pushes a parent clip_rect before children paint when the
+// parent has overflow:hidden, so the symptom is consumer-side, not
+// framework-side. These tests stand as a regression guard — if any of
+// them flips to a fail, paint-time clipping has regressed.
+TEST_CASE("Probe: overflow:hidden parent clip-rect precedes child paint",
+          "[view][probe][issue-overlay-clip]") {
+    using namespace pulp::canvas;
+
+    View parent;
+    parent.set_bounds({0, 0, 100, 100});
+    parent.set_overflow(View::Overflow::hidden);
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({0, 0, 200, 100});
+    child->set_background_color(Color::rgba8(0, 255, 0, 255));
+    parent.add_child(std::move(child));
+
+    RecordingCanvas rc;
+    parent.paint_all(rc);
+
+    int parent_clip_idx = -1;
+    int child_fill_idx = -1;
+    Color last_fill{};
+    for (int i = 0; i < (int)rc.commands().size(); ++i) {
+        const auto& cmd = rc.commands()[i];
+        if (cmd.type == DrawCommand::Type::clip_rect &&
+            cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+            cmd.f[2] == 100.0f && cmd.f[3] == 100.0f &&
+            parent_clip_idx == -1) {
+            parent_clip_idx = i;
+        }
+        if (cmd.type == DrawCommand::Type::set_fill_color) last_fill = cmd.color;
+        if (cmd.type == DrawCommand::Type::fill_rect &&
+            cmd.f[2] == 200.0f && cmd.f[3] == 100.0f &&
+            last_fill.g8() == 255 && last_fill.r8() == 0 &&
+            child_fill_idx == -1) {
+            child_fill_idx = i;
+        }
+    }
+    INFO("parent_clip_idx=" << parent_clip_idx << " child_fill_idx=" << child_fill_idx
+         << " total_cmds=" << rc.commands().size());
+    REQUIRE(parent_clip_idx >= 0);
+    REQUIRE(child_fill_idx >= 0);
+    REQUIRE(parent_clip_idx < child_fill_idx);
+}
+
+// pulp #1409 paint-time probe — absolutely-positioned child translated
+// past the parent's right edge. Mirrors a Spectr preset-menu item
+// scenario where a row's `position: absolute; left: 80px` puts it past
+// a 100×40 dropdown's content rect. The clip must STILL precede the
+// child's paint command in the recording — translates do not reset the
+// active clip.
+TEST_CASE("Probe: overflow:hidden parent clips translated absolute child too",
+          "[view][probe][issue-overlay-clip]") {
+    using namespace pulp::canvas;
+
+    View parent;
+    parent.set_bounds({0, 0, 100, 40});
+    parent.set_overflow(View::Overflow::hidden);
+
+    auto child = std::make_unique<View>();
+    // Bounds-x positions the child at parent-x=80, so its 60px width
+    // extends 40px past the parent's right edge.
+    child->set_bounds({80, 0, 60, 40});
+    child->set_position(View::Position::absolute);
+    child->set_background_color(Color::rgba8(0, 0, 255, 255));
+    parent.add_child(std::move(child));
+
+    RecordingCanvas rc;
+    parent.paint_all(rc);
+
+    int parent_clip_idx = -1;
+    int child_fill_idx = -1;
+    Color last_fill{};
+    for (int i = 0; i < (int)rc.commands().size(); ++i) {
+        const auto& cmd = rc.commands()[i];
+        if (cmd.type == DrawCommand::Type::clip_rect &&
+            cmd.f[0] == 0.0f && cmd.f[1] == 0.0f &&
+            cmd.f[2] == 100.0f && cmd.f[3] == 40.0f &&
+            parent_clip_idx == -1) {
+            parent_clip_idx = i;
+        }
+        if (cmd.type == DrawCommand::Type::set_fill_color) last_fill = cmd.color;
+        if (cmd.type == DrawCommand::Type::fill_rect &&
+            cmd.f[2] == 60.0f && cmd.f[3] == 40.0f &&
+            last_fill.b8() == 255 && last_fill.r8() == 0 && last_fill.g8() == 0 &&
+            child_fill_idx == -1) {
+            child_fill_idx = i;
+        }
+    }
+    REQUIRE(parent_clip_idx >= 0);
+    REQUIRE(child_fill_idx >= 0);
+    REQUIRE(parent_clip_idx < child_fill_idx);
+}
+
+// ── pulp #1026: React Native pointerEvents 4-valued enum ────────────────────
+
+TEST_CASE("View::hit_test honors pointerEvents == auto (default)",
+          "[view][hit_test][issue-1026]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({50, 50, 100, 100});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    // Default (auto_): both root and child are interactive.
+    REQUIRE(root.pointer_events() == View::PointerEvents::auto_);
+    REQUIRE(root.hit_test({75, 75}) == child_ptr);
+    REQUIRE(root.hit_test({10, 10}) == &root);
+}
+
+TEST_CASE("View::hit_test honors pointerEvents == none",
+          "[view][hit_test][issue-1026]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({50, 50, 100, 100});
+    root.add_child(std::move(child));
+
+    // none: neither this view NOR descendants intercept events.
+    root.set_pointer_events(View::PointerEvents::none);
+    REQUIRE(root.hit_test({75, 75}) == nullptr);
+    REQUIRE(root.hit_test({10, 10}) == nullptr);
+}
+
+TEST_CASE("View::hit_test honors pointerEvents == box-only",
+          "[view][hit_test][issue-1026]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({50, 50, 100, 100});
+    root.add_child(std::move(child));
+
+    // box_only: this view receives events; children do NOT — even when
+    // the point lands directly on a child, hit_test returns the parent.
+    root.set_pointer_events(View::PointerEvents::box_only);
+    REQUIRE(root.hit_test({75, 75}) == &root);
+    REQUIRE(root.hit_test({10, 10}) == &root);
+}
+
+TEST_CASE("View::hit_test honors pointerEvents == box-none",
+          "[view][hit_test][issue-1026]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+
+    auto child = std::make_unique<View>();
+    child->set_bounds({50, 50, 100, 100});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    // box_none: this view does NOT receive events but children do —
+    // the point on the child still resolves to the child, but a point
+    // inside the parent's bounds (not on the child) returns nullptr.
+    root.set_pointer_events(View::PointerEvents::box_none);
+    REQUIRE(root.hit_test({75, 75}) == child_ptr);
+    REQUIRE(root.hit_test({10, 10}) == nullptr);
+}
+
+// ── pulp #1026: backfaceVisibility plumbing ────────────────────────────────
+
+TEST_CASE("View backface_visible defaults to true and round-trips",
+          "[view][issue-1026]") {
+    View v;
+    REQUIRE(v.backface_visible());
+    v.set_backface_visible(false);
+    REQUIRE_FALSE(v.backface_visible());
+    v.set_backface_visible(true);
+    REQUIRE(v.backface_visible());
+}
+
+// ── pulp #1026: transform-origin applies to matrix path ────────────────────
+
+TEST_CASE("View::paint_all applies transform-origin around concat_transform",
+          "[view][transform][issue-1026]") {
+    using namespace pulp::canvas;
+
+    // When the View has a transform-origin offset and a transform-matrix,
+    // paint_all should bracket the concat with translate(ox,oy) and
+    // translate(-ox,-oy) so rotation/scale anchor at the requested point
+    // — same behaviour as the CSS-transform path.
+    RecordingCanvas rc;
+    View v;
+    v.set_bounds({0, 0, 100, 50});
+    // Origin (0.25, 0.75): pivot at (25, 37.5).
+    v.set_transform_origin(0.25f, 0.75f);
+    v.set_transform_matrix(2.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f);
+
+    v.paint_all(rc);
+
+    // Expected sequence around the concat:
+    //   translate(0,0)    — bounds_.x/y at (0,0)
+    //   translate(25, 37.5)
+    //   concat_transform(2,0,0,2,0,0)
+    //   translate(-25, -37.5)
+    bool saw_pre_origin = false, saw_concat = false, saw_post_origin = false;
+    int idx = 0;
+    int concat_at = -1;
+    for (auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::concat_transform) {
+            concat_at = idx;
+            saw_concat = true;
+        }
+        ++idx;
+    }
+    REQUIRE(saw_concat);
+    REQUIRE(concat_at > 0);
+
+    // Search the immediate neighbours.
+    auto& cmds = rc.commands();
+    REQUIRE(cmds[(size_t)(concat_at - 1)].type == DrawCommand::Type::translate);
+    REQUIRE_THAT(cmds[(size_t)(concat_at - 1)].f[0], WithinAbs(25.0f, 1e-4f));
+    REQUIRE_THAT(cmds[(size_t)(concat_at - 1)].f[1], WithinAbs(37.5f, 1e-4f));
+    saw_pre_origin = true;
+
+    REQUIRE((size_t)(concat_at + 1) < cmds.size());
+    REQUIRE(cmds[(size_t)(concat_at + 1)].type == DrawCommand::Type::translate);
+    REQUIRE_THAT(cmds[(size_t)(concat_at + 1)].f[0], WithinAbs(-25.0f, 1e-4f));
+    REQUIRE_THAT(cmds[(size_t)(concat_at + 1)].f[1], WithinAbs(-37.5f, 1e-4f));
+    saw_post_origin = true;
+
+    REQUIRE(saw_pre_origin);
+    REQUIRE(saw_post_origin);
+}
+
+TEST_CASE("View::paint_all does NOT bracket concat when origin is unset (back-compat)",
+          "[view][transform][issue-1026]") {
+    using namespace pulp::canvas;
+
+    // pulp #1026 — only an EXPLICIT setTransformOrigin call activates the
+    // pre/post-origin translate bracket on the matrix path. Existing
+    // setTransform() call sites (no origin) keep the pre-#1026 single
+    // concat, preserving back-compat with the issue-930 contract.
+    RecordingCanvas rc;
+    View v;
+    v.set_bounds({0, 0, 100, 50});
+    REQUIRE_FALSE(v.transform_origin_explicit());
+    v.set_transform_matrix(2.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f);
+
+    v.paint_all(rc);
+
+    int translates = 0;
+    int concats = 0;
+    for (auto& cmd : rc.commands()) {
+        if (cmd.type == DrawCommand::Type::translate) ++translates;
+        if (cmd.type == DrawCommand::Type::concat_transform) ++concats;
+    }
+    // Only the 1 bounds translate; no origin bracket.
+    REQUIRE(translates == 1);
+    REQUIRE(concats == 1);
+}
+
+// ── pulp #1026: per-corner border-radius ──────────────────────────────────
+
+TEST_CASE("View per-corner radii setters flip has_corner_radii",
+          "[view][border][issue-1026]") {
+    View v;
+    REQUIRE_FALSE(v.has_corner_radii());
+
+    v.set_corner_radius_tl(8.0f);
+    REQUIRE(v.has_corner_radii());
+    REQUIRE_THAT(v.corner_radius_tl(), WithinAbs(8.0f, 1e-5f));
+    // pulp #1171 — when a per-corner setter is the FIRST setter (no
+    // prior set_border_radius), there's no uniform radius to seed from,
+    // so unset corners stay 0.
+    REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(0.0f, 1e-5f));
+
+    v.set_corner_radius_tr(12.0f);
+    v.set_corner_radius_bl(4.0f);
+    v.set_corner_radius_br(2.0f);
+    REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(12.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_bl(), WithinAbs(4.0f,  1e-5f));
+    REQUIRE_THAT(v.corner_radius_br(), WithinAbs(2.0f,  1e-5f));
+}
+
+// pulp #1171 (Codex P2 on #1044) — uniform set_border_radius() followed
+// by a single per-corner override must NOT zero the other three corners.
+// Previously: set_border_radius(10); set_corner_radius_tl(2);
+// rendered as {2, 0, 0, 0}, silently discarding the uniform 10.
+TEST_CASE("set_border_radius + per-corner override seeds remaining corners",
+          "[view][border][issue-1171][codex-p2]") {
+    View v;
+    v.set_border_radius(10.0f);
+    REQUIRE_FALSE(v.has_corner_radii());
+
+    v.set_corner_radius_tl(2.0f);
+    REQUIRE(v.has_corner_radii());
+
+    REQUIRE_THAT(v.corner_radius_tl(), WithinAbs(2.0f,  1e-5f));
+    REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(10.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_bl(), WithinAbs(10.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_br(), WithinAbs(10.0f, 1e-5f));
+}
+
+TEST_CASE("set_border_radius + multiple per-corner overrides — promote runs once",
+          "[view][border][issue-1171][codex-p2]") {
+    View v;
+    v.set_border_radius(8.0f);
+    v.set_corner_radius_tr(4.0f);
+    // After the first per-corner setter, has_corner_radii_ flips true
+    // and subsequent setters MUST NOT re-promote (which would clobber
+    // the already-overridden TR back to 8). promote_uniform_to_per_corner
+    // is guarded on `!has_corner_radii_`.
+    v.set_corner_radius_bl(0.0f);
+    REQUIRE_THAT(v.corner_radius_tl(), WithinAbs(8.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_tr(), WithinAbs(4.0f, 1e-5f));  // not 8
+    REQUIRE_THAT(v.corner_radius_bl(), WithinAbs(0.0f, 1e-5f));
+    REQUIRE_THAT(v.corner_radius_br(), WithinAbs(8.0f, 1e-5f));
+}
+
+TEST_CASE("simulate_click bubble does NOT walk past `this` receiver",
+          "[view][simulate_click][issue-1171][codex-p2]") {
+    // Build: outer (PARENT) > root (this) > child.
+    // outer has on_click set. root + child have no on_click.
+    // Calling root->simulate_click(...) MUST NOT bubble up to outer —
+    // that would leak the synthetic click across component boundaries
+    // (the bug Codex flagged on #1073).
+    View outer;
+    outer.set_bounds({0, 0, 200, 200});
+    bool outer_clicked = false;
+    outer.on_click = [&]() { outer_clicked = true; };
+
+    auto root_owned = std::make_unique<View>();
+    root_owned->set_bounds({10, 10, 100, 100});
+    auto* root = root_owned.get();
+    outer.add_child(std::move(root_owned));
+
+    auto child_owned = std::make_unique<View>();
+    child_owned->set_bounds({5, 5, 50, 50});
+    root->add_child(std::move(child_owned));
+
+    // Click at root-local {30,30} which is inside child's bounds.
+    // hit_test resolves to child (no on_click). Bubble walks up to
+    // root — and STOPS there per the fix (root == this). Without the
+    // fix it would walk past root to outer and fire outer.on_click.
+    root->simulate_click({30, 30});
+    REQUIRE_FALSE(outer_clicked);
+}
+
+TEST_CASE("View::paint_all routes background through path API when per-corner radii set",
+          "[view][border][issue-1026]") {
+    using namespace pulp::canvas;
+
+    // With a uniform corner_radius the bg uses fill_rounded_rect; with
+    // any per-corner setter the path API takes over (begin_path /
+    // line_to / cubic_to / close_path / fill_current_path).
+    {
+        RecordingCanvas rc;
+        View v;
+        v.set_bounds({0, 0, 100, 50});
+        v.set_background_color(Color::rgba8(255, 0, 0));
+        v.set_border(Color::rgba8(0, 0, 0), 1.0f, /*radius=*/8.0f);
+        v.paint_all(rc);
+        REQUIRE(rc.count(DrawCommand::Type::fill_rounded_rect) >= 1);
+        REQUIRE(rc.count(DrawCommand::Type::stroke_rounded_rect) >= 1);
+    }
+    {
+        RecordingCanvas rc;
+        View v;
+        v.set_bounds({0, 0, 100, 50});
+        v.set_background_color(Color::rgba8(255, 0, 0));
+        v.set_border(Color::rgba8(0, 0, 0), 1.0f);
+        v.set_corner_radius_tl(8.0f);
+        v.set_corner_radius_tr(8.0f);
+        v.set_corner_radius_bl(0.0f);
+        v.set_corner_radius_br(0.0f);
+        v.paint_all(rc);
+        // Per-corner path: at least begin_path + close_path appear, and
+        // fill_rounded_rect / stroke_rounded_rect do NOT.
+        REQUIRE(rc.count(DrawCommand::Type::fill_rounded_rect) == 0);
+        REQUIRE(rc.count(DrawCommand::Type::stroke_rounded_rect) == 0);
+        REQUIRE(rc.count(DrawCommand::Type::begin_path) >= 1);
+        REQUIRE(rc.count(DrawCommand::Type::close_path) >= 1);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// pulp #1321: window resize triggers root View Yoga relayout
+// ═══════════════════════════════════════════════════════════════════
+//
+// The macOS standalone window plumbs an NSWindow resize through to
+// PulpView::setFrameSize: and the PulpWindowDelegate's windowDidResize:
+// notification, both of which now call root.set_bounds(...) +
+// root.layout_children(). This Catch2 test exercises the same model
+// path that those AppKit hooks invoke, asserting that descendants
+// reflow when the root is given a new size.
+
+TEST_CASE("Window resize reflows Yoga layout (pulp #1321)",
+          "[view][layout][issue-1321]") {
+    View root;
+    root.flex().direction = FlexDirection::row;
+
+    auto child_a = std::make_unique<View>();
+    child_a->flex().flex_grow = 1.0f;
+    auto* child_a_ptr = child_a.get();
+    root.add_child(std::move(child_a));
+
+    auto child_b = std::make_unique<View>();
+    child_b->flex().flex_grow = 1.0f;
+    auto* child_b_ptr = child_b.get();
+    root.add_child(std::move(child_b));
+
+    // ── Initial layout at 1320×892 (Spectr default standalone size) ──
+    root.set_bounds({0, 0, 1320, 892});
+    root.layout_children();
+
+    REQUIRE(child_a_ptr->bounds().width == Catch::Approx(660.0f));
+    REQUIRE(child_b_ptr->bounds().width == Catch::Approx(660.0f));
+    REQUIRE(child_a_ptr->bounds().height == Catch::Approx(892.0f));
+
+    // ── Simulate the user dragging the window down to 800×500 ────────
+    // (matches the osascript repro in the issue body).
+    root.set_bounds({0, 0, 800, 500});
+    root.layout_children();
+
+    // Each flex:1 child must now occupy half of the new width and the
+    // full new height — i.e. Yoga reflowed against the new constraints
+    // rather than reusing the original 1320×892 root size.
+    REQUIRE(child_a_ptr->bounds().width == Catch::Approx(400.0f));
+    REQUIRE(child_b_ptr->bounds().width == Catch::Approx(400.0f));
+    REQUIRE(child_a_ptr->bounds().height == Catch::Approx(500.0f));
+    REQUIRE(child_b_ptr->bounds().height == Catch::Approx(500.0f));
+
+    // ── Resize back up — content reflows again, no hysteresis ────────
+    root.set_bounds({0, 0, 1600, 1000});
+    root.layout_children();
+    REQUIRE(child_a_ptr->bounds().width == Catch::Approx(800.0f));
+    REQUIRE(child_b_ptr->bounds().width == Catch::Approx(800.0f));
+    REQUIRE(child_a_ptr->bounds().height == Catch::Approx(1000.0f));
+}
+
+TEST_CASE("Window resize honors a fixed-size sibling next to a flex child "
+          "(pulp #1321)",
+          "[view][layout][issue-1321]") {
+    using namespace pulp::view;
+
+    // Mirrors a Spectr-style chrome layout: a stretchy content area
+    // followed by a fixed-height bottom toolbar. The toolbar must keep
+    // its 48px height regardless of the window's new height, and the
+    // content area must absorb the rest.
+    View root;
+    root.flex().direction = FlexDirection::column;
+
+    auto content = std::make_unique<View>();
+    content->flex().flex_grow = 1.0f;
+    auto* content_ptr = content.get();
+    root.add_child(std::move(content));
+
+    auto toolbar = std::make_unique<View>();
+    toolbar->flex().preferred_height = 48.0f;
+    auto* toolbar_ptr = toolbar.get();
+    root.add_child(std::move(toolbar));
+
+    root.set_bounds({0, 0, 1320, 892});
+    root.layout_children();
+    REQUIRE(toolbar_ptr->bounds().height == Catch::Approx(48.0f));
+    REQUIRE(content_ptr->bounds().height == Catch::Approx(844.0f));
+
+    // Shrink — toolbar still 48px, content absorbs the loss.
+    root.set_bounds({0, 0, 800, 500});
+    root.layout_children();
+    REQUIRE(toolbar_ptr->bounds().height == Catch::Approx(48.0f));
+    REQUIRE(content_ptr->bounds().height == Catch::Approx(452.0f));
+    REQUIRE(toolbar_ptr->bounds().width == Catch::Approx(800.0f));
+
+    // Grow — same invariants hold.
+    root.set_bounds({0, 0, 1600, 1000});
+    root.layout_children();
+    REQUIRE(toolbar_ptr->bounds().height == Catch::Approx(48.0f));
+    REQUIRE(content_ptr->bounds().height == Catch::Approx(952.0f));
+}
+
+// ── pulp #1148 slice (a) — symmetric overflow:visible hit-test extension ──
+//
+// PR #1297 added overflow:visible hit-test extension so that absolutely-
+// positioned popovers / dropdowns whose content escapes their bounds box
+// still receive clicks. The original implementation only extended the box
+// 500px DOWNWARD, which broke left-extending popovers (e.g. Spectr's bands
+// picker that opens to the left of its trigger). This suite locks the
+// extension to ±500px on all four sides.
+//
+// Each direction places a "popover" grandchild positioned outside its
+// overflow:visible parent in the tested direction — overflow:visible
+// passes the click through to the parent's hit_test recursion, which
+// then matches the grandchild's local_bounds. Without symmetric slack,
+// the parent rejects the click before recursion happens for left/right/up.
+namespace {
+struct PopoverFixture {
+    View root;
+    View* container{nullptr};   // overflow:visible host
+    View* popover{nullptr};     // grandchild positioned outside container
+
+    // dx/dy are the popover's offset *relative to the container's local
+    // origin* — negative values escape the container in the −x/−y direction.
+    PopoverFixture(float dx, float dy) {
+        root.set_bounds({0, 0, 2000, 2000});
+        auto c = std::make_unique<View>();
+        c->set_bounds({600, 600, 100, 100});
+        c->set_overflow(View::Overflow::visible);
+        container = c.get();
+
+        auto p = std::make_unique<View>();
+        // 50x50 popover anchored at (dx, dy) inside container's local space.
+        p->set_bounds({dx, dy, 50, 50});
+        popover = p.get();
+        c->add_child(std::move(p));
+        root.add_child(std::move(c));
+    }
+};
+} // namespace
+
+TEST_CASE("View::hit_test extends overflow:visible 500px to the LEFT",
+          "[view][hit_test][issue-1148][overflow-symmetric]") {
+    // Popover at container-local (-200, 25) → root-space (400..450, 625..675).
+    // 100px to the LEFT of container.x=600 covers root.x = 425.
+    PopoverFixture f(-200, 25);
+    REQUIRE(f.root.hit_test({425, 650}) == f.popover);
+}
+
+TEST_CASE("View::hit_test extends overflow:visible 500px to the RIGHT",
+          "[view][hit_test][issue-1148][overflow-symmetric]") {
+    // Popover at container-local (200, 25) → root-space (800..850, 625..675).
+    // 100px to the RIGHT of container.right=700 covers root.x = 825.
+    PopoverFixture f(200, 25);
+    REQUIRE(f.root.hit_test({825, 650}) == f.popover);
+}
+
+TEST_CASE("View::hit_test extends overflow:visible 500px UPWARD",
+          "[view][hit_test][issue-1148][overflow-symmetric]") {
+    // Popover at container-local (25, -200) → root-space (625..675, 400..450).
+    // 100px ABOVE container.y=600 covers root.y = 425.
+    PopoverFixture f(25, -200);
+    REQUIRE(f.root.hit_test({650, 425}) == f.popover);
+}
+
+TEST_CASE("View::hit_test extends overflow:visible 500px DOWNWARD",
+          "[view][hit_test][issue-1148][overflow-symmetric]") {
+    // Popover at container-local (25, 200) → root-space (625..675, 800..850).
+    // 100px BELOW container.bottom=700 covers root.y = 825.
+    // This direction was already supported pre-#1148 — guards regression.
+    PopoverFixture f(25, 200);
+    REQUIRE(f.root.hit_test({650, 825}) == f.popover);
+}
+
+TEST_CASE("View::hit_test does NOT extend overflow:visible past 500px LEFT",
+          "[view][hit_test][issue-1148][overflow-symmetric]") {
+    // Popover anchored 600px LEFT of container — outside the symmetric
+    // ±500px slack, so the click must miss the popover entirely. With
+    // container x=600, popover at container-local x=-650 lands at
+    // root.x = -50..0; we probe root.x = 0 → container-local x = -600,
+    // beyond the -500 slack.
+    PopoverFixture f(-650, 25);
+    REQUIRE(f.root.hit_test({0, 650}) != f.popover);
+}
+
+// ── pulp #1368 round 2 — absolute children with inset:0 + explicit height ──
+//
+// Spectr filterbank repro per round-2 investigation. Two `<canvas>` siblings
+// share the same wrap parent (1320×860) with `position: absolute; inset: 0`
+// (top/right/bottom/left = 0), but each has an explicit setFlex height —
+// pr_1 = 760, pr_2 = 860. The visible-rendering symptom on the live plugin
+// is consistent with pr_1's bounds_.y landing above the visible window
+// region, which would push every fillRect into the title-bar area via the
+// parent's translate(bounds_.x, bounds_.y) in View::paint_all.
+//
+// These tests pin the contract: when `position: absolute; inset: 0` is
+// combined with an explicit height that is SHORTER than the parent, the
+// child's resolved bounds_ must place its origin at (0, 0) — i.e. inset:0
+// wins over the explicit height for positioning. If a future Yoga / layout
+// change instead resolves y as `parent.height - explicit_height` (anchoring
+// the box to the bottom because inset top:0 + bottom:0 conflicts with the
+// explicit height), the Spectr symptom reappears.
+//
+// As of v0.74.0 this test is expected to FAIL when the resolved y is
+// non-zero — the FAIL is the round-2 reproduction.
+
+TEST_CASE("absolute child with inset:0 + explicit height resolves to (0,0)",
+          "[view][issue-1368][round2]") {
+    using P = View::Position;
+
+    View wrap;
+    wrap.set_bounds({0, 0, 1320, 860});
+
+    auto pr1 = std::make_unique<View>();
+    pr1->set_id("pr_1");
+    pr1->set_position(P::absolute);
+    pr1->set_top(0);
+    pr1->set_right(0);
+    pr1->set_bottom(0);
+    pr1->set_left(0);
+    pr1->flex().preferred_height = 760.0f;
+    auto* pr1_ptr = pr1.get();
+
+    auto pr2 = std::make_unique<View>();
+    pr2->set_id("pr_2");
+    pr2->set_position(P::absolute);
+    pr2->set_top(0);
+    pr2->set_right(0);
+    pr2->set_bottom(0);
+    pr2->set_left(0);
+    pr2->flex().preferred_height = 860.0f;
+    auto* pr2_ptr = pr2.get();
+
+    wrap.add_child(std::move(pr1));
+    wrap.add_child(std::move(pr2));
+
+    wrap.layout_children();
+
+    INFO("pr_1 bounds=(" << pr1_ptr->bounds().x << "," << pr1_ptr->bounds().y
+         << "," << pr1_ptr->bounds().width << "," << pr1_ptr->bounds().height << ")");
+    INFO("pr_2 bounds=(" << pr2_ptr->bounds().x << "," << pr2_ptr->bounds().y
+         << "," << pr2_ptr->bounds().width << "," << pr2_ptr->bounds().height << ")");
+
+    // Both children must paint flush with the parent's top-left. Negative or
+    // shifted y values reproduce the #1368 round-2 hypothesis: parent's
+    // translate(bounds_.x, bounds_.y) in View::paint_all pushes the canvas
+    // child off-window so fillRect at (50, 50) lands in the title-bar region.
+    REQUIRE(pr1_ptr->bounds().x == 0.0f);
+    REQUIRE(pr1_ptr->bounds().y == 0.0f);
+    REQUIRE(pr2_ptr->bounds().x == 0.0f);
+    REQUIRE(pr2_ptr->bounds().y == 0.0f);
+}
+
+TEST_CASE("absolute child with inset:0 fills parent ignoring explicit height",
+          "[view][issue-1368][round2]") {
+    // CSS spec: when both top:0 and bottom:0 are set on a position:absolute
+    // box, the box must stretch to fill the parent height — explicit
+    // `height: 760` is overconstrained and the spec says inset wins (the
+    // box gets parent.height = 860). Confirm Pulp/Yoga match that contract.
+    View wrap;
+    wrap.set_bounds({0, 0, 1320, 860});
+
+    auto pr1 = std::make_unique<View>();
+    pr1->set_position(View::Position::absolute);
+    pr1->set_top(0);
+    pr1->set_right(0);
+    pr1->set_bottom(0);
+    pr1->set_left(0);
+    pr1->flex().preferred_height = 760.0f;
+    auto* pr1_ptr = pr1.get();
+
+    wrap.add_child(std::move(pr1));
+    wrap.layout_children();
+
+    INFO("pr_1 bounds=(" << pr1_ptr->bounds().x << "," << pr1_ptr->bounds().y
+         << "," << pr1_ptr->bounds().width << "," << pr1_ptr->bounds().height << ")");
+
+    REQUIRE(pr1_ptr->bounds().y == 0.0f);
+    // Width should match the parent — inset left:0 + right:0 fills horizontally.
+    REQUIRE(pr1_ptr->bounds().width == 1320.0f);
 }

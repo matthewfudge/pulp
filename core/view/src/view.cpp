@@ -7,6 +7,73 @@
 
 namespace pulp::view {
 
+namespace {
+
+// Build a per-corner rounded-rect path on the canvas (issue-1026). When any
+// of setBorderTopLeftRadius / TopRight / BottomLeft / BottomRight has been
+// called on the View, the four corners can have independent radii — which
+// the canvas's single-radius fill_rounded_rect / stroke_rounded_rect APIs
+// cannot express on their own. We approximate each corner with a single
+// cubic_to whose control magnitude is r * 0.55228 — the standard
+// "kappa" approximation of a quarter-circle by a Bezier. Subclasses of
+// Canvas that lack a real cubic_to fall back to line_to via the base class.
+//
+// Layout (TL, TR, BL, BR are clamped to half the box):
+//
+//      tl                 tr
+//        +---------------+
+//        |               |
+//      bl|               |br
+//        +---------------+
+void build_per_corner_rounded_rect_path(
+    pulp::canvas::Canvas& canvas,
+    float w, float h,
+    float tl, float tr, float bl, float br) {
+    const float half_w = w * 0.5f;
+    const float half_h = h * 0.5f;
+    auto clamp = [&](float r) {
+        const float lim = std::min(half_w, half_h);
+        return std::max(0.0f, std::min(r, lim));
+    };
+    tl = clamp(tl);
+    tr = clamp(tr);
+    bl = clamp(bl);
+    br = clamp(br);
+    // Cubic kappa for quarter-circle approximation.
+    constexpr float k = 0.5522847498f;
+
+    canvas.begin_path();
+    // Start at top edge after TL corner.
+    canvas.move_to(tl, 0.0f);
+    // Top edge → top-right corner.
+    canvas.line_to(w - tr, 0.0f);
+    if (tr > 0.0f)
+        canvas.cubic_to(w - tr + tr * k, 0.0f,
+                        w, tr - tr * k,
+                        w, tr);
+    // Right edge → bottom-right corner.
+    canvas.line_to(w, h - br);
+    if (br > 0.0f)
+        canvas.cubic_to(w, h - br + br * k,
+                        w - br + br * k, h,
+                        w - br, h);
+    // Bottom edge → bottom-left corner.
+    canvas.line_to(bl, h);
+    if (bl > 0.0f)
+        canvas.cubic_to(bl - bl * k, h,
+                        0.0f, h - bl + bl * k,
+                        0.0f, h - bl);
+    // Left edge → top-left corner.
+    canvas.line_to(0.0f, tl);
+    if (tl > 0.0f)
+        canvas.cubic_to(0.0f, tl - tl * k,
+                        tl - tl * k, 0.0f,
+                        tl, 0.0f);
+    canvas.close_path();
+}
+
+} // namespace
+
 void View::paint_all(canvas::Canvas& canvas) {
     if (!visible_) return;
 
@@ -47,10 +114,23 @@ void View::paint_all(canvas::Canvas& canvas) {
     // canvas matrix via concat_transform so parent transforms still apply
     // and children inherit. Used by setTransform(id,a,b,c,d,e,f) from JS,
     // primarily for translateX(-50%) centering and future animation.
+    //
+    // pulp #1026 — transform-origin now applies to the matrix path too,
+    // BUT only when the caller has explicitly called setTransformOrigin.
+    // Existing setTransform() call sites that never touched the origin
+    // continue to get a plain concat (backward-compat with #930). When
+    // an explicit origin is set, the canvas op equivalent of "transform
+    // around origin (ox, oy)" is
+    //   translate(ox, oy) ; concat(M) ; translate(-ox, -oy).
     if (has_transform_matrix_) {
+        const bool apply_origin = origin_explicit_;
+        const float ox = bounds_.width  * origin_x_;
+        const float oy = bounds_.height * origin_y_;
+        if (apply_origin) canvas.translate(ox, oy);
         canvas.concat_transform(transform_matrix_a_, transform_matrix_b_,
                                 transform_matrix_c_, transform_matrix_d_,
                                 transform_matrix_e_, transform_matrix_f_);
+        if (apply_origin) canvas.translate(-ox, -oy);
     }
 
     // CSS `backdrop-filter: blur(N)` (issue-926). A separate compositing layer
@@ -71,13 +151,49 @@ void View::paint_all(canvas::Canvas& canvas) {
     // shadow was painted onto the parent's compositing context (before
     // saveLayer) which broke CSS opacity stacking and could mask
     // subsequent child-layer content on certain Skia paths.
-    bool needs_layer = (opacity_ < 1.0f) || (filter_blur_ > 0.0f) || needs_layer_
+    bool needs_layer = (opacity_ < 1.0f) || (filter_blur_ > 0.0f)
+                       || !filter_chain_.empty() || needs_layer_
                        || (effect_ && effect_->needs_layer());
     if (needs_layer) {
-        if (effect_)
+        if (effect_) {
             effect_->configure_layer(canvas, 0, 0, bounds_.width, bounds_.height);
-        else
+        } else if (!filter_chain_.empty()) {
+            // pulp #1434 Phase A2-4 — full CSS filter chain. Translate
+            // View::FilterOp into canvas::FilterChainEntry (parallel
+            // shape) and hand off to the canvas backend; Skia composes
+            // via SkImageFilters, CG falls back to blur-only.
+            std::vector<pulp::canvas::Canvas::FilterChainEntry> chain;
+            chain.reserve(filter_chain_.size());
+            for (const auto& op : filter_chain_) {
+                pulp::canvas::Canvas::FilterChainEntry e{};
+                using ViewK = View::FilterOp::Kind;
+                using CanvK = pulp::canvas::Canvas::FilterChainEntry::Kind;
+                switch (op.kind) {
+                    case ViewK::blur:        e.kind = CanvK::blur;        break;
+                    case ViewK::brightness:  e.kind = CanvK::brightness;  break;
+                    case ViewK::contrast:    e.kind = CanvK::contrast;    break;
+                    case ViewK::grayscale:   e.kind = CanvK::grayscale;   break;
+                    case ViewK::hue_rotate:  e.kind = CanvK::hue_rotate;  break;
+                    case ViewK::invert:      e.kind = CanvK::invert;      break;
+                    case ViewK::opacity:     e.kind = CanvK::opacity;     break;
+                    case ViewK::saturate:    e.kind = CanvK::saturate;    break;
+                    case ViewK::sepia:       e.kind = CanvK::sepia;       break;
+                    case ViewK::drop_shadow: e.kind = CanvK::drop_shadow; break;
+                }
+                e.amount      = op.amount;
+                e.angle_deg   = op.angle_deg;
+                e.ds_offset_x = op.ds_offset_x;
+                e.ds_offset_y = op.ds_offset_y;
+                e.ds_blur     = op.ds_blur;
+                e.ds_color    = op.ds_color;
+                chain.push_back(e);
+            }
+            canvas.save_layer_with_filters(0, 0, bounds_.width, bounds_.height,
+                                            opacity_, chain.data(),
+                                            static_cast<int>(chain.size()));
+        } else {
             canvas.save_layer(0, 0, bounds_.width, bounds_.height, opacity_, filter_blur_);
+        }
     }
 
     // Outset drop shadows paint inside the compositing layer so the view's
@@ -95,9 +211,20 @@ void View::paint_all(canvas::Canvas& canvas) {
                                corner_radius_);
     }
 
-    // Clip only if overflow is hidden (default)
+    // Clip only when overflow:hidden is explicitly opted into. Default
+    // is overflow:visible (CSS default, pulp #972) so absolutely-
+    // positioned popover/dropdown children that extend outside the
+    // parent's content bounds still paint.
     if (overflow_ == Overflow::hidden)
         canvas.clip_rect(0, 0, bounds_.width, bounds_.height);
+
+    // Per-corner border-radius (issue-1026): when any of the
+    // setBorderTopLeftRadius / TopRight / BottomLeft / BottomRight setters
+    // has been called we paint backgrounds and the border via a path
+    // approximating each corner independently. Otherwise we keep using the
+    // canvas's optimized fill_rounded_rect / stroke_rounded_rect with the
+    // uniform corner_radius_.
+    const bool use_per_corner = has_corner_radii_;
 
     // Paint background gradient if set (CSS background: linear-gradient)
     if (bg_gradient_type_ > 0 && !bg_gradient_colors_.empty()) {
@@ -106,37 +233,91 @@ void View::paint_all(canvas::Canvas& canvas) {
             bg_grad_x1_ * bounds_.width, bg_grad_y1_ * bounds_.height,
             bg_gradient_colors_.data(), bg_gradient_positions_.data(),
             static_cast<int>(bg_gradient_colors_.size()));
-        if (corner_radius_ > 0)
+        if (use_per_corner) {
+            build_per_corner_rounded_rect_path(canvas, bounds_.width, bounds_.height,
+                                               corner_radii_[0], corner_radii_[1],
+                                               corner_radii_[2], corner_radii_[3]);
+            canvas.fill_current_path();
+        } else if (corner_radius_ > 0) {
             canvas.fill_rounded_rect(0, 0, bounds_.width, bounds_.height, corner_radius_);
-        else
+        } else {
             canvas.fill_rect(0, 0, bounds_.width, bounds_.height);
+        }
         canvas.clear_fill_gradient();
     }
 
     // Paint background if set
     if (has_bg_ && bg_gradient_type_ == 0) {
         canvas.set_fill_color(bg_color_);
-        if (corner_radius_ > 0)
+        if (use_per_corner) {
+            build_per_corner_rounded_rect_path(canvas, bounds_.width, bounds_.height,
+                                               corner_radii_[0], corner_radii_[1],
+                                               corner_radii_[2], corner_radii_[3]);
+            canvas.fill_current_path();
+        } else if (corner_radius_ > 0) {
             canvas.fill_rounded_rect(0, 0, bounds_.width, bounds_.height, corner_radius_);
-        else
+        } else {
             canvas.fill_rect(0, 0, bounds_.width, bounds_.height);
+        }
     }
 
     // Paint border if set
-    if (has_border_ && border_width_ > 0) {
+    // pulp #1434 Triage #10 — border-style honored at paint time.
+    // `none` / `hidden` short-circuit; `dashed` / `dotted` install a
+    // SkDashPathEffect via canvas.set_line_dash(...) before stroking.
+    // Other named styles (`double` / `groove` / `ridge` / `inset` /
+    // `outset`) currently degrade to solid — Skia / CG plumbing for
+    // those is a follow-up paint slice.
+    if (has_border_ && border_width_ > 0
+            && border_style_ != BorderStyle::none
+            && border_style_ != BorderStyle::hidden) {
         canvas.set_stroke_color(border_color_);
         canvas.set_line_width(border_width_);
-        if (corner_radius_ > 0)
+
+        // Install dash pattern for dashed / dotted. Pattern values are
+        // a function of the stroke width so the visible cadence scales
+        // with the border thickness — matches how CSS UAs render these.
+        const float w = border_width_;
+        if (border_style_ == BorderStyle::dashed) {
+            const float dashed[2] = { 3.0f * w, 3.0f * w };
+            canvas.set_line_dash(dashed, 2, 0.0f);
+        } else if (border_style_ == BorderStyle::dotted) {
+            const float dotted[2] = { 1.0f * w, 2.0f * w };
+            canvas.set_line_dash(dotted, 2, 0.0f);
+        }
+
+        if (use_per_corner) {
+            build_per_corner_rounded_rect_path(canvas, bounds_.width, bounds_.height,
+                                               corner_radii_[0], corner_radii_[1],
+                                               corner_radii_[2], corner_radii_[3]);
+            canvas.stroke_current_path();
+        } else if (corner_radius_ > 0) {
             canvas.stroke_rounded_rect(0, 0, bounds_.width, bounds_.height, corner_radius_);
-        else
+        } else {
             canvas.stroke_rect(0, 0, bounds_.width, bounds_.height);
+        }
+
+        // Reset dash pattern so subsequent strokes (per-side borders,
+        // children) aren't dashed inadvertently. Empty intervals array
+        // disables the path effect on Skia and is a no-op on CG.
+        if (border_style_ == BorderStyle::dashed
+                || border_style_ == BorderStyle::dotted) {
+            canvas.set_line_dash(nullptr, 0, 0.0f);
+        }
     }
 
     // Widget-specific painting
     paint(canvas);
 
-    // Paint children
-    for (auto& child : children_) {
+    // Paint children — pulp #972. CSS z-index ordering: stable-sort
+    // ascending by z_index() so siblings with equal z keep insertion
+    // order (CSS painting-order rule). Higher z paints later, ending
+    // up visually on top. The default z_index_ is 0, so views that
+    // never call set_z_index() retain insertion order — no behaviour
+    // change for legacy plugins. setZIndex() on the JS bridge has
+    // existed as a no-op until now; this hooks it up.
+    auto paint_order = sorted_children_by_z_index();
+    for (View* child : paint_order) {
         child->paint_all(canvas);
     }
 
@@ -150,6 +331,51 @@ void View::paint_all(canvas::Canvas& canvas) {
                                shadow_.blur, shadow_.spread,
                                shadow_.color, /*inset=*/true,
                                corner_radius_);
+    }
+
+    // CSS / RN outline (pulp #1519). Paints OUTSIDE the border-box and
+    // does NOT take up Yoga layout space (parent never reserves room
+    // for it). The stroke is centered on the inflated rect, so the
+    // visual outline edge lies at offset (outline_offset + outline_width)
+    // beyond the border-box. Reuses border_style enum + dash plumbing —
+    // CSS spec lists the same line-style keyword set for outline.
+    // none/hidden/zero-width short-circuit. Paints after children so
+    // it stays on top of everything inside the box.
+    if (outline_width_ > 0
+            && outline_style_ != BorderStyle::none
+            && outline_style_ != BorderStyle::hidden) {
+        canvas.set_stroke_color(outline_color_);
+        canvas.set_line_width(outline_width_);
+
+        const float w = outline_width_;
+        if (outline_style_ == BorderStyle::dashed) {
+            const float dashed[2] = { 3.0f * w, 3.0f * w };
+            canvas.set_line_dash(dashed, 2, 0.0f);
+        } else if (outline_style_ == BorderStyle::dotted) {
+            const float dotted[2] = { 1.0f * w, 2.0f * w };
+            canvas.set_line_dash(dotted, 2, 0.0f);
+        }
+
+        // Inflate around all four sides: stroke center at offset+w/2.
+        const float inflate = outline_offset_ + outline_width_ * 0.5f;
+        const float ox = -inflate;
+        const float oy = -inflate;
+        const float ow = bounds_.width + 2.0f * inflate;
+        const float oh = bounds_.height + 2.0f * inflate;
+        // Outline corner radius mirrors the border-box corner radius
+        // expanded by the same inflate distance — matches CSS UA
+        // behavior where the outline follows the box's corner curvature.
+        if (corner_radius_ > 0) {
+            canvas.stroke_rounded_rect(ox, oy, ow, oh,
+                                       corner_radius_ + inflate);
+        } else {
+            canvas.stroke_rect(ox, oy, ow, oh);
+        }
+
+        if (outline_style_ == BorderStyle::dashed
+                || outline_style_ == BorderStyle::dotted) {
+            canvas.set_line_dash(nullptr, 0, 0.0f);
+        }
     }
 
     // Focus ring — only show on text input widgets, not sliders/toggles/meters
@@ -189,7 +415,23 @@ void View::simulate_click(Point root_pos) {
 
     target->on_mouse_down(local);
     target->on_mouse_up(local);
-    if (target->on_click) target->on_click();
+    // pulp #1067 — DOM-style click bubbling. `hit_test` returns the deepest
+    // hit-testable view, which for `<button onClick=...>Label</button>` is
+    // the inner Label child. Walk up the parent chain to find the nearest
+    // ancestor with a registered handler. Mirrors the same bubble pass the
+    // mac mouseUp path performs (see core/view/platform/mac/window_host_mac.mm).
+    //
+    // pulp #1171 (Codex P2 on #1073) — bound the bubble walk to `this`
+    // (inclusive). Walking past the receiver into ancestors outside its
+    // subtree leaks synthetic clicks across component boundaries — a
+    // false-positive hazard for tests / tooling that simulate
+    // interaction on isolated subtrees.
+    View* click_target = target;
+    while (click_target && !click_target->on_click) {
+        if (click_target == this) break;  // stop at receiver, even if no handler
+        click_target = click_target->parent();
+    }
+    if (click_target && click_target->on_click) click_target->on_click();
 }
 
 void View::simulate_drag(Point start, Point end, int steps) {
@@ -298,34 +540,72 @@ std::unique_ptr<View> View::remove_child(View* child) {
     return owned;
 }
 
+std::vector<View*> View::sorted_children_by_z_index() const {
+    std::vector<View*> result;
+    result.reserve(children_.size());
+    for (const auto& child : children_) result.push_back(child.get());
+    // Stable sort so siblings with equal z_index() retain insertion
+    // order (CSS painting-order rule, pulp #972).
+    std::stable_sort(result.begin(), result.end(),
+        [](const View* a, const View* b) {
+            return a->z_index() < b->z_index();
+        });
+    return result;
+}
+
 View* View::hit_test(Point local_point) {
     if (!visible_ || !enabled_ || !hit_testable_) return nullptr;
 
-    // Check children in reverse order (topmost first)
-    for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
-        auto& child = *it;
-        if (!child->visible_) continue;
+    // React Native pointerEvents (issue-1026):
+    //   none      — neither this view nor children intercept events.
+    //   box_none  — this view is invisible to hit-testing but children
+    //               can still receive events (descend, but never return self).
+    //   box_only  — this view receives events; children do NOT
+    //               (skip the descent below, then check own bounds).
+    //   auto_     — default behavior.
+    if (pointer_events_ == PointerEvents::none) return nullptr;
 
-        Point child_point = {local_point.x - child->bounds_.x,
-                            local_point.y - child->bounds_.y};
+    // Check children topmost-first (pulp #972). With z-index honored,
+    // "topmost" means highest z_index — and at equal z, latest insertion
+    // — so iterate the z-sorted paint order in reverse. Without this,
+    // a high-z popover could render on top yet have clicks fall through
+    // to siblings beneath it.
+    if (pointer_events_ != PointerEvents::box_only) {
+        auto paint_order = sorted_children_by_z_index();
+        for (auto it = paint_order.rbegin(); it != paint_order.rend(); ++it) {
+            View* child = *it;
+            if (!child->visible_) continue;
 
-        // For overflow:visible, expand the hit area to include content
-        // that extends beyond the child's bounds (e.g., dropdown menus)
-        bool in_bounds = child->local_bounds().contains(child_point);
-        if (!in_bounds && child->overflow() == Overflow::visible) {
-            // Allow hit testing up to 500px below the child (for dropdowns)
-            auto lb = child->local_bounds();
-            in_bounds = child_point.x >= lb.x && child_point.x <= lb.x + lb.width &&
-                       child_point.y >= lb.y && child_point.y <= lb.y + lb.height + 500;
-        }
+            Point child_point = {local_point.x - child->bounds_.x,
+                                local_point.y - child->bounds_.y};
 
-        if (in_bounds) {
-            auto* hit = child->hit_test(child_point);
-            if (hit) return hit;
+            // For overflow:visible, expand the hit area on all four sides
+            // to include content that extends beyond the child's bounds
+            // (e.g. dropdowns/popovers that grow downward, leftward, etc.).
+            // The 500px slack is symmetric so left-extending popovers
+            // (e.g. the Spectr bands picker) get hit-tested correctly —
+            // see pulp #1148 for the original right/down-only asymmetry.
+            bool in_bounds = child->local_bounds().contains(child_point);
+            if (!in_bounds && child->overflow() == Overflow::visible) {
+                auto lb = child->local_bounds();
+                in_bounds = child_point.x >= lb.x - 500 &&
+                            child_point.x <= lb.x + lb.width + 500 &&
+                            child_point.y >= lb.y - 500 &&
+                            child_point.y <= lb.y + lb.height + 500;
+            }
+
+            if (in_bounds) {
+                auto* hit = child->hit_test(child_point);
+                if (hit) return hit;
+            }
         }
     }
 
-    // No child was hit — return this view if the point is within bounds
+    // No child was hit — return this view if the point is within bounds.
+    // box_none suppresses self-targeting even when a child miss falls back
+    // here, matching RN's "container is just a layout pass-through" mode.
+    if (pointer_events_ == PointerEvents::box_none) return nullptr;
+
     if (local_bounds().contains(local_point))
         return this;
 
@@ -361,6 +641,104 @@ bool View::call_inspector_mouse_hook(const MouseEvent& e) {
     return s_inspector_mouse_hook ? s_inspector_mouse_hook(e) : false;
 }
 
+// pulp #1148 — generalized overlay-click routing.
+View* View::active_overlay_ = nullptr;
+
+// pulp #1361 — dismiss-path release. Pulls the slot, then fires the
+// dismissed View's `on_overlay_dismissed` callback so React state can
+// sync. Order matters: clear the slot FIRST so a callback that calls
+// claim_overlay() on a replacement popover doesn't immediately get
+// nulled out by our subsequent clear.
+void View::dismiss_active_overlay() {
+    View* victim = active_overlay_;
+    if (!victim) return;
+    active_overlay_ = nullptr;
+    if (victim->on_overlay_dismissed) {
+        victim->on_overlay_dismissed();
+    }
+}
+
+namespace {
+
+// pulp #1320 — recursively expand a child's painted-bounds contribution
+// up through any `overflow:visible` descendants. Returns the bounding
+// rect (in window coords) of `v` and every transitive descendant whose
+// chain back to `v` is entirely overflow:visible. A descendant inside
+// an `overflow:hidden` ancestor is clipped, so it stops contributing.
+//
+// `parent_abs_x` / `parent_abs_y` are the absolute window-coord origin
+// of `v->parent()`. The function consumes those, applies `v`'s own
+// `bounds().x/y`, and recurses.
+void accumulate_overflow_extent(const View* v,
+                                float parent_abs_x,
+                                float parent_abs_y,
+                                float& min_x,
+                                float& min_y,
+                                float& max_x,
+                                float& max_y) {
+    if (!v) return;
+    const float abs_x = parent_abs_x + v->bounds().x;
+    const float abs_y = parent_abs_y + v->bounds().y;
+    const auto lb = v->local_bounds();
+    if (abs_x < min_x) min_x = abs_x;
+    if (abs_y < min_y) min_y = abs_y;
+    if (abs_x + lb.width > max_x) max_x = abs_x + lb.width;
+    if (abs_y + lb.height > max_y) max_y = abs_y + lb.height;
+    // Only recurse through children whose own overflow is visible —
+    // that's the CSS rule. An `overflow:hidden` child clips its own
+    // descendants, so they don't contribute painted pixels above us.
+    if (v->overflow() != View::Overflow::visible) return;
+    for (size_t i = 0; i < v->child_count(); ++i) {
+        accumulate_overflow_extent(v->child_at(i), abs_x, abs_y,
+                                   min_x, min_y, max_x, max_y);
+    }
+}
+
+}  // namespace
+
+bool View::overlay_contains(Point window_pt) const {
+    // Walk up to compute absolute origin in window/root coords. Same
+    // arithmetic the mac window-host uses for ComboBox::active_popup_.
+    float abs_x = 0.0f, abs_y = 0.0f;
+    const View* v = this;
+    while (v) {
+        abs_x += v->bounds().x;
+        abs_y += v->bounds().y;
+        v = v->parent();
+    }
+    const float w = local_bounds().width;
+    const float h = local_bounds().height;
+    // Fast-path: own painted rect contains the point.
+    if (window_pt.x >= abs_x && window_pt.x <= abs_x + w &&
+        window_pt.y >= abs_y && window_pt.y <= abs_y + h) {
+        return true;
+    }
+
+    // pulp #1320 — extend the hit area to include the painted bounding
+    // box of any `overflow:visible` descendants. CSS `overflow:visible`
+    // semantics: a child painting outside the parent is still
+    // visible/clickable. Without this, a popover positioned via
+    // `position:absolute; top: 28; right: 0` extends LEFTWARD beyond
+    // its short trigger button — clicks on the leftward cells then
+    // miss `overlay_contains` and fall through to whatever sibling
+    // happens to occupy that pixel.
+    //
+    // Only meaningful when this overlay itself has overflow:visible
+    // (otherwise its own clip rect bounds the painted pixels).
+    if (overflow() != Overflow::visible) return false;
+
+    // Compute parent_abs_{x,y}: this->bounds().x/y were already added
+    // by the walk above, so subtract them to get the parent origin.
+    const float parent_abs_x = abs_x - bounds().x;
+    const float parent_abs_y = abs_y - bounds().y;
+    float min_x = abs_x, min_y = abs_y;
+    float max_x = abs_x + w, max_y = abs_y + h;
+    accumulate_overflow_extent(this, parent_abs_x, parent_abs_y,
+                               min_x, min_y, max_x, max_y);
+    return window_pt.x >= min_x && window_pt.x <= max_x &&
+           window_pt.y >= min_y && window_pt.y <= max_y;
+}
+
 void View::paint_overlays(canvas::Canvas& canvas) {
     auto& queue = overlay_queue();
     for (auto& req : queue) {
@@ -386,6 +764,48 @@ float View::resolve_dimension(const std::string& name, float fallback) const {
     if (d.has_value()) return d.value();
     if (parent_) return parent_->resolve_dimension(name, fallback);
     return fallback;
+}
+
+// ── CSS-style typography inheritance (issue-969) ────────────────────────
+//
+// Each inheritable_*() walks the chain own → parent → … → root, returning
+// the first ancestor that has a value. nullopt means no one in the chain
+// set the field, so the caller falls back to the theme/widget default.
+
+std::optional<Color> View::inheritable_text_color() const {
+    if (inh_text_color_.has_value()) return inh_text_color_;
+    if (parent_) return parent_->inheritable_text_color();
+    return std::nullopt;
+}
+
+std::optional<float> View::inheritable_font_size() const {
+    if (inh_font_size_.has_value()) return inh_font_size_;
+    if (parent_) return parent_->inheritable_font_size();
+    return std::nullopt;
+}
+
+std::optional<float> View::inheritable_letter_spacing() const {
+    if (inh_letter_spacing_.has_value()) return inh_letter_spacing_;
+    if (parent_) return parent_->inheritable_letter_spacing();
+    return std::nullopt;
+}
+
+std::optional<int> View::inheritable_font_weight() const {
+    if (inh_font_weight_.has_value()) return inh_font_weight_;
+    if (parent_) return parent_->inheritable_font_weight();
+    return std::nullopt;
+}
+
+std::optional<std::string> View::inheritable_font_family() const {
+    if (inh_font_family_.has_value()) return inh_font_family_;
+    if (parent_) return parent_->inheritable_font_family();
+    return std::nullopt;
+}
+
+std::optional<int> View::inheritable_text_align() const {
+    if (inh_text_align_.has_value()) return inh_text_align_;
+    if (parent_) return parent_->inheritable_text_align();
+    return std::nullopt;
 }
 
 // ── Pointer capture ─────────────────────────────────────────────────────
@@ -473,6 +893,69 @@ std::vector<GridTrack> GridStyle::parse_template(const std::string& tmpl) {
         }
     }
     return tracks;
+}
+
+std::vector<GridStyle::NamedArea> GridStyle::parse_template_areas(const std::string& css) {
+    // pulp #1434 Phase A2-2 — parse CSS grid-template-areas:
+    //   "'header header header' 'main side side' 'footer footer footer'"
+    // Each single-quoted segment is one row; cells are space-separated.
+    // Adjacent cells with the same name (in the same row OR across
+    // adjacent rows in the same column) merge into one rectangle.
+    // `'.'` is the CSS spec spacer — skipped entirely.
+    std::vector<std::vector<std::string>> rows;
+    {
+        std::string s = css;
+        // Trim whitespace.
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(0, 1);
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+        // Walk single-quoted runs.
+        size_t i = 0;
+        while (i < s.size()) {
+            if (s[i] == '\'') {
+                size_t end = s.find('\'', i + 1);
+                if (end == std::string::npos) break;
+                std::string row_str = s.substr(i + 1, end - i - 1);
+                std::vector<std::string> cells;
+                std::istringstream iss(row_str);
+                std::string tok;
+                while (iss >> tok) cells.push_back(tok);
+                rows.push_back(std::move(cells));
+                i = end + 1;
+            } else {
+                ++i;
+            }
+        }
+    }
+    if (rows.empty()) return {};
+
+    // Build a name → bounding-rect map. Each cell contributes to the
+    // rectangle if it shares the name. CSS spec requires the area to
+    // be rectangular; non-rectangular shapes are technically invalid
+    // but we accept them as the bounding rect (lenient at the IR layer).
+    std::vector<NamedArea> out;
+    auto find = [&](const std::string& name) -> NamedArea* {
+        for (auto& a : out) if (a.name == name) return &a;
+        return nullptr;
+    };
+    for (size_t r = 0; r < rows.size(); ++r) {
+        for (size_t c = 0; c < rows[r].size(); ++c) {
+            const std::string& name = rows[r][c];
+            if (name == "." || name.empty()) continue;
+            int row1 = static_cast<int>(r) + 1; // CSS line numbers are 1-based
+            int col1 = static_cast<int>(c) + 1;
+            int row2 = row1 + 1;
+            int col2 = col1 + 1;
+            if (auto* existing = find(name)) {
+                existing->col_start = std::min(existing->col_start, col1);
+                existing->row_start = std::min(existing->row_start, row1);
+                existing->col_end   = std::max(existing->col_end,   col2);
+                existing->row_end   = std::max(existing->row_end,   row2);
+            } else {
+                out.push_back({name, col1, col2, row1, row2});
+            }
+        }
+    }
+    return out;
 }
 
 // ── Grid layout algorithm ───────────────────────────────────────────────────
@@ -621,7 +1104,11 @@ float View::intrinsic_height() const {
     // Containers: sum visible children's heights + gaps (CSS auto height behavior)
     if (children_.empty()) return 0;
 
-    bool is_col = flex_.direction == FlexDirection::column;
+    // pulp #1434 (rn batch B) — column_reverse is still a column-axis
+    // container for the auto-height calculation; only true row
+    // containers skip child-summed height.
+    bool is_col = (flex_.direction == FlexDirection::column ||
+                   flex_.direction == FlexDirection::column_reverse);
     if (!is_col) return 0;  // Row containers don't auto-height from children
 
     float total = 0;
@@ -671,7 +1158,10 @@ void View::layout_children() {
     float pl = flex_.padding_left >= 0 ? flex_.padding_left : flex_.padding;
     area = {area.x + pl, area.y + pt, area.width - pl - pr, area.height - pt - pb};
 
-    bool is_row = flex_.direction == FlexDirection::row;
+    // pulp #1434 (rn batch B) — row_reverse is still a row-axis
+    // container; only the visual order of children is reversed.
+    bool is_row = (flex_.direction == FlexDirection::row ||
+                   flex_.direction == FlexDirection::row_reverse);
     float main_size = is_row ? area.width : area.height;
     float cross_size = is_row ? area.height : area.width;
     float gap = flex_.effective_gap(flex_.direction);
@@ -827,6 +1317,13 @@ void View::layout_children() {
                 break;
             case FlexAlign::end:
                 cross_pos += avail_cross - l.cross_size;
+                break;
+            // pulp #1434 (rn batch B) — baseline alignment in the manual
+            // (non-Yoga) layout fallback approximates as start since
+            // glyph baseline metrics aren't surfaced here. Yoga's
+            // YGAlignBaseline path is the correct rendering when
+            // PULP_HAS_YOGA is on (the default).
+            case FlexAlign::baseline:
                 break;
         }
 

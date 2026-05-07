@@ -86,14 +86,27 @@ if ! [[ "${THRESHOLD}" =~ ^[0-9]+$ ]]; then
 fi
 
 # Per-file exclusions from the same source-of-truth (kept in lockstep
-# with .github/workflows/coverage.yml). Read into an array of
-# `--exclude=PATH` flags so the diff-cover invocation below can splat
-# them with no escaping surprises.
+# with .github/workflows/coverage.yml). diff-cover's `--exclude` flag
+# uses argparse `nargs='+'` and matches via fnmatch against (a)
+# basename and (b) absolute path. TWO subtleties matter for callers:
+#   1. With repeated `--exclude=foo --exclude=bar`, argparse keeps
+#      only the LAST entry (default action; not 'append'). So we
+#      must pass ALL exclusions in a SINGLE `--exclude val1 val2 ...`
+#      flag.
+#   2. A literal relative path like `tools/cli/cmd_loop.cpp` matches
+#      NEITHER the basename (no slash to strip) NOR the absolute path
+#      (which has the repo prefix). Patterns must be a basename
+#      (`cmd_loop.cpp`) or a glob (`**/cmd_loop.cpp`) — that's the
+#      contract documented in coverage_config.json's _comment.
 DIFF_COVER_EXCLUDE_ARGS=()
 if command -v jq >/dev/null 2>&1; then
+    EXCLUDE_LIST=()
     while IFS= read -r excl; do
-        [ -n "${excl}" ] && DIFF_COVER_EXCLUDE_ARGS+=("--exclude=${excl}")
+        [ -n "${excl}" ] && EXCLUDE_LIST+=("${excl}")
     done < <(jq -r '.diff_cover_excludes // [] | .[]' "${CONFIG_JSON}")
+    if [ ${#EXCLUDE_LIST[@]} -gt 0 ]; then
+        DIFF_COVER_EXCLUDE_ARGS=("--exclude" "${EXCLUDE_LIST[@]}")
+    fi
 fi
 
 # ── Dependency preflight ────────────────────────────────────────────────────
@@ -185,21 +198,50 @@ find "${PROFRAW_DIR}" -name '*.profraw' -print0 \
 
 # ── Gather binaries for llvm-cov -object ────────────────────────────────────
 # Mirror scripts/run_coverage.sh's binary discovery so we cover the same
-# surface CI does. Test binaries first, then libpulp-*.a archives, then
-# non-test executables.
+# surface CI does. Without the non-test executable / loadable-module
+# passes below, llvm-cov sees only test binaries — coverage data from
+# CLI shell-out tests (cmd_coverage.cpp, cmd_loop.cpp, etc.) never
+# propagates, and any first-party file exercised end-to-end through
+# pulp-cli / pulp-standalone / pulp-inspect is silently dropped from
+# the diff-cover gate. See issue #919 (Codex review on PR #919).
 BINARIES=()
+
+# 1. Test executables — primary coverage drivers.
 while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
     find "${BUILD_DIR}/test" -maxdepth 2 -type f -perm -u+x \
         ! -name '*.cmake' ! -name '*.txt' 2>/dev/null || true
 )
+
+# 2. First-party static archives — expose every instrumented TU even
+#    when no test transitively links it. `pulp-*.lib` covers Windows
+#    where clang-cl emits MSVC-style archives.
 while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
     find "${BUILD_DIR}" -type f \
         \( -name 'libpulp-*.a' -o -name 'pulp-*.lib' \) \
         2>/dev/null || true
 )
 
+# 3. First-party non-test executables — CLI, standalone host, inspector.
+#    These are the targets shell-out tests actually invoke; without them
+#    cmd_coverage.cpp et al. never accumulate coverage.
+while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
+    find "${BUILD_DIR}/tools" "${BUILD_DIR}/inspect" \
+        -maxdepth 3 -type f -perm -u+x \
+        ! -name '*.cmake' ! -name '*.txt' ! -name '*.o' \
+        2>/dev/null || true
+)
+
+# 4. Loadable first-party modules under bindings/ that execute
+#    instrumented code under test (Python smoke target etc.).
+while IFS= read -r f; do BINARIES+=("-object" "$f"); done < <(
+    find "${BUILD_DIR}/bindings" -type f \
+        \( -name 'pulp*.so' -o -name 'pulp*.pyd' -o -name 'pulp*.dylib' \) \
+        ! -path "${BUILD_DIR}/bindings/python/*" \
+        2>/dev/null || true
+)
+
 if [ "${#BINARIES[@]}" -eq 0 ]; then
-    echo "[local_diff_cover] no test binaries found under ${BUILD_DIR}/test" >&2
+    echo "[local_diff_cover] no binaries found under ${BUILD_DIR}" >&2
     exit 1
 fi
 
@@ -224,7 +266,18 @@ fi
 # ── Generate Cobertura XML via lcov_cobertura.py ───────────────────────────
 # Same pipeline scripts/run_coverage.sh uses — `llvm-cov export --format=lcov`
 # then the vendored lcov_cobertura.py converter.
+#
+# Issue #1058: `llvm-cov export --format=lcov` is not gcov-aware and does NOT
+# honor `LCOV_EXCL_START` / `LCOV_EXCL_STOP` markers in source. Without the
+# `lcov --remove` pass below, those markers are silently documentation-only
+# and excluded ranges still appear as Missing in diff-cover output. We pipe
+# through `lcov --remove <raw> '*'` (which exercises lcov's gcov parser
+# WITHOUT actually removing any files via the wildcard) so excluded ranges
+# get stripped before the Cobertura conversion. Falls back to a straight
+# copy + warning when `lcov` isn't installed (CI / Linux dev machines often
+# lack it) so the existing pipeline keeps working with the prior behavior.
 COVERAGE_IGNORE_REGEX='(^|/)(_deps|external|test|[Cc]atch2|build|build-cov|build-coverage|examples|fetchcontent-src|sandbox-e2e)/'
+RAW_LCOV_FILE="${BUILD_DIR}/coverage/coverage.raw.lcov"
 LCOV_FILE="${BUILD_DIR}/coverage/coverage.lcov"
 COBERTURA_XML="${BUILD_DIR}/coverage.cobertura.xml"
 LCOV_COBERTURA="${REPO_ROOT}/tools/scripts/lcov_cobertura.py"
@@ -239,7 +292,33 @@ llvm-cov export --format=lcov \
     "${BINARIES[@]}" \
     -instr-profile="${PROFDATA}" \
     -ignore-filename-regex="${COVERAGE_IGNORE_REGEX}" \
-    > "${LCOV_FILE}"
+    > "${RAW_LCOV_FILE}"
+
+echo "=== LCOV → LCOV (honor LCOV_EXCL markers via lcov --filter region) ==="
+if command -v lcov >/dev/null 2>&1; then
+    # The dummy `--remove` pattern matches no real source path, so the
+    # remove step is a no-op file-wise; what we actually want is the
+    # source-aware re-read triggered by `--filter region`, which scans
+    # the SF: source files for LCOV_EXCL_START/STOP and drops the
+    # excluded line ranges. `--ignore-errors unused` keeps the dummy
+    # pattern from being a fatal error in lcov 2.x. If the lcov binary
+    # is too old to recognize `--filter region` (lcov 1.x), fall back
+    # to a straight copy and print a hint.
+    if ! lcov --remove "${RAW_LCOV_FILE}" '/__pulp_unmatched__/*' \
+              --output-file "${LCOV_FILE}" \
+              --filter region \
+              --ignore-errors unused \
+              --rc branch_coverage=1 \
+              >/dev/null 2>&1; then
+        cp "${RAW_LCOV_FILE}" "${LCOV_FILE}"
+        echo "[local_diff_cover] WARN: lcov --filter region failed; falling back to raw .lcov" >&2
+        echo "[local_diff_cover]       (LCOV_EXCL markers will not be honored — needs lcov >= 2.0)" >&2
+    fi
+else
+    cp "${RAW_LCOV_FILE}" "${LCOV_FILE}"
+    echo "[local_diff_cover] note: lcov not installed — LCOV_EXCL markers won't be honored." >&2
+    echo "[local_diff_cover] install with: brew install lcov  /  sudo apt install lcov" >&2
+fi
 
 echo "=== LCOV → Cobertura XML ==="
 python3 "${LCOV_COBERTURA}" "${LCOV_FILE}" \

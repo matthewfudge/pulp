@@ -301,7 +301,9 @@ std::vector<std::string> split_lines(const std::string& s) {
 }
 
 bool line_is_section_header(const std::string& line, std::string* section_out) {
-    auto t = trim(line);
+    auto hash = line.find('#');
+    auto effective = (hash == std::string::npos) ? line : line.substr(0, hash);
+    auto t = trim(effective);
     if (t.size() < 2 || t.front() != '[' || t.back() != ']') return false;
     auto name = trim(t.substr(1, t.size() - 2));
     if (section_out) *section_out = name;
@@ -477,6 +479,50 @@ CacheEntry refresh_cache(Fetcher& fetcher,
     // survives a transient network blip — but we still advance
     // last_check_epoch_sec so we don't retry every invocation.
     return next;
+}
+
+ResolvedLatest resolve_latest_with_persist(Fetcher& fetcher,
+                                           const fs::path& cache_path,
+                                           const std::string& owner_repo,
+                                           std::int64_t now_epoch_sec_val,
+                                           int interval_hours) {
+    ResolvedLatest out;
+
+    std::optional<CacheEntry> cache;
+    if (!cache_path.empty()) cache = read_cache_file(cache_path);
+
+    const bool cache_fresh =
+        cache && !cache->latest_version.empty() &&
+        !is_cache_stale(*cache, now_epoch_sec_val, interval_hours);
+
+    if (cache_fresh) {
+        out.ok = true;
+        out.refreshed = false;
+        out.latest_version = cache->latest_version;
+        out.release_notes_url = cache->release_notes_url;
+        return out;
+    }
+
+    auto r = fetcher.fetch_latest_release(owner_repo);
+    out.refreshed = true;
+    if (!r.ok) {
+        out.ok = false;
+        out.error = r.error;
+        return out;
+    }
+    out.ok = true;
+    out.latest_version = r.latest_version;
+    out.release_notes_url = r.release_notes_url;
+
+    if (!cache_path.empty()) {
+        CacheEntry next = cache.value_or(CacheEntry{});
+        next.schema = kCacheSchemaVersion;
+        next.last_check_epoch_sec = now_epoch_sec_val;
+        next.latest_version = out.latest_version;
+        next.release_notes_url = out.release_notes_url;
+        write_cache_file(cache_path, next);
+    }
+    return out;
 }
 
 }  // namespace pulp::cli::update_check

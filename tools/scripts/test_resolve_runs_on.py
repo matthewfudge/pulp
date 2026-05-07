@@ -136,7 +136,7 @@ def test_optional_namespace_no_env_returns_empty() -> None:
     _assert(out == "", f"expected empty stdout, got {out!r}")
 
 
-def test_optional_namespace_with_explicit_routes_to_namespace() -> None:
+def test_optional_namespace_with_explicit_routes_under_namespace_provider() -> None:
     _, out, _ = _run([
         "--target-name", "macOS (ARM64)",
         "--mode", "optional-namespace",
@@ -149,6 +149,37 @@ def test_optional_namespace_with_explicit_routes_to_namespace() -> None:
     })
     _assert(json.loads(out) == "namespace-profile-generouscorp-macos",
             f"unexpected macOS namespace selector: {out!r}")
+
+
+def test_optional_namespace_explicit_wins_under_github_hosted_provider() -> None:
+    _, out, _ = _run([
+        "--target-name", "macOS (ARM64)",
+        "--mode", "optional-namespace",
+        "--explicit-env", "EXPLICIT_MACOS_RUNNER_SELECTOR_JSON",
+        "--namespace-env", "NAMESPACE_MACOS_RUNS_ON_JSON",
+    ], env_extra={
+        "REQUESTED_PROVIDER": "github-hosted",
+        "EXPLICIT_MACOS_RUNNER_SELECTOR_JSON":
+            '["self-hosted","sanitizer"]',
+    })
+    _assert(json.loads(out) == ["self-hosted", "sanitizer"],
+            f"explicit macOS selector ignored: {out!r}")
+
+
+def test_optional_namespace_falls_back_to_namespace_env() -> None:
+    _, out, _ = _run([
+        "--target-name", "macOS (ARM64)",
+        "--mode", "optional-namespace",
+        "--explicit-env", "EXPLICIT_MACOS_RUNNER_SELECTOR_JSON",
+        "--namespace-env", "NAMESPACE_MACOS_RUNS_ON_JSON",
+    ], env_extra={
+        "REQUESTED_PROVIDER": "namespace",
+        "EXPLICIT_MACOS_RUNNER_SELECTOR_JSON": "   ",
+        "NAMESPACE_MACOS_RUNS_ON_JSON":
+            '"namespace-profile-generouscorp-macos"',
+    })
+    _assert(json.loads(out) == "namespace-profile-generouscorp-macos",
+            f"namespace fallback selector ignored: {out!r}")
 
 
 # ── new: local provider ─────────────────────────────────────────────────
@@ -246,6 +277,40 @@ def test_default_mode_ubuntu_default() -> None:
     ])
     _assert(json.loads(out) == "ubuntu-24.04",
             f"expected default 'ubuntu-24.04', got {out!r}")
+
+
+# ── argument validation ───────────────────────────────────────────────────
+
+
+def test_provider_mode_requires_github_hosted_label() -> None:
+    code, _, err = _run([
+        "--target-name", "Linux (x64)",
+        "--mode", "provider",
+    ], expect_error=True)
+    _assert(code == 1, "expected error exit")
+    _assert("--github-hosted-label is required" in err,
+            f"stderr missing required-label error: {err!r}")
+
+
+def test_default_mode_requires_default_label() -> None:
+    code, _, err = _run([
+        "--target-name", "TSan (macOS ARM64)",
+        "--mode", "default",
+    ], expect_error=True)
+    _assert(code == 1, "expected error exit")
+    _assert("--default-label is required" in err,
+            f"stderr missing required-default error: {err!r}")
+
+
+def test_provider_mode_rejects_unsupported_provider() -> None:
+    code, _, err = _run([
+        "--target-name", "Linux (x64)",
+        "--mode", "provider",
+        "--github-hosted-label", "ubuntu-latest",
+    ], env_extra={"REQUESTED_PROVIDER": "bogus"}, expect_error=True)
+    _assert(code == 1, "expected error exit")
+    _assert("Unsupported runner_provider" in err,
+            f"stderr missing unsupported-provider error: {err!r}")
 
 
 # ── JSON validation ─────────────────────────────────────────────────────

@@ -128,6 +128,23 @@ TEST_CASE("AtlasPacker reset lets us pack again from origin - issue-646",
     REQUIRE(r.y == 0);
 }
 
+TEST_CASE("AtlasPacker shelf height tracks the tallest item - issue-646",
+          "[render][atlas][issue-646]") {
+    AtlasPacker p(80, 80);
+    AtlasPacker::Region r{};
+
+    REQUIRE(p.allocate(20, 10, r));
+    REQUIRE(r.y == 0);
+
+    REQUIRE(p.allocate(20, 30, r));
+    REQUIRE(r.x == 20);
+    REQUIRE(r.y == 0);
+
+    REQUIRE(p.allocate(60, 10, r));
+    REQUIRE(r.x == 0);
+    REQUIRE(r.y == 30);
+}
+
 TEST_CASE("AtlasPacker rejects non-positive dimensions - issue-646",
           "[render][atlas][issue-646]") {
     AtlasPacker p(64, 64);
@@ -141,6 +158,29 @@ TEST_CASE("AtlasPacker rejects non-positive dimensions - issue-646",
     REQUIRE(p.allocate(8, 8, r));
     REQUIRE(r.x == 0);
     REQUIRE(r.y == 0);
+}
+
+TEST_CASE("ImageAtlas cache hit keeps original region and refcount - issue-646",
+          "[render][atlas][issue-646]") {
+    ImageAtlas atlas(64);
+    AtlasPacker::Region first{};
+    AtlasPacker::Region second{};
+
+    REQUIRE(atlas.allocate(9, 16, 12, first));
+    REQUIRE(atlas.allocate(9, 48, 48, second));
+    REQUIRE(second.x == first.x);
+    REQUIRE(second.y == first.y);
+    REQUIRE(second.w == first.w);
+    REQUIRE(second.h == first.h);
+    REQUIRE(atlas.entry_count() == 1);
+
+    atlas.release(9);
+    REQUIRE(atlas.evict_stale(1000, /*max_age=*/1) == 0);
+    REQUIRE(atlas.entry_count() == 1);
+
+    atlas.release(9);
+    REQUIRE(atlas.evict_stale(1000, /*max_age=*/1) == 1);
+    REQUIRE(atlas.entry_count() == 0);
 }
 
 TEST_CASE("ImageAtlas mark_used keeps live entry from eviction - issue-646",
@@ -220,6 +260,37 @@ TEST_CASE("GradientAtlas reports capacity exhaustion - issue-646",
     REQUIRE(ga.entry_count() == 512);
 }
 
+TEST_CASE("GradientAtlas cache hit still succeeds after capacity is full - issue-646",
+          "[render][atlas][issue-646]") {
+    GradientAtlas ga;
+    int row = -1;
+    for (int i = 0; i < 512; ++i) {
+        REQUIRE(ga.allocate(static_cast<uint64_t>(i), row));
+    }
+
+    row = -1;
+    REQUIRE(ga.allocate(17, row));
+    REQUIRE(row == 17);
+    REQUIRE(ga.entry_count() == 512);
+
+    REQUIRE_FALSE(ga.allocate(512, row));
+    REQUIRE(ga.entry_count() == 512);
+}
+
+TEST_CASE("GradientAtlas allocates monotonically after eviction - issue-646",
+          "[render][atlas][issue-646]") {
+    GradientAtlas ga;
+    int row = -1;
+    REQUIRE(ga.allocate(1, row));
+    REQUIRE(row == 0);
+    REQUIRE(ga.evict_stale(10, /*max_age=*/1) == 1);
+    REQUIRE(ga.entry_count() == 0);
+
+    REQUIRE(ga.allocate(2, row));
+    REQUIRE(row == 1);
+    REQUIRE(ga.entry_count() == 1);
+}
+
 TEST_CASE("GlyphAtlas allocate reuses same key, evicts by age - issue-646",
           "[render][atlas][issue-646]") {
     GlyphAtlas atlas(256);
@@ -255,6 +326,15 @@ TEST_CASE("GlyphAtlas rejects oversized glyph - issue-646",
     REQUIRE(atlas.entry_count() == 0);
 }
 
+TEST_CASE("GlyphAtlas rejects full atlas allocations without dropping entries - issue-646",
+          "[render][atlas][issue-646]") {
+    GlyphAtlas atlas(16);
+    AtlasPacker::Region r{};
+    REQUIRE(atlas.allocate(1, 16, 16, r));
+    REQUIRE_FALSE(atlas.allocate(2, 1, 1, r));
+    REQUIRE(atlas.entry_count() == 1);
+}
+
 TEST_CASE("PathAtlas allocate, cache hit, and eviction - issue-646",
           "[render][atlas][issue-646]") {
     PathAtlas atlas(256);
@@ -282,6 +362,18 @@ TEST_CASE("PathAtlas rejects oversized path bitmap - issue-646",
     AtlasPacker::Region r{};
     REQUIRE_FALSE(atlas.allocate(1, /*w=*/128, /*h=*/128, r));
     REQUIRE(atlas.entry_count() == 0);
+}
+
+TEST_CASE("PathAtlas mark_used missing key is a no-op and full atlas rejects - issue-646",
+          "[render][atlas][issue-646]") {
+    PathAtlas atlas(16);
+    AtlasPacker::Region r{};
+    atlas.mark_used(999, 1);
+    REQUIRE(atlas.entry_count() == 0);
+
+    REQUIRE(atlas.allocate(1, 16, 16, r));
+    REQUIRE_FALSE(atlas.allocate(2, 1, 1, r));
+    REQUIRE(atlas.entry_count() == 1);
 }
 
 TEST_CASE("Atlas eviction treats future last-used frames as fresh - issue-646",

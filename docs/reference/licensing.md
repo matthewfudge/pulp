@@ -32,8 +32,8 @@ Embedded at build time for deterministic text rendering. Both fonts are redistri
 
 | Name | License | Purpose | Link |
 |------|---------|---------|------|
-| **Inter** | SIL OFL 1.1 | Embedded UI font (`Inter-Regular.ttf`) | [github.com/rsms/inter](https://github.com/rsms/inter) |
-| **JetBrains Mono** | SIL OFL 1.1 | Embedded monospace font (`JetBrainsMono-Regular.ttf`) | [github.com/JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) |
+| **Inter** | SIL OFL 1.1 | Embedded UI font (`Inter-Regular.ttf`, version `4.001;git-9221beed3`) | [github.com/rsms/inter](https://github.com/rsms/inter) |
+| **JetBrains Mono** | SIL OFL 1.1 | Embedded monospace font (`JetBrainsMono-Regular.ttf`, version `2.304`) | [github.com/JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) |
 
 ### Plugin Format SDKs
 
@@ -81,9 +81,9 @@ See [AAX Setup](../guides/aax.md) for the supported local workflow.
 
 | Name | License | Purpose | Link |
 |------|---------|---------|------|
-| **Dawn** | BSD-3-Clause | WebGPU implementation (Metal, D3D12, Vulkan) | [dawn.googlesource.com](https://dawn.googlesource.com/dawn) |
+| **Dawn** | BSD-3-Clause | WebGPU implementation (Metal, D3D12, Vulkan), pinned via Skia `chrome/m144` DEPS at `6acf6ef3fe23` | [dawn.googlesource.com](https://dawn.googlesource.com/dawn) |
 | **SDL3** | zlib | Cross-platform windowing and input | [github.com/libsdl-org/SDL](https://github.com/libsdl-org/SDL) |
-| **Skia** | BSD-3-Clause | 2D GPU rendering engine (Graphite backend) | [skia.org](https://skia.org) |
+| **Skia** | BSD-3-Clause | 2D GPU rendering engine (Graphite backend), pinned to `chrome/m144 @ cd0c5f445516` with bundled HarfBuzz and ICU DEPS revisions locked for deterministic text shaping | [skia.org](https://skia.org) |
 | **WebGPU-distribution** | MIT | WebGPU C API wrapper for Dawn | [github.com/eliemichel/WebGPU-distribution](https://github.com/eliemichel/WebGPU-distribution) |
 
 ### Optional Dependencies
@@ -96,6 +96,9 @@ Fetched only when the corresponding CMake option or platform gate is enabled.
 | **Emscripten** | MIT | C++ to WebAssembly compiler (for WAMv2/WebCLAP) | [emscripten.org](https://emscripten.org) |
 | **node-addon-api** | MIT | Node.js bindings via Node-API | [github.com/nodejs/node-addon-api](https://github.com/nodejs/node-addon-api) |
 | **pybind11** | BSD-3-Clause | Python bindings for HeadlessHost | [github.com/pybind/pybind11](https://github.com/pybind/pybind11) |
+| **react** | MIT | Peer dependency of `@pulp/react` (packages/pulp-react); npm-installed by plugin authors, never bundled into Pulp itself | [github.com/facebook/react](https://github.com/facebook/react) |
+| **react-reconciler** | MIT | Reconciler runtime wrapped by `@pulp/react` to drive `pulp::view::WidgetBridge`; npm-installed alongside the package | [github.com/facebook/react](https://github.com/facebook/react) |
+| **scheduler** | MIT | Cooperative-scheduling runtime pulled in transitively by `react-reconciler` for `@pulp/react`; npm-installed | [github.com/facebook/react](https://github.com/facebook/react) |
 | **three.js** | MIT | Native WebGPU bridge demos and tests; fetched only when `PULP_BUILD_TESTS` and `PULP_ENABLE_GPU` are ON | [github.com/mrdoob/three.js](https://github.com/mrdoob/three.js) |
 
 ## Standards and Specifications

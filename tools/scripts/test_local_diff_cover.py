@@ -30,6 +30,7 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "tools" / "scripts" / "local_diff_cover.sh"
 CONFIG = REPO_ROOT / "tools" / "scripts" / "coverage_config.json"
+CI_SCRIPT = REPO_ROOT / "scripts" / "run_coverage.sh"
 
 
 class ConfigTests(unittest.TestCase):
@@ -131,6 +132,196 @@ class WorkflowSourceOfTruthTests(unittest.TestCase):
             f"workflow has hardcoded --fail-under literal(s): {literals}; "
             "remove and read from coverage_config.json instead",
         )
+
+
+class ConfigKeysAreConsumed(unittest.TestCase):
+    """Every non-comment key in coverage_config.json must actually be read.
+
+    Anti-drift for #1052: `filters` and `exclude_filters` lived in this
+    JSON unread for months, implying a contract that didn't exist
+    (source-set filtering actually happens via COVERAGE_IGNORE_REGEX in
+    local_diff_cover.sh / scripts/run_coverage.sh, NOT via this JSON).
+    A user who edits `exclude_filters` to skip `external/**` sees no
+    effect — silent no-op.
+
+    Contract: every key in coverage_config.json (except `_comment` and
+    other underscore-prefixed metadata keys) must appear by name in
+    either tools/scripts/local_diff_cover.sh or
+    .github/workflows/coverage.yml. If you add a key here without
+    wiring it up, this test fails loudly with the offending key and a
+    pointer back to this issue.
+
+    To intentionally add documentation-only metadata: prefix the key
+    with `_` (e.g. `_meta`, `_doc`) and it will be skipped, matching
+    the existing `_comment` convention.
+    """
+
+    WORKFLOW = REPO_ROOT / ".github" / "workflows" / "coverage.yml"
+
+    def test_every_config_key_has_a_consumer(self) -> None:
+        with CONFIG.open() as f:
+            cfg = json.load(f)
+        script_text = SCRIPT.read_text()
+        workflow_text = self.WORKFLOW.read_text()
+        unread = []
+        for key in cfg.keys():
+            # Documentation-only keys (matching the `_comment` pattern)
+            # are exempt — they exist for readers, not consumers.
+            if key.startswith("_"):
+                continue
+            if key in script_text or key in workflow_text:
+                continue
+            unread.append(key)
+        self.assertEqual(
+            unread, [],
+            f"coverage_config.json contains unread key(s) {unread!r} — "
+            f"silent no-op per #1052. Either wire the key into "
+            f"tools/scripts/local_diff_cover.sh / .github/workflows/coverage.yml, "
+            f"remove it, or rename it with a leading underscore "
+            f"(e.g. `_meta`) if it is documentation-only metadata.",
+        )
+
+    def test_silent_noop_filter_keys_stay_removed(self) -> None:
+        """Belt-and-suspenders: explicit reject for the two keys that
+        triggered #1052. Even if a future change adds them back AND
+        wires them up partially, this test forces the contributor to
+        revisit the audit and decide intentionally."""
+        with CONFIG.open() as f:
+            cfg = json.load(f)
+        for ghost in ("filters", "exclude_filters"):
+            self.assertNotIn(
+                ghost, cfg,
+                f"coverage_config.json must not define `{ghost}` — these "
+                f"keys were a silent no-op (#1052). Source-set filtering "
+                f"belongs in COVERAGE_IGNORE_REGEX (local_diff_cover.sh / "
+                f"scripts/run_coverage.sh), not in this JSON. If you have "
+                f"a genuine reason to wire one of these in, update this "
+                f"test and link the new design.",
+            )
+
+
+class ObjectDiscoveryParityTests(unittest.TestCase):
+    """local_diff_cover.sh must mirror run_coverage.sh's object-set passes.
+
+    Anti-drift guard for #919: the local mirror previously only added
+    build/test/* binaries to llvm-cov, so coverage data from CLI
+    shell-out tests (cmd_coverage.cpp, cmd_loop.cpp, anything reached
+    via pulp-cli / pulp-standalone / pulp-inspect) never propagated.
+    The fix lifts run_coverage.sh's wider find passes; this test fails
+    if either side drops one.
+    """
+
+    REQUIRED_FIND_ROOTS = [
+        # (substring that must appear in the script, human description)
+        ('"${BUILD_DIR}/test"', "test executables"),
+        ("libpulp-*.a", "first-party static archives (Unix)"),
+        ("pulp-*.lib", "first-party static archives (Windows)"),
+        ('"${BUILD_DIR}/tools"', "non-test executables (CLI / standalone)"),
+        ('"${BUILD_DIR}/inspect"', "non-test executables (inspector)"),
+        ('"${BUILD_DIR}/bindings"', "loadable first-party modules"),
+    ]
+
+    def test_local_script_includes_all_object_roots(self) -> None:
+        text = SCRIPT.read_text()
+        for needle, desc in self.REQUIRED_FIND_ROOTS:
+            self.assertIn(
+                needle, text,
+                f"local_diff_cover.sh missing object-discovery for {desc} "
+                f"({needle!r}); without it llvm-cov drops coverage from "
+                f"that surface — see #919.",
+            )
+
+    def test_ci_script_still_includes_all_object_roots(self) -> None:
+        # If the CI script ever drops one of these, the local mirror is
+        # the wrong place to keep it — fix CI first, then update both.
+        if not CI_SCRIPT.exists():
+            self.skipTest(f"CI script not present: {CI_SCRIPT}")
+        text = CI_SCRIPT.read_text()
+        for needle, desc in self.REQUIRED_FIND_ROOTS:
+            self.assertIn(
+                needle, text,
+                f"scripts/run_coverage.sh missing object-discovery for "
+                f"{desc} ({needle!r}); local_diff_cover.sh mirrors this "
+                f"surface set, so dropping it here desyncs both lanes.",
+            )
+
+
+class DiffCoverExcludeContractTests(unittest.TestCase):
+    """Locks in the diff_cover_excludes pattern + flag-shape contract.
+
+    Anti-drift for the latent bug surfaced on PR #1005: every entry in
+    `diff_cover_excludes` was a silent no-op since #919. Two compounding
+    causes:
+
+      1. PATTERN MATCHING — diff-cover's `--exclude` matches via fnmatch
+         against the file's basename and absolute path only; literal
+         relative paths like `tools/cli/cmd_loop.cpp` match neither and
+         do nothing. Entries must be a basename (no slash) or a glob.
+      2. ARGPARSE OVERWRITE — diff-cover's `--exclude` is `nargs='+'`
+         with default action; repeated `--exclude=foo --exclude=bar`
+         keeps only the LAST entry. Both the local script and the
+         workflow must splat all entries under a single `--exclude
+         val1 val2 ...` flag, not a per-entry `--exclude=PATH` loop.
+
+    These tests make the next regression load.
+    """
+
+    WORKFLOW = REPO_ROOT / ".github" / "workflows" / "coverage.yml"
+
+    def test_local_script_uses_single_exclude_flag_form(self) -> None:
+        text = SCRIPT.read_text()
+        # Old broken shape — must NOT appear:
+        self.assertNotIn(
+            '("--exclude=${excl}")', text,
+            "local_diff_cover.sh appends --exclude=PATH per entry; "
+            "argparse nargs='+' silently keeps only the last one. "
+            "Build a list and splat under a single --exclude flag.",
+        )
+        # New shape: collect entries into EXCLUDE_LIST then pass under one --exclude.
+        self.assertIn(
+            '"--exclude" "${EXCLUDE_LIST[@]}"', text,
+            "local_diff_cover.sh must build the diff-cover invocation "
+            "with all excludes under a single --exclude flag (multi-value), "
+            "not as repeated --exclude=PATH flags.",
+        )
+
+    def test_workflow_uses_single_exclude_flag_form(self) -> None:
+        text = self.WORKFLOW.read_text()
+        # Old broken shape:
+        self.assertNotIn(
+            '"--exclude=$e"', text,
+            ".github/workflows/coverage.yml appends --exclude=PATH per entry; "
+            "argparse nargs='+' silently keeps only the last one. "
+            "Splat all entries under a single --exclude flag instead.",
+        )
+        # New shape:
+        self.assertIn(
+            '("--exclude" "${EXCLUDES[@]}")', text,
+            ".github/workflows/coverage.yml must build the diff-cover "
+            "invocation with all excludes under a single --exclude flag.",
+        )
+
+    def test_diff_cover_exclude_patterns_match_via_basename_or_glob(self) -> None:
+        """Each `diff_cover_excludes` entry must be either a basename
+        (no slash) or contain a glob character (`*`). Literal relative
+        paths like `tools/cli/cmd_loop.cpp` don't match diff-cover's
+        fnmatch-against-basename-or-abspath check and silently exclude
+        nothing."""
+        with CONFIG.open() as f:
+            config = json.load(f)
+        excludes = config.get("diff_cover_excludes", [])
+        self.assertIsInstance(excludes, list)
+        for pattern in excludes:
+            is_basename = "/" not in pattern
+            is_glob = "*" in pattern
+            self.assertTrue(
+                is_basename or is_glob,
+                f"diff_cover_excludes entry {pattern!r} is a literal "
+                f"relative path; diff-cover's --exclude won't match it "
+                f"(fnmatch checks basename + absolute path only). "
+                f"Use a basename like 'cmd_loop.cpp' or a glob like "
+                f"'**/cmd_loop.cpp' instead.",
+            )
 
 
 if __name__ == "__main__":

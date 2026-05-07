@@ -82,6 +82,130 @@ TEST_CASE("ComboBox key up/down changes selection", "[view][combo]") {
     REQUIRE(combo.selected() == 1);
 }
 
+TEST_CASE("ComboBox helper edges and keyboard popup controls", "[view][combo][coverage]") {
+    ComboBox::close_active_popup();
+
+    ComboBox empty;
+    REQUIRE(empty.selected_text().empty());
+
+    ComboBox separator_only;
+    separator_only.set_bounds({0, 0, 100, 28});
+    separator_only.set_items({"--- very long separator label ignored", "A"});
+    REQUIRE(separator_only.dropdown_width_hint() < 150.0f);
+
+    ComboBox combo;
+    combo.set_bounds({0, 0, 80, 28});
+    combo.set_items({"Alpha", "--- divider", "Beta", "GammaLongName"});
+
+    int changes = 0;
+    combo.on_change = [&](int) { ++changes; };
+
+    combo.set_selected_silent(2);
+    REQUIRE(combo.selected() == 2);
+    REQUIRE(combo.selected_text() == "Beta");
+    REQUIRE(changes == 0);
+    REQUIRE(combo.dropdown_width_hint() > 80.0f);
+
+    TextInputEvent empty_input;
+    combo.on_text_input(empty_input);
+    REQUIRE(combo.selected() == 2);
+
+    TextInputEvent match_input;
+    match_input.text = "g";
+    combo.on_text_input(match_input);
+    REQUIRE(combo.selected() == 3);
+    REQUIRE(combo.is_open());
+    REQUIRE(ComboBox::active_popup_ == &combo);
+    REQUIRE(changes == 1);
+
+    KeyEvent escape;
+    escape.key = KeyCode::escape;
+    escape.is_down = true;
+    REQUIRE(combo.on_key_event(escape));
+    REQUIRE_FALSE(combo.is_open());
+
+    KeyEvent enter;
+    enter.key = KeyCode::enter;
+    enter.is_down = true;
+    REQUIRE(combo.on_key_event(enter));
+    REQUIRE(combo.is_open());
+    REQUIRE(combo.on_key_event(enter));
+    REQUIRE_FALSE(combo.is_open());
+
+    KeyEvent ignored;
+    ignored.key = KeyCode::enter;
+    ignored.is_down = false;
+    REQUIRE_FALSE(combo.on_key_event(ignored));
+
+    ComboBox::close_active_popup();
+}
+
+TEST_CASE("ComboBox popup overlay paints separators hover and selection guards",
+          "[view][combo][coverage]") {
+    ComboBox::close_active_popup();
+    View::overlay_queue().clear();
+
+    ComboBox combo;
+    combo.set_bounds({0, 0, 96, 28});
+    combo.set_items({"One", "---", "Three"});
+    combo.set_selected(0);
+
+    MouseEvent open;
+    open.position = {48.0f, 14.0f};
+    open.is_down = true;
+    combo.on_mouse_event(open);
+    REQUIRE(combo.is_open());
+
+    MouseEvent separator_click;
+    separator_click.position = {48.0f, 66.0f};
+    separator_click.is_down = true;
+    combo.on_mouse_event(separator_click);
+    REQUIRE_FALSE(combo.is_open());
+    REQUIRE(combo.selected() == 0);
+
+    combo.on_mouse_event(open);
+    REQUIRE(combo.is_open());
+
+    MouseEvent hover;
+    hover.position = {48.0f, 82.0f};
+    hover.is_down = false;
+    combo.on_mouse_event(hover);
+
+    RecordingCanvas canvas;
+    combo.paint(canvas);
+    REQUIRE(View::overlay_queue().size() == 1);
+
+    auto before_overlay = canvas.command_count();
+    View::paint_overlays(canvas);
+    REQUIRE(View::overlay_queue().empty());
+    REQUIRE(canvas.command_count() > before_overlay);
+
+    ComboBox::close_active_popup();
+}
+
+TEST_CASE("ComboBox global click closes only outside active popup",
+          "[view][combo][issue-493]") {
+    ComboBox::close_active_popup();
+
+    ComboBox combo;
+    combo.set_items({"One", "Two"});
+
+    KeyEvent open;
+    open.key = KeyCode::space;
+    open.is_down = true;
+    REQUIRE(combo.on_key_event(open));
+    REQUIRE(combo.is_open());
+    REQUIRE(ComboBox::active_popup_ == &combo);
+
+    ComboBox::notify_global_click(&combo);
+    REQUIRE(combo.is_open());
+
+    View outside;
+    ComboBox::notify_global_click(&outside);
+    REQUIRE_FALSE(combo.is_open());
+    REQUIRE(ComboBox::active_popup_ == nullptr);
+}
+
 // ── Tooltip ──────────────────────────────────────────────────────────────
 
 TEST_CASE("Tooltip show and hide", "[view][tooltip]") {
@@ -131,6 +255,34 @@ TEST_CASE("ProgressBar paint with label", "[view][progress]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) == 1);
 }
 
+TEST_CASE("ProgressBar paint clamps high progress and skips indeterminate fill",
+          "[view][progress][issue-493]") {
+    ProgressBar high;
+    high.set_bounds({0, 0, 120, 12});
+    high.set_progress(2.0f);
+
+    RecordingCanvas high_canvas;
+    high.paint(high_canvas);
+
+    bool found_full_width_fill = false;
+    for (const auto& command : high_canvas.commands()) {
+        if (command.type != DrawCommand::Type::fill_rounded_rect) continue;
+        if (command.f[2] == 120.0f && command.f[3] == 12.0f) {
+            found_full_width_fill = true;
+        }
+    }
+    REQUIRE(found_full_width_fill);
+
+    ProgressBar indeterminate;
+    indeterminate.set_bounds({0, 0, 120, 12});
+    indeterminate.set_progress(-1.0f);
+
+    RecordingCanvas indeterminate_canvas;
+    indeterminate.paint(indeterminate_canvas);
+    REQUIRE(indeterminate_canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
+    REQUIRE(indeterminate_canvas.count(DrawCommand::Type::fill_text) == 0);
+}
+
 // ── CallOutBox ───────────────────────────────────────────────────────────
 
 TEST_CASE("CallOutBox confirm factory", "[view][callout]") {
@@ -161,6 +313,33 @@ TEST_CASE("CallOutBox notify factory sets auto-dismiss", "[view][callout]") {
     auto box = CallOutBox::notify("Saved!", 2.0f);
     REQUIRE(box->message() == "Saved!");
     REQUIRE(box->auto_dismiss_seconds == 2.0f);
+}
+
+TEST_CASE("CallOutBox ignores key-up and unrelated keys",
+          "[view][callout][issue-493]") {
+    bool confirmed = false;
+    bool cancelled = false;
+    auto box = CallOutBox::confirm("Apply?", [&] { confirmed = true; },
+                                   [&] { cancelled = true; });
+
+    KeyEvent enter_up;
+    enter_up.key = KeyCode::enter;
+    enter_up.is_down = false;
+    REQUIRE_FALSE(box->on_key_event(enter_up));
+
+    KeyEvent space;
+    space.key = KeyCode::space;
+    space.is_down = true;
+    REQUIRE_FALSE(box->on_key_event(space));
+
+    REQUIRE_FALSE(confirmed);
+    REQUIRE_FALSE(cancelled);
+
+    box->set_bounds({0, 0, 160, 40});
+    RecordingCanvas canvas;
+    box->paint(canvas);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_text) == 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_rounded_rect) == 1);
 }
 
 // ── TabPanel ─────────────────────────────────────────────────────────────
@@ -211,6 +390,39 @@ TEST_CASE("TabPanel out-of-range ignored", "[view][tabs]") {
     REQUIRE(tabs.active_tab() == 0);
 }
 
+TEST_CASE("TabPanel mouse selection paint and empty guard",
+          "[view][tabs][issue-493]") {
+    TabPanel empty;
+    empty.set_bounds({0, 0, 0, 60});
+    MouseEvent empty_click;
+    empty_click.position = {0.0f, 0.0f};
+    empty_click.is_down = true;
+    empty.on_mouse_event(empty_click);
+    REQUIRE(empty.active_tab() == 0);
+
+    TabPanel tabs;
+    tabs.set_bounds({0, 0, 200, 120});
+    tabs.add_tab("One", std::make_unique<View>());
+    tabs.add_tab("Two", std::make_unique<View>());
+
+    MouseEvent below_bar;
+    below_bar.position = {150.0f, 40.0f};
+    below_bar.is_down = true;
+    tabs.on_mouse_event(below_bar);
+    REQUIRE(tabs.active_tab() == 0);
+
+    MouseEvent second_tab;
+    second_tab.position = {150.0f, 12.0f};
+    second_tab.is_down = true;
+    tabs.on_mouse_event(second_tab);
+    REQUIRE(tabs.active_tab() == 1);
+
+    RecordingCanvas canvas;
+    tabs.paint(canvas);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_text) == 2);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rect) >= 3);
+}
+
 // ── ScrollView ───────────────────────────────────────────────────────────
 
 TEST_CASE("ScrollView scroll clamping", "[view][scroll]") {
@@ -236,6 +448,112 @@ TEST_CASE("ScrollView scroll_x clamped", "[view][scroll]") {
 
     sv.set_scroll(-10, 0);
     REQUIRE(sv.scroll_x() == 0.0f);
+}
+
+TEST_CASE("ScrollView scrollbar paint hit test and drag update offsets",
+          "[view][scroll][coverage]") {
+    ScrollView sv;
+    sv.set_direction(ScrollView::Direction::both);
+    sv.set_bounds({0, 0, 100, 100});
+    sv.set_content_size({300, 500});
+    sv.set_scroll(50, 100);
+    sv.on_mouse_enter();
+    sv.advance_animations(1.0f);
+
+    RecordingCanvas canvas;
+    sv.paint(canvas);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) >= 2);
+    REQUIRE(sv.hit_test({98.0f, 25.0f}) == &sv);
+    REQUIRE(sv.hit_test({25.0f, 98.0f}) == &sv);
+
+    MouseEvent vertical_down;
+    vertical_down.position = {98.0f, 25.0f};
+    vertical_down.is_down = true;
+    vertical_down.button = MouseButton::left;
+    sv.on_mouse_event(vertical_down);
+    sv.on_mouse_drag({98.0f, 85.0f});
+    REQUIRE(sv.scroll_y() > 300.0f);
+
+    MouseEvent up;
+    up.is_down = false;
+    sv.on_mouse_event(up);
+
+    MouseEvent horizontal_down;
+    horizontal_down.position = {25.0f, 98.0f};
+    horizontal_down.is_down = true;
+    horizontal_down.button = MouseButton::left;
+    sv.on_mouse_event(horizontal_down);
+    sv.on_mouse_drag({90.0f, 98.0f});
+    REQUIRE(sv.scroll_x() > 150.0f);
+
+    sv.on_mouse_event(up);
+}
+
+TEST_CASE("ScrollView wheel respects horizontal direction and track clicks",
+          "[view][scroll][coverage]") {
+    ScrollView horizontal;
+    horizontal.set_direction(ScrollView::Direction::horizontal);
+    horizontal.set_bounds({0, 0, 100, 100});
+    horizontal.set_content_size({300, 500});
+
+    MouseEvent wheel;
+    wheel.is_wheel = true;
+    wheel.scroll_delta_x = 40.0f;
+    wheel.scroll_delta_y = 40.0f;
+    horizontal.on_mouse_event(wheel);
+    horizontal.advance_animations(1.0f);
+    REQUIRE(horizontal.scroll_x() > 0.0f);
+    REQUIRE(horizontal.scroll_y() == 0.0f);
+    REQUIRE(horizontal.bar_opacity() == 0.6f);
+    REQUIRE(horizontal.bar_width() == 6.0f);
+
+    ScrollView track_click;
+    track_click.set_bounds({0, 0, 100, 100});
+    track_click.set_content_size({100, 500});
+
+    MouseEvent down;
+    down.position = {98.0f, 90.0f};
+    down.is_down = true;
+    down.button = MouseButton::left;
+    track_click.on_mouse_event(down);
+    REQUIRE(track_click.target_scroll_y() > 0.0f);
+}
+
+TEST_CASE("ScrollView vertical wheel leave and horizontal track click edges",
+          "[view][scroll][issue-493]") {
+    ScrollView vertical;
+    vertical.set_direction(ScrollView::Direction::vertical);
+    vertical.set_bounds({0, 0, 100, 100});
+    vertical.set_content_size({300, 500});
+
+    MouseEvent wheel;
+    wheel.is_wheel = true;
+    wheel.scroll_delta_x = 40.0f;
+    wheel.scroll_delta_y = 40.0f;
+    vertical.on_mouse_event(wheel);
+    vertical.advance_animations(1.0f);
+    REQUIRE(vertical.scroll_x() == 0.0f);
+    REQUIRE(vertical.scroll_y() > 0.0f);
+
+    vertical.on_mouse_enter();
+    vertical.advance_animations(1.0f);
+    REQUIRE(vertical.bar_width() == 8.0f);
+    vertical.on_mouse_leave();
+    vertical.advance_animations(1.0f);
+    REQUIRE(vertical.bar_width() == 4.0f);
+
+    ScrollView horizontal_track;
+    horizontal_track.set_direction(ScrollView::Direction::horizontal);
+    horizontal_track.set_bounds({0, 0, 100, 100});
+    horizontal_track.set_content_size({300, 100});
+
+    MouseEvent down;
+    down.position = {90.0f, 98.0f};
+    down.is_down = true;
+    down.button = MouseButton::left;
+    horizontal_track.on_mouse_event(down);
+    horizontal_track.advance_animations(1.0f);
+    REQUIRE(horizontal_track.scroll_x() > 0.0f);
 }
 
 // ── ListBox ──────────────────────────────────────────────────────────────
@@ -301,4 +619,43 @@ TEST_CASE("ListBox paint with selection", "[view][listbox]") {
     list.paint(canvas);
     REQUIRE(canvas.count(DrawCommand::Type::fill_rect) > 0); // selection highlight
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) > 0);
+}
+
+TEST_CASE("ListBox wheel scrolling double-click and enter activation",
+          "[view][listbox][coverage]") {
+    ListBox list;
+    list.set_bounds({0, 0, 120, 48});
+    list.set_items({"Alpha", "Beta", "Gamma", "Delta", "Epsilon"});
+
+    int selects = 0;
+    int activated = -1;
+    list.on_select = [&](int) { ++selects; };
+    list.on_activate = [&](int index) { activated = index; };
+
+    list.set_selected(1);
+    list.set_selected(1);
+    REQUIRE(selects == 1);
+
+    MouseEvent wheel;
+    wheel.is_wheel = true;
+    wheel.scroll_delta_y = 48.0f;
+    list.on_mouse_event(wheel);
+
+    MouseEvent double_click;
+    double_click.position = {10.0f, 0.0f};
+    double_click.is_down = true;
+    double_click.click_count = 2;
+    list.on_mouse_event(double_click);
+    REQUIRE(list.selected() == 2);
+    REQUIRE(activated == 2);
+
+    KeyEvent enter;
+    enter.key = KeyCode::enter;
+    enter.is_down = true;
+    REQUIRE(list.on_key_event(enter));
+    REQUIRE(activated == 2);
+
+    RecordingCanvas canvas;
+    list.paint(canvas);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 1);
 }

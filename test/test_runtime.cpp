@@ -1,8 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
+#include <pulp/runtime/dynamic_library.hpp>
 #include <pulp/runtime/runtime.hpp>
+#include <pulp/runtime/temporary_file.hpp>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <thread>
+#include <utility>
 
 using namespace pulp::runtime;
 
@@ -94,6 +100,16 @@ TEST_CASE("ScopeGuard dismiss prevents execution", "[runtime][scope_guard]") {
     REQUIRE(x == 0);
 }
 
+TEST_CASE("ScopeGuard move transfers cleanup ownership", "[runtime][scope_guard]") {
+    int calls = 0;
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+        auto moved = std::move(guard);
+        static_cast<void>(moved);
+    }
+    REQUIRE(calls == 1);
+}
+
 TEST_CASE("Logging does not crash", "[runtime][log]") {
     // Just verify these don't crash — output goes to stderr
     REQUIRE_NOTHROW(log_info("test message: {}", 42));
@@ -127,4 +143,106 @@ TEST_CASE("Runtime C string copy truncates safely", "[runtime][system]") {
     char buffer[5]{};
     copy_c_string(buffer, "abcdef");
     REQUIRE(std::string(buffer) == "abcd");
+}
+
+TEST_CASE("Runtime C string copy handles degenerate buffers", "[runtime][system]") {
+    char one_byte[1]{'x'};
+    copy_c_string(one_byte, sizeof(one_byte), "abc");
+    REQUIRE(one_byte[0] == '\0');
+
+    char untouched = 'x';
+    copy_c_string(&untouched, 0, "abc");
+    REQUIRE(untouched == 'x');
+
+    REQUIRE_NOTHROW(copy_c_string(nullptr, 4, "abc"));
+}
+
+TEST_CASE("TemporaryFile creates extensions and release preserves path", "[runtime][temporary_file]") {
+    std::filesystem::path kept_path;
+    {
+        TemporaryFile wav("wav");
+        REQUIRE(std::filesystem::exists(wav.path()));
+        REQUIRE(wav.path().extension() == ".wav");
+        REQUIRE(wav.path_string() == wav.path().string());
+
+        kept_path = wav.path();
+        wav.release();
+    }
+
+    REQUIRE(std::filesystem::exists(kept_path));
+    std::error_code ec;
+    std::filesystem::remove(kept_path, ec);
+    REQUIRE_FALSE(std::filesystem::exists(kept_path));
+
+    {
+        TemporaryFile json(".json");
+        REQUIRE(std::filesystem::exists(json.path()));
+        REQUIRE(json.path().extension() == ".json");
+    }
+}
+
+TEST_CASE("TemporaryFile move transfers cleanup ownership", "[runtime][temporary_file]") {
+    std::filesystem::path moved_path;
+    {
+        TemporaryFile original(".tmp");
+        moved_path = original.path();
+
+        TemporaryFile moved(std::move(original));
+        REQUIRE(moved.path() == moved_path);
+        REQUIRE(std::filesystem::exists(moved.path()));
+    }
+    REQUIRE_FALSE(std::filesystem::exists(moved_path));
+}
+
+TEST_CASE("TemporaryFile move assignment cleans previous file", "[runtime][temporary_file]") {
+    std::filesystem::path old_path;
+    std::filesystem::path new_path;
+    {
+        TemporaryFile old_file(".old");
+        TemporaryFile new_file(".new");
+        old_path = old_file.path();
+        new_path = new_file.path();
+
+        old_file = std::move(new_file);
+        REQUIRE_FALSE(std::filesystem::exists(old_path));
+        REQUIRE(old_file.path() == new_path);
+        REQUIRE(std::filesystem::exists(new_path));
+    }
+    REQUIRE_FALSE(std::filesystem::exists(new_path));
+}
+
+TEST_CASE("DynamicLibrary reports closed and failed lookup paths", "[runtime][dynamic_library]") {
+    DynamicLibrary library;
+    REQUIRE_FALSE(library.is_open());
+    REQUIRE(library.find_symbol("definitely_missing") == nullptr);
+    REQUIRE(library.error().empty());
+
+    auto missing_path = std::filesystem::temp_directory_path() / "pulp_missing_library_for_test";
+#ifdef _WIN32
+    missing_path += ".dll";
+#elif defined(__APPLE__)
+    missing_path += ".dylib";
+#else
+    missing_path += ".so";
+#endif
+
+    REQUIRE_FALSE(std::filesystem::exists(missing_path));
+    REQUIRE_FALSE(library.open(missing_path.string()));
+    REQUIRE_FALSE(library.is_open());
+    REQUIRE_FALSE(library.error().empty());
+
+    library.close();
+    REQUIRE_FALSE(library.is_open());
+}
+
+TEST_CASE("DynamicLibrary move keeps failed handles closed", "[runtime][dynamic_library]") {
+    DynamicLibrary first;
+    DynamicLibrary second;
+
+    REQUIRE_FALSE(first.open("/definitely/not/a/real/library"));
+    second = std::move(first);
+
+    REQUIRE_FALSE(first.is_open());
+    REQUIRE_FALSE(second.is_open());
+    REQUIRE_FALSE(second.error().empty());
 }

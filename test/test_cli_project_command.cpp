@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -101,6 +102,31 @@ struct CapturedStreams {
     }
 };
 
+struct ScopedStdin {
+    std::istringstream input;
+    std::streambuf* old_in = nullptr;
+
+    explicit ScopedStdin(std::string text) : input(std::move(text)) {
+        old_in = std::cin.rdbuf(input.rdbuf());
+    }
+
+    ~ScopedStdin() {
+        std::cin.rdbuf(old_in);
+    }
+};
+
+struct ScopedColorDisabled {
+    bool old_color = g_color_enabled;
+
+    ScopedColorDisabled() {
+        g_color_enabled = false;
+    }
+
+    ~ScopedColorDisabled() {
+        g_color_enabled = old_color;
+    }
+};
+
 void write_file(const fs::path& path, const std::string& body) {
     fs::create_directories(path.parent_path());
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
@@ -114,6 +140,11 @@ std::string read_file_text(const fs::path& path) {
     REQUIRE(f.is_open());
     return std::string(std::istreambuf_iterator<char>(f),
                        std::istreambuf_iterator<char>());
+}
+
+std::string normalize_newlines(std::string text) {
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    return text;
 }
 
 std::string quote(const fs::path& path) {
@@ -379,6 +410,76 @@ TEST_CASE("cmd_project undo reports missing and malformed batches",
     }
 }
 
+TEST_CASE("cmd_project undo reports stale, missing, and non-bumped batch entries",
+          "[cli][project-command][issue-643]") {
+    TempDir tmp;
+    auto home = tmp.path / "home";
+    auto stale = tmp.path / "Stale";
+    ScopedEnv pulp_home("PULP_HOME", home.string());
+    ScopedColorDisabled color;
+
+    make_fetchcontent_project(stale, "0.3.0");
+
+    pb::UndoBatch batch;
+    batch.timestamp = "undo-edge";
+    batch.target_version = "0.2.0";
+
+    pb::UndoEntry stale_entry;
+    stale_entry.project_path = stale;
+    stale_entry.project_name = "Stale";
+    stale_entry.old_pin = "v0.1.0";
+    stale_entry.old_pin_style_has_v = true;
+    stale_entry.pin_kind = pb::PinKind::FetchContentGitTag;
+    stale_entry.status = "bumped";
+    stale_entry.edits.push_back(pb::UndoEdit{
+        stale / "CMakeLists.txt",
+        pb::PinKind::FetchContentGitTag,
+        "v0.1.0",
+        "v0.2.0",
+        true,
+    });
+    batch.entries.push_back(stale_entry);
+
+    auto missing = tmp.path / "Missing";
+    pb::UndoEntry missing_entry;
+    missing_entry.project_path = missing;
+    missing_entry.project_name = "Missing";
+    missing_entry.old_pin = "v0.1.0";
+    missing_entry.old_pin_style_has_v = true;
+    missing_entry.pin_kind = pb::PinKind::FetchContentGitTag;
+    missing_entry.status = "bumped";
+    missing_entry.edits.push_back(pb::UndoEdit{
+        missing / "CMakeLists.txt",
+        pb::PinKind::FetchContentGitTag,
+        "v0.1.0",
+        "v0.2.0",
+        true,
+    });
+    batch.entries.push_back(missing_entry);
+
+    pb::UndoEntry skipped_entry;
+    skipped_entry.project_path = tmp.path / "Skipped";
+    skipped_entry.project_name = "Skipped";
+    skipped_entry.status = "skipped";
+    batch.entries.push_back(skipped_entry);
+
+    auto undo_path = pb::undo_batch_path(home, batch.timestamp);
+    REQUIRE(pb::write_undo_batch(undo_path, batch));
+
+    CapturedStreams capture;
+    REQUIRE(cmd_project({"undo", batch.timestamp}) == 1);
+
+    REQUIRE(capture.err.str().find("Stale  (current value no longer matches bumped value)")
+            != std::string::npos);
+    REQUIRE(capture.err.str().find("Missing  (missing ") != std::string::npos);
+    REQUIRE(capture.out.str().find("Summary: 0 reverted, 2 skipped, 1 failed")
+            != std::string::npos);
+    REQUIRE(capture.out.str().find("Undo file retained") != std::string::npos);
+    REQUIRE(fs::exists(undo_path));
+    REQUIRE(read_file_text(stale / "CMakeLists.txt").find("GIT_TAG v0.3.0")
+            != std::string::npos);
+}
+
 TEST_CASE("cmd_project bump rejects source checkout and non-project directories",
           "[project-command][issue-244]") {
     CapturedStreams source_capture;
@@ -411,6 +512,26 @@ TEST_CASE("cmd_project bump rejects targets newer than the installed CLI",
     REQUIRE(capture.err.str().find("pulp upgrade 99.0.0") != std::string::npos);
 }
 
+TEST_CASE("cmd_project bump rejects invalid target versions before project resolution",
+          "[cli][project-command][issue-643]") {
+    TempDir tmp;
+    CapturedStreams capture;
+    {
+        ScopedCwd cwd(tmp.path);
+        REQUIRE(cmd_project({"bump", "--to=main"}) == 1);
+    }
+    REQUIRE(capture.err.str().find("invalid target version 'main'") != std::string::npos);
+    REQUIRE(capture.err.str().find("not inside a bumpable Pulp project") == std::string::npos);
+
+    CapturedStreams positional_capture;
+    {
+        ScopedCwd cwd(tmp.path);
+        REQUIRE(cmd_project({"bump", "0.2"}) == 1);
+    }
+    REQUIRE(positional_capture.err.str().find("invalid target version '0.2'")
+            != std::string::npos);
+}
+
 TEST_CASE("project command shell redirection helpers use platform null devices",
           "[project-command][issue-244]") {
 #if defined(_WIN32)
@@ -424,31 +545,48 @@ TEST_CASE("project command shell redirection helpers use platform null devices",
 
 TEST_CASE("cli common parses numeric arguments and normalizes strings",
           "[cli][common][issue-643]") {
+    CapturedStreams capture;
+
     std::size_t size = 0;
     REQUIRE(parse_size_arg("42", "--top", size));
     REQUIRE(size == 42);
+    REQUIRE(parse_size_arg("0", "--top", size));
+    REQUIRE(size == 0);
     REQUIRE_FALSE(parse_size_arg("", "--top", size));
     REQUIRE_FALSE(parse_size_arg("12x", "--top", size));
+    REQUIRE_FALSE(parse_size_arg("184467440737095516160", "--top", size));
 
     double value = 0.0;
     REQUIRE(parse_double_arg("0.125", "--min-score", value));
     REQUIRE(value == 0.125);
+    REQUIRE(parse_double_arg("-12.5", "--min-score", value));
+    REQUIRE(value == -12.5);
     REQUIRE_FALSE(parse_double_arg("", "--min-score", value));
     REQUIRE_FALSE(parse_double_arg("nan", "--min-score", value));
     REQUIRE_FALSE(parse_double_arg("inf", "--min-score", value));
+    REQUIRE_FALSE(parse_double_arg("1e309", "--min-score", value));
     REQUIRE_FALSE(parse_double_arg("3.5x", "--min-score", value));
 
     REQUIRE(trim(" \t hello \n") == "hello");
+    REQUIRE(trim("\r\n\t ") == "");
     REQUIRE(strip_quotes("\"quoted\"") == "quoted");
     REQUIRE(strip_quotes("'quoted'") == "quoted");
+    REQUIRE(strip_quotes("\"mismatched'") == "\"mismatched'");
     REQUIRE(strip_quotes("unquoted") == "unquoted");
     REQUIRE(replace_all_str("one two one", "one", "1") == "1 two 1");
+    TempDir tmp;
+    write_file(tmp.path / "contents.txt", "file body");
+    REQUIRE(read_file_contents(tmp.path / "contents.txt") == "file body");
     REQUIRE(icontains("Signalsmith DSP", "smith"));
     REQUIRE(icontains("Signalsmith DSP", "SIGNAL"));
+    REQUIRE(icontains("Signalsmith DSP", ""));
     REQUIRE_FALSE(icontains("Signalsmith DSP", "delay"));
     REQUIRE(yaml_value("  target: plugin  # comment", "target") == "plugin  # comment");
+    REQUIRE(yaml_value("target:", "target").empty());
+    REQUIRE(yaml_value("kind: guide", "target").empty());
     REQUIRE(sanitize_process_output(std::string("a\0b", 3)) == "ab");
     REQUIRE(truncate_message("abcdef", 4) == "abcd...");
+    REQUIRE(truncate_message("abcdef", 0) == "...");
     REQUIRE(truncate_message("abc", 4) == "abc");
 }
 
@@ -460,16 +598,23 @@ TEST_CASE("cli common path helpers find roots and constrain containment",
     fs::create_directories(child);
     fs::create_directories(repo / "core");
     write_file(repo / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\n");
+    auto cmake_file = repo / "CMakeLists.txt";
 
     auto standalone = tmp.path / "standalone" / "nested";
     fs::create_directories(standalone);
     write_file(tmp.path / "standalone" / "pulp.toml", "[pulp]\nsdk_version = \"1.2.3\"\n");
 
     REQUIRE(find_project_root_from(child) == repo);
+    REQUIRE(find_project_root_from(cmake_file) == repo);
     REQUIRE(find_project_root_from(tmp.path / "missing") == fs::path{});
+    {
+        ScopedCwd cwd(child);
+        REQUIRE(find_project_root_from({}) == repo);
+    }
     REQUIRE(path_is_within(child, repo));
     REQUIRE(path_is_within(repo, repo));
     REQUIRE_FALSE(path_is_within(tmp.path, repo));
+    REQUIRE_FALSE(path_is_within(tmp.path / "repo-sibling", repo));
 
     bool is_standalone = false;
     {
@@ -499,6 +644,68 @@ TEST_CASE("cli common config helpers honor PULP_HOME and project-dir overrides",
     REQUIRE(resolve_create_projects_base_dir(repo) == tmp.path / "projects");
 }
 
+TEST_CASE("cli common config parser skips comments malformed lines and other sections",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+    ScopedEnv pulp_home_env("PULP_HOME", (tmp.path / "home").string());
+
+    write_file(tmp.path / "home" / "config.toml",
+               "  # leading comment\n"
+               "\n"
+               "[updates]\n"
+               "projects_dir = \"ignored\"\n"
+               "[create]\n"
+               "malformed line without equals\n"
+               "projects_dir = Bare Projects # trailing comment\n"
+               "mode = 'manual'\n"
+               "[other]\n"
+               "mode = wrong\n");
+
+    REQUIRE(read_user_config_value("create", "projects_dir") == "Bare Projects");
+    REQUIRE(read_user_config_value("create", "mode") == "manual");
+    REQUIRE(read_user_config_value("updates", "projects_dir") == "ignored");
+    REQUIRE(read_user_config_value("missing", "projects_dir").empty());
+    REQUIRE(read_user_config_value("create", "absent").empty());
+}
+
+TEST_CASE("cli common config fallback expands user and relative project directories",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+    ScopedEnv home_env("HOME", (tmp.path / "home").string());
+    ScopedEnv pulp_home_env("PULP_HOME", (tmp.path / "pulp-home").string());
+
+    {
+        ScopedEnv projects_dir("PULP_PROJECTS_DIR", "~/Pulp Projects");
+        REQUIRE(resolve_create_projects_base_dir(tmp.path / "repo")
+                == tmp.path / "home" / "Pulp Projects");
+    }
+
+    {
+        ScopedCwd cwd(tmp.path);
+        ScopedEnv projects_dir("PULP_PROJECTS_DIR", "relative-projects");
+        REQUIRE(resolve_create_projects_base_dir(tmp.path / "repo")
+                == fs::absolute("relative-projects"));
+    }
+
+    {
+        ScopedEnv projects_dir("PULP_PROJECTS_DIR", "\"~\"");
+        REQUIRE(resolve_create_projects_base_dir(tmp.path / "repo") == tmp.path / "home");
+    }
+
+    ScopedEnv no_projects_dir("PULP_PROJECTS_DIR", "");
+    REQUIRE(write_user_config_value("create", "projects_dir", "~/Configured Projects"));
+    REQUIRE(resolve_create_projects_base_dir(tmp.path / "repo")
+            == tmp.path / "home" / "Configured Projects");
+
+    REQUIRE(write_user_config_value("create", "projects_dir", "~"));
+    REQUIRE(resolve_create_projects_base_dir(tmp.path / "repo") == tmp.path / "home");
+
+    TempDir empty_config;
+    ScopedEnv empty_home("PULP_HOME", (empty_config.path / "empty-home").string());
+    ScopedCwd cwd(tmp.path);
+    REQUIRE(resolve_create_projects_base_dir({}) == tmp.path);
+}
+
 TEST_CASE("cli common format, AAX, quoting, and fuzzy helpers stay deterministic",
           "[cli][common][issue-643]") {
     // shell_quote is platform-divergent (#776): POSIX escapes both `\`
@@ -525,7 +732,243 @@ TEST_CASE("cli common format, AAX, quoting, and fuzzy helpers stay deterministic
 
     REQUIRE(fuzzy_score("package registry", "pgr") > 0);
     REQUIRE(fuzzy_score("package", "package") > fuzzy_score("package", "pkg"));
+    REQUIRE(fuzzy_score("abc", "") == 1);
+    REQUIRE(fuzzy_score("", "abc") == 0);
     REQUIRE(fuzzy_score("package", "zzz") == 0);
+}
+
+TEST_CASE("cli common project metadata and compatibility helpers cover edge paths",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+    auto project = tmp.path / "Clock";
+
+    REQUIRE(read_pulp_toml_value(project, "sdk_version").empty());
+    REQUIRE(read_sdk_version(project) == PULP_SDK_VERSION);
+    REQUIRE(read_sdk_path_hint(project).empty());
+    REQUIRE(read_sdk_checkout_hint(project).empty());
+    REQUIRE(read_project_cmake_version(project).empty());
+
+    write_file(project / "pulp.toml",
+               "[pulp]\n"
+               "sdk_version = \"0.2.0\"\n"
+               "sdk_path = \"/opt/pulp-sdk\"\n"
+               "sdk_checkout = \"/src/pulp\"\n");
+    REQUIRE(read_pulp_toml_value(project, "sdk_version") == "0.2.0");
+    REQUIRE(read_sdk_version(project) == "0.2.0");
+    REQUIRE(read_sdk_path_hint(project) == fs::path("/opt/pulp-sdk"));
+    REQUIRE(read_sdk_checkout_hint(project) == fs::path("/src/pulp"));
+
+    write_file(project / "CMakeLists.txt",
+               "cmake_minimum_required(VERSION 3.20)\n"
+               "project(Clock VERSION 1.2.3 LANGUAGES CXX)\n");
+    REQUIRE(read_project_cmake_version(project) == "1.2.3");
+
+    write_file(project / "pulp.toml", "[pulp]\nsdk_version = \"99.0.0\"\n");
+    REQUIRE(enforce_project_cli_compatibility(project, "pulp build", true));
+    CapturedStreams capture;
+    REQUIRE_FALSE(enforce_project_cli_compatibility(project, "pulp build", false));
+    REQUIRE(capture.err.str().find("requires a newer Pulp CLI") != std::string::npos);
+    REQUIRE(capture.err.str().find("pulp upgrade") != std::string::npos);
+
+    ScopedEnv skip_cache("PULP_SKIP_CACHE_PREFLIGHT", "1");
+    REQUIRE(cache_preflight_check(project, "pulp build"));
+    REQUIRE(cache_preflight_check({}, "pulp build"));
+}
+
+TEST_CASE("cli common standalone SDK resolution reports missing hints without materializing",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+    ScopedEnv pulp_home("PULP_HOME", (tmp.path / "home").string());
+
+    auto missing_path_project = tmp.path / "MissingPath";
+    make_standalone_project(missing_path_project, "0.4.0", (tmp.path / "missing-sdk").generic_string());
+    auto missing_path = resolve_standalone_sdk(missing_path_project, false);
+    REQUIRE(missing_path.sdk_path_hint == tmp.path / "missing-sdk");
+    REQUIRE_FALSE(missing_path.sdk_path_config_ready);
+    REQUIRE(missing_path.resolved_sdk_dir.empty());
+
+    auto checkout_project = tmp.path / "CheckoutOnly";
+    auto checkout = tmp.path / "checkout";
+    fs::create_directories(checkout);
+    make_standalone_project(checkout_project, "0.5.0", {}, checkout.generic_string());
+    auto checkout_only = resolve_standalone_sdk(checkout_project, false);
+    REQUIRE(checkout_only.sdk_checkout_hint == checkout);
+    REQUIRE(checkout_only.resolved_sdk_dir.empty());
+}
+
+TEST_CASE("cli common cached SDK and build helpers return without shelling out",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+    ScopedEnv pulp_home("PULP_HOME", (tmp.path / "home").string());
+
+    make_fake_sdk(sdk_cache_path("0.8.0"), "0.8.0");
+    REQUIRE(ensure_sdk("0.8.0") == sdk_cache_path("0.8.0"));
+
+    auto repo = tmp.path / "repo";
+    fs::create_directories(repo / "core");
+    write_file(repo / "CMakeLists.txt",
+               "cmake_minimum_required(VERSION 3.24)\n"
+               "project(PulpFixture VERSION 0.8.0 LANGUAGES CXX)\n");
+
+    make_fake_sdk(local_sdk_cache_path("0.9.0"), "0.9.0");
+    REQUIRE(ensure_checkout_sdk(repo, "0.9.0") == local_sdk_cache_path("0.9.0"));
+
+    auto build = tmp.path / "build";
+    fs::create_directories(build);
+    write_file(build / "CMakeCache.txt",
+               "CMAKE_HOME_DIRECTORY:INTERNAL=" + repo.string() + "\n");
+
+    REQUIRE(cmake_home_directory(build) == repo);
+    REQUIRE(ensure_repo_build_configured(repo, build) == 0);
+}
+
+TEST_CASE("cli common AAX helpers classify SDKs, bundles, and validator output",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+    REQUIRE_FALSE(looks_like_aax_sdk_root({}));
+
+    auto sdk = tmp.path / "sdk";
+    write_file(sdk / "Interfaces" / "AAX.h", "// fake\n");
+    write_file(sdk / "Interfaces" / "AAX_Exports.cpp", "// fake\n");
+    REQUIRE(looks_like_aax_sdk_root(sdk));
+    {
+        ScopedEnv aax_sdk("PULP_AAX_SDK_DIR", "\"" + sdk.string() + "\"");
+        REQUIRE(find_aax_sdk_root() == fs::absolute(sdk));
+    }
+
+    REQUIRE_FALSE(bundle_contains_payload({}));
+    auto loose = tmp.path / "Loose.aaxplugin";
+    write_file(loose, "binary");
+    REQUIRE(bundle_contains_payload(loose));
+
+    auto bundle = tmp.path / "Clock.aaxplugin";
+    write_file(bundle / "Contents" / "MacOS" / "Clock", "binary");
+    REQUIRE(bundle_contains_payload(bundle));
+
+    auto empty_bundle = tmp.path / "Empty.aaxplugin";
+    write_file(empty_bundle / "Contents" / "MacOS" / "Other", "binary");
+    REQUIRE_FALSE(bundle_contains_payload(empty_bundle));
+
+    auto validator = tmp.path / "validator";
+    auto commandline = validator / "CommandLineTools";
+    write_file(platform_executable(commandline / "dsh"), "");
+#ifdef __APPLE__
+    write_file(commandline / "Dishes" / "aaxval.dish" / "Contents" / "MacOS" / "aaxval", "");
+#else
+    fs::create_directories(commandline / "Dishes" / "aaxval.dish");
+#endif
+    {
+        ScopedEnv aax_validator("PULP_AAX_VALIDATOR_DIR", validator.string());
+        REQUIRE(find_aax_validator_root() == fs::absolute(validator));
+    }
+
+    {
+        CapturedStreams capture;
+        print_aax_setup_guidance(true, false);
+        auto out = capture.out.str();
+        REQUIRE(out.find(aax_sdk_download_label()) != std::string::npos);
+        REQUIRE(out.find(aax_validator_download_label()) == std::string::npos);
+        REQUIRE(out.find("PULP_AAX_SDK_DIR") != std::string::npos);
+        REQUIRE(out.find("PULP_AAX_VALIDATOR_DIR") == std::string::npos);
+    }
+
+    {
+        CapturedStreams capture;
+        print_aax_setup_guidance(false, true);
+        auto out = capture.out.str();
+        REQUIRE(out.find(aax_sdk_download_label()) == std::string::npos);
+        REQUIRE(out.find(aax_validator_download_label()) != std::string::npos);
+        REQUIRE(out.find("PULP_AAX_SDK_DIR") == std::string::npos);
+        REQUIRE(out.find("PULP_AAX_VALIDATOR_DIR") != std::string::npos);
+    }
+
+    auto temp_note = write_temp_text_file("pulp-cli-common-test", "temporary note\n");
+    REQUIRE(temp_note.filename().string().find("pulp-cli-common-test-") == 0);
+    REQUIRE(temp_note.extension() == ".txt");
+    REQUIRE(normalize_newlines(read_file_text(temp_note)) == "temporary note\n");
+    std::error_code remove_ec;
+    fs::remove(temp_note, remove_ec);
+
+    REQUIRE(run_aax_validator_command({}, tmp.path / "Plugin.aaxplugin", false).empty());
+    REQUIRE(aax_validator_passed("result_status: E_COMPLETED_PASS"));
+    REQUIRE(aax_validator_passed("12 passed, 0 failed, 3 warnings, 0 cancelled"));
+    REQUIRE_FALSE(aax_validator_passed("12 passed, 1 failed, 0 warnings, 0 cancelled"));
+    REQUIRE_FALSE(aax_validator_passed("result_status: E_COMPLETED_FAIL"));
+    REQUIRE_FALSE(aax_validator_passed("failed to complete"));
+}
+
+TEST_CASE("cli common delegates fail cleanly before shelling out",
+          "[cli][common][issue-643]") {
+    TempDir tmp;
+
+    {
+        ScopedCwd cwd(tmp.path);
+        CapturedStreams capture;
+        REQUIRE(delegate_to_python_script("tools/missing.py", {}) == 1);
+        REQUIRE(capture.err.str().find("not in a Pulp project directory") != std::string::npos);
+    }
+
+    auto repo = tmp.path / "repo";
+    fs::create_directories(repo / "core");
+    write_file(repo / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\n");
+
+    {
+        ScopedCwd cwd(repo);
+        CapturedStreams capture;
+        REQUIRE(delegate_to_python_script("tools/missing.py", {"--flag"}) == 1);
+        REQUIRE(capture.err.str().find("script not found") != std::string::npos);
+    }
+
+    {
+        ScopedCwd cwd(repo);
+        CapturedStreams capture;
+        REQUIRE(delegate_to_build_binary("tools/missing-tool", {"--flag"}, "--prepend") == 1);
+        REQUIRE(capture.err.str().find("not built") != std::string::npos);
+    }
+}
+
+TEST_CASE("cli common interactive prompts accept defaults and parsed answers",
+          "[cli][common][issue-643]") {
+    ScopedColorDisabled color;
+    CapturedStreams capture;
+
+    {
+        ScopedStdin input("\n");
+        REQUIRE(cli::confirm("Continue?", true));
+    }
+    {
+        ScopedStdin input("\n");
+        REQUIRE_FALSE(cli::confirm("Continue?", false));
+    }
+    {
+        ScopedStdin input("yes\n");
+        REQUIRE(cli::confirm("Continue?", false));
+    }
+    {
+        ScopedStdin input("n\n");
+        REQUIRE_FALSE(cli::confirm("Continue?", true));
+    }
+    {
+        ScopedStdin input("2\n");
+        REQUIRE(cli::choose("Pick", {"one", "two", "three"}) == 1);
+    }
+    {
+        ScopedStdin input("bad\n");
+        REQUIRE(cli::choose("Pick", {"one", "two"}) == 0);
+    }
+    {
+        ScopedStdin input("\n");
+        REQUIRE(cli::choose("Pick", {"one", "two"}) == 0);
+    }
+    REQUIRE(cli::choose("Pick", {}) == -1);
+    {
+        ScopedStdin input("\n");
+        REQUIRE(cli::input("Name", "Clock") == "Clock");
+    }
+    {
+        ScopedStdin input("Delay\n");
+        REQUIRE(cli::input("Name", "Clock") == "Delay");
+    }
 }
 
 TEST_CASE("bump_one enforces the dirty gate and rewrites managed standalone sdk_path",
@@ -558,6 +1001,87 @@ TEST_CASE("bump_one enforces the dirty gate and rewrites managed standalone sdk_
     REQUIRE(cmake.find("find_package(Pulp 0.2.0 REQUIRED)") != std::string::npos);
     REQUIRE(toml.find("sdk_version = \"0.2.0\"") != std::string::npos);
     REQUIRE(toml.find(local_sdk_cache_path("0.2.0").generic_string()) != std::string::npos);
+}
+
+TEST_CASE("bump_one leaves custom standalone sdk_path unchanged and reports the note",
+          "[cli][project-command][issue-643]") {
+    TempDir tmp;
+    auto project = tmp.path / "Clock";
+    auto custom_sdk = tmp.path / "custom-sdk";
+
+    make_standalone_project(project, "0.1.0", custom_sdk.generic_string());
+
+    BumpOptions opts;
+    auto bumped = bump_one(project, "0.2.0", opts, "Clock");
+
+    REQUIRE(bumped.status == "bumped");
+    REQUIRE(bumped.edits.size() == 2);
+    REQUIRE(bumped.notes.size() == 1);
+    REQUIRE(bumped.notes.front().find("custom sdk_path left unchanged")
+            != std::string::npos);
+
+    auto cmake = read_file_text(project / "CMakeLists.txt");
+    auto toml = read_file_text(project / "pulp.toml");
+    REQUIRE(cmake.find("find_package(Pulp 0.2.0 REQUIRED)") != std::string::npos);
+    REQUIRE(toml.find("sdk_version = \"0.2.0\"") != std::string::npos);
+    REQUIRE(toml.find("sdk_path = \"" + custom_sdk.generic_string() + "\"")
+            != std::string::npos);
+}
+
+TEST_CASE("bump_one reports malformed standalone and dynamic CMake pins",
+          "[cli][project-command][issue-643]") {
+    TempDir tmp;
+
+    auto standalone = tmp.path / "MalformedClock";
+    make_standalone_project(standalone, "main");
+
+    BumpOptions opts;
+    auto malformed = bump_one(standalone, "0.2.0", opts, "MalformedClock");
+    REQUIRE(malformed.status == "skipped");
+    REQUIRE(malformed.pin_kind == pb::PinKind::PulpTomlSdkVersion);
+    REQUIRE(malformed.old_pin == "main");
+    REQUIRE(malformed.failure_reason == "pulp.toml sdk_version doesn't parse as semver");
+    REQUIRE(malformed.edits.empty());
+
+    auto dynamic = tmp.path / "DynamicFetch";
+    fs::create_directories(dynamic);
+    write_file(dynamic / "CMakeLists.txt",
+               "cmake_minimum_required(VERSION 3.20)\n"
+               "include(FetchContent)\n"
+               "FetchContent_Declare(pulp\n"
+               "    GIT_REPOSITORY https://github.com/danielraffel/pulp.git\n"
+               "    GIT_TAG main)\n"
+               "FetchContent_MakeAvailable(pulp)\n");
+
+    auto skipped = bump_one(dynamic, "0.2.0", opts, "DynamicFetch");
+    REQUIRE(skipped.status == "skipped");
+    REQUIRE(skipped.pin_kind == pb::PinKind::FetchContentGitTag);
+    REQUIRE(skipped.old_pin == "main");
+    REQUIRE(skipped.failure_reason.find("dynamic pin") != std::string::npos);
+    REQUIRE(skipped.edits.empty());
+}
+
+TEST_CASE("bump_one distinguishes downgrades from explicit downgrade bumps",
+          "[cli][project-command][issue-643]") {
+    TempDir tmp;
+    auto project = tmp.path / "Clock";
+    make_fetchcontent_project(project, "0.3.0");
+
+    BumpOptions opts;
+    auto skipped = bump_one(project, "0.2.0", opts, "Clock");
+    REQUIRE(skipped.status == "skipped");
+    REQUIRE(skipped.pin_kind == pb::PinKind::FetchContentGitTag);
+    REQUIRE(skipped.failure_reason ==
+            "target version older than current pin (use --allow-downgrade to override)");
+    REQUIRE(read_file_text(project / "CMakeLists.txt").find("GIT_TAG v0.3.0")
+            != std::string::npos);
+
+    opts.allow_downgrade = true;
+    auto bumped = bump_one(project, "0.2.0", opts, "Clock");
+    REQUIRE(bumped.status == "bumped");
+    REQUIRE(bumped.edits.size() == 1);
+    REQUIRE(read_file_text(project / "CMakeLists.txt").find("GIT_TAG v0.2.0")
+            != std::string::npos);
 }
 
 TEST_CASE("bump_one rewrites non-standalone FetchContent pins",

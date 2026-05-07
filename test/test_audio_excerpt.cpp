@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/audio/subsection_reader.hpp>
 #include <pulp/audio/window_enumerator.hpp>
 
 using namespace pulp::audio;
@@ -38,6 +39,16 @@ TEST_CASE("enumerate_excerpt_windows rejects empty or too-short audio", "[audio]
         AudioFileData empty;
         auto result = enumerate_excerpt_windows("loop.wav", empty, {.text = "snare", .window_frames = 1200, .hop_frames = 600});
         REQUIRE(result.status == WindowEnumerationStatus::empty_audio);
+        REQUIRE(result.source_frames == 0);
+        REQUIRE(result.windows.empty());
+    }
+
+    SECTION("zero sample rate with frames is treated as unusable audio") {
+        auto audio = make_audio(0, 1200);
+        auto result = enumerate_excerpt_windows("loop.wav", audio, {.text = "snare", .window_frames = 600, .hop_frames = 300});
+        REQUIRE(result.status == WindowEnumerationStatus::empty_audio);
+        REQUIRE(result.source_frames == 1200);
+        REQUIRE(result.windows.empty());
     }
 
     SECTION("audio shorter than window") {
@@ -60,6 +71,94 @@ TEST_CASE("enumerate_excerpt_windows uses deterministic overlap and tail coverag
     REQUIRE(result.windows[2].start_frame == 6);
     REQUIRE(result.windows[3].start_frame == 7);
     REQUIRE(result.windows.back().end_frame() == 11);
+}
+
+TEST_CASE("enumerate_excerpt_windows clamps boundary hops to valid starts",
+          "[audio][excerpt][issue-640]") {
+    SECTION("hop equal to window emits adjacent windows without an extra tail") {
+        auto audio = make_audio(48000, 12);
+        auto result = enumerate_excerpt_windows("loop.wav", audio, {.text = "snare", .window_frames = 4, .hop_frames = 4});
+
+        REQUIRE(result.status == WindowEnumerationStatus::ok);
+        REQUIRE(result.windows.size() == 3);
+        REQUIRE(result.windows[0].start_frame == 0);
+        REQUIRE(result.windows[1].start_frame == 4);
+        REQUIRE(result.windows[2].start_frame == 8);
+        REQUIRE(result.windows.back().end_frame() == result.source_frames);
+    }
+
+    SECTION("adjacent hops add a clamped overlapping tail when needed") {
+        auto audio = make_audio(48000, 10);
+        auto result = enumerate_excerpt_windows("loop.wav", audio, {.text = "snare", .window_frames = 4, .hop_frames = 4});
+
+        REQUIRE(result.status == WindowEnumerationStatus::ok);
+        REQUIRE(result.windows.size() == 3);
+        REQUIRE(result.windows[0].start_frame == 0);
+        REQUIRE(result.windows[1].start_frame == 4);
+        REQUIRE(result.windows[2].start_frame == 6);
+        REQUIRE(result.windows.back().end_frame() == result.source_frames);
+    }
+
+    SECTION("oversized hop still includes only the first window and final tail") {
+        auto audio = make_audio(48000, 10);
+        auto result = enumerate_excerpt_windows("loop.wav", audio, {.text = "snare", .window_frames = 4, .hop_frames = 20});
+
+        REQUIRE(result.status == WindowEnumerationStatus::ok);
+        REQUIRE(result.windows.size() == 2);
+        REQUIRE(result.windows[0].start_frame == 0);
+        REQUIRE(result.windows[0].end_frame() == 4);
+        REQUIRE(result.windows[1].start_frame == 6);
+        REQUIRE(result.windows[1].end_frame() == result.source_frames);
+    }
+}
+
+TEST_CASE("enumerate_excerpt_windows avoids duplicate tails on exact coverage",
+          "[audio][excerpt][issue-640]") {
+    SECTION("hop lands exactly on final valid start") {
+        auto audio = make_audio(48000, 10);
+        auto result = enumerate_excerpt_windows("loop.wav", audio, {.text = "snare", .window_frames = 4, .hop_frames = 3});
+
+        REQUIRE(result.status == WindowEnumerationStatus::ok);
+        REQUIRE(result.windows.size() == 3);
+        REQUIRE(result.windows[0].start_frame == 0);
+        REQUIRE(result.windows[1].start_frame == 3);
+        REQUIRE(result.windows[2].start_frame == 6);
+        REQUIRE(result.windows.back().end_frame() == 10);
+    }
+
+    SECTION("single window covers the whole file") {
+        auto audio = make_audio(44100, 4);
+        auto result = enumerate_excerpt_windows("hit.wav", audio, {.text = "kick", .window_frames = 4, .hop_frames = 2});
+
+        REQUIRE(result.status == WindowEnumerationStatus::ok);
+        REQUIRE(result.source_frames == 4);
+        REQUIRE(result.windows.size() == 1);
+        REQUIRE(result.windows[0].source_path == "hit.wav");
+        REQUIRE(result.windows[0].sample_rate == 44100);
+        REQUIRE(result.windows[0].start_frame == 0);
+        REQUIRE(result.windows[0].frame_count == 4);
+    }
+}
+
+TEST_CASE("enumerate_excerpt_windows is deterministic across repeated calls",
+          "[audio][excerpt][issue-640]") {
+    auto audio = make_audio(48000, 9);
+    ExcerptQuery query{.text = "snare", .window_frames = 4, .hop_frames = 3};
+
+    auto first = enumerate_excerpt_windows("loop.wav", audio, query);
+    auto second = enumerate_excerpt_windows("loop.wav", audio, query);
+
+    REQUIRE(first.status == WindowEnumerationStatus::ok);
+    REQUIRE(second.status == WindowEnumerationStatus::ok);
+    REQUIRE(first.source_frames == second.source_frames);
+    REQUIRE(first.windows.size() == second.windows.size());
+
+    for (std::size_t i = 0; i < first.windows.size(); ++i) {
+        REQUIRE(first.windows[i].source_path == second.windows[i].source_path);
+        REQUIRE(first.windows[i].sample_rate == second.windows[i].sample_rate);
+        REQUIRE(first.windows[i].start_frame == second.windows[i].start_frame);
+        REQUIRE(first.windows[i].frame_count == second.windows[i].frame_count);
+    }
 }
 
 TEST_CASE("excerpt windows report seconds from sample rate", "[audio][excerpt]") {
@@ -103,4 +202,63 @@ TEST_CASE("excerpt value types expose zero-rate and summary defaults",
     REQUIRE(summary.total_frames_scanned == 0);
     REQUIRE(summary.enumerated_window_count == 0);
     REQUIRE(summary.ranked_candidate_count == 0);
+}
+
+TEST_CASE("AudioSubsectionReader clamps ranges and exposes source metadata",
+          "[audio][subsection][issue-640]") {
+    AudioFileData audio;
+    audio.sample_rate = 48000;
+    audio.channels = {
+        {0.0f, 0.1f, 0.2f, 0.3f, 0.4f},
+        {1.0f, 1.1f, 1.2f, 1.3f, 1.4f},
+    };
+
+    AudioSubsectionReader reader(audio, 2, 10);
+    REQUIRE(reader.is_valid());
+    REQUIRE(reader.num_channels() == 2);
+    REQUIRE(reader.num_frames() == 3);
+    REQUIRE(reader.sample_rate() == 48000);
+    REQUIRE_THAT(reader.duration_seconds(), WithinAbs(3.0 / 48000.0, 0.000001));
+
+    REQUIRE_THAT(reader.sample(0, 0), WithinAbs(0.2f, 0.000001f));
+    REQUIRE_THAT(reader.sample(1, 2), WithinAbs(1.4f, 0.000001f));
+    REQUIRE(reader.sample(2, 0) == 0.0f);
+    REQUIRE(reader.sample(0, 3) == 0.0f);
+
+    float dest[] = {-1.0f, -1.0f, -1.0f};
+    reader.read_frames(dest, 1, 1, 8);
+    REQUIRE_THAT(dest[0], WithinAbs(1.3f, 0.000001f));
+    REQUIRE_THAT(dest[1], WithinAbs(1.4f, 0.000001f));
+    REQUIRE(dest[2] == -1.0f);
+
+    auto extracted = reader.extract();
+    REQUIRE(extracted.sample_rate == 48000);
+    REQUIRE(extracted.num_channels() == 2);
+    REQUIRE(extracted.num_frames() == 3);
+    REQUIRE_THAT(extracted.channels[0][0], WithinAbs(0.2f, 0.000001f));
+    REQUIRE_THAT(extracted.channels[1][2], WithinAbs(1.4f, 0.000001f));
+}
+
+TEST_CASE("AudioSubsectionReader handles empty and past-end ranges",
+          "[audio][subsection][issue-640]") {
+    AudioSubsectionReader empty;
+    REQUIRE_FALSE(empty.is_valid());
+    REQUIRE(empty.num_channels() == 0);
+    REQUIRE(empty.num_frames() == 0);
+    REQUIRE(empty.sample_rate() == 0);
+    REQUIRE(empty.duration_seconds() == 0.0);
+    REQUIRE(empty.sample(0, 0) == 0.0f);
+    REQUIRE(empty.extract().empty());
+
+    AudioFileData audio = make_audio(44100, 4);
+    AudioSubsectionReader past_end(audio, 99, 2);
+    REQUIRE_FALSE(past_end.is_valid());
+    REQUIRE(past_end.num_channels() == 1);
+    REQUIRE(past_end.num_frames() == 0);
+    REQUIRE(past_end.sample_rate() == 44100);
+
+    float dest[] = {7.0f, 8.0f};
+    past_end.read_frames(dest, 0, 0, 2);
+    REQUIRE(dest[0] == 7.0f);
+    REQUIRE(dest[1] == 8.0f);
 }

@@ -10,6 +10,10 @@
 
 using namespace pulp::format;
 
+namespace pulp::format {
+std::string_view to_string(int32_t event_code);
+}
+
 namespace {
 
 struct Captured {
@@ -91,4 +95,9 @@ TEST_CASE("to_string covers every event code",
     REQUIRE(to_string(PULP_IOS_AUDIO_EVENT_INTERRUPTION_ENDED) == "interruption_ended");
     REQUIRE(to_string(PULP_IOS_AUDIO_EVENT_ROUTE_CHANGED) == "route_changed");
     REQUIRE(to_string(PULP_IOS_AUDIO_EVENT_MEDIA_SERVICES_RESET) == "media_services_reset");
+    REQUIRE(to_string(PULP_IOS_AUDIO_EVENT_SILENCE_SECONDARY_AUDIO_BEGAN) ==
+            "silence_secondary_audio_began");
+    REQUIRE(to_string(PULP_IOS_AUDIO_EVENT_SILENCE_SECONDARY_AUDIO_ENDED) ==
+            "silence_secondary_audio_ended");
+    REQUIRE(to_string(999) == "unknown");
 }

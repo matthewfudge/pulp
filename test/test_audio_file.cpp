@@ -553,6 +553,61 @@ TEST_CASE("MemoryMappedAudioReader opens WAV files and reads frame ranges",
     std::filesystem::remove(path);
 }
 
+TEST_CASE("MemoryMappedAudioReader fails closed for unsupported mapped files",
+          "[audio][file][mmap][issue-640]") {
+    auto wav_path = unique_temp_audio_path("_mmap_valid.wav");
+    auto text_path = unique_temp_audio_path("_mmap_unsupported.txt");
+    std::filesystem::remove(wav_path);
+    std::filesystem::remove(text_path);
+
+    AudioFileData data;
+    data.sample_rate = 44100;
+    data.channels = {{0.0f, 0.25f, 0.5f}};
+    REQUIRE(write_wav_file(wav_path.string(), data));
+    {
+        std::ofstream f(text_path, std::ios::binary);
+        f << "not audio";
+        REQUIRE(f.good());
+    }
+
+    MemoryMappedAudioReader reader;
+    REQUIRE(reader.open(wav_path.string()));
+    REQUIRE(reader.is_open());
+    REQUIRE(reader.info().num_frames == 3);
+
+    REQUIRE_FALSE(reader.open(text_path.string()));
+    REQUIRE_FALSE(reader.is_open());
+    REQUIRE(reader.info().num_frames == 0);
+    REQUIRE(reader.data() == nullptr);
+    REQUIRE(reader.size() == 0);
+
+    std::filesystem::remove(wav_path);
+    std::filesystem::remove(text_path);
+}
+
+TEST_CASE("MemoryMappedAudioReader leaves destinations untouched past EOF",
+          "[audio][file][mmap][issue-640]") {
+    auto path = unique_temp_audio_path("_mmap_eof.wav");
+    std::filesystem::remove(path);
+
+    AudioFileData data;
+    data.sample_rate = 32000;
+    data.channels = {{0.0f, 0.5f}};
+    REQUIRE(write_wav_file(path.string(), data));
+
+    MemoryMappedAudioReader reader;
+    REQUIRE(reader.open(path.string()));
+
+    float dest[2] = {-7.0f, -8.0f};
+    float* channels[] = {dest};
+    REQUIRE(reader.read_frames(channels, 1, 99, 2));
+    REQUIRE(dest[0] == -7.0f);
+    REQUIRE(dest[1] == -8.0f);
+
+    reader.close();
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("offline processing handles guards, block tails, and file dispatch",
           "[audio][file][offline][issue-640]") {
     AudioFileData input;
@@ -787,6 +842,85 @@ TEST_CASE("FormatRegistry exposes built-in audio codecs", "[audio][file][registr
     REQUIRE(contains_extension(write_extensions, ".aiff"));
     REQUIRE(contains_extension(write_extensions, ".aif"));
 }
+
+TEST_CASE("FormatRegistry rejects malformed compressed files through built-in readers",
+          "[audio][file][registry][issue-640]") {
+    auto flac_path = unique_temp_audio_path("_invalid.FLAC");
+    auto mp3_path = unique_temp_audio_path("_invalid.mp3");
+
+    {
+        const unsigned char bytes[] = {0x00, 0x11, 0x22, 0x33, 0x44};
+        std::ofstream file(flac_path, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+        REQUIRE(file.good());
+    }
+    {
+        const unsigned char bytes[] = {0x7F, 0x45, 0x4C, 0x46, 0x00};
+        std::ofstream file(mp3_path, std::ios::binary);
+        file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+        REQUIRE(file.good());
+    }
+
+    auto& registry = FormatRegistry::instance();
+    auto* flac_reader = registry.find_reader("FLAC");
+    auto* mp3_reader = registry.find_reader(".MP3");
+    REQUIRE(flac_reader != nullptr);
+    REQUIRE(mp3_reader != nullptr);
+
+    REQUIRE_FALSE(flac_reader->read_info(flac_path.string()).has_value());
+    REQUIRE_FALSE(flac_reader->read(flac_path.string()).has_value());
+    REQUIRE_FALSE(registry.read_info(flac_path.string()).has_value());
+    REQUIRE_FALSE(registry.read(flac_path.string()).has_value());
+
+    REQUIRE_FALSE(mp3_reader->read_info(mp3_path.string()).has_value());
+    REQUIRE_FALSE(mp3_reader->read(mp3_path.string()).has_value());
+    REQUIRE_FALSE(registry.read_info(mp3_path.string()).has_value());
+    REQUIRE_FALSE(registry.read(mp3_path.string()).has_value());
+
+    std::filesystem::remove(flac_path);
+    std::filesystem::remove(mp3_path);
+}
+
+#ifdef __APPLE__
+TEST_CASE("FormatRegistry routes CoreAudio compressed containers on Apple",
+          "[audio][file][registry][coreaudio][issue-640]") {
+    auto& registry = FormatRegistry::instance();
+
+    auto read_extensions = registry.supported_read_extensions();
+    REQUIRE(contains_extension(read_extensions, ".aac"));
+    REQUIRE(contains_extension(read_extensions, ".m4a"));
+    REQUIRE(contains_extension(read_extensions, ".alac"));
+    REQUIRE(contains_extension(read_extensions, ".caf"));
+
+    const std::array<std::string_view, 4> extensions = {
+        ".M4A",
+        ".aac",
+        ".ALAC",
+        ".caf",
+    };
+
+    for (auto ext : extensions) {
+        auto* reader = registry.find_reader(ext);
+        REQUIRE(reader != nullptr);
+        REQUIRE(reader->format_name() == "CoreAudio");
+
+        auto path = unique_temp_audio_path(std::string("_invalid") + std::string(ext));
+        {
+            const unsigned char bytes[] = {0x43, 0x41, 0x46, 0x46, 0x00, 0x01};
+            std::ofstream file(path, std::ios::binary);
+            file.write(reinterpret_cast<const char*>(bytes), sizeof(bytes));
+            REQUIRE(file.good());
+        }
+
+        REQUIRE_FALSE(reader->read_info(path.string()).has_value());
+        REQUIRE_FALSE(reader->read(path.string()).has_value());
+        REQUIRE_FALSE(registry.read_info(path.string()).has_value());
+        REQUIRE_FALSE(registry.read(path.string()).has_value());
+
+        std::filesystem::remove(path);
+    }
+}
+#endif
 
 TEST_CASE("FormatRegistry dispatches custom readers and writers through normalized paths",
           "[audio][file][registry][issue-640]") {

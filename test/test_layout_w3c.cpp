@@ -192,9 +192,14 @@ TEST_CASE("View: border", "[view][w3c]") {
     REQUIRE(v.corner_radius() == 8.0f);
 }
 
-TEST_CASE("View: overflow default is hidden", "[view][w3c]") {
+TEST_CASE("View: overflow default is visible (CSS default, pulp #972)", "[view][w3c][issue-972]") {
+    // pulp #972 — Pulp previously defaulted overflow to `hidden`, which
+    // clipped absolutely-positioned children (popovers, dropdowns) to
+    // their parent's content bounds and made them invisible. CSS default
+    // is `overflow: visible`. Plugins that intentionally want clipping
+    // must call set_overflow(Overflow::hidden) explicitly.
     View v;
-    REQUIRE(v.overflow() == View::Overflow::hidden);
+    REQUIRE(v.overflow() == View::Overflow::visible);
 }
 
 // ═══════════════════════════════════════════════════════════════════

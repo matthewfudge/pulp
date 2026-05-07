@@ -176,6 +176,30 @@ TEST_CASE("parse_semver handles common shapes", "[cli][update-check][issue-547]"
     REQUIRE_FALSE(d.ok);
 }
 
+TEST_CASE("parse_semver tolerates release tag boundaries",
+          "[cli][update-check][issue-547][issue-643]") {
+    auto upper = uc::parse_semver("V2.4.6");
+    REQUIRE(upper.ok);
+    REQUIRE(upper.major == 2);
+    REQUIRE(upper.minor == 4);
+    REQUIRE(upper.patch == 6);
+
+    auto build = uc::parse_semver("1.2.3+build.7");
+    REQUIRE(build.ok);
+    REQUIRE(build.major == 1);
+    REQUIRE(build.minor == 2);
+    REQUIRE(build.patch == 3);
+
+    auto extra = uc::parse_semver("3.4.5.6");
+    REQUIRE(extra.ok);
+    REQUIRE(extra.major == 3);
+    REQUIRE(extra.minor == 4);
+    REQUIRE(extra.patch == 5);
+
+    REQUIRE_FALSE(uc::parse_semver("1.two.3").ok);
+    REQUIRE_FALSE(uc::parse_semver("1..3").ok);
+}
+
 TEST_CASE("is_newer compares correctly", "[cli][update-check][issue-547]") {
     REQUIRE(uc::is_newer("0.27.0", "0.28.0"));
     REQUIRE(uc::is_newer("0.27.0", "1.0.0"));
@@ -239,6 +263,32 @@ TEST_CASE("write_toml_key_in_section appends key to existing section",
     REQUIRE(uc::read_toml_key_in_section(out, "create", "projects_dir") == "~/dev");
 }
 
+TEST_CASE("write_toml_key_in_section respects adjacent sections and inline section comments",
+          "[cli][update-check][issue-547][issue-643]") {
+    std::string src =
+        "[update] # user preferences\n"
+        "\n"
+        "[create]\n"
+        "projects_dir = \"~/dev\"\n";
+
+    auto out = uc::write_toml_key_in_section(src, "update", "mode", "manual");
+    REQUIRE(uc::read_toml_key_in_section(out, "update", "mode") == "manual");
+    REQUIRE(uc::read_toml_key_in_section(out, "create", "projects_dir") == "~/dev");
+
+    auto update_pos = out.find("[update]");
+    auto mode_pos = out.find("mode = \"manual\"");
+    auto create_pos = out.find("[create]");
+    REQUIRE(update_pos != std::string::npos);
+    REQUIRE(mode_pos != std::string::npos);
+    REQUIRE(create_pos != std::string::npos);
+    REQUIRE(update_pos < mode_pos);
+    REQUIRE(mode_pos < create_pos);
+
+    auto replaced = uc::write_toml_key_in_section(out, "update", "mode", "off");
+    REQUIRE(uc::read_toml_key_in_section(replaced, "update", "mode") == "off");
+    REQUIRE(replaced.find("mode = \"manual\"") == std::string::npos);
+}
+
 TEST_CASE("read_toml_key_in_section ignores commented examples",
           "[cli][update-check][issue-547]") {
     std::string src =
@@ -285,6 +335,145 @@ TEST_CASE("refresh_cache carries forward previous on fetch failure",
     REQUIRE(next.latest_version == "0.99.0");
     REQUIRE(next.release_notes_url == "https://example/tag/v0.99.0");
     REQUIRE(next.last_check_epoch_sec == 2'000);
+}
+
+// ── resolve_latest_with_persist (#1599) ─────────────────────────────────────
+//
+// Regression for the "cache permanently stuck at v0.73.0 despite v0.78.2
+// being live" trap: pulp_cli.cpp's detached background refresh gets reaped
+// at process exit before curl finishes, so the cache never gets updated
+// through that path. The upgrade surfaces have to refresh synchronously
+// AND persist the result themselves.
+
+TEST_CASE("resolve_latest_with_persist returns fresh-cache value without fetching",
+          "[cli][update-check][issue-1599]") {
+    auto dir = make_tmpdir("resolve-fresh");
+    auto path = dir / "update-cache.json";
+
+    uc::CacheEntry seed;
+    seed.last_check_epoch_sec = 1'000;   // 1h ago at "now"=4'600
+    seed.latest_version = "0.78.2";
+    seed.release_notes_url = "https://example/tag/v0.78.2";
+    REQUIRE(uc::write_cache_file(path, seed));
+
+    FakeFetcher fetcher;
+    fetcher.canned.ok = true;
+    fetcher.canned.latest_version = "9.9.9";   // would be returned if called
+
+    auto resolved = uc::resolve_latest_with_persist(
+        fetcher, path, "owner/repo", /*now=*/4'600, /*interval_hours=*/24);
+
+    REQUIRE(resolved.ok);
+    REQUIRE_FALSE(resolved.refreshed);
+    REQUIRE(resolved.latest_version == "0.78.2");
+    REQUIRE(fetcher.call_count == 0);
+}
+
+TEST_CASE("resolve_latest_with_persist refreshes + writes when cache is stale",
+          "[cli][update-check][issue-1599]") {
+    auto dir = make_tmpdir("resolve-stale");
+    auto path = dir / "update-cache.json";
+
+    uc::CacheEntry seed;
+    seed.last_check_epoch_sec = 1'000;
+    seed.latest_version = "0.73.0";   // stuck-stale value
+    seed.release_notes_url = "https://example/tag/v0.73.0";
+    REQUIRE(uc::write_cache_file(path, seed));
+
+    FakeFetcher fetcher;
+    fetcher.canned.ok = true;
+    fetcher.canned.latest_version = "0.78.2";
+    fetcher.canned.release_notes_url = "https://example/tag/v0.78.2";
+
+    // 25h later → stale
+    const std::int64_t now = 1'000 + 25 * 3600;
+    auto resolved = uc::resolve_latest_with_persist(
+        fetcher, path, "owner/repo", now, 24);
+
+    REQUIRE(resolved.ok);
+    REQUIRE(resolved.refreshed);
+    REQUIRE(resolved.latest_version == "0.78.2");
+    REQUIRE(fetcher.call_count == 1);
+
+    // Persisted to disk so the next invocation doesn't re-fetch.
+    auto on_disk = uc::read_cache_file(path);
+    REQUIRE(on_disk.has_value());
+    REQUIRE(on_disk->latest_version == "0.78.2");
+    REQUIRE(on_disk->last_check_epoch_sec == now);
+}
+
+TEST_CASE("resolve_latest_with_persist refreshes when no cache file exists",
+          "[cli][update-check][issue-1599]") {
+    auto dir = make_tmpdir("resolve-empty");
+    auto path = dir / "update-cache.json";   // intentionally not created
+
+    FakeFetcher fetcher;
+    fetcher.canned.ok = true;
+    fetcher.canned.latest_version = "1.2.3";
+    fetcher.canned.release_notes_url = "https://example/tag/v1.2.3";
+
+    auto resolved = uc::resolve_latest_with_persist(
+        fetcher, path, "owner/repo", /*now=*/5'000, /*interval_hours=*/24);
+
+    REQUIRE(resolved.ok);
+    REQUIRE(resolved.refreshed);
+    REQUIRE(resolved.latest_version == "1.2.3");
+
+    auto on_disk = uc::read_cache_file(path);
+    REQUIRE(on_disk.has_value());
+    REQUIRE(on_disk->latest_version == "1.2.3");
+}
+
+TEST_CASE("resolve_latest_with_persist leaves disk untouched on fetch failure",
+          "[cli][update-check][issue-1599]") {
+    auto dir = make_tmpdir("resolve-fail");
+    auto path = dir / "update-cache.json";
+
+    uc::CacheEntry seed;
+    seed.last_check_epoch_sec = 1'000;
+    seed.latest_version = "0.73.0";
+    seed.release_notes_url = "https://example/tag/v0.73.0";
+    REQUIRE(uc::write_cache_file(path, seed));
+
+    FakeFetcher fetcher;
+    fetcher.canned.ok = false;
+    fetcher.canned.error = "curl failed";
+
+    const std::int64_t now = 1'000 + 25 * 3600;
+    auto resolved = uc::resolve_latest_with_persist(
+        fetcher, path, "owner/repo", now, 24);
+
+    REQUIRE_FALSE(resolved.ok);
+    REQUIRE(resolved.refreshed);
+    REQUIRE(resolved.error == "curl failed");
+
+    // Don't clobber a known-good value with a transient failure.
+    auto on_disk = uc::read_cache_file(path);
+    REQUIRE(on_disk.has_value());
+    REQUIRE(on_disk->latest_version == "0.73.0");
+    REQUIRE(on_disk->last_check_epoch_sec == 1'000);
+}
+
+TEST_CASE("resolve_latest_with_persist refreshes when cached version is empty",
+          "[cli][update-check][issue-1599]") {
+    auto dir = make_tmpdir("resolve-empty-version");
+    auto path = dir / "update-cache.json";
+
+    uc::CacheEntry seed;
+    seed.last_check_epoch_sec = 4'500;   // recent timestamp
+    seed.latest_version = "";            // but no version
+    REQUIRE(uc::write_cache_file(path, seed));
+
+    FakeFetcher fetcher;
+    fetcher.canned.ok = true;
+    fetcher.canned.latest_version = "0.80.0";
+
+    auto resolved = uc::resolve_latest_with_persist(
+        fetcher, path, "owner/repo", /*now=*/5'000, /*interval_hours=*/24);
+
+    REQUIRE(resolved.ok);
+    REQUIRE(resolved.refreshed);
+    REQUIRE(resolved.latest_version == "0.80.0");
 }
 
 // ── Banner-suppression bookkeeping ──────────────────────────────────────────

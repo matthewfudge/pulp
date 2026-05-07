@@ -4,6 +4,7 @@
 #include <pulp/view/animation.hpp>
 #include <pulp/view/frame_clock.hpp>
 #include <pulp/view/image_cache.hpp>
+#include <pulp/view/text_overflow.hpp>
 #include <pulp/view/window_host.hpp>
 #include <pulp/canvas/text_shaper.hpp>
 #include <choc/text/choc_JSON.h>
@@ -242,6 +243,18 @@ void Toggle::advance_animations(float dt) {
 
 // ── Label ────────────────────────────────────────────────────────────────────
 
+float Label::intrinsic_height() const {
+    // issue-969: cascade font_size before computing height so descendants
+    // of a parent that called setInheritableFontSize report a height that
+    // actually matches what paint() will draw.
+    float effective_font_size = font_size_;
+    if (!has_own_font_size_) {
+        if (auto inh = inheritable_font_size(); inh.has_value())
+            effective_font_size = inh.value();
+    }
+    return line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
+}
+
 float Label::intrinsic_width() const {
     // issue-928: report the natural shaped-text width so Yoga reserves
     // enough horizontal space for the full label content. Without this,
@@ -253,6 +266,20 @@ float Label::intrinsic_width() const {
     // single-line text width.
     if (text_.empty() || multi_line_) return 0;
 
+    // issue-969: intrinsic measurement must match what paint() will
+    // actually draw, so honor the same own→inherited cascade for
+    // font_size and letter_spacing.
+    float effective_font_size = font_size_;
+    if (!has_own_font_size_) {
+        if (auto inh = inheritable_font_size(); inh.has_value())
+            effective_font_size = inh.value();
+    }
+    float effective_letter_spacing = letter_spacing_;
+    if (!has_own_letter_spacing_) {
+        if (auto inh = inheritable_letter_spacing(); inh.has_value())
+            effective_letter_spacing = inh.value();
+    }
+
     // pulp #943 P2 / #945: when paint() rotates the text 90° the
     // horizontal footprint is just the line height, not the shaped
     // string advance. Reporting the advance here makes Yoga reserve
@@ -260,7 +287,7 @@ float Label::intrinsic_width() const {
     bool vertical = (text_direction_ == canvas::TextDirection::top_to_bottom ||
                      text_direction_ == canvas::TextDirection::bottom_to_top);
     if (vertical) {
-        return std::ceil(line_height_ > 0 ? line_height_ : font_size_ * 1.4f);
+        return std::ceil(line_height_ > 0 ? line_height_ : effective_font_size * 1.4f);
     }
 
     // Mirror paint()'s text-transform — measurement must match what's
@@ -288,7 +315,7 @@ float Label::intrinsic_width() const {
     // to a character-width estimator otherwise — same fallback that
     // Canvas::measure_text() uses on the recording / non-Skia backends.
     auto& shaper = canvas::global_text_shaper();
-    auto prepared = shaper.prepare(display_text, "Inter", font_size_);
+    auto prepared = shaper.prepare(display_text, "Inter", effective_font_size);
     float width = prepared.total_width();
 
     // Letter-spacing adds extra advance per glyph break that isn't
@@ -296,7 +323,7 @@ float Label::intrinsic_width() const {
     // bytes — using `size()` over-applies spacing on multibyte input
     // (CJK, accented Latin, emoji) and inflates intrinsic width
     // (pulp #943 P2 #935 finding 2).
-    if (letter_spacing_ != 0 && !display_text.empty()) {
+    if (effective_letter_spacing != 0 && !display_text.empty()) {
         std::size_t glyph_count = 0;
         for (unsigned char c : display_text) {
             // Count any byte that is not a UTF-8 continuation byte
@@ -304,7 +331,7 @@ float Label::intrinsic_width() const {
             if ((c & 0xC0) != 0x80) ++glyph_count;
         }
         if (glyph_count > 1) {
-            width += letter_spacing_ * static_cast<float>(glyph_count - 1);
+            width += effective_letter_spacing * static_cast<float>(glyph_count - 1);
         }
     }
 
@@ -315,13 +342,42 @@ float Label::intrinsic_width() const {
 void Label::paint(canvas::Canvas& canvas) {
     if (text_.empty()) return;
 
-    auto text_color = resolve_color("text.primary", canvas::Color::rgba8(200, 200, 200));
+    // issue-969: CSS-style typography cascade. For each property:
+    //   1. Use the Label's own value if explicitly set.
+    //   2. Otherwise walk up the parent chain via View::inheritable_*().
+    //   3. Otherwise fall back to the existing theme/default behavior.
+    canvas::Color text_color;
+    if (has_own_text_color_) {
+        text_color = text_color_;
+    } else if (auto inherited = inheritable_text_color(); inherited.has_value()) {
+        text_color = inherited.value();
+    } else {
+        text_color = resolve_color("text.primary", canvas::Color::rgba8(200, 200, 200));
+    }
     canvas.set_fill_color({text_color.r, text_color.g, text_color.b, text_color.a});
+
+    float effective_font_size = font_size_;
+    if (!has_own_font_size_) {
+        if (auto inh = inheritable_font_size(); inh.has_value())
+            effective_font_size = inh.value();
+    }
+    int effective_font_weight = font_weight_;
+    if (!has_own_font_weight_) {
+        if (auto inh = inheritable_font_weight(); inh.has_value())
+            effective_font_weight = inh.value();
+    }
+    float effective_letter_spacing = letter_spacing_;
+    if (!has_own_letter_spacing_) {
+        if (auto inh = inheritable_letter_spacing(); inh.has_value())
+            effective_letter_spacing = inh.value();
+    }
+
     // pulp #927 — propagate setFontFamily / setFontWeight / setLetterSpacing
     // through to the canvas backend so JS calls actually change rasterised
     // glyphs. Empty font_family_ falls back to the default theme face.
     const std::string& family = font_family_.empty() ? std::string("Inter") : font_family_;
-    canvas.set_font_full(family, font_size_, font_weight_, font_style_, letter_spacing_);
+    canvas.set_font_full(family, effective_font_size, effective_font_weight,
+                          font_style_, effective_letter_spacing);
 
     // Apply text-transform
     std::string display_text = text_;
@@ -346,37 +402,74 @@ void Label::paint(canvas::Canvas& canvas) {
     if (vertical) {
         canvas.save();
         if (text_direction_ == canvas::TextDirection::top_to_bottom) {
-            canvas.translate(bounds().width * 0.5f + font_size_ * 0.35f, 0);
+            canvas.translate(bounds().width * 0.5f + effective_font_size * 0.35f, 0);
             canvas.rotate(3.14159265f / 2.0f);
         } else {
-            canvas.translate(bounds().width * 0.5f - font_size_ * 0.35f, bounds().height);
+            canvas.translate(bounds().width * 0.5f - effective_font_size * 0.35f, bounds().height);
             canvas.rotate(-3.14159265f / 2.0f);
         }
     }
 
     // Vertical alignment
-    float lh = line_height_ > 0 ? line_height_ : font_size_ * 1.4f;
-    float text_h = multi_line_ ? lh * static_cast<float>(std::count(display_text.begin(), display_text.end(), '\n') + 1) : font_size_;
+    float lh = line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
+    // pulp #1552 — when line-clamp drops source lines, the painted block
+    // height must reflect the *visible* line count, not the full newline
+    // count. Otherwise vertical-align: center / bottom positions the
+    // block as if the hidden lines were still rendered, leaving the
+    // visible lines offset upward (Codex P2 on PR #1573).
+    int source_lines = multi_line_ ? static_cast<int>(
+        std::count(display_text.begin(), display_text.end(), '\n')) + 1 : 1;
+    int visible_lines = source_lines;
+    if (multi_line_ && line_clamp_ > 0 && line_clamp_ < source_lines)
+        visible_lines = line_clamp_;
+    float text_h = multi_line_ ? lh * static_cast<float>(visible_lines) : effective_font_size;
     float baseline_y;
     switch (vertical_align_) {
         case canvas::TextVerticalAlign::top:
-            baseline_y = font_size_ * 0.85f;
+            baseline_y = effective_font_size * 0.85f;
             break;
         case canvas::TextVerticalAlign::bottom:
-            baseline_y = bounds().height - text_h + font_size_ * 0.85f;
+            baseline_y = bounds().height - text_h + effective_font_size * 0.85f;
             break;
         case canvas::TextVerticalAlign::baseline:
             baseline_y = bounds().height * 0.75f;
             break;
         case canvas::TextVerticalAlign::center:
         default:
-            baseline_y = bounds().height * 0.5f + font_size_ * 0.35f;
+            // Centre the visible block within bounds, then offset to the
+            // first line's baseline. For single-line this collapses to
+            // bounds.h/2 + 0.35*font_size (the historic formula) because
+            // text_h == effective_font_size and 0.85 - 0.5 == 0.35.
+            baseline_y = (bounds().height - text_h) * 0.5f + effective_font_size * 0.85f;
             break;
     }
 
+    // issue-969: text-align cascade. Own value wins, otherwise inherited.
+    LabelAlign effective_text_align = text_align_;
+    if (!has_own_text_align_) {
+        if (auto inh = inheritable_text_align(); inh.has_value()) {
+            int v = inh.value();
+            if (v == 1) effective_text_align = LabelAlign::center;
+            else if (v == 2) effective_text_align = LabelAlign::right;
+            else if (v == 3) effective_text_align = LabelAlign::auto_;
+            else if (v == 4) effective_text_align = LabelAlign::justify;
+            else effective_text_align = LabelAlign::left;
+        }
+    }
+
+    // pulp #1434 — resolve `auto` at paint time. `auto` is CSS
+    // writing-direction-relative: LTR → left, RTL → right. Pulp doesn't
+    // model RTL yet (yoga/direction is still NOT-IMPL), so `auto`
+    // currently degrades to `left`. When RTL lands, this becomes a
+    // lookup against the writing-direction context.
+    if (effective_text_align == LabelAlign::auto_) {
+        effective_text_align = LabelAlign::left;
+    }
+
     float x = 0;
-    switch (text_align_) {
+    switch (effective_text_align) {
         case LabelAlign::left:
+        case LabelAlign::auto_: // unreachable — resolved above; keeps switch exhaustive
             canvas.set_text_align(canvas::TextAlign::left);
             break;
         case LabelAlign::center:
@@ -387,55 +480,85 @@ void Label::paint(canvas::Canvas& canvas) {
             canvas.set_text_align(canvas::TextAlign::right);
             x = bounds().width;
             break;
+        case LabelAlign::justify:
+            // pulp #1434 — emit canvas TextAlign::justify so backends
+            // that wire SkParagraph kJustify can render true justified
+            // text. RecordingCanvas / CG fall back to left-alignment
+            // semantics (no kerning-controlled space distribution).
+            // Anchor x at 0 so the first line's leading edge matches a
+            // left-aligned label.
+            canvas.set_text_align(canvas::TextAlign::justify);
+            break;
     }
 
+    // pulp #1407 — track the actually-painted single-line string so the
+    // decoration block below measures the truncated text, not the
+    // original. Multi-line keeps using display_text since it paints the
+    // full string across multiple draw calls.
+    std::string draw_text = display_text;
     if (!multi_line_) {
-        // Text overflow ellipsis
-        if (text_overflow_ellipsis() && text_align_ == LabelAlign::left) {
-            float avail = bounds().width;
-            float text_w = canvas.measure_text(display_text);
-            if (text_w > avail && display_text.size() > 3) {
-                std::string truncated = display_text;
-                while (truncated.size() > 1) {
-                    truncated.pop_back();
-                    float w = canvas.measure_text(truncated + "...");
-                    if (w <= avail) {
-                        canvas.fill_text(truncated + "...", x, baseline_y);
-                        goto decoration;
-                    }
-                }
-            }
-        }
-        canvas.fill_text(display_text, x, baseline_y);
+        // pulp #1407 — CSS `text-overflow: ellipsis`. Truncate with U+2026
+        // when the measured text exceeds the content-box, regardless of
+        // text-align (CSS truncates at the trailing edge for all three).
+        // UTF-8-safe via codepoint binary-search in truncate_to_width().
+        if (text_overflow_ellipsis())
+            draw_text = truncate_to_width(canvas, display_text, bounds().width);
+        canvas.fill_text(draw_text, x, baseline_y);
     } else {
-        float y = font_size_ * 0.85f;
+        // pulp #1552 — CSS `line-clamp` / `-webkit-line-clamp`. When the
+        // clamp count is set and the text would emit more lines than
+        // allowed, paint at most N lines and append the U+2026 ellipsis
+        // to the last visible line if any source lines were dropped.
+        // 0 disables clamping (matches CSS spec; spec uses `none`).
+        // visible_lines / source_lines / text_h are computed earlier so
+        // vertical-align positioning reflects the clamped block height.
+        bool need_ellipsis = (line_clamp_ > 0 && source_lines > line_clamp_);
+
+        // Start from the clamped baseline so the first visible line
+        // sits at the top of the centered/bottom-aligned block.
+        float y = baseline_y;
         size_t pos = 0;
+        int emitted = 0;
         while (pos < display_text.size()) {
+            if (emitted >= visible_lines) break;
             size_t nl = display_text.find('\n', pos);
             if (nl == std::string::npos) nl = display_text.size();
-            canvas.fill_text(display_text.substr(pos, nl - pos), x, y);
+            std::string line = display_text.substr(pos, nl - pos);
+            // Last visible line under a clamp that truncated source lines:
+            // append U+2026 (UTF-8: 0xE2 0x80 0xA6) to signal truncation.
+            // pulp #1552 — matches the CSS "block-axis ellipsis" intent
+            // for line-clamp (the spec ties this to text-overflow: ellipsis;
+            // pulp's Label honors that intent without requiring the
+            // separate text-overflow keyword to also be set).
+            if (need_ellipsis && (emitted + 1 == visible_lines)) {
+                line.append("\xe2\x80\xa6");
+            }
+            canvas.fill_text(line, x, y);
             y += lh;
             pos = nl + 1;
+            ++emitted;
         }
     }
 
     // Text decoration (underline, line-through, overline)
-    decoration:
     if (text_decoration_ != TextDecoration::none) {
         auto dec_color = has_decoration_color_ ? decoration_color_ : text_color;
         canvas.set_stroke_color(dec_color);
         canvas.set_line_width(1.0f);
-        float text_w = canvas.measure_text(display_text);
+        // pulp #1407 — measure the actually-drawn (possibly truncated)
+        // text so a decoration line on an ellipsised label doesn't
+        // escape past the visible glyphs.
+        float text_w = canvas.measure_text(draw_text);
         float draw_x = x;
-        if (text_align_ == LabelAlign::center) draw_x = x - text_w * 0.5f;
-        else if (text_align_ == LabelAlign::right) draw_x = x - text_w;
+        if (effective_text_align == LabelAlign::center) draw_x = x - text_w * 0.5f;
+        else if (effective_text_align == LabelAlign::right) draw_x = x - text_w;
 
         if (text_decoration_ == TextDecoration::underline)
             canvas.stroke_line(draw_x, baseline_y + 2, draw_x + text_w, baseline_y + 2);
         else if (text_decoration_ == TextDecoration::line_through)
-            canvas.stroke_line(draw_x, baseline_y - font_size_ * 0.2f, draw_x + text_w, baseline_y - font_size_ * 0.2f);
+            canvas.stroke_line(draw_x, baseline_y - effective_font_size * 0.2f, draw_x + text_w, baseline_y - effective_font_size * 0.2f);
         else if (text_decoration_ == TextDecoration::overline)
-            canvas.stroke_line(draw_x, baseline_y - font_size_ * 0.7f, draw_x + text_w, baseline_y - font_size_ * 0.7f);
+            canvas.stroke_line(draw_x, baseline_y - effective_font_size * 0.7f, draw_x + text_w, baseline_y - effective_font_size * 0.7f);
     }
 
     if (vertical) canvas.restore();
@@ -681,6 +804,145 @@ void Fader::paint(canvas::Canvas& canvas) {
         } else {
             canvas.fill_text(label_, b.width * 0.5f, b.height - 6);
         }
+    }
+}
+
+// ── RangeSlider ──────────────────────────────────────────────────────────────
+// HTML <input type="range"> equivalent. Track + handle, no decorative
+// fader chrome. Min/max/step quantisation lives here so the painted
+// position and the value seen by JS callers always agree.
+//
+// pulp issue-966.
+
+void RangeSlider::clamp_and_quantize_() {
+    // Defensive: if max < min, treat the range as collapsed at min.
+    float lo = min_;
+    float hi = std::max(min_, max_);
+
+    float v = std::clamp(value_, lo, hi);
+
+    // Snap to step relative to min_, but only when step is positive.
+    // Step <= 0 means "continuous" — matches HTML <input step="any">.
+    if (step_ > 0.0f) {
+        float steps = std::round((v - lo) / step_);
+        v = lo + steps * step_;
+        // Re-clamp because rounding can push us past hi (e.g. min=0 max=1
+        // step=0.3 — last reachable step is 0.9, not 1.2).
+        v = std::clamp(v, lo, hi);
+    }
+
+    if (v != value_) {
+        value_ = v;
+        if (on_change) on_change(value_);
+    }
+}
+
+float RangeSlider::position_to_value_(float t) const {
+    float lo = min_;
+    float hi = std::max(min_, max_);
+    float clamped_t = std::clamp(t, 0.0f, 1.0f);
+    float v = lo + clamped_t * (hi - lo);
+
+    if (step_ > 0.0f) {
+        float steps = std::round((v - lo) / step_);
+        v = lo + steps * step_;
+        v = std::clamp(v, lo, hi);
+    }
+    return v;
+}
+
+void RangeSlider::update_from_position_(Point pos) {
+    auto b = local_bounds();
+    float t;
+    if (orientation_ == Orientation::horizontal) {
+        t = b.width > 0 ? pos.x / b.width : 0;
+    } else {
+        // Vertical: y=0 at top → t=1 (max); y=height → t=0 (min).
+        t = b.height > 0 ? 1.0f - pos.y / b.height : 0;
+    }
+    float new_val = position_to_value_(t);
+    if (new_val != value_) {
+        value_ = new_val;
+        if (on_change) on_change(value_);
+    }
+}
+
+void RangeSlider::on_mouse_event(const MouseEvent& event) {
+    if (!event.is_down) {
+        dragging_ = false;
+        return;
+    }
+    dragging_ = true;
+    update_from_position_(event.position);
+}
+
+void RangeSlider::on_mouse_drag(Point pos) {
+    if (!dragging_) return;
+    update_from_position_(pos);
+}
+
+void RangeSlider::paint(canvas::Canvas& canvas) {
+    auto b = local_bounds();
+    bool horiz = orientation_ == Orientation::horizontal;
+
+    // Resolve theme colors. Caller-supplied accent overrides theme for
+    // both the active fill and the handle.
+    auto track_color = resolve_color("control.track", canvas::Color::rgba8(60, 60, 60));
+    auto theme_fill  = resolve_color("control.fill",  canvas::Color::rgba8(100, 150, 255));
+    auto theme_thumb = resolve_color("control.thumb", canvas::Color::rgba8(220, 220, 220));
+    auto fill_color  = has_accent_color_ ? accent_color_ : theme_fill;
+    auto thumb_color = has_accent_color_ ? accent_color_ : theme_thumb;
+
+    // Track thickness — typical HTML range visuals sit in 4..6px.
+    float track_thick = std::min(track_thickness_,
+                                 horiz ? std::max(b.height, 1.0f)
+                                       : std::max(b.width,  1.0f));
+
+    // Normalised position along the track, taking the (possibly-collapsed)
+    // [min,max] range into account.
+    float lo = min_;
+    float hi = std::max(min_, max_);
+    float span = hi - lo;
+    float t = span > 0 ? std::clamp((value_ - lo) / span, 0.0f, 1.0f) : 0.0f;
+
+    // Background track.
+    canvas.set_fill_color(track_color);
+    if (horiz) {
+        float ty = (b.height - track_thick) * 0.5f;
+        canvas.fill_rounded_rect(0, ty, b.width, track_thick, track_thick * 0.5f);
+    } else {
+        float tx = (b.width - track_thick) * 0.5f;
+        canvas.fill_rounded_rect(tx, 0, track_thick, b.height, track_thick * 0.5f);
+    }
+
+    // Active fill — only the portion between min and current value.
+    canvas.set_fill_color(fill_color);
+    if (horiz) {
+        float fill_w = t * b.width;
+        float ty = (b.height - track_thick) * 0.5f;
+        if (fill_w > 0)
+            canvas.fill_rounded_rect(0, ty, fill_w, track_thick, track_thick * 0.5f);
+    } else {
+        float fill_h = t * b.height;
+        float tx = (b.width - track_thick) * 0.5f;
+        // Vertical: fill the lower portion (closer to min at the bottom).
+        if (fill_h > 0)
+            canvas.fill_rounded_rect(tx, b.height - fill_h, track_thick, fill_h, track_thick * 0.5f);
+    }
+
+    // Handle. Inset by handle radius so it never overshoots the bounds.
+    canvas.set_fill_color(thumb_color);
+    float handle_radius = horiz ? std::min(b.height, 16.0f) * 0.5f
+                                : std::min(b.width,  16.0f) * 0.5f;
+    if (horiz) {
+        float usable = std::max(0.0f, b.width - 2.0f * handle_radius);
+        float hx = handle_radius + t * usable;
+        canvas.fill_circle(hx, b.height * 0.5f, handle_radius);
+    } else {
+        float usable = std::max(0.0f, b.height - 2.0f * handle_radius);
+        // Vertical: t=0 → bottom (handle near max-y), t=1 → top.
+        float hy = handle_radius + (1.0f - t) * usable;
+        canvas.fill_circle(b.width * 0.5f, hy, handle_radius);
     }
 }
 

@@ -119,6 +119,20 @@ TEST_CASE("read_plugin_version returns empty on missing file",
     REQUIRE(v.raw.empty());
 }
 
+TEST_CASE("read_plugin_version returns empty when manifest has no version field",
+          "[version-diag][coverage][issue-643]") {
+    TempDir tmp;
+    auto plugin_json = tmp.path / ".claude-plugin" / "plugin.json";
+    write_file(plugin_json, R"({
+        "name": "pulp",
+        "description": "test"
+    })");
+
+    auto v = read_plugin_version(plugin_json);
+    REQUIRE_FALSE(v.comparable);
+    REQUIRE(v.raw.empty());
+}
+
 TEST_CASE("locate_plugin_json prefers an explicit override",
           "[version-diag][issue-499]") {
     TempDir tmp;
@@ -265,6 +279,13 @@ TEST_CASE("read_project_cli_min_version returns empty when absent",
     write_file(toml, "[pulp]\nsdk_version = \"0.24.0\"\n");
     auto v = read_project_cli_min_version(tmp.path);
     REQUIRE_FALSE(v.comparable);
+}
+
+TEST_CASE("read_project_cli_min_version ignores an empty project root",
+          "[version-diag][coverage][issue-643]") {
+    auto v = read_project_cli_min_version({});
+    REQUIRE_FALSE(v.comparable);
+    REQUIRE(v.raw.empty());
 }
 
 // Codex 2026-04-21 review on #546: the earlier scanner treated any line
@@ -512,6 +533,53 @@ TEST_CASE("render_report_json exposes plugin_min_cli as a top-level field",
     // Skew finding should also land in findings[] so JSON consumers
     // don't need to re-run the comparison themselves.
     REQUIRE(out.find("Claude plugin requires") != std::string::npos);
+}
+
+TEST_CASE("render_report returns non-zero and prints plugin/project warnings",
+          "[version-diag][issue-643]") {
+    VersionReport r;
+    r.cli = parse_semver("0.20.0");
+    r.plugin = parse_semver("0.8.0");
+    r.plugin_min_cli = parse_semver("0.31.0");
+    r.project_sdk = parse_semver("0.24.0");
+    r.project_cli_min = parse_semver("0.25.0");
+    r.project_root = "/tmp/pulp-render-warn";
+    r.plugin_json_path = "/tmp/pulp-render-warn/plugin.json";
+
+    std::stringstream capture;
+    auto* prev = std::cout.rdbuf(capture.rdbuf());
+    int rc = render_report(r);
+    std::cout.rdbuf(prev);
+
+    REQUIRE(rc == 1);
+    auto out = capture.str();
+    REQUIRE(out.find("Pulp Version Diagnostics") != std::string::npos);
+    REQUIRE(out.find("Plugin:") != std::string::npos);
+    REQUIRE(out.find("needs CLI >= v0.31.0") != std::string::npos);
+    REQUIRE(out.find("WARN") != std::string::npos);
+    REQUIRE(out.find("Claude plugin requires CLI >= v0.31.0") != std::string::npos);
+    REQUIRE(out.find("Project requires CLI >= v0.25.0") != std::string::npos);
+    REQUIRE(out.find("Project SDK is v0.24.0") != std::string::npos);
+    REQUIRE(out.find("3 warnings") != std::string::npos);
+}
+
+TEST_CASE("render_report returns zero for an empty comparable report",
+          "[version-diag][issue-643]") {
+    VersionReport r;
+    r.cli = parse_semver("0.31.0");
+
+    std::stringstream capture;
+    auto* prev = std::cout.rdbuf(capture.rdbuf());
+    int rc = render_report(r);
+    std::cout.rdbuf(prev);
+
+    REQUIRE(rc == 0);
+    auto out = capture.str();
+    REQUIRE(out.find("CLI:") != std::string::npos);
+    REQUIRE(out.find("v0.31.0") != std::string::npos);
+    REQUIRE(out.find("No version information to compare.") != std::string::npos);
+    REQUIRE(out.find("All checks passed.") != std::string::npos);
+    REQUIRE(out.find("WARN") == std::string::npos);
 }
 
 TEST_CASE("render_report_json emits JSON with projects[] and findings[]",

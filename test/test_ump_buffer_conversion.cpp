@@ -22,6 +22,70 @@ TEST_CASE("UmpBuffer sort + clear", "[midi][ump]") {
     REQUIRE(buf.empty());
 }
 
+TEST_CASE("UmpPacket helper factories mask groups channels and data fields",
+          "[midi][ump][helpers]") {
+    auto note = UmpPacket::note_on_2(0x2F, 0x1E, 0xFF, 0x1234, 0x8F, 0xABCD);
+    REQUIRE(note.word_count == 2);
+    REQUIRE(note.message_type() == UmpMessageType::Midi2ChannelVoice);
+    REQUIRE(note.group() == 0x0F);
+    REQUIRE(note.channel() == 0x0E);
+    REQUIRE(note.note_number() == 0x7F);
+    REQUIRE(note.attribute_type() == 0x8F);
+    REQUIRE(note.attribute_data() == 0xABCD);
+
+    auto per_note = UmpPacket::registered_per_note_cc(0x10, 0x11, 0xFE, 0xFF,
+                                                       0xCAFEBABEu);
+    REQUIRE(per_note.group() == 0);
+    REQUIRE(per_note.channel() == 1);
+    REQUIRE(per_note.note_number() == 0x7E);
+    REQUIRE(per_note.attribute_type() == 0x7F);
+    REQUIRE(per_note.data_32() == 0xCAFEBABEu);
+
+    auto midi1 = UmpPacket::midi1_note_on(0x12, 0x13, 0xFC, 0xFE);
+    REQUIRE(midi1.word_count == 1);
+    REQUIRE(midi1.message_type() == UmpMessageType::Midi1ChannelVoice);
+    REQUIRE(midi1.group() == 2);
+    REQUIRE(midi1.status() == 0x93);
+    REQUIRE(((midi1.words[0] >> 8) & 0xFFu) == 0x7Cu);
+    REQUIRE((midi1.words[0] & 0xFFu) == 0x7Eu);
+}
+
+TEST_CASE("UmpPacket remaining channel voice helpers encode masked fields",
+          "[midi][ump][helpers][issue-645]") {
+    auto off = UmpPacket::note_off_2(0x21, 0x2F, 0xFE, 0xCAFE);
+    REQUIRE(off.word_count == 2);
+    REQUIRE(off.message_type() == UmpMessageType::Midi2ChannelVoice);
+    REQUIRE(off.group() == 1);
+    REQUIRE(off.status() == 0x8F);
+    REQUIRE(off.channel() == 0x0F);
+    REQUIRE(off.note_number() == 0x7E);
+    REQUIRE(off.velocity_16() == 0xCAFE);
+
+    auto cc = UmpPacket::cc_2(0x3A, 0x2B, 0xFF, 0x12345678u);
+    REQUIRE(cc.word_count == 2);
+    REQUIRE(cc.group() == 0x0A);
+    REQUIRE(cc.status() == 0xBB);
+    REQUIRE(cc.channel() == 0x0B);
+    REQUIRE(cc.note_number() == 0x7F);
+    REQUIRE(cc.data_32() == 0x12345678u);
+
+    auto bend = UmpPacket::pitch_bend_2(0x1C, 0x1D, 0x87654321u);
+    REQUIRE(bend.word_count == 2);
+    REQUIRE(bend.group() == 0x0C);
+    REQUIRE(bend.status() == 0xED);
+    REQUIRE(bend.channel() == 0x0D);
+    REQUIRE(bend.data_32() == 0x87654321u);
+
+    auto per_note_bend = UmpPacket::per_note_pitch_bend(0x2E, 0x3F, 0xFD,
+                                                        0xABCDEF01u);
+    REQUIRE(per_note_bend.word_count == 2);
+    REQUIRE(per_note_bend.group() == 0x0E);
+    REQUIRE(per_note_bend.status() == 0x6F);
+    REQUIRE(per_note_bend.channel() == 0x0F);
+    REQUIRE(per_note_bend.note_number() == 0x7D);
+    REQUIRE(per_note_bend.data_32() == 0xABCDEF01u);
+}
+
 TEST_CASE("Processor::supports_ump defaults to false", "[midi][ump]") {
     pulp::format::PluginDescriptor desc;
     REQUIRE_FALSE(desc.supports_ump);

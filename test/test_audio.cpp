@@ -80,6 +80,32 @@ TEST_CASE("BufferView non-owning", "[audio][buffer]") {
     REQUIRE(ch0[0] == 99.0f);
 }
 
+TEST_CASE("BufferView clears external storage and supports const access",
+          "[audio][buffer][issue-640]") {
+    float ch0[3] = {1.0f, -2.0f, 3.0f};
+    float ch1[3] = {4.0f, -5.0f, 6.0f};
+    float* ptrs[2] = {ch0, ch1};
+
+    BufferView<float> view(ptrs, 2, 3);
+    REQUIRE_FALSE(view.empty());
+    REQUIRE(view.channel_ptr(0) == ch0);
+    REQUIRE(view.channel_ptr(1) == ch1);
+
+    view.clear();
+
+    const BufferView<float>& const_view = view;
+    REQUIRE(const_view.num_channels() == 2);
+    REQUIRE(const_view.num_samples() == 3);
+    REQUIRE(const_view.channel_ptr(0) == ch0);
+    REQUIRE(const_view.channel(1).data() == ch1);
+
+    for (std::size_t ch = 0; ch < const_view.num_channels(); ++ch) {
+        for (auto sample : const_view.channel(ch)) {
+            REQUIRE(sample == 0.0f);
+        }
+    }
+}
+
 TEST_CASE("Buffer resize and views expose contiguous channel storage",
           "[audio][buffer][issue-640]") {
     Buffer<float> empty;
@@ -167,6 +193,47 @@ TEST_CASE("ChannelSet speaker names and equality are deterministic",
     renamed_stereo.speakers = {Speaker::FrontLeft, Speaker::FrontRight};
     REQUIRE(renamed_stereo == ChannelSet::stereo());
     REQUIRE_FALSE(ChannelSet::stereo() == ChannelSet::quad());
+}
+
+TEST_CASE("ChannelSet discrete layouts use unnamed speaker slots",
+          "[audio][channel-set][issue-640]") {
+    auto empty = ChannelSet::discrete(0);
+    REQUIRE(empty.name == "Discrete 0");
+    REQUIRE(empty.speakers.empty());
+
+    auto custom = ChannelSet::discrete(4);
+    REQUIRE(custom.name == "Discrete 4");
+    REQUIRE(custom.size() == 4);
+    for (auto speaker : custom.speakers) {
+        REQUIRE(speaker == Speaker::Discrete);
+    }
+    REQUIRE_FALSE(custom == ChannelSet::from_channel_count(4));
+}
+
+TEST_CASE("ChannelSet from_name matching is exact and defaults to stereo speakers",
+          "[audio][channel-set][issue-640]") {
+    REQUIRE(ChannelSet::from_name("stereo") == ChannelSet::discrete(2));
+    REQUIRE(ChannelSet::from_name(" Stereo") == ChannelSet::discrete(2));
+    REQUIRE(ChannelSet::from_name("") == ChannelSet::discrete(2));
+    REQUIRE(ChannelSet::from_name("7.1.4 ") == ChannelSet::discrete(2));
+}
+
+TEST_CASE("ChannelSet immersive layout preserves documented speaker order",
+          "[audio][channel-set][issue-640]") {
+    auto atmos = ChannelSet::surround_7_1_4();
+    REQUIRE(atmos.size() == 12);
+    REQUIRE(atmos.speakers[0] == Speaker::FrontLeft);
+    REQUIRE(atmos.speakers[1] == Speaker::FrontRight);
+    REQUIRE(atmos.speakers[2] == Speaker::FrontCenter);
+    REQUIRE(atmos.speakers[3] == Speaker::LFE);
+    REQUIRE(atmos.speakers[4] == Speaker::BackLeft);
+    REQUIRE(atmos.speakers[5] == Speaker::BackRight);
+    REQUIRE(atmos.speakers[6] == Speaker::SideLeft);
+    REQUIRE(atmos.speakers[7] == Speaker::SideRight);
+    REQUIRE(atmos.speakers[8] == Speaker::TopFrontLeft);
+    REQUIRE(atmos.speakers[9] == Speaker::TopFrontRight);
+    REQUIRE(atmos.speakers[10] == Speaker::TopBackLeft);
+    REQUIRE(atmos.speakers[11] == Speaker::TopBackRight);
 }
 
 #if defined(__APPLE__) && !TARGET_OS_IPHONE

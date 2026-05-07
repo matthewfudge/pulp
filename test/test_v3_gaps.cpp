@@ -277,8 +277,36 @@ TEST_CASE("HostType detect returns something", "[format][host]") {
 
 TEST_CASE("HostType names", "[format][host]") {
     REQUIRE(pulp::format::host_type_name(pulp::format::HostType::LogicPro) == "Logic Pro");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::GarageBand) == "GarageBand");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::AbletonLive) == "Ableton Live");
     REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Reaper) == "REAPER");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::ProTools) == "Pro Tools");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Cubase) == "Cubase");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Nuendo) == "Nuendo");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::StudioOne) == "Studio One");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::FLStudio) == "FL Studio");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Bitwig) == "Bitwig Studio");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Maschine) == "Maschine");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::AudacityTenacity) == "Audacity/Tenacity");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Ardour) == "Ardour");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Standalone) == "Pulp Standalone");
+    REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Other) == "Other");
     REQUIRE(pulp::format::host_type_name(pulp::format::HostType::Unknown) == "Unknown");
+    REQUIRE(pulp::format::host_type_name(static_cast<pulp::format::HostType>(999)) == "Unknown");
+}
+
+TEST_CASE("HostType capability policy exceptions", "[format][host]") {
+    using pulp::format::HostType;
+
+    REQUIRE_FALSE(pulp::format::host_supports_resize(HostType::GarageBand));
+    REQUIRE_FALSE(pulp::format::host_supports_resize(HostType::ProTools));
+    REQUIRE(pulp::format::host_supports_resize(HostType::LogicPro));
+    REQUIRE(pulp::format::host_supports_resize(HostType::Unknown));
+
+    REQUIRE_FALSE(pulp::format::host_supports_sidechain(HostType::GarageBand));
+    REQUIRE_FALSE(pulp::format::host_supports_sidechain(HostType::AudacityTenacity));
+    REQUIRE(pulp::format::host_supports_sidechain(HostType::ProTools));
+    REQUIRE(pulp::format::host_supports_sidechain(HostType::Unknown));
 }
 
 // ── Primes ──────────────────────────────────────────────────────────────
@@ -356,4 +384,44 @@ TEST_CASE("ExpressionEvaluator stateful", "[runtime][expression]") {
     auto result = eval.evaluate("freq * 2");
     REQUIRE(result.has_value());
     REQUIRE_THAT(*result, WithinAbs(880.0, 1e-10));
+}
+
+TEST_CASE("Expression handles numeric edge syntax and safe division", "[runtime][expression][issue-641]") {
+    REQUIRE_THAT(*pulp::runtime::evaluate("+1.5e2"), WithinAbs(150.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("6 / 0"), WithinAbs(0.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("2 +\n 3\t* 4"), WithinAbs(14.0, 1e-10));
+}
+
+TEST_CASE("Expression covers remaining built-in function branches", "[runtime][expression][issue-641]") {
+    REQUIRE_THAT(*pulp::runtime::evaluate("tan(0)"), WithinAbs(0.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("log(e)"), WithinAbs(1.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("log10(1000)"), WithinAbs(3.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("exp(0)"), WithinAbs(1.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("floor(3.9)"), WithinAbs(3.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("ceil(3.1)"), WithinAbs(4.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("round(3.5)"), WithinAbs(4.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("pow(2, 8)"), WithinAbs(256.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("clamp(12, 10)"), WithinAbs(10.0, 1e-10));
+    REQUIRE_THAT(*pulp::runtime::evaluate("clamp(-3, 10)"), WithinAbs(0.0, 1e-10));
+}
+
+TEST_CASE("Expression rejects malformed calls and trailing tokens", "[runtime][expression][issue-641]") {
+    REQUIRE_FALSE(pulp::runtime::evaluate("sqrt(16").has_value());
+    REQUIRE_FALSE(pulp::runtime::evaluate("unknown(1)").has_value());
+    REQUIRE_FALSE(pulp::runtime::evaluate("min(1)").has_value());
+    REQUIRE_FALSE(pulp::runtime::evaluate("1 2").has_value());
+}
+
+TEST_CASE("ExpressionEvaluator custom functions and clearing", "[runtime][expression][issue-641]") {
+    pulp::runtime::ExpressionEvaluator eval;
+    eval.set("x", 4.0);
+    eval.register_function("double_it", [](double value) { return value * 2.0; });
+
+    REQUIRE(eval.get("x").has_value());
+    REQUIRE_THAT(*eval.evaluate("double_it(x) + 1"), WithinAbs(9.0, 1e-10));
+
+    eval.clear_variables();
+    REQUIRE_FALSE(eval.get("x").has_value());
+    REQUIRE_FALSE(eval.evaluate("double_it(x)").has_value());
+    REQUIRE_THAT(*eval.evaluate("double_it(5)"), WithinAbs(10.0, 1e-10));
 }

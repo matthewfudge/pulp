@@ -117,6 +117,14 @@ fs::path touch_file(const fs::path& path) {
     return path;
 }
 
+std::string system_shell_tool_id() {
+#ifdef _WIN32
+    return "cmd.exe";
+#else
+    return "sh";
+#endif
+}
+
 std::string quote_json(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 2);
@@ -232,6 +240,51 @@ TEST_CASE("tool registry parses descriptors and reports malformed roots",
     REQUIRE(malformed.error == "Tool registry is not a valid JSON object");
 }
 
+TEST_CASE("tool registry accepts empty and partial descriptor shapes",
+          "[cli][tool-registry][issue-643]") {
+    TempDir tmp;
+
+    write_file(tmp.path / "empty-tools.json", R"({
+  "schema_version": 4
+}
+)");
+    auto empty_tools = load_tool_registry(tmp.path / "empty-tools.json");
+    REQUIRE(empty_tools.error.empty());
+    REQUIRE(empty_tools.registry.schema_version == 4);
+    REQUIRE(empty_tools.registry.tools.empty());
+
+    write_file(tmp.path / "array-tools.json", R"({
+  "schema_version": 5,
+  "tools": []
+}
+)");
+    auto array_tools = load_tool_registry(tmp.path / "array-tools.json");
+    REQUIRE(array_tools.error.empty());
+    REQUIRE(array_tools.registry.schema_version == 5);
+    REQUIRE(array_tools.registry.tools.empty());
+
+    write_file(tmp.path / "partial.json", std::string(R"({
+  "tools": {
+    "partial-tool": {
+      "binary_sources": {
+        ")") + quote_json(current_platform_key()) + R"(": {}
+      }
+    }
+  }
+}
+)");
+    auto partial = load_tool_registry(tmp.path / "partial.json");
+    REQUIRE(partial.error.empty());
+    REQUIRE(partial.registry.tools.size() == 1);
+    const auto& tool = partial.registry.tools.at("partial-tool");
+    REQUIRE(tool.id == "partial-tool");
+    REQUIRE(tool.display_name.empty());
+    REQUIRE(tool.managed_by_pulp);
+    REQUIRE_FALSE(tool.bundleable);
+    REQUIRE(tool.binary_sources.count(current_platform_key()) == 1);
+    REQUIRE(tool.binary_sources.at(current_platform_key()).binary_name.empty());
+}
+
 TEST_CASE("tool lookup prefers pulp-managed binaries and python wrappers",
           "[cli][tool-registry][locate][issue-643]") {
     TempDir tmp;
@@ -272,6 +325,13 @@ TEST_CASE("tool lookup prefers pulp-managed binaries and python wrappers",
     auto located_missing = locate_tool(missing);
     REQUIRE_FALSE(located_missing.found);
     REQUIRE(located_missing.source == "not-found");
+
+    ToolDescriptor system_shell;
+    system_shell.id = system_shell_tool_id();
+    auto located_system = locate_tool(system_shell);
+    REQUIRE(located_system.found);
+    REQUIRE(located_system.source == "system-path");
+    REQUIRE_FALSE(located_system.path.empty());
 }
 
 TEST_CASE("tool install helpers have deterministic local exits",
@@ -289,6 +349,32 @@ TEST_CASE("tool install helpers have deterministic local exits",
     REQUIRE(cached.ok);
     REQUIRE(cached.binary_path == cached_path);
     REQUIRE(cached.installed_version == existing.pinned_version);
+
+    ToolDescriptor cached_without_manifest = binary_tool("cached-no-manifest");
+    auto no_manifest_path = managed_binary_path(pulp_home(),
+                                                cached_without_manifest.id,
+                                                cached_without_manifest.pinned_version,
+                                                cached_without_manifest.id);
+    touch_file(no_manifest_path);
+    auto no_manifest = install_binary_tool(cached_without_manifest, /*force=*/false);
+    REQUIRE(no_manifest.ok);
+    REQUIRE(no_manifest.binary_path == no_manifest_path);
+
+    ToolDescriptor stale_manifest;
+    stale_manifest.id = "stale-manifest-tool";
+    stale_manifest.display_name = "Stale Manifest Tool";
+    stale_manifest.install_method = "binary_download";
+    stale_manifest.pinned_version = "2.0.0";
+    auto stale_path = managed_binary_path(pulp_home(), stale_manifest.id,
+                                          stale_manifest.pinned_version,
+                                          stale_manifest.id);
+    touch_file(stale_path);
+    write_file(stale_path.parent_path() / "manifest.json",
+               "{\"version\":\"1.0.0\",\"tool_id\":\"stale-manifest-tool\"}\n");
+    auto stale = install_binary_tool(stale_manifest, /*force=*/false);
+    REQUIRE_FALSE(stale.ok);
+    REQUIRE(stale.error.find(std::string("is not available for ") + current_platform_key()) !=
+            std::string::npos);
 
     ToolDescriptor unavailable;
     unavailable.id = "unavailable-tool";
@@ -330,6 +416,29 @@ TEST_CASE("tool install helpers have deterministic local exits",
     REQUIRE(existing_py.ok);
     REQUIRE(existing_py.binary_path == wrapper);
     REQUIRE(existing_py.installed_version == py.pinned_version);
+
+    ToolRegistry uv_unavailable;
+    ToolDescriptor uv_without_source;
+    uv_without_source.id = "uv";
+    uv_without_source.display_name = "UV";
+    uv_without_source.install_method = "binary_download";
+    uv_without_source.pinned_version = "9.9.9";
+    uv_unavailable.tools["uv"] = uv_without_source;
+    {
+        ScopedEnv path{"PATH", tmp.path / "empty-path"};
+        ScopedOutput output;
+        auto uv_bootstrap_failed = install_python_tool(py, uv_unavailable, /*force=*/false);
+        REQUIRE_FALSE(uv_bootstrap_failed.ok);
+        REQUIRE(output.out.str().find("Installing UV") != std::string::npos);
+        REQUIRE(uv_bootstrap_failed.error.find("Failed to install UV: UV is not available for ") ==
+                0);
+    }
+
+    fs::remove(wrapper);
+    auto missing_wrapper = install_python_tool(py, with_uv, /*force=*/false);
+    REQUIRE_FALSE(missing_wrapper.ok);
+    REQUIRE(missing_wrapper.binary_path == wrapper);
+    REQUIRE(missing_wrapper.installed_version == py.pinned_version);
 }
 
 TEST_CASE("tool uninstall removes managed binary and python tool roots",
@@ -415,6 +524,12 @@ TEST_CASE("tool command handles local list path doctor and error branches",
 
     {
         ScopedOutput output;
+        REQUIRE(cmd_tool({"path", "missing-cmd"}) == 1);
+        REQUIRE(output.err.str().find("Tool 'missing-cmd' not found") != std::string::npos);
+    }
+
+    {
+        ScopedOutput output;
         REQUIRE(cmd_tool({"doctor"}) == 1);
         REQUIRE(output.out.str().find("Managed Command") != std::string::npos);
         REQUIRE(output.out.str().find(std::string("not available for ") + platform) !=
@@ -468,5 +583,180 @@ TEST_CASE("tool command handles local list path doctor and error branches",
         ScopedOutput output;
         REQUIRE(cmd_tool({"unknown"}) == 1);
         REQUIRE(output.err.str().find("Unknown tool subcommand: unknown") != std::string::npos);
+    }
+}
+
+TEST_CASE("tool command reports and runs system path tools",
+          "[cli][tool-registry][command][issue-643]") {
+    TempDir tmp;
+    ScopedEnv home{"PULP_HOME", tmp.path / "home"};
+    fs::create_directories(tmp.path / "repo" / "tools" / "packages");
+    ScopedCurrentPath cwd{tmp.path / "repo"};
+
+    const auto shell_id = system_shell_tool_id();
+    write_file(tmp.path / "repo" / "tools" / "packages" / "tool-registry.json",
+               std::string(R"({
+  "schema_version": 1,
+  "tools": {
+    ")") + quote_json(shell_id) + R"(": {
+      "display_name": "System Shell",
+      "description": "Known shell on PATH",
+      "install_method": "binary_download",
+      "pinned_version": "1.0.0"
+    }
+  }
+}
+)");
+
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"list"}) == 0);
+        REQUIRE(output.out.str().find("system (") != std::string::npos);
+        REQUIRE(output.out.str().find(shell_id) != std::string::npos);
+    }
+
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"path", shell_id}) == 0);
+        REQUIRE(output.out.str().find(shell_id) != std::string::npos);
+    }
+
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"doctor"}) == 0);
+        REQUIRE(output.out.str().find("System Shell") != std::string::npos);
+        REQUIRE(output.out.str().find("system-path") != std::string::npos);
+    }
+
+    {
+        ScopedOutput output;
+#ifdef _WIN32
+        REQUIRE(cmd_tool({"run", shell_id, "/c",
+                          "echo tool-system-out&& echo tool-system-err 1>&2&& exit /b 7"}) == 7);
+#else
+        REQUIRE(cmd_tool({"run", shell_id, "-c",
+                          "printf tool-system-out; printf tool-system-err >&2; exit 7"}) == 7);
+#endif
+        REQUIRE(output.out.str().find("tool-system-out") != std::string::npos);
+        REQUIRE(output.err.str().find("tool-system-err") != std::string::npos);
+    }
+}
+
+TEST_CASE("tool command reports registry and argument failures deterministically",
+          "[cli][tool-registry][command][issue-643]") {
+    TempDir tmp;
+    ScopedEnv home{"PULP_HOME", tmp.path / "home"};
+    auto repo = tmp.path / "repo";
+    fs::create_directories(repo / "subdir");
+    ScopedCurrentPath cwd{repo / "subdir"};
+
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"list"}) == 1);
+        REQUIRE(output.err.str().find("Tool registry not found") != std::string::npos);
+    }
+
+    fs::create_directories(repo / "tools" / "packages");
+    write_file(repo / "tools" / "packages" / "tool-registry.json", "[]");
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"list"}) == 1);
+        REQUIRE(output.err.str().find("Tool registry is not a valid JSON object") !=
+                std::string::npos);
+    }
+
+    const auto platform = quote_json(current_platform_key());
+    write_file(repo / "tools" / "packages" / "tool-registry.json",
+               std::string(R"({
+  "schema_version": 1,
+  "tools": {
+    "needs-unavailable-dep": {
+      "display_name": "Needs Unavailable Dependency",
+      "description": "Dependency failure fixture",
+      "install_method": "binary_download",
+      "pinned_version": "1.0.0",
+      "requires_tools": ["unavailable-tool"],
+      "binary_sources": {
+        ")" + platform + R"(": {
+          "url_template": "https://example.invalid/needs-dep-${version}.tar.gz",
+          "archive_format": "tar.gz",
+          "binary_name": "needs-unavailable-dep"
+        }
+      }
+    },
+    "available-tool-fixture": {
+      "display_name": "Available Tool",
+      "description": "Available but not installed",
+      "install_method": "binary_download",
+      "pinned_version": "1.0.0",
+      "binary_sources": {
+        ")") + platform + R"(": {
+          "url_template": "https://example.invalid/available-${version}.tar.gz",
+          "archive_format": "tar.gz",
+          "binary_name": "available-tool-fixture"
+        }
+      }
+    },
+    "manual-tool": {
+      "display_name": "Manual Tool",
+      "description": "Unsupported install method fixture",
+      "install_method": "manual",
+      "pinned_version": "1.0.0"
+    },
+    "unavailable-tool": {
+      "display_name": "Unavailable Tool",
+      "description": "No source fixture",
+      "install_method": "binary_download",
+      "pinned_version": "1.0.0"
+    }
+  }
+}
+)");
+
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"path"}) == 1);
+        REQUIRE(output.err.str().find("Usage: pulp tool path") != std::string::npos);
+    }
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"uninstall"}) == 1);
+        REQUIRE(output.err.str().find("Usage: pulp tool uninstall") != std::string::npos);
+    }
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"doctor"}) == 1);
+        REQUIRE(output.out.str().find("Available Tool") != std::string::npos);
+        REQUIRE(output.out.str().find("not installed") != std::string::npos);
+        REQUIRE(output.out.str().find("Unavailable Tool") != std::string::npos);
+        REQUIRE(output.out.str().find(std::string("not available for ") + current_platform_key()) !=
+                std::string::npos);
+    }
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"install", "manual-tool"}) == 1);
+        REQUIRE(output.err.str().find("Unknown install method: manual") != std::string::npos);
+    }
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"install", "unavailable-tool"}) == 1);
+        REQUIRE(output.err.str().find(std::string("is not available for ") +
+                                      current_platform_key()) != std::string::npos);
+    }
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"install", "needs-unavailable-dep"}) == 1);
+        REQUIRE(output.err.str().find("Failed to install dependency unavailable-tool") !=
+                std::string::npos);
+    }
+    auto available_path = managed_binary_path(pulp_home(), "available-tool-fixture", "1.0.0",
+                                              "available-tool-fixture");
+    touch_file(available_path);
+    write_file(available_path.parent_path() / "manifest.json",
+               "{\"version\":\"1.0.0\",\"tool_id\":\"available-tool-fixture\"}\n");
+    {
+        ScopedOutput output;
+        REQUIRE(cmd_tool({"install", "--all"}) == 1);
+        REQUIRE(output.err.str().find("Unknown install method: manual") != std::string::npos);
     }
 }

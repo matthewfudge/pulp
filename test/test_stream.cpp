@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <pulp/runtime/named_pipe.hpp>
 #include <pulp/runtime/stream.hpp>
 
 #include <array>
@@ -11,6 +12,7 @@
 
 using pulp::runtime::FileStream;
 using pulp::runtime::MemoryStream;
+using pulp::runtime::NamedPipe;
 using pulp::runtime::Stream;
 using pulp::runtime::StreamError;
 using pulp::runtime::StreamResult;
@@ -77,6 +79,44 @@ TEST_CASE("MemoryStream close rejects further I/O", "[stream]") {
     REQUIRE(w.closed());
 }
 
+TEST_CASE("MemoryStream zero-size, rewind, and clear edge paths", "[stream]") {
+    MemoryStream s(std::vector<std::uint8_t>{7, 8, 9});
+    std::uint8_t out[3]{};
+
+    auto zero_read = s.read(out, 0);
+    REQUIRE(zero_read.ok());
+    REQUIRE(zero_read.bytes == 0);
+    REQUIRE(s.read_position() == 0);
+
+    auto first = s.read(out, 2);
+    REQUIRE(first.ok());
+    REQUIRE(first.bytes == 2);
+    REQUIRE(s.read_position() == 2);
+
+    s.rewind();
+    REQUIRE(s.read_position() == 0);
+    auto replay = s.read(out, sizeof(out));
+    REQUIRE(replay.ok());
+    REQUIRE(replay.bytes == 3);
+    REQUIRE(out[0] == 7);
+    REQUIRE(out[1] == 8);
+    REQUIRE(out[2] == 9);
+
+    const std::uint8_t payload[] = {1, 2};
+    auto zero_write = s.write(payload, 0);
+    REQUIRE(zero_write.ok());
+    REQUIRE(zero_write.bytes == 0);
+    REQUIRE(s.size() == 3);
+
+    s.clear();
+    REQUIRE(s.is_open());
+    REQUIRE(s.size() == 0);
+    REQUIRE(s.read_position() == 0);
+    auto eof = s.read(out, sizeof(out));
+    REQUIRE_FALSE(eof.ok());
+    REQUIRE(eof.closed());
+}
+
 TEST_CASE("FileStream round-trip via filesystem", "[stream]") {
     auto path = make_temp_path("pulp_stream");
     const std::uint8_t payload[] = {'p', 'u', 'l', 'p', 0, 1, 2, 3};
@@ -109,6 +149,41 @@ TEST_CASE("FileStream round-trip via filesystem", "[stream]") {
     std::filesystem::remove(path);
 }
 
+TEST_CASE("FileStream append and move keep handle ownership correct", "[stream]") {
+    auto path = make_temp_path("pulp_stream_append");
+    const std::uint8_t first[] = {'a', 'b'};
+    const std::uint8_t second[] = {'c', 'd', 'e'};
+
+    {
+        FileStream w(path.string(), FileStream::Mode::Write);
+        REQUIRE(w.write(first, sizeof(first)).bytes == sizeof(first));
+        REQUIRE(w.flush());
+    }
+
+    {
+        FileStream appender(path.string(), FileStream::Mode::Append);
+        REQUIRE(appender.is_open());
+        FileStream moved(std::move(appender));
+        REQUIRE_FALSE(appender.is_open());
+        REQUIRE(moved.is_open());
+        auto wrote = moved.write(second, sizeof(second));
+        REQUIRE(wrote.ok());
+        REQUIRE(wrote.bytes == sizeof(second));
+        REQUIRE(moved.flush());
+    }
+
+    {
+        FileStream r(path.string(), FileStream::Mode::Read);
+        std::uint8_t out[sizeof(first) + sizeof(second)]{};
+        auto got = r.read(out, sizeof(out));
+        REQUIRE(got.ok());
+        REQUIRE(got.bytes == sizeof(out));
+        REQUIRE(std::memcmp(out, "abcde", sizeof(out)) == 0);
+    }
+
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("FileStream open failure leaves stream closed", "[stream]") {
     FileStream s;
     REQUIRE_FALSE(s.open("/definitely/not/a/real/path/pulp_stream_test.bin",
@@ -135,3 +210,107 @@ TEST_CASE("Stream polymorphic usage", "[stream]") {
     REQUIRE(r.bytes == std::strlen(msg));
     REQUIRE(std::memcmp(buf.data(), msg, std::strlen(msg)) == 0);
 }
+
+TEST_CASE("NamedPipe closed and missing endpoints fail closed", "[stream][named_pipe][issue-641]") {
+    NamedPipe pipe;
+    REQUIRE_FALSE(pipe.is_open());
+
+    std::uint8_t buf[4]{};
+    REQUIRE(pipe.read(buf, sizeof(buf)) == -1);
+    REQUIRE(pipe.write(buf, sizeof(buf)) == -1);
+    REQUIRE(pipe.write(std::string_view{"closed"}) == -1);
+    REQUIRE_FALSE(pipe.read_string(8).has_value());
+    pipe.close();
+    REQUIRE_FALSE(pipe.is_open());
+
+    auto missing = make_temp_path("pulp_missing_pipe");
+    std::filesystem::remove(missing);
+    REQUIRE_FALSE(pipe.connect_client(missing.string()));
+    REQUIRE_FALSE(pipe.is_open());
+    REQUIRE(pipe.read(buf, sizeof(buf)) == -1);
+}
+
+#ifndef _WIN32
+TEST_CASE("NamedPipe POSIX FIFO round-trips bytes and unlinks on close",
+          "[stream][named_pipe][issue-641]") {
+    auto path = make_temp_path("pulp_named_pipe_roundtrip");
+    std::filesystem::remove(path);
+
+    NamedPipe server;
+    REQUIRE(server.create_server(path.string()));
+    REQUIRE(server.is_open());
+    REQUIRE(std::filesystem::exists(path));
+
+    NamedPipe client;
+    REQUIRE(client.connect_client(path.string()));
+    REQUIRE(client.is_open());
+
+    REQUIRE(server.write(std::string_view{"ping"}) == 4);
+    auto from_server = client.read_string(16);
+    REQUIRE(from_server.has_value());
+    REQUIRE(*from_server == "ping");
+
+    const std::uint8_t reply[] = {'p', 'o', 'n', 'g'};
+    REQUIRE(client.write(reply, sizeof(reply)) == static_cast<int>(sizeof(reply)));
+
+    std::array<std::uint8_t, sizeof(reply)> got{};
+    REQUIRE(server.read(got.data(), got.size()) == static_cast<int>(got.size()));
+    REQUIRE(std::memcmp(got.data(), reply, got.size()) == 0);
+
+    client.close();
+    REQUIRE_FALSE(client.is_open());
+    REQUIRE(std::filesystem::exists(path));
+
+    server.close();
+    REQUIRE_FALSE(server.is_open());
+    REQUIRE_FALSE(std::filesystem::exists(path));
+}
+
+TEST_CASE("NamedPipe POSIX move transfers FIFO cleanup ownership",
+          "[stream][named_pipe][issue-641]") {
+    auto first = make_temp_path("pulp_named_pipe_move_first");
+    auto second = make_temp_path("pulp_named_pipe_move_second");
+    std::filesystem::remove(first);
+    std::filesystem::remove(second);
+
+    NamedPipe original;
+    REQUIRE(original.create_server(first.string()));
+    REQUIRE(std::filesystem::exists(first));
+
+    NamedPipe moved(std::move(original));
+    REQUIRE_FALSE(original.is_open());
+    REQUIRE(moved.is_open());
+    REQUIRE(std::filesystem::exists(first));
+
+    NamedPipe replacement;
+    REQUIRE(replacement.create_server(second.string()));
+    REQUIRE(std::filesystem::exists(second));
+
+    moved = std::move(replacement);
+    REQUIRE_FALSE(replacement.is_open());
+    REQUIRE(moved.is_open());
+    REQUIRE_FALSE(std::filesystem::exists(first));
+    REQUIRE(std::filesystem::exists(second));
+
+    moved.close();
+    REQUIRE_FALSE(moved.is_open());
+    REQUIRE_FALSE(std::filesystem::exists(second));
+}
+
+TEST_CASE("NamedPipe POSIX create failure leaves pipe closed",
+          "[stream][named_pipe][issue-641]") {
+    auto directory = make_temp_path("pulp_named_pipe_directory_collision");
+    std::filesystem::remove(directory);
+    std::filesystem::create_directory(directory);
+
+    NamedPipe pipe;
+    REQUIRE_FALSE(pipe.create_server(directory.string()));
+    REQUIRE_FALSE(pipe.is_open());
+
+    std::uint8_t buf[1]{};
+    REQUIRE(pipe.read(buf, sizeof(buf)) == -1);
+    REQUIRE(pipe.write(buf, sizeof(buf)) == -1);
+    pipe.close();
+    std::filesystem::remove(directory);
+}
+#endif
