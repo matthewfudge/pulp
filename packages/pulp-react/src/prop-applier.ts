@@ -574,6 +574,42 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         // installs the dash effect for `dashed` / `dotted`; other
         // named styles currently degrade to solid.
         case 'borderStyle':  return call('setBorderStyle', id, value as string);
+        // pulp #1514 — list-style cluster. Pulp doesn't model
+        // <li>/<ul>/<ol> semantics, so the bridge stores the value
+        // verbatim on the View and a future paint pass renders the
+        // marker. Today the catalog is `partial` (stored, not
+        // painted). The shorthand `listStyle` parses on the JS side
+        // into the 3 longhands; consumers MAY emit any combo of
+        // type / position / image keywords (CSS spec: any order).
+        case 'listStyle': {
+            const sval = String(value).trim();
+            const tokens = sval.split(/\s+/);
+            const typeSet: Record<string, true> = {
+                none: true, disc: true, circle: true, square: true, decimal: true,
+            };
+            const posSet: Record<string, true> = { inside: true, outside: true };
+            let sawType = false, sawImage = false;
+            for (const tok of tokens) {
+                if (tok.indexOf('url(') === 0) {
+                    call('setListStyleImage', id, tok);
+                    sawImage = true;
+                } else if (posSet[tok]) {
+                    call('setListStylePosition', id, tok);
+                } else if (typeSet[tok]) {
+                    if (tok === 'none' && sawType && !sawImage) {
+                        call('setListStyleImage', id, 'none');
+                        sawImage = true;
+                    } else {
+                        call('setListStyleType', id, tok);
+                        sawType = true;
+                    }
+                }
+            }
+            return;
+        }
+        case 'listStyleType':     return call('setListStyleType', id, value as string);
+        case 'listStyleImage':    return call('setListStyleImage', id, value as string);
+        case 'listStylePosition': return call('setListStylePosition', id, value as string);
         case 'borderTop':    { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'top', b.width, b.color); }
         case 'borderRight':  { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'right', b.width, b.color); }
         case 'borderBottom': { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'bottom', b.width, b.color); }
@@ -664,6 +700,12 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         // Accepts the CSS keyword strings ('hidden' / 'visible' /
         // 'scroll' / 'auto'); bridge maps to View::Overflow enum.
         case 'overflow':     return call('setOverflow', id, value as string);
+        // pulp #1516 — CSS box-sizing. Yoga 3.x honors the spec via
+        // YGNodeStyleSetBoxSizing; consumers passing JSX
+        // `boxSizing: 'border-box'` get the standard
+        // "padding+border are inside declared dimensions" behavior.
+        // Web designs almost universally reset to `border-box`.
+        case 'boxSizing':    return call('setBoxSizing', id, value as string);
 
         // pulp #1434 Phase A2-3 — writing direction (RN ViewStyle uses
         // `writingDirection` for this — CSS uses `direction`, but the
@@ -796,58 +838,6 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         case 'pointerEvents':      return call('setPointerEvents', id, value as string);
         case 'textTransform':      return call('setTextTransform', id, value as string);
         case 'userSelect':         return call('setUserSelect', id, value as string);
-        // pulp #1547 — RN textDecoration cluster. Bridge has had the
-        // three setters (setTextDecoration / setTextDecorationColor /
-        // setTextDecorationStyle) registered for #1434; the gap was
-        // purely on the @pulp/react JSX dispatch.
-        //
-        // RN spec accepts compound multi-line values like
-        // 'underline line-through', 'underline overline',
-        // 'overline line-through', and 'underline overline line-through'.
-        // The C++ bridge setter only recognizes single tokens
-        // (underline | line-through | overline | none) and falls back
-        // to none for anything it does not recognize — so forwarding
-        // the raw compound string would render as no decoration.
-        //
-        // Codex post-merge audit (PR #1564, finding 3197006008):
-        // normalize the compound form on the JS side by picking the
-        // first single token in the supported set. The bridge today
-        // honors only one decoration line; this is the closest
-        // approximation that still renders something. When the bridge
-        // grows compound support this path can pass the raw value
-        // straight through.
-        case 'textDecorationLine': {
-            const v = String(value);
-            if (v === 'none' || v === 'underline' || v === 'line-through' || v === 'overline') {
-                return call('setTextDecoration', id, v);
-            }
-            // Compound RN form (e.g. 'underline line-through'). Split on
-            // whitespace and dispatch the first recognized single token;
-            // fall back to 'none' if the value is unrecognizable so the
-            // bridge clears any prior decoration deterministically.
-            const first = v.split(/\s+/).find(
-                (s) => s === 'underline' || s === 'line-through' || s === 'overline',
-            );
-            return call('setTextDecoration', id, first ?? 'none');
-        }
-        case 'textDecorationColor': return call('setTextDecorationColor', id, value as string);
-        case 'textDecorationStyle': return call('setTextDecorationStyle', id, value as string);
-        // pulp #1547 — RN textAlignVertical (Android-only in RN, no
-        // CSS analogue). RN's spec applies WITHIN a text container,
-        // but pulp's flex-only model has no inline text-block concept,
-        // so we map to the closest semantic — alignItems on the
-        // owning View. This gives a flex-container the same visual
-        // top/center/bottom alignment for its single text child.
-        // 'auto' clears the slot (Yoga inherits from align_items default).
-        case 'textAlignVertical': {
-            const v = value as string;
-            const mapped =
-                v === 'top'    ? 'flex-start' :
-                v === 'bottom' ? 'flex-end'   :
-                v === 'center' ? 'center'     :
-                v === 'auto'   ? 'auto'       : v;
-            return call('setFlex', id, 'align_items', mapped);
-        }
         // transformOrigin accepts CSS strings of the form `'NN% NN%'`,
         // `'NNpx NNpx'`, `'center'`, or two keyword tokens. The bridge
         // wants two numeric fractions (0..1). Defaults to 0.5/0.5
@@ -931,6 +921,18 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         case 'fontStyle':       return call('setFontStyle', id, value as string);
         case 'letterSpacing':   return call('setLetterSpacing', id, value as number);
         case 'lineHeight':      return call('setLineHeight', id, value as number);
+        // pulp #1552 — line-clamp + webkit-line-clamp + background-repeat
+        // wiring. Both line-clamp keys funnel through the same setter
+        // (shared CSS shim case + RN-style alias). 0 / non-finite clears
+        // the slot. backgroundRepeat is storage-only at the View layer
+        // (paint-time honoring is a follow-up for url() / repeating
+        // gradient backgrounds).
+        case 'lineClamp':
+        case 'webkitLineClamp': {
+            const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+            return call('setLineClamp', id, Number.isFinite(n) ? n : 0);
+        }
+        case 'backgroundRepeat': return call('setBackgroundRepeat', id, value as string);
 
         // Widget-specific data
         case 'data':

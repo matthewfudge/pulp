@@ -20,11 +20,11 @@ across layout, box-model, typography, color, transforms, transitions,
 animations, gradients, flex, grid, and basic SVG. Print and paged-media
 specifics are out of scope.
 
-## Counts (2026-05-04)
+## Counts (2026-05-06)
 
 | Status | Count |
 |--------|------:|
-| supported | ~75 |
+| supported | ~88 |
 | partial | ~30 |
 | missing | ~60 |
 | wontfix | ~30 |
@@ -51,6 +51,98 @@ specifics are out of scope.
   Skia paragraph_style.setTextDirection at text shape is the
   remaining piece — landing alongside the SkParagraph integration
   in a follow-up.
+- **2026-05-06 (pulp #1514)** — `css/listStyle` cluster (4 entries)
+  flipped `missing` → `partial`. New `View::ListStyleType` enum
+  (`none` / `disc` / `circle` / `square` / `decimal`),
+  `View::ListStylePosition` enum (`outside` / `inside`), and a
+  `list_style_image_` URL slot. Three new bridge fns —
+  `setListStyleType`, `setListStyleImage`, `setListStylePosition`.
+  The CSS shim parses the `list-style` shorthand into the 3
+  longhands (any token order: type / position / image). The
+  `@pulp/react` prop-applier exposes the same 4 props with the
+  same shorthand parser. The catalog status is `partial`, not
+  `supported`, because pulp doesn't model `<li>` / `<ul>` /
+  `<ol>` semantics yet — values round-trip to View slots but
+  marker glyphs aren't painted today (and `decimal` additionally
+  needs sibling-index resolution from the parent's children).
+  Marker glyph rendering is the follow-up. css drift -4.
+- **2026-05-06 (pulp #1516)** — `css/boxSizing` flipped from `missing`
+  to `supported`. The JS shim already called `setBoxSizing` if the
+  bridge fn existed, but the bridge never registered it — so every
+  `box-sizing: border-box` declaration silently dropped. This PR adds
+  the bridge fn (`setBoxSizing(id, kw)`), routes it through
+  `FlexStyle::box_sizing`, and wires `YGNodeStyleSetBoxSizing` in
+  `build_yoga_subtree`. Default is `border-box` (matches Yoga 3.x's
+  own default + pulp's implicit pre-fix behavior + what every modern
+  web design expects via `* { box-sizing: border-box }`).
+  `content-box` is opt-in for CSS-spec semantics. High-leverage for
+  design imports — Figma / v0 / Claude Design HTML often emit
+  explicit `boxSizing` declarations that previously vanished.
+- **2026-05-06 (pulp #1552)** — `line-clamp` / `-webkit-line-clamp` /
+  `background-repeat` wired end-to-end. `setLineClamp` and
+  `setBackgroundRepeat` now register in `widget_bridge.cpp`; the JS
+  shim cases that already routed through them (and the matching
+  `@pulp/react` prop-applier dispatch) now reach C++. Label grew a
+  `line_clamp_` slot; `paint()` emits at most N lines and appends
+  U+2026 to the last visible line if any source lines were dropped.
+  Setting `line-clamp >= 1` implicitly enables `multi_line_` so the
+  paint path takes the multi-line branch (without that, the
+  single-line path runs and the clamp is a no-op). View grew
+  `background_repeat_` (storage-only — paint-time honoring lands
+  with the `background-image: url(...)` / repeating-gradient work).
+  Reclassified `css/lineClamp` and `css/webkitLineClamp` to
+  `supported`; `css/backgroundRepeat` stays `partial` with the
+  honest "storage-only" caveat.
+- **2026-05-06 (pulp #1551)** — Phase A3 Bundle 3 inside the
+  `pulp #1434` umbrella: 13 already-implemented CSS features
+  promoted to first-class catalog entries. Pure catalog add — no
+  code changes — documenting the existing wiring in
+  `core/view/js/web-compat-document.js`,
+  `core/view/js/web-compat-style-decl.js`,
+  `core/view/js/css-parser.js`, and
+  `core/view/js/web-compat.js`. New entries:
+  * Pseudo-classes (4): `css/__pseudo_hover`,
+    `css/__pseudo_focus`, `css/__pseudo_active`,
+    `css/__pseudo_disabled` — wired via
+    `_setupPseudoHover` / `_setupPseudoFocus` /
+    `_setupPseudoActive` and the `:disabled` branch in
+    `StyleSheet._applyTo` (web-compat-document.js).
+  * Structural selectors (5): `css/__selector_tag`,
+    `css/__selector_id`, `css/__selector_class`,
+    `css/__selector_descendant`, `css/__selector_child` —
+    `_parseSelector` and `_matchesSelector` cover tag, id,
+    class, descendant ` `, and child `>` combinators.
+  * `css/__matchMedia` — `window.matchMedia()` returning a
+    MediaQueryList shim, evaluated by `_matchMediaQuery`
+    (min/max-width, min/max-height, orientation).
+  * `css/__var` and `css/__setProperty_var` — `var(--name)`
+    resolution via `_resolveVar` against the bridge motion-token
+    namespace; `style.setProperty('--name', value)` writes
+    through to the same namespace via `setMotionToken` /
+    `applyTokenDiff`.
+  * `css/__StyleSheet` — full attach/detach engine covering both
+    JS-API (`new StyleSheet(...)`) and `<style>` text input
+    (parsed via `_parseCssText`).
+  Counts: `css` raw entries `199 → 212` (+13 instant supported);
+  the existing partial `css/__hover_pseudo` and missing
+  `css/__pseudo_classes_note` triage notes are kept in place but
+  superseded by the per-pseudo-class entries.
+- **2026-05-06 (pulp #1434 Phase A2-4)** — `css/filter` extended from
+  `blur(Npx)`-only to the full CSS Filter Effects function set:
+  `blur` / `brightness` / `contrast` / `grayscale` / `hue-rotate` /
+  `invert` / `opacity` / `saturate` / `sepia` / `drop-shadow`, plus
+  chained functions in source order and `'none'` to clear. `setFilter`
+  parses the function-call sequence into `View::FilterOp[]`;
+  `view.cpp` paint dispatches via the new
+  `canvas.save_layer_with_filters(...)` API; Skia composes the chain
+  via `SkImageFilters::Compose` + `SkColorFilters::Matrix` (color
+  matrices for brightness/contrast/grayscale/hue-rotate/invert/
+  saturate/sepia, native `Blur` / `DropShadow` for those). Angle
+  units `deg` / `rad` / `turn` / `grad` all parsed. CG canvas backend
+  currently degrades the chain to blur-only collapse (color-matrix
+  equivalents on CIFilter are a follow-up). Reclassified DIVERGE →
+  PASS. The Skia ImageFilter chain is the same primitive Pulp uses
+  for `boxShadow` (#925), so reusing rather than reinventing.
 - **2026-05-06 (pulp #1528)** — Eight CSS entries reclassified `wontfix` /
   `missing` → `noop` (silently accepted, no paint impact in pulp's
   non-scrolling / hint-free model). The entries split into two clusters:
