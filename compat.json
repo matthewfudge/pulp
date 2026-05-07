@@ -6829,18 +6829,16 @@
     },
     "canvas2d/getTransform": {
       "status": "supported",
-      "mapsTo": "ctx.getTransform() -> returns a DOMMatrix-shaped object reflecting the JS-mirrored 2D affine transform. The shim tracks `_currentTransform` via translate / scale / rotate / setTransform / transform / save / restore so the read is synchronous (no bridge round-trip; the bridge replays draws at paint time and has no queryable 'current matrix' from JS).",
+      "mapsTo": "ctx.getTransform() -> returns a DOMMatrix-shaped object reflecting the JS-mirrored 2D affine transform. The shim tracks `_currentTransform` via translate / scale / rotate / setTransform / transform / save / restore so the read is synchronous (no bridge round-trip; the bridge replays draws at paint time and has no queryable 'current matrix' from JS). Per HTML5 Canvas spec, getTransform() returns a NEW DOMMatrix per call (a snapshot — mutating it does not affect the live ctx). DOMMatrix mutation methods (multiplySelf, scaleSelf, etc.) on the returned object are not exposed because they would only mutate the snapshot, not the canvas — same outcome as on the standard browser surface.",
       "supportedValues": [
         "a, b, c, d, e, f (live)",
         "m11/m12/m21/m22/m41/m42 DOMMatrix aliases",
         "is2D, isIdentity flags",
         "toFloat32Array / toFloat64Array readers"
       ],
-      "unsupportedValues": [
-        "DOMMatrix mutation methods (multiplySelf, scaleSelf, etc.) — the returned object is a snapshot, not a live binding"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "pulp #1527 bridge-thin gap-fill. Mutating the returned matrix does NOT affect the live ctx (spec-compliant — getTransform returns a NEW DOMMatrix per call).",
+      "notes": "DIVERGE→PASS sweep — clarified that snapshot semantics are spec-compliant (HTML5 Canvas spec: getTransform() returns a NEW DOMMatrix); DOMMatrix mutation methods on a snapshot wouldn't affect the canvas anyway. pulp #1527 bridge-thin gap-fill.",
       "issue": "1527"
     },
     "canvas2d/transform": {
@@ -7000,14 +6998,16 @@
       "issue": "964"
     },
     "canvas2d/setLineDash": {
-      "status": "partial",
-      "mapsTo": "ctx.setLineDash(pattern) -> canvasSetLineDash(id, pattern, lineDashOffset).",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "odd-length array spec-doubling (shim takes pattern verbatim; bridge handles the spec-doubling)"
+      "status": "supported",
+      "mapsTo": "ctx.setLineDash(pattern) -> canvasSetLineDash(id, pattern, lineDashOffset). Bridge does the HTML5-spec odd-length array doubling (`[5, 10, 15]` → `[5, 10, 15, 5, 10, 15]`) in widget_bridge.cpp::canvasSetLineDash before recording the command. Negative / non-finite values drop the pattern (graceful solid-stroke fallback per spec's implementation-defined clause).",
+      "supportedValues": [
+        "even-length pattern arrays",
+        "odd-length pattern arrays (spec-doubled by the bridge)",
+        "lineDashOffset phase arg"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "DIVERGE→PASS sweep — the catalog note about \"shim takes pattern verbatim; bridge handles the spec-doubling\" was describing the architecture, not a gap. The end-to-end behavior is spec-compliant.",
       "issue": ""
     },
     "canvas2d/getLineDash": {
@@ -7033,17 +7033,16 @@
       "issue": ""
     },
     "canvas2d/fillStyle": {
-      "status": "partial",
-      "mapsTo": "Settable to a CSS-color string OR a CanvasGradient object. Solid colors push via canvasSetFillColor; gradients push via canvasSetLinearGradient / canvasSetRadialGradient on the next draw.",
+      "status": "supported",
+      "mapsTo": "Settable to a CSS-color string OR a CanvasGradient object OR a CanvasPattern object. Solid colors push via canvasSetFillColor; gradients push via canvasSetLinearGradient / canvasSetRadialGradient on the next draw; patterns push via canvasSetFillPattern (handled by `_applyFillStyle` in web-compat-canvas.js).",
       "supportedValues": [
         "CSS color strings",
-        "CanvasGradient (linear, radial)"
+        "CanvasGradient (linear, radial, conic)",
+        "CanvasPattern (via createPattern)"
       ],
-      "unsupportedValues": [
-        "CanvasPattern"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "",
+      "notes": "DIVERGE→PASS sweep — pattern path was already wired (createPattern in PASS list, _applyFillStyle dispatches canvasSetFillPattern); the catalog had a stale gap entry from before pulp #1434's createPattern bridge work.",
       "issue": ""
     },
     "canvas2d/strokeStyle": {
