@@ -364,11 +364,11 @@ that passes Pulp's CI matrix. Use `shipyard pin bump --to vX.Y.Z`
 instead of hand-editing `tools/shipyard.toml`; the helper owns the pin
 edit and worktree-safety checks.
 
-The two tools cover the same target matrix (mac local + Linux SSH +
-Windows SSH + Namespace cloud) and accept the same `--base` flag for
-develop branches. Shipyard adds evidence-gated merge that checks
-per-platform proof for the exact merge-candidate SHA, which is stricter
-than `local_ci.py`'s `job.passed` check.
+The two tools cover the same target matrix (mac local + GitHub-hosted
+Linux/Windows; legacy SSH targets only when explicitly requested) and accept
+the same `--base` flag for develop branches. Shipyard adds evidence-gated
+merge that checks per-platform proof for the exact merge-candidate SHA, which
+is stricter than `local_ci.py`'s `job.passed` check.
 
 ## Prerequisites Check
 
@@ -386,8 +386,9 @@ test -f "$HOME/Library/Application Support/Pulp/local-ci/config.json" || echo "W
 # Fallback (worktree-local legacy config)
 test -f tools/local-ci/config.json || echo "WARNING: no worktree fallback config.json"
 
-# CRITICAL: Verify Namespace is the default cloud provider
-python3 tools/local-ci/local_ci.py cloud defaults 2>/dev/null | grep -q "default provider: namespace" || echo "WARNING: Namespace is not the default provider — run: python3 tools/local-ci/local_ci.py cloud defaults"
+# Verify GitHub Actions runner routing. Namespace is decommissioned.
+gh variable list -R danielraffel/pulp | grep -q '^PULP_DEFAULT_RUNNER_PROVIDER[[:space:]]*github-hosted' || echo "WARNING: PULP_DEFAULT_RUNNER_PROVIDER should be github-hosted"
+gh variable list -R danielraffel/pulp | grep -q '^PULP_LOCAL_MACOS_RUNS_ON_JSON' || echo "WARNING: PULP_LOCAL_MACOS_RUNS_ON_JSON is missing; macOS build will use hosted macos-15"
 ```
 
 If `local_ci.py` doesn't exist, the user likely has an older checkout. Tell them to pull latest main.
@@ -426,21 +427,6 @@ calling the wrapper; the default `docker` driver on that image rejects
 The container is a reproducible smoke/developer environment. It does not
 replace the future canonical arm64-darwin raster-golden gate.
 
-**If Namespace is not the default provider**, the config needs to be updated. The shared config at `~/Library/Application Support/Pulp/local-ci/config.json` must include:
-
-```json
-{
-  "github_actions": {
-    "defaults": {
-      "provider": "namespace",
-      "workflow": "build"
-    }
-  }
-}
-```
-
-This ensures all cloud CI dispatches use Namespace by default. Without this, the system falls back to slow GitHub-hosted runners. Verify with `python3 tools/local-ci/local_ci.py cloud defaults` — it should show `configured default provider: namespace`.
-
 ## Language Correction
 
 **IMPORTANT**: When a user says "push to main", "merge to main", or "land this", ALWAYS correct them:
@@ -451,11 +437,12 @@ Then proceed with the `ship` workflow below.
 
 ## Runner Priority (hard rule)
 
-**Namespace is the default runner provider** for all three platform legs
-(Linux, Windows, macOS) as of 2026-04-24. Every PR-triggered or manually
-dispatched `build.yml` run routes to Namespace unless explicitly overridden.
-GitHub-hosted is the explicit opt-out for the rare case where a specific
-lane needs to be validated on GHA infrastructure.
+**GitHub-hosted is the default runner provider** for Linux and Windows.
+macOS routes to the local self-hosted runner through
+`PULP_LOCAL_MACOS_RUNS_ON_JSON` when that repo variable is set; this is the
+only branch-protection blocker on `main`. Namespace is decommissioned: do not
+use `--mode namespace`, do not set `PULP_NAMESPACE_*_RUNS_ON_JSON`, and do not
+redispatch PRs to Namespace.
 
 The default chain (`.github/workflows/build.yml` `resolve-provider` job):
 
@@ -463,35 +450,27 @@ The default chain (`.github/workflows/build.yml` `resolve-provider` job):
 REQUESTED_PROVIDER:
   ${{ inputs.runner_provider             # explicit workflow_dispatch input
    || vars.PULP_DEFAULT_RUNNER_PROVIDER  # repo-level override
-   || 'namespace' }}                     # hardcoded fallback
+   || 'github-hosted' }}                 # hardcoded fallback
 ```
 
 Priority order:
-1. **Namespace (default)** — no action required; PR opens or pushes use it automatically.
-2. **Local SSH VMs** — used by `shipyard ship` directly (`ssh ubuntu`, `ssh-windows`). Useful for fast feedback when Namespace is slow or for reproducing bugs interactively.
-3. **GitHub-hosted** — last resort; explicitly request with `-f runner_provider=github-hosted` if you need to compare behaviour against GHA-specific environment quirks.
+1. **macOS local GitHub runner** — `build.yml` reads `PULP_LOCAL_MACOS_RUNS_ON_JSON` into `EXPLICIT_MACOS_RUNNER_SELECTOR_JSON`; with the usual value `["self-hosted","sanitizer"]`, the macOS build uses Daniels-MacBook-Pro.
+2. **GitHub-hosted Linux/Windows** — advisory; failures should be filed as platform issues and should not block a macOS-focused merge.
+3. **Legacy SSH targets** — only when the user explicitly asks. Do not use `ssh ubuntu` or `ssh win` by default.
 
-**No more cancel-and-redispatch ritual.** Before 2026-04-24 agents had to
-cancel the auto-triggered github-hosted run and re-dispatch with
-`-f runner_provider=namespace`. That muscle memory is now obsolete — the
-first PR-triggered run is already Namespace-backed.
-
-**Historical override (removed on 2026-04-24)**: The `resolve-provider`
-job previously hardcoded Windows to `github-hosted` on `pull_request`
-events because Namespace Windows capacity was intermittently
-unavailable. That override is gone. If Namespace Windows capacity
-regresses and PRs start blocking, re-introduce the override via a
-short-lived PR rather than leaving it in-tree; revert once capacity is
-restored.
+The `resolve_runs_on.py` optional-namespace mode must still honor explicit
+selectors before checking `REQUESTED_PROVIDER`. Otherwise the local macOS repo
+variable is ignored when the provider is `github-hosted`, and the required
+`macos` gate falls back to hosted `macos-15`.
 
 ### Overrides when you need them
 
-- **Dispatch a specific run on github-hosted** (comparing behaviour, reproducing a GHA-specific bug):
+- **Dispatch a specific run on github-hosted** (normal Linux/Windows path, or comparing hosted macOS behaviour):
   ```bash
   gh workflow run build.yml --repo danielraffel/pulp --ref <branch> -f runner_provider=github-hosted
   ```
-- **Pin to a specific Namespace runner selector** (larger instance, arm64, etc.): pass the per-OS `linux_runner_selector_json` / `windows_runner_selector_json` / `macos_runner_selector_json` workflow_dispatch inputs.
-- **Via `shipyard cloud run`**: same dispatch path. `shipyard cloud run build <branch>` picks up `[cloud] provider = namespace` from `.shipyard/config.toml` and fires the workflow with the matching provider input.
+- **Pin macOS to a local runner selector**: set `PULP_LOCAL_MACOS_RUNS_ON_JSON` at the repo level, or pass `macos_runner_selector_json` on a manual dispatch. Keep the selector compatible with the runner labels (`self-hosted`, `sanitizer`).
+- **Do not use Namespace overrides**: any remaining Namespace variable or mode is stale configuration and should be removed rather than worked around.
 
 ## Commands
 
