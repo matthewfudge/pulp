@@ -47,6 +47,35 @@ once `maxWidth` was plumbed end-to-end and `strokeText` got its own
 dedicated bridge command (true outlined-glyph rendering, not the
 pre-#1525 fillText-with-stroke-color approximation).
 
+## Wave 1 paperwork (2026-05-07)
+
+Catalog/oracle gotcha hygiene only; no JS or C++ source change. Drift
+count dropped from 1 → 0 on the canvas2d surface.
+
+- **`canvas2d/arc`** — flipped `partial` → `supported` (PR #1348 wired
+  path-mode arc as cubic-bezier segments via `canvasPathArc`; the
+  per-quadrant bezier approximation is visually exact for fill / stroke /
+  clip use cases — the harness already verified PASS against the oracle).
+- **Tracked-deferred gotcha annotations (5 entries — stay DIVERGE
+  per oracle expectedStatus, but read as tracked rather than drift):**
+  - `isPointInPath`, `isPointInStroke` — bridge-thin gap-fill (pulp
+    #1527); synchronous JS-side ray-cast / closest-point on the path
+    mirror.
+  - `transform` — strict concat semantics deferred (PR #1348);
+    pure-translation fast path covers the common case.
+  - `lineDashOffset` — minor edge case; file follow-up if observable.
+  - `setLineDash` — HTML5-spec odd-length doubling done internally
+    by `canvasSetLineDash` before recording.
+- **Architectural reclassification (4 entries):**
+  - `font` `small-caps` — `arch-pipeline-limit` (Canvas::set_font_full
+    has no variant field; Skia/CG fonts in the canvas pipeline don't
+    expose OpenType features at this layer).
+  - `fillStyle` CanvasPattern — wiring confirmed via createPattern +
+    `_applyFillStyle` / `canvasSetFillPattern` (#1625 finding).
+  - `drawImage` sprite-sheet 9-arg form — issue-916 deferred.
+  - `getImageData` / `putImageData` — issue-916 (base64 round-trip
+    avoids typed-array bridge cost; sub-rect form deferred).
+
 ## DIVERGE→PASS sweep (2026-05-07)
 
 The 21 → 18 flip closed 3 entries plus a wiring fix for a previously

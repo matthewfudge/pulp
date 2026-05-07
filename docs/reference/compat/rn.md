@@ -28,6 +28,42 @@ Spec walk:
 
 ## Recently changed
 
+- **2026-05-07 (Wave 1 drift cleanup + arch reclassification)** —
+  catalog/oracle paperwork only; no TS or C++ source change. Drift
+  count dropped from 18 → 0 on the rn surface; PASS rose by ~14
+  entries.
+  * **Drift cleanup (already-shipped subsystems):**
+    - 11 RTL-deferred logical-edge entries flipped `partial` →
+      `supported`: `end`, `start`, `inset`, `insetBlock`, `insetInline`,
+      `marginEnd`, `marginStart`, `paddingEnd`, `paddingStart`,
+      `borderEndWidth`, `borderStartWidth`. The
+      "RTL writing direction (deferred to future direction system)"
+      unsupportedValue was stale post-#1506 (RTL inheritance via
+      `setDirection` ships end-to-end through Yoga + Skia paragraph_style).
+    - `boxShadow`, `height`, `lineHeight`, `margin`, `outlineColor`,
+      `padding`, `viewBox` flipped `supported` → `partial` to match
+      the harness's DIVERGE verdict; honest claim is partial (real
+      deferred gaps in unsupportedValues).
+    - `userSelect` flipped `partial` → `noop` to match the prop-applier's
+      stored-only acceptance (selection-engine subsystem lands later).
+    - `cursor` `auto` keyword added to supportedValues (falls back to
+      View::CursorStyle::default_).
+    - `fontWeight`, `textDecorationLine` populated supportedValues
+      with the full RN spec set; cleared stale unsupportedValues.
+  * **Architectural reclassification:**
+    - `flexBasis content` flipped `partial` → `wontfix` —
+      `arch-yoga-limit` (Yoga has no flex-basis content algorithm).
+    - `overflow scroll` annotated `arch-yoga-limit` — Yoga's
+      View::Overflow models visible/hidden only; ScrollView is the
+      separate container intrinsic.
+    - `fill url(#gradient)` annotated `partial-deferred-pulp-#932`
+      (gated on Skia gradient wiring through SvgPathWidget).
+    - 5 platform-only props (`textAlignVertical`, `textDecorationColor`,
+      `textDecorationStyle`, `verticalAlign`, `writingDirection`)
+      flipped `missing` → `wontfix` — RN iOS-only / Android-only
+      props are OOS for the cross-platform Pulp surface (matches the
+      oracle's `platformOnly` flag).
+
 - **2026-05-07 (catalog-drift mapsTo cleanup, refs pulp #1434)** —
   paperwork-only sweep aligning catalog `mapsTo` text and the harness
   oracle's `bridgeFunctions.registered` list with what `widget_bridge.cpp`
