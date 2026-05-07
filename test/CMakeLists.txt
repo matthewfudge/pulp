@@ -2092,6 +2092,11 @@ add_executable(pulp-test-appearance test_appearance_tracker.cpp)
 target_link_libraries(pulp-test-appearance PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-appearance)
 
+# Splash screen lifecycle and paint behavior
+add_executable(pulp-test-splash-screen test_splash_screen.cpp)
+target_link_libraries(pulp-test-splash-screen PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-splash-screen)
+
 # New widgets (EqCurve, MidiKeyboard, ColorPicker, FileDropZone, SplitView, PropertyList, Breadcrumb)
 add_executable(pulp-test-phase9-widgets test_phase9_widgets.cpp)
 target_link_libraries(pulp-test-phase9-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
