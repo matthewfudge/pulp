@@ -16,16 +16,43 @@ Spec walk:
 - [RN Layout Props](https://reactnative.dev/docs/layout-props)
 - [RN Transforms](https://reactnative.dev/docs/transforms)
 
-## Counts (2026-05-06)
+## Counts (2026-05-07)
 
 | Status | Count |
 |--------|------:|
-| supported | 73 |
-| partial | 24 |
-| missing | 20 |
-| wontfix | 3 |
+| supported | 78 |
+| partial | 29 |
+| missing | 5 |
+| wontfix | 7 |
+| noop | 1 |
 
 ## Recently changed
+
+- **2026-05-07 (pulp #1434 rn NOT-IMPL bundle 1)** — closes the eight
+  remaining rn-surface NOT-IMPL entries on the harness:
+  `boxSizing` (already wired since #1545; catalog flipped supported),
+  `direction` (value-disambiguated — writing-direction keywords
+  `ltr`/`rtl`/`inherit`/`auto` route to `setDirection` per #1506,
+  flexDirection aliases `row`/`column`/`row-reverse`/`column-reverse`
+  keep routing to `setFlex(direction)` for backward compat with
+  prop-applier-direction.test.ts:60),
+  `experimental_backgroundImage` (RN gradient string aliased to
+  `setBackgroundGradient`; partial — array-of-objects gradient form
+  and `url()` raster images deferred),
+  `fontVariant` (OpenType feature array joined to CSV and forwarded
+  to a planned `setFontVariant` bridge fn; partial — paint-time
+  HarfBuzz `hb_feature_t` shape-pass wiring deferred),
+  `textDecorationLine` (aliased to existing `setTextDecoration`;
+  compound `'underline line-through'` forwards verbatim, single-keyword
+  honored — same partial gap as `css/textDecoration`),
+  `textShadowColor` / `textShadowOffset` / `textShadowRadius` (per-attribute
+  setters dispatch from JSX so prop diffs preserve sibling slots; partial
+  — bridge fn registration staged on the #1548 feature branch, paint-time
+  glyph shadow lands when that merges). Test file
+  `prop-applier-rn-not-impl-bundle1.test.ts` (21 cases) pins each
+  dispatch shape including the `direction` flexDirection-alias
+  backward-compat invariant. Harness drift on the rn surface drops by 7
+  NOT-IMPL → 0 NOT-IMPL; PASS + DIVERGE + NO-OP rises by 7.
 
 - **2026-05-06 (pulp #1434 Phase A2-3)** — `rn/direction` partial via
   the `@pulp/react` `writingDirection` prop. JSX surface uses RN's
