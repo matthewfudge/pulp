@@ -22,6 +22,9 @@ which mirrors the upstream Yoga API.
 | supported | 36 |
 | partial | 6 |
 | missing | 12 |
+| supported | 35 |
+| partial | 7 |
+| missing | 11 |
 | wontfix | 0 |
 
 pulp #1542 lifted the seven logical-edge / direction NOT-IMPLs

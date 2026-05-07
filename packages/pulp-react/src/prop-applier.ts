@@ -574,6 +574,42 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         // installs the dash effect for `dashed` / `dotted`; other
         // named styles currently degrade to solid.
         case 'borderStyle':  return call('setBorderStyle', id, value as string);
+        // pulp #1514 — list-style cluster. Pulp doesn't model
+        // <li>/<ul>/<ol> semantics, so the bridge stores the value
+        // verbatim on the View and a future paint pass renders the
+        // marker. Today the catalog is `partial` (stored, not
+        // painted). The shorthand `listStyle` parses on the JS side
+        // into the 3 longhands; consumers MAY emit any combo of
+        // type / position / image keywords (CSS spec: any order).
+        case 'listStyle': {
+            const sval = String(value).trim();
+            const tokens = sval.split(/\s+/);
+            const typeSet: Record<string, true> = {
+                none: true, disc: true, circle: true, square: true, decimal: true,
+            };
+            const posSet: Record<string, true> = { inside: true, outside: true };
+            let sawType = false, sawImage = false;
+            for (const tok of tokens) {
+                if (tok.indexOf('url(') === 0) {
+                    call('setListStyleImage', id, tok);
+                    sawImage = true;
+                } else if (posSet[tok]) {
+                    call('setListStylePosition', id, tok);
+                } else if (typeSet[tok]) {
+                    if (tok === 'none' && sawType && !sawImage) {
+                        call('setListStyleImage', id, 'none');
+                        sawImage = true;
+                    } else {
+                        call('setListStyleType', id, tok);
+                        sawType = true;
+                    }
+                }
+            }
+            return;
+        }
+        case 'listStyleType':     return call('setListStyleType', id, value as string);
+        case 'listStyleImage':    return call('setListStyleImage', id, value as string);
+        case 'listStylePosition': return call('setListStylePosition', id, value as string);
         case 'borderTop':    { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'top', b.width, b.color); }
         case 'borderRight':  { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'right', b.width, b.color); }
         case 'borderBottom': { const b = value as { color: string; width: number }; return call('setBorderSide', id, 'bottom', b.width, b.color); }
@@ -664,6 +700,81 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         // Accepts the CSS keyword strings ('hidden' / 'visible' /
         // 'scroll' / 'auto'); bridge maps to View::Overflow enum.
         case 'overflow':     return call('setOverflow', id, value as string);
+        // pulp #1516 — CSS box-sizing. Yoga 3.x honors the spec via
+        // YGNodeStyleSetBoxSizing; consumers passing JSX
+        // `boxSizing: 'border-box'` get the standard
+        // "padding+border are inside declared dimensions" behavior.
+        // Web designs almost universally reset to `border-box`.
+        case 'boxSizing':    return call('setBoxSizing', id, value as string);
+
+        // pulp #1434 Phase A2-1 — CSS transitions. The bridge parses
+        // the full shorthand into a list of TransitionSpecs that the
+        // dispatcher (PR 2 of the ladder) consults when a property
+        // changes. Longhand fields apply uniformly across the parsed
+        // list (CSS spec semantics).
+        case 'transition':                return call('setTransition', id, value as string);
+        case 'transitionProperty':        return call('setTransitionProperty', id, value as string);
+        case 'transitionDuration': {
+            // Accept "200ms" / "0.3s" string OR plain number-of-seconds.
+            if (typeof value === 'number') {
+                return call('setTransitionDuration', id, value);
+            }
+            const s = String(value).trim();
+            const ms = s.endsWith('ms');
+            const n = parseFloat(s);
+            return call('setTransitionDuration', id, ms ? n / 1000 : n);
+        }
+        case 'transitionDelay': {
+            if (typeof value === 'number') {
+                return call('setTransitionDelay', id, value);
+            }
+            const s = String(value).trim();
+            const ms = s.endsWith('ms');
+            const n = parseFloat(s);
+            return call('setTransitionDelay', id, ms ? n / 1000 : n);
+        }
+        case 'transitionTimingFunction':  return call('setTransitionTimingFunction', id, value as string);
+
+        // pulp #1434 Phase A2-1 — CSS animations. animation-name
+        // resolves through the keyframes registry populated by
+        // defineKeyframes; PR 4 wires the playback driver. The
+        // shorthand path takes a single name + duration; longhand
+        // props can be split out by the host as needed.
+        case 'animationName':   return call('setAnimation', id, value as string, 1.0, 1, 'normal');
+        // Codex audit on pulp #1508 (P1): animationDuration was
+        // dispatched to setTransitionDuration here, which mutated
+        // *transition* timing on the same View instead of *animation*
+        // timing. Route through the legacy 2-arg setAnimation control-
+        // token form (`setAnimation(id, 'duration', seconds)`) so the
+        // bridge stages it on the View's pending-animation slot
+        // alongside animationName / animationDelay / etc.
+        case 'animationDuration': {
+            if (typeof value === 'number') {
+                return call('setAnimation', id, 'duration', value);
+            }
+            const s = String(value).trim();
+            const ms = s.endsWith('ms');
+            const n = parseFloat(s);
+            return call('setAnimation', id, 'duration', ms ? n / 1000 : n);
+        }
+        case 'animationDelay': {
+            if (typeof value === 'number') {
+                return call('setAnimation', id, 'delay', value);
+            }
+            const s = String(value).trim();
+            const ms = s.endsWith('ms');
+            const n = parseFloat(s);
+            return call('setAnimation', id, 'delay', ms ? n / 1000 : n);
+        }
+        case 'animationTimingFunction':
+            return call('setAnimation', id, 'easing', value as string);
+        case 'animationIterationCount':
+            return call('setAnimation', id, 'iterations',
+                value === 'infinite' ? -1 : (typeof value === 'number' ? value : parseFloat(String(value)) || 1));
+        case 'animationDirection':
+            return call('setAnimation', id, 'direction', value as string);
+        case 'animationFillMode':
+            return call('setAnimation', id, 'fill', value as string);
 
         // pulp #1434 rn logical-edge bundle (sub-agent #27 finding) —
         // RN's CSS-spec-equivalent logical-flow props. LTR-only fast
@@ -785,6 +896,11 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         case 'backfaceVisibility': return call('setBackfaceVisibility', id, value as string);
         case 'cursor':             return call('setCursor', id, value as string);
         case 'filter':             return call('setFilter', id, value as string);
+        // pulp #1549 — RN `mixBlendMode` (RN 0.76 New Architecture).
+        // Forwards the W3C blend-mode keyword string to
+        // `setMixBlendMode`; the bridge keyword→enum table lives at
+        // widget_bridge.cpp::setMixBlendMode.
+        case 'mixBlendMode':       return call('setMixBlendMode', id, value as string);
         case 'pointerEvents':      return call('setPointerEvents', id, value as string);
         case 'textTransform':      return call('setTextTransform', id, value as string);
         case 'userSelect':         return call('setUserSelect', id, value as string);
@@ -871,6 +987,18 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         case 'fontStyle':       return call('setFontStyle', id, value as string);
         case 'letterSpacing':   return call('setLetterSpacing', id, value as number);
         case 'lineHeight':      return call('setLineHeight', id, value as number);
+        // pulp #1552 — line-clamp + webkit-line-clamp + background-repeat
+        // wiring. Both line-clamp keys funnel through the same setter
+        // (shared CSS shim case + RN-style alias). 0 / non-finite clears
+        // the slot. backgroundRepeat is storage-only at the View layer
+        // (paint-time honoring is a follow-up for url() / repeating
+        // gradient backgrounds).
+        case 'lineClamp':
+        case 'webkitLineClamp': {
+            const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+            return call('setLineClamp', id, Number.isFinite(n) ? n : 0);
+        }
+        case 'backgroundRepeat': return call('setBackgroundRepeat', id, value as string);
 
         // Widget-specific data
         case 'data':

@@ -3155,6 +3155,51 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // pulp #1514 — list-style cluster (listStyle / listStyleType /
+    // listStyleImage / listStylePosition). Pulp doesn't model
+    // <li>/<ul>/<ol> semantics, so the bridge stores the values
+    // verbatim on the View so a later paint pass (or a future
+    // semantic-list surface) can honor them. Marker glyph rendering
+    // is the follow-up; this PR flips the catalog out of `missing`
+    // by wiring the round-trip + JS shorthand parsing.
+    //
+    // setListStyleType(id, "disc"|"circle"|"square"|"decimal"|"none").
+    engine_.register_function("setListStyleType", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto s = args.get<std::string>(1, "disc");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (s == "none")          v->set_list_style_type(View::ListStyleType::none);
+        else if (s == "circle")   v->set_list_style_type(View::ListStyleType::circle);
+        else if (s == "square")   v->set_list_style_type(View::ListStyleType::square);
+        else if (s == "decimal")  v->set_list_style_type(View::ListStyleType::decimal);
+        else                      v->set_list_style_type(View::ListStyleType::disc);
+        return choc::value::Value();
+    });
+
+    // setListStyleImage(id, "url(...)" or "none"). Stored verbatim;
+    // bullet-image rendering is deferred (same caveat as backgroundImage).
+    engine_.register_function("setListStyleImage", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto url = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (url == "none") v->set_list_style_image("");
+        else               v->set_list_style_image(url);
+        return choc::value::Value();
+    });
+
+    // setListStylePosition(id, "outside"|"inside").
+    engine_.register_function("setListStylePosition", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto s = args.get<std::string>(1, "outside");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (s == "inside") v->set_list_style_position(View::ListStylePosition::inside);
+        else               v->set_list_style_position(View::ListStylePosition::outside);
+        return choc::value::Value();
+    });
+
     // pulp #1519 — CSS / RN outline cluster. Outline is paint-time only:
     // it does NOT take up Yoga layout space (parent never reserves room
     // for it). Each setter mutates one slot in isolation so a JSX prop
@@ -3446,6 +3491,21 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // pulp #1516 — CSS box-sizing keyword. Yoga 3.x's
+    // `YGNodeStyleSetBoxSizing` honors the spec, so we just record the
+    // enum on FlexStyle and let `build_yoga_subtree` route it through.
+    // Default `content-box` matches the CSS spec; web designs typically
+    // reset to `border-box` via `* { box-sizing: border-box }`.
+    engine_.register_function("setBoxSizing", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto kw = args.get<std::string>(1, "content-box");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        auto& f = v->flex();
+        f.box_sizing = (kw == "border-box") ? BoxSizing::border_box : BoxSizing::content_box;
+        return choc::value::Value();
+    });
+
     // Canvas drawing
     engine_.register_function("canvasClear", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, ""))))
@@ -3680,6 +3740,77 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // pulp #1521 — native arc subpaths. Each replaces the JS shim's
+    // bezier approximation so Skia / CG see real arc geometry. Args:
+    //   canvasPathArc(id, cx, cy, radius, startAngle, endAngle,
+    //                 anticlockwise:0/1)
+    //   canvasPathArcTo(id, x1, y1, x2, y2, radius)
+    //   canvasPathEllipse(id, cx, cy, rx, ry, rotation, startAngle,
+    //                     endAngle, anticlockwise:0/1)
+    //   canvasPathRoundRect(id, x, y, w, h,
+    //                       tl_x, tl_y, tr_x, tr_y,
+    //                       br_x, br_y, bl_x, bl_y)
+    engine_.register_function("canvasPathArc", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_arc;
+            cmd.x     = (float)args.get<double>(1, 0);
+            cmd.y     = (float)args.get<double>(2, 0);
+            cmd.extra = (float)args.get<double>(3, 0);
+            cmd.x2    = (float)args.get<double>(4, 0);
+            cmd.y2    = (float)args.get<double>(5, 0);
+            cmd.int_val = args.get<double>(6, 0) != 0.0 ? 1 : 0;
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasPathArcTo", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_arc_to;
+            cmd.x     = (float)args.get<double>(1, 0);
+            cmd.y     = (float)args.get<double>(2, 0);
+            cmd.x2    = (float)args.get<double>(3, 0);
+            cmd.y2    = (float)args.get<double>(4, 0);
+            cmd.extra = (float)args.get<double>(5, 0);
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasPathEllipse", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_ellipse;
+            cmd.x     = (float)args.get<double>(1, 0);   // cx
+            cmd.y     = (float)args.get<double>(2, 0);   // cy
+            cmd.w     = (float)args.get<double>(3, 0);   // rx
+            cmd.h     = (float)args.get<double>(4, 0);   // ry
+            cmd.extra = (float)args.get<double>(5, 0);   // rotation
+            cmd.x2    = (float)args.get<double>(6, 0);   // startAngle
+            cmd.y2    = (float)args.get<double>(7, 0);   // endAngle
+            cmd.int_val = args.get<double>(8, 0) != 0.0 ? 1 : 0;
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    engine_.register_function("canvasPathRoundRect", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::path_round_rect;
+            cmd.x = (float)args.get<double>(1, 0);
+            cmd.y = (float)args.get<double>(2, 0);
+            cmd.w = (float)args.get<double>(3, 0);
+            cmd.h = (float)args.get<double>(4, 0);
+            cmd.gradient_positions = {
+                (float)args.get<double>(5, 0),  (float)args.get<double>(6, 0),
+                (float)args.get<double>(7, 0),  (float)args.get<double>(8, 0),
+                (float)args.get<double>(9, 0),  (float)args.get<double>(10, 0),
+                (float)args.get<double>(11, 0), (float)args.get<double>(12, 0),
+            };
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
     // State
     engine_.register_function("canvasSave", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
@@ -3885,6 +4016,44 @@ void WidgetBridge::register_api() {
             return choc::value::Value();
         });
 
+    // ── pulp #1552 — line-clamp + background-repeat ─────────────────────────
+    // CSS `line-clamp` and `-webkit-line-clamp` route through the same
+    // shared case in web-compat-style-decl.js (and the @pulp/react
+    // prop-applier emits both keys via setLineClamp). Numeric only; 0
+    // disables clamping (matches CSS spec, which uses `none`). Wired on
+    // Label only — non-text views ignore the property.
+    engine_.register_function("setLineClamp", [this](choc::javascript::ArgumentList args) {
+        auto* v = widget(args.get<std::string>(0, ""));
+        int n = static_cast<int>(args.get<double>(1, 0.0));
+        if (auto* l = dynamic_cast<Label*>(v)) {
+            l->set_line_clamp(n);
+            // line-clamp implies multi-line — without multi_line_, the
+            // paint path takes the single-line branch and the clamp is a
+            // no-op. Setting > 0 implicitly enables wrap; 0 leaves the
+            // existing multi_line_ flag alone (the user may have set it
+            // independently via white-space / setMultiLine).
+            if (n > 0) l->set_multi_line(true);
+        }
+        return choc::value::Value();
+    });
+
+    // setBackgroundRepeat(id, kw) — CSS background-repeat keyword. Storage-
+    // only on the View (no-op for solid-color backgrounds, which is the
+    // only currently rendered case). Future paint work for
+    // `background-image: url(...)` / repeating gradients consults the
+    // stored slot; setting the keyword today makes the round-trip work
+    // and lets authors express intent without dropping the prop silently.
+    // Accepts: `repeat` / `repeat-x` / `repeat-y` / `no-repeat` /
+    // `space` / `round`. Unknown / empty resets to "" (paint defaults to
+    // CSS initial `repeat`).
+    engine_.register_function("setBackgroundRepeat", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto kw = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (v) v->set_background_repeat(kw);
+        return choc::value::Value();
+    });
+
     // setPosition(id, "static"/"relative"/"absolute"/"fixed") — CSS position
     engine_.register_function("setPosition", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -3989,6 +4158,82 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // pulp #1434 Phase A2-1 — setTransition(id, "opacity 200ms ease, transform 300ms")
+    // Parses the full CSS shorthand into View::transitions_. PR 2 of
+    // the ladder will hook the prop-applier dispatcher to consult
+    // these specs when a property changes. PR 1 ships parser + storage.
+    engine_.register_function("setTransition", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto css = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        if (css.empty() || css == "none") {
+            v->clear_transitions();
+            return choc::value::Value();
+        }
+        v->set_transitions(parse_transition_shorthand(css));
+        return choc::value::Value();
+    });
+
+    // setTransitionProperty(id, "opacity, transform")  — comma-separated
+    // property list. We synthesize TransitionSpecs with just the property
+    // name; durations are picked up from setTransitionDuration / the
+    // shorthand path. CSS spec: shorthand wins over longhand when both
+    // are set in the same rule; we treat them as additive at this layer.
+    engine_.register_function("setTransitionProperty", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto props = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        std::vector<TransitionSpec> ts;
+        std::string acc;
+        auto flush = [&]() {
+            while (!acc.empty() && std::isspace(static_cast<unsigned char>(acc.front()))) acc.erase(0, 1);
+            while (!acc.empty() && std::isspace(static_cast<unsigned char>(acc.back()))) acc.pop_back();
+            if (!acc.empty()) {
+                TransitionSpec s{};
+                s.property_name = acc;
+                s.property = animatable_property_from_css_name(acc);
+                ts.push_back(std::move(s));
+                acc.clear();
+            }
+        };
+        for (char c : props) {
+            if (c == ',') flush(); else acc += c;
+        }
+        flush();
+        v->set_transitions(std::move(ts));
+        return choc::value::Value();
+    });
+
+    // setTransitionTimingFunction(id, "ease-in-out") — applies to all
+    // existing TransitionSpecs on the View. CSS spec: longhand applies
+    // uniformly across the property list.
+    engine_.register_function("setTransitionTimingFunction", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto easing_str = args.get<std::string>(1, "ease");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        auto current = v->transitions();
+        for (auto& t : current) {
+            t.easing = CssEasing::from_keyword(easing_str);
+        }
+        v->set_transitions(std::move(current));
+        return choc::value::Value();
+    });
+
+    // setTransitionDelay(id, seconds)
+    engine_.register_function("setTransitionDelay", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto delay = static_cast<float>(args.get<double>(1, 0.0));
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+        auto current = v->transitions();
+        for (auto& t : current) t.delay_seconds = delay;
+        v->set_transitions(std::move(current));
+        return choc::value::Value();
+    });
+
     // setTranslate(id, x, y) — CSS transform: translate()
     engine_.register_function("setTranslate", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -4047,25 +4292,154 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
-    // defineKeyframes(name, [{offset, value}...]) — CSS @keyframes
+    // pulp #1434 Phase A2-1 — defineKeyframes(name, stops_json_string).
+    // Stops are JSON-encoded for bridge simplicity:
+    //   defineKeyframes('fade', JSON.stringify([
+    //     { offset: 0,   properties: { opacity: '0' } },
+    //     { offset: 1.0, properties: { opacity: '1' } },
+    //   ]));
+    // The CSS shim's @keyframes parser produces this shape directly.
+    // Populates the application-wide registry. PR 4 wires the registry
+    // into setAnimation playback; PR 1 ships parser + storage so the
+    // registry is consultable today.
     engine_.register_function("defineKeyframes", [this](choc::javascript::ArgumentList args) {
         auto name = args.get<std::string>(0, "");
-        // Store keyframe definitions for later use by setAnimation
-        // For now just acknowledge — actual keyframe storage is per-animation
-        (void)name;
+        auto stops_json = args.get<std::string>(1, "[]");
+        if (name.empty()) return choc::value::Value();
+        CssKeyframesBlock block;
+        block.name = name;
+        // Parse the JSON via choc::json which already lives in the
+        // tree (see DEPENDENCIES.md). Walk the array structurally.
+        try {
+            auto parsed = choc::json::parse(stops_json);
+            if (parsed.isArray()) {
+                for (uint32_t i = 0; i < parsed.size(); ++i) {
+                    const auto& entry = parsed[i];
+                    CssKeyframe kf{};
+                    if (entry.hasObjectMember("offset")) {
+                        kf.offset = static_cast<float>(entry["offset"].getWithDefault<double>(0.0));
+                    }
+                    if (entry.hasObjectMember("properties") && entry["properties"].isObject()) {
+                        const auto& props = entry["properties"];
+                        for (uint32_t j = 0; j < props.size(); ++j) {
+                            std::string mn(props.getObjectMemberAt(j).name);
+                            std::string val(props[mn.c_str()].getWithDefault<std::string_view>(""));
+                            kf.properties.emplace_back(mn, val);
+                        }
+                    }
+                    block.stops.push_back(std::move(kf));
+                }
+            }
+        } catch (...) {
+            // Malformed input — silently drop (registry stays unchanged).
+            return choc::value::Value();
+        }
+        css_keyframes_registry_.define(std::move(block));
         return choc::value::Value();
     });
 
-    // setAnimation(id, property, duration, iterations, direction, keyframes_json)
-    // Simplified: animate a single property with keyframes
+    // pulp #1434 Phase A2-1 — setAnimation supports two ABIs.
+    //
+    //   Positional (new — @pulp/react direct callers):
+    //     setAnimation(id, animation_name, duration, iterations, direction)
+    //   Legacy control-token (web-compat-style-decl.js — one CSS longhand
+    //   per call — and prop-applier's animation* fan-out):
+    //     setAnimation(id, "name",       <animation-name>)
+    //     setAnimation(id, "duration",   <seconds>)
+    //     setAnimation(id, "delay",      <seconds>)
+    //     setAnimation(id, "easing",     <css-easing-keyword>)
+    //     setAnimation(id, "iterations", <number | -1 for infinite>)
+    //     setAnimation(id, "direction",  <"normal"|"reverse"|...>)
+    //     setAnimation(id, "fill",       <"none"|"forwards"|...>)
+    //
+    // Detection: if arg1 matches one of the control tokens, dispatch to
+    // the legacy path — otherwise treat as positional. The legacy path
+    // accumulates state in View::staged_animation(); when `name` arrives
+    // and resolves against the keyframes registry, we seed entries into
+    // active_animations() using the staged values. Codex audit on pulp
+    // #1508 caught the original handler dropping every web-compat call
+    // because "name"/"duration"/etc. were being treated as the
+    // animation_name token (registry lookup always missed).
     engine_.register_function("setAnimation", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
-        auto prop = args.get<std::string>(1, "");
-        auto duration = static_cast<float>(args.get<double>(2, 1.0));
-        auto iterations = static_cast<float>(args.get<double>(3, 1.0));
-        auto direction = args.get<std::string>(4, "normal");
-        (void)id; (void)prop; (void)duration; (void)iterations; (void)direction;
-        // TODO: create KeyframeAnimation, attach to view, drive in frame clock
+        auto arg1 = args.get<std::string>(1, "");
+        auto* v = id.empty() ? &root_ : widget(id);
+        if (!v) return choc::value::Value();
+
+        // Legacy control-token dispatch.
+        const bool is_control_token =
+            arg1 == "name"      || arg1 == "duration"  || arg1 == "delay"
+         || arg1 == "easing"    || arg1 == "iterations"|| arg1 == "direction"
+         || arg1 == "fill";
+        if (is_control_token) {
+            auto& staged = v->staged_animation();
+            if (arg1 == "name") {
+                staged.name = args.get<std::string>(2, "");
+                // Re-resolve when the name token arrives (the typical
+                // call order is name → duration → easing → ..., but
+                // either order is valid; if duration arrives first we
+                // simply seed when name arrives, using whatever
+                // duration was previously staged).
+                const auto* block = css_keyframes_registry_.find(staged.name);
+                if (block && !block->stops.empty()) {
+                    const auto& first = block->stops.front();
+                    for (const auto& [prop, _val] : first.properties) {
+                        CssAnimation a{};
+                        a.property = animatable_property_from_css_name(prop);
+                        a.spec.property_name = prop;
+                        a.spec.property = a.property;
+                        a.spec.duration_seconds = staged.duration_seconds;
+                        a.spec.delay_seconds    = staged.delay_seconds;
+                        a.spec.easing           = staged.easing;
+                        v->active_animations().push_back(std::move(a));
+                    }
+                }
+            } else if (arg1 == "duration") {
+                staged.duration_seconds = static_cast<float>(args.get<double>(2, 0.0));
+                for (auto& a : v->active_animations()) {
+                    a.spec.duration_seconds = staged.duration_seconds;
+                }
+            } else if (arg1 == "delay") {
+                staged.delay_seconds = static_cast<float>(args.get<double>(2, 0.0));
+                for (auto& a : v->active_animations()) {
+                    a.spec.delay_seconds = staged.delay_seconds;
+                }
+            } else if (arg1 == "easing") {
+                staged.easing = CssEasing::from_keyword(args.get<std::string>(2, ""));
+                for (auto& a : v->active_animations()) {
+                    a.spec.easing = staged.easing;
+                }
+            } else if (arg1 == "iterations") {
+                staged.iterations = static_cast<float>(args.get<double>(2, 1.0));
+            } else if (arg1 == "direction") {
+                staged.direction = args.get<std::string>(2, "normal");
+            } else if (arg1 == "fill") {
+                staged.fill_mode = args.get<std::string>(2, "");
+            }
+            return choc::value::Value();
+        }
+
+        // Positional dispatch (new ABI).
+        const auto& anim_name = arg1;
+        auto duration = static_cast<float>(args.get<double>(2, 0.0));
+        (void)args.get<double>(3, 1.0);  // iterations — PR 4
+        (void)args.get<std::string>(4, "normal");  // direction — PR 4
+        const auto* block = css_keyframes_registry_.find(anim_name);
+        if (!block || block->stops.empty()) return choc::value::Value();
+        // Seed one Animation per property the first stop touches. PR 2
+        // specializes the value type per property and drives the
+        // tween via the frame clock.
+        const auto& first = block->stops.front();
+        for (const auto& [prop, _val] : first.properties) {
+            CssAnimation a{};
+            a.property = animatable_property_from_css_name(prop);
+            a.spec.property_name = prop;
+            a.spec.property = a.property;
+            a.spec.duration_seconds = duration;
+            a.spec.delay_seconds = 0.0f;
+            a.spec.easing = CssEasing{};
+            v->active_animations().push_back(std::move(a));
+        }
         return choc::value::Value();
     });
 
@@ -4290,6 +4664,45 @@ void WidgetBridge::register_api() {
             auto blur_px = args.get<double>(1, 0.0);
             auto* v = id.empty() ? &root_ : widget(id);
             if (v) v->set_backdrop_blur(static_cast<float>(blur_px));
+            return choc::value::Value();
+        });
+
+    // pulp #1549 — setMixBlendMode(id, "multiply") for CSS / RN
+    // `mix-blend-mode`. Maps the W3C blend-mode keyword set to the
+    // canvas BlendMode enum so the View paint path can pass it
+    // straight into `save_layer_with_blend()` at compositing time.
+    // The keyword set mirrors the W3C separable + non-separable blend
+    // modes (the same 16 values RN's New Architecture surface accepts;
+    // see tools/harness/oracles/rn/rn-viewstyle.json::mixBlendMode).
+    // Unknown keywords (including the empty string and "normal") leave
+    // the View at default `BlendMode::normal` so the fast path stays
+    // a paint-time no-op.
+    engine_.register_function("setMixBlendMode",
+        [this](choc::javascript::ArgumentList args) {
+            auto id = args.get<std::string>(0, "");
+            auto kw = args.get<std::string>(1, "normal");
+            auto* v = id.empty() ? &root_ : widget(id);
+            if (!v) return choc::value::Value();
+            using BM = pulp::canvas::Canvas::BlendMode;
+            BM mode = BM::normal;
+            if      (kw == "normal")      mode = BM::normal;
+            else if (kw == "multiply")    mode = BM::multiply;
+            else if (kw == "screen")      mode = BM::screen;
+            else if (kw == "overlay")     mode = BM::overlay;
+            else if (kw == "darken")      mode = BM::darken;
+            else if (kw == "lighten")     mode = BM::lighten;
+            else if (kw == "color-dodge") mode = BM::color_dodge;
+            else if (kw == "color-burn")  mode = BM::color_burn;
+            else if (kw == "hard-light")  mode = BM::hard_light;
+            else if (kw == "soft-light")  mode = BM::soft_light;
+            else if (kw == "difference")  mode = BM::difference;
+            else if (kw == "exclusion")   mode = BM::exclusion;
+            else if (kw == "hue")         mode = BM::hue;
+            else if (kw == "saturation")  mode = BM::saturation;
+            else if (kw == "color")       mode = BM::color;
+            else if (kw == "luminosity")  mode = BM::luminosity;
+            // Unknown / "plus-lighter" / "plus-darker" → normal (no-op).
+            v->set_mix_blend_mode(mode);
             return choc::value::Value();
         });
 

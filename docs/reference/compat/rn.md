@@ -16,17 +16,82 @@ Spec walk:
 - [RN Layout Props](https://reactnative.dev/docs/layout-props)
 - [RN Transforms](https://reactnative.dev/docs/transforms)
 
-## Counts (2026-05-04)
+## Counts (2026-05-06)
 
 | Status | Count |
 |--------|------:|
-| supported | ~45 |
-| partial | ~3 |
-| missing | ~70 |
-| wontfix | ~3 |
+| supported | 73 |
+| partial | 24 |
+| missing | 20 |
+| wontfix | 3 |
 
 ## Recently changed
 
+- **2026-05-06 (pulp #1549)** — `rn/mixBlendMode` flipped `missing` →
+  `supported`. RN's New Architecture `mixBlendMode` style prop now
+  reaches the bridge via the `@pulp/react` prop-applier (`prop-applier.ts`
+  since #1549) → `setMixBlendMode(id, kw)` (`widget_bridge.cpp`).
+  The bridge maps the 16 W3C separable + non-separable blend modes
+  (`normal`, `multiply`, `screen`, `overlay`, `darken`, `lighten`,
+  `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`,
+  `exclusion`, `hue`, `saturation`, `color`, `luminosity`) onto the
+  shared `canvas::Canvas::BlendMode` enum and writes to a new
+  `View::mix_blend_mode_` slot. `View::paint_all` forces a saveLayer
+  via the new `Canvas::save_layer_with_blend()` API when the slot is
+  non-default, so the subtree composites back through the requested
+  mode at restore() time. Skia honors the keyword on the layer-paint;
+  CG / D2D currently fall through to plain `save_layer()` (no-op
+  blend) until those backends grow the same shim. `plus-lighter` /
+  `plus-darker` are documented as `unsupportedValues`.
+- **2026-05-06 (pulp #1546)** — five RN entries reclassified in
+  compat.json: four shadow props flipped `missing` → `wontfix`,
+  `isolation` flipped `missing` → `noop` (corrected from the
+  initial `wontfix` after a Codex P2 review on PR #1565 noted the
+  RN oracle DOES model isolation — `rn-viewstyle.json:134` defines
+  enum `auto`|`isolate`, flagged "RN New Architecture only"). PURE
+  CATALOG: zero implementation, zero behavior change. The four
+  iOS-only legacy shadow props (`shadowColor`, `shadowOffset`,
+  `shadowOpacity`, `shadowRadius`) are superseded by `boxShadow`
+  (CSS box-shadow syntax) in modern RN (RN 0.71+); pulp already
+  supports `boxShadow` (`rn/boxShadow=supported`), so the iOS
+  legacy is genuinely out of scope rather than missing. `isolation`
+  is honestly modeled as `noop` (Pulp accepts the value but the
+  underlying box composition isn't stacking-context-isolated —
+  same pattern as `css/animation`, `css/willChange`), keeping it
+  in the rn denominator so a real implementation gap stays visible
+  in drift metrics. The harness adapter short-circuits
+  `status: wontfix` → OOS at step 0 (no adapter change needed);
+  `noop` flows through the existing NO_OP marker path via the
+  mapsTo string. Effective rn denominator (non-`wontfix`) drops
+  117 → 113; harness drift count drops 21 → 17 (the four
+  iOS-platformOnly entries were classifying OOS via the oracle's
+  `platformOnly: ios` flag while the catalog claimed `missing`,
+  producing four DRIFT entries that the explicit `wontfix` now
+  resolves cleanly; isolation classifies cleanly as NO_OP).
+- **2026-05-06 (pulp #1550)** — RN catalog hygiene partial → supported
+  promotion pass. `rn/boxShadow`, `rn/cursor`, and `rn/overflow` flipped
+  `partial` → `supported` after auditing the prop-applier dispatch path
+  against the C++ bridge. All three are end-to-end wired: the prop-applier
+  forwards values verbatim, the bridge fns mutate the matching View
+  slots, and Skia / hit-testing honor them. Each got a `tests` reference
+  added (`prop-applier-box-shadow.test.ts`,
+  `prop-applier-rn-wires.test.ts`, `prop-applier-pointer.test.ts`) —
+  these tests already exist; the catalog just wasn't claiming them.
+  `unsupportedValues` cleaned up where over-broad: boxShadow keeps the
+  honest multi-shadow / array-form gap; overflow keeps `scroll`
+  (View::Overflow has no scroll mode — that's a ScrollView-intrinsic
+  concern). `rn/userSelect` was audited in the same pass but
+  intentionally stays `partial`: `setUserSelect` is registered as a
+  no-op stash in `widget_bridge.cpp` (the prop-applier dispatches but
+  the View has no UserSelect storage yet), so promotion is blocked
+  until the bridge actually applies the mode. `rn/tintColor` and
+  `rn/objectFit` (called out in #1550's issue body) are not in the
+  catalog and not wired in prop-applier — Image bridge has the
+  underlying Skia capability but no JSX → bridge dispatch — so they're
+  out of scope here and stay tracked as a future Image-prop wire-up.
+  Net catalog effect: 3 entries promoted partial → supported. PASS+DIV
+  ratio is unchanged (DIVERGE entries still count toward effective
+  coverage), but the surface report is more honest.
 - **2026-05-06 (pulp #1434 Phase A2-4)** — `rn/filter` extended from
   `blur(Npx)`-only to the full CSS Filter Effects function set
   (`brightness` / `contrast` / `grayscale` / `hue-rotate` / `invert` /
@@ -270,8 +335,9 @@ Spec walk:
    `boxShadow` instead.
 3. `rn/elevation` — Android-only; not modeled.
 4. `rn/borderCurve` — iOS 13+ continuous-corners; not modeled.
-5. `rn/mixBlendMode`, `rn/isolation` — not yet wired (Skia / CG can
-   support; bridge plumbing absent).
+5. `rn/isolation` — not yet wired (Skia / CG can support; bridge
+   plumbing absent). `rn/mixBlendMode` was wired in pulp #1549 (see
+   "Recently changed" above).
 
 ## SvgPath (#994 / #1291)
 
