@@ -3680,16 +3680,18 @@
       "issue": ""
     },
     "rn/boxSizing": {
-      "status": "missing",
-      "mapsTo": "no branch (and bridge does not register setBoxSizing)",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts -> setBoxSizing(id, 'border-box'|'content-box') -> FlexProps.box_sizing -> Yoga YGNodeStyleSetBoxSizing",
+      "supportedValues": [
         "border-box",
         "content-box"
       ],
-      "tests": [],
-      "notes": "Yoga's box model is content-box-equivalent.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1545 landed setBoxSizing on the bridge + Yoga 3.x YGNodeStyleSetBoxSizing wiring; the @pulp/react prop-applier dispatches verbatim. Default is content-box (Yoga's historical model); border-box matches the CSS reset most web designs ship with.",
+      "issue": "1545"
     },
     "rn/color": {
       "status": "supported",
@@ -3786,17 +3788,20 @@
       "issue": "994"
     },
     "rn/direction": {
-      "status": "missing",
-      "mapsTo": "no prop",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts -> setDirection(id, value) -> View::set_direction (Yoga + Skia paragraph_style.setTextDirection)",
+      "supportedValues": [
+        "inherit",
         "ltr",
         "rtl",
-        "inherit"
+        "auto"
       ],
-      "tests": [],
-      "notes": "RTL not modeled.",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1506 landed RTL bidi. The `direction` prop is value-disambiguated in @pulp/react: writing-direction keywords (ltr/rtl/inherit/auto) route to setDirection; flexDirection aliases ('row' / 'column' / 'row-reverse' / 'column-reverse') still fall through to setFlex(direction) for backward compat with older code. New code SHOULD use `writingDirection` (already wired) for clarity. Yoga honors writing direction for `flexDirection: 'row'` (visually reversed under rtl); Skia text-direction is consumed at shape time.",
+      "issue": "1506"
     },
     "rn/display": {
       "status": "supported",
@@ -3840,14 +3845,20 @@
       "issue": ""
     },
     "rn/experimental_backgroundImage": {
-      "status": "missing",
-      "mapsTo": "@pulp/react has backgroundGradient; CSS gradient strings only.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "RN array-of-objects gradient API"
+      "status": "partial",
+      "mapsTo": "prop-applier.ts -> setBackgroundGradient(id, value) (CSS gradient string only)",
+      "supportedValues": [
+        "linear-gradient(...)",
+        "radial-gradient(...)"
       ],
-      "tests": [],
-      "notes": "Different shape from RN.",
+      "unsupportedValues": [
+        "RN Fabric array-of-objects gradient API",
+        "url(...) raster image references"
+      ],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): wired through to setBackgroundGradient so the same string format CSS consumers use is accepted from RN code. RN's New-Architecture-only array-of-objects gradient form is NOT supported (gradient strings only). url() raster images for background-image are also out of scope until SkImage lazy load lands.",
       "issue": ""
     },
     "rn/fill": {
@@ -4001,14 +4012,20 @@
       "issue": ""
     },
     "rn/fontVariant": {
-      "status": "missing",
-      "mapsTo": "no branch",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "partial",
+      "mapsTo": "prop-applier.ts -> setFontVariant(id, csv) (joined string of OpenType feature tokens; bridge fn registration deferred)",
+      "supportedValues": [
+        "small-caps",
+        "oldstyle-nums",
+        "lining-nums",
+        "tabular-nums",
+        "proportional-nums"
       ],
-      "tests": [],
-      "notes": "Not modeled.",
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): the @pulp/react surface accepts the RN array-of-strings shape and joins to a comma-separated string for forwarding. The bridge fn `setFontVariant` is not yet registered in widget_bridge.cpp (deferred), so paint-time honoring is a no-op until the HarfBuzz hb_feature_t shape-pass wiring lands. This entry is `partial` so the JSX surface is honest about the dispatch existing while the paint pipeline is still pending.",
       "issue": ""
     },
     "rn/fontWeight": {
@@ -4805,17 +4822,21 @@
       "issue": ""
     },
     "rn/textDecorationLine": {
-      "status": "missing",
-      "mapsTo": "no branch (use textDecoration in CSS surface only)",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "prop-applier.ts -> setTextDecoration(id, value) -> Label::set_text_decoration",
+      "supportedValues": [
         "none",
         "underline",
         "line-through",
+        "overline"
+      ],
+      "unsupportedValues": [
         "underline line-through"
       ],
-      "tests": [],
-      "notes": "Use bridge setTextDecoration via CSS surface; @pulp/react does not surface.",
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): the @pulp/react surface aliases RN's `textDecorationLine` to the existing setTextDecoration bridge fn. Single-keyword form is honored by Label::TextDecoration; the RN compound form `'underline line-through'` is forwarded verbatim but only the first keyword takes effect today (same partial gap noted on css/textDecoration). `overline` is a pulp extension over RN spec.",
       "issue": ""
     },
     "rn/textDecorationStyle": {
@@ -4830,37 +4851,43 @@
       "issue": ""
     },
     "rn/textShadowColor": {
-      "status": "missing",
-      "mapsTo": "no bridge (setTextShadow not registered)",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "partial",
+      "mapsTo": "prop-applier.ts -> setTextShadowColor(id, hex) (bridge fn registration deferred to #1548)",
+      "supportedValues": [
+        "CSS color strings"
       ],
-      "tests": [],
-      "notes": "",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): the @pulp/react surface dispatches each text-shadow longhand to its own per-attribute bridge fn so JSX prop diffs preserve sibling slots. Bridge registration of setTextShadowColor / setTextShadowOffset / setTextShadowRadius is staged on the #1548 feature branch (paint-time SkPaint shadow + Label glyph layer) and lands in a follow-up; the prop-applier dispatch is a paint no-op until that registration lands. Storage and dispatch are wired so callers can ship the JSX surface today.",
+      "issue": "1548"
     },
     "rn/textShadowOffset": {
-      "status": "missing",
-      "mapsTo": "no bridge",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "partial",
+      "mapsTo": "prop-applier.ts -> setTextShadowOffset(id, dx, dy) (bridge fn registration deferred to #1548)",
+      "supportedValues": [
+        "{ width, height }"
       ],
-      "tests": [],
-      "notes": "",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): `{ width, height }` shape is the RN spec; the prop-applier coerces missing axes to 0. See rn/textShadowColor for the bridge-registration-pending caveat (#1548).",
+      "issue": "1548"
     },
     "rn/textShadowRadius": {
-      "status": "missing",
-      "mapsTo": "no bridge",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "all"
+      "status": "partial",
+      "mapsTo": "prop-applier.ts -> setTextShadowRadius(id, px) (bridge fn registration deferred to #1548)",
+      "supportedValues": [
+        "px (number)"
       ],
-      "tests": [],
-      "notes": "",
-      "issue": ""
+      "unsupportedValues": [],
+      "tests": [
+        "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
+      ],
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): blur radius in px. See rn/textShadowColor for the bridge-registration-pending caveat (#1548).",
+      "issue": "1548"
     },
     "rn/textTransform": {
       "status": "supported",
