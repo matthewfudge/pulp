@@ -2085,8 +2085,16 @@ void WidgetBridge::register_api() {
             }
         }
         else if (key == "start") {
+            // pulp DIVERGE→PASS sweep — accept `'auto'` so `inset-inline-
+            // start: auto` (CSS) and the equivalent RN style key route
+            // through Yoga's `YGNodeStyleSetPositionAuto`. Without this
+            // path the keyword fell through to (float)val == 0 and
+            // pinned the start edge to 0px.
             auto sval = args.get<std::string>(2, "");
-            if (!sval.empty() && sval.back() == '%') {
+            if (sval == "auto") {
+                f.dim_start.unit = pulp::view::DimensionUnit::auto_;
+                f.dim_start.value = 0;
+            } else if (!sval.empty() && sval.back() == '%') {
                 try {
                     f.dim_start.value = std::stof(sval.substr(0, sval.size() - 1));
                     f.dim_start.unit = pulp::view::DimensionUnit::percent;
@@ -2098,7 +2106,10 @@ void WidgetBridge::register_api() {
         }
         else if (key == "end") {
             auto sval = args.get<std::string>(2, "");
-            if (!sval.empty() && sval.back() == '%') {
+            if (sval == "auto") {
+                f.dim_end.unit = pulp::view::DimensionUnit::auto_;
+                f.dim_end.value = 0;
+            } else if (!sval.empty() && sval.back() == '%') {
                 try {
                     f.dim_end.value = std::stof(sval.substr(0, sval.size() - 1));
                     f.dim_end.unit = pulp::view::DimensionUnit::percent;
@@ -3487,7 +3498,14 @@ void WidgetBridge::register_api() {
         auto id = args.get<std::string>(0, "");
         auto mode = args.get<std::string>(1, "hidden");
         auto* v = id.empty() ? &root_ : widget(id);
-        if (v) v->set_overflow(mode == "visible" ? View::Overflow::visible : View::Overflow::hidden);
+        if (!v) return choc::value::Value();
+        // pulp DIVERGE→PASS sweep — accept all 3 CSS overflow keywords
+        // (visible / hidden / scroll). `scroll` clips painted pixels
+        // like `hidden` (no scrollbar layer yet) but propagates through
+        // Yoga so the layout engine knows about the clipping context.
+        if (mode == "visible")      v->set_overflow(View::Overflow::visible);
+        else if (mode == "scroll")  v->set_overflow(View::Overflow::scroll);
+        else                        v->set_overflow(View::Overflow::hidden);
         return choc::value::Value();
     });
 
@@ -3759,7 +3777,16 @@ void WidgetBridge::register_api() {
 
     engine_.register_function("canvasFillPath", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
-            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_path; c->add_command(cmd);
+            // pulp DIVERGE→PASS sweep — read the optional fillRule int
+            // (0 = nonzero, 1 = evenodd) so the spec arg actually
+            // threads into the recorded command. The skia / cg paint
+            // sides already key on int_val for fill_path / clip;
+            // before this read the value was always 0 even when JS
+            // passed `1`. (Pairs with [issue-1522] test which had been
+            // failing since landing because the wiring got missed.)
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_path;
+            cmd.int_val = (int)args.get<double>(1, 0);
+            c->add_command(cmd);
         }
         return choc::value::Value();
     });
@@ -5935,10 +5962,13 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
-    // canvasClip(id) — intersect clip region with current path (issue-896).
+    // canvasClip(id, fillRule?) — intersect clip region with current path (issue-896).
+    // pulp DIVERGE→PASS sweep — also threads optional fillRule int (0 =
+    // nonzero, 1 = evenodd). Same as canvasFillPath above.
     engine_.register_function("canvasClip", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
             CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::clip;
+            cmd.int_val = (int)args.get<double>(1, 0);
             c->add_command(cmd);
         }
         return choc::value::Value();
