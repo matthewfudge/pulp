@@ -42,7 +42,7 @@
     "drawImage":            {"kind": "method", "bridge": ["canvasDrawImage"], "expectedStatus": "partial", "notes": "Supports the 5- and 9-arg forms; 3-arg supported via shim default sizing."},
     "getImageData":         {"kind": "method", "bridge": ["canvasGetImageData"], "expectedStatus": "partial", "notes": "Returns base64 RGBA blob; shim decodes."},
     "putImageData":         {"kind": "method", "bridge": ["canvasPutImageData"], "expectedStatus": "partial", "notes": "Shim base64-encodes the ImageData."},
-    "setLineDash":          {"kind": "method", "bridge": ["canvasSetLineDash"], "expectedStatus": "partial", "notes": "Pattern + lineDashOffset both passed."},
+    "setLineDash":          {"kind": "method", "bridge": ["canvasSetLineDash"], "notes": "Pattern + lineDashOffset both passed; bridge does odd-length array doubling per HTML5 spec."},
     "getLineDash":          {"kind": "method", "bridge": [], "notes": "Returns copy of locally-tracked pattern."},
 
     "fillStyle":            {"kind": "attribute", "bridge": ["canvasSetFillColor", "canvasSetLinearGradient", "canvasSetRadialGradient", "canvasSetRadialGradientTwoCircles", "canvasClearGradient"], "notes": "Solid color OR CanvasGradient. Gradient stops flushed via positional args. SKILL gotcha #2. pulp #1524 — radial gradient flushes via the two-circle bridge fn when both circles are present."},

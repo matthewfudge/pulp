@@ -5264,6 +5264,292 @@ TEST_CASE("setFlex margin edges accept 'auto' keyword",
     REQUIRE(f.dim_margin_right.unit == DimensionUnit::auto_);
 }
 
+// ── pulp DIVERGE→PASS sweep — canvas2d surface ──────────────────────────
+
+TEST_CASE("ctx.fill('evenodd') threads fillRule int_val through bridge",
+          "[view][bridge][canvas][diverge-pass-canvas2d]") {
+    // pulp DIVERGE→PASS sweep — `ctx.fill('evenodd')` and
+    // `ctx.clip('evenodd')` now thread the fillRule keyword through
+    // to the bridge as int_val (0=nonzero, 1=evenodd). Pairs with
+    // [issue-1522] which tests the bridge fns directly.
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var c = document.createElement('canvas');
+        c.id = 'fr-shim-canvas';
+        c.width = 100; c.height = 100;
+        document.body.appendChild(c);
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.lineTo(0, 10);
+        ctx.closePath();
+        ctx.fill('evenodd');
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.closePath();
+        ctx.fill();             // default nonzero
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.closePath();
+        ctx.clip('evenodd');
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(10, 0);
+        ctx.lineTo(10, 10); ctx.closePath();
+        ctx.clip();
+    )");
+
+    auto* canvas = canvasFromBridge(bridge, engine, "fr-shim-canvas");
+    REQUIRE(canvas != nullptr);
+    using T = pulp::view::CanvasDrawCmd::Type;
+    std::vector<int> fill_int_vals;
+    std::vector<int> clip_int_vals;
+    for (const auto& cmd : canvas->commands()) {
+        if (cmd.type == T::fill_path) fill_int_vals.push_back(cmd.int_val);
+        if (cmd.type == T::clip)      clip_int_vals.push_back(cmd.int_val);
+    }
+    REQUIRE(fill_int_vals.size() == 2);
+    REQUIRE(fill_int_vals[0] == 1);  // explicit evenodd
+    REQUIRE(fill_int_vals[1] == 0);  // default nonzero
+    REQUIRE(clip_int_vals.size() == 2);
+    REQUIRE(clip_int_vals[0] == 1);  // explicit evenodd
+    REQUIRE(clip_int_vals[1] == 0);  // default nonzero
+}
+
+// ── pulp DIVERGE→PASS sweep — html surface ──────────────────────────────
+
+TEST_CASE("Element.disabled wires to setEnabled",
+          "[view][bridge][html][diverge-pass-html]") {
+    // Previously `el.disabled = true` only flipped the stylesheet flag;
+    // the underlying widget kept handling pointer events. Now wired
+    // end-to-end via setEnabled. Drive via JS so the assertion runs
+    // against the real CSSStyleDeclaration / disabled property accessor.
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var input = document.createElement('input');
+        input.id = 'box';
+        input.type = 'text';
+        document.body.appendChild(input);
+        globalThis.__test_input_id__ = input._id;
+        input.disabled = true;
+        globalThis.__test_disabled_value__ = input.disabled;
+    )");
+
+    auto id = engine.evaluate("globalThis.__test_input_id__").getWithDefault<std::string>("");
+    REQUIRE_FALSE(id.empty());
+    auto* w = bridge.widget(id);
+    REQUIRE(w != nullptr);
+    REQUIRE_FALSE(w->enabled());
+    auto js_disabled = engine.evaluate("globalThis.__test_disabled_value__").getWithDefault<bool>(false);
+    REQUIRE(js_disabled);
+}
+
+TEST_CASE("new Event() round-trips through dispatchEvent",
+          "[view][bridge][html][diverge-pass-html]") {
+    // The Event / CustomEvent constructors live in web-compat-element.js.
+    // Verify `new Event('foo')` produces a target-able event that
+    // dispatchEvent fires through addEventListener listeners.
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var el = document.createElement('div');
+        document.body.appendChild(el);
+        globalThis.__test_event_count__ = 0;
+        globalThis.__test_event_type__ = '';
+        globalThis.__test_event_detail__ = null;
+        el.addEventListener('foo', function(e) {
+            globalThis.__test_event_count__++;
+            globalThis.__test_event_type__ = e.type;
+        });
+        el.addEventListener('bar', function(e) {
+            globalThis.__test_event_detail__ = e.detail;
+        });
+        el.dispatchEvent(new Event('foo'));
+        el.dispatchEvent(new CustomEvent('bar', { detail: 42 }));
+    )");
+
+    auto count  = engine.evaluate("globalThis.__test_event_count__").getWithDefault<int>(-1);
+    auto type   = engine.evaluate("globalThis.__test_event_type__").getWithDefault<std::string>("");
+    auto detail = engine.evaluate("globalThis.__test_event_detail__").getWithDefault<int>(-1);
+    REQUIRE(count == 1);
+    REQUIRE(type == "foo");
+    REQUIRE(detail == 42);
+}
+
+TEST_CASE("<dialog> show/close round-trips visibility and dispatches close",
+          "[view][bridge][html][diverge-pass-html]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var d = document.createElement('dialog');
+        document.body.appendChild(d);
+        globalThis.__test_dialog_id__ = d._id;
+        globalThis.__test_dialog_close_count__ = 0;
+        d.addEventListener('close', function() {
+            globalThis.__test_dialog_close_count__++;
+        });
+        // Initially hidden.
+        globalThis.__test_dialog_open_initial__ = d.open;
+        d.show();
+        globalThis.__test_dialog_open_after_show__ = d.open;
+        d.close('ok');
+        globalThis.__test_dialog_open_after_close__ = d.open;
+        globalThis.__test_dialog_return_value__ = d.returnValue;
+    )");
+
+    auto initial      = engine.evaluate("globalThis.__test_dialog_open_initial__").getWithDefault<bool>(true);
+    auto after_show   = engine.evaluate("globalThis.__test_dialog_open_after_show__").getWithDefault<bool>(false);
+    auto after_close  = engine.evaluate("globalThis.__test_dialog_open_after_close__").getWithDefault<bool>(true);
+    auto close_count  = engine.evaluate("globalThis.__test_dialog_close_count__").getWithDefault<int>(-1);
+    auto return_value = engine.evaluate("globalThis.__test_dialog_return_value__").getWithDefault<std::string>("");
+    REQUIRE_FALSE(initial);
+    REQUIRE(after_show);
+    REQUIRE_FALSE(after_close);
+    REQUIRE(close_count == 1);
+    REQUIRE(return_value == "ok");
+}
+
+TEST_CASE("<details> open setter dispatches toggle event",
+          "[view][bridge][html][diverge-pass-html]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var d = document.createElement('details');
+        document.body.appendChild(d);
+        globalThis.__test_toggle_count__ = 0;
+        d.addEventListener('toggle', function() {
+            globalThis.__test_toggle_count__++;
+        });
+        globalThis.__test_open_initial__ = d.open;
+        d.open = true;
+        globalThis.__test_open_after_set__ = d.open;
+        globalThis.__test_open_attribute__ = d.getAttribute('open');
+        d.open = false;
+        globalThis.__test_open_after_unset__ = d.open;
+    )");
+
+    auto initial    = engine.evaluate("globalThis.__test_open_initial__").getWithDefault<bool>(true);
+    auto after_set  = engine.evaluate("globalThis.__test_open_after_set__").getWithDefault<bool>(false);
+    auto attr       = engine.evaluate("globalThis.__test_open_attribute__").getWithDefault<std::string>("__missing__");
+    auto after_unset = engine.evaluate("globalThis.__test_open_after_unset__").getWithDefault<bool>(true);
+    auto toggles    = engine.evaluate("globalThis.__test_toggle_count__").getWithDefault<int>(-1);
+    REQUIRE_FALSE(initial);
+    REQUIRE(after_set);
+    REQUIRE(attr == "");  // present, value empty
+    REQUIRE_FALSE(after_unset);
+    REQUIRE(toggles == 2);
+}
+
+TEST_CASE("<label for=...> click toggles labeled checkbox",
+          "[view][bridge][html][diverge-pass-html]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = 'mybox';
+        document.body.appendChild(cb);
+        var lbl = document.createElement('label');
+        lbl.setAttribute('for', 'mybox');
+        document.body.appendChild(lbl);
+
+        globalThis.__test_input_event_count__ = 0;
+        cb.addEventListener('input', function() {
+            globalThis.__test_input_event_count__++;
+        });
+        // Synthesize a click on the label.
+        var evt = new Event('click', { bubbles: true });
+        lbl.dispatchEvent(evt);
+        globalThis.__test_checked_after_click__ = cb.checked;
+    )");
+
+    auto count   = engine.evaluate("globalThis.__test_input_event_count__").getWithDefault<int>(-1);
+    auto checked = engine.evaluate("globalThis.__test_checked_after_click__").getWithDefault<bool>(false);
+    REQUIRE(count == 1);
+    REQUIRE(checked);
+}
+
+TEST_CASE("addEventListener('wheel', fn) routes through registerWheel",
+          "[view][bridge][html][diverge-pass-html]") {
+    // Verify the wheel branch in _registerNativeEvent is exercised — we
+    // can't easily generate a wheel scroll from C++ without driving the
+    // event system, so smoke-test that the call doesn't throw and the
+    // listener is recorded.
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var el = document.createElement('div');
+        document.body.appendChild(el);
+        var fired = false;
+        el.addEventListener('wheel', function(e) {
+            fired = true;
+        });
+        // Manually invoke the bridge's __dispatch__ for 'wheel' to
+        // simulate a native wheel event delivery — that's the path
+        // _registerNativeEvent wires up via on(id, 'wheel', ...).
+        if (typeof __dispatch__ === 'function') {
+            __dispatch__(el._id, 'wheel', 5, -7);
+        }
+        globalThis.__test_wheel_fired__ = fired;
+    )");
+
+    auto fired = engine.evaluate("globalThis.__test_wheel_fired__").getWithDefault<bool>(false);
+    REQUIRE(fired);
+}
+
+TEST_CASE("addEventListener('drop', fn) routes through registerDrop",
+          "[view][bridge][html][diverge-pass-html]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var el = document.createElement('div');
+        document.body.appendChild(el);
+        globalThis.__test_drop_payload__ = '';
+        el.addEventListener('drop', function(e) {
+            globalThis.__test_drop_payload__ = e._dropData
+                ? (e._dropData.type + ':' + e._dropData.data)
+                : 'no-data';
+        });
+        // The drop handler is registered as a global function named
+        // __drop_cb_<id>; invoke it directly to simulate the native
+        // drop completion path.
+        var cbName = '__drop_cb_' + el._id.replace(/[^a-zA-Z0-9_]/g, '_');
+        if (typeof globalThis[cbName] === 'function') {
+            globalThis[cbName]('text', 'hello world', 10, 20);
+        }
+    )");
+
+    auto payload = engine.evaluate("globalThis.__test_drop_payload__").getWithDefault<std::string>("");
+    REQUIRE(payload == "text:hello world");
+}
+
 TEST_CASE("setFlex start/end accept 'auto' keyword",
           "[view][bridge][css][diverge-pass-yoga]") {
     // pulp DIVERGE→PASS sweep — yoga/start and yoga/end claimed `auto`

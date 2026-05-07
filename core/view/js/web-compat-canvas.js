@@ -619,6 +619,8 @@ CanvasRenderingContext2D.prototype.closePath = function() {
 };
 
 CanvasRenderingContext2D.prototype.fill = function(fillRule) {
+    // pulp DIVERGE→PASS sweep — fillRule arg ('evenodd' | 'nonzero')
+    // threads through to the bridge. Default 'nonzero' = 0; 'evenodd' = 1.
     this._syncGlobalState();
     this._syncShadowState();
     this._syncFilterState();
@@ -939,6 +941,9 @@ CanvasRenderingContext2D.prototype.clip = function(fillRule) {
     // clip region with the current path. The bridge's canvasClip
     // (issue-896) calls SkCanvas::clipPath; canvasClipRect is the older
     // rect-only path. Prefer canvasClip when available.
+    // pulp DIVERGE→PASS sweep — thread the fillRule arg ('evenodd' |
+    // 'nonzero') through to canvasClip, matching what the bridge now
+    // accepts as int_val (0 = nonzero, 1 = evenodd).
     var rule = (fillRule === "evenodd") ? 1 : 0;
     if (typeof canvasClip === "function") canvasClip(this._id, rule);
 };
