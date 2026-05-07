@@ -1651,18 +1651,6 @@ TEST_CASE("Canvas2D fillText threads maxWidth through to bridge",
     // form (no maxWidth) records cmd.w == 0 — the "no constraint"
     // sentinel that the paint loop uses to fall through to the legacy
     // unconstrained path.
-// ── pulp #1521 — arc-as-path cluster (DIVERGE → PASS) ────────────────────
-//
-// The JS shim now routes ctx.arc / arcTo / ellipse / roundRect through the
-// new canvasPathArc / canvasPathArcTo / canvasPathEllipse /
-// canvasPathRoundRect bridge fns. Before this PR the shim emitted
-// canvasMoveTo + canvasCubicTo (arc / ellipse) or canvasLineTo (arcTo /
-// roundRect) — N approximation segments per arc. After this PR each call
-// emits exactly one path_arc / path_arc_to / path_ellipse /
-// path_round_rect command, and the cubic_to / line_to fallbacks no
-// longer fire from the arc family.
-TEST_CASE("Canvas2D arc shim emits path_arc, not bezier approximation",
-          "[view][canvas2d][issue-1521]") {
     ScriptedBridge env;
     env.load(R"(
         var c = document.createElement('canvas');
@@ -1700,65 +1688,12 @@ TEST_CASE("Canvas2D fillText coerces non-finite maxWidth to no-constraint sentin
     // Spec: NaN / Infinity / negative / zero / null / undefined all
     // collapse to "no constraint" — the bridge sees cmd.w == 0 and the
     // paint loop falls through to the legacy unconstrained fill_text.
-        c.width = 100; c.height = 100;
-        var ctx = c.getContext('2d');
-        ctx.beginPath();
-        ctx.arc(50, 50, 30, 0, Math.PI * 2);
-        ctx.stroke();
-    )");
-    auto* cw = env.canvas();
-    REQUIRE(cw != nullptr);
-    int saw_arc = 0, saw_cubic = 0, saw_move = 0;
-    for (const auto& cmd : cw->commands()) {
-        if (cmd.type == CanvasDrawCmd::Type::path_arc) ++saw_arc;
-        if (cmd.type == CanvasDrawCmd::Type::cubic_to) ++saw_cubic;
-        if (cmd.type == CanvasDrawCmd::Type::move_to) ++saw_move;
-    }
-    INFO("path_arc=" << saw_arc << " cubic_to=" << saw_cubic
-         << " move_to=" << saw_move);
-    REQUIRE(saw_arc == 1);
-    REQUIRE(saw_cubic == 0); // old shim emitted N cubic_to per arc
-    REQUIRE(saw_move == 0);  // old shim emitted a move_to per arc
-}
-
-TEST_CASE("Canvas2D arcTo shim emits path_arc_to with radius preserved",
-          "[view][canvas2d][issue-1521]") {
     ScriptedBridge env;
     env.load(R"(
         var c = document.createElement('canvas');
         globalThis.__test_canvas_el__ = c;
         document.body.appendChild(c);
-        c.width = 100; c.height = 100;
-        var ctx = c.getContext('2d');
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arcTo(50, 0, 50, 50, 12);
-        ctx.stroke();
-    )");
-    auto* cw = env.canvas();
-    REQUIRE(cw != nullptr);
-    bool saw_arc_to = false;
-    for (const auto& cmd : cw->commands()) {
-        if (cmd.type == CanvasDrawCmd::Type::path_arc_to) {
-            saw_arc_to = true;
-            REQUIRE(cmd.x == Catch::Approx(50.0f));
-            REQUIRE(cmd.y == Catch::Approx(0.0f));
-            REQUIRE(cmd.x2 == Catch::Approx(50.0f));
-            REQUIRE(cmd.y2 == Catch::Approx(50.0f));
-            REQUIRE(cmd.extra == Catch::Approx(12.0f));
-        }
-    }
-    REQUIRE(saw_arc_to);
-}
-
-TEST_CASE("Canvas2D ellipse shim emits path_ellipse with rotation",
-          "[view][canvas2d][issue-1521]") {
-    ScriptedBridge env;
-    env.load(R"(
-        var c = document.createElement('canvas');
-        globalThis.__test_canvas_el__ = c;
-        document.body.appendChild(c);
-        c.width = 200; c.height = 50;
+        c.width = 200; c.height = 60;
         var ctx = c.getContext('2d');
         ctx.font = '14px Inter';
         ctx.fillText('a', 0, 10, NaN);
@@ -1766,6 +1701,7 @@ TEST_CASE("Canvas2D ellipse shim emits path_ellipse with rotation",
         ctx.fillText('c', 0, 30, -10);
         ctx.fillText('d', 0, 40, 0);
         ctx.fillText('e', 0, 50, null);
+        ctx.fillText('f', 0, 60, undefined);
     )");
     auto* cw = env.canvas();
     REQUIRE(cw != nullptr);
@@ -1774,13 +1710,13 @@ TEST_CASE("Canvas2D ellipse shim emits path_ellipse with rotation",
     int seen = 0;
     for (const auto& cmd : cw->commands()) {
         if (cmd.type != T::fill_text) continue;
-        if (cmd.text.size() == 1 && cmd.text[0] >= 'a' && cmd.text[0] <= 'e') {
+        if (cmd.text.size() == 1 && cmd.text[0] >= 'a' && cmd.text[0] <= 'f') {
             INFO("text=" << cmd.text << " observed cmd.w=" << cmd.w);
             REQUIRE(cmd.w == 0.0f);
             seen++;
         }
     }
-    REQUIRE(seen == 5);
+    REQUIRE(seen == 6);
 }
 
 TEST_CASE("Canvas2D strokeText routes through canvasStrokeText with maxWidth",
@@ -1832,37 +1768,14 @@ TEST_CASE("Canvas2D ctx.measureText is unaffected by a subsequent maxWidth fillT
     // font; the maxWidth-squeeze on fillText is rendering-only and
     // must not retroactively alter the metrics returned to JS.
     auto result = run_in_bridge(R"(
-        c.width = 100; c.height = 100;
-        var ctx = c.getContext('2d');
-        ctx.beginPath();
-        ctx.ellipse(50, 50, 40, 20, Math.PI / 4, 0, Math.PI * 2);
-        ctx.fill();
-    )");
-    auto* cw = env.canvas();
-    REQUIRE(cw != nullptr);
-    bool saw_ellipse = false;
-    for (const auto& cmd : cw->commands()) {
-        if (cmd.type == CanvasDrawCmd::Type::path_ellipse) {
-            saw_ellipse = true;
-            REQUIRE(cmd.w == Catch::Approx(40.0f));   // rx
-            REQUIRE(cmd.h == Catch::Approx(20.0f));   // ry
-            REQUIRE(cmd.extra == Catch::Approx(0.7853982f).margin(1e-5)); // rotation
-        }
-    }
-    REQUIRE(saw_ellipse);
-}
-
-TEST_CASE("Canvas2D roundRect shim emits path_round_rect with 4 distinct radii",
-          "[view][canvas2d][issue-1521]") {
-    ScriptedBridge env;
-    env.load(R"(
         var c = document.createElement('canvas');
         document.body.appendChild(c);
+        c.width = 100; c.height = 100;
         var ctx = c.getContext('2d');
         ctx.font = '14px Inter';
         var natural = ctx.measureText('squeeze me').width;
         ctx.fillText('squeeze me', 0, 20, 5);  // tiny maxWidth
-        var after   = ctx.measureText('squeeze me').width;
+        var after = ctx.measureText('squeeze me').width;
         // Round to integer so font-fallback fuzz between hosts doesn't
         // make this brittle — the contract is "before == after", not a
         // specific advance value.
@@ -1874,38 +1787,9 @@ TEST_CASE("Canvas2D roundRect shim emits path_round_rect with 4 distinct radii",
 #ifdef PULP_HAS_SKIA
 TEST_CASE("Canvas2D fillText with maxWidth horizontally squeezes raster output",
           "[view][canvas2d][issue-1525][skia]") {
-    // End-to-end: render the same text twice — once unconstrained, once
-    // with a maxWidth narrower than the natural advance. Assert the
-    // constrained raster has its right edge at (x + maxWidth), not at
-    // (x + natural advance).
-        c.width = 100; c.height = 100;
-        var ctx = c.getContext('2d');
-        ctx.beginPath();
-        ctx.roundRect(10, 20, 80, 40, [2, 4, 6, 8]);
-        ctx.fill();
-    )");
-    auto* cw = env.canvas();
-    REQUIRE(cw != nullptr);
-    bool saw_rr = false;
-    for (const auto& cmd : cw->commands()) {
-        if (cmd.type == CanvasDrawCmd::Type::path_round_rect) {
-            saw_rr = true;
-            REQUIRE(cmd.x == Catch::Approx(10.0f));
-            REQUIRE(cmd.y == Catch::Approx(20.0f));
-            REQUIRE(cmd.w == Catch::Approx(80.0f));
-            REQUIRE(cmd.h == Catch::Approx(40.0f));
-            REQUIRE(cmd.gradient_positions.size() == 8u);
-            REQUIRE(cmd.gradient_positions[0] == Catch::Approx(2.0f)); // tl_x
-            REQUIRE(cmd.gradient_positions[2] == Catch::Approx(4.0f)); // tr_x
-            REQUIRE(cmd.gradient_positions[4] == Catch::Approx(6.0f)); // br_x
-            REQUIRE(cmd.gradient_positions[6] == Catch::Approx(8.0f)); // bl_x
-        }
-    }
-    REQUIRE(saw_rr);
-}
-
-TEST_CASE("Canvas2D roundRect shim accepts {x,y} elliptical corner",
-          "[view][canvas2d][issue-1521]") {
+    // End-to-end: render the same text once with a maxWidth narrower than
+    // the natural advance. Assert the constrained raster has its right edge
+    // at (x + maxWidth), not at (x + natural advance).
     ScriptedBridge env;
     env.load(R"(
         var c = document.createElement('canvas');
@@ -1945,7 +1829,7 @@ TEST_CASE("Canvas2D roundRect shim accepts {x,y} elliptical corner",
         return (r + g + b) > 60;
     };
     // Find the rightmost lit column. With maxWidth=60 starting at x=5,
-    // the squeezed run must end no further than x ≈ 65 + a small
+    // the squeezed run must end no further than x ~= 65 + a small
     // anti-alias tolerance. Without the squeeze the natural advance of
     // "Hello there friends" at 20px would extend well past x=120.
     int rightmost = 0;
@@ -2027,7 +1911,143 @@ TEST_CASE("SkiaCanvas::stroke_text honors sticky line_join state",
     REQUIRE(diff_count > 10);
 }
 #endif  // PULP_HAS_SKIA
+
+// ── pulp #1521 — arc-as-path cluster (DIVERGE → PASS) ────────────────────
+//
+// The JS shim now routes ctx.arc / arcTo / ellipse / roundRect through the
+// new canvasPathArc / canvasPathArcTo / canvasPathEllipse /
+// canvasPathRoundRect bridge fns. Before this PR the shim emitted
+// canvasMoveTo + canvasCubicTo (arc / ellipse) or canvasLineTo (arcTo /
+// roundRect) — N approximation segments per arc. After this PR each call
+// emits exactly one path_arc / path_arc_to / path_ellipse /
+// path_round_rect command, and the cubic_to / line_to fallbacks no
+// longer fire from the arc family.
+TEST_CASE("Canvas2D arc shim emits path_arc, not bezier approximation",
+          "[view][canvas2d][issue-1521]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
         c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.arc(50, 50, 30, 0, Math.PI * 2);
+        ctx.stroke();
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    int saw_arc = 0, saw_cubic = 0, saw_move = 0;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::path_arc) ++saw_arc;
+        if (cmd.type == CanvasDrawCmd::Type::cubic_to) ++saw_cubic;
+        if (cmd.type == CanvasDrawCmd::Type::move_to) ++saw_move;
+    }
+    INFO("path_arc=" << saw_arc << " cubic_to=" << saw_cubic
+         << " move_to=" << saw_move);
+    REQUIRE(saw_arc == 1);
+    REQUIRE(saw_cubic == 0); // old shim emitted N cubic_to per arc
+    REQUIRE(saw_move == 0);  // old shim emitted a move_to per arc
+}
+
+TEST_CASE("Canvas2D arcTo shim emits path_arc_to with radius preserved",
+          "[view][canvas2d][issue-1521]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arcTo(50, 0, 50, 50, 12);
+        ctx.stroke();
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_arc_to = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::path_arc_to) {
+            saw_arc_to = true;
+            REQUIRE(cmd.x == Catch::Approx(50.0f));
+            REQUIRE(cmd.y == Catch::Approx(0.0f));
+            REQUIRE(cmd.x2 == Catch::Approx(50.0f));
+            REQUIRE(cmd.y2 == Catch::Approx(50.0f));
+            REQUIRE(cmd.extra == Catch::Approx(12.0f));
+        }
+    }
+    REQUIRE(saw_arc_to);
+}
+
+TEST_CASE("Canvas2D ellipse shim emits path_ellipse with rotation",
+          "[view][canvas2d][issue-1521]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.ellipse(50, 50, 40, 20, Math.PI / 4, 0, Math.PI * 2);
+        ctx.fill();
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_ellipse = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::path_ellipse) {
+            saw_ellipse = true;
+            REQUIRE(cmd.w == Catch::Approx(40.0f));   // rx
+            REQUIRE(cmd.h == Catch::Approx(20.0f));   // ry
+            REQUIRE(cmd.extra == Catch::Approx(0.7853982f).margin(1e-5)); // rotation
+        }
+    }
+    REQUIRE(saw_ellipse);
+}
+
+TEST_CASE("Canvas2D roundRect shim emits path_round_rect with 4 distinct radii",
+          "[view][canvas2d][issue-1521]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 100; c.height = 100;
+        var ctx = c.getContext('2d');
+        ctx.beginPath();
+        ctx.roundRect(10, 20, 80, 40, [2, 4, 6, 8]);
+        ctx.fill();
+    )");
+    auto* cw = env.canvas();
+    REQUIRE(cw != nullptr);
+    bool saw_rr = false;
+    for (const auto& cmd : cw->commands()) {
+        if (cmd.type == CanvasDrawCmd::Type::path_round_rect) {
+            saw_rr = true;
+            REQUIRE(cmd.x == Catch::Approx(10.0f));
+            REQUIRE(cmd.y == Catch::Approx(20.0f));
+            REQUIRE(cmd.w == Catch::Approx(80.0f));
+            REQUIRE(cmd.h == Catch::Approx(40.0f));
+            REQUIRE(cmd.gradient_positions.size() == 8u);
+            REQUIRE(cmd.gradient_positions[0] == Catch::Approx(2.0f)); // tl_x
+            REQUIRE(cmd.gradient_positions[2] == Catch::Approx(4.0f)); // tr_x
+            REQUIRE(cmd.gradient_positions[4] == Catch::Approx(6.0f)); // br_x
+            REQUIRE(cmd.gradient_positions[6] == Catch::Approx(8.0f)); // bl_x
+        }
+    }
+    REQUIRE(saw_rr);
+}
+
+TEST_CASE("Canvas2D roundRect shim accepts {x,y} elliptical corner",
+          "[view][canvas2d][issue-1521]") {
+    ScriptedBridge env;
+    env.load(R"(
+        var c = document.createElement('canvas');
+        globalThis.__test_canvas_el__ = c;
+        document.body.appendChild(c);
+        c.width = 200; c.height = 40;
         var ctx = c.getContext('2d');
         ctx.beginPath();
         ctx.roundRect(0, 0, 50, 50, [{x: 4, y: 8}]);
@@ -2347,8 +2367,7 @@ TEST_CASE("Canvas2D shim flushes the 10-entry catalog set to the bridge",
         ctx.quadraticCurveTo(10, 20, 30, 0);
         // (9) bezierCurveTo — wraps canvasCubicTo (cmd cubic_to).
         ctx.bezierCurveTo(35, 5, 45, 5, 50, 10);
-        // (10) arc — shim synthesizes path-mode via moveTo + cubicTo
-        // (gotcha: bridge canvasArc is immediate-mode).
+        // (10) arc — shim emits a native path_arc command.
         ctx.arc(40, 40, 8, 0, 6.28);
 
         // Trigger the stroke flush so lineCap/lineJoin and globalAlpha
@@ -2370,7 +2389,7 @@ TEST_CASE("Canvas2D shim flushes the 10-entry catalog set to the bridge",
     bool saw_line_cap = false, saw_line_join = false;
     bool saw_text_align = false, saw_text_baseline = false;
     bool saw_set_line_dash = false;
-    bool saw_quad = false, saw_cubic = false;
+    bool saw_quad = false, saw_cubic = false, saw_path_arc = false;
     bool saw_move = false;
     int  cubic_count = 0;
     int  set_line_dash_phase_x4 = 0;  // count cmds where extra==4 (offset)
@@ -2392,6 +2411,7 @@ TEST_CASE("Canvas2D shim flushes the 10-entry catalog set to the bridge",
             break;
         case T::quad_to:             saw_quad = true; break;
         case T::cubic_to:            saw_cubic = true; ++cubic_count; break;
+        case T::path_arc:            saw_path_arc = true; break;
         case T::move_to:             saw_move = true; break;
         default: break;
         }
@@ -2406,6 +2426,7 @@ TEST_CASE("Canvas2D shim flushes the 10-entry catalog set to the bridge",
          << " set_line_dash=" << saw_set_line_dash
          << " quad=" << saw_quad
          << " cubic=" << saw_cubic
+         << " path_arc=" << saw_path_arc
          << " move=" << saw_move
          << " cubic_count=" << cubic_count);
 
@@ -2418,9 +2439,10 @@ TEST_CASE("Canvas2D shim flushes the 10-entry catalog set to the bridge",
     REQUIRE(saw_set_line_dash);
     REQUIRE(set_line_dash_phase_x4 >= 1);  // lineDashOffset=4 carried through
     REQUIRE(saw_quad);                      // quadraticCurveTo
-    REQUIRE(saw_cubic);                     // bezierCurveTo + arc both produce cubic_to
-    REQUIRE(cubic_count >= 2);              // bezierCurveTo (1) + arc (≥1 quadrant)
-    REQUIRE(saw_move);                      // arc shim emits moveTo before cubics
+    REQUIRE(saw_cubic);                     // bezierCurveTo
+    REQUIRE(cubic_count >= 1);              // bezierCurveTo (1)
+    REQUIRE(saw_path_arc);                  // arc
+    REQUIRE(saw_move);                      // explicit moveTo before path methods
 
     // Enum payloads — 'center'/'middle'/'round'/'bevel'/'multiply' must
     // round-trip through the bridge as the documented enum values, not
