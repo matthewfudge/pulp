@@ -2,6 +2,7 @@
   "compat-schema-version": "0.3",
   "_comment": "Compat matrix per #1027. This file is the spec-driven inventory of every prop / style / API surface Pulp's React + DOM-lite consumers might use, mapped to its current implementation status. Status values: supported | partial | missing | wontfix. The 'mapsTo' field names the bridge / Yoga / Skia path the prop lowers to. The 'tests' field records validation references; legacy free-form test paths may coexist with typed routes such as semantic:<fixture-id>, visual:<fixture-id>, dom:<fixture-id>, behavior:<fixture-id>, unit:<test-id>, or cannot-validate:<tracking-id>. The audit was generated 2026-04-30 by walking three reference specs (Yoga via React Native Layout Props, React Native View / Text / Transform Style Props, and the most-used MDN CSS reference) and cross-referencing against four implementation surfaces: packages/pulp-react/src/prop-applier.ts (the @pulp/react switch), core/view/js/web-compat-style-decl.js (the DOM-lite CSS adapter), core/view/src/widget_bridge.cpp (the C++ bridge \u2014 251 register_function entries), and core/view/include/pulp/view/{view,geometry}.hpp (the Flex / View widget surface).",
   "_audit": {
+    "_evidence_grace_until": "2026-05-22",
     "generated": "2026-05-04",
     "main_sha": "a5f4f5ac",
     "spec_sources": {
@@ -7261,6 +7262,7 @@
         "blur(<length>)",
         "brightness(<num|%>)",
         "contrast(<num|%>)",
+        "drop-shadow(<dx> <dy> <blur> <color>)",
         "grayscale(<num|%>)",
         "hue-rotate(<angle>)",
         "invert(<num|%>)",
@@ -7268,6 +7270,14 @@
         "saturate(<num|%>)",
         "sepia(<num|%>)",
         "none (default; clears any active chain)"
+      ],
+      "unsupportedValues": [
+        "url(#filter-id) (SVG filter references)",
+        "CG backend renders unfiltered (Skia-only today)"
+      ],
+      "tests": [
+        "test/test_canvas.cpp [skia][filter-chain][drop-shadow]",
+        "test/test_canvas2d_shim.cpp [issue-1520]"
       ],
       "unsupportedValues": [
         "drop-shadow(...) (deferred \u2014 needs offset+blur+color tuple parsing)",
