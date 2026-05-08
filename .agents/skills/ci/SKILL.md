@@ -485,6 +485,19 @@ tracked LFS object; enabling checkout LFS on the reused self-hosted workspace
 causes `git lfs install --local` to fail because Pulp already owns the
 `pre-push` hook.
 
+**Self-hosted macOS build dirs must stay isolated.** The local runner keeps
+`build-*` directories between workflows. The ordinary `build.yml` matrix uses
+`build-${{ matrix.key }}`, and `sanitizers.yml` uses `build-asan`,
+`build-tsan`, `build-ubsan`, and `build-rtsan`. Do not collapse these back to
+plain `build/`: a stale sanitizer `CMakeCache.txt` can leak flags such as
+`-fsanitize=address` into the required macOS build and make unrelated
+JavaScriptCore/host tests abort under ASan. `tools/scripts/test_workflow_build_dirs.py`
+is wired into workflow-lint to keep this invariant machine-checked. CLI
+delegation to helper binaries must resolve from the active build directory
+(`build-${{ matrix.key }}` or the running CLI's sibling build tree), not a
+hard-coded `build/` path; otherwise Linux catches missing helpers while warm
+self-hosted macOS workspaces can mask the bug.
+
 ### Overrides when you need them
 
 - **Dispatch a specific run on github-hosted** (normal Linux/Windows path, or comparing hosted macOS behaviour):
@@ -821,6 +834,14 @@ Locally:
 **Auto-release:** `.github/workflows/auto-release.yml` fires on push to `main`. It diffs the two version-bearing files (`CMakeLists.txt` project version, `.claude-plugin/plugin.json` version) against the previous push range and creates the corresponding `v<x.y.z>` or `plugin-v<x.y.z>` tag. The existing tag-triggered release workflows (`release-cli.yml`, `sign-and-release.yml`) then build and publish. `Release: skip reason="..."` on the merging commit suppresses the tag.
 
 **fix/feat-needs-bump (issue #1009):** the version-skill-check workflow ALSO runs `version_bump_check.py --require-bump-for-fix-feat` on `pull_request` events. If the PR title matches `^(fix|feat)(\([^)]*\))?!?:\s` (Conventional Commits user-facing prefix), the diff range MUST contain either a commit subject `chore: bump versions` OR a top-level `Version-Bump: skip reason="..."` trailer (with non-empty reason — bare `skip` is rejected). This is the structural fix for the 2026-04-30 incident (PR #1008) where a `fix(view):` merged via `gh pr merge` after a force-push race with `shipyard pr` and stranded the change on main. Auto-release.yml has a matching backstop step (`Stranded fix/feat detector`) that emits a `::warning::` annotation and opens a `release-stuck`-labelled tracking issue when the merge slips through to push. Branch protection on `main` requiring the `Enforce version & skill sync` check would close the loop entirely — see `docs/guides/release-watchdog.md` for the recommended setup. Bypass the check on a one-off basis with `Version-Bump: skip reason="..."` on any commit in the range; this is intentionally a different trailer from `Release: skip` so a "don't tag this release" decision doesn't silently imply "this fix doesn't need a bump."
+
+**Exact bump-marker format:** for `fix:` / `feat:` PR titles, the accepted
+commit subject prefixes are exactly `chore: bump versions` (canonical) and
+`chore(versions): bump` (legacy). A manually authored subject such as
+`chore: bump SDK to v0.78.4` does not satisfy the gate, even if the
+version files and changelog are correctly edited. Let `shipyard pr` create
+the bump commit when possible; if you need to repair it manually, use the
+canonical subject `chore: bump versions`.
 
 **Release-workflow VST3 pin:** `sign-and-release.yml` must clone the same Steinberg tag pinned everywhere else in the repo: `v3.7.12_build_20`. The shorthand `v3.7.12` does not exist upstream and will make tag-time macOS release jobs fail before configure/build even start.
 
