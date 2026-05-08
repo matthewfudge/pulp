@@ -1355,6 +1355,75 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
+    // ── Accessibility (pulp Wave 3 html.2 / #1476) ───────────────────────
+    //
+    // setAccessibilityLabel / setAccessibilityRole are the bridge-side
+    // entry points the html-compat layer calls when JS does
+    //   el.setAttribute('aria-label', '...')
+    //   el.setAttribute('role',       '...').
+    //
+    // Storage lives on View::access_label_ / View::access_role_ (the
+    // existing widget-level a11y slots — already consumed by the macOS
+    // NSAccessibility bridge in core/view/platform/mac/accessibility_mac.mm
+    // and the cross-platform AccessibilityTree snapshot in
+    // accessibility_tree.cpp).  Linux AT-SPI / Windows UIA platform
+    // routing remains a separate concern (#217) — the bridge entry point
+    // is platform-agnostic; JS-side authors can rely on the same surface
+    // on every platform and the storage round-trips through getAttribute
+    // either way.
+    //
+    // Role mapping mirrors the W3C ARIA -> AccessRole bucket used by the
+    // existing widget setters: ARIA roles outside Pulp's enum collapse to
+    // `group` (the most neutral container role) so VoiceOver still
+    // announces the element as an interactive group rather than an
+    // unknown blob, and the JS-author intent ("yes, this is exposed to
+    // assistive tech") is preserved.  Unknown / empty role clears the
+    // role back to AccessRole::none.
+    engine_.register_function("setAccessibilityLabel",
+                              [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto label = args.get<std::string>(1, "");
+        auto it = widgets_.find(id);
+        if (it != widgets_.end()) it->second->set_access_label(std::move(label));
+        return choc::value::Value();
+    });
+
+    engine_.register_function("setAccessibilityRole",
+                              [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto role = args.get<std::string>(1, "");
+        auto it = widgets_.find(id);
+        if (it == widgets_.end()) return choc::value::Value();
+
+        // ARIA role token -> View::AccessRole bucket.  Mirrors the spirit
+        // of NSAccessibilityRole / UIA control-type mapping: collapse the
+        // long ARIA tail onto the small Pulp enum, but keep semantic
+        // hints alive so the platform layer announces something sensible.
+        View::AccessRole r = View::AccessRole::none;
+        if (role.empty() || role == "none" || role == "presentation") {
+            r = View::AccessRole::none;
+        } else if (role == "slider") {
+            r = View::AccessRole::slider;
+        } else if (role == "checkbox" || role == "switch" || role == "radio") {
+            r = View::AccessRole::toggle;
+        } else if (role == "img" || role == "image") {
+            r = View::AccessRole::image;
+        } else if (role == "progressbar" || role == "meter") {
+            r = View::AccessRole::meter;
+        } else if (role == "heading" || role == "label" ||
+                   role == "text"    || role == "paragraph") {
+            r = View::AccessRole::label;
+        } else {
+            // Everything else (button, link, navigation, region, dialog,
+            // listbox, menu, ...) collapses to `group` — VoiceOver
+            // announces it as a generic interactive group, which is
+            // strictly better than treating it as untyped.
+            r = View::AccessRole::group;
+        }
+        it->second->set_access_role(r);
+        return choc::value::Value();
+    });
+
     // registerHover(id) — enables "mouseenter"/"mouseleave" JS callbacks (CSS :hover)
     engine_.register_function("registerHover", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -5656,6 +5725,89 @@ void WidgetBridge::register_api() {
     engine_.register_function("canvasClearGradient", [this](choc::javascript::ArgumentList args) {
         if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
             CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::clear_fill_gradient;
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // pulp Wave 3 c2d.7 — `ctx.strokeStyle = createLinearGradient(...)`.
+    // Mirror of canvasSetLinearGradient targeting the new
+    // `Canvas::set_stroke_gradient_linear` virtual. The JS shim's
+    // _applyStrokeStyle dispatches here when the bridge fn is present;
+    // older binaries fall back to the first-stop solid colour without
+    // crashing. Stops are color/position pairs starting at arg index 5,
+    // matching the fill counterpart so the JS shim shares its packing
+    // logic.
+    engine_.register_function("canvasSetStrokeLinearGradient", [this, parseColor](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::set_stroke_gradient_linear;
+            cmd.x = (float)args.get<double>(1, 0); cmd.y = (float)args.get<double>(2, 0);
+            cmd.x2 = (float)args.get<double>(3, 0); cmd.y2 = (float)args.get<double>(4, 1);
+            for (int i = 5; i + 1 < static_cast<int>(args.numArgs); i += 2) {
+                cmd.gradient_colors.push_back(parseColor(args.get<std::string>(i, "#fff")));
+                cmd.gradient_positions.push_back((float)args.get<double>(i + 1, 0));
+            }
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // Single-circle radial. Args: (id, cx, cy, radius, color1, pos1, ...).
+    engine_.register_function("canvasSetStrokeRadialGradient", [this, parseColor](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::set_stroke_gradient_radial;
+            cmd.x = (float)args.get<double>(1, 0); cmd.y = (float)args.get<double>(2, 0);
+            cmd.extra = (float)args.get<double>(3, 50);
+            for (int i = 4; i + 1 < static_cast<int>(args.numArgs); i += 2) {
+                cmd.gradient_colors.push_back(parseColor(args.get<std::string>(i, "#fff")));
+                cmd.gradient_positions.push_back((float)args.get<double>(i + 1, 0));
+            }
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // Two-circle radial. Args: (id, x0, y0, r0, x1, y1, r1, color1, pos1, ...).
+    engine_.register_function("canvasSetStrokeRadialGradientTwoCircles",
+            [this, parseColor](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd;
+            cmd.type = CanvasDrawCmd::Type::set_stroke_gradient_radial_two_circles;
+            cmd.x = (float)args.get<double>(1, 0);
+            cmd.y = (float)args.get<double>(2, 0);
+            cmd.extra = (float)args.get<double>(3, 0);
+            cmd.x2 = (float)args.get<double>(4, 0);
+            cmd.y2 = (float)args.get<double>(5, 0);
+            cmd.w  = (float)args.get<double>(6, 50);
+            for (int i = 7; i + 1 < static_cast<int>(args.numArgs); i += 2) {
+                cmd.gradient_colors.push_back(parseColor(args.get<std::string>(i, "#fff")));
+                cmd.gradient_positions.push_back((float)args.get<double>(i + 1, 0));
+            }
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // Conic / sweep. Args: (id, cx, cy, startAngle, color1, pos1, ...).
+    engine_.register_function("canvasSetStrokeConicGradient", [this, parseColor](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::set_stroke_gradient_conic;
+            cmd.x = (float)args.get<double>(1, 0);
+            cmd.y = (float)args.get<double>(2, 0);
+            cmd.extra = (float)args.get<double>(3, 0);
+            for (int i = 4; i + 1 < static_cast<int>(args.numArgs); i += 2) {
+                cmd.gradient_colors.push_back(parseColor(args.get<std::string>(i, "#fff")));
+                cmd.gradient_positions.push_back((float)args.get<double>(i + 1, 0));
+            }
+            c->add_command(cmd);
+        }
+        return choc::value::Value();
+    });
+
+    // Reset stroke shader → solid stroke colour.
+    engine_.register_function("canvasClearStrokeGradient", [this](choc::javascript::ArgumentList args) {
+        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
+            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::clear_stroke_gradient;
             c->add_command(cmd);
         }
         return choc::value::Value();
