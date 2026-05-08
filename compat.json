@@ -38,7 +38,7 @@
       "2026-05-06_1544": "pulp #1544: Added yoga/flex and yoga/flexFlow catalog entries documenting the unsupported CSS shorthand surface on the Yoga side (yoga count 53 -> 55). PR #1563.",
       "2026-05-07": "pulp #1434 A4 Bundles 2-7: css NOT-IMPL closure. 30 entries flipped missing -> partial / noop / wontfix across animations tail (animationPlayState), logical-edge fan-out (margin/padding Block/Inline Start/End -- 7 entries), overflow per-axis + 3D (overflowX, overflowY, overflowWrap, perspective, perspectiveOrigin), text rendering tail (textIndent, verticalAlign, wordBreak, writingMode, scroll* -- 8), isolation + clipPath + mask + direction + mixBlendMode (6), and resize + fontVariant (2). New bridge fns: setTextIndent, setVerticalAlign, setWordBreak, setFontVariant. Extended setAnimation with the \"play_state\" control token. Synthetic __pseudo_classes_note flipped wontfix. Catalog css count holds at 212; missing -> 0.",
       "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts.",
-      "2026-05-07_W3css3": "pulp #1434 Wave 3 css.3 + Codex P1 audit follow-through on #1508. css/animationPlayState flipped partial → supported by adding View::tick_animations(dt) which honors the `paused` keyword (no-op when paused, advance-each-CssAnimation otherwise) — the playback driver pause/resume gap the previous A4 Bundle 2 entry had explicitly deferred. Prop-applier `animationPlayState` case added (was missing; only the JS shim path existed). Verified the two Codex P1 fixes from #1508 hold in the final form: (1) setAnimation(id, \"name\"|\"duration\"|... , value) control-token ABI is implemented in the bridge alongside the positional ABI so the JS shim's per-longhand calls land on the staged_animation slot rather than missing the keyframes registry, (2) animationDuration in prop-applier.ts dispatches to setAnimation/duration, not setTransitionDuration. css count holds at 212."
+      "2026-05-07_W3css3": "pulp #1434 Wave 3 css.3 + Codex P1 audit follow-through on #1508. css/animationPlayState flipped partial \u2192 supported by adding View::tick_animations(dt) which honors the `paused` keyword (no-op when paused, advance-each-CssAnimation otherwise) \u2014 the playback driver pause/resume gap the previous A4 Bundle 2 entry had explicitly deferred. Prop-applier `animationPlayState` case added (was missing; only the JS shim path existed). Verified the two Codex P1 fixes from #1508 hold in the final form: (1) setAnimation(id, \"name\"|\"duration\"|... , value) control-token ABI is implemented in the bridge alongside the positional ABI so the JS shim's per-longhand calls land on the staged_animation slot rather than missing the keyframes registry, (2) animationDuration in prop-applier.ts dispatches to setAnimation/duration, not setTransitionDuration. css count holds at 212."
     },
     "counts": {
       "css": 212,
@@ -3223,7 +3223,7 @@
         "spec-faithful collapsing/breaking semantics (paint-time deferred)"
       ],
       "tests": [],
-      "notes": "Wave 2 css.4 — pre-line / break-spaces accepted at the JS+bridge layer (no longer dropped); spec-faithful HarfBuzz line-break feature wiring is the paint-time follow-up.",
+      "notes": "Wave 2 css.4 \u2014 pre-line / break-spaces accepted at the JS+bridge layer (no longer dropped); spec-faithful HarfBuzz line-break feature wiring is the paint-time follow-up.",
       "issue": ""
     },
     "css/width": {
@@ -3442,34 +3442,36 @@
       "issue": ""
     },
     "rn/borderBottomLeftRadius": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `borderBottomLeftRadius` to `setBorderBottomLeftRadius(id, n)` (prop-applier.ts:318-321 since #1396).",
       "supportedValues": [
-        "number (px)"
+        "number (px)",
+        "percent string (\"50%\") \u2014 paint-side resolved against the View's rect bounds via SkRRect",
+        "RN Fabric elliptical { x, y } object form (degraded to averaged uniform radius today; true elliptical via SkRRect::setRectRadii is the deferred paint-side slice)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-wave2.test.ts"
       ],
       "notes": "Same. pulp #1434: catalog hygiene \u2014 flipped missing \u2192 supported. Wave 2 rn \u2014 RN Fabric `{ x, y }` elliptical form now flows through (degraded to averaged uniform radius; full SkRRect::setRectXY rendering remains a deferred paint-side gap). % keyword on radius still requires bridge-side wiring and stays in unsupportedValues.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "True elliptical-corner rendering (Fabric { x, y } pairs producing different rx/ry per corner via SkRRect::setRectRadii) is the deferred paint-side slice; the @pulp/react surface accepts the Fabric object form today and degrades to an averaged uniform radius, which matches the dominant Figma / Lucide / Heroicons usage where x and y differ only modestly."
     },
     "rn/borderBottomRightRadius": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `borderBottomRightRadius` to `setBorderBottomRightRadius(id, n)` (prop-applier.ts:318-321 since #1396).",
       "supportedValues": [
-        "number (px)"
+        "number (px)",
+        "percent string (\"50%\") \u2014 paint-side resolved against the View's rect bounds via SkRRect",
+        "RN Fabric elliptical { x, y } object form (degraded to averaged uniform radius today; true elliptical via SkRRect::setRectRadii is the deferred paint-side slice)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-wave2.test.ts"
       ],
       "notes": "Same. pulp #1434: catalog hygiene \u2014 flipped missing \u2192 supported. Wave 2 rn \u2014 RN Fabric `{ x, y }` elliptical form now flows through (degraded to averaged uniform radius; full SkRRect::setRectXY rendering remains a deferred paint-side gap). % keyword on radius still requires bridge-side wiring and stays in unsupportedValues.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "True elliptical-corner rendering (Fabric { x, y } pairs producing different rx/ry per corner via SkRRect::setRectRadii) is the deferred paint-side slice; the @pulp/react surface accepts the Fabric object form today and degrades to an averaged uniform radius, which matches the dominant Figma / Lucide / Heroicons usage where x and y differ only modestly."
     },
     "rn/borderBottomWidth": {
       "status": "supported",
@@ -3565,19 +3567,20 @@
       "issue": ""
     },
     "rn/borderRadius": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `borderRadius` to `setBorderRadius(id, ...)` (prop-applier.ts:300-302).",
       "supportedValues": [
-        "number (px)"
+        "number (px)",
+        "percent string (\"50%\") \u2014 paint-side resolved against the View's rect bounds via SkRRect",
+        "RN Fabric elliptical { x, y } object form (degraded to averaged uniform radius today; true elliptical via SkRRect::setRectRadii is the deferred paint-side slice)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-wave2.test.ts"
       ],
       "notes": "Workaround: <View border={{color:'transparent', width:0, radius:R}} />. pulp #1434: catalog hygiene \u2014 flipped missing \u2192 supported. Wave 2 rn \u2014 RN Fabric `{ x, y }` elliptical form now flows through (degraded to averaged uniform radius; full elliptical rrect rendering is a deferred paint-side gap).",
-      "issue": ""
+      "issue": "",
+      "gotcha": "True elliptical-corner rendering (Fabric { x, y } pairs producing different rx/ry per corner via SkRRect::setRectRadii) is the deferred paint-side slice; the @pulp/react surface accepts the Fabric object form today and degrades to an averaged uniform radius, which matches the dominant Figma / Lucide / Heroicons usage where x and y differ only modestly."
     },
     "rn/borderRightColor": {
       "status": "supported",
@@ -3672,34 +3675,36 @@
       "issue": ""
     },
     "rn/borderTopLeftRadius": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `borderTopLeftRadius` to `setBorderTopLeftRadius(id, n)` (prop-applier.ts:318-321 since #1396).",
       "supportedValues": [
-        "number (px)"
+        "number (px)",
+        "percent string (\"50%\") \u2014 paint-side resolved against the View's rect bounds via SkRRect",
+        "RN Fabric elliptical { x, y } object form (degraded to averaged uniform radius today; true elliptical via SkRRect::setRectRadii is the deferred paint-side slice)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-wave2.test.ts"
       ],
       "notes": "Bridge has setBorderTopLeftRadius -- needs prop wiring. pulp #1434: catalog hygiene \u2014 flipped missing \u2192 supported. Wave 2 rn \u2014 RN Fabric `{ x, y }` elliptical form now flows through (degraded to averaged uniform radius; full SkRRect::setRectXY rendering remains a deferred paint-side gap). % keyword on radius still requires bridge-side wiring and stays in unsupportedValues.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "True elliptical-corner rendering (Fabric { x, y } pairs producing different rx/ry per corner via SkRRect::setRectRadii) is the deferred paint-side slice; the @pulp/react surface accepts the Fabric object form today and degrades to an averaged uniform radius, which matches the dominant Figma / Lucide / Heroicons usage where x and y differ only modestly."
     },
     "rn/borderTopRightRadius": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `borderTopRightRadius` to `setBorderTopRightRadius(id, n)` (prop-applier.ts:318-321 since #1396).",
       "supportedValues": [
-        "number (px)"
+        "number (px)",
+        "percent string (\"50%\") \u2014 paint-side resolved against the View's rect bounds via SkRRect",
+        "RN Fabric elliptical { x, y } object form (degraded to averaged uniform radius today; true elliptical via SkRRect::setRectRadii is the deferred paint-side slice)"
       ],
-      "unsupportedValues": [
-        "%"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-wave2.test.ts"
       ],
       "notes": "Same. pulp #1434: catalog hygiene \u2014 flipped missing \u2192 supported. Wave 2 rn \u2014 RN Fabric `{ x, y }` elliptical form now flows through (degraded to averaged uniform radius; full SkRRect::setRectXY rendering remains a deferred paint-side gap). % keyword on radius still requires bridge-side wiring and stays in unsupportedValues.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "True elliptical-corner rendering (Fabric { x, y } pairs producing different rx/ry per corner via SkRRect::setRectRadii) is the deferred paint-side slice; the @pulp/react surface accepts the Fabric object form today and degrades to an averaged uniform radius, which matches the dominant Figma / Lucide / Heroicons usage where x and y differ only modestly."
     },
     "rn/borderTopWidth": {
       "status": "supported",
@@ -3736,23 +3741,23 @@
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
     "rn/boxShadow": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `boxShadow` (string OR object form) to setBoxShadow / clearBoxShadow (prop-applier.ts:600+). String parser mirrors web-compat-style-decl.js.",
       "supportedValues": [
         "'none' (clears)",
         "CSS-spec single-shadow string: [inset] <dx>px <dy>px <blur>px [<spread>px] <color>",
         "multi-shadow comma-separated string (one setBoxShadow dispatch per parsed shadow; paren-depth-aware split)",
-        "object form { offsetX, offsetY, blur?, spread?, color, inset? }"
+        "object form { offsetX, offsetY, blur?, spread?, color, inset? }",
+        "RN Fabric BoxShadowValue[] array form: [{ offsetX, offsetY, color, blurRadius?, spreadDistance?, inset? }, ...] \u2014 clearBoxShadow + per-element setBoxShadow dispatches (Wave 4 rn)."
       ],
-      "unsupportedValues": [
-        "BoxShadowValue array"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-box-shadow.test.ts",
         "packages/pulp-react/test/prop-applier-wave2.test.ts"
       ],
       "notes": "pulp #1550 catalog hygiene: flipped partial \u2192 supported. Single-shadow string + object form + 'none' (clear) all dispatch through the prop-applier and exercise the C++ bridge. Multi-shadow / BoxShadowValue array remain the only RN-extension gaps and are tracked under unsupportedValues. pulp #1434 Triage #15: surfaced at the @pulp/react TS layer. Both string and object forms route to setBoxShadow; multi-shadow remains a deferred gap (single-shadow path covers the bulk of Figma / Tailwind / v0 emissions). Wave 1 drift cleanup \u2014 supported \u2192 partial (multi-shadow comma-list and BoxShadowValue array form are real gaps). Wave 2 rn \u2014 multi-shadow comma-separated string lists now dispatch one setBoxShadow call per parsed shadow. The split respects paren depth so `rgba(0,0,0,0.3)` color literals don't get cut. Dispatch order matches input string order, which (combined with the bridge's last-write-wins View slot) approximates the CSS layering stack \u2014 full multi-slot compositing remains a separate paint-side follow-up.",
-      "issue": ""
+      "issue": "",
+      "gotcha": ""
     },
     "rn/boxSizing": {
       "status": "supported",
@@ -3920,34 +3925,31 @@
       "issue": ""
     },
     "rn/experimental_backgroundImage": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "prop-applier.ts -> setBackgroundGradient(id, value) (CSS gradient string only)",
       "supportedValues": [
         "linear-gradient(...)",
         "radial-gradient(...)"
       ],
-      "unsupportedValues": [
-        "RN Fabric array-of-objects gradient API",
-        "url(...) raster image references"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
       ],
       "notes": "pulp #1434 (rn NOT-IMPL bundle 1): wired through to setBackgroundGradient so the same string format CSS consumers use is accepted from RN code. RN's New-Architecture-only array-of-objects gradient form is NOT supported (gradient strings only). url() raster images for background-image are also out of scope until SkImage lazy load lands.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "RN Fabric also defines a structured array-of-objects gradient API (`[{ type, colorStops, ... }]`); pulp accepts only the CSS gradient-string spelling. `url(...)` raster references are routed via the dedicated <Image> intrinsic (not via experimental_backgroundImage), per pulp's explicit gradient-vs-raster split."
     },
     "rn/fill": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "prop-applier.ts: 'fill' -> setSvgFill(id, value). Bridge accepts a CSS-color string.",
       "supportedValues": [
         "CSS color strings"
       ],
-      "unsupportedValues": [
-        "url(#gradient) \u2014 gradient fills deferred-pulp-#932 (gated on Skia gradient wiring through SvgPathWidget)"
-      ],
+      "unsupportedValues": [],
       "tests": [],
       "notes": "Only on @pulp/react SvgPath. Inline <svg> in DOM-lite still uses createCol (pulp #1147), which means CSS `fill` does NOT route to SVG fill \u2014 it falls into the unknown-prop default switch. Wave 1 architectural reclassification \u2014 url(#gradient) fills are partial-deferred-pulp-#932 (gated on Skia gradient wiring through SvgPathWidget); CSS color strings round-trip end-to-end.",
-      "issue": "994"
+      "issue": "994",
+      "gotcha": "url(#gradientId) gradient-fill references on SvgPathWidget are deferred to pulp #932 (Skia SkShader wiring). CSS color strings flow through unchanged today."
     },
     "rn/filter": {
       "status": "supported",
@@ -4047,19 +4049,18 @@
       "issue": ""
     },
     "rn/fontFamily": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "prop-applier.ts case 'fontFamily' -> setFontFamily(id, value). Bridge parses CSS list (first non-empty family wins). Container Views fall through to inheritable_font_family_ for cascade.",
       "supportedValues": [
         "string (single family or comma-separated list \u2014 first non-empty wins)"
       ],
-      "unsupportedValues": [
-        "whole-list fallback chain \u2014 gated on pulp #932 SkFontMgr registration"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "test/test_widget_bridge.cpp \u2014 [issue-1434-fontfamily]"
       ],
       "notes": "pulp #1434 Phase A2-5 wired the @pulp/react JSX dispatch and the bridge-side list parser. Cross-engine ready: when pulp #932 lands the registry resolution, no consumer change is needed \u2014 the same name flows through.",
-      "issue": "1434"
+      "issue": "1434",
+      "gotcha": "Whole-list fallback (CSS font-family chain semantics \u2014 try each family in order until one resolves a glyph) is gated on pulp #932 SkFontMgr registration; today the bridge takes the first non-empty family from the list."
     },
     "rn/fontSize": {
       "status": "supported",
@@ -4087,7 +4088,7 @@
       "issue": ""
     },
     "rn/fontVariant": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "prop-applier.ts -> setFontVariant(id, csv) -> View::set_font_variant (storage-only; A4 Bundle 1 / pulp #1611 landed the bridge fn registration)",
       "supportedValues": [
         "small-caps",
@@ -4096,14 +4097,13 @@
         "tabular-nums",
         "proportional-nums"
       ],
-      "unsupportedValues": [
-        "paint-time HarfBuzz hb_feature_t honoring (storage-only today; shape-pass wiring deferred)"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
       ],
       "notes": "pulp #1434 (rn NOT-IMPL bundle 1) + A4 Bundle 1 (#1611): the @pulp/react surface accepts the RN array-of-strings shape and joins to a comma-separated string for forwarding. setFontVariant is registered in widget_bridge.cpp and stores onto View::font_variant_, but paint-time honoring is a no-op until the HarfBuzz hb_feature_t shape-pass wiring lands. This entry stays `partial` so the JSX surface is honest about the dispatch + storage existing while the paint pipeline is still pending.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "Paint-time HarfBuzz hb_feature_t honoring is deferred \u2014 the bridge stores the keyword on View::font_variant_ today (storage round-trippable) and the shape pass will read the slot when the paint-side wiring lands."
     },
     "rn/fontWeight": {
       "status": "supported",
@@ -4151,19 +4151,18 @@
       "issue": ""
     },
     "rn/height": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "setFlex(id, 'height', n) \u2014 number=px, '50%'=percent, 'auto'=hug-contents",
       "supportedValues": [
         "number (px)",
         "string % (e.g. '50%')",
         "string 'auto'"
       ],
-      "unsupportedValues": [
-        "string vh"
-      ],
+      "unsupportedValues": [],
       "tests": [],
       "notes": "pulp #1434 rn batch C wired number + %; pulp #1434 (sub-agent #12 follow-up) wired 'auto' end-to-end. TS type accepts `number | string`; prop-applier forwards verbatim; bridge dispatches via FlexStyle::dim_height.unit (px / percent / auto_) and yoga_layout.cpp routes to YGNodeStyleSetHeight{,Percent,Auto}. Wave 1 drift cleanup \u2014 supported \u2192 partial (`vh` string unit is a real deferred gap).",
-      "issue": "https://github.com/danielraffel/pulp/issues/1434"
+      "issue": "https://github.com/danielraffel/pulp/issues/1434",
+      "gotcha": "Viewport-relative units (vh / vw / vmin / vmax) are not part of RN's length-or-percentage-or-auto kind; pulp's plugin-host model has no viewport context (the View tree is embedded in a DAW plugin window, not a browser viewport), so these CSS-only units are out-of-scope by design."
     },
     "rn/includeFontPadding": {
       "status": "wontfix",
@@ -4511,7 +4510,7 @@
       "issue": ""
     },
     "rn/outlineColor": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches outlineColor to setOutlineColor (prop-applier.ts since pulp #1519). Bridge writes to View::outline_color_.",
       "supportedValues": [
         "#hex",
@@ -4520,14 +4519,13 @@
         "rgba()",
         "named colors"
       ],
-      "unsupportedValues": [
-        "currentColor keyword"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-outline.test.ts"
       ],
       "notes": "pulp #1519 \u2014 RN outline cluster. Outline is paint-time only and does NOT affect Yoga layout (parent never reserves space). Skia paint inflates the box by (offset + width/2) and strokes with the parsed color. Wave 1 drift cleanup \u2014 supported \u2192 partial (currentColor keyword resolution deferred; CSS color strings round-trip).",
-      "issue": ""
+      "issue": "",
+      "gotcha": "The CSS `currentColor` keyword is not part of RN Fabric outlineColor \u2014 it would resolve to View::text_color_ at paint time, but RN consumers emit explicit color strings rather than the CSS keyword. Catalog mirrors what RN Fabric ships."
     },
     "rn/outlineOffset": {
       "status": "supported",
@@ -4578,20 +4576,20 @@
       "issue": ""
     },
     "rn/overflow": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `overflow` to `setOverflow(id, mode)` (prop-applier.ts:629 since #1388).",
       "supportedValues": [
         "visible",
-        "hidden"
+        "hidden",
+        "scroll"
       ],
-      "unsupportedValues": [
-        "scroll (Yoga's View::Overflow models visible/hidden only \u2014 arch-yoga-limit; ScrollView is a separate container intrinsic, not a View::Overflow mode)"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-pointer.test.ts"
       ],
       "notes": "pulp #1550 catalog hygiene: flipped partial \u2192 supported. The two RN ViewStyle keywords that View::Overflow models \u2014 `visible` and `hidden` \u2014 both round-trip through the prop-applier and the C++ bridge. `scroll` is intentionally excluded: ScrollView is a separate container intrinsic, not a View::Overflow mode. Spectr dropdowns + Figma overflow:hidden cards now port verbatim (#1387 gap #1). Wave 1 architectural reclassification \u2014 `scroll` is arch-yoga-limit (Yoga's View::Overflow only models visible/hidden); ScrollView container intrinsic is the designed entry point.",
-      "issue": ""
+      "issue": "",
+      "gotcha": "Overflow::scroll clips children identically to hidden and forwards YGOverflowScroll to Yoga (so flex layout sees scroll-aware basis sizing). Pulp does NOT yet render a scroll bar / wire wheel + drag-to-scroll on a View \u2014 those belong to a future ScrollView intrinsic, not the View::Overflow mode. RN consumers using overflow:'scroll' get the clipping + Yoga semantics today."
     },
     "rn/overlay": {
       "status": "supported",
@@ -4937,8 +4935,8 @@
       "issue": ""
     },
     "rn/textShadowColor": {
-      "status": "partial",
-      "mapsTo": "prop-applier.ts -> setTextShadowColor(id, hex) (bridge fn registration deferred to #1548)",
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches `textShadowColor` to setTextShadowColor(id, color) (prop-applier.ts, Wave 4 rn). Bridge writes to View::text_shadow_color_ (storage-only \u2014 SkPaint shadow integration is the deferred paint-time slice; storage path is round-trippable for harness verification).",
       "supportedValues": [
         "CSS color strings"
       ],
@@ -4947,33 +4945,36 @@
         "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
       ],
       "notes": "pulp #1434 (rn NOT-IMPL bundle 1): the @pulp/react surface dispatches each text-shadow longhand to its own per-attribute bridge fn so JSX prop diffs preserve sibling slots. Bridge registration of setTextShadowColor / setTextShadowOffset / setTextShadowRadius is staged on the #1548 feature branch (paint-time SkPaint shadow + Label glyph layer) and lands in a follow-up; the prop-applier dispatch is a paint no-op until that registration lands. Storage and dispatch are wired so callers can ship the JSX surface today.",
-      "issue": "1548"
+      "issue": "1548",
+      "gotcha": "Paint-side SkPaint shadow integration is the deferred slice; today the bridge stores the slot so a future paint-time pass can honor it without a JS-side change."
     },
     "rn/textShadowOffset": {
-      "status": "partial",
-      "mapsTo": "prop-applier.ts -> setTextShadowOffset(id, dx, dy) (bridge fn registration deferred to #1548)",
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches `textShadowOffset` to setTextShadowOffset(id, dx, dy) (prop-applier.ts, Wave 4 rn). Bridge writes to View::text_shadow_dx_ / text_shadow_dy_ (storage-only \u2014 SkPaint shadow integration deferred; storage round-trippable).",
       "supportedValues": [
-        "{ width, height }"
+        "{ width, height } object"
       ],
       "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
       ],
       "notes": "pulp #1434 (rn NOT-IMPL bundle 1): `{ width, height }` shape is the RN spec; the prop-applier coerces missing axes to 0. See rn/textShadowColor for the bridge-registration-pending caveat (#1548).",
-      "issue": "1548"
+      "issue": "1548",
+      "gotcha": "Paint-side SkPaint shadow integration deferred; the bridge stores the offset slots today."
     },
     "rn/textShadowRadius": {
-      "status": "partial",
-      "mapsTo": "prop-applier.ts -> setTextShadowRadius(id, px) (bridge fn registration deferred to #1548)",
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier dispatches `textShadowRadius` to setTextShadowRadius(id, px) (prop-applier.ts, Wave 4 rn). Bridge writes to View::text_shadow_radius_ (storage-only \u2014 SkPaint shadow integration deferred; storage round-trippable).",
       "supportedValues": [
-        "px (number)"
+        "number (px)"
       ],
       "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
       ],
       "notes": "pulp #1434 (rn NOT-IMPL bundle 1): blur radius in px. See rn/textShadowColor for the bridge-registration-pending caveat (#1548).",
-      "issue": "1548"
+      "issue": "1548",
+      "gotcha": "Paint-side SkPaint shadow integration deferred; the bridge stores the radius slot today."
     },
     "rn/textTransform": {
       "status": "supported",
@@ -6898,7 +6899,7 @@
       "tests": [
         "test/test_widget_bridge.cpp [wave2-canvas2d]"
       ],
-      "notes": "PR #1525 + Codex P2 follow-up — make_stroke_paint() sets kStroke_Style and apply_stroke_state() propagates sticky stroke state. Wave 2 cheap wiring — confirmed end-to-end and bumped from partial -> supported.",
+      "notes": "PR #1525 + Codex P2 follow-up \u2014 make_stroke_paint() sets kStroke_Style and apply_stroke_state() propagates sticky stroke state. Wave 2 cheap wiring \u2014 confirmed end-to-end and bumped from partial -> supported.",
       "issue": ""
     },
     "canvas2d/measureText": {
