@@ -11,8 +11,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v0784"></a>
 ## [0.78.4] - 2026-05-08
 
-- fix(cli): refresh explicit upgrade discovery so plain `pulp upgrade` bypasses a fresh stale release cache and sees newly published releases immediately (closes [#1685](https://github.com/danielraffel/pulp/issues/1685))
-- fix(release): include Rust CLI sources in SDK/CLI version-surface detection so future Rust upgrade fixes cannot land without an SDK/CLI release bump
+- fix(cli): refresh explicit upgrade discovery ([#1686](https://github.com/danielraffel/pulp/pull/1686))
 
 <a id="v0783"></a>
 ## [0.78.3] - 2026-05-08
@@ -1426,6 +1425,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.78.4]: https://github.com/danielraffel/pulp/releases/tag/v0.78.4
 [0.78.3]: https://github.com/danielraffel/pulp/releases/tag/v0.78.3
 [0.78.2]: https://github.com/danielraffel/pulp/releases/tag/v0.78.2
 [0.78.1]: https://github.com/danielraffel/pulp/releases/tag/v0.78.1
