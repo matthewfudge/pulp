@@ -37,7 +37,8 @@
       "2026-05-06_1551": "pulp #1551 (Phase A3 Bundle 3 inside pulp #1434 umbrella): pure catalog add of 13 already-implemented css/* meta entries \u2014 `__StyleSheet`, `__matchMedia`, `__pseudo_active` / `__pseudo_disabled` / `__pseudo_focus` / `__pseudo_hover`, `__selector_child` / `__selector_class` / `__selector_descendant` / `__selector_id` / `__selector_tag`, `__setProperty_var`, `__var`. Documents existing wiring in `core/view/js/web-compat-document.js`, `web-compat-style-decl.js`, `css-parser.js` and `web-compat.js`. No code changes; +13 instant supported entries. css count 199 -> 212.",
       "2026-05-06_1544": "pulp #1544: Added yoga/flex and yoga/flexFlow catalog entries documenting the unsupported CSS shorthand surface on the Yoga side (yoga count 53 -> 55). PR #1563.",
       "2026-05-07": "pulp #1434 A4 Bundles 2-7: css NOT-IMPL closure. 30 entries flipped missing -> partial / noop / wontfix across animations tail (animationPlayState), logical-edge fan-out (margin/padding Block/Inline Start/End -- 7 entries), overflow per-axis + 3D (overflowX, overflowY, overflowWrap, perspective, perspectiveOrigin), text rendering tail (textIndent, verticalAlign, wordBreak, writingMode, scroll* -- 8), isolation + clipPath + mask + direction + mixBlendMode (6), and resize + fontVariant (2). New bridge fns: setTextIndent, setVerticalAlign, setWordBreak, setFontVariant. Extended setAnimation with the \"play_state\" control token. Synthetic __pseudo_classes_note flipped wontfix. Catalog css count holds at 212; missing -> 0.",
-      "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts."
+      "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts.",
+      "2026-05-07_codex_p2_isolation": "Codex P2 on PR #1565 — `css/isolation` reclassified wontfix → partial. Original A4 Bundle 6 flip used the (incorrect) premise that no platform models the property; in fact the RN oracle (`tools/harness/oracles/rn/rn-viewstyle.json`) defines `isolation` as an enum (auto/isolate, RN New Architecture only). The catalog now matches the oracle: `auto` is honored by default, `isolate` parses-but-noops pending a stacking-context layer in the paint pipeline, with the gotcha recorded explicitly. css count holds at 212 (status flip only)."
     },
     "counts": {
       "css": 212,
@@ -1791,14 +1792,19 @@
       "issue": ""
     },
     "css/isolation": {
-      "status": "wontfix",
+      "status": "partial",
       "mapsTo": "web-compat-style-decl.js has a `case \"isolation\":` that intentionally no-ops. Pulp paints into a single canvas without per-View stacking-context isolation; mix-blend-mode's saveLayer already gives layer-local compositing where needed.",
-      "supportedValues": [],
+      "supportedValues": [
+        "auto"
+      ],
       "unsupportedValues": [
         "isolate"
       ],
+      "gotchas": [
+        "`isolate` is accepted but does NOT create a new stacking context \u2014 Pulp's render pipeline doesn't implement CSS stacking contexts (z-index is a paint-order hint only). When a child uses `mix-blend-mode`, the saveLayer it triggers gives layer-local compositing without a parent isolation barrier; this matches Skia's intermediate layer semantics but not the CSS spec's stacking-context-isolation guarantee."
+      ],
       "tests": [],
-      "notes": "pulp #1434 A4 Bundle 6: status flipped missing \u2192 wontfix. CSS isolation creates a new stacking context to contain blend modes; Pulp's render pipeline doesn't implement CSS stacking contexts (z-index is a paint-order hint only).",
+      "notes": "Codex P2 on PR #1565 \u2014 reclassified wontfix \u2192 partial. The RN oracle (`tools/harness/oracles/rn/rn-viewstyle.json`) DOES model `isolation` as an enum (auto/isolate, RN New Architecture only), so claiming \"no RN model\" hid a real compatibility gap. `auto` is honored by default; `isolate` is parsed-but-noop pending a stacking-context layer in the paint pipeline. Pulp #1434 A4 Bundle 6 originally flipped this missing \u2192 wontfix on the (incorrect) premise that no platform models the property.",
       "issue": ""
     },
     "css/justifyContent": {
@@ -5913,18 +5919,20 @@
   "html": {
     "_note": "Populated 2026-05-04 from web-compat-element.js (~836 LOC) and web-compat-document.js (~1527 LOC). Tracks the DOM-lite consumer surface: createElement / setAttribute / appendChild / addEventListener / Element / HTMLElement attributes / dataset / classList / events / style sheet support. Spec source: https://developer.mozilla.org/en-US/docs/Web/API/Element + HTMLElement subclasses. Recent additions since 2026-04-30: html/svg width/height attribute replay (#1347 / pulp #1147), html/span/p/label widget mapping confirmed (Label widget, not View), html/style :hover stylesheet support (#1345 / pulp #1149 part b). 2026-05-05 hygiene (pulp #1434): html/ARIA flipped missing \u2192 partial \u2014 storage works (parallel to html/Element_disabled); platform-bridge routing tracked under #1476.",
     "html/ARIA": {
-      "status": "partial",
-      "mapsTo": "ARIA attributes (aria-label, role, etc.) are stored in _attributes via setAttribute and round-trip through getAttribute; the html-compat layer does NOT yet forward them onto the platform accessibility bridge (which already exists \u2014 macOS/iOS/Android done, Windows UIA + Linux AT-SPI in flight under #217).",
+      "status": "supported",
+      "mapsTo": "Element.setAttribute('aria-label', ...) -> bridge.setAccessibilityLabel(id, value) -> View::set_access_label(); Element.setAttribute('role', ...) -> bridge.setAccessibilityRole(id, role) -> View::set_access_role() with ARIA->AccessRole bucket mapping (slider/checkbox/switch/radio/img/progressbar/meter/heading/label collapse onto Pulp's enum; the long ARIA tail collapses to AccessRole::group). Storage round-trips through getAttribute either way. macOS NSAccessibility bridge in core/view/platform/mac/accessibility_mac.mm reads these slots directly; AccessibilityTree snapshot picks them up cross-platform.",
       "supportedValues": [
+        "aria-label -> setAccessibilityLabel routing",
+        "role -> setAccessibilityRole routing",
         "aria-* attribute storage / read-back via setAttribute / getAttribute"
       ],
       "unsupportedValues": [
-        "aria-label -> bridge.setAccessibilityLabel routing",
-        "role -> bridge.setAccessibilityRole routing",
-        "aria-pressed/checked/disabled/hidden -> bridge.setAccessibilityState routing"
+        "aria-pressed / aria-checked / aria-disabled / aria-hidden -> bridge.setAccessibilityState routing (state slot not yet on View)"
       ],
-      "tests": [],
-      "notes": "Storage portion of the html-compat ARIA surface works (parallel to html/Element_disabled \u2014 stored, not routed). Platform routing tracked under #1476; the broader a11y workstream is #217.",
+      "tests": [
+        "test/test_widget_bridge.cpp: HTML aria-label + role attributes route to View access slots [wave3-html]"
+      ],
+      "notes": "Wave 3 html.2 \u2014 setAccessibilityLabel / setAccessibilityRole bridge fns wired; web-compat-element.js setAttribute() fast-paths aria-label and role. Replay path on _ensureNative + _reparentNative covers the React/JSX setAttribute-before-mount commit order. macOS NSAccessibility wired; Linux AT-SPI / Windows UIA platform routing remains storage-only (tracked under #217).",
       "issue": "1476"
     },
     "html/DocumentFragment": {
@@ -6312,21 +6320,34 @@
       "issue": ""
     },
     "html/document_querySelector": {
-      "status": "partial",
-      "mapsTo": "document.querySelector \u2014 class / id / tag selectors only.",
+      "status": "supported",
+      "mapsTo": "document.querySelector / querySelectorAll \u2014 _parseSelector + _matchesSelector in web-compat-document.js. Tokenizes the rightmost simple selector (tag / #id / .class / [attr] / [attr=value] / [attr^=v] / [attr$=v] / [attr*=v] / [attr|=v] / [attr~=v]) plus descendant (`a b`) and child (`a > b`) combinators, walking left to right with bracket-aware splitting.",
       "supportedValues": [
         "#id",
         ".class",
-        "tagname"
+        "tagname",
+        "[attr]",
+        "[attr=value]",
+        "[attr^=value]",
+        "[attr$=value]",
+        "[attr*=value]",
+        "[attr|=value]",
+        "[attr~=value]",
+        "compound (tag.class, tag#id, tag[attr], #id.class[attr])",
+        "descendant (a b)",
+        "child (a > b)"
       ],
       "unsupportedValues": [
-        "complex selectors",
-        "attribute selectors",
-        "pseudo-classes",
-        "combinators"
+        "pseudo-classes (:hover, :nth-child, :not, :is, :where, ...)",
+        "pseudo-elements (::before, ::after)",
+        "sibling combinators (+, ~)",
+        "selector lists (a, b)",
+        "attribute case-insensitive flag ([attr=value i])"
       ],
-      "tests": [],
-      "notes": "",
+      "tests": [
+        "test/test_widget_bridge.cpp: querySelector minimal selector engine [wave3-html]"
+      ],
+      "notes": "Wave 3 html.3 \u2014 tag/.class/#id/[attr]/[attr=value]/descendant/child wired; pseudo-classes (:hover, :nth-child) and sibling combinators not implemented (parser tolerates trailing `:pseudo` for forward compat \u2014 it's stored but unmatched). Selectors that include unsupported features fall through to no-match rather than throwing. CSS StyleSheet `_applyTo` rides the same code path.",
       "issue": ""
     },
     "html/footer": {
