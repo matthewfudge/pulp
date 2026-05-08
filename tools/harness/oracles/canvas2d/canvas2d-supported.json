@@ -325,10 +325,15 @@
     "strokeStyle": {
       "kind": "attribute",
       "bridge": [
-        "canvasSetStrokeColor"
+        "canvasSetStrokeColor",
+        "canvasSetStrokeLinearGradient",
+        "canvasSetStrokeRadialGradient",
+        "canvasSetStrokeRadialGradientTwoCircles",
+        "canvasSetStrokeConicGradient",
+        "canvasSetStrokePattern",
+        "canvasClearStrokeGradient"
       ],
-      "expectedStatus": "partial",
-      "notes": "Bridge has no stroke-gradient setter; gradient strokeStyle degrades to first-stop color."
+      "notes": "pulp Wave 3 c2d.7 — CSS color OR CanvasGradient (linear, radial, two-circle radial, conic) OR CanvasPattern. _applyStrokeStyle dispatches per-kind. Skia: stroke_shader_ flows through apply_stroke_state → SkPaint::setShader."
     },
     "lineWidth": {
       "kind": "attribute",
@@ -370,9 +375,7 @@
       "bridge": [
         "canvasSetLineDash"
       ],
-      "expectedStatus": "partial",
-      "notes": "Mutating doesn't re-flush \u2014 only re-passed on next setLineDash.",
-      "gotcha": "minor edge case; file follow-up if observable"
+      "notes": "Wave 4 c2d cleanup \u2014 defineProperty getter/setter pair re-flushes the active dash pattern via canvasSetLineDash on every assignment, so mutating between draws shifts the stroke phase without a redundant setLineDash call."
     },
     "font": {
       "kind": "attribute",
@@ -520,9 +523,7 @@
     }
   },
   "gotchas": {
-    "no-pattern-bridge": "createPattern: not implemented; shim returns null. SKILL gotcha #5.",
-    "stroke-no-gradient": "strokeStyle gradient: bridge has no stroke-gradient setter; degrades to first-stop color.",
-    "transform-no-concat": "ctx.transform(a,b,c,d,e,f): bridge only exposes replace (setTransform); pure-translation falls through, rotate/scale/skew is no-op.",
+    "transform-no-concat": "ctx.transform(a,b,c,d,e,f): bridge only exposes replace (setTransform); pure-translation falls through, rotate/scale/skew is no-op (PR #1348 deferred).",
     "no-strokeText-path": "strokeText: pulp #1525 added the dedicated canvasStrokeText bridge fn + Skia/CG overrides. The shim falls back to fillText-with-strokeStyle only on pre-#1525 hosts."
   }
 }

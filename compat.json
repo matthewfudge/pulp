@@ -38,7 +38,7 @@
       "2026-05-06_1544": "pulp #1544: Added yoga/flex and yoga/flexFlow catalog entries documenting the unsupported CSS shorthand surface on the Yoga side (yoga count 53 -> 55). PR #1563.",
       "2026-05-07": "pulp #1434 A4 Bundles 2-7: css NOT-IMPL closure. 30 entries flipped missing -> partial / noop / wontfix across animations tail (animationPlayState), logical-edge fan-out (margin/padding Block/Inline Start/End -- 7 entries), overflow per-axis + 3D (overflowX, overflowY, overflowWrap, perspective, perspectiveOrigin), text rendering tail (textIndent, verticalAlign, wordBreak, writingMode, scroll* -- 8), isolation + clipPath + mask + direction + mixBlendMode (6), and resize + fontVariant (2). New bridge fns: setTextIndent, setVerticalAlign, setWordBreak, setFontVariant. Extended setAnimation with the \"play_state\" control token. Synthetic __pseudo_classes_note flipped wontfix. Catalog css count holds at 212; missing -> 0.",
       "2026-05-07_B2": "Phase B.2 visual accounting: bumped compat-schema-version to 0.3 so tests can carry typed validation routes; backfilled semantic Yoga fixture refs for the checked-in layout goldens without changing support status counts.",
-      "2026-05-07_W3css3": "pulp #1434 Wave 3 css.3 + Codex P1 audit follow-through on #1508. css/animationPlayState flipped partial → supported by adding View::tick_animations(dt) which honors the `paused` keyword (no-op when paused, advance-each-CssAnimation otherwise) — the playback driver pause/resume gap the previous A4 Bundle 2 entry had explicitly deferred. Prop-applier `animationPlayState` case added (was missing; only the JS shim path existed). Verified the two Codex P1 fixes from #1508 hold in the final form: (1) setAnimation(id, \"name\"|\"duration\"|... , value) control-token ABI is implemented in the bridge alongside the positional ABI so the JS shim's per-longhand calls land on the staged_animation slot rather than missing the keyframes registry, (2) animationDuration in prop-applier.ts dispatches to setAnimation/duration, not setTransitionDuration. css count holds at 212."
+      "2026-05-07_W3css3": "pulp #1434 Wave 3 css.3 + Codex P1 audit follow-through on #1508. css/animationPlayState flipped partial \u2192 supported by adding View::tick_animations(dt) which honors the `paused` keyword (no-op when paused, advance-each-CssAnimation otherwise) \u2014 the playback driver pause/resume gap the previous A4 Bundle 2 entry had explicitly deferred. Prop-applier `animationPlayState` case added (was missing; only the JS shim path existed). Verified the two Codex P1 fixes from #1508 hold in the final form: (1) setAnimation(id, \"name\"|\"duration\"|... , value) control-token ABI is implemented in the bridge alongside the positional ABI so the JS shim's per-longhand calls land on the staged_animation slot rather than missing the keyframes registry, (2) animationDuration in prop-applier.ts dispatches to setAnimation/duration, not setTransitionDuration. css count holds at 212."
     },
     "counts": {
       "css": 212,
@@ -6629,17 +6629,15 @@
       "issue": "1346"
     },
     "canvas2d/arcTo": {
-      "status": "partial",
-      "mapsTo": "ctx.arcTo(x1,y1,x2,y2,r) -> conservative lineTo(x1,y1) + lineTo(x2,y2). Radius is currently ignored.",
+      "status": "supported",
+      "mapsTo": "ctx.arcTo(x1,y1,x2,y2,r) -> canvasPathArcTo. Skia: SkPath::arcTo(p1, p2, radius) \u2014 closed-form tangent-arc geometry. CG: CGPathAddArcToPoint(p1, p2, radius). pulp #1521 replaced the conservative lineTo-only fallback with the spec-compliant radius-tangent computation.",
       "supportedValues": [
-        "any arcTo (radius ignored)"
+        "arcTo(x1, y1, x2, y2, radius) \u2014 geometrically correct on Skia + CG"
       ],
-      "unsupportedValues": [
-        "geometrically-correct arcTo with the proper radius-tangent computation"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "PR #1348. Used by roundRect and FilterBank's marquee corners; fidelity loss is minimal for those use cases. File a follow-up if a plugin needs spec-compliant arcTo.",
-      "issue": "1346"
+      "notes": "pulp #1521 \u2014 native SkPath::arcTo (Skia) / CGPathAddArcToPoint (CG). Wave 4 c2d cleanup: catalog reconciled to match wired implementation (prior PR #1348 lineTo fallback was replaced by #1521).",
+      "issue": ""
     },
     "canvas2d/bezierCurveTo": {
       "status": "supported",
@@ -6836,16 +6834,18 @@
       "issue": "1346"
     },
     "canvas2d/fillText": {
-      "status": "partial",
-      "mapsTo": "ctx.fillText(text,x,y,maxWidth) -> _syncGlobalState + _syncTextState + _applyFillStyle + canvasFillText(id, text, x, y, size, color). maxWidth is ignored; gradient fillStyle uses the first stop's color.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "maxWidth arg (ignored)",
-        "gradient fillStyle (degrades to first-stop color)"
+      "status": "supported",
+      "mapsTo": "ctx.fillText(text,x,y,maxWidth) -> _syncGlobalState + _syncShadowState + _syncFilterState + _syncDirectionState + _syncTextState + _applyFillStyle + canvasFillText(id, text, x, y, size, color, maxWidth). pulp #1525 plumbed maxWidth end-to-end (Skia: SkMatrix::Scale around the origin; CG: CGContextScaleCTM). pulp Wave 3 c2d.6 routes gradient/pattern fillStyle through current_fill_paint() so glyphs honour the active gradient_shader_.",
+      "supportedValues": [
+        "fillText(text, x, y) \u2014 solid colour fillStyle",
+        "fillText(text, x, y, maxWidth) \u2014 squeezed via SkMatrix::Scale (Skia) / CGContextScaleCTM (CG)",
+        "gradient fillStyle (shader flows onto glyph paint via current_fill_paint)",
+        "CanvasPattern fillStyle on Skia (SkShader::MakeImage)"
       ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "PR #1348. canvasSetFont parses 'Npx Family' from the JS-side font string.",
-      "issue": "1346"
+      "notes": "pulp #1525 \u2014 maxWidth plumbed end-to-end. pulp Wave 3 c2d.6 \u2014 gradient/pattern fillStyle routes through current_fill_paint() so the shader applies to glyphs. Wave 4 c2d cleanup: catalog reconciled to match wired implementation.",
+      "issue": ""
     },
     "canvas2d/strokeText": {
       "status": "supported",
@@ -6860,7 +6860,7 @@
       "tests": [
         "test/test_widget_bridge.cpp [wave2-canvas2d]"
       ],
-      "notes": "PR #1525 + Codex P2 follow-up — make_stroke_paint() sets kStroke_Style and apply_stroke_state() propagates sticky stroke state. Wave 2 cheap wiring — confirmed end-to-end and bumped from partial -> supported.",
+      "notes": "PR #1525 + Codex P2 follow-up \u2014 make_stroke_paint() sets kStroke_Style and apply_stroke_state() propagates sticky stroke state. Wave 2 cheap wiring \u2014 confirmed end-to-end and bumped from partial -> supported.",
       "issue": ""
     },
     "canvas2d/measureText": {
@@ -7004,16 +7004,17 @@
       "issue": ""
     },
     "canvas2d/lineDashOffset": {
-      "status": "partial",
-      "mapsTo": "Tracked as a JS field; passed to canvasSetLineDash on every setLineDash call. Mutating lineDashOffset alone (without re-calling setLineDash) does NOT push the new offset to the bridge.",
-      "supportedValues": [],
-      "unsupportedValues": [
-        "lineDashOffset mutation between draws (must re-call setLineDash to push new phase)"
+      "status": "supported",
+      "mapsTo": "ctx.lineDashOffset getter/setter pair (Wave 4 c2d cleanup). Setting re-pushes the active dash pattern via canvasSetLineDash with the new phase, so mutating between draws shifts the stroke phase without requiring a redundant setLineDash call. Non-finite values (NaN, Infinity) are ignored per HTML5 spec.",
+      "supportedValues": [
+        "lineDashOffset assignment between draws (re-flushes the dash pattern with new phase)",
+        "lineDashOffset read (returns the most-recently-assigned value)"
       ],
+      "unsupportedValues": [],
       "tests": [
         "test/test_canvas2d_shim.cpp [issue-1526]"
       ],
-      "notes": "Minor edge case; file a follow-up if observable. Wave 1 paperwork — minor edge case; file follow-up if observable.",
+      "notes": "Wave 4 c2d cleanup \u2014 defineProperty getter/setter pair re-flushes dash on assignment. Pre-Wave-4 the field tracked locally but only sent on the next setLineDash, so phase mutations between draws were silently dropped.",
       "issue": ""
     },
     "canvas2d/fillStyle": {
@@ -7030,16 +7031,16 @@
       "issue": ""
     },
     "canvas2d/strokeStyle": {
-      "status": "partial",
-      "mapsTo": "Settable to a CSS-color string OR a CanvasGradient. Bridge has no stroke-gradient setter — gradient strokeStyle degrades to the first stop's color.",
+      "status": "supported",
+      "mapsTo": "Settable to a CSS-color string OR a CanvasGradient OR a CanvasPattern. pulp Wave 3 c2d.7 \u2014 bridge exposes canvasSetStrokeLinearGradient / canvasSetStrokeRadialGradient / canvasSetStrokeRadialGradientTwoCircles / canvasSetStrokeConicGradient / canvasSetStrokePattern; the JS shim routes gradients per kind in _applyStrokeStyle. Skia populates stroke_shader_; apply_stroke_state attaches it to SkPaint via setShader.",
       "supportedValues": [
-        "CSS color strings"
+        "CSS color strings",
+        "CanvasGradient (linear, radial, two-circle radial, conic) on stroke",
+        "CanvasPattern on stroke (Skia)"
       ],
-      "unsupportedValues": [
-        "CanvasGradient on stroke (degrades to first-stop color)"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "Bridge could expose canvasSetStrokeLinearGradient if a plugin needs gradient strokes.",
+      "notes": "pulp Wave 3 c2d.7 \u2014 stroke gradients wired through dedicated setters. Wave 4 c2d cleanup: catalog reconciled to match wired implementation.",
       "issue": ""
     },
     "canvas2d/lineWidth": {
