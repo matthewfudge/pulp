@@ -15,6 +15,7 @@
 #include <cmath>
 #include <map>
 #include <unordered_set>
+#include <vector>
 
 namespace pulp::view {
 
@@ -601,6 +602,85 @@ namespace {
 // downstream codegen rules apply unchanged.
 IRNode json_to_ir_node(const choc::value::ValueView& v);
 
+std::string trim_copy(std::string s) {
+    auto is_ws = [](unsigned char c) { return std::isspace(c) != 0; };
+    while (!s.empty() && is_ws(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && is_ws(static_cast<unsigned char>(s.back()))) s.pop_back();
+    return s;
+}
+
+std::string lower_copy(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+std::optional<float> css_float(std::string s) {
+    s = trim_copy(std::move(s));
+    if (s.empty() || s == "auto") return std::nullopt;
+    try {
+        size_t idx = 0;
+        float value = std::stof(s, &idx);
+        if (idx == 0 || !std::isfinite(value)) return std::nullopt;
+        return value;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+LayoutAlign css_align_to_ir(const std::string& value, LayoutAlign fallback = LayoutAlign::flex_start) {
+    const auto s = lower_copy(trim_copy(value));
+    if (s == "center") return LayoutAlign::center;
+    if (s == "flex-end" || s == "end") return LayoutAlign::flex_end;
+    if (s == "stretch") return LayoutAlign::stretch;
+    if (s == "space-between") return LayoutAlign::space_between;
+    if (s == "space-around") return LayoutAlign::space_around;
+    return fallback;
+}
+
+std::vector<float> css_box_values(const std::string& value) {
+    std::vector<float> out;
+    std::istringstream in(value);
+    std::string token;
+    while (in >> token) {
+        if (auto v = css_float(token)) out.push_back(*v);
+    }
+    return out;
+}
+
+void apply_css_box(std::optional<std::string> shorthand,
+                   std::optional<std::string> top,
+                   std::optional<std::string> right,
+                   std::optional<std::string> bottom,
+                   std::optional<std::string> left,
+                   float& out_top,
+                   float& out_right,
+                   float& out_bottom,
+                   float& out_left) {
+    if (shorthand) {
+        auto vals = css_box_values(*shorthand);
+        if (vals.size() == 1) {
+            out_top = out_right = out_bottom = out_left = vals[0];
+        } else if (vals.size() == 2) {
+            out_top = out_bottom = vals[0];
+            out_right = out_left = vals[1];
+        } else if (vals.size() == 3) {
+            out_top = vals[0];
+            out_right = out_left = vals[1];
+            out_bottom = vals[2];
+        } else if (vals.size() >= 4) {
+            out_top = vals[0];
+            out_right = vals[1];
+            out_bottom = vals[2];
+            out_left = vals[3];
+        }
+    }
+    if (top)    if (auto v = css_float(*top)) out_top = *v;
+    if (right)  if (auto v = css_float(*right)) out_right = *v;
+    if (bottom) if (auto v = css_float(*bottom)) out_bottom = *v;
+    if (left)   if (auto v = css_float(*left)) out_left = *v;
+}
+
 void json_children_to_ir(const choc::value::ValueView& children, IRNode& parent) {
     if (!children.isArray()) return;
     for (uint32_t i = 0; i < children.size(); ++i) {
@@ -611,8 +691,8 @@ void json_children_to_ir(const choc::value::ValueView& children, IRNode& parent)
         // Codex P2 on PR #731: json_to_ir_node maps DOM "#text" → IR
         // "text" (line ~294), so filter against the IR vocabulary, not
         // the wire format. Otherwise empty whitespace text nodes pad
-        // the materialized tree count and inflate the >9 success-floor
-        // check the integration test asserts on.
+        // the materialized tree count and inflate the runtime-materialized
+        // success-floor check the integration test asserts on.
         if (child.type == "text" && child.text_content.empty()) continue;
         if (child.type == "#error") continue;
         parent.children.push_back(std::move(child));
@@ -715,6 +795,12 @@ IRNode json_to_ir_node(const choc::value::ValueView& v) {
             return std::string(sv.getString());
         };
         node.style.background_color = style_str("backgroundColor");
+        if (auto bg = style_str("background")) {
+            if (bg->find("gradient(") != std::string::npos)
+                node.style.background_gradient = bg;
+            else if (!node.style.background_color)
+                node.style.background_color = bg;
+        }
         node.style.color = style_str("color");
         node.style.border = style_str("border");
         node.style.box_shadow = style_str("boxShadow");
@@ -730,17 +816,7 @@ IRNode json_to_ir_node(const choc::value::ValueView& v) {
         auto try_float = [&](const char* k) -> std::optional<float> {
             auto s = style_str(k);
             if (!s) return std::nullopt;
-            try {
-                // Strip "px" / "%" suffix if present.
-                std::string num = *s;
-                while (!num.empty() && (std::isspace(static_cast<unsigned char>(num.back()))
-                                        || std::isalpha(static_cast<unsigned char>(num.back()))
-                                        || num.back() == '%')) {
-                    num.pop_back();
-                }
-                if (num.empty()) return std::nullopt;
-                return std::stof(num);
-            } catch (...) { return std::nullopt; }
+            return css_float(*s);
         };
         node.style.opacity = try_float("opacity");
         node.style.border_radius = try_float("borderRadius");
@@ -753,9 +829,88 @@ IRNode json_to_ir_node(const choc::value::ValueView& v) {
         node.style.min_height = try_float("minHeight");
         node.style.max_width = try_float("maxWidth");
         node.style.max_height = try_float("maxHeight");
+        node.style.top = try_float("top");
+        node.style.left = try_float("left");
+        node.style.right = try_float("right");
+        node.style.bottom = try_float("bottom");
+        if (auto z = try_float("zIndex"))
+            node.style.z_index = static_cast<int>(*z);
         auto fw = style_str("fontWeight");
         if (fw) {
             try { node.style.font_weight = std::stoi(*fw); } catch (...) {}
+        }
+
+        const auto display = style_str("display");
+        const auto flex_dir = style_str("flexDirection");
+        if (flex_dir || (display && (lower_copy(*display) == "flex" ||
+                                     lower_copy(*display) == "inline-flex"))) {
+            const auto dir = flex_dir ? lower_copy(*flex_dir) : std::string("row");
+            node.layout.direction =
+                (dir.find("row") == 0) ? LayoutDirection::row : LayoutDirection::column;
+        }
+        if (auto gap = try_float("gap"))
+            node.layout.gap = *gap;
+        else if (auto row_gap = try_float("rowGap"))
+            node.layout.gap = *row_gap;
+        else if (auto column_gap = try_float("columnGap"))
+            node.layout.gap = *column_gap;
+
+        if (auto justify = style_str("justifyContent"))
+            node.layout.justify = css_align_to_ir(*justify, node.layout.justify);
+        if (auto align = style_str("alignItems"))
+            node.layout.align = css_align_to_ir(*align, node.layout.align);
+        if (auto wrap = style_str("flexWrap")) {
+            auto w = lower_copy(*wrap);
+            node.layout.wrap = (w == "wrap" || w == "wrap-reverse");
+        }
+
+        apply_css_box(style_str("padding"),
+                      style_str("paddingTop"),
+                      style_str("paddingRight"),
+                      style_str("paddingBottom"),
+                      style_str("paddingLeft"),
+                      node.layout.padding_top,
+                      node.layout.padding_right,
+                      node.layout.padding_bottom,
+                      node.layout.padding_left);
+
+        float mt = 0.0f, mr = 0.0f, mb = 0.0f, ml = 0.0f;
+        apply_css_box(style_str("margin"),
+                      style_str("marginTop"),
+                      style_str("marginRight"),
+                      style_str("marginBottom"),
+                      style_str("marginLeft"),
+                      mt, mr, mb, ml);
+        if (mt != 0.0f) node.attributes["_marginTop"] = std::to_string(mt);
+        if (mr != 0.0f) node.attributes["_marginRight"] = std::to_string(mr);
+        if (mb != 0.0f) node.attributes["_marginBottom"] = std::to_string(mb);
+        if (ml != 0.0f) node.attributes["_marginLeft"] = std::to_string(ml);
+
+        if (auto flex_grow = try_float("flexGrow"); flex_grow && *flex_grow > 0)
+            node.attributes["_flexGrow"] = std::to_string(*flex_grow);
+        else if (auto flex = style_str("flex")) {
+            std::istringstream flex_stream(*flex);
+            std::string first;
+            if (flex_stream >> first) {
+                if (auto grow = css_float(first); grow && *grow > 0)
+                    node.attributes["_flexGrow"] = std::to_string(*grow);
+            }
+        }
+
+        if (auto inset = style_str("inset")) {
+            float top = 0.0f, right = 0.0f, bottom = 0.0f, left = 0.0f;
+            apply_css_box(inset, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                          top, right, bottom, left);
+            node.style.top = top;
+            node.style.right = right;
+            node.style.bottom = bottom;
+            node.style.left = left;
+            if (top == 0.0f && right == 0.0f && bottom == 0.0f && left == 0.0f &&
+                node.style.position && (*node.style.position == "absolute" ||
+                                        *node.style.position == "fixed")) {
+                node.layout.width_mode = SizingMode::fill;
+                node.layout.height_mode = SizingMode::fill;
+            }
         }
     }
 
@@ -845,6 +1000,34 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
         ScriptEngine engine = opts.engine_override.has_value()
             ? ScriptEngine(static_cast<JsEngineType>(*opts.engine_override))
             : ScriptEngine();
+        std::vector<std::string> console_tail;
+        std::vector<std::string> runtime_notes;
+        auto record_runtime_note = [&](std::string msg) {
+            if (msg.size() > 800) {
+                msg.resize(800);
+                msg += "...";
+            }
+            runtime_notes.push_back(std::move(msg));
+            if (runtime_notes.size() > 16) {
+                runtime_notes.erase(runtime_notes.begin());
+            }
+        };
+        engine.set_log_callback([&console_tail](std::string_view level,
+                                                std::string_view message) {
+            std::string line;
+            line.reserve(level.size() + message.size() + 3);
+            line += std::string(level);
+            line += ": ";
+            line += std::string(message);
+            if (line.size() > 600) {
+                line.resize(600);
+                line += "...";
+            }
+            console_tail.push_back(std::move(line));
+            if (console_tail.size() > 12) {
+                console_tail.erase(console_tail.begin());
+            }
+        });
         View root;
         state::StateStore store;
         std::unique_ptr<WidgetBridge> bridge_ptr;
@@ -902,6 +1085,18 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
             }
         }
 
+        // React 18 checks this global to decide whether render work should
+        // flush synchronously in a test/act-style environment. The import
+        // harness is exactly that kind of bounded environment: we need the
+        // committed DOM before walking it, not a future scheduler turn.
+        try {
+            engine.evaluate("globalThis.IS_REACT_ACT_ENVIRONMENT = true; void 0");
+        } catch (const std::exception& e) {
+            record_runtime_note(std::string("act environment flag setup threw: ") + e.what());
+        } catch (...) {
+            record_runtime_note("act environment flag setup threw: unknown exception");
+        }
+
         // Evaluate each JS payload in template-script order. Wrap each in
         // a try/catch so a single payload's runtime error doesn't abort
         // the whole harness — React's dev build especially likes to throw
@@ -909,7 +1104,23 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
         for (auto idx : bundle->javascript_indices) {
             if (idx >= bundle->assets.size()) continue;
             const auto& asset = bundle->assets[idx];
-            std::string source(asset.data.begin(), asset.data.end());
+            std::string source =
+                "globalThis.__pulpPayloadError__ = '';"
+                "try { (function(){"
+                "var exports=undefined,module=undefined,define=undefined,require=undefined;\n";
+            source.append(asset.data.begin(), asset.data.end());
+            source +=
+                "\n}).call(globalThis); } catch (e) {"
+                "  var msg = String((e && e.message) || e);"
+                "  var stack = String((e && e.stack) || '');"
+                "  globalThis.__pulpPayloadError__ = stack && stack.indexOf(msg) < 0 ? msg + '\\n' + stack : (stack || msg);"
+                "}";
+            // Browser-exported Claude bundles ship UMD assets. CHOC/QuickJS
+            // contexts can expose CommonJS-looking globals, which makes
+            // ReactDOM/Babel take their `exports` branch and disappear from
+            // `globalThis`. Shadow them per payload so the browser branch
+            // wins and globals like ReactDOM/Babel materialize.
+            //
             // Trailing `;void 0` so the payload's last expression doesn't
             // produce a value the engine has to convert back to choc.
             // (The CHOC QuickJS path can recurse on cyclical objects;
@@ -917,16 +1128,28 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
             source += "\n;void 0";
             try {
                 engine.evaluate(source);
+                auto err_v = engine.evaluate("globalThis.__pulpPayloadError__ || ''");
+                if (err_v.isString()) {
+                    std::string err(err_v.getString());
+                    if (!err.empty()) {
+                        std::string msg = std::string("payload ") + std::to_string(idx)
+                            + " threw: " + err;
+                        record_runtime_note(msg);
+                        set_runtime_error(opts, msg);
+                    }
+                }
             } catch (const std::exception& e) {
                 // Soft-fail and keep going. The walker may still see a
                 // partial commit if React got past the first render.
                 std::string msg = std::string("payload ") + std::to_string(idx)
                     + " threw: " + e.what();
+                record_runtime_note(msg);
                 set_runtime_error(opts, msg);
                 // continue intentionally
             } catch (...) {
                 std::string msg = std::string("payload ") + std::to_string(idx)
                     + " threw: unknown exception";
+                record_runtime_note(msg);
                 set_runtime_error(opts, msg);
                 // continue intentionally
             }
@@ -952,10 +1175,12 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
             } catch (const std::exception& e) {
                 std::string msg = "inline " + kind_label + " script "
                     + std::to_string(i) + " threw: " + e.what();
+                record_runtime_note(msg);
                 set_runtime_error(opts, msg);
             } catch (...) {
                 std::string msg = "inline " + kind_label + " script "
                     + std::to_string(i) + " threw: unknown exception";
+                record_runtime_note(msg);
                 set_runtime_error(opts, msg);
             }
         };
@@ -993,8 +1218,10 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
                 babel_loaded = false;
             }
             if (!babel_loaded) {
-                set_runtime_error(opts,
-                    "babel-standalone not loaded; skipping inline text/babel scripts");
+                const std::string msg =
+                    "babel-standalone not loaded; skipping inline text/babel scripts";
+                record_runtime_note(msg);
+                set_runtime_error(opts, msg);
             } else {
                 // Stash each Babel source as a JS string, transform it via
                 // the engine, then evaluate the transformed code. Using a
@@ -1011,12 +1238,14 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
                         std::string msg = "inline babel script "
                             + std::to_string(i) + " " + phase
                             + " failed: " + e.what();
+                        record_runtime_note(msg);
                         set_runtime_error(opts, msg);
                         return false;
                     } catch (...) {
                         std::string msg = "inline babel script "
                             + std::to_string(i) + " " + phase
                             + " failed: unknown exception";
+                        record_runtime_note(msg);
                         set_runtime_error(opts, msg);
                         return false;
                     }
@@ -1061,8 +1290,32 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
                         }
                     } catch (...) { /* ignore probe failure */ }
 
-                    soft_step(i, "eval",
-                        "(0, eval)(globalThis.__pulpBabelOut__);void 0");
+                    if (!soft_step(i, "eval",
+                            "(function(){"
+                            "  try {"
+                            "    (0, eval)(globalThis.__pulpBabelOut__);"
+                            "    globalThis.__pulpBabelEvalErr__ = '';"
+                            "  } catch (e) {"
+                            "    var msg = String((e && e.message) || e);"
+                            "    var stack = String((e && e.stack) || '');"
+                            "    globalThis.__pulpBabelEvalErr__ = stack && stack.indexOf(msg) < 0 ? msg + '\\n' + stack : (stack || msg);"
+                            "  }"
+                            "})();void 0")) continue;
+
+                    try {
+                        auto err_v = engine.evaluate(
+                            "globalThis.__pulpBabelEvalErr__ || ''");
+                        if (err_v.isString()) {
+                            std::string err_msg(err_v.getString());
+                            if (!err_msg.empty()) {
+                                std::string msg = std::string("inline babel script ")
+                                    + std::to_string(i) + " eval error: " + err_msg;
+                                record_runtime_note(msg);
+                                set_runtime_error(opts, msg);
+                                continue;
+                            }
+                        }
+                    } catch (...) { /* ignore probe failure */ }
                 }
 
                 // Tidy up the staging slots so they don't leak into the
@@ -1071,7 +1324,8 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
                     engine.evaluate(
                         "delete globalThis.__pulpBabelSrc__;"
                         "delete globalThis.__pulpBabelOut__;"
-                        "delete globalThis.__pulpBabelErr__;void 0");
+                        "delete globalThis.__pulpBabelErr__;"
+                        "delete globalThis.__pulpBabelEvalErr__;void 0");
                 } catch (...) { /* nothing to do — best-effort */ }
             }
         }
@@ -1125,17 +1379,14 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
                 "DOMContentLoaded dispatch threw: unknown exception");
         }
 
-        // Step 4: layered async drain. The original two-pump cycle stays;
-        // we then run two more pump+frame-callback cycles so async chains
-        // (Babel's transform queue, React 18 concurrent commits, fetch
-        // microtasks) have a chance to settle.
+        // Step 4: layered async drain. Give React 18 concurrent commits,
+        // MessageChannel microtasks, rAF callbacks, and short timers enough
+        // turns to settle before the walker snapshots the DOM.
         try {
-            engine.pump_message_loop();
-            bridge.service_frame_callbacks();
-            engine.pump_message_loop();
-            bridge.service_frame_callbacks();
-            engine.pump_message_loop();
-            bridge.service_frame_callbacks();
+            for (int i = 0; i < 12; ++i) {
+                engine.pump_message_loop();
+                bridge.service_frame_callbacks();
+            }
             engine.pump_message_loop();
         } catch (const std::exception& e) {
             return static_fallback(std::string("microtask drain failed: ") + e.what());
@@ -1186,15 +1437,39 @@ DesignIR parse_claude_html_with_runtime(const std::string& html, ClaudeRuntimeOp
             return static_fallback("json_to_ir_node failed: unknown exception");
         }
 
-        // Success bar from the issue: more than 9 elements means the
-        // walker actually saw the React commit, not just the loader
-        // shell. If we're at-or-below the static-parse floor, fall back
-        // so the caller never gets worse than the current behavior.
+        // Success bar from the issue: more than 30 elements means the
+        // walker actually saw the React commit, not just the HTML/head/body
+        // shell. If we're at-or-below the shell floor, fall back so the
+        // caller never gets worse than the current behavior.
         size_t nodes = count_ir_nodes(ir.root);
-        if (nodes <= 9) {
+        if (nodes <= 30) {
             std::ostringstream ss;
             ss << "runtime walker produced only " << nodes
-               << " nodes (<= loader-shell floor of 9); falling back to static parser";
+               << " nodes (<= loader-shell floor of 30); falling back to static parser";
+            if (opts.error_out && !opts.error_out->empty()) {
+                ss << "; prior runtime note: " << *opts.error_out;
+            }
+            try {
+                auto async_v = engine.evaluate("globalThis.__pulpLastAsyncError__ || ''");
+                if (async_v.isString()) {
+                    std::string async_msg(async_v.getString());
+                    if (!async_msg.empty()) {
+                        ss << "; async error: " << async_msg;
+                    }
+                }
+            } catch (...) { /* ignore probe failure */ }
+            if (!runtime_notes.empty()) {
+                ss << "; runtime notes:";
+                for (const auto& note : runtime_notes) {
+                    ss << " [" << note << "]";
+                }
+            }
+            if (!console_tail.empty()) {
+                ss << "; console tail:";
+                for (const auto& line : console_tail) {
+                    ss << " [" << line << "]";
+                }
+            }
             return static_fallback(ss.str());
         }
 
@@ -1702,11 +1977,15 @@ DesignIR parse_stitch_html(const std::string& html) {
     for (auto it = begin; it != end; ++it) {
         std::string tag = (*it)[1].str();
         std::string content = (*it)[2].str();
+        std::string tag_lc = tag;
+        std::transform(tag_lc.begin(), tag_lc.end(), tag_lc.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (tag_lc == "script" || tag_lc == "style" || tag_lc == "noscript") continue;
         if (content.empty()) continue;
 
         IRNode child;
         child.type = "text";
-        child.name = tag;
+        child.name = tag_lc;
         child.text_content = content;
         ir.root.children.push_back(std::move(child));
     }
@@ -1989,6 +2268,76 @@ static constexpr float kMinFaderWidth = 40.0f;
 static constexpr float kMinFaderHeight = 80.0f;
 static constexpr float kMinMeterWidth = 20.0f;
 static constexpr float kMinMeterHeight = 80.0f;
+static constexpr float kMinCanvasHeight = 160.0f;
+static constexpr float kMinRangeWidth = 90.0f;
+static constexpr float kMinRangeHeight = 18.0f;
+
+static std::optional<float> parse_float_attribute(const IRNode& node, const char* key) {
+    auto it = node.attributes.find(key);
+    if (it == node.attributes.end() || it->second.empty()) return std::nullopt;
+    try {
+        float value = std::stof(it->second);
+        if (std::isfinite(value)) return value;
+    } catch (...) {}
+    return std::nullopt;
+}
+
+static std::string string_attribute(const IRNode& node, const char* key) {
+    auto it = node.attributes.find(key);
+    return it == node.attributes.end() ? std::string{} : it->second;
+}
+
+static std::optional<float> generated_width(const IRNode& node) {
+    if (auto w = parse_float_attribute(node, "_layoutWidth"); w && *w > 0) return w;
+    if (node.style.width && *node.style.width > 0) return node.style.width;
+    if (node.style.min_width && *node.style.min_width > 0) return node.style.min_width;
+    if (auto w = parse_float_attribute(node, "width"); w && *w > 0) return w;
+    return std::nullopt;
+}
+
+static std::optional<float> generated_height(const IRNode& node) {
+    if (auto h = parse_float_attribute(node, "_layoutHeight"); h && *h > 0) return h;
+    if (node.style.height && *node.style.height > 0) return node.style.height;
+    if (node.style.min_height && *node.style.min_height > 0) return node.style.min_height;
+    if (auto h = parse_float_attribute(node, "height"); h && *h > 0) return h;
+    return std::nullopt;
+}
+
+static void emit_native_common_style(std::ostringstream& ss, const IRNode& node,
+                                     const std::string& id,
+                                     const std::string& ind) {
+    if (auto fg = parse_float_attribute(node, "_flexGrow"); fg && *fg > 0)
+        ss << ind << "setFlex('" << id << "', 'flex_grow', " << *fg << ");\n";
+    if (auto mt = parse_float_attribute(node, "_marginTop"))
+        ss << ind << "setFlex('" << id << "', 'margin_top', " << *mt << ");\n";
+    if (auto mr = parse_float_attribute(node, "_marginRight"))
+        ss << ind << "setFlex('" << id << "', 'margin_right', " << *mr << ");\n";
+    if (auto mb = parse_float_attribute(node, "_marginBottom"))
+        ss << ind << "setFlex('" << id << "', 'margin_bottom', " << *mb << ");\n";
+    if (auto ml = parse_float_attribute(node, "_marginLeft"))
+        ss << ind << "setFlex('" << id << "', 'margin_left', " << *ml << ");\n";
+
+    if (node.style.position)
+        ss << ind << "setPosition('" << id << "', '" << *node.style.position << "');\n";
+    if (node.style.top)
+        ss << ind << "setTop('" << id << "', " << *node.style.top << ");\n";
+    if (node.style.right)
+        ss << ind << "setRight('" << id << "', " << *node.style.right << ");\n";
+    if (node.style.bottom)
+        ss << ind << "setBottom('" << id << "', " << *node.style.bottom << ");\n";
+    if (node.style.left)
+        ss << ind << "setLeft('" << id << "', " << *node.style.left << ");\n";
+    if (node.style.z_index)
+        ss << ind << "setZIndex('" << id << "', " << *node.style.z_index << ");\n";
+    if (node.style.opacity)
+        ss << ind << "setOpacity('" << id << "', " << *node.style.opacity << ");\n";
+    if (node.style.overflow)
+        ss << ind << "setOverflow('" << id << "', '" << *node.style.overflow << "');\n";
+    if (node.style.cursor)
+        ss << ind << "setCursor('" << id << "', '" << *node.style.cursor << "');\n";
+    if (node.style.background_gradient)
+        ss << ind << "setBackgroundGradient('" << id << "', '" << *node.style.background_gradient << "');\n";
+}
 
 // Compute the actual rendered height of a node from its Pencil/IR data.
 // Uses exact child dimensions — no guessing.
@@ -2039,8 +2388,14 @@ static float compute_node_height(const IRNode& node) {
         return widget_h + labels_h + gap * static_cast<float>(n_items);
     }
 
+    if (node.type == "canvas")
+        return std::max(generated_height(node).value_or(kMinCanvasHeight), kMinCanvasHeight);
+
+    if (node.type == "input" && string_attribute(node, "type") == "range")
+        return std::max(generated_height(node).value_or(kMinRangeHeight), kMinRangeHeight);
+
     // Non-audio node with explicit height
-    if (node.style.height) return *node.style.height;
+    if (node.style.height && *node.style.height > 0) return *node.style.height;
 
     // Text/label: font-dependent height
     if (node.type == "text" || node.type == "label")
@@ -2218,6 +2573,43 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         return;
     }
 
+    if (node.type == "canvas") {
+        ss << ind << "createCanvas('" << id << "', " << pid << ");\n";
+        if (auto w = generated_width(node))
+            ss << ind << "setFlex('" << id << "', 'width', " << *w << ");\n";
+        if (auto h = generated_height(node)) {
+            ss << ind << "setFlex('" << id << "', 'height', " << std::max(*h, kMinCanvasHeight) << ");\n";
+        } else {
+            ss << ind << "setFlex('" << id << "', 'flex_grow', 1);\n";
+            ss << ind << "setFlex('" << id << "', 'min_height', " << kMinCanvasHeight << ");\n";
+        }
+        if (node.style.background_color)
+            ss << ind << "setBackground('" << id << "', '" << *node.style.background_color << "');\n";
+        emit_native_common_style(ss, node, id, ind);
+        ss << "\n";
+        return;
+    }
+
+    if (node.type == "input" && string_attribute(node, "type") == "range") {
+        ss << ind << "createRangeSlider('" << id << "', " << pid << ");\n";
+        ss << ind << "setOrientation('" << id << "', 'horizontal');\n";
+        ss << ind << "setFlex('" << id << "', 'width', " << generated_width(node).value_or(kMinRangeWidth) << ");\n";
+        ss << ind << "setFlex('" << id << "', 'height', " << generated_height(node).value_or(kMinRangeHeight) << ");\n";
+        if (auto min = parse_float_attribute(node, "min"))
+            ss << ind << "setMin('" << id << "', " << *min << ");\n";
+        if (auto max = parse_float_attribute(node, "max"))
+            ss << ind << "setMax('" << id << "', " << *max << ");\n";
+        if (auto step = parse_float_attribute(node, "step"))
+            ss << ind << "setStep('" << id << "', " << *step << ");\n";
+        if (auto value = parse_float_attribute(node, "value"))
+            ss << ind << "setValue('" << id << "', " << *value << ");\n";
+        if (node.style.background_color)
+            ss << ind << "setBackground('" << id << "', '" << *node.style.background_color << "');\n";
+        emit_native_common_style(ss, node, id, ind);
+        ss << "\n";
+        return;
+    }
+
     // Container or text node
     bool is_container = !node.children.empty() || node.type == "frame";
     bool is_text = (node.type == "text" || node.type == "label");
@@ -2237,6 +2629,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setFontWeight('" << id << "', '" << *node.style.font_weight << "');\n";
         if (node.style.color)
             ss << ind << "setTextColor('" << id << "', '" << *node.style.color << "');\n";
+        emit_native_common_style(ss, node, id, ind);
 
         ss << "\n";
         return;
@@ -2252,13 +2645,17 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
 
         // Yoga: every container MUST have explicit height
         // Priority: _layoutHeight (from snapshot_layout) > style.height > fill > computed
+        auto flex_grow = parse_float_attribute(node, "_flexGrow");
         if (node.attributes.count("_layoutHeight")) {
             int lh = std::stoi(node.attributes.at("_layoutHeight"));
             if (lh > 0) ss << ind << "setFlex('" << id << "', 'height', " << lh << ");\n";
         } else if (node.style.height) {
             ss << ind << "setFlex('" << id << "', 'height', " << *node.style.height << ");\n";
-        } else if (node.layout.height_mode == SizingMode::fill) {
-            ss << ind << "setFlex('" << id << "', 'flex_grow', 1);\n";
+        } else if (node.layout.height_mode == SizingMode::fill ||
+                   node.layout.width_mode == SizingMode::fill ||
+                   (flex_grow && *flex_grow > 0)) {
+            ss << ind << "setFlex('" << id << "', 'flex_grow', "
+               << (flex_grow && *flex_grow > 0 ? *flex_grow : 1) << ");\n";
         } else {
             float est = compute_container_height(node);
             ss << ind << "setFlex('" << id << "', 'height', " << est << ");\n";
@@ -2302,6 +2699,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setBackground('" << id << "', '" << *node.style.background_color << "');\n";
         if (node.style.border_radius)
             ss << ind << "setCornerRadius('" << id << "', 'All', " << *node.style.border_radius << ");\n";
+        emit_native_common_style(ss, node, id, ind);
 
         ss << "\n";
 
@@ -2335,6 +2733,7 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         ss << ind << "setFlex('" << id << "', 'height', 1);\n";
     if (node.style.background_color)
         ss << ind << "setBackground('" << id << "', '" << *node.style.background_color << "');\n";
+    emit_native_common_style(ss, node, id, ind);
     ss << "\n";
 }
 

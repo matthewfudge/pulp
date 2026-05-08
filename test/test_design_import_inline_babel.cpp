@@ -129,9 +129,9 @@ TEST_CASE("inline text/javascript blocks are evaluated in document order",
     body += R"(<script type="application/json">{"skip":"this should be ignored"}</script>)";
     body += R"(<script type="text/javascript">
         var root = document.getElementById('root');
-        // 12 cells so the materialized walker tree (body + root + cells)
-        // beats the 9-node loader-shell floor.
-        for (var i = 0; i < 12; i++) {
+        // 36 cells so the materialized walker tree (body + root + cells)
+        // beats the 30-node loader-shell floor.
+        for (var i = 0; i < 36; i++) {
             var d = document.createElement('div');
             d.id = 'inline-js-' + i;
             d.setAttribute('data-pulp-role', 'cell');
@@ -147,13 +147,13 @@ TEST_CASE("inline text/javascript blocks are evaluated in document order",
 
     INFO("runtime error_out: " << err);
     REQUIRE(ir.source == DesignSource::claude);
-    // Walker must produce >9 nodes (the loader-shell floor).
+    // Walker must produce >30 nodes (the loader-shell floor).
     std::function<size_t(const IRNode&)> count = [&](const IRNode& n) {
         size_t total = 1;
         for (const auto& c : n.children) total += count(c);
         return total;
     };
-    REQUIRE(count(ir.root) > 9);
+    REQUIRE(count(ir.root) > 30);
 
     // The data-pulp-role attribute should round-trip — proves the inline
     // DOM-building block actually ran.
@@ -203,9 +203,9 @@ TEST_CASE("inline text/babel blocks are compiled via Babel-standalone and evalua
             var panel = document.createElement('section');
             panel.id = 'babel-panel';
             panel.setAttribute('data-pulp-role', 'panel');
-            // Build 8 buttons so the materialized tree clears the
-            // 9-node loader-shell floor even on the smaller layout.
-            for (var i = 0; i < 8; i++) {
+            // Build 32 buttons so the materialized tree clears the
+            // 30-node loader-shell floor even on the smaller layout.
+            for (var i = 0; i < 32; i++) {
                 var btn = document.createElement('button');
                 btn.id = 'babel-btn-' + i;
                 btn.setAttribute('data-pulp-role', 'tap');
@@ -243,7 +243,7 @@ TEST_CASE("inline text/babel blocks are compiled via Babel-standalone and evalua
     };
     auto nodes = count(ir.root);
     INFO("materialized IR node count: " << nodes);
-    REQUIRE(nodes > 9);
+    REQUIRE(nodes > 30);
 
     // Both the babel and jsx inline scripts should have produced
     // role-tagged children.
@@ -270,7 +270,7 @@ TEST_CASE("inline text/babel blocks are skipped (no DOM mutation) when Babel-sta
     // behavior rather than a particular diagnostic string: a babel
     // block whose body would have appended a flag div should leave
     // no trace in the materialized IR. The companion text/javascript
-    // block builds enough DOM to clear the >9 walker floor so the
+    // block builds enough DOM to clear the >30 walker floor so the
     // harness doesn't fall back to the static parser.
     const std::string lib_js = R"JS( globalThis.__pulp_init__ = 1; )JS";
     std::ostringstream manifest;
@@ -281,7 +281,7 @@ TEST_CASE("inline text/babel blocks are skipped (no DOM mutation) when Babel-sta
     body += R"(<script src="u-lib"></script>)";
     body += R"(<script type="text/javascript">
         var root = document.getElementById('root');
-        for (var i = 0; i < 12; i++) {
+        for (var i = 0; i < 36; i++) {
             var d = document.createElement('div');
             d.id = 'cell-' + i;
             d.setAttribute('data-pulp-role', 'cell');
@@ -334,7 +334,7 @@ TEST_CASE("DOMContentLoaded dispatch runs the queued handler when document suppo
     // dispatchEvent shim on `document` and `window` from the src-loaded
     // payload, then register a DCL listener from an inline JS block,
     // then assert the handler ran (the listener appends 12 div cells
-    // — also enough to clear the >9 walker floor).
+    // — also enough to clear the >30 walker floor).
     const std::string lib_js = R"JS(
         function _installEventShim(target) {
             target.__listeners__ = {};
@@ -360,19 +360,19 @@ TEST_CASE("DOMContentLoaded dispatch runs the queued handler when document suppo
     std::string body;
     body += R"(<div id="root"></div>)";
     body += R"(<script src="u-lib"></script>)";
-    // Pre-DCL: 6 baseline cells (so the materialized tree is at the
-    // floor before DCL fires — DCL adding 6 more pushes us over the >9
+    // Pre-DCL: 12 baseline cells (so the materialized tree is below the
+    // floor before DCL fires — DCL adding 24 more pushes us over the >30
     // floor and proves the DCL dispatch landed).
     body += R"(<script type="text/javascript">
         var root = document.getElementById('root');
-        for (var i = 0; i < 6; i++) {
+        for (var i = 0; i < 12; i++) {
             var d = document.createElement('div');
             d.id = 'pre-' + i;
             d.setAttribute('data-pulp-role', 'pre-dcl');
             root.appendChild(d);
         }
         document.addEventListener('DOMContentLoaded', function() {
-            for (var j = 0; j < 6; j++) {
+            for (var j = 0; j < 24; j++) {
                 var d = document.createElement('div');
                 d.id = 'dcl-' + j;
                 d.setAttribute('data-pulp-role', 'after-dcl');
@@ -421,7 +421,7 @@ TEST_CASE("inline scripts with single-quoted and unrecognized types "
     body += R"(<script src="u-lib"></script>)";
     body += R"(<script type='text/javascript'>
         var root = document.getElementById('root');
-        for (var i = 0; i < 4; i++) {
+        for (var i = 0; i < 18; i++) {
             var d = document.createElement('div');
             d.id = 'sq-' + i;
             d.setAttribute('data-pulp-role', 'single-quoted');
@@ -430,7 +430,7 @@ TEST_CASE("inline scripts with single-quoted and unrecognized types "
     </script>)";
     body += R"(<script type=text/javascript>
         var r = document.getElementById('root');
-        for (var i = 0; i < 4; i++) {
+        for (var i = 0; i < 18; i++) {
             var d = document.createElement('div');
             d.id = 'uq-' + i;
             d.setAttribute('data-pulp-role', 'unquoted');
@@ -487,12 +487,12 @@ TEST_CASE("babel-side transform errors are surfaced and the script is skipped",
     std::string body;
     body += R"(<div id="root"></div>)";
     body += R"(<script src="u-babel"></script>)";
-    // 12 cells from inline JS so the materialized DOM clears the >9
+    // 36 cells from inline JS so the materialized DOM clears the >30
     // floor and the harness doesn't fall back to the static parser
     // (which would overwrite our babel-error diagnostic in error_out).
     body += R"(<script type="text/javascript">
         var root = document.getElementById('root');
-        for (var i = 0; i < 12; i++) {
+        for (var i = 0; i < 36; i++) {
             var d = document.createElement('div');
             d.id = 'cell-' + i;
             d.setAttribute('data-pulp-role', 'cell');
@@ -572,6 +572,6 @@ TEST_CASE("real Spectr Claude bundle materialises widgets when "
     REQUIRE(ir.source == DesignSource::claude);
     // Acceptance: the real Spectr bundle should now produce dozens to
     // hundreds of nodes (the actual editor surface), not just the
-    // loader-shell baseline of 9.
-    REQUIRE(nodes > 20);
+    // loader-shell baseline of 30.
+    REQUIRE(nodes > 30);
 }

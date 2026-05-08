@@ -8,3 +8,6 @@ add_executable(pulp-import-design
     import_detect.cpp)
 target_include_directories(pulp-import-design PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(pulp-import-design PRIVATE pulp::view pulp::state)
+
+install(TARGETS pulp-import-design
+    RUNTIME DESTINATION bin)

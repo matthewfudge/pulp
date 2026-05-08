@@ -427,6 +427,46 @@ TEST_CASE("generate_pulp_js native mode handles audio widgets with Yoga constrai
     REQUIRE(js.find("setMeterLevel") != std::string::npos);
 }
 
+TEST_CASE("generate_pulp_js native mode maps DOM canvas and range input to native widgets", "[view][import]") {
+    DesignIR ir;
+    ir.source = DesignSource::claude;
+    ir.root.type = "frame";
+    ir.root.name = "Imported";
+    ir.root.layout.direction = LayoutDirection::column;
+
+    IRNode canvas;
+    canvas.type = "canvas";
+    canvas.name = "spectrum";
+    canvas.style.height = 0.0f; // real Claude/Spectr snapshots can report zero
+    canvas.attributes["width"] = "640";
+    ir.root.children.push_back(canvas);
+
+    IRNode range;
+    range.type = "input";
+    range.name = "morph";
+    range.attributes["type"] = "range";
+    range.attributes["min"] = "0";
+    range.attributes["max"] = "1";
+    range.attributes["step"] = "0.001";
+    range.attributes["value"] = "0.25";
+    ir.root.children.push_back(range);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::native;
+    opts.include_comments = false;
+    auto js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("createCanvas('spectrum") != std::string::npos);
+    REQUIRE(js.find("setFlex('spectrum") != std::string::npos);
+    REQUIRE(js.find("'min_height', 160") != std::string::npos);
+    REQUIRE(js.find("createRangeSlider('morph") != std::string::npos);
+    REQUIRE(js.find("setOrientation('morph") != std::string::npos);
+    REQUIRE(js.find("setMin('morph") != std::string::npos);
+    REQUIRE(js.find("setMax('morph") != std::string::npos);
+    REQUIRE(js.find("setStep('morph") != std::string::npos);
+    REQUIRE(js.find("setValue('morph") != std::string::npos);
+}
+
 TEST_CASE("generate_pulp_js web-compat mode handles audio widgets", "[view][import]") {
     DesignIR ir;
     ir.source = DesignSource::figma;
@@ -978,6 +1018,21 @@ TEST_CASE("parse_stitch_html extracts text from simple HTML", "[view][import]") 
     REQUIRE(ir.root.children.size() >= 1);
     // At least the first match is extracted
     REQUIRE(ir.root.children[0].text_content == "Plugin Title");
+}
+
+TEST_CASE("parse_stitch_html ignores non-visible script/style content",
+          "[view][import][issue-1691]") {
+    auto html = R"HTML(
+        <style>.button { color: red; }</style>
+        <script>document.addEventListener('DOMContentLoaded', function(){})</script>
+        <noscript>Enable JavaScript</noscript>
+        <h1>Visible Title</h1>
+    )HTML";
+    auto ir = parse_stitch_html(html);
+
+    REQUIRE(ir.root.children.size() == 1);
+    REQUIRE(ir.root.children[0].name == "h1");
+    REQUIRE(ir.root.children[0].text_content == "Visible Title");
 }
 
 TEST_CASE("parse_stitch_html accepts JSON IR directly", "[view][import]") {

@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/platform/child_process.hpp>
+#include <pulp/runtime/base64.hpp>
 
 #include <chrono>
 #include <cstdlib>
@@ -70,6 +71,53 @@ std::string read_text(const fs::path& path) {
     REQUIRE(f.is_open());
     std::ostringstream ss;
     ss << f.rdbuf();
+    return ss.str();
+}
+
+std::string json_quote(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '/':  out += "\\u002F"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    out += "\"";
+    return out;
+}
+
+std::string manifest_entry(const std::string& uuid, const std::string& mime,
+                           const std::string& contents) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(contents.data());
+    const auto b64 = pulp::runtime::base64_encode(bytes, contents.size());
+    std::ostringstream ss;
+    ss << "\"" << uuid << "\":{"
+       << "\"mime\":\"" << mime << "\","
+       << "\"compressed\":false,"
+       << "\"data\":\"" << b64 << "\"}";
+    return ss.str();
+}
+
+std::string build_claude_envelope(const std::string& manifest_json,
+                                  const std::string& template_body_html) {
+    std::ostringstream ss;
+    ss << "<!DOCTYPE html><html><head><title>CLI Test</title></head><body>"
+       << "<script type=\"__bundler/manifest\">" << manifest_json << "</script>"
+       << "<script type=\"__bundler/template\">"
+       << json_quote(template_body_html)
+       << "</script></body></html>";
     return ss.str();
 }
 
@@ -150,4 +198,67 @@ TEST_CASE("pulp-import-design writes a web-compat Stitch import to nested output
     REQUIRE(js.find("document.createElement") != std::string::npos);
     REQUIRE(js.find("document.body.appendChild") != std::string::npos);
     REQUIRE(r.stdout_output.find(output.string()) != std::string::npos);
+}
+
+TEST_CASE("pulp-import-design execute-bundle materializes a Claude runtime import",
+          "[cli][import-design][tool][claude][issue-1689]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
+
+    TempDir tmp("pulp-import-design-tool-claude-runtime");
+    const auto input = tmp.path / "claude-runtime.html";
+
+    const std::string babel_umd = R"JS(
+        (function(root, factory) {
+            if (typeof exports === 'object' && typeof module !== 'undefined') {
+                module.exports = factory();
+            } else {
+                root.Babel = factory();
+            }
+        })(this, function() {
+            return {
+                transform: function(src) { return { code: src }; }
+            };
+        });
+    )JS";
+
+    std::ostringstream manifest;
+    manifest << "{" << manifest_entry("u-babel", "text/javascript", babel_umd) << "}";
+
+    std::string body;
+    body += R"(<div id="root">Loader Shell</div>)";
+    body += R"(<script src="u-babel"></script>)";
+    body += R"(<script type="text/babel">
+        (function() {
+            var root = document.getElementById('root');
+            root.textContent = '';
+            for (var i = 0; i < 36; i++) {
+                var cell = document.createElement('button');
+                cell.id = 'runtime-cell-' + i;
+                cell.setAttribute('data-pulp-role', 'runtime-cell');
+                cell.textContent = i === 0 ? 'Runtime Materialized' : ('Runtime Cell ' + i);
+                root.appendChild(cell);
+            }
+        })();
+    </script>)";
+
+    write_text(input, build_claude_envelope(manifest.str(), body));
+
+    auto r = run_import_design({"--from", "claude",
+                                "--file", input.string(),
+                                "--execute-bundle",
+                                "--dry-run",
+                                "--no-tokens",
+                                "--no-bridge-scaffold",
+                                "--no-emit-classnames"},
+                               60000);
+
+    INFO("stdout: " << r.stdout_output);
+    INFO("stderr: " << r.stderr_output);
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 0);
+    REQUIRE(r.stdout_output.find("[execute-bundle] runtime path produced the IR (no fallback)")
+            != std::string::npos);
+    REQUIRE(r.stdout_output.find("runtime fallback") == std::string::npos);
+    REQUIRE(r.stdout_output.find("Runtime Materialized") != std::string::npos);
+    REQUIRE(r.stdout_output.find("runtime-cell-35") != std::string::npos);
 }

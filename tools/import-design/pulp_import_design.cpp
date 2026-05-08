@@ -4,6 +4,7 @@
 #include <pulp/view/screenshot.hpp>
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
+#include <pulp/view/window_host.hpp>
 #include <pulp/state/store.hpp>
 #include "import_detect.hpp"
 #include <fstream>
@@ -13,6 +14,9 @@
 #include <cstring>
 #include <filesystem>
 #include <chrono>
+#include <algorithm>
+#include <cctype>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace pulp::view;
@@ -40,10 +44,23 @@ static void print_usage() {
     std::cout << "  --no-tokens       Skip token extraction\n";
     std::cout << "  --no-comments     Omit comments from generated code\n";
     std::cout << "  --web-compat      Use DOM API instead of native Pulp API\n";
-    std::cout << "  --validate        Render generated JS and validate layout\n";
+    std::cout << "  --validate        Render generated JS and validate layout. Defaults to\n";
+    std::cout << "                    native-gpu so imports prove the Dawn/Skia bridge unless\n";
+    std::cout << "                    --validation-renderer selects an explicit headless lane.\n";
+    std::cout << "  --validation-renderer <mode>\n";
+    std::cout << "                    native-gpu (default), headless-skia, headless-coregraphics,\n";
+    std::cout << "                    or headless-default.\n";
+    std::cout << "  --allow-cpu-validation\n";
+    std::cout << "                    Alias for --validation-renderer headless-skia; use only\n";
+    std::cout << "                    for CPU/headless test lanes.\n";
     std::cout << "  --reference <png> Compare render against a reference screenshot\n";
     std::cout << "  --diff <png>      Save visual diff image\n";
     std::cout << "  --render-size WxH Render dimensions (default: 340x280)\n";
+    std::cout << "  --validate-click x,y\n";
+    std::cout << "                    During validation, click a point and capture after/diff PNGs.\n";
+    std::cout << "  --validate-click-widget <id>\n";
+    std::cout << "                    During validation, click the generated widget's center and\n";
+    std::cout << "                    capture after/diff PNGs.\n";
     std::cout << "  --bridge-output <path>  Path to write bridge handler scaffold (default: bridge_handlers.cpp,\n";
     std::cout << "                          only emitted for --from claude)\n";
     std::cout << "  --no-bridge-scaffold    Skip bridge handler scaffold (claude only)\n";
@@ -105,6 +122,339 @@ static bool write_file(const std::string& path, const std::string& content) {
     return true;
 }
 
+static bool write_binary_file(const std::string& path, const std::vector<uint8_t>& bytes) {
+    auto parent = fs::path(path).parent_path();
+    if (!parent.empty()) fs::create_directories(parent);
+
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) {
+        std::cerr << "Error: cannot write file: " << path << "\n";
+        return false;
+    }
+    f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return f.good();
+}
+
+enum class ValidationRenderer {
+    native_gpu,
+    headless_default,
+    headless_skia,
+    headless_coregraphics,
+};
+
+static const char* validation_renderer_name(ValidationRenderer renderer) {
+    switch (renderer) {
+        case ValidationRenderer::native_gpu: return "native-gpu";
+        case ValidationRenderer::headless_default: return "headless-default";
+        case ValidationRenderer::headless_skia: return "headless-skia";
+        case ValidationRenderer::headless_coregraphics: return "headless-coregraphics";
+    }
+    return "unknown";
+}
+
+static std::string filename_token(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    for (auto& c : value) {
+        if (std::isalnum(static_cast<unsigned char>(c))) continue;
+        c = '-';
+    }
+
+    value.erase(std::unique(value.begin(), value.end(),
+        [](char a, char b) { return a == '-' && b == '-'; }), value.end());
+    while (!value.empty() && value.front() == '-') value.erase(value.begin());
+    while (!value.empty() && value.back() == '-') value.pop_back();
+    return value.empty() ? "design" : value;
+}
+
+static bool parse_validation_renderer(const std::string& value, ValidationRenderer& out) {
+    if (value == "native-gpu") {
+        out = ValidationRenderer::native_gpu;
+        return true;
+    }
+    if (value == "headless" || value == "headless-default") {
+        out = ValidationRenderer::headless_default;
+        return true;
+    }
+    if (value == "headless-skia" || value == "skia") {
+        out = ValidationRenderer::headless_skia;
+        return true;
+    }
+    if (value == "headless-coregraphics" || value == "coregraphics") {
+        out = ValidationRenderer::headless_coregraphics;
+        return true;
+    }
+    return false;
+}
+
+struct ValidationClick {
+    bool enabled = false;
+    bool by_widget = false;
+    std::string widget_id;
+    pulp::view::Point point{};
+};
+
+struct ValidationRun {
+    bool ran = false;
+    bool valid = false;
+    std::string error;
+    ValidationRenderer renderer = ValidationRenderer::native_gpu;
+    bool requested_gpu = false;
+    bool resolved_gpu = false;
+    bool native_bridge = false;
+    bool webview = false;
+    std::string render_path;
+    std::string click_after_path;
+    std::string click_diff_path;
+    bool click_requested = false;
+    bool click_dispatched = false;
+    std::string click_widget_id;
+    pulp::view::Point click_point{};
+    CompareResult click_compare;
+    int64_t setup_ms = 0;
+    int64_t render_ms = 0;
+    int64_t click_ms = 0;
+    std::vector<uint8_t> rendered_png;
+};
+
+static bool parse_point_arg(const std::string& text, pulp::view::Point& out) {
+    auto comma = text.find(',');
+    if (comma == std::string::npos) return false;
+    try {
+        out.x = std::stof(text.substr(0, comma));
+        out.y = std::stof(text.substr(comma + 1));
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+static pulp::view::Point center_in_root(pulp::view::View& target) {
+    float x = 0.0f;
+    float y = 0.0f;
+    for (auto* v = &target; v != nullptr; v = v->parent()) {
+        auto b = v->bounds();
+        x += b.x;
+        y += b.y;
+    }
+    auto b = target.bounds();
+    return {x + b.width * 0.5f, y + b.height * 0.5f};
+}
+
+static void pump_validation_frames(WidgetBridge& bridge, pulp::view::View& root, int cycles = 8) {
+    for (int i = 0; i < cycles; ++i) {
+        bridge.service_frame_callbacks();
+        root.layout_children();
+    }
+}
+
+static ScreenshotBackend screenshot_backend_for(ValidationRenderer renderer) {
+    switch (renderer) {
+        case ValidationRenderer::headless_skia: return ScreenshotBackend::skia;
+        case ValidationRenderer::headless_coregraphics: return ScreenshotBackend::coregraphics;
+        default: return ScreenshotBackend::default_backend;
+    }
+}
+
+static ValidationRun run_validation(const std::string& js,
+                                    ValidationRenderer renderer,
+                                    int render_width,
+                                    int render_height,
+                                    const std::string& render_path,
+                                    const ValidationClick& click) {
+    ValidationRun run;
+    run.ran = true;
+    run.renderer = renderer;
+    run.render_path = render_path;
+    run.click_requested = click.enabled;
+    run.click_widget_id = click.widget_id;
+
+    auto t0 = std::chrono::steady_clock::now();
+
+    View render_root;
+    render_root.set_theme(Theme::dark());
+    render_root.flex().direction = FlexDirection::column;
+    render_root.set_bounds({0.0f, 0.0f,
+                            static_cast<float>(render_width),
+                            static_cast<float>(render_height)});
+
+    StateStore render_store;
+    ScriptEngine render_engine;
+
+    try {
+        if (renderer == ValidationRenderer::native_gpu) {
+            WindowOptions wopts;
+            wopts.title = "Pulp import-design native GPU validation";
+            wopts.width = static_cast<uint32_t>(std::max(render_width, 1));
+            wopts.height = static_cast<uint32_t>(std::max(render_height, 1));
+            wopts.use_gpu = true;
+            wopts.resizable = false;
+            run.requested_gpu = true;
+
+            auto window = WindowHost::create(render_root, wopts);
+            if (!window) {
+                run.error = "native-gpu validation requested but WindowHost::create failed";
+                return run;
+            }
+
+            run.resolved_gpu = window->is_gpu();
+            run.native_bridge = run.resolved_gpu &&
+                window->gpu_surface() != nullptr &&
+                window->dawn_device_handle() != nullptr &&
+                window->dawn_queue_handle() != nullptr;
+
+            if (!run.native_bridge) {
+                run.error =
+                    "native-gpu validation requested but WindowHost did not resolve "
+                    "a Dawn/Skia native bridge. Pass --validation-renderer headless-skia "
+                    "only for an explicit CPU/headless test lane.";
+                return run;
+            }
+
+            WidgetBridge render_bridge(render_engine, render_root, render_store, window->gpu_surface());
+            render_bridge.set_repaint_callback([host = window.get()] {
+                if (host) host->repaint();
+            });
+            render_bridge.load_script(js);
+            pump_validation_frames(render_bridge, render_root);
+            window->repaint();
+
+            auto t_setup = std::chrono::steady_clock::now();
+            run.rendered_png = window->capture_png();
+            auto t_render = std::chrono::steady_clock::now();
+
+            if (run.rendered_png.empty()) {
+                run.error = "native-gpu validation render failed";
+                return run;
+            }
+            if (!write_binary_file(render_path, run.rendered_png)) {
+                run.error = "failed to write validation screenshot";
+                return run;
+            }
+
+            if (click.enabled) {
+                pulp::view::Point click_point = click.point;
+                if (click.by_widget) {
+                    auto* target = render_bridge.widget(click.widget_id);
+                    if (!target) {
+                        run.error = "validation click widget not found: " + click.widget_id;
+                        return run;
+                    }
+                    click_point = center_in_root(*target);
+                }
+                run.click_point = click_point;
+                render_root.simulate_click(click_point);
+                pump_validation_frames(render_bridge, render_root, 4);
+                window->repaint();
+
+                const auto click_stem = fs::path(render_path).replace_extension("").string();
+                run.click_after_path = click_stem + "-after-click.png";
+                run.click_diff_path = click_stem + "-click-diff.png";
+                auto after_png = window->capture_png();
+                if (after_png.empty()) {
+                    run.error = "native-gpu validation after-click render failed";
+                    return run;
+                }
+                if (!write_binary_file(run.click_after_path, after_png)) {
+                    run.error = "failed to write validation after-click screenshot";
+                    return run;
+                }
+                auto diff_png = generate_diff_image(run.rendered_png, after_png);
+                if (!diff_png.empty()) {
+                    (void)write_binary_file(run.click_diff_path, diff_png);
+                }
+                run.click_compare = compare_screenshots(run.rendered_png, after_png);
+                run.click_dispatched = true;
+                auto t_click = std::chrono::steady_clock::now();
+                run.click_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_click - t_render).count();
+            }
+
+            run.setup_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_setup - t0).count();
+            run.render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_render - t_setup).count();
+            run.valid = true;
+            return run;
+        }
+
+#ifndef PULP_HAS_SKIA
+        if (renderer == ValidationRenderer::headless_skia) {
+            run.error =
+                "headless-skia validation requested but this binary was built without PULP_HAS_SKIA";
+            return run;
+        }
+#endif
+
+        WidgetBridge render_bridge(render_engine, render_root, render_store);
+        render_bridge.load_script(js);
+        pump_validation_frames(render_bridge, render_root);
+
+        auto t_setup = std::chrono::steady_clock::now();
+        run.rendered_png = render_to_png(render_root,
+            static_cast<uint32_t>(render_width),
+            static_cast<uint32_t>(render_height),
+            2.0f,
+            screenshot_backend_for(renderer));
+        auto t_render = std::chrono::steady_clock::now();
+
+        if (run.rendered_png.empty()) {
+            run.error = "headless validation render failed";
+            return run;
+        }
+        if (!write_binary_file(render_path, run.rendered_png)) {
+            run.error = "failed to write validation screenshot";
+            return run;
+        }
+
+        if (click.enabled) {
+            pulp::view::Point click_point = click.point;
+            if (click.by_widget) {
+                auto* target = render_bridge.widget(click.widget_id);
+                if (!target) {
+                    run.error = "validation click widget not found: " + click.widget_id;
+                    return run;
+                }
+                click_point = center_in_root(*target);
+            }
+            run.click_point = click_point;
+            render_root.simulate_click(click_point);
+            pump_validation_frames(render_bridge, render_root, 4);
+
+            const auto click_stem = fs::path(render_path).replace_extension("").string();
+            run.click_after_path = click_stem + "-after-click.png";
+            run.click_diff_path = click_stem + "-click-diff.png";
+            auto after_png = render_to_png(render_root,
+                static_cast<uint32_t>(render_width),
+                static_cast<uint32_t>(render_height),
+                2.0f,
+                screenshot_backend_for(renderer));
+            if (after_png.empty()) {
+                run.error = "headless validation after-click render failed";
+                return run;
+            }
+            if (!write_binary_file(run.click_after_path, after_png)) {
+                run.error = "failed to write validation after-click screenshot";
+                return run;
+            }
+            auto diff_png = generate_diff_image(run.rendered_png, after_png);
+            if (!diff_png.empty()) {
+                (void)write_binary_file(run.click_diff_path, diff_png);
+            }
+            run.click_compare = compare_screenshots(run.rendered_png, after_png);
+            run.click_dispatched = true;
+            auto t_click = std::chrono::steady_clock::now();
+            run.click_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_click - t_render).count();
+        }
+
+        run.setup_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_setup - t0).count();
+        run.render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_render - t_setup).count();
+        run.valid = true;
+        return run;
+    } catch (const std::exception& e) {
+        run.error = e.what();
+        return run;
+    }
+}
+
 int main(int argc, char* argv[]) {
     std::string source_str;
     std::string input_file;
@@ -127,6 +477,8 @@ int main(int argc, char* argv[]) {
     std::string debug_output;        // --debug-output: path for JSON report
     int render_width = 340;
     int render_height = 280;
+    ValidationRenderer validation_renderer = ValidationRenderer::native_gpu;
+    ValidationClick validation_click;
     std::string bridge_output = "bridge_handlers.cpp";  // claude scaffold output
     bool emit_bridge_scaffold = true;                    // default on for --from claude
     bool execute_bundle = false;                         // pulp #468 native-runtime path
@@ -167,6 +519,15 @@ int main(int argc, char* argv[]) {
             use_web_compat = true;
         } else if (std::strcmp(argv[i], "--validate") == 0) {
             validate = true;
+        } else if (std::strcmp(argv[i], "--validation-renderer") == 0 && i + 1 < argc) {
+            std::string value = argv[++i];
+            if (!parse_validation_renderer(value, validation_renderer)) {
+                std::cerr << "Error: unknown validation renderer '" << value << "'\n";
+                std::cerr << "Valid renderers: native-gpu, headless-skia, headless-coregraphics, headless-default\n";
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--allow-cpu-validation") == 0) {
+            validation_renderer = ValidationRenderer::headless_skia;
         } else if (std::strcmp(argv[i], "--reference") == 0 && i + 1 < argc) {
             reference_image = argv[++i];
             validate = true;
@@ -180,6 +541,18 @@ int main(int argc, char* argv[]) {
                 render_width = std::stoi(sz.substr(0, x));
                 render_height = std::stoi(sz.substr(x + 1));
             }
+        } else if (std::strcmp(argv[i], "--validate-click") == 0 && i + 1 < argc) {
+            validation_click.enabled = true;
+            validation_click.by_widget = false;
+            std::string point_arg = argv[++i];
+            if (!parse_point_arg(point_arg, validation_click.point)) {
+                std::cerr << "Error: --validate-click expects x,y coordinates\n";
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--validate-click-widget") == 0 && i + 1 < argc) {
+            validation_click.enabled = true;
+            validation_click.by_widget = true;
+            validation_click.widget_id = argv[++i];
         } else if (std::strcmp(argv[i], "--preview") == 0) {
             preview_mode = true;
         } else if (std::strcmp(argv[i], "--debug") == 0) {
@@ -499,46 +872,53 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Screenshot naming convention: {design-name}-{source}-render.png
     auto design_name = fs::path(output_file).stem().string();
-    auto source_lower = std::string(design_source_name(*source));
-    std::transform(source_lower.begin(), source_lower.end(), source_lower.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    auto output_dir = fs::path(output_file).parent_path();
+    auto rendered_name = design_name + "-" + filename_token(design_source_name(*source)) + "-render.png";
+
+    ValidationRun validation_run;
 
     // ── Validation: render generated JS and compare with reference ──────
     if (validate) {
-        std::cout << "Validating render...\n";
-
-        // Render the generated JS headlessly
-        View render_root;
-        render_root.set_theme(Theme::dark());
-        render_root.flex().direction = FlexDirection::column;
-        StateStore render_store;
-        ScriptEngine render_engine;
-        WidgetBridge render_bridge(render_engine, render_root, render_store);
-        try {
-            render_bridge.load_script(js);
-        } catch (const std::exception& e) {
-            std::cerr << "Validation error: generated JS failed to load: " << e.what() << "\n";
+        auto rendered_path = (output_dir.empty() ? fs::path(rendered_name) : output_dir / rendered_name).string();
+        std::cout << "Validating render via " << validation_renderer_name(validation_renderer) << "...\n";
+        validation_run = run_validation(js, validation_renderer, render_width, render_height,
+                                        rendered_path, validation_click);
+        if (!validation_run.valid) {
+            std::cerr << "Validation error: " << validation_run.error << "\n";
             return 1;
         }
 
-        auto rendered_png = render_to_png(render_root,
-            static_cast<uint32_t>(render_width),
-            static_cast<uint32_t>(render_height), 2.0f);
-
-        if (rendered_png.empty()) {
-            std::cerr << "Validation error: headless render failed\n";
-            return 1;
-        }
-
-        auto rendered_path = design_name + "-" + source_lower + "-render.png";
-        {
-            std::ofstream f(rendered_path, std::ios::binary);
-            f.write(reinterpret_cast<const char*>(rendered_png.data()),
-                    static_cast<std::streamsize>(rendered_png.size()));
-        }
+        std::cout << "Validation renderer: " << validation_renderer_name(validation_renderer)
+                  << " (requested_gpu=" << (validation_run.requested_gpu ? "true" : "false")
+                  << ", resolved_gpu=" << (validation_run.resolved_gpu ? "true" : "false")
+                  << ", native_bridge=" << (validation_run.native_bridge ? "true" : "false")
+                  << ", webview=false)\n";
         std::cout << "Rendered → " << rendered_path << " (" << render_width << "x" << render_height << ")\n";
+        std::cout << "Validation timing: setup=" << validation_run.setup_ms
+                  << "ms render=" << validation_run.render_ms << "ms";
+        if (validation_run.click_requested) std::cout << " click=" << validation_run.click_ms << "ms";
+        std::cout << "\n";
+
+        if (validation_run.click_dispatched) {
+            std::cout << "Clicked";
+            if (!validation_run.click_widget_id.empty())
+                std::cout << " widget " << validation_run.click_widget_id;
+            std::cout << " at " << validation_run.click_point.x << "," << validation_run.click_point.y << "\n";
+            std::cout << "After click → " << validation_run.click_after_path << "\n";
+            if (!validation_run.click_diff_path.empty())
+                std::cout << "Click diff → " << validation_run.click_diff_path << "\n";
+            if (validation_run.click_compare.valid) {
+                std::cout << "Click visual delta: "
+                          << validation_run.click_compare.diff_pixels << "/"
+                          << validation_run.click_compare.total_pixels
+                          << " pixels differ\n";
+                if (validation_run.click_compare.diff_pixels == 0) {
+                    std::cout << "Validation warning: click produced no visual delta; "
+                              << "for interactive imports this is a parity gap to investigate.\n";
+                }
+            }
+        }
 
         // Compare with reference if provided
         if (!reference_image.empty()) {
@@ -561,13 +941,14 @@ int main(int argc, char* argv[]) {
             // Always generate diff image when reference is provided
             // Use --diff path if given, otherwise auto-generate alongside render
             auto actual_diff_path = diff_output.empty()
-                ? (design_name + "-" + source_lower + "-diff.png") : diff_output;
+                ? (fs::path(validation_run.render_path).replace_extension("").string() + "-diff.png")
+                : diff_output;
             {
                 auto ref_bytes = [&]() -> std::vector<uint8_t> {
                     std::ifstream f(reference_image, std::ios::binary);
                     return {std::istreambuf_iterator<char>(f), {}};
                 }();
-                auto diff_png = generate_diff_image(ref_bytes, rendered_png);
+                auto diff_png = generate_diff_image(ref_bytes, validation_run.rendered_png);
                 if (!diff_png.empty()) {
                     std::ofstream f(actual_diff_path, std::ios::binary);
                     f.write(reinterpret_cast<const char*>(diff_png.data()),
@@ -613,9 +994,39 @@ int main(int argc, char* argv[]) {
         dbg << "  \"js_bytes\": " << js.size() << ",\n";
 
         // Validation results if available
-        if (validate && !reference_image.empty()) {
-            auto result = compare_screenshot_files(reference_image, design_name + "-" + source_lower + "-render.png");
+        if (validate) {
             dbg << "  \"validation\": {\n";
+            dbg << "    \"renderer\": \"" << validation_renderer_name(validation_run.renderer) << "\",\n";
+            dbg << "    \"requested_gpu\": " << (validation_run.requested_gpu ? "true" : "false") << ",\n";
+            dbg << "    \"resolved_gpu\": " << (validation_run.resolved_gpu ? "true" : "false") << ",\n";
+            dbg << "    \"native_bridge\": " << (validation_run.native_bridge ? "true" : "false") << ",\n";
+            dbg << "    \"webview\": false,\n";
+            dbg << "    \"render_image\": \"" << validation_run.render_path << "\",\n";
+            dbg << "    \"setup_ms\": " << validation_run.setup_ms << ",\n";
+            dbg << "    \"render_ms\": " << validation_run.render_ms << ",\n";
+            dbg << "    \"click_requested\": " << (validation_run.click_requested ? "true" : "false") << ",\n";
+            dbg << "    \"click_dispatched\": " << (validation_run.click_dispatched ? "true" : "false") << ",\n";
+            dbg << "    \"click_ms\": " << validation_run.click_ms << ",\n";
+            dbg << "    \"click_widget\": \"" << validation_run.click_widget_id << "\",\n";
+            dbg << "    \"click_point\": {\"x\": " << validation_run.click_point.x
+                << ", \"y\": " << validation_run.click_point.y << "},\n";
+            if (validation_run.click_dispatched) {
+                dbg << "    \"click_after_image\": \"" << validation_run.click_after_path << "\",\n";
+                dbg << "    \"click_diff_image\": \"" << validation_run.click_diff_path << "\",\n";
+                dbg << "    \"click_diff_pixels\": " << validation_run.click_compare.diff_pixels << ",\n";
+                dbg << "    \"click_total_pixels\": " << validation_run.click_compare.total_pixels << "\n";
+            } else {
+                dbg << "    \"click_after_image\": null,\n";
+                dbg << "    \"click_diff_image\": null,\n";
+                dbg << "    \"click_diff_pixels\": null,\n";
+                dbg << "    \"click_total_pixels\": null\n";
+            }
+            dbg << "  },\n";
+        }
+
+        if (validate && !reference_image.empty()) {
+            auto result = compare_screenshot_files(reference_image, validation_run.render_path);
+            dbg << "  \"reference_comparison\": {\n";
             dbg << "    \"reference\": \"" << reference_image << "\",\n";
             dbg << "    \"similarity_pct\": " << static_cast<int>(result.similarity * 100) << ",\n";
             dbg << "    \"diff_pixels\": " << result.diff_pixels << ",\n";

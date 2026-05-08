@@ -1697,7 +1697,7 @@ catch_discover_tests(pulp-test-cli-import-design
 # without going through the top-level pulp CLI delegate.
 add_executable(pulp-test-import-design-tool test_import_design_tool.cpp)
 target_link_libraries(pulp-test-import-design-tool
-    PRIVATE pulp::platform Catch2::Catch2WithMain)
+    PRIVATE pulp::platform pulp::runtime Catch2::Catch2WithMain)
 target_compile_definitions(pulp-test-import-design-tool PRIVATE
     PULP_IMPORT_DESIGN_TOOL_PATH="$<TARGET_FILE:pulp-import-design>")
 add_dependencies(pulp-test-import-design-tool pulp-import-design)
