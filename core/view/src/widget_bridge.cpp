@@ -8412,9 +8412,52 @@ void WidgetBridge::forward_key_event(int key_code, uint16_t modifiers, bool is_d
         }
     }
 
-    engine_.evaluate("__dispatch__('__global__', 'keydown', {"
-        "key:" + std::to_string(key_code) +
-        ",mods:" + std::to_string(modifiers) + "})");
+    // Build W3C-style KeyboardEvent data with string key name and boolean
+    // modifier fields, then dispatch through both __dispatch__ and the DOM
+    // EventTarget system so window.addEventListener('keydown', fn) works.
+    const bool ctrl  = (modifiers & kModCtrl)  != 0;
+    const bool shift = (modifiers & kModShift) != 0;
+    const bool alt   = (modifiers & kModAlt)   != 0;
+    const bool meta  = (modifiers & kModCmd)   != 0;
+
+    // Map common key codes to W3C key values
+    std::string key_name;
+    if (key_code >= 'a' && key_code <= 'z') {
+        key_name = std::string(1, static_cast<char>(key_code));
+    } else if (key_code >= 'A' && key_code <= 'Z') {
+        key_name = std::string(1, static_cast<char>(key_code + 32)); // lowercase
+    } else if (key_code >= '0' && key_code <= '9') {
+        key_name = std::string(1, static_cast<char>(key_code));
+    } else {
+        // Fallback: numeric key code as string
+        key_name = std::to_string(key_code);
+    }
+
+    std::string js = "__dispatch__('__global__', 'keydown', {"
+        "key:'" + key_name + "',"
+        "code:'" + key_name + "',"
+        "ctrlKey:" + (ctrl ? "true" : "false") + ","
+        "shiftKey:" + (shift ? "true" : "false") + ","
+        "altKey:" + (alt ? "true" : "false") + ","
+        "metaKey:" + (meta ? "true" : "false") +
+        "})";
+    engine_.evaluate(js);
+
+    // Also fire through the DOM event system so window.addEventListener
+    // listeners registered by imported code receive the event.
+    std::string dom_dispatch =
+        "if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {"
+        "  var evt = { type:'keydown', key:'" + key_name + "', code:'" + key_name + "',"
+        "    ctrlKey:" + (ctrl ? "true" : "false") + ","
+        "    shiftKey:" + (shift ? "true" : "false") + ","
+        "    altKey:" + (alt ? "true" : "false") + ","
+        "    metaKey:" + (meta ? "true" : "false") + ","
+        "    preventDefault: function() { this._defaultPrevented = true; },"
+        "    _defaultPrevented: false"
+        "  };"
+        "  window.dispatchEvent(evt);"
+        "}";
+    engine_.evaluate(dom_dispatch);
 }
 
 } // namespace pulp::view
