@@ -241,6 +241,15 @@ public:
                                   float w,
                                   float h);
 
+    // pulp #1492 — escape hatch for widgets that own Skia-specific state
+    // (e.g. `SvgIconWidget` holding an `sk_sp<SkSVGDOM>`). The returned
+    // pointer is the same non-owning `SkCanvas*` the canvas wraps; the
+    // caller must not retain it past the current paint() frame. Mirrors
+    // the `draw_native_dawn_texture` pattern where the escape hatch lives
+    // on SkiaCanvas rather than forcing every Skia type (SkSVGDOM,
+    // SkPicture, …) through the abstract `pulp::canvas::Canvas` vtable.
+    SkCanvas* native_canvas() const { return canvas_; }
+
     // Standalone text measurement (issue-916). Returns full HTML5
     // TextMetrics for `text` rendered with `family` at `size` pixels —
     // no canvas instance required. Used by the JS bridge's

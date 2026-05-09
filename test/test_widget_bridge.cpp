@@ -3574,6 +3574,73 @@ TEST_CASE("WidgetBridge setSvgFill 'none' disables fill",
     REQUIRE(w->has_stroke());
 }
 
+// ── pulp #1492 — SvgIconWidget JS bridge integration ────────────────────────
+//
+// The whole-SVG escape hatch added for dom-adapter crash scenarios: the
+// bundle feeds the entire outerHTML to a single bridge call, bypassing
+// per-path walking. These tests verify the bridge wires up
+// `createSvgIcon` / `setSvgIcon`, that the resulting widget has the
+// expected intrinsic size, and that `setSvgIcon` with empty string
+// clears the DOM.
+
+#include <pulp/view/widgets/svg_icon.hpp>
+
+TEST_CASE("WidgetBridge createSvgIcon produces an SvgIconWidget with intrinsic size",
+          "[view][bridge][svg_icon][issue-1492]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    // Typical Lucide / Heroicons glyph — viewBox only, no explicit
+    // width/height. The intrinsic extraction must still latch 24×24.
+    // Escape the XML as a JS string literal. QuickJS / JSC accept
+    // standard ES2020 string-literal escapes, so a single-quoted string
+    // containing HTML is fine.
+    bridge.load_script(
+        "createSvgIcon('hamburger', '', "
+        "'<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" "
+        "fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\">"
+        "<path d=\"M3 6h18M3 12h18M3 18h18\"/></svg>')");
+
+    auto* w = dynamic_cast<SvgIconWidget*>(bridge.widget("hamburger"));
+    REQUIRE(w != nullptr);
+    REQUIRE(w->intrinsic_width() == 24.0f);
+    REQUIRE(w->intrinsic_height() == 24.0f);
+    // has_renderable_dom() is PULP_HAS_SKIA-gated; the bridge test
+    // target links pulp-view which is always compiled with Skia when
+    // available. Skip the assert in non-Skia builds.
+#ifdef PULP_HAS_SKIA
+    REQUIRE(w->has_renderable_dom());
+#endif
+}
+
+TEST_CASE("WidgetBridge setSvgIcon replaces content and clears on empty",
+          "[view][bridge][svg_icon][issue-1492]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script("createSvgIcon('logo', '', '')");
+    auto* w = dynamic_cast<SvgIconWidget*>(bridge.widget("logo"));
+    REQUIRE(w != nullptr);
+    REQUIRE(w->intrinsic_width() == 0.0f);
+
+    bridge.load_script(
+        "setSvgIcon('logo', "
+        "'<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"32\"/>')");
+    REQUIRE(w->intrinsic_width() == 48.0f);
+    REQUIRE(w->intrinsic_height() == 32.0f);
+
+    // Empty string resets the widget — a follow-on setSvgIcon with a
+    // different size should re-latch the new intrinsic.
+    bridge.load_script("setSvgIcon('logo', '')");
+    REQUIRE(w->intrinsic_width() == 0.0f);
+    REQUIRE(w->intrinsic_height() == 0.0f);
+}
+
 // pulp #968 — canvasRect / canvasStrokeRect must honour the active fill /
 // stroke style when no color arg is passed. Validates the JS bridge path:
 //   1. five-arg canvasRect → fillStyle (color or gradient) wins

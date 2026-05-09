@@ -182,6 +182,7 @@ target_sources(pulp-view PRIVATE
     src/svg_path_widget.cpp
     src/widgets/svg_rect.cpp
     src/widgets/svg_line.cpp
+    src/widgets/svg_icon.cpp
     src/visualization_bridge.cpp
     src/frame_clock.cpp
     src/window_manager.cpp
@@ -267,6 +268,15 @@ target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state pul
 # pulp #468 — design_import.cpp uses pulp::runtime::base64_decode +
 # gzip_decompress to unpack Claude Design's base64-gzip envelope.
 target_link_libraries(pulp-view PRIVATE pulp::runtime)
+
+# pulp #1492 — SvgIconWidget extracts the SVG root's width/height/viewBox
+# attributes with pugixml so intrinsic sizing works in PULP_HAS_SKIA=OFF
+# headless builds (Skia's SVG module handles the render path). pugixml
+# is a PRIVATE dep of pulp::runtime so its include dir isn't propagated;
+# add the single-file vendored header directly for this TU.
+target_include_directories(pulp-view PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../external/pugixml
+)
 
 # JavaScriptCore framework for JSC backend (Apple only)
 if(APPLE)

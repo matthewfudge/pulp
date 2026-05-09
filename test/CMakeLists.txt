@@ -1605,6 +1605,11 @@ add_executable(pulp-test-svg-rect-widget test_svg_rect_widget.cpp)
 target_link_libraries(pulp-test-svg-rect-widget PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-svg-rect-widget)
 
+# SvgIconWidget tests (issue-1492) — whole-<svg> renderer backed by SkSVGDOM
+add_executable(pulp-test-svg-icon-widget test_svg_icon_widget.cpp)
+target_link_libraries(pulp-test-svg-icon-widget PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-svg-icon-widget)
+
 # ScrollView tests
 add_executable(pulp-test-scroll-view test_scroll_view.cpp)
 target_link_libraries(pulp-test-scroll-view PRIVATE pulp::view Catch2::Catch2WithMain)

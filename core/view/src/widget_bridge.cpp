@@ -7,6 +7,7 @@
 #include <pulp/view/svg_path_widget.hpp>
 #include <pulp/view/widgets/svg_rect.hpp>
 #include <pulp/view/widgets/svg_line.hpp>
+#include <pulp/view/widgets/svg_icon.hpp>
 #include <pulp/view/modal.hpp>
 #include <pulp/view/asset_manager.hpp>
 #include <pulp/view/design_import.hpp>
@@ -20,6 +21,7 @@
 #include <pulp/platform/file_dialog.hpp>
 #include <pulp/platform/clipboard.hpp>
 #include <pulp/runtime/base64.hpp>
+#include <pulp/runtime/log.hpp>
 #include <web_compat_preludes_gen.hpp>
 #include <thread>
 #include <chrono>
@@ -581,13 +583,33 @@ static choc::value::Value make_layout_rect_value(View* v) {
 }
 
 static void eval_or_throw(ScriptEngine& engine, const char* name, const std::string& js) {
+    // pulp #1492 — previously the wrapped std::runtime_error message was
+    // surfaced only at the top-level catch site (standalone app / plugin
+    // host), often after `load_script` returned. When the user script is
+    // large (e.g. a React-bundled design export) the outermost catch
+    // summarises the failure as "eval_or_throw failed" without the
+    // underlying JS error string, so crashes like "SyntaxError: unexpected
+    // token" become opaque "bundle didn't load" from the developer's seat.
+    //
+    // Log the underlying error string + slot name + script size up front so
+    // the real diagnosis is in the console whether or not the outer
+    // consumer prints `what()`. Size helps distinguish truncation-style
+    // failures (bundle size across a boundary) from genuine syntax errors.
+    auto report = [&](const char* kind, const char* what) {
+        pulp::runtime::log_error(
+            "widget_bridge eval_or_throw slot='{}' ({}, {} bytes): {}",
+            name, kind, js.size(), what);
+    };
     try {
         engine.evaluate(js);
     } catch (const choc::javascript::Error& e) {
+        report("choc::javascript::Error", e.what());
         throw std::runtime_error(std::string("failed to evaluate ") + name + ": " + e.what());
     } catch (const std::exception& e) {
+        report("std::exception", e.what());
         throw std::runtime_error(std::string("failed to evaluate ") + name + ": " + e.what());
     } catch (...) {
+        report("unknown exception", "<no what()>");
         throw std::runtime_error(std::string("failed to evaluate ") + name + ": unknown exception");
     }
 }
@@ -3165,6 +3187,44 @@ void WidgetBridge::register_api() {
         if (auto* w = dynamic_cast<SvgLineWidget*>(widget(id))) {
             w->set_line(static_cast<float>(x1), static_cast<float>(y1),
                         static_cast<float>(x2), static_cast<float>(y2));
+        }
+        return choc::value::Value();
+    });
+
+    // ── pulp #1492 — SvgIconWidget bridge ───────────────────────────────────
+    // Whole-SVG escape hatch for dom-adapter crash scenarios (see
+    // /tmp/svg-counsel-response.md). Unlike SvgPathWidget + set_viewbox,
+    // this accepts the entire `<svg>...</svg>` outerHTML in one call and
+    // hands it to Skia's SkSVGDOM for rendering. Per-path tinting is NOT
+    // available via this path — the DOM renders with whatever fill /
+    // stroke attributes the source XML carries. For runtime theming,
+    // prefer SvgPathWidget.
+    //
+    // Why a separate createFn instead of extending createSvgPath:
+    //   * The JS adapter picks SvgIcon for the parent `<svg>` only when
+    //     per-path manipulation isn't needed (static logos / glyphs),
+    //     and picks SvgPath for the dynamic case. Keeping them distinct
+    //     lets the adapter make that decision explicitly.
+    //   * SvgIconWidget's intrinsic size is extracted from the root
+    //     width/height/viewBox; SvgPathWidget's is driven by explicit
+    //     setSvgViewBox calls. Different owners, same end result.
+    engine_.register_function("createSvgIcon", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto pid = args.get<std::string>(1, "");
+        auto xml = args.get<std::string>(2, "");
+        auto w = std::make_unique<SvgIconWidget>();
+        w->set_id(id);
+        if (!xml.empty()) w->set_svg(std::move(xml));
+        widgets_[id] = w.get();
+        resolve_parent(pid)->add_child(std::move(w));
+        return choc::value::createString(id);
+    });
+
+    engine_.register_function("setSvgIcon", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto xml = args.get<std::string>(1, "");
+        if (auto* w = dynamic_cast<SvgIconWidget*>(widget(id))) {
+            w->set_svg(std::move(xml));
         }
         return choc::value::Value();
     });
