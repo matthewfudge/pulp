@@ -1637,6 +1637,17 @@ void WidgetBridge::register_api() {
                 else type = "pointerup";
                 if (me.is_cancelled) type = "pointercancel";
 
+                // Pulp MouseButton (none=0, left=1, right=2, middle=3) → W3C
+                // PointerEvent.button (left=0, middle=1, right=2).
+                auto w3c_button = [](MouseButton b) -> int {
+                    switch (b) {
+                        case MouseButton::left:   return 0;
+                        case MouseButton::middle: return 1;
+                        case MouseButton::right:  return 2;
+                        default:                  return -1;
+                    }
+                };
+
                 std::string data = "{"
                     "clientX:" + std::to_string(me.window_position.x) + ","
                     "clientY:" + std::to_string(me.window_position.y) + ","
@@ -1648,7 +1659,7 @@ void WidgetBridge::register_api() {
                     "pressure:" + std::to_string(me.pressure) + ","
                     "altitudeAngle:" + std::to_string(me.altitude_angle) + ","
                     "azimuthAngle:" + std::to_string(me.azimuth_angle) + ","
-                    "button:" + std::to_string(static_cast<int>(me.button)) + ","
+                    "button:" + std::to_string(w3c_button(me.button)) + ","
                     "ctrlKey:" + (me.isCtrlDown() ? "true" : "false") + ","
                     "shiftKey:" + (me.isShiftDown() ? "true" : "false") + ","
                     "altKey:" + (me.isAltDown() ? "true" : "false") + ","
