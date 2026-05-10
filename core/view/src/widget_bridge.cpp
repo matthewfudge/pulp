@@ -484,6 +484,22 @@ var __callbacks__ = {};
 var __nativeRegistered__ = {};
 function __dispatch__(id, eventName) {
     var key = id + ':' + eventName;
+    // Overlay defaults — Escape closes top overlay; pointerdown outside
+    // the top overlay dismisses it AND swallows the event (so an open
+    // dropdown doesn't leak clicks to canvases behind it).
+    if (typeof __pulpOverlay__ === 'object' && __overlayStack__.length > 0) {
+        if (eventName === 'keydown') {
+            var data = arguments[2];
+            if (data && data.key === 'Escape') {
+                if (__pulpOverlay__.handleEscape()) return;
+            }
+        } else if (eventName === 'pointerdown') {
+            var pdata = arguments[2];
+            if (pdata && typeof pdata.clientX === 'number' && typeof pdata.clientY === 'number') {
+                if (__pulpOverlay__.shouldBlock(id, pdata.clientX, pdata.clientY)) return;
+            }
+        }
+    }
     if (__callbacks__[key]) {
         try {
             __callbacks__[key].apply(null, Array.prototype.slice.call(arguments, 2));
@@ -569,6 +585,90 @@ function __installWindowAddEventListener__() {
         globalThis.removeEventListener = w.removeEventListener;
     }
 }
+
+// ── Overlay registry (Escape / click-outside / blocking defaults) ─────
+// JSX popovers, dropdowns, and modals call `__pulpOverlay__.register(id,
+// onClose, options)` from a useEffect (with a cleanup that calls
+// `unregister(id)`). The bridge then handles, by default:
+//
+//   1. Escape closes the top-most overlay (LIFO).
+//   2. Pointer-down outside the overlay's bounds closes it ("light
+//      dismiss"), unless `options.lightDismiss === false`.
+//   3. Pointer-down events inside the overlay's bounds NEVER fall
+//      through to widgets behind the overlay, so an open dropdown
+//      can't accidentally draw a band on the canvas underneath. This
+//      is the default unless `options.modal === false`.
+//
+// Overlays are identified by their widget id (the same id the JS bridge
+// uses for setBackground / setFlex). The bridge resolves bounds via the
+// host-provided `getLayoutRect(id)` so the JS side doesn't need to
+// stash DOMRects.
+//
+// Consumers can opt out per-overlay (`options.lightDismiss = false`,
+// `options.modal = false`) or globally by not calling `register`.
+var __overlayStack__ = []; // [{ id, onClose, options }]
+var __pulpOverlay__ = {
+    register: function(id, onClose, options) {
+        options = options || {};
+        // De-dupe — re-registering the same id replaces its entry.
+        for (var i = 0; i < __overlayStack__.length; i++) {
+            if (__overlayStack__[i].id === id) {
+                __overlayStack__[i] = { id: id, onClose: onClose, options: options };
+                return;
+            }
+        }
+        __overlayStack__.push({ id: id, onClose: onClose, options: options });
+    },
+    unregister: function(id) {
+        for (var i = __overlayStack__.length - 1; i >= 0; i--) {
+            if (__overlayStack__[i].id === id) {
+                __overlayStack__.splice(i, 1);
+                return;
+            }
+        }
+    },
+    top: function() {
+        return __overlayStack__.length > 0
+            ? __overlayStack__[__overlayStack__.length - 1] : null;
+    },
+    // Returns true if the bridge should swallow the event (i.e. NOT
+    // forward to background widgets). Bridge calls this from
+    // pointerdown / pointermove / wheel before per-widget dispatch.
+    shouldBlock: function(targetId, clientX, clientY) {
+        var top = this.top();
+        if (!top) return false;
+        if (top.options && top.options.modal === false) return false;
+        // If the click is inside the overlay's bounds, let it through
+        // to the overlay (return false). If outside, swallow it AND
+        // dismiss (return true).
+        if (typeof getLayoutRect === 'function') {
+            var r = getLayoutRect(top.id);
+            if (r && clientX >= r.x && clientX <= r.x + r.width &&
+                       clientY >= r.y && clientY <= r.y + r.height) {
+                return false;
+            }
+        }
+        // Outside the overlay bounds — light-dismiss unless opted out.
+        if (!top.options || top.options.lightDismiss !== false) {
+            try { top.onClose(); } catch (e) {
+                if (typeof __dispatchError__ === 'function')
+                    __dispatchError__('overlay:lightDismiss', String(e && e.message || e));
+            }
+        }
+        return true;
+    },
+    // Bridge calls this on every Escape keydown.
+    handleEscape: function() {
+        var top = this.top();
+        if (!top) return false;
+        if (top.options && top.options.escape === false) return false;
+        try { top.onClose(); } catch (e) {
+            if (typeof __dispatchError__ === 'function')
+                __dispatchError__('overlay:escape', String(e && e.message || e));
+        }
+        return true;
+    }
+};
 )";
 
 // pulp #745: kDomOpsInit lived here as an inline C-string copy of
