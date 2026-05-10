@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0790"></a>
+## [0.79.0] - 2026-05-09
+
+- feat(canvas2d): wire drop-shadow filter in SkiaCanvas + #1657 systemic controls ([#1679](https://github.com/danielraffel/pulp/pull/1679))
+
 <a id="v0784"></a>
 ## [0.78.4] - 2026-05-08
 
@@ -117,8 +122,6 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - feat(view/css+rn): transform function fan-out — scaleX/Y, skewX/Y, rotateX/Y/Z, matrix3d (refs pulp #1434, Triage #9) ([#1487](https://github.com/danielraffel/pulp/pull/1487))
 
 <a id="v0782"></a>
-## [0.79.0]
-
 ## [0.78.2] - 2026-05-06
 
 - feat(import-ir): Phase 1 spike — IR types + Claude Design HTML adapter + 5-scenario harness (closes pulp #1486 phase 1) ([#1499](https://github.com/danielraffel/pulp/pull/1499))
@@ -1427,6 +1430,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.79.0]: https://github.com/danielraffel/pulp/releases/tag/v0.79.0
 [0.78.4]: https://github.com/danielraffel/pulp/releases/tag/v0.78.4
 [0.78.3]: https://github.com/danielraffel/pulp/releases/tag/v0.78.3
 [0.78.2]: https://github.com/danielraffel/pulp/releases/tag/v0.78.2
