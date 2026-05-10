@@ -943,6 +943,55 @@ TEST_CASE("match_bundled_typeface is null-safe when no font mgr is available "
     REQUIRE(miss == nullptr);
 }
 
+// pulp #1737 (#932 followup) — comma-separated CSS family-list fallback
+// chain. CSS spec: `font-family: 'Definitely-Not-Installed-Family,
+// JetBrains Mono'` should fall back to the second family when the
+// first doesn't resolve. Pre-fix the bridge stripped to the first
+// family and the canvas tried only that one — silently dropping the
+// fallback. The new get_cached_typeface walks the whole list through
+// the existing match cascade until one resolves.
+//
+// We measure text via measure_text_with_font (same lookup path
+// canvas.set_font() uses). The fallback to JetBrains Mono produces
+// a positive width for "iiii"; if the first-family-only behaviour
+// regressed (and SkFontMgr returned a default that doesn't include
+// the test glyphs), the fallback would silently give a different
+// width. Compare against the JetBrains-Mono-direct measurement.
+TEST_CASE("SkiaCanvas comma-list fontFamily falls back through SkFontMgr (#932)",
+          "[canvas][skia][fonts][issue-932][issue-1737]") {
+    // Direct resolution of the bundled family.
+    auto direct = SkiaCanvas::measure_text_with_font(
+        "JetBrains Mono", 16.0f, "iiii");
+    REQUIRE(direct.width > 0.0f);
+    // Comma list with an unavailable first family + JetBrains Mono
+    // second. Should resolve to JetBrains Mono and produce the
+    // SAME width as the direct path (modulo platform float wobble).
+    auto fallback = SkiaCanvas::measure_text_with_font(
+        "PulpDefinitelyNotInstalled-1737, JetBrains Mono", 16.0f, "iiii");
+    REQUIRE(fallback.width > 0.0f);
+    REQUIRE_THAT(fallback.width, Catch::Matchers::WithinAbs(direct.width, 0.5f));
+}
+
+// pulp #1737 (#932 followup) — CSS family-list with quoted segments,
+// extra whitespace, and a single-family input (no comma) all parse
+// correctly. The single-family fast-path must remain identical to
+// pre-fix behaviour — get_cached_typeface_single is delegated to
+// directly when there's no comma.
+TEST_CASE("SkiaCanvas comma-list fontFamily handles quotes + whitespace (#932)",
+          "[canvas][skia][fonts][issue-932][issue-1737]") {
+    auto direct = SkiaCanvas::measure_text_with_font(
+        "JetBrains Mono", 16.0f, "ab");
+    REQUIRE(direct.width > 0.0f);
+    // Quoted family name + extra whitespace.
+    auto quoted = SkiaCanvas::measure_text_with_font(
+        "  \"PulpMissing-A\" ,  'JetBrains Mono'  ", 16.0f, "ab");
+    REQUIRE_THAT(quoted.width, Catch::Matchers::WithinAbs(direct.width, 0.5f));
+    // Single-family no-comma fast path — identical to pre-fix.
+    auto single = SkiaCanvas::measure_text_with_font(
+        "JetBrains Mono", 16.0f, "ab");
+    REQUIRE_THAT(single.width, Catch::Matchers::WithinAbs(direct.width, 0.001f));
+}
+
 TEST_CASE("SkiaCanvas::measure_text_with_font picks up bundled "
           "JetBrains Mono (#932)",
           "[canvas][skia][fonts][issue-932]") {

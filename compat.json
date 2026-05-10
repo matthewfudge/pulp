@@ -4408,18 +4408,20 @@
       "issue": ""
     },
     "rn/fontFamily": {
-      "status": "partial",
-      "mapsTo": "prop-applier.ts case 'fontFamily' -> setFontFamily(id, value). Bridge parses CSS list (first non-empty family wins). Container Views fall through to inheritable_font_family_ for cascade.",
+      "status": "supported",
+      "mapsTo": "prop-applier.ts case 'fontFamily' -> setFontFamily(id, value). Bridge stores the CSS comma-separated list verbatim (Label::set_font_family or View::set_inheritable_font_family for cascade). pulp #1737 (#932 followup) — SkiaCanvas resolution walks the whole list at paint time: skia_canvas.cpp:get_cached_typeface splits on commas (split_font_family_list helper), strips outer quotes + whitespace, tries each family through the existing match cascade (registered → bundled → SkFontMgr matchFamilyStyle) until one resolves. Single-family inputs (no comma) still hit get_cached_typeface_single fast-path with identical pre-fix behavior.",
       "supportedValues": [
-        "string (single family or comma-separated list — first non-empty wins)"
+        "single family name (single-name fast path)",
+        "comma-separated CSS family list (e.g. `'SF Pro, system-ui, sans-serif'`) — walked in declaration order through the match cascade until a family resolves",
+        "quoted family names (e.g. `'\"My Font Name\"'`) — outer quotes stripped per CSS spec",
+        "extra whitespace tolerated between commas + around quoted names"
       ],
-      "unsupportedValues": [
-        "whole-list fallback chain — gated on pulp #932 SkFontMgr registration"
-      ],
+      "unsupportedValues": [],
       "tests": [
-        "test/test_widget_bridge.cpp [issue-1434-fontfamily]"
+        "test/test_widget_bridge.cpp [issue-1434-fontfamily]",
+        "test/test_canvas.cpp [issue-1737] (comma-list fontFamily falls back through SkFontMgr; quotes + whitespace handling)"
       ],
-      "notes": "pulp #1434 Phase A2-5 wired the @pulp/react JSX dispatch and the bridge-side list parser. Cross-engine ready: when pulp #932 lands the registry resolution, no consumer change is needed — the same name flows through.",
+      "notes": "pulp #1434 Phase A2-5 wired the @pulp/react JSX dispatch + bridge list parser. pulp #1737 (#932 followup) closed the whole-list fallback chain — SkiaCanvas resolves the comma-separated list at paint time via split_font_family_list + per-family matchFamilyStyle walk. Resolution accepts a family if SkFontMgr returns a typeface whose actual family name contains (or is contained by) the requested family — guards against SkFontMgr's null-fallback masking a missing family. Single-family inputs unchanged — fast-path delegates straight to get_cached_typeface_single.",
       "issue": "1434"
     },
     "rn/fontSize": {
