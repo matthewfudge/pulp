@@ -255,6 +255,160 @@ float Label::intrinsic_height() const {
     return line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
 }
 
+std::vector<std::string> Label::wrap_lines(float max_width) const {
+    // pulp #1714 — greedy word-wrap into lines that fit within `max_width`.
+    // Uses the global TextShaper for accurate per-word advances; degrades
+    // to character-width estimation on non-Skia/non-HarfBuzz backends.
+    // Honors hard `\n` separators in the source text.
+    std::vector<std::string> lines;
+    if (text_.empty()) return lines;
+
+    float effective_font_size = font_size_;
+    if (!has_own_font_size_) {
+        if (auto inh = inheritable_font_size(); inh.has_value())
+            effective_font_size = inh.value();
+    }
+    float effective_letter_spacing = letter_spacing_;
+    if (!has_own_letter_spacing_) {
+        if (auto inh = inheritable_letter_spacing(); inh.has_value())
+            effective_letter_spacing = inh.value();
+    }
+
+    // Apply text-transform up-front so measurement matches paint().
+    std::string display_text = text_;
+    if (text_transform_ == TextTransform::uppercase) {
+        for (auto& ch : display_text)
+            ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    } else if (text_transform_ == TextTransform::lowercase) {
+        for (auto& ch : display_text)
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    } else if (text_transform_ == TextTransform::capitalize) {
+        bool cap_next = true;
+        for (auto& ch : display_text) {
+            if (cap_next && std::isalpha(static_cast<unsigned char>(ch))) {
+                ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                cap_next = false;
+            }
+            if (ch == ' ') cap_next = true;
+        }
+    }
+
+    auto& shaper = canvas::global_text_shaper();
+    // Codex P2 on #1714: measure with the label's effective font, not a
+    // hardcoded "Inter". If a label sets a different family / weight /
+    // style via set_font_family etc., paint() uses those — and Yoga
+    // height now depends on this measurement, so a font-mismatched
+    // measurement layouts the label at the wrong height.
+    const std::string measure_family = font_family_.empty() ? std::string("Inter") : font_family_;
+    auto measure = [&](const std::string& s) -> float {
+        if (s.empty()) return 0.0f;
+        auto prepared = shaper.prepare(s, measure_family, effective_font_size);
+        float w = prepared.total_width();
+        if (effective_letter_spacing != 0) {
+            std::size_t glyph_count = 0;
+            for (unsigned char c : s) {
+                if ((c & 0xC0) != 0x80) ++glyph_count;
+            }
+            if (glyph_count > 1)
+                w += effective_letter_spacing * static_cast<float>(glyph_count - 1);
+        }
+        return w;
+    };
+
+    // Walk paragraphs separated by '\n', then greedy-wrap each.
+    auto wrap_one_paragraph = [&](const std::string& para) {
+        if (para.empty()) {
+            lines.emplace_back();  // preserve blank lines
+            return;
+        }
+        if (max_width <= 0) {
+            // No constraint — single line per paragraph.
+            lines.push_back(para);
+            return;
+        }
+        // Codex P2 on #1714: preserve authored spacing. The previous
+        // pass collapsed "foo  bar" → "foo bar" and stripped any
+        // leading indent. We now keep the exact gap that was authored
+        // between tokens. At a wrap boundary, the gap that would have
+        // separated the two tokens is the natural break point and is
+        // dropped from the broken line (matching browser behavior:
+        // trailing whitespace before a line break is not painted).
+        std::string current;
+        std::size_t pos = 0;
+        while (pos < para.size()) {
+            // Capture the gap (run of spaces) before the next word.
+            std::size_t gap_start = pos;
+            while (pos < para.size() && para[pos] == ' ') ++pos;
+            std::string gap = para.substr(gap_start, pos - gap_start);
+            // Capture the next word (run of non-spaces).
+            std::size_t word_start = pos;
+            while (pos < para.size() && para[pos] != ' ') ++pos;
+            std::string word = para.substr(word_start, pos - word_start);
+            if (word.empty()) {
+                // Trailing gap with no following word — bake into the
+                // current line so authored trailing space is preserved
+                // when it does fit.
+                if (!current.empty() && measure(current + gap) <= max_width)
+                    current += gap;
+                break;
+            }
+
+            std::string candidate = current + gap + word;
+            if (measure(candidate) <= max_width || current.empty()) {
+                // Fits, OR `current` is empty and this token (plus
+                // any leading indent gap) overflows on its own —
+                // accept; clipping a too-wide single word is better
+                // than producing an empty line.
+                current = std::move(candidate);
+            } else {
+                // Wrap: push the current line as-is (without the gap
+                // that would have separated the two tokens) and
+                // restart with just the word.
+                lines.push_back(std::move(current));
+                current = std::move(word);
+            }
+        }
+        if (!current.empty()) lines.push_back(std::move(current));
+    };
+
+    std::size_t para_start = 0;
+    for (std::size_t i = 0; i <= display_text.size(); ++i) {
+        if (i == display_text.size() || display_text[i] == '\n') {
+            wrap_one_paragraph(display_text.substr(para_start, i - para_start));
+            para_start = i + 1;
+        }
+    }
+    if (lines.empty()) lines.emplace_back(display_text);
+    return lines;
+}
+
+float Label::measure_height_for_width(float max_width) const {
+    // pulp #1714 — measure wrapped height for the given content-width
+    // constraint. Single-line labels delegate to intrinsic_height().
+    if (!multi_line_ || text_.empty()) {
+        // intrinsic_height() returns 0 for multi-line — bypass that and
+        // recompute the canonical single-line height directly so we
+        // always return something useful here.
+        float effective_font_size = font_size_;
+        if (!has_own_font_size_) {
+            if (auto inh = inheritable_font_size(); inh.has_value())
+                effective_font_size = inh.value();
+        }
+        return line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
+    }
+
+    float effective_font_size = font_size_;
+    if (!has_own_font_size_) {
+        if (auto inh = inheritable_font_size(); inh.has_value())
+            effective_font_size = inh.value();
+    }
+    float lh = line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
+    auto lines = wrap_lines(max_width);
+    int n = static_cast<int>(lines.empty() ? 1 : lines.size());
+    if (line_clamp_ > 0 && n > line_clamp_) n = line_clamp_;
+    return lh * static_cast<float>(n);
+}
+
 float Label::intrinsic_width() const {
     // issue-928: report the natural shaped-text width so Yoga reserves
     // enough horizontal space for the full label content. Without this,
