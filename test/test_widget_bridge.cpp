@@ -11201,15 +11201,50 @@ TEST_CASE("Arch-diverge cleanup — supported behavior round-trip",
     REQUIRE(bridge.widget("fb2")->flex().dim_flex_basis.unit == DimensionUnit::percent);
     REQUIRE(bridge.widget("fb3")->flex().dim_flex_basis.unit == DimensionUnit::auto_);
 
-    // rn/overflow: visible / hidden wired (arch: scroll is ScrollView intrinsic).
+    // rn/overflow: all 3 RN ViewStyle keywords (visible / hidden / scroll)
+    // round-trip through the bridge. pulp #1737 — `scroll` was previously
+    // claimed in the catalog as wontfix-arch ("ScrollView intrinsic only"),
+    // but the bridge actually accepts the keyword and routes to
+    // View::Overflow::scroll (widget_bridge.cpp:3656-3661). Test asserts
+    // the wired keyword coverage, matching the css/overflow precedent.
     bridge.load_script(R"(
         createPanel('ov1', '');
         createPanel('ov2', '');
+        createPanel('ov3', '');
         setOverflow('ov1', 'visible');
         setOverflow('ov2', 'hidden');
+        setOverflow('ov3', 'scroll');
     )");
     REQUIRE(bridge.widget("ov1")->overflow() == View::Overflow::visible);
     REQUIRE(bridge.widget("ov2")->overflow() == View::Overflow::hidden);
+    REQUIRE(bridge.widget("ov3")->overflow() == View::Overflow::scroll);
+}
+
+// pulp #1737 — rn/overflow `scroll` keyword: bridge accepts and routes
+// to View::Overflow::scroll, matching the css/overflow precedent. This
+// completes the rn/overflow catalog flip from "2 of 3 RN values" to
+// full keyword coverage. Standalone tag for harness control #2.
+TEST_CASE("rn/overflow: setOverflow accepts all 3 RN keywords incl. scroll",
+          "[view][bridge][rn-overflow-scroll][issue-1737]") {
+    using namespace pulp::view;
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('ov_v', '');
+        createPanel('ov_h', '');
+        createPanel('ov_s', '');
+        setOverflow('ov_v', 'visible');
+        setOverflow('ov_h', 'hidden');
+        setOverflow('ov_s', 'scroll');
+    )");
+
+    REQUIRE(bridge.widget("ov_v")->overflow() == View::Overflow::visible);
+    REQUIRE(bridge.widget("ov_h")->overflow() == View::Overflow::hidden);
+    REQUIRE(bridge.widget("ov_s")->overflow() == View::Overflow::scroll);
 }
 
 // Catalog-flip evidence — canvas2d/transform: arbitrary concat now wired
