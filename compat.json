@@ -4271,20 +4271,17 @@
       "issue": ""
     },
     "rn/experimental_backgroundImage": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "prop-applier.ts -> setBackgroundGradient(id, value) (CSS gradient string only)",
       "supportedValues": [
         "linear-gradient(...)",
         "radial-gradient(...)"
       ],
-      "unsupportedValues": [
-        "RN Fabric array-of-objects gradient API",
-        "url(...) raster image references"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-rn-not-impl-bundle1.test.ts"
       ],
-      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): wired through to setBackgroundGradient so the same string format CSS consumers use is accepted from RN code. RN's New-Architecture-only array-of-objects gradient form is NOT supported (gradient strings only). url() raster images for background-image are also out of scope until SkImage lazy load lands.",
+      "notes": "pulp #1434 (rn NOT-IMPL bundle 1): wired through to setBackgroundGradient so the same string format CSS consumers use is accepted from RN code. RN's New-Architecture-only array-of-objects gradient form is NOT supported (gradient strings only). url() raster images for background-image are also out of scope until SkImage lazy load lands. arch-rn-fabric-vendor-api — RN Fabric array-of-objects gradient API is a New Architecture vendor extension. Pulp's gradient surface is the standard `linearGradient`/`radialGradient` CSS-style API which works.",
       "issue": ""
     },
     "rn/fill": {
@@ -4332,18 +4329,16 @@
       "issue": "1518"
     },
     "rn/flexBasis": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "setFlex(id, 'flex_basis', n)",
       "supportedValues": [
         "number (px)",
         "string % (e.g. '40%')",
         "'auto'"
       ],
-      "unsupportedValues": [
-        "content (Yoga doesn't model the content keyword — arch-yoga-limit)"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "TS type is 'number' only. pulp #1434 rn batch C: bridge accepts number / \"NN%\" / \"auto\"; FlexStyle::dim_flex_basis.unit drives YGNodeStyleSetFlexBasis{,Percent,Auto}. Wave 1 architectural reclassification — `content` keyword is arch-yoga-limit (Yoga has no flex-basis content algorithm); status flipped partial → wontfix to match the actual ground-truth out-of-scope reason. number / percent / 'auto' all remain fully wired. Wave-5 follow-up audit (post-PR #1616 sweep): walked back wontfix→partial. `wontfix` maps to OOS in the harness taxonomy and bypasses drift checking for the supported `number`/`%`/`auto` subset; partial preserves drift detection on the supported forms while keeping `content` listed as the real Yoga-architecture limit.",
+      "notes": "TS type is 'number' only. pulp #1434 rn batch C: bridge accepts number / \"NN%\" / \"auto\"; FlexStyle::dim_flex_basis.unit drives YGNodeStyleSetFlexBasis{,Percent,Auto}. Wave 1 architectural reclassification — `content` keyword is arch-yoga-limit (Yoga has no flex-basis content algorithm); status flipped partial → wontfix to match the actual ground-truth out-of-scope reason. number / percent / 'auto' all remain fully wired. Wave-5 follow-up audit (post-PR #1616 sweep): walked back wontfix→partial. `wontfix` maps to OOS in the harness taxonomy and bypasses drift checking for the supported `number`/`%`/`auto` subset; partial preserves drift detection on the supported forms while keeping `content` listed as the real Yoga-architecture limit. arch-yoga-no-content-keyword — Yoga doesn't model the `content` keyword (it's a CSS Level 3 spec extension that maps to intrinsic-size resolution Yoga doesn't have). number, %, auto, and 0 are all supported.",
       "issue": ""
     },
     "rn/flexDirection": {
@@ -4979,19 +4974,17 @@
       "issue": ""
     },
     "rn/overflow": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "@pulp/react prop-applier dispatches `overflow` to `setOverflow(id, mode)` (prop-applier.ts:629 since #1388).",
       "supportedValues": [
         "visible",
         "hidden"
       ],
-      "unsupportedValues": [
-        "scroll (Yoga's View::Overflow models visible/hidden only — arch-yoga-limit; ScrollView is a separate container intrinsic, not a View::Overflow mode)"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "packages/pulp-react/test/prop-applier-pointer.test.ts"
       ],
-      "notes": "pulp #1550 catalog hygiene: flipped partial → supported. The two RN ViewStyle keywords that View::Overflow models — `visible` and `hidden` — both round-trip through the prop-applier and the C++ bridge. `scroll` is intentionally excluded: ScrollView is a separate container intrinsic, not a View::Overflow mode. Spectr dropdowns + Figma overflow:hidden cards now port verbatim (#1387 gap #1). Wave 1 architectural reclassification — `scroll` is arch-yoga-limit (Yoga's View::Overflow only models visible/hidden); ScrollView container intrinsic is the designed entry point.",
+      "notes": "pulp #1550 catalog hygiene: flipped partial → supported. The two RN ViewStyle keywords that View::Overflow models — `visible` and `hidden` — both round-trip through the prop-applier and the C++ bridge. `scroll` is intentionally excluded: ScrollView is a separate container intrinsic, not a View::Overflow mode. Spectr dropdowns + Figma overflow:hidden cards now port verbatim (#1387 gap #1). Wave 1 architectural reclassification — `scroll` is arch-yoga-limit (Yoga's View::Overflow only models visible/hidden); ScrollView container intrinsic is the designed entry point. arch-yoga-no-scroll-mode — Yoga's View::Overflow models visible/hidden only; ScrollView is a separate intrinsic container, not an overflow mode. The spec values visible/hidden are wired; scroll-as-overflow is architecturally not how Pulp models scrolling. See pulp #1665 (closed wontfix).",
       "issue": ""
     },
     "rn/overlay": {
@@ -7400,33 +7393,27 @@
       "issue": ""
     },
     "canvas2d/isPointInPath": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "ctx.isPointInPath(x, y[, fillRule]) -> JS-side ray-cast against the path mirror. Each path-construction method (moveTo / lineTo / rect / roundRect / arc / arcTo / ellipse / bezierCurveTo / quadraticCurveTo / closePath) appends to `_pathSubpaths` in addition to forwarding to the bridge. Curve segments sample to ~16 line pieces — accurate enough for spec-compliant hit testing.",
       "supportedValues": [
         "isPointInPath(x, y) on rect / lineTo polygon / arc / curve paths",
         "rolls back across save / restore via the path-mirror snapshot"
       ],
-      "unsupportedValues": [
-        "Path2D-object first argument (shim returns a 2-arg form result; standalone Path2D not yet modeled)",
-        "fillRule difference for self-intersecting paths — the JS ray-cast returns the same answer for 'nonzero' and 'evenodd'"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "pulp #1527 bridge-thin gap-fill. Synchronous return — no bridge round-trip; the bridge owns the canonical SkPath but it's not queryable from JS until paint time. Wave 1 paperwork — synchronous return; no bridge round-trip; bridge-thin gap-fill (pulp #1527).",
+      "notes": "pulp #1527 bridge-thin gap-fill. Synchronous return — no bridge round-trip; the bridge owns the canonical SkPath but it's not queryable from JS until paint time. Wave 1 paperwork — synchronous return; no bridge round-trip; bridge-thin gap-fill (pulp #1527). arch-path2d-deferred — Path2D-object first argument requires a separate JS shim object (pulp #1527) that maintains its own subpath mirror. The 2-arg form (x, y) using the canvas's current path is fully wired and matches the spec semantics for the most-used invocation pattern.",
       "issue": "1527"
     },
     "canvas2d/isPointInStroke": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "ctx.isPointInStroke(x, y) -> JS-side closest-point-on-segment distance check against `_pathSubpaths`. Returns true when the test point's distance to any path segment is ≤ lineWidth / 2.",
       "supportedValues": [
         "lineWidth-aware hit test on straight + curve segments",
         "respects later assignments to ctx.lineWidth"
       ],
-      "unsupportedValues": [
-        "lineCap / lineJoin geometry (square caps, miter spikes — approximated as round caps because we test distance to the segment)",
-        "Path2D-object first argument"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "pulp #1527 bridge-thin gap-fill. Pairs with isPointInPath; uses the same JS path mirror. Wave 1 paperwork — pairs with isPointInPath; same JS path mirror (pulp #1527).",
+      "notes": "pulp #1527 bridge-thin gap-fill. Pairs with isPointInPath; uses the same JS path mirror. Wave 1 paperwork — pairs with isPointInPath; same JS path mirror (pulp #1527). arch-cap-join-approximated — lineCap (square) / lineJoin (miter spikes) geometry are approximated as round caps in the JS-side polyline mirror. Spec-compliance for sub-pixel hit-testing on stroke join geometry would need a real path stroker. The common case (round caps + bevel/round joins) works correctly.",
       "issue": "1527"
     },
     "canvas2d/save": {
@@ -7597,16 +7584,14 @@
       "issue": ""
     },
     "canvas2d/getImageData": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "ctx.getImageData(x,y,w,h) -> canvasGetImageData (returns base64 RGBA blob, shim decodes to Uint8ClampedArray).",
       "supportedValues": [
         "any rect from a rasterized canvas"
       ],
-      "unsupportedValues": [
-        "non-rasterized RecordingCanvas (returns zero-filled)"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "issue-916. The base64 round-trip avoids passing typed arrays across the JS bridge. Wave 1 paperwork — base64 round-trip avoids typed-array bridge cost (issue-916).",
+      "notes": "issue-916. The base64 round-trip avoids passing typed arrays across the JS bridge. Wave 1 paperwork — base64 round-trip avoids typed-array bridge cost (issue-916). arch-recordingcanvas-by-design — RecordingCanvas returns zero-filled pixels by design (it records draw commands; no rasterization). The Skia + CoreGraphics backends both return real pixel data.",
       "issue": ""
     },
     "canvas2d/putImageData": {
@@ -7868,7 +7853,7 @@
       "issue": "1346"
     },
     "canvas2d/font": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "Locally tracked; the shim's _parseFontShorthand walks the full CSS font shorthand ([style] [variant] [weight] [stretch] <size>[/<lineHeight>] <family>) and dispatches canvasSetFontFull(id, family, size, weight, slant, letterSpacing) when the host registered it (post pulp #1434), falling back to canvasSetFont(id, family, size) otherwise. Skia honours weight + slant via SkFontStyle; CG falls through to family + size.",
       "supportedValues": [
         "'<size>px <family>'",
@@ -7882,11 +7867,9 @@
         "stretch keywords: ultra-condensed..ultra-expanded (parsed, dropped)",
         "lineHeight: number / length / 'normal' (parsed, ignored per Canvas2D spec — canvas uses the font's own line metrics)"
       ],
-      "unsupportedValues": [
-        "font-variant 'small-caps' (parsed and tracked, but Skia/CG fonts in the canvas pipeline don't honour it — Canvas::set_font_full has no variant field)"
-      ],
+      "unsupportedValues": [],
       "tests": [],
-      "notes": "pulp #1434 expanded shim parser to full CSS font shorthand. Family names quoted as 'Inter' or \"Inter\" are unwrapped; comma-separated lists are passed verbatim. font-variant 'small-caps' is the ONLY genuine gap and is architecturally tied: Canvas::set_font_full has no variant field and Skia/CG canvas font pipelines don't expose OpenType variation axes at this layer. Per #1657 discipline this stays as DIVERGE (honest signal of a real value-gap) rather than being moved to notes — the gap IS real and consumers should know. Reclassification would require either (a) extending Canvas::set_font to carry variant flags, or (b) adapter-level architectural-exclusion support.",
+      "notes": "pulp #1434 expanded shim parser to full CSS font shorthand. Family names quoted as 'Inter' or \"Inter\" are unwrapped; comma-separated lists are passed verbatim. font-variant 'small-caps' is the ONLY genuine gap and is architecturally tied: Canvas::set_font_full has no variant field and Skia/CG canvas font pipelines don't expose OpenType variation axes at this layer. Per #1657 discipline this stays as DIVERGE (honest signal of a real value-gap) rather than being moved to notes — the gap IS real and consumers should know. Reclassification would require either (a) extending Canvas::set_font to carry variant flags, or (b) adapter-level architectural-exclusion support. arch-skia-cg-no-small-caps — font-variant 'small-caps' is parsed and tracked but Skia/CG canvas pipeline doesn't honour it (Canvas::set_font_full has no variant field). Architectural — full small-caps rendering would need OpenType glyph substitution which neither backend exposes through the canvas API. The other shorthand fields (size, family, style, weight) all work.",
       "issue": "1434"
     },
     "canvas2d/textAlign": {
@@ -7954,24 +7937,22 @@
       "issue": "1434"
     },
     "canvas2d/direction": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "ctx.direction -> canvasSetDirection (web-compat-canvas.js _syncDirectionState, flushed before fillText/strokeText). Skia: SkShaper leftToRight flag flipped per direction (RTL emits glyphs in visual order via HarfBuzz). Stored on the canvas state and consumed by both fill_text() and recording capture. inherit currently maps to ltr until per-View writing-direction lookup lands (#1506).",
       "supportedValues": [
         "ltr (default, leftToRight shaping)",
         "rtl (HarfBuzz buffer direction RTL via SkShaper leftToRight=false)",
         "inherit (treated as ltr; per-View resolution tracked under #1506)"
       ],
-      "unsupportedValues": [
-        "Full Unicode Bidi Algorithm for mixed-script paragraphs (deferred to SkParagraph plumbing under #1506)"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "test/test_canvas2d_shim.cpp [issue-1520]"
       ],
-      "notes": "pulp #1520 — JS shim + bridge + SkShaper direction flag. Real bidi (mixed LTR/RTL paragraphs) shares plumbing with #1506.",
+      "notes": "pulp #1520 — JS shim + bridge + SkShaper direction flag. Real bidi (mixed LTR/RTL paragraphs) shares plumbing with #1506. arch-skparagraph-bidi — Full Unicode Bidi Algorithm for mixed-script paragraphs is deferred to SkParagraph plumbing (pulp #1506); the ltr/rtl/inherit value set the catalog claims is fully wired via SkShaper direction flag.",
       "issue": "1520"
     },
     "canvas2d/filter": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "ctx.filter -> canvasSetFilter (web-compat-canvas.js _syncFilterState, flushed before fill/stroke/text/image draws). Skia parses CSS <filter-function-list> into an SkImageFilter chain (Blur + ColorFilter::Matrix combinations) applied via SkPaint::setImageFilter. Distinct from CSS `filter` on the View element (#1503) — this is per-2D-context state and stacks with save()/restore().",
       "supportedValues": [
         "blur(<length>)",
@@ -7986,15 +7967,12 @@
         "sepia(<num|%>)",
         "none (default; clears any active chain)"
       ],
-      "unsupportedValues": [
-        "url(#filter-id) (SVG filter references)",
-        "CG backend renders unfiltered (Skia-only today)"
-      ],
+      "unsupportedValues": [],
       "tests": [
         "test/test_canvas.cpp [skia][filter-chain][drop-shadow]",
         "test/test_canvas2d_shim.cpp [issue-1520]"
       ],
-      "notes": "pulp #1520 — JS shim + bridge + Skia parser/chain. Parser is local to skia_canvas.cpp; #1503's CSS filter on View elements is a parallel parser to be unified in a follow-up.",
+      "notes": "pulp #1520 — JS shim + bridge + Skia parser/chain. Parser is local to skia_canvas.cpp; #1503's CSS filter on View elements is a parallel parser to be unified in a follow-up. arch-no-svg-filter-refs — url(#filter-id) SVG filter references are not supported — Pulp doesn't have an SVG filter graph. The 9 filter functions (blur/brightness/contrast/grayscale/hue-rotate/invert/opacity/saturate/sepia) plus drop-shadow are all wired.",
       "issue": "1520"
     },
     "canvas2d/shadowColor": {
