@@ -95,6 +95,21 @@ BASE="${PULP_PREPUSH_BASE:-origin/main}"
 
 fail=0
 
+# Source-tree pollution — block the CMakeLists.txt-becomes-Clock-fixture
+# regression from PR #1755 (root cause: a CLI test left a /tmp Clock
+# fixture in the source tree). Cheap (file-list grep + content check on
+# at most 2 files at repo root). Failure here is ALWAYS hard — there is
+# no legitimate reason to commit a Clock fixture or a pulp.toml. The
+# bypass is fixing the file, not setting an env var.
+SOURCE_TREE_POLLUTION_PY="$ROOT/tools/scripts/source_tree_pollution_check.py"
+if [ -f "$SOURCE_TREE_POLLUTION_PY" ]; then
+    if ! "$PYTHON" "$SOURCE_TREE_POLLUTION_PY" --mode=push --base "$BASE"; then
+        echo "[pre-push] source-tree pollution gate: BLOCKED. Fix the listed file(s) above and retry." >&2
+        echo "[pre-push] (this gate has no env-var bypass — there is no legitimate reason to commit a Clock fixture.)" >&2
+        exit 1
+    fi
+fi
+
 # Skill-sync first — it fails fast and the output is the most actionable.
 "$PYTHON" "$SSC" --base "$BASE" --config "$CFG" --mode=report
 case $? in

@@ -1,0 +1,47 @@
+name: Source-tree pollution check
+
+# Blocks PRs that include known CLI test-fixture corruption.
+#
+# Background: PR #1755 (object-fit) accidentally shipped a 977-line
+# CMakeLists.txt overwritten by a 3-line "Clock" CLI test fixture, plus
+# a pulp.toml with a /private/var/folders/.../pulp-shellout-... sdk_path.
+# Required hotfix #1757 to restore CI. The pre-push hook
+# (.githooks/pre-push → tools/scripts/source_tree_pollution_check.py)
+# catches this for shipyard-style local pushes; this workflow catches it
+# for direct REST-API merges (admin merges, web-UI merges, the parallel
+# agent's curl-based merge path).
+
+on:
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'pulp.toml'
+      - 'tools/scripts/source_tree_pollution_check.py'
+
+permissions:
+  contents: read
+
+jobs:
+  pollution-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run source-tree pollution check
+        run: |
+          # Use --mode=push against the PR base — same exit semantics as
+          # the pre-push hook so contributors see identical output.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            echo "No PR base SHA available; falling back to origin/main."
+            base="origin/main"
+          fi
+          python3 tools/scripts/source_tree_pollution_check.py \
+            --mode=push --base "$base"
