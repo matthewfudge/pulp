@@ -2882,4 +2882,60 @@ TEST_CASE("SkiaCanvas::round_rect renders 4 distinct corner radii",
     REQUIRE(sample(pixels_uniform, 187, 87) < 200);
     REQUIRE(sample(pixels_top_left_big, 187, 87) < 200);
 }
+
+// Codex #1616 P1 — rotated ellipse() previously used kAppend_AddPathMode
+// when grafting the rotated arc onto the live path builder, replacing the
+// implicit lineTo (CSS Canvas2D semantics) with a moveTo. Fills with a
+// preceding moveTo + a rotated arc would render with a visible gap
+// because the new contour did not connect back to the moveTo pen
+// position. With kExtend_AddPathMode, the connect-via-lineTo behavior
+// is restored.
+TEST_CASE("SkiaCanvas::ellipse with rotation extends current contour (no gap)",
+          "[canvas][skia][issue-1556][codex-p1]") {
+    const int W = 200, H = 200;
+    // STROKE (not fill) the path so the bridge segment between the
+    // initial move_to and the rotated ellipse's start point is
+    // observable. A moveTo (the kAppend bug) leaves no rendered
+    // bridge — the stroke jumps to the ellipse start without drawing.
+    // A lineTo (the kExtend fix) renders the bridge as a stroked line
+    // along y=100 from x=20 toward the ellipse start. Sampling a
+    // pixel on that bridge line is the regression-catching probe.
+    auto pixels = render_to_pixels_for_arc_test(W, H,
+        [](pulp::canvas::SkiaCanvas& canvas) {
+            canvas.begin_path();
+            canvas.move_to(20.0f, 100.0f);
+            // Rotated ellipse at (140,100) — far enough from the moveTo
+            // that the bridge segment must traverse at least 80px.
+            canvas.ellipse(140.0f, 100.0f,
+                           40.0f, 20.0f,
+                           /*rotation=*/0.785398f, // 45 deg
+                           0.0f, 6.283185307f,
+                           /*anticlockwise=*/false);
+            canvas.set_stroke_color(pulp::canvas::Color::hex(0x000000));
+            canvas.set_line_width(3.0f);
+            canvas.stroke_current_path();
+        });
+    REQUIRE(pixels.size() == static_cast<size_t>(W * H * 4));
+    auto sample_r = [&](int x, int y) -> int {
+        size_t off = (static_cast<size_t>(y) * W + x) * 4;
+        return pixels[off + 0]; // red channel; near-white = unfilled
+    };
+    // Probe along the y=100 line in the bridge region (x∈[40,80]),
+    // well clear of both the move_to point and any rotated-ellipse
+    // edge. With the fix this line is stroked (channel < 200); with
+    // the kAppend bug there's no draw command and the pixel stays
+    // near-white (channel ≥ 200). Try multiple x to be robust against
+    // anti-alias / line-width rounding.
+    bool any_bridge_pixel_drawn = false;
+    for (int x = 40; x <= 80 && !any_bridge_pixel_drawn; x += 5) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            if (sample_r(x, 100 + dy) < 200) {
+                any_bridge_pixel_drawn = true;
+                break;
+            }
+        }
+    }
+    INFO("Bridge segment pixels along y=100, x in [40,80] should be stroked.");
+    REQUIRE(any_bridge_pixel_drawn);
+}
 #endif // PULP_HAS_SKIA
