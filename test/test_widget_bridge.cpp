@@ -4788,9 +4788,13 @@ TEST_CASE("WidgetBridge setWhiteSpace routes all 6 CSS keywords to WhiteSpaceMod
         bool expected_multi_line;
         bool expected_nowrap_bool;
     } cases[] = {
+        // pulp #1737 (Codex P1 followup on #1786): `pre` keeps
+        // multi_line=true so newlines render. The spec's "no-soft-
+        // wrap" semantic for `pre` is a Label-side follow-up;
+        // newline preservation is the spec-critical part.
         {"normal",       M::normal,       true,  false},
         {"nowrap",       M::nowrap,       false, true },
-        {"pre",          M::pre,          false, true },
+        {"pre",          M::pre,          true,  true },
         {"pre-wrap",     M::pre_wrap,     true,  false},
         {"pre-line",     M::pre_line,     true,  false},
         {"break-spaces", M::break_spaces, true,  false},
@@ -4808,6 +4812,18 @@ TEST_CASE("WidgetBridge setWhiteSpace routes all 6 CSS keywords to WhiteSpaceMod
     bridge.load_script("setWhiteSpace('lbl', 'mystery-future-keyword')");
     REQUIRE(label->white_space_mode() == M::normal);
     REQUIRE(label->multi_line());
+
+    // pulp #1737 (Codex P2 followup on #1786): the legacy
+    // set_white_space_nowrap() setter MUST keep the WhiteSpaceMode
+    // enum in sync. Pre-fix, the legacy setter only touched the bool
+    // and left the enum stale (still `normal` after a `set_white_space_nowrap(true)`
+    // call), violating the stated backward-compat contract.
+    label->set_white_space_nowrap(true);
+    REQUIRE(label->white_space_mode() == M::nowrap);
+    REQUIRE(label->white_space_nowrap());
+    label->set_white_space_nowrap(false);
+    REQUIRE(label->white_space_mode() == M::normal);
+    REQUIRE_FALSE(label->white_space_nowrap());
 }
 
 // pulp #1410 — CSS translator side. style.whiteSpace = 'nowrap' must
@@ -7317,11 +7333,15 @@ TEST_CASE("setFontFamily parses comma-separated list and strips quotes",
     auto* l3 = dynamic_cast<Label*>(bridge.widget("t3"));
     auto* l4 = dynamic_cast<Label*>(bridge.widget("t4"));
     REQUIRE(l1); REQUIRE(l2); REQUIRE(l3); REQUIRE(l4);
-    REQUIRE(l1->font_family() == "Inter Tight");
-    REQUIRE(l2->font_family() == "JetBrains Mono");
-    REQUIRE(l3->font_family() == "Helvetica Neue");
-    // Empty leading segment is skipped; first non-empty wins.
-    REQUIRE(l4->font_family() == "Roboto");
+    // pulp #1737 (#932 followup): bridge now stores the CSS comma-list
+    // verbatim — SkiaCanvas resolution walks the whole list at paint
+    // time. Pre-fix the bridge stripped to the first family; tests
+    // were assert against that legacy behaviour. Updated to reflect
+    // the new contract: Label.font_family() carries the full list.
+    REQUIRE(l1->font_family() == "Inter Tight, system-ui, sans-serif");
+    REQUIRE(l2->font_family() == "\"JetBrains Mono\", Menlo");
+    REQUIRE(l3->font_family() == "'Helvetica Neue', Arial");
+    REQUIRE(l4->font_family() == "   ,  Roboto  , Arial");
 }
 
 // pulp #1434 Phase A2-5 — when fontFamily is set on a non-Label
@@ -7344,7 +7364,10 @@ TEST_CASE("setFontFamily on container View populates inheritable slot",
     REQUIRE(panel != nullptr);
     auto inh = panel->inheritable_font_family();
     REQUIRE(inh.has_value());
-    REQUIRE(*inh == "Custom Display");
+    // pulp #1737 (#932 followup): inheritable slot now carries the
+    // full CSS comma-list verbatim (was stripped to first family
+    // pre-fix). SkiaCanvas resolution walks the list at paint time.
+    REQUIRE(*inh == "\"Custom Display\", sans-serif");
 }
 
 // pulp #1434 Phase A2-5 — CSS shim el.style.fontFamily forwards the
