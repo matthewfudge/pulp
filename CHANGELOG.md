@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0794"></a>
+## [0.79.4] - 2026-05-09
+
+- fix(view/css): single-token gap clears per-axis row_gap/column_gap ([#1700](https://github.com/danielraffel/pulp/pull/1700))
+- fix(compat): walk back 10 catalog overstatements flagged in #1616 sweep ([#1656](https://github.com/danielraffel/pulp/pull/1656))
+
 <a id="v0790"></a>
 ## [0.79.0] - 2026-05-09
 
@@ -1430,6 +1436,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.79.4]: https://github.com/danielraffel/pulp/releases/tag/v0.79.4
 [0.79.0]: https://github.com/danielraffel/pulp/releases/tag/v0.79.0
 [0.78.4]: https://github.com/danielraffel/pulp/releases/tag/v0.78.4
 [0.78.3]: https://github.com/danielraffel/pulp/releases/tag/v0.78.3
