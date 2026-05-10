@@ -484,22 +484,6 @@ var __callbacks__ = {};
 var __nativeRegistered__ = {};
 function __dispatch__(id, eventName) {
     var key = id + ':' + eventName;
-    // Overlay defaults — Escape closes top overlay; pointerdown outside
-    // the top overlay dismisses it AND swallows the event (so an open
-    // dropdown doesn't leak clicks to canvases behind it).
-    if (typeof __pulpOverlay__ === 'object' && __overlayStack__.length > 0) {
-        if (eventName === 'keydown') {
-            var data = arguments[2];
-            if (data && data.key === 'Escape') {
-                if (__pulpOverlay__.handleEscape()) return;
-            }
-        } else if (eventName === 'pointerdown') {
-            var pdata = arguments[2];
-            if (pdata && typeof pdata.clientX === 'number' && typeof pdata.clientY === 'number') {
-                if (__pulpOverlay__.shouldBlock(id, pdata.clientX, pdata.clientY)) return;
-            }
-        }
-    }
     if (__callbacks__[key]) {
         try {
             __callbacks__[key].apply(null, Array.prototype.slice.call(arguments, 2));
