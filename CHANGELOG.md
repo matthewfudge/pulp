@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v07919"></a>
+## [0.79.19] - 2026-05-10
+
+- feat(view): rn/outlineColor supports currentColor keyword (closes pulp #1710) ([#1728](https://github.com/danielraffel/pulp/pull/1728))
+
 <a id="v07918"></a>
 ## [0.79.18] - 2026-05-10
 
@@ -1493,6 +1498,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.79.19]: https://github.com/danielraffel/pulp/releases/tag/v0.79.19
 [0.79.18]: https://github.com/danielraffel/pulp/releases/tag/v0.79.18
 [0.79.17]: https://github.com/danielraffel/pulp/releases/tag/v0.79.17
 [0.79.16]: https://github.com/danielraffel/pulp/releases/tag/v0.79.16
