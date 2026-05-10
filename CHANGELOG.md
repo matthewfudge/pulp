@@ -8,9 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0800"></a>
-## [0.81.0]
+<a id="v0810"></a>
+## [0.81.0] - 2026-05-10
 
+- feat(canvas2d): wire drawImage 9-arg sprite-sheet source-rect form (issue-916) ([#1739](https://github.com/danielraffel/pulp/pull/1739))
+
+<a id="v0800"></a>
 ## [0.80.0] - 2026-05-10
 
 - feat(canvas2d): wire fill/stroke gradients on CoreGraphics text + paths ([#1736](https://github.com/danielraffel/pulp/pull/1736))
@@ -1535,6 +1538,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.81.0]: https://github.com/danielraffel/pulp/releases/tag/v0.81.0
 [0.80.0]: https://github.com/danielraffel/pulp/releases/tag/v0.80.0
 [0.79.25]: https://github.com/danielraffel/pulp/releases/tag/v0.79.25
 [0.79.24]: https://github.com/danielraffel/pulp/releases/tag/v0.79.24
