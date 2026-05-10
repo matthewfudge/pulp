@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <mutex>
 #include <atomic>
@@ -127,6 +128,10 @@ private:
 
     // Track widgets by ID for JS access
     std::unordered_map<std::string, View*> widgets_;
+
+    // Idempotency guards — prevent re-registration from stacking lambdas
+    std::unordered_set<std::string> pointer_registered_;
+    std::unordered_set<std::string> wheel_registered_;
 
     // Registered keyboard shortcuts from JS
     struct ShortcutBinding {

@@ -7,7 +7,6 @@
 #include <pulp/view/svg_path_widget.hpp>
 #include <pulp/view/widgets/svg_rect.hpp>
 #include <pulp/view/widgets/svg_line.hpp>
-#include <pulp/view/widgets/svg_icon.hpp>
 #include <pulp/view/modal.hpp>
 #include <pulp/view/asset_manager.hpp>
 #include <pulp/view/design_import.hpp>
@@ -21,7 +20,6 @@
 #include <pulp/platform/file_dialog.hpp>
 #include <pulp/platform/clipboard.hpp>
 #include <pulp/runtime/base64.hpp>
-#include <pulp/runtime/log.hpp>
 #include <web_compat_preludes_gen.hpp>
 #include <thread>
 #include <chrono>
@@ -487,7 +485,11 @@ var __nativeRegistered__ = {};
 function __dispatch__(id, eventName) {
     var key = id + ':' + eventName;
     if (__callbacks__[key]) {
-        __callbacks__[key].apply(null, Array.prototype.slice.call(arguments, 2));
+        try {
+            __callbacks__[key].apply(null, Array.prototype.slice.call(arguments, 2));
+        } catch (e) {
+            if (typeof __dispatchError__ === 'function') __dispatchError__(key, String(e && e.message || e));
+        }
     }
 }
 function __ensureNativeRegistered__(id, group) {
@@ -519,6 +521,54 @@ function on(id, eventName, fn) {
         __ensureNativeRegistered__(id, 'gesture');
     }
 }
+var __windowListeners__ = {};
+function __installWindowAddEventListener__() {
+    var w = (typeof window !== 'undefined') ? window : globalThis;
+    w.addEventListener = function(type, fn) {
+        if (typeof fn !== 'function') return;
+        if (!__windowListeners__[type]) __windowListeners__[type] = [];
+        __windowListeners__[type].push(fn);
+        on('__global__', type, function() {
+            var rawData = arguments[0];
+            var evt = {
+                type: type,
+                target: null,
+                currentTarget: w,
+                key: '', keyCode: 0,
+                ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
+                defaultPrevented: false,
+                preventDefault: function() { evt.defaultPrevented = true; },
+                stopPropagation: function() {}
+            };
+            if (typeof rawData === 'object' && rawData !== null) {
+                if (typeof rawData.key === 'string') evt.key = rawData.key;
+                else if (typeof rawData.key === 'number') evt.key = String.fromCharCode(rawData.key);
+                if (rawData.keyCode !== undefined) evt.keyCode = rawData.keyCode;
+                if (rawData.ctrlKey !== undefined) evt.ctrlKey = rawData.ctrlKey;
+                if (rawData.shiftKey !== undefined) evt.shiftKey = rawData.shiftKey;
+                if (rawData.altKey !== undefined) evt.altKey = rawData.altKey;
+                if (rawData.metaKey !== undefined) evt.metaKey = rawData.metaKey;
+            }
+            var listeners = (__windowListeners__[type] || []).slice();
+            for (var i = 0; i < listeners.length; i++) {
+                if (typeof listeners[i] !== 'function') continue;
+                try { listeners[i](evt); } catch(e) {
+                    if (typeof __dispatchError__ === 'function') __dispatchError__('window:' + type, String(e && e.message || e));
+                }
+            }
+        });
+    };
+    w.removeEventListener = function(type, fn) {
+        if (__windowListeners__[type]) {
+            var idx = __windowListeners__[type].indexOf(fn);
+            if (idx >= 0) __windowListeners__[type].splice(idx, 1);
+        }
+    };
+    if (w !== globalThis) {
+        globalThis.addEventListener = w.addEventListener;
+        globalThis.removeEventListener = w.removeEventListener;
+    }
+}
 )";
 
 // pulp #745: kDomOpsInit lived here as an inline C-string copy of
@@ -542,9 +592,13 @@ static void safe_dispatch_eval(const std::shared_ptr<std::atomic<bool>>& alive,
                                ScriptEngine* engine,
                                const std::string& js,
                                const char* context) {
-    if (!alive || !alive->load(std::memory_order_acquire) || engine == nullptr) return;
+    if (!alive || !alive->load(std::memory_order_acquire) || engine == nullptr) {
+        return;
+    }
     try {
-        if (!static_cast<bool>(*engine)) return;
+        if (!static_cast<bool>(*engine)) {
+            return;
+        }
         engine->evaluate(js);
     } catch (const std::exception& e) {
         std::cerr << "WidgetBridge " << context << " error: " << e.what() << "\n";
@@ -583,33 +637,13 @@ static choc::value::Value make_layout_rect_value(View* v) {
 }
 
 static void eval_or_throw(ScriptEngine& engine, const char* name, const std::string& js) {
-    // pulp #1492 — previously the wrapped std::runtime_error message was
-    // surfaced only at the top-level catch site (standalone app / plugin
-    // host), often after `load_script` returned. When the user script is
-    // large (e.g. a React-bundled design export) the outermost catch
-    // summarises the failure as "eval_or_throw failed" without the
-    // underlying JS error string, so crashes like "SyntaxError: unexpected
-    // token" become opaque "bundle didn't load" from the developer's seat.
-    //
-    // Log the underlying error string + slot name + script size up front so
-    // the real diagnosis is in the console whether or not the outer
-    // consumer prints `what()`. Size helps distinguish truncation-style
-    // failures (bundle size across a boundary) from genuine syntax errors.
-    auto report = [&](const char* kind, const char* what) {
-        pulp::runtime::log_error(
-            "widget_bridge eval_or_throw slot='{}' ({}, {} bytes): {}",
-            name, kind, js.size(), what);
-    };
     try {
         engine.evaluate(js);
     } catch (const choc::javascript::Error& e) {
-        report("choc::javascript::Error", e.what());
         throw std::runtime_error(std::string("failed to evaluate ") + name + ": " + e.what());
     } catch (const std::exception& e) {
-        report("std::exception", e.what());
         throw std::runtime_error(std::string("failed to evaluate ") + name + ": " + e.what());
     } catch (...) {
-        report("unknown exception", "<no what()>");
         throw std::runtime_error(std::string("failed to evaluate ") + name + ": unknown exception");
     }
 }
@@ -644,7 +678,57 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     // as a member and cannot outlive `root` without UB. The lambda lives at
     // most as long as the bridge.
     repaint_callback_ = [&root] { root.request_repaint(); };
+    root.set_widget_bridge(this);
     register_api();
+    {
+        auto alive = callback_alive_;
+        auto* engine = &engine_;
+        root.on_global_key = [alive, engine](const KeyEvent& ke) -> bool {
+            if (!ke.is_down) return false;
+            if (!alive || !alive->load(std::memory_order_acquire)) return false;
+            int kc = static_cast<int>(ke.key);
+            std::string key_str;
+            if (kc >= 'a' && kc <= 'z') key_str = std::string(1, (char)kc);
+            else if (kc >= '0' && kc <= '9') key_str = std::string(1, (char)kc);
+            else if (kc == ' ') key_str = " ";
+            else if (ke.key == KeyCode::enter) key_str = "Enter";
+            else if (ke.key == KeyCode::escape) key_str = "Escape";
+            else if (ke.key == KeyCode::tab) key_str = "Tab";
+            else if (ke.key == KeyCode::backspace) key_str = "Backspace";
+            else if (ke.key == KeyCode::delete_) key_str = "Delete";
+            else if (ke.key == KeyCode::left) key_str = "ArrowLeft";
+            else if (ke.key == KeyCode::right) key_str = "ArrowRight";
+            else if (ke.key == KeyCode::up) key_str = "ArrowUp";
+            else if (ke.key == KeyCode::down) key_str = "ArrowDown";
+            else return false;
+            std::string js = "__dispatch__('__global__', 'keydown', {"
+                "key:'" + key_str + "',"
+                "keyCode:" + std::to_string(kc) + ","
+                "ctrlKey:" + (ke.isCtrlDown() ? "true" : "false") + ","
+                "shiftKey:" + (ke.isShiftDown() ? "true" : "false") + ","
+                "altKey:" + (ke.isAltDown() ? "true" : "false") + ","
+                "metaKey:" + (ke.isCmdDown() ? "true" : "false") + "})";
+            safe_dispatch_eval(alive, engine, js, "keydown");
+            return false;
+        };
+    }
+    // Surface JS callback errors during __dispatch__ to stderr so silent
+    // event-handler exceptions don't get swallowed when an event listener
+    // throws inside a React render.
+    engine_.register_function("__dispatchError__", [](choc::javascript::ArgumentList args) {
+        auto key = args.get<std::string>(0, "?");
+        auto msg = args.get<std::string>(1, "?");
+        std::fprintf(stderr, "[__dispatch__ ERROR] key=%s msg=%s\n", key.c_str(), msg.c_str());
+        return choc::value::Value();
+    });
+    // Generic JS debug log — JS code can call __pulpLog('...') and the
+    // message lands on stderr. Useful for tracing inside a bridged user
+    // script without needing console.log wiring in every shim.
+    engine_.register_function("__pulpLog", [](choc::javascript::ArgumentList args) {
+        auto msg = args.get<std::string>(0, "");
+        std::fprintf(stderr, "[JS] %s\n", msg.c_str());
+        return choc::value::Value();
+    });
     eval_or_throw(engine_, "kJSPreamble", kJSPreamble);
     eval_or_throw(engine_, "css_colors", preludes::css_colors);
     eval_or_throw(engine_, "css_parser", preludes::css_parser);
@@ -670,11 +754,14 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     // `globalThis.__pulpImportRuntime__` so non-import scripts don't
     // see new globals.
     eval_or_throw(engine_, "import_runtime", preludes::import_runtime);
+    engine_.evaluate("__installWindowAddEventListener__()");
 }
 
 WidgetBridge::~WidgetBridge() {
     if (callback_alive_) callback_alive_->store(false, std::memory_order_release);
+    root_.set_widget_bridge(nullptr);
     root_.on_global_click = {};
+    root_.on_global_key = {};
 }
 
 void WidgetBridge::set_repaint_callback(std::function<void()> cb) {
@@ -1611,8 +1698,10 @@ void WidgetBridge::register_api() {
     // registerPointer(id) — enables pointer event dispatch for a widget
     engine_.register_function("registerPointer", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
+        if (pointer_registered_.count(id)) return choc::value::Value();
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
+            pointer_registered_.insert(id);
             auto* w = it->second;
             auto alive = callback_alive_;
             auto* engine = &engine_;
@@ -1640,7 +1729,12 @@ void WidgetBridge::register_api() {
                     "pressure:" + std::to_string(me.pressure) + ","
                     "altitudeAngle:" + std::to_string(me.altitude_angle) + ","
                     "azimuthAngle:" + std::to_string(me.azimuth_angle) + ","
-                    "button:" + std::to_string(static_cast<int>(me.button)) + ","
+                    // W3C PointerEvent.button: 0=left, 1=middle, 2=right
+                    // Pulp MouseButton enum: none=0, left=1, right=2, middle=3
+                    "button:" + std::to_string(
+                        me.button == MouseButton::left   ? 0 :
+                        me.button == MouseButton::middle  ? 1 :
+                        me.button == MouseButton::right   ? 2 : -1) + ","
                     "ctrlKey:" + (me.isCtrlDown() ? "true" : "false") + ","
                     "shiftKey:" + (me.isShiftDown() ? "true" : "false") + ","
                     "altKey:" + (me.isAltDown() ? "true" : "false") + ","
@@ -1650,8 +1744,15 @@ void WidgetBridge::register_api() {
                 safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "pointer");
             };
             // W3C PointerEvents: forward drag as pointermove
-            w->on_drag = [alive, engine, id](Point pos) {
+            w->on_drag = [alive, engine, id, w](Point pos) {
+                float wx = pos.x, wy = pos.y;
+                for (auto* cur = w; cur; cur = cur->parent()) {
+                    wx += cur->bounds().x;
+                    wy += cur->bounds().y;
+                }
                 std::string data = "{"
+                    "clientX:" + std::to_string(wx) + ","
+                    "clientY:" + std::to_string(wy) + ","
                     "offsetX:" + std::to_string(pos.x) + ","
                     "offsetY:" + std::to_string(pos.y) + ","
                     "pointerId:0,pointerType:'mouse',isPrimary:true}";
@@ -3191,23 +3292,8 @@ void WidgetBridge::register_api() {
         return choc::value::Value();
     });
 
-    // ── pulp #1492 — SvgIconWidget bridge ───────────────────────────────────
-    // Whole-SVG escape hatch for dom-adapter crash scenarios (see
-    // /tmp/svg-counsel-response.md). Unlike SvgPathWidget + set_viewbox,
-    // this accepts the entire `<svg>...</svg>` outerHTML in one call and
-    // hands it to Skia's SkSVGDOM for rendering. Per-path tinting is NOT
-    // available via this path — the DOM renders with whatever fill /
-    // stroke attributes the source XML carries. For runtime theming,
-    // prefer SvgPathWidget.
-    //
-    // Why a separate createFn instead of extending createSvgPath:
-    //   * The JS adapter picks SvgIcon for the parent `<svg>` only when
-    //     per-path manipulation isn't needed (static logos / glyphs),
-    //     and picks SvgPath for the dynamic case. Keeping them distinct
-    //     lets the adapter make that decision explicitly.
-    //   * SvgIconWidget's intrinsic size is extracted from the root
-    //     width/height/viewBox; SvgPathWidget's is driven by explicit
-    //     setSvgViewBox calls. Different owners, same end result.
+    // ── pulp #1492 — SvgIconWidget bridge (DISABLED while svg_icon.cpp not compiled) ──
+    /*
     engine_.register_function("createSvgIcon", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
         auto pid = args.get<std::string>(1, "");
@@ -3228,6 +3314,7 @@ void WidgetBridge::register_api() {
         }
         return choc::value::Value();
     });
+    */
 
     engine_.register_function("setBorder", [this, parseHexColor](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
@@ -3592,8 +3679,10 @@ void WidgetBridge::register_api() {
     // registerWheel(id) — enable wheel event dispatch for scroll/zoom
     engine_.register_function("registerWheel", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
+        if (wheel_registered_.count(id)) return choc::value::Value();
         auto it = widgets_.find(id);
         if (it != widgets_.end()) {
+            wheel_registered_.insert(id);
             auto* w = it->second;
             auto alive = callback_alive_;
             auto* engine = &engine_;
@@ -3605,7 +3694,11 @@ void WidgetBridge::register_api() {
                 if (!me.is_wheel) {
                     return;
                 }
-                std::string data = std::to_string(me.scroll_delta_x) + "," + std::to_string(me.scroll_delta_y);
+                std::string data = "{"
+                    "deltaX:" + std::to_string(me.scroll_delta_x) + ","
+                    "deltaY:" + std::to_string(me.scroll_delta_y) + ","
+                    "clientX:" + std::to_string(me.window_position.x) + ","
+                    "clientY:" + std::to_string(me.window_position.y) + "}";
                 safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'wheel', " + data + ")", "wheel");
             };
         }
@@ -8420,9 +8513,33 @@ void WidgetBridge::forward_key_event(int key_code, uint16_t modifiers, bool is_d
         }
     }
 
+    std::string key_str;
+    if (key_code >= 'a' && key_code <= 'z') key_str = std::string(1, (char)key_code);
+    else if (key_code >= '0' && key_code <= '9') key_str = std::string(1, (char)key_code);
+    else if (key_code == ' ') key_str = " ";
+    else if (kc == KeyCode::enter) key_str = "Enter";
+    else if (kc == KeyCode::escape) key_str = "Escape";
+    else if (kc == KeyCode::tab) key_str = "Tab";
+    else if (kc == KeyCode::backspace) key_str = "Backspace";
+    else if (kc == KeyCode::delete_) key_str = "Delete";
+    else if (kc == KeyCode::left) key_str = "ArrowLeft";
+    else if (kc == KeyCode::right) key_str = "ArrowRight";
+    else if (kc == KeyCode::up) key_str = "ArrowUp";
+    else if (kc == KeyCode::down) key_str = "ArrowDown";
+
+    bool ctrl  = (modifiers & kModCtrl)  != 0;
+    bool shift = (modifiers & kModShift) != 0;
+    bool alt   = (modifiers & kModAlt)   != 0;
+    bool cmd   = (modifiers & kModCmd)   != 0;
+
     engine_.evaluate("__dispatch__('__global__', 'keydown', {"
-        "key:" + std::to_string(key_code) +
-        ",mods:" + std::to_string(modifiers) + "})");
+        "key:'" + key_str + "',"
+        "keyCode:" + std::to_string(key_code) + ","
+        "ctrlKey:" + (ctrl ? "true" : "false") + ","
+        "shiftKey:" + (shift ? "true" : "false") + ","
+        "altKey:" + (alt ? "true" : "false") + ","
+        "metaKey:" + (cmd ? "true" : "false") + ","
+        "mods:" + std::to_string(modifiers) + "})");
 }
 
 } // namespace pulp::view

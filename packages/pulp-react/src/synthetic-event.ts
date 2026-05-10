@@ -123,6 +123,8 @@ interface PointerLikeData {
     metaKey?: boolean;
     scale?: number;
     rotation?: number;
+    deltaX?: number;
+    deltaY?: number;
 }
 
 /// React-DOM-compatible synthetic event surface (subset). Constructed
@@ -155,6 +157,11 @@ export interface SyntheticEvent {
     // Gesture (ignored unless gesture event)
     scale: number;
     rotation: number;
+    // Wheel
+    deltaX: number;
+    deltaY: number;
+    deltaZ: number;
+    deltaMode: number;
     // Form events (text input / change)
     key: string;
     keyCode: number;
@@ -201,6 +208,7 @@ export function makeSyntheticEvent(
         pointerId: 0, pointerType: 'mouse', isPrimary: true, pressure: 0.5,
         ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
         scale: 1, rotation: 0,
+        deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0,
         key: '', keyCode: 0,
     };
 
@@ -227,6 +235,8 @@ export function makeSyntheticEvent(
         if (typeof d.rotation === 'number') evt.rotation = d.rotation;
         if (typeof d.key === 'string') evt.key = d.key;
         if (typeof d.keyCode === 'number') evt.keyCode = d.keyCode;
+        if (typeof d.deltaX === 'number') evt.deltaX = d.deltaX;
+        if (typeof d.deltaY === 'number') evt.deltaY = d.deltaY;
     }
 
     // Text-editor `change` / `return` — bridge sends a raw string. Expose
