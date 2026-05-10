@@ -8814,6 +8814,53 @@ TEST_CASE("CSSStyleDeclaration single-token gap clears per-axis (no shadowing)",
                  WithinAbs(5.0f, 0.001f));
 }
 
+// Codex P2 followup on #1700 (#1707) — single-token gap with invalid
+// input must NOT clobber prior 2-token state. The earlier ordering
+// reset row_gap/column_gap before parsing; if the parse failed, the
+// per-axis slots were nuked silently. Fix parses first, only resets
+// per-axis if the new value is valid.
+TEST_CASE("CSSStyleDeclaration single-token gap with invalid input preserves prior 2-token state",
+          "[view][bridge][css][issue-1707]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script(R"(
+        createPanel('p', '');
+        var s = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s._applyProperty('gap', '10px 20px');
+    )");
+    const auto& f = bridge.widget("p")->flex();
+    REQUIRE_THAT(f.row_gap, WithinAbs(10.0f, 0.001f));
+    REQUIRE_THAT(f.column_gap, WithinAbs(20.0f, 0.001f));
+
+    // Now apply invalid single-token gap: must be a no-op (per-axis
+    // values must REMAIN 10/20, not reset to -1).
+    bridge.load_script(R"(
+        var s2 = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s2._applyProperty('gap', 'foo');
+    )");
+    REQUIRE_THAT(f.row_gap, WithinAbs(10.0f, 0.001f));
+    REQUIRE_THAT(f.column_gap, WithinAbs(20.0f, 0.001f));
+
+    // Empty string also a no-op (parseCSSLength returns null).
+    bridge.load_script(R"(
+        var s3 = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s3._applyProperty('gap', '');
+    )");
+    REQUIRE_THAT(f.row_gap, WithinAbs(10.0f, 0.001f));
+    REQUIRE_THAT(f.column_gap, WithinAbs(20.0f, 0.001f));
+
+    // Valid single-token gap still resets per-axis (existing #1638 behavior).
+    bridge.load_script(R"(
+        var s4 = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s4._applyProperty('gap', '7px');
+    )");
+    REQUIRE_THAT(f.gap, WithinAbs(7.0f, 0.001f));
+    REQUIRE(f.row_gap < 0.0f);
+    REQUIRE(f.column_gap < 0.0f);
+}
+
 // pulp #1638 baseline-corruption: this TEST_CASE body got truncated
 // during the bad merge — it set up `using BM = ...; ScriptEngine
 // engine; View root; root.set_bounds(...);` but never wrapped the
