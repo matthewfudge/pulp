@@ -71,6 +71,29 @@ class SourceTreePollutionTests(unittest.TestCase):
         result = self._run("CMakeLists.txt")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
+    def test_blocks_arbitrary_non_pulp_cmakelists(self) -> None:
+        """Even a non-Clock CMakeLists.txt is blocked if it doesn't say
+        project(Pulp — catches any example or fixture pasted at the root.
+        This is the parallel agent's positive-assertion proposal: protects
+        against future `examples/foo/CMakeLists.txt` accidents that the
+        Clock-specific signature wouldn't catch."""
+        Path("CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.20)\n"
+            "project(SomeOtherExample VERSION 2.0.0 LANGUAGES CXX)\n"
+        )
+        result = self._run("CMakeLists.txt")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("first 10 lines do not contain", result.stderr)
+        self.assertIn("project(Pulp", result.stderr)
+
+    def test_empty_cmakelists_does_not_trigger_positive_assertion(self) -> None:
+        """Empty file (e.g. `git rm` with no replacement) shouldn't trigger
+        the positive `project(Pulp` assertion — that's a different concern
+        (file deletion, not corruption). Other gates handle removed files."""
+        Path("CMakeLists.txt").write_text("")
+        result = self._run("CMakeLists.txt")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
     def test_warns_on_temp_fixture_path_hint(self) -> None:
         """A file path containing /private/var/folders/ → warning, not block."""
         # The check looks at the path string, not the file content.

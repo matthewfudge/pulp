@@ -40,6 +40,7 @@ import sys
 from pathlib import Path
 
 CLOCK_FIXTURE_SIGNATURE = "project(Clock VERSION 1.0.0"
+PULP_PROJECT_SIGNATURE = "project(Pulp"
 TEMP_FIXTURE_PATH_HINTS = ("/private/var/folders/", "pulp-shellout-")
 
 
@@ -95,7 +96,13 @@ def check(files: list[str], rev: str | None) -> tuple[list[str], list[str]]:
                 "file (`git rm pulp.toml`) and re-stage."
             )
             continue
-        # Block #2 — CMakeLists.txt at repo root with the Clock fixture.
+        # Block #2 — CMakeLists.txt at repo root must declare project(Pulp.
+        # Two-pronged check: explicit Clock-fixture signature catches the
+        # known #1755 case with a precise error message; positive
+        # `project(Pulp` assertion catches ANY future fixture / unrelated
+        # CMakeLists.txt being committed at the root (the parallel agent's
+        # broader proposal — e.g. somebody pastes an `examples/foo`
+        # CMakeLists.txt at the root accidentally).
         if path == "CMakeLists.txt":
             content = _read_blob(rev, path)
             if CLOCK_FIXTURE_SIGNATURE in content:
@@ -108,6 +115,22 @@ def check(files: list[str], rev: str | None) -> tuple[list[str], list[str]]:
                     "main: `git show origin/main:CMakeLists.txt > CMakeLists.txt`. "
                     "PR #1755 accidentally shipped this corruption; #1757 "
                     "was the hotfix; this guard prevents a repeat."
+                )
+                continue
+            # Positive assertion — first ~10 lines must contain
+            # `project(Pulp`. Catches any non-Pulp CMakeLists.txt at the
+            # root regardless of the specific fixture, including future
+            # examples/foo/CMakeLists.txt accidents.
+            head = "\n".join(content.splitlines()[:10])
+            if content.strip() and PULP_PROJECT_SIGNATURE not in head:
+                errors.append(
+                    f"  {path}: first 10 lines do not contain "
+                    f"`{PULP_PROJECT_SIGNATURE}`. The root CMakeLists.txt "
+                    "must declare `project(Pulp ...)` — anything else is "
+                    "almost certainly an example or fixture file pasted "
+                    "into the wrong place. If you genuinely intended to "
+                    "rename the project, update both this guard and the "
+                    "test in tools/scripts/test_source_tree_pollution_check.py."
                 )
                 continue
         # Warn — paths that look like test-fixture leakage.
