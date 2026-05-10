@@ -486,8 +486,10 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
                     _focusedView->on_focus_changed(false);
                 _focusedView = _dragTarget;
                 _focusedView->on_focus_changed(true);
+                _focusedView->claim_input_focus();
             } else if (_focusedView) {
                 _focusedView->on_focus_changed(false);
+                _focusedView->release_input_focus();
                 _focusedView = nullptr;
             }
 
@@ -677,9 +679,13 @@ static pulp::view::KeyCode keyCodeFromNS(unsigned short code) {
             else
                 next = pulp::view::View::focus_next(*self.rootView, _focusedView);
             if (next && next != old) {
-                if (old) old->on_focus_changed(false);
+                if (old) {
+                    old->on_focus_changed(false);
+                    old->release_input_focus();
+                }
                 _focusedView = next;
                 _focusedView->on_focus_changed(true);
+                _focusedView->claim_input_focus();
             }
             [self setNeedsDisplay:YES];
             return;
