@@ -4971,16 +4971,18 @@
     },
     "rn/overflow": {
       "status": "supported",
-      "mapsTo": "@pulp/react prop-applier dispatches `overflow` to `setOverflow(id, mode)` (prop-applier.ts:629 since #1388).",
+      "mapsTo": "@pulp/react prop-applier dispatches `overflow` to `setOverflow(id, mode)` (prop-applier.ts:629 since #1388). Bridge accepts all 3 RN ViewStyle keywords (visible / hidden / scroll) at widget_bridge.cpp:3650-3663; `scroll` is recorded on View::Overflow::scroll and propagates through Yoga so the layout engine knows about the clipping context (no scrollbar layer yet — author wires a ScrollView intrinsic for true scrolling).",
       "supportedValues": [
         "visible",
-        "hidden"
+        "hidden",
+        "scroll"
       ],
       "unsupportedValues": [],
       "tests": [
-        "packages/pulp-react/test/prop-applier-pointer.test.ts"
+        "packages/pulp-react/test/prop-applier-pointer.test.ts",
+        "test/test_widget_bridge.cpp [issue-1737][rn-overflow-scroll]"
       ],
-      "notes": "pulp #1550 catalog hygiene: flipped partial → supported. The two RN ViewStyle keywords that View::Overflow models — `visible` and `hidden` — both round-trip through the prop-applier and the C++ bridge. `scroll` is intentionally excluded: ScrollView is a separate container intrinsic, not a View::Overflow mode. Spectr dropdowns + Figma overflow:hidden cards now port verbatim (#1387 gap #1). Wave 1 architectural reclassification — `scroll` is arch-yoga-limit (Yoga's View::Overflow only models visible/hidden); ScrollView container intrinsic is the designed entry point. arch-yoga-no-scroll-mode — Yoga's View::Overflow models visible/hidden only; ScrollView is a separate intrinsic container, not an overflow mode. The spec values visible/hidden are wired; scroll-as-overflow is architecturally not how Pulp models scrolling. See pulp #1665 (closed wontfix).",
+      "notes": "pulp #1550 catalog hygiene: flipped partial → supported. pulp #1737 — keyword coverage reclassified to all 3 RN values to match the bridge implementation (widget_bridge.cpp:3650-3663) and the css/overflow precedent. `scroll` clips painted pixels like `hidden` but propagates through Yoga as a distinct overflow mode. Authors who need true scrollbars wire the ScrollView intrinsic; this mirrors React Native's split between style-level overflow and a dedicated ScrollView container.",
       "issue": ""
     },
     "rn/overlay": {
