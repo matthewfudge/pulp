@@ -1157,6 +1157,28 @@ CSSStyleDeclaration.prototype._applyProperty = function(key, value) {
             break;
         }
 
+        // pulp #1515 followup — `mask-size` pairs with mask-image.
+        // Storage-only today; consumed by the future paint slice that
+        // wires the mask shader onto the saveLayer.
+        case "maskSize": {
+            if (typeof setMaskSize !== "function") break;
+            setMaskSize(id, String(resolved).trim());
+            break;
+        }
+
+        // CSS `appearance`. Pulp paints all widgets custom (no native
+        // form-widget rendering), so this is observably storage-only.
+        // Authors who set `appearance: none` get the same paint behavior
+        // they always had; the value round-trips through the View slot
+        // for any tooling that inspects computed style.
+        case "appearance":
+        case "WebkitAppearance":
+        case "MozAppearance": {
+            if (typeof setAppearance !== "function") break;
+            setAppearance(id, String(resolved).trim());
+            break;
+        }
+
         // pulp #1515 — CSS `mask` shorthand. Parse the image
         // sub-property out (it's the only longhand we support today)
         // and forward both the shorthand verbatim (so View::mask()
