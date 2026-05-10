@@ -7471,6 +7471,45 @@ TEST_CASE("WidgetBridge setObjectPosition round-trips on the View",
     REQUIRE(panel->object_position() == "25% 75%");
 }
 
+// CSS `grid` shorthand — JS shim parses `<rows> / <cols>` form and
+// fans out to setGrid(template_rows) + setGrid(template_columns).
+// Full spec is deferred; this covers the common form.
+TEST_CASE("CSSStyleDeclaration grid shorthand parses <rows> / <cols> form",
+          "[view][bridge][css][issue-1707-followup-grid]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.load_script("createPanel('p', '')");
+    auto* panel = bridge.widget("p");
+    REQUIRE(panel != nullptr);
+
+    // <rows> / <cols> common form — verifies fan-out to both axes.
+    // template_columns and template_rows are vector<GridTrack>; the
+    // common form here yields 2 tracks each side.
+    bridge.load_script(R"(
+        var s = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s._applyProperty('grid', '100px 1fr / 50% 50%');
+    )");
+    REQUIRE(panel->grid().template_rows.size() == 2);
+    REQUIRE(panel->grid().template_columns.size() == 2);
+
+    // 3-track rows on a single side
+    bridge.load_script(R"(
+        var s = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s._applyProperty('grid', '1fr 1fr 1fr / 100%');
+    )");
+    REQUIRE(panel->grid().template_rows.size() == 3);
+    REQUIRE(panel->grid().template_columns.size() == 1);
+
+    // Single-track form — falls back to template_rows only
+    bridge.load_script(R"(
+        var s = new CSSStyleDeclaration({ _id: 'p', _nativeCreated: true });
+        s._applyProperty('grid', '200px');
+    )");
+    REQUIRE(panel->grid().template_rows.size() == 1);
+}
+
 TEST_CASE("View::paint_all emits clip_path_svg when clip_path is set",
           "[view][canvas][issue-1515]") {
     using namespace pulp::canvas;

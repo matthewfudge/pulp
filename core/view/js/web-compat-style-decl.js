@@ -1269,6 +1269,43 @@ CSSStyleDeclaration.prototype._applyProperty = function(key, value) {
             }
             break;
 
+        // CSS `grid` shorthand — fans out into the existing grid
+        // longhands. The full spec syntax is complex (auto-flow forms,
+        // grid-template-areas embedded between row tracks); this shim
+        // parses the common `<rows> / <cols>` form which covers the
+        // bulk of imported designs. Other forms are deferred — authors
+        // can use the longhand grid-template-{rows,columns,areas} +
+        // grid-auto-{rows,columns,flow} entries directly.
+        case "grid": {
+            var gv = String(resolved).trim();
+            if (gv === "" || gv === "none") {
+                if (typeof setGrid === "function") {
+                    setGrid(id, "template_rows", "none");
+                    setGrid(id, "template_columns", "none");
+                }
+                break;
+            }
+            // Detect "<rows> / <cols>" form. Split on first unparenthesized "/".
+            var depth = 0, slashIdx = -1;
+            for (var gi = 0; gi < gv.length; ++gi) {
+                var gc = gv[gi];
+                if (gc === "(") depth++;
+                else if (gc === ")") depth--;
+                else if (gc === "/" && depth === 0) { slashIdx = gi; break; }
+            }
+            if (slashIdx > 0 && typeof setGrid === "function") {
+                var rows = gv.slice(0, slashIdx).trim();
+                var cols = gv.slice(slashIdx + 1).trim();
+                if (rows) setGrid(id, "template_rows", rows);
+                if (cols) setGrid(id, "template_columns", cols);
+            } else if (typeof setGrid === "function") {
+                // Single-track form: treat as template_rows for spec-most
+                // common interpretation; cols default to 1fr.
+                setGrid(id, "template_rows", gv);
+            }
+            break;
+        }
+
         // Grid
         case "gridTemplateColumns":
             setGrid(id, "template_columns", resolved);

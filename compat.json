@@ -42,7 +42,7 @@
       "2026-05-07_W3css3": "pulp #1434 Wave 3 css.3 + Codex P1 audit follow-through on #1508. css/animationPlayState flipped partial → supported by adding View::tick_animations(dt) which honors the `paused` keyword (no-op when paused, advance-each-CssAnimation otherwise) — the playback driver pause/resume gap the previous A4 Bundle 2 entry had explicitly deferred. Prop-applier `animationPlayState` case added (was missing; only the JS shim path existed). Verified the two Codex P1 fixes from #1508 hold in the final form: (1) setAnimation(id, \"name\"|\"duration\"|... , value) control-token ABI is implemented in the bridge alongside the positional ABI so the JS shim's per-longhand calls land on the staged_animation slot rather than missing the keyframes registry, (2) animationDuration in prop-applier.ts dispatches to setAnimation/duration, not setTransitionDuration. css count holds at 212."
     },
     "counts": {
-      "css": 216,
+      "css": 217,
       "rn": 120,
       "yoga": 56,
       "react": 0,
@@ -3596,6 +3596,24 @@
         "test/test_widget_bridge.cpp [issue-1707-followup-objectPosition]"
       ],
       "notes": "Storage-only today; pairs with object-fit (#1707-followup). Honored by the same paint slice that consumes object-fit."
+    },
+    "css/grid": {
+      "status": "partial",
+      "mapsTo": "el.style.grid -> JS-shim parses `<rows> / <cols>` form and fans out to setGrid(id, 'template_rows', ...) + setGrid(id, 'template_columns', ...). Full grid shorthand spec (auto-flow forms, embedded template-areas, dense packing) is deferred — authors can use the existing longhand grid-template-{rows,columns,areas} + grid-auto-{rows,columns,flow} entries directly.",
+      "supportedValues": [
+        "<rows> / <cols>",
+        "none",
+        "single-track value (treated as template_rows)"
+      ],
+      "unsupportedValues": [
+        "auto-flow forms (`auto-flow [dense]? / <cols>`, `<rows> / auto-flow`)",
+        "template-areas embedded between row tracks (string + length pairs)",
+        "subgrid"
+      ],
+      "tests": [
+        "test/test_widget_bridge.cpp [issue-1707-followup-grid]"
+      ],
+      "notes": "Common `<rows> / <cols>` form parsed; longhand fan-out to existing grid-template-{rows,columns} entries which are already supported. Status `partial` is honest until full shorthand parser ships. Most imported designs use the simple form; complex auto-flow shorthands are rare in practice."
     }
   },
   "rn": {
