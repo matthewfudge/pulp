@@ -5461,20 +5461,21 @@
       "issue": ""
     },
     "rn/userSelect": {
-      "status": "noop",
-      "mapsTo": "@pulp/react prop-applier forwards keyword to setUserSelect (prop-applier.ts:753); the bridge currently registers setUserSelect as a no-op stash (widget_bridge.cpp:2267) — the JSX → prop-applier → bridge round-trip is wired but no semantic effect lands until the View::UserSelect path is implemented.",
-      "supportedValues": [],
-      "unsupportedValues": [
+      "status": "supported",
+      "mapsTo": "@pulp/react prop-applier forwards keyword to setUserSelect (prop-applier.ts:753). Bridge routes the keyword to View::UserSelect at widget_bridge.cpp:2474-2484 — `none` / `text` / `all` / `contain` map to the matching enum value; unknown values fall back to `auto`. Stored on View::user_select_ (view.hpp:1071) with a `view->user_select()` getter so widgets that participate in selection can read it.",
+      "supportedValues": [
         "auto",
         "none",
         "text",
         "all",
         "contain"
       ],
+      "unsupportedValues": [],
       "tests": [
-        "packages/pulp-react/test/prop-applier-rn-wires.test.ts"
+        "packages/pulp-react/test/prop-applier-rn-wires.test.ts",
+        "test/test_widget_bridge.cpp [issue-1656-tier2-userSelect]"
       ],
-      "notes": "pulp #1550 catalog hygiene: kept partial (does NOT meet the catalog-hygiene supported bar). Bridge fn is a registered no-op — accepts the value to keep prop-applier dispatch quiet, but there is no View::UserSelect storage and no native text-selection suppression path. Promotion blocked until the bridge actually applies the mode. Tests cover prop-applier dispatch only. Wave 1 drift cleanup — partial → noop (the prop-applier forwards the keyword to setUserSelect but the bridge stores-only; selection behavior gated on a future selection-engine subsystem).",
+      "notes": "pulp #1737 — catalog flipped noop → supported to match the wired implementation. View::UserSelect enum + setter/getter landed under pulp #1538/#1656 follow-up; the bridge's setUserSelect (widget_bridge.cpp:2474-2484) already routes all 5 RN keywords with full evidence in test/test_widget_bridge.cpp [issue-1656-tier2-userSelect]. Native text-selection suppression on the input layer is the behaviour-fidelity follow-up; the keyword-coverage + storage round-trip is complete and matches the css/userSelect catalog precedent.",
       "issue": ""
     },
     "rn/verticalAlign": {
