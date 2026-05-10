@@ -4817,6 +4817,44 @@ TEST_CASE("setFlex min/max width/height accept percent strings",
     REQUIRE_THAT(f.dim_max_height.value, WithinAbs(90.0f, 0.001f));
 }
 
+// pulp #1712 — rn/height status flipped from `partial` to `supported`
+// after reclassifying `vh` as architectural-OOS (Pulp has no global
+// viewport context). This test backs the supported claim by exercising
+// every value form rn/height accepts: number (px), percent string,
+// and 'auto' keyword.
+TEST_CASE("setFlex height accepts number, %, auto (rn/height supported claim)",
+          "[view][bridge][css][issue-1712][rn-height]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        createPanel('px',  '');
+        createPanel('pct', '');
+        createPanel('aut', '');
+        setFlex('px',  'height', 120);
+        setFlex('pct', 'height', '50%');
+        setFlex('aut', 'height', 'auto');
+    )");
+
+    auto* px = bridge.widget("px");
+    auto* pct = bridge.widget("pct");
+    auto* aut = bridge.widget("aut");
+    REQUIRE(px != nullptr);
+    REQUIRE(pct != nullptr);
+    REQUIRE(aut != nullptr);
+
+    REQUIRE(px->flex().dim_height.unit == DimensionUnit::px);
+    REQUIRE_THAT(px->flex().dim_height.value, WithinAbs(120.0f, 0.001f));
+
+    REQUIRE(pct->flex().dim_height.unit == DimensionUnit::percent);
+    REQUIRE_THAT(pct->flex().dim_height.value, WithinAbs(50.0f, 0.001f));
+
+    REQUIRE(aut->flex().dim_height.unit == DimensionUnit::auto_);
+}
+
 TEST_CASE("setFlex min/max width/height numeric path stays px",
           "[view][bridge][css][issue-1434-rn-batch-c]") {
     ScriptEngine engine;

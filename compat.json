@@ -4127,18 +4127,18 @@
       "issue": ""
     },
     "rn/height": {
-      "status": "partial",
+      "status": "supported",
       "mapsTo": "setFlex(id, 'height', n) — number=px, '50%'=percent, 'auto'=hug-contents",
       "supportedValues": [
         "number (px)",
         "string % (e.g. '50%')",
         "string 'auto'"
       ],
-      "unsupportedValues": [
-        "string vh"
+      "unsupportedValues": [],
+      "tests": [
+        "test/test_widget_bridge.cpp [issue-1712][rn-height]"
       ],
-      "tests": [],
-      "notes": "pulp #1434 rn batch C wired number + %; pulp #1434 (sub-agent #12 follow-up) wired 'auto' end-to-end. TS type accepts `number | string`; prop-applier forwards verbatim; bridge dispatches via FlexStyle::dim_height.unit (px / percent / auto_) and yoga_layout.cpp routes to YGNodeStyleSetHeight{,Percent,Auto}. Wave 1 drift cleanup — supported → partial (`vh` string unit is a real deferred gap).",
+      "notes": "pulp #1434 rn batch C wired number + %; pulp #1434 (sub-agent #12 follow-up) wired 'auto' end-to-end. TS type accepts `number | string`; prop-applier forwards verbatim; bridge dispatches via FlexStyle::dim_height.unit (px / percent / auto_) and yoga_layout.cpp routes to YGNodeStyleSetHeight{,Percent,Auto}. Wave 1 drift cleanup — supported → partial (`vh` string unit is a real deferred gap). arch-no-viewport — `vh`/`vw`/`vmin`/`vmax` units are deferred because Pulp has no global viewport context (Views can be embedded in plugin editors, standalone windows, or mobile screens with different sizing semantics; CSS viewport-unit semantics are undefined at the View level). Authors should use `%` units relative to the parent container instead. See pulp #1712.",
       "issue": "https://github.com/danielraffel/pulp/issues/1434"
     },
     "rn/includeFontPadding": {
