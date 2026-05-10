@@ -8,6 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v07922"></a>
+## [0.79.22] - 2026-05-10
+
+- feat(view): rn/borderRadius % support — paint-time bounds resolution (closes pulp #1663, 5 entries) ([#1731](https://github.com/danielraffel/pulp/pull/1731))
+
+<a id="v07921"></a>
+## [0.79.21] - 2026-05-10
+
+- feat(canvas2d): DOMMatrix mutator methods on getTransform snapshot (closes pulp #1527 followup) ([#1730](https://github.com/danielraffel/pulp/pull/1730))
+
 <a id="v07920"></a>
 ## [0.79.20] - 2026-05-10
 
@@ -1503,6 +1513,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.79.22]: https://github.com/danielraffel/pulp/releases/tag/v0.79.22
+[0.79.21]: https://github.com/danielraffel/pulp/releases/tag/v0.79.21
 [0.79.20]: https://github.com/danielraffel/pulp/releases/tag/v0.79.20
 [0.79.19]: https://github.com/danielraffel/pulp/releases/tag/v0.79.19
 [0.79.18]: https://github.com/danielraffel/pulp/releases/tag/v0.79.18
