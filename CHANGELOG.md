@@ -9,7 +9,9 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0910"></a>
-## [0.91.0]
+## [0.91.0] - 2026-05-11
+
+- feat(rn): honest flip rn/includeFontPadding wontfix → supported (rn 97.5% → 98.3%) ([#1809](https://github.com/danielraffel/pulp/pull/1809))
 
 <a id="v0900"></a>
 ## [0.90.0] - 2026-05-11
@@ -1642,6 +1644,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.91.0]: https://github.com/danielraffel/pulp/releases/tag/v0.91.0
 [0.90.0]: https://github.com/danielraffel/pulp/releases/tag/v0.90.0
 [0.89.0]: https://github.com/danielraffel/pulp/releases/tag/v0.89.0
 [0.88.0]: https://github.com/danielraffel/pulp/releases/tag/v0.88.0
