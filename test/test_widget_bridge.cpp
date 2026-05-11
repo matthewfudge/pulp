@@ -12331,3 +12331,83 @@ TEST_CASE("WidgetBridge setIsolation round-trips on View slot (no paint impact)"
     bridge.load_script("setIsolation('gain', 'auto')");
     REQUIRE(w->isolation() == "auto");
 }
+
+// ── Runtime design import (pulp #468 follow-up) ─────────────────────
+//
+// Contract for WidgetBridge::install_runtime_import_handlers() — the
+// C++ side of @pulp/react/runtime-import. These tests don't depend on
+// a real Claude bundle (parse_claude_bundle returns nullopt for
+// arbitrary HTML, which the handler correctly reports through
+// __pulpRuntimeImportErr__). The handler's job is to:
+//   1. Register __pulpRuntimeImport__(html, source) and
+//      __pulpRuntimeSettle__(rounds).
+//   2. Surface bundle-parse failures via __pulpRuntimeImportErr__
+//      rather than crashing the engine.
+//   3. Be idempotent on repeat install.
+
+TEST_CASE("WidgetBridge install_runtime_import_handlers registers native functions",
+          "[view][bridge][runtime-import]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.install_runtime_import_handlers();
+
+    // typeof __pulpRuntimeImport__ should be 'function' on the engine.
+    auto result = engine.evaluate(
+        "(typeof __pulpRuntimeImport__) + '|' + (typeof __pulpRuntimeSettle__)");
+    REQUIRE(result.getWithDefault<std::string>("") == "function|function");
+}
+
+TEST_CASE("WidgetBridge __pulpRuntimeImport__ surfaces parse failure as soft error",
+          "[view][bridge][runtime-import]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.install_runtime_import_handlers();
+
+    // Non-Claude HTML — parse_claude_bundle() returns nullopt; the
+    // handler must capture that as a string error on __pulpRuntimeImportErr__,
+    // not throw.
+    engine.evaluate(
+        "globalThis.__pulpRuntimeImportErr__ = null;"
+        "try { __pulpRuntimeImport__('<html><body>plain</body></html>', 'plain'); }"
+        "catch (e) { globalThis.__pulpRuntimeImportErr__ = 'threw:' + String(e); }");
+    const auto err_str = engine.evaluate(
+        "String(globalThis.__pulpRuntimeImportErr__ || '')")
+        .getWithDefault<std::string>("");
+    // Must contain the bundle envelope marker — and must NOT be a 'threw:' string.
+    REQUIRE(err_str.find("threw:") == std::string::npos);
+    REQUIRE(err_str.find("claude bundle") != std::string::npos);
+}
+
+TEST_CASE("WidgetBridge __pulpRuntimeSettle__ pumps without crashing",
+          "[view][bridge][runtime-import]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    bridge.install_runtime_import_handlers();
+
+    // 8 rounds is the default settleRounds; should be a no-op when nothing
+    // is pending. Clamping at [1, 64] is enforced inside the handler.
+    auto result = engine.evaluate(
+        "__pulpRuntimeSettle__(8); __pulpRuntimeSettle__(0); __pulpRuntimeSettle__(999); 'ok'");
+    REQUIRE(result.getWithDefault<std::string>("") == "ok");
+}
+
+TEST_CASE("WidgetBridge install_runtime_import_handlers is idempotent",
+          "[view][bridge][runtime-import]") {
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    // Calling twice must not throw and must leave the registrations intact.
+    bridge.install_runtime_import_handlers();
+    bridge.install_runtime_import_handlers();
+
+    auto result = engine.evaluate("typeof __pulpRuntimeImport__");
+    REQUIRE(result.getWithDefault<std::string>("") == "function");
+}
