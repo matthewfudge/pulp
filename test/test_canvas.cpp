@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/canvas/canvas.hpp>
 #include <pulp/canvas/sdf_atlas.hpp>
 #include <array>
@@ -3315,7 +3316,7 @@ TEST_CASE("SkiaCanvas::set_font_features routes tnum through SkShaper",
     sk_canvas->clear(SK_ColorWHITE);
 
     SkiaCanvas canvas(sk_canvas);
-    canvas.set_font_full("Inter", 24.0f, 400, FontStyle::normal, 0.0f);
+    canvas.set_font_full("Inter", 24.0f, 400, 0, 0.0f);
 
     // Inter has proportional digits by default — '1' is narrower than '9'.
     // Without tnum, the two strings differ in advance.
