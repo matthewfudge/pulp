@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0873"></a>
+## [0.87.3] - 2026-05-10
+
+- fix(canvas2d): DOMMatrix scaleSelf/rotateSelf/inverse spec conformance (Codex P1×2 + P2 on #1730) ([#1754](https://github.com/danielraffel/pulp/pull/1754))
+
 <a id="v0872"></a>
 ## [0.87.2] - 2026-05-10
 
@@ -1618,6 +1623,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.87.3]: https://github.com/danielraffel/pulp/releases/tag/v0.87.3
 [0.87.2]: https://github.com/danielraffel/pulp/releases/tag/v0.87.2
 [0.87.1]: https://github.com/danielraffel/pulp/releases/tag/v0.87.1
 [0.87.0]: https://github.com/danielraffel/pulp/releases/tag/v0.87.0
