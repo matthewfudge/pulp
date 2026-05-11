@@ -233,10 +233,10 @@
     "transform": {
       "kind": "method",
       "bridge": [
-        "canvasTranslate"
+        "canvasSetTransform"
       ],
       "expectedStatus": "supported",
-      "notes": "PR #1701: arbitrary concat now wired (forwards composed matrix via canvasSetTransform)"
+      "notes": "PR #1701: arbitrary concat wired via canvasSetTransform — composes M' = M * given on the JS-side mirror, forwards the FULL composed matrix to the bridge (see web-compat-canvas.js:899). Pre-#1701 oracle listed canvasTranslate (the deprecated pure-translation fast path); Codex P2 on #1729 corrected the bridge ref so a regression in canvasSetTransform wiring would now be caught."
     },
     "createLinearGradient": {
       "kind": "method",
