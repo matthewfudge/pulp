@@ -9,7 +9,9 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0870"></a>
-## [0.87.0]
+## [0.87.0] - 2026-05-10
+
+- feat(rn): walk back 5 stale wontfix classifications to supported (rn 89.2% → 93.3%) ([#1800](https://github.com/danielraffel/pulp/pull/1800))
 
 <a id="v0860"></a>
 ## [0.86.0] - 2026-05-10
@@ -1606,6 +1608,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.87.0]: https://github.com/danielraffel/pulp/releases/tag/v0.87.0
 [0.86.0]: https://github.com/danielraffel/pulp/releases/tag/v0.86.0
 [0.85.0]: https://github.com/danielraffel/pulp/releases/tag/v0.85.0
 [0.84.0]: https://github.com/danielraffel/pulp/releases/tag/v0.84.0
