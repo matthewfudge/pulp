@@ -276,24 +276,34 @@ static std::vector<uint8_t> capture_window_screencapture_png(NSWindow* window) {
     me.scroll_delta_y = static_cast<float>(-event.scrollingDeltaY);
 
     // Walk up from target to find nearest ScrollView ancestor
+    // W3C wheel bubble: dispatch to every ancestor with on_pointer_event
+    // set. Each handler self-filters on me.is_wheel:
+    //   - registerPointer's lambda short-circuits when is_wheel == true
+    //     (returns early without dispatching pointerdown/up/move/cancel)
+    //   - registerWheel's lambda short-circuits when is_wheel == false
+    // So a view that registered both gets both halves; a view that
+    // registered only one ignores the other. The PRIOR "stop at first
+    // ancestor with on_pointer_event" approach (from c29fa49f) was
+    // wrong because it stopped at the canvas child that registered
+    // ONLY pointer events — the wheel event never reached the
+    // ancestor wrap-div that registered the zoom handler. ScrollView
+    // ancestor still takes precedence.
     auto* v = target;
     while (v) {
         if (auto* sv = dynamic_cast<pulp::view::ScrollView*>(v)) {
             sv->on_mouse_event(me);
-            sv->layout_children();  // re-layout after scroll position change
+            sv->layout_children();
             [self setNeedsDisplay:YES];
             return;
         }
+        if (v->on_pointer_event) {
+            v->on_mouse_event(me);
+        }
         v = v->parent();
     }
-    // Bubble: dispatch to the deepest hit AND every ancestor that has an
-    // on_pointer_event subscriber (W3C wheel bubbling). Without this,
-    // wrap-divs that subscribe via registerWheel (e.g. Spectr's
-    // FilterBank zoom container around a canvas child) never see wheel
-    // events because the canvas child wins the hit test.
-    for (auto* bubble = target; bubble; bubble = bubble->parent()) {
-        if (bubble->on_pointer_event) bubble->on_pointer_event(me);
-    }
+    // No ancestor handled the wheel — deliver to the deepest hit so any
+    // default behavior still runs.
+    target->on_mouse_event(me);
     [self setNeedsDisplay:YES];
 }
 

@@ -117,6 +117,98 @@ polls the same `StateStore`; there is no explicit broadcast step.
 Phase 4's `attach_remote_view(url)` (WebSocket-backed) will land as a
 `ViewRole::Remote` secondary view.
 
+## ⚠️ TRACKPAD / SCROLL-WHEEL ZOOM SILENTLY BROKEN — 3 bugs in one stack (2026-05-10)
+
+**Searchable keywords**: trackpad zoom, scroll-wheel zoom, mouse wheel, "1.00x zoom" stuck, deltaY missing, deltaY=0, wheel event not firing, FilterBank zoom, Spectr zoom, onWheel, addEventListener('wheel'), registerWheel never called, wheel bubble, ancestor not receiving wheel, canvas-child captures wheel, wheel handler short-circuits.
+
+**Symptom**: in Spectr (and likely any @pulp/react consumer that uses a
+canvas child inside a wheel-handling wrap-div), scroll-wheel or
+trackpad scroll over the canvas does NOT trigger the wrap-div's zoom
+handler. The zoom indicator stays "1.00x" no matter how many wheel
+events fire.
+
+**Three independent bugs stacked**, all needed fixing to make zoom work:
+
+### Bug A: `on(id, 'wheel', fn)` never invoked `registerWheel(id)`
+The `on()` JS function in `kJSPreamble` mapped event names to native
+registrars (click → `registerClick`, pointer events → `registerPointer`,
+gesture events → `registerGesture`), but had **no case for `'wheel'`**.
+Spectr's editor.js bound a wheel handler via `addEventListener('wheel',
+fn)` which routes through `on(id, 'wheel', fn)`. The callback was
+stored in `__callbacks__[id + ':wheel']` but the native side was never
+told this view wanted wheel events. Result: `registerWheel` ran for 0
+views, wheel events had no JS receivers.
+
+**Fix**: add a `wheel` case to `on()` + a `wheel` group to
+`__ensureNativeRegistered__()` so `on(id, 'wheel', fn)` calls
+`registerWheel(id)` to wire the native dispatch. (`core/view/src/widget_bridge.cpp` `kJSPreamble`.)
+
+### Bug B: bubble loop short-circuited on the wrong handler
+`window_host_mac.mm::scrollWheel:` walked from the hit-tested deepest
+view up to find the first ancestor with `on_pointer_event` set, then
+delivered the wheel event there and returned. But the deepest hit
+(typically a Canvas2D child) had `on_pointer_event` registered via
+`registerPointer` (for pointerdown/up/move/cancel) — that lambda
+short-circuits on `is_wheel` (it's the pointer-only handler). The
+bubble therefore delivered the wheel event to a no-op handler and
+returned, never reaching the wrap-div ancestor that had registered the
+ZOOM handler via `registerWheel`.
+
+**Fix**: change `scrollWheel:` to deliver to EVERY ancestor with
+`on_pointer_event` set (not stop at the first). Each handler self-
+filters on `me.is_wheel`: `registerPointer`'s lambda short-circuits
+when `is_wheel == true`, `registerWheel`'s short-circuits when `false`.
+So a view that registered both gets both halves; a view that registered
+only one ignores the other. ScrollView ancestor still takes precedence
+and stops the walk. (`core/view/platform/mac/window_host_mac.mm`.)
+
+### Bug C: wheel-event payload missing `clientX/clientY/deltaY` (already fixed in #1792)
+Already addressed earlier in the PR: bridge emits
+`{deltaX, deltaY, clientX, clientY}` as an object (not positional args)
+so the `@pulp/react` synthetic-event shim's `isPlainObject(rawArgs[0])`
+branch can lift the fields. Without this, even after Bugs A+B were
+fixed, `e.deltaY` would be undefined and `e.clientX - rect.left` would
+read 0.
+
+### How to diagnose if zoom is broken again
+
+1. `fprintf(stderr, ...)` in `scrollWheel:` to confirm the NSView even
+   receives the event — if not, accessibility / focus issue.
+2. Confirm `registerWheel('<view_id>')` is being called after the
+   view's editor.js mounts. If never called, Bug A is back.
+3. Confirm the bubble walk reaches the wrap-div, not stopping at the
+   canvas child. Print the chain `target → parent → … → root` and
+   note which have `on_pointer_event` set.
+4. Confirm `__dispatch__(view_id, 'wheel', {deltaX, deltaY, clientX,
+   clientY})` is called with non-zero deltas. If `clientX/clientY` are
+   0, `me.window_position` was not set in `scrollWheel:`.
+5. In Spectr's `native-react/dist/editor.js` bundle, `grep deltaY` —
+   expect ≥3 mentions. If 1 or 0, the bundle was built against an old
+   `@pulp/react` without the synthetic-event delta fields and the
+   bundle needs `npm run build:port`.
+
+### Tooling: drive wheel events programmatically
+
+`cliclick` has no wheel command (`w:N` is WAIT, not WHEEL). Compile a
+tiny tool:
+
+```c
+// /tmp/scroll-event.c
+#include <ApplicationServices/ApplicationServices.h>
+int main(int argc, char** argv) {
+    int count = argc > 1 ? atoi(argv[1]) : 10;
+    int delta = argc > 2 ? atoi(argv[2]) : 5;
+    for (int i = 0; i < count; i++) {
+        CGEventRef ev = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 1, delta);
+        CGEventPost(kCGHIDEventTap, ev);
+        CFRelease(ev);
+        usleep(50000);
+    }
+}
+```
+
+Build: `clang -framework ApplicationServices -o /tmp/scroll-event /tmp/scroll-event.c`. Posts real CGEvent scroll-wheel events that reach `NSView::scrollWheel:`. Use `/tmp/scroll-event 30 5` to inject 30 scroll-up events.
+
 ## ⚠️ STALE-HEADER ABI MISMATCH — silent crash at first paint (2026-05-10)
 
 **Searchable keywords**: silent crash, "Standalone: editor window open"

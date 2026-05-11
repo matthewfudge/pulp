@@ -538,6 +538,8 @@ function __ensureNativeRegistered__(id, group) {
         registerPointer(id);
     } else if (group === 'gesture' && typeof registerGesture === 'function') {
         registerGesture(id);
+    } else if (group === 'wheel' && typeof registerWheel === 'function') {
+        registerWheel(id);
     }
 }
 function on(id, eventName, fn) {
@@ -553,6 +555,14 @@ function on(id, eventName, fn) {
     } else if (eventName === 'gesturestart' || eventName === 'gesturechange' ||
                eventName === 'gestureend') {
         __ensureNativeRegistered__(id, 'gesture');
+    } else if (eventName === 'wheel') {
+        // pulp #1XXX — Spectr's trackpad-zoom handler binds via
+        // addEventListener('wheel', fn) which routes through on(id,
+        // 'wheel', fn). Without this case the JS callback is stored
+        // but the C++ registerWheel(id) is never invoked, so wheel
+        // events never reach the JS handler. Critical for trackpad
+        // zoom on any wrap-div that subscribes via 'wheel'.
+        __ensureNativeRegistered__(id, 'wheel');
     }
 }
 )";
