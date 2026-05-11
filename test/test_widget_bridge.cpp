@@ -11707,8 +11707,10 @@ TEST_CASE("setBorderRadius accepts % string + paint-time bounds resolution",
 // in the tree per frame, via the existing advance_widget_animations /
 // advance_view_animations recursive helpers).
 //
-// This test simulates the per-frame call and verifies the pause keyword
-// is honored: paused animations don't advance; resuming them does.
+// Codex P2 follow-up on PR #1734: rewritten with real assertions on
+// observable animation state. The previous version used SUCCEED /
+// REQUIRE(true) without exercising tick advance, so a regression that
+// broke pause-resume or frame-loop recursion would silently pass.
 TEST_CASE("CSS animationPlayState paused honored by tick_animations recursion",
           "[view][bridge][css][issue-1668][animationplaystate-paused]") {
     using namespace pulp::view;
@@ -11731,31 +11733,112 @@ TEST_CASE("CSS animationPlayState paused honored by tick_animations recursion",
     auto* p = bridge.widget("p");
     REQUIRE(p != nullptr);
 
-    // Stage an animation with a known duration so tick_animations advances it.
-    auto& staged = p->staged_animation();
-    staged.duration_seconds = 1.0f;
-    staged.delay_seconds = 0.0f;
+    // Seed an active CSS animation directly on active_animations_ so
+    // tick_animations() has something to advance. Skipping the
+    // bridge-driven keyframe registry route keeps the test focused on
+    // the play-state gating and the recursive frame-loop walk.
+    CssAnimation a{};
+    a.spec.duration_seconds = 1.0f;
+    a.spec.delay_seconds = 0.0f;
+    a.start_value = 0.0f;
+    a.end_value = 100.0f;
+    a.elapsed_seconds = 0.0f;
+    a.active = true;
+    p->active_animations().push_back(a);
 
-    // Default play_state is "running" → tick_animations advances.
-    bridge.load_script("setAnimation('p', 'play_state', 'running');");
-    // Without active animations on the View the tick is a no-op; this just
-    // proves tick_animations doesn't throw and the play_state slot is set.
-    tick_tree(p, 1.0f / 60.0f);
-    REQUIRE(true);  // non-throw harness anchor
+    // Default play_state is "running" → tick advances elapsed.
+    REQUIRE(p->animation_play_state() != "paused");
+    tick_tree(p, 0.25f);
+    REQUIRE(p->active_animations().size() == 1);
+    REQUIRE(p->active_animations()[0].active);
+    REQUIRE_THAT(p->active_animations()[0].elapsed_seconds, WithinAbs(0.25f, 0.001f));
 
-    // Set paused — tick_animations early-returns with no advance.
+    // Pause: tick is a no-op for active_animations on this View.
     bridge.load_script("setAnimation('p', 'play_state', 'paused');");
-    tick_tree(p, 1.0f / 60.0f);
-    // Verify the play_state slot reflects the paused keyword.
-    bridge.load_script("globalThis.__ps = (function(){ return null; })();");
+    REQUIRE(p->animation_play_state() == "paused");
+    tick_tree(p, 0.25f);
+    REQUIRE_THAT(p->active_animations()[0].elapsed_seconds, WithinAbs(0.25f, 0.001f));
 
-    // Coverage anchor: the wiring exists and is invoked per-frame in the
-    // production frame loops on Mac (window_host_mac.mm
-    // advance_widget_animations) and Android (gpu_surface_android.cpp
-    // advance_view_animations). With paused → no advance; without →
-    // advance. The fundamental tick_animations behavior is covered by
-    // the longstanding [issue-1508] test case.
-    SUCCEED("animationPlayState paused honored — frame-loop wiring + tick_animations early-return for paused");
+    // Resume: tick advances again.
+    bridge.load_script("setAnimation('p', 'play_state', 'running');");
+    REQUIRE(p->animation_play_state() == "running");
+    tick_tree(p, 0.25f);
+    REQUIRE_THAT(p->active_animations()[0].elapsed_seconds, WithinAbs(0.50f, 0.001f));
+
+    // Recursion proof: same gate must apply to descendants. Add a
+    // second View with its own animation; tick at the root and verify
+    // the descendant's elapsed advances when running and stalls when
+    // paused.
+    bridge.load_script(R"(
+        createPanel('child', 'p');
+    )");
+    auto* child = bridge.widget("child");
+    REQUIRE(child != nullptr);
+    CssAnimation b = a;
+    b.elapsed_seconds = 0.0f;
+    child->active_animations().push_back(b);
+
+    tick_tree(p, 0.10f);
+    REQUIRE_THAT(child->active_animations()[0].elapsed_seconds, WithinAbs(0.10f, 0.001f));
+
+    bridge.load_script("setAnimation('child', 'play_state', 'paused');");
+    tick_tree(p, 0.10f);
+    // child paused, parent still running — only parent advances.
+    REQUIRE_THAT(child->active_animations()[0].elapsed_seconds, WithinAbs(0.10f, 0.001f));
+    REQUIRE_THAT(p->active_animations()[0].elapsed_seconds, WithinAbs(0.70f, 0.001f));
+}
+
+// pulp #1734 (Codex P1): the macOS `view_needs_continuous_frames` gate
+// on the CVDisplayLink loop was only checking Knob/Toggle/Fader/
+// ScrollView animations and ignored View::active_animations(). After
+// the first paint, needs_repaint_ clears and the loop stops requesting
+// frames — so a CSS animation appears as one tick then a stall.
+//
+// We can't drive CVDisplayLink from a unit test (it needs a window),
+// but we can exercise the same predicate logic at the View level.
+// Mirror the gate: a View with an active CSS animation and
+// play_state != "paused" must signal "needs frames"; flipping to
+// paused must clear that signal.
+TEST_CASE("View signals continuous-frame need while CSS animation runs (Codex P1 on #1734)",
+          "[view][css][issue-1734][frame-loop]") {
+    using namespace pulp::view;
+
+    // Predicate mirroring window_host_mac.mm's view_needs_continuous_frames
+    // for the CSS-animation branch only — same logic, no widget
+    // dispatch since we're not testing Knob/Fader/etc. here.
+    auto css_animation_wants_frames = [](View& v) {
+        if (v.animation_play_state() == "paused") return false;
+        for (const auto& a : v.active_animations()) {
+            if (a.active) return true;
+        }
+        return false;
+    };
+
+    View v;
+
+    // No animations → no frame request.
+    REQUIRE_FALSE(css_animation_wants_frames(v));
+
+    // Active animation → frames requested.
+    CssAnimation a{};
+    a.spec.duration_seconds = 1.0f;
+    a.start_value = 0.0f;
+    a.end_value = 1.0f;
+    a.active = true;
+    v.active_animations().push_back(a);
+    REQUIRE(css_animation_wants_frames(v));
+
+    // Paused → no frames even with active animation present.
+    v.set_animation_play_state("paused");
+    REQUIRE_FALSE(css_animation_wants_frames(v));
+
+    // Resume → frames again.
+    v.set_animation_play_state("running");
+    REQUIRE(css_animation_wants_frames(v));
+
+    // Animation finishes (active=false) → no frames even when running.
+    v.active_animations()[0].active = false;
+    REQUIRE_FALSE(css_animation_wants_frames(v));
 }
 
 // ────────────────────────────────────────────────────────────────────────────
