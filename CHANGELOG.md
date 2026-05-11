@@ -9,7 +9,9 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0831"></a>
-## [0.83.1]
+## [0.83.1] - 2026-05-10
+
+- fix: 4 Codex sweep findings on #1791 and #1794 ([#1796](https://github.com/danielraffel/pulp/pull/1796))
 
 <a id="v0830"></a>
 ## [0.83.0] - 2026-05-10
@@ -1586,6 +1588,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.83.1]: https://github.com/danielraffel/pulp/releases/tag/v0.83.1
 [0.83.0]: https://github.com/danielraffel/pulp/releases/tag/v0.83.0
 [0.82.2]: https://github.com/danielraffel/pulp/releases/tag/v0.82.2
 [0.82.1]: https://github.com/danielraffel/pulp/releases/tag/v0.82.1
