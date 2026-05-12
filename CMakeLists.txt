@@ -53,6 +53,17 @@ message(STATUS "Pulp ${PROJECT_VERSION} — platform: ${PULP_PLATFORM}")
 option(PULP_BUILD_TESTS "Build unit tests" ON)
 option(PULP_BUILD_EXAMPLES "Build example projects" ON)
 option(PULP_ENABLE_GPU "Enable GPU rendering (Dawn/Skia)" ON)
+# SDK-release safety net for pulp #1817. When ON, configure FAILS if
+# PULP_ENABLE_GPU is set but Skia binaries weren't located. The release
+# workflow flips this ON so an SDK tarball can never ship with the GPU
+# code path silently #ifdef'd out. Local developer builds leave it OFF
+# (the default) so a no-Skia incremental rebuild still configures and
+# transparently falls back to the CG path.
+option(PULP_REQUIRE_GPU_FOR_SDK
+       "Fail configure if PULP_ENABLE_GPU=ON but Skia was not found. \
+        Set ON in .github/workflows/release-cli.yml to prevent silently \
+        shipping CG-only SDKs (pulp #1817)."
+       OFF)
 option(PULP_TEXT_SHAPING "Enable SkParagraph text shaping (HarfBuzz/ICU via Skia). Default: ON when GPU enabled." ON)
 option(PULP_ENABLE_SWIFT "Enable Swift layer (Apple only)" OFF)
 option(PULP_ENABLE_AAX "Enable optional AAX support with a developer-supplied SDK" OFF)
@@ -173,6 +184,7 @@ endif()
 
 # Skia Graphite — GPU-accelerated 2D rendering (BSD-3-Clause)
 # Pre-built via skia-builder (desktop) or build-skia-android.sh (Android)
+set(PULP_HAS_SKIA FALSE)
 if(PULP_ENABLE_GPU)
     include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/FindSkia.cmake)
     if(SKIA_FOUND)
@@ -198,6 +210,22 @@ if(PULP_ENABLE_GPU)
             set(PULP_TEXT_SHAPING OFF)
         endif()
     endif()
+endif()
+
+# SDK-release safety net for pulp #1817. The release workflow turns this
+# option ON via -DPULP_REQUIRE_GPU_FOR_SDK=ON so a missing Skia tarball
+# is a hard configure error instead of a silent CG-only build that ships
+# downstream to every SDK consumer.
+if(PULP_ENABLE_GPU AND PULP_REQUIRE_GPU_FOR_SDK AND NOT PULP_HAS_SKIA)
+    message(FATAL_ERROR
+        "PULP_REQUIRE_GPU_FOR_SDK=ON but Skia binaries were not found at "
+        "external/skia-build/build/<platform>-gpu/lib/Release/libskia.a. "
+        "The release tarball would ship without MacGpuWindowHost and "
+        "consumers passing use_gpu=true would silently fall back to "
+        "CoreGraphics CPU rendering. Either fetch the Skia binaries (see "
+        ".github/workflows/release-cli.yml 'Fetch Skia binaries' step, or "
+        "tools/scripts/fetch_skia_for_release.py for the manifest-driven "
+        "fetch) or set PULP_ENABLE_GPU=OFF if you intend a CG-only build.")
 endif()
 
 # Text shaping requires GPU/Skia — validate even when GPU is off

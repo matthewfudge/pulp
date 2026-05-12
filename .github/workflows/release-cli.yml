@@ -71,6 +71,22 @@ jobs:
         run: ./setup.sh --ci --deps-only
         shell: bash
 
+      # Fetch Skia prebuilt binaries — the root fix for pulp #1817.
+      #
+      # The release tarball must ship libpulp-view.a with MacGpuWindowHost
+      # compiled in, otherwise SDK consumers that pass `use_gpu=true`
+      # silently fall back to CoreGraphics CPU rendering. The Skia
+      # binaries are pinned in tools/deps/manifest.json and live at
+      # skia-builder's GitHub release assets — neither bootstrap nor
+      # actions/checkout's LFS pull populates them, so we fetch here
+      # explicitly. Platforms without a published skia-builder asset
+      # (linux-arm64, windows-*) print INFO and continue without GPU;
+      # PULP_REQUIRE_GPU_FOR_SDK is gated on the same condition so
+      # configure doesn't trip on them.
+      - name: Fetch Skia binaries
+        run: python3 tools/scripts/fetch_skia_for_release.py ${{ matrix.platform }}
+        shell: bash
+
       # On Linux, building with PULP_BUILD_WEBVIEW=ON pulls webkit2gtk
       # → libjavascriptcoregtk-4.1 into the static pulp-view archive.
       # When the CLI binary links pulp-view (a STATIC library), CMake
@@ -87,10 +103,25 @@ jobs:
       # reconfigures with WebView=ON so plugin authors still get the
       # WebView code in the SDK tarball.
       - name: Configure (CLI, no WebView on Linux)
+        # PULP_REQUIRE_GPU_FOR_SDK is an SDK-release safety net that turns the
+        # silent "no Skia → CG fallback" SDK build into a hard configure-time
+        # failure. Only enable it for platforms whose Skia binaries we just
+        # fetched (matrix-platforms with an entry in fetch_skia_for_release.py's
+        # MATRIX_TO_MANIFEST + a published release_assets entry in
+        # tools/deps/manifest.json). darwin-arm64 and linux-x64 are the only
+        # such platforms today; linux-arm64 + windows-* continue to build
+        # without Skia until their assets ship.
         run: |
+          REQUIRE_GPU="-DPULP_REQUIRE_GPU_FOR_SDK=OFF"
+          case "${{ matrix.platform }}" in
+            darwin-arm64|linux-x64)
+              REQUIRE_GPU="-DPULP_REQUIRE_GPU_FOR_SDK=ON"
+              ;;
+          esac
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DPULP_BUILD_TESTS=OFF \
+            $REQUIRE_GPU \
             ${{ runner.os == 'Linux' && '-DPULP_BUILD_WEBVIEW=OFF' || '-DPULP_BUILD_WEBVIEW=ON' }}
         shell: bash
 
@@ -163,10 +194,21 @@ jobs:
       # we just symlink the SDK build dir to the existing build dir.
       - name: Prepare SDK build dir (Linux)
         if: runner.os == 'Linux'
+        # Same PULP_REQUIRE_GPU_FOR_SDK gating as the CLI configure above —
+        # the SDK lib must contain the Skia path for platforms where it's
+        # supposed to. linux-x64 has a published skia-builder asset;
+        # linux-arm64 does not (yet) so it must NOT trip the gate.
         run: |
+          REQUIRE_GPU="-DPULP_REQUIRE_GPU_FOR_SDK=OFF"
+          case "${{ matrix.platform }}" in
+            linux-x64)
+              REQUIRE_GPU="-DPULP_REQUIRE_GPU_FOR_SDK=ON"
+              ;;
+          esac
           cmake -S . -B build-sdk \
             -DCMAKE_BUILD_TYPE=Release \
             -DPULP_BUILD_TESTS=OFF \
+            $REQUIRE_GPU \
             -DPULP_BUILD_WEBVIEW=ON
           # Build everything the SDK install step needs. This is a full
           # second build on Linux, but it's required to keep the CLI
@@ -181,6 +223,8 @@ jobs:
 
       - name: Build SDK tarball (Unix)
         if: runner.os != 'Windows'
+        env:
+          MATRIX_PLATFORM: ${{ matrix.platform }}
         run: |
           # build-sdk on Linux is the WebView=ON build (separate dir to
           # avoid re-linking the CLI binary against libwebkit2gtk).
@@ -189,10 +233,32 @@ jobs:
           cmake --install build-sdk --prefix sdk-staging --config Release
           test -f sdk-staging/lib/libpulp-view.a
           python3 - <<'PY'
+          import os
           from pathlib import Path
+          platform = os.environ["MATRIX_PLATFORM"]
           data = Path("sdk-staging/lib/libpulp-view.a").read_bytes()
-          assert b"WebViewPanel" in data
-          assert b"make_webview_embedded_resource_fetcher" in data
+          # WebView lane (existing).
+          assert b"WebViewPanel" in data, "WebViewPanel symbol missing"
+          assert b"make_webview_embedded_resource_fetcher" in data, (
+              "make_webview_embedded_resource_fetcher symbol missing"
+          )
+          # GPU lane (new — prevents pulp #1817 from regressing).
+          #
+          # macOS has a dedicated MacGpuWindowHost class that is
+          # #ifdef PULP_HAS_SKIA'd. Linux/Windows route GPU through SDL
+          # rather than a dedicated host class, so we can't assert on a
+          # single GPU host symbol there yet. linux-x64 still has the
+          # PULP_REQUIRE_GPU_FOR_SDK CMake gate above to catch a missing
+          # Skia at configure time; cross-platform symbol coverage is a
+          # follow-up (see pulp #1817 plan, Layer 3).
+          if platform == "darwin-arm64":
+              assert b"MacGpuWindowHost" in data, (
+                  "MacGpuWindowHost symbol missing from libpulp-view.a — "
+                  "Skia path was #ifdef'd out at compile time. Consumers "
+                  "passing use_gpu=true will silently fall back to "
+                  "CoreGraphics CPU rendering. See pulp #1817."
+              )
+              print("OK: MacGpuWindowHost symbol present in libpulp-view.a")
           PY
           mv sdk-staging pulp-sdk
           tar czf pulp-sdk-${{ matrix.platform }}.tar.gz pulp-sdk

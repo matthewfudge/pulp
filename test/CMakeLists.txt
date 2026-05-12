@@ -66,6 +66,18 @@ set_tests_properties(cmake-pulp-install-layout PROPERTIES
     LABELS "cmake;binary-data;issue-905;slow"
     TIMEOUT 120)
 
+# PULP_REQUIRE_GPU_FOR_SDK gate smoke (pulp #1817). Two full configures
+# in a tmpdir: ON+missing-skia must FAIL, OFF+missing-skia must SUCCEED.
+# Tagged `slow` because each configure pays the SDL3 / FetchContent cost.
+if(UNIX)
+    add_test(NAME cmake-require-gpu-for-sdk
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_require_gpu_for_sdk.sh
+                ${CMAKE_SOURCE_DIR})
+    set_tests_properties(cmake-require-gpu-for-sdk PROPERTIES
+        LABELS "cmake;sdk;issue-1817;slow"
+        TIMEOUT 600)
+endif()
+
 # retry_git_clone unit test (setup.sh helper). Guards the #425 P1
 # Codex fix — a partial clone target is scrubbed between retries so
 # attempt 2+ can actually re-run the network fetch.
