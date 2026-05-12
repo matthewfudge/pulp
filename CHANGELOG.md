@@ -8,9 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0920"></a>
-## [0.93.0]
+<a id="v0930"></a>
+## [0.93.0] - 2026-05-11
 
+- fix(view): mac mouseDown/keyDown stale pointers — PAC crash on react unmount ([#1819](https://github.com/danielraffel/pulp/pull/1819))
+
+<a id="v0920"></a>
 ## [0.92.0] - 2026-05-11
 
 - feat(view): rn/borderCurve squircle + css/rn isolation flip (RN to 100% PASS) ([#1816](https://github.com/danielraffel/pulp/pull/1816))
@@ -1652,6 +1655,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.93.0]: https://github.com/danielraffel/pulp/releases/tag/v0.93.0
 [0.92.0]: https://github.com/danielraffel/pulp/releases/tag/v0.92.0
 [0.91.0]: https://github.com/danielraffel/pulp/releases/tag/v0.91.0
 [0.90.0]: https://github.com/danielraffel/pulp/releases/tag/v0.90.0
