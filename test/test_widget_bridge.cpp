@@ -13402,3 +13402,65 @@ TEST_CASE("WidgetBridge pumps microtasks after JS dispatch so drag-state commits
     REQUIRE(engine.evaluate("move_count").getWithDefault<int>(0) == 1);
     REQUIRE(engine.evaluate("move_saw_drag_active").getWithDefault<bool>(false));
 }
+
+// pulp #1576 — bridge-level pin for min/max width/height with %, auto,
+// and calc-family inputs. The dispatcher at web-compat-style-decl.js
+// cases minWidth / minHeight / maxWidth / maxHeight previously had a
+// dual-path (calc-family detection guard + parseCSSLength fallback);
+// #1576 collapsed both into a single resolveCSSLength call. These
+// tests pin the unified shape end-to-end through the bridge so a
+// regression that re-introduces the dual-path (or drops % preservation
+// for calc-family inputs) fails first.
+TEST_CASE("minWidth / minHeight / maxWidth / maxHeight route % and calc-family through unified resolveCSSLength",
+          "[view][bridge][css][issue-1576]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        // Plain % path — unified resolveCSSLength must preserve unit='%'.
+        createPanel('mw-pct', '');
+        var sd1 = new CSSStyleDeclaration({ _id: 'mw-pct', _nativeCreated: true });
+        sd1._applyProperty('minWidth', '25%');
+
+        createPanel('mh-pct', '');
+        var sd2 = new CSSStyleDeclaration({ _id: 'mh-pct', _nativeCreated: true });
+        sd2._applyProperty('minHeight', '33%');
+
+        // calc-family % path — Codex P2: calc(50%) must reach the
+        // bridge as a percent, not absolute px.
+        createPanel('xw-calc-pct', '');
+        var sd3 = new CSSStyleDeclaration({ _id: 'xw-calc-pct', _nativeCreated: true });
+        sd3._applyProperty('maxWidth', 'min(50%, 75%)');
+
+        // calc-family px path — calc(100px + 50px) must resolve to 150px.
+        createPanel('xh-calc-px', '');
+        var sd4 = new CSSStyleDeclaration({ _id: 'xh-calc-px', _nativeCreated: true });
+        sd4._applyProperty('maxHeight', 'calc(100px + 50px)');
+    )");
+
+    auto* mw_pct      = dynamic_cast<Panel*>(bridge.widget("mw-pct"));
+    auto* mh_pct      = dynamic_cast<Panel*>(bridge.widget("mh-pct"));
+    auto* xw_calc_pct = dynamic_cast<Panel*>(bridge.widget("xw-calc-pct"));
+    auto* xh_calc_px  = dynamic_cast<Panel*>(bridge.widget("xh-calc-px"));
+    REQUIRE(mw_pct      != nullptr);
+    REQUIRE(mh_pct      != nullptr);
+    REQUIRE(xw_calc_pct != nullptr);
+    REQUIRE(xh_calc_px  != nullptr);
+
+    // % survives: dim_<dim>.unit is the percent sentinel.
+    REQUIRE(mw_pct->flex().dim_min_width.unit  == DimensionUnit::percent);
+    REQUIRE_THAT(mw_pct->flex().dim_min_width.value, WithinAbs(25.0f, 0.001f));
+    REQUIRE(mh_pct->flex().dim_min_height.unit == DimensionUnit::percent);
+    REQUIRE_THAT(mh_pct->flex().dim_min_height.value, WithinAbs(33.0f, 0.001f));
+
+    // calc-family % survives — Codex P2 pin (min(50%, 75%) = 50%).
+    REQUIRE(xw_calc_pct->flex().dim_max_width.unit  == DimensionUnit::percent);
+    REQUIRE_THAT(xw_calc_pct->flex().dim_max_width.value, WithinAbs(50.0f, 0.001f));
+
+    // calc-family px resolves to 150.
+    REQUIRE(xh_calc_px->flex().dim_max_height.unit == DimensionUnit::px);
+    REQUIRE_THAT(xh_calc_px->flex().dim_max_height.value, WithinAbs(150.0f, 0.001f));
+}
