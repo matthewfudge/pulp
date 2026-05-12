@@ -8,9 +8,26 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0940"></a>
-## [0.95.0]
+<a id="v0950"></a>
+## [0.95.0] - 2026-05-12
 
+- feat(view): SDK C++ runtime-import API — install_runtime_import_handlers ([#1856](https://github.com/danielraffel/pulp/pull/1856))
+- test(view/css): pin display:contents arch-deferred no-op (closes coverage-gap rn/display + yoga/display) ([#1852](https://github.com/danielraffel/pulp/pull/1852))
+- feat(css): alignItems / justifyContent CSS-spec value aliases (Tier 1 #1434) ([#1853](https://github.com/danielraffel/pulp/pull/1853))
+- test(import-validation): use POSIX [[:space:]] instead of GNU \s in #81 regression guard (Codex P2 on PR #1849) ([#1851](https://github.com/danielraffel/pulp/pull/1851))
+- fix(import-validation): no full-screen capture fallback — preserves window-only diff against REFERENCE (closes pulp-internal #81) ([#1849](https://github.com/danielraffel/pulp/pull/1849))
+- feat(import-validation): structural label-coverage check ([#1847](https://github.com/danielraffel/pulp/pull/1847))
+- feat(cmake): Debug-SDK perf-killer guard in PulpConfig.cmake (closes pulp-internal #35) ([#1828](https://github.com/danielraffel/pulp/pull/1828))
+- feat(import-design): promote interactive frames to buttons (post-parse pass) ([#1824](https://github.com/danielraffel/pulp/pull/1824))
+- test(spectr): autonomous regression suite composing the #1792 event-bridge contracts ([#1827](https://github.com/danielraffel/pulp/pull/1827))
+- fix(cli): version-pin SDK tarball filename — kills pulp install stale-cache (closes #1814) ([#1825](https://github.com/danielraffel/pulp/pull/1825))
+- fix(mcp): wrap pulp-mcp in launcher so .mcp.json resolves regardless of cwd (closes #1821) ([#1822](https://github.com/danielraffel/pulp/pull/1822))
+- fix(release): ship SDK tarballs with Skia/GPU — fix pulp #1817 ([#1820](https://github.com/danielraffel/pulp/pull/1820))
+- fix(react): implement resetTextContent for text→non-text transition (Codex P1 on #1840) ([#1842](https://github.com/danielraffel/pulp/pull/1842))
+- fix(react): TEXT_BEARING children-aware short-circuit (Codex P1 on #1836) ([#1840](https://github.com/danielraffel/pulp/pull/1840))
+- docs(compat): document CG canvas-backend gap on canvas2d/filter (Codex P? on #1724) ([#1839](https://github.com/danielraffel/pulp/pull/1839))
+
+<a id="v0940"></a>
 ## [0.94.0] - 2026-05-12
 
 - feat(format): StandaloneApp headless --screenshot capture (SDK-codified) ([#1838](https://github.com/danielraffel/pulp/pull/1838))
@@ -1665,6 +1682,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.95.0]: https://github.com/danielraffel/pulp/releases/tag/v0.95.0
 [0.94.0]: https://github.com/danielraffel/pulp/releases/tag/v0.94.0
 [0.93.0]: https://github.com/danielraffel/pulp/releases/tag/v0.93.0
 [0.92.0]: https://github.com/danielraffel/pulp/releases/tag/v0.92.0
