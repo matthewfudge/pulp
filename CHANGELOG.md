@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0940"></a>
+## [0.95.0]
+
 ## [0.94.0] - 2026-05-12
 
 - feat(format): StandaloneApp headless --screenshot capture (SDK-codified) ([#1838](https://github.com/danielraffel/pulp/pull/1838))
