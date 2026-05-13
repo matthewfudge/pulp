@@ -2906,6 +2906,138 @@ TEST_CASE("CoreGraphicsCanvas::stroke_text gradient is canvas-space anchored",
     REQUIRE(br > 30); REQUIRE(bb > 30);
 }
 
+// pulp #1898 — CoreGraphicsCanvas::set_line_dash must produce visible gaps.
+//
+// Background. The base Canvas virtual is a no-op `(void)`, so before this
+// override Spectr's 0 dB rail (and ~5 other dashed-stroke callsites) drew
+// solid on the macOS CG CPU paint path. SkiaCanvas applies the dash via
+// SkDashPathEffect on the per-call SkPaint; CG applies via CGContextSetLineDash
+// on the GState. The test renders a horizontal line at y=4 with a coarse
+// [4, 4] dash and asserts the resulting bitmap has alternating filled +
+// empty samples — i.e. real gaps, not a solid stroke.
+TEST_CASE("CoreGraphicsCanvas::set_line_dash produces gaps in stroke",
+          "[canvas][cg][issue-1898]") {
+    constexpr int W = 32;
+    constexpr int H = 8;
+    std::vector<uint8_t> pixels(static_cast<size_t>(W) * H * 4u, 0u);
+    auto cs = CGColorSpaceCreateDeviceRGB();
+    REQUIRE(cs != nullptr);
+    const uint32_t bitmap_info =
+        static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) |
+        static_cast<uint32_t>(kCGBitmapByteOrder32Big);
+    CGContextRef ctx = CGBitmapContextCreate(
+        pixels.data(), W, H, 8, W * 4u, cs, bitmap_info);
+    CGColorSpaceRelease(cs);
+    REQUIRE(ctx != nullptr);
+
+    // Disable antialiasing so the dash-gap boundaries are pixel-accurate.
+    CGContextSetShouldAntialias(ctx, false);
+    CGContextSetAllowsAntialiasing(ctx, false);
+
+    {
+        CoreGraphicsCanvas canvas(ctx, static_cast<float>(W),
+                                  static_cast<float>(H));
+        canvas.set_stroke_color(Color::rgba(1.0f, 0.0f, 0.0f, 1.0f));
+        canvas.set_line_width(1.0f);
+        // Pattern: 4 px ON, 4 px OFF, phase 0. Span 32 px ⇒ 4 dashes.
+        const float intervals[2] = {4.0f, 4.0f};
+        canvas.set_line_dash(intervals, 2, 0.0f);
+        // Use stroke_line to exercise the GState dash path (mirrors the
+        // Spectr 0 dB rail call site, which uses ctx.stroke() over a
+        // beginPath+moveTo+lineTo built path).
+        canvas.stroke_line(0.0f, 4.0f, static_cast<float>(W), 4.0f);
+    }
+    CGContextRelease(ctx);
+
+    // Sample pixel row y=3 (the line is drawn at y=4 but butt cap + line
+    // width 1 with AA off can paint either y=3 or y=4 depending on rounding
+    // — we union-sample both rows). A red pixel has R>200 + G<60 + B<60.
+    auto sample_red = [&](int x, int y) -> bool {
+        const size_t i = (static_cast<size_t>(y) * W + x) * 4u;
+        return pixels[i] > 200 && pixels[i + 1] < 60 && pixels[i + 2] < 60;
+    };
+    auto union_red = [&](int x) -> bool {
+        return sample_red(x, 3) || sample_red(x, 4);
+    };
+
+    int filled = 0;
+    int empty = 0;
+    for (int x = 0; x < W; ++x) {
+        if (union_red(x)) ++filled;
+        else ++empty;
+    }
+    INFO("dashed line filled=" << filled << " empty=" << empty << " of W=" << W);
+
+    // A [4,4] dash over a 32 px span lands on roughly 16 filled + 16 empty
+    // pixels. Accept any split with at least 6 filled + at least 6 empty
+    // — the requirement is just "alternating", not "exactly half".
+    // The pre-fix bug rendered SOLID, so empty would be ~0; the assertion
+    // catches that regression specifically.
+    REQUIRE(filled >= 6);
+    REQUIRE(empty >= 6);
+
+    // Sanity: assert the FIRST 4 pixels are filled and pixels 4..7 are
+    // empty (the on/off boundary). This is the strong test — pre-fix every
+    // x in [0..W) would be filled.
+    int first_segment_filled = 0;
+    int first_gap_empty = 0;
+    for (int x = 0; x < 4; ++x)  if (union_red(x))  ++first_segment_filled;
+    for (int x = 4; x < 8; ++x)  if (!union_red(x)) ++first_gap_empty;
+    INFO("first 4 px filled=" << first_segment_filled
+         << " gap [4..8) empty=" << first_gap_empty);
+    REQUIRE(first_segment_filled >= 3);
+    REQUIRE(first_gap_empty >= 3);
+}
+
+// pulp #1898 — clearing the dash (empty intervals) must restore solid strokes
+// on subsequent draws. Mirrors the JS bridge contract: ctx.setLineDash([])
+// reverts to solid.
+TEST_CASE("CoreGraphicsCanvas::set_line_dash clears back to solid",
+          "[canvas][cg][issue-1898]") {
+    constexpr int W = 32;
+    constexpr int H = 8;
+    std::vector<uint8_t> pixels(static_cast<size_t>(W) * H * 4u, 0u);
+    auto cs = CGColorSpaceCreateDeviceRGB();
+    REQUIRE(cs != nullptr);
+    const uint32_t bitmap_info =
+        static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) |
+        static_cast<uint32_t>(kCGBitmapByteOrder32Big);
+    CGContextRef ctx = CGBitmapContextCreate(
+        pixels.data(), W, H, 8, W * 4u, cs, bitmap_info);
+    CGColorSpaceRelease(cs);
+    REQUIRE(ctx != nullptr);
+    CGContextSetShouldAntialias(ctx, false);
+    CGContextSetAllowsAntialiasing(ctx, false);
+
+    {
+        CoreGraphicsCanvas canvas(ctx, static_cast<float>(W),
+                                  static_cast<float>(H));
+        canvas.set_stroke_color(Color::rgba(1.0f, 0.0f, 0.0f, 1.0f));
+        canvas.set_line_width(1.0f);
+        const float intervals[2] = {4.0f, 4.0f};
+        canvas.set_line_dash(intervals, 2, 0.0f);
+        // Re-clear: empty pattern reverts to solid.
+        canvas.set_line_dash(nullptr, 0, 0.0f);
+        canvas.stroke_line(0.0f, 4.0f, static_cast<float>(W), 4.0f);
+    }
+    CGContextRelease(ctx);
+
+    auto sample_red = [&](int x, int y) -> bool {
+        const size_t i = (static_cast<size_t>(y) * W + x) * 4u;
+        return pixels[i] > 200 && pixels[i + 1] < 60 && pixels[i + 2] < 60;
+    };
+    auto union_red = [&](int x) -> bool {
+        return sample_red(x, 3) || sample_red(x, 4);
+    };
+
+    int filled = 0;
+    for (int x = 0; x < W; ++x)
+        if (union_red(x)) ++filled;
+    INFO("solid line filled=" << filled << " of W=" << W);
+    // After clearing the dash, every pixel in the span must be filled.
+    REQUIRE(filled >= W - 2);  // allow 2 px slack for end caps
+}
+
 #endif  // __APPLE__
 
 // pulp #1368 — Canvas's default save_count() / restore_to_count() impls
