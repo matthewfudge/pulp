@@ -194,15 +194,29 @@ def parse_cobertura(xml_path: pathlib.Path) -> dict[str, FileCoverage]:
 # ── Source filtering ───────────────────────────────────────────────────────
 
 
-# Extensions that the Clang source-based coverage pipeline actually
-# instruments. Scripts, CMake modules, YAML, shell, Python etc. in the
-# tier map (ship/**, tools/**) can't produce Cobertura entries, so the
-# old "missing file = fully uncovered" path would fail the infrastructure
+# Extensions whose coverage data shows up in a Cobertura XML the gate
+# can read. Two sources feed this set:
+#
+#   1. The Clang source-based coverage pipeline (scripts/run_coverage.sh)
+#      emits Cobertura rows for C / C++ / Obj-C / Obj-C++ sources.
+#   2. The vitest v8 coverage pipeline in `packages/pulp-react/**` emits
+#      Cobertura rows for `.ts` / `.tsx` / `.js` / `.jsx` — wired by
+#      pulp #1886 Phase 1 (measure-only). Phase 2 layers enforcement.
+#
+# Scripts, CMake modules, YAML, shell, Python etc. in the tier map
+# (ship/**, tools/**) can't produce Cobertura entries, so the old
+# "missing file = fully uncovered" path would fail the infrastructure
 # tier for any PR that only touched those files. Codex #612 P1.
 _INSTRUMENTED_EXTS = frozenset({
+    # Clang source-based coverage (scripts/run_coverage.sh):
     ".c", ".cc", ".cpp", ".cxx", ".c++",
     ".h", ".hh", ".hpp", ".hxx", ".h++",
     ".m", ".mm",
+    # Vitest v8 coverage (packages/pulp-react/**) — pulp #1886 Phase 1.
+    # `.mts` / `.cts` deliberately omitted for now; @pulp/react is pure
+    # `.ts` and there's no measured surface for the other variants yet.
+    # Add them here when a real source file lands.
+    ".ts", ".tsx", ".js", ".jsx",
 })
 
 
