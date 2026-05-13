@@ -4726,72 +4726,60 @@ TEST_CASE("CSSStyleDeclaration display: contents is a safe arch-deferred no-op",
     REQUIRE(p_contents->flex().direction == FlexDirection::row);
 }
 
-// ── pulp #1434 / Tier-4 — Yoga-arch CSS-property no-op pin ───────────────────
+// ── pulp #1434 / Tier-4 — OOS 3D / generated-content / scroll-snap pin ───────
 //
-// Closes 15 arch-deferred coverage-gap rows (planning/coverage-gaps/) by
-// pinning their silent-accept behavior. The bundle covers everything Pulp
-// deliberately doesn't ship per CLAUDE.md's flex+grid-only Yoga layout
-// policy: block-flow (clear, float), table layout (borderCollapse,
-// borderSpacing, captionSide, emptyCells, tableLayout), multi-column
-// (columnCount, columnRule, columnWidth, columns), print pagination
-// (pageBreakAfter, pageBreakBefore, printMargin), and writingMode.
+// Closes 10 arch-deferred coverage-gap rows (planning/coverage-gaps/) by
+// pinning their silent-accept behavior. The bundle covers everything that
+// is out of Pulp's UI scope per CLAUDE.md (audio plugin + cross-platform
+// native panels — no 3D perspective projection, no pseudo-element generated
+// content, no web-style scroll-snap containers):
 //
-// Until this regression test, the silent-accept guarantee was implicit —
-// a future refactor of `core/view/js/web-compat-style-decl.js` could have
-// started throwing for unknown properties without anyone noticing, and
-// import sources that emit these properties (e.g. legacy HTML scraped
-// into Pulp) would break loudly. This pins the contract.
-TEST_CASE("CSSStyleDeclaration silent-accepts 15 Yoga-arch CSS properties as no-ops",
-          "[view][bridge][css][issue-1434][arch-deferred][yoga-arch]") {
+//   3D transform       (3): backfaceVisibility, perspective, perspectiveOrigin
+//   generated content  (4): content, counterIncrement, counterReset, quotes
+//   scroll snap        (3): scrollMargin, scrollPadding, scrollSnapType
+//
+// Companion to the Yoga-arch ceiling test above; same pin shape, different
+// rationale. Catches any future refactor of web-compat-style-decl.js that
+// would start throwing for unknown properties (import sources commonly emit
+// scroll-snap + generated-content CSS even though Pulp doesn't honor them).
+TEST_CASE("CSSStyleDeclaration silent-accepts 10 OOS 3D/content/scroll properties as no-ops",
+          "[view][bridge][css][issue-1434][arch-deferred][oos-3d-content-scroll]") {
     ScriptEngine engine;
     View root;
     root.set_bounds({0, 0, 400, 300});
     StateStore store;
     WidgetBridge bridge(engine, root, store);
 
-    // Baseline: panel with display:flex + row direction. Apply 15 arch-deferred
-    // properties in sequence; assert state is untouched after the last write.
     bridge.load_script(R"((function(){
-        createPanel('p_yoga_arch', '');
-        var el = { _id: 'p_yoga_arch', _nativeCreated: true };
+        createPanel('p_oos', '');
+        var el = { _id: 'p_oos', _nativeCreated: true };
         var sd = new CSSStyleDeclaration(el);
         sd._applyProperty('display', 'flex');
         sd._applyProperty('flexDirection', 'row');
 
-        // Block flow:
-        sd._applyProperty('clear', 'both');
-        sd._applyProperty('float', 'left');
-        // Table layout:
-        sd._applyProperty('borderCollapse', 'collapse');
-        sd._applyProperty('borderSpacing', '4px');
-        sd._applyProperty('captionSide', 'top');
-        sd._applyProperty('emptyCells', 'show');
-        sd._applyProperty('tableLayout', 'fixed');
-        // Multi-column:
-        sd._applyProperty('columnCount', '3');
-        sd._applyProperty('columnRule', '1px solid black');
-        sd._applyProperty('columnWidth', '120px');
-        sd._applyProperty('columns', '3 120px');
-        // Print pagination:
-        sd._applyProperty('pageBreakAfter', 'always');
-        sd._applyProperty('pageBreakBefore', 'avoid');
-        sd._applyProperty('printMargin', '1cm');
-        // Writing mode (has explicit documented-no-op case):
-        sd._applyProperty('writingMode', 'vertical-rl');
+        // 3D transform:
+        sd._applyProperty('backfaceVisibility', 'hidden');
+        sd._applyProperty('perspective', '500px');
+        sd._applyProperty('perspectiveOrigin', '50% 50%');
+        // Generated content:
+        sd._applyProperty('content', '"foo"');
+        sd._applyProperty('counterIncrement', 'section');
+        sd._applyProperty('counterReset', 'section 0');
+        sd._applyProperty('quotes', 'auto');
+        // Scroll snap:
+        sd._applyProperty('scrollMargin', '10px');
+        sd._applyProperty('scrollPadding', '8px');
+        sd._applyProperty('scrollSnapType', 'x mandatory');
     })();)");
 
-    auto* p = dynamic_cast<Panel*>(bridge.widget("p_yoga_arch"));
+    auto* p = dynamic_cast<Panel*>(bridge.widget("p_oos"));
     REQUIRE(p != nullptr);
 
-    // Invariants after 15 no-op writes:
-    //  - bridge didn't crash (would fail dynamic_cast / widget() lookup)
-    //  - panel still visible (no property touched setVisible)
+    // Invariants after 10 no-op writes:
+    //  - bridge didn't crash
+    //  - panel still visible
     //  - flex direction unchanged from row baseline (no property touched
-    //    Yoga's flex_direction slot)
-    //
-    // If any of the 15 grows a real implementation that touches these state
-    // slots, this assertion fails and the change can be reviewed for arch
-    // alignment per CLAUDE.md's layout-model section.
+    //    Yoga slots or the visibility flag)
     REQUIRE(p->visible());
     REQUIRE(p->flex().direction == FlexDirection::row);
 }
