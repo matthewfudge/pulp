@@ -80,3 +80,91 @@ describe('prop-applier display: flex / none (pulp #1434 Triage #12)', () => {
         expect(calls[1].args).toEqual(['k', true]);
     });
 });
+
+// pulp #1894 — `display: 'flex'` without an explicit `flexDirection`
+// must default to row (CSS spec), not column (Yoga / RN default).
+// Without this fallback, every `style={{ display: 'flex' }}` JSX
+// container imported via the flat-prop path collapses to a vertical
+// stack — first seen in Spectr's editor toolbar post-#1859.
+describe('prop-applier display: flex default direction (pulp #1894)', () => {
+    function flexDirectionCalls(b: MockBridge) {
+        return b.calls.filter(
+            (c) => c.fn === 'setFlex' && c.args[1] === 'direction',
+        );
+    }
+
+    it("display: 'flex' alone emits setFlex(direction, 'row')", () => {
+        applyChangedProps(makeInstance(), {}, { display: 'flex' });
+        const dir = flexDirectionCalls(bridge);
+        expect(dir).toHaveLength(1);
+        expect(dir[0].args).toEqual(['k', 'direction', 'row']);
+    });
+
+    it('explicit flexDirection: column suppresses the default', () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            flexDirection: 'column',
+        });
+        const dir = flexDirectionCalls(bridge);
+        // Only one direction call — the explicit one. No extra 'row'
+        // emitted from the display:flex default path.
+        expect(dir).toHaveLength(1);
+        expect(dir[0].args).toEqual(['k', 'direction', 'column']);
+    });
+
+    it('explicit flexDirection: row matches the default (single emit)', () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            flexDirection: 'row',
+        });
+        const dir = flexDirectionCalls(bridge);
+        // Should only emit once — the explicit row, NOT a duplicate
+        // from the display:flex default. The hasOwnProperty guard skips
+        // the default when flexDirection is in the props bag.
+        expect(dir).toHaveLength(1);
+        expect(dir[0].args).toEqual(['k', 'direction', 'row']);
+    });
+
+    it('kebab-case flex-direction also suppresses the default', () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            'flex-direction': 'column',
+        });
+        const dir = flexDirectionCalls(bridge);
+        // The kebab-case key path is what CSS-shim emissions use.
+        // The default-suppression must check both spellings.
+        const fromDisplayDefault = dir.filter(
+            (c) => c.args[2] === 'row',
+        );
+        expect(fromDisplayDefault).toHaveLength(0);
+    });
+
+    it('flexFlow with direction token suppresses the default', () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            flexFlow: 'column wrap',
+        });
+        const fromDisplayDefault = flexDirectionCalls(bridge).filter(
+            (c) => c.args[2] === 'row',
+        );
+        expect(fromDisplayDefault).toHaveLength(0);
+    });
+
+    it('flexFlow without direction (just "wrap") does NOT suppress default', () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            flexFlow: 'wrap',
+        });
+        const fromDisplayDefault = flexDirectionCalls(bridge).filter(
+            (c) => c.args[2] === 'row',
+        );
+        // CSS spec: when flex-flow has no direction component, direction
+        // still defaults to row — same as bare display:flex.
+        expect(fromDisplayDefault).toHaveLength(1);
+    });
+
+    it("display: 'none' does not emit the default direction", () => {
+        applyChangedProps(makeInstance(), {}, { display: 'none' });
+        expect(flexDirectionCalls(bridge)).toHaveLength(0);
+    });
+});

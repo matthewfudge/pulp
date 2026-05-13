@@ -914,7 +914,32 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
         case 'display': {
             const sval = String(value);
             if (sval === 'none') return call('setVisible', id, false);
-            if (sval === 'flex') return call('setVisible', id, true);
+            if (sval === 'flex') {
+                call('setVisible', id, true);
+                // pulp #1894 — CSS web-compat: `display: flex` defaults to
+                // `flex-direction: row`. Pulp's Yoga config defaults to
+                // FlexDirection::column (RN convention), so when neither
+                // flexDirection nor flexFlow-with-direction is also being
+                // set in the same prop batch we must explicitly emit row.
+                // Mirrors the CSS shim path at web-compat-style-decl.js
+                // (display:flex handler). Without this fallback the
+                // flat-prop path used by `style={{ display: 'flex' }}`
+                // JSX silently collapses every flex container to a
+                // vertical stack on import — first seen in Spectr's
+                // editor toolbar post-#1859 re-validation.
+                if (props) {
+                    const hasFlexDirection =
+                        Object.prototype.hasOwnProperty.call(props, 'flexDirection') ||
+                        Object.prototype.hasOwnProperty.call(props, 'flex-direction');
+                    const ff = props.flexFlow;
+                    const flexFlowHasDirection =
+                        typeof ff === 'string' && /\b(row|column)\b/.test(ff);
+                    if (!hasFlexDirection && !flexFlowHasDirection) {
+                        call('setFlex', id, 'direction', 'row');
+                    }
+                }
+                return;
+            }
             return; // unknown display value — leave View at current visibility
         }
         // pulp #1434 (Triage #15) — `boxShadow` accepts:
