@@ -509,13 +509,26 @@ int main(int argc, char* argv[]) {
                   << text_count << " labels";
     }
 
-    // Write tokens
+    // Write tokens (W3C DTCG by default; --format json-tailwind /
+    // css-tailwind selects Tailwind v3 JSON or v4 CSS, but only when the
+    // source is `designmd` because the parser-produced section/
+    // diagnostic context is required for sensible Tailwind shape).
     if (include_tokens && (!ir.tokens.colors.empty() || !ir.tokens.dimensions.empty() || !ir.tokens.strings.empty())) {
-        auto theme = ir_tokens_to_theme(ir.tokens);
-        auto w3c = export_w3c_tokens(theme);
-        if (write_file(tokens_file, w3c)) {
+        std::string body;
+        if ((export_format == "json-tailwind" || export_format == "tailwind" ||
+             export_format == "css-tailwind") && *source == DesignSource::designmd) {
+            auto pr = parse_designmd(content);
+            body = (export_format == "css-tailwind")
+                       ? export_tailwind_v4_css(pr)
+                       : export_tailwind_v3_json(pr);
+        } else {
+            auto theme = ir_tokens_to_theme(ir.tokens);
+            body = export_w3c_tokens(theme);
+        }
+        if (write_file(tokens_file, body)) {
             size_t token_count = ir.tokens.colors.size() + ir.tokens.dimensions.size() + ir.tokens.strings.size();
-            std::cout << ", " << token_count << " tokens → " << tokens_file;
+            std::cout << ", " << token_count << " tokens → " << tokens_file
+                      << " (format=" << export_format << ")";
         }
     }
 

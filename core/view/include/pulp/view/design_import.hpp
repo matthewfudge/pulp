@@ -199,6 +199,51 @@ DesignMdParseResult parse_designmd(const std::string& markdown);
 /// for parity with the other source adapters' signatures.
 DesignIR parse_designmd_yaml(const std::string& markdown);
 
+// ── Phase 2: lint, diff, and Tailwind export ────────────────────────────
+//
+// These surfaces let DESIGN.md slot into CI gates the same way
+// @google/design.md's TypeScript CLI does, without taking on its JS
+// dependency surface. The lint rule set mirrors the upstream CLI's
+// seven rules plus section-order (which upstream uses as a warning).
+
+/// Run the seven Google design.md lint rules + section-order against a
+/// parsed DESIGN.md. Findings carry severity (info/warning/error).
+std::vector<DesignMdDiagnostic> lint_designmd(const DesignMdParseResult& parsed);
+
+struct DesignMdTokenDiff {
+    std::vector<std::string> added;       // tokens present in `after` only
+    std::vector<std::string> removed;     // tokens present in `before` only
+    std::vector<std::string> modified;    // tokens whose value changed
+};
+
+struct DesignMdDiffResult {
+    DesignMdTokenDiff colors;
+    DesignMdTokenDiff dimensions;
+    DesignMdTokenDiff strings;
+    // True if the `after` file has more error- or warning-severity
+    // diagnostics than `before` (matches @google/design.md's diff
+    // regression semantic).
+    bool regression = false;
+};
+
+/// Compute the token diff between two parsed DESIGN.md files plus a
+/// regression flag derived from their respective lint outputs.
+DesignMdDiffResult diff_designmd(const DesignMdParseResult& before,
+                                  const DesignMdParseResult& after);
+
+/// Emit a Tailwind v3 `theme.extend`-shaped JSON object from the parsed
+/// token tree. Byte-compatible with @google/design.md's
+/// `--format json-tailwind` output for the common-case keys (colors,
+/// fontFamily, fontSize, lineHeight, letterSpacing, fontWeight,
+/// borderRadius, spacing).
+std::string export_tailwind_v3_json(const DesignMdParseResult& parsed);
+
+/// Emit a Tailwind v4 `@theme { ... }` CSS block from the parsed
+/// token tree. Uses Tailwind v4's CSS-variable token namespaces
+/// (`--color-*`, `--font-*`, `--text-*`, `--leading-*`,
+/// `--tracking-*`, `--font-weight-*`, `--radius-*`, `--spacing-*`).
+std::string export_tailwind_v4_css(const DesignMdParseResult& parsed);
+
 // ── Claude Design bundle envelope (pulp #468) ───────────────────────────
 //
 // Claude Design's "standalone HTML" export is a small loader shell

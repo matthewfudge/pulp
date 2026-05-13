@@ -3,9 +3,98 @@
 #include "cli_common.hpp"
 #include "design_binding.hpp"
 
+#include <pulp/view/design_import.hpp>
+
+#include <fstream>
 #include <iostream>
+#include <sstream>
+
+namespace {
+
+std::string read_text_file(const fs::path& p) {
+    std::ifstream f(p);
+    if (!f.is_open()) return {};
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+// `pulp design lint <DESIGN.md>` — runs the seven Google design.md
+// lint rules + section-order. Exit 0 if no error findings; exit 1
+// if any error-severity finding is present.
+int run_lint(const std::vector<std::string>& rest) {
+    if (rest.empty()) {
+        std::cerr << "Usage: pulp design lint <path/to/DESIGN.md>\n";
+        return 1;
+    }
+    auto text = read_text_file(rest.front());
+    if (text.empty()) {
+        std::cerr << "Error: cannot read " << rest.front() << "\n";
+        return 1;
+    }
+    auto parsed = pulp::view::parse_designmd(text);
+    auto findings = pulp::view::lint_designmd(parsed);
+    int errors = 0;
+    for (const auto& d : findings) {
+        const char* sev = (d.severity == pulp::view::DesignMdSeverity::error)   ? "error" :
+                          (d.severity == pulp::view::DesignMdSeverity::warning) ? "warning" : "info";
+        std::cout << "[" << sev << "] " << d.code
+                  << " at " << (d.path.empty() ? "<root>" : d.path);
+        if (d.line > 0) std::cout << " (line " << d.line << ":" << d.column << ")";
+        std::cout << ": " << d.message << "\n";
+        if (d.severity == pulp::view::DesignMdSeverity::error) ++errors;
+    }
+    std::cout << "Lint summary: " << findings.size() << " finding(s), "
+              << errors << " error(s).\n";
+    return errors > 0 ? 1 : 0;
+}
+
+// `pulp design diff <before.md> <after.md>` — token-level diff plus
+// regression flag. Exit 0 if no regression; exit 1 if regression.
+int run_diff(const std::vector<std::string>& rest) {
+    if (rest.size() < 2) {
+        std::cerr << "Usage: pulp design diff <before.md> <after.md>\n";
+        return 1;
+    }
+    auto before_text = read_text_file(rest[0]);
+    auto after_text  = read_text_file(rest[1]);
+    if (before_text.empty() || after_text.empty()) {
+        std::cerr << "Error: cannot read one of the input files\n";
+        return 1;
+    }
+    auto before = pulp::view::parse_designmd(before_text);
+    auto after  = pulp::view::parse_designmd(after_text);
+    auto diff = pulp::view::diff_designmd(before, after);
+    auto report = [](const char* group, const pulp::view::DesignMdTokenDiff& d) {
+        std::cout << group << ": +" << d.added.size()
+                  << " -" << d.removed.size()
+                  << " ~" << d.modified.size() << "\n";
+        for (const auto& k : d.added)    std::cout << "  + " << k << "\n";
+        for (const auto& k : d.removed)  std::cout << "  - " << k << "\n";
+        for (const auto& k : d.modified) std::cout << "  ~ " << k << "\n";
+    };
+    report("colors",     diff.colors);
+    report("dimensions", diff.dimensions);
+    report("strings",    diff.strings);
+    std::cout << "regression: " << (diff.regression ? "true" : "false") << "\n";
+    return diff.regression ? 1 : 0;
+}
+
+} // namespace
 
 int cmd_design(const std::vector<std::string>& args) {
+    // ── Phase 2: `pulp design lint` and `pulp design diff` ─────────────
+    // Both verbs operate on DESIGN.md files and do NOT launch the live
+    // design tool. They short-circuit before the design-tool build path.
+    if (!args.empty()) {
+        if (args[0] == "lint") {
+            return run_lint(std::vector<std::string>(args.begin() + 1, args.end()));
+        }
+        if (args[0] == "diff") {
+            return run_diff(std::vector<std::string>(args.begin() + 1, args.end()));
+        }
+    }
+
     fs::path cwd_root = find_project_root();
     fs::path build_dir;
     fs::path script_path;

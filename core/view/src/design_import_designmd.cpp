@@ -19,6 +19,7 @@
 //     dispatch arm.
 
 #include <pulp/view/design_import.hpp>
+#include <pulp/view/theme_contrast.hpp>
 
 #include <yaml-cpp/yaml.h>
 
@@ -378,6 +379,338 @@ DesignMdParseResult parse_designmd(const std::string& markdown) {
 
 DesignIR parse_designmd_yaml(const std::string& markdown) {
     return parse_designmd(markdown).ir;
+}
+
+// ── Phase 2: lint, diff, Tailwind export ─────────────────────────────────
+
+namespace {
+
+bool parse_hex_color(const std::string& hex, uint32_t& out) {
+    if (hex.size() != 7 || hex[0] != '#') return false;
+    uint32_t v = 0;
+    for (size_t i = 1; i < hex.size(); ++i) {
+        char c = hex[i];
+        v <<= 4;
+        if (c >= '0' && c <= '9')      v |= static_cast<uint32_t>(c - '0');
+        else if (c >= 'a' && c <= 'f') v |= static_cast<uint32_t>(10 + (c - 'a'));
+        else if (c >= 'A' && c <= 'F') v |= static_cast<uint32_t>(10 + (c - 'A'));
+        else return false;
+    }
+    out = v;
+    return true;
+}
+
+const std::vector<std::string>& canonical_section_order() {
+    static const std::vector<std::string> order = {
+        "Overview",
+        "Colors",
+        "Typography",
+        "Layout",
+        "Elevation & Depth",
+        "Shapes",
+        "Components",
+        "Do's and Don'ts"
+    };
+    return order;
+}
+
+// Match an observed section heading against the canonical list, allowing
+// the aliases the spec lists (Brand & Style → Overview, Layout & Spacing
+// → Layout, Elevation → Elevation & Depth).
+std::string canonical_section_name(const std::string& heading) {
+    std::string h = heading;
+    for (auto& c : h) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (h == "overview" || h == "brand & style")          return "Overview";
+    if (h == "colors")                                     return "Colors";
+    if (h == "typography")                                 return "Typography";
+    if (h == "layout" || h == "layout & spacing")         return "Layout";
+    if (h == "elevation" || h == "elevation & depth")     return "Elevation & Depth";
+    if (h == "shapes")                                     return "Shapes";
+    if (h == "components")                                 return "Components";
+    if (h == "do's and don'ts" || h == "dos and don'ts") return "Do's and Don'ts";
+    return {};
+}
+
+// Extract all `{ref.path}` substrings from a string value. Used by the
+// orphaned-tokens rule to find which color tokens are referenced
+// somewhere in the components section.
+std::vector<std::string> extract_token_refs(const std::string& value) {
+    std::vector<std::string> refs;
+    size_t i = 0;
+    while (i < value.size()) {
+        size_t open = value.find('{', i);
+        if (open == std::string::npos) break;
+        size_t close = value.find('}', open + 1);
+        if (close == std::string::npos) break;
+        refs.push_back(value.substr(open + 1, close - open - 1));
+        i = close + 1;
+    }
+    return refs;
+}
+
+} // namespace
+
+std::vector<DesignMdDiagnostic> lint_designmd(const DesignMdParseResult& parsed) {
+    std::vector<DesignMdDiagnostic> out;
+    const auto& tokens = parsed.ir.tokens;
+
+    // Carry the parse-time diagnostics forward — broken-ref discovered
+    // during parse promotes from warning to error per the spec.
+    for (auto d : parsed.diagnostics) {
+        if (d.code == "broken-ref") d.severity = DesignMdSeverity::error;
+        out.push_back(std::move(d));
+    }
+
+    // ── missing-primary (warning) ──────────────────────────────────────
+    if (!tokens.colors.empty() && tokens.colors.find("primary") == tokens.colors.end()) {
+        out.push_back(make_diag(
+            DesignMdSeverity::warning, "missing-primary", "colors", 0, 0,
+            "colors defined but no `primary` token — agents will auto-generate one"));
+    }
+
+    // ── missing-typography (warning) ───────────────────────────────────
+    bool has_typography = false;
+    for (const auto& [k, _] : tokens.strings) {
+        if (k.rfind("typography.", 0) == 0) { has_typography = true; break; }
+    }
+    if (!tokens.colors.empty() && !has_typography) {
+        out.push_back(make_diag(
+            DesignMdSeverity::warning, "missing-typography", "typography", 0, 0,
+            "colors defined but no typography tokens — agents will use default fonts"));
+    }
+
+    // ── missing-sections (info) ────────────────────────────────────────
+    bool has_rounded = false, has_spacing = false;
+    for (const auto& [k, _] : tokens.dimensions) {
+        if (k.rfind("rounded-", 0) == 0) has_rounded = true;
+        if (k.rfind("spacing-", 0) == 0) has_spacing = true;
+    }
+    if (!tokens.colors.empty() && !has_rounded) {
+        out.push_back(make_diag(
+            DesignMdSeverity::info, "missing-sections", "rounded", 0, 0,
+            "no `rounded` token group present"));
+    }
+    if (!tokens.colors.empty() && !has_spacing) {
+        out.push_back(make_diag(
+            DesignMdSeverity::info, "missing-sections", "spacing", 0, 0,
+            "no `spacing` token group present"));
+    }
+
+    // ── token-summary (info) ───────────────────────────────────────────
+    {
+        std::ostringstream summary;
+        summary << "colors=" << tokens.colors.size()
+                << " dimensions=" << tokens.dimensions.size()
+                << " strings=" << tokens.strings.size();
+        out.push_back(make_diag(
+            DesignMdSeverity::info, "token-summary", "<root>", 0, 0, summary.str()));
+    }
+
+    // ── orphaned-tokens (warning) ─────────────────────────────────────
+    {
+        std::unordered_set<std::string> referenced;
+        for (const auto& [k, v] : tokens.strings) {
+            for (const auto& ref : extract_token_refs(v)) {
+                // ref shape "colors.primary" → "primary"
+                constexpr std::string_view colors_prefix{"colors."};
+                if (ref.compare(0, colors_prefix.size(), colors_prefix) == 0) {
+                    referenced.insert(ref.substr(colors_prefix.size()));
+                }
+            }
+        }
+        for (const auto& [name, _] : tokens.colors) {
+            if (referenced.find(name) == referenced.end()) {
+                out.push_back(make_diag(
+                    DesignMdSeverity::warning, "orphaned-tokens", "colors." + name, 0, 0,
+                    "color token `" + name + "` defined but never referenced by any component"));
+            }
+        }
+    }
+
+    // ── contrast-ratio (warning) ──────────────────────────────────────
+    {
+        // Walk every component that has both backgroundColor and textColor
+        // string-token entries, parse each as a hex, and run them through
+        // the WCAG 2.1 helper.
+        std::unordered_map<std::string, std::pair<std::string, std::string>> comp_pair;
+        for (const auto& [k, v] : tokens.strings) {
+            constexpr std::string_view prefix{"components."};
+            if (k.compare(0, prefix.size(), prefix) != 0) continue;
+            auto rest = k.substr(prefix.size());
+            auto dot = rest.find('.');
+            if (dot == std::string::npos) continue;
+            std::string comp = rest.substr(0, dot);
+            std::string prop = rest.substr(dot + 1);
+            if (prop == "backgroundColor") comp_pair[comp].first  = v;
+            if (prop == "textColor")       comp_pair[comp].second = v;
+        }
+        for (const auto& [comp, pair] : comp_pair) {
+            uint32_t bg_rgb = 0, fg_rgb = 0;
+            if (!parse_hex_color(pair.first, bg_rgb)) continue;
+            if (!parse_hex_color(pair.second, fg_rgb)) continue;
+            auto bg = canvas::Color::hex(bg_rgb);
+            auto fg = canvas::Color::hex(fg_rgb);
+            float ratio = contrast_ratio(fg, bg);
+            if (ratio < 4.5f) {
+                std::ostringstream msg;
+                msg << "components." << comp << ": text/bg contrast ratio "
+                    << ratio << ":1 is below WCAG AA minimum (4.5:1)";
+                out.push_back(make_diag(
+                    DesignMdSeverity::warning, "contrast-ratio",
+                    "components." + comp, 0, 0, msg.str()));
+            }
+        }
+    }
+
+    // ── section-order (warning) ───────────────────────────────────────
+    {
+        std::vector<std::string> canonical_seen;
+        for (const auto& s : parsed.sections) {
+            auto canon = canonical_section_name(s);
+            if (!canon.empty()) canonical_seen.push_back(canon);
+        }
+        const auto& order = canonical_section_order();
+        std::vector<size_t> indices;
+        for (const auto& c : canonical_seen) {
+            for (size_t i = 0; i < order.size(); ++i) {
+                if (order[i] == c) { indices.push_back(i); break; }
+            }
+        }
+        for (size_t j = 1; j < indices.size(); ++j) {
+            if (indices[j] < indices[j - 1]) {
+                out.push_back(make_diag(
+                    DesignMdSeverity::warning, "section-order",
+                    canonical_seen[j], 0, 0,
+                    "section \"" + canonical_seen[j] + "\" appears out of canonical order"));
+                break;
+            }
+        }
+    }
+
+    return out;
+}
+
+DesignMdDiffResult diff_designmd(const DesignMdParseResult& before,
+                                  const DesignMdParseResult& after) {
+    DesignMdDiffResult result;
+
+    auto diff_map = [](const auto& before_map, const auto& after_map, auto val_eq,
+                        DesignMdTokenDiff& out) {
+        for (const auto& [k, v] : after_map) {
+            auto it = before_map.find(k);
+            if (it == before_map.end()) out.added.push_back(k);
+            else if (!val_eq(it->second, v)) out.modified.push_back(k);
+        }
+        for (const auto& [k, _] : before_map) {
+            if (after_map.find(k) == after_map.end()) out.removed.push_back(k);
+        }
+        std::sort(out.added.begin(), out.added.end());
+        std::sort(out.removed.begin(), out.removed.end());
+        std::sort(out.modified.begin(), out.modified.end());
+    };
+
+    diff_map(before.ir.tokens.colors, after.ir.tokens.colors,
+              [](const std::string& a, const std::string& b) { return a == b; },
+              result.colors);
+    diff_map(before.ir.tokens.dimensions, after.ir.tokens.dimensions,
+              [](float a, float b) { return std::abs(a - b) < 1e-6f; },
+              result.dimensions);
+    diff_map(before.ir.tokens.strings, after.ir.tokens.strings,
+              [](const std::string& a, const std::string& b) { return a == b; },
+              result.strings);
+
+    auto count_problems = [](const std::vector<DesignMdDiagnostic>& diags) {
+        int n = 0;
+        for (const auto& d : diags) {
+            if (d.severity == DesignMdSeverity::error ||
+                d.severity == DesignMdSeverity::warning) ++n;
+        }
+        return n;
+    };
+    int before_problems = count_problems(lint_designmd(before));
+    int after_problems  = count_problems(lint_designmd(after));
+    result.regression = after_problems > before_problems;
+
+    return result;
+}
+
+// ── Tailwind exporters ─────────────────────────────────────────────────
+
+namespace {
+
+// JSON-escape a string for embedding in the Tailwind v3 output.
+std::string json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 2);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:   out += c;
+        }
+    }
+    return out;
+}
+
+// "rounded-sm" → ("rounded", "sm"). Splits on the first hyphen so that
+// composite keys like "spacing-x-lg" keep their suffix intact.
+std::pair<std::string, std::string> split_prefix_suffix(const std::string& token) {
+    auto hyphen = token.find('-');
+    if (hyphen == std::string::npos) return {token, {}};
+    return {token.substr(0, hyphen), token.substr(hyphen + 1)};
+}
+
+} // namespace
+
+std::string export_tailwind_v3_json(const DesignMdParseResult& parsed) {
+    const auto& t = parsed.ir.tokens;
+    std::ostringstream o;
+    o << "{\n  \"colors\": {";
+    bool first = true;
+    for (const auto& [name, value] : t.colors) {
+        if (!first) o << ",";
+        o << "\n    \"" << json_escape(name) << "\": \"" << json_escape(value) << "\"";
+        first = false;
+    }
+    o << "\n  },\n  \"borderRadius\": {";
+    first = true;
+    for (const auto& [name, value] : t.dimensions) {
+        auto [prefix, suffix] = split_prefix_suffix(name);
+        if (prefix != "rounded") continue;
+        if (!first) o << ",";
+        o << "\n    \"" << json_escape(suffix) << "\": \"" << value << "px\"";
+        first = false;
+    }
+    o << "\n  },\n  \"spacing\": {";
+    first = true;
+    for (const auto& [name, value] : t.dimensions) {
+        auto [prefix, suffix] = split_prefix_suffix(name);
+        if (prefix != "spacing") continue;
+        if (!first) o << ",";
+        o << "\n    \"" << json_escape(suffix) << "\": \"" << value << "px\"";
+        first = false;
+    }
+    o << "\n  }\n}\n";
+    return o.str();
+}
+
+std::string export_tailwind_v4_css(const DesignMdParseResult& parsed) {
+    const auto& t = parsed.ir.tokens;
+    std::ostringstream o;
+    o << "@theme {\n";
+    for (const auto& [name, value] : t.colors) {
+        o << "  --color-" << name << ": " << value << ";\n";
+    }
+    for (const auto& [name, value] : t.dimensions) {
+        auto [prefix, suffix] = split_prefix_suffix(name);
+        if (prefix == "rounded") o << "  --radius-" << suffix << ": " << value << "px;\n";
+        if (prefix == "spacing") o << "  --spacing-" << suffix << ": " << value << "px;\n";
+    }
+    o << "}\n";
+    return o.str();
 }
 
 } // namespace pulp::view

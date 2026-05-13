@@ -7,8 +7,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <pulp/view/design_import.hpp>
+#include <pulp/view/design_export.hpp>
 
 #include "import_detect.hpp"
+
+#include <stdexcept>
 
 #include <filesystem>
 #include <fstream>
@@ -238,4 +241,153 @@ TEST_CASE("parse_design_source maps \"designmd\" → DesignSource::designmd",
     REQUIRE(src.has_value());
     REQUIRE(*src == DesignSource::designmd);
     REQUIRE(std::string(design_source_name(DesignSource::designmd)) == "DESIGN.md");
+}
+
+// ── Phase 2: lint, diff, Tailwind ──────────────────────────────────────
+
+TEST_CASE("lint_designmd flags missing-primary when no primary color is defined",
+          "[view][import][designmd][phase2][issue-1434]") {
+    std::string text = "---\nname: NoPrimary\ncolors:\n  secondary: \"#888\"\n---\n";
+    auto parsed = parse_designmd(text);
+    auto findings = lint_designmd(parsed);
+    bool found = false;
+    for (const auto& d : findings) if (d.code == "missing-primary") { found = true; break; }
+    REQUIRE(found);
+}
+
+TEST_CASE("lint_designmd flags missing-typography when colors but no typography",
+          "[view][import][designmd][phase2][issue-1434]") {
+    std::string text = "---\nname: ColorsOnly\ncolors:\n  primary: \"#000\"\n---\n";
+    auto parsed = parse_designmd(text);
+    auto findings = lint_designmd(parsed);
+    bool found = false;
+    for (const auto& d : findings) if (d.code == "missing-typography") { found = true; break; }
+    REQUIRE(found);
+}
+
+TEST_CASE("lint_designmd promotes broken-ref to error severity",
+          "[view][import][designmd][phase2][issue-1434]") {
+    std::string text =
+        "---\nname: Broken\ncolors:\n  primary: \"#000\"\n  bad: \"{colors.missing}\"\n---\n";
+    auto parsed = parse_designmd(text);
+    auto findings = lint_designmd(parsed);
+    bool error_found = false;
+    for (const auto& d : findings) {
+        if (d.code == "broken-ref" && d.severity == DesignMdSeverity::error) {
+            error_found = true;
+            break;
+        }
+    }
+    REQUIRE(error_found);
+}
+
+TEST_CASE("lint_designmd flags low-contrast component pairs",
+          "[view][import][designmd][phase2][issue-1434]") {
+    // Light gray text on white = ~2:1 contrast → below WCAG AA 4.5:1.
+    std::string text =
+        "---\nname: LowContrast\n"
+        "colors:\n  primary: \"#000000\"\n"
+        "components:\n  callout:\n    backgroundColor: \"#ffffff\"\n    textColor: \"#cccccc\"\n---\n";
+    auto parsed = parse_designmd(text);
+    auto findings = lint_designmd(parsed);
+    bool found = false;
+    for (const auto& d : findings) {
+        if (d.code == "contrast-ratio") { found = true; break; }
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("lint_designmd flags orphaned color tokens",
+          "[view][import][designmd][phase2][issue-1434]") {
+    std::string text =
+        "---\nname: Orphan\n"
+        "colors:\n  primary: \"#000\"\n  unused-accent: \"#f0f\"\n"
+        "components:\n  btn:\n    backgroundColor: \"{colors.primary}\"\n---\n";
+    auto parsed = parse_designmd(text);
+    auto findings = lint_designmd(parsed);
+    bool found = false;
+    for (const auto& d : findings) {
+        if (d.code == "orphaned-tokens" && d.path == "colors.unused-accent") {
+            found = true;
+            break;
+        }
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("lint_designmd emits token-summary info diagnostic",
+          "[view][import][designmd][phase2][issue-1434]") {
+    auto parsed = parse_designmd(upstream_fixture());
+    auto findings = lint_designmd(parsed);
+    bool found = false;
+    for (const auto& d : findings) if (d.code == "token-summary") { found = true; break; }
+    REQUIRE(found);
+}
+
+TEST_CASE("lint_designmd flags section-order when sections are out of canonical order",
+          "[view][import][designmd][phase2][issue-1434]") {
+    std::string text =
+        "---\nname: BadOrder\ncolors:\n  primary: \"#000\"\n---\n\n"
+        "## Components\nthen\n\n## Colors\nlater\n";
+    auto parsed = parse_designmd(text);
+    auto findings = lint_designmd(parsed);
+    bool found = false;
+    for (const auto& d : findings) if (d.code == "section-order") { found = true; break; }
+    REQUIRE(found);
+}
+
+TEST_CASE("diff_designmd reports added, removed, and modified color tokens",
+          "[view][import][designmd][phase2][issue-1434]") {
+    auto before = parse_designmd(
+        "---\nname: V1\ncolors:\n  primary: \"#000\"\n  removed: \"#fff\"\n---\n");
+    auto after = parse_designmd(
+        "---\nname: V2\ncolors:\n  primary: \"#111\"\n  added: \"#abc\"\n---\n");
+    auto diff = diff_designmd(before, after);
+    REQUIRE(diff.colors.added.size() == 1);
+    REQUIRE(diff.colors.added.front() == "added");
+    REQUIRE(diff.colors.removed.size() == 1);
+    REQUIRE(diff.colors.removed.front() == "removed");
+    REQUIRE(diff.colors.modified.size() == 1);
+    REQUIRE(diff.colors.modified.front() == "primary");
+}
+
+TEST_CASE("diff_designmd reports regression when after has more lint findings",
+          "[view][import][designmd][phase2][issue-1434]") {
+    auto before = parse_designmd(
+        "---\nname: Clean\ncolors:\n  primary: \"#000\"\ntypography:\n  body-md:\n    fontFamily: Inter\n---\n");
+    auto after = parse_designmd(
+        "---\nname: Regressed\ncolors:\n  primary: \"#000\"\n  bad: \"{colors.missing}\"\n---\n");
+    auto diff = diff_designmd(before, after);
+    REQUIRE(diff.regression);
+}
+
+TEST_CASE("export_tailwind_v3_json emits theme.extend-shaped JSON",
+          "[view][import][designmd][phase2][issue-1434]") {
+    auto parsed = parse_designmd(
+        "---\nname: TW3\ncolors:\n  primary: \"#1A1C1E\"\nrounded:\n  sm: 4px\nspacing:\n  md: 16px\n---\n");
+    auto json = export_tailwind_v3_json(parsed);
+    REQUIRE(json.find("\"primary\": \"#1A1C1E\"") != std::string::npos);
+    REQUIRE(json.find("\"borderRadius\"") != std::string::npos);
+    REQUIRE(json.find("\"sm\": \"4px\"") != std::string::npos);
+    REQUIRE(json.find("\"spacing\"") != std::string::npos);
+}
+
+TEST_CASE("export_tailwind_v4_css emits @theme block with --color/--radius/--spacing vars",
+          "[view][import][designmd][phase2][issue-1434]") {
+    auto parsed = parse_designmd(
+        "---\nname: TW4\ncolors:\n  primary: \"#1A1C1E\"\nrounded:\n  md: 8px\nspacing:\n  lg: 24px\n---\n");
+    auto css = export_tailwind_v4_css(parsed);
+    REQUIRE(css.find("@theme {") != std::string::npos);
+    REQUIRE(css.find("--color-primary: #1A1C1E") != std::string::npos);
+    REQUIRE(css.find("--radius-md: 8px") != std::string::npos);
+    REQUIRE(css.find("--spacing-lg: 24px") != std::string::npos);
+}
+
+// ── Phase 3: signature is fixed, body gated on pulp #1307 ─────────────
+
+TEST_CASE("export_designmd throws std::logic_error until pulp #1307 lands",
+          "[view][import][designmd][phase3][gated-1307][issue-1434]") {
+    Theme t;
+    DesignMdProseHints hints;
+    REQUIRE_THROWS_AS(export_designmd(t, hints), std::logic_error);
 }
