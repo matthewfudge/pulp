@@ -409,12 +409,12 @@ set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_INSTALL      OFF CACHE BOOL "" FORCE)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
 FetchContent_Declare(
-    yamlcpp
+    yaml-cpp
     GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
     GIT_TAG 0.8.0
     GIT_SHALLOW TRUE
 )
-FetchContent_MakeAvailable(yamlcpp)
+FetchContent_MakeAvailable(yaml-cpp)
 unset(CMAKE_POLICY_VERSION_MINIMUM CACHE)
 set(PULP_HAS_YAMLCPP TRUE)
 message(STATUS "Pulp: yaml-cpp 0.8.0 available (DESIGN.md import)")

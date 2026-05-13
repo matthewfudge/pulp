@@ -24,6 +24,7 @@ Tables are sorted alphabetically (case-insensitive) by name. Entries here must s
 | **msdfgen** | MIT | Multi-channel SDF glyph generation (planned) | [github.com/Chlumsky/msdfgen](https://github.com/Chlumsky/msdfgen) |
 | **nanosvg** | zlib | SVG parsing and rasterization | [github.com/memononen/nanosvg](https://github.com/memononen/nanosvg) |
 | **pugixml** | MIT | XML parsing and generation | [github.com/zeux/pugixml](https://github.com/zeux/pugixml) |
+| **yaml-cpp** | MIT | YAML frontmatter parser for the DESIGN.md import pipeline (gated to `--from designmd`) | [github.com/jbeder/yaml-cpp](https://github.com/jbeder/yaml-cpp) |
 | **Yoga** | MIT | Layout engine for Flexbox/Grid-style native UI | [github.com/facebook/yoga](https://github.com/facebook/yoga) |
 
 ### Embedded Fonts
