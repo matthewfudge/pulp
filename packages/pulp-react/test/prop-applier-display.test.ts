@@ -167,4 +167,49 @@ describe('prop-applier display: flex default direction (pulp #1894)', () => {
         applyChangedProps(makeInstance(), {}, { display: 'none' });
         expect(flexDirectionCalls(bridge)).toHaveLength(0);
     });
+
+    // pulp #1898 (Codex review P2) — the prop-applier also accepts
+    // `direction` as a flex-direction alias (see the `case 'direction'`
+    // block in src/prop-applier.ts). The default-row suppression must
+    // honor that alias too, otherwise an explicit `direction: 'column'`
+    // gets clobbered by the default-row emit from display:flex.
+    it("explicit direction: 'column' alias suppresses the default", () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            direction: 'column',
+        });
+        const dir = flexDirectionCalls(bridge);
+        // Only the explicit column should land — no default row.
+        const fromDisplayDefault = dir.filter((c) => c.args[2] === 'row');
+        expect(fromDisplayDefault).toHaveLength(0);
+        const columnCalls = dir.filter((c) => c.args[2] === 'column');
+        expect(columnCalls).toHaveLength(1);
+    });
+
+    it("direction: 'row-reverse' alias also suppresses the default", () => {
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            direction: 'row-reverse',
+        });
+        const fromDisplayDefault = flexDirectionCalls(bridge).filter(
+            (c) => c.args[2] === 'row',
+        );
+        // The explicit row-reverse must win — no plain 'row' emit from
+        // the display:flex default path.
+        expect(fromDisplayDefault).toHaveLength(0);
+    });
+
+    it("direction: 'rtl' (writing direction, not flex) does NOT suppress default", () => {
+        // `direction: 'rtl'` is the CSS writing-direction sense (routes
+        // to setDirection, not setFlex). It should NOT be treated as a
+        // flex-direction signal — the row default still fires.
+        applyChangedProps(makeInstance(), {}, {
+            display: 'flex',
+            direction: 'rtl',
+        });
+        const fromDisplayDefault = flexDirectionCalls(bridge).filter(
+            (c) => c.args[2] === 'row',
+        );
+        expect(fromDisplayDefault).toHaveLength(1);
+    });
 });

@@ -928,9 +928,33 @@ function applyOne(id: string, type: string, key: string, value: unknown, props?:
                 // vertical stack on import — first seen in Spectr's
                 // editor toolbar post-#1859 re-validation.
                 if (props) {
+                    // pulp #1898 (Codex review P2) — `direction` is a
+                    // third flex-direction alias in this prop-applier
+                    // (see the `case 'direction'` block above: a value
+                    // of 'row' / 'column' / 'row-reverse' / 'column-reverse'
+                    // routes to setFlex(direction); writing-direction
+                    // keywords like 'ltr' / 'rtl' / 'inherit' / 'auto'
+                    // route to setDirection instead). The default-row
+                    // suppression must therefore also honor a caller-
+                    // supplied `direction: 'column'`, otherwise the
+                    // explicit column is overwritten by the default row
+                    // when both `display: 'flex'` and `direction:` land
+                    // in the same prop batch. Restrict the check to
+                    // flex-axis values so `direction: 'rtl'` (writing
+                    // direction, not flex) still picks up the default.
+                    const hasDirectionFlexValue = (() => {
+                        if (!Object.prototype.hasOwnProperty.call(props, 'direction')) return false;
+                        const dv = (props as Record<string, unknown>)['direction'];
+                        if (typeof dv !== 'string') return false;
+                        const norm = dv.trim().toLowerCase();
+                        return norm === 'row' || norm === 'column'
+                            || norm === 'row-reverse' || norm === 'column-reverse'
+                            || norm === 'col' || norm === 'col-reverse';
+                    })();
                     const hasFlexDirection =
                         Object.prototype.hasOwnProperty.call(props, 'flexDirection') ||
-                        Object.prototype.hasOwnProperty.call(props, 'flex-direction');
+                        Object.prototype.hasOwnProperty.call(props, 'flex-direction') ||
+                        hasDirectionFlexValue;
                     const ff = props.flexFlow;
                     const flexFlowHasDirection =
                         typeof ff === 'string' && /\b(row|column)\b/.test(ff);
