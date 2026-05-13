@@ -8,13 +8,15 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0960"></a>
+## [0.96.0] - 2026-05-13
+
+- feat(ci): pulp macos retarget — per-PR macOS-runner override without full rerun ([#1941](https://github.com/danielraffel/pulp/pull/1941))
+- feat(import): Figma Make React export parser (Phase 6.6.3) ([#1910](https://github.com/danielraffel/pulp/pull/1910))
+- fix(ci): macOS overflow probe — use in_progress runs proxy (no admin scope) ([#1936](https://github.com/danielraffel/pulp/pull/1936))
+- ci(build): macOS overflow routing to Namespace when local Mac is busy ([#1935](https://github.com/danielraffel/pulp/pull/1935))
+
 <a id="v0951"></a>
-## [0.31.0]
-
-## [0.30.0]
-
-## [0.96.0]
-
 ## [0.95.1] - 2026-05-13
 
 - fix(view): Label wraps with CSS default white-space:normal (closes #1924) ([#1933](https://github.com/danielraffel/pulp/pull/1933))
@@ -1703,6 +1705,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.96.0]: https://github.com/danielraffel/pulp/releases/tag/v0.96.0
 [0.95.1]: https://github.com/danielraffel/pulp/releases/tag/v0.95.1
 [0.95.0]: https://github.com/danielraffel/pulp/releases/tag/v0.95.0
 [0.94.0]: https://github.com/danielraffel/pulp/releases/tag/v0.94.0
