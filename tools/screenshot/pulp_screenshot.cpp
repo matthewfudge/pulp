@@ -11,9 +11,89 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstdlib>
 
 using namespace pulp::view;
 using namespace pulp::state;
+
+// pulp #1899 — viewport reconciliation for runtime-imported content.
+//
+// Imports (Spectr, v0.dev, Stitch, Figma exports) routinely ship a
+// top-level container with literal-CSS hardcoded dimensions that
+// exceed the screenshot viewport. Canonical Spectr case
+// (`spectr-editor-extracted.js:4140`):
+//   `<div style={{ position:'absolute', top:0, left:0,
+//                  width:1320, height:860, … }}>`
+// In a 1280×800 viewport, the App anchors to (0,0) and overflows by
+// 40×60 — `bottom:0`-anchored chrome (action rail, frequency-axis
+// labels) lands entirely off-screen.
+//
+// In a real browser the same content renders inside the same
+// viewport, because the editor.html body uses
+//   `display:flex; align-items:center; justify-content:center;
+//    min-height:100vh`.
+// With `flex-shrink: 1` (default), the App flex item shrinks on its
+// main axis to fit the body's content box — so a 1320×860 child in a
+// 1280×800 body lands at 1280×800 with internal layout proportionally
+// compressed. All bottom-anchored chrome ends up in frame; the top
+// bar at `top:0` stays at `top:0`; the rail at `bottom:0` stays at
+// `bottom:0` of the now-fitted container.
+//
+// This helper emulates that flex-shrink behaviour for runtime-import
+// captures. For any direct child of root_ with
+// `position:absolute|fixed` AND a `preferred_width|height` exceeding
+// the viewport AND no opposite-edge anchor (`right` for width,
+// `bottom` for height — i.e. the source told us a concrete size, not
+// "stretch me between two edges"), clamp the explicit size down to
+// the viewport size on that axis. Descendants anchored at `bottom:0`
+// / `right:0` then anchor to the visible edge instead of falling off.
+//
+// Scoped strictly to oversize-content + screenshot-tool usage; never
+// fires when content already fits, never modifies anchored content.
+static void reconcile_oversize_absolute_children(View& root,
+                                                  uint32_t viewport_width,
+                                                  uint32_t viewport_height) {
+    const float vw = static_cast<float>(viewport_width);
+    const float vh = static_cast<float>(viewport_height);
+    for (size_t i = 0; i < root.child_count(); ++i) {
+        auto* child = const_cast<View*>(root.child_at(i));
+        if (!child) continue;
+        if (child->position() != View::Position::absolute &&
+            child->position() != View::Position::fixed) {
+            continue;
+        }
+        const float cw = child->flex().preferred_width;
+        const float ch = child->flex().preferred_height;
+        if (cw <= 0 && ch <= 0) continue;
+        // Only act when the size is explicit (preferred_* set) AND the
+        // opposite edge isn't anchored — i.e. the source said "size me
+        // explicitly", not "stretch me from edge to edge". If both top
+        // and bottom (or left and right) are set, the size is implicit
+        // and Yoga handles it correctly via the inset → size derivation.
+        const bool size_x_is_explicit =
+            cw > 0 && (!child->has_right() || child->right() == 0.0f);
+        const bool size_y_is_explicit =
+            ch > 0 && (!child->has_bottom() || child->bottom() == 0.0f);
+        bool clamped = false;
+        if (cw > vw && size_x_is_explicit) {
+            child->flex().preferred_width = vw;
+            clamped = true;
+        }
+        if (ch > vh && size_y_is_explicit) {
+            child->flex().preferred_height = vh;
+            clamped = true;
+        }
+        if (clamped && std::getenv("PULP_DUMP_BOUNDS")) {
+            std::fprintf(stderr,
+                         "[viewport-reconcile] clamped oversize child %zu: "
+                         "(%.0fx%.0f) -> (%.0fx%.0f) in %ux%u viewport\n",
+                         i, cw, ch,
+                         child->flex().preferred_width,
+                         child->flex().preferred_height,
+                         viewport_width, viewport_height);
+        }
+    }
+}
 
 static void print_usage() {
     std::cerr << "Usage: pulp-screenshot [options]\n";
@@ -127,6 +207,12 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         bridge.load_script(code);
+
+        // pulp #1899 — after React mount, reconcile any oversize
+        // absolute children with the viewport so bottom-anchored
+        // descendants land within the captured frame. No-op when
+        // content fits.
+        reconcile_oversize_absolute_children(root, width, height);
     }
 
     // Render
