@@ -17,11 +17,13 @@ OUT="${PULP_V0_OUT:-$PULP_DIR/planning/screenshots/v0-dev-audio-control-panel-la
 THRESHOLD="${PULP_HARNESS_THRESHOLD:-0.85}"
 PARSER_ONLY=0
 SKIP_BUILD=0
+COVERAGE=0
 
 usage() {
   cat <<'EOF'
 Usage:
   tools/import-validation/v0-roundtrip.sh [--parser-only] [--skip-build]
+  tools/import-validation/v0-roundtrip.sh --coverage
   tools/import-validation/v0-roundtrip.sh --reference path/to/reference.png
 
 Env:
@@ -33,6 +35,7 @@ Env:
   PULP_V0_REFERENCE     reference screenshot path
   PULP_V0_OUT           candidate screenshot path
   PULP_HARNESS_THRESHOLD screenshot similarity threshold
+  PULP_DIFF_COVER_CTEST_REGEX override the focused coverage CTest regex
 EOF
 }
 
@@ -40,6 +43,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --parser-only) PARSER_ONLY=1; shift ;;
     --skip-build) SKIP_BUILD=1; shift ;;
+    --coverage) COVERAGE=1; shift ;;
     --reference) REFERENCE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -52,6 +56,16 @@ yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 [[ -f "$FIXTURE" ]] || { red "missing v0 fixture: $FIXTURE"; exit 2; }
 command -v cmake >/dev/null || { red "cmake is required"; exit 2; }
+
+if [[ $COVERAGE -eq 1 ]]; then
+  default_ctest_regex='parse_v0_dev_react|WidgetBridge __pulpRuntimeImport__ dispatches v0|WidgetBridge __pulpRuntimeImport__ surfaces parse failure'
+  export PULP_DIFF_COVER_CTEST_REGEX="${PULP_DIFF_COVER_CTEST_REGEX:-$default_ctest_regex}"
+  bash "$PULP_DIR/tools/scripts/local_diff_cover.sh" \
+    pulp-test-design-import pulp-test-widget-bridge
+  green "v0 parser diff coverage passed"
+  exit 0
+fi
+
 find_test_exe() {
   local name="$1"
   local candidate
