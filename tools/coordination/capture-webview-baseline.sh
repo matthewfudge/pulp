@@ -9,10 +9,18 @@
 # regenerable on demand so it doesn't go stale when editor.html changes.
 #
 # Usage:
-#   capture-webview-baseline.sh                  # capture default 1280x800
+#   capture-webview-baseline.sh                  # refresh canonical REFERENCE
 #   capture-webview-baseline.sh --width 1320 --height 860
 #   capture-webview-baseline.sh --output /tmp/foo.png
+#   capture-webview-baseline.sh --timestamped    # write a timestamped file
+#                                                # instead of overwriting the
+#                                                # canonical REFERENCE
 #   capture-webview-baseline.sh --diff           # also diff vs native-latest
+#
+# By default the screenshot is written to the canonical REFERENCE path that
+# quick-spectr-cycle.sh compares against, so a single capture run actually
+# refreshes the baseline. Use --output to override the destination, or
+# --timestamped to keep historical snapshots side-by-side.
 #
 # Env:
 #   PULP_DIR     pulp root (default /Users/danielraffel/Code/pulp)
@@ -35,14 +43,16 @@ WIDTH=1280
 HEIGHT=800
 DO_DIFF=0
 OUT_PNG=""
+TIMESTAMPED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --width)  WIDTH="$2"; shift 2 ;;
-    --height) HEIGHT="$2"; shift 2 ;;
-    --output) OUT_PNG="$2"; shift 2 ;;
-    --diff)   DO_DIFF=1; shift ;;
-    -h|--help) sed -n '/^# /,/^$/p' "$0"; exit 0 ;;
+    --width)       WIDTH="$2"; shift 2 ;;
+    --height)      HEIGHT="$2"; shift 2 ;;
+    --output)      OUT_PNG="$2"; shift 2 ;;
+    --diff)        DO_DIFF=1; shift ;;
+    --timestamped) TIMESTAMPED=1; shift ;;
+    -h|--help)     sed -n '/^# /,/^$/p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -50,7 +60,16 @@ done
 EDITOR_HTML="${SPECTR}/resources/editor.html"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 SCREENSHOTS_DIR="${PULP}/planning/screenshots"
-OUT_PNG="${OUT_PNG:-${SCREENSHOTS_DIR}/webview-baseline-editor-html-${TS}.png}"
+# Default: overwrite the canonical REFERENCE that quick-spectr-cycle.sh reads,
+# so capturing actually refreshes the baseline. Use --timestamped for the
+# legacy "side-by-side history" behaviour, or --output to pick a custom path.
+if [[ -z "$OUT_PNG" ]]; then
+  if [[ $TIMESTAMPED -eq 1 ]]; then
+    OUT_PNG="${SCREENSHOTS_DIR}/webview-baseline-editor-html-${TS}.png"
+  else
+    OUT_PNG="${SCREENSHOTS_DIR}/REFERENCE-spectr-editor-html.png"
+  fi
+fi
 
 log() { printf '[capture-webview] %s\n' "$*"; }
 die() { printf '[capture-webview] FATAL: %s\n' "$*" >&2; exit 2; }

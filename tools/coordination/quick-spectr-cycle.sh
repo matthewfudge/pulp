@@ -85,12 +85,18 @@ log "[4/4] Capturing native render → $OUT_PNG"
   || { log "FATAL: pulp-screenshot failed; see /tmp/pulp-screenshot.log"; exit 2; }
 
 log "Diffing vs webview baseline…"
-SCORE_LINE="$(python3 "${PULP}/tools/import-validation/diff_against_reference.py" \
-  "$REFERENCE" "$OUT_PNG" --threshold "$THRESHOLD" 2>&1 || true)"
+# Run the diff and capture its real exit status. We deliberately avoid `|| true`
+# here so $? reflects the python script's verdict (0 = PASS, non-zero = FAIL).
+# `set -e` is suspended for this single command via `if`, so a failing diff
+# does not abort the script before we print the summary.
+if SCORE_LINE="$(python3 "${PULP}/tools/import-validation/diff_against_reference.py" \
+  "$REFERENCE" "$OUT_PNG" --threshold "$THRESHOLD" 2>&1)"; then
+  RESULT=0
+else
+  RESULT=$?
+fi
 echo "$SCORE_LINE"
 
-# Pull just the score line for a one-line summary
-RESULT=$?
 echo ""
 echo "=== quickcycle summary ==="
 echo "Worktree: $WORKTREE"
