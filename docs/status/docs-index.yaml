@@ -294,6 +294,11 @@ docs:
     kind: reference
     summary: CLI and pipeline reference for design import adapters, IR, validation, and token sync
 
+  - slug: imports-designmd
+    path: reference/imports/designmd.md
+    kind: reference
+    summary: DESIGN.md (Google, Apache-2.0) import reference — supported subset, reference resolution, strict detection, exit codes, diagnostics, and the Phase 1/2/3 split
+
   - slug: w3c-coverage
     path: reference/w3c-coverage.md
     kind: reference

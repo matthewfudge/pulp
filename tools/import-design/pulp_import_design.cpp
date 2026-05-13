@@ -343,7 +343,7 @@ int main(int argc, char* argv[]) {
     auto source = parse_design_source(source_str);
     if (!source) {
         std::cerr << "Error: unknown source '" << source_str << "'\n";
-        std::cerr << "Valid sources: figma, stitch, v0, pencil\n";
+        std::cerr << "Valid sources: figma, stitch, v0, pencil, claude, designmd\n";
         return 1;
     }
 
@@ -394,6 +394,32 @@ int main(int argc, char* argv[]) {
                     ir = parse_claude_html(content);
                 }
                 break;
+            case DesignSource::designmd: {
+                // DESIGN.md is a system spec, not a screen — parse the
+                // frontmatter into tokens and walk the body for section
+                // ordering. No UI tree is scaffolded; the dispatch below
+                // suppresses the ui.js write for this source.
+                auto pr = parse_designmd(content);
+                ir = std::move(pr.ir);
+                // Surface diagnostics as one line per finding on stderr.
+                // Phase 2's `pulp design lint` will provide a richer JSON
+                // shape; this is the minimum for Phase 1.
+                for (const auto& d : pr.diagnostics) {
+                    const char* sev = (d.severity == DesignMdSeverity::error)   ? "error" :
+                                      (d.severity == DesignMdSeverity::warning) ? "warning" : "info";
+                    std::cerr << "[" << sev << "] " << d.code
+                              << " at " << (d.path.empty() ? "<root>" : d.path);
+                    if (d.line > 0) std::cerr << " (line " << d.line << ":" << d.column << ")";
+                    std::cerr << ": " << d.message << "\n";
+                }
+                // Hard fail on any error-severity diagnostic (e.g. duplicate
+                // section heading, malformed YAML). Exit code 3 reserved
+                // for parse errors per the integration plan.
+                for (const auto& d : pr.diagnostics) {
+                    if (d.severity == DesignMdSeverity::error) return 3;
+                }
+                break;
+            }
         }
     } catch (const std::exception& e) {
         std::cerr << "Error parsing " << design_source_name(*source) << " input: " << e.what() << "\n";
@@ -455,8 +481,13 @@ int main(int argc, char* argv[]) {
 
     auto t_codegen = std::chrono::steady_clock::now();
 
-    // Write output files
-    if (!write_file(output_file, js)) return 1;
+    // Write output files. DESIGN.md describes a system, not a screen —
+    // there is no UI tree to scaffold, so skip the ui.js write entirely
+    // and emit only tokens.json. Phase 3 may add a `--with-scaffold` flag
+    // once name-based widget detection is consistent across sources.
+    if (*source != DesignSource::designmd) {
+        if (!write_file(output_file, js)) return 1;
+    }
 
     // Count elements by type
     size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
@@ -470,9 +501,13 @@ int main(int argc, char* argv[]) {
     count_nodes(ir.root);
 
     auto t_write = std::chrono::steady_clock::now();
-    std::cout << "Wrote " << output_file << " (" << node_count << " elements: "
-              << container_count << " containers, " << widget_count << " widgets, "
-              << text_count << " labels";
+    if (*source == DesignSource::designmd) {
+        std::cout << "DESIGN.md → tokens only (no ui.js; system spec, not screen)";
+    } else {
+        std::cout << "Wrote " << output_file << " (" << node_count << " elements: "
+                  << container_count << " containers, " << widget_count << " widgets, "
+                  << text_count << " labels";
+    }
 
     // Write tokens
     if (include_tokens && (!ir.tokens.colors.empty() || !ir.tokens.dimensions.empty() || !ir.tokens.strings.empty())) {
@@ -484,7 +519,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << ")\n";
+    if (*source == DesignSource::designmd) {
+        std::cout << "\n";
+    } else {
+        std::cout << ")\n";
+    }
 
     // Bridge handler scaffold for Claude Design imports (pulp #709).
     // Only emitted for --from claude; other sources keep their existing

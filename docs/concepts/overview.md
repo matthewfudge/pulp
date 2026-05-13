@@ -10,7 +10,7 @@ See [the Vision doc](vision.md) for the full architecture and design decisions. 
 - **Platforms** — macOS (primary), Windows, Linux, iOS, Web/WASM (experimental)
 - **DSP** — 30+ processors, thread-safe parameters, headless processing, Faust/Cmajor/JSFX integration
 - **UI** — GPU-rendered widgets, CSS Flexbox/Grid layout, design tokens, hot-reload, Three.js on native GPU
-- **Design** — import from Figma, Pencil, Stitch; AI-driven design tool; design token export
+- **Design** — import from Figma, Pencil, Stitch, v0, Claude Design, and Google DESIGN.md (Apache-2.0, design-system / tokens-only); AI-driven design tool; design token export
 - **Tooling** — `pulp` CLI for build/test/validate/ship, MCP server, local + cloud CI, Claude Code plugin
 - **Shipping** — code signing, notarization, DMG/PKG packaging, Sparkle auto-updates
 

@@ -707,6 +707,19 @@ design_import:
   pencil_adapter:
     status: usable
     notes: JSON IR parsing with Yoga layout near-1:1 translation. Pencil MCP integration via Claude skill.
+  designmd_adapter:
+    status: partial
+    parser-version: "0.1"
+    format-version: alpha
+    notes: >
+      Google DESIGN.md (Apache-2.0). Phase 1 emits tokens.json only — no
+      ui.js, because DESIGN.md describes a system, not a screen. Strict
+      detection (filename + frontmatter fence + name: + at least one of
+      colors/typography/rounded/spacing/components; all-of with 95% min
+      confidence). yaml-cpp (MIT) is vendored via CMake FetchContent for
+      the frontmatter parse. Phase 2 adds pulp design lint / diff +
+      Tailwind v3+v4 export; Phase 3 adds round-trip and component
+      scaffolding. See reference/imports/designmd.md.
   code_generator:
     status: usable
     notes: >

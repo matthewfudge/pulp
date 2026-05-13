@@ -823,6 +823,15 @@ theme.set("text.primary", Color::rgba(220, 220, 230));
 canvas.set_fill_color(resolve_color("bg.surface"));
 ```
 
+### Design import
+
+Per-source parsers under `core/view/src/design_import_*.cpp` translate
+external designs into Pulp's import IR for `pulp import-design`.
+`design_import_designmd.cpp` parses Google's DESIGN.md format
+(YAML-frontmatter + Markdown body) into a DTCG `tokens.json`;
+yaml-cpp (MIT, vendored via CMake FetchContent) provides the
+frontmatter parse. See [`reference/imports/designmd.md`](imports/designmd.md).
+
 ### JS-scripted UI
 
 Write your entire plugin UI in JavaScript with hot-reload during development:

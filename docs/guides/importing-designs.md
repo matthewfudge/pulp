@@ -1,6 +1,6 @@
 # Importing Designs
 
-Pulp can import designs from external tools and translate them into web-compat JS code that runs as plugin UIs. Supported sources: **Figma**, **Google Stitch**, **v0.dev**, and **Pencil/OpenPencil**.
+Pulp can import designs from external tools and translate them into web-compat JS code that runs as plugin UIs. Supported sources: **Figma**, **Google Stitch**, **v0.dev**, **Pencil/OpenPencil**, **Claude Design**, and **Google DESIGN.md** (design *system* — tokens only, no screen).
 
 ## Quick Start
 
@@ -104,6 +104,54 @@ pulp import-design --from v0 --file component.tsx --output my-ui.js
 - Tailwind classes → inline style properties
 - shadcn/ui components → Pulp widget equivalents
 - `useState` → `getParam`/`setParam`
+
+### Google DESIGN.md
+
+`DESIGN.md` is Google's YAML-frontmatter + Markdown format for
+describing a design *system* (colors, typography, spacing, component
+recipes), not a screen. The format is Apache-2.0; the upstream spec
+lives at [github.com/google/design.md](https://github.com/google/design.md).
+
+```bash
+pulp import-design --from designmd --file path/to/DESIGN.md
+```
+
+This produces `tokens.json` in W3C DTCG format. It does **not**
+produce a `ui.js`, because DESIGN.md has no screen — there's nothing
+to lay out. Use this importer when you want to bring a token system
+into Pulp; pair it with a screen importer (Figma, Stitch, Pencil, v0,
+Claude) when you also need a UI.
+
+The parser handles the canonical frontmatter keys (`version`, `name`,
+`description`, `colors`, `typography`, `rounded`, `spacing`,
+`components`), resolves `{group.key}` references at parse time, and
+preserves composite typography references inside `components.*`
+verbatim so downstream tooling can resolve them in widget context.
+
+Detection is strict: filename must be `DESIGN.md`, the frontmatter
+fence must be present, and the frontmatter must declare `name:` plus
+at least one canonical token group. A generic Jekyll blog post with
+`name:` in its frontmatter will not match.
+
+Phase 1 is tokens-only. Phase 2 adds `pulp design lint` / `pulp
+design diff` and Tailwind v3 + v4 export. Phase 3 makes DESIGN.md a
+round-trippable project source of truth. See
+[`reference/imports/designmd.md`](../reference/imports/designmd.md)
+for the full reference.
+
+### Claude Design
+
+Claude Design exports are standalone HTML files with an inline bundler
+script tag. Pulp detects them via the `__bundler/template` script type
+and parses the loader shell:
+
+```bash
+pulp import-design --from claude --file design.html --classnames classnames.json
+```
+
+The `classnames.json` artifact maps every plain-classname `<style>`
+rule to its camelCase CSS properties, for downstream merge into
+inline styles. See [`reference/cli.md#import-design`](../reference/cli.md#import-design).
 
 ## Audio Widget Detection
 
@@ -229,6 +277,8 @@ Sources:
   stitch    Google Stitch screen HTML or MCP data
   v0        v0.dev TSX/Tailwind output
   pencil    Pencil/OpenPencil node JSON or .pen export
+  claude    Claude Design standalone HTML export
+  designmd  Google DESIGN.md (Apache-2.0) — tokens only, no ui.js
 
 Options:
   --from <source>   Design source (required)
