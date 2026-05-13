@@ -208,6 +208,11 @@ shipyard cleanup --ship-state --apply     # prune closed-PR + aged state
 shipyard run --targets windows --smoke    # fast Windows-only check
 shipyard run --resume-from test           # skip configure+build, run tests only
 shipyard cloud run build <branch>         # dispatch to Namespace
+shipyard rescue <PR>                      # recover a wedged PR by redispatching queued runs
+shipyard rescue <PR> --rerun-failed       # also re-arm cancelled/failed runs
+shipyard runner watch --kill-hung-workers # host-side prevention daemon for self-hosted runners
+shipyard update --check --json            # installed vs latest Shipyard drift report
+shipyard update                           # apply latest stable Shipyard
 
 # Target management
 shipyard targets                          # list targets with reachability
