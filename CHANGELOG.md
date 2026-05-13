@@ -8,7 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-## [0.95.1]
+<a id="v0951"></a>
+## [0.95.1] - 2026-05-13
+
+- fix(view): Label wraps with CSS default white-space:normal (closes #1924) ([#1933](https://github.com/danielraffel/pulp/pull/1933))
+- ci: add path-scoped parser validation profile (closes #1916) ([#1920](https://github.com/danielraffel/pulp/pull/1920))
+- fix(widget_bridge): pump message loop after JS event dispatch so drag-state commits before next event (closes #1923) ([#1929](https://github.com/danielraffel/pulp/pull/1929))
+- docs(ci): document recovery + maintenance toolkit (v0.56.2) ([#1927](https://github.com/danielraffel/pulp/pull/1927))
+- ci/exclude slow label from pr validation ([#1876](https://github.com/danielraffel/pulp/pull/1876))
+- feat(import): v0.dev React export parser (Phase 6.6.2) ([#1897](https://github.com/danielraffel/pulp/pull/1897))
+- test(canvas2d): pin 9-arg drawImage coverage for #1739 ([#1868](https://github.com/danielraffel/pulp/pull/1868))
+- fix(pulp-react): getPublicInstance returns DOM-shim Element ([#1859](https://github.com/danielraffel/pulp/pull/1859))
+- fix(host): cache dlerror() before std::format call in CLAP scanner (ASan SEGV) ([#1873](https://github.com/danielraffel/pulp/pull/1873))
+- test(view/css): pin Tier-1 supported core + reclassify 5 rows (closes 5 coverage-gaps) ([#1857](https://github.com/danielraffel/pulp/pull/1857))
+- fix(css): nested var() fallback + var-in-calc resolution via balanced-paren walker (closes coverage-gap css/__var) ([#1855](https://github.com/danielraffel/pulp/pull/1855))
 
 <a id="v0950"></a>
 ## [0.95.0] - 2026-05-12
@@ -1684,6 +1697,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.95.1]: https://github.com/danielraffel/pulp/releases/tag/v0.95.1
 [0.95.0]: https://github.com/danielraffel/pulp/releases/tag/v0.95.0
 [0.94.0]: https://github.com/danielraffel/pulp/releases/tag/v0.94.0
 [0.93.0]: https://github.com/danielraffel/pulp/releases/tag/v0.93.0
