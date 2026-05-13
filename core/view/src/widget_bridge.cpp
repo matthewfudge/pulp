@@ -2697,9 +2697,21 @@ void WidgetBridge::register_api() {
     });
 
     // getLayoutRect(id) -> {x, y, width, height, top, right, bottom, left}
-    // Returns layout-resolved bounds in root-relative coordinates
+    // Returns layout-resolved bounds in root-relative coordinates.
+    //
+    // pulp #1899 — force a fresh layout pass before reading bounds.
+    // Spectr's editor (and any React-imported tree) calls this via
+    // Element.getBoundingClientRect() in mount-time effects to size
+    // a canvas / SVG / drawing surface. If the JS commit that mounted
+    // the React tree hasn't yet been followed by a yoga_layout pass,
+    // the bounds read back as the View's stale default (0×0) — which
+    // gates the entire canvas paint pipeline (drawSpectrum/drawRulers
+    // bail at getBoundingClientRect == 0). Forcing layout here closes
+    // that timing gap. Layout is internally idempotent if nothing has
+    // changed, so the cost is bounded to one tree walk per call.
     engine_.register_function("getLayoutRect", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
+        root_.layout_children();
         View* v = id.empty() ? &root_ : widget(id);
         return make_layout_rect_value(v);
     });
@@ -4168,21 +4180,69 @@ void WidgetBridge::register_api() {
     });
 
     engine_.register_function("canvasFillText", [this, parseColor](choc::javascript::ArgumentList args) {
-        if (auto* c = dynamic_cast<CanvasWidget*>(widget(args.get<std::string>(0, "")))) {
-            CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_text;
-            cmd.text = args.get<std::string>(1, "");
-            cmd.x=(float)args.get<double>(2,0); cmd.y=(float)args.get<double>(3,0);
-            cmd.extra=(float)args.get<double>(4, 14);
+        auto cid = args.get<std::string>(0, "");
+        auto* c = dynamic_cast<CanvasWidget*>(widget(cid));
+        if (!c) return choc::value::Value();
+
+        CanvasDrawCmd cmd; cmd.type = CanvasDrawCmd::Type::fill_text;
+
+        // pulp #1899 — accept BOTH calling conventions.
+        //
+        // Pulp's web-compat-canvas.js shim emits the 7-arg form:
+        //   canvasFillText(id, text, x, y, size, color, maxWidth)
+        //
+        // Third-party shims bundled with imported designs (e.g. Spectr's
+        // native-react/canvas2d-shim.ts:269) emit a 4-arg form with text
+        // LAST:
+        //   canvasFillText(id, x, y, text)
+        //
+        // Both are valid JS-side surface contracts. Detect by checking
+        // whether slot 1 is a string (web-compat form) or a number
+        // (legacy / third-party form). Without this branch, the 4-arg
+        // form silently drops all text — every fillText() that flowed
+        // through the third-party shim recorded an empty fill_text cmd,
+        // which fill_text() in skia_canvas then skipped via the
+        // `if (text.empty()) return;` early-out. Net effect: bars + grid
+        // rendered (other commands), but every axis label / overlay
+        // text was invisible.
+        std::string slot1_str = args.get<std::string>(1, "");
+        const bool is_4arg_form = (args.numArgs == 4) && slot1_str.empty();
+
+        if (is_4arg_form) {
+            // canvasFillText(id, x, y, text). Third-party shims that emit
+            // this form (e.g. Spectr's canvas2d-shim.ts:269) often do NOT
+            // call canvasSetFont first, so the CanvasWidget's command
+            // buffer has no `set_font` command ahead of this `fill_text`.
+            // At paint time, CGCanvas / SkiaCanvas would create a font
+            // with font_size_ = 0 (the canvas's default) → glyphs are
+            // 0-pt → text draws invisibly. Inject a default set_font
+            // command so the replay establishes a sane font state before
+            // this fill_text command renders.
+            CanvasDrawCmd font_cmd;
+            font_cmd.type  = CanvasDrawCmd::Type::set_font;
+            font_cmd.text  = "system-ui";
+            font_cmd.extra = 14.0f;
+            c->add_command(font_cmd);
+
+            cmd.x    = (float)args.get<double>(1, 0);
+            cmd.y    = (float)args.get<double>(2, 0);
+            cmd.text = args.get<std::string>(3, "");
+            cmd.extra = 14.0f;                  // default font size px
+            cmd.color = parseColor("#fff");     // default color (white)
+            cmd.w     = 0.0f;                   // no maxWidth
+        } else {
+            // canvasFillText(id, text, x, y, size, color, maxWidth)
+            cmd.text  = slot1_str;
+            cmd.x     = (float)args.get<double>(2, 0);
+            cmd.y     = (float)args.get<double>(3, 0);
+            cmd.extra = (float)args.get<double>(4, 14);
             cmd.color = parseColor(args.get<std::string>(5, "#fff"));
-            // pulp #1525 — Canvas2D `fillText(text, x, y, maxWidth)`. The
-            // JS shim threads the optional maxWidth through as the 7th
-            // arg (px). `<= 0` (or absent) is the spec sentinel for "no
-            // constraint" and routes through the legacy fill_text path
-            // unchanged. Stored on `cmd.w` (which fill_text otherwise
-            // does not consume) so we don't have to grow CanvasDrawCmd.
-            cmd.w = (float)args.get<double>(6, 0.0);
-            c->add_command(cmd);
+            // pulp #1525 — maxWidth threaded as 7th arg in CSS px;
+            // `<= 0` or absent means "no constraint".
+            cmd.w     = (float)args.get<double>(6, 0.0);
         }
+
+        c->add_command(cmd);
         return choc::value::Value();
     });
 
@@ -6151,8 +6211,14 @@ void WidgetBridge::register_api() {
     // Shell exec (for Claude CLI)
     // Ensures PATH includes common tool locations (homebrew, npm global, etc.)
     // getLayoutRect(id) → {x, y, width, height, top, left, right, bottom}
+    // pulp #1899 — see the matching note on the earlier getLayoutRect
+    // registration. Both bindings must force a layout pass; whichever
+    // wins the engine_.register_function override needs the same
+    // semantics so React-imported trees get correct bounds in mount-
+    // time effects.
     engine_.register_function("getLayoutRect", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
+        root_.layout_children();
         auto* v = widget(id);
         return make_layout_rect_value(v);
     });
