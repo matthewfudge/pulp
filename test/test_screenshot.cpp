@@ -131,6 +131,49 @@ TEST_CASE("Screenshot render_to_file rejects an unwritable output path",
 #endif
 }
 
+// pulp #1899 — pin the per-backend dispatch in render_to_png so the
+// CLI's new `--backend` flag actually reaches render_to_png_skia /
+// render_to_png_coregraphics. Both backends must produce a valid PNG
+// header on the same input; the byte streams will differ (Skia is
+// pixmap-encoded, CG uses ImageIO) so we don't compare them — we just
+// pin that each path returns a non-empty PNG.
+TEST_CASE("Screenshot: backend dispatch — Skia and CoreGraphics both produce valid PNGs",
+          "[view][screenshot][issue-1899][backend]") {
+#ifdef __APPLE__
+    View root;
+    root.set_theme(Theme::dark());
+    auto label = std::make_unique<Label>("Backend dispatch test");
+    label->set_bounds({0, 0, 120, 20});
+    root.add_child(std::move(label));
+
+    SECTION("Skia backend") {
+        auto png = render_to_png(root, 200, 80, 1.0f, ScreenshotBackend::skia);
+        REQUIRE_FALSE(png.empty());
+        REQUIRE(png.size() > 8);
+        REQUIRE(png[0] == 0x89);
+        REQUIRE(png[1] == 'P');
+        REQUIRE(png[2] == 'N');
+        REQUIRE(png[3] == 'G');
+    }
+    SECTION("CoreGraphics backend") {
+        auto png = render_to_png(root, 200, 80, 1.0f, ScreenshotBackend::coregraphics);
+        REQUIRE_FALSE(png.empty());
+        REQUIRE(png.size() > 8);
+        REQUIRE(png[0] == 0x89);
+        REQUIRE(png[1] == 'P');
+        REQUIRE(png[2] == 'N');
+        REQUIRE(png[3] == 'G');
+    }
+    SECTION("default_backend resolves to a supported backend") {
+        auto png = render_to_png(root, 200, 80, 1.0f, ScreenshotBackend::default_backend);
+        REQUIRE_FALSE(png.empty());
+        REQUIRE(png[0] == 0x89);
+    }
+#else
+    SUCCEED("non-Apple backend dispatch is provider-routed; covered elsewhere");
+#endif
+}
+
 TEST_CASE("Screenshot of an empty root view still produces a valid PNG",
           "[view][screenshot][empty]") {
 #ifdef __APPLE__
