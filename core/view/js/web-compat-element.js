@@ -239,16 +239,23 @@ Element.prototype._ensureNative = function() {
 
 // pulp #1899 — orientation heuristic for <input type="range">. Returns
 // "horizontal" (HTML default) or "vertical". Priority:
-//   1. aria-orientation attribute explicitly says "vertical"
-//   2. inline style.height > style.width — author shaped it as a tall
-//      column, so render as a vertical fader
-//   3. otherwise horizontal (the HTML / Web-Audio convention)
+//   1. aria-orientation attribute explicitly says "vertical" (or "horizontal")
+//   2. inline style.height > inline style.width — BOTH must be inline-set;
+//      otherwise width may come from a flex parent (not visible here) and
+//      the comparison is meaningless. The earlier "hasH && !hasW → vertical"
+//      shortcut regressed horizontal sliders whose width came from layout
+//      (Codex P1 review of #1917).
+//   3. otherwise horizontal (the HTML / Web-Audio convention).
+// TODO: add test for #1917 P1 regression (horizontal slider with
+//       inline style.height but width supplied by flex parent).
 function __resolveRangeOrientation__(el) {
     if (!el) return "horizontal";
     var aria = el._attributes && el._attributes["aria-orientation"];
     if (aria === "vertical") return "vertical";
     if (aria === "horizontal") return "horizontal";
     // Read pre-mount inline-style props captured on the CSSStyleDeclaration.
+    // Both width AND height must be inline-explicit before we trust the
+    // comparison — see header comment for the flex-width regression.
     var s = el.style && el.style._props;
     if (s) {
         var w = parseFloat(s.width);
@@ -256,9 +263,29 @@ function __resolveRangeOrientation__(el) {
         var hasW = w === w && w > 0;          // NaN-safe
         var hasH = h === h && h > 0;
         if (hasH && hasW && h > w) return "vertical";
-        if (hasH && !hasW)         return "vertical";
     }
     return "horizontal";
+}
+
+// pulp #1917 (Codex P1) — SVG `currentColor` resolution.
+//
+// The SVG spec resolves `stroke="currentColor"` / `fill="currentColor"`
+// to the element's CSS `color` property at render time. The C++
+// SvgPathWidget bridge does not parse the literal token, so without
+// resolution the stroke renders transparent/black/garbage depending on
+// the backend. Walk up the parent chain looking for an inline
+// `style.color` (color is inherited per CSS); fall back to "black" per
+// SVG spec when nothing is set anywhere on the chain.
+function __resolveCurrentColor__(el) {
+    var anc = el;
+    while (anc) {
+        var col = anc.style && anc.style._props && anc.style._props.color;
+        if (typeof col === "string" && col.length > 0 && col !== "inherit") {
+            return col;
+        }
+        anc = anc._parentElement;
+    }
+    return "black"; // SVG spec default
 }
 
 // pulp #1147 — shared helper that maps presentational HTML attributes
@@ -454,8 +481,15 @@ function __replaySvgPathAttributes__(el) {
         setSvgPath(el._id, String(a.d));
     }
     // stroke — color string. "none" / "" clears the stroke.
+    // pulp #1917 (Codex P1) — resolve `currentColor` against the CSS
+    // color cascade before dispatch; the C++ widget doesn't parse the
+    // literal token. Fallback is "black" per SVG spec.
     if (a.stroke !== undefined && typeof setSvgStroke === "function") {
-        setSvgStroke(el._id, String(a.stroke));
+        var strokeVal = String(a.stroke);
+        if (strokeVal === "currentColor") {
+            strokeVal = __resolveCurrentColor__(el);
+        }
+        setSvgStroke(el._id, strokeVal);
     }
     // stroke-width / strokeWidth — width in viewBox units.
     var sw = a["stroke-width"];
@@ -464,9 +498,13 @@ function __replaySvgPathAttributes__(el) {
         var psw = parseFloat(sw);
         if (psw === psw) setSvgStrokeWidth(el._id, psw);
     }
-    // fill — color string. "none" clears.
+    // fill — color string. "none" clears. Same currentColor handling as stroke.
     if (a.fill !== undefined && typeof setSvgFill === "function") {
-        setSvgFill(el._id, String(a.fill));
+        var fillVal = String(a.fill);
+        if (fillVal === "currentColor") {
+            fillVal = __resolveCurrentColor__(el);
+        }
+        setSvgFill(el._id, fillVal);
     }
     // viewBox — inherited from the parent <svg>. The SVG spec attaches
     // viewBox to the outer <svg>, but the SvgPathWidget needs the (w,h)

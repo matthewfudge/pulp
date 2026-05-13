@@ -165,3 +165,91 @@ TEST_CASE("range-1899 (#5): style.height > style.width also flips to vertical",
     REQUIRE(fader != nullptr);
     REQUIRE(fader->orientation() == Fader::Orientation::vertical);
 }
+
+// pulp #1917 (Codex P1 review of #1899). Pre-fix, the predicate
+// `hasH && !hasW → vertical` flipped any slider with inline height
+// but flex-supplied width into vertical orientation. The new
+// predicate requires BOTH height and width inline-explicit before
+// comparing, so a horizontal slider whose width comes from flex
+// layout stays horizontal.
+TEST_CASE("range-1917 (P1): inline height without inline width stays HORIZONTAL",
+          "[input][range][issue-1917][regression]") {
+    TestEnvironment env(400, 200);
+    env.eval(R"JS(
+        var __slider = document.createElement('input');
+        __slider.type = 'range';
+        // Author sets height inline (control row height) but lets the
+        // parent flex container determine width. Pre-fix this snapped
+        // to vertical; post-fix it stays horizontal (HTML default).
+        __slider.style.height = '24px';
+        document.body.appendChild(__slider);
+    )JS");
+    env.root.layout_children();
+
+    auto* fader = dynamic_cast<Fader*>(resolve(env, "__slider"));
+    REQUIRE(fader != nullptr);
+    REQUIRE(fader->orientation() == Fader::Orientation::horizontal);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pulp #1917 (Codex P1) — SVG `currentColor` resolution.
+//
+// Pre-fix, `stroke="currentColor"` was forwarded to the C++ widget as the
+// literal token, which the bridge does not parse. Post-fix the JS shim
+// resolves it against the element's CSS `color` cascade before dispatch,
+// falling back to "black" per the SVG spec when no `color` is set.
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("svg-1917 (P1): stroke=currentColor resolves to inline style.color",
+          "[svg][currentColor][issue-1917]") {
+    TestEnvironment env(400, 200);
+    env.eval(R"JS(
+        var __svg = document.createElement('svg');
+        __svg.setAttribute('viewBox', '0 0 24 24');
+        __svg.style.color = '#ff8800'; // CSS color cascade source (orange)
+        var __path = document.createElement('path');
+        __path.setAttribute('d', 'M0 0 L 24 24');
+        __path.setAttribute('stroke', 'currentColor');
+        __path.setAttribute('stroke-width', '2');
+        __svg.appendChild(__path);
+        document.body.appendChild(__svg);
+    )JS");
+    env.root.layout_children();
+
+    auto* widget = dynamic_cast<SvgPathWidget*>(resolve(env, "__path"));
+    REQUIRE(widget != nullptr);
+    REQUIRE(widget->has_stroke());
+    // Pre-fix, the literal "currentColor" token reached parseColor in the
+    // bridge, which fell through and returned the default (white 1,1,1,1).
+    // Post-fix, the JS shim resolves to #ff8800 (orange) before dispatch.
+    auto c = widget->stroke_color();
+    REQUIRE(c.r > 0.95f);                 // 0xff
+    REQUIRE((c.g > 0.45f && c.g < 0.60f)); // 0x88 ≈ 0.533
+    REQUIRE(c.b < 0.05f);                  // 0x00
+}
+
+TEST_CASE("svg-1917 (P1): stroke=currentColor with no cascade defaults to black",
+          "[svg][currentColor][issue-1917]") {
+    TestEnvironment env(400, 200);
+    env.eval(R"JS(
+        var __svg = document.createElement('svg');
+        __svg.setAttribute('viewBox', '0 0 24 24');
+        var __path = document.createElement('path');
+        __path.setAttribute('d', 'M0 0 L 24 24');
+        __path.setAttribute('stroke', 'currentColor');
+        __svg.appendChild(__path);
+        document.body.appendChild(__svg);
+    )JS");
+    env.root.layout_children();
+
+    auto* widget = dynamic_cast<SvgPathWidget*>(resolve(env, "__path"));
+    REQUIRE(widget != nullptr);
+    REQUIRE(widget->has_stroke());
+    // SVG spec: when `color` is unset anywhere in the cascade, currentColor
+    // defaults to black. The JS shim substitutes "black" before dispatch;
+    // parseColor's named-color table maps "black" → 0x000000.
+    auto c = widget->stroke_color();
+    REQUIRE(c.r < 0.05f);
+    REQUIRE(c.g < 0.05f);
+    REQUIRE(c.b < 0.05f);
+}
