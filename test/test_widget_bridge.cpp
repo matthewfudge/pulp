@@ -3046,6 +3046,96 @@ TEST_CASE("WidgetBridge canvasDrawImage 6-arg call leaves has_source_rect=false"
     REQUIRE_THAT(cmd.y3, WithinAbs(0.0f, 1e-5f));
 }
 
+// ── pulp #1899 / #1901 review — 4-arg canvasFillText preserves prior state ──
+//
+// The original 4-arg shim (#1899) unconditionally injected a `set_font`
+// (system-ui 14px) ahead of every fillText cmd AND overwrote
+// `cmd.color` to white. That stomped any prior `fillStyle = "..."` or
+// `font = "..."` set by the caller. Codex flagged both as P1 on
+// PR #1901. The fix gates each default on whether any prior fill-style
+// / font-state cmd has been recorded on the canvas; if so, we propagate
+// that state into the fill_text cmd rather than reset to defaults.
+
+TEST_CASE("WidgetBridge 4-arg canvasFillText preserves prior fillStyle color",
+          "[view][bridge][canvas][issue-1901][canvas2d][coverage]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    // Drive the bridge directly so the assertions pin the
+    // widget_bridge.cpp 4-arg branch without an intermediary JS shim.
+    bridge.load_script(R"(
+        var c = document.createElement('canvas');
+        c.id = 'bridge-4arg-fill-color';
+        c.width = 128; c.height = 64;
+        document.body.appendChild(c);
+        // Establish a fillStyle first, then call the 4-arg fillText
+        // form: canvasFillText(id, x, y, text).
+        canvasSetFillColor(c._id, 'red');
+        canvasFillText(c._id, 10, 20, 'hello');
+    )");
+    root.layout_children();
+
+    auto* canvas = canvasFromBridge(bridge, engine, "bridge-4arg-fill-color");
+    REQUIRE(canvas != nullptr);
+
+    // Expected recorded stream: set_fill_color(red), set_font(default),
+    // fill_text(...). The set_font is the still-needed default-font
+    // injection (no canvasSetFont was issued). The fill_text cmd's
+    // color MUST be red — not the hard-coded #fff that the original
+    // 4-arg shim wrote unconditionally.
+    const auto& cmds = canvas->commands();
+    REQUIRE(cmds.size() == 3);
+    REQUIRE(cmds[0].type == CanvasDrawCmd::Type::set_fill_color);
+    REQUIRE(cmds[1].type == CanvasDrawCmd::Type::set_font);
+    REQUIRE(cmds[2].type == CanvasDrawCmd::Type::fill_text);
+    REQUIRE(cmds[2].text == "hello");
+    // red = #FF0000 → r=1.0, g=0.0, b=0.0. Channel-wise compare.
+    REQUIRE_THAT(cmds[2].color.r, WithinAbs(1.0f, 1e-5f));
+    REQUIRE_THAT(cmds[2].color.g, WithinAbs(0.0f, 1e-5f));
+    REQUIRE_THAT(cmds[2].color.b, WithinAbs(0.0f, 1e-5f));
+}
+
+TEST_CASE("WidgetBridge 4-arg canvasFillText preserves prior set_font state",
+          "[view][bridge][canvas][issue-1901][canvas2d][coverage]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"(
+        var c = document.createElement('canvas');
+        c.id = 'bridge-4arg-fill-font';
+        c.width = 128; c.height = 64;
+        document.body.appendChild(c);
+        // Establish a font first, then call the 4-arg fillText form.
+        // The 4-arg shim previously injected a `set_font system-ui 14px`
+        // ahead of every call — stomping the prior serif 20px state.
+        canvasSetFont(c._id, 'serif', 20);
+        canvasFillText(c._id, 5, 15, 'world');
+    )");
+    root.layout_children();
+
+    auto* canvas = canvasFromBridge(bridge, engine, "bridge-4arg-fill-font");
+    REQUIRE(canvas != nullptr);
+
+    // Expected stream: set_font(serif 20), fill_text(...). The default
+    // set_font MUST NOT be injected because a prior set_font already
+    // established the canvas's font state.
+    const auto& cmds = canvas->commands();
+    REQUIRE(cmds.size() == 2);
+    REQUIRE(cmds[0].type == CanvasDrawCmd::Type::set_font);
+    REQUIRE(cmds[0].text == "serif");
+    REQUIRE_THAT(cmds[0].extra, WithinAbs(20.0f, 1e-5f));
+    REQUIRE(cmds[1].type == CanvasDrawCmd::Type::fill_text);
+    REQUIRE(cmds[1].text == "world");
+}
+
 TEST_CASE("WidgetBridge canvasPutImageData records pixel buffer for paint replay",
           "[view][bridge][canvas][issue-916]") {
     ScriptEngine engine;

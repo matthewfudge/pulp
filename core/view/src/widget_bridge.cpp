@@ -4218,17 +4218,57 @@ void WidgetBridge::register_api() {
             // 0-pt → text draws invisibly. Inject a default set_font
             // command so the replay establishes a sane font state before
             // this fill_text command renders.
-            CanvasDrawCmd font_cmd;
-            font_cmd.type  = CanvasDrawCmd::Type::set_font;
-            font_cmd.text  = "system-ui";
-            font_cmd.extra = 14.0f;
-            c->add_command(font_cmd);
+            //
+            // pulp #1901 review (Codex P1): only inject the default
+            // set_font when no prior font state has been recorded on
+            // this canvas. Scanning the recorded command stream is the
+            // canvas's only source of "prior state" — there is no
+            // separate accessor. If a caller already issued
+            // canvasSetFont / canvasSetFontFull, preserve their state
+            // (no override). Same rationale for cmd.color below: a
+            // prior canvasSetFillColor (or fill-gradient/pattern) must
+            // not be stomped by the hard-coded #fff default — scan
+            // back for the most recent fill-style cmd and reuse its
+            // color, otherwise fall back to #fff.
+            const auto& prior = c->commands();
+            bool has_prior_font = false;
+            bool has_prior_fill = false;
+            canvas::Color prior_fill_color = canvas::Color::rgba(1.0f, 1.0f, 1.0f, 1.0f);
+            for (auto it = prior.rbegin(); it != prior.rend(); ++it) {
+                if (!has_prior_font &&
+                    (it->type == CanvasDrawCmd::Type::set_font ||
+                     it->type == CanvasDrawCmd::Type::set_font_full)) {
+                    has_prior_font = true;
+                }
+                if (!has_prior_fill &&
+                    (it->type == CanvasDrawCmd::Type::set_fill_color ||
+                     it->type == CanvasDrawCmd::Type::set_fill_gradient_linear ||
+                     it->type == CanvasDrawCmd::Type::set_fill_gradient_radial ||
+                     it->type == CanvasDrawCmd::Type::set_fill_gradient_radial_two_circles ||
+                     it->type == CanvasDrawCmd::Type::set_fill_gradient_conic ||
+                     it->type == CanvasDrawCmd::Type::set_fill_pattern)) {
+                    has_prior_fill = true;
+                    prior_fill_color = it->color;
+                }
+                if (has_prior_font && has_prior_fill) break;
+            }
+
+            if (!has_prior_font) {
+                CanvasDrawCmd font_cmd;
+                font_cmd.type  = CanvasDrawCmd::Type::set_font;
+                font_cmd.text  = "system-ui";
+                font_cmd.extra = 14.0f;
+                c->add_command(font_cmd);
+            }
 
             cmd.x    = (float)args.get<double>(1, 0);
             cmd.y    = (float)args.get<double>(2, 0);
             cmd.text = args.get<std::string>(3, "");
             cmd.extra = 14.0f;                  // default font size px
-            cmd.color = parseColor("#fff");     // default color (white)
+            // Preserve any prior fill style; only default to white when
+            // the caller never set a fill color / gradient / pattern.
+            cmd.color = has_prior_fill ? prior_fill_color
+                                       : parseColor("#fff");
             cmd.w     = 0.0f;                   // no maxWidth
         } else {
             // canvasFillText(id, text, x, y, size, color, maxWidth)
