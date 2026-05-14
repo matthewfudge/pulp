@@ -34,6 +34,43 @@ specifics are out of scope.
 
 ## Recently changed
 
+- **2026-05-12 (pulp #1576 replacement — `resolveCSSLength` everywhere + 2 Codex closeouts)** —
+  `core/view/js/web-compat-style-decl.js` swept: 58 `parseCSSLength(...)`
+  call sites swapped to `resolveCSSLength(...)`. The new helper is a
+  drop-in `{value, unit}`-shape replacement that also handles
+  `calc()` / `min()` / `max()` / `clamp()` expression inputs. Two
+  Codex-flagged correctness issues from the stale pulp #1576
+  addressed in the same PR:
+  * **P1** — `calc()` / `min()` / `max()` / `clamp()` with empty
+    parens previously infinite-recursed through `evaluateCalc`'s
+    nested-function regex (RangeError on user/theme strings). Fixed
+    at two layers: `resolveCSSLength` guards malformed inputs via
+    a `_calcFamilyInner` helper before delegating, and `evaluateCalc`'s
+    inner regex tightened from `\([^)]*\)` to `\([^)]+\)`.
+  * **P2** — calc-family expressions whose operands all share a
+    single unit now preserve that unit so the bridge routes through
+    the correct layout path:
+    - `calc(50%)` / `min(10%, 20%)` → `{value, unit: '%'}` —
+      percent layout path (was mis-applying `calc(50%)` as absolute px).
+    - `calc(10vh)` / `min(1em, 2em)` / `calc(2rem)` / `calc(25vw)` /
+      `calc(40vmin)` / `calc(40vmax)` / `calc(12px)` — original unit
+      preserved (Codex P1 on PR #1862 follow-up; bridge call sites
+      like `top/right/bottom/left` and `fontSize` need unit info for
+      property-specific conversion). The unit set is the same one
+      `parseCSSLength` already supports — units outside that set
+      (`ch`, `pt`, `in`, etc.) fall through to px resolution rather
+      than diverging from the existing bare-length parser.
+    - Mixed-unit (`calc(50% + 10px)` / `min(10vh, 20px)`) and
+      operator-bearing expressions still resolve to px via
+      `evaluateCalc` (documented; Pulp has no deferred-resolution
+      layer).
+    Detection via `_calcFamilySingleUnit`.
+  * The four `minWidth` / `minHeight` / `maxWidth` / `maxHeight`
+    dispatchers consolidate — their previous dual-path (calc-family
+    detection guard + parseCSSLength fallback) collapses into a
+    single `resolveCSSLength` call now that the unified shape handles
+    both branches.
+
 - **2026-05-12 (Tier 1 PR-B — alignItems CSS-spec alias, justifyContent honest reclassification per Codex P1)** —
   widget_bridge.cpp `setFlex` dispatcher gains exactly ONE new
   alias plus an honest documentation pass on the rest:

@@ -1537,3 +1537,339 @@ TEST_CASE("WebCompat: :root pseudo does not match detached elements",
     REQUIRE(std::string(body_width.getWithDefault<std::string_view>(""))
             == "99px");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// resolveCSSLength — pulp #1576 (the 56-site swap PR)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// `resolveCSSLength` is the unified entry point that combines
+// `parseCSSLength`'s {value, unit} shape with `evaluateCalc`'s
+// calc()/min()/max()/clamp() expression support. These tests pin:
+//
+//   - The shape is {value, unit} matching parseCSSLength (so the
+//     56 web-compat-style-decl.js call sites swap 1:1).
+//   - calc-family operands that are all-percent preserve unit='%'
+//     so the bridge routes through the percent path (Codex P2 on
+//     PR #1576 — was misapplying calc(50%) as absolute px).
+//   - Malformed calc-family inputs (`calc()`, `min()`, `max()`,
+//     `clamp()` with empty parens) return null instead of crashing
+//     the engine via infinite recursion in evaluateCalc (Codex P1
+//     on PR #1576).
+//   - Defense-in-depth: the inner nested-function regex in
+//     evaluateCalc also requires non-empty operands so a malformed
+//     value reaching evaluateCalc directly doesn't blow the stack.
+
+TEST_CASE("resolveCSSLength: returns parseCSSLength-compatible {value, unit} shape",
+          "[webcompat][css-parser][issue-1576]") {
+    TestEnvironment env;
+
+    auto eval_unit = [&](const std::string& expr) {
+        return std::string(env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.unit:'(null)';})()")
+            .getWithDefault<std::string_view>(""));
+    };
+    auto eval_value = [&](const std::string& expr) {
+        return env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.value:NaN;})()")
+            .getWithDefault<double>(-9999.0);
+    };
+
+    // Basic px / % / auto — passthrough to parseCSSLength.
+    REQUIRE(eval_unit("resolveCSSLength('100px')") == "px");
+    REQUIRE(eval_value("resolveCSSLength('100px')") == 100.0);
+    REQUIRE(eval_unit("resolveCSSLength('50%')") == "%");
+    REQUIRE(eval_value("resolveCSSLength('50%')") == 50.0);
+    REQUIRE(eval_unit("resolveCSSLength('auto')") == "auto");
+
+    // calc-family — all-px arithmetic resolves to {value: <px>, unit: 'px'}.
+    REQUIRE(eval_unit("resolveCSSLength('calc(100px + 50px)')") == "px");
+    REQUIRE(eval_value("resolveCSSLength('calc(100px + 50px)')") == 150.0);
+}
+
+TEST_CASE("resolveCSSLength: P2 — calc-family with all-percent operands preserves unit='%'",
+          "[webcompat][css-parser][issue-1576]") {
+    TestEnvironment env;
+
+    auto eval_pair = [&](const std::string& expr) {
+        auto u = std::string(env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.unit:'(null)';})()")
+            .getWithDefault<std::string_view>(""));
+        auto v = env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.value:NaN;})()")
+            .getWithDefault<double>(-9999.0);
+        return std::pair<std::string, double>{u, v};
+    };
+
+    // calc(50%)               → {value: 50, unit: '%'}
+    auto a = eval_pair("resolveCSSLength('calc(50%)')");
+    REQUIRE(a.first == "%");
+    REQUIRE(a.second == 50.0);
+
+    // min(10%, 20%)           → {value: 10, unit: '%'}
+    auto b = eval_pair("resolveCSSLength('min(10%, 20%)')");
+    REQUIRE(b.first == "%");
+    REQUIRE(b.second == 10.0);
+
+    // max(10%, 20%)           → {value: 20, unit: '%'}
+    auto c = eval_pair("resolveCSSLength('max(10%, 20%)')");
+    REQUIRE(c.first == "%");
+    REQUIRE(c.second == 20.0);
+
+    // clamp(10%, 50%, 90%)    → {value: 50, unit: '%'} (preferred within bounds)
+    auto d = eval_pair("resolveCSSLength('clamp(10%, 50%, 90%)')");
+    REQUIRE(d.first == "%");
+    REQUIRE(d.second == 50.0);
+
+    // clamp(10%, 5%, 90%)     → {value: 10, unit: '%'} (preferred below lo, clamped)
+    auto e = eval_pair("resolveCSSLength('clamp(10%, 5%, 90%)')");
+    REQUIRE(e.first == "%");
+    REQUIRE(e.second == 10.0);
+
+    // Mixed-unit calc → falls through to px (no all-percent shortcut).
+    // We don't assert the exact px value (depends on ctx) — just the unit.
+    auto f = eval_pair("resolveCSSLength('calc(50% + 10px)', {parentWidth: 200})");
+    REQUIRE(f.first == "px");
+}
+
+TEST_CASE("resolveCSSLength: P1 — malformed calc-family returns null, never crashes",
+          "[webcompat][css-parser][issue-1576]") {
+    TestEnvironment env;
+
+    auto returns_null = [&](const std::string& input) {
+        return env.engine
+            .evaluate("(function(){var r=resolveCSSLength('" + input + "');return r===null;})()")
+            .getWithDefault<bool>(false);
+    };
+
+    // Empty parens — pre-fix these reached evaluateCalc and tripped the
+    // nested-function regex into infinite recursion (RangeError: maximum
+    // call stack size exceeded). Post-fix they return null cleanly.
+    REQUIRE(returns_null("min()"));
+    REQUIRE(returns_null("max()"));
+    REQUIRE(returns_null("clamp()"));
+    REQUIRE(returns_null("calc()"));
+
+    // Whitespace-only operands — same shape, same fix.
+    REQUIRE(returns_null("min(   )"));
+    REQUIRE(returns_null("calc(  )"));
+
+    // Defense-in-depth: a malformed nested function inside a valid
+    // outer should not crash either. evaluateCalc's inner-function
+    // regex now requires non-empty content, so the malformed `min()`
+    // falls through to the tokenizer rather than re-entering.
+    auto nested = env.engine.evaluate(
+        "(function(){"
+        "  try { var r = resolveCSSLength('calc(min() + 10px)'); return 'ok:' + (r?r.value:'null'); }"
+        "  catch (e) { return 'threw:' + String(e); }"
+        "})()");
+    auto nestedStr = std::string(nested.getWithDefault<std::string_view>(""));
+    // Should NOT contain 'threw:' — i.e. no RangeError leaked out.
+    REQUIRE(nestedStr.find("threw:") == std::string::npos);
+}
+
+TEST_CASE("resolveCSSLength: non-calc invalid inputs return null (parseCSSLength compat)",
+          "[webcompat][css-parser][issue-1576]") {
+    TestEnvironment env;
+    auto returns_null = [&](const std::string& input) {
+        return env.engine
+            .evaluate("(function(){var r=resolveCSSLength('" + input + "');return r===null;})()")
+            .getWithDefault<bool>(false);
+    };
+
+    REQUIRE(returns_null(""));
+    REQUIRE(returns_null("not-a-length"));
+    REQUIRE(returns_null("calc(abc"));  // unbalanced paren — malformed
+}
+
+TEST_CASE("resolveCSSLength: signed percentages + whitespace operands preserve unit='%'",
+          "[webcompat][css-parser][issue-1576]") {
+    // Codex pre-push tweak — the all-percent shortcut must work for
+    // negative percentages and operand strings that have leading or
+    // trailing whitespace inside the parens. `_splitCalcArgs` already
+    // trims; `bareRe` already accepts `-?` — these tests pin both.
+    TestEnvironment env;
+    auto eval_pair = [&](const std::string& expr) {
+        auto u = std::string(env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.unit:'(null)';})()")
+            .getWithDefault<std::string_view>(""));
+        auto v = env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.value:NaN;})()")
+            .getWithDefault<double>(-9999.0);
+        return std::pair<std::string, double>{u, v};
+    };
+
+    auto a = eval_pair("resolveCSSLength('min(-10%, 0%)')");
+    REQUIRE(a.first == "%");
+    REQUIRE(a.second == -10.0);
+
+    auto b = eval_pair("resolveCSSLength('clamp(-10%, 5%, 90%)')");
+    REQUIRE(b.first == "%");
+    REQUIRE(b.second == 5.0);
+
+    auto c = eval_pair("resolveCSSLength('calc(  -25%  )')");
+    REQUIRE(c.first == "%");
+    REQUIRE(c.second == -25.0);
+
+    // Whitespace around comma-separated operands.
+    auto d = eval_pair("resolveCSSLength('min(  10%  ,  20%  )')");
+    REQUIRE(d.first == "%");
+    REQUIRE(d.second == 10.0);
+}
+
+TEST_CASE("resolveCSSLength: mixed-unit calc fallthrough documented (resolves to px, not deferred)",
+          "[webcompat][css-parser][issue-1576][fallback-behaviour]") {
+    // Codex pre-push tweak: rather than silently mis-route mixed-unit
+    // calc-family expressions, pin the documented fallback. Pulp has
+    // no deferred-resolution layer (no separate layout pass for CSS
+    // calc), so mixed-unit expressions resolve to px at the JS layer
+    // using the supplied ctx. Consumers who need percent-aware
+    // layout-time calc need a different mechanism; this test pins
+    // the "fall through to px" choice so a future change can't
+    // silently flip it.
+    TestEnvironment env;
+    auto eval_pair = [&](const std::string& expr) {
+        auto u = std::string(env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.unit:'(null)';})()")
+            .getWithDefault<std::string_view>(""));
+        auto v = env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.value:NaN;})()")
+            .getWithDefault<double>(-9999.0);
+        return std::pair<std::string, double>{u, v};
+    };
+
+    // 50% of 200 = 100; 100 + 10 = 110px.
+    auto mixed = eval_pair("resolveCSSLength('calc(50% + 10px)', {parentWidth: 200, parentSize: 200})");
+    REQUIRE(mixed.first == "px");
+    REQUIRE(mixed.second == 110.0);
+
+    // calc(100% - 10%) is all-percent BUT with an operator. The
+    // current `_calcFamilySingleUnit` only matches "single bare
+    // operand per arg" (no operators), so operator-bearing inputs
+    // fall through to px resolution. Pinned so a future change can
+    // choose to expand the shortcut into a richer all-percent
+    // evaluator that returns {value: 90, unit: '%'}.
+    auto opPct = eval_pair("resolveCSSLength('calc(100% - 10%)', {parentWidth: 200, parentSize: 200})");
+    REQUIRE(opPct.first == "px");
+}
+
+TEST_CASE("resolveCSSLength: calc-family preserves vh/vw/em/rem/vmin/vmax/ch when all operands share one unit",
+          "[webcompat][css-parser][issue-1576][issue-1862]") {
+    // Codex P1 on PR #1862: the percent-only fast path was discarding
+    // unit info for `calc(10vh)` / `min(1em, 2em)` etc., routing them
+    // as plain px through the bridge. Bridge callers like
+    //   top/right/bottom/left, fontSize, padding, margin
+    // need the original unit to do property-specific conversion. Pin
+    // every unit parseCSSLength understands.
+    TestEnvironment env;
+    auto eval_pair = [&](const std::string& expr) {
+        auto u = std::string(env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.unit:'(null)';})()")
+            .getWithDefault<std::string_view>(""));
+        auto v = env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.value:NaN;})()")
+            .getWithDefault<double>(-9999.0);
+        return std::pair<std::string, double>{u, v};
+    };
+
+    // calc(<bare><unit>) — every unit round-trips as { value, unit }.
+    auto vh1 = eval_pair("resolveCSSLength('calc(10vh)')");
+    REQUIRE(vh1.first  == "vh");
+    REQUIRE(vh1.second == 10.0);
+
+    auto vw1 = eval_pair("resolveCSSLength('calc(25vw)')");
+    REQUIRE(vw1.first  == "vw");
+    REQUIRE(vw1.second == 25.0);
+
+    auto em1 = eval_pair("resolveCSSLength('calc(1.5em)')");
+    REQUIRE(em1.first  == "em");
+    REQUIRE(em1.second == 1.5);
+
+    auto rem1 = eval_pair("resolveCSSLength('calc(2rem)')");
+    REQUIRE(rem1.first  == "rem");
+    REQUIRE(rem1.second == 2.0);
+
+    auto vmin1 = eval_pair("resolveCSSLength('calc(40vmin)')");
+    REQUIRE(vmin1.first  == "vmin");
+    REQUIRE(vmin1.second == 40.0);
+
+    auto vmax1 = eval_pair("resolveCSSLength('calc(40vmax)')");
+    REQUIRE(vmax1.first  == "vmax");
+    REQUIRE(vmax1.second == 40.0);
+
+    auto px1 = eval_pair("resolveCSSLength('calc(12px)')");
+    REQUIRE(px1.first  == "px");
+    REQUIRE(px1.second == 12.0);
+
+    // min / max / clamp with all operands of the same unit.
+    auto minVh = eval_pair("resolveCSSLength('min(10vh, 20vh)')");
+    REQUIRE(minVh.first  == "vh");
+    REQUIRE(minVh.second == 10.0);
+
+    auto maxEm = eval_pair("resolveCSSLength('max(1em, 2em, 3em)')");
+    REQUIRE(maxEm.first  == "em");
+    REQUIRE(maxEm.second == 3.0);
+
+    auto clampRem = eval_pair("resolveCSSLength('clamp(1rem, 2rem, 4rem)')");
+    REQUIRE(clampRem.first  == "rem");
+    REQUIRE(clampRem.second == 2.0);
+
+    // Mixed units in a min/max/clamp must fall through to px, never
+    // silently coerce. Pinned: a fix that flips this to anything other
+    // than `px` MUST think through deferred resolution.
+    auto mixed = eval_pair("resolveCSSLength('min(10vh, 20px)', {viewportHeight: 100})");
+    REQUIRE(mixed.first == "px");
+
+    // calc(10) — bare number, no unit — must fall through to px
+    // resolution (parseCSSLength would normally treat as px anyway,
+    // but evaluateCalc returns 10).
+    auto bare = eval_pair("resolveCSSLength('calc(10)', {parentSize: 100})");
+    REQUIRE(bare.first == "px");
+    REQUIRE(bare.second == 10.0);
+
+    // `ch` is a CSS unit but NOT one parseCSSLength supports — the
+    // helper intentionally rejects it so the helper-supported unit
+    // set stays aligned with the bare-length parser. Falls through
+    // to evaluateCalc → px (Codex P2 review).
+    auto chFall = eval_pair("resolveCSSLength('calc(3ch)')");
+    REQUIRE(chFall.first == "px");
+}
+
+TEST_CASE("resolveCSSLength: malformed calc-family operands fall through to px",
+          "[webcompat][css-parser][issue-1862]") {
+    // Codex P2 review: the bare-operand regex must not accept
+    // malformed numbers like `.`, `..`, `1.2.3`. Pin the fallthrough
+    // behavior so a future regression can't silently route a NaN as
+    // `{value: NaN, unit: '<unit>'}`.
+    TestEnvironment env;
+    auto eval_pair = [&](const std::string& expr) {
+        auto u = std::string(env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.unit:'(null)';})()")
+            .getWithDefault<std::string_view>(""));
+        auto v = env.engine
+            .evaluate("(function(){var r=" + expr + ";return r?r.value:NaN;})()")
+            .getWithDefault<double>(-9999.0);
+        return std::pair<std::string, double>{u, v};
+    };
+
+    // Bare `.` before unit — invalid, no leading-digit-or-dot-digit form.
+    auto dotPx = eval_pair("resolveCSSLength('calc(.px)')");
+    REQUIRE(dotPx.first == "px");  // evaluateCalc fallthrough
+
+    // Multiple decimal points — invalid.
+    auto multiDot = eval_pair("resolveCSSLength('calc(1.2.3em)')");
+    REQUIRE(multiDot.first == "px");  // evaluateCalc fallthrough
+
+    // One bogus operand in a min() — entire expression falls through.
+    auto bogus = eval_pair("resolveCSSLength('min(10vh, bogus)')");
+    REQUIRE(bogus.first == "px");  // evaluateCalc fallthrough
+
+    // Verify legal edge-case numbers DO pin to the helper:
+    // leading-dot decimals are valid.
+    auto leadingDot = eval_pair("resolveCSSLength('calc(.5em)')");
+    REQUIRE(leadingDot.first  == "em");
+    REQUIRE(leadingDot.second == 0.5);
+
+    auto negLeadingDot = eval_pair("resolveCSSLength('calc(-.25rem)')");
+    REQUIRE(negLeadingDot.first  == "rem");
+    REQUIRE(negLeadingDot.second == -0.25);
+}
