@@ -66,21 +66,14 @@ class SourceContractsTest(unittest.TestCase):
             findings = _findings(registry, Path(td))
         self.assertIn(code, _codes(findings), [str(f) for f in findings])
 
-    def test_real_registry_false_positive_budget_is_known(self) -> None:
+    def test_real_registry_has_no_warning_or_error_findings(self) -> None:
         findings = checker.compute_findings(root=ROOT, registry_path=REGISTRY_PATH, today=TODAY)
         warning_pairs = {
             (finding.source, finding.code)
             for finding in findings
             if finding.severity in {"warning", "error"}
         }
-        self.assertEqual(
-            warning_pairs,
-            {
-                ("figma", "unverified-source"),
-                ("v0", "unverified-source"),
-                ("rn", "unverified-source"),
-            },
-        )
+        self.assertEqual(warning_pairs, set(), [str(f) for f in findings])
 
     def test_schema_version_is_required(self) -> None:
         registry = _load_registry()
@@ -139,6 +132,12 @@ class SourceContractsTest(unittest.TestCase):
         entry["recheck_interval_days"] = 1
         self.assert_has_code(registry, "stale-source-contract")
 
+    def test_unverified_source_contract_warns(self) -> None:
+        registry, entry = self.mutate("figma")
+        entry["last_verified"] = "unverified"
+        entry.pop("recheck_interval_days", None)
+        self.assert_has_code(registry, "unverified-source")
+
     def test_compat_source_and_format_foreign_keys_are_checked(self) -> None:
         registry, entry = self.mutate("stitch")
         entry["compat"]["source"] = "missing-source"
@@ -181,6 +180,7 @@ class SourceContractsTest(unittest.TestCase):
 
     def test_strict_flips_exit_code_only_on_warnings(self) -> None:
         registry = _load_registry()
+        _contract(registry, "figma")["last_verified"] = "unverified"
         with tempfile.TemporaryDirectory() as td:
             registry_path = _write_registry(Path(td), registry)
             base_cmd = [
@@ -195,6 +195,19 @@ class SourceContractsTest(unittest.TestCase):
             strict = subprocess.run(base_cmd + ["--strict"], check=False, capture_output=True, text=True)
         self.assertEqual(non_strict.returncode, 0, non_strict.stdout + non_strict.stderr)
         self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+
+    def test_strict_real_registry_has_clean_exit(self) -> None:
+        cmd = [
+            sys.executable,
+            str(CHECKER_PATH),
+            "--root",
+            str(ROOT),
+            "--registry",
+            str(REGISTRY_PATH),
+            "--strict",
+        ]
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
