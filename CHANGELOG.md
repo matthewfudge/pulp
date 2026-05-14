@@ -8,11 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v0980"></a>
+## [0.98.0] - 2026-05-14
+
+- feat(import): add Pencil React export parser (Phase 6.6.6) ([#1964](https://github.com/danielraffel/pulp/pull/1964))
+
 <a id="v0970"></a>
-## [0.33.0]
-
-## [0.98.0]
-
 ## [0.97.0] - 2026-05-13
 
 - feat(view+pulp-react+tools): live-host parity hardening — drive setInterval, recursive asText, lint+smoke, hidden-window flag ([#1960](https://github.com/danielraffel/pulp/pull/1960))
@@ -1756,6 +1757,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.98.0]: https://github.com/danielraffel/pulp/releases/tag/v0.98.0
 [0.97.0]: https://github.com/danielraffel/pulp/releases/tag/v0.97.0
 [0.96.0]: https://github.com/danielraffel/pulp/releases/tag/v0.96.0
 [0.95.1]: https://github.com/danielraffel/pulp/releases/tag/v0.95.1
