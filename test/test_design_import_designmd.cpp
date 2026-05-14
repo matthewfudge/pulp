@@ -315,6 +315,34 @@ TEST_CASE("lint_designmd flags orphaned color tokens",
     REQUIRE(found);
 }
 
+// Regression: parse_designmd resolves `{colors.primary}` into a literal
+// hex before lint runs, so the orphaned-tokens rule MUST consume the
+// parse-recorded reference set (`referenced_color_tokens`) rather than
+// re-scanning post-resolution strings. Without the fix, `primary` would
+// be flagged as orphaned despite being used by every component.
+// (Codex P1 review on PR #1934.)
+TEST_CASE("lint_designmd does NOT flag referenced color as orphan after resolution",
+          "[view][import][designmd][phase2][regression][issue-1434]") {
+    std::string text =
+        "---\nname: ResolvedRef\n"
+        "colors:\n  primary: \"#1A1C1E\"\n"
+        "components:\n  btn:\n    backgroundColor: \"{colors.primary}\"\n---\n";
+    auto parsed = parse_designmd(text);
+    // Post-resolution, the component's backgroundColor is the literal hex:
+    REQUIRE(parsed.ir.tokens.strings["components.btn.backgroundColor"] == "#1A1C1E");
+    // And the parse step has recorded `primary` as referenced:
+    REQUIRE(std::find(parsed.referenced_color_tokens.begin(),
+                      parsed.referenced_color_tokens.end(),
+                      std::string("primary")) != parsed.referenced_color_tokens.end());
+    // Lint MUST NOT flag `primary` as orphaned.
+    auto findings = lint_designmd(parsed);
+    for (const auto& d : findings) {
+        if (d.code == "orphaned-tokens") {
+            REQUIRE(d.path != "colors.primary");
+        }
+    }
+}
+
 TEST_CASE("lint_designmd emits token-summary info diagnostic",
           "[view][import][designmd][phase2][issue-1434]") {
     auto parsed = parse_designmd(upstream_fixture());
@@ -381,6 +409,46 @@ TEST_CASE("export_tailwind_v4_css emits @theme block with --color/--radius/--spa
     REQUIRE(css.find("--color-primary: #1A1C1E") != std::string::npos);
     REQUIRE(css.find("--radius-md: 8px") != std::string::npos);
     REQUIRE(css.find("--spacing-lg: 24px") != std::string::npos);
+}
+
+// Regression: Tailwind v3 + v4 export MUST include typography mappings
+// (fontFamily, fontSize, fontWeight, lineHeight, letterSpacing).
+// Without the fix these tokens are silently dropped from the output.
+// (Codex P2 review on PR #1934.)
+TEST_CASE("export_tailwind_v3_json includes typography fontFamily/fontSize/fontWeight/etc",
+          "[view][import][designmd][phase2][regression][issue-1434]") {
+    auto parsed = parse_designmd(
+        "---\nname: TW3Typography\n"
+        "colors:\n  primary: \"#000\"\n"
+        "typography:\n"
+        "  h1:\n    fontFamily: \"Public Sans\"\n    fontSize: 48px\n    fontWeight: 600\n"
+        "    lineHeight: 1.1\n    letterSpacing: -0.02em\n"
+        "  body-md:\n    fontFamily: \"Public Sans\"\n    fontSize: 16px\n---\n");
+    auto json = export_tailwind_v3_json(parsed);
+    REQUIRE(json.find("\"fontFamily\"") != std::string::npos);
+    REQUIRE(json.find("\"h1\": \"Public Sans\"") != std::string::npos);
+    REQUIRE(json.find("\"fontSize\"") != std::string::npos);
+    REQUIRE(json.find("\"h1\": \"48px\"") != std::string::npos);
+    REQUIRE(json.find("\"fontWeight\"") != std::string::npos);
+    REQUIRE(json.find("\"h1\": \"600\"") != std::string::npos);
+    REQUIRE(json.find("\"lineHeight\"") != std::string::npos);
+    REQUIRE(json.find("\"letterSpacing\"") != std::string::npos);
+}
+
+TEST_CASE("export_tailwind_v4_css includes --font / --text / --leading / --tracking / --font-weight vars",
+          "[view][import][designmd][phase2][regression][issue-1434]") {
+    auto parsed = parse_designmd(
+        "---\nname: TW4Typography\n"
+        "colors:\n  primary: \"#000\"\n"
+        "typography:\n"
+        "  h1:\n    fontFamily: \"Public Sans\"\n    fontSize: 48px\n    fontWeight: 600\n"
+        "    lineHeight: 1.1\n    letterSpacing: -0.02em\n---\n");
+    auto css = export_tailwind_v4_css(parsed);
+    REQUIRE(css.find("--font-h1: Public Sans") != std::string::npos);
+    REQUIRE(css.find("--text-h1: 48px") != std::string::npos);
+    REQUIRE(css.find("--leading-h1: 1.1") != std::string::npos);
+    REQUIRE(css.find("--tracking-h1: -0.02em") != std::string::npos);
+    REQUIRE(css.find("--font-weight-h1: 600") != std::string::npos);
 }
 
 // ── Phase 3: signature is fixed, body gated on pulp #1307 ─────────────

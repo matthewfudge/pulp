@@ -274,6 +274,7 @@ bool looks_like_group_ref(const std::string& path) {
 }
 
 void resolve_references(DesignMdParseResult& result) {
+    std::unordered_set<std::string> referenced;
     auto resolve_one = [&](const std::string& value,
                             const std::string& at_path,
                             bool inside_components) -> std::string {
@@ -284,6 +285,16 @@ void resolve_references(DesignMdParseResult& result) {
                 DesignMdSeverity::warning, "broken-ref", at_path, 0, 0,
                 "non-component reference \"" + value + "\" points to a group, not a value"));
             return value;
+        }
+        // Record any color-token reference we encounter, whether or not
+        // it resolves — orphan detection cares about reference INTENT,
+        // not just successful resolution. (A consumer that uses
+        // `{colors.brand}` with a typo still demonstrates intent for
+        // the `brand` token, so we record it, AND lint emits its own
+        // broken-ref diagnostic for the typo.)
+        constexpr std::string_view colors_prefix{"colors."};
+        if (path.compare(0, colors_prefix.size(), colors_prefix) == 0) {
+            referenced.insert(path.substr(colors_prefix.size()));
         }
         if (auto v = lookup_color(result.ir.tokens, path))        return *v;
         if (auto v = lookup_dimension(result.ir.tokens, path))    return *v;
@@ -302,6 +313,10 @@ void resolve_references(DesignMdParseResult& result) {
         const bool comp = name.compare(0, 11, "components.") == 0;
         value = resolve_one(value, name, comp);
     }
+
+    result.referenced_color_tokens.assign(referenced.begin(), referenced.end());
+    std::sort(result.referenced_color_tokens.begin(),
+               result.referenced_color_tokens.end());
 }
 
 } // namespace
@@ -507,11 +522,22 @@ std::vector<DesignMdDiagnostic> lint_designmd(const DesignMdParseResult& parsed)
     }
 
     // ── orphaned-tokens (warning) ─────────────────────────────────────
+    // Uses parse-time reference recording rather than post-resolution
+    // string scanning. parse_designmd rewrites `{colors.primary}` to
+    // its resolved hex value before lint runs, so a post-hoc scan of
+    // tokens.strings would see zero refs and flag every used color as
+    // orphan. The referenced_color_tokens set captures the references
+    // before resolution erases them. (Fixes Codex P1 on PR #1934.)
     {
-        std::unordered_set<std::string> referenced;
+        std::unordered_set<std::string> referenced(
+            parsed.referenced_color_tokens.begin(),
+            parsed.referenced_color_tokens.end());
+        // Also scan tokens.strings for any references that survived
+        // resolution (e.g. unresolved or typography composite refs).
+        // This is belt-and-suspenders — the parse-time set is the
+        // primary signal.
         for (const auto& [k, v] : tokens.strings) {
             for (const auto& ref : extract_token_refs(v)) {
-                // ref shape "colors.primary" → "primary"
                 constexpr std::string_view colors_prefix{"colors."};
                 if (ref.compare(0, colors_prefix.size(), colors_prefix) == 0) {
                     referenced.insert(ref.substr(colors_prefix.size()));
@@ -665,6 +691,42 @@ std::pair<std::string, std::string> split_prefix_suffix(const std::string& token
 
 } // namespace
 
+namespace {
+
+// Walk tokens.strings for typography fields. Returns a map keyed by
+// the Tailwind v3 group name (fontFamily / fontSize / fontWeight /
+// lineHeight / letterSpacing) → vector of (typography level, value)
+// pairs. Skips fontFeature / fontVariation (no direct Tailwind v3
+// theme key; their CSS values are emitted via plain CSS layers, not
+// the theme config).
+std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>>
+group_typography(const IRTokens& tokens) {
+    static const std::unordered_map<std::string, std::string> field_to_tw = {
+        {"fontFamily", "fontFamily"},
+        {"fontSize", "fontSize"},
+        {"fontWeight", "fontWeight"},
+        {"lineHeight", "lineHeight"},
+        {"letterSpacing", "letterSpacing"},
+    };
+    constexpr std::string_view prefix{"typography."};
+    std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> out;
+    for (const auto& [k, v] : tokens.strings) {
+        if (k.compare(0, prefix.size(), prefix) != 0) continue;
+        auto rest = k.substr(prefix.size());           // "<level>.<field>"
+        auto dot = rest.find('.');
+        if (dot == std::string::npos) continue;
+        std::string level = rest.substr(0, dot);
+        std::string field = rest.substr(dot + 1);
+        auto it = field_to_tw.find(field);
+        if (it == field_to_tw.end()) continue;
+        out[it->second].emplace_back(level, v);
+    }
+    for (auto& [_, vec] : out) std::sort(vec.begin(), vec.end());
+    return out;
+}
+
+} // namespace
+
 std::string export_tailwind_v3_json(const DesignMdParseResult& parsed) {
     const auto& t = parsed.ir.tokens;
     std::ostringstream o;
@@ -693,7 +755,31 @@ std::string export_tailwind_v3_json(const DesignMdParseResult& parsed) {
         o << "\n    \"" << json_escape(suffix) << "\": \"" << value << "px\"";
         first = false;
     }
-    o << "\n  }\n}\n";
+    o << "\n  }";
+
+    // Typography mappings (Codex P2 on PR #1934).
+    // Emit one Tailwind v3 theme group per typography field across all
+    // levels. Each group is `{<level>: <value>, ...}` mirroring the
+    // shape `@google/design.md`'s `export --format json-tailwind`
+    // produces, so downstream tooling can swap implementations.
+    auto typo = group_typography(t);
+    static const std::vector<std::string> typo_groups{
+        "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing"};
+    for (const auto& group : typo_groups) {
+        auto it = typo.find(group);
+        if (it == typo.end() || it->second.empty()) continue;
+        o << ",\n  \"" << group << "\": {";
+        bool first_entry = true;
+        for (const auto& [level, value] : it->second) {
+            if (!first_entry) o << ",";
+            o << "\n    \"" << json_escape(level) << "\": \""
+              << json_escape(value) << "\"";
+            first_entry = false;
+        }
+        o << "\n  }";
+    }
+
+    o << "\n}\n";
     return o.str();
 }
 
@@ -708,6 +794,26 @@ std::string export_tailwind_v4_css(const DesignMdParseResult& parsed) {
         auto [prefix, suffix] = split_prefix_suffix(name);
         if (prefix == "rounded") o << "  --radius-" << suffix << ": " << value << "px;\n";
         if (prefix == "spacing") o << "  --spacing-" << suffix << ": " << value << "px;\n";
+    }
+    // Typography → Tailwind v4 token namespaces (Codex P2 on PR #1934).
+    // `--font-*` for family, `--text-*` for size, `--leading-*` for
+    // line-height, `--tracking-*` for letter-spacing, `--font-weight-*`
+    // for weight. Matches `@google/design.md`'s `export --format
+    // css-tailwind` namespace conventions.
+    auto typo = group_typography(t);
+    static const std::vector<std::pair<std::string, std::string>> typo_namespaces{
+        {"fontFamily", "font"},
+        {"fontSize", "text"},
+        {"lineHeight", "leading"},
+        {"letterSpacing", "tracking"},
+        {"fontWeight", "font-weight"},
+    };
+    for (const auto& [group, ns] : typo_namespaces) {
+        auto it = typo.find(group);
+        if (it == typo.end()) continue;
+        for (const auto& [level, value] : it->second) {
+            o << "  --" << ns << "-" << level << ": " << value << ";\n";
+        }
     }
     o << "}\n";
     return o.str();

@@ -187,6 +187,13 @@ struct DesignMdParseResult {
     // Phase 2 section-order lint rule.
     std::vector<std::string> sections;
     bool had_frontmatter = false;
+    // Names of color tokens (the part after "colors.") that were
+    // dereferenced during parse. `resolve_references` rewrites
+    // `{colors.X}` to the resolved hex value in-place, which would
+    // otherwise hide the reference from `lint_designmd`'s
+    // orphaned-tokens rule. The rule consumes this set directly
+    // instead of re-scanning post-resolution strings.
+    std::vector<std::string> referenced_color_tokens;
 };
 
 /// Parse a DESIGN.md file (YAML frontmatter + Markdown body) into a DesignIR.
