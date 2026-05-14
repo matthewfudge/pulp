@@ -2224,13 +2224,23 @@ private:
         canvas.fill_rect(0, 0, width_, height_);
 
         if (has_viewport) {
+            // pulp PR #1984 Codex P1 — paint_overlays MUST run inside the
+            // design-viewport transform. View::OverlayRequest callbacks
+            // are documented to draw in root coordinates (ComboBox
+            // dropdowns, claimed overlays, inspector layer). The mouse
+            // input path inverse-maps window→root via pointTransform
+            // before hit_test, so overlay click routing assumes overlays
+            // are positioned in root space. Painting them outside the
+            // transform would put them at root-coords-but-in-window-space
+            // — visually misaligned and non-clickable in any window size
+            // that's not exactly design size.
             const int saved = canvas.save_count();
             canvas.save();
             canvas.translate(tx, ty);
             canvas.scale(sx, sy);
             root_.paint_all(canvas);
-            canvas.restore_to_count(saved);
             pulp::view::View::paint_overlays(canvas);
+            canvas.restore_to_count(saved);
         } else {
             root_.paint_all(canvas);
             pulp::view::View::paint_overlays(canvas);
