@@ -53,6 +53,7 @@ static void print_usage() {
     std::cerr << "  --height <px>        Height in points (default: 300)\n";
     std::cerr << "  --scale <factor>     Scale factor (default: 2.0)\n";
     std::cerr << "  --theme <name>       Theme: dark, light, pro_audio (default: dark)\n";
+    std::cerr << "  --backend <name>     Render backend: skia, coregraphics (default: skia)\n";
     std::cerr << "  --base64             Output base64-encoded PNG to stdout\n";
     std::cerr << "  --demo               Render a demo UI (no script needed)\n";
 }
@@ -87,6 +88,28 @@ int main(int argc, char* argv[]) {
     uint32_t width = 400, height = 300;
     float scale = 2.0f;
     std::string theme_name = "dark";
+    // pulp #1899 — default the screenshot backend to Skia. Skia is what
+    // Pulp's live-host render pipeline uses (Skia Graphite + Dawn), and
+    // it's also what Chrome uses to render the locked webview baseline
+    // we diff against. Picking Skia by default means harness comparisons
+    // are apples-to-apples with the product render path. CoreGraphics is
+    // still available as `--backend coregraphics` for cases where a
+    // caller specifically wants the macOS-native AppKit-shaped output.
+    //
+    // pulp #1919 (Codex P2) — only default to Skia when the build
+    // actually compiled it in. Otherwise the CLI would report
+    // `backend=skia` while silently producing CoreGraphics output.
+    // We defer the warning until after argument parsing so that an
+    // explicit `--backend coregraphics` doesn't print a spurious
+    // "falling back" line.
+#ifdef PULP_HAS_SKIA
+    constexpr bool kHasSkia = true;
+    std::string backend_name = "skia";
+#else
+    constexpr bool kHasSkia = false;
+    std::string backend_name = "coregraphics";
+#endif
+    bool backend_was_defaulted = true;
     bool output_base64 = false;
     bool demo = false;
 
@@ -98,9 +121,47 @@ int main(int argc, char* argv[]) {
         else if (arg == "--height" && i + 1 < argc) height = std::stoi(argv[++i]);
         else if (arg == "--scale" && i + 1 < argc) scale = std::stof(argv[++i]);
         else if (arg == "--theme" && i + 1 < argc) theme_name = argv[++i];
+        else if (arg == "--backend" && i + 1 < argc) {
+            backend_name = argv[++i];
+            backend_was_defaulted = false;
+        }
         else if (arg == "--base64") output_base64 = true;
         else if (arg == "--demo") demo = true;
         else if (arg == "--help" || arg == "-h") { print_usage(); return 0; }
+    }
+
+    // pulp #1919 (Codex P2) — refuse a silent downgrade. If the caller
+    // explicitly asked for Skia but Skia isn't compiled in, fail loudly
+    // with exit code 2 so CI / harness diffs catch the mismatch instead
+    // of comparing CoreGraphics output against a Skia baseline.
+    // TODO: pin in #1919 test — add CLI-shellout test covering both the
+    // "no PULP_HAS_SKIA, default" warning path and the explicit-skia
+    // exit-code-2 error path.
+    if (!kHasSkia && (backend_name == "skia")) {
+        if (backend_was_defaulted) {
+            // Defaulted to skia at compile-time, but Skia is absent —
+            // downgrade silently-ish to CoreGraphics with a one-line warning.
+            std::cerr << "Skia not compiled — falling back to CoreGraphics. "
+                         "Build with -DPULP_HAS_SKIA=1 to enable Skia.\n";
+            backend_name = "coregraphics";
+        } else {
+            std::cerr << "Error: --backend=skia requested but Skia is not compiled in. "
+                         "Build with -DPULP_HAS_SKIA=1 to enable Skia.\n";
+            return 2;
+        }
+    }
+
+    ScreenshotBackend backend = ScreenshotBackend::skia;
+    if (backend_name == "coregraphics" || backend_name == "cg") {
+        backend = ScreenshotBackend::coregraphics;
+    } else if (backend_name == "skia") {
+        backend = ScreenshotBackend::skia;
+    } else if (backend_name == "default") {
+        backend = ScreenshotBackend::default_backend;
+    } else {
+        std::cerr << "Error: unknown --backend '" << backend_name
+                  << "' (valid: skia, coregraphics, default)\n";
+        return 1;
     }
 
     if (!demo && script_path.empty()) {
@@ -201,7 +262,7 @@ int main(int argc, char* argv[]) {
 
     // Render
     if (output_base64) {
-        auto png = render_to_png(root, width, height, scale);
+        auto png = render_to_png(root, width, height, scale, backend);
         if (png.empty()) {
             std::cerr << "Error: rendering failed\n";
             return 1;
@@ -209,12 +270,12 @@ int main(int argc, char* argv[]) {
         std::cout << base64_encode(png);
         return 0;
     } else {
-        bool ok = render_to_file(root, width, height, output_path, scale);
+        bool ok = render_to_file(root, width, height, output_path, scale, backend);
         if (!ok) {
             std::cerr << "Error: rendering failed\n";
             return 1;
         }
-        std::cout << "Screenshot saved to " << output_path << " (" << width << "x" << height << " @" << scale << "x)\n";
+        std::cout << "Screenshot saved to " << output_path << " (" << width << "x" << height << " @" << scale << "x, backend=" << backend_name << ")\n";
         return 0;
     }
 }
