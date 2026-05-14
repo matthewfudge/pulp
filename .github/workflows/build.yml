@@ -386,12 +386,19 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
+          # libfontconfig1-dev added in #1970: chrome/m144 Skia exposes
+          # fontconfig symbols (`FcInitLoadConfigAndFonts` et al.) that
+          # earlier Skia releases hid. Without the dev package,
+          # `pkg_check_modules(FONTCONFIG fontconfig)` in
+          # core/canvas/CMakeLists.txt comes up empty and the Linux link
+          # step fails. Mirrors the matching fix in release-cli.yml.
           sudo apt-get update
           sudo apt-get install -y \
             libasound2-dev \
             libdbus-1-dev \
             libdrm-dev \
             libegl1-mesa-dev \
+            libfontconfig1-dev \
             libgbm-dev \
             libgl1-mesa-dev \
             libx11-dev \
