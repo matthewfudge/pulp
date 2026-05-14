@@ -8,12 +8,42 @@
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/screenshot.hpp>
 #include <pulp/state/store.hpp>
+#include "viewport_reconcile.hpp"
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <cstdlib>
 
 using namespace pulp::view;
 using namespace pulp::state;
+
+// pulp #1899 — viewport reconciliation for runtime-imported content.
+//
+// Imports (Spectr, v0.dev, Stitch, Figma exports) routinely ship a
+// top-level container with literal-CSS hardcoded dimensions that
+// exceed the screenshot viewport. Canonical Spectr case
+// (`spectr-editor-extracted.js:4140`):
+//   `<div style={{ position:'absolute', top:0, left:0,
+//                  width:1320, height:860, … }}>`
+// In a 1280×800 viewport, the App anchors to (0,0) and overflows by
+// 40×60 — `bottom:0`-anchored chrome (action rail, frequency-axis
+// labels) lands entirely off-screen.
+//
+// In a real browser the same content renders inside the same
+// viewport, because the editor.html body uses
+//   `display:flex; align-items:center; justify-content:center;
+//    min-height:100vh`.
+// With `flex-shrink: 1` (default), the App flex item shrinks on its
+// main axis to fit the body's content box — so a 1320×860 child in a
+// 1280×800 body lands at 1280×800 with internal layout proportionally
+// compressed. All bottom-anchored chrome ends up in frame; the top
+// bar at `top:0` stays at `top:0`; the rail at `bottom:0` stays at
+// `bottom:0` of the now-fitted container.
+//
+// The recursive subtree-clamp implementation lives in
+// `viewport_reconcile.hpp` so unit tests can exercise it without
+// linking the screenshot CLI binary. See that header for the full
+// design rationale and the dom-adapter background.
 
 static void print_usage() {
     std::cerr << "Usage: pulp-screenshot [options]\n";
@@ -145,6 +175,15 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         bridge.load_script(code);
+
+        // pulp #1899 — after React mount, reconcile any oversize
+        // absolute descendants with the viewport so bottom-anchored
+        // content lands within the captured frame. No-op when content
+        // fits. Walks the entire subtree, not just direct children of
+        // root_, because runtime-import adapters (Spectr's dom-adapter
+        // at tsx:440-441) propagate the hardcoded oversize through
+        // multiple intermediate wrappers.
+        pulp::screenshot::reconcile_oversize_absolute_subtree(root, width, height);
     }
 
     // pulp #1899 — drain React's useEffect callbacks, requestAnimationFrame
