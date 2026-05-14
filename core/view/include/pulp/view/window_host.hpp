@@ -1,6 +1,7 @@
 #pragma once
 
 #include <pulp/view/view.hpp>
+#include <algorithm>
 #include <string>
 #include <memory>
 #include <functional>
@@ -203,6 +204,25 @@ public:
     /// coords so hit-test still works.
     virtual void set_design_viewport(float design_w, float design_h) {
         (void)design_w; (void)design_h;
+    }
+
+    /// Pure math behind set_design_viewport — used both by the platform
+    /// host's paint_scene and by tests. Returns false (and leaves outputs
+    /// untouched) when the inputs don't define a valid transform.
+    static bool compute_design_viewport_transform(
+        float window_w, float window_h,
+        float design_w, float design_h,
+        float& sx, float& sy, float& tx, float& ty) {
+        if (design_w <= 0.0f || design_h <= 0.0f ||
+            window_w <= 0.0f || window_h <= 0.0f) {
+            return false;
+        }
+        const float s = std::min(window_w / design_w, window_h / design_h);
+        sx = s;
+        sy = s;
+        tx = (window_w - design_w * s) * 0.5f;
+        ty = (window_h - design_h * s) * 0.5f;
+        return true;
     }
 
     // ── D.3 DPI / Monitor utilities ─────────────────────────────────────

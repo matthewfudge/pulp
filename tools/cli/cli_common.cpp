@@ -2338,9 +2338,12 @@ int delegate_to_python_script(const fs::path& relative_script,
 int delegate_to_build_binary(const fs::path& relative_binary,
                              const std::vector<std::string>& args,
                              const std::string& prepend_flag) {
-    auto root = require_project_root();
-    if (!root) return 1;
-
+    // pulp #-friction-1+#-friction-2 — delegate lookup must NOT require
+    // cwd to be inside a Pulp project. Sibling binaries (pulp-import-design,
+    // pulp-design-debug) live next to the CLI binary itself, so we can
+    // resolve them from argv[0] alone. Only fall back to the project root
+    // when the self-path lookup misses (e.g. when an installed `pulp` is
+    // dispatching to a build dir).
     std::vector<fs::path> candidates;
     auto add_candidate = [&](fs::path path) {
         path = platform_executable(std::move(path));
@@ -2364,13 +2367,25 @@ int delegate_to_build_binary(const fs::path& relative_binary,
         }
     }
 
+    // Project-root-relative paths (and $PULP_BUILD_DIR overrides) are only
+    // meaningful when the user is operating inside a Pulp checkout.
+    // find_project_root() returns empty when there isn't one; we tolerate
+    // that and rely on the self-path candidate above.
+    fs::path root = find_project_root();  // empty if outside a project
+
     if (const char* env = std::getenv("PULP_BUILD_DIR"); env && *env) {
         fs::path build_dir(env);
-        if (build_dir.is_relative()) build_dir = *root / build_dir;
-        add_candidate(build_dir / relative_binary);
+        if (build_dir.is_relative() && !root.empty()) {
+            build_dir = root / build_dir;
+        }
+        if (!build_dir.is_relative()) {
+            add_candidate(build_dir / relative_binary);
+        }
     }
 
-    add_candidate(*root / "build" / relative_binary);
+    if (!root.empty()) {
+        add_candidate(root / "build" / relative_binary);
+    }
 
     fs::path binary;
     for (const auto& candidate : candidates) {
@@ -2381,8 +2396,18 @@ int delegate_to_build_binary(const fs::path& relative_binary,
     }
 
     if (binary.empty()) {
-        std::cerr << "Error: " << fs::path(relative_binary).filename().string()
-                  << " not built. Run `pulp build` first.\n";
+        const auto leaf = fs::path(relative_binary).filename().string();
+        std::cerr << "Error: " << leaf << " helper not found.\n";
+        std::cerr << "  Looked in:\n";
+        for (const auto& c : candidates) {
+            std::cerr << "    " << c.string() << "\n";
+        }
+        std::cerr << "  Fix: from a Pulp checkout, run\n"
+                  << "    cmake --build build --target " << leaf << "\n";
+        if (root.empty()) {
+            std::cerr << "  (cwd is not inside a Pulp project; set PULP_BUILD_DIR or\n"
+                      << "  run from a checkout to use a project-relative build dir)\n";
+        }
         return 1;
     }
 

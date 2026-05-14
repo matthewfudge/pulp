@@ -1956,20 +1956,13 @@ public:
         needs_repaint_ = true;
     }
 
-    // Compute the active design->window transform.
-    // Returns true and fills sx, sy, tx, ty when a viewport is in effect.
+    // Compute the active design->window transform. Delegates to the
+    // header-only free function so unit tests can hit the same math
+    // without instantiating an NSWindow.
     bool design_transform(float& sx, float& sy, float& tx, float& ty) const {
-        if (design_viewport_w_ <= 0.0f || design_viewport_h_ <= 0.0f ||
-            width_ <= 0.0f || height_ <= 0.0f) {
-            return false;
-        }
-        const float s = std::min(width_ / design_viewport_w_,
-                                 height_ / design_viewport_h_);
-        sx = s;
-        sy = s;
-        tx = (width_  - design_viewport_w_ * s) * 0.5f;
-        ty = (height_ - design_viewport_h_ * s) * 0.5f;
-        return true;
+        return WindowHost::compute_design_viewport_transform(
+            width_, height_, design_viewport_w_, design_viewport_h_,
+            sx, sy, tx, ty);
     }
 
     // Map a window-space point (e.g. mouse) into root view coordinates.

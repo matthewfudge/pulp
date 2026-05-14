@@ -132,6 +132,29 @@ sibling build tree first, honor `PULP_BUILD_DIR` when present, and keep
 `test/test_cli_shellout.cpp` subprocess-output `INFO(...)` diagnostics so
 future failures show the delegated binary's stderr.
 
+**Cwd independence (2026-05-14):** `delegate_to_build_binary` in
+`tools/cli/cli_common.cpp` MUST NOT require `cwd` to be inside a Pulp
+project to find a delegate. Sibling helpers live next to the CLI binary
+itself, so the argv[0]-relative resolution path is authoritative and
+project-root is a fallback. The original `require_project_root()` gate
+broke `cd /tmp && pulp import-design --from claude --file ~/x.html` for
+no good reason — a first-time user shouldn't need to `cd` into a pulp
+checkout just to translate a design file with absolute paths. When the
+delegate truly is missing, the error message lists every candidate path
+that was tried and gives the exact `cmake --build` line to remediate;
+do not regress to "Run `pulp build` first" — that's misleading if the
+top-level target doesn't depend on the missing helper.
+
+**Sidecar output anchoring:** when a CLI command takes `--output
+<path>/main.ext` and also emits sidecar artifacts (e.g.
+`pulp import-design` writes `bridge_handlers.cpp`, `classnames.json`,
+`tokens.json` alongside `ui.js`), the sidecars MUST default to the same
+directory as `--output` — not cwd. Track an `_explicit` bool per sidecar
+flag and only derive the anchored path when the user didn't set it.
+Scattering sidecars to cwd is a first-user trap (we hit it 2026-05-14
+during a `cd /tmp` reimport demo). Test the default-anchored path AND
+the explicit-override path so regressions surface.
+
 ### Adding a new value to an enum-like flag (e.g., `--from <source>`)
 
 When extending a flag that takes one of a fixed set of values
