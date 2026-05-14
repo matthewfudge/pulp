@@ -345,6 +345,19 @@ int main(int argc, char* argv[]) {
             bridge->set_repaint_callback([&window] {
                 if (window) window->repaint();
             });
+            // Codex P2 — re-run viewport reconciliation against the
+            // freshly-rebuilt tree using the CURRENT window size, not
+            // the initial opts.* values (the user may have resized
+            // since launch). Without this, a hot-reloaded script with
+            // oversize absolute roots regresses to the same off-screen
+            // layout that the cold-start reconcile call (line ~295)
+            // exists to prevent.
+            if (window) {
+                const auto sz = window->get_content_size();
+                if (sz.width > 0 && sz.height > 0) {
+                    pulp::view::reconcile_oversize_absolute_subtree(root, sz.width, sz.height);
+                }
+            }
             window->repaint();
         } catch (const std::exception& e) {
             std::cerr << "Hot reload failed: " << e.what() << "\n";
