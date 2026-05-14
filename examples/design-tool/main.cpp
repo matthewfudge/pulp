@@ -290,9 +290,39 @@ int main(int argc, char* argv[]) {
 
     std::cout << "UI created: " << root.child_count() << " top-level views\n";
 
-    // Open window
+    // Open window — title derives from the script filename so a user
+    // running `pulp-design-tool --script spectr/editor.js` sees "Spectr —
+    // editor.js" in the title bar rather than the generic "Pulp Style
+    // Designer". pulp-internal #61. Stable identifier: strip extension,
+    // keep the immediate parent directory if it looks meaningful (not
+    // "dist" / "build" / "out"), fall back to "Pulp Design Tool" only
+    // when no script was given.
     WindowOptions opts;
-    opts.title = "Pulp Style Designer";
+    {
+        std::string title;
+        if (!js_path.empty()) {
+            auto p = js_path;
+            auto stem = p.stem().string();      // e.g. "editor"
+            auto parent = p.parent_path().filename().string();
+            // Strip build-output directory names so the title carries the
+            // upstream app name, not the artifact location.
+            static const std::array<std::string, 5> kIgnored = {
+                "dist", "build", "out", "target", "release"};
+            bool ignore_parent = false;
+            for (const auto& s : kIgnored) {
+                if (parent == s) { ignore_parent = true; break; }
+            }
+            if (ignore_parent || parent.empty()) {
+                // Walk up one more level for a meaningful name.
+                auto grandparent = p.parent_path().parent_path().filename().string();
+                if (!grandparent.empty()) parent = grandparent;
+            }
+            title = parent.empty() ? stem : (parent + " — " + stem);
+        } else {
+            title = "Pulp Design Tool";
+        }
+        opts.title = title;
+    }
     opts.width = 1100;
     opts.height = 700;
     opts.min_width = 1000;  // Issue 5: prevent scrollbar overlap

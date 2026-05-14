@@ -518,6 +518,65 @@ TEST_CASE("generate_pulp_js produces valid web-compat JS", "[view][import]") {
     REQUIRE(js.find("theme.colors[\"bg.primary\"]") != std::string::npos);
 }
 
+TEST_CASE("generate_pulp_js escapes text containing newlines / quotes / backslashes (pulp #81)",
+          "[view][import][issue-81]") {
+    // pulp #81: a Claude Design HTML file with multi-line <style>/<script>
+    // blocks (Spectr's editor.html is the canonical reproducer) used to
+    // emit raw newlines into the generated `createLabel('id', 'text', ...)`
+    // call, which made the resulting JS unparseable ("unexpected end of
+    // string" in pulp-screenshot). Same problem for any text containing
+    // `'`, `\`, `\r`, `\t`. The fix routes all user-text emissions through
+    // js_single_quote_escape(). This test pins that behavior — every text
+    // surface that previously emitted raw user text must now escape the
+    // standard JS string-literal control characters.
+    DesignIR ir;
+    ir.source = DesignSource::claude;
+    ir.root.type = "frame";
+    ir.root.name = "Root";
+    ir.root.layout.direction = LayoutDirection::column;
+
+    IRNode multiline;
+    multiline.type = "text";
+    multiline.name = "style_block";
+    multiline.text_content = "line1\nline2\twith\ttabs\nthird's quote\nbackslash\\here";
+    ir.root.children.push_back(multiline);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::native;
+    opts.include_comments = false;
+    auto js = generate_pulp_js(ir, opts);
+
+    // No raw newline character should sit between two single quotes — that
+    // would un-terminate the JS string.
+    REQUIRE(js.find("'line1\nline2") == std::string::npos);
+    REQUIRE(js.find("third's quote") == std::string::npos);
+    REQUIRE(js.find("backslash\\here") == std::string::npos);
+
+    // Positive: every control character should appear in its escaped form
+    // somewhere in the generated JS.
+    REQUIRE(js.find("\\n") != std::string::npos);
+    REQUIRE(js.find("\\t") != std::string::npos);
+    REQUIRE(js.find("\\'") != std::string::npos);
+    REQUIRE(js.find("\\\\") != std::string::npos);
+
+    // Every emitted createLabel line should have an even number of
+    // unescaped single quotes — uneven means a literal was un-terminated.
+    std::istringstream stream(js);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.find("createLabel") == std::string::npos) continue;
+        std::size_t single_quotes = 0;
+        bool escaped = false;
+        for (char c : line) {
+            if (escaped) { escaped = false; continue; }
+            if (c == '\\') { escaped = true; continue; }
+            if (c == '\'') ++single_quotes;
+        }
+        INFO("createLabel line had odd single-quote count: " << line);
+        REQUIRE(single_quotes % 2 == 0);
+    }
+}
+
 TEST_CASE("generate_pulp_js native mode produces Pulp API", "[view][import]") {
     DesignIR ir;
     ir.source = DesignSource::figma;
