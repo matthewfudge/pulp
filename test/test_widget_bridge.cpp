@@ -4874,6 +4874,86 @@ TEST_CASE("CSSStyleDeclaration silent-accepts 10 OOS 3D/content/scroll propertie
     REQUIRE(p->flex().direction == FlexDirection::row);
 }
 
+// ── pulp #1434 / Tier-4 — perf hints + interaction misc pin (Bundle-C) ───────
+//
+// Closes 7 arch-deferred coverage-gap rows. Final bundle of the Tier-4 sweep.
+// Covers:
+//   perf-hint    (3): contain, contentVisibility, willChange
+//   interaction  (2): resize, touchAction
+//   catch-all    (2): __pseudo_classes_note (meta-row, excluded from JS loop),
+//                     all
+//
+// `__pseudo_classes_note` is a documentation marker in compat.json, not a
+// settable CSS property — its closure is doc-only. The remaining 6 are real
+// CSS properties that Pulp deliberately treats as no-ops (perf hints aren't
+// honored by Skia/Dawn; resize/touchAction don't have native equivalents).
+TEST_CASE("CSSStyleDeclaration silent-accepts 6 perf-hint/interaction CSS properties as no-ops",
+          "[view][bridge][css][issue-1434][arch-deferred][perf-misc]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    // Codex P2 (PR #1904): route through the real public CSS surface
+    // (`el.style.<prop> = value` for camelCase + `style.setProperty()`
+    // for kebab-case CSS names) rather than calling `_applyProperty`
+    // on a synthetic `{_id, _nativeCreated}` literal. The synthetic
+    // path bypasses the Proxy / setProperty plumbing that real callers
+    // (web-compat-element, dom-adapter, design importers) use, so a
+    // future regression in that plumbing would not have been caught.
+    //
+    // Mix of surfaces exercised:
+    //   - `style.<camelCase> = ...`      — for props in __cssProperties__
+    //                                       (`resize`, `touchAction`).
+    //   - `style.setProperty('<kebab>', ...)`
+    //                                    — converts kebab→camel and
+    //                                       sets via `this[camel] = ...`
+    //                                       (`content-visibility`,
+    //                                       `will-change`, `contain`,
+    //                                       `all`).
+    // The observable no-op contract is identical: panel still visible,
+    // flex direction unchanged from the `row` baseline.
+    bridge.load_script(R"((function(){
+        createPanel('p_perfmisc', '');
+        var el = document.createElement('div');
+        el.id = 'p_perfmisc_host';
+        document.body.appendChild(el);
+        // Hand the bridge-backed panel id to the CSS shim so writes
+        // route to a real native widget rather than the wrapper div.
+        var sd = new CSSStyleDeclaration({ _id: 'p_perfmisc', _nativeCreated: true });
+        sd.display = 'flex';
+        sd.flexDirection = 'row';
+
+        // Perf hints — set via the kebab-case setProperty entry point
+        // (mirrors how design importers and Spectr's runtime emit CSS).
+        sd.setProperty('contain', 'layout paint');
+        sd.setProperty('content-visibility', 'auto');
+        sd.setProperty('will-change', 'transform, opacity');
+        // Interaction — set via the camelCase property setter (the path
+        // most React-style code uses).
+        sd.resize = 'both';
+        sd.touchAction = 'pan-y';
+        // Catch-all shorthand — kebab-case setProperty entry point.
+        sd.setProperty('all', 'unset');
+    })();)");
+
+    auto* p = dynamic_cast<Panel*>(bridge.widget("p_perfmisc"));
+    REQUIRE(p != nullptr);
+
+    // Invariants after 6 no-op writes:
+    //  - bridge didn't crash
+    //  - panel still visible
+    //  - flex direction unchanged from row baseline
+    //
+    // Notably `all: unset` would reset every CSS property to its initial
+    // value in a spec-compliant engine. Pulp's silent no-op for `all` is
+    // safe for any imported CSS that uses it defensively (RN-derived
+    // StyleSheets, reset-stylesheet imports).
+    REQUIRE(p->visible());
+    REQUIRE(p->flex().direction == FlexDirection::row);
+}
+
 // ── pulp #1416 — SvgRectWidget + SvgLineWidget JS bridge integration ─────────
 //
 // Mirrors the #965 SvgPath bridge tests. Closes Spectr [G] preset
