@@ -616,6 +616,20 @@
       ]
     },
     {
+      "name": "yaml-cpp",
+      "category": "view",
+      "license": "MIT",
+      "version": "0.8.0",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/jbeder/yaml-cpp.git",
+      "upstream": { "kind": "git-tag", "ref": "0.8.0" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "source_files": [
+        "CMakeLists.txt"
+      ]
+    },
+    {
       "name": "Yoga",
       "category": "view",
       "license": "MIT",

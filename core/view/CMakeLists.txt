@@ -176,6 +176,7 @@ target_sources(pulp-view PRIVATE
     src/ui_components.cpp
     src/design_export.cpp
     src/design_import.cpp
+    src/design_import_designmd.cpp
     src/screenshot_compare.cpp
     src/app_framework.cpp
     src/canvas_widget.cpp
@@ -267,6 +268,13 @@ target_link_libraries(pulp-view PUBLIC pulp::canvas pulp::events pulp::state pul
 # pulp #468 — design_import.cpp uses pulp::runtime::base64_decode +
 # gzip_decompress to unpack Claude Design's base64-gzip envelope.
 target_link_libraries(pulp-view PRIVATE pulp::runtime)
+
+# yaml-cpp (MIT) — DESIGN.md frontmatter parsing.
+# Wrapped in $<BUILD_INTERFACE:...> because yaml-cpp is a build-only
+# dependency: Pulp's public headers never expose YAML types, so
+# downstream consumers of installed pulp-view (via PulpTargets export
+# set) must not see yaml-cpp as a transitive requirement.
+target_link_libraries(pulp-view PRIVATE $<BUILD_INTERFACE:yaml-cpp::yaml-cpp>)
 
 # JavaScriptCore framework for JSC backend (Apple only)
 if(APPLE)

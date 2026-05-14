@@ -563,13 +563,16 @@ commands:
     docs: reference/cli.md#inspect
 
   - name: import-design
-    status: experimental
-    summary: Import designs from Figma, Stitch, v0, or Pencil into Pulp web-compat JS.
+    status: partial
+    summary: >
+      Import designs from Figma, Stitch, v0, Pencil, Claude Design, or Google
+      DESIGN.md into Pulp web-compat JS. The designmd source is tokens-only
+      in Phase 1 (no ui.js); other sources emit a full ui.js + tokens.json.
     args:
       - name: --from
         kind: option
         required: true
-        description: "Design source: figma, stitch, v0, pencil"
+        description: "Design source: figma, stitch, v0, pencil, claude, designmd"
       - name: --file
         kind: option
         description: Input file path (required if --url not given)

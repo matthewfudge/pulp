@@ -408,6 +408,7 @@ The `pulp` CLI wraps common development workflows.
 | `pulp design` (interactive AI design tool) | experimental | [cli](cli.md) |
 | `pulp design-debug` (design debug harness) | experimental | [cli](cli.md) |
 | `pulp import-design` (import from external design tools) | experimental | [cli](cli.md) |
+| `pulp import-design --from designmd` (Google DESIGN.md import, Apache-2.0; tokens-only in Phase 1) | partial | [imports/designmd](imports/designmd.md) |
 | `pulp export-tokens` (export design tokens) | experimental | [cli](cli.md) |
 | `pulp ci-local` (local CI runner — Mac + VM validation) | experimental | [local-ci](../guides/local-ci.md) |
 

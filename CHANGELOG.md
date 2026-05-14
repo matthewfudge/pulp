@@ -9,6 +9,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v0960"></a>
+## [0.32.0]
+
+## [0.97.0]
+
 ## [0.96.0] - 2026-05-13
 
 - feat(ci): pulp macos retarget — per-PR macOS-runner override without full rerun ([#1941](https://github.com/danielraffel/pulp/pull/1941))

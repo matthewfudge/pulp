@@ -32,14 +32,19 @@ struct FingerprintClause {
         html_script_src,        // {"kind":"html-script-src", "regex":"..."}
         html_script_type,       // {"kind":"html-script-type", "value":"..."}
         tailwind_config_token,  // {"kind":"tailwind-config-token", "any-of":[...]}
+        filename,               // {"kind":"filename", "regex":"(?i)^DESIGN\\.md$"}
+        frontmatter_fence,      // {"kind":"frontmatter-fence", "value":"---"}
+        frontmatter_key,        // {"kind":"frontmatter-key", "required":"name"}
+                                //   or {"kind":"frontmatter-key", "any-of":["colors","typography"]}
         unknown,
     };
 
     Kind kind = Kind::unknown;
     std::vector<std::string> files;     // directory-files
-    std::string regex;                  // html-script-src
-    std::string value;                  // html-script-type
-    std::vector<std::string> any_of;    // tailwind-config-token
+    std::string regex;                  // html-script-src, filename
+    std::string value;                  // html-script-type, frontmatter-fence
+    std::vector<std::string> any_of;    // tailwind-config-token, frontmatter-key
+    std::string required;               // frontmatter-key (single required key)
     std::string raw_kind;               // for diagnostics on unknown clauses
 };
 
@@ -52,6 +57,12 @@ struct FormatEntry {
     std::string deprecated;            // empty when null/absent
     std::vector<FingerprintClause> fingerprint;
     std::string notes;
+    // Detection-strictness controls (used by DESIGN.md to avoid false
+    // positives on generic Jekyll/Hugo Markdown frontmatter):
+    //   match == "all-of"       → require matched == total
+    //   min_confidence_pct > 0  → require confidence >= threshold
+    std::string match;                 // empty or "all-of"
+    int min_confidence_pct = 0;
 };
 
 // One source from compat.json[imports/<src>].
@@ -103,6 +114,8 @@ std::filesystem::path find_compat_json(const std::filesystem::path& start_dir);
 struct InputSnapshot {
     bool is_directory = false;
     std::filesystem::path root;
+    std::string filename;                          // basename of the input file
+                                                   // (empty when input is a directory)
     std::vector<std::string> directory_basenames;  // top-level only
     std::string html_text;             // primary HTML content (file or
                                        // dir/code.html / dir/index.html)
@@ -112,6 +125,11 @@ struct InputSnapshot {
                                                    // .extend.colors keys
                                                    // (and other config
                                                    // identifiers we grep for)
+    // DESIGN.md import — populated when the input file ends in `.md`
+    // and has a leading YAML frontmatter fence. The detector consumes
+    // these via the frontmatter-fence and frontmatter-key clause kinds.
+    bool has_frontmatter_fence = false;
+    std::vector<std::string> frontmatter_keys;     // top-level YAML keys
 };
 
 // Build a snapshot from a file path or a directory path. Best-effort:

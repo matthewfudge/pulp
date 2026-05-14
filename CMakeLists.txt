@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Pulp
-    VERSION 0.96.0
+    VERSION 0.97.0
     DESCRIPTION "Cross-platform audio plugin and application framework"
     HOMEPAGE_URL "https://github.com/danielraffel/pulp"
     LANGUAGES CXX C
@@ -435,6 +435,26 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(mbedtls)
 set(PULP_HAS_MBEDTLS TRUE)
 message(STATUS "Pulp: Mbed TLS crypto library enabled")
+
+# yaml-cpp (MIT license) — YAML parser used by the DESIGN.md import pipeline
+# Note: yaml-cpp 0.8.0's CMakeLists declares cmake_minimum_required(3.4),
+# which CMake 4.x refuses. Set CMAKE_POLICY_VERSION_MINIMUM in the
+# subdirectory scope so the dependency configures cleanly.
+set(YAML_CPP_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS  OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL      OFF CACHE BOOL "" FORCE)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(yaml-cpp)
+unset(CMAKE_POLICY_VERSION_MINIMUM CACHE)
+set(PULP_HAS_YAMLCPP TRUE)
+message(STATUS "Pulp: yaml-cpp 0.8.0 available (DESIGN.md import)")
 
 # three.js (MIT license) — native WebGPU bridge demos and tests
 if(PULP_BUILD_TESTS AND PULP_ENABLE_GPU)

@@ -1763,6 +1763,23 @@ target_compile_definitions(pulp-test-design-import PRIVATE PULP_REPO_ROOT="${CMA
 catch_discover_tests(pulp-test-design-import
     PROPERTIES LABELS "parser-import")
 
+# DESIGN.md import (Google design.md, Apache-2.0 — pulp #1434 follow-up)
+# Compiles import_detect.cpp directly into the test target so the
+# detector tests do not require linking the whole pulp-import-design CLI.
+add_executable(pulp-test-design-import-designmd
+    test_design_import_designmd.cpp
+    ${CMAKE_SOURCE_DIR}/tools/import-design/import_detect.cpp)
+target_include_directories(pulp-test-design-import-designmd PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/import-design
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-design-import-designmd PRIVATE
+    pulp::view
+    Catch2::Catch2WithMain)
+target_compile_definitions(pulp-test-design-import-designmd PRIVATE PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(pulp-test-design-import-designmd
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # Post-parse widget promotion: <div onClick> / role=button / cursor:pointer
 # → button. Closure of pulp-internal task #84 / follow-up on #1814.
 # Links the importer-side .cpp directly (it's not in pulp::view) so the

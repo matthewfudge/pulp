@@ -42,6 +42,12 @@ FingerprintClause parse_clause(const JsonValue& v) {
             c.kind = FingerprintClause::Kind::html_script_type;
         else if (k->str_val == "tailwind-config-token")
             c.kind = FingerprintClause::Kind::tailwind_config_token;
+        else if (k->str_val == "filename")
+            c.kind = FingerprintClause::Kind::filename;
+        else if (k->str_val == "frontmatter-fence")
+            c.kind = FingerprintClause::Kind::frontmatter_fence;
+        else if (k->str_val == "frontmatter-key")
+            c.kind = FingerprintClause::Kind::frontmatter_key;
     }
     if (auto* files = v.get("files"); files && files->type == JsonValue::Array)
         c.files = files->as_string_array();
@@ -51,6 +57,8 @@ FingerprintClause parse_clause(const JsonValue& v) {
         c.value = val->str_val;
     if (auto* any = v.get("any-of"); any && any->type == JsonValue::Array)
         c.any_of = any->as_string_array();
+    if (auto* req = v.get("required"); req && req->type == JsonValue::String)
+        c.required = req->str_val;
     return c;
 }
 
@@ -170,6 +178,12 @@ std::optional<ImportsManifest> parse_compat_json(const std::string& text) {
                 if (auto* nv = f.get("notes");
                     nv && nv->type == JsonValue::String)
                     e.notes = nv->str_val;
+                if (auto* mv = f.get("match");
+                    mv && mv->type == JsonValue::String)
+                    e.match = mv->str_val;
+                if (auto* cv = f.get("min-confidence-pct");
+                    cv && cv->type == JsonValue::Number)
+                    e.min_confidence_pct = static_cast<int>(cv->num_val);
                 if (auto* fp = f.get("fingerprint");
                     fp && fp->type == JsonValue::Array) {
                     for (const auto& cl : fp->arr())
@@ -230,7 +244,8 @@ InputSnapshot snapshot_input(const fs::path& input) {
         if (snap.html_text.empty() && !html_candidates.empty())
             snap.html_text = read_text_file(html_candidates.front());
     } else {
-        snap.directory_basenames.push_back(input.filename().string());
+        snap.filename = input.filename().string();
+        snap.directory_basenames.push_back(snap.filename);
         snap.html_text = read_text_file(input);
     }
 
@@ -238,6 +253,64 @@ InputSnapshot snapshot_input(const fs::path& input) {
         snap.script_srcs = scrape_script_attr(snap.html_text, "src");
         snap.script_types = scrape_script_attr(snap.html_text, "type");
         snap.tailwind_tokens = scrape_tailwind_tokens(snap.html_text);
+    }
+
+    // ── DESIGN.md frontmatter probe ────────────────────────────────────
+    // Cheap leading-bytes check: only walk the file as frontmatter when it
+    // starts with `---` followed by a newline. Then look for the closing
+    // fence and collect top-level YAML keys. Hand-rolled rather than
+    // pulling yaml-cpp into the detector library — keeps the detector
+    // unit tests fast and the detect-only path zero-cost on non-MD inputs.
+    auto probe_frontmatter = [&snap](const std::string& text) {
+        if (text.size() < 4 || text.substr(0, 3) != "---") return;
+        if (text[3] != '\n' && text[3] != '\r') return;
+        size_t i = (text[3] == '\r' && text.size() > 4 && text[4] == '\n') ? 5 : 4;
+        // Find a line that is exactly "---" (optionally with trailing CR).
+        size_t close = std::string::npos;
+        for (size_t pos = i; pos < text.size(); ) {
+            size_t eol = text.find('\n', pos);
+            std::string line = text.substr(pos, (eol == std::string::npos ? text.size() : eol) - pos);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            // Trim trailing spaces.
+            while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) line.pop_back();
+            if (line == "---") { close = pos; break; }
+            if (eol == std::string::npos) break;
+            pos = eol + 1;
+        }
+        if (close == std::string::npos) return;
+        snap.has_frontmatter_fence = true;
+        // Walk every top-level YAML key — defined as `^[A-Za-z_][A-Za-z0-9_-]*:`
+        // with zero leading whitespace, between the opening and closing fences.
+        for (size_t pos = i; pos < close; ) {
+            size_t eol = text.find('\n', pos);
+            size_t end = (eol == std::string::npos || eol > close) ? close : eol;
+            std::string line = text.substr(pos, end - pos);
+            if (eol == std::string::npos) pos = close;
+            else pos = eol + 1;
+            if (line.empty() || line[0] == ' ' || line[0] == '\t' || line[0] == '#') continue;
+            // Strip CR.
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            auto colon = line.find(':');
+            if (colon == std::string::npos) continue;
+            std::string key = line.substr(0, colon);
+            // Validate key shape.
+            bool ok = !key.empty() && (std::isalpha(static_cast<unsigned char>(key[0])) || key[0] == '_');
+            for (char c : key) {
+                if (!ok) break;
+                if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-')) ok = false;
+            }
+            if (ok) snap.frontmatter_keys.push_back(key);
+        }
+    };
+    if (!snap.html_text.empty()) {
+        // The `html_text` field is also the "primary text" for any input.
+        // Probe only when the filename ends in `.md` to avoid wasting
+        // cycles on non-Markdown inputs.
+        std::string lower_name = snap.filename;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lower_name.size() >= 3 && lower_name.substr(lower_name.size() - 3) == ".md")
+            probe_frontmatter(snap.html_text);
     }
     return snap;
 }
@@ -279,6 +352,40 @@ bool match_clause(const FingerprintClause& clause, const InputSnapshot& snap) {
             }
             return false;
         }
+        case FingerprintClause::Kind::filename: {
+            if (clause.regex.empty() || snap.filename.empty()) return false;
+            // Honour leading `(?i)` as a case-insensitive flag rather than
+            // an inline group — libc++'s ECMAScript engine handles
+            // `(?i)` unevenly across versions, and this is the only
+            // flag DESIGN.md's fingerprint needs.
+            std::string pattern = clause.regex;
+            auto flags = std::regex::ECMAScript;
+            if (pattern.compare(0, 4, "(?i)") == 0) {
+                pattern = pattern.substr(4);
+                flags = flags | std::regex::icase;
+            }
+            std::regex re;
+            try { re = std::regex(pattern, flags); }
+            catch (...) { return false; }
+            return std::regex_search(snap.filename, re);
+        }
+        case FingerprintClause::Kind::frontmatter_fence: {
+            // Either value="---" (literal) or empty (presence-only check).
+            return snap.has_frontmatter_fence;
+        }
+        case FingerprintClause::Kind::frontmatter_key: {
+            if (snap.frontmatter_keys.empty()) return false;
+            if (!clause.required.empty()) {
+                for (const auto& have : snap.frontmatter_keys)
+                    if (have == clause.required) return true;
+                return false;
+            }
+            for (const auto& want : clause.any_of) {
+                for (const auto& have : snap.frontmatter_keys)
+                    if (have == want) return true;
+            }
+            return false;
+        }
         case FingerprintClause::Kind::unknown:
         default:
             return false;
@@ -304,6 +411,13 @@ DetectionResult detect(const ImportsManifest& manifest, const InputSnapshot& sna
                 }
             }
             const int total = static_cast<int>(fmt.fingerprint.size());
+            const int confidence = total > 0 ? (matched * 100 / total) : 0;
+            // Strict modes (DESIGN.md): reject this format unless every clause
+            // matches (match="all-of") or the confidence clears the floor
+            // (min_confidence_pct). This prevents generic Markdown files
+            // with `---fence---` from masquerading as DESIGN.md.
+            if (fmt.match == "all-of" && matched < total) continue;
+            if (fmt.min_confidence_pct > 0 && confidence < fmt.min_confidence_pct) continue;
             // Prefer (a) more matches, then (b) higher confidence ratio.
             const bool better =
                 matched > best_matched ||

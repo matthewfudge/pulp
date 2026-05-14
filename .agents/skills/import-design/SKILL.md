@@ -20,8 +20,8 @@ Detect which design source the user wants by checking:
 ### Step 1: Identify source and input
 
 Ask the user or detect from context:
-- **Source**: figma, stitch, v0, pencil, rn, or claude
-- **Input**: file path, URL, or MCP live data (manual file only for claude)
+- **Source**: figma, stitch, v0, pencil, rn, claude, or designmd
+- **Input**: file path, URL, or MCP live data (manual file only for claude; static file only for designmd)
 
 ### Step 2: Read the design data
 
@@ -50,6 +50,13 @@ Ask the user or detect from context:
 - If URL provided, fetch the v0 generation
 - If TSX file, read directly
 - Extract JSX tree, Tailwind classes, shadcn/ui components
+
+**DESIGN.md (Google design.md, Apache-2.0)**:
+- DESIGN.md is a design *system* spec (YAML frontmatter + Markdown body), not a screen export. There is no screen tree to render; output is `tokens.json` only.
+- Run `pulp import-design --from designmd --file path/to/DESIGN.md --tokens tokens.json`. **No `ui.js` is written** — the dispatch arm skips the codegen step. No bridge scaffold either.
+- Detection is strict (all-of fingerprint, 95% min-confidence): filename `DESIGN.md` + `---` frontmatter fence + `name:` key + at least one of `colors`/`typography`/`rounded`/`spacing`/`components`. Generic Jekyll/Hugo blog posts will not match.
+- Diagnostics: structured `[severity] code at path (line:col): message` on stderr. Exit codes — 0 OK, 1 usage/write, 2 detect-only no match, 3 parse error (malformed YAML, duplicate `##` section heading), 4 unsupported.
+- See `docs/reference/imports/designmd.md` for the full reference (supported subset, reference-resolution rules, attribution).
 
 **v0.dev runtime-import parser (Phase 6.6.2)**:
 - The runtime-import lane accepts constrained v0 React exports through `parse_v0_dev_react()` and `source: 'v0'`. It normalizes the artifact into the same bundle payload shape used by Claude runtime import.
@@ -171,6 +178,21 @@ itself lives inside a Pulp build tree. In generic PATH-installed or split repo/S
 | `rounded-lg` | `borderRadius: '8px'` |
 | `<Button>` | `createButton()` |
 | `<Slider>` | `createFader()` |
+
+### DESIGN.md → Pulp
+| DESIGN.md frontmatter | Pulp IR |
+|------------------------|---------|
+| `colors.<name>: "#hex"` | `IRTokens.colors[name] = "#hex"` |
+| `typography.<level>.<field>: ...` | `IRTokens.strings["typography.<level>.<field>"] = ...` |
+| `rounded.<size>: <Nx>` | `IRTokens.dimensions["rounded-<size>"] = N` |
+| `spacing.<size>: <Nx>` | `IRTokens.dimensions["spacing-<size>"] = N` |
+| `components.<name>.<prop>: <ref-or-value>` | `IRTokens.strings["components.<name>.<prop>"] = ...` (refs resolved in-place) |
+| `{colors.primary}` | resolved to the primitive hex value at parse time |
+| `{typography.<level>}` inside `components` | preserved verbatim (composite ref) |
+| `{colors}` (group ref, outside components) | broken-ref warning |
+| Markdown body `## Section` | retained in `DesignMdParseResult.sections` for Phase 2 lint |
+| Unknown `## Section` (e.g. `## Iconography`) | preserved without error |
+| Duplicate `## Section` | error-severity diagnostic → exit 3 |
 
 ### Pencil → Pulp
 | Pencil | Pulp |
