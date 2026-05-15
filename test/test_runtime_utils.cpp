@@ -5,9 +5,12 @@
 #include <pulp/runtime/inter_process_lock.hpp>
 #include <pulp/runtime/child_process.hpp>
 #include <pulp/runtime/base64.hpp>
+#include <pulp/runtime/expression.hpp>
 #include <pulp/runtime/http.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/text_diff.hpp>
+#include <catch2/catch_approx.hpp>
+#include <cmath>
 #include <fstream>
 #include <filesystem>
 
@@ -237,6 +240,82 @@ TEST_CASE("base64 binary round-trip", "[runtime][base64]") {
     auto decoded = base64_decode(encoded);
     REQUIRE(decoded.has_value());
     REQUIRE(*decoded == data);
+}
+
+// ── Expression ─────────────────────────────────────────────────────────
+
+TEST_CASE("Expression evaluator handles precedence and exponent edge cases",
+          "[runtime][expression][coverage][issue-641]") {
+    auto value = evaluate("2 + 3 * 4 ^ 2");
+    REQUIRE(value.has_value());
+    REQUIRE(*value == Catch::Approx(50.0));
+
+    auto signed_power = evaluate("-2^2");
+    REQUIRE(signed_power.has_value());
+    REQUIRE(*signed_power == Catch::Approx(4.0));
+
+    auto grouped = evaluate("(-2)^2");
+    REQUIRE(grouped.has_value());
+    REQUIRE(*grouped == Catch::Approx(4.0));
+}
+
+TEST_CASE("Expression evaluator handles constants, functions, and scientific notation",
+          "[runtime][expression][coverage][issue-641]") {
+    auto trig = evaluate("sin(pi / 2) + cos(0)");
+    REQUIRE(trig.has_value());
+    REQUIRE(*trig == Catch::Approx(2.0));
+
+    auto clamped = evaluate("clamp(12, 10)");
+    REQUIRE(clamped.has_value());
+    REQUIRE(*clamped == Catch::Approx(10.0));
+
+    auto scientific = evaluate("1.5e2 + 2E-1");
+    REQUIRE(scientific.has_value());
+    REQUIRE(*scientific == Catch::Approx(150.2));
+}
+
+TEST_CASE("Expression evaluator resolves variables and rejects malformed inputs",
+          "[runtime][expression][coverage][issue-641]") {
+    auto variable = evaluate("gain * 2 + offset", {{"gain", 0.75}, {"offset", 0.25}});
+    REQUIRE(variable.has_value());
+    REQUIRE(*variable == Catch::Approx(1.75));
+
+    REQUIRE_FALSE(evaluate("missing + 1").has_value());
+    REQUIRE_FALSE(evaluate("min(1)").has_value());
+    REQUIRE_FALSE(evaluate("(1 + 2").has_value());
+    REQUIRE_FALSE(evaluate("").has_value());
+}
+
+TEST_CASE("ExpressionEvaluator stores variables and clears them",
+          "[runtime][expression][coverage][issue-641]") {
+    ExpressionEvaluator evaluator;
+    evaluator.set("x", 4.0);
+    evaluator.set("y", 2.5);
+
+    REQUIRE(evaluator.get("x").has_value());
+    REQUIRE(*evaluator.get("x") == Catch::Approx(4.0));
+
+    auto value = evaluator.evaluate("x * y");
+    REQUIRE(value.has_value());
+    REQUIRE(*value == Catch::Approx(10.0));
+
+    evaluator.clear_variables();
+    REQUIRE_FALSE(evaluator.get("x").has_value());
+    REQUIRE_FALSE(evaluator.evaluate("x").has_value());
+}
+
+TEST_CASE("ExpressionEvaluator dispatches registered unary functions",
+          "[runtime][expression][coverage][issue-641]") {
+    ExpressionEvaluator evaluator;
+    evaluator.register_function("db_to_gain", [](double db) {
+        return std::pow(10.0, db / 20.0);
+    });
+
+    auto unity = evaluator.evaluate("db_to_gain(0)");
+    REQUIRE(unity.has_value());
+    REQUIRE(*unity == Catch::Approx(1.0));
+
+    REQUIRE_FALSE(evaluator.evaluate("missing_fn(1)").has_value());
 }
 
 // ── HTTP URL parsing ───────────────────────────────────────────────────
