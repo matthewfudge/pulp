@@ -859,7 +859,7 @@ std::string read_raw_sdk_version(const fs::path& project_root) {
 
 bool is_floating_sdk(const fs::path& project_root) {
     auto raw = read_raw_sdk_version(project_root);
-    if (raw.empty()) return true;
+    if (raw.empty()) return false;  // no project / no pin = not floating
     // Case-insensitive compare against "latest"
     std::string lower;
     lower.reserve(raw.size());
@@ -869,20 +869,21 @@ bool is_floating_sdk(const fs::path& project_root) {
 
 std::string read_sdk_version(const fs::path& project_root) {
     auto version = read_raw_sdk_version(project_root);
-    // Pulp #2087 floating mode: `sdk_version = "latest"` (or absence
-    // of the field) means "resolve to the newest installed SDK at
-    // command time" rather than pinning to one. The CLI's own SDK
-    // version is the final fallback when no SDKs are installed under
-    // ~/.pulp/sdk/ yet — common on a fresh `curl install.sh` machine
-    // before the user has run `pulp sdk install`.
-    auto is_latest = [&]() {
-        if (version.empty()) return true;
-        std::string lower;
-        lower.reserve(version.size());
-        for (char c : version) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return lower == "latest";
-    };
-    if (is_latest()) {
+    // Empty (no pulp.toml or no sdk_version key) preserves pre-#2087
+    // behavior: fall back to the CLI's own SDK version. This is the
+    // "no project at all" path — read_sdk_version is called from
+    // contexts that have no project root, and returning newest-installed
+    // there would surprise downstream code that expects PULP_SDK_VERSION.
+    if (version.empty()) return PULP_SDK_VERSION;
+    // Pulp #2087 floating mode: ONLY an explicit `sdk_version = "latest"`
+    // resolves to the newest installed SDK at command time. The CLI's
+    // own SDK version is the final fallback when no SDKs are installed
+    // under ~/.pulp/sdk/ yet — common on a fresh `curl install.sh`
+    // machine before the user has run `pulp sdk install`.
+    std::string lower;
+    lower.reserve(version.size());
+    for (char c : version) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower == "latest") {
         auto resolved = newest_installed_sdk();
         if (!resolved.empty()) return resolved;
         return PULP_SDK_VERSION;
