@@ -131,6 +131,74 @@ TEST_CASE("SvgImage move semantics", "[canvas][svg]") {
     REQUIRE_FALSE(img1.is_valid());
 }
 
+// pulp #72 — preset previews (Spectr's band-shape thumbnails were the
+// live-traffic example) render through SvgImage::render() into a Canvas,
+// not through nsvgRasterize() directly. The previous implementation:
+//   (a) only emitted `stroke_line` commands — fills were dropped silently;
+//   (b) treated each Bezier control point as a line endpoint, producing
+//       jagged polylines connecting handles instead of smooth curves.
+// A path with `fill="#abc"` and no stroke would render NOTHING — which
+// is what the user observed as "preset preview blank."
+//
+// These regression tests enforce both contracts at the RecordingCanvas
+// level so a refactor that drops the path-API calls fails CI before the
+// user sees blank thumbnails again.
+TEST_CASE("SvgImage::render emits fill_current_path for fill-only path [issue-72]",
+          "[canvas][svg][issue-72]") {
+    // Filled rect with NO stroke — the case that previously rendered nothing.
+    auto img = SvgImage::from_string(R"(
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10">
+  <rect x="0" y="0" width="10" height="10" fill="#ff0000"/>
+</svg>
+)");
+    REQUIRE(img.is_valid());
+
+    RecordingCanvas canvas;
+    img.render(canvas, 0, 0, 100, 100);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_current_path) >= 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_current_path) == 0);
+    // Pre-fix bug: emitted stroke_line commands instead of building a path.
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) == 0);
+}
+
+TEST_CASE("SvgImage::render emits cubic_to for curved paths [issue-72]",
+          "[canvas][svg][issue-72]") {
+    // A cubic Bezier curve — the band-shape preview pattern. Pre-fix this
+    // would have stepped through control points as straight-line endpoints.
+    auto img = SvgImage::from_string(R"(
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <path d="M 10 50 C 30 10, 70 90, 90 50" stroke="#000" stroke-width="2" fill="none"/>
+</svg>
+)");
+    REQUIRE(img.is_valid());
+
+    RecordingCanvas canvas;
+    img.render(canvas, 0, 0, 100, 100);
+
+    REQUIRE(canvas.count(DrawCommand::Type::move_to) >= 1);
+    REQUIRE(canvas.count(DrawCommand::Type::cubic_to) >= 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_current_path) >= 1);
+    // Pre-fix bug: emitted stroke_line commands.
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_line) == 0);
+}
+
+TEST_CASE("SvgImage::render emits both fill + stroke for filled+stroked path [issue-72]",
+          "[canvas][svg][issue-72]") {
+    auto img = SvgImage::from_string(R"(
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <circle cx="50" cy="50" r="40" fill="#f00" stroke="#000" stroke-width="2"/>
+</svg>
+)");
+    REQUIRE(img.is_valid());
+
+    RecordingCanvas canvas;
+    img.render(canvas, 0, 0, 100, 100);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_current_path) >= 1);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_current_path) >= 1);
+}
+
 TEST_CASE("SvgImage move assignment", "[canvas][svg]") {
     auto img1 = SvgImage::from_string(test_svg);
     REQUIRE(img1.is_valid());
