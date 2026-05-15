@@ -3973,3 +3973,41 @@ warnings. Branch pushed with GitHub-hosted PR workflow only; no Namespace
 dispatch and no SSH targets.
 Resume action: monitor #2041 required checks and merge directly when
 green.
+
+2026-05-15 02:54 PDT: created the #651 view theme/assets batch
+`feature/phase3-view-assets-theme-batch-651` at `a4355aa`, PR #2042,
+from current `origin/main` `ce86d9f`. It adds test-only coverage in
+`test/test_theme.cpp`, `test/test_asset_manager.cpp`,
+`test/test_theme_contrast.cpp`, and `test/test_theme_presets.cpp` for
+theme JSON optional sections, alpha colors, invalid JSON file fallback,
+unwritable save targets, asset wrapper validity and byte sizes, invalid
+and short image buffers, data URI PNG dimension decode with ignored
+characters, font file family derivation and cache reuse, contrast channel
+clamping, negative hue wrapping with alpha preservation, contrast
+validation on partial themes, preset id ordering, and variant-specific
+theme preset overrides. Local macOS validation passed: configure `cmake
+-S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-theme pulp-test-asset-manager pulp-test-theme-contrast
+pulp-test-theme-presets -j$(sysctl -n hw.ncpu)`, focused
+`./build/test/pulp-test-theme "[coverage][issue-651]" -r compact`
+passing 12 assertions in 2 cases, focused
+`./build/test/pulp-test-asset-manager "[coverage][issue-651]" -r
+compact` passing 24 assertions in 4 cases, focused
+`./build/test/pulp-test-theme-contrast "[coverage][issue-651]" -r
+compact` passing 11 assertions in 3 cases, focused
+`./build/test/pulp-test-theme-presets "[coverage][issue-651]" -r
+compact` passing 14 assertions in 2 cases, full `pulp-test-theme`
+passing 94 assertions in 19 cases, full `pulp-test-asset-manager`
+passing 99 assertions in 33 cases, full `pulp-test-theme-contrast`
+passing 59 assertions in 26 cases, full `pulp-test-theme-presets`
+passing 875 assertions in 11 cases, exact `ctest --test-dir build -R
+"(Theme JSON parser covers optional|Theme file IO rejects|Asset data
+wrappers report|AssetManager image memory loading|AssetManager data URI
+decodes|AssetManager font file loading|Contrast helpers clamp|Shift hue
+wraps negative|Theme contrast validation skips|preset_ids
+preserves|theme_from_preset applies)" --output-on-failure` passing 11/11,
+and `git diff --check`. Branch pushed with GitHub-hosted PR workflow
+only; no Namespace dispatch and no SSH targets.
+Resume action: monitor #2042 required checks and merge directly when
+green.
