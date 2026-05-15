@@ -4767,3 +4767,20 @@ hw.ncpu)`, `ctest --test-dir build --output-on-failure -R "Android SDK
 discovery"` (8 tests), and `git diff --check`. The held
 ship/package/release/local-CI batch is now 15 commits ahead of
 `origin/main` and remains intentionally local-only.
+
+2026-05-15 16:06 PDT: added a Python coverage-infrastructure helper slice
+to the held local batch. Commit `98c14db9d` (`test(coverage): cover python
+coverage helper edges`) extends `tools/scripts/test_run_python_coverage_extra.py`
+with selected-surface always-include behavior, source-root normalization,
+report-source omit filtering, and `.coveragerc` writing/error coverage. It
+also extends `tools/scripts/test_merge_cobertura_extra.py` with Windows path
+normalization plus ignored-source filtering, all-inputs-missing exit code
+coverage, and corrupt-XML hard-failure coverage.
+
+Validation for this held slice passed locally:
+`python3 tools/scripts/test_run_python_coverage_extra.py` (12 tests),
+`python3 tools/scripts/test_merge_cobertura_extra.py` (6 tests), and
+`git diff --check`. The held ship/package/release/local-CI batch is now
+16 commits ahead of `origin/main`, touches 19 files, and adds about 1,697
+lines of focused tests. It remains intentionally local-only while the
+active GitHub-hosted CI queue drains.
