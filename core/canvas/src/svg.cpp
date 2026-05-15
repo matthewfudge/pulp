@@ -148,7 +148,16 @@ void SvgImage::render(Canvas& canvas, float x, float y, float w, float h) const 
             if (path->closed) canvas.close_path();
         }
 
-        if (has_fill)   canvas.fill_current_path();
+        if (has_fill) {
+            // Codex review on PR #2011 — honor `fill-rule="evenodd"`
+            // so SVGs with cutouts/holes (a common preset-thumbnail
+            // pattern) render correctly. nanosvg exposes the rule on
+            // the shape; default in SVG is nonzero.
+            FillRule rule = (shape->fillRule == NSVG_FILLRULE_EVENODD)
+                ? FillRule::evenodd
+                : FillRule::nonzero;
+            canvas.fill_current_path(rule);
+        }
         if (has_stroke) canvas.stroke_current_path();
     }
 
