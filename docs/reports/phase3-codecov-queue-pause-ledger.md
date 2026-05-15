@@ -4036,3 +4036,45 @@ empty|ThemeEditor covers missing)" --output-on-failure` passing 6/6, and
 Namespace dispatch and no SSH targets.
 Resume action: monitor #2043 required checks and merge directly when
 green.
+
+2026-05-15 03:11 PDT: created the #653 view controls/dialogs batch
+`feature/phase3-view-dialogs-batch-653` at `0ccc728`, PR #2044, from
+current `origin/main` `ce86d9f`. It adds coverage in
+`test/test_modal.cpp`, `test/test_gui_components.cpp`,
+`test/test_property_list.cpp`, and `test/test_table_list_box.cpp` for
+ModalOverlay child-vs-backdrop dismiss behavior, mouse-up and missing
+callback paths, Toolbar missing ids, item sizing, vertical intrinsic
+height, disabled and missing remove behavior, PropertyList category
+visibility, key-label fallback, non-bool selection highlighting, outside
+miss clearing, and TableListBox clear-column/model-less/out-of-bounds
+click behavior. The batch also fixes `core/view/src/table.cpp` so
+TableListBox ignores mouse clicks outside its bounds before entering
+header-sort or row-selection logic; the new negative-y table test exposed
+that edge. Local macOS validation passed: configure `cmake -S . -B build
+-DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-modal pulp-test-gui-components pulp-test-property-list
+pulp-test-table-list-box -j$(sysctl -n hw.ncpu)`, focused
+`./build/test/pulp-test-modal "[coverage][issue-653]" -r compact`
+passing 4 assertions in 2 cases, focused
+`./build/test/pulp-test-gui-components "[coverage][issue-653]" -r
+compact` passing 5 assertions in 1 case, focused
+`./build/test/pulp-test-property-list "[coverage][issue-653]" -r
+compact` passing 13 assertions in 2 cases, focused
+`./build/test/pulp-test-table-list-box "[coverage][issue-653]" -r
+compact` passing 9 assertions in 2 cases, full `pulp-test-modal`
+passing 12 assertions in 7 cases, full `pulp-test-gui-components`
+passing 134 assertions in 30 cases, full `pulp-test-property-list`
+passing 38 assertions in 6 cases, full `pulp-test-table-list-box`
+passing 42 assertions in 6 cases, exact `ctest --test-dir build -R
+"(ModalOverlay backdrop click|ModalOverlay ignores mouse-up|Toolbar
+missing ids|PropertyList category visibility|PropertyList selection
+highlight|TableListBox clear columns|TableListBox paints selected row)"
+--output-on-failure` passing 7/7, and `git diff --check`. Branch pushed
+with GitHub-hosted PR workflow only; no Namespace dispatch and no SSH
+targets. Pre-push local diff-cover was demoted by
+`PULP_DISABLE_PREPUSH_DIFF_COVER=1` after a local FetchContent checkout
+failed to read the pinned Highway tree; focused and full macOS tests were
+green before push.
+Resume action: monitor #2044 required checks and merge directly when
+green.
