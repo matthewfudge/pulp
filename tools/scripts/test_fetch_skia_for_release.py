@@ -112,6 +112,50 @@ class UnknownMatrixPlatform(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+class ManifestValidation(unittest.TestCase):
+    def test_missing_manifest_fails_for_known_platform(self):
+        with _in_tempdir():
+            rc = fetch_skia.main(
+                ["fetch_skia_for_release.py", "darwin-arm64"]
+            )
+        self.assertEqual(rc, 1)
+
+    def test_manifest_without_skia_dependency_fails(self):
+        with _in_tempdir() as td:
+            (td / "tools" / "deps").mkdir(parents=True)
+            (td / "tools" / "deps" / "manifest.json").write_text(
+                json.dumps({"dependencies": [{"name": "Other"}]}),
+                encoding="utf-8",
+            )
+
+            rc = fetch_skia.main(
+                ["fetch_skia_for_release.py", "darwin-arm64"]
+            )
+
+        self.assertEqual(rc, 1)
+
+    def test_known_platform_without_asset_skips(self):
+        with _in_tempdir() as td:
+            (td / "tools" / "deps").mkdir(parents=True)
+            manifest = {
+                "dependencies": [
+                    {
+                        "name": "Skia",
+                        "determinism": {"release_assets": {}},
+                    }
+                ]
+            }
+            (td / "tools" / "deps" / "manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+
+            rc = fetch_skia.main(
+                ["fetch_skia_for_release.py", "windows-arm64"]
+            )
+
+        self.assertEqual(rc, 0)
+
+
 class FlatLayoutSucceeds(unittest.TestCase):
     """Pre-m144 layout: libs flat under Release/ (no arch subdir)."""
 
@@ -172,6 +216,28 @@ class ArchSubdirLayoutFlattens(unittest.TestCase):
                 (release_dir / "arm64").exists(),
                 "arm64/ subdir should be removed after flatten",
             )
+
+    def test_arch_subdir_with_nested_dir_keeps_nonempty_dir(self):
+        with _in_tempdir() as td:
+            zip_path = td / "skia-mac.zip"
+            payload = {
+                "build/mac-gpu/lib/Release/arm64/libskia.a": b"skia-arch",
+                "build/mac-gpu/lib/Release/arm64/obj/keep.txt": b"keep",
+            }
+            sha = _make_zip(zip_path, payload)
+            _write_manifest(
+                td, f"file://{zip_path.as_posix()}", sha, "mac-arm64"
+            )
+            rc = fetch_skia.main(
+                ["fetch_skia_for_release.py", "darwin-arm64"]
+            )
+
+            self.assertEqual(rc, 0)
+            release_dir = (
+                td / "external/skia-build/build/mac-gpu/lib/Release"
+            )
+            self.assertTrue((release_dir / "libskia.a").is_file())
+            self.assertTrue((release_dir / "arm64" / "obj" / "keep.txt").is_file())
 
     def test_linux_x64_arch_subdir(self):
         with _in_tempdir() as td:

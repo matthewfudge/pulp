@@ -82,6 +82,50 @@ class FindWgpuLibExtraTests(unittest.TestCase):
 
 
 class RpathExtraTests(unittest.TestCase):
+    def test_fix_rpath_macos_deletes_multiple_absolute_rpaths(self) -> None:
+        otool_output = """
+Load command 1
+          cmd LC_RPATH
+      cmdsize 48
+         path /Users/runner/Library/Caches/Pulp/wgpu (offset 12)
+Load command 2
+          cmd LC_RPATH
+      cmdsize 48
+         path /opt/pulp/cache/wgpu (offset 12)
+Load command 3
+          cmd LC_RPATH
+      cmdsize 40
+         path @loader_path (offset 12)
+        """
+        binary = pathlib.Path("/tmp/pulp")
+
+        with mock.patch.object(pc.subprocess, "check_output", return_value=otool_output):
+            with mock.patch.object(pc.subprocess, "check_call") as check_call:
+                with mock.patch.object(pc.subprocess, "run") as run:
+                    pc.fix_rpath_macos(binary)
+
+        self.assertEqual(check_call.call_count, 2)
+        check_call.assert_any_call(
+            [
+                "install_name_tool",
+                "-delete_rpath",
+                "/Users/runner/Library/Caches/Pulp/wgpu",
+                str(binary),
+            ]
+        )
+        check_call.assert_any_call(
+            [
+                "install_name_tool",
+                "-delete_rpath",
+                "/opt/pulp/cache/wgpu",
+                str(binary),
+            ]
+        )
+        run.assert_called_once_with(
+            ["install_name_tool", "-add_rpath", "@loader_path", str(binary)],
+            check=False,
+        )
+
     def test_fix_rpath_macos_ignores_relative_rpath(self) -> None:
         otool_output = """
 Load command 1
@@ -111,6 +155,35 @@ Load command 1
 
         check_call.assert_not_called()
         run.assert_called_once()
+
+
+class StageBinaryExtraTests(unittest.TestCase):
+    def test_stage_binary_sets_unix_executable_bit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            src = root / "built-pulp"
+            src.write_text("binary", encoding="utf-8")
+            stage = root / "stage"
+            stage.mkdir()
+
+            staged = pc.stage_binary(src, stage, "pulp", is_windows=False)
+
+            self.assertEqual(staged, stage / "pulp")
+            self.assertEqual(staged.read_text(encoding="utf-8"), "binary")
+            self.assertTrue(pc.os.access(staged, pc.os.X_OK))
+
+    def test_stage_binary_keeps_windows_copy_non_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            src = root / "built-pulp.exe"
+            src.write_text("binary", encoding="utf-8")
+            stage = root / "stage"
+            stage.mkdir()
+
+            staged = pc.stage_binary(src, stage, "pulp.exe", is_windows=True)
+
+            self.assertEqual(staged, stage / "pulp.exe")
+            self.assertEqual(staged.read_text(encoding="utf-8"), "binary")
 
 
 class MainExtraTests(unittest.TestCase):
@@ -144,6 +217,39 @@ class MainExtraTests(unittest.TestCase):
             fix_rpath.assert_called_once()
             with tarfile.open(out, "r:gz") as tar:
                 self.assertEqual(sorted(tar.getnames()), ["libwgpu_native.dylib", "pulp"])
+
+    def test_main_packages_unknown_platform_as_tarball_without_rpath(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            binary = root / "pulp-built"
+            binary.write_text("binary", encoding="utf-8")
+            wgpu = root / "libwgpu_native.custom"
+            wgpu.write_text("wgpu", encoding="utf-8")
+            out = root / "pulp-custom.tar.gz"
+
+            with mock.patch.object(pc, "find_wgpu_lib", return_value=wgpu):
+                with mock.patch.object(pc, "fix_rpath_macos") as mac_rpath:
+                    with mock.patch.object(pc, "fix_rpath_linux") as linux_rpath:
+                        with argv(
+                            [
+                                "package_cli.py",
+                                "--binary",
+                                str(binary),
+                                "--build-dir",
+                                str(root / "build"),
+                                "--platform",
+                                "haiku-x64",
+                                "--out",
+                                str(out),
+                            ]
+                        ):
+                            rc = pc.main()
+
+            self.assertEqual(rc, 0)
+            mac_rpath.assert_not_called()
+            linux_rpath.assert_not_called()
+            with tarfile.open(out, "r:gz") as tar:
+                self.assertEqual(sorted(tar.getnames()), ["libwgpu_native.custom", "pulp"])
 
     def test_script_entrypoint_reports_missing_binary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
