@@ -124,8 +124,14 @@ rm -rf "$case3"
 # ── Case 4: invariant — exit code is ALWAYS 0 even on broken cwd ─────────────
 # A non-existent PULP_CHECK_CWD should not crash the hook (hooks must
 # never block Claude session init).
-out=$(PATH="/usr/bin:/bin" PULP_CHECK_CWD="/nonexistent/path/$(date +%s)" "$HOOK" 2>&1) || true
-status=$?
+#
+# pulp #2000 Codex P2 — capture the hook's exit code into `status`
+# directly via `|| status=$?`, NOT via `out=$(...) || true; status=$?`.
+# The latter pattern always reports 0 because `true` is what `$?` sees,
+# so a regression where the hook started returning non-zero would slip
+# through the gate undetected.
+status=0
+PATH="/usr/bin:/bin" PULP_CHECK_CWD="/nonexistent/path/$(date +%s)" "$HOOK" >/dev/null 2>&1 || status=$?
 if [ "$status" -ne 0 ]; then
     fail "case4: hook exited $status with bad PULP_CHECK_CWD; must always be 0"
 fi
