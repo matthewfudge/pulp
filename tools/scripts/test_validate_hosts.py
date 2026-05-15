@@ -118,6 +118,12 @@ class RemoteCommandTests(unittest.TestCase):
         self.assertIn("$branch='feature/one''two'", command)
         self.assertIn("-NoTests:$false", command)
 
+    def test_windows_remote_command_can_skip_tests(self) -> None:
+        command = vh.windows_remote_command("C:\\repo", "main", True)
+
+        self.assertIn("-NoTests:$true", command)
+        self.assertIn("validate-build.ps1", command)
+
 
 class MainTests(unittest.TestCase):
     def test_main_builds_local_unix_and_windows_commands_from_config(self) -> None:
@@ -200,6 +206,31 @@ class MainTests(unittest.TestCase):
                     rc = vh.main()
 
         self.assertEqual(rc, 1)
+
+    def test_main_uses_current_branch_when_branch_argument_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            config = pathlib.Path(td) / "missing-hosts.json"
+            observed: list[tuple[str, list[str]]] = []
+
+            def fake_run(label: str, cmd: list[str]) -> bool:
+                observed.append((label, cmd))
+                return True
+
+            with mock.patch.object(vh, "current_branch", return_value="feature/current"), \
+                 mock.patch.object(vh, "run", side_effect=fake_run):
+                with argv(["validate_hosts.py", "--config", str(config)]):
+                    rc = vh.main()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(observed[0][0], "local")
+        self.assertEqual(observed[0][1], [
+            "bash",
+            "./validate-build.sh",
+            "--quiet",
+            "--ref",
+            "feature/current",
+        ])
 
     def test_script_entrypoint_exits_with_main_status(self) -> None:
         with tempfile.TemporaryDirectory() as td:
