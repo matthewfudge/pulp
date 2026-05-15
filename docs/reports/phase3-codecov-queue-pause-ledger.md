@@ -4730,3 +4730,25 @@ the pre-push advisory diff-cover path again hit the unrelated local
 FetchContent `mbedtls` `v3.6.2` checkout failure in a fresh `build-cov`;
 do not treat that advisory run as validation. REST check-rollup after
 push showed #2051 pending with no failing check-runs.
+
+2026-05-15 16:02 PDT: refreshed the held local batch
+`feature/phase3-codecov-ship-package-batch-661` onto latest
+`origin/main` and added another release-helper coverage slice. The rebase
+was clean; because this branch is still local-only, the rewritten commit
+hashes are not externally visible. New head commit `434b26c8e`
+(`test(release): cover release helper edge cases`) adds tests for Skia
+release fetch no-asset logging, archive cleanup, and missing-library
+debug output; package registry structural/license clean and missing-license
+edges; Android SDK fallback when env paths are stale plus empty Java
+version output; and validate-host config passthrough, subprocess cwd, and
+continuing remote checks after local failure.
+
+Validation for this held slice passed locally:
+`python3 tools/scripts/test_fetch_skia_for_release.py` (19 tests),
+`python3 tools/scripts/test_validate_registry_extra.py` (12 tests),
+`python3 tools/scripts/test_android_target.py` (20 tests),
+`python3 tools/scripts/test_validate_hosts.py` (14 tests), and
+`git diff --check`. The held ship/package/release/local-CI batch is now
+14 commits ahead of `origin/main`, touches 17 files, and adds about 1,560
+lines of focused tests. It remains intentionally unpushed so it can become
+one substantial GitHub-hosted CI run rather than several small PRs.
