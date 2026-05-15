@@ -144,9 +144,9 @@ TEST_CASE("LicenseValidator validate_and_parse includes optional machine and exp
           "[crypto][license][coverage][issue-656]") {
     LicenseValidator validator;
 
-    std::string payload = "{"product_id":"PulpSuite","email":"user@example.com","
-                          ""machine_id":"machine-1","edition":"team","
-                          ""issued":1700000000,"expiry":1800000000}";
+    std::string payload = "{\"product_id\":\"PulpSuite\",\"email\":\"user@example.com\","
+                          "\"machine_id\":\"machine-1\",\"edition\":\"team\","
+                          "\"issued\":1700000000,\"expiry\":1800000000}";
     auto info = validator.validate_and_parse(base64_encode(payload) + ".sig");
     REQUIRE(info.has_value());
     REQUIRE(info->product_id == "PulpSuite");
