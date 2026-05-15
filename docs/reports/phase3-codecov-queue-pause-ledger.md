@@ -3685,3 +3685,34 @@ move|xml_generate handles)" --output-on-failure` passing 13/13, `git diff
 Branch pushed with GitHub-hosted PR workflow only; no Namespace dispatch
 and no SSH targets. Resume action: monitor #2031 required checks and
 merge directly when green.
+
+2026-05-15 01:41 PDT: created the #641 runtime communication batch
+`feature/phase3-runtime-comm-batch-641` at `47c56b8`, PR #2032, from
+current `origin/main` `a29cb7dc`. It adds test-only coverage in
+`test/test_memory_message_channel.cpp`, `test/test_json_rpc.cpp`, and
+`test/test_stream.cpp` for zero-length and embedded-NUL message payloads,
+callback clearing, JSON-RPC omitted params, string request-id responses,
+incoming error response data, FileStream ReadWrite truncation/position,
+closed MemoryStream/TcpStream behavior, and invalid HttpStream fetch
+failure paths. Local macOS validation passed: configure `cmake -S . -B
+build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-memory-message-channel pulp-test-json-rpc pulp-test-stream
+pulp-test-websocket-channel -j$(sysctl -n hw.ncpu)`, focused
+`./build/test/pulp-test-memory-message-channel "[coverage][issue-641]" -r
+compact` passing 18 assertions in 3 cases, focused
+`./build/test/pulp-test-json-rpc "[coverage][issue-641]" -r compact`
+passing 17 assertions in 3 cases, focused `./build/test/pulp-test-stream
+"[coverage][issue-641]" -r compact` passing 30 assertions in 4 cases,
+full `pulp-test-memory-message-channel` passing 42 assertions in 9
+cases, full `pulp-test-json-rpc` passing 65 assertions in 12 cases, full
+`pulp-test-stream` passing 142 assertions in 16 cases, full
+`pulp-test-websocket-channel` passing 62 assertions in 11 cases, exact
+`ctest --test-dir build -R "(zero-length binary|clear callbacks|embedded
+NUL|omits params|string request ids|incoming error responses|ReadWrite
+mode|clear keeps closed|TcpStream closed|HttpStream invalid)"
+--output-on-failure` passing 10/10, `git diff --check`, and
+`./tools/check-docs.sh` passed with existing warnings. Branch pushed with
+GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
+Resume action: monitor #2032 required checks and merge directly when
+green.
