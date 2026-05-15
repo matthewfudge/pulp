@@ -148,6 +148,62 @@ TEST_CASE("FileAnalyticsDestination escapes JSON strings", "[runtime][analytics]
     REQUIRE(line.find("\",\"return\"") != std::string::npos);
 }
 
+TEST_CASE("FileAnalyticsDestination escapes each special JSON character",
+          "[runtime][analytics][coverage][issue-656]") {
+    struct Case {
+        std::string input;
+        std::string expected;
+    };
+
+    const Case cases[] = {
+        {"back\\slash", "back\\\\slash"},
+        {"double\"quote", "double\\\"quote"},
+        {"new\nline", "new\\nline"},
+        {"carriage\rreturn", "carriage\\rreturn"},
+        {"tab\tchar", "tab\\tchar"},
+    };
+
+    for (const auto& c : cases) {
+        TemporaryFile tmp(".jsonl");
+        FileAnalyticsDestination dest(tmp.path_string());
+
+        AnalyticsEvent event;
+        event.name = c.input;
+        event.timestamp = 1.0;
+        dest.log_event(event);
+        dest.flush();
+
+        std::ifstream f(tmp.path());
+        std::string line;
+        REQUIRE(std::getline(f, line));
+        REQUIRE(line.find("\"event\":\"" + c.expected + "\"") != std::string::npos);
+    }
+}
+
+TEST_CASE("FileAnalyticsDestination escapes special JSON property keys and values",
+          "[runtime][analytics][coverage][issue-656]") {
+    TemporaryFile tmp(".jsonl");
+    FileAnalyticsDestination dest(tmp.path_string());
+
+    AnalyticsEvent event;
+    event.name = "props";
+    event.timestamp = 1.0;
+    event.properties = {
+        {"slash\\key", "quote\"value"},
+        {"line\nkey", "return\rvalue"},
+        {"tab\tkey", "tab\tvalue"},
+    };
+    dest.log_event(event);
+    dest.flush();
+
+    std::ifstream f(tmp.path());
+    std::string line;
+    REQUIRE(std::getline(f, line));
+    REQUIRE(line.find("\"slash\\\\key\":\"quote\\\"value\"") != std::string::npos);
+    REQUIRE(line.find("\"line\\nkey\":\"return\\rvalue\"") != std::string::npos);
+    REQUIRE(line.find("\"tab\\tkey\":\"tab\\tvalue\"") != std::string::npos);
+}
+
 TEST_CASE("FileAnalyticsDestination empty flush does not create output", "[runtime][analytics][coverage][issue-656]") {
     TemporaryFile tmp(".jsonl");
     auto path = tmp.path();

@@ -88,6 +88,7 @@ TEST_CASE("Uuid string round-trip", "[runtime][identity]") {
         REQUIRE(Uuid::from_string("00112233-4455-6677-8899-aabbccddeefg").is_nil());
         REQUIRE(Uuid::from_string("00112233445566778899aabb-ccddeeff").is_nil());
         REQUIRE(Uuid::from_string("001122334455-6677-8899-aabbccddeeff").is_nil());
+        REQUIRE(Uuid::from_string("0011223344556677-8899-aabb-ccdd-eeff").is_nil());
         REQUIRE(Uuid::from_string("00112233445566778899aabbccddeeff00").is_nil());
     }
 }
