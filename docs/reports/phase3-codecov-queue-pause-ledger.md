@@ -4900,3 +4900,25 @@ pulp-test-runtime pulp-test-license -j$(sysctl -n hw.ncpu)`;
 with 64/64 tests passing; and `git diff --check`. The branch remains
 local-only; target size is still a larger GitHub-hosted batch rather than a
 small PR.
+
+2026-05-15 16:31 PDT: grew and published the held runtime/audio batch as
+#2098, `test: batch runtime coverage helpers`, on
+`feature/phase3-codecov-runtime-audio-batch-662` at `ee1bc9e2f`. The final
+batch contains 12 focused test-only commits, touches 7 test files, and adds
+345 lines. Additional commits after the eight-commit checkpoint are
+`d1900601e` (`test(runtime): cover localtime helper`), `1a5f95d5b`
+(`test(runtime): cover mmap readwrite move edges`), `a53698c86`
+(`test(runtime): cover dynamic library open moves`), and `ee1bc9e2f`
+(`test(runtime): cover child process stderr capture`).
+
+Final local validation before publishing passed:
+`cmake --build build --target pulp-test-runtime-utils pulp-test-json-rpc
+pulp-test-memory-message-channel pulp-test-stream pulp-test-network-stream
+pulp-test-runtime pulp-test-license -j$(sysctl -n hw.ncpu)`;
+`ctest --test-dir build --output-on-failure -R
+"PULP_ON_SCOPE_EXIT|TemporaryFile|ScopeGuard|MemoryMappedFile|run_process|HttpResponse|HTTP helpers|JsonRpcPeer|MemoryMessageChannel|StreamResult|FileStream|MemoryStream|Stream polymorphic|HttpStream|SpscQueue|Runtime localtime|Runtime system info|BigInteger|DynamicLibrary"`
+with 79/79 tests passing; and `git diff --check`. The branch push ran clean
+pre-push gates with `PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1`;
+no Namespace/SSH lanes were used. #2098 was opened via GitHub REST and
+labeled `codecov`; initial PR state is blocked while GitHub-hosted checks
+queue.
