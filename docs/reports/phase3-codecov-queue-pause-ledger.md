@@ -4822,3 +4822,23 @@ skill/version/compat/docs-noise/deps gates after the trailer amendment, but
 its advisory diff-cover path still hit the unrelated local FetchContent
 `mbedtls` `v3.6.2` checkout failure in fresh `build-cov`; the broader
 validation listed above is the local validation source of record.
+
+2026-05-15 16:18 PDT: started the next held local runtime/audio batch in
+`/private/tmp/pulp-phase3-codecov-runtime-audio-batch-662` on
+`feature/phase3-codecov-runtime-audio-batch-662`, current head
+`81f700dca` (`test(runtime): cover temp file and scope guard edges`).
+This first local-only slice extends `test/test_runtime_utils.cpp` with
+additional `TemporaryFile` coverage for bare-extension normalization,
+`path_string()`, and move-assignment cleanup of the previously owned file,
+plus direct `ScopeGuard` coverage for destructor execution, `dismiss()`,
+move transfer, and `PULP_ON_SCOPE_EXIT` capture behavior.
+
+Validation for this slice passed locally:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`;
+`cmake --build build --target pulp-test-runtime-utils -j$(sysctl -n
+hw.ncpu)`; `ctest --test-dir build --output-on-failure -R
+"PULP_ON_SCOPE_EXIT|TemporaryFile|ScopeGuard"` with 8/8 tests passing; and
+`git diff --check`. This branch remains intentionally local-only while it
+accumulates more runtime/audio coverage into a larger GitHub-hosted batch PR.
+The current PR queue sweep showed #2048, #2049, #2050, #2051, and #2097
+with no failing check-runs; several required checks are still pending.
