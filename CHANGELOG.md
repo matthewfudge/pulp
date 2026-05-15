@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01013"></a>
+## [0.101.3] - 2026-05-15
+
+- fix(cmake): apply fontconfig link-order helper to all Standalone targets (#2018 follow-up) ([#2056](https://github.com/danielraffel/pulp/pull/2056))
+
 <a id="v01012"></a>
 ## [0.101.2] - 2026-05-15
 
@@ -1782,6 +1787,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.101.3]: https://github.com/danielraffel/pulp/releases/tag/v0.101.3
 [0.101.2]: https://github.com/danielraffel/pulp/releases/tag/v0.101.2
 [0.101.1]: https://github.com/danielraffel/pulp/releases/tag/v0.101.1
 [0.101.0]: https://github.com/danielraffel/pulp/releases/tag/v0.101.0
