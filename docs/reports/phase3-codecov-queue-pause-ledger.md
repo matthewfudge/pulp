@@ -4011,3 +4011,28 @@ and `git diff --check`. Branch pushed with GitHub-hosted PR workflow
 only; no Namespace dispatch and no SSH targets.
 Resume action: monitor #2042 required checks and merge directly when
 green.
+
+2026-05-15 03:02 PDT: created the #652 view controls/widgets batch
+`feature/phase3-view-controls-batch-652` at `d85b567`, PR #2043, from
+current `origin/main` `ce86d9f`. It adds test-only coverage in
+`test/test_phase9_widgets.cpp` for EqCurveView disabled grid/disabled
+band paint paths, MidiKeyboard reversed-range clamping, vertical drag
+note release/retrigger behavior, ColorPicker hex-only mode with outside
+mouse input stability, FileDropZone idle/valid/invalid/no-icon paint
+states plus invalid and empty drops, and ThemeEditor missing selection,
+empty theme, selected token paint, and JSON export behavior. Local macOS
+validation passed: configure `cmake -S . -B build
+-DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-phase9-widgets -j$(sysctl -n hw.ncpu)`, focused
+`./build/test/pulp-test-phase9-widgets "[coverage][issue-652]" -r
+compact` passing 35 assertions in 6 cases, full
+`./build/test/pulp-test-phase9-widgets -r compact` passing 160
+assertions in 36 cases, exact `ctest --test-dir build -R "(EqCurveView
+paint covers disabled|MidiKeyboard drag releases|ColorPicker mode and
+outside|FileDropZone paint reflects|FileDropZone invalid or
+empty|ThemeEditor covers missing)" --output-on-failure` passing 6/6, and
+`git diff --check`. Branch pushed with GitHub-hosted PR workflow only; no
+Namespace dispatch and no SSH targets.
+Resume action: monitor #2043 required checks and merge directly when
+green.
