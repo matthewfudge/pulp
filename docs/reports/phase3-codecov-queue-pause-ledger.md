@@ -4784,3 +4784,24 @@ Validation for this held slice passed locally:
 16 commits ahead of `origin/main`, touches 19 files, and adds about 1,697
 lines of focused tests. It remains intentionally local-only while the
 active GitHub-hosted CI queue drains.
+
+2026-05-15 16:08 PDT: ran a broader local validation pass over the held
+batch after the latest coverage slices. The Python validation covered the
+package/release helpers (`test_package_cli.py`, `test_package_cli_extra.py`,
+`test_fetch_skia_for_release.py`, `test_auto_release_decision.py`,
+`test_version_bump_check_extra.py`, `test_release_workflow_test_step.py`),
+coverage helpers (`test_coverage_tier_check.py`,
+`test_coverage_tier_check_extra.py`, `test_coverage_diff_comment.py`,
+`test_coverage_diff_comment_extra.py`, `test_run_python_coverage_extra.py`,
+`test_merge_cobertura_extra.py`, `test_resolve_runs_on.py`,
+`test_resolve_runs_on_extra.py`), Android/local-CI/package registry helpers
+(`test_android_target.py`, `test_build_migration_index_extra.py`,
+`test_validate_hosts.py`, `test_validate_registry_extra.py`,
+`tools/local-ci/test_local_ci_extra.py`), and `git diff --check`.
+
+Native validation also passed: `cmake --build build --target
+pulp-test-android-package pulp-test-appcast pulp-test-codesign
+pulp-test-nsis-installer -j$(sysctl -n hw.ncpu)` succeeded, followed by
+`ctest --test-dir build --output-on-failure -R "Android|Appcast|codesign|NSIS"`
+with 55/55 tests passing. The held branch was clean after validation and
+remains queued locally for one future substantial GitHub-hosted CI run.
