@@ -2,6 +2,9 @@
 #include <pulp/view/tree_view.hpp>
 #include <pulp/canvas/canvas.hpp>
 
+#include <algorithm>
+#include <string>
+
 using namespace pulp::view;
 using namespace pulp::canvas;
 
@@ -20,6 +23,25 @@ KeyEvent key_down(KeyCode key) {
     e.key = key;
     e.is_down = true;
     return e;
+}
+
+bool has_text(const RecordingCanvas& canvas, const std::string& text) {
+    return std::any_of(canvas.commands().begin(),
+                       canvas.commands().end(),
+                       [&](const DrawCommand& cmd) {
+                           return cmd.type == DrawCommand::Type::fill_text &&
+                                  cmd.text == text;
+                       });
+}
+
+int text_count(const RecordingCanvas& canvas, const std::string& text) {
+    return static_cast<int>(std::count_if(
+        canvas.commands().begin(),
+        canvas.commands().end(),
+        [&](const DrawCommand& cmd) {
+            return cmd.type == DrawCommand::Type::fill_text &&
+                   cmd.text == text;
+        }));
 }
 
 } // namespace
@@ -215,4 +237,65 @@ TEST_CASE("TreeView row_height and indent configurable", "[view][tree]") {
 
     REQUIRE(tree.row_height() == 30.0f);
     REQUIRE(tree.indent() == 24.0f);
+}
+
+TEST_CASE("TreeView collapsed children are hidden from paint and hit testing",
+          "[view][tree][coverage][issue-654]") {
+    TreeView tree;
+    auto& group = tree.root().add_child("Group");
+    group.add_child("Hidden child");
+    auto& visible = tree.root().add_child("Visible");
+    tree.set_bounds({0, 0, 240, 120});
+
+    std::string selected;
+    tree.on_select = [&](TreeNode& node) { selected = node.label; };
+
+    RecordingCanvas collapsed;
+    tree.paint(collapsed);
+    REQUIRE(has_text(collapsed, "Group"));
+    REQUIRE_FALSE(has_text(collapsed, "Hidden child"));
+    REQUIRE(has_text(collapsed, "Visible"));
+
+    tree.on_mouse_event(mouse_down(40, 28));
+    REQUIRE(selected == "Visible");
+    REQUIRE(tree.selected_node() == &visible);
+}
+
+TEST_CASE("TreeView expanded child activation and selected paint paths",
+          "[view][tree][coverage][issue-654]") {
+    TreeView tree;
+    tree.set_bounds({0, 0, 240, 160});
+    tree.set_row_height(20.0f);
+    tree.set_indent(24.0f);
+    auto& group = tree.root().add_child("Group");
+    auto& child = group.add_child("Child");
+    group.expanded = true;
+
+    std::string activated;
+    tree.on_activate = [&](TreeNode& node) { activated = node.label; };
+
+    tree.on_mouse_event(mouse_down(54, 25, 2));
+    REQUIRE(activated == "Child");
+
+    tree.set_selected_node(&child);
+    RecordingCanvas selected;
+    tree.paint(selected);
+    REQUIRE(selected.count(DrawCommand::Type::fill_rect) == 1);
+    REQUIRE(text_count(selected, "\xe2\x96\xbc") == 1);
+    REQUIRE(has_text(selected, "Child"));
+}
+
+TEST_CASE("TreeView left key on collapsed parent is handled without toggling",
+          "[view][tree][coverage][issue-654]") {
+    TreeView tree;
+    auto& group = tree.root().add_child("Group");
+    group.add_child("Child");
+    tree.set_selected_node(&group);
+
+    int toggles = 0;
+    tree.on_toggle = [&](TreeNode&, bool) { ++toggles; };
+
+    REQUIRE(tree.on_key_event(key_down(KeyCode::left)));
+    REQUIRE_FALSE(group.expanded);
+    REQUIRE(toggles == 0);
 }
