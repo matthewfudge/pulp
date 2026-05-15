@@ -221,3 +221,26 @@ TEST_CASE("TableListBox paints selected row and ignores negative body clicks",
     REQUIRE(has_text(canvas, "Second"));
     REQUIRE(canvas.count(DrawCommand::Type::fill_rect) >= 3);
 }
+
+TEST_CASE("TableListBox ignores clicks outside right and bottom bounds",
+          "[gui][table][coverage][issue-653]") {
+    RecordingTableModel model({
+        {"First", "A"},
+        {"Second", "B"},
+    });
+
+    TableListBox table;
+    table.set_bounds({0, 0, 180, 80});
+    table.set_header_height(20.0f);
+    table.set_row_height(20.0f);
+    table.set_model(&model);
+    table.add_column({"Name", 90.0f, true});
+    table.add_column({"Value", 90.0f, true});
+
+    table.on_mouse_down({180.0f, 5.0f});
+    table.on_mouse_down({10.0f, 80.0f});
+
+    REQUIRE(model.sort_calls.empty());
+    REQUIRE(model.selected_rows.empty());
+    REQUIRE(table.selected_row() == -1);
+}
