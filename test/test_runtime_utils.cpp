@@ -268,6 +268,18 @@ TEST_CASE("run_process captures exit code", "[runtime][child_process]") {
     REQUIRE(result->exit_code == 42);
 }
 
+TEST_CASE("run_process captures stderr separately",
+          "[runtime][child_process][coverage][phase3]") {
+#ifdef _WIN32
+    auto result = run_process("powershell", {"-NoProfile", "-Command", "Write-Error 'bad news'; exit 7"});
+#else
+    auto result = run_process("/bin/sh", {"-c", "echo bad-news >&2; exit 7"});
+#endif
+    REQUIRE(result.has_value());
+    REQUIRE(result->exit_code == 7);
+    REQUIRE(result->stderr_output.find("bad-news") != std::string::npos);
+}
+
 TEST_CASE("run_process fails on nonexistent", "[runtime][child_process]") {
 #ifdef _WIN32
     auto result = run_process("C:\\nonexistent_binary_12345.exe");
