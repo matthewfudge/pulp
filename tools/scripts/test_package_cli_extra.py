@@ -35,6 +35,20 @@ def argv(args: list[str]):
 
 
 class FindWgpuLibExtraTests(unittest.TestCase):
+    def test_find_wgpu_lib_prefers_build_dir_before_cache_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            build_lib = root / "build" / "_deps" / "wgpu" / "libwgpu_native.so"
+            cache_lib = root / "home" / ".cache" / "pulp" / "libwgpu_native.so"
+            build_lib.parent.mkdir(parents=True)
+            cache_lib.parent.mkdir(parents=True)
+            build_lib.write_text("build", encoding="utf-8")
+            cache_lib.write_text("cache", encoding="utf-8")
+
+            with mock.patch.object(pc.Path, "home", return_value=root / "home"):
+                with mock.patch.dict(pc.os.environ, {}, clear=True):
+                    self.assertEqual(pc.find_wgpu_lib(root / "build", "linux-x64"), build_lib)
+
     def test_find_wgpu_lib_dedupes_roots_and_ignores_non_file_matches(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
@@ -281,6 +295,48 @@ class MainExtraTests(unittest.TestCase):
                 self.assertEqual(
                     sorted(z.namelist()),
                     ["pulp-cpp.exe", "pulp.exe", "wgpu_native.dll"],
+                )
+
+    def test_main_rewrites_macos_rpath_for_primary_and_delegate(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            binary = root / "pulp-built"
+            cpp_binary = root / "pulp-cpp-built"
+            wgpu = root / "libwgpu_native.dylib"
+            binary.write_text("binary", encoding="utf-8")
+            cpp_binary.write_text("cpp", encoding="utf-8")
+            wgpu.write_text("wgpu", encoding="utf-8")
+            out = root / "pulp-darwin-x64.tar.gz"
+
+            with mock.patch.object(pc, "find_wgpu_lib", return_value=wgpu):
+                with mock.patch.object(pc, "fix_rpath_macos") as fix_rpath:
+                    with argv(
+                        [
+                            "package_cli.py",
+                            "--binary",
+                            str(binary),
+                            "--cpp-binary",
+                            str(cpp_binary),
+                            "--build-dir",
+                            str(root / "build"),
+                            "--platform",
+                            "darwin-x64",
+                            "--out",
+                            str(out),
+                        ]
+                    ):
+                        rc = pc.main()
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(fix_rpath.call_count, 2)
+            self.assertEqual(
+                [call.args[0].name for call in fix_rpath.call_args_list],
+                ["pulp", "pulp-cpp"],
+            )
+            with tarfile.open(out, "r:gz") as tar:
+                self.assertEqual(
+                    sorted(tar.getnames()),
+                    ["libwgpu_native.dylib", "pulp", "pulp-cpp"],
                 )
 
     def test_main_rewrites_linux_rpath_for_primary_and_delegate(self) -> None:
