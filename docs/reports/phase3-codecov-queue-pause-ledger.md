@@ -1,8 +1,15 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-14 22:35 PDT
+Last updated: 2026-05-14 22:50 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
+
+2026-05-14 update: CI is no longer fully paused, but Namespace and SSH
+targets remain intentionally out of scope. New batches should use
+GitHub Actions hosted PR workflows, with macOS validated locally before
+push when useful and Linux/Windows left to hosted Actions. The old
+Namespace-specific notes below are retained as history for older PRs and
+should not be read as current dispatch guidance.
 
 ## Queue Policy
 
@@ -44,6 +51,19 @@ combined PR include the #640 `test/test_audio_file.cpp` audio-file
 tranches, after one final local rebase/re-smoke. Do not combine source
 behavior fixes with test-only branches; keep those separate so version
 bump and regression risk stay obvious.
+
+Batch-prep rule while CI remains paused: prepare combined branches
+locally only, roughly 3-8 closely related test-only tranches per branch,
+then run all touched target builds, focused tags, full touched binaries,
+CTest selectors, sync/version/docs/compat guards, and diff checks before
+recording the batch here. Do not push or open the batch PR until CI
+capacity is explicitly available. Avoid active development overlap,
+including #2009's mac platform-test harness / back-buffer capture seam.
+The first low-conflict batch candidate is the #640 audio-file cluster
+(`local/phase3-audio-data-shape-640`, `local/phase3-aiff-pcm-edges-640`,
+and `local/phase3-streaming-writer-reopen-640`) because it is
+test-only, shares `test/test_audio_file.cpp`, and does not touch #2009's
+files.
 
 Failure handling during CI waves:
 
@@ -109,9 +129,10 @@ Initial no-CI readiness sweep, refreshed through 2026-05-14 22:35 PDT:
 | local audio tools/model-store | `75ed3a63` | `92e83b37` | clean, test-only, no open PR, behind latest base | rebase/re-smoke before #643 tools wave |
 | #646 SDL3 surface fallback | `d81b03cc` | `92e83b37` | clean, test-only, no remote branch, behind latest base | rebase/re-smoke before #646 render wave |
 | local AudioFocus dispatch | `f819d985` | `d191cdca` | clean, includes source fix, behind current base | rebase/re-smoke; keep separate; SDK patch bump required before push/CI |
-| local AudioFileData shape | `eac19fe2` | `92e83b37` | clean, test-only, audio-file target, behind latest base | rebase/re-smoke before combined #640 audio-file batch |
-| local AIFF PCM edges | `74774950` | `92e83b37` | clean, test-only, audio-file target, behind latest base | rebase/re-smoke before combined #640 audio-file batch |
-| local StreamingWriter reopen | `5e1d020d` | `92e83b37` | clean, test-only, audio-file target, behind latest base | rebase/re-smoke before combined #640 audio-file batch |
+| #2012 audio-file batch | `e4e7147f` | `c98896db` | open PR on `feature/phase3-audio-file-batch-640`; test-only GitHub-hosted batch; local macOS target build, focused tag run, full binary, and sync/version/docs/compat guards passed | monitor GitHub Actions hosted checks, enable/perform merge when required checks are green |
+| local AudioFileData shape | `eac19fe2` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
+| local AIFF PCM edges | `74774950` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
+| local StreamingWriter reopen | `5e1d020d` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
 | local frame-fill edges | `8467c68d` | `92e83b37` | clean, test-only, standalone audio target, behind latest base | rebase/re-smoke before #640 audio wave |
 | local Environment dispatch | `33565a65` | `92e83b37` | clean, test-only, platform target, behind latest base | rebase/re-smoke before #640 platform wave |
 | local ChildProcess output | `4c474115` | `92e83b37` | clean, test-only, platform target, behind latest base | rebase/re-smoke before #640 platform wave |
