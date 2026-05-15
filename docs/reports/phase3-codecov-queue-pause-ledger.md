@@ -3657,3 +3657,31 @@ passing 64/64, `git diff --check`, skill-sync report, version-bump
 report, and docs-sync report. Branch pushed with GitHub-hosted PR
 workflow only; no Namespace dispatch and no SSH targets. Resume action:
 monitor #2030 required checks and merge directly when green.
+
+2026-05-15 01:31 PDT: created the #641 runtime codec/expression batch
+`feature/phase3-runtime-codec-batch-641` at `d155add`, PR #2031, from
+current `origin/main` `a29cb7dc`. It adds test-only coverage in
+`test/test_crypto.cpp`, `test/test_runtime_utils.cpp`, and
+`test/test_xml_zip.cpp` for binary hash pointer overloads, lowercase
+SHA-256 hex formatting, AES exact-block PKCS#7 padding and invalid
+padding rejection, expression precedence/constants/functions/scientific
+notation/variables/custom unary functions, XML empty-document queries,
+XML move construction/assignment, and `xml_generate` empty/repeated
+element output. Local macOS validation passed: configure
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`, build `cmake --build
+build --target pulp-test-crypto pulp-test-runtime-utils pulp-test-xml-zip
+-j$(sysctl -n hw.ncpu)`, focused `./build/test/pulp-test-crypto
+"[coverage][issue-641]" -r compact` passing 12 assertions in 5 cases,
+full `pulp-test-crypto` passing 32 assertions in 17 cases, focused
+`./build/test/pulp-test-runtime-utils "[coverage][issue-641]" -r
+compact` passing 41 assertions in 8 cases, full `pulp-test-runtime-utils`
+passing 155 assertions in 42 cases, focused `./build/test/pulp-test-xml-zip
+"[coverage][issue-641]" -r compact` passing 25 assertions in 3 cases,
+full `pulp-test-xml-zip` passing 110 assertions in 27 cases, exact
+`ctest --test-dir build -R "(SHA-256 pointer|SHA-1 pointer|MD5 binary|AES
+exact|AES decrypt rejects invalid|Expression evaluator|ExpressionEvaluator|XmlDocument empty|XmlDocument
+move|xml_generate handles)" --output-on-failure` passing 13/13, `git diff
+--check`, and `./tools/check-docs.sh` passed with existing warnings.
+Branch pushed with GitHub-hosted PR workflow only; no Namespace dispatch
+and no SSH targets. Resume action: monitor #2031 required checks and
+merge directly when green.
