@@ -1919,6 +1919,100 @@ TEST_CASE("Widget set_value programmatic mutation requests repaint [issue-73]",
     }
 }
 
+// Codex P2 on PR #2013 — the no-change guard. WidgetBridge::sync_from_store
+// and restore_values(...) call set_value() / set_on() in tight loops
+// during sync/reload. Firing a host repaint when the value didn't change
+// burns wall-clock on large widget trees. These tests fence the guard
+// so a regression that drops the early-return surfaces as visible
+// frame-time spikes long before a human notices.
+TEST_CASE("Widget setters skip repaint when value is unchanged [issue-73]",
+          "[view][widget][issue-73][issue-2013]") {
+    SECTION("Knob::set_value") {
+        Knob knob;
+        CountingHost host;
+        knob.set_window_host(&host);
+        knob.set_value(0.5f);
+        int after_first = host.repaint_count;
+        REQUIRE(after_first >= 1);
+
+        // Same value again — must NOT repaint.
+        knob.set_value(0.5f);
+        REQUIRE(host.repaint_count == after_first);
+
+        // Different value — must repaint.
+        knob.set_value(0.6f);
+        REQUIRE(host.repaint_count > after_first);
+    }
+
+    SECTION("Fader::set_value idempotent") {
+        Fader fader;
+        CountingHost host;
+        fader.set_window_host(&host);
+        fader.set_value(0.3f);
+        int after = host.repaint_count;
+
+        fader.set_value(0.3f);
+        REQUIRE(host.repaint_count == after);
+    }
+
+    SECTION("Toggle::set_on idempotent") {
+        Toggle toggle;
+        CountingHost host;
+        toggle.set_window_host(&host);
+        toggle.set_on(true);
+        int after = host.repaint_count;
+
+        toggle.set_on(true);
+        REQUIRE(host.repaint_count == after);
+    }
+
+    SECTION("Checkbox::set_checked idempotent") {
+        Checkbox cb;
+        CountingHost host;
+        cb.set_window_host(&host);
+        cb.set_checked(true);
+        int after = host.repaint_count;
+
+        cb.set_checked(true);
+        REQUIRE(host.repaint_count == after);
+    }
+
+    SECTION("ToggleButton::set_on idempotent") {
+        ToggleButton tb;
+        CountingHost host;
+        tb.set_window_host(&host);
+        tb.set_on(true);
+        int after = host.repaint_count;
+
+        tb.set_on(true);
+        REQUIRE(host.repaint_count == after);
+    }
+
+    SECTION("RangeSlider::set_value idempotent") {
+        RangeSlider slider;
+        slider.set_min(0);
+        slider.set_max(100);
+        CountingHost host;
+        slider.set_window_host(&host);
+        slider.set_value(50);
+        int after = host.repaint_count;
+
+        slider.set_value(50);
+        REQUIRE(host.repaint_count == after);
+    }
+
+    SECTION("Knob::set_label idempotent") {
+        Knob knob;
+        CountingHost host;
+        knob.set_window_host(&host);
+        knob.set_label("Cutoff");
+        int after = host.repaint_count;
+
+        knob.set_label("Cutoff");
+        REQUIRE(host.repaint_count == after);
+    }
+}
+
 TEST_CASE("Widget set_label programmatic mutation requests repaint [issue-73]",
           "[view][widget][issue-73]") {
     SECTION("Knob::set_label") {

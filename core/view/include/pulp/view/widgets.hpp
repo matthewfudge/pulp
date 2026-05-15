@@ -204,16 +204,25 @@ public:
     void set_render_style(WidgetRenderStyle s) { render_style_ = s; }
     WidgetRenderStyle render_style() const { return render_style_; }
 
-    // pulp #73 — programmatic set_value MUST request_repaint(). The
-    // host's mouseDown handler invalidates after every input event, so
-    // user drags repaint correctly via that side channel; preset
-    // application (or any other JS-driven mutation through the bridge's
-    // setValue) goes through THIS code path and would otherwise leave
-    // the painted state stale until the next user input. The user's
-    // "preset-applied band-shape outline missing" symptom was exactly
-    // this gap — the new state was stored but never reached the screen.
+    // pulp #73 — programmatic set_value MUST request_repaint() WHEN the
+    // value actually changes. The host's mouseDown handler invalidates
+    // after every input event, so user drags repaint correctly via that
+    // side channel; preset application (or any other JS-driven mutation
+    // through the bridge's setValue) goes through THIS code path and
+    // would otherwise leave the painted state stale until the next user
+    // input. The user's "preset-applied band-shape outline missing"
+    // symptom was exactly this gap — the new state was stored but
+    // never reached the screen.
+    //
+    // Codex P2 on PR #2013 — gate the invalidate on a real change.
+    // WidgetBridge::sync_from_store() and restore_values(...) call
+    // set_value()/set_on() in tight loops during sync/reload; firing a
+    // host repaint per call (even when the value is unchanged) burns
+    // wall-clock on large widget trees with no visible benefit.
     void set_value(float v) {
-        value_ = std::clamp(v, 0.0f, 1.0f);
+        float clamped = std::clamp(v, 0.0f, 1.0f);
+        if (clamped == value_) return;
+        value_ = clamped;
         request_repaint();
     }
     float value() const { return value_; }
@@ -221,12 +230,15 @@ public:
     void set_default_value(float v) { default_value_ = std::clamp(v, 0.0f, 1.0f); }
 
     void set_label(std::string text) {
+        if (label_ == text) return;
         label_ = std::move(text);
         request_repaint();
     }
     const std::string& label() const { return label_; }
 
-    // Display format: called with normalized value to produce display text
+    // Display format: called with normalized value to produce display text.
+    // No equality check (std::function doesn't compare) — formatters are
+    // set at construction or theme-change time, not in tight sync loops.
     void set_format(std::function<std::string(float)> fmt) {
         format_ = std::move(fmt);
         request_repaint();
@@ -304,11 +316,12 @@ public:
     void set_render_style(WidgetRenderStyle s) { render_style_ = s; }
     WidgetRenderStyle render_style() const { return render_style_; }
 
-    // pulp #73 — see Knob::set_value rationale. Programmatic mutation
-    // path needs explicit invalidation; user-input path piggybacks on
-    // the host's per-event repaint.
+    // pulp #73 — see Knob::set_value rationale (incl. the no-change
+    // guard added per Codex P2 on PR #2013).
     void set_value(float v) {
-        value_ = std::clamp(v, 0.0f, 1.0f);
+        float clamped = std::clamp(v, 0.0f, 1.0f);
+        if (clamped == value_) return;
+        value_ = clamped;
         request_repaint();
     }
     float value() const { return value_; }
@@ -317,6 +330,7 @@ public:
     Orientation orientation() const { return orientation_; }
 
     void set_label(std::string text) {
+        if (label_ == text) return;
         label_ = std::move(text);
         request_repaint();
     }
@@ -410,10 +424,13 @@ public:
     ///
     /// pulp #73 — request_repaint() so programmatic preset application
     /// reaches the screen, not just the next user-input event.
+    /// Codex P2 on PR #2013 — gate on actual change to avoid redundant
+    /// invalidations during sync_from_store / restore_values loops.
     void set_value(float v) {
+        float prev = value_;
         value_ = v;
         clamp_and_quantize_();
-        request_repaint();
+        if (value_ != prev) request_repaint();
     }
     float value() const { return value_; }
 
@@ -526,8 +543,10 @@ class Checkbox : public View {
 public:
     Checkbox() { set_access_role(AccessRole::toggle); set_focusable(true); }
 
-    // pulp #73 — see Knob::set_value.
+    // pulp #73 — see Knob::set_value (incl. no-change guard from Codex
+    // P2 on PR #2013).
     void set_checked(bool v) {
+        if (checked_ == v) return;
         checked_ = v;
         request_repaint();
     }
@@ -549,14 +568,17 @@ class ToggleButton : public View {
 public:
     ToggleButton() { set_access_role(AccessRole::toggle); set_focusable(true); }
 
-    // pulp #73 — see Knob::set_value.
+    // pulp #73 — see Knob::set_value (incl. no-change guard from Codex
+    // P2 on PR #2013).
     void set_on(bool v) {
+        if (on_ == v) return;
         on_ = v;
         request_repaint();
     }
     bool is_on() const { return on_; }
 
     void set_label(std::string text) {
+        if (label_ == text) return;
         label_ = std::move(text);
         request_repaint();
     }

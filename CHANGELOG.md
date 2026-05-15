@@ -20,6 +20,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - ci(release): add release-path PR gate + draft-stuck watchdog (#1962 prevention) ([#1994](https://github.com/danielraffel/pulp/pull/1994))
 
 <a id="v0990"></a>
+## [0.101.0]
+
 ## [0.100.0]
 
 ## [0.99.0] - 2026-05-14
