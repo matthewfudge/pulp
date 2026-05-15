@@ -4421,3 +4421,15 @@ steps must exercise both `pulp` and `pulp-cpp` while checking loader/DLL
 failure text. Local validation passed
 `python3 tools/scripts/test_release_workflow_test_step.py` (9 tests) and
 `git diff --check`. This batch remains local-only; no PR/CI dispatch yet.
+
+2026-05-15 11:50 PDT: added another local-only package validation slice to
+the same held batch: commit `5ab7f9590`
+(`test(packages): cover registry validation reporting`). It extends
+`tools/scripts/test_validate_registry_extra.py` to cover non-strict warning
+exit behavior without `--check-licenses`, confirm license warnings are not
+printed when license checking is disabled, and verify package status prints
+`FAIL` when a slug-specific license error is present. Local validation
+passed `python3 tools/scripts/test_validate_registry_extra.py` (10 tests),
+`python3 tools/packages/test_package_validation_tools.py` (14 tests), and
+`git diff --check`. Held batch is now four commits ahead of current
+`origin/main` and remains unpushed.
