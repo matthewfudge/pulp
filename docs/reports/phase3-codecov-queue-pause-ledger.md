@@ -3881,3 +3881,34 @@ ABI ignores null events|audio session listener replacement)"
 GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
 Resume action: monitor #2038 required checks and merge directly when
 green.
+
+2026-05-15 02:31 PDT: created the #649 platform helper batch
+`feature/phase3-platform-helper-batch-649` at `4d1604b`, PR #2040, from
+current `origin/main` `ce86d9f`. It adds test-only coverage in
+`test/test_platform.cpp`, `test/test_environment.cpp`, and
+`test/test_permissions.cpp` for ProgressParser payload parsing, empty
+payloads, type-only progress lines, ignored non-progress lines, empty
+progress callbacks, listener-free Environment publishes, snapshot
+updates, token self-move/reset idempotency, PermissionsOverride clearing
+missing entries, and preserving outer override entries through empty
+nested guards. Local macOS validation passed: configure `cmake -S . -B
+build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-platform pulp-test-environment pulp-test-permissions -j$(sysctl
+-n hw.ncpu)`, focused `./build/test/pulp-test-platform
+"[coverage][issue-649]" -r compact` passing 11 assertions in 2 cases,
+focused `./build/test/pulp-test-environment "[coverage][issue-649]" -r
+compact` passing 11 assertions in 2 cases, focused
+`./build/test/pulp-test-permissions "[coverage][issue-649]" -r compact`
+passing 5 assertions in 2 cases, full `pulp-test-platform` passing 48
+assertions in 6 cases, full `pulp-test-environment` passing 100
+assertions in 20 cases, full `pulp-test-permissions` passing 47
+assertions in 15 cases, exact `ctest --test-dir build -R
+"(ProgressParser accepts|ProgressParser ignores|Environment: publish
+without listeners|Environment: token reset|PermissionsOverride clear on
+missing|empty nested PermissionsOverride)" --output-on-failure` passing
+6/6, `git diff --check`, and `./tools/check-docs.sh` passed with
+existing warnings. Branch pushed with GitHub-hosted PR workflow only; no
+Namespace dispatch and no SSH targets.
+Resume action: monitor #2040 required checks and merge directly when
+green.
