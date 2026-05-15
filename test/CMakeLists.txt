@@ -121,6 +121,24 @@ if(UNIX)
         LABELS "parser-import")
 endif()
 
+# Install-consumer cmake smoke test (pulp #2089). Pins three invariants
+# that together prevent the "in-tree works, install breaks" regression
+# class:
+#   1. install(FILES …) for lib/cmake/Pulp ships PulpLinkFontconfig.cmake
+#   2. PulpUtils.cmake does NOT include via ${CMAKE_SOURCE_DIR}/...
+#      (which resolves to downstream consumer's tree, not Pulp's)
+#   3. PulpUtils.cmake uses the file-scope _pulp_utils_cmake_dir
+#      pattern that survives both in-tree and downstream contexts
+#
+# Cheap static checks — runs in <1s without a real install.
+if(UNIX)
+    add_test(NAME install-consumer-cmake
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test_install_consumer_cmake.sh)
+    set_tests_properties(install-consumer-cmake
+        PROPERTIES TIMEOUT 30
+        LABELS "tooling")
+endif()
+
 # Debug-SDK perf-killer guard smoke (pulp-internal task #35).
 # Hermetic — runs the guard against a tempdir-fabricated SDK install,
 # exercises the three branches (Debug-no-override → FATAL_ERROR,

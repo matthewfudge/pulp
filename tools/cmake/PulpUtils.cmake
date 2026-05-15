@@ -7,6 +7,13 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/PulpAppIcon.cmake")
 
+# pulp #2089 — capture this file's directory at parse time. Inside function
+# bodies, CMAKE_CURRENT_LIST_DIR reflects the CALLER's file (downstream
+# consumer's CMakeLists.txt), not where this .cmake file lives. Capturing
+# at file scope gives us a stable handle whether we're loaded in-tree
+# (tools/cmake/) or as part of an installed SDK (lib/cmake/Pulp/).
+set(_pulp_utils_cmake_dir "${CMAKE_CURRENT_LIST_DIR}")
+
 function(_pulp_pick_target out_var)
     foreach(_candidate IN LISTS ARGN)
         if(TARGET "${_candidate}")
@@ -994,7 +1001,13 @@ function(_pulp_add_standalone target name bundle_id version)
     # transitively pulls in pulp::view → pulp::canvas → libskia.a, which
     # references Fc* symbols. Re-mention fontconfig AFTER the archive so
     # the linker resolves them. No-op on macOS/Windows/Android.
-    include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpLinkFontconfig.cmake)
+    #
+    # pulp #2089 — use the file-scope-captured directory (set above when
+    # PulpUtils.cmake is parsed) so the include resolves whether we're
+    # in-tree (tools/cmake/) or consumed downstream from an installed SDK
+    # (lib/cmake/Pulp/). The earlier ${CMAKE_SOURCE_DIR} variant pointed
+    # at the downstream project's tree (broke find_package consumers).
+    include("${_pulp_utils_cmake_dir}/PulpLinkFontconfig.cmake")
     pulp_link_fontconfig_after_skia(${target}_Standalone)
 endfunction()
 
