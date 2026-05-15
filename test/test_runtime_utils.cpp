@@ -7,6 +7,7 @@
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/http.hpp>
 #include <pulp/runtime/range.hpp>
+#include <pulp/runtime/scope_guard.hpp>
 #include <pulp/runtime/text_diff.hpp>
 #include <fstream>
 #include <filesystem>
@@ -44,6 +45,83 @@ TEST_CASE("TemporaryFile move semantics", "[runtime][temp_file]") {
     TemporaryFile b = std::move(a);
     REQUIRE(b.path() == path);
     REQUIRE(std::filesystem::exists(path));
+}
+
+TEST_CASE("TemporaryFile normalizes bare extensions and exposes path string",
+          "[runtime][temp_file][coverage][phase3]") {
+    std::filesystem::path path;
+    std::string path_string;
+    {
+        TemporaryFile tmp("wav");
+        path = tmp.path();
+        path_string = tmp.path_string();
+        REQUIRE(path.extension() == ".wav");
+        REQUIRE(path_string == path.string());
+        REQUIRE(std::filesystem::exists(path));
+    }
+    REQUIRE_FALSE(std::filesystem::exists(path));
+}
+
+TEST_CASE("TemporaryFile move assignment deletes previous active file",
+          "[runtime][temp_file][coverage][phase3]") {
+    std::filesystem::path old_path;
+    std::filesystem::path new_path;
+    {
+        TemporaryFile old_file(".old");
+        TemporaryFile new_file(".new");
+        old_path = old_file.path();
+        new_path = new_file.path();
+        REQUIRE(std::filesystem::exists(old_path));
+        REQUIRE(std::filesystem::exists(new_path));
+
+        old_file = std::move(new_file);
+
+        REQUIRE_FALSE(std::filesystem::exists(old_path));
+        REQUIRE(old_file.path() == new_path);
+        REQUIRE(std::filesystem::exists(new_path));
+    }
+    REQUIRE_FALSE(std::filesystem::exists(new_path));
+}
+
+// ── ScopeGuard ─────────────────────────────────────────────────────────
+
+TEST_CASE("ScopeGuard runs on scope exit unless dismissed",
+          "[runtime][scope_guard][coverage][phase3]") {
+    int counter = 0;
+    {
+        auto guard = make_scope_guard([&] { counter += 1; });
+        REQUIRE(counter == 0);
+    }
+    REQUIRE(counter == 1);
+
+    {
+        auto guard = make_scope_guard([&] { counter += 10; });
+        guard.dismiss();
+    }
+    REQUIRE(counter == 1);
+}
+
+TEST_CASE("ScopeGuard move transfers the active cleanup",
+          "[runtime][scope_guard][coverage][phase3]") {
+    int counter = 0;
+    {
+        auto first = make_scope_guard([&] { counter += 1; });
+        auto second = std::move(first);
+        REQUIRE(counter == 0);
+    }
+    REQUIRE(counter == 1);
+}
+
+TEST_CASE("PULP_ON_SCOPE_EXIT macro captures local scope",
+          "[runtime][scope_guard][coverage][phase3]") {
+    int counter = 0;
+    {
+        int delta = 4;
+        PULP_ON_SCOPE_EXIT(counter += delta;);
+        delta = 7;
+        REQUIRE(counter == 0);
+    }
+    REQUIRE(counter == 7);
 }
 
 // ── MemoryMappedFile ────────────────────────────────────────────────────
