@@ -4433,3 +4433,47 @@ passed `python3 tools/scripts/test_validate_registry_extra.py` (10 tests),
 `python3 tools/packages/test_package_validation_tools.py` (14 tests), and
 `git diff --check`. Held batch is now four commits ahead of current
 `origin/main` and remains unpushed.
+
+2026-05-15 12:27 PDT: reconciled the active working objective with the
+current user direction. The thread-level `/goal` still contains the older
+paused local-only/no-CI objective and cannot be edited or resumed with the
+available goal tool, so this ledger entry is the operative policy for the
+remaining Phase 3 Codecov work. Continue using GitHub-hosted CI only; do
+not dispatch Namespace or SSH-host validation. Build future coverage work
+as broad, coherent domain batches rather than small one-off PRs, targeting
+roughly a dozen meaningful coverage slices per submitted PR when practical.
+Validate locally on macOS before pushing, push/submit batched PRs when the
+batch is substantial, monitor owned PRs periodically, fix deterministic
+failures at the root cause, and merge only after required GitHub checks and
+Codecov are green. Keep held local batches and live PR status recorded here.
+
+Current consolidated PR status at this checkpoint:
+
+- #2048 `feature/phase3-codecov-runtime-platform-consolidated-657` is on
+  pushed SHA `41ebdb229b82355283d3eb446666f6f717296a87`; no failures yet,
+  14 GitHub-hosted checks still pending. The latest push rewrote
+  `analytics.cpp` escape branches so LLVM line coverage can see the actual
+  escaped cases and added a separate malformed dashed UUID test. Local
+  focused validation passed for `pulp-test-analytics` and
+  `pulp-test-identity`. Push used pre-push diff-cover demotion because the
+  local coverage configure hit an external FetchContent checkout issue for
+  `mbedtls v3.6.2`; GitHub-hosted CI remains authoritative.
+- #2049 `feature/phase3-codecov-media-consolidated-658` is on SHA
+  `c2d15a57f90962c1812200ca644c30d2a09b3d21`; GitHub checks are complete
+  but `codecov/patch` is still failing, so it is not merge-ready.
+- #2050 `feature/phase3-codecov-view-consolidated-660` is on SHA
+  `4ed92c7181148baae0c0d9f80202f7b83cc7dfd9`; `Diff coverage required` and
+  `codecov/patch` are failing, with 3 checks still pending. CI logs show
+  the relevant AssetManager and PresetBrowser tests execute, but coverage
+  artifacts show the specific diff lines remain zero-hit. A local focused
+  coverage reproduction is running in
+  `/private/tmp/pulp-phase3-codecov-view-consolidated-660` to identify the
+  real root cause before patching.
+- #2051 `feature/phase3-codecov-tools-host-format-consolidated-659` is on
+  SHA `6fc610acd4648a8e57d95766d8f33d289c7978a1`; no failures currently,
+  4 GitHub-hosted checks pending after the unresolved-plugin label fix.
+
+Resume action: finish the local #2050 coverage reproduction, patch the
+root cause if confirmed, then continue monitoring #2048/#2049/#2050/#2051.
+After those are stable, continue adding to the held ship/package batch and
+future large domain batches before opening new GitHub-hosted PRs.
