@@ -1982,6 +1982,134 @@ std::vector<DoctorCheck> run_doctor_checks(const fs::path& active_root, bool sta
         }
     }
 
+    // pulp-mcp presence (#2067). Optional: the binary is only needed by
+    // users running the Claude Code plugin (or another MCP client), so
+    // never gate the doctor exit code on it. Just tell the user where
+    // the gap is so the plugin's "/mcp" doesn't fail mysteriously.
+    //
+    // Probe in this order:
+    //   1. `pulp-mcp` on $PATH (the steady-state after `curl install.sh`).
+    //   2. `~/.pulp/bin/pulp-mcp` (the install location, in case PATH
+    //      didn't get reloaded yet in this shell).
+    //   3. `<repo_root>/build/tools/mcp/pulp-mcp[.exe]` (single-config
+    //      source builds — Ninja, Make on Unix).
+    //   4. `<repo_root>/build/tools/mcp/{Release,Debug}/pulp-mcp.exe`
+    //      (multi-config Windows source builds — MSBuild). Without this
+    //      contributor Windows checkouts that have NOT installed via
+    //      install.ps1 would see "not found" even though the binary
+    //      exists alongside their pulp.exe build.
+    //
+    // We require `<binary> --version` to actually run AND emit the
+    // expected `pulp-mcp <semver>` prefix before marking the check
+    // passed — a stale / unrunnable binary on the resolved path must
+    // not lie to the user as "✓ pulp-mcp" when /mcp will still fail.
+    {
+        DoctorCheck c{"pulp-mcp", false, {}, {}, true};
+
+        auto trim = [](std::string s) {
+            while (!s.empty() && (s.back() == '\n' || s.back() == '\r' ||
+                                  s.back() == ' '  || s.back() == '\t')) {
+                s.pop_back();
+            }
+            return s;
+        };
+
+        std::vector<fs::path> candidates;
+#ifdef _WIN32
+        const char* mcp_basename = "pulp-mcp.exe";
+#else
+        const char* mcp_basename = "pulp-mcp";
+#endif
+
+        auto path_resolved = trim(first_line(exec_output(
+#ifdef _WIN32
+            "where pulp-mcp 2>nul"
+#else
+            "command -v pulp-mcp 2>/dev/null"
+#endif
+        )));
+        if (!path_resolved.empty() && fs::exists(path_resolved)) {
+            candidates.push_back(path_resolved);
+        }
+        if (const char* home = std::getenv(
+#ifdef _WIN32
+                       "USERPROFILE"
+#else
+                       "HOME"
+#endif
+                   )) {
+            fs::path installed = fs::path(home) / ".pulp" / "bin"
+                               / mcp_basename;
+            if (fs::exists(installed)) candidates.push_back(installed);
+        }
+        if (!repo_root.empty()) {
+            fs::path mcp_dir = repo_root / "build" / "tools" / "mcp";
+            candidates.push_back(mcp_dir / mcp_basename);
+#ifdef _WIN32
+            // Multi-config MSBuild emits to a config subdir; release-cli.yml
+            // packages from `Release/`, so look there first.
+            candidates.push_back(mcp_dir / "Release" / mcp_basename);
+            candidates.push_back(mcp_dir / "Debug" / mcp_basename);
+#endif
+        }
+
+        // Walk candidates in priority order; the first one that exists
+        // AND produces the expected version line wins. A path that
+        // exists but exec()'s to a bad version (stale binary, missing
+        // dylib, no execute bit) is treated as "no match" so we don't
+        // claim success on a binary that won't actually run.
+        fs::path found;
+        std::string version_line;
+        std::string last_exec_attempt;
+        for (const auto& cand : candidates) {
+            if (!fs::exists(cand)) continue;
+            last_exec_attempt = cand.string();
+            auto ver = trim(first_line(exec_output(
+                shell_quote(cand.string()) + " --version 2>&1")));
+            // The expected output is `pulp-mcp <semver>`; reject empty
+            // strings, error messages, and anything that doesn't match
+            // the contract. `--version` is a short-circuit before the
+            // JSON-RPC loop, so it should always emit cleanly if the
+            // binary runs at all.
+            if (ver.rfind("pulp-mcp ", 0) == 0) {
+                found = cand;
+                version_line = std::move(ver);
+                break;
+            }
+        }
+
+        if (!found.empty()) {
+            c.passed = true;
+            c.detail = found.string()
+                     + " (" + version_line + ")"
+                     + "  [CLI " + std::string(PULP_SDK_VERSION) + "]";
+        } else if (!last_exec_attempt.empty()) {
+            // A binary exists but won't run cleanly. Tell the user
+            // exactly which path failed so they can investigate
+            // (permissions, codesign, missing dylib, etc.) rather
+            // than chasing a "missing" diagnostic.
+            c.detail = last_exec_attempt
+                     + " found but `--version` did not return the "
+                       "expected `pulp-mcp <semver>` line — the binary "
+                       "is likely stale, unsigned, or missing a runtime "
+                       "dependency";
+            c.fix = "Refresh it:\n"
+                    "      curl -fsSL https://www.generouscorp.com/pulp/install.sh | sh\n"
+                    "    or rebuild in a source checkout:\n"
+                    "      cmake --build build --target pulp-mcp";
+        } else {
+            c.detail = "not found — the Claude Code plugin's MCP server "
+                       "will fail with 'cannot locate pulp-mcp binary'";
+            c.fix = "Install or refresh the CLI tarball:\n"
+                    "      curl -fsSL https://www.generouscorp.com/pulp/install.sh | sh\n"
+                    "    or, in a source checkout:\n"
+                    "      cmake --build build --target pulp-mcp\n"
+                    "    Run the CLI install BEFORE `claude plugin install pulp` so\n"
+                    "    pulp-mcp is on $PATH when the plugin's launcher resolves it.";
+        }
+        checks.push_back(c);
+    }
+
     return checks;
 }
 
