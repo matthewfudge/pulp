@@ -4638,3 +4638,28 @@ Validation for the held slice passed locally:
 ship/package/release/local-CI coverage. It remains local-only and
 intentionally unpushed so it can land as one substantial GitHub-hosted CI
 run instead of many small PRs.
+
+2026-05-15 15:41 PDT: refreshed #2050
+`feature/phase3-codecov-view-consolidated-660` to address a stale
+Codecov patch failure. GitHub showed the `codecov/patch` check failing
+with "61.53% of diff hit", but the Codecov v2 PR API reported
+`patch.coverage` as 78.12% with CI passed and the check-run metadata was
+still tied to old base SHA `a65d22342`. This matched the stale-base
+pattern fixed earlier on #2049, so the branch was rebased onto current
+`origin/main` `52288609a` rather than hiding the issue or weakening
+coverage. Rebase conflicts were resolved in `test/test_phase9_widgets.cpp`,
+`test/test_tree_view.cpp`, and `test/test_graph_editor_view.cpp` by
+preserving both overlapping coverage additions.
+
+Validation before push: `git diff --check` passed; selected view targets
+built with `cmake --build build --target pulp-test-phase9-widgets
+pulp-test-tree-view pulp-test-graph-editor-view pulp-test-asset-manager
+pulp-test-preset-browser -j$(sysctl -n hw.ncpu)`; and
+`ctest --test-dir build --output-on-failure -R
+"Phase9|TreeView|GraphEditorView|AssetManager|PresetBrowser"` passed 70
+tests. Force-with-lease pushed #2050 at `7451c25f4` to trigger a fresh
+GitHub-hosted/Codecov recomputation. The pre-push hook again attempted
+its advisory local diff-cover path and hit the unrelated local
+FetchContent `mbedtls` tag checkout failure; do not treat that advisory
+run as validation. Live PR rollup check was deferred because `gh pr view`
+hit the GitHub GraphQL API rate limit immediately after push.
