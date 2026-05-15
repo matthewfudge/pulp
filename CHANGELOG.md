@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v01020"></a>
+## [0.39.0]
+
 ## [0.102.0] - 2026-05-15
 
 - feat(mcp): ship pulp-mcp in tarball + per-tool feature detection (#2067, #2070) ([#2068](https://github.com/danielraffel/pulp/pull/2068))
