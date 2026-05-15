@@ -8,9 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0990"></a>
-## [0.100.0]
+<a id="v01000"></a>
+## [0.100.0] - 2026-05-15
 
+- test(view): mac platform-test harness scaffold + back-buffer capture seam (#2001) ([#2009](https://github.com/danielraffel/pulp/pull/2009))
+- docs+plugin: TLDR install at top of README + agent-integrations doc + Setup hook for missing CLI ([#2000](https://github.com/danielraffel/pulp/pull/2000))
+- fix(view/auto_ui): centered wrapping grid layout (closes #97) ([#2007](https://github.com/danielraffel/pulp/pull/2007))
+- fix(deps): pin Highway to 1.2.0 release SHA to stop FetchContent flake ([#2005](https://github.com/danielraffel/pulp/pull/2005))
+- test(mcp): close coverage + parity gaps from #1997 ([#1999](https://github.com/danielraffel/pulp/pull/1999))
+- fix(cmake): wrap Skia archives in --start-group on Linux/Android (SkUnicode core/icu) ([#1991](https://github.com/danielraffel/pulp/pull/1991))
+- ci(release): add release-path PR gate + draft-stuck watchdog (#1962 prevention) ([#1994](https://github.com/danielraffel/pulp/pull/1994))
+
+<a id="v0990"></a>
 ## [0.99.0] - 2026-05-14
 
 - fix(plugin): bump marketplace plugins[0].version + relative .mcp.json path ([#1996](https://github.com/danielraffel/pulp/pull/1996))
@@ -1757,6 +1766,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.100.0]: https://github.com/danielraffel/pulp/releases/tag/v0.100.0
 [0.99.0]: https://github.com/danielraffel/pulp/releases/tag/v0.99.0
 [0.94.0]: https://github.com/danielraffel/pulp/releases/tag/v0.94.0
 [0.93.0]: https://github.com/danielraffel/pulp/releases/tag/v0.93.0
