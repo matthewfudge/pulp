@@ -3776,3 +3776,43 @@ discovery|CiDiscovery properties|attached UMP sidecar)"
 GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
 Resume action: monitor #2034 required checks and merge directly when
 green.
+
+2026-05-15 02:07 PDT: created the #646 state/format validation batch
+`feature/phase3-state-format-batch-646` at `44e7606`, PR #2035, from
+current `origin/main` `a29cb7dc`. It adds test-only coverage in
+`test/test_state.cpp`, `test/test_binding.cpp`,
+`test/test_validation_harness.cpp`, and `test/test_descriptor_validation.cpp`
+for ParamRange boundary clamping and zero-width normalization, StateStore
+serialized header fields, future-version rejection, normalized
+quantization, Binding unknown parameter IDs, normalized
+clamping/quantization, callback ordering, ValidationHarness artifact
+directory creation, zero-block processing, JSON metadata and entry string
+escaping, nested report writes, unknown installed validator handling, and
+descriptor MIDI capability warning aggregation. Local macOS validation
+passed: configure `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+-DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build
+build --target pulp-test-state pulp-test-binding
+pulp-test-validation-harness pulp-test-descriptor-validation -j$(sysctl
+-n hw.ncpu)`, focused `./build/test/pulp-test-state
+"[coverage][issue-646]" -r compact` passing 22 assertions in 4 cases,
+focused `./build/test/pulp-test-binding "[coverage][issue-646]" -r
+compact` passing 15 assertions in 3 cases, focused
+`./build/test/pulp-test-validation-harness "[coverage][issue-646]" -r
+compact` passing 30 assertions in 5 cases, focused
+`./build/test/pulp-test-descriptor-validation "[coverage][issue-646]" -r
+compact` passing 2 assertions in 1 case, full `pulp-test-state` passing
+78 assertions in 11 cases, full `pulp-test-binding` passing 70 assertions
+in 17 cases, full `pulp-test-validation-harness` passing 243 assertions
+in 32 cases, full `pulp-test-descriptor-validation` passing 44 assertions
+in 17 cases, exact `ctest --test-dir build -R "(ParamRange
+clamps|ParamRange zero-width|StateStore serialization records|StateStore
+set_normalized|Binding unknown|Binding set_normalized|Binding on_change
+callbacks|ValidationHarness configure creates|ValidationHarness
+process_blocks zero|ValidationHarness report escapes|ValidationHarness
+write_report creates nested|ValidationHarness run_validator errors on
+unknown|DescriptorValidation: MIDI capability warnings)"
+--output-on-failure` passing 14/14, `git diff --check`, and
+`./tools/check-docs.sh` passed with existing warnings. Branch pushed with
+GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
+Resume action: monitor #2035 required checks and merge directly when
+green.
