@@ -4752,3 +4752,18 @@ Validation for this held slice passed locally:
 14 commits ahead of `origin/main`, touches 17 files, and adds about 1,560
 lines of focused tests. It remains intentionally unpushed so it can become
 one substantial GitHub-hosted CI run rather than several small PRs.
+
+2026-05-15 16:04 PDT: added a native Android packaging discovery slice
+to the held local batch. Commit `2af985c95` (`test(android): cover sdk
+fallback revision edges`) extends `test/test_android_package.cpp` to cover
+invalid `ANDROID_HOME` / `ANDROID_NDK_HOME` fallback to valid
+`ANDROID_SDK_ROOT` and SDK-hosted NDKs, plus very large Android build-tools
+and NDK revision components. These exercise the overflow-safe revision
+ordering paths without requiring a real Android SDK.
+
+Validation for this held slice passed locally:
+`cmake --build build --target pulp-test-android-package -j$(sysctl -n
+hw.ncpu)`, `ctest --test-dir build --output-on-failure -R "Android SDK
+discovery"` (8 tests), and `git diff --check`. The held
+ship/package/release/local-CI batch is now 15 commits ahead of
+`origin/main` and remains intentionally local-only.
