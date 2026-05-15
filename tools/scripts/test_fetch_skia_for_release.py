@@ -168,6 +168,31 @@ class ManifestValidation(unittest.TestCase):
 
         self.assertEqual(rc, 0)
 
+    def test_known_platform_without_asset_reports_matrix_and_manifest_key(self):
+        with _in_tempdir() as td:
+            (td / "tools" / "deps").mkdir(parents=True)
+            manifest = {
+                "dependencies": [
+                    {
+                        "name": "Skia",
+                        "determinism": {"release_assets": {}},
+                    }
+                ]
+            }
+            (td / "tools" / "deps" / "manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = fetch_skia.main(
+                    ["fetch_skia_for_release.py", "windows-arm64"]
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertIn("matrix=windows-arm64", out.getvalue())
+        self.assertIn("manifest key 'win-arm64'", out.getvalue())
+
 
 class FlatLayoutSucceeds(unittest.TestCase):
     """Pre-m144 layout: libs flat under Release/ (no arch subdir)."""
@@ -193,6 +218,7 @@ class FlatLayoutSucceeds(unittest.TestCase):
             )
             self.assertTrue(expected.is_file())
             self.assertEqual(expected.read_bytes(), b"skia-flat")
+            self.assertFalse((td / "skia-release-asset.zip").exists())
 
 
 class ArchSubdirLayoutFlattens(unittest.TestCase):
@@ -340,6 +366,27 @@ class MissingLibFails(unittest.TestCase):
                 ["fetch_skia_for_release.py", "darwin-arm64"]
             )
             self.assertEqual(rc, 1, "missing libskia.a must exit non-zero")
+
+    def test_no_lib_prints_directory_listing(self):
+        with _in_tempdir() as td:
+            zip_path = td / "skia-empty.zip"
+            payload = {
+                "build/mac-gpu/lib/Release/README.txt": b"no libs here",
+            }
+            sha = _make_zip(zip_path, payload)
+            _write_manifest(
+                td, f"file://{zip_path.as_posix()}", sha, "mac-arm64"
+            )
+
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = fetch_skia.main(
+                    ["fetch_skia_for_release.py", "darwin-arm64"]
+                )
+
+        self.assertEqual(rc, 1)
+        self.assertIn("expected library not found", err.getvalue())
+        self.assertIn("README.txt", err.getvalue())
 
 
 class Sha256MismatchFails(unittest.TestCase):

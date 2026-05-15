@@ -165,6 +165,37 @@ class ValidationHelperTests(unittest.TestCase):
         self.assertIn("custom", warnings[0])
         self.assertIn("not in known-allowed list", warnings[0])
 
+    def test_structural_validation_accepts_matching_mobile_package(self) -> None:
+        errors, warnings = vr.validate_structural(
+            {
+                "registry_version": 2,
+                "packages": {
+                    "good-mobile": {
+                        "version": "1.2.3",
+                        "verification": {
+                            "verified_version": "1.2.3",
+                            "build_status": {"Android-arm64": "pass"},
+                        },
+                        "platforms": {"Android": {}, "iOS": {}},
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(warnings, [])
+
+    def test_license_validation_warns_for_missing_license(self) -> None:
+        errors, warnings = vr.validate_licenses(
+            {"packages": {"missing-license": {"version": "1.0.0"}}}
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            warnings,
+            ["  missing-license: license '' not in known-allowed list — review required"],
+        )
+
 
 class MainTests(unittest.TestCase):
     def test_script_entrypoint_invokes_main_for_help(self) -> None:

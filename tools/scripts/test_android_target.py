@@ -76,6 +76,24 @@ class AndroidSdkDiscoveryTests(unittest.TestCase):
                  mock.patch.object(android_target.os, "getlogin", return_value="tester"):
                 self.assertEqual(android_target.find_android_sdk(), "")
 
+    def test_find_android_sdk_ignores_missing_env_paths_and_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            home = pathlib.Path(td)
+            sdk = home / "Android" / "Sdk"
+            sdk.mkdir(parents=True)
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "ANDROID_HOME": str(home / "missing-home"),
+                    "ANDROID_SDK_ROOT": str(home / "missing-root"),
+                },
+                clear=True,
+            ), \
+                 mock.patch.object(android_target.Path, "home", return_value=home), \
+                 mock.patch.object(android_target.os, "getlogin", return_value="tester"):
+                self.assertEqual(android_target.find_android_sdk(), str(sdk))
+
 
 class NdkDiscoveryTests(unittest.TestCase):
     def test_find_ndk_returns_latest_installation_with_toolchain_file(self) -> None:
@@ -152,6 +170,21 @@ class PrerequisiteTests(unittest.TestCase):
                  side_effect=FileNotFoundError,
              ):
             self.assertEqual(android_target.check_prerequisites(), ["Java not found in PATH"])
+
+    def test_check_prerequisites_reports_empty_java_version_output(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["java", "-version"],
+            0,
+            stderr="",
+        )
+
+        with mock.patch.object(android_target, "find_android_sdk", return_value="/sdk"), \
+             mock.patch.object(android_target, "find_ndk", return_value="/sdk/ndk/30"), \
+             mock.patch.object(android_target.subprocess, "run", return_value=completed):
+            self.assertEqual(
+                android_target.check_prerequisites(),
+                ["Java 17+ required. Found: "],
+            )
 
 
 class BuildAndroidTests(unittest.TestCase):
