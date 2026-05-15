@@ -3748,3 +3748,31 @@ reset is idempotent)" --output-on-failure` passing 10/10, `git diff
 Branch pushed with GitHub-hosted PR workflow only; no Namespace dispatch
 and no SSH targets. Resume action: monitor #2033 required checks and
 merge directly when green.
+
+2026-05-15 01:57 PDT: created the #645 MIDI primitives batch
+`feature/phase3-midi-primitives-batch-645` at `bcff2b8`, PR #2034, from
+current `origin/main` `a29cb7dc`. It adds test-only coverage in
+`test/test_mpe_buffer.cpp`, `test/test_midi_ci.cpp`, and
+`test/test_midi_buffer_ump.cpp` for MPE lower/upper zone boundaries,
+member expression seeding, manager-zone state updates, UMP member
+callbacks, tracker reset/config changes, MIDI-CI discovery inquiry/reply
+wire identity encoding, property overwrites, and UMP sidecar external
+ownership across MidiBuffer edits. Local macOS validation passed:
+configure `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+-DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build
+build --target pulp-test-mpe-buffer pulp-test-midi-ci
+pulp-test-midi-buffer-ump -j$(sysctl -n hw.ncpu)`, focused
+`./build/test/pulp-test-mpe-buffer "[issue-645]"` passing 47 assertions
+in 5 cases, focused `./build/test/pulp-test-midi-ci "[issue-645]"`
+passing 64 assertions in 9 cases, focused
+`./build/test/pulp-test-midi-buffer-ump "[issue-645]"` passing 7
+assertions in 1 case, full `pulp-test-mpe-buffer` passing 66 assertions
+in 8 cases, full `pulp-test-midi-ci` passing 91 assertions in 18 cases,
+full `pulp-test-midi-buffer-ump` passing 14 assertions in 4 cases, exact
+`ctest --test-dir build -R "(MpeConfig|MpeVoiceTracker|CiDiscovery
+discovery|CiDiscovery properties|attached UMP sidecar)"
+--output-on-failure` passing 10/10, `git diff --check`, and
+`./tools/check-docs.sh` passed with existing warnings. Branch pushed with
+GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
+Resume action: monitor #2034 required checks and merge directly when
+green.
