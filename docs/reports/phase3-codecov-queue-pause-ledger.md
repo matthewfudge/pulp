@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-05 21:00 PDT
+Last updated: 2026-05-14 22:35 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -95,17 +95,17 @@ Proposed CI cutover plan for discussion:
    `quarantined`, `rerun-only`, `superseded`, or `needs-local-fix`, then
    build the next wave from the remaining ready queue.
 
-Initial no-CI readiness sweep, refreshed through 2026-05-05 21:00 PDT:
+Initial no-CI readiness sweep, refreshed through 2026-05-14 22:35 PDT:
 
 | Candidate | Local Head | Base | Status | Suggested Action |
 | --- | --- | --- | --- | --- |
-| #1274 CLI ship | `384c4d5e` | `8a58501b` | clean, current, test-only, paused remote stale | first CI-wave candidate |
-| #1287 CLI audio | `34e71acd` | `8a58501b` | clean, current, test-only, paused remote stale | first CI-wave candidate |
-| #1269 design-import bundle | `e9669ee9` | `d191cdca` | clean, test-only, behind current base | rebase/re-smoke before first CI wave |
-| #1271 create-targets | `f24a69cb` | `d191cdca` | clean, test-only, behind current base | rebase/re-smoke before first CI wave |
-| #1273 package commands | `a7341506` | `d191cdca` | clean, test-only, behind current base | rebase/re-smoke before first CI wave |
-| #1286 named pipe | `6fcbcdd1` | `92e83b37` | clean, test-only, paused remote stale, behind latest base | rebase/re-smoke before runtime wave |
-| #1280 mmap reader | `a4cb8a9b` | `92e83b37` | clean, test-only, behind latest base | rebase/re-smoke before audio wave |
+| #1274 CLI ship | `31c07f2f` | `c98896db` | merged to main | no local action |
+| #1287 CLI audio | `ac79bcff` | `c98896db` | merged to main | no local action |
+| #1269 design-import bundle | `0b3c9493` | `c98896db` | merged to main | no local action |
+| #1271 create-targets | `c45ee4ae` | `c98896db` | merged to main | no local action |
+| #1273 package commands | `8a2c9ee2` | `c98896db` | merged to main | no local action |
+| #1286 named pipe | `196b1673` | `c98896db` | merged to main | no local action |
+| #1280 mmap reader | `d6287dc5` | `c98896db` | merged to main | no local action |
 | local audio tools/model-store | `75ed3a63` | `92e83b37` | clean, test-only, no open PR, behind latest base | rebase/re-smoke before #643 tools wave |
 | #646 SDL3 surface fallback | `d81b03cc` | `92e83b37` | clean, test-only, no remote branch, behind latest base | rebase/re-smoke before #646 render wave |
 | local AudioFocus dispatch | `f819d985` | `d191cdca` | clean, includes source fix, behind current base | rebase/re-smoke; keep separate; SDK patch bump required before push/CI |
@@ -174,9 +174,15 @@ Initial no-CI readiness sweep, refreshed through 2026-05-05 21:00 PDT:
   ship tranche was refreshed and validated on that newest base at
   2026-05-05 20:50 PDT, and the #1287 / #643 CLI audio command
   tranche was refreshed and validated there at 2026-05-05 21:00 PDT.
-  The remaining prior `d191cdca` first-wave candidates, plus the
-  `92e83b37` local-only candidates, remain locally validated but now
-  need one final rebase/re-smoke before any CI resume.
+  Read-only reconciliation on 2026-05-14 found current `origin/main`
+  at `c98896dbc`, with the former first-wave and adjacent held PRs
+  already landed: #1269 as `0b3c9493`, #1271 as `c45ee4ae`, #1273 as
+  `8a2c9ee2`, #1274 as `31c07f2f`, #1287 as `ac79bcff`, #1286 as
+  `196b1673`, #1280 as `d6287dc5`, #1282 as `42833f6b`, #1283 as
+  `4d3f907b`, and #1285 as `57835f59`. Do not spend local validation
+  cycles on those stale branches; use them only as historical evidence.
+  The remaining `92e83b37` local-only candidates still need one final
+  rebase/re-smoke before any CI resume.
   Rebase/re-smoke any held branch against the then-current base before a
   later push/CI resume.
   The refreshed #493 NewWidgets input, FileBrowser paint, AppearanceManager,
@@ -798,6 +804,14 @@ Namespace capacity returns. Resume note: when Namespace capacity returns,
 update #1269 from this refreshed local branch with `--force-with-lease`
 only as part of a small resume batch, then let the normal PR-event
 Namespace checks prove the branch before merge.
+
+Reconciliation at 2026-05-14 22:35 PDT found this tranche is already on
+current `origin/main` as `0b3c94934 test: cover Claude bundle edge
+parsing (#1269)`. The local branch
+`feature/phase3-design-import-bundle-coverage-493` was checked only to
+verify duplication; no push, PR update, workflow rerun, or merge was
+performed. Resume action: none for #1269. Treat the old local branch and
+paused remote as historical/superseded by main.
 
 Additional local-only progress at 2026-05-04 23:39 PDT, refreshed at
 2026-05-05 03:34 PDT, and refreshed again at 2026-05-05 07:24 PDT:
@@ -2917,6 +2931,13 @@ This table started as the local-only tranche queue prepared after the
 Namespace pause began. Many rows now record the later PR / merge
 outcome; rows marked queued or held are the ones that still need action
 after capacity returns.
+
+May 14 reconciliation note: some older rows below still preserve their
+original pause-time validation text. The readiness sweep and snapshot
+summary above are the current override for already-landed work; in
+particular #1269, #1271, #1273, #1274, #1280, #1282, #1283, #1285,
+#1286, and #1287 are now historical because their coverage commits are
+on `origin/main`.
 
 | Branch | Head | Scope | Files | Local Validation | Resume Action |
 | --- | --- | --- | --- | --- | --- |
