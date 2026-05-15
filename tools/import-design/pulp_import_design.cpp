@@ -129,10 +129,14 @@ int main(int argc, char* argv[]) {
     int render_width = 340;
     int render_height = 280;
     std::string bridge_output = "bridge_handlers.cpp";  // claude scaffold output
+    bool bridge_output_explicit = false;                 // pulp friction-fix #4
     bool emit_bridge_scaffold = true;                    // default on for --from claude
     bool execute_bundle = false;                         // pulp #468 native-runtime path
     std::string classnames_output = "classnames.json";   // pulp #1035 — claude classname map
+    bool classnames_output_explicit = false;             // pulp friction-fix #4
     bool emit_classnames = true;                          // default on for --from claude
+    bool output_explicit = false;                         // pulp friction-fix #4
+    bool tokens_file_explicit = false;                    // pulp friction-fix #4
     // pulp #1031 — versioned detect surface
     bool detect_only = false;
     bool report_new_format = false;
@@ -152,8 +156,10 @@ int main(int argc, char* argv[]) {
             screen_name = argv[++i];
         } else if (std::strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
             output_file = argv[++i];
+            output_explicit = true;
         } else if (std::strcmp(argv[i], "--tokens") == 0 && i + 1 < argc) {
             tokens_file = argv[++i];
+            tokens_file_explicit = true;
         } else if (std::strcmp(argv[i], "--dry-run") == 0) {
             dry_run = true;
         } else if (std::strcmp(argv[i], "--no-tokens") == 0) {
@@ -190,12 +196,14 @@ int main(int argc, char* argv[]) {
             debug_json = true;
         } else if (std::strcmp(argv[i], "--bridge-output") == 0 && i + 1 < argc) {
             bridge_output = argv[++i];
+            bridge_output_explicit = true;
         } else if (std::strcmp(argv[i], "--no-bridge-scaffold") == 0) {
             emit_bridge_scaffold = false;
         } else if (std::strcmp(argv[i], "--execute-bundle") == 0) {
             execute_bundle = true;
         } else if (std::strcmp(argv[i], "--classnames") == 0 && i + 1 < argc) {
             classnames_output = argv[++i];
+            classnames_output_explicit = true;
         } else if (std::strcmp(argv[i], "--emit") == 0 && i + 1 < argc) {
             // Currently only `--emit classnames` is recognized — additional
             // emit targets (e.g. `--emit tokens`) can layer on later
@@ -217,6 +225,22 @@ int main(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             print_usage();
             return 0;
+        }
+    }
+
+    // pulp friction-fix #4 — when the user passes --output <dir>/ui.js,
+    // anchor the sidecar files (bridge_handlers.cpp, classnames.json,
+    // tokens.json) to the same directory so they don't scatter to cwd.
+    // Only applies when the sidecar flag wasn't given explicitly.
+    if (output_explicit) {
+        fs::path out_dir = fs::path(output_file).parent_path();
+        if (!out_dir.empty()) {
+            auto anchor = [&](std::string& slot, const char* leaf) {
+                slot = (out_dir / leaf).string();
+            };
+            if (!bridge_output_explicit)     anchor(bridge_output,     "bridge_handlers.cpp");
+            if (!classnames_output_explicit) anchor(classnames_output, "classnames.json");
+            if (!tokens_file_explicit)       anchor(tokens_file,       "tokens.json");
         }
     }
 
@@ -564,6 +588,29 @@ int main(int argc, char* argv[]) {
                       << (rules.size() == 1 ? "" : "s")
                       << " — feed to @pulp/css-adapt or dom-adapter)\n";
         }
+    }
+
+    // pulp friction-fix #3 — native-react detection (heuristic shared
+    // with the lib so tests can exercise it directly; see
+    // design_import.hpp::looks_like_bundler_entry). When the static
+    // parser produces only a handful of elements AND the HTML looks
+    // like a JS-bundler entry, the user almost certainly wanted to run
+    // the bundle directly. Soft warning — we still wrote ui.js.
+    if (*source == DesignSource::claude && node_count <= 12 &&
+        looks_like_bundler_entry(content)) {
+        std::cerr << "\n"
+                  << "Note: this HTML looks like a JS-bundler entry "
+                  << "(mount-point + script tag). The static parser "
+                  << "only captured the placeholder chrome ("
+                  << node_count << " element"
+                  << (node_count == 1 ? "" : "s")
+                  << ").\n"
+                  << "      For native-react / @pulp/react bundles, run "
+                  << "the bundle directly:\n"
+                  << "          pulp-design-tool --script <bundle>.js\n"
+                  << "      (the bundle IS the import artifact — the "
+                  << "static HTML pass is for hand-authored Claude "
+                  << "Design pages.)\n\n";
     }
 
     // Screenshot naming convention: {design-name}-{source}-render.png

@@ -273,6 +273,134 @@ TEST_CASE("pulp import-design --from claude --no-emit-classnames suppresses the 
 }
 
 
+// ── pulp friction-fix #3 — native-react detection ────────────────────
+// The Claude-Design static-HTML parser sees only literal DOM. When
+// the input is a bundler entry (mount-point + script tag, or pulp's
+// own `__bundler_*` shell), the parser returns the placeholder chrome
+// only. `looks_like_bundler_entry` triggers a soft warning telling
+// the user to run the bundle through pulp-design-tool instead.
+
+TEST_CASE("looks_like_bundler_entry matches mount + script", "[cli][import-design][friction-3]") {
+    const std::string html = R"HTML(
+        <html><body><div id="root"></div>
+        <script src="bundle.js"></script></body></html>
+    )HTML";
+    REQUIRE(looks_like_bundler_entry(html));
+}
+
+TEST_CASE("looks_like_bundler_entry matches @pulp/react bundle shell", "[cli][import-design][friction-3]") {
+    // Mirrors the structure of Spectr's editor.html.
+    const std::string html = R"HTML(
+        <html><body>
+          <div id="__bundler_thumbnail"></div>
+          <div id="__bundler_loading">Unpacking...</div>
+        </body></html>
+    )HTML";
+    REQUIRE(looks_like_bundler_entry(html));
+}
+
+TEST_CASE("looks_like_bundler_entry skips hand-authored Claude Design HTML",
+          "[cli][import-design][friction-3]") {
+    const std::string html = R"HTML(
+        <html><body>
+          <h1>Sliders</h1>
+          <input type="range" min="0" max="100" />
+          <input type="range" min="0" max="100" />
+          <style>.mono { font-family: monospace; }</style>
+        </body></html>
+    )HTML";
+    REQUIRE_FALSE(looks_like_bundler_entry(html));
+}
+
+TEST_CASE("looks_like_bundler_entry on empty / pathological input",
+          "[cli][import-design][friction-3]") {
+    REQUIRE_FALSE(looks_like_bundler_entry(""));
+    REQUIRE_FALSE(looks_like_bundler_entry("<!doctype html><html></html>"));
+}
+
+TEST_CASE("pulp import-design --from claude emits native-react hint on bundler entry",
+          "[cli][import-design][friction-3][shellout]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = unique_temp_dir("pulp-import-design-friction3");
+    // Tiny bundler entry — should produce few elements + the hint.
+    auto html_in = tmp / "shell.html";
+    {
+        std::ofstream f(html_in);
+        f << R"HTML(<html><head><title>Spectr</title></head><body>
+          <div id="__bundler_loading">Unpacking...</div>
+          <div id="__bundler_thumbnail"></div>
+          <script type="module" src="./bundle.js"></script>
+          </body></html>)HTML";
+    }
+    auto js_out = tmp / "ui.js";
+    auto r = run_pulp({"import-design",
+                       "--from", "claude",
+                       "--file", html_in.string(),
+                       "--output", js_out.string(),
+                       "--no-bridge-scaffold",
+                       "--no-emit-classnames"});
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 0);
+    // ui.js still emitted (warning is soft).
+    REQUIRE(fs::exists(js_out));
+    // Warning fires on stderr.
+    INFO("stderr: " << r.stderr_output);
+    REQUIRE(r.stderr_output.find("looks like a JS-bundler entry") != std::string::npos);
+    REQUIRE(r.stderr_output.find("pulp-design-tool --script") != std::string::npos);
+}
+
+// ── pulp friction-fix #4 — sidecar files follow --output ──────────────
+// `--output <dir>/ui.js` should anchor bridge_handlers.cpp,
+// classnames.json, and tokens.json to the same directory unless the
+// user explicitly set each path.
+
+TEST_CASE("pulp import-design --output anchors sidecar files to output dir",
+          "[cli][import-design][friction-4][shellout]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = unique_temp_dir("pulp-import-design-friction4");
+    auto html_in = fixture_dir() / "example.html";
+    auto js_out = tmp / "ui.js";
+
+    auto r = run_pulp({"import-design",
+                       "--from", "claude",
+                       "--file", html_in.string(),
+                       "--output", js_out.string()});
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 0);
+    REQUIRE(fs::exists(js_out));
+    REQUIRE(fs::exists(tmp / "bridge_handlers.cpp"));
+    REQUIRE(fs::exists(tmp / "classnames.json"));
+}
+
+TEST_CASE("pulp import-design respects explicit sidecar paths over --output anchor",
+          "[cli][import-design][friction-4][shellout]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = unique_temp_dir("pulp-import-design-friction4-explicit");
+    auto sidecar_dir = tmp / "sidecars";
+    fs::create_directories(sidecar_dir);
+    auto html_in = fixture_dir() / "example.html";
+    auto js_out = tmp / "ui.js";
+    auto bridge_out = sidecar_dir / "my_handlers.cpp";
+    auto classnames_out = sidecar_dir / "my_classnames.json";
+
+    auto r = run_pulp({"import-design",
+                       "--from", "claude",
+                       "--file", html_in.string(),
+                       "--output", js_out.string(),
+                       "--bridge-output", bridge_out.string(),
+                       "--classnames", classnames_out.string()});
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 0);
+    // Explicit paths win — sidecars land in sidecar_dir, not tmp.
+    REQUIRE(fs::exists(bridge_out));
+    REQUIRE(fs::exists(classnames_out));
+    REQUIRE_FALSE(fs::exists(tmp / "bridge_handlers.cpp"));
+    REQUIRE_FALSE(fs::exists(tmp / "classnames.json"));
+}
+
 // NOTE: Codex-P1 tests for the package.json overwrite + vendor-source
 // hard-fail (added to #1060) were pulled because they failed flakily on
 // Linux/macOS in CI even with the production fix in place, and the

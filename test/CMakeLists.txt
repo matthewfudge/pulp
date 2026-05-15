@@ -783,6 +783,14 @@ add_executable(pulp-test-view-size-aspect test_view_size_aspect.cpp)
 target_link_libraries(pulp-test-view-size-aspect PRIVATE pulp::format Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-view-size-aspect)
 
+# pulp #59/#63/#64/#65 — WindowHost::set_design_viewport pure-math
+# coverage. Locks down the scale + letterbox transform that the mac
+# GPU host (and any other future platform host) uses to fit
+# fixed-design content into the current window.
+add_executable(pulp-test-view-design-viewport test_view_design_viewport.cpp)
+target_link_libraries(pulp-test-view-design-viewport PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-view-design-viewport)
+
 # View host bridges — screenshot/window/plugin-view (#299)
 add_executable(pulp-test-view-host-bridge test_view_host_bridge.cpp)
 if(APPLE AND NOT PULP_IOS)

@@ -923,7 +923,11 @@ TEST_CASE("cli common delegates fail cleanly before shelling out",
         ScopedCwd cwd(repo);
         CapturedStreams capture;
         REQUIRE(delegate_to_build_binary("tools/missing-tool", {"--flag"}, "--prepend") == 1);
-        REQUIRE(capture.err.str().find("not built") != std::string::npos);
+        // pulp #-friction-1+#-friction-2 — error message switched from
+        // "not built" to "helper not found" + a cmake --build hint when
+        // the delegate began resolving from argv[0] before the project
+        // root. Match against the stable "helper not found" prefix.
+        REQUIRE(capture.err.str().find("helper not found") != std::string::npos);
     }
 }
 
