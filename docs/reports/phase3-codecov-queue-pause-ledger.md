@@ -4539,3 +4539,17 @@ Python suites:
 `origin/main`, touches 9 files, adds 947 lines of release/package/ship
 coverage, and remains intentionally unpushed until it reaches a substantial
 PR-sized corpus or the active GitHub queue clears.
+
+2026-05-15 12:41 PDT: added commit `8b0e56ccc`
+(`test(ci): cover local validation helper edges`) to the same held batch.
+It extends `tools/scripts/test_android_target.py` for Linux default SDK
+discovery and successful Gradle builds that do not leave the expected APK
+path, and extends `tools/scripts/test_validate_hosts.py` for Windows
+`-NoTests:$true` command construction plus the default-current-branch path
+when `--branch` is omitted. These are unit-level tests only; no Android
+build, SSH host, or Namespace validation was invoked. Local validation
+passed `python3 tools/scripts/test_android_target.py` (18 tests),
+`python3 tools/scripts/test_validate_hosts.py` (11 tests), and
+`git diff --check`. The held batch is now eight commits ahead of current
+`origin/main`, touches 11 files, and adds 1007 lines of package/release/CI
+helper coverage while remaining unpushed.
