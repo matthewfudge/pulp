@@ -4583,3 +4583,33 @@ and empty-docs CLI output. Local validation passed
 `origin/main`, touches 13 files, and adds 1076 lines of focused
 ship/package/release/local-CI coverage. It remains unpushed until the
 current GitHub PR queue is ready for one substantial batched PR.
+
+2026-05-15 15:26 PDT: fixed #2048
+`feature/phase3-codecov-runtime-platform-consolidated-657` after
+investigating the failing `Diff coverage required`/`codecov/patch` checks.
+The latest GitHub coverage artifact showed `core/runtime/src/analytics.cpp`
+lines 9-28, 56, and 62 plus `core/runtime/src/identity.cpp` lines 44-48
+and 56-58 as zero-hit, even though the relevant
+`FileAnalyticsDestination` and `Uuid` tests ran and passed on CI. Local
+focused coverage reproduced the issue as an llvm-cov object-discovery
+ordering problem: source files compiled into both `libpulp-*.a` archives
+and executed test binaries can report the archive's zero-hit coverage map
+if archives are appended after tests. Commit `786c3681d`
+(`test(coverage): prefer executed test maps in llvm-cov`) updates
+`scripts/run_coverage.sh` and `tools/scripts/local_diff_cover.sh` to add
+static archives before test executables, and adds parity coverage in
+`tools/scripts/test_local_diff_cover.py`.
+
+Validation for #2048 before push: `python3 tools/scripts/test_local_diff_cover.py`
+passed 17 tests; `git diff --check` passed; `cmake --build build --target
+pulp-test-analytics pulp-test-identity -j$(sysctl -n hw.ncpu)` passed;
+`ctest --test-dir build --output-on-failure -R "FileAnalyticsDestination|Uuid"`
+passed 15 tests; and a focused `scripts/run_coverage.sh --tests
+"FileAnalyticsDestination|Uuid"` run completed with all 15 tests passing.
+The generated LCOV then showed nonzero hits for every previously missing
+diff line: `analytics.cpp` lines 9-28, 56, and 62, and `identity.cpp`
+lines 44-48 and 56-58. Pushed #2048 to GitHub-hosted CI at
+`786c3681d`. The pre-push hook also attempted its advisory local
+diff-cover path and hit an unrelated local FetchContent `mbedtls` tag
+checkout failure, but the push completed with that gate demoted; do not
+rely on that advisory run as validation.
