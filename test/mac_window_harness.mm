@@ -85,6 +85,22 @@ NSEvent* build_event(NSWindow* window,
             static_cast<int32_t>(ev.scroll_delta_x),
             0);
         if (!cge) return nil;
+        // Codex P2 on PR #2015 — set the CGEvent location so
+        // `event.locationInWindow` lands at the harness-requested
+        // coordinates instead of the current OS cursor position.
+        // PulpView::scrollWheel: hit-tests from locationInWindow, so
+        // without this, scroll tests targeted at a specific subview
+        // are dropped or routed wherever the cursor happened to be.
+        // CGEvent uses screen-space; convert via window/screen frames.
+        NSPoint screen_pt = [window convertPointToScreen:location];
+        // Cocoa screen origin = bottom-left of primary screen, but
+        // CoreGraphics uses top-left. Flip via primary screen height.
+        NSScreen* primary = [[NSScreen screens] firstObject];
+        if (primary) {
+            CGFloat screen_h = NSHeight([primary frame]);
+            CGEventSetLocation(cge,
+                CGPointMake(screen_pt.x, screen_h - screen_pt.y));
+        }
         NSEvent* event = [NSEvent eventWithCGEvent:cge];
         CFRelease(cge);
         return event;
