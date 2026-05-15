@@ -3850,3 +3850,34 @@ scan|PresetManager delete missing|PresetManager navigation on empty)"
 GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
 Resume action: monitor #2037 required checks and merge directly when
 green.
+
+2026-05-15 02:23 PDT: created the #648 format adapter metadata batch
+`feature/phase3-format-adapter-metadata-batch-648` at `a1c5575`, PR
+#2038, from current `origin/main` `a29cb7dc`. It adds test-only coverage
+in `test/test_aax_model.cpp`, `test/test_ara.cpp`, and
+`test/test_ios_audio_session.cpp` for AAX parameter ID formatting, native
+ID suffix boundaries, stem mapping edge cases, descriptor metadata
+propagation, latency and MIDI flags, packet sizing, parameter converter
+callbacks, ARA default controller behavior, ARA role bit stability, iOS
+audio-session null C events, C++ listener precedence over raw callbacks,
+fallback C callbacks, and listener replacement/detach behavior. Local
+macOS validation passed: configure `cmake -S . -B build
+-DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-aax-model pulp-test-ara pulp-test-ios-audio-session -j$(sysctl
+-n hw.ncpu)`, focused `./build/test/pulp-test-aax-model
+"[coverage][issue-648]" -r compact` passing 21 assertions in 1 case,
+focused `./build/test/pulp-test-ara "[coverage][issue-648]" -r compact`
+passing 8 assertions in 2 cases, focused
+`./build/test/pulp-test-ios-audio-session "[coverage][issue-648]" -r
+compact` passing 8 assertions in 2 cases, full `pulp-test-aax-model`
+passing 108 assertions in 13 cases, full `pulp-test-ara` passing 19
+assertions in 10 cases, full `pulp-test-ios-audio-session` passing 28
+assertions in 6 cases, exact `ctest --test-dir build -R "(AAX model
+carries descriptor|AraDocumentController defaults|AraRole bit values|C
+ABI ignores null events|audio session listener replacement)"
+--output-on-failure` passing 5/5, `git diff --check`, and
+`./tools/check-docs.sh` passed with existing warnings. Branch pushed with
+GitHub-hosted PR workflow only; no Namespace dispatch and no SSH targets.
+Resume action: monitor #2038 required checks and merge directly when
+green.
