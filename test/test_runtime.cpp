@@ -152,6 +152,20 @@ TEST_CASE("Runtime GMT helper returns UTC tm", "[runtime][system]") {
     REQUIRE(tm.tm_sec == 0);
 }
 
+TEST_CASE("Runtime localtime helper returns a normalized tm", "[runtime][system][coverage][phase3]") {
+    auto tm = localtime_local(static_cast<std::time_t>(0));
+    REQUIRE(tm.tm_mon >= 0);
+    REQUIRE(tm.tm_mon <= 11);
+    REQUIRE(tm.tm_mday >= 1);
+    REQUIRE(tm.tm_mday <= 31);
+    REQUIRE(tm.tm_hour >= 0);
+    REQUIRE(tm.tm_hour <= 23);
+    REQUIRE(tm.tm_min >= 0);
+    REQUIRE(tm.tm_min <= 59);
+    REQUIRE(tm.tm_sec >= 0);
+    REQUIRE(tm.tm_sec <= 60);
+}
+
 TEST_CASE("Runtime C string copy truncates safely", "[runtime][system]") {
     char buffer[5]{};
     copy_c_string(buffer, "abcdef");
@@ -168,6 +182,16 @@ TEST_CASE("Runtime C string copy handles degenerate buffers", "[runtime][system]
     REQUIRE(untouched == 'x');
 
     REQUIRE_NOTHROW(copy_c_string(nullptr, 4, "abc"));
+}
+
+TEST_CASE("Runtime system info convenience helpers mirror cached info",
+          "[runtime][system][coverage][phase3]") {
+    const auto& info = get_system_info();
+    REQUIRE_FALSE(info.os_name.empty());
+    REQUIRE_FALSE(info.arch.empty());
+    REQUIRE(info.cpu_threads >= 0);
+    REQUIRE(cpu_thread_count() == info.cpu_threads);
+    REQUIRE(total_memory_mb() == info.total_memory_mb);
 }
 
 TEST_CASE("TemporaryFile creates extensions and release preserves path", "[runtime][temporary_file]") {
