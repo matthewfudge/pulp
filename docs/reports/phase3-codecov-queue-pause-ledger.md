@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-14 22:50 PDT
+Last updated: 2026-05-14 22:58 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -143,8 +143,42 @@ Initial no-CI readiness sweep, refreshed through 2026-05-14 22:35 PDT:
 | local AIFF PCM edges | `74774950` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
 | local StreamingWriter reopen | `5e1d020d` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
 | local frame-fill edges | `8467c68d` | `92e83b37` | clean, test-only, standalone audio target, behind latest base | rebase/re-smoke before #640 audio wave |
+| #2014 signal DSP batch | `3bb753ac` | `c98896db` | open PR on `feature/phase3-signal-dsp-batch-645`; test-only GitHub-hosted batch superseding six local #645 tranches; local macOS target build, focused tag runs, full binaries, exact CTest selector, and sync/version/docs/compat guards passed | monitor GitHub Actions hosted checks, merge when required checks are green |
+| local Linkwitz-Riley edges | `3deafcfe` | `bd036171` | superseded by #2014 batch | no standalone CI action |
+| local ADSR edges | `0c9e7d4d` | `bd036171` | superseded by #2014 batch | no standalone CI action |
+| local NoiseGate edges | `032f46c2` | `bd036171` | superseded by #2014 batch | no standalone CI action |
+| local chorus/reverb edges | `e6b5c6bc` | `4bebc7bf` | superseded by #2014 batch | no standalone CI action |
+| local oscillator edges | `5e3a1db3` | `4bebc7bf` | superseded by #2014 batch | no standalone CI action |
+| local signal helper edges | `431a3c5d` | `4bebc7bf` | superseded by #2014 batch | no standalone CI action |
 | local Environment dispatch | `33565a65` | `92e83b37` | clean, test-only, platform target, behind latest base | rebase/re-smoke before #640 platform wave |
 | local ChildProcess output | `4c474115` | `92e83b37` | clean, test-only, platform target, behind latest base | rebase/re-smoke before #640 platform wave |
+
+2026-05-14 22:58 PDT: created the larger #645 signal DSP batch
+`feature/phase3-signal-dsp-batch-645` at `3bb753ac`, PR #2014,
+from current `origin/main` `c98896dbc`. It batches
+`local/phase3-linkwitz-riley-edges-645`,
+`local/phase3-adsr-edges-645`,
+`local/phase3-noise-gate-edges-645`,
+`local/phase3-modulation-reverb-edges-645`,
+`local/phase3-oscillator-edges-645`, and
+`local/phase3-signal-helper-edges-645` into one test-only diff touching
+`test/test_signal.cpp` and `test/test_dsp_expansion.cpp`. Local macOS
+validation passed: configure with
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF -DFETCHCONTENT_SOURCE_DIR_MBEDTLS=/Users/danielraffel/Library/Caches/Pulp/fetchcontent-src/mbedtls-v3.6.2-tar`,
+build `cmake --build build --target pulp-test-signal
+pulp-test-dsp-expansion -j$(sysctl -n hw.ncpu)`, focused
+`./build/test/pulp-test-signal "[issue-645]" -r compact` passing 1246
+assertions in 33 test cases, focused
+`./build/test/pulp-test-dsp-expansion "[issue-645]" -r compact`
+passing 43 assertions in 7 test cases, full `pulp-test-signal` passing
+2013 assertions in 86 test cases, full `pulp-test-dsp-expansion`
+passing 96 assertions in 37 test cases, exact `ctest --test-dir build
+-R "ADSR handles immediate|NoiseGate clamps range|Chorus dry mix|Reverb handles zero decay|Oscillator reset|LinkwitzRiley reset clears history|LinkwitzRiley cutoff boundary|LadderFilter resets buffer|FirFilter empty coefficients|LookupTable indexed access" --output-on-failure`
+passing 10/10, `git diff --check`, `git diff --cached --check`,
+skill-sync report, version-bump report, docs-sync report, and
+compat-sync report. Branch pushed with GitHub-hosted PR workflow only;
+no Namespace dispatch and no SSH targets. Resume action: monitor #2014
+required checks and merge directly when green.
 
 ## Snapshot Summary
 
