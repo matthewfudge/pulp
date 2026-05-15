@@ -87,6 +87,24 @@ TEST_CASE("EnvironmentChange: any reflects individual flags",
     REQUIRE(change.any());
 }
 
+TEST_CASE("SafeAreaInsets zero detection checks all edges",
+          "[environment][coverage][issue-640]") {
+    SafeAreaInsets insets;
+    REQUIRE(insets.is_zero());
+
+    insets.top = 1.0f;
+    REQUIRE_FALSE(insets.is_zero());
+    insets = {};
+    insets.bottom = 1.0f;
+    REQUIRE_FALSE(insets.is_zero());
+    insets = {};
+    insets.left = 1.0f;
+    REQUIRE_FALSE(insets.is_zero());
+    insets = {};
+    insets.right = 1.0f;
+    REQUIRE_FALSE(insets.is_zero());
+}
+
 TEST_CASE("Environment: subscribe receives publish + correct change mask",
           "[environment]") {
     Environment::reset_for_test();
@@ -149,6 +167,32 @@ TEST_CASE("Environment: reset clears listeners held by live tokens",
 
     Environment::inject_for_test(make_state(ColorScheme::light));
     REQUIRE(calls == 0);
+}
+
+TEST_CASE("Environment: token reset is idempotent and preserves other listeners",
+          "[environment][coverage][issue-640]") {
+    Environment::reset_for_test();
+    int first_calls = 0;
+    int second_calls = 0;
+
+    auto first = Environment::instance().subscribe(
+        [&](const EnvironmentState&, EnvironmentChange) { ++first_calls; });
+    auto second = Environment::instance().subscribe(
+        [&](const EnvironmentState&, EnvironmentChange) { ++second_calls; });
+
+    first.reset();
+    first.reset();
+    REQUIRE_FALSE(first.valid());
+    REQUIRE(second.valid());
+
+    Environment::inject_for_test(make_state(ColorScheme::dark));
+    REQUIRE(first_calls == 0);
+    REQUIRE(second_calls == 1);
+
+    second.reset();
+    Environment::inject_for_test(make_state(ColorScheme::light));
+    REQUIRE(first_calls == 0);
+    REQUIRE(second_calls == 1);
 }
 
 TEST_CASE("Environment: token move transfers ownership", "[environment]") {

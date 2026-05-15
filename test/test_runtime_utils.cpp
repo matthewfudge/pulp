@@ -8,8 +8,10 @@
 #include <pulp/runtime/http.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/text_diff.hpp>
+#include <algorithm>
 #include <fstream>
 #include <filesystem>
+#include <iterator>
 
 using namespace pulp::runtime;
 
@@ -87,6 +89,52 @@ TEST_CASE("MemoryMappedFile move semantics", "[runtime][mmap]") {
     REQUIRE_FALSE(a.is_open());
 }
 
+TEST_CASE("MemoryMappedFile ReadWrite mode persists byte edits",
+          "[runtime][mmap][coverage][issue-641]") {
+    TemporaryFile tmp(".bin");
+    {
+        std::ofstream f(tmp.path(), std::ios::binary);
+        f << "abcde";
+    }
+
+    MemoryMappedFile mmap;
+    REQUIRE(mmap.open(tmp.path_string(), MapMode::ReadWrite));
+    REQUIRE(mmap.is_open());
+    REQUIRE(mmap.size() == 5);
+    REQUIRE(mmap.mutable_data() != nullptr);
+
+    mmap.mutable_data()[1] = static_cast<uint8_t>('A');
+    mmap.mutable_data()[3] = static_cast<uint8_t>('D');
+    mmap.close();
+    REQUIRE_FALSE(mmap.is_open());
+
+    std::ifstream f(tmp.path(), std::ios::binary);
+    std::string contents((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    REQUIRE(contents == "aAcDe");
+}
+
+TEST_CASE("MemoryMappedFile open failure clears an existing mapping",
+          "[runtime][mmap][coverage][issue-641]") {
+    TemporaryFile mapped(".bin");
+    {
+        std::ofstream f(mapped.path(), std::ios::binary);
+        f << "mapped";
+    }
+
+    TemporaryFile empty(".bin");
+
+    MemoryMappedFile mmap;
+    REQUIRE(mmap.open(mapped.path_string()));
+    REQUIRE(mmap.is_open());
+    REQUIRE(mmap.size() == 6);
+
+    REQUIRE_FALSE(mmap.open(empty.path_string()));
+    REQUIRE_FALSE(mmap.is_open());
+    REQUIRE(mmap.data() == nullptr);
+    REQUIRE(mmap.size() == 0);
+}
+
 // ── DynamicLibrary ──────────────────────────────────────────────────────
 
 TEST_CASE("DynamicLibrary loads system library", "[runtime][dynlib]") {
@@ -128,6 +176,25 @@ TEST_CASE("InterProcessLock double lock succeeds", "[runtime][ipc_lock]") {
     InterProcessLock lock("test_lock_double");
     REQUIRE(lock.try_lock());
     REQUIRE(lock.try_lock());  // Already locked, should still return true
+}
+
+TEST_CASE("InterProcessLock unlock is idempotent and permits reacquire",
+          "[runtime][ipc_lock][coverage][issue-641]") {
+    InterProcessLock lock("test_lock_reacquire");
+    REQUIRE_FALSE(lock.is_locked());
+
+    lock.unlock();
+    REQUIRE_FALSE(lock.is_locked());
+
+    REQUIRE(lock.try_lock());
+    REQUIRE(lock.is_locked());
+    lock.unlock();
+    REQUIRE_FALSE(lock.is_locked());
+    lock.unlock();
+    REQUIRE_FALSE(lock.is_locked());
+
+    REQUIRE(lock.try_lock());
+    REQUIRE(lock.is_locked());
 }
 
 // ── ChildProcess ────────────────────────────────────────────────────────
@@ -239,6 +306,24 @@ TEST_CASE("base64 binary round-trip", "[runtime][base64]") {
     REQUIRE(*decoded == data);
 }
 
+TEST_CASE("base64 handles explicit byte pointers and exact quartet decoding",
+          "[runtime][base64][coverage][issue-641]") {
+    REQUIRE(base64_encode(nullptr, 0) == "");
+
+    const uint8_t bytes[] = {0x00, 0x10, 0x20, 0x30, 0xff};
+    auto encoded = base64_encode(bytes, sizeof(bytes));
+    REQUIRE(encoded == "ABAgMP8=");
+
+    auto decoded = base64_decode("ABAgMP8=");
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->size() == sizeof(bytes));
+    REQUIRE(std::equal(decoded->begin(), decoded->end(), std::begin(bytes)));
+
+    auto quartet = base64_decode("////");
+    REQUIRE(quartet.has_value());
+    REQUIRE(*quartet == std::vector<uint8_t>{0xff, 0xff, 0xff});
+}
+
 // ── HTTP URL parsing ───────────────────────────────────────────────────
 
 TEST_CASE("HTTP helpers reject malformed URLs without transport work",
@@ -317,6 +402,26 @@ TEST_CASE("text_diff preserves equal lines across replacements and appends",
             "+ delta\n"
             "  gamma\n"
             "+ omega\n");
+}
+
+TEST_CASE("text_diff keeps repeated-line matches stable",
+          "[runtime][text-diff][coverage][issue-641]") {
+    auto diff = text_diff("same\nkeep\nsame\nremove\nsame",
+                          "same\nkeep\nsame\ninsert\nsame");
+
+    REQUIRE(diff.size() == 6);
+    REQUIRE(diff[0].op == DiffOp::Equal);
+    REQUIRE(diff[0].text == "same");
+    REQUIRE(diff[1].op == DiffOp::Equal);
+    REQUIRE(diff[1].text == "keep");
+    REQUIRE(diff[2].op == DiffOp::Equal);
+    REQUIRE(diff[2].text == "same");
+    REQUIRE(diff[3].op == DiffOp::Delete);
+    REQUIRE(diff[3].text == "remove");
+    REQUIRE(diff[4].op == DiffOp::Insert);
+    REQUIRE(diff[4].text == "insert");
+    REQUIRE(diff[5].op == DiffOp::Equal);
+    REQUIRE(diff[5].text == "same");
 }
 
 // ── Range ───────────────────────────────────────────────────────────────
@@ -401,4 +506,15 @@ TEST_CASE("FloatRange", "[runtime][range]") {
     FloatRange r(0.0f, 1.0f);
     REQUIRE(r.contains(0.5f));
     REQUIRE_FALSE(r.contains(1.0f));
+}
+
+TEST_CASE("Range boundary touch points remain non-intersections",
+          "[runtime][range][coverage][issue-641]") {
+    REQUIRE_FALSE(IntRange(0, 10).intersects(IntRange(10, 20)));
+    REQUIRE(IntRange(0, 10).intersection(IntRange(10, 20)).empty());
+    REQUIRE(IntRange(10, 20).intersection(IntRange(0, 10)).empty());
+
+    REQUIRE(IntRange(5, 5).empty());
+    REQUIRE(IntRange(5, 4).empty());
+    REQUIRE(IntRange(5, 5).constrain(100) == 5);
 }
