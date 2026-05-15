@@ -121,6 +121,18 @@ if(UNIX)
         LABELS "parser-import")
 endif()
 
+# Workspace freshness guard (pulp #2087 lesson) — refuse to run
+# validation harnesses on a checkout behind origin/main. Test
+# exercises 7 scenarios across enforce/warn/max-behind/bypass/json
+# modes against synthetic git repos.
+if(UNIX)
+    add_test(NAME workspace-freshness
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test_workspace_freshness.sh)
+    set_tests_properties(workspace-freshness
+        PROPERTIES TIMEOUT 30
+        LABELS "tooling")
+endif()
+
 # Debug-SDK perf-killer guard smoke (pulp-internal task #35).
 # Hermetic — runs the guard against a tempdir-fabricated SDK install,
 # exercises the three branches (Debug-no-override → FATAL_ERROR,

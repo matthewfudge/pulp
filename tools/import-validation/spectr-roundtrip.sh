@@ -52,6 +52,16 @@ yel()   { printf '\033[33m%s\033[0m\n' "$*"; }
 which pulp >/dev/null || { red "ERROR: pulp CLI not in PATH"; exit 2; }
 which python3 >/dev/null || { red "ERROR: python3 required for diff"; exit 2; }
 
+# Freshness — refuse to validate from a checkout behind origin/main.
+# Lesson from 2026-05-15: a roundtrip ran from a feature branch 175 commits
+# behind. The diff score reflected stale framework code, not main. Bypass
+# with PULP_FRESHNESS_BYPASS=1 if you specifically want to validate a feature
+# branch's code.
+( cd "$PULP" && "$PULP/tools/scripts/check_workspace_freshness.sh" ) || {
+  red "ERROR: refusing to run roundtrip against stale checkout (see freshness output above)"
+  exit 2
+}
+
 mkdir -p "$OUT_DIR"
 
 # ── [1/5] Re-import via pulp ───────────────────────────────────────────────
