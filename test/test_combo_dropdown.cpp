@@ -253,3 +253,52 @@ TEST_CASE("View: dtor clears active_overlay_ when destroyed while claimed [issue
     REQUIRE(pulp::view::View::active_overlay_ == nullptr);
 }
 
+// pulp #68 — host-level ESC fallback contract. The macOS window host's
+// keyDown: dispatches `ComboBox::close_active_popup()` when ESC is
+// pressed and `active_popup_` is set, even if the focused view is not
+// the ComboBox itself. This covers the React-popover focus-steal case:
+// dropdown is open, sibling JS-driven element grabbed focus, ESC must
+// still close the still-visible dropdown.
+//
+// The macOS host code (window_host_mac.mm keyDown:) is the actual
+// dispatcher and is not unit-testable in the Catch2 harness yet
+// (tracked by pulp #2001 — Mac platform-test harness). What IS
+// testable is the contract the host relies on:
+//
+//   close_active_popup() must close the dropdown unconditionally,
+//   regardless of which view currently owns input focus.
+//
+// A regression that gated close_active_popup on focus ownership would
+// silently break the host-level ESC path and surface only as "ESC
+// doesn't close popovers" in the live host. This test fences that.
+TEST_CASE("ComboBox: close_active_popup is focus-independent [issue-68]",
+          "[combo][regression][issue-68]") {
+    ComboBox::close_active_popup();
+    REQUIRE(ComboBox::active_popup_ == nullptr);
+
+    ComboBox combo;
+    combo.set_items({"one", "two"});
+    combo.set_bounds({0, 0, 100, 28});
+
+    // Open via mouse — combo is the implicit focused view in this path.
+    MouseEvent click;
+    click.position = {50.0f, 14.0f};
+    click.is_down = true;
+    combo.on_mouse_event(click);
+    REQUIRE(combo.is_open());
+    REQUIRE(ComboBox::active_popup_ == &combo);
+
+    // Simulate focus being stolen by a sibling — focus_changed(false)
+    // is what the host calls when input focus moves elsewhere. The
+    // dropdown should remain visually open (active_popup_ unchanged).
+    combo.on_focus_changed(false);
+    REQUIRE(combo.is_open());
+    REQUIRE(ComboBox::active_popup_ == &combo);
+
+    // The host-level ESC fallback simply calls close_active_popup().
+    // It MUST close the popup despite combo not owning focus.
+    ComboBox::close_active_popup();
+    REQUIRE_FALSE(combo.is_open());
+    REQUIRE(ComboBox::active_popup_ == nullptr);
+}
+
