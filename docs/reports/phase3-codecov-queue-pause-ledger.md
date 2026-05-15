@@ -4327,3 +4327,48 @@ validation also passed through unittest entrypoints:
 adding coherent ship/package or adjacent release coverage until it is
 large enough to justify one GitHub-hosted CI run, then push as a single
 batched PR.
+
+2026-05-15 10:45 PDT: resumed monitoring/fix pass on the four
+consolidated GitHub-hosted codecov PRs with the policy that failures are
+actionable unless logs prove stale/external infrastructure. No Namespace
+or SSH validation was dispatched. Findings and actions:
+
+- #2048 (`feature/phase3-codecov-runtime-platform-consolidated-657`) had
+  a real required diff-coverage miss in `analytics.cpp` JSON escaping and
+  `identity.cpp` UUID dash validation. Added focused runtime tests in
+  `test/test_analytics.cpp` and `test/test_identity.cpp`, committed
+  `865242368` (`test(runtime): cover consolidated branch edges`), and
+  locally validated `pulp-test-analytics` plus `pulp-test-identity`
+  focused and full binary runs. Push required demoting the local pre-push
+  diff-cover gate because the separate coverage configure hit the local
+  Highway FetchContent checkout error (`failed to checkout tag
+  457c891...`); GitHub-hosted checks remain authoritative and are running
+  on the fresh SHA.
+- #2050 (`feature/phase3-codecov-view-consolidated-660`) had a real
+  Windows failure in `AssetManager font file loading derives family names
+  and uses cache`: the production code derived the font family by splitting
+  only on `/`, so Windows paths produced the full temporary path as the
+  family name. Fixed the root cause in `core/view/src/asset_manager.cpp`
+  by deriving the stem through `std::filesystem::path`, added focused view
+  boundary tests in `test/test_preset_browser.cpp` and
+  `test/test_table_list_box.cpp`, committed `4ed92c718`
+  (`fix(view): derive font family with platform paths`), and locally
+  validated the affected focused/full test binaries plus the previously
+  failing CLI project-bump case. Fresh GitHub-hosted checks are running on
+  the updated SHA.
+- #2049 and #2051 still showed external `codecov/patch` failures, but
+  current PR file lists do not include the previously reported
+  `core/canvas/src/svg.cpp` diff. The relevant GitHub Coverage workflows
+  were green on their current heads, so reran Coverage for #2049
+  (`25914516624`) and #2051 (`25914516918`) to force Codecov to recompute
+  against the actual current diffs rather than patching unrelated SVG code.
+- #2051 Build and Test had a macOS failure in the runner dependency
+  checkout path (`Could not resolve host: github.com` while cloning
+  `google/highway.git`), not test code. Reran failed jobs for
+  `25914516941`; if the rerun exposes a deterministic test/build failure,
+  fix the branch rather than rerunning again blindly.
+
+Resume action: keep monitoring #2048, #2049, #2050, and #2051. Merge only
+after required GitHub checks and Codecov are green. If a rerun produces a
+new deterministic failure, inspect logs and patch the root cause on the
+owning consolidated branch.
