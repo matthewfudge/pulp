@@ -928,6 +928,120 @@ TEST_CASE("cli common delegates fail cleanly before shelling out",
         // the delegate began resolving from argv[0] before the project
         // root. Match against the stable "helper not found" prefix.
         REQUIRE(capture.err.str().find("helper not found") != std::string::npos);
+        // The PR also added a "Looked in:" listing so users can see
+        // every candidate path that was probed before the failure.
+        REQUIRE(capture.err.str().find("Looked in:") != std::string::npos);
+        // And a "cmake --build" hint pointing at the missing target.
+        REQUIRE(capture.err.str().find("cmake --build build --target missing-tool")
+                != std::string::npos);
+    }
+}
+
+// pulp #-friction-1+#-friction-2 — delegate_to_build_binary must succeed
+// outside a Pulp project (e.g. when the installed `pulp` CLI is invoked
+// from /tmp or a user's project dir). Before #1984 the delegate hard-
+// failed with "not in a Pulp project directory"; after #1984 the lookup
+// resolves from argv[0] + $PULP_BUILD_DIR and only falls back to
+// project-root paths when one exists.
+TEST_CASE("delegate_to_build_binary tolerates running outside a Pulp project",
+          "[cli][common][issue-1984]") {
+    TempDir tmp;  // tmp.path is NOT inside any Pulp checkout
+
+    {
+        ScopedCwd cwd(tmp.path);
+        // Clear PULP_BUILD_DIR so the test sees the no-build-dir-hint
+        // branch of the error message.
+        ScopedEnv build_dir("PULP_BUILD_DIR", "");
+        CapturedStreams capture;
+        REQUIRE(delegate_to_build_binary("tools/missing-tool", {"--flag"}, "") == 1);
+        const auto err = capture.err.str();
+        // The standard helper-not-found prefix still fires.
+        REQUIRE(err.find("helper not found") != std::string::npos);
+        // And the no-project-dir hint kicks in (this is the new branch
+        // added in #1984 — calling out that PULP_BUILD_DIR is the user's
+        // escape hatch when they're not in a checkout).
+        REQUIRE(err.find("cwd is not inside a Pulp project") != std::string::npos);
+        REQUIRE(err.find("PULP_BUILD_DIR") != std::string::npos);
+    }
+}
+
+// pulp #-friction-1+#-friction-2 — $PULP_BUILD_DIR with an absolute path
+// must add the binary at <build>/<relative> to the candidate list, even
+// when the user is outside a Pulp project. Verified by reading back the
+// "Looked in:" listing from the error message: a precise candidate path
+// shows up before the lookup fails (no binary actually exists).
+TEST_CASE("delegate_to_build_binary honors PULP_BUILD_DIR when run outside a project",
+          "[cli][common][issue-1984]") {
+    TempDir tmp;
+    auto build_dir = tmp.path / "custom-build";
+    fs::create_directories(build_dir);
+
+    {
+        ScopedCwd cwd(tmp.path);
+        ScopedEnv build_env("PULP_BUILD_DIR", build_dir.string());
+        CapturedStreams capture;
+        REQUIRE(delegate_to_build_binary("tools/missing-tool", {}, "") == 1);
+        const auto err = capture.err.str();
+        REQUIRE(err.find("helper not found") != std::string::npos);
+        // The absolute-path PULP_BUILD_DIR candidate shows up verbatim
+        // in the "Looked in:" listing.
+        const auto expected_candidate = (build_dir / "tools" / "missing-tool").string();
+        INFO("stderr: " << err);
+        REQUIRE(err.find(expected_candidate) != std::string::npos);
+    }
+}
+
+// pulp #-friction-1+#-friction-2 — $PULP_BUILD_DIR with a RELATIVE path
+// is meaningful only when a project root exists (relative joins against
+// the project root). Outside a project, the relative path is silently
+// dropped so we don't accumulate ambiguous candidates like
+// "relative-build/tools/foo" without a stable root.
+TEST_CASE("delegate_to_build_binary drops relative PULP_BUILD_DIR outside a project",
+          "[cli][common][issue-1984]") {
+    TempDir tmp;
+
+    {
+        ScopedCwd cwd(tmp.path);
+        ScopedEnv build_env("PULP_BUILD_DIR", "relative-build");
+        CapturedStreams capture;
+        REQUIRE(delegate_to_build_binary("tools/missing-tool", {}, "") == 1);
+        const auto err = capture.err.str();
+        REQUIRE(err.find("helper not found") != std::string::npos);
+        // The relative path is not anchored — must NOT appear in the
+        // candidate listing. Looking for "relative-build" is enough; if
+        // the code ever starts CWD-anchoring relative paths, this test
+        // tightens the contract.
+        INFO("stderr: " << err);
+        REQUIRE(err.find("relative-build") == std::string::npos);
+    }
+}
+
+// pulp #-friction-1+#-friction-2 — when both a project root AND
+// $PULP_BUILD_DIR (relative) are present, the relative build dir joins
+// against the project root rather than the cwd. Verified by reading the
+// candidate path back from "Looked in:".
+TEST_CASE("delegate_to_build_binary resolves relative PULP_BUILD_DIR against project root",
+          "[cli][common][issue-1984]") {
+    TempDir tmp;
+    auto repo = tmp.path / "repo";
+    fs::create_directories(repo / "core");
+    write_file(repo / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\n");
+
+    {
+        ScopedCwd cwd(repo);
+        ScopedEnv build_env("PULP_BUILD_DIR", "build-custom");
+        CapturedStreams capture;
+        REQUIRE(delegate_to_build_binary("tools/missing-tool", {}, "") == 1);
+        const auto err = capture.err.str();
+        REQUIRE(err.find("helper not found") != std::string::npos);
+        // The relative PULP_BUILD_DIR is rooted at the discovered
+        // project, so the candidate path must reflect the repo root.
+        const auto expected = (repo / "build-custom" / "tools" / "missing-tool").string();
+        INFO("stderr: " << err);
+        REQUIRE(err.find(expected) != std::string::npos);
+        // And the no-project-dir hint is NOT printed (because we found
+        // a project).
+        REQUIRE(err.find("cwd is not inside a Pulp project") == std::string::npos);
     }
 }
 

@@ -318,6 +318,61 @@ TEST_CASE("looks_like_bundler_entry on empty / pathological input",
     REQUIRE_FALSE(looks_like_bundler_entry("<!doctype html><html></html>"));
 }
 
+// Coverage for the OR-arms of the heuristic that the original four
+// tests don't separately exercise: Vue / Svelte mount points
+// (id="app"), the data-reactroot dev-mode marker, and ES-module inline
+// imports (the `import('./...')` flavour). These keep the heuristic
+// honest if any single needle is removed.
+TEST_CASE("looks_like_bundler_entry matches Vue/Svelte id=\"app\" + script", "[cli][import-design][friction-3]") {
+    const std::string html = R"HTML(
+        <html><body><div id="app"></div>
+        <script type="module" src="./entry.mjs"></script></body></html>
+    )HTML";
+    REQUIRE(looks_like_bundler_entry(html));
+}
+
+TEST_CASE("looks_like_bundler_entry matches data-reactroot SSR marker", "[cli][import-design][friction-3]") {
+    // Server-rendered React markup carries data-reactroot; no explicit
+    // mount placeholder needed for the heuristic to fire.
+    const std::string html = R"HTML(
+        <html><body><div data-reactroot=""><h1>Hi</h1></div></body></html>
+    )HTML";
+    REQUIRE(looks_like_bundler_entry(html));
+}
+
+TEST_CASE("looks_like_bundler_entry matches inline ES-module dynamic import",
+          "[cli][import-design][friction-3]") {
+    // Some bundler shells (esbuild + Bun in particular) inline a tiny
+    // `import('./bundle.js')` instead of a <script src=...>. Both single-
+    // and double-quoted forms are accepted.
+    const std::string html_dq = R"HTML(
+        <html><body><div id="root"></div>
+        <script type="module">import("./bundle.js");</script></body></html>
+    )HTML";
+    REQUIRE(looks_like_bundler_entry(html_dq));
+
+    const std::string html_sq = R"HTML(
+        <html><body><div id='root'></div>
+        <script type="module">import('./bundle.js');</script></body></html>
+    )HTML";
+    REQUIRE(looks_like_bundler_entry(html_sq));
+}
+
+// The heuristic explicitly does not fire on hand-authored Claude
+// Design pages even when they contain <script> tags — those pages
+// always lack a known mount-point id.
+TEST_CASE("looks_like_bundler_entry skips inline-script pages with no mount root",
+          "[cli][import-design][friction-3]") {
+    const std::string html = R"HTML(
+        <html><body>
+          <h1>Sliders</h1>
+          <p>Hand-authored — no mount root.</p>
+          <script>console.log('inline analytics');</script>
+        </body></html>
+    )HTML";
+    REQUIRE_FALSE(looks_like_bundler_entry(html));
+}
+
 TEST_CASE("pulp import-design --from claude emits native-react hint on bundler entry",
           "[cli][import-design][friction-3][shellout]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
