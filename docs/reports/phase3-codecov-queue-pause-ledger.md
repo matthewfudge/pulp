@@ -4078,3 +4078,29 @@ failed to read the pinned Highway tree; focused and full macOS tests were
 green before push.
 Resume action: monitor #2044 required checks and merge directly when
 green.
+
+2026-05-15 03:18 PDT: created the #654 view tree/accessibility batch
+`feature/phase3-view-tree-accessibility-batch-654` at `41b277f`, PR
+#2045, from current `origin/main` `ce86d9f`. It adds test-only coverage
+in `test/test_tree_view.cpp` and `test/test_accessibility_tree.cpp` for
+TreeView collapsed-child paint/hit-testing, expanded child double-click
+activation, selected-row paint, left-key behavior on a collapsed parent,
+accessibility value-string clamping/fallback, and default text/table/cell
+helper interface behavior. Local macOS validation passed: configure
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF
+-DPULP_BUILD_EXAMPLES=OFF`, build `cmake --build build --target
+pulp-test-tree-view pulp-test-accessibility-tree -j$(sysctl -n
+hw.ncpu)`, focused `./build/test/pulp-test-tree-view
+"[coverage][issue-654]" -r compact` passing 12 assertions in 3 cases,
+focused `./build/test/pulp-test-accessibility-tree
+"[coverage][issue-654]" -r compact` passing 20 assertions in 2 cases,
+full `./build/test/pulp-test-tree-view -r compact` passing 50
+assertions in 16 cases, full `./build/test/pulp-test-accessibility-tree
+-r compact` passing 67 assertions in 9 cases, exact `ctest --test-dir
+build -R "(TreeView collapsed children|TreeView expanded child|TreeView
+left key|Accessibility value interface|Accessibility helper interfaces)"
+--output-on-failure` passing 5/5, and `git diff --check`. Branch pushed
+with GitHub-hosted PR workflow only; no Namespace dispatch and no SSH
+targets.
+Resume action: monitor #2045 required checks and merge directly when
+green.
