@@ -1418,27 +1418,50 @@ TEST_CASE("pulp with update.mode=manual prints the manual notice",
 // dispatch level. Any future regression where the `project` command
 // falls out of the dispatch table fails loudly here — same class of
 // silent-failure bug that motivated the rest of this file.
-TEST_CASE("pulp project is a recognized command with bump + undo subcommands",
-          "[cli][shellout][issue-564]") {
+TEST_CASE("pulp project is a recognized command with pin/unpin/undo subcommands",
+          "[cli][shellout][issue-564][issue-2087]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
 
     auto help = run_pulp({"project", "--help"}, 10000);
     REQUIRE_FALSE(help.timed_out);
     REQUIRE(help.exit_code == 0);
-    REQUIRE(help.stdout_output.find("project bump") != std::string::npos);
+    // pulp #2087: `pin` is the primary command name; `bump` survives as
+    // a deprecated alias for one minor release.
+    REQUIRE(help.stdout_output.find("project pin") != std::string::npos);
+    REQUIRE(help.stdout_output.find("project unpin") != std::string::npos);
     REQUIRE(help.stdout_output.find("project undo") != std::string::npos);
+    REQUIRE(help.stdout_output.find("deprecated alias") != std::string::npos);
 
+    // `pulp project pin --help` is the new primary help surface.
+    auto pin_help = run_pulp({"project", "pin", "--help"}, 10000);
+    REQUIRE_FALSE(pin_help.timed_out);
+    REQUIRE(pin_help.exit_code == 0);
+    REQUIRE(pin_help.stdout_output.find("--all") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("--dry-run") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("--force-dirty") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("--allow-downgrade") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("--allow-cli-skew") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("--allow-redundant") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("--verify-builds") != std::string::npos);
+    REQUIRE(pin_help.stdout_output.find("pulp.toml sdk_version") != std::string::npos);
+    // The pin help should cross-reference unpin so the round-trip is
+    // discoverable from either direction.
+    REQUIRE(pin_help.stdout_output.find("pulp project unpin") != std::string::npos);
+
+    // `pulp project bump --help` must still work (backward-compat alias).
     auto bump_help = run_pulp({"project", "bump", "--help"}, 10000);
     REQUIRE_FALSE(bump_help.timed_out);
     REQUIRE(bump_help.exit_code == 0);
+    // The alias goes through the same code path as `pin`, so the help
+    // is the same text — confirms users won't get a stale "bump"-named
+    // dead-end if they keep typing the old command.
     REQUIRE(bump_help.stdout_output.find("--all") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("--dry-run") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("--force-dirty") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("--allow-downgrade") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("--allow-cli-skew") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("--allow-redundant") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("--verify-builds") != std::string::npos);
-    REQUIRE(bump_help.stdout_output.find("pulp.toml sdk_version") != std::string::npos);
+
+    auto unpin_help = run_pulp({"project", "unpin", "--help"}, 10000);
+    REQUIRE_FALSE(unpin_help.timed_out);
+    REQUIRE(unpin_help.exit_code == 0);
+    REQUIRE(unpin_help.stdout_output.find("floating") != std::string::npos);
+    REQUIRE(unpin_help.stdout_output.find("pulp project pin") != std::string::npos);
 
     auto undo_help = run_pulp({"project", "undo", "--help"}, 10000);
     REQUIRE_FALSE(undo_help.timed_out);
@@ -1449,6 +1472,77 @@ TEST_CASE("pulp project is a recognized command with bump + undo subcommands",
     REQUIRE_FALSE(bogus.timed_out);
     REQUIRE(bogus.exit_code != 0);
     REQUIRE(bogus.stderr_output.find("unknown subcommand") != std::string::npos);
+}
+
+// pulp #2087: `pulp project unpin` rewrites pulp.toml's sdk_version
+// to "latest" so the project tracks the newest installed SDK on every
+// rebuild. Inverse of `pin <version>`. We exercise the round trip
+// against a synthetic standalone project fixture so the test doesn't
+// depend on the registry or on remote network state.
+TEST_CASE("pulp project unpin switches a pinned project to floating mode",
+          "[cli][shellout][issue-2087]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto base = fs::temp_directory_path() /
+                ("pulp-shellout-unpin-" +
+                 std::to_string(std::chrono::steady_clock::now()
+                                    .time_since_epoch().count()));
+    auto home = base / "home";
+    auto project = base / "out" / "my-plugin";
+    fs::create_directories(home);
+    fs::create_directories(project);
+
+    // Minimal pinned project. Don't run `pulp create` — it would fetch
+    // the SDK from the network, which we don't want in a unit test.
+    // The unpin command only needs pulp.toml + a not-the-Pulp-checkout
+    // layout to operate, so we synthesize both inline.
+    {
+        std::ofstream f(project / "pulp.toml");
+        f << "[pulp]\n";
+        f << "sdk_version = \"0.91.0\"\n";
+    }
+    {
+        std::ofstream f(project / "CMakeLists.txt");
+        f << "cmake_minimum_required(VERSION 3.24)\n";
+        f << "project(MyPlugin VERSION 1.0.0 LANGUAGES CXX)\n";
+        f << "find_package(Pulp 0.91.0 REQUIRED)\n";
+    }
+
+    pulp_setenv("PULP_HOME", home.string().c_str(), 1);
+    pulp_setenv("PULP_UPDATE_CHECK_DISABLED", "1", 1);
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(project);
+
+    // Dry-run first: must NOT mutate the file.
+    auto dry = exec(bin.string(), {"project", "unpin", "--dry-run"}, 10000);
+    const auto pre_dry = read_file(project / "pulp.toml");
+    REQUIRE_FALSE(dry.timed_out);
+    REQUIRE(dry.exit_code == 0);
+    REQUIRE(dry.stdout_output.find("[dry-run]") != std::string::npos);
+    REQUIRE(dry.stdout_output.find("0.91.0") != std::string::npos);
+    REQUIRE(pre_dry.find("sdk_version = \"0.91.0\"") != std::string::npos);
+
+    // Real run: pulp.toml's sdk_version must become "latest".
+    auto run = exec(bin.string(), {"project", "unpin"}, 10000);
+    const auto post = read_file(project / "pulp.toml");
+    REQUIRE_FALSE(run.timed_out);
+    REQUIRE(run.exit_code == 0);
+    REQUIRE(run.stdout_output.find("unpinned") != std::string::npos);
+    REQUIRE(post.find("sdk_version = \"latest\"") != std::string::npos);
+    REQUIRE(post.find("sdk_version = \"0.91.0\"") == std::string::npos);
+
+    // Idempotence: running unpin twice should be a no-op the second time.
+    auto run2 = exec(bin.string(), {"project", "unpin"}, 10000);
+    REQUIRE_FALSE(run2.timed_out);
+    REQUIRE(run2.exit_code == 0);
+    REQUIRE(run2.stdout_output.find("already floating") != std::string::npos);
+
+    fs::current_path(cwd_saver);
+    pulp_unsetenv("PULP_UPDATE_CHECK_DISABLED");
+    pulp_unsetenv("PULP_HOME");
+    fs::remove_all(base);
 }
 
 // Issue #564 Slice 7: `pulp project bump --dry-run` rejects an
