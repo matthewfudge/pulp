@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-15 00:16 PDT
+Last updated: 2026-05-15 00:20 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -138,7 +138,7 @@ Initial no-CI readiness sweep, refreshed through 2026-05-14 22:35 PDT:
 | local audio tools/model-store | `75ed3a63` | `92e83b37` | clean, test-only, no open PR, behind latest base | rebase/re-smoke before #643 tools wave |
 | #646 SDL3 surface fallback | `d81b03cc` | `92e83b37` | clean, test-only, no remote branch, behind latest base | rebase/re-smoke before #646 render wave |
 | local AudioFocus dispatch | `f819d985` | `d191cdca` | clean, includes source fix, behind current base | rebase/re-smoke; keep separate; SDK patch bump required before push/CI |
-| #2012 audio-file batch | `e4e7147f` | `c98896db` | open PR on `feature/phase3-audio-file-batch-640`; test-only GitHub-hosted batch; local macOS target build, focused tag run, full binary, and sync/version/docs/compat guards passed | monitor GitHub Actions hosted checks, enable/perform merge when required checks are green |
+| #2012 audio-file batch | `18333207` | `b70bd42a` | open PR on `feature/phase3-audio-file-batch-640`; test-only GitHub-hosted batch; refreshed after CI exposed a parallel temp-directory race in the existing MIDI-file tests; local macOS target build, focused tag run, full binary, parallel MIDI-file selector, and sync/version/docs/compat guards passed | monitor GitHub Actions hosted checks, merge when required checks are green |
 | local AudioFileData shape | `eac19fe2` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
 | local AIFF PCM edges | `74774950` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
 | local StreamingWriter reopen | `5e1d020d` | `92e83b37` | superseded by #2012 batch | no standalone CI action |
@@ -163,6 +163,7 @@ Initial no-CI readiness sweep, refreshed through 2026-05-14 22:35 PDT:
 | local package freshness extra | `55bee1c5` | `92e83b37` | superseded by #2016 | no standalone CI action |
 | #646 SDL3 surface fallback | `d81b03cc` | `92e83b37` | superseded by #2016 | no standalone CI action |
 | #2017 view/widget wave | `8f9effa7` | `7a532c59` | open PR on `feature/phase3-view-widget-batch-493`; broad test-only GitHub-hosted wave superseding 18 local #493 view/widget tranches; local macOS target build, full touched binaries, and sync/version/docs/compat guards passed | monitor GitHub Actions hosted checks, merge when required checks are green |
+| #2019 MIDI/host format batch | `62a17f78` | `b70bd42a` | open PR on `feature/phase3-midi-host-batch-645`; test-only GitHub-hosted batch covering MPE buffer/tracker edges, diagnostic reporter/default JSON, host-type feature heuristics, descriptor validation warning/error combinations, and scan blacklist parser edges; local macOS target build, focused tag runs, full touched binaries, and sync/version/docs/compat guards passed | monitor GitHub Actions hosted checks, merge when required checks are green |
 | local appearance manager | `0bbaaa9a` | `92e83b37` | superseded by #2017 | no standalone CI action |
 | local audio bridge edges | `2d00e9ac` | `92e83b37` | superseded by #2017 | no standalone CI action |
 | local AutoUi edges | `832c0781` | `92e83b37` | superseded by #2017 | no standalone CI action |
@@ -295,6 +296,52 @@ skill-sync, version-bump, docs-sync, and compat-sync reports passed.
 Branch push pre-push gates passed without demotion. Resume action:
 monitor #2017 required GitHub-hosted checks and merge directly when
 green; do not use Namespace or SSH targets.
+
+2026-05-15 00:18 PDT: refreshed #2012 after GitHub-hosted macOS exposed
+a parallel test isolation issue outside the audio-file diff. The failed
+check was `Build and Test / macOS (ARM64) [github-hosted]`; its log
+showed `read_midi_file falls back for non-PPQ divisions` failing because
+`read.has_value()` was false. The failing test used a `TempDir` name
+based only on `steady_clock::now().time_since_epoch().count()`, so
+parallel Catch/CTest processes could collide on the same temp path and
+one destructor could remove another process's fixture files. The fix adds
+random-device entropy to the MIDI-file `TempDir` name. Revalidated on
+macOS after rebasing onto `origin/main` `b70bd42a`: build
+`pulp-test-audio-file` and `pulp-test-midi-file`, focused
+`./build/test/pulp-test-audio-file "[audio][file][issue-640]" -r compact`
+passing 308 assertions in 16 test cases, full `pulp-test-audio-file`
+passing 561 assertions in 33 test cases, and
+`ctest --test-dir build -R "read_midi_file" -j 8 --output-on-failure`
+passing 4/4. `git diff --check`, `git diff --cached --check`,
+skill-sync, version-bump, docs-sync, and compat-sync reports passed.
+Force-with-lease pushed `feature/phase3-audio-file-batch-640` to
+`18333207`; resume action is to monitor the fresh GitHub-hosted
+pull-request checks and merge #2012 directly when green.
+
+2026-05-15 00:20 PDT: created the #645/#493 MIDI/host format batch
+`feature/phase3-midi-host-batch-645` at `62a17f78`, PR #2019, based on
+current `origin/main` `b70bd42a`. The branch is test-only and touches
+`test/test_mpe_buffer.cpp`, `test/test_diagnostic_reporter.cpp`,
+`test/test_descriptor_validation.cpp`, and `test/test_scan_blacklist.cpp`.
+It adds MPE buffer equal-offset/move-add/tracker sample-offset coverage,
+diagnostic reporter default and JSON output coverage, HostType resize and
+sidechain feature heuristics, descriptor validation warning/error
+combinations, and scan blacklist parser edge coverage.
+
+Local macOS validation passed for #2019: build `pulp-test-mpe-buffer`,
+`pulp-test-diagnostic`, `pulp-test-descriptor-validation`, and
+`pulp-test-scan-blacklist`; focused `"[issue-645]"` MPE run passed 20
+assertions in 3 test cases; focused `"[issue-493]"` diagnostic,
+descriptor-validation, and scan-blacklist runs passed 26 assertions in 3
+test cases, 34 assertions in 9 test cases, and 16 assertions in 3 test
+cases respectively; full touched binaries passed 39 assertions in 6 test
+cases, 46 assertions in 10 test cases, 50 assertions in 19 test cases,
+and 42 assertions in 12 test cases respectively. `git diff --check
+origin/main...HEAD`, `git diff --check`, `git diff --cached --check`,
+skill-sync, version-bump, docs-sync, and compat-sync reports passed.
+Branch pushed and PR opened with GitHub-hosted CI only; no Namespace or
+SSH dispatch. Resume action: monitor #2019 required checks and merge
+directly when green.
 
 ## Snapshot Summary
 
