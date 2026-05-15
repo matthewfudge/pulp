@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Pulp
-    VERSION 0.101.4
+    VERSION 0.101.5
     DESCRIPTION "Cross-platform audio plugin and application framework"
     HOMEPAGE_URL "https://github.com/danielraffel/pulp"
     LANGUAGES CXX C
@@ -1085,4 +1085,44 @@ if(PULP_HAS_SKIA)
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/skia-build"
         DESTINATION external
     )
+endif()
+
+# ── Linux fontconfig post-pass ──────────────────────────────────────────
+# GNU ld processes static archives left-to-right and won't re-scan.
+# `libskia.a(SkFontMgr_fontconfig.o)` references Fc* symbols and
+# requires -lfontconfig AFTER it on the link line. Multiple
+# incremental fixes (#1986 pulp-cli, #2018 pulp-import-design,
+# #2056 _pulp_add_standalone, #2058 canvas INTERFACE) have addressed
+# specific targets one by one, but each release-cli cycle reveals a
+# new failing target (most recently examples/view-bridge-demo).
+#
+# This final pass walks every executable defined in the project tree
+# and applies `pulp_link_fontconfig_after_skia` so fontconfig appears
+# at the END of every consumer's link line. No-op on macOS/Windows/Android.
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpLinkFontconfig.cmake")
+
+    function(_pulp_collect_executables_recursive out_var dir)
+        get_property(_sub_dirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+        get_property(_dir_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+        set(_acc "")
+        foreach(_t ${_dir_targets})
+            if(TARGET ${_t})
+                get_target_property(_ttype ${_t} TYPE)
+                if(_ttype STREQUAL "EXECUTABLE")
+                    list(APPEND _acc ${_t})
+                endif()
+            endif()
+        endforeach()
+        foreach(_s ${_sub_dirs})
+            _pulp_collect_executables_recursive(_inner "${_s}")
+            list(APPEND _acc ${_inner})
+        endforeach()
+        set(${out_var} "${_acc}" PARENT_SCOPE)
+    endfunction()
+
+    _pulp_collect_executables_recursive(_all_executables "${CMAKE_SOURCE_DIR}")
+    foreach(_exec ${_all_executables})
+        pulp_link_fontconfig_after_skia(${_exec})
+    endforeach()
 endif()
