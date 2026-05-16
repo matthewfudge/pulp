@@ -5003,7 +5003,7 @@ No Namespace/SSH validation was dispatched.
 2026-05-15 18:32 PDT: prepared the next held events/IPC/service-discovery
 coverage batch in `/private/tmp/pulp-phase3-codecov-events-batch-664` on
 `feature/phase3-codecov-events-batch-664`, based on `origin/main`
-`85bd37efa`. Current head is `5b6e60b59` (`test(events): cover IPC client
+`85bd37efa`. Current head is `0934f48f` (`test(events): cover IPC client
 disconnect lifecycle`), 12 commits ahead of `origin/main`.
 
 The batch covers root fixes plus focused tests for:
@@ -5023,3 +5023,13 @@ pulp-test-network-service-discovery -j$(sysctl -n hw.ncpu)`;
 "EventLoop|Timer|ActionBroadcaster|IPC|NSD|MountedVolumeListChangeDetector|LockingAsyncUpdater"`
 with 57/57 tests passing; and `git diff --check`. No Namespace/SSH validation
 was dispatched.
+
+2026-05-15 18:35 PDT: published the held events/IPC/service-discovery batch
+as #2100, `test: batch events coverage`, on
+`feature/phase3-codecov-events-batch-664` at `0934f48f`. The branch push
+passed local pre-push gates with
+`PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1
+PULP_SKIP_DIFF_COVER=1`; the tip commit carries
+`Version-Bump: sdk=skip reason="coverage and internal robustness batch; no
+SDK or CLI surface change"`. #2100 was opened via the GitHub REST API after
+`gh pr create` hit the GraphQL rate limit, and it is labeled `codecov`.
