@@ -535,6 +535,21 @@ TEST_CASE("ObservableValue assignment operator emits one change",
     REQUIRE(count == 1);
 }
 
+TEST_CASE("ObservableValue skips empty listeners", "[state][observable][codecov]") {
+    ObservableValue<int> val(1);
+    int count = 0;
+
+    val.add_listener({});
+    val.add_listener([&](const int& old_value, const int& new_value) {
+        REQUIRE(old_value == 1);
+        REQUIRE(new_value == 2);
+        ++count;
+    });
+
+    val.set(2);
+    REQUIRE(count == 1);
+}
+
 // ── CachedProperty ──────────────────────────────────────────────────────
 
 TEST_CASE("CachedProperty binds default and follows tree updates", "[state][cached]") {
