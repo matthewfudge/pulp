@@ -5409,3 +5409,31 @@ assertions passing; and `git diff --check`. Direct branch push pre-push
 diff-cover hit the known `mbedtls v3.6.2` FetchContent checkout issue and was
 demoted with `PULP_DISABLE_PREPUSH_DIFF_COVER=1`; GitHub hosted CI remains the
 merge gate. No Namespace/SSH validation was dispatched.
+
+2026-05-16 00:53 PDT: published the next CLI package coverage batch as #2110,
+`test(cli): batch package registry coverage edges`, on
+`feature/phase3-codecov-cli-package-batch-672` at `ebcf46d2a`, labeled
+`codecov` and `tests`.
+
+Batch contents cover:
+- Package registry malformed lock roots, empty target writes, semver extra
+  component rejection, and community-tier quality scoring.
+- Package command search help, malformed local registry handling, commercial
+  override for proprietary package metadata, and CMake regeneration when
+  removing one package while another remains installed.
+
+Root-cause product fixes included:
+- `cmd_search` now fails clearly on a malformed local registry instead of
+  silently falling through to remote registry behavior.
+- `SemVer::parse` now rejects extra numeric components such as `1.2.3.4`
+  instead of silently truncating them to `1.2.3`.
+
+Local validation before publishing passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF`;
+`cmake --build build --target pulp-test-cli-package-registry
+pulp-test-cli-package-commands -j8`; `./build/test/pulp-test-cli-package-registry`
+with 7 test cases / 122 assertions passing; `./build/test/pulp-test-cli-package-commands`
+with 15 test cases / 215 assertions passing; and `git diff --check`. Direct
+branch push pre-push diff-cover hit the known `mbedtls v3.6.2` FetchContent
+checkout issue and was demoted with `PULP_DISABLE_PREPUSH_DIFF_COVER=1`; GitHub
+hosted CI remains the merge gate. No Namespace/SSH validation was dispatched.
