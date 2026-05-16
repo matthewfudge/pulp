@@ -186,6 +186,38 @@ class WalkStatusTests(unittest.TestCase):
             [("root.item", "usable", "Needs proof.", False)],
         )
 
+    def test_walk_statuses_ignores_nested_notes_and_platform_fields(self) -> None:
+        matrix = dedent(
+            """\
+            root:
+              item:
+                status: usable
+                notes: Parent note has no proof.
+                metadata:
+                  notes: Validated child note must not override parent.
+                  platform: linux
+              item_with_late_parent_note:
+                status: usable
+                metadata:
+                  notes: nested validation
+                notes: Parent tests exist.
+            """
+        )
+
+        rows = {
+            path: (status, notes, platform_scoped)
+            for path, status, notes, platform_scoped in csl.walk_statuses(matrix)
+        }
+
+        self.assertEqual(
+            rows["root.item"],
+            ("usable", "Parent note has no proof.", False),
+        )
+        self.assertEqual(
+            rows["root.item_with_late_parent_note"],
+            ("usable", "Parent tests exist.", False),
+        )
+
 
 class WaiverTests(unittest.TestCase):
     def test_load_waivers_strips_comments_and_blanks(self) -> None:

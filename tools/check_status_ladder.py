@@ -99,6 +99,7 @@ def walk_statuses(matrix_text: str):
             notes = ""
             has_platform_field = False
             entry_indent = stack[-1][0] if stack else -1
+            status_indent = indent
             j = i + 1
             while j < len(lines):
                 next_line = lines[j]
@@ -108,8 +109,11 @@ def walk_statuses(matrix_text: str):
                 next_indent = len(next_line) - len(next_line.lstrip(" "))
                 if next_indent <= entry_indent:
                     break
+                if next_indent != status_indent:
+                    j += 1
+                    continue
                 m_notes = re.match(r"^\s*notes:\s*(.*)$", next_line)
-                if m_notes:
+                if m_notes and not notes:
                     notes_val = m_notes.group(1).strip()
                     if notes_val in (">", "|", ">-", "|-"):
                         # Block scalar — read continuation lines
