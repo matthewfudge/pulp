@@ -5659,3 +5659,31 @@ assertions / 17 cases); `./build/test/pulp-test-xml-zip` (155 assertions / 34
 cases); and `git diff --check`. This batch remains intentionally local until
 the current GitHub-hosted queue drains enough to submit it as a single larger
 coverage PR.
+
+2026-05-16 12:04 PDT: added one more local-only tranche to the same combined
+batch while the GitHub-hosted queue remained blocked on pending macOS/sanitizer
+lanes. `/private/tmp/pulp-phase3-codecov-combined-677`,
+`feature/phase3-codecov-combined-677`, now has five local commits:
+`d5e6842f9` async-stream coverage, `e9014fe0a` test-signal coverage,
+`f3042a1da` XML/gzip coverage, `5d2eb6b37` runtime helper coverage, and
+`6b41d3f1b` host scan cache/blacklist metadata coverage. Current diff is
+test-only across `test/test_async_stream.cpp`, `test/test_runtime.cpp`,
+`test/test_scan_blacklist.cpp`, `test/test_scan_cache.cpp`,
+`test/test_test_signal.cpp`, and `test/test_xml_zip.cpp` with 854 net added
+test lines.
+
+Expanded validation passed:
+`cmake --build build --target pulp-test-async-stream pulp-test-stream
+pulp-test-test-signal pulp-test-xml-zip pulp-test-runtime pulp-test-scan-cache
+pulp-test-scan-blacklist -j$(sysctl -n hw.ncpu)`; `ctest --test-dir build -R
+"AsyncStream|Stream|TestSignalSource|XmlDocument|xml_generate|gzip|deflate|
+Runtime (environment helpers|GMT helper|C string copy)|blacklisting a missing
+plugin|duplicate blacklist records|unknown percent escapes|nested blacklist
+parent|ScanCache put on a missing path|ScanCache erase and clear|non-array
+entries|duplicate JSON entries|ScanCache save_to creates nested"
+--output-on-failure` (96/96); `./build/test/pulp-test-runtime` (188 assertions
+/ 26 cases); `./build/test/pulp-test-test-signal` (834 assertions / 17 cases);
+`./build/test/pulp-test-xml-zip` (155 assertions / 34 cases);
+`./build/test/pulp-test-scan-cache` (95 assertions / 19 cases);
+`./build/test/pulp-test-scan-blacklist` (65 assertions / 16 cases); and
+`git diff --check`.
