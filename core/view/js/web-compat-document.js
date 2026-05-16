@@ -123,40 +123,93 @@ function _setupPseudoActive(el, props) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function _parseSelector(str) {
-    var result = { tag: null, id: null, classes: [], pseudo: null, parent: null, direct: false };
+    var result = { tag: null, id: null, classes: [], attrs: [], pseudo: null,
+                   parent: null, direct: false };
 
-    // Split pseudo-class
-    var pseudoIdx = str.indexOf(":");
+    if (!str) return result;
+    str = String(str);
+
+    // Strip trailing pseudo-class. Scan for `:` at bracket depth 0 only,
+    // so colons inside `[href="http://x"]` aren't misinterpreted.
+    var pseudoIdx = -1;
+    var pdepth = 0;
+    for (var pi = 0; pi < str.length; pi++) {
+        var pc = str[pi];
+        if (pc === '[') pdepth++;
+        else if (pc === ']') pdepth--;
+        else if (pdepth === 0 && pc === ':' && (pi === 0 || str[pi - 1] !== '\\')) {
+            pseudoIdx = pi; break;
+        }
+    }
     var mainPart = str;
     if (pseudoIdx >= 0) {
         result.pseudo = str.slice(pseudoIdx + 1);
         mainPart = str.slice(0, pseudoIdx);
     }
+    mainPart = mainPart.trim();
 
-    // Check for descendant/child combinators
-    if (mainPart.indexOf(" > ") >= 0) {
-        var cp = mainPart.split(" > ");
-        result.parent = _parseSelector(cp.slice(0, -1).join(" > "));
-        result.direct = true;
-        mainPart = cp[cp.length - 1].trim();
-    } else if (mainPart.indexOf(" ") >= 0) {
-        var sp = mainPart.split(/\s+/);
-        result.parent = _parseSelector(sp.slice(0, -1).join(" "));
-        result.direct = false;
-        mainPart = sp[sp.length - 1].trim();
+    // Combinator split on the OUTERMOST level (combinators inside `[…]`
+    // are protected by the bracket-depth check).
+    var splitIdx = -1;
+    var splitDirect = false;
+    var depth = 0;
+    for (var ci = mainPart.length - 1; ci >= 0; ci--) {
+        var ch = mainPart[ci];
+        if (ch === "]") depth++;
+        else if (ch === "[") depth--;
+        else if (depth === 0 && ch === ">") { splitIdx = ci; splitDirect = true; break; }
+        else if (depth === 0 && ch === " " && ci < mainPart.length - 1 &&
+                 mainPart[ci + 1] !== ">" && (ci === 0 || mainPart[ci - 1] !== ">")) {
+            splitIdx = ci; splitDirect = false;
+            break;
+        }
     }
 
-    // Parse tag, id, classes from main part
-    var parts = mainPart.match(/^([a-zA-Z][\w-]*)?([#.][^#.]+)*/);
-    if (parts && parts[0]) {
-        var tokens = mainPart.match(/([#.][a-zA-Z][\w-]*)|^([a-zA-Z][\w-]*)/g);
-        if (tokens) {
-            for (var i = 0; i < tokens.length; i++) {
-                var t = tokens[i];
-                if (t[0] === "#") result.id = t.slice(1);
-                else if (t[0] === ".") result.classes.push(t.slice(1));
-                else result.tag = t.toLowerCase();
+    if (splitIdx >= 0) {
+        var leftRaw = mainPart.slice(0, splitIdx).trim();
+        var rightRaw = mainPart.slice(splitIdx + 1).trim();
+        if (leftRaw.length && rightRaw.length) {
+            result.parent = _parseSelector(leftRaw);
+            result.direct = splitDirect;
+            mainPart = rightRaw;
+        }
+    }
+
+    // Tokenize tag / #id / .class / [attr...] from the rightmost simple selector.
+    var tokenRe = /\[[^\]]+\]|#[A-Za-z_][\w-]*|\.[A-Za-z_][\w-]*|[A-Za-z_][\w-]*/g;
+    var match;
+    while ((match = tokenRe.exec(mainPart)) !== null) {
+        var t = match[0];
+        if (!t) continue;
+        if (t[0] === "#") {
+            result.id = t.slice(1);
+        } else if (t[0] === ".") {
+            result.classes.push(t.slice(1));
+        } else if (t[0] === "[") {
+            var inner = t.slice(1, -1);
+            var op = null;
+            var opIdx = -1;
+            var ops = ["^=", "$=", "*=", "|=", "~=", "="];
+            for (var oi = 0; oi < ops.length; oi++) {
+                var idx = inner.indexOf(ops[oi]);
+                if (idx >= 0 && (opIdx < 0 || idx < opIdx)) {
+                    op = ops[oi]; opIdx = idx;
+                }
             }
+            if (op === null) {
+                result.attrs.push({ name: inner.trim(), op: null, value: null });
+            } else {
+                var aname = inner.slice(0, opIdx).trim();
+                var aval = inner.slice(opIdx + op.length).trim();
+                if (aval.length >= 2 &&
+                    ((aval[0] === '"' && aval[aval.length - 1] === '"') ||
+                     (aval[0] === "'" && aval[aval.length - 1] === "'"))) {
+                    aval = aval.slice(1, -1);
+                }
+                result.attrs.push({ name: aname, op: op, value: aval });
+            }
+        } else {
+            if (result.tag === null) result.tag = t.toLowerCase();
         }
     }
 
@@ -164,24 +217,57 @@ function _parseSelector(str) {
 }
 
 function _matchesSelector(el, parsed) {
-    // Match tag
     if (parsed.tag && el.tagName.toLowerCase() !== parsed.tag) return false;
-
-    // Match id
     if (parsed.id && el.getAttribute("id") !== parsed.id) return false;
 
-    // Match classes
     for (var i = 0; i < parsed.classes.length; i++) {
         if (!el.classList.contains(parsed.classes[i])) return false;
     }
 
-    // Match parent constraint
+    if (parsed.attrs && parsed.attrs.length) {
+        for (var ai = 0; ai < parsed.attrs.length; ai++) {
+            var a = parsed.attrs[ai];
+            if (a.op === null) {
+                if (!el.hasAttribute(a.name)) return false;
+                continue;
+            }
+            var av = el.getAttribute(a.name);
+            if (av === null || av === undefined) return false;
+            switch (a.op) {
+                case "=":  if (av !== a.value) return false; break;
+                case "^=": if (a.value === "" || String(av).indexOf(a.value) !== 0) return false; break;
+                case "$=": {
+                    if (a.value === "") return false;
+                    var s = String(av);
+                    if (s.length < a.value.length) return false;
+                    if (s.slice(s.length - a.value.length) !== a.value) return false;
+                    break;
+                }
+                case "*=": if (a.value === "" || String(av).indexOf(a.value) < 0) return false; break;
+                case "|=": {
+                    var s2 = String(av);
+                    if (s2 !== a.value && s2.indexOf(a.value + "-") !== 0) return false;
+                    break;
+                }
+                case "~=": {
+                    if (!a.value || /\s/.test(a.value)) return false;
+                    var tokens = String(av).split(/\s+/);
+                    var foundTok = false;
+                    for (var ti = 0; ti < tokens.length; ti++) {
+                        if (tokens[ti] === a.value) { foundTok = true; break; }
+                    }
+                    if (!foundTok) return false;
+                    break;
+                }
+                default: return false;
+            }
+        }
+    }
+
     if (parsed.parent) {
         if (parsed.direct) {
-            // Direct child: parent must be immediate parent
             if (!el._parentElement || !_matchesSelector(el._parentElement, parsed.parent)) return false;
         } else {
-            // Descendant: any ancestor must match
             var ancestor = el._parentElement;
             var found = false;
             while (ancestor) {
@@ -294,8 +380,61 @@ var document = {
     },
 
     createTextNode: function(text) {
+        // Backed by an Element (`<span>`) so renderers handle text uniformly,
+        // but flagged as a DOM-spec text node so reconcilers (React 18, etc.)
+        // see `node.nodeType === 3` and `node.nodeName === "#text"`.
         var el = new Element("span");
         el._textContent = text;
+        el._isTextNode = true;
+        Object.defineProperty(el, "nodeType", { value: 3, configurable: true });
+        Object.defineProperty(el, "nodeName", { value: "#text", configurable: true });
+        Object.defineProperty(el, "data", {
+            get: function() { return this._textContent; },
+            set: function(v) {
+                this._textContent = v == null ? "" : String(v);
+                if (this._nativeCreated && typeof setText === "function") setText(this._id, this._textContent);
+            },
+            configurable: true
+        });
+        Object.defineProperty(el, "nodeValue", {
+            get: function() { return this._textContent; },
+            set: function(v) {
+                this._textContent = v == null ? "" : String(v);
+                if (this._nativeCreated && typeof setText === "function") setText(this._id, this._textContent);
+            },
+            configurable: true
+        });
+        __elements__[el._id] = el;
+        return el;
+    },
+
+    createComment: function(text) {
+        var el = new Element("span");
+        el._textContent = "";
+        el._isCommentNode = true;
+        el._hidden = true;
+        Object.defineProperty(el, "nodeType", { value: 8, configurable: true });
+        Object.defineProperty(el, "nodeName", { value: "#comment", configurable: true });
+        Object.defineProperty(el, "data", {
+            get: function() { return this._commentText || ""; },
+            set: function(v) { this._commentText = v == null ? "" : String(v); },
+            configurable: true
+        });
+        Object.defineProperty(el, "nodeValue", {
+            get: function() { return this._commentText || ""; },
+            set: function(v) { this._commentText = v == null ? "" : String(v); },
+            configurable: true
+        });
+        if (text != null) el.data = text;
+        __elements__[el._id] = el;
+        return el;
+    },
+
+    createDocumentFragment: function() {
+        var el = new Element("div");
+        el._isDocumentFragment = true;
+        Object.defineProperty(el, "nodeType", { value: 11, configurable: true });
+        Object.defineProperty(el, "nodeName", { value: "#document-fragment", configurable: true });
         __elements__[el._id] = el;
         return el;
     },
@@ -886,7 +1025,17 @@ function __createMockGPUQueue(init) {
             }
         }
     };
-    queue.copyExternalImageToTexture = function() {};
+    queue.copyExternalImageToTexture = function(source, destination, copySize) {
+        if (!source || !destination || !destination.texture) return;
+        var imageBitmap = source.source;
+        if (!imageBitmap || !imageBitmap._decodedPixels) return;
+        var texture = destination.texture;
+        texture._bytes = imageBitmap._decodedPixels;
+        texture._bytesPerRow = imageBitmap.width * 4;
+        texture._rowsPerImage = imageBitmap.height;
+        texture.width = imageBitmap.width;
+        texture.height = imageBitmap.height;
+    };
     queue.onSubmittedWorkDone = function() {
         return Promise.resolve(undefined);
     };
