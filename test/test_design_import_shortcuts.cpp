@@ -10,6 +10,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/view/design_import.hpp>
+#include <pulp/view/widget_bridge.hpp>
+#include <pulp/view/view.hpp>
+#include <pulp/view/script_engine.hpp>
+#include <pulp/state/store.hpp>
+#include <pulp/view/input_events.hpp>
 #include <algorithm>
 
 using pulp::view::CodeGenMode;
@@ -398,4 +403,150 @@ TEST_CASE("generate_pulp_js Ctrl-only emits ctrlKey:true synthetic event", "[des
     auto body = js.substr(pos, js.find("};", pos) - pos);
     REQUIRE(body.find("ctrlKey: true")  != std::string::npos);
     REQUIRE(body.find("metaKey: false") != std::string::npos);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// End-to-end roundtrip — the wiring the user actually cares about.
+//
+// Path under test:
+//   React source (TSX)
+//     -> extract_keyboard_shortcuts
+//     -> generate_pulp_js (emits registerShortcut + thunks)
+//     -> WidgetBridge.load_script (JS engine evaluates the emitted code,
+//                                  thunks register, native shortcuts get
+//                                  hooked into shortcuts_)
+//     -> bridge.forward_key_event(keycode, modifiers, down)
+//     -> thunk fires -> __dispatch__('__global__', 'keydown', {...})
+//     -> React-style window.addEventListener('keydown', ...) handler
+//        receives a synthetic event with the right flags.
+//
+// Pre-V2 the React handler never fired because the bundled JS never saw
+// the keypress at all (native intercept owned it).  V2's thunk closes
+// the loop by re-dispatching as a synthetic event.  This test pins
+// that loop end-to-end so a future change to either codegen or
+// dispatch can't silently break it.
+// ────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("E2E roundtrip: extract -> codegen -> WidgetBridge -> React-style handler",
+          "[design-import][shortcuts][v2][e2e]") {
+    using namespace pulp::view;
+    using pulp::state::StateStore;
+
+    // 1. A representative React source — covers the patterns the user
+    //    cares about: bare key (Escape), mode key (F with chord), and
+    //    the cross-platform save chord that motivated the Codex P1 fix.
+    const char* tsx_source = R"JS(
+        const onKey = (e) => {
+            if (e.key === 'Escape') closeAll();
+            if (e.shiftKey && e.altKey && e.key === 'F') openFlare();
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') save();
+            if (e.ctrlKey && e.key === 'n') newFile();
+        };
+    )JS";
+    auto shortcuts = extract_keyboard_shortcuts(tsx_source, "");
+    // Sorted by key: Escape, F, n, s.
+    REQUIRE(shortcuts.size() == 4);
+
+    // 2. Hand the extracted shortcuts to the codegen.  Empty DesignIR is
+    //    fine — we only want the shortcut block.
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::native;
+    opts.include_comments = false;
+    opts.shortcuts = shortcuts;
+
+    DesignIR ir;
+    std::string emitted_js = generate_pulp_js(ir, opts);
+
+    // 3. Spin up a WidgetBridge and install a React-style global keydown
+    //    handler BEFORE evaluating the emitted JS, so the handler is
+    //    already wired when registerShortcut runs.  Then load the
+    //    emitted script.
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"JS(
+        var fired = [];
+        function recordKey(e) {
+            fired.push({
+                key:      e.key,
+                ctrlKey:  !!e.ctrlKey,
+                shiftKey: !!e.shiftKey,
+                altKey:   !!e.altKey,
+                metaKey:  !!e.metaKey
+            });
+        }
+        // Mimic the React-imported handlers — same shapes the developer
+        // wrote in the source above.
+        function escapeHandler(e) { if (e.key === 'Escape') recordKey(e); }
+        function modeFHandler(e)  { if (e.shiftKey && e.altKey && e.key === 'F') recordKey(e); }
+        function saveHandler(e)   { if ((e.metaKey || e.ctrlKey) && e.key === 's') recordKey(e); }
+        function newCtrlOnly(e)   { if (e.ctrlKey && e.key === 'n') recordKey(e); }
+
+        window.addEventListener('keydown', escapeHandler);
+        window.addEventListener('keydown', modeFHandler);
+        window.addEventListener('keydown', saveHandler);
+        window.addEventListener('keydown', newCtrlOnly);
+
+        function fired_count() { return fired.length; }
+        function fired_at(i, field) { return fired[i] ? fired[i][field] : null; }
+    )JS");
+
+    // Now evaluate the codegen output — defines __pulpShortcutHandler_N
+    // and calls registerShortcut() for each chord.
+    bridge.load_script(emitted_js);
+
+    auto fired_count = [&]() {
+        return engine.evaluate("fired_count()").getWithDefault<int>(-1);
+    };
+    auto fired_field = [&](int i, const std::string& field) {
+        return engine.evaluate("fired_at(" + std::to_string(i) + ", '" + field + "')");
+    };
+
+    REQUIRE(fired_count() == 0);
+
+    // 4. Drive the chord through the native intercept path.
+
+    // Escape — bare key, no modifiers.
+    bridge.forward_key_event(static_cast<int>(KeyCode::escape), 0, true);
+    REQUIRE(fired_count() == 1);
+    REQUIRE(fired_field(0, "key").toString()         == "Escape");
+    REQUIRE(fired_field(0, "metaKey").getWithDefault<bool>(true) == false);
+    REQUIRE(fired_field(0, "ctrlKey").getWithDefault<bool>(true) == false);
+
+    // Mode key F with shift+alt.
+    bridge.forward_key_event(static_cast<int>('f'),
+                             static_cast<uint16_t>(kModShift | kModAlt), true);
+    REQUIRE(fired_count() == 2);
+    REQUIRE(fired_field(1, "key").toString()         == "F");
+    REQUIRE(fired_field(1, "shiftKey").getWithDefault<bool>(false) == true);
+    REQUIRE(fired_field(1, "altKey").getWithDefault<bool>(false)   == true);
+
+    // Cmd+S — the macOS branch of the cross-platform `metaKey||ctrlKey`
+    // collapse.  V2 emits TWO bindings; this one matches the Cmd mask.
+    // The handler's `e.metaKey || e.ctrlKey` evaluates true via metaKey.
+    bridge.forward_key_event(static_cast<int>('s'), static_cast<uint16_t>(kModCmd), true);
+    REQUIRE(fired_count() == 3);
+    REQUIRE(fired_field(2, "key").toString()         == "s");
+    REQUIRE(fired_field(2, "metaKey").getWithDefault<bool>(false) == true);
+    REQUIRE(fired_field(2, "ctrlKey").getWithDefault<bool>(true)  == false);
+
+    // Ctrl+S — the Win/Linux branch of the same source `||` check.
+    // Pre-Codex-P1 this would have done nothing because V1 normalized
+    // everything to "meta" and V2 only emitted the Cmd-mask binding.
+    bridge.forward_key_event(static_cast<int>('s'), static_cast<uint16_t>(kModCtrl), true);
+    REQUIRE(fired_count() == 4);
+    REQUIRE(fired_field(3, "key").toString()         == "s");
+    REQUIRE(fired_field(3, "ctrlKey").getWithDefault<bool>(false) == true);
+    REQUIRE(fired_field(3, "metaKey").getWithDefault<bool>(true)  == false);
+
+    // Ctrl+N — true Ctrl-only handler (no `||` collapse).  The synthetic
+    // event must carry ctrlKey:true; otherwise the source check fails.
+    bridge.forward_key_event(static_cast<int>('n'), static_cast<uint16_t>(kModCtrl), true);
+    REQUIRE(fired_count() == 5);
+    REQUIRE(fired_field(4, "key").toString()         == "n");
+    REQUIRE(fired_field(4, "ctrlKey").getWithDefault<bool>(false) == true);
+    REQUIRE(fired_field(4, "metaKey").getWithDefault<bool>(true)  == false);
 }
