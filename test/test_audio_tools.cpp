@@ -383,6 +383,69 @@ TEST_CASE("excerpt bundle reader fails clearly without manifest", "[audio][tools
     REQUIRE(result.error.find("bundle path does not exist") != std::string::npos);
 }
 
+TEST_CASE("excerpt bundle reader uses defaults and model/result fallbacks",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto bundle = temp.path / "bundle";
+    fs::create_directories(bundle);
+
+    write_text(bundle / "manifest.json", R"JSON({
+  "tool": "pulp audio excerpt-find",
+  "bundle_version": 1
+}
+)JSON");
+    write_text(bundle / "model.json", R"JSON({
+  "model_id": "clap_music_audioset_v1",
+  "backend": "null"
+}
+)JSON");
+    write_text(bundle / "ranked_results.json", R"JSON({
+  "results": [
+    "ignored",
+    {
+      "score": 0.25,
+      "source_path": "legacy-source.wav",
+      "start_ms": 10,
+      "end_ms": 20
+    }
+  ]
+}
+)JSON");
+
+    auto result = read_excerpt_bundle(bundle);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.model_path == bundle / "model.json");
+    REQUIRE(result.ranked_results_path == bundle / "ranked_results.json");
+    REQUIRE(result.requested_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.loaded_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.backend == "null");
+    REQUIRE(result.result_count == 1);
+    REQUIRE(result.results.size() == 1);
+    REQUIRE(result.results[0].rank == 2);
+    REQUIRE(result.results[0].source_file == "legacy-source.wav");
+}
+
+TEST_CASE("excerpt bundle reader reports empty and missing ranked inputs",
+          "[audio][tools][codecov]") {
+    auto empty = read_excerpt_bundle({});
+    REQUIRE_FALSE(empty.ok);
+    REQUIRE(empty.error == "bundle path is required");
+
+    TempDir temp;
+    auto bundle = temp.path / "bundle";
+    fs::create_directories(bundle);
+    write_text(bundle / "manifest.json", R"JSON({
+  "ranked_results_file": "missing.json"
+}
+)JSON");
+
+    auto missing_ranked = read_excerpt_bundle(bundle);
+    REQUIRE_FALSE(missing_ranked.ok);
+    REQUIRE(missing_ranked.error.find("missing ranked results file")
+            != std::string::npos);
+}
+
 TEST_CASE("excerpt find writes a deterministic WAV-first bundle", "[audio][tools]") {
     TempDir temp;
     auto checkpoint = temp.path / "models" / "clap.pt";
