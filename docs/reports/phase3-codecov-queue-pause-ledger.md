@@ -5234,3 +5234,37 @@ validation passed after rebase:
 `./build/test/pulp-test-dsp-expansion` with 41 test cases / 408 assertions
 passing; and `git diff --check`. Continue adding related signal/DSP coverage
 locally before submitting the next single batched PR.
+
+2026-05-15 23:49 PDT: published the held signal/DSP coverage batch as #2106,
+`test(signal): batch DSP coverage edges`, on
+`feature/phase3-codecov-signal-batch-668` at `05f81890d`, labeled `codecov`
+and `tests`. This keeps the signal/DSP work as one GitHub-hosted CI run
+rather than splitting it into smaller PRs.
+
+Batch contents now cover:
+- `DelayLine` reprepare/resize clearing and existing wrap/reset behavior.
+- `Oscillator` phase/frequency accessors, phase wrap, and reset determinism.
+- Envelope ramp/reset paths, effect reset behavior, gate/bias buffer paths,
+  and visualization helper edges.
+- `SpectrogramBuffer`, `STFT`, `AlignedBuffer`, `Interpolator`, and
+  `DryWetMixer` latency-after-prepare/missing-channel behavior.
+
+Local validation before publishing passed:
+`cmake --build build --target pulp-test-signal pulp-test-dsp-expansion
+pulp-test-dsp-enhancements -j8`; `./build/test/pulp-test-signal` with 90
+test cases / 1078 assertions passing; `./build/test/pulp-test-dsp-expansion`
+with 41 test cases / 408 assertions passing;
+`./build/test/pulp-test-dsp-enhancements` with 23 test cases / 86 assertions
+passing; and `git diff --check`. Direct `git push` pre-push gates were clean.
+`gh pr create` hit the GitHub GraphQL rate limit, so #2106 was opened via the
+GitHub REST API. No Namespace/SSH validation was dispatched.
+
+Monitoring state at publish time:
+- #2102 has only ASan/TSan queued and its Codex P2 comment was already
+  addressed by `71b82e141`.
+- #2103 is running the new `38186634d` hot-reload root-cause fix through
+  GitHub-hosted CI; macOS/sanitizers are still queued.
+- #2104 still has the Windows hosted-runner communication-loss failure while
+  macOS remains in progress; rerun the failed Windows job/run after the
+  workflow finishes unless a later log shows an actual test failure.
+- #2106 checks are queued/running on GitHub-hosted runners only.
