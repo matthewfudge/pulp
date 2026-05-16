@@ -4922,3 +4922,18 @@ pre-push gates with `PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1`;
 no Namespace/SSH lanes were used. #2098 was opened via GitHub REST and
 labeled `codecov`; initial PR state is blocked while GitHub-hosted checks
 queue.
+
+2026-05-15 18:00 PDT: monitored #2098 and fixed the first GitHub-hosted
+Windows failure. `Windows (x64) [github-hosted]` failed only
+`run_process captures stderr separately`; the Windows branch emitted
+`bad news` while the assertion searched for the shared `bad-news` sentinel.
+Commit `796c62cc0` (`test(runtime): make stderr sentinel portable`) changes
+the PowerShell command to write `bad-news` via `[Console]::Error.WriteLine`.
+
+Validation before push passed locally:
+`cmake --build build --target pulp-test-runtime-utils -j$(sysctl -n
+hw.ncpu)`, `ctest --test-dir build --output-on-failure -R
+"run_process captures stderr separately|run_process"` with 4/4 tests
+passing, and `git diff --check`. Push pre-push gates were clean with
+`PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1`. #2098 is now at
+`796c62cc0`; GitHub-hosted checks restarted on the new head.
