@@ -1342,17 +1342,21 @@ Fallback rules while `graphql.remaining == 0`:
   failures in the checks being honored for that lane), merge via REST:
 
 ```bash
+head_sha=$(gh api repos/OWNER/REPO/pulls/PR --jq '.head.sha')
 gh api repos/OWNER/REPO/pulls/PR/merge \
   -X PUT \
+  -f sha="$head_sha" \
   -f merge_method=squash \
   -f commit_title='subject (#PR)'
 ```
 
 If REST merge returns `405 Base branch was modified`, refresh the PR's REST
-state and retry once after the base settles. If checks have re-queued or the
-head SHA changed, re-evaluate before merging. This fallback is for GitHub API
-transport exhaustion only; it does not relax the requirement to fix real CI,
-coverage, sanitizer, or review failures.
+state and check runs, recompute `head_sha`, and retry once after the base
+settles only if the refreshed head SHA and green status are still the values
+you intend to merge. If checks have re-queued or the head SHA changed,
+re-evaluate before merging. This fallback is for GitHub API transport
+exhaustion only; it does not relax the requirement to fix real CI, coverage,
+sanitizer, or review failures.
 
 ## Self-hosted runner ops
 

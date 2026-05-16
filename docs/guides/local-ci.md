@@ -341,16 +341,19 @@ gh api repos/OWNER/REPO/actions/jobs/JOB_ID/logs
 For a PR already verified green through REST, merge through the REST endpoint:
 
 ```bash
+head_sha=$(gh api repos/OWNER/REPO/pulls/PR --jq '.head.sha')
 gh api repos/OWNER/REPO/pulls/PR/merge \
   -X PUT \
+  -f sha="$head_sha" \
   -f merge_method=squash \
   -f commit_title='subject (#PR)'
 ```
 
 If the merge endpoint returns `405 Base branch was modified`, refresh the PR
-state and check runs through REST, then retry once only if the head SHA and
-green status still match. This is a transport fallback, not a validation
-bypass: do not merge around real CI, coverage, sanitizer, or review failures.
+state and check runs through REST, recompute `head_sha`, then retry once only
+if the refreshed head SHA and green status are still the values you intend to
+merge. This is a transport fallback, not a validation bypass: do not merge
+around real CI, coverage, sanitizer, or review failures.
 
 Use `shipyard rescue` when a PR is otherwise ready but blocked by queued,
 cancelled, or failed runner contexts caused by a self-hosted-runner wedge. It is
