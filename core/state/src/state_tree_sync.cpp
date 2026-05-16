@@ -9,9 +9,9 @@ void StateTreeSynchroniser::attach(StateTree::Ptr tree) {
     if (!tree_) return;
 
     listener_id_ = tree_->add_listener(
-        [this](StateTree&, std::string_view prop, const PropertyValue&, const PropertyValue& new_val) {
+        [this](StateTree& node, std::string_view prop, const PropertyValue&, const PropertyValue& new_val) {
             SyncDelta delta;
-            delta.type = std::holds_alternative<std::monostate>(new_val)
+            delta.type = std::holds_alternative<std::monostate>(new_val) && !node.has(prop)
                 ? SyncDeltaType::PropertyRemove
                 : SyncDeltaType::PropertySet;
             delta.path = tree_->type_name();

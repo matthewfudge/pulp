@@ -780,6 +780,27 @@ TEST_CASE("StateTreeSynchroniser records property removals", "[state][sync][code
     REQUIRE(std::holds_alternative<std::monostate>(deltas[0].value));
 }
 
+TEST_CASE("StateTreeSynchroniser preserves explicit null property sets",
+          "[state][sync][codecov]") {
+    auto tree = StateTree::create("root");
+
+    StateTreeSynchroniser sync;
+    sync.attach(tree);
+
+    tree->set("nullable", PropertyValue{});
+
+    auto deltas = sync.take_deltas();
+    REQUIRE(deltas.size() == 1);
+    REQUIRE(deltas[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(deltas[0].key == "nullable");
+    REQUIRE(std::holds_alternative<std::monostate>(deltas[0].value));
+
+    auto mirror = StateTree::create("root");
+    StateTreeSynchroniser::apply(*mirror, deltas);
+    REQUIRE(mirror->has("nullable"));
+    REQUIRE(std::holds_alternative<std::monostate>(mirror->get("nullable")));
+}
+
 TEST_CASE("StateTreeSynchroniser detach clears pending and stops recording", "[state][sync]") {
     auto tree = StateTree::create("root");
     StateTreeSynchroniser sync;
