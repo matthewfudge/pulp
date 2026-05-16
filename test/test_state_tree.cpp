@@ -54,6 +54,20 @@ TEST_CASE("StateTree typed getters keep defaults for mismatched property types",
     REQUIRE(tree->get_bool("as_bool", false) == true);
 }
 
+TEST_CASE("StateTree typed getters fall back on mismatched property types",
+          "[state][tree][codecov]") {
+    auto tree = StateTree::create("test");
+    tree->set("bool_value", true);
+    tree->set("int_value", int64_t(9));
+    tree->set("double_value", 2.5);
+    tree->set("string_value", std::string("text"));
+
+    REQUIRE(tree->get_bool("string_value", true));
+    REQUIRE(tree->get_int("double_value", 42) == 42);
+    REQUIRE_THAT(tree->get_double("int_value", -1.0), WithinAbs(9.0, 1e-5));
+    REQUIRE(tree->get_string("bool_value", "fallback") == "fallback");
+}
+
 TEST_CASE("StateTree has and remove", "[state][tree]") {
     auto tree = StateTree::create("test");
     tree->set("key", std::string("value"));
@@ -136,6 +150,28 @@ TEST_CASE("StateTree child access and removal ignore invalid indexes",
     root->remove_child(99);
     REQUIRE(root->child_count() == 1);
     REQUIRE(removed_count == 0);
+}
+
+TEST_CASE("StateTree child removal ignores invalid inputs and clears parent",
+          "[state][tree][codecov]") {
+    auto root = StateTree::create("root");
+    auto child = StateTree::create("child");
+    auto stranger = StateTree::create("stranger");
+
+    root->add_child(child);
+    REQUIRE(child->parent() == root.get());
+
+    root->remove_child(-1);
+    root->remove_child(99);
+    root->remove_child(stranger.get());
+    root->remove_child(static_cast<StateTree*>(nullptr));
+
+    REQUIRE(root->child_count() == 1);
+    REQUIRE(child->parent() == root.get());
+
+    root->remove_child(child.get());
+    REQUIRE(root->child_count() == 0);
+    REQUIRE(child->parent() == nullptr);
 }
 
 TEST_CASE("StateTree insert child at index", "[state][tree]") {
@@ -460,6 +496,38 @@ TEST_CASE("StateTree from_json skips unsupported properties and child values",
     REQUIRE(result->child(1)->get_bool("default_type"));
 }
 
+TEST_CASE("StateTree from_json ignores malformed members and children",
+          "[state][tree][json][codecov]") {
+    auto non_object = StateTree::from_json("[]");
+    REQUIRE(non_object == nullptr);
+
+    auto result = StateTree::from_json(R"({
+        "type": 123,
+        "properties": {
+            "ok_bool": true,
+            "ok_int32": 7,
+            "skip_array": [1, 2, 3],
+            "skip_null": null
+        },
+        "children": [
+            {"type": "kept", "properties": {"name": "child"}},
+            42,
+            {"type": false}
+        ]
+    })");
+
+    REQUIRE(result != nullptr);
+    REQUIRE(result->type_name() == "node");
+    REQUIRE(result->get_bool("ok_bool"));
+    REQUIRE(result->get_int("ok_int32") == 7);
+    REQUIRE_FALSE(result->has("skip_array"));
+    REQUIRE_FALSE(result->has("skip_null"));
+    REQUIRE(result->child_count() == 2);
+    REQUIRE(result->child(0)->type_name() == "kept");
+    REQUIRE(result->child(0)->get_string("name") == "child");
+    REQUIRE(result->child(1)->type_name() == "node");
+}
+
 // ── Deep copy ───────────────────────────────────────────────────────────
 
 TEST_CASE("StateTree deep copy", "[state][tree]") {
@@ -725,6 +793,22 @@ TEST_CASE("StateTreeSynchroniser detach clears pending and stops recording", "[s
     tree->set("name", std::string("after"));
     tree->add_child(StateTree::create("after_child"));
     tree->remove_child(0);
+    REQUIRE(sync.take_deltas().empty());
+}
+
+TEST_CASE("StateTreeSynchroniser attach nullptr detaches existing listeners",
+          "[state][sync][codecov]") {
+    auto tree = StateTree::create("root");
+    StateTreeSynchroniser sync;
+    sync.attach(tree);
+
+    tree->set("before", std::string("value"));
+    REQUIRE(sync.take_deltas().size() == 1);
+
+    sync.attach(nullptr);
+    tree->set("after", std::string("ignored"));
+    tree->add_child(StateTree::create("ignored_child"));
+
     REQUIRE(sync.take_deltas().empty());
 }
 
