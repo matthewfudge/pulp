@@ -1207,24 +1207,18 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
 
     const auto bin = fs::absolute(pulp_binary());
 
-    // Use --versions so the parser still has to accept the mobile
-    // subcommand before the diagnostic short-circuit, without running the
-    // slow host SDK probes that can hang on saturated CI runners.
-    auto android = exec(bin.string(), {"doctor", "android", "--versions"}, 10000);
-    auto ios     = exec(bin.string(), {"doctor", "ios", "--versions"},     10000);
-    auto bogus   = exec(bin.string(), {"doctor", "potato", "--versions"},  10000);
+    auto android = exec(bin.string(), {"doctor", "android", "--dry-run"}, 10000);
+    auto ios     = exec(bin.string(), {"doctor", "ios", "--dry-run"},     10000);
+    auto bogus   = exec(bin.string(), {"doctor", "potato"},               10000);
 
     REQUIRE_FALSE(android.timed_out);
     REQUIRE_FALSE(ios.timed_out);
     REQUIRE_FALSE(bogus.timed_out);
 
-    // android + ios are recognized before --versions short-circuits the
-    // doctor pipeline. exit 2 is the "unknown subcommand" failure path
-    // we're guarding against.
     REQUIRE(android.exit_code == 0);
     REQUIRE(ios.exit_code == 0);
-    REQUIRE(android.stdout_output.find("Pulp Version Diagnostics") != std::string::npos);
-    REQUIRE(ios.stdout_output.find("Pulp Version Diagnostics") != std::string::npos);
+    REQUIRE(android.stdout_output.find("Pulp Doctor") != std::string::npos);
+    REQUIRE(ios.stdout_output.find("Pulp Doctor") != std::string::npos);
 
     // bogus subcommand: rejected at the parser with a helpful Usage line.
     REQUIRE(bogus.exit_code == 2);
