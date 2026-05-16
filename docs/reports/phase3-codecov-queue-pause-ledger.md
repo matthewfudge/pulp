@@ -5603,3 +5603,38 @@ Prepared but intentionally not pushed/opened:
   build -R "TestSignalSource" --output-on-failure` (17/17); full
   `./build/test/pulp-test-test-signal` (17 cases / 834 assertions); and
   `git diff --check`.
+
+2026-05-16 11:43 PDT: verified the current GitHub-hosted queue and prepared the
+next larger local batch without dispatching new CI.
+
+Active PR queue:
+- #2103, #2104, #2108, #2109, #2110, and #2114 had no current failing checks
+  and were waiting on GitHub-hosted CI lanes.
+- #2111 still showed stale/external `codecov/patch` red for
+  `tools/audio/src/model_registry.cpp:37` while macOS coverage and sanitizer
+  lanes remained queued. Local mirror validation showed the changed line is
+  actually covered: `PULP_DIFF_COVER_CTEST_REGEX='audio model registry
+  resolves|audio model status|audio model store|excerpt'
+  tools/scripts/local_diff_cover.sh pulp-test-audio-tools` reported
+  `tools/audio/src/model_registry.cpp (100%)`, `Missing: 0 lines`, and
+  `Coverage: 100%`. The broad ctest regex also matched three unbuilt CLI/audio
+  tests in that local coverage run, but `local_diff_cover.sh` intentionally
+  generated a partial report and the diff-coverage result for the changed line
+  was green. No line exclusion or product-code hiding was added.
+
+Prepared but intentionally not pushed/opened:
+- `/private/tmp/pulp-phase3-codecov-combined-677`,
+  `feature/phase3-codecov-combined-677`, rebased onto `origin/main` at
+  `366461475`, now combines three local tranches:
+  `d5e6842f9` async-stream coverage, `e9014fe0a` test-signal coverage, and
+  `f3042a1da` XML/gzip coverage. Diff: `test/test_async_stream.cpp`,
+  `test/test_test_signal.cpp`, and `test/test_xml_zip.cpp` with 534 net added
+  test lines. Combined validation passed:
+  `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF`;
+  `cmake --build build --target pulp-test-async-stream pulp-test-stream
+  pulp-test-test-signal pulp-test-xml-zip -j$(sysctl -n hw.ncpu)`;
+  `ctest --test-dir build -R
+  "AsyncStream|Stream|TestSignalSource|XmlDocument|xml_generate|gzip|deflate"
+  --output-on-failure` (78/78); `./build/test/pulp-test-test-signal`
+  (834 assertions / 17 cases); `./build/test/pulp-test-xml-zip` (155
+  assertions / 34 cases); and `git diff --check`.
