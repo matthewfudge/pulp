@@ -516,16 +516,23 @@ mouse / pointer / wheel on macOS. Every dispatcher MUST:
 `WidgetBridge::forward_key_event` checks `registerShortcut` entries
 before falling through to the W3C `__global__` keydown dispatch. To
 prevent global bare-key shortcuts (`?` for cheatsheet, etc.) from
-firing while the user types into a text input, the loop reads
-`View::focused_input_` and suppresses any registered shortcut whose
-modifier mask has no `kModCtrl|kModAlt|kModMeta|kModCmd` bit set.
-Shift alone counts as bare (Shift only picks the upper-case glyph).
-Modifier chords (`Cmd+S`, `Cmd+,`) always fire — they are always-global
-by design and must work even when an editor has focus.
+firing while the user types into a text input, the loop suppresses any
+registered shortcut whose modifier mask has no
+`kModCtrl|kModAlt|kModMeta|kModCmd` bit set, IF a text-accepting
+widget currently has focus. Shift alone counts as bare (Shift only
+picks the upper-case glyph). Modifier chords (`Cmd+S`, `Cmd+,`) always
+fire — they are always-global by design and must work even when an
+editor has focus.
 
-The focused-input slot is the same one used by the macOS PulpView for
-text-input dispatch (#1708); TextEditor-like widgets claim it via
-`View::claim_input_focus()` and release on focus-out / destruction.
+The focus signal is `View::focused_input_` (the same static slot the
+macOS PulpView already maintains for text-input dispatch, #1708)
+**narrowed** by `View::accepts_text_input()`. The slot is populated
+for ANY focusable widget — Knob, Button, ListBox, TextEditor — via the
+window-host focus path, so checking just `focused_input_ != nullptr`
+would wrongly kill bare-key shortcuts after clicking a knob (Codex P1
+finding on #2120). The virtual `accepts_text_input()` returns false by
+default; only `TextEditor` (and any future text-input widget) overrides
+to true.
 
 Prereq for the default-shortcuts pass (`planning/2026-05-16-default-
 keyboard-shortcuts.md`), which adds a bare-`?` cheatsheet binding to

@@ -14004,11 +14004,11 @@ TEST_CASE("WidgetBridge focus-guard: bare-key shortcuts suppressed while text in
         REQUIRE(engine.evaluate("bare_count").getWithDefault<int>(0) == 1);
     }
 
-    SECTION("input focused: bare-key suppressed") {
-        View input;
-        input.set_focusable(true);
+    SECTION("text input focused: bare-key suppressed") {
+        TextEditor input;
         input.claim_input_focus();
         REQUIRE(View::focused_input_ == &input);
+        REQUIRE(input.accepts_text_input());
 
         bridge.forward_key_event(63, 0, true);
         REQUIRE(engine.evaluate("bare_count").getWithDefault<int>(0) == 0);
@@ -14026,9 +14026,28 @@ TEST_CASE("WidgetBridge focus-guard: bare-key shortcuts suppressed while text in
         REQUIRE(View::focused_input_ == nullptr);
     }
 
+    SECTION("non-text focusable (knob/button) focused: bare-key still fires") {
+        // Codex review pin (#2120): `focused_input_` is claimed by any
+        // focusable widget, not just text inputs. The guard MUST check
+        // `accepts_text_input()` — otherwise clicking a knob would kill
+        // every global single-key shortcut until focus moved away.
+        View knob_like;
+        knob_like.set_focusable(true);
+        knob_like.claim_input_focus();
+        REQUIRE(View::focused_input_ == &knob_like);
+        REQUIRE_FALSE(knob_like.accepts_text_input());
+
+        bridge.forward_key_event(63, 0, true);
+        REQUIRE(engine.evaluate("bare_count").getWithDefault<int>(0) == 1);
+
+        bridge.forward_key_event(63, 1, true);
+        REQUIRE(engine.evaluate("shift_count").getWithDefault<int>(0) == 1);
+
+        knob_like.release_input_focus();
+    }
+
     SECTION("focus released: bare-key fires again") {
-        View input;
-        input.set_focusable(true);
+        TextEditor input;
         input.claim_input_focus();
         bridge.forward_key_event(63, 0, true);
         REQUIRE(engine.evaluate("bare_count").getWithDefault<int>(0) == 0);
