@@ -5552,3 +5552,54 @@ merge gate. No Namespace/SSH validation was dispatched.
 were mergeable, and showed no current failing checks; all were waiting on
 GitHub-hosted CI. #2108 and #2109 no longer showed the stale `codecov/patch`
 failure after the follow-up pushes because their checks were re-queued.
+
+2026-05-16 11:30 PDT: continued active PR triage and kept all work out of the
+dirty main checkout (`feature/design-tool-viewport-reconcile`). No Namespace or
+SSH validation was dispatched.
+
+Follow-up pushes:
+- #2103 (`5322bc1bb`): fixed the Windows coverage link failure in
+  `pulp-test-hot-reload` by exercising the stale/missing hot-reload behavior
+  through `on_file_changed()` instead of directly calling the private
+  `should_reload_for_modified_file()` helper. Local validation passed:
+  `cmake --build build --target pulp-test-hot-reload -j$(sysctl -n hw.ncpu)`;
+  `./build/test/pulp-test-hot-reload "[view][hotreload][codecov]"`; and
+  `git diff --check`.
+- #2104 (`4c5155d20`): removed the extra `cmd_doctor.cpp` dry-run product
+  branch from this coverage PR and restored the existing `--versions` shellout
+  parser path, clearing the Codecov patch-red product-source lines. Local
+  validation passed: `cmake --build build --target pulp-test-cli-shellout
+  -j$(sysctl -n hw.ncpu)`; focused `pulp-test-cli-shellout` doctor subcommand
+  test; and `git diff --check`.
+- #2114 (`34745ed34`, then `01c69eaa6`): first fixed the Linux
+  `AudioProcessLoadMeasurer peak tracking` float-rounding failure with a narrow
+  tolerance, then addressed the two Codex P2 comments by constraining status
+  ladder `notes:` and `platform:` evidence to entry-level sibling fields only.
+  Local validation passed: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`;
+  `cmake --build build --target pulp-test-load-measurer -j$(sysctl -n
+  hw.ncpu)`; focused `pulp-test-load-measurer`; `PYTHONPATH=tools/scripts
+  python3 -m unittest tools.test_check_status_ladder
+  tools.harness.visual.tests.test_differ tools.harness.visual.tests.test_runner`;
+  and `git diff --check`.
+
+Queue status after the pushes:
+- #2103, #2104, #2108, #2109, #2110, and #2114 had no current failing checks and
+  were waiting on GitHub-hosted CI.
+- #2111 still showed `codecov/patch` red for the empty Hugging Face checkpoint
+  path fix in `tools/audio/src/model_registry.cpp`, with macOS coverage and
+  sanitizer lanes still queued. Because the line is directly exercised by
+  `pulp-test-audio-tools`, this remains under observation until the delayed
+  coverage uploads finish.
+
+Prepared but intentionally not pushed/opened:
+- `/private/tmp/pulp-codecov-next-batch-675`,
+  `feature/phase3-codecov-next-batch-675`, commit `b70aa1aeca`: async stream
+  coverage batch validated locally.
+- `/private/tmp/pulp-phase3-codecov-batch-676`,
+  `feature/phase3-codecov-batch-676`, commit `5e452ee26`: test signal source
+  coverage batch with 10 new focused cases. Local validation passed:
+  `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`; `cmake --build build
+  --target pulp-test-test-signal -j$(sysctl -n hw.ncpu)`; `ctest --test-dir
+  build -R "TestSignalSource" --output-on-failure` (17/17); full
+  `./build/test/pulp-test-test-signal` (17 cases / 834 assertions); and
+  `git diff --check`.
