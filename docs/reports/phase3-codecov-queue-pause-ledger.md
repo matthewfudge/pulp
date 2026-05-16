@@ -5365,3 +5365,47 @@ Monitoring state at publish time:
   the workflow finishes unless later logs show a real test failure.
 - #2108 checks have started on GitHub-hosted runners only; macOS/sanitizers
   are queued behind the existing GitHub backlog.
+
+2026-05-16 00:34 PDT: pushed a root-cause fix to #2104 after GitHub-hosted
+macOS failed on `pulp doctor android|ios are recognized subcommands` timing
+out under the 120s CTest job timeout. The failure was not a MIDI assertion; the
+shellout recognition test was executing expensive mobile doctor probes. The fix
+adds a `pulp doctor android|ios --dry-run` short-circuit that confirms the
+mobile subcommand parse path while skipping external probes, and updates the
+shellout test to use that deterministic path. Local validation passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF`;
+`cmake --build build --target pulp-test-cli-shellout pulp-test-midi
+pulp-test-midi-ci -j8`; `./build/test/pulp-test-cli-shellout "pulp doctor
+android|ios are recognized subcommands"`; `./build/test/pulp-test-midi` with
+19 test cases / 276 assertions passing; `./build/test/pulp-test-midi-ci` with
+18 test cases / 89 assertions passing; and `git diff --check`. Commit pushed
+to #2104 at `6941e9ee2`. Pre-push diff-cover again hit the known `mbedtls
+v3.6.2` FetchContent checkout issue and was demoted with
+`PULP_DISABLE_PREPUSH_DIFF_COVER=1`; GitHub hosted CI remains the merge gate.
+No Namespace/SSH validation was dispatched.
+
+2026-05-16 00:40 PDT: published the next runtime crypto/OSC coverage batch as
+#2109, `test(runtime): batch crypto and osc coverage edges`, on
+`feature/phase3-codecov-crypto-osc-batch-671` at `fb87d291d`, labeled
+`codecov` and `tests`.
+
+Batch contents cover:
+- AES-CBC PKCS7 unpadding now rejects inconsistent padding bytes, with a test
+  that mutates the IV so only the final padding byte changes.
+- BigInteger hex preservation, bit counts, copy assignment, move construction,
+  and move assignment leaving moved-from values usable.
+- License payload parsing with optional fields and malformed integer fallback,
+  plus malformed OnlineActivation URLs failing locally without network use.
+- OSC message accessor defaults, malformed type-tag marker handling,
+  truncated string-argument decoding, and receiver empty-handler lifecycle.
+
+Local validation before publishing passed:
+`cmake --build build --target pulp-test-crypto pulp-test-license pulp-test-osc
+pulp-test-osc-bundle -j8`; `./build/test/pulp-test-crypto` with 13 test cases /
+23 assertions passing; `./build/test/pulp-test-license` with 24 test cases / 51
+assertions passing; `./build/test/pulp-test-osc` with 31 test cases / 111
+assertions passing; `./build/test/pulp-test-osc-bundle` with 31 test cases / 79
+assertions passing; and `git diff --check`. Direct branch push pre-push
+diff-cover hit the known `mbedtls v3.6.2` FetchContent checkout issue and was
+demoted with `PULP_DISABLE_PREPUSH_DIFF_COVER=1`; GitHub hosted CI remains the
+merge gate. No Namespace/SSH validation was dispatched.
