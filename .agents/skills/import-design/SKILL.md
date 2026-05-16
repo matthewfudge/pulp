@@ -235,6 +235,32 @@ itself lives inside a Pulp build tree. In generic PATH-installed or split repo/S
 
 ## Automated Validation Loop
 
+### Freshness check (MUST run first)
+
+Before running any roundtrip harness against the framework, **verify your checkout is current with `origin/main`**. Lesson from pulp #2087: a roundtrip ran from a 175-commit-behind feature branch and produced "wrong UI variant" diff scores that reflected stale framework code, not main. We spent 15+ minutes drawing parser conclusions before noticing.
+
+The `tools/import-validation/*-roundtrip.sh` scripts now refuse to run on a stale checkout. Bypass only when you specifically want to validate a feature branch:
+
+```bash
+# Default: refuse to run if HEAD is behind origin/main
+tools/import-validation/spectr-roundtrip.sh
+
+# Explicitly allow staleness (e.g., validating a feature branch's code)
+PULP_FRESHNESS_BYPASS=1 tools/import-validation/spectr-roundtrip.sh
+
+# Or accept up to N commits behind
+tools/scripts/check_workspace_freshness.sh --max-behind 10 && tools/import-validation/spectr-roundtrip.sh
+```
+
+Also verify the **installed SDK** matches your expectations:
+```bash
+pulp sdk status              # what's installed
+pulp doctor --versions       # CLI vs project vs installed
+```
+If you ran `pulp upgrade` recently, the CLI bumped but the SDK might not have. Use `pulp sdk install` to pull the latest SDK matching the CLI.
+
+### Diff loop
+
 After generating Pulp code, ALWAYS validate by comparing with the source design:
 
 1. **Screenshot the source design** via MCP:

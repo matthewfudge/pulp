@@ -9,6 +9,14 @@
 set -euo pipefail
 
 PULP_DIR="${PULP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+
+# pulp #2087 lesson — refuse to run on a stale checkout. Bypass with
+# PULP_FRESHNESS_BYPASS=1 to validate a feature branch's code instead.
+if ! ( cd "$PULP_DIR" && "$PULP_DIR/tools/scripts/check_workspace_freshness.sh" ); then
+  echo "ERROR: refusing to run validation against stale checkout" >&2
+  exit 2
+fi
+
 BUILD_DIR="${PULP_BUILD_DIR:-$PULP_DIR/build-designmd-import}"
 BUILD_TYPE="${PULP_BUILD_TYPE:-Debug}"
 BUILD_JOBS="${PULP_BUILD_JOBS:-1}"
