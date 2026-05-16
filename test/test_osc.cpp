@@ -55,6 +55,21 @@ TEST_CASE("OSC Message typed defaults cover every wrong-type accessor", "[osc][m
     REQUIRE(msg.get_string(99, "missing") == "missing");
 }
 
+TEST_CASE("OSC Message defaults cover empty and wrong-type accessors",
+          "[osc][message][coverage]") {
+    Message msg;
+    REQUIRE(msg.get_int(0, -7) == -7);
+    REQUIRE(msg.get_float(0, 2.5f) == 2.5f);
+    REQUIRE(msg.get_string(0, "missing") == "missing");
+
+    msg.add(1.0f)
+       .add(std::string("label"))
+       .add(std::vector<uint8_t>{0x01, 0x02});
+    REQUIRE(msg.get_int(0, 9) == 9);
+    REQUIRE(msg.get_float(1, 3.0f) == 3.0f);
+    REQUIRE(msg.get_string(2, "blob") == "blob");
+}
+
 // ── Encoding/Decoding ────────────────────────────────────────────────────────
 
 TEST_CASE("OSC encode/decode round-trip int+float", "[osc][codec]") {
@@ -267,6 +282,22 @@ TEST_CASE("OSC decode with no type tag section returns no-arg message",
     REQUIRE(decoded.args.empty());
 }
 
+TEST_CASE("OSC decode with malformed type tag marker keeps no-arg message",
+          "[osc][codec][decode-edge]") {
+    std::vector<uint8_t> buf;
+    const char addr[] = "/no-comma";
+    buf.insert(buf.end(), addr, addr + sizeof(addr));
+    while (buf.size() % 4 != 0) buf.push_back(0);
+    const char tags[] = "if";
+    buf.insert(buf.end(), tags, tags + sizeof(tags));
+    while (buf.size() % 4 != 0) buf.push_back(0);
+    buf.insert(buf.end(), {0, 0, 0, 7, 0x3F, 0x80, 0, 0});
+
+    auto decoded = decode(buf.data(), buf.size());
+    REQUIRE(decoded.address == "/no-comma");
+    REQUIRE(decoded.args.empty());
+}
+
 TEST_CASE("OSC decode skips unknown type tags without crashing",
           "[osc][codec][decode-edge]") {
     // Build an ",iZ" tag manually — 'Z' is not defined. Decoder must not
@@ -349,6 +380,23 @@ TEST_CASE("OSC decode of negative blob size yields empty blob",
     REQUIRE(decoded.args.size() == 1);
     auto& blob = std::get<std::vector<uint8_t>>(decoded.args[0]);
     REQUIRE(blob.empty());
+}
+
+TEST_CASE("OSC decode of truncated string argument consumes bounded payload",
+          "[osc][codec][decode-edge]") {
+    std::vector<uint8_t> buf;
+    const char addr[] = "/string";
+    buf.insert(buf.end(), addr, addr + sizeof(addr));
+    while (buf.size() % 4 != 0) buf.push_back(0);
+    const char tags[] = ",s";
+    buf.insert(buf.end(), tags, tags + sizeof(tags));
+    while (buf.size() % 4 != 0) buf.push_back(0);
+    buf.insert(buf.end(), {'u', 'n', 't', 'e', 'r', 'm'});
+
+    auto decoded = decode(buf.data(), buf.size());
+    REQUIRE(decoded.address == "/string");
+    REQUIRE(decoded.args.size() == 1);
+    REQUIRE(decoded.get_string(0) == "unterm");
 }
 
 TEST_CASE("OSC encode/decode of empty blob preserves emptiness",
@@ -483,4 +531,15 @@ TEST_CASE("OSC Sender::send_raw without connect is rejected", "[osc][udp][sender
     REQUIRE_FALSE(tx.send_raw(payload, sizeof(payload)));
     tx.disconnect();
     REQUIRE_FALSE(tx.is_connected());
+}
+
+TEST_CASE("OSC Receiver accepts an empty handler and stops cleanly",
+          "[osc][udp][receiver]") {
+    constexpr uint16_t port = 29879;
+
+    Receiver rx;
+    REQUIRE(rx.listen(port, {}));
+    REQUIRE(rx.is_listening());
+    rx.stop();
+    REQUIRE_FALSE(rx.is_listening());
 }

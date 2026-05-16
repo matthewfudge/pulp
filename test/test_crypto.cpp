@@ -183,6 +183,26 @@ TEST_CASE("AES decrypt rejects invalid PKCS7 padding bytes",
     REQUIRE_FALSE(result.has_value());
 }
 
+TEST_CASE("AES decrypt rejects inconsistent PKCS7 padding bytes",
+          "[crypto][aes][coverage]") {
+    uint8_t key[32] = {};
+    uint8_t iv[16] = {};
+
+    auto encrypted = aes_encrypt(nullptr, 0, key, iv);
+    REQUIRE(encrypted.has_value());
+    REQUIRE(encrypted->size() == 16);
+
+    // Empty plaintext decrypts to a full block of 0x10 padding. In CBC mode
+    // flipping the IV flips the first plaintext block after decryption; make
+    // only the final byte claim a 2-byte padding run while the previous byte
+    // remains 0x10.
+    uint8_t tampered_iv[16] = {};
+    tampered_iv[15] = 0x10 ^ 0x02;
+
+    auto result = aes_decrypt(encrypted->data(), encrypted->size(), key, tampered_iv);
+    REQUIRE_FALSE(result.has_value());
+}
+
 // ── Machine ID ──────────────────────────────────────────────────────────
 
 TEST_CASE("Machine ID is deterministic", "[crypto][machine_id]") {
