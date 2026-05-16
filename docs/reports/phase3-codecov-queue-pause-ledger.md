@@ -5625,7 +5625,7 @@ Active PR queue:
 Prepared but intentionally not pushed/opened:
 - `/private/tmp/pulp-phase3-codecov-combined-677`,
   `feature/phase3-codecov-combined-677`, rebased onto `origin/main` at
-  `366461475`, now combines three local tranches:
+  `366461475`, initially combined three local tranches:
   `d5e6842f9` async-stream coverage, `e9014fe0a` test-signal coverage, and
   `f3042a1da` XML/gzip coverage. Diff: `test/test_async_stream.cpp`,
   `test/test_test_signal.cpp`, and `test/test_xml_zip.cpp` with 534 net added
@@ -5638,3 +5638,24 @@ Prepared but intentionally not pushed/opened:
   --output-on-failure` (78/78); `./build/test/pulp-test-test-signal`
   (834 assertions / 17 cases); `./build/test/pulp-test-xml-zip` (155
   assertions / 34 cases); and `git diff --check`.
+
+2026-05-16 11:50 PDT: folded one more local-only worker tranche into the next
+combined batch. `/private/tmp/pulp-phase3-codecov-combined-677`,
+`feature/phase3-codecov-combined-677`, now has four local commits:
+`d5e6842f9` async-stream coverage, `e9014fe0a` test-signal coverage,
+`f3042a1da` XML/gzip coverage, and `5d2eb6b37` runtime environment/GMT/C-string
+helper coverage. Current diff is test-only across `test/test_async_stream.cpp`,
+`test/test_runtime.cpp`, `test/test_test_signal.cpp`, and `test/test_xml_zip.cpp`
+with 653 net added test lines.
+
+Expanded combined validation passed:
+`cmake --build build --target pulp-test-async-stream pulp-test-stream
+pulp-test-test-signal pulp-test-xml-zip pulp-test-runtime -j$(sysctl -n
+hw.ncpu)`; `ctest --test-dir build -R "AsyncStream|Stream|TestSignalSource|
+XmlDocument|xml_generate|gzip|deflate|Runtime (environment helpers|GMT helper|
+C string copy)" --output-on-failure` (87/87); `./build/test/pulp-test-runtime`
+(188 assertions / 26 cases); `./build/test/pulp-test-test-signal` (834
+assertions / 17 cases); `./build/test/pulp-test-xml-zip` (155 assertions / 34
+cases); and `git diff --check`. This batch remains intentionally local until
+the current GitHub-hosted queue drains enough to submit it as a single larger
+coverage PR.
