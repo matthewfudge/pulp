@@ -5295,3 +5295,32 @@ pulp-test-runtime -j8`; `./build/test/pulp-test-stream` with 16 test cases /
 160 assertions passing; `./build/test/pulp-test-audio` with 14 test cases /
 645 assertions passing; `./build/test/pulp-test-runtime` with 16 test cases /
 93 assertions passing; and `git diff --check`.
+
+2026-05-16 00:03 PDT: expanded and published that runtime/audio batch as
+#2107, `test(runtime): batch audio and stream coverage edges`, on
+`feature/phase3-codecov-runtime-audio-batch-669` at `d13bdba21`, labeled
+`codecov` and `tests`.
+
+Additional commit:
+- `test(runtime): cover memory message channel edges`
+
+Final batch contents cover:
+- `StreamResult` helper state checks, `FileStream` position/zero-byte/reopen
+  paths, and `PipeStream` closed/open named-pipe wrapper paths.
+- `MemoryMessageChannel` empty text/binary payloads, close-callback
+  replacement, peer-close behavior, and inert error callback registration.
+- `Buffer` zero-channel/const-view edge shapes and `AudioFileData` metadata
+  helper behavior for empty/mismatched channel data.
+- `SpscQueue` capacity reporting, rvalue push, full rejection, FIFO reuse
+  after draining, and empty pop behavior.
+
+Final local validation before publishing passed:
+`cmake --build build --target pulp-test-stream pulp-test-audio
+pulp-test-runtime pulp-test-memory-message-channel -j8`;
+`./build/test/pulp-test-stream` with 16 test cases / 160 assertions passing;
+`./build/test/pulp-test-audio` with 14 test cases / 645 assertions passing;
+`./build/test/pulp-test-runtime` with 16 test cases / 93 assertions passing;
+`./build/test/pulp-test-memory-message-channel` with 8 test cases / 38
+assertions passing; and `git diff --check`. Direct branch push pre-push gates
+were clean. #2107 was opened via the GitHub REST API to avoid the current
+GraphQL rate limit. No Namespace/SSH validation was dispatched.
