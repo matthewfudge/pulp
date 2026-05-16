@@ -124,6 +124,30 @@ TEST_CASE("audio model list reports registry and install state", "[audio][tools]
     REQUIRE(result.models[0].active);
 }
 
+TEST_CASE("audio model registry resolves checkpoint URLs and lookup misses",
+          "[audio][tools][codecov]") {
+    const auto& models = registered_models();
+    REQUIRE_FALSE(models.empty());
+    REQUIRE(models[0].model_id == "clap_music_audioset_v1");
+    REQUIRE(models[0].auto_downloadable);
+    REQUIRE(models[0].download_url.find("https://huggingface.co/")
+            == 0);
+
+    auto* model = find_registered_model("clap_music_audioset_v1");
+    REQUIRE(model != nullptr);
+    REQUIRE(model->backend == "clap");
+    REQUIRE(find_registered_model("missing_model") == nullptr);
+
+    REQUIRE(resolve_checkpoint_url("hf://user/repo/path/to/file.pt")
+            == "https://huggingface.co/user/repo/resolve/main/path/to/file.pt");
+    REQUIRE(resolve_checkpoint_url("https://example.com/model.pt")
+            == "https://example.com/model.pt");
+    REQUIRE(resolve_checkpoint_url("http://example.com/model.pt")
+            == "http://example.com/model.pt");
+    REQUIRE(resolve_checkpoint_url("hf://user-only").empty());
+    REQUIRE(resolve_checkpoint_url("manual://model.pt").empty());
+}
+
 TEST_CASE("audio model status reports missing config cleanly", "[audio][tools]") {
     TempDir temp;
 
