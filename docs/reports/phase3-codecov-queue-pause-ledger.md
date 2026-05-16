@@ -5687,3 +5687,49 @@ entries|duplicate JSON entries|ScanCache save_to creates nested"
 `./build/test/pulp-test-scan-cache` (95 assertions / 19 cases);
 `./build/test/pulp-test-scan-blacklist` (65 assertions / 16 cases); and
 `git diff --check`.
+
+2026-05-16 14:42 PDT: resumed queue stewardship after GraphQL exhaustion and
+switched PR polling/merge actions to the GitHub REST API. #2110,
+`test(cli): batch package registry coverage edges`, was green on REST check
+state and was squash-merged into `main` as
+`b896356ec06b5bd53897a411f6b93c993c866e2b`; the merged worktree
+`/private/tmp/pulp-phase3-codecov-cli-package-batch-672` was removed.
+
+2026-05-16 14:43 PDT: #2114 still had the two Codex P2 comments addressed by
+`01c69eaa6`, but Codecov was red because it counted
+`tools/harness/visual/tests/` pytest files as patch-coverable product code.
+Added a root-scope alignment fix in
+`/private/tmp/pulp-phase3-codecov-next-batch-674`, commit `d8ca56957`
+(`ci(coverage): ignore visual harness tests in patch scope`): Codecov now
+ignores `tools/harness/visual/tests/**`, `tools/scripts/run_python_coverage.py`
+omits the same test files from the measured Python source set, and
+`tools/scripts/test_codecov_config.py` asserts the alignment. Local validation:
+`python3 tools/scripts/test_codecov_config.py` passed 14 tests;
+`python3 tools/scripts/test_run_python_coverage.py` passed 24 tests; and
+`git diff --check` passed. A live `run_python_coverage.py` smoke was not used
+locally because the installed `coverage.py` is below Pulp's required 7.10
+minimum. The push used `PULP_DISABLE_PREPUSH_DIFF_COVER=1` after the known
+local `mbedtls v3.6.2` FetchContent checkout failure; GitHub-hosted CI remains
+the merge gate. No Namespace/SSH validation was dispatched.
+
+2026-05-16 14:47 PDT: #2108's Codecov failure was investigated rather than
+hidden. The failing report named the two new `core/runtime/src/expression.cpp`
+malformed-exponent guard lines. Local reproduction on
+`/private/tmp/pulp-phase3-codecov-events-host-batch-670` with
+`PULP_DIFF_COVER_CTEST_REGEX='Expression rejects malformed numeric and grouping syntax' tools/scripts/local_diff_cover.sh`
+passed with `core/runtime/src/expression.cpp (100%)`, 2 touched lines, 0
+missing, 100% diff coverage. The focused binary also passed:
+`cmake --build build --target pulp-test-v3-gaps -j$(sysctl -n hw.ncpu)` and
+`./build/test/pulp-test-v3-gaps "Expression rejects malformed numeric and grouping syntax"`
+with 8 assertions. Because the failure did not reproduce and the root test is
+covering the source lines, reran only the failed GitHub Coverage workflow jobs
+for #2108 (`run_id=25968261889`) via REST.
+
+2026-05-16 14:50 PDT queue snapshot: #2103 and #2104 have no failing checks
+and are waiting on GitHub-hosted macOS/sanitizer capacity; #2108 has the rerun
+in progress and only the stale Codecov bot check still red; #2114 is rerunning
+after `d8ca56957`; #2118 (`docs/graphql-rest-merge-fallback`) is still running.
+The current local held batch remains
+`/private/tmp/pulp-phase3-codecov-combined-677` with five validated local
+coverage commits and should be submitted as one larger PR only after the open
+queue drains enough to avoid wasting macOS CI capacity.
