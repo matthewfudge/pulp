@@ -167,6 +167,21 @@ TEST_CASE("CiDiscovery ignores malformed and unhandled messages",
     REQUIRE(ci.process_message(unknown.data(), unknown.size()).empty());
 }
 
+TEST_CASE("CiDiscovery ignores undersized discovery replies",
+          "[midi][ci][codecov]") {
+    CiDiscovery ci;
+    int callbacks = 0;
+    ci.on_device_discovered = [&](const CiDeviceInfo&) { ++callbacks; };
+
+    auto reply = make_ci_header(CiMessageType::DiscoveryReply,
+                                MUID{0x00022222}, ci.local_muid());
+    reply.push_back(0xF7);
+
+    REQUIRE(ci.process_message(reply.data(), reply.size()).empty());
+    REQUIRE(ci.discovered_devices().empty());
+    REQUIRE(callbacks == 0);
+}
+
 TEST_CASE("CiDiscovery ignores inquiries addressed to another MUID",
           "[midi][ci][issue-645]") {
     CiDiscovery responder;
@@ -253,6 +268,29 @@ TEST_CASE("CiDiscovery profile callback", "[midi][ci]") {
     REQUIRE(callback_fired);
 }
 
+TEST_CASE("CiDiscovery profile callback reports enable and disable",
+          "[midi][ci][codecov]") {
+    CiDiscovery ci;
+    ProfileId profile{0x02, 0x03, 0x04, 0x05, 0x00};
+    ci.add_profile({profile, false, 4});
+
+    std::vector<bool> states;
+    std::vector<ProfileId> ids;
+    ci.on_profile_changed = [&](const ProfileId& id, bool enabled) {
+        ids.push_back(id);
+        states.push_back(enabled);
+    };
+
+    REQUIRE(ci.enable_profile(profile));
+    REQUIRE(ci.disable_profile(profile));
+
+    REQUIRE(ids.size() == 2);
+    REQUIRE(ids[0] == profile);
+    REQUIRE(ids[1] == profile);
+    REQUIRE(states == std::vector<bool>{true, false});
+    REQUIRE(ci.profiles()[0].channel_count == 4);
+}
+
 TEST_CASE("CiDiscovery property exchange", "[midi][ci]") {
     CiDiscovery ci;
 
@@ -260,6 +298,11 @@ TEST_CASE("CiDiscovery property exchange", "[midi][ci]") {
     auto val = ci.get_property("DeviceName");
     REQUIRE(val.has_value());
     REQUIRE(*val == "PulpSynth");
+
+    ci.set_property("DeviceName", "PulpKeys");
+    val = ci.get_property("DeviceName");
+    REQUIRE(val.has_value());
+    REQUIRE(*val == "PulpKeys");
 
     REQUIRE_FALSE(ci.get_property("nonexistent").has_value());
 }
