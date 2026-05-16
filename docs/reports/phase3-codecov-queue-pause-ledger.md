@@ -5033,3 +5033,39 @@ PULP_SKIP_DIFF_COVER=1`; the tip commit carries
 `Version-Bump: sdk=skip reason="coverage and internal robustness batch; no
 SDK or CLI surface change"`. #2100 was opened via the GitHub REST API after
 `gh pr create` hit the GraphQL rate limit, and it is labeled `codecov`.
+
+2026-05-15 20:35 PDT: addressed the initial GitHub-hosted coverage failures
+on #2099 and #2100.
+
+#2099 initially failed Codecov/diff-cover on the mapped-reader destination
+guard (`core/audio/src/mmap_reader.cpp`). CI proved the new
+`MemoryMappedAudioReader` tests were running and passing, but the LLVM
+coverage report still showed the entire `mmap_reader.cpp` translation unit
+at 0%, so that production guard is not a reliable Codecov tranche until the
+coverage visibility issue is fixed. Commit `08dd13309` reverts only
+`641f581d2` (`test(audio): guard mapped reader destinations`) to keep the
+audio batch greenable without hiding the separate instrumentation problem.
+Focused local validation passed:
+`cmake --build build --target pulp-test-audio pulp-test-audio-file
+pulp-test-audio-excerpt pulp-test-buffering-reader pulp-test-audio-tools -j8`;
+`ctest --test-dir build --output-on-failure -R
+"AudioFileData reports shape|MemoryMappedAudioReader|AudioSubsectionReader|BufferingReader|audio tools|offline processing"`
+with 21/21 tests passing; and `git diff --check`. Push used
+`PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1`; the local
+diff-cover pre-push lane attempted a fresh coverage configure but failed on
+a FetchContent checkout of `mbedtls` tag `v3.6.2`, then demoted as intended.
+No Namespace/SSH validation was dispatched.
+
+#2100 initially failed Codecov patch coverage in the event batch. Commit
+`f94323730` (`test(events): cover volume detector poll cycle`) adds a
+deterministic `MountedVolumeListChangeDetector` test that lets the poll
+interval expire before stopping, covering the timeout path in addition to
+the existing stop-wakeup path. Focused local validation passed:
+`cmake --build build --target pulp-test-events pulp-test-ipc
+pulp-test-network-service-discovery -j8`; `ctest --test-dir build
+--output-on-failure -R
+"EventLoop skips empty|EventLoop dispatch_after runs due|EventLoop ignores new dispatches|EventLoop runs tasks|Timer tolerates empty|Timer one-shot can be restarted|Timer stop before first fire|ActionBroadcaster skips empty|ActionBroadcaster snapshots|MountedVolumeListChangeDetector|IPC|NetworkServiceDiscovery"`
+with 29/29 tests passing; and `git diff --check`. Push used
+`PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1`; the same local
+`mbedtls v3.6.2` FetchContent checkout failure was demoted. GitHub-hosted
+CI restarted on both new heads.
