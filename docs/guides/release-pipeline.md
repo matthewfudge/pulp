@@ -79,22 +79,36 @@ PR merge to main
 │   9. Upload as a GitHub Actions artifact                │
 │                                                          │
 │ Final `release` job (runs once, after all 5 platforms): │
-│   - Downloads all 10 artifacts (5 CLI + 5 SDK tarballs) │
-│   - Generates appcast.xml (Sparkle auto-update feed)    │
-│   - Calls GitHub Releases API: creates a DRAFT release  │
-│     for tag vX.Y.Z and uploads all 11 assets            │
+│   - Downloads all 10 matrix artifacts                   │
+│     (5 CLI tarballs + 5 SDK tarballs)                   │
+│   - Patches the existing GitHub Release that            │
+│     sign-and-release.yml created as a draft: uploads    │
+│     the 10 platform tarballs alongside the appcast.xml  │
+│     already attached, and flips draft → published       │
+│     (softprops/action-gh-release@v2 with                │
+│     `draft: false`).                                     │
+│   - Does NOT generate appcast.xml or create the draft;  │
+│     both are owned by sign-and-release.yml (2b below).  │
 └─────────────────────────────────────────────────────────┘
      │
      ▼
 ┌─────────────────────────────────────────────────────────┐
 │ 2b. sign-and-release.yml (parallel to release-cli.yml)   │
 │                                                          │
-│   - Code-signs the macOS bundles with Developer ID       │
-│   - Notarizes with Apple                                 │
-│   - Staples notarization to the tarball so users don't   │
-│     need network access to Gatekeeper at install time    │
-│   - Updates the DRAFT release: replaces unsigned with    │
-│     signed assets, flips draft → published               │
+│   - Builds the macOS example plugin .pkg bundles as a    │
+│     smoke pass (catches regressions when the SDK         │
+│     touches examples/). These .pkg files are uploaded    │
+│     to the workflow run via actions/upload-artifact for  │
+│     debugging only — pulp #1737 deliberately keeps them  │
+│     OFF the user-facing release page.                    │
+│   - Code-signs those bundles with Developer ID and       │
+│     notarizes them with Apple, then staples.             │
+│   - Generates `appcast.xml` (Sparkle auto-update feed).  │
+│   - Calls softprops/action-gh-release@v2 with            │
+│     `draft: true` to CREATE the GitHub Release as a      │
+│     draft, attaching only `appcast.xml`. The 10          │
+│     platform tarballs and the draft → published flip     │
+│     are owned by release-cli.yml's `release` job above.  │
 │                                                          │
 │ Concurrency group `sign-and-release-${ref}` with         │
 │ cancel-in-progress=false: partial notarization is hard   │
@@ -140,10 +154,31 @@ A successful release publishes exactly **11 assets** to the GitHub Release page:
 | `pulp-sdk-windows-arm64.tar.gz` | " |
 | `pulp-sdk-windows-x64.tar.gz` | " |
 
-Anything less than 11 means at least one platform leg failed in `release-cli.yml`.
-That state will surface as a draft release with `appcast.xml` only (the appcast is
-written by the `release` job regardless of per-platform success), and the
-release-draft-stuck-check watchdog will eventually flag it.
+Anything less than 11 published assets means part of the pipeline didn't reach the
+end. Triage by which assets are present:
+
+- **No `appcast.xml` on the release** (or no draft release at all):
+  `sign-and-release.yml` didn't reach its "Create GitHub Release" step. The
+  appcast is generated and the draft is created by that workflow, not by
+  `release-cli.yml` — so its absence points at a failure BEFORE
+  `action-gh-release@v2` ran. Common causes: code-signing or
+  notarization step failed (often a missing Apple credential secret), or
+  the .pkg build steps that run earlier in the same job errored out.
+- **`appcast.xml` present, but some platform tarballs missing**: at least
+  one platform leg of `release-cli.yml`'s matrix failed before its
+  artifact upload. Common shape: Linux + GNU-ld link order producing
+  undefined `Fc*` references from `libskia.a` (see "v0.101.x SDK saga"
+  below). The `release` job uploads whatever
+  `actions/download-artifact` finds; failed matrix legs simply don't
+  contribute artifacts.
+- **All 11 assets present but the release stays in DRAFT**:
+  `release-cli.yml`'s `release` job didn't reach its
+  `action-gh-release@v2` call, so the `draft: false` flip never landed.
+  Look at `release-cli.yml`'s run for a job that errored after the
+  per-platform matrix succeeded.
+
+In all three cases the `release-draft-stuck-check` watchdog will eventually
+flag a stuck draft (see release-watchdog.md).
 
 ## Worked example — the v0.101.x SDK saga
 
