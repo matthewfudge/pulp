@@ -417,6 +417,102 @@ TEST_CASE("excerpt find writes a deterministic WAV-first bundle", "[audio][tools
     REQUIRE(bundle.results.size() == result.results.size());
 }
 
+TEST_CASE("excerpt find validates required request fields before model loading",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto input = temp.path / "input.wav";
+    REQUIRE(pulp::audio::write_wav_file(input.string(), make_audio(48000, 48000)));
+
+    ExcerptFindRequest request;
+    request.input_path = input;
+
+    auto missing_text = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(missing_text.ok);
+    REQUIRE(missing_text.error == "text query is required");
+
+    request.text = "kick";
+    request.input_path.clear();
+    auto missing_input = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(missing_input.ok);
+    REQUIRE(missing_input.error == "input path is required");
+
+    request.input_path = input;
+    request.top_k = 0;
+    auto bad_top = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(bad_top.ok);
+    REQUIRE(bad_top.error == "top and max_candidates_per_file must be >= 1");
+
+    request.top_k = 1;
+    request.max_candidates_per_file = 0;
+    auto bad_max = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(bad_max.ok);
+    REQUIRE(bad_max.error == "top and max_candidates_per_file must be >= 1");
+
+    request.max_candidates_per_file = 1;
+    request.window_ms = 0;
+    auto bad_window = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(bad_window.ok);
+    REQUIRE(bad_window.error == "window_ms and hop_ms must be >= 1");
+}
+
+TEST_CASE("excerpt find reports unsupported inputs after resolving a model",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto checkpoint = temp.path / "models" / "clap.pt";
+    write_text(checkpoint, "stub");
+    write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
+  "model_id": "clap_music_audioset_v1",
+  "backend": "clap",
+  "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
+  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+}
+)JSON");
+    write_text(temp.path / "audio" / "model-state.json", R"JSON({
+  "active_model_id": "clap_music_audioset_v1"
+}
+)JSON");
+
+    auto text_file = temp.path / "notes.txt";
+    write_text(text_file, "not audio");
+
+    ExcerptFindRequest request;
+    request.text = "texture";
+    request.input_path = text_file;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.error == "no supported WAV inputs found");
+    REQUIRE(result.scanned_file_count == 0);
+    REQUIRE(result.skipped_files.size() == 1);
+    REQUIRE(result.skipped_files[0].find("unsupported; WAV only") != std::string::npos);
+}
+
+TEST_CASE("excerpt find JSON serializer includes results and skipped files",
+          "[audio][tools][codecov]") {
+    ExcerptFindResult result;
+    result.ok = true;
+    result.bundle_path = "/tmp/bundle";
+    result.query = "kick";
+    result.requested_model_id = "clap_music_audioset_v1";
+    result.loaded_model_id = "clap_music_audioset_v1";
+    result.backend = "null";
+    result.resolved_checkpoint_path = "/tmp/model.pt";
+    result.scanned_file_count = 2;
+    result.results.push_back({1, 0.75, "input.wav", 1000.0, 0.0, 500.0,
+                              "excerpts/rank-01.wav"});
+    result.skipped_files.push_back("notes.txt (unsupported; WAV only)");
+
+    auto json = to_json(result);
+
+    REQUIRE(json.find("\"ok\": true") != std::string::npos);
+    REQUIRE(json.find("\"query\": \"kick\"") != std::string::npos);
+    REQUIRE(json.find("\"scanned_file_count\": 2") != std::string::npos);
+    REQUIRE(json.find("\"excerpt_file\": \"excerpts/rank-01.wav\"")
+            != std::string::npos);
+    REQUIRE(json.find("notes.txt (unsupported; WAV only)") != std::string::npos);
+}
+
 TEST_CASE("excerpt find deterministic scores use a stable hash", "[audio][tools]") {
     TempDir temp;
     auto checkpoint = temp.path / "models" / "clap.pt";
