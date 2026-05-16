@@ -1316,6 +1316,44 @@ command to record the push as supervised AND suppress the warning.
 
 After the obstacle clears, resume `shipyard pr` on the next PR.
 
+### GraphQL exhaustion fallback
+
+GitHub's GraphQL quota is independent from the REST `core` quota and is easier
+to burn during broad PR sweeps because `gh pr list/view/merge --json ...`
+queries large nested PR/check payloads. When GraphQL is exhausted, do not idle
+and do not keep retrying GraphQL-backed commands in a loop.
+
+Check quota explicitly:
+
+```bash
+gh api rate_limit --jq '.resources | {core, graphql}'
+```
+
+Fallback rules while `graphql.remaining == 0`:
+
+- Use REST for status polling:
+  `gh api repos/OWNER/REPO/pulls/PR`,
+  `gh api repos/OWNER/REPO/commits/SHA/check-runs?per_page=100`, and
+  `gh api repos/OWNER/REPO/actions/jobs/JOB_ID/logs`.
+- Treat `gh pr view --json`, `gh pr list --json`, and `gh pr merge` as
+  unavailable unless proven otherwise; those paths commonly fail before REST
+  quota is close to exhausted.
+- If a PR is verified green via REST (required checks green, no actionable
+  failures in the checks being honored for that lane), merge via REST:
+
+```bash
+gh api repos/OWNER/REPO/pulls/PR/merge \
+  -X PUT \
+  -f merge_method=squash \
+  -f commit_title='subject (#PR)'
+```
+
+If REST merge returns `405 Base branch was modified`, refresh the PR's REST
+state and retry once after the base settles. If checks have re-queued or the
+head SHA changed, re-evaluate before merging. This fallback is for GitHub API
+transport exhaustion only; it does not relax the requirement to fix real CI,
+coverage, sanitizer, or review failures.
+
 ## Self-hosted runner ops
 
 Pulp's required `macos` branch-protection check on `main` routes
