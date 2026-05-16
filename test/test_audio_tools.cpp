@@ -246,6 +246,30 @@ TEST_CASE("audio model activate writes state from installed metadata", "[audio][
     REQUIRE(status.checkpoint_exists);
 }
 
+TEST_CASE("audio model activate falls back to registered metadata",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto checkpoint = temp.path / "models" / "clap.pt";
+    write_text(checkpoint, "stub");
+    write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
+  "model_id": "clap_music_audioset_v1",
+  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+}
+)JSON");
+
+    auto activation = activate_model("clap_music_audioset_v1", temp.path);
+
+    REQUIRE(activation.ok);
+    REQUIRE(activation.backend == "clap");
+    REQUIRE(activation.checkpoint_ref == "hf://lukewys/laion_clap/music.pt");
+    REQUIRE(activation.resolved_checkpoint_path == checkpoint);
+
+    auto status = query_model_status(temp.path);
+    REQUIRE(status.loadable());
+    REQUIRE(status.backend == "clap");
+    REQUIRE(status.checkpoint_ref == "hf://lukewys/laion_clap/music.pt");
+}
+
 TEST_CASE("audio model activate rejects unknown or uninstalled models", "[audio][tools]") {
     TempDir temp;
 
