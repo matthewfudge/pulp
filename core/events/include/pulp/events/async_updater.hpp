@@ -106,8 +106,10 @@ public:
 
     /// Send an action to all listeners
     void send_action(std::string_view action) {
-        for (auto& [id, fn] : listeners_)
-            fn(action);
+        for (auto& [id, fn] : listeners_) {
+            (void)id;
+            if (fn) fn(action);
+        }
     }
 
     /// Add a listener. Returns an ID for removal.
