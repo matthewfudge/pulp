@@ -449,6 +449,10 @@ TEST_CASE("search, list, suggest, and audit commands cover empty and error modes
     REQUIRE(no_hits.exit_code == 0);
     REQUIRE(no_hits.stdout_text.find("No packages found matching") != std::string::npos);
 
+    auto search_help = run_in_project(tmp.path, [&] { return cmd_search({}); });
+    REQUIRE(search_help.exit_code == 0);
+    REQUIRE(search_help.stdout_text.find("Usage: pulp search") != std::string::npos);
+
     auto suggest_help = run_in_project(tmp.path, [&] { return cmd_suggest({}); });
     REQUIRE(suggest_help.exit_code == 0);
     REQUIRE(suggest_help.stdout_text.find("Usage: pulp suggest") != std::string::npos);
@@ -524,6 +528,24 @@ TEST_CASE("search, list, suggest, and audit commands cover empty and error modes
     });
     REQUIRE(audit_licenses_missing_registry.exit_code == 1);
     REQUIRE(audit_licenses_missing_registry.stderr_text.find("Registry not found") != std::string::npos);
+}
+
+TEST_CASE("package commands surface malformed local registry files",
+          "[cli][package-commands][registry][coverage]") {
+    TempDir tmp;
+    write_project_scaffold(tmp.path);
+    REQUIRE(write_project_targets(tmp.path, {PlatformTarget{"macOS", "arm64"}}));
+    write_file(tmp.path / "tools" / "packages" / "registry.json", "[]");
+
+    auto search_result = run_in_project(tmp.path, [&] { return cmd_search({"anything"}); });
+    REQUIRE(search_result.exit_code == 1);
+    REQUIRE(search_result.stderr_text.find("Registry file is not a valid JSON object") !=
+            std::string::npos);
+
+    auto add_result = run_in_project(tmp.path, [&] { return cmd_add({"anything"}); });
+    REQUIRE(add_result.exit_code == 1);
+    REQUIRE(add_result.stderr_text.find("Registry file is not a valid JSON object") !=
+            std::string::npos);
 }
 
 TEST_CASE("cmd_update updates only local lock and generated cmake",
@@ -712,6 +734,58 @@ TEST_CASE("cmd_add covers guarded installs and installed-version guards",
     REQUIRE(installed_old.stdout_text.find("Use 'pulp update' to upgrade") != std::string::npos);
 }
 
+TEST_CASE("cmd_add accepts commercial override for proprietary packages",
+          "[cli][package-commands][add-remove][coverage]") {
+    TempDir tmp;
+    write_project_scaffold(tmp.path);
+    write_file(tmp.path / "tools" / "packages" / "registry.json", R"({
+  "registry_version": 1,
+  "packages": {
+    "commercial-sdk": {
+      "name": "Commercial SDK",
+      "version": "2.0.0",
+      "description": "Closed-source SDK with a commercial license",
+      "license": "Proprietary",
+      "category": "SDK",
+      "url": "https://example.com/commercial",
+      "fetch": {
+        "method": "header-only",
+        "git_repository": "https://example.com/commercial.git",
+        "git_tag": "v2.0.0"
+      },
+      "cmake": {
+        "targets": ["commercial::sdk"],
+        "header_only": true,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {"architectures": ["arm64"]}
+      },
+      "verification": {
+        "last_verified": "2026-04-22",
+        "verified_version": "2.0.0",
+        "build_status": {"macOS": "pass"}
+      }
+    }
+  }
+}
+)");
+    REQUIRE(write_project_targets(tmp.path, {PlatformTarget{"macOS", "arm64"}}));
+
+    auto rejected = run_in_project(tmp.path, [&] { return cmd_add({"commercial-sdk"}); });
+    REQUIRE(rejected.exit_code == 1);
+    REQUIRE(rejected.stderr_text.find("cannot be used") != std::string::npos);
+
+    auto accepted = run_in_project(tmp.path, [&] {
+        return cmd_add({"commercial-sdk", "--license-override", "commercial", "--no-cmake"});
+    });
+    REQUIRE(accepted.exit_code == 0);
+    REQUIRE(accepted.stdout_text.find("Installing Proprietary package") != std::string::npos);
+    REQUIRE(accepted.stdout_text.find("Added Commercial SDK v2.0.0") != std::string::npos);
+    REQUIRE(load_lock_file(tmp.path / "packages.lock.json")
+                .packages.count("commercial-sdk") == 1);
+}
+
 TEST_CASE("cmd_remove handles help and registry-free removal",
           "[cli][package-commands][add-remove][issue-643]") {
     TempDir tmp;
@@ -729,4 +803,25 @@ TEST_CASE("cmd_remove handles help and registry-free removal",
     REQUIRE(removed.exit_code == 0);
     REQUIRE(removed.stdout_text.find("Removed orphan-pkg") != std::string::npos);
     REQUIRE(load_lock_file(tmp.path / "packages.lock.json").packages.empty());
+}
+
+TEST_CASE("cmd_remove regenerates cmake when other packages remain",
+          "[cli][package-commands][add-remove][coverage]") {
+    TempDir tmp;
+    write_project_scaffold(tmp.path);
+    write_registry_fixture(tmp.path);
+    REQUIRE(write_project_targets(tmp.path, {PlatformTarget{"macOS", "arm64"}}));
+    REQUIRE(save_lock_file(tmp.path / "packages.lock.json", make_lock({
+        {"signalsmith-dsp", {"1.2.0", "https://example.com/signalsmith.git", "", "v1.2.0"}},
+        {"mpl-analyzer", {"0.9.0", "https://example.com/mpl-analyzer.git", "", "v0.9.0"}},
+    })));
+    write_file(tmp.path / "cmake" / "pulp-packages.cmake", "stale");
+
+    auto removed = run_in_project(tmp.path, [&] { return cmd_remove({"signalsmith-dsp"}); });
+    REQUIRE(removed.exit_code == 0);
+    REQUIRE(load_lock_file(tmp.path / "packages.lock.json")
+                .packages.count("signalsmith-dsp") == 0);
+    auto cmake = read_file(tmp.path / "cmake" / "pulp-packages.cmake");
+    REQUIRE(cmake.find("mpl-analyzer") != std::string::npos);
+    REQUIRE(cmake.find("signalsmith-dsp") == std::string::npos);
 }
