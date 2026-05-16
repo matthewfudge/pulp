@@ -5759,3 +5759,14 @@ That bad tip was immediately removed with `--force-with-lease`; the corrected
 head is `a95b3228e`, contains only `test/test_runtime_utils.cpp` (+3
 assertions), and has fresh GitHub-hosted CI queued. No Namespace/SSH validation
 was dispatched.
+
+2026-05-16 15:23 PDT: refreshed the held combined coverage batch against current
+`origin/main` before adding more tests. `/private/tmp/pulp-phase3-codecov-combined-677`
+rebased cleanly and now has six local commits. Added `5ed72d7c8`
+(`test(runtime): cover i18n locale environment edges`) covering
+`LocalisedStrings::system_locale()` LANG normalization and fallback behavior with
+cross-platform-safe environment restoration. Local validation passed:
+`cmake --build build --target pulp-test-i18n -j$(sysctl -n hw.ncpu)`,
+`./build/test/pulp-test-i18n "i18n system_locale*"` (3 assertions / 3 cases),
+and full `./build/test/pulp-test-i18n` (73 assertions / 26 cases). This batch
+remains local-only to avoid opening another small GitHub-hosted CI run.
