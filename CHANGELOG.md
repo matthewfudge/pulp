@@ -8,9 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v01021"></a>
-## [0.103.0]
+<a id="v01030"></a>
+## [0.103.0] - 2026-05-16
 
+- feat(cli): SDK-update UX — auto-update default, easy pin opt-out (#2087) ([#2091](https://github.com/danielraffel/pulp/pull/2091))
+- test: consolidate phase 3 codecov coverage queue ([#2102](https://github.com/danielraffel/pulp/pull/2102))
+
+<a id="v01021"></a>
 ## [0.102.1] - 2026-05-15
 
 - fix(view/mac): re-sync _focusedView at every deref site (closes #2088) ([#2093](https://github.com/danielraffel/pulp/pull/2093))
@@ -1825,6 +1829,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.103.0]: https://github.com/danielraffel/pulp/releases/tag/v0.103.0
 [0.102.1]: https://github.com/danielraffel/pulp/releases/tag/v0.102.1
 [0.102.0]: https://github.com/danielraffel/pulp/releases/tag/v0.102.0
 [0.101.8]: https://github.com/danielraffel/pulp/releases/tag/v0.101.8
