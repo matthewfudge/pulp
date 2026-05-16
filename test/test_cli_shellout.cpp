@@ -593,6 +593,90 @@ TEST_CASE("pulp status reports shipyard version and pin health",
 }
 #endif
 
+TEST_CASE("pulp config set/get/list round-trips isolated update settings",
+          "[cli][shellout][config][issue-643]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto home = unique_temp_dir("pulp-config-roundtrip");
+    fs::remove_all(home);
+    fs::create_directories(home);
+    write_text(home / "update-snooze", "dismissed\n");
+
+    ScopedEnvVar pulp_home("PULP_HOME");
+    pulp_home.set(home.string());
+    ScopedEnvVar update_disabled("PULP_UPDATE_CHECK_DISABLED");
+    update_disabled.set("1");
+
+    auto set_mode = run_pulp({"config", "set", "update.mode", "manual"}, 10000);
+    REQUIRE_FALSE(set_mode.timed_out);
+    REQUIRE(set_mode.exit_code == 0);
+    REQUIRE(set_mode.stdout_output.find("Set update.mode = manual") != std::string::npos);
+    REQUIRE_FALSE(fs::exists(home / "update-snooze"));
+
+    auto get_mode = run_pulp({"config", "get", "update.mode"}, 10000);
+    REQUIRE_FALSE(get_mode.timed_out);
+    REQUIRE(get_mode.exit_code == 0);
+    REQUIRE(get_mode.stdout_output == "manual\n");
+
+    auto set_channel = run_pulp({"config", "set", "update.channel", "beta"}, 10000);
+    REQUIRE_FALSE(set_channel.timed_out);
+    REQUIRE(set_channel.exit_code == 0);
+    REQUIRE(set_channel.stdout_output.find("Set update.channel = beta") != std::string::npos);
+
+    auto list = run_pulp({"config", "list"}, 10000);
+    const auto config_body = read_file(home / "config.toml");
+    fs::remove_all(home);
+
+    REQUIRE_FALSE(list.timed_out);
+    REQUIRE(list.exit_code == 0);
+    REQUIRE(list.stdout_output.find("update.mode = manual") != std::string::npos);
+    REQUIRE(list.stdout_output.find("update.check_interval_hours = 24") != std::string::npos);
+    REQUIRE(list.stdout_output.find("update.channel = beta") != std::string::npos);
+    REQUIRE(list.stdout_output.find("update.bump_projects = prompt") != std::string::npos);
+    REQUIRE(config_body.find("[update]") != std::string::npos);
+    REQUIRE(config_body.find("mode = \"manual\"") != std::string::npos);
+    REQUIRE(config_body.find("channel = \"beta\"") != std::string::npos);
+}
+
+TEST_CASE("pulp config rejects malformed and invalid update keys",
+          "[cli][shellout][config][issue-643]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto home = unique_temp_dir("pulp-config-invalid");
+    fs::remove_all(home);
+    fs::create_directories(home);
+
+    ScopedEnvVar pulp_home("PULP_HOME");
+    pulp_home.set(home.string());
+    ScopedEnvVar update_disabled("PULP_UPDATE_CHECK_DISABLED");
+    update_disabled.set("1");
+
+    auto malformed_get = run_pulp({"config", "get", "update"}, 10000);
+    REQUIRE_FALSE(malformed_get.timed_out);
+    REQUIRE(malformed_get.exit_code != 0);
+    REQUIRE(malformed_get.stderr_output.find("key must be dotted") != std::string::npos);
+
+    auto unknown_key = run_pulp({"config", "set", "update.not_a_key", "value"}, 10000);
+    REQUIRE_FALSE(unknown_key.timed_out);
+    REQUIRE(unknown_key.exit_code != 0);
+    REQUIRE(unknown_key.stderr_output.find("unknown config key") != std::string::npos);
+
+    auto bad_mode = run_pulp({"config", "set", "update.mode", "weekly"}, 10000);
+    REQUIRE_FALSE(bad_mode.timed_out);
+    REQUIRE(bad_mode.exit_code != 0);
+    REQUIRE(bad_mode.stderr_output.find("update.mode must be one of") != std::string::npos);
+
+    auto bad_interval =
+        run_pulp({"config", "set", "update.check_interval_hours", "-1"}, 10000);
+    const bool config_written = fs::exists(home / "config.toml");
+    fs::remove_all(home);
+
+    REQUIRE_FALSE(bad_interval.timed_out);
+    REQUIRE(bad_interval.exit_code != 0);
+    REQUIRE(bad_interval.stderr_output.find("non-negative integer") != std::string::npos);
+    REQUIRE_FALSE(config_written);
+}
+
 TEST_CASE("pulp version subcommand runs and mentions the SDK",
           "[cli][shellout][version]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
@@ -1123,29 +1207,24 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
 
     const auto bin = fs::absolute(pulp_binary());
 
-    // Doctor walks xcode-select / xcrun / simctl on macOS and the Android
-    // SDK probe on non-macOS; under CI load (github-hosted ARM64 runners
-    // especially) these can stretch well past a minute. This test only
-    // validates subcommand recognition, so allow extra headroom and let
-    // exit-code assertions catch real parser regressions.
-    constexpr int doctor_timeout_ms = 180000;
-    auto android = exec(bin.string(), {"doctor", "android"}, doctor_timeout_ms);
-    auto ios     = exec(bin.string(), {"doctor", "ios"},     doctor_timeout_ms);
-    auto bogus   = exec(bin.string(), {"doctor", "potato"},  10000);
+    // Use --versions so the parser still has to accept the mobile
+    // subcommand before the diagnostic short-circuit, without running the
+    // slow host SDK probes that can hang on saturated CI runners.
+    auto android = exec(bin.string(), {"doctor", "android", "--versions"}, 10000);
+    auto ios     = exec(bin.string(), {"doctor", "ios", "--versions"},     10000);
+    auto bogus   = exec(bin.string(), {"doctor", "potato", "--versions"},  10000);
 
     REQUIRE_FALSE(android.timed_out);
     REQUIRE_FALSE(ios.timed_out);
     REQUIRE_FALSE(bogus.timed_out);
 
-    // android + ios run the new check sets — exit 0 when the host
-    // has the tooling, exit 1 when something's missing. Either is
-    // fine here; we're verifying the SUBCOMMAND is recognized, not
-    // that the dev host is fully provisioned. exit 2 is the
-    // "unknown subcommand" failure path we're guarding against.
-    REQUIRE(android.exit_code != 2);
-    REQUIRE(ios.exit_code != 2);
-    REQUIRE(android.stdout_output.find("Pulp Doctor") != std::string::npos);
-    REQUIRE(ios.stdout_output.find("Pulp Doctor") != std::string::npos);
+    // android + ios are recognized before --versions short-circuits the
+    // doctor pipeline. exit 2 is the "unknown subcommand" failure path
+    // we're guarding against.
+    REQUIRE(android.exit_code == 0);
+    REQUIRE(ios.exit_code == 0);
+    REQUIRE(android.stdout_output.find("Pulp Version Diagnostics") != std::string::npos);
+    REQUIRE(ios.stdout_output.find("Pulp Version Diagnostics") != std::string::npos);
 
     // bogus subcommand: rejected at the parser with a helpful Usage line.
     REQUIRE(bogus.exit_code == 2);

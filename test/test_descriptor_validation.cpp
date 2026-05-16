@@ -35,6 +35,16 @@ bool has_warning_on(const std::vector<DescriptorIssue>& issues,
     return false;
 }
 
+std::size_t warning_count_on(const std::vector<DescriptorIssue>& issues,
+                             const std::string& field) {
+    std::size_t count = 0;
+    for (const auto& i : issues) {
+        if (i.severity == DescriptorIssueSeverity::Warning && i.field == field)
+            ++count;
+    }
+    return count;
+}
+
 } // namespace
 
 TEST_CASE("DescriptorValidation: well-formed effect passes with no issues",
@@ -223,6 +233,19 @@ TEST_CASE("DescriptorValidation: supports_ump follows the accepts_midi sidecar w
     }
 }
 
+TEST_CASE("DescriptorValidation: MIDI capability warnings accumulate without invalidating descriptor",
+          "[format][descriptor-validation][coverage][issue-646]") {
+    auto d = well_formed_effect();
+    d.category = PluginCategory::MidiEffect;
+    d.accepts_midi = false;
+    d.supports_mpe = true;
+    d.supports_ump = true;
+
+    auto issues = validate_descriptor(d);
+    REQUIRE(warning_count_on(issues, "accepts_midi") == 2);
+    REQUIRE(descriptor_is_valid(issues));
+}
+
 TEST_CASE("DescriptorValidation: MidiEffect without audio output is valid",
           "[format][descriptor-validation]") {
     auto d = well_formed_effect();
@@ -247,4 +270,45 @@ TEST_CASE("DescriptorValidation: reverse-DNS bundle_id passes",
     for (const auto& i : issues) {
         REQUIRE(i.field != "bundle_id");
     }
+}
+
+TEST_CASE("DescriptorValidation: mixed warnings and errors remain invalid",
+          "[format][descriptor-validation][issue-493]") {
+    auto d = well_formed_effect();
+    d.name.clear();
+    d.bundle_id = "Not Reverse DNS";
+    d.output_buses = {{"Broken Out", 0, false}};
+
+    auto issues = validate_descriptor(d);
+    REQUIRE(has_error_on(issues, "name"));
+    REQUIRE(has_warning_on(issues, "bundle_id"));
+    REQUIRE(has_error_on(issues, "output_buses"));
+    REQUIRE_FALSE(descriptor_is_valid(issues));
+}
+
+TEST_CASE("DescriptorValidation: optional zero-channel side inputs are accepted",
+          "[format][descriptor-validation][issue-493]") {
+    auto d = well_formed_effect();
+    d.input_buses = {
+        {"Main In", 2, false},
+        {"Sidechain", 0, true},
+    };
+    d.output_buses = {{"Main Out", 2, false}};
+
+    auto issues = validate_descriptor(d);
+    REQUIRE_FALSE(has_error_on(issues, "input_buses"));
+    REQUIRE(descriptor_is_valid(issues));
+}
+
+TEST_CASE("DescriptorValidation: MIDI sidecar capabilities are warning-only without MIDI input",
+          "[format][descriptor-validation][issue-493]") {
+    auto d = well_formed_effect();
+    d.accepts_midi = false;
+    d.produces_midi = true;
+    d.supports_mpe = true;
+    d.supports_ump = true;
+
+    auto issues = validate_descriptor(d);
+    REQUIRE(has_warning_on(issues, "accepts_midi"));
+    REQUIRE(descriptor_is_valid(issues));
 }
