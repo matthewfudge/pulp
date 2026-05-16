@@ -5268,3 +5268,30 @@ Monitoring state at publish time:
   macOS remains in progress; rerun the failed Windows job/run after the
   workflow finishes unless a later log shows an actual test failure.
 - #2106 checks are queued/running on GitHub-hosted runners only.
+
+2026-05-16 00:00 PDT: started the next held runtime/audio coverage batch
+locally on `feature/phase3-codecov-runtime-audio-batch-669` in
+`/private/tmp/pulp-phase3-codecov-runtime-audio-batch-669`. This branch is
+intentionally not opened yet; keep accumulating related runtime/audio tests
+before spending another GitHub-hosted CI run.
+
+Current commits:
+- `test(runtime): cover stream edge paths`
+- `test(audio): cover buffer metadata edges`
+- `test(runtime): cover queue slot reuse`
+
+Current coverage additions:
+- `StreamResult` helper state checks, `FileStream` position/zero-byte/reopen
+  paths, and `PipeStream` closed/open named-pipe wrapper paths.
+- `Buffer` zero-channel/const-view edge shapes and `AudioFileData` metadata
+  helper behavior for empty/mismatched channel data.
+- `SpscQueue` capacity reporting, rvalue push, full rejection, FIFO reuse
+  after draining, and empty pop behavior.
+
+Local validation passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF`;
+`cmake --build build --target pulp-test-stream pulp-test-audio
+pulp-test-runtime -j8`; `./build/test/pulp-test-stream` with 16 test cases /
+160 assertions passing; `./build/test/pulp-test-audio` with 14 test cases /
+645 assertions passing; `./build/test/pulp-test-runtime` with 16 test cases /
+93 assertions passing; and `git diff --check`.
