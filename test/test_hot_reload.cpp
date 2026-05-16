@@ -219,8 +219,11 @@ TEST_CASE("HotReloader seeds observed JS files and ignores stale events",
     REQUIRE(reloader.observed_write_times_.count(ignored.lexically_normal().string()) == 0);
     REQUIRE_FALSE(reloader.should_reload_for_modified_file(entry));
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
     write_js_file(entry, "// entry v2");
+    std::filesystem::last_write_time(
+        entry,
+        reloader.observed_write_times_.at(entry.lexically_normal().string()) +
+            std::chrono::seconds(2));
     REQUIRE(reloader.should_reload_for_modified_file(entry));
 
     std::filesystem::remove_all(tmp_dir);
