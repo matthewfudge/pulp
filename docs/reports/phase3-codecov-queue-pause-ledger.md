@@ -4999,3 +4999,27 @@ by the local version-bump gate, so the tip commit was amended with
 surface change"`. The second push passed local pre-push gates with
 `PULP_VIA_SHIPYARD=1 PULP_DISABLE_PREPUSH_DIFF_COVER=1 PULP_SKIP_DIFF_COVER=1`.
 No Namespace/SSH validation was dispatched.
+
+2026-05-15 18:32 PDT: prepared the next held events/IPC/service-discovery
+coverage batch in `/private/tmp/pulp-phase3-codecov-events-batch-664` on
+`feature/phase3-codecov-events-batch-664`, based on `origin/main`
+`85bd37efa`. Current head is `5b6e60b59` (`test(events): cover IPC client
+disconnect lifecycle`), 12 commits ahead of `origin/main`.
+
+The batch covers root fixes plus focused tests for:
+- `EventLoop`: empty task handling, due delayed tasks, post-stop dispatches,
+  and nested dispatch from the loop thread.
+- `Timer`: empty callback handling and one-shot restart/stop-before-fire edges.
+- `ActionBroadcaster`: empty callbacks and mutation-safe snapshot dispatch.
+- `MountedVolumeListChangeDetector`: prompt stop wakeups for long poll
+  intervals.
+- `NetworkServiceDiscovery`: browse reuse and backend removal no-op paths.
+- `InterprocessConnection`: socket binary frames and disconnect callbacks.
+
+Final local validation before publishing passed:
+`cmake --build build --target pulp-test-events pulp-test-ipc
+pulp-test-network-service-discovery -j$(sysctl -n hw.ncpu)`;
+`ctest --test-dir build --output-on-failure -R
+"EventLoop|Timer|ActionBroadcaster|IPC|NSD|MountedVolumeListChangeDetector|LockingAsyncUpdater"`
+with 57/57 tests passing; and `git diff --check`. No Namespace/SSH validation
+was dispatched.
