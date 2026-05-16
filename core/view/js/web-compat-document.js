@@ -72,19 +72,51 @@ function _applyStyles(el, props) {
 }
 
 function _setupPseudoHover(el, props) {
-    if (el._hoverSetup) return;
-    el._hoverSetup = true;
-    var savedProps = {};
+    // pulp #1323 — multiple `:hover` rules on the same element layer
+    // their property maps. We keep a per-element list so `mouseleave`
+    // restores the union of all hover-touched properties to their
+    // pre-hover values, even when a later rule introduced a new key.
+    var hoverState = el._hoverState;
+    if (!hoverState) {
+        hoverState = el._hoverState = {
+            propsList: [],
+            savedProps: {},
+            wired: false
+        };
+    }
+
+    var alreadyHave = false;
+    for (var pi = 0; pi < hoverState.propsList.length; pi++) {
+        if (hoverState.propsList[pi] === props) { alreadyHave = true; break; }
+    }
+    if (!alreadyHave) hoverState.propsList.push(props);
+
+    // pulp #1173 — defer wiring until _nativeCreated so registerHover(id)
+    // can land. _applyTo() re-runs from appendChild after mount, giving
+    // pre-mount matches a second chance.
+    if (hoverState.wired) return;
+    if (!el._nativeCreated) return;
+    hoverState.wired = true;
 
     el.addEventListener("mouseenter", function() {
-        // Save current values
-        for (var k in props) savedProps[k] = el.style[k];
-        _applyStyles(el, props);
+        var list = hoverState.propsList;
+        for (var i = 0; i < list.length; i++) {
+            var p = list[i];
+            for (var k in p) {
+                if (!Object.prototype.hasOwnProperty.call(hoverState.savedProps, k)) {
+                    hoverState.savedProps[k] = el.style[k];
+                }
+            }
+        }
+        for (var j = 0; j < list.length; j++) {
+            _applyStyles(el, list[j]);
+        }
     });
-
     el.addEventListener("mouseleave", function() {
-        // Restore
-        for (var k in savedProps) el.style[k] = savedProps[k];
+        for (var k in hoverState.savedProps) {
+            el.style[k] = hoverState.savedProps[k];
+        }
+        hoverState.savedProps = {};
     });
 }
 
@@ -276,6 +308,13 @@ function _matchesSelector(el, parsed) {
             }
             if (!found) return false;
         }
+    }
+
+    // pulp #1737 — pseudo-class state matching. Without this, `div:disabled`
+    // would match every `div` because the parser stored parsed.pseudo but
+    // the matcher ignored it.
+    if (parsed.pseudo) {
+        if (!_matchesPseudoClass(el, parsed.pseudo)) return false;
     }
 
     return true;
