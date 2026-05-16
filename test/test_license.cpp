@@ -99,6 +99,31 @@ TEST_CASE("BigInteger copy move hex and bit-count helpers", "[crypto][bigint][co
     REQUIRE(move_assigned.to_string() == "256");
 }
 
+TEST_CASE("BigInteger hex bit count and copy assignment",
+          "[crypto][bigint][coverage]") {
+    auto value = BigInteger::from_hex("0100");
+    REQUIRE(value.to_hex() == "0100");
+    REQUIRE(value.bit_count() == 9);
+
+    BigInteger copy;
+    copy = value;
+    REQUIRE(copy == value);
+    REQUIRE(copy.to_string() == "256");
+}
+
+TEST_CASE("BigInteger move construction and move assignment leave values usable",
+          "[crypto][bigint][coverage]") {
+    BigInteger source(1234);
+    BigInteger moved(std::move(source));
+    REQUIRE(moved.to_string() == "1234");
+    REQUIRE(source.is_zero());
+
+    BigInteger assigned(1);
+    assigned = std::move(moved);
+    REQUIRE(assigned.to_string() == "1234");
+    REQUIRE(moved.is_zero());
+}
+
 // ── License ─────────────────────────────────────────────────────────────
 
 TEST_CASE("LicenseValidator invalid format", "[crypto][license]") {
@@ -166,6 +191,25 @@ TEST_CASE("LicenseValidator validate_and_parse rejects malformed payloads", "[cr
 
     std::string missing_product = "{\"email\":\"user@example.com\",\"issued\":1700000000}";
     REQUIRE_FALSE(validator.validate_and_parse(base64_encode(missing_product) + ".sig").has_value());
+}
+
+TEST_CASE("LicenseValidator parse_payload handles optional fields and bad integers",
+          "[crypto][license][coverage]") {
+    LicenseValidator validator;
+
+    std::string payload =
+        "{\"product_id\":\"PulpSynth\",\"email\":\"user@example.com\","
+        "\"machine_id\":\"machine-1\",\"edition\":\"artist\","
+        "\"issued\":not-a-number,\"expiry\":1800000000}";
+    auto info = validator.validate_and_parse(base64_encode(payload) + ".sig");
+
+    REQUIRE(info.has_value());
+    REQUIRE(info->product_id == "PulpSynth");
+    REQUIRE(info->user_email == "user@example.com");
+    REQUIRE(info->machine_id == "machine-1");
+    REQUIRE(info->edition == "artist");
+    REQUIRE(info->issued_timestamp == 0);
+    REQUIRE(info->expiry_timestamp == 1800000000);
 }
 
 TEST_CASE("LicenseValidator is_valid_for_machine", "[crypto][license]") {
