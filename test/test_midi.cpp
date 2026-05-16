@@ -177,6 +177,32 @@ TEST_CASE("MidiBuffer operations", "[midi][buffer]") {
     }
 }
 
+TEST_CASE("MidiBuffer stores independent SysEx sidecar events",
+          "[midi][buffer][sysex][codecov]") {
+    MidiBuffer buffer;
+    buffer.add(MidiEvent::note_on(0, 60, 100));
+    buffer.add_sysex({0xF0, 0x7D, 0x01, 0xF7}, 12, 0.25);
+    buffer.add_sysex({}, 24, 0.5);
+
+    REQUIRE(buffer.size() == 1);
+    REQUIRE(buffer.sysex_size() == 2);
+    REQUIRE(buffer.sysex()[0].data == std::vector<uint8_t>{0xF0, 0x7D, 0x01, 0xF7});
+    REQUIRE(buffer.sysex()[0].sample_offset == 12);
+    REQUIRE(buffer.sysex()[0].timestamp == Approx(0.25));
+    REQUIRE(buffer.sysex()[1].data.empty());
+    REQUIRE(buffer.sysex()[1].sample_offset == 24);
+
+    buffer.sysex()[1].data = {0xF0, 0xF7};
+    REQUIRE(buffer.sysex()[1].data == std::vector<uint8_t>{0xF0, 0xF7});
+
+    buffer.clear_sysex();
+    REQUIRE(buffer.sysex_size() == 0);
+    REQUIRE(buffer.size() == 1);
+
+    buffer.clear();
+    REQUIRE(buffer.empty());
+}
+
 TEST_CASE("MidiKeyboardState tracks notes and releases with callbacks",
           "[midi][keyboard][codecov]") {
     MidiKeyboardState keys;
