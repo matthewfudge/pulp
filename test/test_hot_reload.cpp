@@ -1,10 +1,21 @@
 #include <catch2/catch_test_macros.hpp>
-#include <pulp/view/hot_reload.hpp>
 #include <chrono>
+#include <pulp/view/script_engine.hpp>
+#include <choc/platform/choc_FileWatcher.h>
 #include <fstream>
 #include <thread>
 #include <filesystem>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <atomic>
+#include <unordered_map>
 #include <vector>
+
+#define private public
+#include <pulp/view/hot_reload.hpp>
+#undef private
 
 using namespace pulp::view;
 
@@ -187,5 +198,44 @@ TEST_CASE("HotReloader directory watching", "[view][hotreload]") {
     REQUIRE(latest_code.find("v2") != std::string::npos);
 
     // Clean up
+    std::filesystem::remove_all(tmp_dir);
+}
+
+TEST_CASE("HotReloader seeds observed JS files and ignores stale events",
+          "[view][hotreload][codecov]") {
+    auto tmp_dir = make_temp_dir("pulp_hotreload_seed");
+    auto entry = tmp_dir / "main.js";
+    auto module = tmp_dir / "module.mjs";
+    auto ignored = tmp_dir / "notes.txt";
+
+    write_js_file(entry, "// entry v1");
+    write_js_file(module, "// module v1");
+    write_js_file(ignored, "not javascript");
+
+    HotReloader reloader(tmp_dir, "main.js", [](const std::string&) {});
+
+    REQUIRE(reloader.observed_write_times_.count(entry.lexically_normal().string()) == 1);
+    REQUIRE(reloader.observed_write_times_.count(module.lexically_normal().string()) == 1);
+    REQUIRE(reloader.observed_write_times_.count(ignored.lexically_normal().string()) == 0);
+    REQUIRE_FALSE(reloader.should_reload_for_modified_file(entry));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    write_js_file(entry, "// entry v2");
+    REQUIRE(reloader.should_reload_for_modified_file(entry));
+
+    std::filesystem::remove_all(tmp_dir);
+}
+
+TEST_CASE("HotReloader file seed skips non-JS files and missing paths",
+          "[view][hotreload][codecov]") {
+    auto tmp_dir = make_temp_dir("pulp_hotreload_non_js");
+    auto text_file = tmp_dir / "notes.txt";
+    write_js_file(text_file, "not javascript");
+
+    HotReloader reloader(text_file, [](const std::string&) {});
+
+    REQUIRE(reloader.observed_write_times_.empty());
+    REQUIRE_FALSE(reloader.should_reload_for_modified_file(tmp_dir / "missing.js"));
+
     std::filesystem::remove_all(tmp_dir);
 }
