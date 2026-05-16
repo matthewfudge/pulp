@@ -1219,6 +1219,24 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE(ios.exit_code == 0);
     REQUIRE(android.stdout_output.find("Pulp Doctor") != std::string::npos);
     REQUIRE(ios.stdout_output.find("Pulp Doctor") != std::string::npos);
+    REQUIRE(android.stdout_output.find("Android") != std::string::npos);
+    REQUIRE(ios.stdout_output.find("iOS") != std::string::npos);
+    REQUIRE(android.stdout_output.find("Dry-run: subcommand recognized") != std::string::npos);
+    REQUIRE(ios.stdout_output.find("Dry-run: subcommand recognized") != std::string::npos);
+
+    auto android_json = exec(bin.string(),
+                             {"doctor", "android", "--dry-run", "--json"},
+                             10000);
+    auto ios_ci = exec(bin.string(), {"doctor", "ios", "--dry-run", "--ci"}, 10000);
+    REQUIRE_FALSE(android_json.timed_out);
+    REQUIRE_FALSE(ios_ci.timed_out);
+    REQUIRE(android_json.exit_code == 0);
+    REQUIRE(ios_ci.exit_code == 0);
+    REQUIRE(android_json.stdout_output.find("\"mode\":\"android\"") != std::string::npos);
+    REQUIRE(android_json.stdout_output.find("\"dry_run\":true") != std::string::npos);
+    REQUIRE(android_json.stdout_output.find("\"external_probes\":false") != std::string::npos);
+    REQUIRE(ios_ci.stdout_output.find("Pulp Doctor") != std::string::npos);
+    REQUIRE(ios_ci.stdout_output.find("Dry-run: subcommand recognized") == std::string::npos);
 
     // bogus subcommand: rejected at the parser with a helpful Usage line.
     REQUIRE(bogus.exit_code == 2);
