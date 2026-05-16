@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v01030"></a>
+## [0.104.0]
+
 ## [0.103.0] - 2026-05-16
 
 - feat(cli): SDK-update UX — auto-update default, easy pin opt-out (#2087) ([#2091](https://github.com/danielraffel/pulp/pull/2091))
