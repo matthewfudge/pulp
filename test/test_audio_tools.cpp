@@ -131,6 +131,7 @@ TEST_CASE("audio model registry resolves known models and checkpoint URLs",
             == "http://example.test/model.bin");
     REQUIRE(resolve_checkpoint_url("hf://user-only").empty());
     REQUIRE(resolve_checkpoint_url("hf://user/repo").empty());
+    REQUIRE(resolve_checkpoint_url("hf://user/repo/").empty());
     REQUIRE(resolve_checkpoint_url("file:///tmp/model.pt").empty());
 }
 
