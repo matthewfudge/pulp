@@ -447,6 +447,25 @@ TEST_CASE("MountedVolumeListChangeDetector start and stop are idempotent",
     REQUIRE_FALSE(detector.is_running());
 }
 
+TEST_CASE("MountedVolumeListChangeDetector stop wakes a long poll promptly",
+          "[events][volume][lifecycle][codecov]") {
+#ifdef _WIN32
+    SUCCEED("Windows drive probing can throw on unavailable runner drives; covered on POSIX.");
+    return;
+#endif
+
+    MountedVolumeListChangeDetector detector;
+    detector.start(std::chrono::hours(1));
+    REQUIRE(detector.is_running());
+
+    const auto start = std::chrono::steady_clock::now();
+    detector.stop();
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    REQUIRE_FALSE(detector.is_running());
+    REQUIRE(elapsed < 500ms);
+}
+
 TEST_CASE("LockingAsyncUpdater trigger_and_wait handles synchronously",
           "[events][async_updater][locking]") {
     RecordingLockingUpdater updater;
