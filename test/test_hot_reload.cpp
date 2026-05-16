@@ -217,14 +217,25 @@ TEST_CASE("HotReloader seeds observed JS files and ignores stale events",
     REQUIRE(reloader.observed_write_times_.count(entry.lexically_normal().string()) == 1);
     REQUIRE(reloader.observed_write_times_.count(module.lexically_normal().string()) == 1);
     REQUIRE(reloader.observed_write_times_.count(ignored.lexically_normal().string()) == 0);
-    REQUIRE_FALSE(reloader.should_reload_for_modified_file(entry));
+    reloader.on_file_changed({choc::file::Watcher::EventType::modified,
+                              choc::file::Watcher::FileType::file,
+                              entry});
+    REQUIRE_FALSE(reloader.poll_reload());
 
+    std::string reloaded_code;
+    HotReloader changed_reloader(tmp_dir, "main.js", [&](const std::string& code) {
+        reloaded_code = code;
+    });
     write_js_file(entry, "// entry v2");
     std::filesystem::last_write_time(
         entry,
-        reloader.observed_write_times_.at(entry.lexically_normal().string()) +
+        changed_reloader.observed_write_times_.at(entry.lexically_normal().string()) +
             std::chrono::seconds(2));
-    REQUIRE(reloader.should_reload_for_modified_file(entry));
+    changed_reloader.on_file_changed({choc::file::Watcher::EventType::modified,
+                                      choc::file::Watcher::FileType::file,
+                                      entry});
+    REQUIRE(changed_reloader.poll_reload());
+    REQUIRE(reloaded_code.find("entry v2") != std::string::npos);
 
     std::filesystem::remove_all(tmp_dir);
 }
@@ -238,7 +249,10 @@ TEST_CASE("HotReloader file seed skips non-JS files and missing paths",
     HotReloader reloader(text_file, [](const std::string&) {});
 
     REQUIRE(reloader.observed_write_times_.empty());
-    REQUIRE_FALSE(reloader.should_reload_for_modified_file(tmp_dir / "missing.js"));
+    reloader.on_file_changed({choc::file::Watcher::EventType::modified,
+                              choc::file::Watcher::FileType::file,
+                              tmp_dir / "missing.js"});
+    REQUIRE_FALSE(reloader.poll_reload());
 
     std::filesystem::remove_all(tmp_dir);
 }
