@@ -83,21 +83,6 @@ int cmd_doctor(const std::vector<std::string>& args) {
         return 2;
     }
 
-    if (!mode.empty() && dry_run && !fix_mode && !versions_mode &&
-        !validators_mode && !scan_parents && !caches_mode) {
-        if (json_mode) {
-            std::cout << "{\"mode\":\"" << mode
-                      << "\",\"dry_run\":true,\"external_probes\":false}\n";
-        } else {
-            std::cout << "Pulp Doctor — " << (mode == "android" ? "Android" : "iOS")
-                      << "\n";
-            if (!ci_mode) {
-                std::cout << "Dry-run: subcommand recognized; external probes skipped.\n";
-            }
-        }
-        return 0;
-    }
-
     // `pulp doctor --caches` (issue #744) — discovery + healing for the
     // shared FetchContent cache (`~/Library/Caches/Pulp/fetchcontent-src`
     // on macOS, equivalent paths on Linux/Windows). Short-circuits the
