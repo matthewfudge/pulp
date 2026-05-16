@@ -253,6 +253,11 @@ TEST_CASE("package lock files round-trip escaped local package metadata",
     auto missing = load_lock_file(tmp.path / "missing-lock.json");
     REQUIRE(missing.version == 1);
     REQUIRE(missing.packages.empty());
+
+    write_file(tmp.path / "bad-lock.json", "[]");
+    auto malformed = load_lock_file(tmp.path / "bad-lock.json");
+    REQUIRE(malformed.version == 1);
+    REQUIRE(malformed.packages.empty());
 }
 
 TEST_CASE("remote registry helpers use environment cache paths and fresh cache hits",
@@ -352,6 +357,11 @@ name = "Demo"
     REQUIRE(write_project_targets(no_project.path, {PlatformTarget{"Windows", "x64"}}));
     REQUIRE(target_strings(read_project_targets(no_project.path)) ==
             std::vector<std::string>{"Windows-x64"});
+
+    TempDir empty_project;
+    REQUIRE(write_project_targets(empty_project.path, {}));
+    REQUIRE(target_strings(read_project_targets(empty_project.path)) ==
+            std::vector<std::string>{"macOS-arm64", "Windows-x64", "Linux-x64"});
 }
 
 TEST_CASE("project target parsing falls back for malformed target TOML",
@@ -440,6 +450,14 @@ TEST_CASE("licenses, semver, and quality scoring classify local registry metadat
     auto low = compute_quality(experimental);
     REQUIRE(low.total == 0);
     REQUIRE(low.tier == "experimental");
+
+    PackageDescriptor community = quality_fixture();
+    community.license = "MPL-2.0";
+    community.verification.build_status = {{"macOS", "pass"}, {"Linux", "fail"}};
+    auto mid = compute_quality(community);
+    REQUIRE(mid.license == 10);
+    REQUIRE(mid.verification == 12);
+    REQUIRE(mid.tier == "community");
 }
 
 TEST_CASE("package registry queries rank search hits and detect unsupported targets",
