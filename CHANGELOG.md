@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v01021"></a>
+## [0.103.0]
+
 ## [0.102.1] - 2026-05-15
 
 - fix(view/mac): re-sync _focusedView at every deref site (closes #2088) ([#2093](https://github.com/danielraffel/pulp/pull/2093))
