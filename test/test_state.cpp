@@ -271,6 +271,22 @@ TEST_CASE("StateStore change listener", "[state][listener]") {
     REQUIRE_THAT(changed_value, WithinAbs(0.8, 0.001));
 }
 
+TEST_CASE("StateStore skips empty change listeners", "[state][listener][codecov]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "X", "", {0.0f, 1.0f, 0.5f}));
+
+    int calls = 0;
+    store.add_listener({});
+    store.add_listener([&](ParamID id, float value) {
+        REQUIRE(id == 1);
+        REQUIRE_THAT(value, WithinAbs(0.75, 0.001));
+        ++calls;
+    });
+
+    store.set_value(1, 0.75f);
+    REQUIRE(calls == 1);
+}
+
 TEST_CASE("StateStore modulation offsets and default resets", "[state][store]") {
     StateStore store;
     store.add_parameter(make_param_info(1, "Cutoff", "Hz", {20.0f, 20000.0f, 1000.0f}));

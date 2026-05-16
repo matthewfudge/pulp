@@ -58,7 +58,7 @@ void StateStore::set_value(ParamID id, float value) {
         snapshot = listeners_;
     }
     for (auto& cb : snapshot) {
-        cb(id, clamped);
+        if (cb) cb(id, clamped);
     }
 }
 
