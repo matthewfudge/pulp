@@ -1885,6 +1885,15 @@ target_link_libraries(pulp-test-design-import-claude-bundle
 catch_discover_tests(pulp-test-design-import-claude-bundle
     PROPERTIES LABELS "parser-import")
 
+# Keyboard-shortcut extraction from React source (UX best-practice
+# default — design-import emits a shortcuts manifest the runtime can
+# auto-register).
+add_executable(pulp-test-design-import-shortcuts test_design_import_shortcuts.cpp)
+target_link_libraries(pulp-test-design-import-shortcuts
+    PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-design-import-shortcuts
+    PROPERTIES LABELS "parser-import")
+
 # pulp #1035 — `pulp import-design --from claude` classnames.json
 # emission. Combines library-level fixture coverage (no binary
 # dependency) with a shell-out against the built CLI when available.
