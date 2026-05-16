@@ -193,7 +193,7 @@ pulp #709 / `--from claude` is the worked example.
 - [ ] Search CLAUDE.md
 - [ ] Run sync check
 
-## `pulp project bump` shell helpers
+## `pulp project pin / unpin / bump` shell helpers
 
 `tools/cli/cmd_project.cpp` shells out to `git` / `cmake` from unit-tested
 helper paths, including Windows CI. Keep output redirection platform-aware:
@@ -202,6 +202,35 @@ POSIX uses `/dev/null`, but Windows `cmd.exe` needs `NUL`. Do not add raw
 the local null-redirection helpers instead. Otherwise Windows Namespace can
 misreport clean/dirty git state or fail origin-main probes even though the
 same tests pass on macOS/Linux.
+
+### pin / unpin / floating SDK mode
+
+`pin` is the primary command name; `bump` survives as a deprecated alias
+through `cmd_project`'s dispatch (`if (sub == "pin" || sub == "bump")`).
+When adding a new project subcommand, add the canonical name AND keep
+any old alias for one minor release — existing scripts and skill examples
+break otherwise.
+
+`pulp project unpin` rewrites `pulp.toml`'s `sdk_version` to `"latest"`
+in-place (single-line value swap, preserving surrounding TOML
+structure and comments). Do NOT delete the field — downstream tooling
+that greps for it loses a clear signal. The dispatch entry lives at
+the same spot as `pin`/`bump`/`undo` and shares `find_bumpable_project_root_from`.
+
+`sdk_version = "latest"` is the floating-SDK marker. Resolution happens
+in `read_sdk_version()` (cli_common.cpp) — `"latest"` becomes the
+newest installed version under `~/.pulp/sdk/<x.y.z>/`, falling back to
+`PULP_SDK_VERSION` when none are installed. Callers that need to
+distinguish the floating marker from a real semver use
+`read_raw_sdk_version()` + `is_floating_sdk()`. Don't open-code the
+"latest" comparison anywhere — both helpers are exported from
+cli_common.hpp so the comparison stays in one place.
+
+`pulp create` writes `sdk_version = "latest"` by default
+(cmd_create.cpp). The `--pin` flag opts into exact-version pinning
+at create time. Both code paths print a discoverable post-create
+message about `pulp project pin` so users learn the opt-in command
+without hunting.
 
 ## `pulp pr` — shim over `shipyard pr`
 

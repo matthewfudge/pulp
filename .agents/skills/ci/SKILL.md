@@ -1063,6 +1063,25 @@ a PR, and let the drift-check workflow confirm the plan. Then mirror the
 change in the GitHub ruleset UI (or reapply via `gh api PUT`). Never edit
 the live ruleset in isolation — the next scheduled drift run will fail.
 
+### Install consumer smoke (`install-consumer-smoke.yml`)
+
+Pulp #2087 piggyback. Catches the class of bug where in-tree builds
+work but installed-SDK consumers break at configure time. Runs on
+macos-15 + ubuntu-24.04: builds Pulp, `cmake --install`s it to a temp
+prefix, then configures a minimal downstream `find_package(Pulp)` +
+`pulp_add_plugin(...)` project against that prefix. Failures here
+match what a real downstream (e.g. Spectr) would hit.
+
+Defense-in-depth guard: greps the installed CMake config files for
+`${CMAKE_SOURCE_DIR}/tools/cmake/...` or `${CMAKE_SOURCE_DIR}/core/...` —
+those patterns inside files that ship in the SDK tarball resolve to
+the *consumer's* source tree at find_package time, never Pulp's.
+Inside a function body in `tools/cmake/PulpUtils.cmake`, use
+`CMAKE_CURRENT_FUNCTION_LIST_DIR`; at top level of a config file,
+use `CMAKE_CURRENT_LIST_DIR`. The two existing helpers paths
+(`_pulp_add_standalone` for fontconfig, top-level fallbacks for
+`_PULP_FORMAT_SOURCE_DIR` etc.) demonstrate the pattern.
+
 ## Versioning & Skill-Sync gates (Layer 3)
 
 `pulp pr` orchestrates the full shipping flow. CI enforces three gates on every PR to `main`:

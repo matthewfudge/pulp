@@ -69,6 +69,39 @@ move its SDK pin. It operates on the active project or the registry
 (`--all`); it does not upgrade the global CLI and it refuses to treat
 the Pulp source checkout as a consumer project.
 
+### `pulp upgrade` updates BOTH CLI and SDK by default
+
+Pre-#2087 `pulp upgrade` only swapped the CLI binary. Users who ran it
+then built a project that still resolved its (months-old) SDK and
+silently missed every framework fix in between (the Spectr incident
+2026-05-15). Post-#2087:
+
+- Default: fetch latest CLI binary + run `pulp sdk install --version
+  <new>` immediately after the swap, so the matching SDK lands at
+  `~/.pulp/sdk/<new>/` in the same invocation.
+- `--cli-only` flag keeps the pre-#2087 behavior for the rare case
+  where a user wants the new CLI paired with their current SDK.
+- The SDK install is best-effort: a transient network failure logs a
+  warning and tells the user to retry with `pulp sdk install`. The CLI
+  swap is not rolled back — the user can always retry SDK install.
+- When run from inside a project whose `pulp.toml` pins an explicit
+  SDK version, the SDK install happens (so the new version is
+  available globally) but the project's pin is left ALONE. A clear
+  notice prints — "Project X stays on pinned SDK Y.Y.Y; latest
+  available is Z.Z.Z — `pulp project unpin` to start tracking latest."
+  Pinning is sacred when the user has explicitly pinned.
+
+`pulp project pin <version>` is the new primary name for what
+`pulp project bump` did. `bump` survives as a deprecated alias for
+one minor release. New docs and skill examples should use `pin`.
+`pulp project unpin` (new) flips a project back to floating mode
+(`sdk_version = "latest"` in pulp.toml).
+
+New projects created via `pulp create` default to floating mode
+(`sdk_version = "latest"`), so they pick up framework fixes
+automatically. `pulp create --pin` writes the exact version instead
+for users who want reproducibility from day one.
+
 ## Discovery workflow (`pulp` on PATH is assumed)
 
 The skill shells out to `pulp` — no hardcoded paths, no env-var

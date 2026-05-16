@@ -238,10 +238,29 @@ TEST_CASE("cmd_project reports help and unknown subcommands deterministically",
     }
 
     {
+        // Pulp #2087: `bump` is now a deprecated alias for `pin`. The
+        // help body keeps both names visible — the title is "pulp
+        // project pin" with "(alias: `pulp project bump`)" — so the
+        // bump-help substring still appears, and the flag list still
+        // includes --verify-builds.
         CapturedStreams capture;
         REQUIRE(cmd_project({"bump", "--help"}) == 0);
         REQUIRE(capture.out.str().find("pulp project bump") != std::string::npos);
         REQUIRE(capture.out.str().find("--verify-builds") != std::string::npos);
+    }
+
+    {
+        CapturedStreams capture;
+        REQUIRE(cmd_project({"pin", "--help"}) == 0);
+        REQUIRE(capture.out.str().find("pulp project pin") != std::string::npos);
+        REQUIRE(capture.out.str().find("--verify-builds") != std::string::npos);
+    }
+
+    {
+        CapturedStreams capture;
+        REQUIRE(cmd_project({"unpin", "--help"}) == 0);
+        REQUIRE(capture.out.str().find("pulp project unpin") != std::string::npos);
+        REQUIRE(capture.out.str().find("floating") != std::string::npos);
     }
 
     {
@@ -251,11 +270,13 @@ TEST_CASE("cmd_project reports help and unknown subcommands deterministically",
     }
 
     {
+        // The unknown-subcommand redirect now points at the renamed
+        // primary `pin` help, not the deprecated `bump` alias.
         CapturedStreams capture;
         REQUIRE(cmd_project({"not-a-command"}) == 2);
         REQUIRE(capture.err.str().find("unknown subcommand 'not-a-command'")
                 != std::string::npos);
-        REQUIRE(capture.out.str().find("Run `pulp project bump --help`")
+        REQUIRE(capture.out.str().find("Run `pulp project pin --help`")
                 != std::string::npos);
     }
 }
