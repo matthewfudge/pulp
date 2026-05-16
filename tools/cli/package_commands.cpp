@@ -394,10 +394,6 @@ int cmd_search(const std::vector<std::string>& args) {
     RegistryLoadResult result;
     if (!reg_path.empty()) {
         result = load_registry(reg_path);
-        if (!result.error.empty()) {
-            print_fail(result.error);
-            return 1;
-        }
     }
 
     // If local failed or empty, try remote

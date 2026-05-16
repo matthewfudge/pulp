@@ -663,8 +663,7 @@ std::optional<SemVer> SemVer::parse(const std::string& s) {
     int idx = 0;
     std::istringstream ss(input);
     std::string token;
-    while (std::getline(ss, token, '.')) {
-        if (idx >= 3) return std::nullopt;
+    while (std::getline(ss, token, '.') && idx < 3) {
         try { parts[idx] = std::stoi(token); } catch (...) { return std::nullopt; }
         ++idx;
     }

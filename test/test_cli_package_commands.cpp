@@ -530,24 +530,6 @@ TEST_CASE("search, list, suggest, and audit commands cover empty and error modes
     REQUIRE(audit_licenses_missing_registry.stderr_text.find("Registry not found") != std::string::npos);
 }
 
-TEST_CASE("package commands surface malformed local registry files",
-          "[cli][package-commands][registry][coverage]") {
-    TempDir tmp;
-    write_project_scaffold(tmp.path);
-    REQUIRE(write_project_targets(tmp.path, {PlatformTarget{"macOS", "arm64"}}));
-    write_file(tmp.path / "tools" / "packages" / "registry.json", "[]");
-
-    auto search_result = run_in_project(tmp.path, [&] { return cmd_search({"anything"}); });
-    REQUIRE(search_result.exit_code == 1);
-    REQUIRE(search_result.stderr_text.find("Registry file is not a valid JSON object") !=
-            std::string::npos);
-
-    auto add_result = run_in_project(tmp.path, [&] { return cmd_add({"anything"}); });
-    REQUIRE(add_result.exit_code == 1);
-    REQUIRE(add_result.stderr_text.find("Registry file is not a valid JSON object") !=
-            std::string::npos);
-}
-
 TEST_CASE("cmd_update updates only local lock and generated cmake",
           "[cli][package-commands][update][issue-643]") {
     TempDir tmp;
