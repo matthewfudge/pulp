@@ -198,6 +198,102 @@ TEST_CASE("audio model activate rejects installed metadata with missing checkpoi
     REQUIRE(activation.error.find("checkpoint does not exist") != std::string::npos);
 }
 
+TEST_CASE("audio model store accepts overrides and legacy checkpoint metadata",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto checkpoint = temp.path / "models" / "legacy-clap.pt";
+    write_text(checkpoint, "stub");
+
+    REQUIRE(resolve_pulp_home(temp.path) == temp.path);
+    REQUIRE(audio_model_state_path(temp.path)
+            == temp.path / "audio" / "model-state.json");
+    REQUIRE(audio_model_install_path("clap_music_audioset_v1", temp.path)
+            == temp.path / "audio" / "models" / "clap_music_audioset_v1.json");
+
+    write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
+  "model_id": "clap_music_audioset_v1",
+  "backend": "legacy-clap",
+  "checkpoint_ref": "manual://legacy",
+  "checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+}
+)JSON");
+    auto installed = read_installed_model("clap_music_audioset_v1", temp.path);
+    REQUIRE(installed.metadata_found);
+    REQUIRE(installed.loadable());
+    REQUIRE(installed.backend == "legacy-clap");
+    REQUIRE(installed.checkpoint_ref == "manual://legacy");
+    REQUIRE(installed.resolved_checkpoint_path == checkpoint);
+
+    write_text(temp.path / "audio" / "model-state.json", R"JSON({
+  "requested_model_id": "clap_music_audioset_v1"
+}
+)JSON");
+    REQUIRE(read_active_model_id(temp.path) == "clap_music_audioset_v1");
+}
+
+TEST_CASE("audio model and bundle JSON serializers include stable fields",
+          "[audio][tools][codecov]") {
+    ModelListResult list;
+    list.pulp_home = "/tmp/pulp-home";
+    list.active_model_id = "clap_music_audioset_v1";
+    list.error = "sample error";
+    ListedModel listed;
+    listed.model.model_id = "clap_music_audioset_v1";
+    listed.model.display_name = "CLAP Music";
+    listed.model.backend = "clap";
+    listed.model.checkpoint_ref = "hf://example/model.pt";
+    listed.model.task_tags = {"music", "embedding"};
+    listed.model.size_bytes = 1234;
+    listed.status = "installed";
+    listed.active = true;
+    listed.resolved_checkpoint_path = "/tmp/model.pt";
+    list.models.push_back(listed);
+
+    auto list_json = to_json(list);
+    REQUIRE(list_json.find("\"active_model_id\": \"clap_music_audioset_v1\"")
+            != std::string::npos);
+    REQUIRE(list_json.find("\"status\": \"installed\"") != std::string::npos);
+    REQUIRE(list_json.find("\"active\": true") != std::string::npos);
+    REQUIRE(list_json.find("\"error\": \"sample error\"") != std::string::npos);
+
+    ActivateModelResult activation;
+    activation.ok = true;
+    activation.state_path = "/tmp/state.json";
+    activation.active_model_id = "clap_music_audioset_v1";
+    activation.backend = "clap";
+    activation.checkpoint_ref = "hf://example/model.pt";
+    activation.resolved_checkpoint_path = "/tmp/model.pt";
+    auto activation_json = to_json(activation);
+    REQUIRE(activation_json.find("\"ok\": true") != std::string::npos);
+    REQUIRE(activation_json.find("\"state_path\": \"/tmp/state.json\"")
+            != std::string::npos);
+
+    ModelStatus status;
+    status.state_path = "/tmp/state.json";
+    status.state_file_found = true;
+    status.configured_model_id = "clap_music_audioset_v1";
+    status.resolved_checkpoint_path = "/tmp/model.pt";
+    status.checkpoint_exists = true;
+    status.message = "configured model is loadable";
+    auto status_json = to_json(status);
+    REQUIRE(status_json.find("\"loadable\": true") != std::string::npos);
+    REQUIRE(status_json.find("\"message\": \"configured model is loadable\"")
+            != std::string::npos);
+
+    BundleReadResult bundle;
+    bundle.ok = true;
+    bundle.bundle_path = "/tmp/bundle";
+    bundle.bundle_version = 1;
+    bundle.tool = "pulp audio excerpt-find";
+    bundle.result_count = 1;
+    bundle.results.push_back({1, 0.5, "input.wav", 1000.0, 100.0, 200.0,
+                              "excerpts/rank-01.wav"});
+    auto bundle_json = to_json(bundle);
+    REQUIRE(bundle_json.find("\"result_count\": 1") != std::string::npos);
+    REQUIRE(bundle_json.find("\"excerpt_file\": \"excerpts/rank-01.wav\"")
+            != std::string::npos);
+}
+
 TEST_CASE("excerpt bundle reader summarizes manifest and ranked results", "[audio][tools]") {
     TempDir temp;
     auto bundle = temp.path / "bundle";
