@@ -68,6 +68,23 @@ pulp::audio::AudioFileData make_audio(uint32_t sample_rate, uint64_t frame_count
     return data;
 }
 
+fs::path install_active_clap_model(const TempDir& temp) {
+    auto checkpoint = temp.path / "models" / "clap.pt";
+    write_text(checkpoint, "stub");
+    write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
+  "model_id": "clap_music_audioset_v1",
+  "backend": "clap",
+  "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
+  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+}
+)JSON");
+    write_text(temp.path / "audio" / "model-state.json", R"JSON({
+  "active_model_id": "clap_music_audioset_v1"
+}
+)JSON");
+    return checkpoint;
+}
+
 uint64_t stable_hash64(std::string_view text) {
     constexpr uint64_t offset_basis = 14695981039346656037ull;
     constexpr uint64_t prime = 1099511628211ull;
@@ -511,6 +528,83 @@ TEST_CASE("excerpt find JSON serializer includes results and skipped files",
     REQUIRE(json.find("\"excerpt_file\": \"excerpts/rank-01.wav\"")
             != std::string::npos);
     REQUIRE(json.find("notes.txt (unsupported; WAV only)") != std::string::npos);
+}
+
+TEST_CASE("excerpt find reports explicit unknown models",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto input = temp.path / "input.wav";
+    REQUIRE(pulp::audio::write_wav_file(input.string(), make_audio(48000, 48000)));
+
+    ExcerptFindRequest request;
+    request.text = "texture";
+    request.input_path = input;
+    request.model_id = "not_a_model";
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.error == "unknown model_id: not_a_model");
+}
+
+TEST_CASE("excerpt find collects uppercase WAV files and records unsupported siblings",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    install_active_clap_model(temp);
+
+    auto wav = temp.path / "Upper.WAV";
+    REQUIRE(pulp::audio::write_wav_file(wav.string(), make_audio(48000, 48000)));
+    write_text(temp.path / "notes.mp3", "not really mp3");
+    fs::create_directories(temp.path / "nested");
+    REQUIRE(pulp::audio::write_wav_file(
+        (temp.path / "nested" / "ignored.wav").string(),
+        make_audio(48000, 48000)));
+
+    ExcerptFindRequest request;
+    request.text = "texture";
+    request.input_path = temp.path;
+    request.recursive = false;
+    request.top_k = 1;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 1;
+    request.dry_run = true;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.scanned_file_count == 1);
+    REQUIRE(result.results.size() == 1);
+    REQUIRE(result.results[0].source_file == wav.string());
+    REQUIRE(result.skipped_files.size() == 1);
+    REQUIRE(result.skipped_files[0].find("notes.mp3") != std::string::npos);
+    REQUIRE(result.skipped_files[0].find("unsupported; WAV only") != std::string::npos);
+}
+
+TEST_CASE("excerpt find can dry-run with all candidates below min score",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    install_active_clap_model(temp);
+    auto input = temp.path / "input.wav";
+    REQUIRE(pulp::audio::write_wav_file(input.string(), make_audio(48000, 48000)));
+
+    ExcerptFindRequest request;
+    request.text = "texture";
+    request.input_path = input;
+    request.top_k = 3;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 2;
+    request.min_score = 2.0;
+    request.dry_run = true;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.bundle_path.empty());
+    REQUIRE(result.scanned_file_count == 1);
+    REQUIRE(result.results.empty());
+    REQUIRE(result.skipped_files.empty());
 }
 
 TEST_CASE("excerpt find deterministic scores use a stable hash", "[audio][tools]") {
