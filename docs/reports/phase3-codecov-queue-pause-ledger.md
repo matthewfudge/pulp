@@ -5324,3 +5324,44 @@ pulp-test-runtime pulp-test-memory-message-channel -j8`;
 assertions passing; and `git diff --check`. Direct branch push pre-push gates
 were clean. #2107 was opened via the GitHub REST API to avoid the current
 GraphQL rate limit. No Namespace/SSH validation was dispatched.
+
+2026-05-16 00:12 PDT: published the next runtime/host helper coverage batch
+as #2108, `test(runtime): batch helper and host coverage edges`, on
+`feature/phase3-codecov-events-host-batch-670` at `cd9470159`, labeled
+`codecov` and `tests`.
+
+Batch contents cover:
+- `base64_encode` zero-length pointer input, IPv4 validation/local helper
+  fallback shapes, deterministic repeated-line `text_diff` output, empty /
+  singleton `Range::constrain`, and `ScopeGuard` run/dismiss/move/macro
+  behavior.
+- `BackgroundScanner` empty-worker completion, idle cancel/join behavior,
+  and direct `CancelToken::reset`.
+- `ScanBlacklist` missing clear, unknown percent escapes, from-text clearing,
+  and nested-parent `save_to` behavior.
+- Expression parser malformed grouping/numeric edges plus nested/unary
+  function combinations.
+
+Root-cause product fix included: `core/runtime/src/expression.cpp` now
+requires at least one digit after an exponent marker, so malformed input such
+as `1e` no longer parses as `1`.
+
+Local validation before publishing passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF`;
+`cmake --build build --target pulp-test-runtime-utils
+pulp-test-background-scanner pulp-test-scan-blacklist pulp-test-v3-gaps -j8`;
+`./build/test/pulp-test-runtime-utils` with 46 test cases / 164 assertions
+passing; `./build/test/pulp-test-background-scanner` with 9 test cases / 31
+assertions passing; `./build/test/pulp-test-scan-blacklist` with 12 test
+cases / 41 assertions passing; `./build/test/pulp-test-v3-gaps` with 34 test
+cases / 184 assertions passing; and `git diff --check`. Direct branch push
+pre-push diff-cover hit the known `mbedtls v3.6.2` FetchContent checkout
+failure and was demoted with `PULP_DISABLE_PREPUSH_DIFF_COVER=1`; GitHub
+hosted CI remains the merge gate. No Namespace/SSH validation was dispatched.
+
+Monitoring state at publish time:
+- #2104 still has the Windows hosted-runner communication-loss failure while
+  the macOS job remains in progress; rerun the failed Windows job/run once
+  the workflow finishes unless later logs show a real test failure.
+- #2108 checks have started on GitHub-hosted runners only; macOS/sanitizers
+  are queued behind the existing GitHub backlog.
