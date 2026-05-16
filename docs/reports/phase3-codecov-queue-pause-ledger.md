@@ -5437,3 +5437,14 @@ with 15 test cases / 215 assertions passing; and `git diff --check`. Direct
 branch push pre-push diff-cover hit the known `mbedtls v3.6.2` FetchContent
 checkout issue and was demoted with `PULP_DISABLE_PREPUSH_DIFF_COVER=1`; GitHub
 hosted CI remains the merge gate. No Namespace/SSH validation was dispatched.
+
+2026-05-16 01:25 PDT: merged #2102, `test: consolidate phase 3 codecov coverage queue`, into `main` at `0541c775b` after GitHub-hosted checks reached a clean state. Removed the merged local worktree `/private/tmp/pulp-phase3-codecov-megabatch-666`.
+
+2026-05-16 01:32 PDT: published the next tools/audio coverage batch as #2111, `test(audio): batch tools coverage edges`, on `feature/phase3-codecov-tools-audio-batch-673` at `ae4750ed5`, labeled `codecov` and `tests`.
+
+Batch contents cover:
+- Tools/audio model status incomplete-state paths, malformed bundle manifests and ranked-results files, active-model alias priority, inactive/uninstalled/missing-checkpoint excerpt-find failures, recursive WAV discovery, top-k result capping, and too-short window skips.
+- Root-cause model registry fix: `resolve_checkpoint_url` now rejects empty Hugging Face checkpoint file paths such as `hf://user/repo/` instead of producing a download URL with an empty file path.
+
+Local validation before publishing passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF`; `cmake --build build --target pulp-test-audio-tools -j8`; `./build/test/pulp-test-audio-tools` with 39 test cases / 366 assertions passing; and `git diff --check`. Direct branch push pre-push gates were clean with diff-cover demoted via `PULP_DISABLE_PREPUSH_DIFF_COVER=1`. GitHub-hosted CI remains the merge gate. No Namespace/SSH validation was dispatched.
