@@ -372,3 +372,32 @@ TEST_CASE("IPC socket server observes client disconnect",
     server.stop();
     REQUIRE_FALSE(server.is_running());
 }
+
+TEST_CASE("IPC socket client reports disconnect callback once",
+          "[events][ipc][socket][codecov]") {
+    CapturingServer server;
+    auto port = start_socket_server_on_loopback(server);
+    REQUIRE(port.has_value());
+
+    int disconnected = 0;
+    InterprocessConnection client;
+    client.on_disconnected = [&] { ++disconnected; };
+    REQUIRE(client.connect("127.0.0.1:" + std::to_string(*port), IpcTransport::Socket));
+
+    {
+        std::unique_lock<std::mutex> lock(server.mutex);
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+            return server.accepted != nullptr;
+        }));
+    }
+
+    client.disconnect();
+    client.disconnect();
+    REQUIRE(disconnected == 1);
+    REQUIRE_FALSE(client.is_connected());
+    REQUIRE(client.state() == IpcState::Disconnected);
+
+    if (server.accepted) server.accepted->disconnect();
+    server.stop();
+    REQUIRE_FALSE(server.is_running());
+}
