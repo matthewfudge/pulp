@@ -1,8 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 #include <pulp/midi/midi.hpp>
+#include <pulp/midi/mpe_buffer.hpp>
 #include <pulp/midi/midi_file.hpp>
 #include <pulp/midi/midi_message_sequence.hpp>
+#include <pulp/midi/ump_buffer.hpp>
+#include <pulp/midi/ump_conversion.hpp>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -347,6 +350,174 @@ TEST_CASE("MidiMessageSequence sorts ranges and matches note-offs",
     sequence.clear();
     REQUIRE(sequence.size() == 0);
     REQUIRE(sequence.duration() == Approx(0.0));
+}
+
+TEST_CASE("UmpPacket factories expose MIDI 2.0 fields", "[midi][ump][codecov]") {
+    auto note = UmpPacket::note_on_2(0x1F, 0x2F, 0xC0, 0xABCD, 0xEE, 0x1234);
+    REQUIRE(note.word_count == 2);
+    REQUIRE(note.message_type() == UmpMessageType::Midi2ChannelVoice);
+    REQUIRE(note.group() == 0x0F);
+    REQUIRE(note.status() == 0x9F);
+    REQUIRE(note.channel() == 0x0F);
+    REQUIRE(note.note_number() == 0x40);
+    REQUIRE(note.velocity_16() == 0xABCD);
+    REQUIRE(note.velocity_7() == (0xABCD >> 9));
+    REQUIRE(note.attribute_type() == 0xEE);
+    REQUIRE(note.attribute_data() == 0x1234);
+
+    auto off = UmpPacket::note_off_2(2, 3, 64, 0x4000);
+    REQUIRE(off.message_type() == UmpMessageType::Midi2ChannelVoice);
+    REQUIRE(off.status() == 0x83);
+    REQUIRE(off.velocity_16() == 0x4000);
+
+    auto cc = UmpPacket::cc_2(1, 2, 74, 0xDEADBEEFu);
+    REQUIRE(cc.status() == 0xB2);
+    REQUIRE(cc.note_number() == 74);
+    REQUIRE(cc.data_32() == 0xDEADBEEFu);
+
+    auto bend = UmpPacket::pitch_bend_2(1, 2, 0x80000000u);
+    REQUIRE(bend.status() == 0xE2);
+    REQUIRE(bend.data_32() == 0x80000000u);
+
+    auto per_note_bend = UmpPacket::per_note_pitch_bend(3, 4, 65, 0x11112222u);
+    REQUIRE(per_note_bend.status() == 0x64);
+    REQUIRE(per_note_bend.note_number() == 65);
+    REQUIRE(per_note_bend.data_32() == 0x11112222u);
+
+    auto per_note_cc = UmpPacket::registered_per_note_cc(3, 4, 65, 12, 0x33334444u);
+    REQUIRE(per_note_cc.channel() == 4);
+    REQUIRE(per_note_cc.note_number() == 65);
+    REQUIRE(per_note_cc.attribute_type() == 12);
+    REQUIRE(per_note_cc.data_32() == 0x33334444u);
+
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::Utility) == 1);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::DataSysEx) == 2);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::Data128) == 4);
+}
+
+TEST_CASE("UMP conversion scales MIDI 1.0 events both directions",
+          "[midi][ump][codecov]") {
+    REQUIRE(scale_7_to_16(0) == 0);
+    REQUIRE(scale_7_to_16(127) == 0xFFFF);
+    REQUIRE(scale_16_to_7(0xFFFF) == 127);
+    REQUIRE(scale_14_to_32(0x2000) == 0x80000000u);
+    REQUIRE(scale_32_to_14(0x80000000u) == 0x2000);
+
+    auto note_on = midi1_event_to_ump2(MidiEvent::note_on(2, 60, 100), 7);
+    REQUIRE(note_on.message_type() == UmpMessageType::Midi2ChannelVoice);
+    REQUIRE(note_on.group() == 7);
+    REQUIRE(note_on.status() == 0x92);
+    REQUIRE(note_on.velocity_16() == scale_7_to_16(100));
+
+    auto zero_velocity = midi1_event_to_ump2(MidiEvent::note_on(2, 60, 0), 7);
+    REQUIRE(zero_velocity.status() == 0x82);
+
+    auto cc = midi1_event_to_ump2(MidiEvent::cc(1, 74, 64), 2);
+    REQUIRE(cc.status() == 0xB1);
+    REQUIRE(cc.data_32() == (64u << 25));
+
+    auto program = midi1_event_to_ump2(MidiEvent::program_change(3, 42), 5);
+    REQUIRE(program.message_type() == UmpMessageType::Midi1ChannelVoice);
+    REQUIRE(program.word_count == 1);
+
+    MidiEvent out;
+    REQUIRE(ump_to_midi1_event(note_on, out));
+    REQUIRE(out.is_note_on());
+    REQUIRE(out.channel() == 2);
+    REQUIRE(out.note() == 60);
+    REQUIRE(out.velocity() == 100);
+
+    auto quiet_note_on = UmpPacket::note_on_2(0, 4, 61, 1);
+    REQUIRE(ump_to_midi1_event(quiet_note_on, out));
+    REQUIRE(out.is_note_on());
+    REQUIRE(out.velocity() == 1);
+
+    REQUIRE(ump_to_midi1_event(UmpPacket::pitch_bend_2(0, 5, 0x80000000u), out));
+    REQUIRE(out.data()[0] == static_cast<uint8_t>(0xE0 | 5));
+    REQUIRE((out.data()[1] | (uint16_t(out.data()[2]) << 7)) == 0x2000);
+
+    REQUIRE_FALSE(ump_to_midi1_event(UmpPacket::per_note_pitch_bend(0, 1, 60, 0), out));
+}
+
+TEST_CASE("UmpBuffer and MidiBuffer bridge preserve order and offsets",
+          "[midi][ump][buffer][codecov]") {
+    MidiBuffer midi;
+    auto note = MidiEvent::note_on(0, 60, 100);
+    note.sample_offset = 32;
+    auto cc = MidiEvent::cc(0, 74, 64);
+    cc.sample_offset = 8;
+    midi.add(note);
+    midi.add(cc);
+
+    UmpBuffer ump;
+    midi.attach_ump(&ump);
+    REQUIRE(midi.ump() == &ump);
+
+    midi1_to_ump(midi, ump, 3);
+    REQUIRE(ump.size() == 2);
+    REQUIRE(ump[0].sample_offset == 32);
+    REQUIRE(ump[1].sample_offset == 8);
+    ump.sort();
+    REQUIRE(ump[0].sample_offset == 8);
+    REQUIRE(ump[1].sample_offset == 32);
+
+    MidiBuffer round_trip;
+    ump_to_midi1(ump, round_trip);
+    REQUIRE(round_trip.size() == 2);
+    REQUIRE(round_trip[0].is_cc());
+    REQUIRE(round_trip[0].sample_offset == 8);
+    REQUIRE(round_trip[1].is_note_on());
+    REQUIRE(round_trip[1].sample_offset == 32);
+
+    ump.clear();
+    REQUIRE(ump.empty());
+}
+
+TEST_CASE("MPE buffer binding records tracker callbacks with sample offsets",
+          "[midi][mpe][buffer][codecov]") {
+    MpeVoiceTracker tracker(MpeConfig::standard_lower(2));
+    MpeBuffer buffer;
+    int32_t sample_offset = 12;
+    bind_tracker_to_buffer(tracker, buffer, sample_offset);
+
+    REQUIRE(buffer.empty());
+    REQUIRE(tracker.process(MidiEvent::note_on(1, 60, 96)));
+
+    sample_offset = 24;
+    REQUIRE(tracker.process(MidiEvent::pitch_bend(1, 0x3FFF)));
+
+    sample_offset = 18;
+    REQUIRE(tracker.process(MidiEvent::cc(1, 74, 64)));
+
+    sample_offset = 36;
+    REQUIRE(tracker.process(MidiEvent::note_off(1, 60)));
+
+    REQUIRE(buffer.size() == 4);
+    REQUIRE(buffer[0].kind == MpeExpressionEvent::Kind::NoteOn);
+    REQUIRE(buffer[0].sample_offset == 12);
+    REQUIRE(buffer[0].state.note == 60);
+    REQUIRE(buffer[1].kind == MpeExpressionEvent::Kind::PitchBend);
+    REQUIRE(buffer[1].sample_offset == 24);
+    REQUIRE(buffer[2].kind == MpeExpressionEvent::Kind::Timbre);
+    REQUIRE(buffer[2].sample_offset == 18);
+    REQUIRE(buffer[3].kind == MpeExpressionEvent::Kind::NoteOff);
+    REQUIRE(buffer[3].sample_offset == 36);
+
+    buffer.sort();
+    REQUIRE(buffer[0].sample_offset == 12);
+    REQUIRE(buffer[1].sample_offset == 18);
+    REQUIRE(buffer[2].sample_offset == 24);
+    REQUIRE(buffer[3].sample_offset == 36);
+
+    int seen = 0;
+    for (const auto& event : buffer) {
+        REQUIRE(event.state.channel == 1);
+        ++seen;
+    }
+    REQUIRE(seen == 4);
+
+    buffer.clear();
+    REQUIRE(buffer.empty());
 }
 
 TEST_CASE("MidiFileData summarizes tracks", "[midi][file]") {
