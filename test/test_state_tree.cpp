@@ -285,6 +285,31 @@ TEST_CASE("StateTree remove listener", "[state][tree]") {
     REQUIRE(count == 1);  // Listener removed, count unchanged
 }
 
+TEST_CASE("StateTree remove notifies listeners with cleared value",
+          "[state][tree][codecov]") {
+    auto tree = StateTree::create("test");
+    tree->set("gain", 0.75);
+
+    int count = 0;
+    PropertyValue old_value;
+    PropertyValue new_value;
+    tree->add_listener([&](StateTree&, std::string_view prop,
+                           const PropertyValue& old_val,
+                           const PropertyValue& new_val) {
+        REQUIRE(prop == "gain");
+        old_value = old_val;
+        new_value = new_val;
+        ++count;
+    });
+
+    tree->remove("gain");
+    tree->remove("gain");
+
+    REQUIRE(count == 1);
+    REQUIRE_THAT(std::get<double>(old_value), WithinAbs(0.75, 1e-5));
+    REQUIRE(std::holds_alternative<std::monostate>(new_value));
+}
+
 TEST_CASE("StateTree skips empty listeners",
           "[state][tree][codecov]") {
     auto root = StateTree::create("root");
@@ -667,6 +692,24 @@ TEST_CASE("StateTreeSynchroniser attach replaces the previous tree",
     REQUIRE(deltas[0].path == "second");
     REQUIRE(deltas[0].key == "name");
     REQUIRE(std::get<std::string>(deltas[0].value) == "recorded");
+}
+
+TEST_CASE("StateTreeSynchroniser records property removals", "[state][sync][codecov]") {
+    auto tree = StateTree::create("root");
+    tree->set("name", std::string("Lead"));
+
+    StateTreeSynchroniser sync;
+    sync.attach(tree);
+
+    tree->remove("name");
+    tree->remove("missing");
+
+    auto deltas = sync.take_deltas();
+    REQUIRE(deltas.size() == 1);
+    REQUIRE(deltas[0].type == SyncDeltaType::PropertyRemove);
+    REQUIRE(deltas[0].path == "root");
+    REQUIRE(deltas[0].key == "name");
+    REQUIRE(std::holds_alternative<std::monostate>(deltas[0].value));
 }
 
 TEST_CASE("StateTreeSynchroniser detach clears pending and stops recording", "[state][sync]") {

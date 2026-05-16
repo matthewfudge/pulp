@@ -47,7 +47,11 @@ bool StateTree::has(std::string_view name) const {
 
 void StateTree::remove(std::string_view name) {
     std::string key(name);
-    properties_.erase(key);
+    auto it = properties_.find(key);
+    if (it == properties_.end()) return;
+    auto old = it->second;
+    properties_.erase(it);
+    notify_property_changed(name, old, PropertyValue{});
 }
 
 std::vector<std::string> StateTree::property_names() const {
