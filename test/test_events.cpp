@@ -3,6 +3,7 @@
 #include <pulp/events/async_updater.hpp>
 #include <pulp/events/child_process_manager.hpp>
 #include <pulp/events/interprocess_connection.hpp>
+#include <pulp/events/volume_detector.hpp>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -643,6 +644,23 @@ TEST_CASE("ActionBroadcaster snapshots callbacks during dispatch",
         "first:refresh", "second:refresh", "added:again"});
 
     broadcaster.remove_listener(added_id);
+}
+
+TEST_CASE("MountedVolumeListChangeDetector polls once before stop",
+          "[events][volume_detector][codecov]") {
+    MountedVolumeListChangeDetector detector;
+    std::atomic<int> changes{0};
+    detector.on_change = [&](const std::vector<std::string>&) {
+        changes.fetch_add(1);
+    };
+
+    detector.start(1ms);
+    REQUIRE(detector.is_running());
+
+    std::this_thread::sleep_for(30ms);
+    detector.stop();
+
+    REQUIRE_FALSE(detector.is_running());
 }
 
 TEST_CASE("ScopedLowPowerModeDisabler is constructible as an RAII guard",
