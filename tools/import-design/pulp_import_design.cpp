@@ -454,8 +454,8 @@ int main(int argc, char* argv[]) {
                 if (rc != 0) {
                     std::cerr << "Error: jsx-transform.mjs failed (exit " << rc << "). "
                                  "Common causes: missing node_modules (run `npm install` in "
-                                 "tools/import-design/jsx-runtime/), .tsx input "
-                                 "(not yet supported — strip TS first), or a JSX file "
+                                 "tools/import-design/jsx-runtime/), a TS/TSX file with "
+                                 "unsupported syntax (esbuild rejects), or a JSX/TSX file "
                                  "without `export default`.\n";
                     return 1;
                 }

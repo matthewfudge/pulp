@@ -184,3 +184,52 @@ TEST_CASE("[jsx-experiment] Chainer JSX bundle materializes through Claude runti
     INFO("Chainer-shaped text found in IR: " << (found_chainer_text ? "yes" : "no"));
     REQUIRE(found_chainer_text);
 }
+
+TEST_CASE("[jsx-experiment] TypeScript .tsx bundle materializes through Claude runtime harness",
+          "[view][import][jsx][tsx]") {
+    // Same shape as the JSX case but proves the esbuild 'tsx' loader strips
+    // TypeScript correctly and the resulting JS round-trips through the
+    // runtime harness. Per Codex high-reasoning consult (2026-05-17): TSX
+    // is the dominant React file shape today; making the importer handle
+    // it lifts the experiment from "one hand-picked .jsx fixture" to the
+    // mainstream React export surface.
+    const char* bundle_path = std::getenv("PULP_TSX_BUNDLE");
+    if (!bundle_path || !*bundle_path) {
+        SUCCEED("PULP_TSX_BUNDLE not set — skipping. Run the Node transform first: "
+                "node tools/import-design/jsx-runtime/jsx-transform.mjs --in "
+                "planning/fixtures/jsx/typed-control.tsx --out /tmp/tsx-bundle.js");
+        return;
+    }
+
+    const std::string app_js = read_file(bundle_path);
+    INFO("loaded TSX bundle bytes: " << app_js.size() << " from " << bundle_path);
+    REQUIRE(!app_js.empty());
+    REQUIRE(app_js.size() > 10000);
+
+    std::ostringstream manifest;
+    manifest << "{" << manifest_entry("tsx-app", "text/javascript", app_js, false) << "}";
+    const std::string body = R"(<div id="root"></div><script src="tsx-app"></script>)";
+
+    std::string err;
+    ClaudeRuntimeOptions opts;
+    opts.error_out = &err;
+    opts.max_total_js_bytes = 4 * 1024 * 1024;
+
+    auto ir = parse_claude_html_with_runtime(build_envelope(manifest.str(), body), opts);
+
+    const size_t nodes = count_ir_nodes(ir.root);
+    INFO("runtime error_out: " << err);
+    INFO("materialized TSX IR node count: " << nodes);
+
+    REQUIRE(ir.source == DesignSource::claude);
+    REQUIRE(nodes > 1);  // mount root + at least one child from TypedControl
+
+    // typed-control.tsx renders a div containing the text "TYPED CONTROL"
+    // and a Meter component whose label resolves to "gain". Either string
+    // proves the TSX→JS→native pipeline survived type-stripping.
+    const bool found_tsx_text =
+        ir_contains_text(ir.root, "TYPED CONTROL") ||
+        ir_contains_text(ir.root, "gain");
+    INFO("TSX-shaped text found in IR: " << (found_tsx_text ? "yes" : "no"));
+    REQUIRE(found_tsx_text);
+}

@@ -221,12 +221,18 @@ async function main() {
     const componentName = detectComponentName(jsxSource, inPath);
     if (args.verbose) console.error(`[pulp-jsx-transform] detected component: ${componentName}`);
 
-    // Guard against TSX for now — we accept only .jsx and plain .js.
-    // The CLI surfaces a clean diagnostic for .tsx files.
+    // Pick esbuild loader from the file extension. TypeScript inputs
+    // route through esbuild's type-stripping loader (per Codex consult,
+    // 2026-05-17): React `.tsx` is the dominant React file shape today,
+    // and esbuild's tsx loader handles the type erasure (annotations,
+    // generics, `as` casts, `type`/`interface` declarations, etc.) at
+    // bundle time. No separate tsc step required.
     const ext = extname(inPath).toLowerCase();
-    if (ext === '.tsx' || ext === '.ts') {
-        console.error(`Error: TypeScript input (${ext}) is out of scope for --from jsx. Convert to .jsx or strip TS first.`);
-        process.exit(3);
+    const isTypeScript = (ext === '.tsx' || ext === '.ts');
+    const entryLoader = isTypeScript ? 'tsx' : 'jsx';
+    const entrySource = isTypeScript ? '__pulp_jsx_entry__.tsx' : '__pulp_jsx_entry__.jsx';
+    if (args.verbose && isTypeScript) {
+        console.error(`[pulp-jsx-transform] TypeScript input — using esbuild '${entryLoader}' loader`);
     }
 
     const entryContents = buildEntry(inPath, componentName);
@@ -236,8 +242,8 @@ async function main() {
             stdin: {
                 contents: entryContents,
                 resolveDir: dirname(inPath),
-                loader: 'jsx',
-                sourcefile: '__pulp_jsx_entry__.jsx',
+                loader: entryLoader,
+                sourcefile: entrySource,
             },
             bundle: true,
             format: 'iife',
@@ -251,7 +257,11 @@ async function main() {
             jsxFactory: 'React.createElement',
             jsxFragment: 'React.Fragment',
             logLevel: args.verbose ? 'info' : 'warning',
-            loader: { '.jsx': 'jsx' },
+            // Per-extension loader map. The .ts/.tsx entries let
+            // esbuild strip TypeScript from any imports the entry
+            // pulls in (rare for a single-file instrument, but
+            // forward-compatible with future multi-file fixtures).
+            loader: { '.jsx': 'jsx', '.tsx': 'tsx', '.ts': 'ts' },
             // Node-resolution paths: prefer the runtime's own node_modules so we
             // get a consistent React/ReactDOM regardless of the user's package
             // tree.
