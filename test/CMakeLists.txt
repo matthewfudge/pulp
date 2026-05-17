@@ -1465,6 +1465,22 @@ if(TARGET pulp::inspect)
     catch_discover_tests(pulp-test-motion-inspector)
 endif()
 
+# Motion visual-analysis self-check — Phase 4 pipeline smoke.
+# Skips cleanly (exit 3) when Python deps are absent so CI without
+# numpy/Pillow/scikit-image doesn't false-fail.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME pulp-motion-visual-self-check
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/motion/visual/test_self_check.py
+    )
+    set_tests_properties(pulp-motion-visual-self-check PROPERTIES
+        SKIP_RETURN_CODE 3
+        LABELS "motion;visual"
+    )
+endif()
+
 # Widget animation behavior tests
 add_executable(pulp-test-widget-animation test_widget_animation.cpp)
 target_link_libraries(pulp-test-widget-animation PRIVATE pulp::view Catch2::Catch2WithMain)
