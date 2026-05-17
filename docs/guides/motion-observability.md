@@ -438,6 +438,51 @@ auto diff = motion::assert_matches(g_hdr, g, c_hdr, c);
 // duration_scale differ.
 ```
 
+## Cost attribution
+
+When the question is "which animation is expensive and why?", the
+fixture stream of values is not enough — you also want per-frame render
+cost joined with the trace activity that drove it. The cost-attribution
+channel does that.
+
+It is **off by default** and runs on a stream separate from the fixture
+format. Cost samples carry their own version header
+(`{"motion_cost_version":1}`) and are written to `*.motion-cost.jsonl`,
+not the regular `*.motion.jsonl` events.
+
+```cpp
+#include <pulp/view/motion_cost.hpp>
+#include <pulp/view/motion_cost_render.hpp>
+
+auto& cost = pulp::view::motion::CostAttributor::instance();
+cost.set_enabled(true);
+cost.add_sink(motion::make_cost_sink("/tmp/run.motion-cost.jsonl"));
+
+// Surface real render-pass + dirty-rect stats via the bridge probe.
+// Either pointer may be null — defensive fields default to 0.
+cost.set_probe(motion::make_render_cost_probe(
+    &render_pass_manager, &dirty_tracker));
+```
+
+Each `CostSample` carries:
+
+| Field | Source |
+|---|---|
+| `frame`, `t_seconds` | FrameClock at tick time |
+| `render_pass_duration_ms` | `RenderPassManager::total_time_ms()` |
+| `dirty_rect_area_px`, `dirty_rect_count` | `DirtyTracker::dirty_rects()` |
+| `active_trace_ids` | every `trace_id` that emitted on this frame |
+| `active_provenance` | per-trace Phase 9 envelope (parallel to `active_trace_ids`) |
+
+Cost samples emit even when the coordinator has no event sinks — the
+render-cost timeline is useful by itself even when no motion trace is
+active.
+
+The inspector exposes `Motion.enableCost` / `Motion.disableCost`
+requests and broadcasts a `Motion.cost` event per frame while enabled.
+`Motion.snapshot` reports `cost_enabled` and `cost_samples_emitted` so
+a client can verify the channel is live without subscribing.
+
 ## Architectural guarantees
 
 - **Off by default** — every entry point gates on `tracing_enabled()`. No cost

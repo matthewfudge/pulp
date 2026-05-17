@@ -253,6 +253,61 @@ Gotchas:
   clear it before each scrub or compare counts modulo the prefix size.
 - Replayed event timestamps (`t_seconds`) are the recording's
   timestamps, not wall clock. Don't drive a live clock from them.
+## Path F — Cost attribution
+
+When the question is **"which animation is expensive and why?"**, switch
+the cost channel on. It's off by default and runs on a separate stream
+from the fixture format — cost samples don't appear in `*.motion.jsonl`.
+
+### Enable + wire a probe (in-process)
+
+```cpp
+#include <pulp/view/motion_cost.hpp>
+#include <pulp/view/motion_cost_render.hpp>
+
+auto& cost = pulp::view::motion::CostAttributor::instance();
+cost.set_enabled(true);
+
+// Optional but recommended: surface real render stats. Pointers may be
+// null — defensive degradation returns 0 for the missing field.
+cost.set_probe(pulp::view::motion::make_render_cost_probe(
+    &render_pass_manager, &dirty_tracker));
+
+// Sink: JSONL on disk for later analysis…
+cost.add_sink(pulp::view::motion::make_cost_sink("/tmp/run.motion-cost.jsonl"));
+// …or a buffer for in-test assertions:
+std::vector<pulp::view::motion::CostSample> samples;
+cost.add_sink(pulp::view::motion::make_cost_buffer_sink(&samples));
+```
+
+Each frame, the Coordinator's tick now emits one `CostSample` per active
+sink with:
+
+- `frame`, `t_seconds`
+- `render_pass_duration_ms` — from `RenderPassManager::total_time_ms()`
+- `dirty_rect_area_px`, `dirty_rect_count` — from `DirtyTracker::dirty_rects()`
+- `active_trace_ids` — every `trace_id` that emitted on this frame
+- `active_provenance` — Phase 9 envelopes for those traces, in the same
+  order, so a reader can answer "this 12ms pass came from
+  `figma:LevelMeter/Panel` (source_kind=`design-import`)" without
+  cross-referencing the event fixture.
+
+### Inspector domain
+
+`Motion.enableCost` / `Motion.disableCost` toggle the channel; while
+enabled, `Motion.cost` events broadcast per frame. `Motion.snapshot`
+also reports `cost_enabled` and `cost_samples_emitted`.
+
+### Notes
+
+- Cost samples are a separate JSONL stream (`*.motion-cost.jsonl`) with
+  its own version header (`{"motion_cost_version":1}`). Do not confuse
+  with the fixture schema — they're independent.
+- When the coordinator has no event sinks but cost is enabled, the
+  attributor still emits cost samples — the render-cost timeline is
+  useful by itself even without any motion trace activity.
+- The render-cost probe is read outside the coordinator lock; keep
+  implementations cheap.
 
 ## Agent contract
 
@@ -282,6 +337,9 @@ Apply these on every motion debugging run:
 
 - `core/view/include/pulp/view/motion.hpp` — public C++ API
 - `core/view/src/motion.cpp` — Coordinator, geometry walker, fixture I/O, assertions
+- `core/view/include/pulp/view/motion_cost.hpp` — `CostSample` / `CostAttributor` / cost JSONL
+- `core/view/include/pulp/view/motion_cost_render.hpp` — `make_render_cost_probe` bridge
+- `core/view/src/motion_cost.cpp` — attributor singleton + sinks + JSONL load
 - `core/view/include/pulp/view/motion_preferences.hpp` — reduced-motion policy + duration_scale
 - `core/view/src/motion_preferences.cpp` — singleton + override + OS readers
 - `core/view/platform/mac/motion_preferences_mac.mm` — NSWorkspace reduced-motion query
