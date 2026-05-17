@@ -115,12 +115,13 @@ private:
     InspectorMessage handle_play(const InspectorMessage& req);
     InspectorMessage handle_pause(const InspectorMessage& req);
 
-    // Emit the prefix of events with `frame <= up_to_frame` to all sinks
-    // and (when present) broadcast each as a Motion.* event. Returns the
-    // emitted count. Caller holds `mtx_`.
-    std::size_t emit_prefix_locked(std::uint64_t up_to_frame);
-
-    void dispatch_event(const view::motion::SampleEvent& e);
+    // Dispatch a snapshot of events to the given sinks + server WITHOUT
+    // holding mtx_. Callers must collect the snapshot under the lock and
+    // then call this. Sinks are free to re-enter MotionScrubber methods.
+    static void dispatch_snapshot(
+        const std::vector<view::motion::SampleEvent>& events,
+        const std::vector<SinkSlot>& sinks,
+        InspectorServer* server);
 };
 
 } // namespace pulp::inspect

@@ -22,8 +22,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unistd.h>
@@ -374,4 +377,92 @@ TEST_CASE("serialize_cost_sample emits valid JSON shape", "[motion-cost]") {
     REQUIRE(line.find("\"frame\":42") != std::string::npos);
     REQUIRE(line.find("\"active_trace_ids\":[7,11]") != std::string::npos);
     REQUIRE(line.find("\"source_kind\":\"css-transition\"") != std::string::npos);
+}
+
+// ── Bug-sweep regressions (pre-merge sweep #2142) ────────────────────
+
+// serialize_cost_sample used to emit raw doubles, so a single bad
+// render-stat tick (NaN / Inf) produced invalid JSON tokens (`nan` /
+// `inf`) that broke every downstream consumer. Match motion.cpp's
+// quoted-sentinel convention and round-trip them back.
+TEST_CASE("serialize_cost_sample emits NaN/Inf as quoted sentinels",
+          "[motion-cost][bug-sweep]") {
+    CostSample s;
+    s.frame = 7;
+    s.t_seconds = std::nan("");
+    s.render_pass_duration_ms = std::numeric_limits<double>::infinity();
+    s.dirty_rect_area_px = -std::numeric_limits<double>::infinity();
+    s.dirty_rect_count = 0;
+
+    auto line = serialize_cost_sample(s);
+    REQUIRE(line.find("\"t\":\"NaN\"") != std::string::npos);
+    REQUIRE(line.find("\"render_pass_duration_ms\":\"Infinity\"") != std::string::npos);
+    REQUIRE(line.find("\"dirty_rect_area_px\":\"-Infinity\"") != std::string::npos);
+
+    // Round-trip through write + load. The loader recognizes the same
+    // three quoted sentinels and restores the IEEE-754 value.
+    char tmpl[] = "/tmp/pulp-motion-cost-nan-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    REQUIRE(fd >= 0);
+    ::close(fd);
+    std::string path = tmpl;
+    {
+        std::ofstream out(path);
+        out << "{\"motion_cost_version\":1}\n" << line << "\n";
+    }
+    auto loaded = load_cost_stream(path);
+    REQUIRE(loaded.size() == 1);
+    REQUIRE(std::isnan(loaded[0].t_seconds));
+    REQUIRE(std::isinf(loaded[0].render_pass_duration_ms));
+    REQUIRE(loaded[0].render_pass_duration_ms > 0);
+    REQUIRE(std::isinf(loaded[0].dirty_rect_area_px));
+    REQUIRE(loaded[0].dirty_rect_area_px < 0);
+    std::remove(path.c_str());
+}
+
+// load_cost_stream's active_provenance loop used line.find('}', pos)
+// to locate each object's end. A literal `}` inside a source_file
+// path (legal JSON — only `"` and `\\` are escaped) truncated the
+// entry mid-string and corrupted every following provenance object.
+// The fix is brace-depth + string-aware scanning.
+TEST_CASE("load_cost_stream parses provenance objects whose strings contain '}'",
+          "[motion-cost][bug-sweep]") {
+    CostSample s;
+    s.frame = 11;
+    s.t_seconds = 0.5;
+    s.dirty_rect_count = 1;
+    s.active_trace_ids = {3, 4};
+    Provenance p1;
+    p1.source_kind = "tween";
+    p1.source_id = "card.opacity";
+    // The literal `}` here used to truncate the parser mid-string.
+    p1.source_file = "weird/path}with-brace.cpp";
+    p1.source_line = 42;
+    Provenance p2;
+    p2.source_kind = "css-transition";
+    p2.source_id = "panel.bg";
+    p2.source_file = "ok.cpp";
+    p2.source_line = 7;
+    s.active_provenance = {p1, p2};
+
+    char tmpl[] = "/tmp/pulp-motion-cost-brace-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    REQUIRE(fd >= 0);
+    ::close(fd);
+    std::string path = tmpl;
+    {
+        std::ofstream out(path);
+        out << "{\"motion_cost_version\":1}\n"
+            << serialize_cost_sample(s) << "\n";
+    }
+    auto loaded = load_cost_stream(path);
+    REQUIRE(loaded.size() == 1);
+    REQUIRE(loaded[0].active_provenance.size() == 2);
+    REQUIRE(loaded[0].active_provenance[0].source_kind == "tween");
+    REQUIRE(loaded[0].active_provenance[0].source_file == "weird/path}with-brace.cpp");
+    REQUIRE(loaded[0].active_provenance[0].source_line == 42);
+    REQUIRE(loaded[0].active_provenance[1].source_kind == "css-transition");
+    REQUIRE(loaded[0].active_provenance[1].source_file == "ok.cpp");
+    REQUIRE(loaded[0].active_provenance[1].source_line == 7);
+    std::remove(path.c_str());
 }

@@ -12,7 +12,9 @@
 #include <choc/text/choc_JSON.h>
 
 #include <algorithm>
+#include <cmath>
 #include <string>
+#include <vector>
 
 namespace pulp::inspect {
 
@@ -28,6 +30,7 @@ const char* sample_kind_to_string(SampleEvent::Kind k) {
         case SampleEvent::Kind::Sample:       return "sample";
         case SampleEvent::Kind::Start:        return "start";
         case SampleEvent::Kind::End:          return "end";
+        case SampleEvent::Kind::Input:        return "input";
     }
     return "?";
 }
@@ -39,8 +42,16 @@ const char* event_method_for_kind(SampleEvent::Kind k) {
         case SampleEvent::Kind::Sample:       return methods::kMotionSample;
         case SampleEvent::Kind::Start:        return methods::kMotionStart;
         case SampleEvent::Kind::End:          return methods::kMotionEnd;
+        case SampleEvent::Kind::Input:        return methods::kMotionSample;
     }
     return methods::kMotionSample;
+}
+
+choc::value::Value wire_number(double v) {
+    if (std::isnan(v))          return choc::value::createString("NaN");
+    if (std::isinf(v) && v > 0) return choc::value::createString("Infinity");
+    if (std::isinf(v) && v < 0) return choc::value::createString("-Infinity");
+    return choc::value::createFloat64(v);
 }
 
 choc::value::Value components_to_object(
@@ -48,7 +59,7 @@ choc::value::Value components_to_object(
 ) {
     auto obj = choc::value::createObject("");
     for (const auto& [k, v] : comps) {
-        obj.addMember(k, choc::value::createFloat64(v));
+        obj.addMember(k, wire_number(v));
     }
     return obj;
 }
@@ -58,11 +69,15 @@ choc::value::Value event_to_params(const SampleEvent& e) {
     params.addMember("view_name", choc::value::createString(e.view_name));
     params.addMember("metric_name", choc::value::createString(e.metric_name));
     params.addMember("kind", choc::value::createString(sample_kind_to_string(e.kind)));
-    params.addMember("t", choc::value::createFloat64(e.t_seconds));
+    params.addMember("t", wire_number(e.t_seconds));
     params.addMember("frame", choc::value::createInt64(static_cast<int64_t>(e.frame)));
     params.addMember("trace_id", choc::value::createInt64(e.trace_id));
     params.addMember("metric_id", choc::value::createInt64(e.metric_id));
     params.addMember("burst_id", choc::value::createInt64(e.burst_id));
+    if (e.kind == SampleEvent::Kind::Input) {
+        params.addMember("input_kind", choc::value::createString(e.input_kind));
+        params.addMember("view_id",    choc::value::createString(e.view_id));
+    }
     if (!e.components.empty()) {
         params.addMember("components", components_to_object(e.components));
     }
@@ -144,18 +159,39 @@ bool MotionScrubber::load_fixture(const std::string& path) {
 }
 
 std::size_t MotionScrubber::scrub_to(std::uint64_t frame) {
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (!loaded_) return 0;
-    playhead_frame_ = frame;
-    return emit_prefix_locked(frame);
+    std::vector<view::motion::SampleEvent> snapshot;
+    std::vector<SinkSlot> sinks_snapshot;
+    InspectorServer* server_snapshot = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (!loaded_) return 0;
+        playhead_frame_ = frame;
+        snapshot.reserve(events_.size());
+        for (const auto& e : events_) {
+            if (e.frame <= frame) snapshot.push_back(e);
+        }
+        sinks_snapshot = sinks_;
+        server_snapshot = server_;
+    }
+    dispatch_snapshot(snapshot, sinks_snapshot, server_snapshot);
+    return snapshot.size();
 }
 
 std::size_t MotionScrubber::play() {
-    std::lock_guard<std::mutex> lock(mtx_);
-    if (!loaded_) return 0;
-    playing_ = true;
-    playhead_frame_ = max_frame_;
-    return emit_prefix_locked(max_frame_);
+    std::vector<view::motion::SampleEvent> snapshot;
+    std::vector<SinkSlot> sinks_snapshot;
+    InspectorServer* server_snapshot = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (!loaded_) return 0;
+        playing_ = true;
+        playhead_frame_ = max_frame_;
+        snapshot = events_;
+        sinks_snapshot = sinks_;
+        server_snapshot = server_;
+    }
+    dispatch_snapshot(snapshot, sinks_snapshot, server_snapshot);
+    return snapshot.size();
 }
 
 void MotionScrubber::pause() {
@@ -207,26 +243,25 @@ view::motion::FixtureHeader MotionScrubber::header() const {
 
 // ── emission ────────────────────────────────────────────────────────
 
-std::size_t MotionScrubber::emit_prefix_locked(std::uint64_t up_to_frame) {
-    std::size_t emitted = 0;
-    for (const auto& e : events_) {
-        if (e.frame > up_to_frame) continue;
-        dispatch_event(e);
-        ++emitted;
-    }
-    return emitted;
-}
-
-void MotionScrubber::dispatch_event(const view::motion::SampleEvent& e) {
-    // Local sinks first — order doesn't matter, both are observers.
-    for (const auto& slot : sinks_) {
-        if (slot.sink) slot.sink(e);
-    }
-    if (server_) {
-        auto params = event_to_params(e);
-        InspectorMessage ev = make_event(event_method_for_kind(e.kind),
-                                         choc::json::toString(params, false));
-        server_->broadcast(ev);
+// Dispatch a snapshot of events to the given sinks + server WITHOUT
+// holding mtx_. A sink that re-enters add_sink/remove_sink/scrub_to
+// (or any other MotionScrubber method) used to self-deadlock under
+// the old emit_prefix_locked design.
+void MotionScrubber::dispatch_snapshot(
+    const std::vector<view::motion::SampleEvent>& events,
+    const std::vector<SinkSlot>& sinks,
+    InspectorServer* server
+) {
+    for (const auto& e : events) {
+        for (const auto& slot : sinks) {
+            if (slot.sink) slot.sink(e);
+        }
+        if (server) {
+            auto params = event_to_params(e);
+            InspectorMessage ev = make_event(event_method_for_kind(e.kind),
+                                             choc::json::toString(params, false));
+            server->broadcast(ev);
+        }
     }
 }
 

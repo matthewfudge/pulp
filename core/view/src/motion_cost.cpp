@@ -11,7 +11,12 @@
 #include <pulp/view/motion_cost.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -57,6 +62,76 @@ void append_provenance(std::ostringstream& ss, const Provenance& p) {
     ss << "}";
 }
 
+// Same NaN/Inf-as-quoted-sentinel convention as motion.cpp::format_number.
+// Without this, a probe that ever returns NaN/Inf (e.g. a single bad
+// render-stat tick) would emit raw `nan`/`inf` tokens — invalid JSON
+// that breaks the parser for every downstream consumer.
+std::string format_number(double v) {
+    if (std::isnan(v))          return "\"NaN\"";
+    if (std::isinf(v) && v > 0) return "\"Infinity\"";
+    if (std::isinf(v) && v < 0) return "\"-Infinity\"";
+    std::ostringstream ss;
+    ss << std::setprecision(15) << v;
+    return ss.str();
+}
+
+// Returns the index of the matching `}` for an object that opens at
+// `open_pos` (which must point at `{`). Respects string literals and
+// their escapes, so a `}` inside a quoted source-file path no longer
+// truncates the active_provenance entry mid-string.
+std::size_t find_matching_brace(const std::string& s, std::size_t open_pos) {
+    int depth = 0;
+    bool in_string = false;
+    for (std::size_t i = open_pos; i < s.size(); ++i) {
+        char c = s[i];
+        if (in_string) {
+            if (c == '\\') { ++i; continue; }
+            if (c == '"')  { in_string = false; }
+            continue;
+        }
+        if (c == '"') { in_string = true; continue; }
+        if (c == '{') ++depth;
+        else if (c == '}') {
+            if (--depth == 0) return i;
+        }
+    }
+    return std::string::npos;
+}
+
+// Parse a JSON string literal at `quote_pos` (which must point at the
+// opening `"`) honoring `\\` and `\"` escapes. Writes the unescaped
+// value into `dst` and returns the index of the closing `"`. Used to
+// pull provenance fields out of an object slice without misreading a
+// `}` inside the string as the object terminator.
+std::size_t parse_json_string(const std::string& s,
+                              std::size_t quote_pos,
+                              std::string& dst) {
+    dst.clear();
+    if (quote_pos >= s.size() || s[quote_pos] != '"') return std::string::npos;
+    for (std::size_t i = quote_pos + 1; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '"') return i;
+        if (c == '\\' && i + 1 < s.size()) {
+            char esc = s[i + 1];
+            switch (esc) {
+                case '"':  dst += '"';  break;
+                case '\\': dst += '\\'; break;
+                case '/':  dst += '/';  break;
+                case 'b':  dst += '\b'; break;
+                case 'f':  dst += '\f'; break;
+                case 'n':  dst += '\n'; break;
+                case 'r':  dst += '\r'; break;
+                case 't':  dst += '\t'; break;
+                default:   dst += esc;  break;
+            }
+            ++i;
+            continue;
+        }
+        dst += c;
+    }
+    return std::string::npos;
+}
+
 }  // namespace
 
 std::string serialize_cost_sample(const CostSample& s) {
@@ -64,9 +139,9 @@ std::string serialize_cost_sample(const CostSample& s) {
     ss << "{";
     ss << "\"kind\":\"cost\",";
     ss << "\"frame\":" << s.frame << ",";
-    ss << "\"t\":" << s.t_seconds << ",";
-    ss << "\"render_pass_duration_ms\":" << s.render_pass_duration_ms << ",";
-    ss << "\"dirty_rect_area_px\":" << s.dirty_rect_area_px << ",";
+    ss << "\"t\":" << format_number(s.t_seconds) << ",";
+    ss << "\"render_pass_duration_ms\":" << format_number(s.render_pass_duration_ms) << ",";
+    ss << "\"dirty_rect_area_px\":" << format_number(s.dirty_rect_area_px) << ",";
     ss << "\"dirty_rect_count\":" << s.dirty_rect_count << ",";
     ss << "\"active_trace_ids\":[";
     for (std::size_t i = 0; i < s.active_trace_ids.size(); ++i) {
@@ -295,10 +370,22 @@ std::vector<CostSample> load_cost_stream(const std::string& path) {
         // output; if callers need that, they should plumb choc::json
         // at the inspector layer.
         CostSample s;
+        // Number-or-sentinel parser: accepts a raw double OR the same
+        // "NaN"/"Infinity"/"-Infinity" quoted sentinels format_number
+        // emits for non-finite values.
         auto find_num = [&](const std::string& key, double& dst) {
             auto pos = line.find("\"" + key + "\":");
             if (pos == std::string::npos) return;
             pos += key.size() + 3;
+            if (pos < line.size() && line[pos] == '"') {
+                std::string sentinel;
+                auto end_q = parse_json_string(line, pos, sentinel);
+                if (end_q == std::string::npos) return;
+                if (sentinel == "NaN")        dst = std::numeric_limits<double>::quiet_NaN();
+                else if (sentinel == "Infinity")  dst =  std::numeric_limits<double>::infinity();
+                else if (sentinel == "-Infinity") dst = -std::numeric_limits<double>::infinity();
+                return;
+            }
             char* end = nullptr;
             dst = std::strtod(line.c_str() + pos, &end);
         };
@@ -328,24 +415,30 @@ std::vector<CostSample> load_cost_stream(const std::string& path) {
             }
         }
 
-        // active_provenance — minimal scan: pull each {...} object.
+        // active_provenance — pull each {...} object via brace-depth
+        // tracking so a literal `}` inside `source_file` (legal JSON,
+        // since only `"` and `\\` are escaped) no longer truncates
+        // the entry mid-string and corrupts every following object.
         {
             auto pos = line.find("\"active_provenance\":[");
             if (pos != std::string::npos) {
                 pos += sizeof("\"active_provenance\":[") - 1;
                 while (pos < line.size() && line[pos] != ']') {
                     if (line[pos] != '{') { ++pos; continue; }
-                    auto obj_end = line.find('}', pos);
+                    auto obj_end = find_matching_brace(line, pos);
                     if (obj_end == std::string::npos) break;
                     std::string obj = line.substr(pos, obj_end - pos + 1);
                     Provenance p;
+                    // Honor JSON string escapes when reading source_*
+                    // fields so escaped quotes/backslashes round-trip.
                     auto pull_str = [&](const std::string& k, std::string& dst) {
                         auto kp = obj.find("\"" + k + "\":\"");
                         if (kp == std::string::npos) return;
-                        kp += k.size() + 4;
-                        auto kq = obj.find('"', kp);
-                        if (kq == std::string::npos) return;
-                        dst = obj.substr(kp, kq - kp);
+                        kp += k.size() + 3;  // points at opening "
+                        std::string parsed;
+                        if (parse_json_string(obj, kp, parsed) != std::string::npos) {
+                            dst = std::move(parsed);
+                        }
                     };
                     pull_str("source_kind", p.source_kind);
                     pull_str("source_id", p.source_id);

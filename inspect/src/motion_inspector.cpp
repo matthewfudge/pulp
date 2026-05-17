@@ -9,6 +9,7 @@
 #include <choc/text/choc_JSON.h>
 
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -79,12 +80,23 @@ const char* event_method_for_kind(SampleEvent::Kind k) {
     return methods::kMotionSample;
 }
 
+// Match motion.cpp::format_number — NaN/Inf travel as quoted sentinels
+// on the wire so a fixture round-trip and a live inspector broadcast see
+// the same values. choc::value::createFloat64 would serialize non-finite
+// as JSON `null`, silently dropping the misbehavior signal.
+choc::value::Value wire_number(double v) {
+    if (std::isnan(v))          return choc::value::createString("NaN");
+    if (std::isinf(v) && v > 0) return choc::value::createString("Infinity");
+    if (std::isinf(v) && v < 0) return choc::value::createString("-Infinity");
+    return choc::value::createFloat64(v);
+}
+
 choc::value::Value components_to_object(
     const std::vector<std::pair<std::string, double>>& comps
 ) {
     auto obj = choc::value::createObject("");
     for (const auto& [k, v] : comps) {
-        obj.addMember(k, choc::value::createFloat64(v));
+        obj.addMember(k, wire_number(v));
     }
     return obj;
 }
@@ -300,13 +312,19 @@ void MotionInspector::broadcast_event(const SampleEvent& e) {
     params.addMember("view_name", choc::value::createString(e.view_name));
     params.addMember("metric_name", choc::value::createString(e.metric_name));
     params.addMember("kind", choc::value::createString(sample_kind_to_string(e.kind)));
-    params.addMember("t", choc::value::createFloat64(e.t_seconds));
+    params.addMember("t", wire_number(e.t_seconds));
     params.addMember("frame", choc::value::createInt64(static_cast<int64_t>(e.frame)));
     // Phase 7 stable identifiers — let clients align bursts on the
     // wire the same way the fixture format aligns them.
     params.addMember("trace_id", choc::value::createInt64(e.trace_id));
     params.addMember("metric_id", choc::value::createInt64(e.metric_id));
     params.addMember("burst_id", choc::value::createInt64(e.burst_id));
+    // Phase 10 Input events carry input_kind + view_id; without these
+    // the wire form loses the entire payload of the event.
+    if (e.kind == SampleEvent::Kind::Input) {
+        params.addMember("input_kind", choc::value::createString(e.input_kind));
+        params.addMember("view_id",    choc::value::createString(e.view_id));
+    }
     if (!e.components.empty()) {
         params.addMember("components", components_to_object(e.components));
     }
@@ -332,11 +350,11 @@ void MotionInspector::broadcast_cost(const CostSample& s) {
     auto params = choc::value::createObject("");
     params.addMember("frame",
                      choc::value::createInt64(static_cast<int64_t>(s.frame)));
-    params.addMember("t", choc::value::createFloat64(s.t_seconds));
+    params.addMember("t", wire_number(s.t_seconds));
     params.addMember("render_pass_duration_ms",
-                     choc::value::createFloat64(s.render_pass_duration_ms));
+                     wire_number(s.render_pass_duration_ms));
     params.addMember("dirty_rect_area_px",
-                     choc::value::createFloat64(s.dirty_rect_area_px));
+                     wire_number(s.dirty_rect_area_px));
     params.addMember("dirty_rect_count",
                      choc::value::createInt64(s.dirty_rect_count));
 

@@ -204,6 +204,87 @@ TEST_CASE("MotionScrubber scrub_to / play are no-ops when no fixture loaded",
     REQUIRE(scrub.play() == 0u);
 }
 
+// ── Bug-sweep regressions (pre-merge sweep #2142) ────────────────────
+
+// Re-emission used to drop SampleEvent::Kind::Input entirely — the
+// switch fell through to "?", the method routed to kMotionSample, and
+// input_kind / view_id were not serialized at all. Phase 10 fixtures
+// stayed silent on scrub.
+TEST_CASE("MotionScrubber re-emits Phase 10 Input events with input_kind + view_id",
+          "[motion-scrubber][bug-sweep]") {
+    FrameClock clock;
+    const auto path = tmp_fixture_path("input-replay");
+
+    // Record a fixture containing an Input event.
+    Coordinator::instance().reset();
+    Coordinator::instance().bind(clock);
+    Coordinator::instance().set_tracing_enabled(true);
+    const int sink_id = Coordinator::instance().add_sink(make_fixture_sink(path));
+
+    SampleEvent input;
+    input.kind = SampleEvent::Kind::Input;
+    input.view_name = "Knob";
+    input.metric_name = "interaction";
+    input.input_kind = "click";
+    input.view_id = "knob-7";
+    Coordinator::instance().dispatch_input_event(input);
+    clock.tick(1.0 / 60.0);
+
+    Coordinator::instance().remove_sink(sink_id);
+    Coordinator::instance().reset();
+
+    MotionScrubber scrub;
+    REQUIRE(scrub.load_fixture(path));
+
+    std::vector<SampleEvent> buf;
+    scrub.add_sink(make_buffer_sink(&buf));
+    REQUIRE(scrub.play() > 0u);
+
+    bool found_input = false;
+    for (const auto& e : buf) {
+        if (e.kind == SampleEvent::Kind::Input) {
+            found_input = true;
+            REQUIRE(e.input_kind == "click");
+            REQUIRE(e.view_id == "knob-7");
+        }
+    }
+    REQUIRE(found_input);
+
+    std::remove(path.c_str());
+}
+
+// emit_prefix_locked used to fire sinks (and broadcast through the
+// inspector server) while holding mtx_. A sink that re-entered any
+// MotionScrubber accessor self-deadlocked. The fix is dispatch-outside-
+// lock via dispatch_snapshot(); this test pins that property.
+TEST_CASE("MotionScrubber sink may re-enter scrubber accessors during scrub",
+          "[motion-scrubber][bug-sweep]") {
+    FrameClock clock;
+    const auto path = record_sample_fixture("reentrant", clock);
+
+    MotionScrubber scrub;
+    REQUIRE(scrub.load_fixture(path));
+
+    // Sink that calls back into the scrubber on every event. Under
+    // the old design, this deadlocked on the second event because
+    // event_count() / playhead_frame() / playing() / loaded() all
+    // acquire mtx_, which scrub_to was still holding.
+    std::size_t reentrant_calls = 0;
+    scrub.add_sink([&scrub, &reentrant_calls](const SampleEvent&) {
+        (void)scrub.event_count();
+        (void)scrub.playhead_frame();
+        (void)scrub.playing();
+        (void)scrub.loaded();
+        ++reentrant_calls;
+    });
+
+    const std::size_t emitted = scrub.scrub_to(scrub.max_frame());
+    REQUIRE(emitted > 0);
+    REQUIRE(reentrant_calls == emitted);
+
+    std::remove(path.c_str());
+}
+
 // ── DomainHandler protocol roundtrip ─────────────────────────────────
 
 TEST_CASE("DomainHandler routes Motion.loadFixture + scrubTo to MotionScrubber",
