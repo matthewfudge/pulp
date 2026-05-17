@@ -1427,6 +1427,22 @@ if(Python3_Interpreter_FOUND)
         SKIP_RETURN_CODE 3
         LABELS "motion;visual"
     )
+
+    # Motion-gated capture smoke. Exits 3 when neither screencapture
+    # nor a booted simulator is available, so non-Apple CI hosts skip
+    # cleanly. When the macOS capture path is usable it exercises the
+    # gate logic against a static 4×4 region (gate never opens →
+    # CLI returns 3, smoke wraps that into 0).
+    add_test(
+        NAME pulp-motion-visual-capture-smoke
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/motion/visual/test_capture_smoke.py
+    )
+    set_tests_properties(pulp-motion-visual-capture-smoke PROPERTIES
+        SKIP_RETURN_CODE 3
+        LABELS "motion;visual"
+        TIMEOUT 60
+    )
 endif()
 
 # Widget animation behavior tests
