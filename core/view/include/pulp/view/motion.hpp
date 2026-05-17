@@ -418,6 +418,16 @@ private:
 /// recorders; each gets its own sink id.
 InputRecorder make_input_recorder(std::string path);
 
+/// Read a fixture file, find each `Input` event, locate a target by
+/// `view_id` walking from `root_view` (depth-first), and re-dispatch
+/// the matching `View::simulate_*` against it. Between inputs the
+/// frame_clock is advanced by the delta between recorded
+/// `t_seconds`. Returns the number of inputs replayed, or `-1` on
+/// parse error.
+int replay_inputs(const std::string& path,
+                  View& root_view,
+                  FrameClock& frame_clock);
+
 /// Process-wide entry point called by `View::simulate_*` when input
 /// recording is active. Public so the View free functions can reach
 /// it without a friend relationship; callers should prefer the

@@ -1840,4 +1840,102 @@ InputRecorder make_input_recorder(std::string path) {
     return InputRecorder(sink_id);
 }
 
+// ── replay_inputs (Phase 10b) ────────────────────────────────────────
+//
+// Walks a fixture, locates each Input's target by `view_id` (DFS from
+// `root_view`), advances `frame_clock` to the recorded timestamp, and
+// re-invokes the matching `View::simulate_*`. Sinks installed on the
+// Coordinator (typically the same `make_fixture_sink` paired with the
+// recorder) re-capture the motion stream the replayed inputs produce,
+// so a captured fixture replayed against a fresh view tree yields a
+// byte-equivalent motion fixture.
+
+namespace {
+
+const View* find_by_id(const View& root, const std::string& id) {
+    if (root.id() == id) return &root;
+    for (std::size_t i = 0; i < root.child_count(); ++i) {
+        if (const View* found = find_by_id(*root.child_at(i), id)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+double component_value(const std::vector<std::pair<std::string, double>>& comps,
+                       const std::string& name) {
+    for (const auto& [k, v] : comps) {
+        if (k == name) return v;
+    }
+    return 0.0;
+}
+
+}  // namespace
+
+int replay_inputs(const std::string& path, View& root_view, FrameClock& clock) {
+    auto events = load_fixture(path);
+    if (events.empty()) return -1;
+
+    int replayed = 0;
+    double last_t = 0.0;
+    bool have_last_t = false;
+    for (const auto& e : events) {
+        if (e.kind != SampleEvent::Kind::Input) continue;
+
+        // Advance the clock to the recorded timestamp. The first input
+        // anchors `last_t` so a delayed first interaction is preserved.
+        if (have_last_t) {
+            const double dt = e.t_seconds - last_t;
+            if (dt > 0.0) clock.tick(static_cast<float>(dt));
+        } else {
+            // Anchor on the recorded `t` so geometry traces that
+            // sample on the same FrameClock observe a consistent
+            // start offset.
+            if (e.t_seconds > 0.0) clock.tick(static_cast<float>(e.t_seconds));
+            have_last_t = true;
+        }
+        last_t = e.t_seconds;
+
+        // Coordinates in the fixture are root-space (matching the
+        // original `View::simulate_*` contract), so dispatch through
+        // `root_view`: its `hit_test` walks the tree and lands on the
+        // same descendant the recorder captured. `view_id` is a
+        // recorded provenance signal — useful for diffing across
+        // replay runs — not the actual dispatch receiver, because
+        // calling `simulate_click` on a leaf view with root-space
+        // coords would always miss its local hit_test.
+        //
+        // We still resolve `view_id` so the lookup itself is
+        // exercised, and (when the id has moved or been renamed) the
+        // diagnostic surface here can be extended without changing
+        // the public contract.
+        if (!e.view_id.empty()) {
+            (void)find_by_id(root_view, e.view_id);
+        }
+        View* target = &root_view;
+
+        if (e.input_kind == "click") {
+            const Point p{ static_cast<float>(component_value(e.components, "x")),
+                           static_cast<float>(component_value(e.components, "y")) };
+            target->simulate_click(p);
+            ++replayed;
+        } else if (e.input_kind == "hover") {
+            const Point p{ static_cast<float>(component_value(e.components, "x")),
+                           static_cast<float>(component_value(e.components, "y")) };
+            target->simulate_hover(p);
+            ++replayed;
+        } else if (e.input_kind == "drag") {
+            const Point s{ static_cast<float>(component_value(e.components, "start_x")),
+                           static_cast<float>(component_value(e.components, "start_y")) };
+            const Point en{ static_cast<float>(component_value(e.components, "end_x")),
+                            static_cast<float>(component_value(e.components, "end_y")) };
+            const int steps = std::max(
+                1, static_cast<int>(component_value(e.components, "steps")));
+            target->simulate_drag(s, en, steps);
+            ++replayed;
+        }
+    }
+    return replayed;
+}
+
 }  // namespace pulp::view::motion
