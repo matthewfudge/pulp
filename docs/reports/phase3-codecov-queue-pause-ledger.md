@@ -6309,3 +6309,25 @@ first CI pass failed `Enforce version & skill sync` because the batch includes
 Ran `python3 tools/scripts/version_bump_check.py --mode=apply`, committed the
 mechanical `CMakeLists.txt` bump as `bdf4adb6e`, and pushed the branch so
 GitHub-hosted CI could restart from the corrected head.
+
+2026-05-17 11:18 PDT: completed a new local-only held tranche in
+`feature/phase3-codecov-osc-runtime-batch-697` without opening a PR. The
+tranche fixes OSC address pattern matching so `*` wildcards and `{...}`
+alternatives can backtrack within a path segment, and adds coverage for suffix
+wildcards such as `/foo/*bar` plus prefix-overlapping alternatives such as
+`/{foo,foobar}/gain`. Local validation passed: configured Debug build, built
+`pulp-test-osc-bundle`, ran the full focused test binary (44 cases / 122
+assertions), ran focused CTest (44/44), ran `git diff --check`, and ran
+`PULP_DIFF_COVER_CTEST_REGEX='^(OSC|TimeTag|Bundle|Empty Bundle|Address
+pattern|Malformed address)' tools/scripts/local_diff_cover.sh
+pulp-test-osc-bundle`, which reported 100% diff coverage for
+`core/osc/src/bundle.cpp`. The clean worktree is
+`/private/tmp/pulp-phase3-codecov-osc-runtime-batch-697` at commit
+`0e6faccef`; it is held for the next larger aggregated GitHub-hosted PR.
+
+2026-05-17 11:20 PDT: updated batching policy for remaining Phase 3 codecov
+work. New coverage PRs should target roughly 24-36 discrete coverage/fix
+commits per PR, with held local tranches accumulated before submission. The
+goal is to keep GitHub-hosted CI efficient while still validating each tranche
+locally with focused CTest and local diff-cover before aggregation. The current
+OSC tranche remains local and should not be submitted by itself.
