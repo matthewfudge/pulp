@@ -1503,6 +1503,15 @@ target_link_libraries(pulp-test-motion-provenance PRIVATE
     pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-motion-provenance)
 
+# Motion input record + replay end-to-end (Phase 10) — records a
+# hover -> click -> drag against a synthetic view tree, replays the
+# same fixture against a fresh tree, asserts identical motion fixture
+# emerges (modulo timing tolerance).
+add_executable(pulp-test-motion-input-replay test_motion_input_replay.cpp)
+target_link_libraries(pulp-test-motion-input-replay PRIVATE
+    pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-input-replay)
+
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without
 # numpy/Pillow/scikit-image doesn't false-fail.
