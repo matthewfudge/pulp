@@ -686,14 +686,20 @@ class GateFixtureTests(unittest.TestCase):
         self.assertEqual(vbc.max_level("patch", "minor", "major"), "major")
         self.assertEqual(vbc.max_level("none", "patch"), "patch")
 
-    def test_apply_bumps_inserts_changelog_and_is_idempotent(self) -> None:
+    def test_apply_bumps_writes_version_files_only_post_c1(self) -> None:
+        # Post-C1 (2026-05): apply_bumps writes version files only.
+        # CHANGELOG.md is owned by Shipyard post-tag sync via
+        # `.github/workflows/post-tag-sync.yml`. Two PRs both proposing
+        # `sdk=minor` must produce identical CHANGELOG.md state to avoid
+        # the multi-PR-train rebase class.
         vbc = self._import_gate_module("version_bump_check")
 
         cfg_path = self.tmp / "tools/scripts/versioning.json"
         cfg = json.loads(cfg_path.read_text())
         cfg["surfaces"]["sdk"]["changelog"] = "CHANGELOG.md"
         cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
-        self.f.write("CHANGELOG.md", "# Changelog\n\n## [0.1.0]\n\n- Initial.\n")
+        cl_before = "# Changelog\n\n## [0.1.0]\n\n- Initial.\n"
+        self.f.write("CHANGELOG.md", cl_before)
         self.f.commit("chore: add changelog config")
         _git(self.tmp, "update-ref", "refs/remotes/origin/main", "HEAD")
 
@@ -717,7 +723,8 @@ class GateFixtureTests(unittest.TestCase):
                 self.tmp,
             )
             edited = vbc.apply_bumps(verdicts, "origin/main", self.tmp)
-            self.assertEqual(set(edited), {"CMakeLists.txt", "CHANGELOG.md"})
+            # Only the version file is edited; CHANGELOG.md untouched.
+            self.assertEqual(set(edited), {"CMakeLists.txt"})
 
             report, code = vbc.render_report(
                 vbc.assess_surfaces(loaded, changed, "origin/main", "HEAD", self.tmp),
@@ -738,8 +745,8 @@ class GateFixtureTests(unittest.TestCase):
             os.chdir(previous_cwd)
 
         self.assertIn("VERSION 0.2.0", (self.tmp / "CMakeLists.txt").read_text())
-        changelog = (self.tmp / "CHANGELOG.md").read_text()
-        self.assertLess(changelog.index("## [0.2.0]"), changelog.index("## [0.1.0]"))
+        # CHANGELOG.md is unchanged — Shipyard regenerates it post-tag.
+        self.assertEqual((self.tmp / "CHANGELOG.md").read_text(), cl_before)
         status = subprocess.run(
             ["git", "-C", str(self.tmp), "status", "--short"],
             check=True,
@@ -747,7 +754,10 @@ class GateFixtureTests(unittest.TestCase):
             text=True,
         ).stdout
         self.assertIn("M  CMakeLists.txt", status)
-        self.assertIn("M  CHANGELOG.md", status)
+        # Post-C1: CHANGELOG.md is NOT staged — `apply_bumps()` skips it
+        # entirely so Shipyard's post-tag regen owns the file without
+        # racing PRs over identical stub headers.
+        self.assertNotIn("CHANGELOG.md", status)
 
     def test_version_bump_missing_config_returns_usage_error(self) -> None:
         code, out = _run(
