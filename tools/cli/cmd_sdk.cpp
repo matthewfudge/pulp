@@ -100,6 +100,13 @@ int cmd_sdk(const std::vector<std::string>& args) {
             std::cout << "  No SDK versions installed.\n";
             std::cout << "  Run: pulp sdk install\n";
         }
+        // Pulp #2087 follow-up (#22): print a one-line banner if a
+        // newer SDK is available on GitHub Releases. Cached at
+        // ~/.pulp/cache/latest_release.txt with a 24h TTL — no
+        // network call in the hot path most of the time.
+        std::string installed = newest_installed_sdk();
+        if (installed.empty()) installed = PULP_SDK_VERSION;
+        maybe_print_newer_sdk_banner(installed);
         return 0;
     }
 
