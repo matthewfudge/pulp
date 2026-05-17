@@ -6466,25 +6466,28 @@ should be aggregated rather than submitted individually.
 2026-05-17 13:02 PDT: added a local-only held runtime micro-batch for the next
 large coverage batch. Runtime tranche `feature/phase3-codecov-runtime-batch-703`
 in `/private/tmp/pulp-phase3-codecov-runtime-batch-703` is clean and currently
-contains five local commits:
+contains six local commits:
 `0f3fa4eb6` (`fix(runtime): prefilter small prime composites`),
 `730732d14` (`fix(runtime): reject nul-padded ipv4 inputs`),
 `f26e6bb14` (`fix(runtime): reject nul-padded env names`),
-`4d76f3fe6` (`fix(runtime): preserve high-bit big integers`), and
-`0849229d2` (`fix(runtime): reject nul-padded http urls`). The tranche hardens
-runtime parsing/boundary behavior for small-prime composite prefilters,
+`4d76f3fe6` (`fix(runtime): preserve high-bit big integers`),
+`0849229d2` (`fix(runtime): reject nul-padded http urls`), and
+`944cd7396` (`fix(runtime): parse license integers strictly`). The tranche
+hardens runtime parsing/boundary behavior for small-prime composite prefilters,
 embedded-NUL IPv4 inputs, embedded-NUL environment names, high-bit `uint64_t`
-BigInteger construction, and embedded-NUL HTTP URLs. Validation passed locally:
+BigInteger construction, embedded-NUL HTTP URLs, and strict license integer
+parsing. Validation passed locally:
 focused builds and direct tests for `pulp-test-v3-gaps`,
 `pulp-test-network-stream`, `pulp-test-runtime`, `pulp-test-license`, and
 `pulp-test-runtime-utils`; focused CTest selections for the touched behavior;
 and combined local diff-cover with regex
-`is_prime|generate_prime|sieve_primes|IPv4 validation|Runtime environment helpers|BigInteger|HTTP helpers`,
+`is_prime|generate_prime|sieve_primes|IPv4 validation|Runtime environment helpers|BigInteger|HTTP helpers|LicenseValidator`,
 which reported 100% diff coverage across the changed
 `core/runtime/include/pulp/runtime/system.hpp`, `core/runtime/src/big_integer.cpp`,
-`core/runtime/src/http.cpp`, `core/runtime/src/ip_address.cpp`, and
-`core/runtime/src/primes.cpp` lines. This tranche is held locally and should be
-aggregated rather than submitted individually.
+`core/runtime/src/http.cpp`, `core/runtime/src/ip_address.cpp`,
+`core/runtime/src/license.cpp`, and `core/runtime/src/primes.cpp` lines. This
+tranche is held locally and should be aggregated rather than submitted
+individually.
 
 2026-05-17 13:04 PDT: monitored open GitHub-hosted batch PRs. #2126
 `feature/phase3-codecov-batch-682` remains open at `5a6323a37` with 13 pending
@@ -6494,3 +6497,17 @@ GitHub-hosted macOS/coverage/sanitizer/Android capacity. #2143
 checks and 0 failing checks, all queued GitHub-hosted macOS/coverage/sanitizer
 lanes. Review/comment sweep found only Codecov and coverage-diff bot comments
 on these two PRs, with no human/Codex review findings requiring code changes.
+
+2026-05-17 13:06 PDT: added Singer's local-only held runtime helper tranche
+for the next large coverage batch. JSON-RPC tranche
+`feature/phase3-codecov-runtime-helper-batch-704` in
+`/private/tmp/pulp-phase3-codecov-runtime-helper-batch-704` is clean at commit
+`313f0483a` (`fix(runtime): reject invalid json-rpc envelopes`). The tranche
+rejects invalid JSON-RPC envelopes before dispatch when `jsonrpc` is not
+`"2.0"` or `method` is not a string, returns `-32600 Invalid Request` for
+invalid requests with an id, and drops invalid notifications without invoking
+handlers or emitting replies. Validation passed locally: configured Debug
+build, built `pulp-test-json-rpc`, ran focused CTest `^JsonRpcPeer` (18/18),
+and ran focused coverage/diff-cover at 100% for changed
+`core/runtime/src/json_rpc.cpp` lines. This tranche is held locally and should
+be aggregated rather than submitted individually.
