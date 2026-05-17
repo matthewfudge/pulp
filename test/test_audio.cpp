@@ -315,6 +315,56 @@ TEST_CASE("ChannelSet immersive layout preserves documented speaker order",
     REQUIRE(atmos.speakers[11] == Speaker::TopBackRight);
 }
 
+TEST_CASE("Buffer resize handles type changes and preserves new shape",
+          "[audio][buffer][coverage][phase3]") {
+    Buffer<double> buf(3, 2);
+    buf.channel(0)[0] = 1.0;
+    buf.channel(1)[1] = -2.0;
+
+    buf.resize(1, 5);
+    REQUIRE(buf.num_channels() == 1);
+    REQUIRE(buf.num_samples() == 5);
+    REQUIRE(buf.channel(0).size() == 5);
+
+    buf.clear();
+    for (auto sample : buf.channel(0)) {
+        REQUIRE(sample == 0.0);
+    }
+
+    buf.channel(0)[4] = 0.5;
+    auto view = buf.view();
+    REQUIRE(view.channel(0)[4] == 0.5);
+}
+
+TEST_CASE("BufferView supports zero-sample clears without touching channel pointers",
+          "[audio][buffer][coverage][phase3]") {
+    float left = 1.0f;
+    float right = -1.0f;
+    float* ptrs[2] = {&left, &right};
+
+    BufferView<float> view(ptrs, 2, 0);
+    REQUIRE(view.empty());
+    REQUIRE(view.num_channels() == 2);
+    REQUIRE(view.num_samples() == 0);
+    REQUIRE(view.channel_ptr(0) == &left);
+    REQUIRE(view.channel_ptr(1) == &right);
+
+    view.clear();
+    REQUIRE(left == 1.0f);
+    REQUIRE(right == -1.0f);
+}
+
+TEST_CASE("ChannelSet discrete layouts compare by speaker map not display name",
+          "[audio][channel-set][coverage][phase3]") {
+    auto named = ChannelSet::discrete(3);
+    auto renamed = named;
+    renamed.name = "Three unnamed channels";
+
+    REQUIRE(named == renamed);
+    REQUIRE(named.size() == 3);
+    REQUIRE_FALSE(named == ChannelSet::lrc());
+}
+
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
 TEST_CASE("CoreAudio system enumerates devices", "[audio][coreaudio]") {
     auto system = create_audio_system();
