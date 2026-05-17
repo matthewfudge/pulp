@@ -83,10 +83,16 @@ namespace methods {
 
     // Motion domain — agent-first motion observability.
     // Requests:
-    constexpr auto kMotionStartTrace = "Motion.startTrace";
-    constexpr auto kMotionStopTrace  = "Motion.stopTrace";
-    constexpr auto kMotionSnapshot   = "Motion.snapshot";
-    constexpr auto kMotionListTraces = "Motion.listTraces";
+    constexpr auto kMotionStartTrace  = "Motion.startTrace";
+    constexpr auto kMotionStopTrace   = "Motion.stopTrace";
+    constexpr auto kMotionSnapshot    = "Motion.snapshot";
+    constexpr auto kMotionListTraces  = "Motion.listTraces";
+    // Scrubber requests (Phase 7 — loads a .motion.jsonl fixture and
+    // re-emits events up to a frame playhead; passive replay):
+    constexpr auto kMotionLoadFixture = "Motion.loadFixture";
+    constexpr auto kMotionScrubTo     = "Motion.scrubTo";
+    constexpr auto kMotionPlay        = "Motion.play";
+    constexpr auto kMotionPause       = "Motion.pause";
     // Events (broadcast to subscribed clients):
     constexpr auto kMotionStart  = "Motion.start";
     constexpr auto kMotionSample = "Motion.sample";
