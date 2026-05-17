@@ -1413,6 +1413,20 @@ if(Python3_Interpreter_FOUND)
         SKIP_RETURN_CODE 3
         LABELS "motion;visual"
     )
+
+    # Visual-plus extensions (grid overlay, trim, affine first→last).
+    # Same SKIP_RETURN_CODE contract — runs only when numpy / Pillow /
+    # scikit-image are available; optional cv2 path is exercised when
+    # opencv-python is installed.
+    add_test(
+        NAME pulp-motion-visual-grid-self-check
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/motion/visual/test_grid_overlay.py
+    )
+    set_tests_properties(pulp-motion-visual-grid-self-check PROPERTIES
+        SKIP_RETURN_CODE 3
+        LABELS "motion;visual"
+    )
 endif()
 
 # Widget animation behavior tests
