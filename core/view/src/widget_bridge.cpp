@@ -6774,7 +6774,15 @@ void WidgetBridge::register_api() {
         // "<script_id>:<callback_id>". One callback at a time so the
         // ambient slot is correct per-invocation.
         const bool stamp = !active_script_id_.empty();
+        // RAII guard so an exception in `__invokeFrame__` doesn't leave
+        // stale ambient provenance behind, corrupting attribution for
+        // every subsequent publish until something else clears it.
+        struct AmbientGuard {
+            bool active;
+            ~AmbientGuard() { if (active) motion::clear_ambient_provenance(); }
+        };
         for (auto id : ids) {
+            AmbientGuard guard{stamp};
             if (stamp) {
                 motion::Provenance p;
                 p.source_kind = "rAF";
@@ -6783,7 +6791,7 @@ void WidgetBridge::register_api() {
             }
             std::string call = "__invokeFrame__(" + std::to_string(id) + ");void 0;";
             engine_.evaluate(call);
-            if (stamp) motion::clear_ambient_provenance();
+            // guard's dtor runs on normal AND exception paths.
         }
         return choc::value::Value();
     });
