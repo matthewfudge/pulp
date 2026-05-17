@@ -1218,9 +1218,6 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE_FALSE(ios.timed_out);
     REQUIRE_FALSE(bogus.timed_out);
 
-    // android + ios are recognized before --versions short-circuits the
-    // doctor pipeline. exit 2 is the "unknown subcommand" failure path
-    // we're guarding against.
     REQUIRE(android.exit_code == 0);
     REQUIRE(ios.exit_code == 0);
     REQUIRE(android.stdout_output.find("Pulp Version Diagnostics") != std::string::npos);
