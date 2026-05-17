@@ -1106,6 +1106,49 @@ TEST_CASE("assert_matches aligns events by stable IDs, not position",
     std::remove(path.c_str());
 }
 
+// ── Codex P1: NaN/Inf round-trip through fixture ─────────────────────
+
+TEST_CASE("Fixture round-trips NaN and Inf component values",
+          "[motion][fixture][codex-p1]") {
+    Fixture fx;
+    const auto path = tmp_fixture_path("nonfinite");
+    Coordinator::instance().add_sink(make_fixture_sink(path));
+    Coordinator::instance().set_firehose(true);
+
+    publish_value("V", "v", 0.0);
+    publish_value("V", "v",
+                  std::numeric_limits<double>::quiet_NaN());  // burst Start
+    publish_value("V", "v",
+                  std::numeric_limits<double>::infinity());
+    publish_value("V", "v",
+                  -std::numeric_limits<double>::infinity());
+
+    auto loaded = load_fixture(path);
+    REQUIRE_FALSE(loaded.empty());
+
+    // Collect every "value" sample.
+    std::vector<double> values;
+    for (const auto& e : loaded) {
+        if (e.kind != SampleEvent::Kind::Baseline &&
+            e.kind != SampleEvent::Kind::Sample) continue;
+        for (const auto& [k, v] : e.components) {
+            if (k == "value") values.push_back(v);
+        }
+    }
+    REQUIRE(values.size() >= 4);
+
+    bool saw_nan = false, saw_pos_inf = false, saw_neg_inf = false;
+    for (double v : values) {
+        if (std::isnan(v)) saw_nan = true;
+        if (std::isinf(v) && v > 0) saw_pos_inf = true;
+        if (std::isinf(v) && v < 0) saw_neg_inf = true;
+    }
+    REQUIRE(saw_nan);
+    REQUIRE(saw_pos_inf);
+    REQUIRE(saw_neg_inf);
+    std::remove(path.c_str());
+}
+
 TEST_CASE("Emitted event counter advances", "[motion]") {
     Fixture fx;
     double v = 0.0;

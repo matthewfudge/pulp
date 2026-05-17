@@ -53,20 +53,22 @@ GeometrySource parse_geometry_source(std::string_view s) {
 
 const char* sample_kind_to_string(SampleEvent::Kind k) {
     switch (k) {
-        case SampleEvent::Kind::Baseline: return "baseline";
-        case SampleEvent::Kind::Sample:   return "sample";
-        case SampleEvent::Kind::Start:    return "start";
-        case SampleEvent::Kind::End:      return "end";
+        case SampleEvent::Kind::TraceStarted: return "trace-started";
+        case SampleEvent::Kind::Baseline:     return "baseline";
+        case SampleEvent::Kind::Sample:       return "sample";
+        case SampleEvent::Kind::Start:        return "start";
+        case SampleEvent::Kind::End:          return "end";
     }
     return "?";
 }
 
 const char* event_method_for_kind(SampleEvent::Kind k) {
     switch (k) {
-        case SampleEvent::Kind::Baseline: return methods::kMotionSample;
-        case SampleEvent::Kind::Sample:   return methods::kMotionSample;
-        case SampleEvent::Kind::Start:    return methods::kMotionStart;
-        case SampleEvent::Kind::End:      return methods::kMotionEnd;
+        case SampleEvent::Kind::TraceStarted: return methods::kMotionStart;
+        case SampleEvent::Kind::Baseline:     return methods::kMotionSample;
+        case SampleEvent::Kind::Sample:       return methods::kMotionSample;
+        case SampleEvent::Kind::Start:        return methods::kMotionStart;
+        case SampleEvent::Kind::End:          return methods::kMotionEnd;
     }
     return methods::kMotionSample;
 }
@@ -267,11 +269,24 @@ void MotionInspector::broadcast_event(const SampleEvent& e) {
     params.addMember("kind", choc::value::createString(sample_kind_to_string(e.kind)));
     params.addMember("t", choc::value::createFloat64(e.t_seconds));
     params.addMember("frame", choc::value::createInt64(static_cast<int64_t>(e.frame)));
+    // Phase 7 stable identifiers — let clients align bursts on the
+    // wire the same way the fixture format aligns them.
+    params.addMember("trace_id", choc::value::createInt64(e.trace_id));
+    params.addMember("metric_id", choc::value::createInt64(e.metric_id));
+    params.addMember("burst_id", choc::value::createInt64(e.burst_id));
     if (!e.components.empty()) {
         params.addMember("components", components_to_object(e.components));
     }
     if (!e.deltas.empty()) {
         params.addMember("deltas", components_to_object(e.deltas));
+    }
+    if (e.provenance.is_set()) {
+        auto prov = choc::value::createObject("");
+        prov.addMember("source_kind", choc::value::createString(e.provenance.source_kind));
+        prov.addMember("source_id",   choc::value::createString(e.provenance.source_id));
+        prov.addMember("source_file", choc::value::createString(e.provenance.source_file));
+        prov.addMember("source_line", choc::value::createInt64(e.provenance.source_line));
+        params.addMember("provenance", prov);
     }
 
     InspectorMessage ev = make_event(event_method_for_kind(e.kind),

@@ -657,7 +657,26 @@ bool components_differ(
     if (a.size() != b.size()) return true;
     for (std::size_t i = 0; i < a.size(); ++i) {
         if (a[i].first != b[i].first) return true;
-        if (std::fabs(a[i].second - b[i].second) > epsilon) return true;
+        const double av = a[i].second;
+        const double bv = b[i].second;
+        // IEEE-754 special handling: a transition into or out of a
+        // non-finite value is meaningful (an animation going NaN/Inf
+        // is a debug signal, not a no-op). fabs(av - bv) would yield
+        // NaN and silently mask the change because NaN > epsilon is
+        // false.
+        const bool a_finite = std::isfinite(av);
+        const bool b_finite = std::isfinite(bv);
+        if (a_finite != b_finite) return true;
+        if (!a_finite && !b_finite) {
+            // Both non-finite: bitwise compare so NaN vs +Inf vs -Inf
+            // are all distinguishable. (NaN != NaN under ==, but
+            // memcmp distinguishes payloads — for our purposes any
+            // NaN-to-NaN is "still NaN," not a change.)
+            if (std::isnan(av) != std::isnan(bv)) return true;
+            if (!std::isnan(av) && av != bv) return true;
+            continue;
+        }
+        if (std::fabs(av - bv) > epsilon) return true;
     }
     return false;
 }
@@ -935,7 +954,15 @@ std::string json_escape(std::string_view s) {
 }
 
 std::string format_number(double v) {
-    if (!std::isfinite(v)) return "null";
+    // Non-finite values are emitted as quoted sentinels rather than
+    // JSON `null` so the fixture round-trips losslessly — NaN / Inf
+    // are exactly the values you most want to capture when an
+    // animation misbehaves. The parser below recognizes the same
+    // three sentinels and converts them back to the matching IEEE-754
+    // value.
+    if (std::isnan(v))               return "\"NaN\"";
+    if (std::isinf(v) && v > 0)      return "\"Infinity\"";
+    if (std::isinf(v) && v < 0)      return "\"-Infinity\"";
     std::ostringstream ss;
     ss << std::setprecision(15) << v;
     return ss.str();
@@ -1162,6 +1189,24 @@ private:
         return true;
     }
 
+    /// Accepts a numeric literal OR one of the quoted sentinels
+    /// `"NaN"`, `"Infinity"`, `"-Infinity"`. `format_number` writes
+    /// non-finite values as those sentinels so the round-trip
+    /// preserves NaN/Inf — typically the most diagnostic samples in a
+    /// misbehaving animation.
+    bool parse_number_or_sentinel(double& out) {
+        skip_ws();
+        if (peek() == '"') {
+            std::string s;
+            if (!parse_string(s)) return false;
+            if (s == "NaN")        { out = std::numeric_limits<double>::quiet_NaN(); return true; }
+            if (s == "Infinity")   { out = std::numeric_limits<double>::infinity();  return true; }
+            if (s == "-Infinity")  { out = -std::numeric_limits<double>::infinity(); return true; }
+            return false;
+        }
+        return parse_number(out);
+    }
+
     bool parse_components(std::vector<std::pair<std::string, double>>& out) {
         out.clear();
         if (!expect('{')) return false;
@@ -1171,7 +1216,7 @@ private:
             std::string k;
             if (!parse_string(k) || !expect(':')) return false;
             double v;
-            if (!parse_number(v)) return false;
+            if (!parse_number_or_sentinel(v)) return false;
             out.emplace_back(std::move(k), v);
             skip_ws();
             if (peek() == ',') { ++pos_; continue; }
