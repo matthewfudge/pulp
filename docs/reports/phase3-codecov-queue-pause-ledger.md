@@ -6392,3 +6392,32 @@ covering DryWetMixer and neighboring DSP helpers (25/25), and ran
 tools/scripts/local_diff_cover.sh pulp-test-dsp-enhancements`, which reported
 100% diff coverage. This tranche is held locally and should be aggregated
 rather than submitted individually.
+
+2026-05-17 11:58 PDT: added another local-only held events tranche for the
+next large coverage batch. ActionBroadcaster tranche
+`feature/phase3-codecov-events-broadcaster-batch-700` in
+`/private/tmp/pulp-phase3-codecov-events-broadcaster-batch-700` is clean at
+commit `f7a2ca6e6` (`fix(events): harden action broadcaster dispatch`). The
+tranche snapshots listener ids during dispatch and skips listeners that are
+removed before their turn, with focused mutation-during-dispatch coverage in
+`test/test_events_async_helpers.cpp`. Validation passed: `git diff --check`,
+configured Debug build, built `pulp-test-events-async-helpers`, ran direct
+`[events][async_updater][action_broadcaster]` (3 cases / 8 assertions), ran
+focused CTest covering ActionBroadcaster, AsyncUpdater, MultiTimer, and
+LowPower helpers (10/10), and ran local diff-cover at 100% on the changed
+`core/events/include/pulp/events/async_updater.hpp` lines. This tranche is held
+locally and should be aggregated rather than submitted individually.
+
+2026-05-17 12:00 PDT: added Maxwell's local-only held state tranche for the
+next large coverage batch. StateTree helper tranche
+`feature/phase3-codecov-state-helper-batch-700` in
+`/private/tmp/pulp-phase3-codecov-state-helper-batch-700` is clean at commit
+`517c55c3c` (`test: cover state tree reparent helpers`). The tranche fixes
+`StateTree::add_child` and `StateTree::insert_child` so reparenting detaches
+children from their previous parent before insertion, with focused coverage in
+`test/test_state_tree.cpp`. Validation passed: configured Debug build, built
+`pulp-test-state-tree`, ran the full direct binary (56 cases / 249
+assertions), ran focused reparenting CTest (2/2), ran broader state-helper
+CTest (56/56), and ran local diff-cover at 100% against the changed
+`core/state/src/state_tree.cpp` lines. This tranche is held locally and should
+be aggregated rather than submitted individually.
