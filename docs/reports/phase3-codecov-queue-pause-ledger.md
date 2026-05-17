@@ -5919,3 +5919,41 @@ diff lines and OK at/above the 75% floor. The branch was rebased onto current
 pushed with `PULP_SKIP_DIFF_COVER=1` only after the local diff-cover pass. The
 PR was created via REST and labeled `codecov`; GitHub-hosted CI is the merge
 gate. No Namespace/SSH validation was dispatched.
+
+2026-05-16 20:39 PDT: monitored open tracked coverage PRs after #2108 merged.
+#2103 reported a real Windows `Windows (x64) [github-hosted]` failure: direct
+test calls into private `HotReloader::on_file_changed` and `read_file` crossed
+the Windows library boundary and failed to link. Pushed follow-up
+`522468522` (`test(view): avoid direct hot reload private calls`) on
+`feature/phase3-codecov-state-batch-665`, converting those cases to exercise
+the same paths through public watcher/poll behavior. Local validation passed:
+`git diff --check`, `cmake --build build --target pulp-test-hot-reload
+-j$(sysctl -n hw.ncpu)`, and `./build/test/pulp-test-hot-reload "[codecov]"`
+(38 assertions / 6 cases). #2124 reported a real Windows
+`Windows (x64) [github-hosted]` failure in `FileStream reopen closes the
+previous handle`: the test removed files while reader streams still held handles
+on Windows. Pushed follow-up `a67fbf817` (`test(runtime): close stream readers
+before cleanup`) on `feature/phase3-codecov-batch-681`, scoping readers so
+handles close before cleanup. Local validation passed: `git diff --check`,
+`cmake --build build --target pulp-test-stream -j$(sysctl -n hw.ncpu)`, and
+`./build/test/pulp-test-stream "FileStream reopen closes the previous handle"`.
+Both branches were pushed with `PULP_SKIP_DIFF_COVER=1` only after focused local
+validation; GitHub-hosted checks are rerunning. No Namespace/SSH validation was
+dispatched.
+
+2026-05-16 20:39 PDT: opened the next large batched coverage PR as #2130,
+`test(runtime): batch network stream socket coverage edges`, branch
+`feature/phase3-codecov-batch-684`, head
+`bf1da021268717ed261109a2cfd8d58cc3368ad6`. This batch adds 12 focused tests in
+`test/test_network_stream.cpp` covering IPv4 validation edges, unopened socket
+failure results, create/close/recreate state, UDP loopback datagram flow,
+wildcard binds, UDP socket move construction/assignment/self-assignment,
+TCP-only guard behavior on UDP sockets, accepted-socket wrapping in `TcpStream`,
+and zero-byte stream I/O. Local validation before PR: `git diff --check`; built
+`pulp-test-network-stream`; ran `./build/test/pulp-test-network-stream` (131
+assertions / 27 cases); ran the 12-test `PULP_DIFF_COVER_CTEST_REGEX=...
+tools/scripts/local_diff_cover.sh` gate, which reported no uncovered measured
+diff lines and OK at/above the 75% floor. The branch was pushed with
+`PULP_SKIP_DIFF_COVER=1` only after the local diff-cover pass. The PR was
+created via REST and labeled `codecov`; GitHub-hosted CI is the merge gate. No
+Namespace/SSH validation was dispatched.
