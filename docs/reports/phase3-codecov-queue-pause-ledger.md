@@ -6468,6 +6468,26 @@ tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which reported 100%
 diff coverage for `core/audio/src/mmap_reader.cpp`. This tranche is held
 locally and should be aggregated rather than submitted individually.
 
+2026-05-17 14:21 PDT: added another local-only held audio streaming-writer
+tranche for the next large coverage batch. Streaming writer tranche
+`feature/phase3-codecov-streaming-writer-batch-715` in
+`/private/tmp/pulp-phase3-codecov-streaming-writer-batch-715` is clean at commit
+`f55243740087` (`fix(audio): reject overflowing streaming writes`) based on
+current `origin/main` (`5e1880924`). The tranche hardens
+`StreamingWriter::open` so WAV header `block_align` and `byte_rate` cannot
+wrap, and hardens both interleaved and deinterleaved `write_frames` paths so
+oversized frame counts are rejected before signed multiplication or vector
+allocation. Focused coverage in `test/test_audio_file.cpp` verifies oversized
+open rejection, oversized interleaved write rejection, oversized deinterleaved
+write rejection, and unchanged `frames_written()` after rejected writes.
+Validation passed locally: `git diff --check`, Debug build of
+`pulp-test-audio-file`, direct `*StreamingWriter*`, focused CTest
+`StreamingWriter` (5/5), and
+`PULP_DIFF_COVER_CTEST_REGEX='StreamingWriter'
+tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which reported 100%
+diff coverage for `core/audio/src/streaming_writer.cpp`. This tranche is held
+locally and should be aggregated rather than submitted individually.
+
 2026-05-17 14:44 PDT: added another local-only held audio buffering tranche for
 the next large coverage batch. Buffering reader tranche
 `feature/phase3-codecov-audio-buffering-batch-712` in
