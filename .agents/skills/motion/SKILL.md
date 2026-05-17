@@ -193,6 +193,10 @@ Apply these on every motion debugging run:
 
 - `core/view/include/pulp/view/motion.hpp` — public C++ API
 - `core/view/src/motion.cpp` — Coordinator, geometry walker, fixture I/O, assertions
+- `core/view/include/pulp/view/motion_preferences.hpp` — reduced-motion policy + duration_scale
+- `core/view/src/motion_preferences.cpp` — singleton + override + OS readers
+- `core/view/platform/mac/motion_preferences_mac.mm` — NSWorkspace reduced-motion query
+- `core/view/platform/win/motion_preferences_win.cpp` — SPI_GETCLIENTAREAANIMATION query
 - `inspect/include/pulp/inspect/motion_inspector.hpp` — Motion inspector bridge
 - `inspect/src/motion_inspector.cpp` — protocol handler + event broadcaster
 - `tools/motion/visual/analyze_sequence.py` — visual analysis CLI
@@ -217,6 +221,48 @@ The envelope shows up on the trace's `TraceStarted` event and in the JSONL
 fixture. When you read a fixture and the burst looks wrong, the provenance
 tells you which file / Figma node / animator the trace was attached to —
 without grepping.
+
+## Reduced-motion policy
+
+`pulp::view::MotionPreferences` (sibling of `AppearanceTracker`) reads the
+OS reduced-motion accessibility setting on first use and exposes it as a
+`MotionPolicy` (`Full` / `Reduced` / `Off`) plus a clamped `duration_scale`
+(0.0–2.0, default 1.0). Animation primitives honor the policy on start:
+
+| Policy | Tween / ValueAnimation | CssAnimation | AnimatorSet |
+|---|---|---|---|
+| Full | Animate as configured | Animate as configured | Animate as configured |
+| Reduced | Scale duration × `duration_scale` | Same | Same (via each Tween) |
+| Off | Jump to target on tick 0 | Complete on first `tick()` | Each Tween starts finished |
+
+Tests get a per-process override that wins over the OS value:
+
+```cpp
+auto& prefs = pulp::view::MotionPreferences::instance();
+prefs.set_override(pulp::view::MotionPolicy::Reduced);
+prefs.set_duration_scale(0.5);
+// …drive the animation…
+prefs.reset_for_tests();   // clears override, re-reads OS
+```
+
+Fixtures recorded under a non-`Full` policy capture it on the v2 header:
+
+```jsonc
+{"motion_fixture_version":2,"policy":"reduced","duration_scale":0.5}
+```
+
+`load_fixture_header(path)` returns the policy + scale; the header-aware
+`assert_matches(g_hdr, g_events, c_hdr, c_events, opts)` overload flags a
+`"policy-mismatch"` diff item if the goldens were recorded under one policy
+and the capture under another — no more silent comparisons of a Reduced
+golden against a Full capture. `policy` / `duration_scale` are additive on
+the header; v2 fixtures without them still load (defaulting to
+`policy="full"`, `duration_scale=1.0`).
+
+Note: `MotionPreferences` is a sibling of `AppearanceTracker`, not a
+subclass. Use the OS reader on the platform that matters (macOS: NSWorkspace
+`accessibilityDisplayShouldReduceMotion`; Windows: `SPI_GETCLIENTAREAANIMATION`)
+or set an override for deterministic tests.
 
 ## Gotchas
 
@@ -243,3 +289,15 @@ without grepping.
 - Per-(view, metric) `epsilon` is sticky on the first publish; subsequent
   publishes inherit it. Pass `PublishOptions` only when you want to configure
   the threshold for that key.
+- `MotionPolicy` is captured at animation start (constructor / `reset()` /
+  `animate_to()` / first `tick()` for CssAnimation). Changing
+  `MotionPreferences::set_override()` partway through a running animation
+  does NOT retroactively re-scale it — the next animation that starts will
+  pick up the new policy.
+- Under `MotionPolicy::Off`, a Tween-driven "publish until finished" loop
+  emits one final-value Sample and exits. That's the contract — Off is not
+  "no observability", it's "single snap" — assertions like `is_monotonic`
+  and `final_value` still work.
+- Test fixtures use `MotionPreferences::instance().reset_for_tests()` to
+  clear overrides between cases. Forgetting it leaks state into the next
+  test (and surprises CI when run with `--shuffle`).

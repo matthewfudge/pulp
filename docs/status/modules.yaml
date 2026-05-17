@@ -103,6 +103,11 @@ modules:
       paint_all()-order presentation geometry walker, publish channel + firehose,
       versioned JSONL record/replay fixtures, and assertion helpers (is_monotonic,
       settling_time_seconds, overshoot, start_delay_seconds, frame_jitter_seconds).
+      `MotionPreferences` (sibling of `AppearanceTracker`) reads the OS
+      reduced-motion preference and exposes `MotionPolicy` (Full/Reduced/Off) +
+      clamped `duration_scale`; Tween, ValueAnimation, TransitionSpec, and
+      AnimatorSet honor it on start, and fixture headers record the policy used
+      during recording so goldens can't silently compare across policies.
       Off by default; see guides/motion-observability.md.
     status: usable
     dependencies: [canvas, events, state]

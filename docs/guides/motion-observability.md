@@ -287,6 +287,63 @@ The schema is versioned (`REPORT_SCHEMA_VERSION`) so downstream consumers can
 reject unknown formats. Dependencies (numpy, Pillow, scikit-image) are MIT /
 BSD / Apache 2.0 only and are not redistributed in plugin or app artifacts.
 
+## Reduced-motion policy
+
+Pulp animation primitives honor the system reduced-motion preference via
+`pulp::view::MotionPreferences`, a sibling of `AppearanceTracker`:
+
+```cpp
+#include <pulp/view/motion_preferences.hpp>
+
+auto& prefs = pulp::view::MotionPreferences::instance();
+// OS-driven by default. Test / JS override that wins over the OS:
+prefs.set_override(pulp::view::MotionPolicy::Reduced);
+prefs.set_duration_scale(0.5);   // halves the configured duration
+// Revert to OS:
+prefs.set_override(std::nullopt);
+```
+
+`MotionPolicy` has three values:
+
+| Policy | Effect on animation primitives |
+|---|---|
+| `Full` (default) | Animate over the configured duration. |
+| `Reduced` | Scale the configured duration by `duration_scale` (0.0–2.0). |
+| `Off` | Jump straight to the target value; no intermediate samples. |
+
+The policy is read once at animation start (`Tween` / `ValueAnimation`
+constructor, `Tween::reset()`, `ValueAnimation::animate_to()`, and
+`CssAnimation`'s first `tick()`). Changes to `MotionPreferences` between
+two animations affect only the next animation that starts.
+
+Platform readers:
+
+- **macOS** — `[NSWorkspace sharedWorkspace].accessibilityDisplayShouldReduceMotion`
+- **Windows** — `SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, ...)`
+- **Other** — defaults to `Full`.
+
+Fixtures recorded under a non-`Full` policy capture both `policy` and
+`duration_scale` on the v2 header so goldens recorded with reduced motion
+cannot silently compare against `Full` captures:
+
+```jsonc
+{"motion_fixture_version":2,"policy":"reduced","duration_scale":0.5}
+```
+
+The fields are additive — pre-Phase-8 v2 fixtures without them still load
+(defaulting to `"full"` / `1.0`). To compare two fixtures' headers, use the
+header-aware `assert_matches` overload:
+
+```cpp
+auto g_hdr = motion::load_fixture_header("golden.jsonl");
+auto c_hdr = motion::load_fixture_header("captured.jsonl");
+auto g = motion::load_fixture("golden.jsonl");
+auto c = motion::load_fixture("captured.jsonl");
+auto diff = motion::assert_matches(g_hdr, g, c_hdr, c);
+// Adds a `"policy-mismatch"` Item to diff.differences when policy or
+// duration_scale differ.
+```
+
 ## Architectural guarantees
 
 - **Off by default** — every entry point gates on `tracing_enabled()`. No cost
