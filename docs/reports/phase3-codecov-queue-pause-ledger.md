@@ -6362,3 +6362,17 @@ grouping, and negative exponent chaining. Validation passed: built
 CTest `Expression` (6/6), and ran local diff-cover at 100% for the changed
 source line. Both tranches remain unpushed and should be aggregated rather than
 submitted individually.
+
+2026-05-17 11:40 PDT: added another local-only held tranche for the next large
+coverage batch. Signal lookup tranche
+`feature/phase3-codecov-signal-lookup-batch-699` in
+`/private/tmp/pulp-phase3-codecov-signal-lookup-batch-699` is clean at commit
+`f3f38355e2` (`fix(signal): harden lookup table edge cases`). The tranche
+hardens `LookupTable` for zero-sized indexed access, one-entry tables,
+zero-width input ranges, and reversed min/max ranges, with focused coverage in
+`test/test_dsp_expansion.cpp`. Validation passed: `git diff --check`,
+configured Debug build, built `pulp-test-dsp-expansion`, ran direct
+`[signal][lookup]` (8 cases / 37 assertions), ran focused CTest `LookupTable`
+(8/8), and ran local diff-cover at 100% on the changed
+`core/signal/include/pulp/signal/lookup_table.hpp` lines. This tranche is held
+locally and should be aggregated rather than submitted individually.
