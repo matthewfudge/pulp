@@ -711,13 +711,20 @@ static std::string build_shell_command(const std::string& cmd) {
 
 // Static registry of live WidgetBridges. Platform hosts iterate this to
 // deliver key events without each app needing to wire its own
-// `View::on_global_key` lambda. Mutex-protected so embedding contexts
-// that construct bridges off the platform main thread don't race the
-// platform key handlers; only the registration / iteration windows hold
-// the lock, never the JS evaluation itself.
+// `View::on_global_key` lambda.
+//
+// recursive_mutex (not plain mutex): the dispatch helpers below hold
+// the lock for the full fan-out — including the call into each
+// bridge's `forward_key_event` — to address Codex P1 (PR #2137 / #2139)
+// that a snapshot-then-unlock pattern UAFs if a bridge is destroyed on
+// another thread mid-iteration. forward_key_event evaluates JS, and
+// while Pulp's standard bridge ctor/dtor lifecycle is strictly
+// host-driven (never from JS), recursive_mutex lets us defensively
+// tolerate a future JS-callback path that might construct or destroy
+// a bridge on the same thread without deadlocking.
 namespace {
-std::mutex& all_bridges_mutex() {
-    static std::mutex m;
+std::recursive_mutex& all_bridges_mutex() {
+    static std::recursive_mutex m;
     return m;
 }
 std::unordered_set<WidgetBridge*>& all_bridges_set() {
@@ -730,7 +737,7 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
                            render::GpuSurface* gpu_surface)
     : engine_(engine), root_(root), store_(store), gpu_surface_(gpu_surface) {
     {
-        std::lock_guard<std::mutex> lock(all_bridges_mutex());
+        std::lock_guard<std::recursive_mutex> lock(all_bridges_mutex());
         all_bridges_set().insert(this);
     }
     if (widget_bridge_gpu_info(gpu_surface_).native_bridge) {
@@ -781,7 +788,7 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
 
 WidgetBridge::~WidgetBridge() {
     {
-        std::lock_guard<std::mutex> lock(all_bridges_mutex());
+        std::lock_guard<std::recursive_mutex> lock(all_bridges_mutex());
         all_bridges_set().erase(this);
     }
     if (callback_alive_) callback_alive_->store(false, std::memory_order_release);
@@ -789,17 +796,21 @@ WidgetBridge::~WidgetBridge() {
 }
 
 void WidgetBridge::dispatch_global_key(int key_code, uint16_t modifiers, bool is_down) {
-    // Snapshot the set under lock so a bridge destroyed mid-iteration
-    // can't dangle. forward_key_event itself walks `shortcuts_` and
-    // evaluates JS — neither cheap nor reentrant-safe to do under the
-    // registry lock — so we copy out, release the lock, then dispatch.
-    std::vector<WidgetBridge*> snapshot;
-    {
-        std::lock_guard<std::mutex> lock(all_bridges_mutex());
-        snapshot.reserve(all_bridges_set().size());
-        for (auto* b : all_bridges_set()) snapshot.push_back(b);
-    }
-    for (auto* b : snapshot) {
+    // Codex P1 review (PR #2137): hold the registry lock for the entire
+    // fan-out. Earlier draft copied raw pointers under-lock then
+    // iterated unlocked, which UAF's if a bridge is destroyed on
+    // another thread (window teardown / hot reload) between snapshot
+    // and dispatch.
+    //
+    // Holding the non-recursive lock during dispatch is safe here:
+    // `forward_key_event` evaluates JS in the bridge's own engine, and
+    // WidgetBridge ctor/dtor only run on the host side (never from JS).
+    // The lock briefly blocks concurrent ctor/dtor — acceptable for a
+    // key-event-rate path. Reentrant ctor/dtor on the same thread
+    // would deadlock, but Pulp's bridge lifecycle is strictly
+    // host-driven, so that path is impossible by construction.
+    std::lock_guard<std::recursive_mutex> lock(all_bridges_mutex());
+    for (auto* b : all_bridges_set()) {
         b->forward_key_event(key_code, modifiers, is_down);
     }
 }
