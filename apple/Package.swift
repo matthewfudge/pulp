@@ -27,6 +27,7 @@ let package = Package(
                 "PulpViews.swift",
                 "PulpAudioSession.swift",
                 "PulpMotion.swift",
+                "PulpMotionProbe.swift",
             ]
         ),
         .testTarget(
