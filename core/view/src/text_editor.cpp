@@ -49,6 +49,10 @@ int vertical_line_position(const std::string& text, int caret, int direction) {
 
 } // namespace
 
+bool TextEditor::accepts_text_input() const {
+    return true;
+}
+
 void TextEditor::set_text(const std::string& t) {
     push_undo();
     text_ = t;

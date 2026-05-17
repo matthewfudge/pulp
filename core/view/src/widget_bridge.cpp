@@ -9459,16 +9459,13 @@ void WidgetBridge::forward_key_event(int key_code, uint16_t modifiers, bool is_d
         (View::focused_input_ != nullptr &&
          View::focused_input_->accepts_text_input());
 
+    const bool suppress_bare_key = text_input_focused && !has_global_modifier;
     auto kc = static_cast<KeyCode>(key_code);
     for (auto& s : shortcuts_) {
-        if (s.key == kc && s.modifiers == modifiers) {
-            if (!has_global_modifier && text_input_focused) {
-                // Let the key fall through to the focused text input.
-                break;
-            }
-            engine_.evaluate(s.callback + "()");
-            return;
-        }
+        if (s.key != kc || s.modifiers != modifiers) continue;
+        if (suppress_bare_key) break;
+        engine_.evaluate(s.callback + "()");
+        return;
     }
 
     // W3C UIEvent.key string; modifier booleans match KeyboardEvent

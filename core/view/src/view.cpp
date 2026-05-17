@@ -136,6 +136,10 @@ void build_continuous_corner_rounded_rect_path(
 
 } // namespace
 
+bool View::accepts_text_input() const {
+    return false;
+}
+
 void View::paint_all(canvas::Canvas& canvas) {
     if (!visible_) return;
 

@@ -238,7 +238,7 @@ public:
     /// while the user is typing — non-text focusables like Knob, Button,
     /// ListBox return false so single-key shortcuts still fire after they
     /// take focus.
-    virtual bool accepts_text_input() const { return false; }
+    virtual bool accepts_text_input() const;
 
     /// CSS :disabled equivalent — blocks input, reduces opacity
     bool enabled() const { return enabled_; }

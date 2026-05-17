@@ -38,7 +38,7 @@ class TextEditor : public View {
 public:
     TextEditor() { set_focusable(true); set_cursor(CursorStyle::text); }
 
-    bool accepts_text_input() const override { return true; }
+    bool accepts_text_input() const override;
 
     static constexpr int kMaxUndoHistory = 1000;
 
