@@ -6508,6 +6508,34 @@ tools/scripts/local_diff_cover.sh pulp-test-buffering-reader`, which reported
 This tranche is held locally and should be aggregated rather than submitted
 individually.
 
+2026-05-17 15:28 PDT: added another local-only held host/CLI parser coverage
+tranche for the next large coverage batch. Parser tranche
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727` is clean at commit
+`7048161a7638` (`fix(parsers): reject partial numeric fields`) based on
+current `origin/main` (`fd4345f498d9`). The tranche hardens
+`ScanBlacklist::from_text()` so blacklist stamp fields such as `10junk` and
+`20bytes` are skipped instead of partially parsed, while preserving signed
+legacy stamps and surrounding whitespace. It also hardens package registry
+`SemVer::parse()` so malformed segments such as `1x.2.3`, `1.2.3.4`, and
+`1..3` are rejected instead of being silently truncated. Focused coverage in
+`test/test_scan_blacklist.cpp` and `test/test_cli_package_registry.cpp`
+exercises the rejected partial parses and existing compatible cases.
+Validation passed locally: `git diff --check`, Debug configure, built
+`pulp-test-scan-blacklist` and `pulp-test-cli-package-registry`, ran direct
+`from_text rejects partially parsed numeric stamp fields`, ran direct package
+registry quality/semver coverage by tag, ran focused CTest for the scan
+blacklist malformed/signed/partial parse cases and package registry
+descriptor/quality cases, and ran
+`PULP_DIFF_COVER_CTEST_REGEX='from_text rejects partially parsed numeric stamp
+fields|from_text skips malformed lines|from_text tolerates signed stamp
+values|licenses, semver, and quality scoring|package registry parses
+descriptors' tools/scripts/local_diff_cover.sh pulp-test-scan-blacklist
+pulp-test-cli-package-registry`, which reported 100% diff coverage for
+`core/host/src/scan_blacklist.cpp` and `tools/cli/package_registry.cpp`.
+This tranche is held locally and should be aggregated rather than submitted
+individually.
+
 2026-05-17 14:39 PDT: added another local-only held audio AIFF writer tranche
 for the next large coverage batch. AIFF writer tranche
 `feature/phase3-codecov-aiff-writer-batch-718` in
