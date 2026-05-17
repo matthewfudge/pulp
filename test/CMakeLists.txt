@@ -1519,6 +1519,16 @@ target_link_libraries(pulp-test-motion-input-replay PRIVATE
     pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-motion-input-replay)
 
+# Motion cost attribution — correlates per-frame render cost +
+# dirty-rect area with the trace_ids that emitted on the same frame
+# (carrying their Phase 9 provenance envelopes). The bridge probe
+# test pulls real RenderPassManager + DirtyTracker stats, so this
+# test target depends on pulp::render alongside pulp::view.
+add_executable(pulp-test-motion-cost test_motion_cost.cpp)
+target_link_libraries(pulp-test-motion-cost PRIVATE
+    pulp::view pulp::render Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-cost)
+
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without
 # numpy/Pillow/scikit-image doesn't false-fail.
