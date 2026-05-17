@@ -9,6 +9,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v01070"></a>
+## [0.108.0]
+
 ## [0.107.0] - 2026-05-17
 
 - feat(create): default new projects to Release; --debug opts in ([#2133](https://github.com/danielraffel/pulp/pull/2133))
