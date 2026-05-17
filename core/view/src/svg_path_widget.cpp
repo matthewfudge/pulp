@@ -27,6 +27,14 @@ inline void grad_skip_ws(const std::string& s, size_t& i) {
     while (i < s.size() && (s[i]==' ' || s[i]=='\t' || s[i]=='\n')) ++i;
 }
 
+bool parse_grad_float(const std::string& text, float& out) {
+    const char* start = text.c_str();
+    char* end = nullptr;
+    out = std::strtof(start, &end);
+    return end != start && static_cast<size_t>(end - start) == text.size() &&
+           std::isfinite(out);
+}
+
 std::optional<canvas::Color> parse_grad_color(const std::string& s, size_t& i) {
     grad_skip_ws(s, i);
     if (i >= s.size()) return std::nullopt;
@@ -63,7 +71,7 @@ std::optional<canvas::Color> parse_grad_color(const std::string& s, size_t& i) {
             while (i < s.size() && (std::isdigit(static_cast<unsigned char>(s[i])) ||
                                     s[i]=='.' || s[i]=='-' || s[i]=='+')) ++i;
             if (start == i) return false;
-            out = std::stof(s.substr(start, i - start));
+            if (!parse_grad_float(s.substr(start, i - start), out)) return false;
             grad_skip_ws(s, i);
             if (i < s.size() && s[i]=='%') { out = out * 2.55f; ++i; grad_skip_ws(s, i); }
             return true;
@@ -135,7 +143,10 @@ std::optional<ParsedLinearGradient> parse_svg_linear_gradient(
         while (k < inner.size() && (std::isdigit(static_cast<unsigned char>(inner[k])) ||
                                     inner[k] == '.' || inner[k] == '-' || inner[k] == '+')) ++k;
         if (k > numstart) {
-            float ang = std::stof(inner.substr(numstart, k - numstart));
+            float ang = 0.0f;
+            if (!parse_grad_float(inner.substr(numstart, k - numstart), ang)) {
+                return std::nullopt;
+            }
             grad_skip_ws(inner, k);
             if (k + 3 <= inner.size() && inner.compare(k, 3, "deg") == 0) {
                 k += 3;
@@ -161,7 +172,10 @@ std::optional<ParsedLinearGradient> parse_svg_linear_gradient(
             while (k < inner.size() && (std::isdigit(static_cast<unsigned char>(inner[k])) ||
                                         inner[k]=='.' || inner[k]=='-' || inner[k]=='+')) ++k;
             if (k > numstart) {
-                float pos = std::stof(inner.substr(numstart, k - numstart));
+                float pos = 0.0f;
+                if (!parse_grad_float(inner.substr(numstart, k - numstart), pos)) {
+                    return std::nullopt;
+                }
                 if (k < inner.size() && inner[k] == '%') { ++k; pos /= 100.0f; }
                 out.positions.push_back(pos);
             } else {
