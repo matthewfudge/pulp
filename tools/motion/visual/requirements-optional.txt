@@ -1,0 +1,8 @@
+# Optional dependencies for the visual-analysis pipeline.
+# All license-clean. Install only when the corresponding feature is
+# desired — the analyzer falls back gracefully if these are missing.
+#
+# opencv-python (BSD-3-Clause) — enables full affine first→last
+# estimation (rotation + uniform scale + translation). Without it the
+# pipeline falls back to a PIL/FFT translation-only estimator.
+opencv-python>=4.8

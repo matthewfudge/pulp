@@ -112,6 +112,7 @@ class Report:
     keyframes: List[KeyframeInfo]
     sprite_path: Optional[str]
     summary: dict
+    affine_first_to_last: Optional[dict] = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -296,6 +297,106 @@ def make_keyframe_sprite(
     sprite.save(str(dest_path), format="PNG")
 
 
+def estimate_affine_first_to_last(
+    first_arr, last_arr, np_mod, Image,
+) -> dict:
+    """Estimate the affine transform that maps the first keyframe onto
+    the last. Uses OpenCV's `estimateAffinePartial2D` when available
+    (rotation + uniform scale + translation); falls back to a PIL /
+    numpy cross-correlation that only recovers translation when cv2
+    is not installed.
+
+    Returns a dict with translation / rotation_deg / scale_ratio /
+    opacity_delta / method. Rotation + scale are 0 / 1.0 in the
+    fallback (we explicitly document this as a translation-only mode).
+    """
+    luma_first = (
+        first_arr @ np_mod.array([0.299, 0.587, 0.114], dtype=np_mod.float32)
+    )
+    luma_last = (
+        last_arr @ np_mod.array([0.299, 0.587, 0.114], dtype=np_mod.float32)
+    )
+    opacity_delta = (
+        float(luma_last.mean()) - float(luma_first.mean())
+    ) / 255.0
+
+    # ── OpenCV path ────────────────────────────────────────────────
+    try:
+        import cv2  # type: ignore
+    except Exception:
+        cv2 = None
+
+    if cv2 is not None:
+        gray_first = luma_first.astype("uint8")
+        gray_last = luma_last.astype("uint8")
+        try:
+            orb = cv2.ORB_create(nfeatures=500)
+            kp1, des1 = orb.detectAndCompute(gray_first, None)
+            kp2, des2 = orb.detectAndCompute(gray_last, None)
+            if des1 is not None and des2 is not None and len(kp1) >= 3 and len(kp2) >= 3:
+                bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+                matches = sorted(bf.match(des1, des2), key=lambda m: m.distance)
+                matches = matches[: max(10, len(matches) // 2)]
+                if len(matches) >= 3:
+                    src = np_mod.float32(
+                        [kp1[m.queryIdx].pt for m in matches]
+                    ).reshape(-1, 1, 2)
+                    dst = np_mod.float32(
+                        [kp2[m.trainIdx].pt for m in matches]
+                    ).reshape(-1, 1, 2)
+                    M, _ = cv2.estimateAffinePartial2D(src, dst)
+                    if M is not None:
+                        dx = float(M[0, 2])
+                        dy = float(M[1, 2])
+                        rot = float(
+                            np_mod.degrees(np_mod.arctan2(M[1, 0], M[0, 0]))
+                        )
+                        scale = float(
+                            (M[0, 0] ** 2 + M[1, 0] ** 2) ** 0.5
+                        )
+                        return {
+                            "translation": {"dx": dx, "dy": dy},
+                            "rotation_deg": rot,
+                            "scale_ratio": scale,
+                            "opacity_delta": opacity_delta,
+                            "method": "opencv",
+                        }
+        except Exception:
+            # Fall through to the PIL fallback if the OpenCV path
+            # blows up on a malformed pair.
+            pass
+
+    # ── PIL fallback: translation only via FFT phase correlation ──
+    # We use numpy's FFT to estimate the integer pixel shift that
+    # best aligns the two luminance images. Rotation + scale are
+    # explicitly 0 / 1.0 — callers see method="pil-fallback" and
+    # know not to read more into the numbers than translation.
+    h = min(luma_first.shape[0], luma_last.shape[0])
+    w = min(luma_first.shape[1], luma_last.shape[1])
+    a = luma_first[:h, :w] - float(luma_first.mean())
+    b = luma_last[:h, :w] - float(luma_last.mean())
+    fa = np_mod.fft.fft2(a)
+    fb = np_mod.fft.fft2(b)
+    cross = fa * np_mod.conj(fb)
+    denom = np_mod.abs(cross)
+    denom[denom == 0] = 1.0
+    r = np_mod.fft.ifft2(cross / denom).real
+    peak = np_mod.unravel_index(np_mod.argmax(r), r.shape)
+    dy = int(peak[0])
+    dx = int(peak[1])
+    if dy > h // 2:
+        dy -= h
+    if dx > w // 2:
+        dx -= w
+    return {
+        "translation": {"dx": float(dx), "dy": float(dy)},
+        "rotation_deg": 0.0,
+        "scale_ratio": 1.0,
+        "opacity_delta": opacity_delta,
+        "method": "pil-fallback",
+    }
+
+
 def detect_motion_window(
     pairs: List[PairMetrics], threshold: float,
 ) -> Tuple[int, int]:
@@ -371,6 +472,19 @@ def write_summary_md(report: Report, output_dir: Path) -> None:
         )
     md.append("")
 
+    if report.affine_first_to_last:
+        a = report.affine_first_to_last
+        tr = a.get("translation") or {}
+        md.append("## Net motion\n")
+        md.append(
+            f"- translation: dx={tr.get('dx', 0):.1f}px, "
+            f"dy={tr.get('dy', 0):.1f}px"
+        )
+        md.append(f"- rotation: {a.get('rotation_deg', 0):.2f} deg")
+        md.append(f"- scale: {a.get('scale_ratio', 1.0):.3f}")
+        md.append(f"- opacity delta: {a.get('opacity_delta', 0.0):.4f}")
+        md.append(f"- method: `{a.get('method', 'unknown')}`\n")
+
     md.append("## Keyframes\n")
     for k in report.keyframes:
         md.append(f"- `frame_{k.index:04d}` — {k.role}")
@@ -396,6 +510,7 @@ def write_json(report: Report, output_dir: Path) -> None:
         "keyframes": [asdict(k) for k in report.keyframes],
         "sprite_path": report.sprite_path,
         "summary": report.summary,
+        "affine_first_to_last": report.affine_first_to_last,
     }
     (output_dir / "analysis.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
@@ -417,6 +532,7 @@ def analyze(
     grid_theme: str = "auto",
     trim: bool = False,
     trim_threshold: float = 0.01,
+    affine: bool = False,
 ) -> int:
     deps = _try_import_deps()
     if deps is None:
@@ -533,6 +649,16 @@ def analyze(
                 rows=grid_rows, cols=grid_cols, theme=grid_theme,
             )
 
+    # Optional affine first → last (uses keyframes if available so the
+    # estimate reflects the analysis window, not stray idle padding).
+    affine_block: Optional[dict] = None
+    if affine and keyframes:
+        first_arr = arrays[keyframes[0].index].astype("float32")
+        last_arr = arrays[keyframes[-1].index].astype("float32")
+        affine_block = estimate_affine_first_to_last(
+            first_arr, last_arr, np_mod, Image,
+        )
+
     summary = {
         "mean_ssim": (sum(p.ssim for p in pairs) / len(pairs)) if pairs else 1.0,
         "min_ssim": min((p.ssim for p in pairs), default=1.0),
@@ -547,6 +673,7 @@ def analyze(
         schema_version=REPORT_SCHEMA_VERSION,
         frames=frames, pairs=pairs, keyframes=keyframes,
         sprite_path=sprite_path, summary=summary,
+        affine_first_to_last=affine_block,
     )
     write_json(report, output_dir)
     write_summary_md(report, output_dir)
@@ -587,6 +714,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--trim-threshold", type=float, default=0.01,
                         help="Mean-diff threshold for --trim "
                              "(0..1 luminance fraction, default 0.01)")
+    parser.add_argument("--affine", action="store_true",
+                        help="Estimate affine transform first→last "
+                             "(opencv if installed, else PIL translation)")
     args = parser.parse_args(argv)
     return analyze(
         frames_dir=args.frames_dir,
@@ -600,6 +730,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         grid_theme=args.grid_theme,
         trim=args.trim,
         trim_threshold=args.trim_threshold,
+        affine=args.affine,
     )
 
 
