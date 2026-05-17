@@ -1465,6 +1465,14 @@ if(TARGET pulp::inspect)
     catch_discover_tests(pulp-test-motion-inspector)
 endif()
 
+# Motion end-to-end animation smoke — mirrors what a plugin author
+# would write: drive a real Tween, publish_value each tick, read the
+# fixture back, assert the shape matches the configured animation.
+add_executable(pulp-test-motion-animation-smoke test_motion_animation_smoke.cpp)
+target_link_libraries(pulp-test-motion-animation-smoke PRIVATE
+    pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-animation-smoke)
+
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without
 # numpy/Pillow/scikit-image doesn't false-fail.
