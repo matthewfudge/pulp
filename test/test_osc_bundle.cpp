@@ -476,6 +476,15 @@ TEST_CASE("Address pattern star bounded by path separator",
     REQUIRE_FALSE(address_matches("/*/bar", "/any/thing/bar"));
 }
 
+TEST_CASE("Address pattern star backtracks within a path segment",
+          "[osc][bundle][pattern][codecov]") {
+    REQUIRE(address_matches("/foo/*bar", "/foo/bar"));
+    REQUIRE(address_matches("/foo/*bar", "/foo/bazbar"));
+    REQUIRE(address_matches("/foo/a*c", "/foo/abc"));
+    REQUIRE(address_matches("/foo/*", "/foo/"));
+    REQUIRE_FALSE(address_matches("/foo/*bar", "/foo/baz/bar"));
+}
+
 TEST_CASE("Malformed address patterns fail closed",
           "[osc][bundle][pattern]") {
     REQUIRE_FALSE(address_matches("/note/[ab", "/note/a"));
@@ -495,6 +504,13 @@ TEST_CASE("Address pattern alternatives support first and later branches",
     REQUIRE(address_matches("/{foo,bar,baz}/gain", "/foo/gain"));
     REQUIRE(address_matches("/{foo,bar,baz}/gain", "/baz/gain"));
     REQUIRE_FALSE(address_matches("/{foo,bar,baz}/gain", "/ba/gain"));
+}
+
+TEST_CASE("Address pattern alternatives backtrack when a prefix branch fails",
+          "[osc][bundle][pattern][codecov]") {
+    REQUIRE(address_matches("/{foo,foobar}/gain", "/foobar/gain"));
+    REQUIRE(address_matches("/{a,ab,abc}/tail", "/abc/tail"));
+    REQUIRE_FALSE(address_matches("/{foo,foobar}/gain", "/foobaz/gain"));
 }
 
 TEST_CASE("Address pattern character class negated enumeration",
