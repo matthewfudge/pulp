@@ -482,17 +482,31 @@ TEST_CASE("TcpStream can wrap an accepted Socket",
     });
     while (!ready.load()) std::this_thread::sleep_for(1ms);
 
+    bool client_ok = true;
     Socket client;
-    REQUIRE(client.create(SocketType::TCP));
-    REQUIRE(client.connect("127.0.0.1", port));
-    REQUIRE(client.send("hello") == 5);
+    client_ok = client.create(SocketType::TCP);
+    CHECK(client_ok);
+    if (client_ok) {
+        client_ok = client.connect("127.0.0.1", port);
+        CHECK(client_ok);
+    }
+    if (client_ok) {
+        client_ok = client.send("hello") == 5;
+        CHECK(client_ok);
+    }
     std::array<std::uint8_t, 4> reply{};
-    REQUIRE(client.receive(reply.data(), reply.size()) == 2);
-    REQUIRE(reply[0] == 'o');
-    REQUIRE(reply[1] == 'k');
+    if (client_ok) {
+        client_ok = client.receive(reply.data(), reply.size()) == 2;
+        CHECK(client_ok);
+    }
+    if (client_ok) {
+        CHECK(reply[0] == 'o');
+        CHECK(reply[1] == 'k');
+    }
     client.close();
 
     server_thread.join();
+    REQUIRE(client_ok);
     REQUIRE(done.load());
 }
 
@@ -525,18 +539,22 @@ TEST_CASE("TcpStream zero-byte I/O succeeds while connected",
     while (!ready.load()) std::this_thread::sleep_for(1ms);
 
     TcpStream stream;
-    REQUIRE(stream.connect("127.0.0.1", port));
+    bool client_ok = stream.connect("127.0.0.1", port);
+    CHECK(client_ok);
     std::array<std::uint8_t, 1> byte{0xaa};
-    auto zero_read = stream.read(byte.data(), 0);
-    auto zero_write = stream.write(byte.data(), 0);
-    REQUIRE(zero_read.ok());
-    REQUIRE(zero_read.bytes == 0);
-    REQUIRE(zero_write.ok());
-    REQUIRE(zero_write.bytes == 0);
-    REQUIRE(byte[0] == 0xaa);
+    if (client_ok) {
+        auto zero_read = stream.read(byte.data(), 0);
+        auto zero_write = stream.write(byte.data(), 0);
+        CHECK(zero_read.ok());
+        CHECK(zero_read.bytes == 0);
+        CHECK(zero_write.ok());
+        CHECK(zero_write.bytes == 0);
+        CHECK(byte[0] == 0xaa);
+    }
 
     stream.close();
     server_thread.join();
+    REQUIRE(client_ok);
 }
 
 // ── HttpStream edge cases ───────────────────────────────────────────────
