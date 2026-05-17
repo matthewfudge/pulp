@@ -120,6 +120,12 @@ int cmd_create(const std::vector<std::string>& args) {
     // instead of exact-pin. `--pin` opts into exact-version pinning at
     // create-time for users who want reproducibility from day one.
     bool pin_at_create = false;
+    // 2026-05 build-default flip: scaffolded projects default to Release
+    // builds. Debug is opt-in via `--debug` for developers who need
+    // assertions / faster iteration. Was Debug-by-default; that
+    // silently shipped 5–10× slower binaries for users running the
+    // resulting app and didn't match the "build the app" mental model.
+    bool debug_build = false;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--type" && i + 1 < args.size()) { type = args[++i]; continue; }
         if (args[i] == "--mpe") { mpe_mode = true; continue; }
@@ -133,6 +139,7 @@ int cmd_create(const std::vector<std::string>& args) {
         if (args[i] == "--no-build") { no_build = true; continue; }
         if (args[i] == "--no-interactive" || args[i] == "--ci") { ci_mode = true; continue; }
         if (args[i] == "--pin") { pin_at_create = true; continue; }
+        if (args[i] == "--debug") { debug_build = true; continue; }
         if (args[i] == "--help" || args[i] == "-h") {
             std::cout << "pulp create — create a new plugin project\n\n";
             std::cout << "Usage: pulp create <name> [options]\n\n";
@@ -147,6 +154,7 @@ int cmd_create(const std::vector<std::string>& args) {
             std::cout << "  --no-build                           Skip build after scaffolding\n";
             std::cout << "  --no-interactive, --ci               Non-interactive mode (use defaults)\n";
             std::cout << "  --pin                                Write the current SDK version into pulp.toml (default: floating, tracks latest)\n";
+            std::cout << "  --debug                              Configure CMAKE_BUILD_TYPE=Debug (default: Release)\n";
             std::cout << "\nDefault behavior: create a standalone product project, even inside the Pulp repo.\n";
             std::cout << "Inside the repo, the default location is next to the repo root unless\n";
             std::cout << "PULP_PROJECTS_DIR or ~/.pulp/config.toml overrides it.\n";
@@ -628,7 +636,7 @@ int cmd_create(const std::vector<std::string>& args) {
 
         std::string configure_cmd = "cmake -S " + out_dir.string()
             + " -B " + (out_dir / "build").string()
-            + " -DCMAKE_BUILD_TYPE=Debug"
+            + " -DCMAKE_BUILD_TYPE=" + (debug_build ? "Debug" : "Release")
             + " -DCMAKE_PREFIX_PATH=" + sdk_dir.string();
         append_windows_visual_studio_generator_args(configure_cmd);
         int rc = run_with_spinner(configure_cmd, "Configuring");
@@ -655,7 +663,8 @@ int cmd_create(const std::vector<std::string>& args) {
         auto example_rel_dir = fs::relative(out_dir, root / "examples");
         std::string configure_cmd = "cmake -S " + shell_quote(root) + " -B "
                                   + shell_quote(root / "build")
-                                  + " -DCMAKE_BUILD_TYPE=Debug";
+                                  + " -DCMAKE_BUILD_TYPE="
+                                  + (debug_build ? "Debug" : "Release");
         append_windows_visual_studio_generator_args(configure_cmd);
         int rc = run_with_spinner(configure_cmd, "Configuring");
         if (rc != 0) {

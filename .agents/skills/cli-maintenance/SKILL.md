@@ -1114,3 +1114,8 @@ Gotchas:
   invalidate `~/.pulp/cache`.** The new version means the filename
   misses on the old cache and the user gets a fresh download
   automatically.
+- **`pulp create` defaults to `CMAKE_BUILD_TYPE=Release`; `--debug` opts in** (2026-05). Was Debug-default historically, which silently produced ~5-10× slower binaries because `pulp build`'s incremental configure doesn't re-pass `-DCMAKE_BUILD_TYPE` (so the create-time value sticks for the project's lifetime). Two call sites in `cmd_create.cpp` both honor the flag — keep them in lockstep when adding new configure paths. Intentionally NOT mirrored:
+    - `cmd_project.cpp`'s `bump --verify-build` keeps Debug — throwaway verify build, faster compile, binary isn't run.
+    - `validate-build.sh` keeps Debug — that's the validator's job (catches debug-only assertion failures).
+    - `cli_common.cpp`'s SDK install path already used Release.
+  Follow-up scope (not done yet): `pulp build --debug` / `--release` that force a reconfigure of an existing `build/` directory.
