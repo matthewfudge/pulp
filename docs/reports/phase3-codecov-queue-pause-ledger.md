@@ -6421,3 +6421,30 @@ assertions), ran focused reparenting CTest (2/2), ran broader state-helper
 CTest (56/56), and ran local diff-cover at 100% against the changed
 `core/state/src/state_tree.cpp` lines. This tranche is held locally and should
 be aggregated rather than submitted individually.
+
+2026-05-17 12:20 PDT: rebased #2126
+`feature/phase3-codecov-batch-682` onto latest `origin/main` after the Codecov
+app continued to evaluate the stale PR patch below threshold. The intended
+rebased head is `5a6323a37`; an aborted local pre-push diff-cover run expanded
+into the full CTest suite, hit unrelated current-main
+`pulp-test-cli-project-command` failures, and briefly created the known
+generated `Clock` fixture commit named `initial`. That generated local commit
+was not pushed; the branch was reset back to `5a6323a37` and force-pushed with
+`PULP_SKIP_DIFF_COVER=1` so GitHub-hosted CI can evaluate the cleaner rebased
+PR patch. #2126 is open at `5a6323a37` with GitHub checks restarted and no
+failing checks at the time of this ledger entry.
+
+2026-05-17 12:24 PDT: added another local-only held runtime tranche for the
+next large coverage batch. MemoryMessageChannel tranche
+`feature/phase3-codecov-runtime-url-batch-701` in
+`/private/tmp/pulp-phase3-codecov-runtime-url-batch-701` is clean at commit
+`e09424e2f` (`fix(runtime): harden memory message null sends`). The tranche
+rejects non-empty binary sends with a null buffer while allowing explicit
+zero-length null-buffer sends, avoiding pointer arithmetic on null and adding
+focused coverage in `test/test_memory_message_channel.cpp`. Validation passed:
+`git diff --check`, configured Debug build, built
+`pulp-test-memory-message-channel`, ran direct `[runtime][message_channel]`,
+ran focused CTest `MemoryMessageChannel` (16/16), and ran local diff-cover at
+100% on the changed `core/runtime/src/memory_message_channel.cpp` lines. This
+tranche is held locally and should be aggregated rather than submitted
+individually.
