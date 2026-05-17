@@ -45,10 +45,37 @@ regardless of which surface launched the trace.
   Dedicated `pulp motion *` subcommands are planned (tracked by [#2153](https://github.com/danielraffel/pulp/issues/2153));
   today, the CLI's role is launching the host with the right env knobs.
 - **`pulp-mcp` server** — the MCP server exposes `pulp_inspect_*` (live trees,
-  screenshots, evaluate). A dedicated `pulp_motion_*` MCP wrapper is planned
-  ([#2153](https://github.com/danielraffel/pulp/issues/2153)); today, agents
-  that need motion traces from MCP can drive the inspector wire via
-  `pulp_inspect_evaluate` or shell out to `nc localhost 9147`.
+  screenshots, evaluate) and a first-class `pulp_motion_*` wrapper set covering
+  every Motion.* inspector method (start_trace / stop_trace / snapshot /
+  list_traces / load_fixture / scrub_to / play / pause / enable_cost /
+  disable_cost — pulp [#2153](https://github.com/danielraffel/pulp/issues/2153)).
+  Agents on MCP can call these directly without driving the JS bridge through
+  `pulp_inspect_evaluate` or shelling out to `nc localhost 9147`. Example
+  tools/call payload for the equivalent of the inspector-wire start_trace
+  shown in the quick start below:
+
+  ```json
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "pulp_motion_start_trace",
+      "arguments": {
+        "view_name": "Card",
+        "fps": 30,
+        "metrics": [{
+          "kind": "geometry",
+          "name": "frame",
+          "node_id": "card",
+          "properties": ["minX", "minY", "width", "height"],
+          "space": "window",
+          "source": "presentation"
+        }]
+      }
+    }
+  }
+  ```
 - **XcodeBuildMCP** — recommended companion on macOS and the iOS Simulator. Use
   its log-stream + screenshot tools to drive a simulator while the motion
   inspector records, and feed the captured frames into
