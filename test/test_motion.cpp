@@ -1293,3 +1293,69 @@ TEST_CASE("Emitted event counter advances", "[motion]") {
     fx.clock.tick(1.0f / 60.0f);
     REQUIRE(Coordinator::instance().emitted_event_count() >= 1);
 }
+
+// ── local_step_outlier_ratio ─────────────────────────────────────────
+
+namespace {
+std::vector<ScalarSample> linear_series(std::size_t n, double step = 1.0) {
+    std::vector<ScalarSample> out;
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        out.push_back({static_cast<double>(i) / 60.0,
+                       static_cast<double>(i) * step});
+    }
+    return out;
+}
+}  // namespace
+
+TEST_CASE("local_step_outlier_ratio linear monotonic series ~ 1.0",
+          "[motion][outlier]") {
+    auto samples = linear_series(20, 1.0);
+    const double r = local_step_outlier_ratio(samples, /*window_radius=*/3);
+    REQUIRE(r == Approx(1.0).margin(1e-6));
+}
+
+TEST_CASE("local_step_outlier_ratio detects a 5x jump in mid-stream",
+          "[motion][outlier]") {
+    auto samples = linear_series(20, 1.0);
+    // Inject a single 5x step at index 10: bump samples[10..] by +4.
+    for (std::size_t i = 10; i < samples.size(); ++i) samples[i].value += 4.0;
+    // Now the step at index 10 has magnitude 5 (was 1); neighbors are 1.
+    const double r = local_step_outlier_ratio(samples, /*window_radius=*/3);
+    REQUIRE(r == Approx(5.0).margin(1e-6));
+}
+
+TEST_CASE("local_step_outlier_ratio returns 0.0 for empty or undersized series",
+          "[motion][outlier]") {
+    std::vector<ScalarSample> empty;
+    REQUIRE(local_step_outlier_ratio(empty, /*window_radius=*/3) == 0.0);
+
+    // window_radius=3 needs samples.size() >= 7; 5 is too few.
+    auto small = linear_series(5, 1.0);
+    REQUIRE(local_step_outlier_ratio(small, /*window_radius=*/3) == 0.0);
+
+    // Exactly the boundary (samples.size() == 2*r + 1) yields a valid result.
+    auto exact = linear_series(7, 1.0);
+    REQUIRE(local_step_outlier_ratio(exact, /*window_radius=*/3) ==
+            Approx(1.0).margin(1e-6));
+}
+
+TEST_CASE("local_step_outlier_ratio catches an outlier near the leading edge",
+          "[motion][outlier]") {
+    auto samples = linear_series(20, 1.0);
+    // Inject a 4x jump at index 3 (the first valid candidate when r=3).
+    // Bump samples[3..] by +3.
+    for (std::size_t i = 3; i < samples.size(); ++i) samples[i].value += 3.0;
+    const double r = local_step_outlier_ratio(samples, /*window_radius=*/3);
+    REQUIRE(r == Approx(4.0).margin(1e-6));
+}
+
+TEST_CASE("local_step_outlier_ratio catches an outlier near the trailing edge",
+          "[motion][outlier]") {
+    auto samples = linear_series(20, 1.0);
+    // Inject a 3x jump at index 16 (last valid candidate when r=3 and n=20:
+    // i must satisfy i + r < n, so i <= 16).
+    for (std::size_t i = 16; i < samples.size(); ++i) samples[i].value += 2.0;
+    const double r = local_step_outlier_ratio(samples, /*window_radius=*/3);
+    REQUIRE(r == Approx(3.0).margin(1e-6));
+}
