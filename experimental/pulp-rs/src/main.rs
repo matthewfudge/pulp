@@ -130,6 +130,15 @@ enum Command {
     /// Manage third-party tools (`list`, `install`, `uninstall`, `path`,
     /// `run`, `doctor`). Phase 6d — `install` stubbed.
     Tool(PkgTailArgs),
+
+    /// Agent-facing wrappers around the inspector `Motion.*`
+    /// protocol — record / stop / snapshot / list-traces /
+    /// load-fixture / scrub / play / pause / cost. Pairs with the
+    /// `/motion` slash command and the `pulp_motion_*` MCP tools
+    /// (pulp #2153). Off by default — requires a running inspector
+    /// (PULP_MOTION_SERVER=1).
+    #[command(name = "motion")]
+    Motion(PkgTailArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -604,6 +613,29 @@ fn real_main() -> Result<(), ExitCode> {
             })?;
             let spawner = pulp_rs::proc::SystemSpawner;
             map_exit(cmd::tool::run(&sub, &spawner, &mut out))
+        }
+        Command::Motion(args) => {
+            let (sub, flags) = cmd::motion::parse(&args.tail).map_err(|e| match e {
+                CliError::UnknownSubcommand => {
+                    eprintln!("pulp motion: unknown subcommand");
+                    eprintln!(
+                        "  supported: record, stop, snapshot, list-traces, \
+                         load-fixture, scrub, play, pause, cost"
+                    );
+                    ExitCode::from(2)
+                }
+                CliError::BadUsage(msg) => {
+                    eprintln!("{msg}");
+                    ExitCode::from(2)
+                }
+                other => {
+                    eprintln!("pulp motion: {other}");
+                    ExitCode::from(2)
+                }
+            })?;
+            let talker = cmd::motion::SystemInspector;
+            cmd::motion::dispatch(&sub, &flags, &talker, &mut out)
+                .map_err(|e| map_err(&e))
         }
     }
 }
