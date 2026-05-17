@@ -8,9 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v01060"></a>
-## [0.107.0]
+<a id="v01070"></a>
+## [0.107.0] - 2026-05-17
 
+- feat(create): default new projects to Release; --debug opts in ([#2133](https://github.com/danielraffel/pulp/pull/2133))
+- test(runtime): batch helper and host coverage edges ([#2108](https://github.com/danielraffel/pulp/pull/2108))
+- test: batch runtime and host coverage edges ([#2122](https://github.com/danielraffel/pulp/pull/2122))
+
+<a id="v01060"></a>
 ## [0.106.0] - 2026-05-17
 
 - feat(design-import): V2 wire-up — emit registerShortcut + synthetic keydown re-dispatch ([#2119](https://github.com/danielraffel/pulp/pull/2119))
@@ -1857,6 +1862,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.107.0]: https://github.com/danielraffel/pulp/releases/tag/v0.107.0
 [0.106.0]: https://github.com/danielraffel/pulp/releases/tag/v0.106.0
 [0.105.0]: https://github.com/danielraffel/pulp/releases/tag/v0.105.0
 [0.104.0]: https://github.com/danielraffel/pulp/releases/tag/v0.104.0
