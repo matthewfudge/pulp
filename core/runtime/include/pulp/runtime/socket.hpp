@@ -60,7 +60,11 @@ public:
     Socket& operator=(Socket&& other) noexcept;
 
 private:
+#ifdef _WIN32
+    std::uintptr_t fd_ = ~std::uintptr_t{0};
+#else
     int fd_ = -1;
+#endif
     SocketType type_ = SocketType::TCP;
 };
 
