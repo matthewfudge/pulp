@@ -66,7 +66,10 @@ int cmd_doctor(const std::vector<std::string>& args) {
     bool scan_parents = false;    // --scan-parents: issue #552 Slice 1b
     bool caches_mode = false;     // --caches: issue #744
     bool json_mode = false;       // --json (works with --versions and --caches)
-    for (auto& arg : args) {
+    bool list_mode = false;       // --list / `pulp doctor list` (R2-8)
+    std::string only_filter;      // --only <name> (R2-8)
+    for (size_t i = 0; i < args.size(); ++i) {
+        const auto& arg = args[i];
         if (arg == "--fix") fix_mode = true;
         else if (arg == "--ci") ci_mode = true;
         else if (arg == "--dry-run") dry_run = true;
@@ -75,18 +78,30 @@ int cmd_doctor(const std::vector<std::string>& args) {
         else if (arg == "--scan-parents") scan_parents = true;
         else if (arg == "--caches") caches_mode = true;
         else if (arg == "--json") json_mode = true;
-        else if (arg.rfind("--", 0) == 0) {
+        else if (arg == "--list") list_mode = true;
+        else if (arg == "--only" && i + 1 < args.size()) {
+            only_filter = args[++i];
+        } else if (arg.rfind("--only=", 0) == 0) {
+            only_filter = arg.substr(7);
+        } else if (arg.rfind("--", 0) == 0) {
             std::cerr << "pulp doctor: unknown flag: " << arg << "\n";
-            std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--validators] [--scan-parents] [--caches] [--json]\n";
+            std::cerr << "Usage: pulp doctor [android|ios|list] [--fix] [--ci] [--dry-run] [--versions] [--validators] [--scan-parents] [--caches] [--json] [--list] [--only <name>]\n";
             return 2;
         } else if (mode.empty()) {
             mode = arg;
         }
     }
 
+    // R2-8: `pulp doctor list` is a synonym for `--list`. Lets users
+    // discover available check names before passing one to --only.
+    if (mode == "list") {
+        list_mode = true;
+        mode.clear();
+    }
+
     if (!mode.empty() && mode != "android" && mode != "ios") {
         std::cerr << "pulp doctor: unknown subcommand '" << mode << "'\n";
-        std::cerr << "Usage: pulp doctor [android|ios] [--fix] [--ci] [--dry-run] [--versions] [--validators] [--scan-parents] [--caches] [--json]\n";
+        std::cerr << "Usage: pulp doctor [android|ios|list] [--fix] [--ci] [--dry-run] [--versions] [--validators] [--scan-parents] [--caches] [--json] [--list] [--only <name>]\n";
         return 2;
     }
 
@@ -389,6 +404,45 @@ int cmd_doctor(const std::vector<std::string>& args) {
     if (mode == "android")    checks = run_doctor_android_checks();
     else if (mode == "ios")   checks = run_doctor_ios_checks();
     else                      checks = run_doctor_checks(active_root, standalone_mode);
+
+    // R2-8 `--list`: enumerate available check names and exit. Lets
+    // users discover what `--only <name>` accepts without grepping
+    // source. Lists the active mode's checks (android / ios / default).
+    if (list_mode) {
+        std::cout << "Available doctor checks";
+        if (!mode.empty()) std::cout << " (" << mode << " mode)";
+        std::cout << ":\n";
+        for (const auto& c : checks) {
+            std::cout << "  " << c.name;
+            if (c.optional) std::cout << "  (optional)";
+            std::cout << "\n";
+        }
+        std::cout << "\nRun a single check with: pulp doctor --only \"<name>\"\n";
+        return 0;
+    }
+
+    // R2-8 `--only <name>`: filter to checks whose name matches the
+    // given string (case-insensitive substring). Useful for retrying
+    // a single check after fixing one issue, or for CI gating on a
+    // specific subset.
+    if (!only_filter.empty()) {
+        std::string filter_lc = only_filter;
+        for (auto& ch : filter_lc) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        std::vector<DoctorCheck> filtered;
+        for (const auto& c : checks) {
+            std::string name_lc = c.name;
+            for (auto& ch : name_lc) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            if (name_lc.find(filter_lc) != std::string::npos) {
+                filtered.push_back(c);
+            }
+        }
+        if (filtered.empty()) {
+            std::cerr << "pulp doctor --only: no check matched '" << only_filter << "'.\n";
+            std::cerr << "Run `pulp doctor list` to see available checks.\n";
+            return 2;
+        }
+        checks = std::move(filtered);
+    }
 
     int pass_count = 0, fail_count = 0, optional_skipped = 0;
     for (auto& c : checks) {
