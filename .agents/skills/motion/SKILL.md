@@ -1,6 +1,6 @@
 ---
 name: motion
-description: Debug or validate Pulp animations / transitions / scroll behavior using the runtime motion-trace system. TRIGGER on phrases like "animation is wrong", "transition timing off", "fade too late", "card slides too far", "scroll jumps on restore", "easing looks wonky", "imported Figma motion doesn't match source", "settle time / overshoot / drift / monotonic", "what value does the knob reach at frame N", "record this animation so I can replay it", "this animation is expensive — which one and why", "reduced-motion broken", "scrub a captured fixture". Runs over the inspector wire (no source edits needed), captures fixtures (.motion.jsonl), and ships assertion helpers (is_monotonic / settling_time_seconds / overshoot / start_delay_seconds / final_value). Off by default in prod.
+description: Debug or validate Pulp animations / transitions / scroll behavior using the runtime motion-trace system. TRIGGER on phrases like "animation is wrong", "transition timing off", "fade too late", "card slides too far", "scroll jumps on restore", "scroll offset wrong on restore", "frame jump in the timeline", "easing looks wonky", "imported Figma motion doesn't match source", "settle time / overshoot / drift / monotonic", "what value does the knob reach at frame N", "record this animation so I can replay it", "this animation is expensive — which one and why", "reduced-motion broken", "scrub a captured fixture". Runs over the inspector wire (no source edits needed), captures fixtures (.motion.jsonl), and ships assertion helpers (is_monotonic / settling_time_seconds / overshoot / start_delay_seconds / final_value / local_step_outlier_ratio) and the `scroll_geometry` trace for `ScrollView` content-offset / visible-rect / content-size observability. Off by default in prod.
 ---
 
 # Motion
@@ -34,6 +34,7 @@ source; **attach a trace and read the numbers**.
 | You have | Path | Tool |
 |---|---|---|
 | A running app + a node id + a scalar / geometry of interest | **Runtime trace** | `Motion.startTrace` over the inspector wire |
+| A `ScrollView` whose offset / visible rect / content size you need to observe | **Runtime trace (scroll)** | `Trace.scroll_geometry(name, scroll_view, props)` — emits `contentOffsetX/Y`, `visibleRect*`, `contentSize*`, `scrollableMax*`, `inset*` |
 | A captured frame sequence (no app instrumentation available) | **Visual analysis** | `tools/motion/visual/analyze_sequence.py` |
 | A previously recorded `.motion.jsonl` fixture | **Replay + assert** | `motion::replay_fixture` + `motion::assert_matches` |
 | An interaction that drives the suspect motion | **Input record + replay** | `motion::make_input_recorder` + `motion::replay_inputs` |
@@ -109,6 +110,11 @@ REQUIRE(motion::is_monotonic(samples));
 REQUIRE(motion::settling_time_seconds(samples) < 0.7);
 REQUIRE(motion::overshoot(samples) < 0.05);
 REQUIRE(motion::final_value(samples) == Catch::Approx(120.0).margin(1.0));
+// Local-step outlier check is a *separate* axis from monotonicity /
+// timing — flags one-frame jumps (5x = "this one step is 5x larger
+// than the median of its neighbors"). Use it alongside, not in place
+// of, the helpers above.
+REQUIRE(motion::local_step_outlier_ratio(samples) < 3.0);
 ```
 
 ## Path B — Visual analysis

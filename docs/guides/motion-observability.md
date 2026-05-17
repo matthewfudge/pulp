@@ -17,6 +17,7 @@ The system is off by default — there is zero overhead when tracing is disabled
 | "These two cards drift apart during a transition" | Two `motion::trace(...).geometry(...)` traces in the same coordinate space |
 | "Did anything actually move on screen?" | `GeometrySource::Presentation` + `GeometrySpace::Window` |
 | "ScrollView jumps when restored from state" | `motion::trace(...).geometry(...)` on a child of the scroll container — the walker honors the scroll offset |
+| "Scroll restore lands at the wrong content offset" | `motion::trace(...).scroll_geometry(name, scroll_view, props)` — reads `ScrollView`'s offset, visible rect, content size, and scrollable max directly |
 | "An imported Figma animation looks subtly off" | Record a fixture, assert against the imported intent (timing, monotonicity, settling time) |
 | "Frames look fine, the value series is correct, but the rendered effect is wrong" | Capture frames, run `tools/motion/visual/analyze_sequence.py` |
 
@@ -491,6 +492,7 @@ series extracted with `extract_scalar(events, view, metric, component)`.
 | `overshoot(samples, epsilon)` | Peak excursion beyond final value, as a fraction of total displacement |
 | `frame_jitter_seconds(samples)` | Stddev of inter-sample intervals — frame-pacing jitter at fixed FPS |
 | `final_value(samples)` | Last sample value, NaN when empty |
+| `local_step_outlier_ratio(samples, window_radius, epsilon)` | Max ratio of any step magnitude to the median step magnitude in a local window — flags one-frame jumps. **Separate from** `is_monotonic` / `overshoot` / timing helpers; does NOT conflate continuity, timing, or direction. |
 
 Helpers are split deliberately — combining continuity, monotonicity, and timing
 into a single heuristic obscures which property failed. Pin each concern in its
