@@ -393,6 +393,122 @@ TEST_CASE("geometry() ViewLocal returns local-origin frame", "[motion]") {
     REQUIRE(find("height") == Approx(100.f));
 }
 
+// ── scroll_geometry() ────────────────────────────────────────────────
+
+namespace {
+double find_comp(const std::vector<std::pair<std::string, double>>& comps,
+                 const std::string& name) {
+    for (const auto& [k, v] : comps) if (k == name) return v;
+    return std::numeric_limits<double>::quiet_NaN();
+}
+}  // namespace
+
+TEST_CASE("scroll_geometry() emits contentOffsetY after set_scroll", "[motion][scroll]") {
+    Fixture fx;
+    pulp::view::ScrollView sv;
+    sv.set_bounds({ 0.f, 0.f, 320.f, 200.f });
+    sv.set_content_size({ 320.f, 1000.f });
+
+    auto handle = Coordinator::instance().trace("Scroller", { 60 })
+        .scroll_geometry("scroll", sv,
+                         { ScrollProperty::ContentOffsetX,
+                           ScrollProperty::ContentOffsetY,
+                           ScrollProperty::VisibleRectMinY,
+                           ScrollProperty::VisibleRectHeight })
+        .attach();
+
+    // Baseline at scroll (0,0).
+    fx.clock.tick(1.0f / 60.0f);
+    REQUIRE(fx.buffer.size() == 1);
+    REQUIRE(fx.buffer.front().kind == SampleEvent::Kind::Baseline);
+    REQUIRE(find_comp(fx.buffer.front().components, "contentOffsetY") == Approx(0.0));
+
+    // Drive a scroll. set_scroll snaps the smooth animation to target,
+    // so a follow-up tick (with the FrameClock advanced) is enough to
+    // observe the new value on the trace.
+    sv.set_scroll(0.f, 250.f);
+    sv.advance_animations(10.0f);   // belt + suspenders: drain any in-flight smoothing
+    fx.clock.tick(1.0f / 60.0f);
+
+    // After the change, we expect a Start + Sample (or Sample, depending
+    // on burst framing) carrying the new contentOffsetY.
+    bool saw_new_offset = false;
+    for (const auto& e : fx.buffer) {
+        if (e.kind != SampleEvent::Kind::Sample &&
+            e.kind != SampleEvent::Kind::Baseline) continue;
+        const double v = find_comp(e.components, "contentOffsetY");
+        if (!std::isnan(v) && v == Approx(250.0).margin(0.5)) {
+            saw_new_offset = true;
+        }
+    }
+    REQUIRE(saw_new_offset);
+}
+
+TEST_CASE("scroll_geometry() exposes all 14 ScrollProperty values",
+          "[motion][scroll]") {
+    Fixture fx;
+    pulp::view::ScrollView sv;
+    sv.set_bounds({ 5.f, 7.f, 320.f, 200.f });
+    sv.set_content_size({ 800.f, 1200.f });
+    sv.set_scroll(40.f, 60.f);
+
+    auto handle = Coordinator::instance().trace("Scroller", { 60 })
+        .scroll_geometry("scroll", sv,
+            { ScrollProperty::ContentOffsetX,    ScrollProperty::ContentOffsetY,
+              ScrollProperty::VisibleRectMinX,   ScrollProperty::VisibleRectMinY,
+              ScrollProperty::VisibleRectWidth,  ScrollProperty::VisibleRectHeight,
+              ScrollProperty::ContentSizeWidth,  ScrollProperty::ContentSizeHeight,
+              ScrollProperty::InsetTop,          ScrollProperty::InsetBottom,
+              ScrollProperty::InsetLeft,         ScrollProperty::InsetRight,
+              ScrollProperty::ScrollableMaxX,    ScrollProperty::ScrollableMaxY })
+        .attach();
+
+    fx.clock.tick(1.0f / 60.0f);
+    REQUIRE(fx.buffer.size() == 1);
+    const auto& comps = fx.buffer.front().components;
+    REQUIRE(comps.size() == 14);
+
+    REQUIRE(find_comp(comps, "contentOffsetX")    == Approx(40.0));
+    REQUIRE(find_comp(comps, "contentOffsetY")    == Approx(60.0));
+    REQUIRE(find_comp(comps, "visibleRectMinX")   == Approx(40.0));
+    REQUIRE(find_comp(comps, "visibleRectMinY")   == Approx(60.0));
+    REQUIRE(find_comp(comps, "visibleRectWidth")  == Approx(320.0));
+    REQUIRE(find_comp(comps, "visibleRectHeight") == Approx(200.0));
+    REQUIRE(find_comp(comps, "contentSizeWidth")  == Approx(800.0));
+    REQUIRE(find_comp(comps, "contentSizeHeight") == Approx(1200.0));
+    REQUIRE(find_comp(comps, "insetTop")          == Approx(0.0));
+    REQUIRE(find_comp(comps, "insetBottom")       == Approx(0.0));
+    REQUIRE(find_comp(comps, "insetLeft")         == Approx(0.0));
+    REQUIRE(find_comp(comps, "insetRight")        == Approx(0.0));
+    REQUIRE(find_comp(comps, "scrollableMaxX")    == Approx(480.0));  // 800 - 320
+    REQUIRE(find_comp(comps, "scrollableMaxY")    == Approx(1000.0)); // 1200 - 200
+}
+
+TEST_CASE("scroll_geometry() empty props defaults to 4-property set",
+          "[motion][scroll]") {
+    Fixture fx;
+    pulp::view::ScrollView sv;
+    sv.set_bounds({ 0.f, 0.f, 320.f, 200.f });
+    sv.set_content_size({ 320.f, 1000.f });
+
+    auto handle = Coordinator::instance().trace("Scroller", { 60 })
+        .scroll_geometry("scroll", sv, {})  // empty → default
+        .attach();
+
+    fx.clock.tick(1.0f / 60.0f);
+    REQUIRE(fx.buffer.size() == 1);
+    const auto& comps = fx.buffer.front().components;
+    REQUIRE(comps.size() == 4);
+
+    // Components arrive sorted by name. The default set is
+    // ContentOffsetX, ContentOffsetY, VisibleRectMinY, VisibleRectHeight.
+    std::set<std::string> names;
+    for (const auto& [k, v] : comps) names.insert(k);
+    REQUIRE(names == std::set<std::string>{
+        "contentOffsetX", "contentOffsetY",
+        "visibleRectHeight", "visibleRectMinY"});
+}
+
 // ── Line formatting ──────────────────────────────────────────────────
 
 TEST_CASE("format_line produces canonical PulpMotion output", "[motion]") {
