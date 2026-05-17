@@ -22,8 +22,8 @@ enum class DesignSource {
     stitch,
     v0,
     pencil,
-    claude,   // Anthropic Claude Design — manual HTML/zip export, no Anthropic API
-    designmd  // Google DESIGN.md (Apache-2.0) — YAML frontmatter + Markdown body
+    claude,  // Anthropic Claude Design — manual HTML/zip export, no Anthropic API
+    jsx      // Single-file React JSX instrument — compiled via esbuild + bundled React/ReactDOM
 };
 
 /// Convert string to DesignSource, returns nullopt for unknown sources.
@@ -152,105 +152,6 @@ DesignIR parse_pencil_json(const std::string& json);
 /// SKILL guidance) can route on it.
 DesignIR parse_claude_html(const std::string& html);
 
-// ── DESIGN.md adapter (Google design.md, Apache-2.0) ─────────────────────
-//
-// DESIGN.md is a YAML-frontmatter + Markdown-body description of a design
-// system. Unlike the other import sources, it does NOT describe a screen
-// or a renderable artifact — it carries tokens and prose rationale. The
-// parser populates IR token maps; the IR root node is left empty (no
-// children, type "frame"). Phase 1 deliberately does NOT scaffold a
-// placeholder UI tree; that would imply scaffold quality Pulp cannot yet
-// deliver. Spec: https://github.com/google-labs-code/design.md
-//
-// Diagnostics use a structured shape so the CLI can emit them as JSON
-// with line/column info supplied by yaml-cpp.
-
-enum class DesignMdSeverity {
-    info,
-    warning,
-    error
-};
-
-struct DesignMdDiagnostic {
-    DesignMdSeverity severity = DesignMdSeverity::info;
-    std::string code;        // e.g. "broken-ref", "duplicate-section"
-    std::string path;        // dotted token path or section name
-    int line = 0;            // 1-based; 0 = unknown
-    int column = 0;          // 1-based; 0 = unknown
-    std::string message;
-};
-
-struct DesignMdParseResult {
-    DesignIR ir;
-    std::vector<DesignMdDiagnostic> diagnostics;
-    // Sections seen in the body, in the order they appeared. Used by the
-    // Phase 2 section-order lint rule.
-    std::vector<std::string> sections;
-    bool had_frontmatter = false;
-    // Names of color tokens (the part after "colors.") that were
-    // dereferenced during parse. `resolve_references` rewrites
-    // `{colors.X}` to the resolved hex value in-place, which would
-    // otherwise hide the reference from `lint_designmd`'s
-    // orphaned-tokens rule. The rule consumes this set directly
-    // instead of re-scanning post-resolution strings.
-    std::vector<std::string> referenced_color_tokens;
-};
-
-/// Parse a DESIGN.md file (YAML frontmatter + Markdown body) into a DesignIR.
-/// Errors are reported via diagnostics, not exceptions; the IR is partially
-/// populated on parse error so callers can still surface what was readable.
-DesignMdParseResult parse_designmd(const std::string& markdown);
-
-/// Thin wrapper that returns just the IR. The CLI uses parse_designmd()
-/// directly so it can emit structured diagnostics; this overload exists
-/// for parity with the other source adapters' signatures.
-DesignIR parse_designmd_yaml(const std::string& markdown);
-
-// ── Phase 2: lint, diff, and Tailwind export ────────────────────────────
-//
-// These surfaces let DESIGN.md slot into CI gates the same way
-// @google/design.md's TypeScript CLI does, without taking on its JS
-// dependency surface. The lint rule set mirrors the upstream CLI's
-// seven rules plus section-order (which upstream uses as a warning).
-
-/// Run the seven Google design.md lint rules + section-order against a
-/// parsed DESIGN.md. Findings carry severity (info/warning/error).
-std::vector<DesignMdDiagnostic> lint_designmd(const DesignMdParseResult& parsed);
-
-struct DesignMdTokenDiff {
-    std::vector<std::string> added;       // tokens present in `after` only
-    std::vector<std::string> removed;     // tokens present in `before` only
-    std::vector<std::string> modified;    // tokens whose value changed
-};
-
-struct DesignMdDiffResult {
-    DesignMdTokenDiff colors;
-    DesignMdTokenDiff dimensions;
-    DesignMdTokenDiff strings;
-    // True if the `after` file has more error- or warning-severity
-    // diagnostics than `before` (matches @google/design.md's diff
-    // regression semantic).
-    bool regression = false;
-};
-
-/// Compute the token diff between two parsed DESIGN.md files plus a
-/// regression flag derived from their respective lint outputs.
-DesignMdDiffResult diff_designmd(const DesignMdParseResult& before,
-                                  const DesignMdParseResult& after);
-
-/// Emit a Tailwind v3 `theme.extend`-shaped JSON object from the parsed
-/// token tree. Byte-compatible with @google/design.md's
-/// `--format json-tailwind` output for the common-case keys (colors,
-/// fontFamily, fontSize, lineHeight, letterSpacing, fontWeight,
-/// borderRadius, spacing).
-std::string export_tailwind_v3_json(const DesignMdParseResult& parsed);
-
-/// Emit a Tailwind v4 `@theme { ... }` CSS block from the parsed
-/// token tree. Uses Tailwind v4's CSS-variable token namespaces
-/// (`--color-*`, `--font-*`, `--text-*`, `--leading-*`,
-/// `--tracking-*`, `--font-weight-*`, `--radius-*`, `--spacing-*`).
-std::string export_tailwind_v4_css(const DesignMdParseResult& parsed);
-
 // ── Claude Design bundle envelope (pulp #468) ───────────────────────────
 //
 // Claude Design's "standalone HTML" export is a small loader shell
@@ -308,22 +209,22 @@ std::optional<ClaudeBundle> parse_figma_make_react(const std::string& tsx);
 /// surface outside Pulp's supported runtime-import DOM/CSS/API subset.
 std::optional<ClaudeBundle> parse_stitch_react(const std::string& tsx);
 
-/// Normalize a constrained React Native single-file component export into the
-/// runtime-import bundle payload shape. RN has an unambiguous envelope
-/// (`from "react-native"`), so the runtime dispatch may auto-detect it when
-/// the source label is omitted. Returns nullopt for native/device APIs,
-/// navigation/Expo wrappers, images, style arrays, DOM tags, or any surface
-/// outside Pulp's supported runtime-import DOM/CSS/API subset.
-std::optional<ClaudeBundle> parse_react_native_export(const std::string& tsx);
-
-/// Normalize a constrained Pencil/OpenPencil sanitized Tailwind-JSX export
-/// into the runtime-import bundle payload shape. The initial runtime-import
-/// slice requires the caller to pass source="pencil" and expects Tailwind
-/// utilities plus `--pencil-*` tokens to have already been resolved into
-/// inline React styles. Returns nullopt for unresolved tokens, MCP JSON, binary
-/// `.pen`/`.fig` references, external CSS, framework wrappers, or any surface
-/// outside Pulp's supported runtime-import DOM/CSS/API subset.
-std::optional<ClaudeBundle> parse_pencil_react(const std::string& tsx);
+/// Wrap a pre-compiled JSX runtime bundle (esbuild IIFE of React + ReactDOM +
+/// the user's JSX component, produced by `tools/import-design/jsx-runtime/
+/// jsx-transform.mjs`) as a synthetic `ClaudeBundle` so the existing
+/// runtime-import harness (`parse_claude_html_with_runtime`) can materialize
+/// it. The C++ side does not compile JSX itself — the Node-side esbuild
+/// step is shelled out by the CLI before this is called.
+///
+/// `component_name` is purely cosmetic — it lands on the synthetic
+/// `<div id="root" data-jsx-component="…">` template, useful for diagnostic
+/// inspection.
+///
+/// Returns nullopt for sources that are obviously too small to be a real
+/// bundle (< 100 bytes), so the CLI can surface a clean diagnostic when the
+/// upstream Node transform produced an empty file.
+std::optional<ClaudeBundle> parse_jsx_react(const std::string& bundle_js,
+                                            const std::string& component_name = "JsxComponent");
 
 /// Options for the `--execute-bundle` import lane.
 struct ClaudeRuntimeOptions {
@@ -397,75 +298,6 @@ ClaudeClassNameRules extract_claude_classnames(const std::string& html);
 /// (e.g. `@pulp/css-adapt`) handle lowering to bridge calls.
 std::string serialize_claude_classnames(const ClaudeClassNameRules& rules);
 
-// ── Keyboard shortcut import (UX best-practice default) ─────────────────
-//
-// React designs commonly declare keyboard shortcuts inline via
-// `onKeyDown={e => { if (e.key === 'Escape') ... }}`,
-// `window.addEventListener('keydown', e => { if (e.metaKey && e.key === 's') ... })`,
-// or `useHotkeys('cmd+s', ...)`. The design-import path scans the bundled
-// React source for these patterns and emits a manifest the runtime can
-// register via `registerShortcut(key, modifiers, callback)`. Default-on;
-// opt out with `--no-import-shortcuts` (CLI) for designs where the host
-// owns shortcut handling.
-
-struct DetectedShortcut {
-    /// Verbatim pattern as it appeared in source — `"e.key === 'Escape'"`,
-    /// `"e.metaKey && e.key === 's'"`. Preserved for the manifest so a
-    /// reviewer can audit the match without re-grepping source.
-    std::string pattern;
-
-    /// Human-readable key name in DOM-spec form: `"Escape"`, `"s"`, `"ArrowLeft"`.
-    /// Empty if the pattern's key reference couldn't be resolved (e.g. the
-    /// handler dispatches on a runtime variable instead of a literal).
-    std::string key;
-
-    /// Modifier names in the order they appeared in source: any of
-    /// `"shift"`, `"ctrl"`, `"alt"`, `"meta"`. `meta` covers both `metaKey`
-    /// (macOS Cmd) and `ctrlKey` when the source uses `e.metaKey || e.ctrlKey`
-    /// as the cross-platform shortcut idiom.
-    std::vector<std::string> modifiers;
-
-    /// Best-effort source location for the matched pattern, in `<file>:<line>`
-    /// form when the input source carries filename hints (Claude bundles do;
-    /// raw TSX/JS strings don't — caller can pass an empty filename).
-    std::string source_location;
-
-    /// Best-effort handler-body excerpt — the first ~80 chars after the
-    /// condition match. Surfaced in the manifest so a reviewer can decide
-    /// whether the shortcut is safe to auto-wire vs needs human triage.
-    std::string handler_excerpt;
-};
-
-/// Static-scan a TSX/JS source string for keyboard-shortcut patterns.
-/// Recognized forms:
-///   * `if (e.key === 'X') ...` / `if (e.code === 'X') ...`
-///   * `e.metaKey`, `e.ctrlKey`, `e.altKey`, `e.shiftKey` (singular or
-///     combined with `&&` or `||`)
-///   * Inline `onKeyDown={e => {...}}` JSX prop bodies
-///   * `window.addEventListener('keydown', handler)` /
-///     `document.addEventListener('keydown', handler)`
-/// Pure regex / lexical pass — does NOT attempt to evaluate handler bodies
-/// or resolve dynamic `e.key` references. Returns an empty vector when no
-/// patterns match. Never throws. The `filename` arg is woven into each
-/// shortcut's `source_location` for traceability; pass `""` if unknown.
-std::vector<DetectedShortcut> extract_keyboard_shortcuts(
-    const std::string& source, const std::string& filename = "");
-
-/// Serialize a list of `DetectedShortcut`s to JSON. Stable ordering: sorted
-/// by (key, modifiers, source_location) so the artifact is deterministic
-/// across runs.
-std::string serialize_detected_shortcuts(const std::vector<DetectedShortcut>& shortcuts);
-
-/// Heuristic: does this HTML look like a JS-bundler entry (React, Vue,
-/// Svelte, @pulp/react, generic webpack/vite/bun output) rather than a
-/// hand-authored Claude Design page? The static-HTML parser only sees
-/// the literal DOM, so for bundler entries it captures the empty mount
-/// placeholder. Used by `pulp import-design --from claude` to print a
-/// "use pulp-design-tool --script <bundle>.js" hint instead of letting
-/// the user wonder why their 1000-element editor became a 9-element
-/// ui.js. Never throws; returns false on any empty/unparseable input.
-bool looks_like_bundler_entry(const std::string& html);
-
 /// Detect audio widget type from a node name.
 AudioWidgetType detect_audio_widget(const std::string& name);
 
@@ -485,41 +317,12 @@ struct CodeGenOptions {
     bool preview_mode = false;        // Use minimal widget style (design preview)
     std::string root_variable = "root";
     int indent_spaces = 2;
-
-    /// pulp #2116 V2 — shortcuts pulled from the source by
-    /// `extract_keyboard_shortcuts(...)` (Strategy A: synthetic keydown
-    /// re-dispatch). The generator emits one `registerShortcut(...)` plus
-    /// a matching `__pulpShortcutHandler_N` thunk per entry. The thunk
-    /// calls `__dispatch__('__global__', 'keydown', {...})` so the
-    /// original React handlers in the bundled JS still own the closure
-    /// state — we just intercept the OS chord and re-fire the synthetic
-    /// keydown into the engine. Empty vector = no shortcut emission.
-    std::vector<DetectedShortcut> shortcuts;
 };
 
 /// Generate Pulp JS code from a DesignIR.
 /// Native mode (default) uses createCol/createRow/createKnob + setFlex.
 /// Web-compat mode uses document.createElement + el.style.
 std::string generate_pulp_js(const DesignIR& ir, const CodeGenOptions& opts = {});
-
-// ── Shortcut helpers (V2 — used by both the generator and any test/
-//    runtime caller that needs to map DetectedShortcut → registerShortcut
-//    args). String forms come from `extract_keyboard_shortcuts`; integer
-//    forms feed `registerShortcut(key, modifiers, callback)` and the
-//    runtime KeyCode enum.
-
-/// Map a W3C `KeyboardEvent.key` (or `KeyboardEvent.code`) string to a
-/// Pulp `KeyCode` integer. Returns 0 (KeyCode::unknown) for unrecognized
-/// strings — caller should skip those shortcuts (with a warning) rather
-/// than wire them with a bogus binding.
-int key_string_to_keycode(const std::string& key);
-
-/// Combine modifier strings (`"shift"`, `"ctrl"`, `"alt"`, `"meta"`)
-/// into the bitmask `registerShortcut` consumes. `"meta"` maps to
-/// `kModCmd` (the platform-primary modifier) per the cross-platform
-/// idiom captured in `extract_keyboard_shortcuts` (metaKey || ctrlKey
-/// collapses to "meta"). Unknown strings are silently dropped.
-int modifier_strings_to_mask(const std::vector<std::string>& mods);
 
 // ── W3C Design Tokens ───────────────────────────────────────────────────
 
