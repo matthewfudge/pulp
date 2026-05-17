@@ -6903,3 +6903,26 @@ handles numeric edge syntax' tools/scripts/local_diff_cover.sh
 pulp-test-v3-gaps`, which reported 100% diff coverage for
 `core/runtime/src/expression.cpp`. This tranche is held locally and should be
 aggregated rather than submitted individually.
+
+2026-05-17 15:10 PDT: added another local-only held runtime license parser
+tranche for the next large coverage batch. License parser tranche
+`feature/phase3-codecov-license-parse-batch-723` in
+`/private/tmp/pulp-phase3-codecov-license-parse-batch-723` is clean at commit
+`b196fad23b11` (`fix(runtime): reject partial license timestamps`) based on
+current `origin/main` (`8b667f2641a9`). The tranche hardens license payload
+timestamp parsing so numeric-looking malformed fields such as
+`1700000000junk` and overflowing integer literals no longer get silently
+truncated by `std::stoll`, while preserving the existing compatibility
+contract that wholly nonnumeric optional integer fields are ignored as zero.
+Focused coverage in `test/test_license.cpp` exercises partial numeric,
+overflow, existing optional field, and bad-integer compatibility cases.
+Validation passed locally after narrowing the behavior to preserve existing
+contracts: `git diff --check`, Debug configure, built `pulp-test-license`, ran
+direct `LicenseValidator validate_and_parse rejects malformed numeric
+timestamps`, ran focused CTest for `LicenseValidator validate_and_parse` and
+`LicenseValidator parse_payload handles optional fields and bad integers`
+(7/7), and ran `PULP_DIFF_COVER_CTEST_REGEX='LicenseValidator
+validate_and_parse|LicenseValidator parse_payload handles optional fields and
+bad integers' tools/scripts/local_diff_cover.sh pulp-test-license`, which
+reported 93% diff coverage for `core/runtime/src/license.cpp`. This tranche
+is held locally and should be aggregated rather than submitted individually.
