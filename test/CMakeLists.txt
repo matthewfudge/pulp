@@ -335,6 +335,11 @@ target_include_directories(pulp-test-cli-upgrade-install PRIVATE ${CMAKE_SOURCE_
 target_link_libraries(pulp-test-cli-upgrade-install PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-upgrade-install)
 
+add_executable(pulp-test-cli-json-parser test_cli_json_parser.cpp)
+target_include_directories(pulp-test-cli-json-parser PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(pulp-test-cli-json-parser PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-json-parser)
+
 # CLI version diagnostics (#499 Slice 1): pure-logic tests for the
 # semver parser, plugin.json scraper, and skew analyzer that sit
 # behind `pulp doctor --versions`. version_diag is deliberately free
@@ -771,6 +776,10 @@ catch_discover_tests(pulp-test-clap-ara-extension)
 add_executable(pulp-test-processor-ara-hook test_processor_ara_hook.cpp)
 target_link_libraries(pulp-test-processor-ara-hook PRIVATE pulp::format Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-processor-ara-hook)
+# Processor and descriptor default contracts
+add_executable(pulp-test-processor-defaults test_processor_defaults.cpp)
+target_link_libraries(pulp-test-processor-defaults PRIVATE pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-processor-defaults)
 # TableModel data/sort layer (workstream 07 slice 7.3)
 add_executable(pulp-test-table-model test_table_model.cpp)
 target_link_libraries(pulp-test-table-model PRIVATE pulp::view Catch2::Catch2WithMain)
@@ -1178,6 +1187,10 @@ catch_discover_tests(pulp-test-events-timer-helpers PROPERTIES LABELS slow)
 add_executable(pulp-test-audio-file test_audio_file.cpp)
 target_link_libraries(pulp-test-audio-file PRIVATE pulp::audio Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-audio-file)
+
+add_executable(pulp-test-offline-processor-edges test_offline_processor_edges.cpp)
+target_link_libraries(pulp-test-offline-processor-edges PRIVATE pulp::audio Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-offline-processor-edges)
 
 add_executable(pulp-test-ogg-reader test_ogg_reader.cpp)
 target_link_libraries(pulp-test-ogg-reader PRIVATE pulp::audio Catch2::Catch2WithMain)
