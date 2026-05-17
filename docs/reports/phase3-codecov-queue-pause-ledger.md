@@ -6782,3 +6782,21 @@ focused CTest `offline processing handles guards` (1/1), and ran
 tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which reported 100%
 diff coverage for `core/audio/src/offline_processor.cpp`. This tranche is held
 locally and should be aggregated rather than submitted individually.
+
+2026-05-17 14:32 PDT: added another local-only held audio WAV writer tranche
+for the next large coverage batch. WAV writer tranche
+`feature/phase3-codecov-audio-write-batch-717` in
+`/private/tmp/pulp-phase3-codecov-audio-write-batch-717` is clean at commit
+`79f953b6199c` (`fix(audio): reject ragged wav writes`) based on current
+`origin/main` (`5e1880924`). The tranche hardens `write_wav_file()` so ragged
+deinterleaved channel buffers are rejected before a writer is opened and before
+copying past a shorter channel, while preserving the existing successful
+deinterleaved WAV write path. Focused coverage in `test/test_audio_file.cpp`
+verifies no output file is created for ragged input. Validation passed locally:
+`git diff --check`, Debug configure, built `pulp-test-audio-file`, ran direct
+`*AudioFileData shape helpers*`, ran focused CTest `AudioFileData shape
+helpers` (1/1), and ran
+`PULP_DIFF_COVER_CTEST_REGEX='AudioFileData shape helpers|WAV helpers|Write and
+read WAV file' tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which
+reported 100% diff coverage for `core/audio/src/audio_file.cpp`. This tranche
+is held locally and should be aggregated rather than submitted individually.
