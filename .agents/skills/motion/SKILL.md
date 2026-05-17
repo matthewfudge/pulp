@@ -443,6 +443,171 @@ cannot spam events in production.
 - `test/test_motion_swift_bridge.cpp` — Catch2 round-trip test for the
   C ABI shims and Coordinator integration.
 
+## Path H — Android native (Kotlin / Compose / View)
+
+When the suspect motion lives in a Kotlin / Compose / Android `View`
+code path — a Pulp Android app screen, a TalkBack overlay, a
+SurfaceView driver — use the Kotlin facade. Samples flow into the
+same `motion::Coordinator` as the Swift, JS-bridge, and design-import
+paths, so fixtures, scrubber, cost attribution, reduced-motion
+gating, and provenance envelopes all work identically. The Android
+bridge is the platform sibling of Path G and follows the same shape
+(C ABI + closure-bag backend seam + probe wrapper).
+
+### Quick attach (Jetpack Compose)
+
+```kotlin
+import androidx.compose.ui.Modifier
+import com.pulp.motion.PulpMotion
+import com.pulp.motion.Trace
+import com.pulp.motion.pulpMotionGeometry
+
+Box(
+    Modifier
+        .size(120.dp)
+        .pulpMotionGeometry("Card") {
+            +Trace.value("opacity", opacity.toDouble())
+            +Trace.geometry("frame",
+                properties = listOf(
+                    MotionGeometryProperty.minX,
+                    MotionGeometryProperty.minY,
+                    MotionGeometryProperty.width,
+                    MotionGeometryProperty.height,
+                ))
+        }
+) { ... }
+```
+
+The `Modifier.pulpMotionGeometry(name, fps)` modifier:
+
+- Registers a geometry trace stamped with `source_kind="android"`
+  provenance (set on the C bridge).
+- Plumbs `boundsInWindow()` deltas from `onGloballyPositioned` into
+  `pulp_motion_update_geometry`.
+- Detaches on `DisposableEffect.onDispose` (composition exit).
+- Short-circuits when `PulpMotion.isTracingEnabled` is false. Zero
+  Compose-side cost beyond a single branch in `composed { }`.
+
+### Quick attach (View hierarchy)
+
+For non-Compose UIs (XML layouts, `SurfaceView`, custom Views):
+
+```kotlin
+class CardView(context: Context) : View(context) {
+    private val probe = pulpMotionTrace("Card") {
+        +Trace.geometry("frame")
+    }
+}
+```
+
+`View.pulpMotionTrace(name, fps) { ... }` returns a
+`PulpMotionGeometryProbe?` — `null` when tracing is disabled, an
+`AutoCloseable` handle otherwise. The probe installs a
+`ViewTreeObserver.OnPreDrawListener` (NOT `OnGlobalLayoutListener` —
+PreDraw catches intra-frame scroll/translation GlobalLayout misses)
+and pushes window-space rects via `getLocationInWindow()`. Auto-
+detaches when the host View is removed from the window.
+
+### Direct publish (no View / no Compose)
+
+```kotlin
+PulpMotion.publishValue(view = "Card", metric = "opacity", value = 0.5)
+PulpMotion.publishComponents(
+    view = "Card",
+    metric = "frame",
+    components = rect.toMotionComponents(),
+)
+```
+
+Both short-circuit on `PulpMotion.isTracingEnabled` so they cost a
+single branch when motion is off.
+
+### Ambient provenance (scoped)
+
+```kotlin
+PulpMotion.withProvenance(kind = "android", id = "CardView") {
+    PulpMotion.publishValue(view = "Card", metric = "opacity", value = 1.0)
+}
+```
+
+`withProvenance` is **single-threaded by design** — the process-wide
+ambient slot is not coroutine-safe. Do not call from suspending code
+that may switch dispatchers inside the block. The Swift bridge ships
+the same constraint; this is a deliberate limit, not a TODO.
+
+### Host wiring (once at app launch)
+
+`PulpApplication.onCreate`, after `System.loadLibrary("pulp")`:
+
+```kotlin
+if (nativeLoaded) {
+    com.pulp.motion.PulpMotion.installNativeBackend()
+}
+```
+
+`installNativeBackend()` wires every `PulpMotionBackend` closure to
+the matching `external fun` on the internal `PulpMotionNative`
+object. The C bridge double-checks
+`motion::Coordinator::tracing_enabled()` so a misconfigured backend
+cannot spam events in production.
+
+### Testability (JVM unit tests, no NDK)
+
+The closure-bag backend lets `gradle test` exercise the facade
+without ever loading `libpulp.so`:
+
+```kotlin
+val recorder = RecorderBackend()
+PulpMotionRuntime.installBackend(recorder.asBackend())
+PulpMotion.publishValue("Card", "opacity", 0.5)
+assertEquals(1, recorder.publishedValues.size)
+```
+
+See `android/app/src/test/kotlin/com/pulp/motion/PulpMotionTest.kt`
+for the full pattern.
+
+### Off-by-default contract
+
+Every Kotlin entry point is a no-op when the process-wide Coordinator
+has tracing disabled. The C bridge re-checks
+`pulp_motion_tracing_enabled()` so even a misconfigured caller
+cannot spam events in production. The View probe extension returns
+`null` immediately when tracing is off — no listener installed, no
+allocation.
+
+### Files
+
+- `core/platform/include/pulp/platform/android/motion_bridge.h` — C
+  ABI declarations the JNI shims forward into (also pulled by the
+  Catch2 host test).
+- `core/platform/src/android/jni_motion.cpp` — bridge implementation:
+  C ABI + `Java_com_pulp_motion_PulpMotionNative_*` JNI shims.
+  Internal mutex-protected registry keeps the `TraceHandle`
+  separate from the lambda-captured atomic rect so
+  `Coordinator::reset()` cannot self-deadlock — same fix shape as
+  the Swift bridge.
+- `android/app/src/main/kotlin/com/pulp/motion/PulpMotionNative.kt` —
+  `internal object` with `external fun` JNI declarations.
+- `android/app/src/main/kotlin/com/pulp/motion/PulpMotionBackend.kt` —
+  closure-bag backend + `PulpMotionRuntime.installBackend(...)`.
+- `android/app/src/main/kotlin/com/pulp/motion/PulpMotion.kt` —
+  public facade (`publishValue`, `publishComponents`,
+  `setAmbientProvenance`, `withProvenance`, register / update /
+  detach, `installNativeBackend()`).
+- `android/app/src/main/kotlin/com/pulp/motion/Trace.kt` — `Trace.*`
+  factories, `MotionGeometryProperty`, `@MotionTraceBuilder`
+  `motionTrace { }` block, `RectF`/`Rect.toMotionComponents()`.
+- `android/app/src/main/kotlin/com/pulp/motion/MotionProbe.kt` —
+  `View.pulpMotionTrace(...)` extension + `PulpMotionGeometryProbe`
+  (`AutoCloseable`).
+- `android/app/src/main/kotlin/com/pulp/motion/MotionCompose.kt` —
+  `Modifier.pulpMotionGeometry(...)` modifier + `pulpMotionPublish(...)`
+  composable.
+- `android/app/src/test/kotlin/com/pulp/motion/PulpMotionTest.kt` —
+  JVM facade unit tests (JUnit4 only, no Mockito, no native lib).
+- `test/test_motion_android_bridge.cpp` — Catch2 round-trip test for
+  the C ABI + the `Coordinator::reset()` deadlock regression.
+
 ## Agent contract
 
 Apply these on every motion debugging run:
@@ -489,6 +654,16 @@ Apply these on every motion debugging run:
 - `apple/Sources/PulpSwift/PulpBridge.cpp` — Swift bridge shims (Path G)
 - `apple/Sources/PulpSwift/PulpMotion.swift` — Swift facade + Trace DSL (Path G)
 - `apple/Sources/PulpSwift/PulpMotionProbe.swift` — SwiftUI / UIKit probe (Path G)
+- `core/platform/include/pulp/platform/android/motion_bridge.h` — Android C ABI (Path H)
+- `core/platform/src/android/jni_motion.cpp` — Android JNI bridge + C ABI (Path H)
+- `android/app/src/main/kotlin/com/pulp/motion/PulpMotion.kt` — Kotlin facade (Path H)
+- `android/app/src/main/kotlin/com/pulp/motion/PulpMotionBackend.kt` — closure-bag backend seam (Path H)
+- `android/app/src/main/kotlin/com/pulp/motion/PulpMotionNative.kt` — internal JNI declarations (Path H)
+- `android/app/src/main/kotlin/com/pulp/motion/Trace.kt` — Trace DSL + Rect helpers (Path H)
+- `android/app/src/main/kotlin/com/pulp/motion/MotionProbe.kt` — View probe + AutoCloseable handle (Path H)
+- `android/app/src/main/kotlin/com/pulp/motion/MotionCompose.kt` — Compose modifier (Path H)
+- `android/app/src/test/kotlin/com/pulp/motion/PulpMotionTest.kt` — JVM facade unit tests (Path H)
+- `test/test_motion_android_bridge.cpp` — Catch2 round-trip for the C ABI (Path H)
 - `docs/guides/motion-observability.md` — full guide
 
 ## Provenance

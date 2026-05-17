@@ -297,6 +297,86 @@ AUv3 / standalone host. At launch the host installs a
 …). Unit tests install a recording backend instead so
 `swift test --package-path apple` runs without a C++ host.
 
+### Kotlin (Jetpack Compose / Android View)
+
+The Android facade mirrors the Swift one — same publish channel, same
+`Trace.*` DSL names, same off-by-default contract. Compose uses a
+`Modifier.pulpMotionGeometry(...)`; classic Views use a
+`View.pulpMotionTrace(...)` extension.
+
+```kotlin
+import androidx.compose.ui.Modifier
+import com.pulp.motion.PulpMotion
+import com.pulp.motion.Trace
+import com.pulp.motion.pulpMotionGeometry
+
+@Composable
+fun CardPanel(opacity: Float) {
+    Box(
+        Modifier
+            .size(120.dp)
+            .pulpMotionGeometry("Card") {
+                +Trace.value("opacity", opacity.toDouble())
+                +Trace.geometry("frame")
+            }
+    ) { /* content */ }
+}
+```
+
+The modifier registers a Coordinator trace stamped with
+`source_kind="android"` provenance, plumbs `boundsInWindow()` deltas
+into `pulp_motion_update_geometry`, and detaches on
+`DisposableEffect.onDispose`. It short-circuits when
+`PulpMotion.isTracingEnabled` is false — zero composition-side cost
+beyond a single branch.
+
+For non-Compose UIs:
+
+```kotlin
+class CardView(context: Context) : View(context) {
+    private val probe = pulpMotionTrace("Card") {
+        +Trace.geometry("frame")
+    }
+}
+```
+
+`View.pulpMotionTrace` installs a `ViewTreeObserver.OnPreDrawListener`
+(NOT `OnGlobalLayoutListener` — PreDraw catches intra-frame scroll
+and translation deltas GlobalLayout misses) and auto-detaches when
+the View is removed from the window. The returned
+`PulpMotionGeometryProbe` is `AutoCloseable` so it works inside
+`Closeable.use { }` too.
+
+Direct scalar / component publishes:
+
+```kotlin
+PulpMotion.publishValue(view = "Card", metric = "opacity", value = 0.5)
+PulpMotion.publishComponents(
+    view = "Card",
+    metric = "frame",
+    components = rectF.toMotionComponents(),
+)
+
+PulpMotion.withProvenance(kind = "android", id = "CardView") {
+    PulpMotion.publishValue(view = "Card", metric = "opacity", value = 1.0)
+}
+```
+
+`withProvenance { }` is single-threaded by design — the process-wide
+ambient slot is not coroutine-safe. Do not call from suspending code
+that may switch dispatchers inside the block.
+
+Bridging model: the Android facade lives in
+`android/app/src/main/kotlin/com/pulp/motion/`; the JNI shims and
+the matching C ABI live in
+`core/platform/src/android/jni_motion.cpp` (compiled into the
+`pulp-jni` shared library). `PulpApplication.onCreate` calls
+`PulpMotion.installNativeBackend()` once after
+`System.loadLibrary("pulp")` to wire the closure-bag backend to
+JNI. JVM unit tests install a recording backend instead, so
+`gradle test` exercises the facade without ever loading
+`libpulp.so`.
+
 ## Fixtures (record / replay / assert)
 
 A fixture is the on-disk form of a motion stream — a versioned JSONL file that

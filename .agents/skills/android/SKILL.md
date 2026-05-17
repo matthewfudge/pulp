@@ -906,6 +906,64 @@ if (g_widget_bridge) {
 
 Hard to unit-test on Android (no emulator path → integration tests gated). The contract being asserted is already covered by `test_widget_bridge.cpp`'s `[issue-921]` tag (rAF→repaint chain via `poll_async_results`); the Android wiring is structural connection, not behavioral.
 
+## Motion observability bridge (`com.pulp.motion`)
+
+The Kotlin / Compose / View bridge for `pulp::view::motion` lives in
+`android/app/src/main/kotlin/com/pulp/motion/`. JNI shims live in
+`core/platform/src/android/jni_motion.cpp`. Full design and DSL
+docs are in the **motion** skill (Path H) — this section captures
+the Android-specific wiring gotchas only.
+
+### CMake wiring — jni_motion.cpp belongs in `pulp-jni`
+
+`jni_motion.cpp` is intentionally **excluded** from the
+`pulp-platform` glob in `tools/cmake/PulpAndroid.cmake` (alongside
+`jni_bridge.cpp`) and added **explicitly** to the `pulp-jni`
+SHARED target in the root `CMakeLists.txt`.
+
+Why: `pulp-platform` does not link against `pulp::view`, so
+compiling `jni_motion.cpp` there leaves
+`pulp::view::motion::Coordinator::*` unresolved at link time. The
+`pulp-jni` target links the full `pulp::{platform,runtime,view,...}`
+closure so the JNI shims resolve cleanly.
+
+If you add another JNI file that depends on a higher-layer subsystem,
+add it to both excludes (PulpAndroid glob filter) AND to the
+`add_library(pulp-jni SHARED ...)` source list.
+
+### View probe uses `OnPreDrawListener`, not `OnGlobalLayoutListener`
+
+`View.pulpMotionTrace` installs `ViewTreeObserver.OnPreDrawListener`
+on purpose. `OnGlobalLayoutListener` fires only on layout-pass
+changes; PreDraw fires on every frame the view is about to draw,
+which catches intra-frame `setTranslationX/Y` and scroll deltas
+that the layout listener would miss. The non-trivial cost is one
+`getLocationInWindow` + one `pulp_motion_update_geometry` per draw —
+and the whole thing short-circuits when
+`PulpMotion.isTracingEnabled` is false.
+
+### `withProvenance { }` is single-threaded by design
+
+The process-wide ambient provenance slot in `motion::Coordinator`
+is **not coroutine-safe**. Do not call `PulpMotion.withProvenance`
+from a suspending function that may switch dispatchers inside the
+block — the `clearAmbientProvenance` may run on a different thread
+than the `setAmbientProvenance` and bleed envelope state across
+unrelated work. The Kotlin facade documents this; the Swift bridge
+carries the same constraint. If you genuinely need per-coroutine
+provenance, build it on top of `publishComponents(... opts.provenance)`
+yourself.
+
+### `installNativeBackend()` belongs in `PulpApplication.onCreate`
+
+After `System.loadLibrary("pulp")` succeeds, call
+`com.pulp.motion.PulpMotion.installNativeBackend()` exactly once.
+Without this, every facade entry point routes through the default
+`PulpMotionBackend.noOp()` and silently drops every event — the
+bridge looks "working" from Kotlin but never reaches C++. Mirrors
+the host-app wiring pattern documented in the **motion** skill's
+Path G / Path H sections.
+
 ## Known Blockers
 
 1. **x86_64 Skia build** — Only arm64 Skia is built. Emulator runs arm64 via translation but an x86_64 build would be faster.
