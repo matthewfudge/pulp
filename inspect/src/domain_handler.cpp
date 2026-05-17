@@ -6,6 +6,7 @@
 #include <pulp/inspect/console_capture.hpp>
 #include <pulp/inspect/audio_inspector.hpp>
 #include <pulp/inspect/motion_inspector.hpp>
+#include <pulp/inspect/motion_scrubber.hpp>
 #include <pulp/view/inspector.hpp>
 #include <pulp/view/view.hpp>
 #include <pulp/render/render_pass.hpp>
@@ -45,6 +46,15 @@ InspectorMessage DomainHandler::handle(const InspectorMessage& req) {
 // ── Motion domain ───────────────────────────────────────────────────────────
 
 InspectorMessage DomainHandler::handle_motion(const InspectorMessage& req) {
+    // Scrubber methods route to MotionScrubber; everything else goes to
+    // MotionInspector. Both data sources are optional, so a missing
+    // scrubber returns a targeted error for scrubber methods rather
+    // than masking them as unknown.
+    if (MotionScrubber::owns_method(req.method)) {
+        if (!motion_scrubber_)
+            return make_error(req.id, "No motion scrubber attached");
+        return motion_scrubber_->handle(req);
+    }
     if (!motion_) return make_error(req.id, "No motion inspector attached");
     return motion_->handle(req);
 }
