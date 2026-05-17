@@ -6820,3 +6820,24 @@ helpers` (1/1), and ran
 read WAV file' tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which
 reported 100% diff coverage for `core/audio/src/audio_file.cpp`. This tranche
 is held locally and should be aggregated rather than submitted individually.
+
+2026-05-17 14:45 PDT: added another local-only held state properties tranche
+for the next large coverage batch. Properties tranche
+`feature/phase3-codecov-properties-batch-719` in
+`/private/tmp/pulp-phase3-codecov-properties-batch-719` is clean at commit
+`6e39ef073c04` (`fix(state): reject partial property numeric parses`) based on
+current `origin/main` (`5e1880924`). The tranche hardens
+`PropertiesFile::get_int()` and `PropertiesFile::get_double()` so persisted
+strings such as `42xyz` and `1.5db` are rejected instead of being accepted as
+partial numeric parses, while preserving trailing whitespace tolerance and the
+existing issue-641 boolean false-like behavior. Focused coverage in
+`test/test_properties_file.cpp` verifies invalid full strings, partial numeric
+strings, and trailing whitespace cases. Validation passed locally:
+`git diff --check`, Debug configure, built `pulp-test-properties`, ran direct
+`*numeric getters reject invalid stored strings*`, ran focused CTest
+`PropertiesFile numeric getters reject invalid stored strings` (1/1), and ran
+`PULP_DIFF_COVER_CTEST_REGEX='PropertiesFile numeric getters reject invalid
+stored strings' tools/scripts/local_diff_cover.sh pulp-test-properties`, which
+reported 100% diff coverage for `core/state/src/properties_file.cpp`. This
+tranche is held locally and should be aggregated rather than submitted
+individually.
