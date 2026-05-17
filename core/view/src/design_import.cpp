@@ -621,6 +621,38 @@ std::vector<std::string> score_signals(
     }
     if (name_hit) signals.push_back("component-name:" + component);
 
+    // Signal 1b (canonical-name bonus): exact matches against the canonical
+    // shape `XYZ{Modal,Dialog,Panel,Popover,Sheet,Window,Drawer}` for the
+    // pattern carry enough specificity to be a second signal on their own.
+    // Real-world apps (Spectr's `SettingsModal`, `HelpPopover`) use
+    // inline-styled divs without `role="dialog"`, so the strict ≥2 ARIA-
+    // shape gate would skip every one of them. We only add this for
+    // structurally-unambiguous names — not generic "Settings*" with
+    // suffixes that could mean anything.
+    auto canonical_name_hit = [&](const std::string& comp) -> bool {
+        // Single-word root part (Settings, Preferences, Help, About,
+        // Shortcuts, ...) followed by exactly one of the canonical kind
+        // suffixes. Reject anything beyond that.
+        std::vector<std::string> kinds = {
+            "Modal", "Dialog", "Panel", "Popover", "Sheet", "Window", "Drawer"
+        };
+        for (const auto& kw : kws) {
+            // Title-case the keyword for prefix matching: settings → Settings
+            std::string root = kw;
+            if (!root.empty()) root[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(root[0])));
+            for (const auto& kind : kinds) {
+                if (comp == root + kind) return true;
+            }
+            // Also accept the canonical name itself with no suffix
+            // (HelpPopover is a kind already; same root). Reject single-
+            // word "Settings" alone — too generic.
+        }
+        return false;
+    };
+    if (name_hit && canonical_name_hit(component)) {
+        signals.push_back("canonical-name");
+    }
+
     // The remaining signals look at the body of the component declaration.
     // Locate the definition, then truncate at the NEXT same-shape
     // declaration so we don't bleed sibling components into this one's

@@ -586,21 +586,40 @@ TEST_CASE("default shortcuts: high-confidence Settings modal fires",
     REQUIRE(scan.collisions.empty());
 }
 
-TEST_CASE("default shortcuts: medium-confidence fires with name+heading only",
+TEST_CASE("default shortcuts: canonical name fires with no body signals",
           "[design-import][shortcuts][defaults]") {
+    // Real-world apps (Spectr's `SettingsModal`, `HelpPopover`) use inline-
+    // styled divs without role="dialog" or aria-label. The canonical-name
+    // bonus catches `<Pattern>Modal/Dialog/Panel/Popover/Sheet/Window/Drawer`
+    // exact shapes so those don't slip through. Single-signal + canonical
+    // suffix = 2 signals → fires at medium confidence.
     auto scan = detect_default_shortcuts(R"JS(
-        function HelpPanel() { return <div><h2>Help</h2><p>...</p></div>; }
+        function SettingsModal() { return <div />; }
+    )JS", {});
+    REQUIRE(scan.accepted.size() == 1);
+    REQUIRE(scan.accepted[0].pattern == DefaultShortcutPattern::settings);
+    REQUIRE(scan.accepted[0].confidence == "medium");
+}
+
+TEST_CASE("default shortcuts: non-canonical name + heading fires at medium",
+          "[design-import][shortcuts][defaults]") {
+    // `HelpFooter` is NOT a canonical kind suffix, so we need a second
+    // real signal — the heading provides it. Two signals → medium.
+    auto scan = detect_default_shortcuts(R"JS(
+        function HelpFooter() { return <div><h2>Help</h2><p>...</p></div>; }
     )JS", {});
     REQUIRE(scan.accepted.size() == 1);
     REQUIRE(scan.accepted[0].confidence == "medium");
     REQUIRE(scan.accepted[0].pattern == DefaultShortcutPattern::help);
 }
 
-TEST_CASE("default shortcuts: single-signal does NOT fire (conservative)",
+TEST_CASE("default shortcuts: non-canonical single-signal still does NOT fire",
           "[design-import][shortcuts][defaults]") {
-    // Name only — no role / aria / heading. Below the ≥2-signal bar.
+    // `SettingsList` is name-only AND non-canonical (List isn't in the
+    // modal-kind suffix set). Should NOT fire — `<SettingsList>` is the
+    // grouping widget, not the modal itself.
     auto scan = detect_default_shortcuts(R"JS(
-        function SettingsModal() { return <div />; }
+        function SettingsList() { return <ul />; }
     )JS", {});
     REQUIRE(scan.accepted.empty());
     REQUIRE(scan.collisions.empty());
