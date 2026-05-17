@@ -6511,3 +6511,18 @@ build, built `pulp-test-json-rpc`, ran focused CTest `^JsonRpcPeer` (18/18),
 and ran focused coverage/diff-cover at 100% for changed
 `core/runtime/src/json_rpc.cpp` lines. This tranche is held locally and should
 be aggregated rather than submitted individually.
+
+2026-05-17 13:13 PDT: added another local-only held runtime helper tranche for
+the next large coverage batch. Analytics tranche
+`feature/phase3-codecov-runtime-uri-batch-705` in
+`/private/tmp/pulp-phase3-codecov-runtime-uri-batch-705` is clean at commit
+`d4e7bae6c` (`fix(runtime): ignore null analytics destinations`). The tranche
+hardens `Analytics::add_destination` so accidental null destinations are
+ignored instead of being stored and later dereferenced during logging or flush,
+with focused coverage in `test/test_analytics.cpp`. Validation passed locally:
+configured Debug build, built `pulp-test-analytics`, ran the direct regression
+test, ran focused CTest `Analytics` (16/16), ran `git diff --check`, and ran
+`PULP_DIFF_COVER_CTEST_REGEX='Analytics' tools/scripts/local_diff_cover.sh
+pulp-test-analytics`, which reported 100% diff coverage for
+`core/runtime/src/analytics.cpp`. This tranche is held locally and should be
+aggregated rather than submitted individually.
