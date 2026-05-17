@@ -6469,6 +6469,24 @@ tools/scripts/local_diff_cover.sh pulp-test-buffering-reader`, which reported
 This tranche is held locally and should be aggregated rather than submitted
 individually.
 
+2026-05-17 15:05 PDT: added another local-only held audio buffer tranche for
+the next large coverage batch. Audio buffer tranche
+`feature/phase3-codecov-audio-buffer-batch-713` in
+`/private/tmp/pulp-phase3-codecov-audio-buffer-batch-713` is clean at commit
+`ede7492ac093` (`fix(audio): reject overflowing buffer dimensions`) based on
+current `origin/main` (`5e1880924`). The tranche hardens
+`audio::Buffer` construction and resize so channel/sample dimensions that
+overflow `std::size_t` are rejected before the product is passed to
+`std::vector::resize`. Focused coverage in `test/test_audio.cpp` verifies both
+constructor and resize overflow rejection, including that an existing buffer
+keeps its prior dimensions and samples after the rejected resize. Validation
+passed locally: `git diff --check`, Debug configure, built `pulp-test-audio`,
+ran direct `*overflow*`, ran focused CTest `Buffer rejects dimensions` (1/1),
+and ran `PULP_DIFF_COVER_CTEST_REGEX='Buffer rejects dimensions'
+tools/scripts/local_diff_cover.sh pulp-test-audio`, which reported 100% diff
+coverage for `core/audio/include/pulp/audio/buffer.hpp`. This tranche is held
+locally and should be aggregated rather than submitted individually.
+
 2026-05-17 12:38 PDT: added Hilbert's local-only held events tranche for the
 next large coverage batch. EventLoop tranche
 `feature/phase3-codecov-events-loop-batch-702` in
