@@ -15,7 +15,13 @@
 #include <cstdio>
 #include <optional>
 #include <string>
+#if defined(_WIN32)
+#include <process.h>
+#define pulp_test_getpid() static_cast<long>(::_getpid())
+#else
 #include <unistd.h>
+#define pulp_test_getpid() static_cast<long>(::getpid())
+#endif
 #include <vector>
 
 using Catch::Approx;
@@ -396,7 +402,7 @@ std::string make_tmp_fixture_path(const char* tag) {
     std::string p = "/tmp/pulp_phase8_fixture_";
     p += tag;
     p += "_";
-    p += std::to_string(::getpid());
+    p += std::to_string(pulp_test_getpid());
     p += ".jsonl";
     return p;
 }

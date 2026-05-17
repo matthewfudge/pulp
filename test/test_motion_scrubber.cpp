@@ -25,7 +25,13 @@
 #include <set>
 #include <sstream>
 #include <string>
+#if defined(_WIN32)
+#include <process.h>
+#define pulp_test_getpid() static_cast<long>(::_getpid())
+#else
 #include <unistd.h>
+#define pulp_test_getpid() static_cast<long>(::getpid())
+#endif
 #include <vector>
 
 using pulp::inspect::DomainHandler;
@@ -44,7 +50,7 @@ namespace {
 std::string tmp_fixture_path(const std::string& tag) {
     std::ostringstream ss;
     ss << "/tmp/pulp-motion-scrubber-" << tag << "-"
-       << static_cast<long>(::getpid()) << "-"
+       << pulp_test_getpid() << "-"
        << std::rand() << ".jsonl";
     return ss.str();
 }

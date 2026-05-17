@@ -29,7 +29,13 @@
 #include <limits>
 #include <memory>
 #include <string>
+#if defined(_WIN32)
+#include <process.h>
+#define pulp_test_getpid() static_cast<long>(::_getpid())
+#else
 #include <unistd.h>
+#define pulp_test_getpid() static_cast<long>(::getpid())
+#endif
 #include <vector>
 
 using Catch::Approx;
@@ -68,7 +74,7 @@ std::string unique_path(const char* tag) {
     std::string p = "/tmp/pulp-motion-cost-";
     p += tag;
     p += "-";
-    p += std::to_string(::getpid());
+    p += std::to_string(pulp_test_getpid());
     p += ".jsonl";
     return p;
 }

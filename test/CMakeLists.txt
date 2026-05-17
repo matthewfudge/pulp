@@ -1524,10 +1524,18 @@ catch_discover_tests(pulp-test-motion-input-replay)
 # (carrying their Phase 9 provenance envelopes). The bridge probe
 # test pulls real RenderPassManager + DirtyTracker stats, so this
 # test target depends on pulp::render alongside pulp::view.
-add_executable(pulp-test-motion-cost test_motion_cost.cpp)
-target_link_libraries(pulp-test-motion-cost PRIVATE
-    pulp::view pulp::render Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-motion-cost)
+#
+# Sanitizer builds (ASan/UBSan/TSan) disable PULP_ENABLE_GPU and so
+# pulp::render is never created — skip the cost test in that case
+# instead of failing the CMake generate step. The cost code itself
+# is exercised by the GPU-on lanes (macOS local smoke + linux/windows
+# release-path), so coverage isn't lost.
+if(TARGET pulp::render)
+    add_executable(pulp-test-motion-cost test_motion_cost.cpp)
+    target_link_libraries(pulp-test-motion-cost PRIVATE
+        pulp::view pulp::render Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-motion-cost)
+endif()
 
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without

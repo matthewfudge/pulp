@@ -15,7 +15,13 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#if defined(_WIN32)
+#include <process.h>
+#define pulp_test_getpid() static_cast<int>(::_getpid())
+#else
 #include <unistd.h>
+#define pulp_test_getpid() static_cast<int>(::getpid())
+#endif
 #include <vector>
 
 using pulp::view::FrameClock;
@@ -28,8 +34,15 @@ namespace {
 
 std::string tmp_fixture_path(const std::string& tag) {
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "/tmp/pulp-motion-input-replay-%s-%d-%d.jsonl",
-                  tag.c_str(), getpid(), std::rand());
+    const char* tmpdir =
+#if defined(_WIN32)
+        std::getenv("TMP") ? std::getenv("TMP") :
+        std::getenv("TEMP") ? std::getenv("TEMP") : ".";
+#else
+        "/tmp";
+#endif
+    std::snprintf(buf, sizeof(buf), "%s/pulp-motion-input-replay-%s-%d-%d.jsonl",
+                  tmpdir, tag.c_str(), pulp_test_getpid(), std::rand());
     return buf;
 }
 
