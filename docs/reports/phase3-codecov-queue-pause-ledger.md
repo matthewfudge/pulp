@@ -7026,3 +7026,24 @@ ran focused CTest `SvgPathWidget .*gradient` (4/4), and ran
 `core/view/src/svg_path_widget.cpp` and 100% overall branch diff coverage.
 This tranche is held locally and should be aggregated into a larger PR rather
 than submitted individually.
+
+2026-05-17 15:55 PDT: investigated and unblocked open PR #2126
+(`feature/phase3-codecov-batch-682`). The PR had been open for ~19 hours
+with `codecov/patch` failing on `core/runtime/src/socket.cpp`; Codecov's
+older bot comment reported 62.85714% patch coverage and the required diff
+gate later reported 80% with several missing socket lines. A clean fix
+worktree `/private/tmp/pulp-2126-clean-fix` was created from the PR head to
+avoid the polluted local worktree that had been affected by a failed broad
+pre-push run. Commit `1c13a27fc` (`fix(runtime): cover socket native handle
+paths`) was pushed to the PR branch. The fix keeps the native socket handle
+cast out of uncovered helper functions and adds focused TCP socket loopback
+coverage so the changed listen/accept/connect/send/receive/TCP-close paths
+are exercised directly. Local validation passed: `git diff --check`, Debug
+build of `pulp-test-network-stream`, direct
+`[network_stream][socket][coverage][phase3]` (5 test cases / 30 assertions),
+and focused `tools/scripts/local_diff_cover.sh pulp-test-network-stream`,
+which reported 100% diff coverage for `core/runtime/src/socket.cpp`.
+GitHub-hosted CI is now running on the new head. GraphQL auto-merge could
+not be enabled because the account quota is currently exhausted, so #2126 is
+being monitored via REST polling and should be merged directly once required
+checks are green.
