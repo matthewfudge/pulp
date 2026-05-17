@@ -6060,23 +6060,25 @@ diff lines and OK at/above the 75% floor. The PR was created via REST because
 GraphQL rate limits were exhausted, then labeled `codecov`; GitHub-hosted CI is
 the merge gate. No Namespace/SSH validation was dispatched.
 
-2026-05-16 22:08 PDT: continued the next local-only batch in
+2026-05-16 22:14 PDT: continued the next local-only batch in
 `feature/phase3-codecov-batch-687` without opening a PR yet, to avoid adding
-another small CI job while the current queue drains. The batch currently adds 23
+another CI job while the current queue drains. The batch currently adds 26
 focused format-layer tests across new `test/test_processor_defaults.cpp`, the
 new `test/CMakeLists.txt` target, `test/test_validation_harness.cpp`, and
-`test/test_plugin_state_io.cpp`. Coverage includes PluginDescriptor bus helpers
-and flags, PrepareContext/ProcessContext defaults and pass-through,
-editor/default ViewSize contracts, lifecycle no-op hooks, ARA default,
-state-store pointer wiring, sidechain/MPE/UMP sidecar pointer set/clear
-behavior, validation harness auto-prepare/MIDI-once/report-provider edge
-contracts, and plugin-state binary payload/declared-size/rollback behavior.
-Local validation passed: `git diff --check`; built
-`pulp-test-processor-defaults`, `pulp-test-validation-harness`, and
-`pulp-test-plugin-state-io`; ran direct focused tests for all three targets; and
-ran the 23-test `PULP_DIFF_COVER_CTEST_REGEX=...
-tools/scripts/local_diff_cover.sh pulp-test-processor-defaults
-pulp-test-validation-harness pulp-test-plugin-state-io` gate, which reported no
-uncovered measured diff lines and OK at/above the 75% floor. The worktree is
-clean and local-only at commit `d24f06e20`; it has not been pushed or submitted
+`test/test_plugin_state_io.cpp`, and `test/test_descriptor_validation.cpp`.
+Coverage includes PluginDescriptor bus helpers and flags,
+PrepareContext/ProcessContext defaults and pass-through, editor/default ViewSize
+contracts, lifecycle no-op hooks, ARA default, state-store pointer wiring,
+sidechain/MPE/UMP sidecar pointer set/clear behavior, validation harness
+auto-prepare/MIDI-once/report-provider edge contracts, plugin-state binary
+payload/declared-size/rollback behavior, and descriptor warning/validity
+contracts. Local validation passed: `git diff --check`; built
+`pulp-test-processor-defaults`, `pulp-test-validation-harness`,
+`pulp-test-plugin-state-io`, and `pulp-test-descriptor-validation`; ran direct
+focused tests for all four targets; and ran the 26-test
+`PULP_DIFF_COVER_CTEST_REGEX=... tools/scripts/local_diff_cover.sh
+pulp-test-processor-defaults pulp-test-validation-harness
+pulp-test-plugin-state-io pulp-test-descriptor-validation` gate, which reported
+no uncovered measured diff lines and OK at/above the 75% floor. The worktree is
+clean and local-only at commit `e1bb1c57c`; it has not been pushed or submitted
 yet.
