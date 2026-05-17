@@ -5893,3 +5893,29 @@ merged into `main` as `c01eeaf3ebc71c021330eafdea17288d920bb7dc`. Removed the
 merged worktree `/private/tmp/pulp-phase3-codecov-combined-677`. Remaining
 tracked open coverage PRs are #2103, #2108, #2123, #2124, and #2126; all are
 still on GitHub-hosted CI only.
+
+2026-05-16 20:24 PDT: #2108 (`test(runtime): batch helper and host coverage
+edges`) merged into `main` as `cb9ac1784c8384b3088bae2d54f748147ab09d59`.
+Removed the merged worktree
+`/private/tmp/pulp-phase3-codecov-events-host-batch-670`. The remaining tracked
+open coverage PRs are #2103, #2123, #2124, #2126, and #2129.
+
+2026-05-16 20:24 PDT: opened the next large batched coverage PR as #2129,
+`test(osc): batch codec and bundle coverage edges`, branch
+`feature/phase3-codecov-batch-683`, head
+`299a579232f2988266ddd7005bb3bdc3f673a82d`. This batch adds 12 focused tests
+across `test/test_osc.cpp` and `test/test_osc_bundle.cpp` covering OSC message
+fluent argument construction, empty type tags, unknown tags, bounded non-null
+terminated payloads, blob padding boundaries, timetag fractional conversion,
+BundleElement unique ownership/copy construction, non-immediate timetag
+serialization, zero-sized bundle element rejection, and mixed blob/float
+round-trips. Local validation before PR: `git diff --check`; built
+`pulp-test-osc pulp-test-osc-bundle`; ran `./build/test/pulp-test-osc` (152
+assertions / 42 cases) and `./build/test/pulp-test-osc-bundle` (114 assertions /
+42 cases); ran the 12-test `PULP_DIFF_COVER_CTEST_REGEX=...
+tools/scripts/local_diff_cover.sh` gate, which reported no uncovered measured
+diff lines and OK at/above the 75% floor. The branch was rebased onto current
+`origin/main` after #2108 merged, targeted tests were rerun, and the branch was
+pushed with `PULP_SKIP_DIFF_COVER=1` only after the local diff-cover pass. The
+PR was created via REST and labeled `codecov`; GitHub-hosted CI is the merge
+gate. No Namespace/SSH validation was dispatched.
