@@ -1368,6 +1368,21 @@ if(TARGET pulp::render)
     catch_discover_tests(pulp-test-motion-cost)
 endif()
 
+# Motion Swift bridge — exercises the C ABI shims in
+# apple/Sources/PulpSwift/PulpBridge.cpp without needing the Swift
+# compiler. Verifies that pulp_motion_publish_value / publish_components,
+# the ambient provenance slot, and register/update/detach geometry
+# traces round-trip through motion::Coordinator and respect the
+# off-by-default tracing gate.
+add_executable(pulp-test-motion-swift-bridge
+    test_motion_swift_bridge.cpp
+    ${CMAKE_SOURCE_DIR}/apple/Sources/PulpSwift/PulpBridge.cpp)
+target_include_directories(pulp-test-motion-swift-bridge PRIVATE
+    ${CMAKE_SOURCE_DIR}/apple/Sources/PulpSwift)
+target_link_libraries(pulp-test-motion-swift-bridge PRIVATE
+    pulp::view pulp::state pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-swift-bridge)
+
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without
 # numpy/Pillow/scikit-image doesn't false-fail.
