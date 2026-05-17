@@ -7047,3 +7047,22 @@ GitHub-hosted CI is now running on the new head. GraphQL auto-merge could
 not be enabled because the account quota is currently exhausted, so #2126 is
 being monitored via REST polling and should be merged directly once required
 checks are green.
+
+2026-05-17 16:00 PDT: added another local-only held view image parser tranche
+to the consolidated coverage batch. Next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727` now includes commit
+`97189c8c7` (`fix(view): reject malformed object-position numbers`) on top
+of the same held batch. The tranche hardens `ImageView` object-position
+numeric parsing so partial values such as `25pxjunk`, unsupported units such
+as `10em`, and non-finite values such as `1e999%` fall back to the CSS
+default center instead of being partially accepted by `std::stof`. Focused
+coverage in `test/test_image_view_cache.cpp` exercises valid px offsets,
+malformed numeric tokens, and non-finite percentage tokens through the
+existing stub canvas geometry harness. Validation passed locally:
+`git diff --check`, built `pulp-test-image-view-cache`, ran direct
+`[widgets][image][object-position]` (4 test cases / 19 assertions), and ran
+`PULP_DIFF_COVER_CTEST_REGEX='object-position:' tools/scripts/local_diff_cover.sh pulp-test-image-view-cache`,
+which reported 96% overall branch diff coverage and 90.3% for
+`core/view/src/widgets/visualizers.cpp`. This tranche is held locally and
+should be aggregated into a larger PR rather than submitted individually.
