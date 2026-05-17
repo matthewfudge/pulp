@@ -5781,3 +5781,21 @@ pulp-test-runtime -j$(sysctl -n hw.ncpu)`; `./build/test/pulp-test-runtime
 `./build/test/pulp-test-runtime` (198 assertions / 28 cases). The combined
 batch remains local-only while the open GitHub-hosted PR queue waits on macOS
 and sanitizer capacity.
+
+2026-05-16 15:43 PDT: REST status sweep found #2114 and #2104 clean with no
+failing or pending checks except expected skipped RealtimeSanitizer lanes. Merged
+#2114 (`test(tools): batch coverage gate and visual harness edges`) via REST
+with head-SHA guard as `7fd6b21530650af05e009ee22f9bc820085d9967`. Merged
+#2104 (`test(midi): batch coverage edges`) via REST with head-SHA guard as
+`2c9a8333cd3b3c63ae74d4c89e4021c5053cac20`. Removed their merged worktrees:
+`/private/tmp/pulp-phase3-codecov-next-batch-674` and
+`/private/tmp/pulp-phase3-codecov-midi-batch-667`.
+
+Remaining open test PRs: #2103 and #2108. #2103 is mergeable but unstable due
+`codecov/patch`; the local diff-gate comment reports 90% total patch coverage
+and all per-tier floors pass, but Codecov's app check is still red. #2108 is
+mergeable but unstable due `codecov/patch`; the local diff-gate comment reports
+100% patch coverage on `core/runtime/src/expression.cpp`, so the Codecov app
+status appears stale or using a different surface while sanitizer lanes continue
+to run. Next action is to investigate/fix those Codecov patch statuses rather
+than merging around them.
