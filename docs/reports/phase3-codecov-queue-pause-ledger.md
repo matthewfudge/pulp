@@ -6841,3 +6841,24 @@ stored strings' tools/scripts/local_diff_cover.sh pulp-test-properties`, which
 reported 100% diff coverage for `core/state/src/properties_file.cpp`. This
 tranche is held locally and should be aggregated rather than submitted
 individually.
+
+2026-05-17 14:52 PDT: added another local-only held state preset parse tranche
+for the next large coverage batch. Preset tranche
+`feature/phase3-codecov-preset-parse-batch-720` in
+`/private/tmp/pulp-phase3-codecov-preset-parse-batch-720` is clean at commit
+`4c21616c9005` (`fix(state): reject partial preset numeric parses`) based on
+`origin/main` (`5e1880924`). The tranche hardens `PresetManager::load()` so
+parameter strings such as `25.5Hz` are rejected instead of being accepted as
+partial numeric parses, while preserving valid numeric loads and trailing
+whitespace tolerance. Focused coverage in `test/test_preset_manager.cpp`
+verifies a malformed partial numeric parameter is skipped without disturbing a
+valid sibling parameter or the previous stored value. Validation passed
+locally: `git diff --check`, Debug configure, built
+`pulp-test-preset-manager`, ran direct `*partial numeric parameter values*`,
+ran focused CTest `PresetManager load rejects partial numeric parameter
+values` (1/1), and ran
+`PULP_DIFF_COVER_CTEST_REGEX='PresetManager load rejects partial numeric
+parameter values|PresetManager load skips malformed parameter values'
+tools/scripts/local_diff_cover.sh pulp-test-preset-manager`, which reported
+100% diff coverage for `core/state/src/preset_manager.cpp`. This tranche is
+held locally and should be aggregated rather than submitted individually.
