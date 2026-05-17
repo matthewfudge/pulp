@@ -230,10 +230,15 @@ Provenance current_ambient_provenance();
 // `current_duration_scale()` at first event.
 
 constexpr int kFixtureSchemaVersion = 2;
+/// Sentinel for a default-constructed / unrecognised fixture header.
+/// `load_fixture_header()` returns a FixtureHeader with this version
+/// when the file is missing, empty, or its header fails to parse, so
+/// callers can distinguish "valid empty fixture" from "load failed".
+constexpr int kInvalidFixtureSchemaVersion = 0;
 
 /// Header metadata recorded once at the top of a fixture file.
 struct FixtureHeader {
-    int version = kFixtureSchemaVersion;
+    int version = kInvalidFixtureSchemaVersion;
     /// Policy in effect when the fixture was recorded. `"full"` /
     /// `"reduced"` / `"off"`. Stored as a string so loaders without
     /// `motion_preferences.hpp` can still compare.
