@@ -32,6 +32,10 @@ SYNTHETIC_MATRIX = dedent(
         validated_inline:
           status: "usable"
           notes: Validated in CI.
+        explicit_platform:
+          status: usable
+          platform: linux
+          notes: Platform field passes.
         validated_block:
           status: usable
           notes: |-
@@ -73,6 +77,10 @@ class WalkStatusTests(unittest.TestCase):
         self.assertEqual(
             rows["capability_groups.group_a.validated_inline"],
             ("usable", "Validated in CI.", False),
+        )
+        self.assertEqual(
+            rows["capability_groups.group_a.explicit_platform"],
+            ("usable", "Platform field passes.", True),
         )
         self.assertEqual(
             rows["capability_groups.group_a.validated_block"],
@@ -146,6 +154,70 @@ class WalkStatusTests(unittest.TestCase):
             [("root.final", "usable", "", False)],
         )
 
+    def test_walk_statuses_platform_field_can_follow_notes(self) -> None:
+        matrix = dedent(
+            """\
+            root:
+              item:
+                status: usable
+                notes: External validation.
+                platform: windows
+            """
+        )
+
+        self.assertEqual(
+            list(csl.walk_statuses(matrix)),
+            [("root.item", "usable", "External validation.", True)],
+        )
+
+    def test_walk_statuses_empty_platform_field_is_not_evidence(self) -> None:
+        matrix = dedent(
+            """\
+            root:
+              item:
+                status: usable
+                platform:
+                notes: Needs proof.
+            """
+        )
+
+        self.assertEqual(
+            list(csl.walk_statuses(matrix)),
+            [("root.item", "usable", "Needs proof.", False)],
+        )
+
+    def test_walk_statuses_ignores_nested_notes_and_platform_fields(self) -> None:
+        matrix = dedent(
+            """\
+            root:
+              item:
+                status: usable
+                notes: Parent note has no proof.
+                metadata:
+                  notes: Validated child note must not override parent.
+                  platform: linux
+              item_with_late_parent_note:
+                status: usable
+                metadata:
+                  notes: nested validation
+                notes: Parent tests exist.
+            """
+        )
+
+        rows = {
+            path: (status, notes, platform_scoped)
+            for path, status, notes, platform_scoped in csl.walk_statuses(matrix)
+        }
+
+        self.assertEqual(
+            rows["root.item"],
+            ("usable", "Parent note has no proof.", False),
+        )
+        self.assertEqual(
+            rows["root.item_with_late_parent_note"],
+            ("usable", "Parent tests exist.", False),
+        )
+
 
 class WaiverTests(unittest.TestCase):
     def test_load_waivers_strips_comments_and_blanks(self) -> None:
@@ -205,7 +277,7 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(stderr, "")
-        self.assertIn("checked 5 `usable` entries", stdout)
+        self.assertIn("checked 6 `usable` entries", stdout)
         self.assertIn("0 waived, 1 violations (mode=warn)", stdout)
         self.assertIn("capability_groups.group_a.missing_evidence", stdout)
 

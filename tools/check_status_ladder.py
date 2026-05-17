@@ -93,13 +93,13 @@ def walk_statuses(matrix_text: str):
 
         if key == "status":
             path = ".".join(k for _, k in stack)
-            is_platform_scoped = any(
-                k in PLATFORM_KEYS for _, k in stack
-            )
+            is_platform_scoped = any(k in PLATFORM_KEYS for _, k in stack)
 
             # Scan following sibling lines within this entry for notes:
             notes = ""
+            has_platform_field = False
             entry_indent = stack[-1][0] if stack else -1
+            status_indent = indent
             j = i + 1
             while j < len(lines):
                 next_line = lines[j]
@@ -109,8 +109,11 @@ def walk_statuses(matrix_text: str):
                 next_indent = len(next_line) - len(next_line.lstrip(" "))
                 if next_indent <= entry_indent:
                     break
+                if next_indent != status_indent:
+                    j += 1
+                    continue
                 m_notes = re.match(r"^\s*notes:\s*(.*)$", next_line)
-                if m_notes:
+                if m_notes and not notes:
                     notes_val = m_notes.group(1).strip()
                     if notes_val in (">", "|", ">-", "|-"):
                         # Block scalar — read continuation lines
@@ -128,12 +131,21 @@ def walk_statuses(matrix_text: str):
                             buf.append(cl.strip())
                             k += 1
                         notes = " ".join(buf).strip()
+                        j = k
+                        continue
                     else:
                         notes = notes_val
-                    break
+                m_platform = re.match(r"^\s*platform:\s*(.*)$", next_line)
+                if m_platform and m_platform.group(1).strip():
+                    has_platform_field = True
                 j += 1
 
-            yield (path, value.strip('"').strip("'"), notes, is_platform_scoped)
+            yield (
+                path,
+                value.strip('"').strip("'"),
+                notes,
+                is_platform_scoped or has_platform_field,
+            )
 
         stack.append((indent, key))
         i += 1
