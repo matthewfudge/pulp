@@ -2807,10 +2807,10 @@ void WidgetBridge::register_api() {
         } else if (tag == "input") {
             // pulp #1899 — `<input>` needs the JS-side `_type` to pick a
             // widget. JS callers pass it through the optional 4th `hint`
-            // arg ("range:horizontal", "range:vertical", "checkbox").
-            // Without the hint, fall back to a plain View so the element
-            // still receives child/style ops (text inputs are not yet
-            // first-class on the bridge).
+            // arg ("range:horizontal", "range:vertical", "checkbox", "text").
+            // Without a hint, fall back to a plain View so the element
+            // still receives child/style ops (matches pre-2026-05-17
+            // behavior for unhinted inputs).
             auto hint = args.get<std::string>(3, "");
             if (hint == "range:horizontal" || hint == "range:vertical") {
                 auto fader = std::make_unique<Fader>();
@@ -2823,6 +2823,15 @@ void WidgetBridge::register_api() {
                 auto cb = std::make_unique<Checkbox>();
                 cb->set_id(childId);
                 child = std::move(cb);
+            } else if (hint == "text") {
+                // pulp jsx-instrument-import (2026-05-17) — plain text
+                // `<input>` (and text-like subtypes: search / email / url
+                // / tel / password) materialize as a TextEditor so they
+                // accept keyboard input. Pre-fix, Chainer's preset-name
+                // field landed as a non-editable View; per Codex review.
+                auto te = std::make_unique<TextEditor>();
+                te->set_id(childId);
+                child = std::move(te);
             } else {
                 auto v = std::make_unique<View>();
                 v->set_id(childId);

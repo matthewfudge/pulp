@@ -50,6 +50,19 @@ if (!Element.prototype.appendChild ||
                         : "horizontal");
             } else if (child._type === "checkbox") {
                 __domAppendHint = "checkbox";
+            } else {
+                // pulp jsx-instrument-import (2026-05-17) — plain
+                // `<input>` (the default `_type` is "text") and the
+                // text-input subtypes (text/search/email/url/tel/password)
+                // route to a TextEditor on the C++ side. Pre-fix, all
+                // non-range/non-checkbox inputs fell through to a plain
+                // View, leaving Chainer's preset-name field (and any
+                // generic React `<input>`) non-editable.
+                var t = child._type || "text";
+                if (t === "text" || t === "search" || t === "email" ||
+                    t === "url"  || t === "tel"    || t === "password") {
+                    __domAppendHint = "text";
+                }
             }
         }
         __domAppend(this._id, child._id, child.tagName.toLowerCase(), __domAppendHint);
