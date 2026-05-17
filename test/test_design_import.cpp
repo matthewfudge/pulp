@@ -476,6 +476,59 @@ TEST_CASE("parse_figma_json covers layout style and audio shape metadata edges",
 
 // ── Code generation ─────────────────────────────────────────────────────
 
+TEST_CASE("generate_pulp_js emits motion.setProvenance per vendor + root (Phase 9e)",
+          "[view][import][motion][provenance][issue-pulp-motion-phase9]") {
+    // Figma export with a recognizable root node name should emit
+    // `motion.setProvenance('design-import', 'figma:<root-name>')` so
+    // any animations the bundle drives self-attribute through the
+    // motion observability publish channel.
+    {
+        DesignIR ir;
+        ir.source = DesignSource::figma;
+        ir.root.type = "frame";
+        ir.root.name = "Card/Hover";
+        CodeGenOptions opts;
+        opts.mode = CodeGenMode::web_compat;
+        opts.include_comments = false;
+        auto js = generate_pulp_js(ir, opts);
+        REQUIRE(js.find("motion.setProvenance('design-import', 'figma:Card/Hover')")
+                != std::string::npos);
+    }
+    // Stitch, v0, Pencil, Claude — same shape, different vendor key.
+    struct Case { DesignSource src; const char* vendor; };
+    for (const Case& c : {
+             Case{DesignSource::stitch, "stitch"},
+             Case{DesignSource::v0,     "v0"},
+             Case{DesignSource::pencil, "pencil"},
+             Case{DesignSource::claude, "claude"},
+         }) {
+        DesignIR ir;
+        ir.source = c.src;
+        ir.root.type = "frame";
+        ir.root.name = "Panel";
+        CodeGenOptions opts;
+        opts.include_comments = false;
+        auto js = generate_pulp_js(ir, opts);
+        std::string expected =
+            std::string("motion.setProvenance('design-import', '") +
+            c.vendor + ":Panel')";
+        REQUIRE(js.find(expected) != std::string::npos);
+    }
+    // When the root has no name but there's a source_file, the file's
+    // basename (without extension) is the id.
+    {
+        DesignIR ir;
+        ir.source = DesignSource::figma;
+        ir.root.type = "frame";
+        ir.source_file = "/path/to/HeaderLayout.json";
+        CodeGenOptions opts;
+        opts.include_comments = false;
+        auto js = generate_pulp_js(ir, opts);
+        REQUIRE(js.find("motion.setProvenance('design-import', 'figma:HeaderLayout')")
+                != std::string::npos);
+    }
+}
+
 TEST_CASE("generate_pulp_js produces valid web-compat JS", "[view][import]") {
     DesignIR ir;
     ir.source = DesignSource::figma;
