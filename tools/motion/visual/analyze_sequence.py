@@ -296,6 +296,35 @@ def make_keyframe_sprite(
     sprite.save(str(dest_path), format="PNG")
 
 
+def detect_motion_window(
+    pairs: List[PairMetrics], threshold: float,
+) -> Tuple[int, int]:
+    """Return `(lead, trail)` — counts of frames to drop from each end.
+
+    A pair is "idle" when its `pixel_diff_mean` is below `threshold`.
+    The motion window starts at the first non-idle pair and ends at
+    the last non-idle pair; the kept frame range therefore spans
+    `[first_active.from_index, last_active.to_index]`.
+
+    With no pairs (single frame) nothing is trimmed.
+    """
+    if not pairs:
+        return 0, 0
+    n_frames = pairs[-1].to_index + 1
+    first_active = next(
+        (p for p in pairs if p.pixel_diff_mean > threshold), None,
+    )
+    last_active = next(
+        (p for p in reversed(pairs) if p.pixel_diff_mean > threshold), None,
+    )
+    if first_active is None or last_active is None:
+        # Sequence is entirely idle — nothing to analyse meaningfully.
+        return 0, 0
+    lead = first_active.from_index
+    trail = (n_frames - 1) - last_active.to_index
+    return max(0, lead), max(0, trail)
+
+
 def select_keyframes(
     frames: List[FrameInfo],
     pairs: List[PairMetrics],
@@ -334,7 +363,13 @@ def write_summary_md(report: Report, output_dir: Path) -> None:
     md.append(f"- mean SSIM (consecutive pairs): {s.get('mean_ssim', 0):.4f}")
     md.append(f"- min SSIM (consecutive pairs):  {s.get('min_ssim', 0):.4f}")
     md.append(f"- mean pixel diff: {s.get('mean_pixel_diff', 0):.4f}")
-    md.append(f"- max pixel diff: {s.get('max_pixel_diff', 0):.4f}\n")
+    md.append(f"- max pixel diff: {s.get('max_pixel_diff', 0):.4f}")
+    if s.get("trimmed_leading_frames") or s.get("trimmed_trailing_frames"):
+        md.append(
+            f"- trimmed: {s.get('trimmed_leading_frames', 0)} leading, "
+            f"{s.get('trimmed_trailing_frames', 0)} trailing"
+        )
+    md.append("")
 
     md.append("## Keyframes\n")
     for k in report.keyframes:
@@ -380,6 +415,8 @@ def analyze(
     grid_rows: int = 8,
     grid_cols: int = 12,
     grid_theme: str = "auto",
+    trim: bool = False,
+    trim_threshold: float = 0.01,
 ) -> int:
     deps = _try_import_deps()
     if deps is None:
@@ -421,6 +458,25 @@ def analyze(
             from_index=i, to_index=i + 1,
             ssim=ssim, pixel_diff_mean=mean_diff, pixel_diff_max=max_diff,
         ))
+
+    # Optional auto-trim: drop idle prefix + suffix from the analysis
+    # window. Frames stay on disk; we just narrow the in-report slice
+    # so the JSON / sprite / keyframe selection reflect the actual
+    # motion window. Indexes are preserved so cross-references back to
+    # the source frame numbers remain meaningful.
+    trimmed_lead = 0
+    trimmed_trail = 0
+    if trim:
+        trimmed_lead, trimmed_trail = detect_motion_window(
+            pairs, threshold=trim_threshold,
+        )
+        if trimmed_lead or trimmed_trail:
+            keep_first = trimmed_lead
+            keep_last = (len(frames) - 1) - trimmed_trail
+            frames = [f for f in frames
+                      if keep_first <= f.index <= keep_last]
+            pairs = [p for p in pairs
+                     if p.from_index >= keep_first and p.to_index <= keep_last]
 
     # Emit diff PNGs for the top-N highest-change pairs (or all if 0).
     if max_diff_frames <= 0:
@@ -484,6 +540,8 @@ def analyze(
             sum(p.pixel_diff_mean for p in pairs) / len(pairs)
         ) if pairs else 0.0,
         "max_pixel_diff": max((p.pixel_diff_max for p in pairs), default=0.0),
+        "trimmed_leading_frames": trimmed_lead,
+        "trimmed_trailing_frames": trimmed_trail,
     }
     report = Report(
         schema_version=REPORT_SCHEMA_VERSION,
@@ -523,6 +581,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--grid-theme", default="auto",
                         choices=("auto", "light", "dark"),
                         help="Grid label/line theme (default auto)")
+    parser.add_argument("--trim", action="store_true",
+                        help="Drop idle prefix/suffix from the analysis "
+                             "window (frames stay on disk)")
+    parser.add_argument("--trim-threshold", type=float, default=0.01,
+                        help="Mean-diff threshold for --trim "
+                             "(0..1 luminance fraction, default 0.01)")
     args = parser.parse_args(argv)
     return analyze(
         frames_dir=args.frames_dir,
@@ -534,6 +598,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         grid_rows=args.grid_rows,
         grid_cols=args.grid_cols,
         grid_theme=args.grid_theme,
+        trim=args.trim,
+        trim_threshold=args.trim_threshold,
     )
 
 
