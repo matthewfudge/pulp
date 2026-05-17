@@ -6821,6 +6821,33 @@ read WAV file' tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which
 reported 100% diff coverage for `core/audio/src/audio_file.cpp`. This tranche
 is held locally and should be aggregated rather than submitted individually.
 
+2026-05-17 15:22 PDT: added another local-only held state/view settings
+numeric-parse tranche for the next large coverage batch. Settings tranche
+`feature/phase3-codecov-next-batch-726` in
+`/private/tmp/pulp-phase3-codecov-next-batch-726` is clean at commit
+`c0044ef5a668f` (`fix(settings): reject partial numeric values`) based on
+current `origin/main` (`8b667f2641a9`, behind one new main commit at commit
+time). The tranche hardens `PropertiesFile::get_int()`,
+`PropertiesFile::get_double()`, `AppSettings::get_int()`, and
+`AppSettings::get_float()` so numeric-looking strings with junk suffixes are
+rejected instead of being accepted through partial standard-library parses,
+while preserving valid trailing whitespace. Focused coverage in
+`test/test_properties_file.cpp` and `test/test_app_framework.cpp` verifies
+partial numeric rejection and whitespace-tolerant success for both settings
+surfaces. Validation passed locally: `git diff --check`, Debug configure,
+built `pulp-test-properties` and `pulp-test-app-framework`, ran direct
+`PropertiesFile numeric getters reject partial parses`, ran direct
+`AppSettings numeric getters reject partial parses`, ran focused CTest for
+`PropertiesFile numeric getters`, `AppSettings numeric getters`, and
+`AppSettings invalid typed values` (4/4 in the final diff-coverage run), and
+ran `PULP_DIFF_COVER_CTEST_REGEX='PropertiesFile numeric getters|AppSettings
+numeric getters|AppSettings invalid typed values'
+tools/scripts/local_diff_cover.sh pulp-test-properties
+pulp-test-app-framework`, which reported 100% diff coverage for
+`core/state/src/properties_file.cpp` and `core/view/src/app_framework.cpp`.
+This tranche is held locally and should be aggregated rather than submitted
+individually.
+
 2026-05-17 14:45 PDT: added another local-only held state properties tranche
 for the next large coverage batch. Properties tranche
 `feature/phase3-codecov-properties-batch-719` in
