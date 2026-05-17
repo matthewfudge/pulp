@@ -5835,3 +5835,37 @@ branch was pushed with `PULP_SKIP_DIFF_COVER=1` only after that local
 diff-cover run; pre-push gates otherwise passed. GitHub GraphQL exhaustion
 prevented enabling auto-merge immediately, so this PR is in REST-poll-and-merge
 tracking until checks are green. No Namespace/SSH validation was dispatched.
+
+2026-05-16 19:55 PDT: #2103 showed a real Codecov app `codecov/patch` failure
+after the earlier state batch updates: Codecov reported 56.33803% patch coverage,
+mostly around `core/view/src/hot_reload.cpp`, plus smaller state-tree partials.
+Added follow-up commit `3e10eb101` (`test(view): cover hot reload filter edges`)
+on `feature/phase3-codecov-state-batch-665`. The commit adds deterministic
+hot-reload tests for direct watcher-event filtering, directory-entry reloads from
+`.mjs` changes, pending reload drain without a callback, and empty/missing entry
+files. Local validation passed: `cmake --build build --target
+pulp-test-hot-reload -j$(sysctl -n hw.ncpu)`, `./build/test/pulp-test-hot-reload
+'[view][hotreload][codecov]'` (20 assertions / 6 cases), and
+`PULP_DIFF_COVER_CTEST_REGEX='HotReloader|StateTree|StateTreeSynchroniser|ObservableValue'
+tools/scripts/local_diff_cover.sh`, which reported 90% patch coverage against
+`origin/main`. Pushed the branch with `PULP_SKIP_DIFF_COVER=1` only after that
+local diff-cover pass; pre-push gates otherwise passed. GitHub-hosted checks are
+rerunning on head `3e10eb101`.
+
+2026-05-16 20:03 PDT: opened the next large batched coverage PR as #2124,
+`test: batch runtime primitive coverage edges`, branch
+`feature/phase3-codecov-batch-681`, head
+`13fe2991e1025269697815427e5b84c4c31c748e`. This batch adds 12 focused tests
+across `test/test_crypto.cpp`, `test/test_license.cpp`, `test/test_stream.cpp`,
+and `test/test_v3_gaps.cpp` covering AES binary/empty decrypt edges, machine ID
+shape, BigInteger invalid parses, unsigned license validation, CRLF-trimmed
+license files, MemoryStream/FileStream/HttpStream lifecycle edges, and prime
+helper boundaries. Local validation before PR: `git diff --check`; built
+`pulp-test-crypto pulp-test-license pulp-test-stream pulp-test-v3-gaps`; ran
+`./build/test/pulp-test-crypto`, `./build/test/pulp-test-license`,
+`./build/test/pulp-test-stream`, and `./build/test/pulp-test-v3-gaps "*prime*"`;
+ran the 12-test `PULP_DIFF_COVER_CTEST_REGEX=... tools/scripts/local_diff_cover.sh`
+gate, which reported no uncovered measured diff lines and OK at/above the 75%
+floor. The PR was created via REST because GraphQL remains exhausted and labeled
+`codecov`; GitHub-hosted CI is the merge gate. No Namespace/SSH validation was
+dispatched.
