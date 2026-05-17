@@ -224,3 +224,59 @@ TEST_CASE("MemoryMessageChannel peer destruction closes the survivor",
     left->close();
     REQUIRE(left_closed == 1);
 }
+
+TEST_CASE("MemoryMessageChannel close callback can send no further messages",
+          "[runtime][message_channel][coverage][phase3]") {
+    auto [left, right] = MemoryMessageChannel::make_pair();
+
+    int left_closed = 0;
+    bool send_from_close = true;
+    left->on_closed([&] {
+        ++left_closed;
+        send_from_close = left->send_text("after-close-callback");
+    });
+
+    right->close();
+
+    REQUIRE(left_closed == 1);
+    REQUIRE_FALSE(send_from_close);
+    REQUIRE_FALSE(left->is_open());
+    REQUIRE_FALSE(right->is_open());
+}
+
+TEST_CASE("MemoryMessageChannel sender observes peer callback replacement during delivery",
+          "[runtime][message_channel][coverage][phase3]") {
+    auto [left, right] = MemoryMessageChannel::make_pair();
+
+    int first_calls = 0;
+    int second_calls = 0;
+    right->on_message([&](const Message&) {
+        ++first_calls;
+        right->on_message([&](const Message&) {
+            ++second_calls;
+        });
+    });
+
+    REQUIRE(left->send_text("first"));
+    REQUIRE(left->send_text("second"));
+
+    REQUIRE(first_calls == 1);
+    REQUIRE(second_calls == 1);
+}
+
+TEST_CASE("MemoryMessageChannel self close does not invoke a late replacement callback",
+          "[runtime][message_channel][coverage][phase3]") {
+    auto [left, right] = MemoryMessageChannel::make_pair();
+
+    int closed = 0;
+    left->on_closed([&] {
+        ++closed;
+        left->on_closed([&] { ++closed; });
+    });
+
+    left->close();
+    left->close();
+    right->close();
+
+    REQUIRE(closed == 1);
+}

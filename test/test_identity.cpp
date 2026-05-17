@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/runtime/identity.hpp>
 #include <set>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 using namespace pulp::runtime;
@@ -123,6 +125,28 @@ TEST_CASE("Uuid parsing accepts uppercase dashed and compact hex",
     REQUIRE(Uuid::from_string("0123456789ABCDEFFEDCBA9876543210") == id);
 }
 
+TEST_CASE("Uuid parsing rejects short, long, and whitespace-padded values",
+          "[runtime][identity][coverage][phase3]") {
+    REQUIRE(Uuid::from_string("").is_nil());
+    REQUIRE(Uuid::from_string("00112233445566778899aabbccddee").is_nil());
+    REQUIRE(Uuid::from_string("00112233445566778899aabbccddeeff00").is_nil());
+    REQUIRE(Uuid::from_string(" 00112233-4455-6677-8899-aabbccddeeff").is_nil());
+    REQUIRE(Uuid::from_string("00112233-4455-6677-8899-aabbccddeeff ").is_nil());
+    REQUIRE(Uuid::from_string("00112233-4455-6677-8899-aabbccddee-ff").is_nil());
+}
+
+TEST_CASE("Uuid formatting preserves leading zero bytes",
+          "[runtime][identity][coverage][phase3]") {
+    Uuid id;
+    id.hi = 0x0001020304050607ULL;
+    id.lo = 0x08090a0b0c0d0e0fULL;
+
+    REQUIRE(id.to_hex() == "000102030405060708090a0b0c0d0e0f");
+    REQUIRE(id.to_string() == "00010203-0405-0607-0809-0a0b0c0d0e0f");
+    REQUIRE(Uuid::from_string(id.to_string()) == id);
+    REQUIRE(Uuid::from_string(id.to_hex()) == id);
+}
+
 TEST_CASE("Uuid ordering sorts by high word before low word",
           "[runtime][identity][issue-641]") {
     Uuid low{1, 999};
@@ -189,6 +213,39 @@ TEST_CASE("Typed identity nil and hashing are stable", "[runtime][identity][issu
     objects.insert(object);
     objects.insert(object);
     REQUIRE(objects.size() == 1);
+}
+
+TEST_CASE("Typed identity wrappers compare and hash deterministic values",
+          "[runtime][identity][coverage][phase3]") {
+    auto first = ObjectId::from_string("00000000-0000-0000-0000-000000000001");
+    auto second = ObjectId::from_string("00000000-0000-0000-0000-000000000002");
+
+    REQUIRE(first != second);
+    REQUIRE(first < second);
+    REQUIRE_FALSE(second < first);
+    REQUIRE(first.to_string() == "00000000-0000-0000-0000-000000000001");
+
+    std::unordered_map<ObjectId, std::string> objects;
+    objects[first] = "one";
+    objects[second] = "two";
+    objects[first] = "updated";
+
+    REQUIRE(objects.size() == 2);
+    REQUIRE(objects[first] == "updated");
+    REQUIRE(objects[second] == "two");
+}
+
+TEST_CASE("EventEnvelope defaults are nil and empty before attribution",
+          "[runtime][identity][coverage][phase3]") {
+    EventEnvelope env;
+
+    REQUIRE(env.timestamp == 0.0);
+    REQUIRE(env.session_id.is_nil());
+    REQUIRE(env.object_id.is_nil());
+    REQUIRE(env.run_id.is_nil());
+    REQUIRE(env.correlation_id.is_nil());
+    REQUIRE(env.actor.empty());
+    REQUIRE(env.action.empty());
 }
 
 TEST_CASE("EventEnvelope", "[runtime][identity]") {
