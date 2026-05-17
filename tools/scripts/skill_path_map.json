@@ -169,6 +169,8 @@
         "core/view/platform/win/motion_preferences_win.cpp",
         "inspect/include/pulp/inspect/motion_inspector.hpp",
         "inspect/src/motion_inspector.cpp",
+        "inspect/include/pulp/inspect/motion_scrubber.hpp",
+        "inspect/src/motion_scrubber.cpp",
         "tools/motion/**"
       ]
     },

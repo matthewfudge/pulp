@@ -183,11 +183,23 @@ Protocol requests:
 | `Motion.stopTrace` | `{trace_id}` | `{removed}` |
 | `Motion.snapshot` | `{}` | `{tracing_enabled, firehose, active_traces, inspector_traces, emitted_events}` |
 | `Motion.listTraces` | `{}` | `{trace_ids:[…]}` |
+| `Motion.loadFixture` | `{path}` | `{ok, event_count, max_frame, header:{version, policy, duration_scale}}` |
+| `Motion.scrubTo` | `{frame}` | `{playhead_frame, emitted_count}` (broadcasts Motion.start/.sample/.end with `"replay":true`) |
+| `Motion.play` | `{}` | `{playing, emitted_count, playhead_frame}` |
+| `Motion.pause` | `{}` | `{playing:false, playhead_frame}` |
 
 The server broadcasts `Motion.start`, `Motion.sample`, and `Motion.end` events
 to all connected clients as samples are emitted. Subscribing clients receive a
 clean stream for the trace they registered — concurrent unrelated animations
 do not bleed into the stream unless the firehose is on (see below).
+
+The timeline scrubber methods (`Motion.loadFixture` / `.scrubTo` / `.play` /
+`.pause`) load a `.motion.jsonl` fixture into memory and re-emit the prefix
+of events with `frame <= playhead` to the same event channel as live traces.
+Replayed events carry an additional `"replay":true` marker so clients can
+distinguish them from live coordinator events. The scrubber is passive — no
+clock is pumped, no animation runs live; this is sufficient for design review
+and CI artifact triage (live overlay drawing is a future phase).
 
 ### Env knobs in `pulp-ui-preview`
 

@@ -17,6 +17,7 @@ based on what's observable.
 | A captured frame sequence (no app instrumentation available) | **Visual analysis** | `tools/motion/visual/analyze_sequence.py` |
 | A previously recorded `.motion.jsonl` fixture | **Replay + assert** | `motion::replay_fixture` + `motion::assert_matches` |
 | An interaction that drives the suspect motion | **Input record + replay** | `motion::make_input_recorder` + `motion::replay_inputs` |
+| A fixture + an inspector client (design review / CI triage) | **Timeline scrubber** | `Motion.loadFixture` + `Motion.scrubTo` over the inspector wire |
 | Imported design + intent doc (e.g. "fade in 350 ms ease-out") | **Both** | Record a fixture from the import, assert timing/monotonicity |
 
 ## Path A — Runtime trace
@@ -208,6 +209,50 @@ primitives — matches the originally-recorded one within
 `FixtureMatchOptions::timing_epsilon_seconds`. Use the ID-keyed
 `assert_matches` for the comparison so reordered identical bursts don't
 false-fail.
+## Path E — Timeline scrubber (inspector replay)
+
+`pulp::inspect::MotionScrubber` loads a `.motion.jsonl` fixture and
+re-emits the prefix of events with `frame <= playhead` to caller
+sinks and (when attached to an `InspectorServer`) to inspector clients
+over the wire. The scrubber is passive — no clock is pumped, no
+animation runs live; `play()` is a jump-to-end that emits every event.
+Real-time pacing and live overlay drawing are intentionally Phase 11+.
+
+Protocol surface (routed by `DomainHandler::handle_motion`):
+
+| Method               | Params              | Response                                                |
+|----------------------|---------------------|---------------------------------------------------------|
+| `Motion.loadFixture` | `{ path }`          | `{ ok, event_count, max_frame, header: {version,policy,duration_scale} }` |
+| `Motion.scrubTo`     | `{ frame }`         | `{ playhead_frame, emitted_count }` + broadcast events  |
+| `Motion.play`        | `{}`                | `{ playing:true, emitted_count, playhead_frame }`       |
+| `Motion.pause`       | `{}`                | `{ playing:false, playhead_frame }`                     |
+
+Broadcast events reuse `MotionInspector`'s `Motion.start / .sample /
+.end` shape, with an additional `"replay":true` marker so clients can
+distinguish replayed bursts from live coordinator events on the same
+wire.
+
+Direct C++ usage:
+
+```cpp
+pulp::inspect::MotionScrubber scrub(/*server=*/nullptr);
+std::vector<motion::SampleEvent> buf;
+scrub.add_sink(motion::make_buffer_sink(&buf));
+scrub.load_fixture("captures/card-open.motion.jsonl");
+scrub.scrub_to(120);   // emits prefix with frame <= 120
+scrub.scrub_to(0);     // emits only the frame-0 prefix (backwards scrub)
+scrub.play();          // jump to max frame, emit everything
+```
+
+Gotchas:
+
+- `load_fixture` is passive. Sinks see no events until `scrub_to` /
+  `play` is called. Don't pre-clear UI overlays on `loadFixture` and
+  expect a refill — wait for the first `scrub_to`.
+- Backwards scrubs re-emit from frame 0. If your sink accumulates,
+  clear it before each scrub or compare counts modulo the prefix size.
+- Replayed event timestamps (`t_seconds`) are the recording's
+  timestamps, not wall clock. Don't drive a live clock from them.
 
 ## Agent contract
 
@@ -243,6 +288,8 @@ Apply these on every motion debugging run:
 - `core/view/platform/win/motion_preferences_win.cpp` — SPI_GETCLIENTAREAANIMATION query
 - `inspect/include/pulp/inspect/motion_inspector.hpp` — Motion inspector bridge
 - `inspect/src/motion_inspector.cpp` — protocol handler + event broadcaster
+- `inspect/include/pulp/inspect/motion_scrubber.hpp` — timeline scrubber (Phase 7)
+- `inspect/src/motion_scrubber.cpp` — passive fixture replay + scrubber dispatch
 - `tools/motion/visual/analyze_sequence.py` — visual analysis CLI
 - `tools/motion/visual/test_self_check.py` — pipeline self-check
 - `examples/ui-preview/main.cpp` — env-knob wiring for the standalone host
