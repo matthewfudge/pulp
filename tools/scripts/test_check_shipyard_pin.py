@@ -127,6 +127,36 @@ class ShipyardPinCheckTests(unittest.TestCase):
             r = run_check_in_fake_repo(tmp)
             self.assertEqual(r.returncode, 0)
 
+    def test_required_workflow_exists_but_missing_pin_is_failure(self) -> None:
+        """Codex P1 (PR #2131): a required workflow that exists but
+        no longer declares SHIPYARD_VERSION must hard-fail. Otherwise
+        an accidental removal goes green and the pin is silently
+        unenforced everywhere. Override REQUIRED_PIN_WORKFLOWS in the
+        shim so the test uses our fixture filenames."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = pathlib.Path(td)
+            (tmp / "tools").mkdir(parents=True)
+            (tmp / "tools" / "shipyard.toml").write_text(
+                'version = "v1.2.3"\n', encoding="utf-8",
+            )
+            wf = tmp / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            # release-cli.yml exists but has NO SHIPYARD_VERSION entry —
+            # vacuous-pass case the gate must catch.
+            (wf / "release-cli.yml").write_text(
+                "name: release-cli\nenv:\n  OTHER: \"x\"\n",
+                encoding="utf-8",
+            )
+            (wf / "post-tag-sync.yml").write_text(
+                "name: post-tag\nenv:\n  SHIPYARD_VERSION: \"1.2.3\"\n",
+                encoding="utf-8",
+            )
+            r = run_check_in_fake_repo(tmp)
+            self.assertEqual(r.returncode, 1, msg=r.stderr)
+            self.assertIn("release-cli.yml", r.stderr)
+            self.assertIn("no SHIPYARD_VERSION declared", r.stderr)
+
 
 class ScriptRunsAgainstRealRepoTests(unittest.TestCase):
     """Smoke-run the script against the actual checkout to catch the
