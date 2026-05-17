@@ -17,6 +17,20 @@ using namespace std::chrono_literals;
 
 namespace {
 
+struct ThreadJoiner {
+    std::thread& thread;
+
+    ~ThreadJoiner() {
+        join();
+    }
+
+    void join() {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+};
+
 // Pick an ephemeral port and return the bound listener + its actual port.
 std::optional<std::uint16_t> try_bind_loopback(Socket& server, std::uint16_t port) {
     if (!server.bind("127.0.0.1", port)) return std::nullopt;
@@ -121,6 +135,7 @@ TEST_CASE("TcpStream round-trips bytes on loopback", "[network_stream]") {
         client->close();
         server_done.store(true);
     });
+    ThreadJoiner join_server{server_thread};
 
     // Wait for the server to be listening before connecting.
     while (!server_ready.load()) std::this_thread::sleep_for(1ms);
@@ -151,7 +166,7 @@ TEST_CASE("TcpStream round-trips bytes on loopback", "[network_stream]") {
     REQUIRE(std::memcmp(recv, payload, sizeof(payload)) == 0);
 
     stream.close();
-    server_thread.join();
+    join_server.join();
     REQUIRE(server_done.load());
 }
 
@@ -245,6 +260,7 @@ TEST_CASE("TcpStream detects peer-close on the next read",
         if (!client) return;
         client->close();  // immediate peer-close
     });
+    ThreadJoiner join_server{server_thread};
     while (!server_ready.load()) std::this_thread::sleep_for(1ms);
 
     TcpStream stream;
@@ -264,7 +280,7 @@ TEST_CASE("TcpStream detects peer-close on the next read",
     REQUIRE(saw_close);
 
     stream.close();
-    server_thread.join();
+    join_server.join();
 }
 
 // ── Socket edge cases ───────────────────────────────────────────────────
@@ -480,6 +496,7 @@ TEST_CASE("TcpStream can wrap an accepted Socket",
         }
         stream.close();
     });
+    ThreadJoiner join_server{server_thread};
     while (!ready.load()) std::this_thread::sleep_for(1ms);
 
     bool client_ok = true;
@@ -505,7 +522,7 @@ TEST_CASE("TcpStream can wrap an accepted Socket",
     }
     client.close();
 
-    server_thread.join();
+    join_server.join();
     REQUIRE(client_ok);
     REQUIRE(done.load());
 }
@@ -536,6 +553,7 @@ TEST_CASE("TcpStream zero-byte I/O succeeds while connected",
             accepted->close();
         }
     });
+    ThreadJoiner join_server{server_thread};
     while (!ready.load()) std::this_thread::sleep_for(1ms);
 
     TcpStream stream;
@@ -553,7 +571,7 @@ TEST_CASE("TcpStream zero-byte I/O succeeds while connected",
     }
 
     stream.close();
-    server_thread.join();
+    join_server.join();
     REQUIRE(client_ok);
 }
 
