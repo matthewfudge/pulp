@@ -71,7 +71,25 @@ PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview
 
 ### 3. Attach a trace
 
-Send a `Motion.startTrace` request (TCP port 9147, line-delimited JSON):
+Three discovery surfaces — pick whichever is at hand. All three terminate
+at the same `Coordinator`.
+
+**3a. `pulp motion *` CLI** (terminal, one verb per Motion.* method,
+prints the trace_id so you can copy it into `motion stop`):
+
+```bash
+pulp motion record --view Card --fps 30 --out card-fade.jsonl
+# → trace started — trace_id=1
+# →   stop with: pulp motion stop --trace-id 1
+```
+
+Every verb honours `--port N` and `$PULP_INSPECTOR_PORT`, exits 1
+with a clear "start the host with `PULP_MOTION_SERVER=1 …`" hint
+when nothing is listening, and supports `--json` for raw inspector
+output. Full list: `record / stop / snapshot / list-traces /
+load-fixture / scrub / play / pause / cost {enable|disable}`.
+
+**3b. Raw inspector wire** (TCP port 9147, length-prefix-framed JSON):
 
 ```jsonc
 { "id": 1, "method": "Motion.startTrace",
@@ -92,6 +110,11 @@ Send a `Motion.startTrace` request (TCP port 9147, line-delimited JSON):
 
 Response: `{ "trace_id": 1 }`.
 
+**3c. `pulp_motion_*` MCP wrapper tools** — same payload shape as
+the wire path, called as a `tools/call` JSON-RPC request when an
+agent is driving an MCP server (see
+`docs/guides/motion-observability.md` Tooling section).
+
 Stream of events: `Motion.start`, `Motion.sample` (one per change), `Motion.end`
 (with deltas).
 
@@ -101,6 +124,13 @@ Drive the app — click, hover, type, fire whatever causes the suspected
 animation. The motion server emits events as the values change.
 
 ### 5. Stop the trace
+
+```bash
+pulp motion stop --trace-id 1
+# → trace stopped (removed=true)
+```
+
+Or the raw wire-protocol equivalent:
 
 ```jsonc
 { "id": 2, "method": "Motion.stopTrace", "params": { "trace_id": 1 } }
@@ -318,6 +348,15 @@ Broadcast events reuse `MotionInspector`'s `Motion.start / .sample /
 distinguish replayed bursts from live coordinator events on the same
 wire.
 
+CLI shortcut (no inspector REPL needed):
+
+```bash
+pulp motion load-fixture captures/card-open.motion.jsonl
+pulp motion scrub 120
+pulp motion play
+pulp motion pause
+```
+
 Direct C++ usage:
 
 ```cpp
@@ -383,6 +422,15 @@ sink with:
 `Motion.enableCost` / `Motion.disableCost` toggle the channel; while
 enabled, `Motion.cost` events broadcast per frame. `Motion.snapshot`
 also reports `cost_enabled` and `cost_samples_emitted`.
+
+CLI shortcut:
+
+```bash
+pulp motion cost enable
+# ... drive the suspect animation ...
+pulp motion cost disable
+pulp motion snapshot --json | jq '.cost_samples_emitted'
+```
 
 ### Notes
 

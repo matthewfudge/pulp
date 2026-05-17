@@ -42,8 +42,18 @@ regardless of which surface launched the trace.
 - **`pulp` CLI** — the `/motion` Claude Code slash command surfaces the
   inspector-wire quick start. From any Pulp source tree:
   `pulp build && PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview`.
-  Dedicated `pulp motion *` subcommands are planned (tracked by [#2153](https://github.com/danielraffel/pulp/issues/2153));
-  today, the CLI's role is launching the host with the right env knobs.
+  Dedicated `pulp motion *` subcommands cover every Motion.* method
+  end-to-end (pulp [#2153](https://github.com/danielraffel/pulp/issues/2153)):
+  `record` / `stop` / `snapshot` / `list-traces` / `load-fixture` /
+  `scrub` / `play` / `pause` / `cost {enable|disable}`. Quick example
+  — kick off a background record alongside the host:
+  ```bash
+  PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview &
+  pulp motion record --view Card --out card-fade.jsonl
+  # → trace started — trace_id=1
+  pulp motion stop --trace-id 1
+  ```
+  See the **CLI subcommands** section below for the full reference.
 - **`pulp-mcp` server** — the MCP server exposes `pulp_inspect_*` (live trees,
   screenshots, evaluate) and a first-class `pulp_motion_*` wrapper set covering
   every Motion.* inspector method (start_trace / stop_trace / snapshot /
@@ -110,6 +120,55 @@ echo '{"id":2,"method":"Motion.stopTrace","params":{"trace_id":1}}' \
 
 For the Swift, Kotlin / Compose, fixture-based, scrubber, and cost-attribution
 paths see the dedicated sections below.
+
+## CLI subcommands
+
+`pulp motion *` wraps every inspector `Motion.*` method as a terminal
+subcommand. Each one runs a 250ms TCP reachability probe against
+`127.0.0.1:9147` first; if nothing is listening it exits 1 with a clear
+"start the host with `PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview`"
+hint. Override the port with `--port N` or the `PULP_INSPECTOR_PORT`
+env var.
+
+| Command | Forwards to | Common use |
+|---|---|---|
+| `pulp motion record [--view NAME] [--out FIXTURE.jsonl] [--fps N] [--metrics SPEC]` | `Motion.startTrace` | Kick off a trace from a terminal. Default probe is a window-space presentation geometry on a node id matching `--view`. Multiple `--metrics` accepted; each is `kind:name:node_id[:p1,p2,...][:space][:source]` short-form or `'{...}'` raw JSON. |
+| `pulp motion stop [--trace-id N]` | `Motion.stopTrace` | Release the trace returned by `record`. |
+| `pulp motion snapshot` | `Motion.snapshot` | One-shot view of `tracing_enabled`, `firehose`, `active_traces`, `inspector_traces`, `emitted_events`, `cost_enabled`, `cost_samples_emitted`. |
+| `pulp motion list-traces` | `Motion.listTraces` | Enumerate inspector-owned trace IDs. |
+| `pulp motion load-fixture <PATH>` | `Motion.loadFixture` | Load a `.motion.jsonl` fixture into the scrubber. |
+| `pulp motion scrub <FRAME>` | `Motion.scrubTo` | Move the scrubber playhead to a given frame. |
+| `pulp motion play` | `Motion.play` | Resume scrubber playback from the playhead. |
+| `pulp motion pause` | `Motion.pause` | Pause scrubber playback. |
+| `pulp motion cost {enable\|disable}` | `Motion.enableCost` / `Motion.disableCost` | Toggle the cost-attribution channel. Off by default. |
+
+All commands accept `--json` to print the raw inspector response
+verbatim (useful for piping into `jq`). The default output is a
+pretty-printed line plus the raw JSON for human readers.
+
+```bash
+# Background the host + record from a terminal.
+PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview &
+pulp motion record --view Card --fps 60 --out card-fade.jsonl
+# → trace started — trace_id=1
+# →   stop with: pulp motion stop --trace-id 1
+
+# Replay a captured fixture in the scrubber.
+pulp motion load-fixture test/motion/goldens/card-open.motion.jsonl
+pulp motion scrub 30
+pulp motion play
+
+# Cost attribution for a short profiling window.
+pulp motion cost enable
+# ... drive the suspect animation ...
+pulp motion cost disable
+pulp motion snapshot --json | jq '.cost_samples_emitted'
+```
+
+The CLI delegates each call to `pulp inspect --command Motion.<verb>
+--params <JSON>` so the wire format and discovery story match the
+MCP `pulp_motion_*` wrappers and the raw `nc localhost 9147` path —
+all three terminate at the same `Coordinator`.
 
 ## When to use it
 
