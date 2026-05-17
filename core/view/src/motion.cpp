@@ -1,5 +1,6 @@
 #include <pulp/view/motion.hpp>
 
+#include <pulp/view/motion_cost.hpp>
 #include <pulp/runtime/log.hpp>
 #include <pulp/view/frame_clock.hpp>
 #include <pulp/view/motion_preferences.hpp>
@@ -735,16 +736,47 @@ void sort_components(std::vector<std::pair<std::string, double>>& v) {
 }  // namespace
 
 void Coordinator::on_tick(float dt) {
+    // Cost attribution observes every tick (when enabled) regardless
+    // of whether the event sinks are populated. note_tick_begin runs
+    // first so per-tick scratch is fresh; emit_frame runs at the very
+    // end so trace activity has had a chance to accumulate.
+    auto& cost = CostAttributor::instance();
+    const bool cost_enabled = cost.enabled();
+    if (cost_enabled) {
+        const double t_cost =
+            state_->clock ? static_cast<double>(state_->clock->time()) : 0.0;
+        const std::uint64_t f_cost =
+            state_->clock ? state_->clock->frame() : 0;
+        cost.note_tick_begin(f_cost, t_cost);
+    }
+
     // Collect events under lock, dispatch outside the lock.
     std::vector<std::pair<Sink, SampleEvent>> pending;
+    // Trace activity (trace_id + provenance envelope) recorded under
+    // the lock; forwarded to the CostAttributor after the lock is
+    // released so the attributor can sample its probe without
+    // contending on the coordinator mutex.
+    std::vector<std::pair<int, Provenance>> tick_activity;
     {
         std::lock_guard<std::mutex> lock(state_->mtx);
-        if (!state_->tracing_enabled || state_->sinks.empty()) return;
+        // Cost attribution must still emit a sample even when there
+        // are no active traces / sinks — render cost itself is the
+        // useful signal in that case. So bail only when BOTH tracing
+        // and cost attribution are off.
+        const bool have_traces =
+            state_->tracing_enabled && !state_->sinks.empty();
+        if (!have_traces && !cost_enabled) return;
 
         const double t_now =
             state_->clock ? static_cast<double>(state_->clock->time()) : 0.0;
         const std::uint64_t f_now =
             state_->clock ? state_->clock->frame() : 0;
+
+        if (!have_traces) {
+            // Skip sampler-driven trace work; cost emission still
+            // happens below.
+            goto cost_emit;
+        }
 
         for (auto& [trace_id, trace] : state_->traces) {
             // Phase 7: emit TraceStarted once per trace on its first tick.
@@ -763,6 +795,10 @@ void Coordinator::on_tick(float dt) {
                     pending.emplace_back(sink, ev);
                 }
                 state_->emitted_count++;
+                if (cost_enabled) {
+                    tick_activity.emplace_back(trace.id,
+                                               trace.spec->provenance);
+                }
                 trace.needs_trace_started = false;
             }
 
@@ -804,6 +840,15 @@ void Coordinator::on_tick(float dt) {
                         pending.emplace_back(sink, e);
                     }
                     state_->emitted_count++;
+                    // Cost attribution: track every emission (including
+                    // Baseline / Start / End markers) as "this trace was
+                    // active this tick". TraceStarted is one-shot and
+                    // emitted above; it's also legitimate cost-side
+                    // activity so it's recorded with the rest below.
+                    if (cost_enabled) {
+                        tick_activity.emplace_back(trace.id,
+                                                   trace.spec->provenance);
+                    }
                 };
 
                 if (!mstate.has_baseline) {
@@ -842,8 +887,22 @@ void Coordinator::on_tick(float dt) {
                 }
             }
         }
+    cost_emit:
+        (void)0;
     }
     for (auto& [sink, ev] : pending) sink(ev);
+
+    // Forward per-tick trace activity to the CostAttributor and emit
+    // a CostSample. Done outside the coordinator lock so the probe
+    // (which may call into render-layer code) doesn't contend with
+    // sink registration or trace attach.
+    if (cost_enabled) {
+        for (const auto& [tid, prov] : tick_activity) {
+            cost.note_trace_activity(tid);
+            cost.note_provenance(tid, prov);
+        }
+        cost.emit_frame();
+    }
 }
 
 // ── Coordinator::publish_internal (Phase 3) ───────────────────────────

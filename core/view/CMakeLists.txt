@@ -191,6 +191,7 @@ target_sources(pulp-view PRIVATE
     src/visualization_bridge.cpp
     src/frame_clock.cpp
     src/motion.cpp
+    src/motion_cost.cpp
     src/window_manager.cpp
     src/eq_curve_view.cpp
     src/midi_keyboard.cpp
