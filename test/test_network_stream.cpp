@@ -575,6 +575,65 @@ TEST_CASE("TcpStream zero-byte I/O succeeds while connected",
     REQUIRE(client_ok);
 }
 
+// ── Socket edge cases ───────────────────────────────────────────────────
+
+TEST_CASE("Socket UDP loopback send_to receive_from reports peer address",
+          "[network_stream][socket][coverage][phase3]") {
+    Socket receiver;
+    REQUIRE(receiver.create(SocketType::UDP));
+    auto port = try_bind_udp(receiver, 46411);
+    if (!port) {
+        SUCCEED("could not bind UDP loopback port; skipping");
+        return;
+    }
+
+    Socket sender;
+    REQUIRE(sender.create(SocketType::UDP));
+    const std::array<std::uint8_t, 4> payload{'p', 'u', 'l', 'p'};
+    REQUIRE(sender.send_to(payload.data(), payload.size(), "127.0.0.1", *port) ==
+            static_cast<int>(payload.size()));
+
+    std::array<std::uint8_t, 8> buffer{};
+    std::string from_address;
+    std::uint16_t from_port = 0;
+    const int received = receiver.receive_from(buffer.data(), buffer.size(),
+                                               from_address, from_port);
+    REQUIRE(received == static_cast<int>(payload.size()));
+    REQUIRE(std::equal(payload.begin(), payload.end(), buffer.begin()));
+    REQUIRE(from_address == "127.0.0.1");
+    REQUIRE(from_port != 0);
+}
+
+TEST_CASE("Socket move construction transfers open UDP handle",
+          "[network_stream][socket][coverage][phase3]") {
+    Socket original;
+    REQUIRE(original.create(SocketType::UDP));
+    REQUIRE(original.is_open());
+
+    Socket moved(std::move(original));
+    REQUIRE_FALSE(original.is_open());
+    REQUIRE(moved.is_open());
+    REQUIRE(moved.bind("127.0.0.1", 0));
+    moved.close();
+    REQUIRE_FALSE(moved.is_open());
+}
+
+TEST_CASE("Socket move assignment closes old handle and adopts new one",
+          "[network_stream][socket][coverage][phase3]") {
+    Socket old_socket;
+    REQUIRE(old_socket.create(SocketType::UDP));
+    REQUIRE(old_socket.bind("127.0.0.1", 0));
+
+    Socket replacement;
+    REQUIRE(replacement.create(SocketType::UDP));
+
+    old_socket = std::move(replacement);
+    REQUIRE(old_socket.is_open());
+    REQUIRE_FALSE(replacement.is_open());
+    old_socket.close();
+    REQUIRE_FALSE(old_socket.is_open());
+}
+
 // ── HttpStream edge cases ───────────────────────────────────────────────
 
 TEST_CASE("HttpStream with empty URL reports transport failure",
