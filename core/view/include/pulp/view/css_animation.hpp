@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include <pulp/view/motion.hpp>
 #include <pulp/view/motion_preferences.hpp>
 
 namespace pulp::view {
@@ -163,9 +164,33 @@ struct TransitionSpec {
     float delay_seconds = 0.0f;
     CssEasing easing{};
 
+    /// Phase 9 — source attribution. Filled in by
+    /// `parse_transition_shorthand_with_provenance(...)` so an offline
+    /// motion-trace reader can answer "what CSS file / line defined this
+    /// transition?". Empty when parsed via the legacy entry point.
+    std::string source_file;
+    int source_line = 0;
+
     /// CSS spec — duration <= 0 means "snap" (no tween). The dispatcher
     /// takes the fast path.
     bool is_snap() const { return duration_seconds <= 0.0f; }
+
+    /// Build a `motion::Provenance` envelope for this spec.
+    /// `source_kind="css-transition"`, `source_id=<property_name>`,
+    /// `source_file` / `source_line` from the parser. Returns an empty
+    /// envelope when the parser didn't capture a location (e.g. legacy
+    /// `parse_transition_shorthand` entry point).
+    motion::Provenance motion_provenance() const {
+        motion::Provenance p;
+        if (source_file.empty() && source_line == 0 && property_name.empty()) {
+            return p;
+        }
+        p.source_kind = "css-transition";
+        p.source_id = property_name.empty() ? std::string{"all"} : property_name;
+        p.source_file = source_file;
+        p.source_line = source_line;
+        return p;
+    }
 };
 
 /// One running animation. Lifecycle: created when a property changes
@@ -237,6 +262,32 @@ struct CssAnimation {
                         : 1.0f;
         const float p = spec.easing.at(t);
         return start_value + (end_value - start_value) * p;
+    }
+
+    /// Phase 9: publish the current eased value through the motion publish
+    /// channel, stamping `spec.motion_provenance()` (source_kind=
+    /// "css-transition", source_id=<property name>, file/line from the
+    /// CSS parser) onto the emitted event.
+    void publish(std::string view_name,
+                 std::string metric_name,
+                 motion::PublishOptions opts = {}) const {
+        auto p = spec.motion_provenance();
+        if (p.is_set() && !opts.provenance.is_set()) {
+            opts.provenance = std::move(p);
+        }
+        // Re-evaluate the eased value at the current elapsed time
+        // without mutating internal state — the host already called
+        // `tick()` to advance, so reading the spec is enough.
+        float t = 0.0f;
+        const float local = elapsed_seconds - spec.delay_seconds;
+        if (local > 0.0f && spec.duration_seconds > 0.0f) {
+            t = local / spec.duration_seconds;
+            if (t > 1.0f) t = 1.0f;
+        }
+        const float eased = spec.easing.at(t);
+        const float current = start_value + (end_value - start_value) * eased;
+        motion::publish_value(std::move(view_name), std::move(metric_name),
+                              static_cast<double>(current), opts);
     }
 };
 
@@ -447,6 +498,24 @@ inline std::vector<TransitionSpec> parse_transition_shorthand(const std::string&
         out.push_back(std::move(spec));
     }
     return out;
+}
+
+/// Phase 9: parse a `transition` shorthand AND stamp each emitted
+/// `TransitionSpec` with the source attribution (CSS file path + line
+/// number, or React/JS component file:line when the CSS came from an
+/// inline `style="..."`). The legacy `parse_transition_shorthand()`
+/// entry point continues to work unchanged for callers that don't have
+/// or don't care about a source location.
+inline std::vector<TransitionSpec> parse_transition_shorthand_with_provenance(
+    const std::string& css,
+    std::string source_file,
+    int source_line) {
+    auto specs = parse_transition_shorthand(css);
+    for (auto& s : specs) {
+        s.source_file = source_file;
+        s.source_line = source_line;
+    }
+    return specs;
 }
 
 } // namespace pulp::view
