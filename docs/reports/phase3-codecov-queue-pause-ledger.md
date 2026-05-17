@@ -6765,3 +6765,20 @@ tools/scripts/local_diff_cover.sh pulp-test-undo-manager`, which reported 100%
 diff coverage for `core/state/include/pulp/state/undo_manager.hpp`. This
 tranche is held locally and should be aggregated rather than submitted
 individually.
+
+2026-05-17 14:27 PDT: added another local-only held audio offline-processing
+tranche for the next large coverage batch. Offline processor tranche
+`feature/phase3-codecov-offline-processor-batch-716` in
+`/private/tmp/pulp-phase3-codecov-offline-processor-batch-716` is clean at
+commit `de20f68de090` (`fix(audio): reject ragged offline buffers`) based on
+current `origin/main` (`5e1880924`). The tranche hardens
+`offline_process()` so ragged `AudioFileData` channel buffers are rejected
+before interleaving can read past a shorter channel, and focused coverage
+verifies the processing callback is not invoked for invalid ragged input.
+Validation passed locally: `git diff --check`, Debug configure, built
+`pulp-test-audio-file`, ran direct `*offline processing handles guards*`, ran
+focused CTest `offline processing handles guards` (1/1), and ran
+`PULP_DIFF_COVER_CTEST_REGEX='offline processing handles guards'
+tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which reported 100%
+diff coverage for `core/audio/src/offline_processor.cpp`. This tranche is held
+locally and should be aggregated rather than submitted individually.
