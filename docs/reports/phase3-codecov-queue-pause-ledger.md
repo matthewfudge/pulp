@@ -6633,3 +6633,38 @@ tools/scripts/local_diff_cover.sh pulp-test-runtime`, which reported 100% diff
 coverage for the changed `core/runtime/src/high_resolution_timer.cpp` lines.
 This tranche is held locally and should be aggregated rather than submitted
 individually.
+
+2026-05-17 13:42 PDT: added another local-only held runtime stream tranche for
+the next large coverage batch. Stream tranche
+`feature/phase3-codecov-stream-batch-709` in
+`/private/tmp/pulp-phase3-codecov-stream-batch-709` is clean at commit
+`b4143d1e74ab` (`fix(runtime): reject null stream buffers`) after rebasing onto
+current `origin/main` (`5e1880924`). The tranche hardens `FileStream::read`,
+`FileStream::write`, `MemoryStream::read`, and `MemoryStream::write` so
+nonzero operations with null buffers return `StreamError::Invalid` instead of
+dereferencing null, while preserving zero-length no-op behavior. Focused
+coverage in `test/test_runtime_utils.cpp` verifies both memory and file stream
+paths. Validation passed locally before rebase with `git diff --check`, Debug
+configure, `pulp-test-runtime-utils`, direct focused tests, focused CTest, and
+`PULP_DIFF_COVER_CTEST_REGEX='Stream rejects nonzero null buffers'
+tools/scripts/local_diff_cover.sh pulp-test-runtime-utils`, which reported 100%
+diff coverage for `core/runtime/src/stream.cpp`; after rebase, the direct
+focused test was rerun and passed. This tranche is held locally and should be
+aggregated rather than submitted individually.
+
+2026-05-17 13:42 PDT: added another local-only held runtime identity tranche
+for the next large coverage batch. Identity tranche
+`feature/phase3-codecov-identity-batch-710` in
+`/private/tmp/pulp-phase3-codecov-identity-batch-710` is clean at commit
+`c083b9526e7b` (`fix(runtime): validate uuid hex as ascii`) after rebasing onto
+current `origin/main` (`5e1880924`). The tranche makes UUID string parsing use
+an explicit ASCII hex predicate rather than locale-sensitive `std::isxdigit`,
+and focused coverage verifies canonical form parsing, compact form parsing,
+round-trips, malformed hex rejection, and dash-placement rejection. Validation
+passed locally before rebase with `git diff --check`, Debug configure,
+`pulp-test-runtime-utils`, direct `*Uuid*` tests, focused CTest, and
+`PULP_DIFF_COVER_CTEST_REGEX='Uuid'
+tools/scripts/local_diff_cover.sh pulp-test-runtime-utils`, which reported 100%
+diff coverage for `core/runtime/src/identity.cpp`; after rebase, the direct
+focused test was rerun and passed. This tranche is held locally and should be
+aggregated rather than submitted individually.
