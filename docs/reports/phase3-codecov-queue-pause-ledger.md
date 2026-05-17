@@ -6508,6 +6508,26 @@ tools/scripts/local_diff_cover.sh pulp-test-buffering-reader`, which reported
 This tranche is held locally and should be aggregated rather than submitted
 individually.
 
+2026-05-17 14:39 PDT: added another local-only held audio AIFF writer tranche
+for the next large coverage batch. AIFF writer tranche
+`feature/phase3-codecov-aiff-writer-batch-718` in
+`/private/tmp/pulp-phase3-codecov-aiff-writer-batch-718` is clean at commit
+`3a81bdcba23f` (`fix(audio): reject ragged aiff writes`) based on current
+`origin/main` (`5e1880924`). The tranche hardens `AiffWriter::write()` so
+empty input, excessive channel/frame counts, ragged deinterleaved channel
+buffers, and oversized SSND payloads are rejected before opening the output
+file or copying past a shorter channel. Focused coverage in
+`test/test_audio_file.cpp` verifies ragged AIFF input is rejected and creates no
+output file while preserving the existing successful AIFF write/read path.
+Validation passed locally: `git diff --check`, Debug configure, built
+`pulp-test-audio-file`, ran direct `*FormatRegistry writes and reads AIFF
+files*`, ran focused CTest `FormatRegistry writes and reads AIFF` (1/1), and
+ran `PULP_DIFF_COVER_CTEST_REGEX='FormatRegistry writes and reads AIFF'
+tools/scripts/local_diff_cover.sh pulp-test-audio-file`, which reported 82%
+diff coverage for `core/audio/src/aiff_reader.cpp` and passed the 75% local
+threshold. This tranche is held locally and should be aggregated rather than
+submitted individually.
+
 2026-05-17 15:05 PDT: added another local-only held audio buffer tranche for
 the next large coverage batch. Audio buffer tranche
 `feature/phase3-codecov-audio-buffer-batch-713` in
