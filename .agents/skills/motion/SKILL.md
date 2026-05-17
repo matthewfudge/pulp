@@ -222,6 +222,38 @@ fixture. When you read a fixture and the burst looks wrong, the provenance
 tells you which file / Figma node / animator the trace was attached to —
 without grepping.
 
+### Adapter shortcuts (each animation surface stamps itself)
+
+Direct `with_provenance(...)` is the bedrock; Phase 9 added per-surface
+shortcuts so common cases don't require hand-building an envelope:
+
+- **Tween** — `t.set_motion_provenance("tween", "knob-hover")`, then call
+  `t.publish(view, metric)` each tick. The macro
+  `PULP_MOTION_TWEEN("knob-hover", from, to, duration)` auto-fills
+  `source_file` / `source_line` from `std::source_location::current()`.
+- **AnimatorSetBuilder** — `.name("knob-glow")` on the builder; the resulting
+  `Runner::publish(view, metric, value)` stamps `source_kind="animator-set"`,
+  `source_id="knob-glow"`.
+- **CSS TransitionSpec** — `parse_transition_shorthand_with_provenance(css,
+  "/styles/card.css", line)` carries `source_file` / `source_line` through;
+  `CssAnimation::publish(view, metric)` stamps
+  `source_kind="css-transition"`, `source_id=<property name>`.
+- **JS rAF** — `WidgetBridge::load_script(code, "my-script.js")` (or
+  `set_active_script_id(...)`) records the script id; `__flushFrames__`
+  sets the ambient envelope per callback so a `motion.publishValue` from
+  inside an rAF body emits `source_kind="rAF"`,
+  `source_id="my-script.js:<callback_id>"`.
+- **JS user code** — `motion.publishValue(view, metric, value)` and
+  `motion.setProvenance(kind, id, file?, line?)` are exposed on the
+  `globalThis.motion` object the bridge installs. `motion.clearProvenance()`
+  empties the slot. Explicit `PublishOptions::provenance` always wins over
+  the ambient slot.
+- **Design import** — `generate_pulp_js` emits a `motion.setProvenance(...)`
+  line at the top of every bundle, tagged with vendor + root-node id
+  (`figma:Card/Hover`, `stitch:Panel`, `claude:HeaderLayout`, …). Drop the
+  generated JS into a bridge and any animation it drives inherits the
+  envelope automatically.
+
 ## Reduced-motion policy
 
 `pulp::view::MotionPreferences` (sibling of `AppearanceTracker`) reads the

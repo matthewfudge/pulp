@@ -115,10 +115,34 @@ auto handle = Coordinator::instance()
 
 The envelope appears on the `TraceStarted` event and round-trips through
 fixtures. Agents reading a fixture can resolve "where does this animation
-live?" without grepping. The richer adapters that auto-populate provenance
-from `Tween` / CSS `TransitionSpec` / `AnimatorSet` / JS rAF / design-import
-land in a follow-up phase; today the envelope is opt-in via
-`with_provenance(...)`.
+live?" without grepping.
+
+#### Adapters that auto-fill provenance
+
+Phase 9 wires each animation surface so the envelope is populated without
+the caller hand-building one. Off by default — pre-Phase-9 callers continue
+emitting unstamped events:
+
+| Surface | How to attach | Resulting `source_kind` |
+|---|---|---|
+| `Tween` | `t.set_motion_provenance("tween", "knob-hover")` then `t.publish(view, metric)` | `"tween"` |
+| `Tween` (macro) | `PULP_MOTION_TWEEN("knob-hover", 0.0f, 1.0f, 0.2f)` (auto-fills `source_file`/`source_line` via `std::source_location`) | `"tween"` |
+| `AnimatorSetBuilder` | `.name("knob-glow")` then `runner.publish(view, metric, value)` | `"animator-set"` |
+| CSS `TransitionSpec` | `parse_transition_shorthand_with_provenance(css, "/styles/card.css", 17)` then `anim.publish(view, metric)` | `"css-transition"` |
+| JS rAF | `bridge.load_script(code, "my-script.js")` — `__flushFrames__` stamps each callback as `"<script_id>:<callback_id>"` automatically | `"rAF"` |
+| JS user code | `motion.setProvenance("design-import", "figma:Card/Hover")` then `motion.publishValue(view, metric, value)` | whatever the caller passed |
+| Design import | `generate_pulp_js` emits a `motion.setProvenance('design-import', '<vendor>:<root-name>')` line at the top of every bundle | `"design-import"` |
+
+The publish channel also has an **ambient provenance** slot for surfaces
+that can't easily thread `PublishOptions` through every call site:
+
+```cpp
+motion::set_ambient_provenance({ "rAF", "my-script.js:42", "", 0 });
+// any publish_value / publish_components calls now inherit the envelope
+motion::clear_ambient_provenance();
+```
+
+Explicit `PublishOptions::provenance` always wins over the ambient slot.
 
 ### Sinks
 
