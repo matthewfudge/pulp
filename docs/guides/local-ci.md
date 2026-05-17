@@ -322,6 +322,39 @@ shipyard update --dry-run                 # plan only
 shipyard wait pr <PR> --state green       # REST fallback as of v0.56.2
 ```
 
+### GraphQL quota fallback for PR sweeps
+
+The `gh pr ... --json` and `gh pr merge` paths can consume or require GitHub's
+GraphQL quota. That quota is separate from the REST `core` quota and can hit
+zero while REST still has thousands of calls available.
+
+When a broad PR sweep hits GraphQL exhaustion, switch the sweep to REST instead
+of waiting:
+
+```bash
+gh api rate_limit --jq '.resources | {core, graphql}'
+gh api repos/OWNER/REPO/pulls/PR
+gh api repos/OWNER/REPO/commits/SHA/check-runs?per_page=100
+gh api repos/OWNER/REPO/actions/jobs/JOB_ID/logs
+```
+
+For a PR already verified green through REST, merge through the REST endpoint:
+
+```bash
+head_sha=$(gh api repos/OWNER/REPO/pulls/PR --jq '.head.sha')
+gh api repos/OWNER/REPO/pulls/PR/merge \
+  -X PUT \
+  -f sha="$head_sha" \
+  -f merge_method=squash \
+  -f commit_title='subject (#PR)'
+```
+
+If the merge endpoint returns `405 Base branch was modified`, refresh the PR
+state and check runs through REST, recompute `head_sha`, then retry once only
+if the refreshed head SHA and green status are still the values you intend to
+merge. This is a transport fallback, not a validation bypass: do not merge
+around real CI, coverage, sanitizer, or review failures.
+
 Use `shipyard rescue` when a PR is otherwise ready but blocked by queued,
 cancelled, or failed runner contexts caused by a self-hosted-runner wedge. It is
 the PR-side recovery path and avoids the old failure mode where cancelling
