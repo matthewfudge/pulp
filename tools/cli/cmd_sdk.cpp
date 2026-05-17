@@ -2,7 +2,11 @@
 
 #include "cli_common.hpp"
 
+#include <algorithm>
+#include <cstdio>
 #include <iostream>
+#include <regex>
+#include <vector>
 
 int cmd_sdk(const std::vector<std::string>& args) {
     if (args.empty()) {
@@ -10,6 +14,7 @@ int cmd_sdk(const std::vector<std::string>& args) {
         std::cout << "Subcommands:\n";
         std::cout << "  install [--version X.Y.Z]   Download and cache the SDK from GitHub releases\n";
         std::cout << "  install --local             Build and install the SDK from the current checkout\n";
+        std::cout << "  available                   List SDK versions available on GitHub releases\n";
         std::cout << "  status                      Show installed SDK versions\n";
         std::cout << "  clean                       Remove all cached SDK versions\n";
         return 0;
@@ -95,6 +100,63 @@ int cmd_sdk(const std::vector<std::string>& args) {
             std::cout << "  No SDK versions installed.\n";
             std::cout << "  Run: pulp sdk install\n";
         }
+        return 0;
+    }
+
+    if (sub == "available") {
+        // pulp #2087 follow-up (#23): list SDK versions available on
+        // GitHub Releases. Shells out to `curl` and parses the JSON
+        // response manually (no JSON dep needed — we only want the
+        // `tag_name` values). Network failures degrade to a clear
+        // message; ad-blockers / proxies are the common failure mode
+        // and we don't want to mask them.
+        std::string installed_pinned = PULP_SDK_VERSION;
+        std::cout << "Pulp SDK — available releases\n";
+        std::cout << "==============================\n\n";
+
+        std::string url = "https://api.github.com/repos/"
+                          + std::string(PULP_GITHUB_REPO)
+                          + "/releases?per_page=30";
+        std::string cmd = "curl -fsSL -H 'Accept: application/vnd.github+json' "
+                          + shell_quote(url) + " 2>/dev/null";
+        FILE* pipe = popen(cmd.c_str(), "r");
+        if (!pipe) {
+            std::cerr << "Error: could not invoke curl.\n";
+            return 1;
+        }
+        std::string body;
+        char buf[4096];
+        while (size_t n = fread(buf, 1, sizeof(buf), pipe)) {
+            body.append(buf, n);
+        }
+        int rc = pclose(pipe);
+        if (rc != 0 || body.empty()) {
+            std::cerr << "Error: GitHub releases query failed";
+            if (rc != 0) std::cerr << " (curl exit " << rc << ")";
+            std::cerr << ".\n";
+            std::cerr << "  Check: curl -fsSL " << url << "\n";
+            return 1;
+        }
+
+        // Parse `"tag_name": "vX.Y.Z"` occurrences. Releases come
+        // newest-first from the API, so the order is preserved.
+        std::regex tag_re(R"("tag_name"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+)")");
+        auto begin = std::sregex_iterator(body.begin(), body.end(), tag_re);
+        auto end   = std::sregex_iterator{};
+        std::vector<std::string> tags;
+        for (auto it = begin; it != end; ++it) {
+            tags.push_back((*it)[1].str());
+        }
+        if (tags.empty()) {
+            std::cout << "  (no releases found)\n";
+            return 0;
+        }
+        for (const auto& v : tags) {
+            std::cout << "  v" << v;
+            if (v == installed_pinned) std::cout << "  (CLI's pinned SDK version)";
+            std::cout << "\n";
+        }
+        std::cout << "\nInstall with: pulp sdk install --version <X.Y.Z>\n";
         return 0;
     }
 
