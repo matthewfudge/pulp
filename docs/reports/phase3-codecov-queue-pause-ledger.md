@@ -6578,3 +6578,21 @@ pulp-test-runtime-utils`, which reported 88% diff coverage on the changed
 `core/runtime/src/temporary_file.cpp` lines and passed the 75% gate. This
 tranche is held locally and should be aggregated rather than submitted
 individually.
+
+2026-05-17 14:07 PDT: added another local-only held runtime primitive tranche
+for the next large coverage batch. Base64 tranche
+`feature/phase3-codecov-base64-batch-707` in
+`/private/tmp/pulp-phase3-codecov-base64-batch-707` is clean at commit
+`f595a7e95` (`fix(runtime): guard null base64 input`) after rebasing onto
+current `origin/main`. The tranche defensively handles `base64_encode(nullptr,
+nonzero)` like the existing zero-length null-buffer case instead of
+dereferencing a null pointer, with focused coverage in
+`test/test_runtime_utils.cpp`. Validation passed locally: `git diff --check`,
+configured Debug build, built `pulp-test-runtime-utils`, ran the direct
+regression test, ran focused CTest `base64` (10/10), ran
+`PULP_DIFF_COVER_CTEST_REGEX='base64 handles explicit byte pointers and exact
+quartet decoding' tools/scripts/local_diff_cover.sh pulp-test-runtime-utils`,
+which reported 100% diff coverage for `core/runtime/src/base64.cpp`, then
+rebased onto current `origin/main` and reran the direct regression test. This
+tranche is held locally and should be aggregated rather than submitted
+individually.
