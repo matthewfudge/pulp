@@ -6120,3 +6120,35 @@ now includes a real source fix, the future combined PR should use a
 `fix(audio): ...` title and include any version-bump trailer/commit required by
 Shipyard. Together with held #687 this gives 46 locally validated tests ready to
 combine into a larger future PR once the active GitHub queue has room.
+
+2026-05-16 22:25 PDT: completed the next larger local-only held batch in
+`feature/phase3-codecov-batch-690` without opening a PR. The batch adds 30
+focused runtime messaging and identity tests across `test/test_json_rpc.cpp`,
+`test/test_memory_message_channel.cpp`, and `test/test_identity.cpp`. Coverage
+includes JSON-RPC params object/array forwarding, method and notification JSON
+escaping, handler replacement, in-dispatch unregister behavior, response
+callback re-entry, malformed/null-id/error response tolerance, invalid top-level
+message ignores, peer destructor channel cleanup, bidirectional ordered memory
+channel sends, callback replacement/clearing, close callback recursion guards,
+closed/destroyed peer send failures, UTF-8 byte preservation, UUID formatting
+and parsing edge cases, nil spelling equivalence, comparison ordering, typed
+identity string/inequality/hash behavior, and `ObjectId` ordering. Local
+validation passed before and after rebasing onto current `origin/main`: `git
+diff --check`; built `pulp-test-json-rpc`, `pulp-test-memory-message-channel`,
+and `pulp-test-identity`; ran direct `./build/test/pulp-test-json-rpc
+"[coverage][phase3-large]"` (43 assertions / 14 cases), direct
+`./build/test/pulp-test-memory-message-channel "[coverage][phase3-large]"` (24
+assertions / 8 cases), and direct `./build/test/pulp-test-identity
+"[coverage][phase3-large]"` (26 assertions / 8 cases); ran focused `ctest
+--test-dir build -R 'phase3-large|JsonRpcPeer request params|JsonRpcPeer
+notification|MemoryMessageChannel supports bidirectional|Uuid formatting|Typed
+identity' --output-on-failure` (12/12 passed); and ran
+`PULP_DIFF_COVER_CTEST_REGEX='phase3-large|JsonRpcPeer request params|JsonRpcPeer
+notification|MemoryMessageChannel supports bidirectional|Uuid formatting|Typed
+identity' tools/scripts/local_diff_cover.sh pulp-test-json-rpc
+pulp-test-memory-message-channel pulp-test-identity`, which reported no
+uncovered measured diff lines and OK at/above the 75% floor. The worktree is
+clean and local-only at rebased commit `1f1ffa876`; it has not been pushed or
+submitted yet. This batch is intentionally sized to the new 24-36-test PR
+policy; combine or submit it only when the active GitHub-hosted queue has enough
+runner capacity.
