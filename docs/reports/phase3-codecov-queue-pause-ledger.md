@@ -6543,3 +6543,38 @@ binary (20 cases / 286 assertions), ran `git diff --check`, and ran
 insertion order' tools/scripts/local_diff_cover.sh pulp-test-midi`, which
 reported 100% diff coverage. This tranche is held locally and should be
 aggregated rather than submitted individually.
+
+2026-05-17 13:38 PDT: added Meitner's local-only held audio reader tranche for
+the next large coverage batch. Audio reader tranche
+`feature/phase3-codecov-audio-reader-batch-706` in
+`/private/tmp/pulp-phase3-codecov-audio-reader-batch-706` is clean at commit
+`b0c1debf3` (`fix(audio): route aifc reader probes through registry`). The
+tranche hardens the built-in AIFF reader so `.aifc` files are routed through
+`FormatRegistry`; unsupported compressed AIFC inputs such as `ulaw` are
+rejected instead of being decoded as raw PCM, and custom registry probe
+coverage moved to a non-conflicting `.probe` extension. Validation passed
+locally: built `pulp-test-audio-file`, ran the full direct
+`pulp-test-audio-file --order rand` binary (34 cases / 570 assertions), ran
+focused CTest selections for AIFF/AIFC registry behavior, and ran
+`git diff --check HEAD~1 HEAD`. No coverage XML/LCOV artifact was present in
+that Debug build, so focused diff-cover still needs to be run before this
+tranche is aggregated if practical. This tranche is held locally and should be
+aggregated rather than submitted individually.
+
+2026-05-17 13:44 PDT: added another local-only held runtime tranche for the
+next large coverage batch. TemporaryFile tranche
+`feature/phase3-codecov-runtime-lock-batch-706` in
+`/private/tmp/pulp-phase3-codecov-runtime-lock-batch-706` is clean at commit
+`c2d32a7b7` (`fix(runtime): sanitize temporary file extensions`). The tranche
+normalizes `/` and `\` inside extension text to `_` so separator-bearing
+extensions remain filename text instead of silently selecting a nested
+non-existent path. Focused coverage in `test/test_runtime_utils.cpp` verifies
+separator normalization, suffix preservation, and file creation. Validation
+passed locally: `git diff --check`, configured Debug build, built
+`pulp-test-runtime-utils`, ran the direct regression test, ran focused CTest
+`TemporaryFile` (7/7), and ran
+`PULP_DIFF_COVER_CTEST_REGEX='TemporaryFile' tools/scripts/local_diff_cover.sh
+pulp-test-runtime-utils`, which reported 88% diff coverage on the changed
+`core/runtime/src/temporary_file.cpp` lines and passed the 75% gate. This
+tranche is held locally and should be aggregated rather than submitted
+individually.
