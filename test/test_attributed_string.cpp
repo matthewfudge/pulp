@@ -307,3 +307,196 @@ TEST_CASE("GlyphArrangement hit testing and cursor positions", "[canvas][layout]
     REQUIRE(layout.hit_test(0.0f, 0.0f) == 0);
     REQUIRE_THAT(layout.position_for_index(0), WithinAbs(0.0f, 1e-5f));
 }
+
+TEST_CASE("AttributedString append preserves empty spans between text",
+          "[canvas][text][coverage][phase3]") {
+    AttributedString str;
+    str.append("left");
+    str.append("");
+    str.append("right");
+
+    REQUIRE_FALSE(str.empty());
+    REQUIRE(str.spans().size() == 3);
+    REQUIRE(str.length() == 9);
+    REQUIRE(str.plain_text() == "leftright");
+    REQUIRE(str.spans()[1].text.empty());
+}
+
+TEST_CASE("AttributedString set_font overwrites styled span fonts only",
+          "[canvas][text][coverage][phase3]") {
+    AttributedString str;
+    TextSpan span;
+    span.text = "styled";
+    span.font_family = "serif";
+    span.font_size = 30.0f;
+    span.color = Color::rgba8(1, 2, 3);
+    str.append(span);
+
+    str.set_font("display", 18.0f);
+
+    REQUIRE(str.spans()[0].font_family == "display");
+    REQUIRE(str.spans()[0].font_size == 18.0f);
+    REQUIRE(str.spans()[0].color == Color::rgba8(1, 2, 3));
+}
+
+TEST_CASE("AttributedString set_color preserves font attributes",
+          "[canvas][text][coverage][phase3]") {
+    AttributedString str;
+    TextSpan span;
+    span.text = "styled";
+    span.font_family = "mono";
+    span.font_size = 22.0f;
+    span.font_weight = 800;
+    str.append(span);
+
+    str.set_color(Color::rgba8(40, 50, 60, 70));
+
+    REQUIRE(str.spans()[0].font_family == "mono");
+    REQUIRE(str.spans()[0].font_size == 22.0f);
+    REQUIRE(str.spans()[0].font_weight == 800);
+    REQUIRE(str.spans()[0].color == Color::rgba8(40, 50, 60, 70));
+}
+
+TEST_CASE("TextLayout preserves style on wrapped span fragments",
+          "[canvas][layout][coverage][phase3]") {
+    AttributedString str;
+    TextSpan span;
+    span.text = "alpha beta";
+    span.font_family = "mono";
+    span.font_size = 10.0f;
+    span.font_weight = 700;
+    span.italic = true;
+    span.color = Color::rgba8(12, 34, 56);
+    str.append(span);
+
+    auto layout = layout_attributed_string(str, 36.0f, 11.0f);
+
+    REQUIRE(layout.lines.size() == 2);
+    REQUIRE(layout.lines[0].spans[0].text == "alpha");
+    REQUIRE(layout.lines[1].spans[0].text == "beta");
+    for (const auto& line : layout.lines) {
+        REQUIRE(line.spans[0].font_family == "mono");
+        REQUIRE(line.spans[0].font_size == 10.0f);
+        REQUIRE(line.spans[0].font_weight == 700);
+        REQUIRE(line.spans[0].italic);
+        REQUIRE(line.spans[0].color == Color::rgba8(12, 34, 56));
+    }
+}
+
+TEST_CASE("TextLayout consecutive newlines create blank layout lines",
+          "[canvas][layout][coverage][phase3]") {
+    AttributedString str("top\n\nbottom");
+
+    auto layout = layout_attributed_string(str, 1000.0f, 13.0f);
+
+    REQUIRE(layout.lines.size() == 3);
+    REQUIRE(layout.lines[0].spans[0].text == "top");
+    REQUIRE(layout.lines[1].spans[0].text.empty());
+    REQUIRE(layout.lines[2].spans[0].text == "bottom");
+    REQUIRE_THAT(layout.total_height, WithinAbs(39.0f, 1e-5f));
+}
+
+TEST_CASE("TextLayout forced break keeps full unspaced text",
+          "[canvas][layout][coverage][phase3]") {
+    AttributedString str;
+    str.append("abcdef", 10.0f, Color::rgba8(1, 1, 1));
+
+    auto layout = layout_attributed_string(str, 18.0f, 9.0f);
+
+    REQUIRE(layout.lines.size() == 2);
+    REQUIRE(layout.lines[0].spans[0].text == "abc");
+    REQUIRE(layout.lines[1].spans[0].text == "def");
+    REQUIRE_THAT(layout.total_width, WithinAbs(18.0f, 1e-5f));
+}
+
+TEST_CASE("TextLayout span-specific font size affects width and height",
+          "[canvas][layout][coverage][phase3]") {
+    AttributedString str;
+    str.append("wide", 20.0f, Color::rgba8(1, 1, 1));
+    str.append("narrow", 10.0f, Color::rgba8(2, 2, 2));
+
+    auto layout = layout_attributed_string(str, 1000.0f);
+
+    REQUIRE(layout.lines.size() == 2);
+    REQUIRE_THAT(layout.lines[0].width, WithinAbs(48.0f, 1e-5f));
+    REQUIRE_THAT(layout.lines[0].height, WithinAbs(30.0f, 1e-5f));
+    REQUIRE_THAT(layout.lines[1].width, WithinAbs(36.0f, 1e-5f));
+    REQUIRE_THAT(layout.lines[1].height, WithinAbs(15.0f, 1e-5f));
+    REQUIRE_THAT(layout.total_height, WithinAbs(45.0f, 1e-5f));
+}
+
+TEST_CASE("GlyphArrangement totals use widest line and last descent",
+          "[canvas][layout][coverage][phase3]") {
+    GlyphArrangement layout;
+
+    TextLine short_line;
+    short_line.width = 20.0f;
+    short_line.baseline_y = 8.0f;
+    short_line.descent = 2.0f;
+    layout.add_line(short_line);
+
+    TextLine wide_line;
+    wide_line.width = 45.0f;
+    wide_line.baseline_y = 30.0f;
+    wide_line.descent = 5.0f;
+    layout.add_line(wide_line);
+
+    REQUIRE(layout.line_count() == 2);
+    REQUIRE_THAT(layout.total_width(), WithinAbs(45.0f, 1e-5f));
+    REQUIRE_THAT(layout.total_height(), WithinAbs(35.0f, 1e-5f));
+}
+
+TEST_CASE("GlyphArrangement hit_test uses half-advance thresholds",
+          "[canvas][layout][coverage][phase3]") {
+    GlyphArrangement layout;
+    TextLine line;
+    line.ascent = 8.0f;
+    line.descent = 2.0f;
+    line.baseline_y = 8.0f;
+    line.width = 30.0f;
+    line.glyphs.push_back({0.0f, 0.0f, 10.0f, 'a', 4});
+    line.glyphs.push_back({10.0f, 0.0f, 20.0f, 'b', 5});
+    layout.add_line(line);
+
+    REQUIRE(layout.hit_test(4.9f, 0.0f) == 4);
+    REQUIRE(layout.hit_test(5.1f, 0.0f) == 5);
+    REQUIRE(layout.hit_test(100.0f, 0.0f) == 6);
+}
+
+TEST_CASE("GlyphArrangement position_for_index scans later lines",
+          "[canvas][layout][coverage][phase3]") {
+    GlyphArrangement layout;
+
+    TextLine first;
+    first.width = 10.0f;
+    first.glyphs.push_back({0.0f, 0.0f, 10.0f, 'a', 0});
+    layout.add_line(first);
+
+    TextLine second;
+    second.width = 25.0f;
+    second.glyphs.push_back({7.0f, 0.0f, 10.0f, 'b', 3});
+    layout.add_line(second);
+
+    REQUIRE_THAT(layout.position_for_index(3), WithinAbs(7.0f, 1e-5f));
+    REQUIRE_THAT(layout.position_for_index(99), WithinAbs(25.0f, 1e-5f));
+}
+
+TEST_CASE("Parallelogram from_rect_shear contains skewed interior points",
+          "[canvas][layout][coverage][phase3]") {
+    auto p = Parallelogram::from_rect_shear(0.0f, 0.0f, 10.0f, 10.0f, 3.0f);
+
+    REQUIRE(p.contains(5.0f, 5.0f));
+    REQUIRE(p.contains(3.0f, 0.0f));
+    REQUIRE_FALSE(p.contains(0.5f, 1.0f));
+    REQUIRE_FALSE(p.contains(14.0f, 1.0f));
+}
+
+TEST_CASE("Parallelogram negative shear contains expected interior",
+          "[canvas][layout][coverage][phase3]") {
+    auto p = Parallelogram::from_rect_shear(10.0f, 20.0f, 12.0f, 8.0f, -4.0f);
+
+    REQUIRE(p.contains(12.0f, 24.0f));
+    REQUIRE(p.contains(6.0f, 20.0f));
+    REQUIRE_FALSE(p.contains(23.0f, 20.0f));
+    REQUIRE_FALSE(p.contains(5.0f, 29.0f));
+}
