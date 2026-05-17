@@ -123,6 +123,71 @@ TEST_CASE("WidgetBridge::dispatch_document_event fans out to every live bridge",
     REQUIRE(engine_b.evaluate("lastXY()").toString() == "-1,-1");
 }
 
+TEST_CASE("dispatch_document_event closes a Spectr-PickerDropdown-style click-outside listener",
+          "[view][widget-bridge][esc-dismiss][2128][regression-spectr]") {
+    // Mirrors Spectr's PickerDropdown (spectr-editor-extracted.js:3401):
+    //
+    //   React.useEffect(() => {
+    //       if (!open) return;
+    //       const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    //       document.addEventListener('mousedown', onDoc);
+    //       return () => document.removeEventListener('mousedown', onDoc);
+    //   }, [open]);
+    //
+    // We can't run React here, so simulate the effect's outcome: the
+    // listener is attached when open=true. When the platform's Esc
+    // handler fires a synthetic document.mousedown at coords (-1, -1)
+    // with target=null, `ref.current.contains(null)` must return false
+    // so the !contains check resolves true and setOpen(false) runs.
+    //
+    // If this test fails, the bug is somewhere in the chain
+    // (preamble fan-out, document.dispatchEvent impl, or Element.contains
+    // semantics). If it passes but Spectr's real dropdown doesn't
+    // close, the bug is upstream — React-effect timing in @pulp/react,
+    // esbuild rewriting `document`, or host-shims clobbering the
+    // listener — and we can diagnose there.
+
+    using namespace pulp::view;
+    using pulp::state::StateStore;
+
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(R"JS(
+        var open = true;
+        var closeCount = 0;
+        // Use the bridge's Element.prototype.contains via a fake "ref"
+        // that mirrors what React.useRef returns: { current: <Element> }.
+        // We construct an Element directly using document.createElement
+        // so Element.prototype.contains is exercised end-to-end.
+        var refCurrent = document.createElement('div');
+        var onDoc = function(e) {
+            if (refCurrent && !refCurrent.contains(e.target)) {
+                closeCount++;
+                open = false;
+            }
+        };
+        document.addEventListener('mousedown', onDoc);
+        function isOpen() { return open ? 1 : 0; }
+        function closes() { return closeCount; }
+    )JS");
+
+    auto is_open = [&] { return engine.evaluate("isOpen()").getWithDefault<int>(-1); };
+    auto closes  = [&] { return engine.evaluate("closes()").getWithDefault<int>(-1); };
+
+    REQUIRE(is_open() == 1);
+    REQUIRE(closes() == 0);
+
+    // Simulate Esc → window_host_mac.mm's dispatch_document_event call.
+    WidgetBridge::dispatch_document_event(
+        "mousedown", "{clientX:-1,clientY:-1,target:null}");
+
+    REQUIRE(closes() == 1);
+    REQUIRE(is_open() == 0);
+}
+
 TEST_CASE("dispatch_document_event survives bridge destruction mid-fan-out",
           "[view][widget-bridge][esc-dismiss][2128]") {
     // Same auto-unregister contract as dispatch_global_key — a bridge
