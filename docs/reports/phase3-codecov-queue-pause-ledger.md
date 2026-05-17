@@ -6181,3 +6181,42 @@ uncovered measured diff lines and OK at/above the 75% floor. The worktree is
 clean and local-only at commit `a00ec5277`; it has not been pushed or submitted
 yet. This preserves the current large-batch policy and should be submitted only
 as part of a substantial GitHub-hosted CI batch.
+
+2026-05-16 23:08 PDT: completed the next larger local-only held batch in
+`feature/phase3-codecov-batch-693` without opening a PR. The batch adds 26
+focused state-layer tests across `test/test_state.cpp`,
+`test/test_binding.cpp`, `test/test_edit_history.cpp`,
+`test/test_properties_file.cpp`, and `test/test_preset_manager.cpp`. Coverage
+includes ParamRange negative-step and non-divisible-step quantization behavior,
+ParamValue copy/assignment modulation reset, StateStore listener snapshotting,
+gesture callback replacement/clearing, short-declared-count state
+deserialization, empty binding creation, edit-history detachment before gesture
+end, epsilon notification suppression, clamped-value notification suppression,
+poll baseline updates, redo clearing, max-depth expansion, coalescing
+re-enable behavior, empty LambdaEdit callbacks, coalesced undo/redo replacement
+values, escaped PropertiesFile persistence, clearing an implicit save path,
+successful-load stale-value replacement, string_view key/value copying, sorted
+key enumeration after remove/reinsert, preset metadata emission, same-name
+preset overwrite, direct path load callbacks, import-created preset
+directories, and rename-failure current-name preservation. Local validation
+passed: `git diff --check`; built `pulp-test-state`, `pulp-test-binding`,
+`pulp-test-edit-history`, `pulp-test-properties`, and
+`pulp-test-preset-manager`; ran direct focused `[coverage][phase3-large]` tests
+for all five targets (106 assertions / 26 cases total); ran focused `ctest`
+with 28/28 tests passed; and ran
+`PULP_DIFF_COVER_CTEST_REGEX='phase3-large|ParamRange ignores|ParamRange
+quantization|ParamValue copy|StateStore listener snapshot|StateStore gesture|
+StateStore deserialize keeps|create_bindings returns empty|Binding edit
+history|Binding set suppresses|Binding set after clamping|Binding poll
+updates|EditHistory clear also|EditHistory increasing|EditHistory
+re-enabling|LambdaEdit|EditHistory coalesced|PropertiesFile save and reload
+preserves|PropertiesFile set_path|PropertiesFile successful load|
+PropertiesFile setters copy|PropertiesFile remove and reinsert|PresetManager
+saved file|PresetManager saving the same|PresetManager direct path|
+PresetManager import creates|PresetManager rename failure'
+tools/scripts/local_diff_cover.sh pulp-test-state pulp-test-binding
+pulp-test-edit-history pulp-test-properties pulp-test-preset-manager`, which
+reported no measured diff source lines and OK at/above the 75% floor. The
+worktree is clean and local-only at commit `8ef772537`; it has not been pushed
+or submitted yet. This is another held large-batch unit-test tranche for the
+next consolidated GitHub-hosted PR window.
