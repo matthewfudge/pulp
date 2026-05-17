@@ -5887,3 +5887,9 @@ gate, which reported no uncovered measured diff lines and OK at/above the 75%
 floor. The branch was rebased onto current `origin/main` before push. The PR was
 created via REST because GraphQL remains exhausted and labeled `codecov`;
 GitHub-hosted CI is the merge gate. No Namespace/SSH validation was dispatched.
+
+2026-05-16 20:12 PDT: #2122 (`test: batch runtime and host coverage edges`)
+merged into `main` as `c01eeaf3ebc71c021330eafdea17288d920bb7dc`. Removed the
+merged worktree `/private/tmp/pulp-phase3-codecov-combined-677`. Remaining
+tracked open coverage PRs are #2103, #2108, #2123, #2124, and #2126; all are
+still on GitHub-hosted CI only.
