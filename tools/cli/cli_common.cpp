@@ -718,7 +718,11 @@ std::string latest_available_sdk_version() {
     if (pclose(pipe) != 0 || body.empty()) return {};
 #endif
 
-    std::regex tag_re(R"("tag_name"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+)")");
+    // Custom raw-string delimiter `RE` — the default `R"(...)"` form
+    // would close at the first `)"` inside the regex (after the
+    // version-capture group), splitting the literal. CI on GCC caught
+    // this. The delimiter eliminates the ambiguity.
+    std::regex tag_re(R"RE("tag_name"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+)")RE");
     std::smatch m;
     if (!std::regex_search(body, m, tag_re)) return {};
     std::string version = m[1].str();

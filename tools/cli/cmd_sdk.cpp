@@ -167,7 +167,9 @@ int cmd_sdk(const std::vector<std::string>& args) {
 
         // Parse `"tag_name": "vX.Y.Z"` occurrences. Releases come
         // newest-first from the API, so the order is preserved.
-        std::regex tag_re(R"("tag_name"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+)")");
+        // Custom raw-string delimiter `RE` — the default `R"(...)"` form
+        // closes prematurely at the first `)"` inside the regex.
+        std::regex tag_re(R"RE("tag_name"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+)")RE");
         auto begin = std::sregex_iterator(body.begin(), body.end(), tag_re);
         auto end   = std::sregex_iterator{};
         std::vector<std::string> tags;
