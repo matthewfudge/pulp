@@ -12,7 +12,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <cstdio>
 #include <optional>
+#include <string>
+#include <unistd.h>
 #include <vector>
 
 using Catch::Approx;
@@ -384,6 +387,142 @@ TEST_CASE("AnimatorSet under MotionPolicy::Reduced scales each Tween's duration"
 }
 
 // ── settling_time_seconds under Reduced halves with duration_scale 0.5
+
+// ── Fixture header records MotionPolicy + duration_scale ────────────
+
+namespace {
+
+std::string make_tmp_fixture_path(const char* tag) {
+    std::string p = "/tmp/pulp_phase8_fixture_";
+    p += tag;
+    p += "_";
+    p += std::to_string(::getpid());
+    p += ".jsonl";
+    return p;
+}
+
+}  // namespace
+
+TEST_CASE("Fixture recorded under Reduced carries policy + duration_scale in header",
+          "[motion-preferences][fixture]") {
+    PrefsScope scope;
+    auto& coord = pulp::view::motion::Coordinator::instance();
+    coord.reset();
+    coord.set_tracing_enabled(true);
+    coord.set_firehose(true);
+    pulp::view::FrameClock clock;
+    coord.bind(clock);
+
+    auto& prefs = MotionPreferences::instance();
+    prefs.set_override(MotionPolicy::Reduced);
+    prefs.set_duration_scale(0.5);
+
+    const auto path = make_tmp_fixture_path("reduced");
+    std::remove(path.c_str());
+    auto sink_id = coord.add_sink(pulp::view::motion::make_fixture_sink(path));
+    pulp::view::motion::publish_value("A", "x", 0.0);
+    clock.tick(0.016f);
+    pulp::view::motion::publish_value("A", "x", 0.5);
+    coord.remove_sink(sink_id);
+
+    auto hdr = pulp::view::motion::load_fixture_header(path);
+    REQUIRE(hdr.version == pulp::view::motion::kFixtureSchemaVersion);
+    REQUIRE(hdr.policy == "reduced");
+    REQUIRE(hdr.duration_scale == Approx(0.5));
+
+    auto events = pulp::view::motion::load_fixture(path);
+    REQUIRE(events.size() >= 1);   // header + events still parse fine.
+
+    std::remove(path.c_str());
+    coord.reset();
+}
+
+TEST_CASE("Fixture recorded under Off carries policy=off",
+          "[motion-preferences][fixture]") {
+    PrefsScope scope;
+    auto& coord = pulp::view::motion::Coordinator::instance();
+    coord.reset();
+    coord.set_tracing_enabled(true);
+    coord.set_firehose(true);
+    pulp::view::FrameClock clock;
+    coord.bind(clock);
+
+    MotionPreferences::instance().set_override(MotionPolicy::Off);
+
+    const auto path = make_tmp_fixture_path("off");
+    std::remove(path.c_str());
+    auto sink_id = coord.add_sink(pulp::view::motion::make_fixture_sink(path));
+    pulp::view::motion::publish_value("A", "x", 0.0);
+    pulp::view::motion::publish_value("A", "x", 1.0);
+    coord.remove_sink(sink_id);
+
+    auto hdr = pulp::view::motion::load_fixture_header(path);
+    REQUIRE(hdr.policy == "off");
+    REQUIRE(hdr.duration_scale == Approx(1.0));
+
+    std::remove(path.c_str());
+    coord.reset();
+}
+
+TEST_CASE("assert_matches with header overload flags policy-mismatch",
+          "[motion-preferences][fixture][assert-matches]") {
+    pulp::view::motion::FixtureHeader g;
+    g.policy = "reduced";
+    g.duration_scale = 0.5;
+    pulp::view::motion::FixtureHeader c;
+    c.policy = "full";
+    c.duration_scale = 1.0;
+    std::vector<pulp::view::motion::SampleEvent> empty;
+    pulp::view::motion::FixtureMatchOptions opts;
+    opts.require_same_event_count = false;
+    auto diff = pulp::view::motion::assert_matches(g, empty, c, empty, opts);
+    REQUIRE_FALSE(diff.matches());
+    // Two diff items: policy string + duration_scale.
+    int policy_count = 0;
+    for (const auto& d : diff.differences) {
+        if (d.kind == "policy-mismatch") ++policy_count;
+    }
+    REQUIRE(policy_count == 2);
+}
+
+TEST_CASE("assert_matches with header overload accepts matching headers",
+          "[motion-preferences][fixture][assert-matches]") {
+    pulp::view::motion::FixtureHeader g;
+    g.policy = "reduced";
+    g.duration_scale = 0.5;
+    pulp::view::motion::FixtureHeader c;
+    c.policy = "reduced";
+    c.duration_scale = 0.5;
+    std::vector<pulp::view::motion::SampleEvent> empty;
+    pulp::view::motion::FixtureMatchOptions opts;
+    opts.require_same_event_count = false;
+    auto diff = pulp::view::motion::assert_matches(g, empty, c, empty, opts);
+    REQUIRE(diff.matches());
+}
+
+TEST_CASE("Fixture recorded under Full omits-or-stores 'full' policy",
+          "[motion-preferences][fixture]") {
+    PrefsScope scope;
+    auto& coord = pulp::view::motion::Coordinator::instance();
+    coord.reset();
+    coord.set_tracing_enabled(true);
+    coord.set_firehose(true);
+    pulp::view::FrameClock clock;
+    coord.bind(clock);
+    // Default override on a clean CI runner is the OS value — Full.
+    const auto path = make_tmp_fixture_path("full");
+    std::remove(path.c_str());
+    auto sink_id = coord.add_sink(pulp::view::motion::make_fixture_sink(path));
+    pulp::view::motion::publish_value("A", "x", 0.0);
+    coord.remove_sink(sink_id);
+
+    auto hdr = pulp::view::motion::load_fixture_header(path);
+    REQUIRE(hdr.policy == "full");
+    REQUIRE(hdr.duration_scale == Approx(1.0));
+
+    std::remove(path.c_str());
+    coord.reset();
+}
 
 TEST_CASE("Tween under Reduced + duration_scale 0.5 halves settling_time",
           "[motion-preferences][tween][settling-time]") {

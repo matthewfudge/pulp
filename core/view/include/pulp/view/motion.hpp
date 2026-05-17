@@ -172,14 +172,30 @@ void publish_components(std::string view_name,
 //   - `assert_matches(golden, captured, opts)` compares two fixtures
 //     and returns a structured diff agents can act on.
 //
-// Fixture version 1 schema (one event per line, sorted-key JSON):
-//   {"kind":"baseline|sample|start|end",
-//    "view":"…","metric":"…","t":…,"frame":…,"precision":N,
-//    "components":{"k":v,…}, "deltas":{"k":v,…}}
-// Lines are separated by `\n`; the first line is the header:
-//   {"motion_fixture_version":1}
+// Fixture schema v2 header (Phase 8 — `policy` + `duration_scale`
+// additive fields):
+//   {"motion_fixture_version":2,
+//    "policy":"full|reduced|off",
+//    "duration_scale":1.0}
+//
+// `policy` / `duration_scale` are optional. When absent, the loader
+// defaults `policy` to `"full"` and `duration_scale` to `1.0` —
+// pre-Phase-8 v2 fixtures still load. When `make_fixture_sink` writes
+// a fresh fixture it snapshots `MotionPreferences::current()` /
+// `current_duration_scale()` at first event.
 
 constexpr int kFixtureSchemaVersion = 2;
+
+/// Header metadata recorded once at the top of a fixture file.
+struct FixtureHeader {
+    int version = kFixtureSchemaVersion;
+    /// Policy in effect when the fixture was recorded. `"full"` /
+    /// `"reduced"` / `"off"`. Stored as a string so loaders without
+    /// `motion_preferences.hpp` can still compare.
+    std::string policy = "full";
+    /// Duration scale in effect when the fixture was recorded.
+    double duration_scale = 1.0;
+};
 
 // (`make_fixture_sink` and `replay_fixture` are declared below
 // alongside the other Sink helpers so the `using Sink = …` typedef is
@@ -188,6 +204,10 @@ constexpr int kFixtureSchemaVersion = 2;
 /// Load a fixture file into memory. Returns events in file order.
 /// Empty vector on missing / unreadable / unknown-version files.
 std::vector<SampleEvent> load_fixture(const std::string& path);
+
+/// Load a fixture's header (schema version + policy + duration_scale).
+/// Returns a default-constructed FixtureHeader on parse failure.
+FixtureHeader load_fixture_header(const std::string& path);
 
 /// Comparison result from `assert_matches`. Empty `differences` means
 /// the captured run matched the golden within tolerances.
@@ -210,9 +230,26 @@ struct FixtureMatchOptions {
     double component_epsilon = 0.05;
     double timing_epsilon_seconds = 0.05;
     bool require_same_event_count = true;
+    /// When true (default), `assert_matches_headers` will flag a
+    /// `"policy-mismatch"` diff item if the two fixtures recorded
+    /// different MotionPolicy values or differ in `duration_scale`
+    /// beyond `duration_scale_epsilon`. The event-only overload
+    /// (no headers passed) skips this check.
+    bool require_matching_policy = true;
+    double duration_scale_epsilon = 1e-6;
 };
 
 FixtureDiff assert_matches(const std::vector<SampleEvent>& golden,
+                           const std::vector<SampleEvent>& captured,
+                           FixtureMatchOptions opts = {});
+
+/// Overload that also compares fixture headers. Adds a
+/// `"policy-mismatch"` Item to the diff when policy / duration_scale
+/// differ and `opts.require_matching_policy` is true. Otherwise
+/// behaves identically to the event-only overload.
+FixtureDiff assert_matches(const FixtureHeader& golden_header,
+                           const std::vector<SampleEvent>& golden,
+                           const FixtureHeader& captured_header,
                            const std::vector<SampleEvent>& captured,
                            FixtureMatchOptions opts = {});
 

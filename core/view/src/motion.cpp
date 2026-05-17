@@ -2,6 +2,7 @@
 
 #include <pulp/runtime/log.hpp>
 #include <pulp/view/frame_clock.hpp>
+#include <pulp/view/motion_preferences.hpp>
 #include <pulp/view/ui_components.hpp>
 #include <pulp/view/view.hpp>
 
@@ -1098,17 +1099,42 @@ public:
     }
 
     bool parse_header(int& version_out) {
+        FixtureHeader unused;
+        return parse_header_full(unused) && (version_out = unused.version, true);
+    }
+
+    /// Parses the full fixture header. Accepts any subset / order of
+    /// `motion_fixture_version`, `policy`, `duration_scale`. Returns
+    /// false only on malformed JSON or missing version. Unknown keys
+    /// are skipped tolerantly so future additive fields don't break v2
+    /// loaders.
+    bool parse_header_full(FixtureHeader& out) {
         if (!expect('{')) return false;
-        std::string key;
         skip_ws();
-        if (peek() == '}') { ++pos_; version_out = 0; return false; }
-        if (!parse_string(key) || !expect(':')) return false;
-        if (key != "motion_fixture_version") return false;
-        double v = 0;
-        if (!parse_number(v)) return false;
-        skip_ws();
-        if (peek() == '}') { ++pos_; version_out = static_cast<int>(v); return true; }
-        return false;
+        if (peek() == '}') { ++pos_; return false; }
+        bool saw_version = false;
+        while (true) {
+            std::string key;
+            if (!parse_string(key) || !expect(':')) return false;
+            if (key == "motion_fixture_version") {
+                double v = 0;
+                if (!parse_number(v)) return false;
+                out.version = static_cast<int>(v);
+                saw_version = true;
+            } else if (key == "policy") {
+                if (!parse_string(out.policy)) return false;
+            } else if (key == "duration_scale") {
+                double v = 0;
+                if (!parse_number(v)) return false;
+                out.duration_scale = v;
+            } else {
+                if (!skip_value()) return false;
+            }
+            skip_ws();
+            if (peek() == ',') { ++pos_; continue; }
+            if (peek() == '}') { ++pos_; return saw_version; }
+            return false;
+        }
     }
 
 private:
@@ -1277,8 +1303,17 @@ Sink make_fixture_sink(std::string path) {
         state->ensure_open();
         if (!state->stream || !state->stream->is_open()) return;
         if (!state->header_written) {
+            // Snapshot the MotionPolicy + duration_scale in effect at
+            // the recording's first event. Goldens recorded under
+            // Reduced will not silently compare against Full captures.
+            const auto policy_str = motion_policy_to_string(
+                MotionPreferences::current());
+            const double scale = MotionPreferences::current_duration_scale();
             *state->stream << "{\"motion_fixture_version\":"
-                           << kFixtureSchemaVersion << "}\n";
+                           << kFixtureSchemaVersion
+                           << ",\"policy\":\"" << policy_str << "\""
+                           << ",\"duration_scale\":" << scale
+                           << "}\n";
             state->header_written = true;
         }
         *state->stream << serialize_event(e) << "\n";
@@ -1293,9 +1328,9 @@ std::vector<SampleEvent> load_fixture(const std::string& path) {
     std::string line;
     if (!std::getline(in, line)) return out;
     FixtureLineParser header(line);
-    int version = 0;
-    if (!header.parse_header(version)) return out;
-    if (version != kFixtureSchemaVersion) return out;
+    FixtureHeader hdr;
+    if (!header.parse_header_full(hdr)) return out;
+    if (hdr.version != kFixtureSchemaVersion) return out;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         SampleEvent e;
@@ -1304,6 +1339,18 @@ std::vector<SampleEvent> load_fixture(const std::string& path) {
         out.push_back(std::move(e));
     }
     return out;
+}
+
+FixtureHeader load_fixture_header(const std::string& path) {
+    FixtureHeader hdr;
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in.is_open()) return hdr;
+    std::string line;
+    if (!std::getline(in, line)) return hdr;
+    FixtureLineParser p(line);
+    FixtureHeader parsed;
+    if (!p.parse_header_full(parsed)) return hdr;
+    return parsed;
 }
 
 int replay_fixture(const std::string& path, const Sink& sink) {
@@ -1465,6 +1512,34 @@ FixtureDiff assert_matches(const std::vector<SampleEvent>& golden,
         }
     }
 
+    return diff;
+}
+
+FixtureDiff assert_matches(const FixtureHeader& golden_header,
+                           const std::vector<SampleEvent>& golden,
+                           const FixtureHeader& captured_header,
+                           const std::vector<SampleEvent>& captured,
+                           FixtureMatchOptions opts) {
+    FixtureDiff diff = assert_matches(golden, captured, opts);
+    if (opts.require_matching_policy) {
+        if (golden_header.policy != captured_header.policy) {
+            FixtureDiff::Item item;
+            item.kind = "policy-mismatch";
+            item.detail = "policy: golden=" + golden_header.policy +
+                          " captured=" + captured_header.policy;
+            diff.differences.push_back(item);
+        }
+        if (std::fabs(golden_header.duration_scale -
+                      captured_header.duration_scale) >
+            opts.duration_scale_epsilon) {
+            FixtureDiff::Item item;
+            item.kind = "policy-mismatch";
+            item.detail = "duration_scale mismatch";
+            item.expected = golden_header.duration_scale;
+            item.observed = captured_header.duration_scale;
+            diff.differences.push_back(item);
+        }
+    }
     return diff;
 }
 
