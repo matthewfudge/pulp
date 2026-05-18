@@ -82,3 +82,22 @@ TEST_CASE("pulp upgrade URL: empty version still produces the v-prefixed tag slo
     auto r = pulp_upgrade_url_for("", "linux", "x64");
     REQUIRE(r.url.find("/download/v/pulp-linux-x64.tar.gz") != std::string::npos);
 }
+
+TEST_CASE("pulp upgrade URL: empty platform and arch remain literal in asset",
+          "[cli][upgrade][url][coverage][phase3-large]") {
+    auto empty_platform = pulp_upgrade_url_for("2.2.0", "", "arm64");
+    REQUIRE(empty_platform.asset == "pulp--arm64.tar.gz");
+    REQUIRE(empty_platform.url.ends_with("/pulp--arm64.tar.gz"));
+
+    auto empty_arch = pulp_upgrade_url_for("2.2.0", "darwin", "");
+    REQUIRE(empty_arch.asset == "pulp-darwin-.tar.gz");
+    REQUIRE(empty_arch.url.ends_with("/pulp-darwin-.tar.gz"));
+}
+
+TEST_CASE("pulp upgrade URL: literal input is not normalized or URL escaped",
+          "[cli][upgrade][url][coverage][phase3-large]") {
+    auto r = pulp_upgrade_url_for(" 2.2.0 ", "darwin universal", "arm 64");
+    REQUIRE(r.asset == "pulp-darwin universal-arm 64.tar.gz");
+    REQUIRE(r.url.find("/download/v 2.2.0 /") != std::string::npos);
+    REQUIRE(r.url.ends_with("/" + r.asset));
+}
