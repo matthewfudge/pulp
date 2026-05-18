@@ -97,6 +97,37 @@ TEST_CASE("Adjust for contrast returns meeting color", "[view][contrast]") {
     REQUIRE(meets_contrast(*result, Color::rgba8(255, 255, 255), ContrastLevel::aa_normal));
 }
 
+TEST_CASE("Auto contrast falls back to the higher-ratio endpoint",
+          "[view][contrast][coverage][phase3]") {
+    auto background = Color::rgba8(120, 120, 120);
+    REQUIRE_FALSE(meets_contrast(Color::rgba8(255, 255, 255),
+                                 background,
+                                 ContrastLevel::aaa_normal));
+    REQUIRE_FALSE(meets_contrast(Color::rgba8(0, 0, 0),
+                                 background,
+                                 ContrastLevel::aaa_normal));
+
+    auto fg = auto_contrast_foreground(background, ContrastLevel::aaa_normal);
+
+    REQUIRE(fg.r == Catch::Approx(0.0f));
+    REQUIRE(fg.g == Catch::Approx(0.0f));
+    REQUIRE(fg.b == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Adjust for contrast returns an already valid foreground unchanged",
+          "[view][contrast][coverage][phase3]") {
+    auto foreground = Color::rgba8(255, 255, 255, 128);
+    auto background = Color::rgba8(0, 0, 0);
+
+    auto result = adjust_for_contrast(foreground, background, ContrastLevel::aaa_normal);
+
+    REQUIRE(result.has_value());
+    REQUIRE_THAT(result->r, WithinAbs(foreground.r, 0.001));
+    REQUIRE_THAT(result->g, WithinAbs(foreground.g, 0.001));
+    REQUIRE_THAT(result->b, WithinAbs(foreground.b, 0.001));
+    REQUIRE_THAT(result->a, WithinAbs(foreground.a, 0.001));
+}
+
 // ── HSL Conversion ──────────────────────────────────────────────────────────
 
 TEST_CASE("HSL round-trip for pure red", "[view][contrast][hsl]") {
