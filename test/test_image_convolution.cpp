@@ -191,3 +191,19 @@ TEST_CASE("Standard kernel weights cover blur edge and emboss paths",
     REQUIRE(emboss.get(0, 0) == -2.0f);
     REQUIRE(emboss.get(2, 2) == 2.0f);
 }
+
+TEST_CASE("Standard kernels process a single pixel via edge clamping",
+          "[canvas][convolution][coverage][phase3-github]") {
+    auto pixel = make_solid_image(1, 1, 20, 40, 60);
+    ImageConvolutionKernel::gaussian_blur_3().apply(pixel.data(), 1, 1);
+    REQUIRE(pixel[0] == 20);
+    REQUIRE(pixel[1] == 40);
+    REQUIRE(pixel[2] == 60);
+    REQUIRE(pixel[3] == 255);
+
+    ImageConvolutionKernel::sharpen().apply(pixel.data(), 1, 1);
+    REQUIRE(pixel[0] == 20);
+    REQUIRE(pixel[1] == 40);
+    REQUIRE(pixel[2] == 60);
+    REQUIRE(pixel[3] == 255);
+}
