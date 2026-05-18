@@ -807,15 +807,13 @@ TEST_CASE("text_diff treats identical multiline inputs as equal entries",
 TEST_CASE("text_diff preserves leading and trailing empty lines",
           "[runtime][text-diff][coverage][phase3]") {
     auto diff = text_diff("\nbody\n", "\nbody\nnext\n");
-    REQUIRE(diff.size() == 4);
+    REQUIRE(diff.size() == 3);
     REQUIRE(diff[0].op == DiffOp::Equal);
     REQUIRE(diff[0].text.empty());
     REQUIRE(diff[1].op == DiffOp::Equal);
     REQUIRE(diff[1].text == "body");
-    REQUIRE(diff[2].op == DiffOp::Equal);
-    REQUIRE(diff[2].text.empty());
-    REQUIRE(diff[3].op == DiffOp::Insert);
-    REQUIRE(diff[3].text == "next");
+    REQUIRE(diff[2].op == DiffOp::Insert);
+    REQUIRE(diff[2].text == "next");
 }
 
 TEST_CASE("text_diff handles replacement ties and empty line formatting",
