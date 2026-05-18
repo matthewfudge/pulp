@@ -7684,3 +7684,26 @@ malformed SVG gradient test, `pulp-test-widget-bridge-dispatch-global-key`,
 and `git diff --check`. Push used `PULP_VIA_SHIPYARD=1
 PULP_SKIP_DIFF_COVER=1 git push --force-with-lease`; #2173 is open and
 queued on GitHub-hosted checks at the rebased head.
+
+2026-05-18 01:05 PDT: added a fourteenth local-only canvas/text tranche to
+held batch `feature/phase3-codecov-batch-728` in
+`/private/tmp/pulp-phase3-codecov-batch-728`, then rebased cleanly onto current
+`origin/main` (`0.113.5`). New rebased commit is `a6c07354a`
+(`test(canvas): cover emoji segmenter edge paths`). The tranche extends
+`pulp-test-canvas-emoji` over odd regional-indicator pairing, tag-sequence
+coverage, malformed UTF-8 coverage as a default run, and FE0F/FE0E agreement
+between `contains_emoji()` and the full segmenter. It fixes the root issue that
+`contains_emoji()` previously classified individual codepoints directly, so an
+emoji-default base followed by FE0E text presentation could still return true
+despite `segment_emoji_runs()` routing the same cluster to `Default`. Local
+validation after rebase passed:
+`cmake --build build --target pulp-test-canvas-emoji pulp-test-font-options pulp-test-cluster-step -j$(sysctl -n hw.ncpu)`,
+`./build/test/pulp-test-canvas-emoji "[canvas][emoji][segmenter]"`
+(15 cases / 59 assertions), `./build/test/pulp-test-font-options`
+(12 cases / 135 assertions), `./build/test/pulp-test-cluster-step`
+(13 cases / 48 assertions),
+`python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD --mode=report`,
+`python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`
+(patch bump suggested because this tranche includes a source fix), and
+`git diff --check`. Batch #728 is now 14 local commits ahead and remains
+held until it reaches a larger 24-36 commit PR size.
