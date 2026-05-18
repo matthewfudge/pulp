@@ -8167,3 +8167,25 @@ on GitHub-hosted lanes. #2202 remains open with no failing checks after the
 macOS rerun; it is still waiting on GitHub-hosted macOS/sanitizer/Android
 lanes. GraphQL remains exhausted (`remaining=0`), while REST core quota is
 healthy, so all monitoring is REST-only for now. No Namespace dispatch.
+
+2026-05-18 05:18 PDT: continued the next held large GitHub-only coverage batch
+`feature/phase3-codecov-batch-731`, currently 8 local commits ahead of
+`origin/main` and still intentionally held for a larger PR rather than pushing
+a small CI batch. Local-only commits so far: `91ff24ce7`
+(`test(view): cover resizable shell serialization edges`), `08c764bc2`
+(`test(view): cover contrast fallback paths`), `e8eb777f7` (`test(view): cover
+motion cost defensive paths`), `abbcee44e` (`test(view): cover motion policy
+duration helpers`), `77d141a28` (`test(view): cover table model sort edge
+cases`), `059c847b1` (`test(midi): cover midi file helper edges`),
+`9c207e2cd` (`test(state): cover cached property edge cases`), and
+`1d66ce663` (`test(runtime): cover text diff context formatting`). Focused
+local validation passed for the touched suites: `pulp-test-resizable-shell`
+`[ui][resizable-shell]`, `pulp-test-theme-contrast` `[view][contrast]`,
+`pulp-test-motion-cost` `[motion-cost]`, `pulp-test-motion-preferences`
+`[motion-preferences]`, `pulp-test-table-model` `[ui][table-model]`,
+`pulp-test-midi-file` `[midi][file]`, `pulp-test-state-tree` `[state]`,
+`pulp-test-runtime-utils` `[runtime][text-diff]`, and `git diff --check` after
+each slice. PR monitoring remains GitHub-hosted only and REST-only while
+GraphQL quota is exhausted: #2173, #2202, #2208, and #2210 currently have no
+failing checks and are blocked only on queued/running GitHub-hosted lanes. No
+Namespace dispatch.
