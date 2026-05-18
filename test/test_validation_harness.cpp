@@ -117,6 +117,32 @@ TEST_CASE("ValidationHarness creates and reports descriptor", "[harness][phase2]
     REQUIRE(harness.descriptor().name == "HarnessTestGain");
 }
 
+TEST_CASE("ValidationHarness option and entry defaults match report schema",
+          "[harness][coverage][phase3]") {
+    pulp::format::ValidationRunOptions options;
+    REQUIRE(options.output_dir.empty());
+    REQUIRE(options.sample_rate == 48000.0);
+    REQUIRE(options.buffer_size == 512);
+    REQUIRE(options.input_channels == 2);
+    REQUIRE(options.output_channels == 2);
+    REQUIRE(options.screenshot_width == 800);
+    REQUIRE(options.screenshot_height == 600);
+    REQUIRE(options.screenshot_scale == 2.0f);
+    REQUIRE(options.screenshot_backend == "default");
+    REQUIRE(options.diff_tolerance == 32);
+    REQUIRE(options.diff_threshold == 0.85f);
+    REQUIRE(options.git_ref.empty());
+    REQUIRE(options.run_id.empty());
+
+    pulp::format::ReportEntry entry;
+    REQUIRE(entry.status == pulp::format::ValidationStatus::pass);
+    REQUIRE(entry.type.empty());
+    REQUIRE(entry.target.empty());
+    REQUIRE(entry.duration_ms == 0.0);
+    REQUIRE(entry.error_message.empty());
+    REQUIRE(entry.payload_json.empty());
+}
+
 TEST_CASE("ValidationHarness set/get param", "[harness][phase2]") {
     pulp::format::ValidationHarness harness(create_test_gain);
     harness.configure({});
