@@ -7599,3 +7599,27 @@ runtime path. Local validation passed after rebase:
 `python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`,
 and `git diff --check`. Still held locally for a larger 24-36 tranche PR
 batch.
+
+2026-05-18 00:35 PDT: repaired PR #2173
+(`feature/phase3-codecov-next-batch-727`) after GitHub-hosted Linux failed
+11 WidgetBridge/SVG tests on head `7b1f4d84f`. The failure was not a runner
+flake. The branch was 10 commits behind `origin/main`, and local replay after
+rebase exposed real regressions in the extracted bridge keyboard/runtime
+import path: a stale duplicate `WidgetBridge::forward_key_event` in
+`widget_bridge.cpp` bypassed the focused-text-input guard, the RN/Pencil
+runtime-import labels still fell through to the Claude parser, and the static
+`WidgetBridge` registry was no longer populated by ctor/dtor. Added repair
+commit `777817ab2` (`fix(view): restore bridge key dispatch paths`) and then
+commit `b9d74decf` (`fix(test): remove leaked Clock fixture files`) after the
+pre-push source-pollution gate caught a committed Clock fixture
+`CMakeLists.txt` plus `pulp.toml` on the PR branch. Local targeted validation
+passed before push: built the five affected view/SVG targets, ran the
+focus-guard WidgetBridge test, the explicit RN runtime-import test, the RN
+auto-detect runtime-import test, the explicit Pencil runtime-import test, the
+malformed SVG gradient test, `pulp-test-widget-bridge-dispatch-global-key`,
+`pulp-test-widget-bridge-dispatch-document-event`,
+`python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD --mode=report`,
+`python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`,
+and `git diff --check`. Push used `PULP_VIA_SHIPYARD=1
+PULP_SKIP_DIFF_COVER=1 git push --force-with-lease`; pre-push gates completed
+cleanly and #2173 is now queued on GitHub-hosted CI at head `b9d74decf`.
