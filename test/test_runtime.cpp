@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/runtime/dynamic_library.hpp>
 #include <pulp/runtime/high_resolution_timer.hpp>
+#include <pulp/runtime/range.hpp>
 #include <pulp/runtime/runtime.hpp>
 #include <pulp/runtime/temporary_file.hpp>
 #include <array>
@@ -209,6 +210,45 @@ TEST_CASE("PULP_ON_SCOPE_EXIT runs at block exit",
         REQUIRE(calls == 0);
     }
     REQUIRE(calls == 1);
+}
+
+TEST_CASE("Range reports containment intersections and empty spans",
+          "[runtime][range][codecov]") {
+    const IntRange range{10, 20};
+
+    REQUIRE(range.length() == 10);
+    REQUIRE_FALSE(range.empty());
+    REQUIRE(range.contains(10));
+    REQUIRE(range.contains(19));
+    REQUIRE_FALSE(range.contains(20));
+    REQUIRE(range.contains(IntRange{12, 18}));
+    REQUIRE_FALSE(range.contains(IntRange{9, 18}));
+
+    REQUIRE(range.intersects(IntRange{0, 11}));
+    REQUIRE(range.intersects(IntRange{19, 30}));
+    REQUIRE_FALSE(range.intersects(IntRange{20, 30}));
+
+    REQUIRE(range.intersection(IntRange{15, 25}) == IntRange{15, 20});
+    REQUIRE(range.intersection(IntRange{20, 25}).empty());
+    REQUIRE(IntRange{5, 5}.empty());
+    REQUIRE(IntRange{7, 3}.empty());
+}
+
+TEST_CASE("Range union constrain and expansion handle edge inputs",
+          "[runtime][range][codecov]") {
+    REQUIRE(IntRange{5, 5}.enclosing_union(IntRange{2, 4}) == IntRange{2, 4});
+    REQUIRE(IntRange{2, 4}.enclosing_union(IntRange{8, 10}) == IntRange{2, 10});
+
+    const IntRange range{3, 7};
+    REQUIRE(range.constrain(1) == 3);
+    REQUIRE(range.constrain(5) == 5);
+    REQUIRE(range.constrain(99) == 6);
+    REQUIRE(IntRange{4, 4}.constrain(99) == 4);
+
+    REQUIRE(IntRange{4, 4}.expanded(9) == IntRange{9, 10});
+    REQUIRE(range.expanded(1) == IntRange{1, 7});
+    REQUIRE(range.expanded(9) == IntRange{3, 10});
+    REQUIRE(IntRange::from_start_length(8, 3) == IntRange{8, 11});
 }
 
 TEST_CASE("Logging does not crash", "[runtime][log]") {
