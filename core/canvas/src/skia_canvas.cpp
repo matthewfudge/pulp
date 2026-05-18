@@ -1626,12 +1626,13 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     // and shape each separately. ASCII text bypasses the scan; it's
     // virtually always covered by any Latin typeface.
     //
-    // Letter-spacing note: the shape-then-blob path can't carry CSS
-    // letter-spacing per glyph, so the fallback only activates when
-    // letter_spacing_ == 0. Mixed letter-spacing + missing-glyph text
-    // currently keeps falling through to the per-glyph builder below
-    // (.notdef tofu) rather than risk visible baseline drift between
-    // runs (pulp #2163 #31 regression).
+    // pulp #2163 — for letter_spacing_ == 0 only, route missing-glyph
+    // text through SkShaper-based per-run fallback for best kerning /
+    // ligature quality. Letter-spaced text falls through to the
+    // unified per-glyph builder below, which handles BOTH missing-glyph
+    // fallback AND letter-spacing in one path — that's the path the
+    // iMX8 / READY header labels both take, so they share baseline
+    // placement.
     if (letter_spacing_ == 0.0f
         && !active_typeface_covers_text(font.getTypeface(), text)) {
         const bool ltr = (direction_ != TextDirection::rtl);
@@ -1640,6 +1641,17 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
                                   ltr, text_align_, get_font_manager());
         return;
     }
+
+    // pulp #2163 — if letter_spacing_ != 0 OR letter_spacing_ == 0
+    // path-1 (SkShaper) gave up (above), but the active typeface
+    // covers the text, fall through to the unified per-glyph builder.
+    // For letter-spaced text with missing glyphs, the per-glyph builder
+    // handles fallback inline so we never reach this point with .notdef
+    // boxes — the bullet ● in '● READY' now renders via system fallback
+    // even when letter_spacing_ > 0.
+    //
+    // For letter_spacing_ == 0 + fully covered text the path-1 SkShaper
+    // already returned above, so we won't double-render.
 
     // SkShaper path: full OpenType kerning + ligatures via HarfBuzz.
     //
@@ -1684,40 +1696,137 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     }
 #endif
 
-    // Fallback: per-glyph SkTextBlob without kerning/ligatures. Hit
-    // only when text shaping is disabled (PULP_HAS_TEXT_SHAPING off) or
-    // `make_paragraph` could not build a paragraph (empty text or no
-    // FontCollection). letter_spacing_ is applied between every pair of
-    // glyphs here — wrong for grapheme clusters, but acceptable in the
-    // no-shaping degraded path.
-    int glyph_count = static_cast<int>(font.countText(text.c_str(), text.size(), SkTextEncoding::kUTF8));
-    if (glyph_count <= 0) return;
+    // pulp #2163 — unified per-glyph fallback path with per-codepoint
+    // font fallback AND letter-spacing support. Reached when
+    // PULP_HAS_TEXT_SHAPING is compile-time disabled OR (post-PR #2157)
+    // when make_paragraph fails to build a paragraph. One code path so
+    // every fill_text call ends up at the same baseline placement,
+    // regardless of whether the text has missing glyphs or letter-spacing.
+    // Replaces the prior split where letter-spaced text rendered missing
+    // glyphs as .notdef boxes while non-letter-spaced text routed through
+    // shape_with_glyph_fallback — the divergent baselines between paths
+    // showed up as visibly stacked labels (pulp #2163 #31 iMX8/READY
+    // regression).
+    //
+    // Algorithm:
+    //  1. Walk UTF-8 codepoints.
+    //  2. For each cp, prefer the active typeface; if it lacks the
+    //     glyph, ask SkFontMgr::matchFamilyStyleCharacter for a
+    //     fallback. Cache fallbacks per cp inside this call.
+    //  3. Group consecutive codepoints with the same typeface into
+    //     runs (SkTextBlobBuilder needs one allocRunPosH per font).
+    //  4. Measure advances per glyph via SkFont::getWidths on the
+    //     run's font.
+    //  5. Lay out glyph positions with cumulative cursor + per-pair
+    //     letter_spacing.
+    //  6. Apply text_align after total width is known.
+    //
+    // SkShaper's kerning + ligature quality is lost on this path,
+    // but it's only entered for letter-spaced or non-fully-covered
+    // text — both cases that already preclude useful kerning. The
+    // best-quality SkParagraph path (#2157) is still chosen for the
+    // common case at the top of fill_text above.
+    auto font_mgr_for_fallback = get_font_manager();
+    SkFontStyle style{font_weight_, SkFontStyle::kNormal_Width,
+                      font_slant_ ? SkFontStyle::kItalic_Slant : SkFontStyle::kUpright_Slant};
+    std::unordered_map<SkUnichar, sk_sp<SkTypeface>> fallback_cache;
+    auto* active_tf = font.getTypeface();
 
-    std::vector<SkGlyphID> glyphs(glyph_count);
-    font.textToGlyphs(text.c_str(), text.size(), SkTextEncoding::kUTF8,
-                      SkSpan<SkGlyphID>(glyphs.data(), glyph_count));
+    struct GlyphEntry {
+        sk_sp<SkTypeface> tf;  // typeface for this glyph
+        SkGlyphID glyph;       // resolved glyph id (always non-zero when tf has the glyph)
+        SkScalar width;        // advance for this glyph
+    };
+    std::vector<GlyphEntry> entries;
+    entries.reserve(text.size());
 
-    std::vector<SkScalar> widths(glyph_count);
-    font.getWidths(SkSpan<const SkGlyphID>(glyphs.data(), glyph_count),
-                   SkSpan<SkScalar>(widths.data(), glyph_count));
+    const char* p = text.data();
+    const char* end = p + text.size();
+    while (p < end) {
+        int adv = 0;
+        SkUnichar cp = next_utf8(p, end, &adv);
+        if (adv == 0) break;
+        p += adv;
 
+        // Pick typeface for this codepoint: active → fallback.
+        sk_sp<SkTypeface> chosen;
+        SkGlyphID gid = 0;
+        if (active_tf) {
+            gid = active_tf->unicharToGlyph(cp);
+            if (gid != 0) chosen = sk_ref_sp(active_tf);
+        }
+        if (!chosen && cp >= 0x20 && font_mgr_for_fallback) {
+            auto it = fallback_cache.find(cp);
+            if (it != fallback_cache.end()) chosen = it->second;
+            else {
+                chosen = font_mgr_for_fallback->matchFamilyStyleCharacter(
+                    font_family_.empty() ? nullptr : font_family_.c_str(),
+                    style, nullptr, 0, cp);
+                if (chosen) {
+                    gid = chosen->unicharToGlyph(cp);
+                    if (gid == 0) chosen.reset();  // matcher lied; treat as no fallback
+                }
+                fallback_cache[cp] = chosen;
+            }
+            if (chosen && gid == 0) gid = chosen->unicharToGlyph(cp);
+        }
+        // Final fallback: emit .notdef in active typeface (preserves
+        // current behavior when fallback path can't reach a font with
+        // the glyph — at least the text doesn't disappear entirely).
+        if (!chosen) {
+            chosen = sk_ref_sp(active_tf);
+            gid = 0;  // .notdef
+        }
+        if (!chosen) continue;  // shouldn't happen — active_tf was checked above
+
+        // Measure advance for this single glyph in its typeface's font.
+        SkFont glyph_font = font;
+        glyph_font.setTypeface(chosen);
+        SkScalar w = 0;
+        glyph_font.getWidths(SkSpan<const SkGlyphID>(&gid, 1),
+                             SkSpan<SkScalar>(&w, 1));
+        entries.push_back({std::move(chosen), gid, w});
+    }
+
+    if (entries.empty()) return;
+
+    // Total advance: sum of glyph widths + (N-1) * letter_spacing.
     float total_w = 0;
-    for (int i = 0; i < glyph_count; ++i) total_w += widths[i];
-    // CSS letter-spacing: extra advance between every pair of glyphs.
-    if (glyph_count > 1) total_w += letter_spacing_ * static_cast<float>(glyph_count - 1);
+    for (const auto& e : entries) total_w += e.width;
+    if (entries.size() > 1) {
+        total_w += letter_spacing_ * static_cast<float>(entries.size() - 1);
+    }
 
     float draw_x = x;
     if (text_align_ == TextAlign::center) draw_x -= total_w * 0.5f;
     else if (text_align_ == TextAlign::right) draw_x -= total_w;
 
+    // Build runs grouped by typeface identity. SkTextBlobBuilder requires
+    // one allocRunPosH per (font, count) pair, so we walk entries and
+    // open a new run whenever the typeface changes.
     SkTextBlobBuilder builder;
-    const auto& run = builder.allocRunPosH(font, glyph_count, y);
     float cursor = draw_x;
-    for (int i = 0; i < glyph_count; ++i) {
-        run.glyphs[i] = glyphs[i];
-        run.pos[i] = cursor;
-        cursor += widths[i];
-        if (i + 1 < glyph_count) cursor += letter_spacing_;
+    size_t i = 0;
+    while (i < entries.size()) {
+        SkTypeface* run_tf = entries[i].tf.get();
+        size_t j = i + 1;
+        while (j < entries.size() && entries[j].tf.get() == run_tf) ++j;
+        const int run_n = static_cast<int>(j - i);
+
+        SkFont run_font = font;
+        run_font.setTypeface(entries[i].tf);
+        const auto& run = builder.allocRunPosH(run_font, run_n, y);
+        for (int k = 0; k < run_n; ++k) {
+            run.glyphs[k] = entries[i + k].glyph;
+            run.pos[k] = cursor;
+            cursor += entries[i + k].width;
+            // Letter-spacing applies between every pair of glyphs in
+            // the source text, including across run boundaries — same
+            // rule browsers use when CSS letter-spacing crosses an
+            // <em> / fallback-font boundary.
+            if (i + k + 1 < entries.size()) cursor += letter_spacing_;
+        }
+        i = j;
     }
 
     canvas_->drawTextBlob(builder.make(), 0, 0, paint);
