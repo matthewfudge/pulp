@@ -7285,3 +7285,17 @@ and ran
 `./build/test/pulp-test-audio-file "FormatRegistry rejects paths without dispatchable extensions"`,
 which passed 1 test case / 11 assertions. This tranche is held locally and
 should be aggregated into the larger PR rather than submitted individually.
+
+2026-05-17 23:18 PDT: added another local-only held view property-list
+coverage tranche to the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `0a449849a` (`test(view): cover property list color clamp paths`).
+The tranche extends `test/test_property_list.cpp` over RGB byte clamping for
+out-of-range color channels, category-header click misses, non-bool row
+selection without mutation, and editable bool row toggling after category
+offsets. Validation passed locally: `git diff --check`, built
+`pulp-test-property-list`, and ran
+`./build/test/pulp-test-property-list "[view][property_list]"`, which passed
+7 test cases / 46 assertions. This tranche is held locally and should be
+aggregated into the larger PR rather than submitted individually.
