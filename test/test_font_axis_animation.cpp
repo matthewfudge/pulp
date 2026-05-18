@@ -93,7 +93,6 @@ TEST_CASE("FontResolver: capacity=0 disables cap (legacy unbounded)", "[font][ax
     r.set_cache_capacity(256);
     r.clear_cache();
 }
-
 TEST_CASE("FontResolver: shrinking the cap evicts oldest immediately",
           "[font][axes][skia]") {
     auto& r = FontResolver::instance();
