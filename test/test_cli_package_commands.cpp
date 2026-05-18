@@ -289,9 +289,23 @@ TEST_CASE("cmd_target manages project targets from local pulp.toml",
     REQUIRE(add_missing_arg.exit_code == 1);
     REQUIRE(add_missing_arg.stderr_text.find("Usage: pulp target add") != std::string::npos);
 
+    auto add_extra_arg = run_in_project(tmp.path, [&] {
+        return cmd_target({"add", "Linux-x64", "extra"});
+    });
+    REQUIRE(add_extra_arg.exit_code == 2);
+    REQUIRE(add_extra_arg.stderr_text.find("Unexpected target add argument") !=
+            std::string::npos);
+
     auto remove_missing_arg = run_in_project(tmp.path, [&] { return cmd_target({"remove"}); });
     REQUIRE(remove_missing_arg.exit_code == 1);
     REQUIRE(remove_missing_arg.stderr_text.find("Usage: pulp target remove") != std::string::npos);
+
+    auto list_extra_arg = run_in_project(tmp.path, [&] {
+        return cmd_target({"list", "extra"});
+    });
+    REQUIRE(list_extra_arg.exit_code == 2);
+    REQUIRE(list_extra_arg.stderr_text.find("Unexpected target list argument") !=
+            std::string::npos);
 
     auto unknown = run_in_project(tmp.path, [&] { return cmd_target({"rename"}); });
     REQUIRE(unknown.exit_code == 1);
@@ -393,6 +407,10 @@ TEST_CASE("search, list, suggest, and audit commands use staged local data",
     REQUIRE(list_json.exit_code == 0);
     REQUIRE(list_json.stdout_text.find("\"signalsmith-dsp\"") != std::string::npos);
     REQUIRE(list_json.stdout_text.find("\"missing-pkg\"") != std::string::npos);
+
+    auto list_unknown_flag = run_in_project(tmp.path, [&] { return cmd_list({"--verbose"}); });
+    REQUIRE(list_unknown_flag.exit_code == 2);
+    REQUIRE(list_unknown_flag.stderr_text.find("Unknown list option") != std::string::npos);
 
     auto suggest_description = run_in_project(tmp.path, [&] {
         return cmd_suggest({"--description", "filter"});
@@ -610,6 +628,12 @@ TEST_CASE("cmd_update reports no-op and missing-registry states",
     auto missing_registry = run_in_project(tmp.path, [&] { return cmd_update({}); });
     REQUIRE(missing_registry.exit_code == 1);
     REQUIRE(missing_registry.stderr_text.find("Package registry not found") != std::string::npos);
+
+    auto unknown_update_flag = run_in_project(tmp.path, [&] {
+        return cmd_update({"--dry-run"});
+    });
+    REQUIRE(unknown_update_flag.exit_code == 2);
+    REQUIRE(unknown_update_flag.stderr_text.find("Unknown update option") != std::string::npos);
 }
 
 TEST_CASE("cmd_add and cmd_remove stay local on failure and success paths",
@@ -646,6 +670,16 @@ TEST_CASE("cmd_add and cmd_remove stay local on failure and success paths",
     auto remove_missing = run_in_project(tmp.path, [&] { return cmd_remove({"missing-pkg"}); });
     REQUIRE(remove_missing.exit_code == 1);
     REQUIRE(remove_missing.stderr_text.find("is not installed") != std::string::npos);
+
+    auto remove_unknown_flag = run_in_project(tmp.path, [&] { return cmd_remove({"--force"}); });
+    REQUIRE(remove_unknown_flag.exit_code == 2);
+    REQUIRE(remove_unknown_flag.stderr_text.find("Unknown remove option") != std::string::npos);
+
+    auto remove_extra_arg = run_in_project(tmp.path, [&] {
+        return cmd_remove({"signalsmith-dsp", "extra"});
+    });
+    REQUIRE(remove_extra_arg.exit_code == 2);
+    REQUIRE(remove_extra_arg.stderr_text.find("Unexpected remove argument") != std::string::npos);
 
     auto remove_ok = run_in_project(tmp.path, [&] { return cmd_remove({"signalsmith-dsp"}); });
     REQUIRE(remove_ok.exit_code == 0);
