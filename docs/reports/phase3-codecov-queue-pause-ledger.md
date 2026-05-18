@@ -9124,3 +9124,27 @@ New #2281 head is `d4b1bf626`. #2268 is still open; its current failing
 `linux`/`macos`/`windows` alias jobs are reporting cancelled underlying
 platform legs rather than a new source failure, so the next action is a
 deliberate rerun/rescue instead of another empty commit.
+
+2026-05-18 16:38 PDT: continued held local batch
+`feature/phase3-codecov-batch-748` with three more focused parser/coverage
+commits, still local-only and intentionally below PR size target:
+`d315d4f93` (`fix(cli): reject create sdk upgrade parser errors`) adds
+early exit-2 rejection and shellout coverage for missing/unknown `pulp
+create`, `pulp sdk install`, and `pulp upgrade` arguments before scaffolding,
+downloads, or upgrade side effects; `48097fa41` (`fix(cli): reject design
+option parser errors`) guards `pulp design --build-dir/--script` missing
+values before autobind; and `1d7636238` (`fix(cli): reject operator option
+parser errors`) covers missing values for `pulp macos retarget/status` and
+`pulp overflow enable`. Focused local validation passed from the correct
+`build/test` cwd:
+`build/test/pulp-test-cli-shellout
+"[cli][shellout][create][coverage][phase3],[cli][shellout][upgrade][coverage][phase3],[cli][shellout][sdk][coverage][phase3]"`
+with 61 assertions, `"[cli][shellout][design][coverage][phase3]"` with 16
+assertions, and
+`"[cli][shellout][macos][coverage][phase3],[cli][shellout][overflow][coverage][phase3]"`
+with 47 assertions, plus `git diff --check`. Batch 748 is now 11 commits
+ahead of `origin/main`; keep accumulating toward a larger 24-36 commit PR.
+REST monitoring at this point shows #2281, #2272, and #2268 all have zero
+failed checks and only pending lanes. The #2268 failed/cancelled alias state
+was re-armed via `gh run rerun --failed` after `shipyard rescue 2268` was
+blocked by the current GraphQL rate limit.
