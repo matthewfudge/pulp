@@ -696,51 +696,11 @@ def load_queue() -> list[dict]:
         return queue
 
 
-def enabled_targets(config: dict) -> list[str]:
-    return [
-        name
-        for name, target_cfg in config.get("targets", {}).items()
-        if target_cfg.get("enabled", True)
-    ]
-
-
-def parse_targets_arg(value: str | None) -> list[str] | None:
-    if value is None or value.strip() == "":
-        return None
-    parts = [part.strip() for part in value.split(",") if part.strip()]
-    return sorted(dict.fromkeys(parts))
-
-
-def resolve_targets(config: dict, requested: list[str] | None) -> list[str]:
-    if requested is None:
-        configured = config.get("defaults", {}).get("targets")
-        if configured is not None:
-            if isinstance(configured, str):
-                requested = parse_targets_arg(configured)
-            else:
-                requested = sorted(dict.fromkeys(configured))
-        else:
-            requested = enabled_targets(config)
-
-    if not requested:
-        return []
-
-    valid = set(config.get("targets", {}).keys())
-    unknown = [target for target in requested if target not in valid]
-    if unknown:
-        raise ValueError(f"Unknown target(s): {', '.join(unknown)}")
-
-    disabled = [
-        target
-        for target in requested
-        if not config["targets"].get(target, {}).get("enabled", True)
-    ]
-    if disabled:
-        raise ValueError(
-            f"Requested target(s) disabled in config: {', '.join(disabled)}"
-        )
-
-    return sorted(dict.fromkeys(requested))
+from targets import (  # noqa: E402  -- re-exported for in-file consumers
+    enabled_targets,
+    parse_targets_arg,
+    resolve_targets,
+)
 
 
 def desktop_target_receipt_path(target_name: str) -> Path:
