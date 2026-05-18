@@ -153,3 +153,16 @@ TEST_CASE("default tempo hook is a no-op",
     p.on_host_tempo_changed(240.0);
     SUCCEED("default tempo hook returned cleanly");
 }
+
+TEST_CASE("exception thrown by tempo hook propagates to the caller",
+          "[processor][transport][coverage][phase3]") {
+    class ThrowingTempoProcessor : public PlainProcessor {
+    public:
+        void on_host_tempo_changed(double) override {
+            throw std::runtime_error("tempo hook exploded");
+        }
+    };
+
+    ThrowingTempoProcessor p;
+    REQUIRE_THROWS_AS(p.on_host_tempo_changed(128.0), std::runtime_error);
+}
