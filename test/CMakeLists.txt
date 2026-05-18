@@ -1,5 +1,7 @@
 # Pulp test suite — Catch2
 
+include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpTestSuite.cmake)
+
 # Build check (no Catch2 dependency)
 add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
@@ -625,99 +627,61 @@ catch_discover_tests(pulp-test-cli-migration-index
     PROPERTIES ENVIRONMENT "PULP_SOURCE_DIR=${CMAKE_SOURCE_DIR}")
 
 # Child process tests
-add_executable(pulp-test-child-process test_child_process.cpp)
-target_link_libraries(pulp-test-child-process PRIVATE pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-child-process)
+pulp_add_test_suite(pulp-test-child-process LIBRARIES pulp::platform)
 
 # Progress parser tests
-add_executable(pulp-test-progress-parser test_progress_parser.cpp)
-target_link_libraries(pulp-test-progress-parser PRIVATE pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-progress-parser)
+pulp_add_test_suite(pulp-test-progress-parser LIBRARIES pulp::platform)
 
 # Stream tests (unified I/O interface)
-add_executable(pulp-test-stream test_stream.cpp)
-target_link_libraries(pulp-test-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-stream)
+pulp_add_test_suite(pulp-test-stream LIBRARIES pulp::runtime)
 
 # #334: AudioFocusRegistry — cross-platform observer for OS audio-focus
 # signals (Android AudioManager.OnAudioFocusChangeListener,
 # AVAudioSession interruptions). Pure C++ unit tests — no platform deps.
-add_executable(pulp-test-audio-focus test_audio_focus.cpp)
-target_link_libraries(pulp-test-audio-focus PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio-focus)
+pulp_add_test_suite(pulp-test-audio-focus LIBRARIES pulp::audio)
 
 # #244: zero-fill helper for the Oboe input-frame-read short-read path.
 # Header-only math, so no library link required beyond Catch2.
-add_executable(pulp-test-frame-fill test_frame_fill.cpp)
-target_link_libraries(pulp-test-frame-fill PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-frame-fill)
+pulp_add_test_suite(pulp-test-frame-fill LIBRARIES pulp::audio)
 
 # #86: SysExAccumulator — cross-platform MIDI SysEx aggregation state
 # machine shared by Android/ALSA/Windows/iOS MIDI backends. Header-only.
-add_executable(pulp-test-sysex-accumulator test_sysex_accumulator.cpp)
-target_link_libraries(pulp-test-sysex-accumulator PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sysex-accumulator)
+pulp_add_test_suite(pulp-test-sysex-accumulator LIBRARIES pulp::midi)
 
 # AsyncStream tests (Phase 2)
-add_executable(pulp-test-async-stream test_async_stream.cpp)
-target_link_libraries(pulp-test-async-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-async-stream)
+pulp_add_test_suite(pulp-test-async-stream LIBRARIES pulp::runtime)
 
 # Network Stream tests (Phase 3)
-add_executable(pulp-test-network-stream test_network_stream.cpp)
-target_link_libraries(pulp-test-network-stream PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-network-stream)
+pulp_add_test_suite(pulp-test-network-stream LIBRARIES pulp::runtime)
 
 # MessageChannel tests (Phase 4)
-add_executable(pulp-test-memory-message-channel test_memory_message_channel.cpp)
-target_link_libraries(pulp-test-memory-message-channel PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-memory-message-channel)
+pulp_add_test_suite(pulp-test-memory-message-channel LIBRARIES pulp::runtime)
 
-add_executable(pulp-test-websocket-channel test_websocket_channel.cpp)
-target_link_libraries(pulp-test-websocket-channel PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-websocket-channel)
+pulp_add_test_suite(pulp-test-websocket-channel LIBRARIES pulp::runtime)
 
-add_executable(pulp-test-osc-channel test_osc_channel.cpp)
-target_link_libraries(pulp-test-osc-channel PRIVATE pulp::osc Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-osc-channel)
+pulp_add_test_suite(pulp-test-osc-channel LIBRARIES pulp::osc)
 
-add_executable(pulp-test-json-rpc test_json_rpc.cpp)
-target_link_libraries(pulp-test-json-rpc PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-json-rpc)
+pulp_add_test_suite(pulp-test-json-rpc LIBRARIES pulp::runtime)
 
 # Validation harness tests (Phase 2)
-add_executable(pulp-test-validation-harness test_validation_harness.cpp)
-target_link_libraries(pulp-test-validation-harness PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-validation-harness)
+pulp_add_test_suite(pulp-test-validation-harness LIBRARIES pulp::format)
 
-add_executable(pulp-test-plugin-state-io test_plugin_state_io.cpp)
-target_link_libraries(pulp-test-plugin-state-io PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-plugin-state-io)
+pulp_add_test_suite(pulp-test-plugin-state-io LIBRARIES pulp::format)
 
 # AAX metadata/model tests
-add_executable(pulp-test-aax-model test_aax_model.cpp)
-target_link_libraries(pulp-test-aax-model PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-aax-model)
+pulp_add_test_suite(pulp-test-aax-model LIBRARIES pulp::format)
 
 # Appcast/auto-update tests
-add_executable(pulp-test-appcast test_appcast.cpp)
-target_link_libraries(pulp-test-appcast PRIVATE pulp::ship Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-appcast)
+pulp_add_test_suite(pulp-test-appcast LIBRARIES pulp::ship)
 
 # Android package/signing tests (host-side fake SDK/toolchain only)
-add_executable(pulp-test-android-package test_android_package.cpp)
-target_link_libraries(pulp-test-android-package PRIVATE pulp::ship Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-android-package)
+pulp_add_test_suite(pulp-test-android-package LIBRARIES pulp::ship)
 
 # V3 gaps tests (Bias, MidiSequence, SubsectionReader, HostType, Primes, Expression)
-add_executable(pulp-test-v3-gaps test_v3_gaps.cpp)
-target_link_libraries(pulp-test-v3-gaps PRIVATE pulp::signal pulp::midi pulp::audio pulp::format pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-v3-gaps)
+pulp_add_test_suite(pulp-test-v3-gaps LIBRARIES pulp::signal pulp::midi pulp::audio pulp::format pulp::runtime)
 
 # Codesign tests
-add_executable(pulp-test-codesign test_codesign.cpp)
-target_link_libraries(pulp-test-codesign PRIVATE pulp::ship Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-codesign)
+pulp_add_test_suite(pulp-test-codesign LIBRARIES pulp::ship)
 
 # Sync primitives tests (SeqLock, TripleBuffer)
 add_executable(pulp-test-sync test_sync_primitives.cpp)
@@ -728,14 +692,10 @@ target_link_libraries(pulp-test-sync PRIVATE pulp::runtime Catch2::Catch2WithMai
 catch_discover_tests(pulp-test-sync PROPERTIES LABELS slow)
 
 # License and BigInteger tests
-add_executable(pulp-test-license test_license.cpp)
-target_link_libraries(pulp-test-license PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-license)
+pulp_add_test_suite(pulp-test-license LIBRARIES pulp::runtime)
 
 # MIDI CI tests
-add_executable(pulp-test-midi-ci test_midi_ci.cpp)
-target_link_libraries(pulp-test-midi-ci PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-midi-ci)
+pulp_add_test_suite(pulp-test-midi-ci LIBRARIES pulp::midi)
 
 # AU v2 effect adapter MIDI-input tests — guards the 2026-04-22 fix that
 # wired HandleMIDIEvent / HandleSysEx into `PulpAUEffect` and flipped the
@@ -753,9 +713,7 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_AUSDK)
 endif()
 
 # iOS AVAudioSession bridge (workstream 05 slice 5.2)
-add_executable(pulp-test-ios-audio-session test_ios_audio_session.cpp)
-target_link_libraries(pulp-test-ios-audio-session PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ios-audio-session)
+pulp_add_test_suite(pulp-test-ios-audio-session LIBRARIES pulp::format)
 if(NOT PULP_IOS)
     add_executable(pulp-test-pulp-bridge test_pulp_bridge.cpp)
     target_link_libraries(pulp-test-pulp-bridge PRIVATE
@@ -765,66 +723,38 @@ if(NOT PULP_IOS)
     catch_discover_tests(pulp-test-pulp-bridge)
 endif()
 # ARA scaffolding (workstream 06 slice 6.1)
-add_executable(pulp-test-ara test_ara.cpp)
-target_link_libraries(pulp-test-ara PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ara)
+pulp_add_test_suite(pulp-test-ara LIBRARIES pulp::format)
 # CLAP ARA extension end-to-end (workstream 06 A2a)
-add_executable(pulp-test-clap-ara-extension test_clap_ara_extension.cpp)
-target_link_libraries(pulp-test-clap-ara-extension PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-clap-ara-extension)
+pulp_add_test_suite(pulp-test-clap-ara-extension LIBRARIES pulp::format)
 # Processor ARA hook (workstream 06 slice 6.3a)
-add_executable(pulp-test-processor-ara-hook test_processor_ara_hook.cpp)
-target_link_libraries(pulp-test-processor-ara-hook PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-processor-ara-hook)
+pulp_add_test_suite(pulp-test-processor-ara-hook LIBRARIES pulp::format)
 # Processor and descriptor default contracts
-add_executable(pulp-test-processor-defaults test_processor_defaults.cpp)
-target_link_libraries(pulp-test-processor-defaults PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-processor-defaults)
+pulp_add_test_suite(pulp-test-processor-defaults LIBRARIES pulp::format)
 # TableModel data/sort layer (workstream 07 slice 7.3)
-add_executable(pulp-test-table-model test_table_model.cpp)
-target_link_libraries(pulp-test-table-model PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-table-model)
+pulp_add_test_suite(pulp-test-table-model LIBRARIES pulp::view)
 # ModulationMatrix data model (workstream 07 slice 7.1)
-add_executable(pulp-test-modulation-matrix test_modulation_matrix.cpp)
-target_link_libraries(pulp-test-modulation-matrix PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-modulation-matrix)
+pulp_add_test_suite(pulp-test-modulation-matrix LIBRARIES pulp::view)
 # ModulationMatrixWidget canvas widget (workstream 07 slice B5)
-add_executable(pulp-test-modulation-matrix-widget test_modulation_matrix_widget.cpp)
-target_link_libraries(pulp-test-modulation-matrix-widget PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-modulation-matrix-widget)
+pulp_add_test_suite(pulp-test-modulation-matrix-widget LIBRARIES pulp::view)
 # PluginDescriptor vendor_url + vendor_email (workstream 01 slice 1.8)
-add_executable(pulp-test-vendor-url test_vendor_url.cpp)
-target_link_libraries(pulp-test-vendor-url PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-vendor-url)
+pulp_add_test_suite(pulp-test-vendor-url LIBRARIES pulp::format)
 # Image cache (workstream 07 slice 7.4)
-add_executable(pulp-test-image-cache test_image_cache.cpp)
-target_link_libraries(pulp-test-image-cache PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-image-cache)
+pulp_add_test_suite(pulp-test-image-cache LIBRARIES pulp::view)
 # ImageView ↔ ImageCache wiring (workstream 07 B4)
-add_executable(pulp-test-image-view-cache test_image_view_cache.cpp)
-target_link_libraries(pulp-test-image-view-cache PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-image-view-cache)
+pulp_add_test_suite(pulp-test-image-view-cache LIBRARIES pulp::view)
 
 # Accessibility tree snapshot (workstream 04 slice 4.4)
-add_executable(pulp-test-accessibility-tree test_accessibility_tree.cpp)
-target_link_libraries(pulp-test-accessibility-tree PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-accessibility-tree)
+pulp_add_test_suite(pulp-test-accessibility-tree LIBRARIES pulp::view)
 # A/B compare (workstream 07 slice 7.2)
-add_executable(pulp-test-ab-compare test_ab_compare.cpp)
-target_link_libraries(pulp-test-ab-compare PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ab-compare)
+pulp_add_test_suite(pulp-test-ab-compare LIBRARIES pulp::view)
 # ViewSize::aspect_ratio field (workstream 07 slice 7.5b)
-add_executable(pulp-test-view-size-aspect test_view_size_aspect.cpp)
-target_link_libraries(pulp-test-view-size-aspect PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-view-size-aspect)
+pulp_add_test_suite(pulp-test-view-size-aspect LIBRARIES pulp::format)
 
 # pulp #59/#63/#64/#65 — WindowHost::set_design_viewport pure-math
 # coverage. Locks down the scale + letterbox transform that the mac
 # GPU host (and any other future platform host) uses to fit
 # fixed-design content into the current window.
-add_executable(pulp-test-view-design-viewport test_view_design_viewport.cpp)
-target_link_libraries(pulp-test-view-design-viewport PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-view-design-viewport)
+pulp_add_test_suite(pulp-test-view-design-viewport LIBRARIES pulp::view)
 
 # View host bridges — screenshot/window/plugin-view (#299)
 add_executable(pulp-test-view-host-bridge test_view_host_bridge.cpp)
@@ -840,21 +770,13 @@ target_link_libraries(pulp-test-scan-blacklist PRIVATE pulp::host Catch2::Catch2
 # flow waits on filesystem timestamp resolution). Each test ~1s.
 catch_discover_tests(pulp-test-scan-blacklist PROPERTIES LABELS slow)
 # Hosted editor API (workstream 03 slice 3.4)
-add_executable(pulp-test-hosted-editor test_hosted_editor.cpp)
-target_link_libraries(pulp-test-hosted-editor PRIVATE pulp::host Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-hosted-editor)
+pulp_add_test_suite(pulp-test-hosted-editor LIBRARIES pulp::host)
 # Accessibility announcements (workstream 04 slice 4.3)
-add_executable(pulp-test-announce test_announce.cpp)
-target_link_libraries(pulp-test-announce PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-announce)
+pulp_add_test_suite(pulp-test-announce LIBRARIES pulp::view)
 # ARA core type layer (workstream 06 slice 6.2)
-add_executable(pulp-test-ara-types test_ara_types.cpp)
-target_link_libraries(pulp-test-ara-types PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ara-types)
+pulp_add_test_suite(pulp-test-ara-types LIBRARIES pulp::format)
 # Processor on_host_transport_changed hook (workstream 01 slice 1.11)
-add_executable(pulp-test-transport-hook test_transport_hook.cpp)
-target_link_libraries(pulp-test-transport-hook PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-transport-hook)
+pulp_add_test_suite(pulp-test-transport-hook LIBRARIES pulp::format)
 # Scan cache (workstream 03 slice 3.1)
 add_executable(pulp-test-scan-cache test_scan_cache.cpp)
 target_link_libraries(pulp-test-scan-cache PRIVATE pulp::host Catch2::Catch2WithMain)
@@ -862,56 +784,34 @@ target_link_libraries(pulp-test-scan-cache PRIVATE pulp::host Catch2::Catch2With
 # (~1s each on every platform). Excluded from PR fast-CI.
 catch_discover_tests(pulp-test-scan-cache PROPERTIES LABELS slow)
 # Processor memory-pressure hook (workstream 05 slice 5.3)
-add_executable(pulp-test-memory-pressure test_memory_pressure.cpp)
-target_link_libraries(pulp-test-memory-pressure PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-memory-pressure)
+pulp_add_test_suite(pulp-test-memory-pressure LIBRARIES pulp::format)
 # iOS background-audio descriptor flag (workstream 05 slice 5.5)
-add_executable(pulp-test-ios-background-audio-flag test_ios_background_audio_flag.cpp)
-target_link_libraries(pulp-test-ios-background-audio-flag PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ios-background-audio-flag)
+pulp_add_test_suite(pulp-test-ios-background-audio-flag LIBRARIES pulp::format)
 
 # MidiBuffer UMP sidecar (workstream 02 slice 2.6a)
-add_executable(pulp-test-midi-buffer-ump test_midi_buffer_ump.cpp)
-target_link_libraries(pulp-test-midi-buffer-ump PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-midi-buffer-ump)
+pulp_add_test_suite(pulp-test-midi-buffer-ump LIBRARIES pulp::midi)
 # MidiBuffer SysEx sidecar (workstream 01 — full MIDI vocabulary)
-add_executable(pulp-test-midi-buffer-sysex test_midi_buffer_sysex.cpp)
-target_link_libraries(pulp-test-midi-buffer-sysex PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-midi-buffer-sysex)
+pulp_add_test_suite(pulp-test-midi-buffer-sysex LIBRARIES pulp::midi)
 # Raw MIDI byte-stream parser — shared by ALSA raw-midi and any future
 # raw-byte MIDI transport. Tests aborted-sysex recovery (#406 codex P2),
 # realtime-inside-sysex passthrough (#239), runaway cap, and multi-read
 # accumulator state.
-add_executable(pulp-test-raw-midi-parser test_raw_midi_parser.cpp)
-target_link_libraries(pulp-test-raw-midi-parser PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-raw-midi-parser)
+pulp_add_test_suite(pulp-test-raw-midi-parser LIBRARIES pulp::midi)
 # Win MIDI MIM_LONGDATA SysEx + QPC timestamps (#19 / #245 partial).
 # Cross-platform — compiles everywhere; Windows-specific cases are
 # guarded behind #ifdef _WIN32.
-add_executable(pulp-test-winmidi-sysex test_winmidi_sysex.cpp)
-target_link_libraries(pulp-test-winmidi-sysex PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-winmidi-sysex)
+pulp_add_test_suite(pulp-test-winmidi-sysex LIBRARIES pulp::midi)
 # Accessibility provider cross-platform entry (workstream 04 slices 4.1 + 4.2)
-add_executable(pulp-test-accessibility-provider test_accessibility_provider.cpp)
-target_link_libraries(pulp-test-accessibility-provider PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-accessibility-provider)
+pulp_add_test_suite(pulp-test-accessibility-provider LIBRARIES pulp::view)
 # PluginDescriptor validation (workstream 01 slice 1.9)
-add_executable(pulp-test-descriptor-validation test_descriptor_validation.cpp)
-target_link_libraries(pulp-test-descriptor-validation PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-descriptor-validation)
+pulp_add_test_suite(pulp-test-descriptor-validation LIBRARIES pulp::format)
 # PluginInfo metadata shape (workstream 03 slice 3.7)
-add_executable(pulp-test-plugin-info-metadata test_plugin_info_metadata.cpp)
-target_link_libraries(pulp-test-plugin-info-metadata PRIVATE pulp::host Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-plugin-info-metadata)
+pulp_add_test_suite(pulp-test-plugin-info-metadata LIBRARIES pulp::host)
 # UIA mapping (workstream 04 slice 4.1a)
-add_executable(pulp-test-uia-mapping test_uia_mapping.cpp)
-target_link_libraries(pulp-test-uia-mapping PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-uia-mapping)
+pulp_add_test_suite(pulp-test-uia-mapping LIBRARIES pulp::view)
 
 # AudioSystem hotplug base plumbing (workstream 02 slice 2.7)
-add_executable(pulp-test-audio-system-hotplug test_audio_system_hotplug.cpp)
-target_link_libraries(pulp-test-audio-system-hotplug PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio-system-hotplug)
+pulp_add_test_suite(pulp-test-audio-system-hotplug LIBRARIES pulp::audio)
 
 # WASAPI capture path (#243). Windows-only; cross-platform stub keeps
 # CI green elsewhere. Skips at runtime on hosts without a default
@@ -929,50 +829,30 @@ target_link_libraries(pulp-test-alsa-input PRIVATE pulp::audio Catch2::Catch2Wit
 target_include_directories(pulp-test-alsa-input PRIVATE ${CMAKE_SOURCE_DIR})
 catch_discover_tests(pulp-test-alsa-input)
 # Processor on_host_tempo_changed hook (workstream 01 slice 1.10)
-add_executable(pulp-test-tempo-hook test_tempo_hook.cpp)
-target_link_libraries(pulp-test-tempo-hook PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-tempo-hook)
+pulp_add_test_suite(pulp-test-tempo-hook LIBRARIES pulp::format)
 # Resizable plugin shell (workstream 07 slice 7.5)
-add_executable(pulp-test-resizable-shell test_resizable_shell.cpp)
-target_link_libraries(pulp-test-resizable-shell PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-resizable-shell)
+pulp_add_test_suite(pulp-test-resizable-shell LIBRARIES pulp::view)
 # ATK / AT-SPI mapping (workstream 04 slice 4.2a)
-add_executable(pulp-test-atk-mapping test_atk_mapping.cpp)
-target_link_libraries(pulp-test-atk-mapping PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-atk-mapping)
+pulp_add_test_suite(pulp-test-atk-mapping LIBRARIES pulp::view)
 # Running-status MIDI parser (workstream 02 slice 2.5)
-add_executable(pulp-test-running-status test_running_status.cpp)
-target_link_libraries(pulp-test-running-status PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-running-status)
+pulp_add_test_suite(pulp-test-running-status LIBRARIES pulp::midi)
 # Background scanner (workstream 03 slice 3.2)
-add_executable(pulp-test-background-scanner test_background_scanner.cpp)
-target_link_libraries(pulp-test-background-scanner PRIVATE pulp::host Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-background-scanner)
+pulp_add_test_suite(pulp-test-background-scanner LIBRARIES pulp::host)
 
 # TextShaper (PreText-style measure-once-reflow-forever)
-add_executable(pulp-test-text-shaper test_text_shaper.cpp)
-target_link_libraries(pulp-test-text-shaper PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-text-shaper)
+pulp_add_test_suite(pulp-test-text-shaper LIBRARIES pulp::canvas)
 
 # pulp #2163 / font v2 Slice 2.7 — FontScope memory-budget eviction.
-add_executable(pulp-test-font-scope-budget test_font_scope_budget.cpp)
-target_link_libraries(pulp-test-font-scope-budget PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-font-scope-budget)
+pulp_add_test_suite(pulp-test-font-scope-budget LIBRARIES pulp::canvas)
 
 # pulp #2163 / font v2 Slice 2.8 — TTF/OTF structural sanitizer.
-add_executable(pulp-test-font-security test_font_security.cpp)
-target_link_libraries(pulp-test-font-security PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-font-security)
+pulp_add_test_suite(pulp-test-font-security LIBRARIES pulp::canvas)
 
 # pulp #2163 / font v2 Slice 2.3 — variable axis wiring.
-add_executable(pulp-test-font-variable-axes test_font_variable_axes.cpp)
-target_link_libraries(pulp-test-font-variable-axes PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-font-variable-axes)
+pulp_add_test_suite(pulp-test-font-variable-axes LIBRARIES pulp::canvas)
 
 # pulp #2163 / font v2 Slice 3.6 — UAX #29-lite cluster_step.
-add_executable(pulp-test-cluster-step test_cluster_step.cpp)
-target_link_libraries(pulp-test-cluster-step PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-cluster-step)
+pulp_add_test_suite(pulp-test-cluster-step LIBRARIES pulp::canvas)
 
 # pulp #2163 / font v2 Slice 3.2 — AA / hinting / subpixel policy centralization.
 # Locks the enum-to-Skia translation table on ResolvedFont so a stealth change
@@ -998,137 +878,83 @@ if(PULP_HAS_SKIA)
 endif()
 
 # Analytics tests
-add_executable(pulp-test-analytics test_analytics.cpp)
-target_link_libraries(pulp-test-analytics PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-analytics)
+pulp_add_test_suite(pulp-test-analytics LIBRARIES pulp::runtime)
 
 # Crypto tests (SHA-256, MD5, AES, machine ID)
-add_executable(pulp-test-crypto test_crypto.cpp)
-target_link_libraries(pulp-test-crypto PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-crypto)
+pulp_add_test_suite(pulp-test-crypto LIBRARIES pulp::runtime)
 
 # IPC (InterprocessConnection) tests
-add_executable(pulp-test-ipc test_ipc.cpp)
-target_link_libraries(pulp-test-ipc PRIVATE pulp::events pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ipc)
+pulp_add_test_suite(pulp-test-ipc LIBRARIES pulp::events pulp::runtime)
 
-add_executable(pulp-test-ipc-endpoints test_ipc_endpoints.cpp)
-target_link_libraries(pulp-test-ipc-endpoints PRIVATE pulp::events pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ipc-endpoints)
+pulp_add_test_suite(pulp-test-ipc-endpoints LIBRARIES pulp::events pulp::runtime)
 
 # AttributedString and TextLayout tests
-add_executable(pulp-test-attributed-string test_attributed_string.cpp)
-target_link_libraries(pulp-test-attributed-string PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-attributed-string)
+pulp_add_test_suite(pulp-test-attributed-string LIBRARIES pulp::canvas)
 
 # i18n translation tests
-add_executable(pulp-test-i18n test_i18n.cpp)
-target_link_libraries(pulp-test-i18n PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-i18n)
+pulp_add_test_suite(pulp-test-i18n LIBRARIES pulp::runtime)
 
 # StateTree and ObservableValue tests
-add_executable(pulp-test-state-tree test_state_tree.cpp)
-target_link_libraries(pulp-test-state-tree PRIVATE pulp::state pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-state-tree)
+pulp_add_test_suite(pulp-test-state-tree LIBRARIES pulp::state pulp::runtime)
 
 # GUI component tests (table, toolbar, concertina, buttons, lasso)
-add_executable(pulp-test-gui-components test_gui_components.cpp)
-target_link_libraries(pulp-test-gui-components PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-gui-components)
+pulp_add_test_suite(pulp-test-gui-components LIBRARIES pulp::view)
 
-add_executable(pulp-test-table-list-box test_table_list_box.cpp)
-target_link_libraries(pulp-test-table-list-box PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-table-list-box)
+pulp_add_test_suite(pulp-test-table-list-box LIBRARIES pulp::view)
 
 # CodeEditor / FileBasedDocument / RecentlyOpenedFilesList tests
-add_executable(pulp-test-code-editor test_code_editor.cpp)
-target_link_libraries(pulp-test-code-editor PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-code-editor)
+pulp_add_test_suite(pulp-test-code-editor LIBRARIES pulp::view)
 
 # PropertiesFile JSON persistence tests
-add_executable(pulp-test-properties test_properties_file.cpp)
-target_link_libraries(pulp-test-properties PRIVATE pulp::state pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-properties)
+pulp_add_test_suite(pulp-test-properties SOURCES test_properties_file.cpp LIBRARIES pulp::state pulp::runtime)
 
 # DSP enhancement tests (dry/wet mixer, processor duplicator, matrix, special functions)
-add_executable(pulp-test-dsp-enhancements test_dsp_enhancements.cpp)
-target_link_libraries(pulp-test-dsp-enhancements PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-dsp-enhancements)
+pulp_add_test_suite(pulp-test-dsp-enhancements LIBRARIES pulp::signal)
 
 # Animation & 3D math tests
-add_executable(pulp-test-animation-3d test_animation_3d.cpp)
-target_link_libraries(pulp-test-animation-3d PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-animation-3d)
+pulp_add_test_suite(pulp-test-animation-3d LIBRARIES pulp::view)
 
 # AnimatorSet / 3D types tests
-add_executable(pulp-test-animator-set test_animator_set.cpp)
-target_link_libraries(pulp-test-animator-set PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-animator-set)
+pulp_add_test_suite(pulp-test-animator-set LIBRARIES pulp::view)
 
 # Runtime utility tests (mmap, temp file, dynlib, base64, range, child process)
-add_executable(pulp-test-runtime-utils test_runtime_utils.cpp)
-target_link_libraries(pulp-test-runtime-utils PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-runtime-utils)
+pulp_add_test_suite(pulp-test-runtime-utils LIBRARIES pulp::runtime)
 
 # XML and ZIP/GZIP compression tests
-add_executable(pulp-test-xml-zip test_xml_zip.cpp)
-target_link_libraries(pulp-test-xml-zip PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-xml-zip)
+pulp_add_test_suite(pulp-test-xml-zip LIBRARIES pulp::runtime)
 
 # SIMD operations and aligned buffer tests
-add_executable(pulp-test-simd test_simd.cpp)
-target_link_libraries(pulp-test-simd PRIVATE pulp::runtime pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-simd)
+pulp_add_test_suite(pulp-test-simd LIBRARIES pulp::runtime pulp::signal)
 
 # Drag-and-drop tests
-add_executable(pulp-test-dnd test_drag_drop.cpp)
-target_link_libraries(pulp-test-dnd PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-dnd)
+pulp_add_test_suite(pulp-test-dnd SOURCES test_drag_drop.cpp LIBRARIES pulp::view)
 
 # OSC tests
-add_executable(pulp-test-osc test_osc.cpp)
-target_link_libraries(pulp-test-osc PRIVATE pulp::osc Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-osc)
+pulp_add_test_suite(pulp-test-osc LIBRARIES pulp::osc)
 
 # ImageConvolutionKernel tests
-add_executable(pulp-test-image-convolution test_image_convolution.cpp)
-target_link_libraries(pulp-test-image-convolution PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-image-convolution)
+pulp_add_test_suite(pulp-test-image-convolution LIBRARIES pulp::canvas)
 
 # RectangleList geometry tests
-add_executable(pulp-test-rectangle-list test_rectangle_list.cpp)
-target_link_libraries(pulp-test-rectangle-list PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-rectangle-list)
+pulp_add_test_suite(pulp-test-rectangle-list LIBRARIES pulp::canvas)
 
 # OSC Bundle serialization tests
-add_executable(pulp-test-osc-bundle test_osc_bundle.cpp)
-target_link_libraries(pulp-test-osc-bundle PRIVATE pulp::osc Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-osc-bundle)
+pulp_add_test_suite(pulp-test-osc-bundle LIBRARIES pulp::osc)
 
 # SVG tests
-add_executable(pulp-test-svg test_svg.cpp)
-target_link_libraries(pulp-test-svg PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-svg)
+pulp_add_test_suite(pulp-test-svg LIBRARIES pulp::canvas)
 
 # Effects tests
-add_executable(pulp-test-effects test_effects.cpp)
-target_link_libraries(pulp-test-effects PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-effects)
+pulp_add_test_suite(pulp-test-effects LIBRARIES pulp::canvas)
 
 # Signal/DSP tests
-add_executable(pulp-test-signal test_signal.cpp)
-target_link_libraries(pulp-test-signal PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-signal)
+pulp_add_test_suite(pulp-test-signal LIBRARIES pulp::signal)
 
 # Biquad filter tests
-add_executable(pulp-test-biquad test_biquad.cpp)
-target_link_libraries(pulp-test-biquad PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-biquad)
+pulp_add_test_suite(pulp-test-biquad LIBRARIES pulp::signal)
 
 # Multi-channel meter edge tests (#645)
-add_executable(pulp-test-multi-channel-meter test_multi_channel_meter.cpp)
-target_link_libraries(pulp-test-multi-channel-meter PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-multi-channel-meter)
+pulp_add_test_suite(pulp-test-multi-channel-meter LIBRARIES pulp::signal)
 
 # DSL processor contract tests (FaustProcessor + PulpFaustUI + PulpFaustMeta)
 add_executable(pulp-test-dsl-processor test_dsl_processor.cpp)
@@ -1138,34 +964,22 @@ target_link_libraries(pulp-test-dsl-processor PRIVATE
 catch_discover_tests(pulp-test-dsl-processor)
 
 # Convolution engine tests
-add_executable(pulp-test-convolver test_convolver.cpp)
-target_link_libraries(pulp-test-convolver PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-convolver)
+pulp_add_test_suite(pulp-test-convolver LIBRARIES pulp::signal)
 
 # Test signal source (sine tone, file playback)
-add_executable(pulp-test-test-signal test_test_signal.cpp)
-target_link_libraries(pulp-test-test-signal PRIVATE pulp::standalone Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-test-signal)
+pulp_add_test_suite(pulp-test-test-signal LIBRARIES pulp::standalone)
 
 # Standalone editor chrome helpers
-add_executable(pulp-test-standalone-editor-chrome test_standalone_editor_chrome.cpp)
-target_link_libraries(pulp-test-standalone-editor-chrome PRIVATE pulp::standalone Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-standalone-editor-chrome)
+pulp_add_test_suite(pulp-test-standalone-editor-chrome LIBRARIES pulp::standalone)
 
 # Headless screenshot capture state machine (pulp #468)
-add_executable(pulp-test-screenshot-capture test_screenshot_capture.cpp)
-target_link_libraries(pulp-test-screenshot-capture PRIVATE pulp::standalone Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-screenshot-capture)
+pulp_add_test_suite(pulp-test-screenshot-capture LIBRARIES pulp::standalone)
 
 # STFT and audio visualization signal tests
-add_executable(pulp-test-stft test_stft.cpp)
-target_link_libraries(pulp-test-stft PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-stft)
+pulp_add_test_suite(pulp-test-stft LIBRARIES pulp::signal)
 
 # Visualization bridge and widget tests
-add_executable(pulp-test-visualization test_visualization.cpp)
-target_link_libraries(pulp-test-visualization PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-visualization)
+pulp_add_test_suite(pulp-test-visualization LIBRARIES pulp::view)
 
 # Clipboard tests
 add_executable(pulp-test-clipboard test_clipboard.cpp)
@@ -1174,29 +988,19 @@ catch_discover_tests(pulp-test-clipboard
     PROPERTIES RESOURCE_LOCK system-clipboard)
 
 # FileDialog backend-registration tests (#301)
-add_executable(pulp-test-file-dialog test_file_dialog.cpp)
-target_link_libraries(pulp-test-file-dialog PRIVATE pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-file-dialog)
+pulp_add_test_suite(pulp-test-file-dialog LIBRARIES pulp::platform)
 
 # Platform tests
-add_executable(pulp-test-platform test_platform.cpp)
-target_link_libraries(pulp-test-platform PRIVATE pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-platform)
+pulp_add_test_suite(pulp-test-platform LIBRARIES pulp::platform)
 
 # Permissions tests
-add_executable(pulp-test-permissions test_permissions.cpp)
-target_link_libraries(pulp-test-permissions PRIVATE pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-permissions)
+pulp_add_test_suite(pulp-test-permissions LIBRARIES pulp::platform)
 
 # Environment API tests (#342)
-add_executable(pulp-test-environment test_environment.cpp)
-target_link_libraries(pulp-test-environment PRIVATE pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-environment)
+pulp_add_test_suite(pulp-test-environment LIBRARIES pulp::platform)
 
 # Runtime tests
-add_executable(pulp-test-runtime test_runtime.cpp)
-target_link_libraries(pulp-test-runtime PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-runtime)
+pulp_add_test_suite(pulp-test-runtime LIBRARIES pulp::runtime)
 
 # Sync-primitive hammer (TSan-focused, #412 step 4).
 # Runs under the tag-scoped TSan subset via the [concurrent][race]
@@ -1210,13 +1014,9 @@ target_link_libraries(pulp-test-sync-race-hammer PRIVATE pulp::runtime Catch2::C
 catch_discover_tests(pulp-test-sync-race-hammer PROPERTIES LABELS slow)
 
 # Events tests
-add_executable(pulp-test-events test_events.cpp)
-target_link_libraries(pulp-test-events PRIVATE pulp::events Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-events)
+pulp_add_test_suite(pulp-test-events LIBRARIES pulp::events)
 
-add_executable(pulp-test-events-async-helpers test_events_async_helpers.cpp)
-target_link_libraries(pulp-test-events-async-helpers PRIVATE pulp::events Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-events-async-helpers)
+pulp_add_test_suite(pulp-test-events-async-helpers LIBRARIES pulp::events)
 
 add_executable(pulp-test-events-timer-helpers test_events_timer_helpers.cpp)
 target_link_libraries(pulp-test-events-timer-helpers PRIVATE pulp::events Catch2::Catch2WithMain)
@@ -1227,36 +1027,22 @@ target_link_libraries(pulp-test-events-timer-helpers PRIVATE pulp::events Catch2
 catch_discover_tests(pulp-test-events-timer-helpers PROPERTIES LABELS slow)
 
 # Audio file I/O tests
-add_executable(pulp-test-audio-file test_audio_file.cpp)
-target_link_libraries(pulp-test-audio-file PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio-file)
+pulp_add_test_suite(pulp-test-audio-file LIBRARIES pulp::audio)
 
-add_executable(pulp-test-offline-processor-edges test_offline_processor_edges.cpp)
-target_link_libraries(pulp-test-offline-processor-edges PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-offline-processor-edges)
+pulp_add_test_suite(pulp-test-offline-processor-edges LIBRARIES pulp::audio)
 
-add_executable(pulp-test-ogg-reader test_ogg_reader.cpp)
-target_link_libraries(pulp-test-ogg-reader PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ogg-reader)
+pulp_add_test_suite(pulp-test-ogg-reader LIBRARIES pulp::audio)
 
 # Audio tests
-add_executable(pulp-test-audio test_audio.cpp)
-target_link_libraries(pulp-test-audio PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio)
+pulp_add_test_suite(pulp-test-audio LIBRARIES pulp::audio)
 
-add_executable(pulp-test-system-volume test_system_volume.cpp)
-target_link_libraries(pulp-test-system-volume PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-system-volume)
+pulp_add_test_suite(pulp-test-system-volume LIBRARIES pulp::audio)
 
 # Excerpt window enumeration tests
-add_executable(pulp-test-audio-excerpt test_audio_excerpt.cpp)
-target_link_libraries(pulp-test-audio-excerpt PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio-excerpt)
+pulp_add_test_suite(pulp-test-audio-excerpt LIBRARIES pulp::audio)
 
 # Repo-level audio tooling tests
-add_executable(pulp-test-audio-tools test_audio_tools.cpp)
-target_link_libraries(pulp-test-audio-tools PRIVATE pulp::tool-audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio-tools)
+pulp_add_test_suite(pulp-test-audio-tools LIBRARIES pulp::tool-audio)
 
 # MCP server protocol tests
 add_executable(pulp-test-mcp-server test_mcp_server.cpp)
@@ -1271,33 +1057,21 @@ add_dependencies(pulp-test-mcp-server pulp-mcp)
 catch_discover_tests(pulp-test-mcp-server)
 
 # MIDI tests
-add_executable(pulp-test-midi test_midi.cpp)
-target_link_libraries(pulp-test-midi PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-midi)
+pulp_add_test_suite(pulp-test-midi LIBRARIES pulp::midi)
 
-add_executable(pulp-test-midi-file test_midi_file.cpp)
-target_link_libraries(pulp-test-midi-file PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-midi-file)
+pulp_add_test_suite(pulp-test-midi-file LIBRARIES pulp::midi)
 
 # State tests
-add_executable(pulp-test-state test_state.cpp)
-target_link_libraries(pulp-test-state PRIVATE pulp::state Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-state)
+pulp_add_test_suite(pulp-test-state LIBRARIES pulp::state)
 
 # Binding tests
-add_executable(pulp-test-binding test_binding.cpp)
-target_link_libraries(pulp-test-binding PRIVATE pulp::state Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-binding)
+pulp_add_test_suite(pulp-test-binding LIBRARIES pulp::state)
 
 # Headless adapter tests
-add_executable(pulp-test-headless test_headless.cpp)
-target_link_libraries(pulp-test-headless PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-headless)
+pulp_add_test_suite(pulp-test-headless LIBRARIES pulp::format)
 
 # Diagnostic reporter tests
-add_executable(pulp-test-diagnostic test_diagnostic_reporter.cpp)
-target_link_libraries(pulp-test-diagnostic PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-diagnostic)
+pulp_add_test_suite(pulp-test-diagnostic SOURCES test_diagnostic_reporter.cpp LIBRARIES pulp::format)
 
 # CLAP entry point macro test
 if(PULP_HAS_CLAP)
@@ -1447,9 +1221,7 @@ target_link_libraries(pulp-test-nsis-installer PRIVATE pulp::ship Catch2::Catch2
 catch_discover_tests(pulp-test-nsis-installer)
 
 # Image decode / glTF texture pipeline tests
-add_executable(pulp-test-image-decode test_image_decode.cpp)
-target_link_libraries(pulp-test-image-decode PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-image-decode)
+pulp_add_test_suite(pulp-test-image-decode LIBRARIES pulp::view)
 
 # GPU surface tests
 if(PULP_ENABLE_GPU)
@@ -1501,19 +1273,13 @@ if(PULP_ENABLE_GPU)
 endif()
 
 # Animation tests
-add_executable(pulp-test-animation test_animation.cpp)
-target_link_libraries(pulp-test-animation PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-animation)
+pulp_add_test_suite(pulp-test-animation LIBRARIES pulp::view)
 
 # FrameClock tests
-add_executable(pulp-test-frame-clock test_frame_clock.cpp)
-target_link_libraries(pulp-test-frame-clock PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-frame-clock)
+pulp_add_test_suite(pulp-test-frame-clock LIBRARIES pulp::view)
 
 # Motion (agent-first motion observability) — Phase 0 bedrock tests
-add_executable(pulp-test-motion test_motion.cpp)
-target_link_libraries(pulp-test-motion PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-motion)
+pulp_add_test_suite(pulp-test-motion LIBRARIES pulp::view)
 
 # MotionPreferences — Phase 8 reduced-motion policy + animation honoring
 add_executable(pulp-test-motion-preferences test_motion_preferences.cpp)
@@ -1597,29 +1363,19 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 # Widget animation behavior tests
-add_executable(pulp-test-widget-animation test_widget_animation.cpp)
-target_link_libraries(pulp-test-widget-animation PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-widget-animation)
+pulp_add_test_suite(pulp-test-widget-animation LIBRARIES pulp::view)
 
 # Auto UI tests
-add_executable(pulp-test-auto-ui test_auto_ui.cpp)
-target_link_libraries(pulp-test-auto-ui PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-auto-ui)
+pulp_add_test_suite(pulp-test-auto-ui LIBRARIES pulp::view)
 
 # ViewBridge lifecycle tests
-add_executable(pulp-test-view-bridge test_view_bridge.cpp)
-target_link_libraries(pulp-test-view-bridge PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-view-bridge)
+pulp_add_test_suite(pulp-test-view-bridge LIBRARIES pulp::format)
 
 # Remote View Protocol loopback tests (Feature 1, Phase 4)
-add_executable(pulp-test-remote-view test_remote_view.cpp)
-target_link_libraries(pulp-test-remote-view PRIVATE pulp::format pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-remote-view)
+pulp_add_test_suite(pulp-test-remote-view LIBRARIES pulp::format pulp::runtime)
 
 # Script engine tests (legacy API)
-add_executable(pulp-test-script test_script_engine.cpp)
-target_link_libraries(pulp-test-script PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-script)
+pulp_add_test_suite(pulp-test-script SOURCES test_script_engine.cpp LIBRARIES pulp::view)
 
 # Scripted UI hot reload/theme reload tests
 add_executable(pulp-test-scripted-ui test_scripted_ui.cpp)
@@ -1629,14 +1385,10 @@ target_link_libraries(pulp-test-scripted-ui PRIVATE pulp::view Catch2::Catch2Wit
 catch_discover_tests(pulp-test-scripted-ui PROPERTIES LABELS slow)
 
 # JS engine abstraction tests (shared across all backends)
-add_executable(pulp-test-js-engine test_js_engine.cpp)
-target_link_libraries(pulp-test-js-engine PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-js-engine)
+pulp_add_test_suite(pulp-test-js-engine LIBRARIES pulp::view)
 
 # Theme/design token tests
-add_executable(pulp-test-theme test_theme.cpp)
-target_link_libraries(pulp-test-theme PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-theme)
+pulp_add_test_suite(pulp-test-theme LIBRARIES pulp::view)
 
 # Screenshot tests (macOS only — uses CoreGraphics bitmap context)
 if(APPLE)
@@ -1680,49 +1432,31 @@ target_link_libraries(pulp-test-canvas-emoji PRIVATE
 catch_discover_tests(pulp-test-canvas-emoji)
 
 # SDF glyph atlas exploration (#76)
-add_executable(pulp-test-sdf-atlas test_sdf_atlas.cpp)
-target_link_libraries(pulp-test-sdf-atlas PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sdf-atlas)
+pulp_add_test_suite(pulp-test-sdf-atlas LIBRARIES pulp::canvas)
 
 # MSDF glyph atlas (Phase 2 scaffold)
-add_executable(pulp-test-msdf-atlas test_msdf_atlas.cpp)
-target_link_libraries(pulp-test-msdf-atlas PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-msdf-atlas)
+pulp_add_test_suite(pulp-test-msdf-atlas LIBRARIES pulp::canvas)
 
 # PSDF glyph atlas + vector-fallback (Phase 3 scaffold)
-add_executable(pulp-test-psdf-atlas test_psdf_atlas.cpp)
-target_link_libraries(pulp-test-psdf-atlas PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-psdf-atlas)
+pulp_add_test_suite(pulp-test-psdf-atlas LIBRARIES pulp::canvas)
 
 # Shared SDF/MSDF text helpers (pen snap + build_text_quads + fill_text_*)
-add_executable(pulp-test-sdf-text test_sdf_text.cpp)
-target_link_libraries(pulp-test-sdf-text PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sdf-text)
+pulp_add_test_suite(pulp-test-sdf-text LIBRARIES pulp::canvas)
 
 # SDF effects layer (Phase 4 — host-side API + presets)
-add_executable(pulp-test-sdf-effects test_sdf_effects.cpp)
-target_link_libraries(pulp-test-sdf-effects PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sdf-effects)
+pulp_add_test_suite(pulp-test-sdf-effects LIBRARIES pulp::canvas)
 
 # Runtime SDF atlas cache (Phase 5 — LRU + frame-based eviction)
-add_executable(pulp-test-sdf-atlas-cache test_sdf_atlas_cache.cpp)
-target_link_libraries(pulp-test-sdf-atlas-cache PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sdf-atlas-cache)
+pulp_add_test_suite(pulp-test-sdf-atlas-cache LIBRARIES pulp::canvas)
 
 # Software SDF renderer (end-to-end headless raster)
-add_executable(pulp-test-sdf-software-renderer test_sdf_software_renderer.cpp)
-target_link_libraries(pulp-test-sdf-software-renderer PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sdf-software-renderer)
+pulp_add_test_suite(pulp-test-sdf-software-renderer LIBRARIES pulp::canvas)
 
 # Runtime path → SDF conversion (Phase 5 — on-device SDF generation)
-add_executable(pulp-test-path-to-sdf test_path_to_sdf.cpp)
-target_link_libraries(pulp-test-path-to-sdf PRIVATE pulp::canvas Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-path-to-sdf)
+pulp_add_test_suite(pulp-test-path-to-sdf LIBRARIES pulp::canvas)
 
 # View and layout tests
-add_executable(pulp-test-view test_view.cpp)
-target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-view)
+pulp_add_test_suite(pulp-test-view LIBRARIES pulp::view)
 
 # DirtyTracker, GpuGraphRenderer, and RenderLoop timer-state tests
 # are pure helpers; keep them available in GPU-off sanitizer and coverage builds.
@@ -1802,29 +1536,19 @@ target_link_libraries(pulp-test-texture-atlas PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-texture-atlas)
 
 # Sprite strip tests
-add_executable(pulp-test-sprite-strip test_sprite_strip.cpp)
-target_link_libraries(pulp-test-sprite-strip PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-sprite-strip)
+pulp_add_test_suite(pulp-test-sprite-strip LIBRARIES pulp::view)
 
 # Edit history (global undo) tests
-add_executable(pulp-test-edit-history test_edit_history.cpp)
-target_link_libraries(pulp-test-edit-history PRIVATE pulp::state Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-edit-history)
+pulp_add_test_suite(pulp-test-edit-history LIBRARIES pulp::state)
 
 # Platform maturity tests (cursor, focus, IME, context menu, accessibility)
-add_executable(pulp-test-platform-maturity test_platform_maturity.cpp)
-target_link_libraries(pulp-test-platform-maturity PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-platform-maturity)
+pulp_add_test_suite(pulp-test-platform-maturity LIBRARIES pulp::view)
 
 # Audio bridge tests
-add_executable(pulp-test-audio-bridge test_audio_bridge.cpp)
-target_link_libraries(pulp-test-audio-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-audio-bridge)
+pulp_add_test_suite(pulp-test-audio-bridge LIBRARIES pulp::view)
 
 # Widget tests
-add_executable(pulp-test-widgets test_widgets.cpp)
-target_link_libraries(pulp-test-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-widgets)
+pulp_add_test_suite(pulp-test-widgets LIBRARIES pulp::view)
 
 # Hot-reload tests
 add_executable(pulp-test-hot-reload test_hot_reload.cpp)
@@ -1844,68 +1568,46 @@ if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
 endif()
 
 # Widget bridge tests
-add_executable(pulp-test-widget-bridge test_widget_bridge.cpp)
-target_link_libraries(pulp-test-widget-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-widget-bridge)
+pulp_add_test_suite(pulp-test-widget-bridge LIBRARIES pulp::view)
 
 # Widget bridge — runtime-import handlers (pulp #468 follow-up).
 # Split out of test_widget_bridge.cpp in the Phase 5 P5-1 first cut so
 # the 14k-line god-test file shrinks toward per-surface modules.
-add_executable(pulp-test-widget-bridge-runtime-import test_widget_bridge_runtime_import.cpp)
-target_link_libraries(pulp-test-widget-bridge-runtime-import PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-widget-bridge-runtime-import)
+pulp_add_test_suite(pulp-test-widget-bridge-runtime-import LIBRARIES pulp::view)
 
 # Autonomous Spectr regression suite (pulp-internal task #63, follow-up to
 # pulp #1792). Composes the six [contract] invariants from
 # test_widget_bridge.cpp into a Spectr-shaped mini-scenario so a future
 # PR that keeps each unit-level invariant passing but breaks their
 # *interaction* still fails first.
-add_executable(pulp-test-spectr-regression test_spectr_regression.cpp)
-target_link_libraries(pulp-test-spectr-regression PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-spectr-regression)
+pulp_add_test_suite(pulp-test-spectr-regression LIBRARIES pulp::view)
 
 # Typography inheritance — pulp #969 (CSS-style cascade)
-add_executable(pulp-test-typography-inheritance test_typography_inheritance.cpp)
-target_link_libraries(pulp-test-typography-inheritance PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-typography-inheritance)
+pulp_add_test_suite(pulp-test-typography-inheritance LIBRARIES pulp::view)
 
 # Text-overflow ellipsis helper — pulp #1407
-add_executable(pulp-test-text-overflow test_text_overflow.cpp)
-target_link_libraries(pulp-test-text-overflow PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-text-overflow)
+pulp_add_test_suite(pulp-test-text-overflow LIBRARIES pulp::view)
 
 # Editor bridge tests (pulp #709 — renderer-agnostic envelope/dispatcher)
-add_executable(pulp-test-editor-bridge test_editor_bridge.cpp)
-target_link_libraries(pulp-test-editor-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-editor-bridge)
+pulp_add_test_suite(pulp-test-editor-bridge LIBRARIES pulp::view)
 
 # Input events tests
-add_executable(pulp-test-input-events test_input_events.cpp)
-target_link_libraries(pulp-test-input-events PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-input-events)
+pulp_add_test_suite(pulp-test-input-events LIBRARIES pulp::view)
 
 # Text editor tests
-add_executable(pulp-test-text-editor test_text_editor.cpp)
-target_link_libraries(pulp-test-text-editor PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-text-editor)
+pulp_add_test_suite(pulp-test-text-editor LIBRARIES pulp::view)
 
 # TextEditor multi-line coverage (audit P3: wrap, click-to-caret in
 # wrapped rows, caret_rect pixel positioning, single-vs-multi Enter
 # contract). Keeps the original test_text_editor.cpp file unchanged
 # so the existing single-line surface stays pinned in isolation.
-add_executable(pulp-test-text-editor-multiline test_text_editor_multiline.cpp)
-target_link_libraries(pulp-test-text-editor-multiline PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-text-editor-multiline)
+pulp_add_test_suite(pulp-test-text-editor-multiline LIBRARIES pulp::view)
 
 # TextEditor input pipeline tests (headless — validates focus, typing, Enter, backspace)
-add_executable(pulp-test-text-input test_text_input.cpp)
-target_link_libraries(pulp-test-text-input PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-text-input)
+pulp_add_test_suite(pulp-test-text-input LIBRARIES pulp::view)
 
 # W3C Layout parity tests (flexbox, box model, visual properties)
-add_executable(pulp-test-layout-w3c test_layout_w3c.cpp)
-target_link_libraries(pulp-test-layout-w3c PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-layout-w3c)
+pulp_add_test_suite(pulp-test-layout-w3c LIBRARIES pulp::view)
 
 # Visual semantic snapshot harness. This is a custom-main Catch2 binary:
 # --self-test runs its focused tests, while --fixture emits a stable JSON
@@ -1918,76 +1620,50 @@ set_tests_properties(visual-harness-self-test PROPERTIES
     TIMEOUT 30)
 
 # CanvasWidget tests (JS-driven custom drawing)
-add_executable(pulp-test-canvas-widget test_canvas_widget.cpp)
-target_link_libraries(pulp-test-canvas-widget PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-canvas-widget)
+pulp_add_test_suite(pulp-test-canvas-widget LIBRARIES pulp::view)
 
 # pulp #964 — Canvas2D JS-shim coverage. Drives the full
 # web-compat-canvas.js → bridge → CanvasWidget path so a regression
 # that drops a save/restore/setTransform/createLinearGradient method
 # (and silently aborts FilterBank-style frame renders) gets caught.
-add_executable(pulp-test-canvas2d-shim test_canvas2d_shim.cpp)
-target_link_libraries(pulp-test-canvas2d-shim PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-canvas2d-shim)
+pulp_add_test_suite(pulp-test-canvas2d-shim LIBRARIES pulp::view)
 
 # SvgPathWidget tests (issue-965)
-add_executable(pulp-test-svg-path-widget test_svg_path_widget.cpp)
-target_link_libraries(pulp-test-svg-path-widget PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-svg-path-widget)
+pulp_add_test_suite(pulp-test-svg-path-widget LIBRARIES pulp::view)
 
 # SvgRect + SvgLine widget tests (issue-1416)
-add_executable(pulp-test-svg-rect-widget test_svg_rect_widget.cpp)
-target_link_libraries(pulp-test-svg-rect-widget PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-svg-rect-widget)
+pulp_add_test_suite(pulp-test-svg-rect-widget LIBRARIES pulp::view)
 
 # ScrollView tests
-add_executable(pulp-test-scroll-view test_scroll_view.cpp)
-target_link_libraries(pulp-test-scroll-view PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-scroll-view)
+pulp_add_test_suite(pulp-test-scroll-view LIBRARIES pulp::view)
 
 # ComboBox dropdown interaction tests
-add_executable(pulp-test-combo-dropdown test_combo_dropdown.cpp)
-target_link_libraries(pulp-test-combo-dropdown PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-combo-dropdown)
+pulp_add_test_suite(pulp-test-combo-dropdown LIBRARIES pulp::view)
 
 # pulp #1148 — generalized overlay-click routing (View::active_overlay_)
-add_executable(pulp-test-overlay-routing test_overlay_routing.cpp)
-target_link_libraries(pulp-test-overlay-routing PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-overlay-routing)
+pulp_add_test_suite(pulp-test-overlay-routing LIBRARIES pulp::view)
 
 # pulp #1708 — auto-clearing input-focus slot (View::focused_input_)
-add_executable(pulp-test-focused-input test_focused_input.cpp)
-target_link_libraries(pulp-test-focused-input PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-focused-input)
+pulp_add_test_suite(pulp-test-focused-input LIBRARIES pulp::view)
 
 # pulp #1148 (slice b) — auto-claim active_overlay_ from CSS shape
 # (`position:absolute` + `z-index >= 10`) or `data-overlay` author hint
 # detected by the web-compat layer (web-compat-style-decl.js +
 # web-compat-element.js). Uses the real WidgetBridge so the heuristic
 # runs against the same prelude stack the runtime ships.
-add_executable(pulp-test-web-compat-overlay test_web_compat_overlay.cpp)
-target_link_libraries(pulp-test-web-compat-overlay PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-web-compat-overlay)
+pulp_add_test_suite(pulp-test-web-compat-overlay LIBRARIES pulp::view)
 
 # Panel widget tests (styled containers)
-add_executable(pulp-test-panel test_panel.cpp)
-target_link_libraries(pulp-test-panel PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-panel)
+pulp_add_test_suite(pulp-test-panel LIBRARIES pulp::view)
 
 # UI components tests (ComboBox, TabPanel, ListBox, ScrollView, Tooltip, ProgressBar, CallOutBox)
-add_executable(pulp-test-ui-components test_ui_components.cpp)
-target_link_libraries(pulp-test-ui-components PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ui-components)
+pulp_add_test_suite(pulp-test-ui-components LIBRARIES pulp::view)
 
 # GraphEditorView tests
-add_executable(pulp-test-graph-editor-view test_graph_editor_view.cpp)
-target_link_libraries(pulp-test-graph-editor-view PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-graph-editor-view)
+pulp_add_test_suite(pulp-test-graph-editor-view LIBRARIES pulp::view)
 
 # Modal overlay tests
-add_executable(pulp-test-modal test_modal.cpp)
-target_link_libraries(pulp-test-modal PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-modal)
+pulp_add_test_suite(pulp-test-modal LIBRARIES pulp::view)
 
 # Design export tests
 add_executable(pulp-test-design-export test_design_export.cpp)
@@ -2167,39 +1843,25 @@ if(APPLE)
 endif()
 
 # Parameter attachment tests
-add_executable(pulp-test-param-attachment test_param_attachment.cpp)
-target_link_libraries(pulp-test-param-attachment PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-param-attachment)
+pulp_add_test_suite(pulp-test-param-attachment LIBRARIES pulp::view)
 
 # App framework tests (KeyMapping, MenuBar, Toolbar, AppSettings)
-add_executable(pulp-test-app-framework test_app_framework.cpp)
-target_link_libraries(pulp-test-app-framework PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-app-framework)
+pulp_add_test_suite(pulp-test-app-framework LIBRARIES pulp::view)
 
 # Preset manager tests
-add_executable(pulp-test-preset-manager test_preset_manager.cpp)
-target_link_libraries(pulp-test-preset-manager PRIVATE pulp::state Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-preset-manager)
+pulp_add_test_suite(pulp-test-preset-manager LIBRARIES pulp::state)
 
 # Waveform editor tests
-add_executable(pulp-test-waveform-editor test_waveform_editor.cpp)
-target_link_libraries(pulp-test-waveform-editor PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-waveform-editor)
+pulp_add_test_suite(pulp-test-waveform-editor LIBRARIES pulp::view)
 
 # FastMath approximation tests
-add_executable(pulp-test-fast-math test_fast_math.cpp)
-target_link_libraries(pulp-test-fast-math PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-fast-math)
+pulp_add_test_suite(pulp-test-fast-math LIBRARIES pulp::signal)
 
 # Polynomial/Matrix math tests
-add_executable(pulp-test-poly-math test_poly_math.cpp)
-target_link_libraries(pulp-test-poly-math PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-poly-math)
+pulp_add_test_suite(pulp-test-poly-math LIBRARIES pulp::signal)
 
 # Preset browser UI tests
-add_executable(pulp-test-preset-browser test_preset_browser.cpp)
-target_link_libraries(pulp-test-preset-browser PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-preset-browser)
+pulp_add_test_suite(pulp-test-preset-browser LIBRARIES pulp::view)
 
 # Plugin manager panel UI tests (issue #494)
 add_executable(pulp-test-plugin-manager-panel test_plugin_manager_panel.cpp)
@@ -2208,54 +1870,34 @@ target_link_libraries(pulp-test-plugin-manager-panel PRIVATE
 catch_discover_tests(pulp-test-plugin-manager-panel)
 
 # DSP expansion tests (FIR, Ballistics, LogRamp, ProcessorChain, LookupTable, TPT)
-add_executable(pulp-test-dsp-expansion test_dsp_expansion.cpp)
-target_link_libraries(pulp-test-dsp-expansion PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-dsp-expansion)
+pulp_add_test_suite(pulp-test-dsp-expansion LIBRARIES pulp::signal)
 
 # Interpolator tests (Hermite, Lagrange, windowed-sinc)
-add_executable(pulp-test-interpolator test_interpolator.cpp)
-target_link_libraries(pulp-test-interpolator PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-interpolator)
+pulp_add_test_suite(pulp-test-interpolator LIBRARIES pulp::signal)
 
 # MIDI expansion tests (RPN/NRPN parser, MidiKeyboardState)
-add_executable(pulp-test-midi-expansion test_midi_expansion.cpp)
-target_link_libraries(pulp-test-midi-expansion PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-midi-expansion)
+pulp_add_test_suite(pulp-test-midi-expansion LIBRARIES pulp::midi)
 
 # Audio process load measurer tests
-add_executable(pulp-test-load-measurer test_load_measurer.cpp)
-target_link_libraries(pulp-test-load-measurer PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-load-measurer)
+pulp_add_test_suite(pulp-test-load-measurer LIBRARIES pulp::audio)
 
 # FilterDesign tests
-add_executable(pulp-test-filter-design test_filter_design.cpp)
-target_link_libraries(pulp-test-filter-design PRIVATE pulp::signal Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-filter-design)
+pulp_add_test_suite(pulp-test-filter-design LIBRARIES pulp::signal)
 
 # TreeView tests
-add_executable(pulp-test-tree-view test_tree_view.cpp)
-target_link_libraries(pulp-test-tree-view PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-tree-view)
+pulp_add_test_suite(pulp-test-tree-view LIBRARIES pulp::view)
 
 # File browser, file tree, and multi-document panel tests
-add_executable(pulp-test-file-browser test_file_browser.cpp)
-target_link_libraries(pulp-test-file-browser PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-file-browser)
+pulp_add_test_suite(pulp-test-file-browser LIBRARIES pulp::view)
 
 # Undo manager tests
-add_executable(pulp-test-undo-manager test_undo_manager.cpp)
-target_link_libraries(pulp-test-undo-manager PRIVATE pulp::state Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-undo-manager)
+pulp_add_test_suite(pulp-test-undo-manager LIBRARIES pulp::state)
 
 # BufferingReader tests
-add_executable(pulp-test-buffering-reader test_buffering_reader.cpp)
-target_link_libraries(pulp-test-buffering-reader PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-buffering-reader)
+pulp_add_test_suite(pulp-test-buffering-reader LIBRARIES pulp::audio)
 
 # AudioWorkgroup tests
-add_executable(pulp-test-workgroup test_workgroup.cpp)
-target_link_libraries(pulp-test-workgroup PRIVATE pulp::audio Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-workgroup)
+pulp_add_test_suite(pulp-test-workgroup LIBRARIES pulp::audio)
 
 # Plugin matrix tests (sample rate/buffer size/edge case sweep)
 add_executable(pulp-test-matrix test_plugin_matrix.cpp)
@@ -2343,14 +1985,10 @@ target_include_directories(pulp-test-negative-path PRIVATE
 catch_discover_tests(pulp-test-negative-path)
 
 # iOS foundation tests (platform detection, safe area geometry, touch events)
-add_executable(pulp-test-ios-foundation test_ios_foundation.cpp)
-target_link_libraries(pulp-test-ios-foundation PRIVATE pulp::view pulp::platform Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ios-foundation)
+pulp_add_test_suite(pulp-test-ios-foundation LIBRARIES pulp::view pulp::platform)
 
 # Identity/UUID tests
-add_executable(pulp-test-identity test_identity.cpp)
-target_link_libraries(pulp-test-identity PRIVATE pulp::runtime Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-identity)
+pulp_add_test_suite(pulp-test-identity LIBRARIES pulp::runtime)
 
 # WebView tests (requires PULP_BUILD_WEBVIEW — WebViewPanel::create is only compiled when ON)
 if(PULP_BUILD_WEBVIEW)
@@ -2360,29 +1998,19 @@ if(PULP_BUILD_WEBVIEW)
 endif()
 
 # MIDI 2.0 UMP/MPE tests
-add_executable(pulp-test-ump-mpe test_ump_mpe.cpp)
-target_link_libraries(pulp-test-ump-mpe PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ump-mpe)
+pulp_add_test_suite(pulp-test-ump-mpe LIBRARIES pulp::midi)
 
 # MPE voice tracker tests
-add_executable(pulp-test-mpe-voice-tracker test_mpe_voice_tracker.cpp)
-target_link_libraries(pulp-test-mpe-voice-tracker PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-mpe-voice-tracker)
+pulp_add_test_suite(pulp-test-mpe-voice-tracker LIBRARIES pulp::midi)
 
 # UMP buffer + MIDI 1.0 <-> UMP conversion + UMP-aware MpeVoiceTracker
-add_executable(pulp-test-ump-buffer-conversion test_ump_buffer_conversion.cpp)
-target_link_libraries(pulp-test-ump-buffer-conversion PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-ump-buffer-conversion)
+pulp_add_test_suite(pulp-test-ump-buffer-conversion LIBRARIES pulp::format)
 
 # MPE buffer + Processor sidecar tests
-add_executable(pulp-test-mpe-buffer test_mpe_buffer.cpp)
-target_link_libraries(pulp-test-mpe-buffer PRIVATE pulp::format Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-mpe-buffer)
+pulp_add_test_suite(pulp-test-mpe-buffer LIBRARIES pulp::format)
 
 # MPE synth voice helpers (voice, allocator, glide detector)
-add_executable(pulp-test-mpe-synth-voice test_mpe_synth_voice.cpp)
-target_link_libraries(pulp-test-mpe-synth-voice PRIVATE pulp::midi Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-mpe-synth-voice)
+pulp_add_test_suite(pulp-test-mpe-synth-voice LIBRARIES pulp::midi)
 
 # Plugin hosting tests (scanner, signal graph)
 add_executable(pulp-test-host test_host.cpp)
@@ -2454,14 +2082,10 @@ if(DEFINED ENV{PULP_STRESS_FLAKY_TESTS} AND NOT "$ENV{PULP_STRESS_FLAKY_TESTS}" 
 endif()
 
 # GraphSerializer round-trip tests
-add_executable(pulp-test-graph-serializer test_graph_serializer.cpp)
-target_link_libraries(pulp-test-graph-serializer PRIVATE pulp::host Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-graph-serializer)
+pulp_add_test_suite(pulp-test-graph-serializer LIBRARIES pulp::host)
 
 # NetworkServiceDiscovery backend-dispatch tests (#302)
-add_executable(pulp-test-network-service-discovery test_network_service_discovery.cpp)
-target_link_libraries(pulp-test-network-service-discovery PRIVATE pulp::events Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-network-service-discovery)
+pulp_add_test_suite(pulp-test-network-service-discovery LIBRARIES pulp::events)
 
 # WAMv2 + WebCLAP format adapter tests
 add_executable(pulp-test-wam-wclap test_wam_wclap.cpp
@@ -2492,14 +2116,10 @@ target_include_directories(pulp-test-web-demos PRIVATE
 catch_discover_tests(pulp-test-web-demos)
 
 # AI Designer: design tool layout/parity tests
-add_executable(pulp-test-design-tool-layout test_design_tool_layout.cpp)
-target_link_libraries(pulp-test-design-tool-layout PRIVATE pulp::view pulp::state Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-design-tool-layout)
+pulp_add_test_suite(pulp-test-design-tool-layout LIBRARIES pulp::view pulp::state)
 
 # AI Designer: style pack tests
-add_executable(pulp-test-style-pack test_style_pack.cpp)
-target_link_libraries(pulp-test-style-pack PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-style-pack)
+pulp_add_test_suite(pulp-test-style-pack LIBRARIES pulp::view)
 
 # Removed: pulp-test-token-diff (test_token_diff.cpp) and pulp-test-showcase
 # (test_showcase.cpp) were placeholder TEST_CASE("...") { REQUIRE(true); }
@@ -2510,50 +2130,32 @@ catch_discover_tests(pulp-test-style-pack)
 # token-diff or Showcase class is ever added.
 
 # WindowManager multi-window framework tests (Phase 6)
-add_executable(pulp-test-window-manager test_window_manager.cpp)
-target_link_libraries(pulp-test-window-manager PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-window-manager)
+pulp_add_test_suite(pulp-test-window-manager LIBRARIES pulp::view)
 
 # ── Phase 9: Theme management, widgets, asset system ────────────────────────
 
 # Theme contrast utilities (WCAG AA)
-add_executable(pulp-test-theme-contrast test_theme_contrast.cpp)
-target_link_libraries(pulp-test-theme-contrast PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-theme-contrast)
+pulp_add_test_suite(pulp-test-theme-contrast LIBRARIES pulp::view)
 
 # Theme preset library (38 tweakcn + derivation)
-add_executable(pulp-test-theme-presets test_theme_presets.cpp)
-target_link_libraries(pulp-test-theme-presets PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-theme-presets)
+pulp_add_test_suite(pulp-test-theme-presets LIBRARIES pulp::view)
 
 # OS appearance tracking
-add_executable(pulp-test-appearance test_appearance_tracker.cpp)
-target_link_libraries(pulp-test-appearance PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-appearance)
+pulp_add_test_suite(pulp-test-appearance SOURCES test_appearance_tracker.cpp LIBRARIES pulp::view)
 
 # Splash screen lifecycle and paint behavior
-add_executable(pulp-test-splash-screen test_splash_screen.cpp)
-target_link_libraries(pulp-test-splash-screen PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-splash-screen)
+pulp_add_test_suite(pulp-test-splash-screen LIBRARIES pulp::view)
 
 # New widgets (EqCurve, MidiKeyboard, ColorPicker, FileDropZone, SplitView, PropertyList, Breadcrumb)
-add_executable(pulp-test-phase9-widgets test_phase9_widgets.cpp)
-target_link_libraries(pulp-test-phase9-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-phase9-widgets)
+pulp_add_test_suite(pulp-test-phase9-widgets LIBRARIES pulp::view)
 
-add_executable(pulp-test-property-list test_property_list.cpp)
-target_link_libraries(pulp-test-property-list PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-property-list)
+pulp_add_test_suite(pulp-test-property-list LIBRARIES pulp::view)
 
 # Focused SplitView and ConcertinaPanel coverage
-add_executable(pulp-test-view-layout-widgets test_view_layout_widgets.cpp)
-target_link_libraries(pulp-test-view-layout-widgets PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-view-layout-widgets)
+pulp_add_test_suite(pulp-test-view-layout-widgets LIBRARIES pulp::view)
 
 # Asset manager and resource system
-add_executable(pulp-test-asset-manager test_asset_manager.cpp)
-target_link_libraries(pulp-test-asset-manager PRIVATE pulp::view Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-asset-manager)
+pulp_add_test_suite(pulp-test-asset-manager LIBRARIES pulp::view)
 
 # Web-compat test suite (Phase 6: CSS parsing, layout, events, visual regression)
 add_subdirectory(web-compat)
