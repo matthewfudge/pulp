@@ -10,6 +10,7 @@
 #include <pulp/signal/interpolator.hpp>
 #include <pulp/signal/simd_buffer.hpp>
 #include <pulp/signal/spectrogram.hpp>
+#include <pulp/signal/special_functions.hpp>
 #include <pulp/signal/stft.hpp>
 #include <pulp/signal/waveshaper.hpp>
 #include <cmath>
@@ -757,4 +758,15 @@ TEST_CASE("Interpolator kernels hit exact endpoints and smooth midpoints",
     const float sinc_mid = Interpolator::sinc6(0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f);
     REQUIRE(sinc_mid > 0.75f);
     REQUIRE(sinc_mid < 1.25f);
+}
+
+TEST_CASE("Special functions cover sinc and Lanczos boundaries",
+          "[signal][math][coverage][phase3]") {
+    REQUIRE_THAT(sinc(0.0f), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(sinc(1.0f), WithinAbs(0.0f, 1e-6f));
+
+    REQUIRE_THAT(lanczos(0.0f, 3), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(lanczos(3.0f, 3), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(lanczos(-3.0f, 3), WithinAbs(0.0f, 1e-6f));
+    REQUIRE(lanczos(0.5f, 3) > 0.0f);
 }
