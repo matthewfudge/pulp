@@ -7144,3 +7144,23 @@ error fallback`, and ran
 which reported 100% diff coverage for `core/view/src/widgets.cpp` and 96%
 overall for the held branch diff. This tranche is held locally and should be
 aggregated into the larger PR rather than submitted individually.
+
+2026-05-17 17:45 PDT: added another local-only held app settings parser
+tranche to the consolidated coverage batch. Next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727` now includes commit
+`2488e1fd2` (`fix(view): reject malformed app settings numbers`). The
+tranche hardens `AppSettings::get_int()` and `get_float()` so persisted
+values with trailing junk or non-finite floats return `std::nullopt` instead
+of being partially accepted, while preserving trailing-whitespace tolerance
+for values written by the settings serializer. Focused coverage in
+`test/test_app_framework.cpp` extends typed settings tests across malformed
+int/float strings, non-finite float strings, valid whitespace-trailing
+int/float strings, and the window-state loader path that depends on strict
+integer parsing. Validation passed locally: `git diff --check`, built
+`pulp-test-app-framework`, ran direct `AppSettings invalid typed values
+return null or false`, and ran
+`PULP_DIFF_COVER_CTEST_REGEX='AppSettings invalid typed values return null or false|AppSettings get/set int|AppSettings get/set float|AppSettings window state round-trip|AppSettings saves and loads' tools/scripts/local_diff_cover.sh pulp-test-app-framework`,
+which reported 100% diff coverage for `core/view/src/app_framework.cpp` and
+96% overall for the held branch diff. This tranche is held locally and
+should be aggregated into the larger PR rather than submitted individually.
