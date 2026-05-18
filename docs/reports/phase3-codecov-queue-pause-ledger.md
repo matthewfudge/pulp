@@ -7412,3 +7412,12 @@ was exhausted. The PR is labeled `codecov`, head SHA
 GitHub-hosted checks at creation time. Auto-merge was not enabled yet because
 the normal `gh pr` GraphQL path is rate-limited; next action is to monitor
 REST/check-runs, address failures/comments, and merge on green.
+
+2026-05-17 23:38 PDT: force-pushed PR #2173 head to
+`069e34e0d07d9af73e8c223d86389d1741730a4e` after amending the tip commit
+with contiguous `Skill-Update:` skip trailers for `cli-maintenance`,
+`hosting`, and `import-design`, plus `Version-Bump: sdk=skip`. Local
+`skill_sync_check.py --base origin/main --head HEAD` and
+`version_bump_check.py --base origin/main --head HEAD --mode=report` both
+pass after the amend. Next action: monitor the rerun GitHub checks for
+#2173 and merge when green.
