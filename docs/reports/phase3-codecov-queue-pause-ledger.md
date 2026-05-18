@@ -7325,3 +7325,18 @@ and ran
 `./build/test/pulp-test-poly-math "[signal][poly],[signal][matrix]"`, which
 passed 22 test cases / 101 assertions. This tranche is held locally and
 should be aggregated into the larger PR rather than submitted individually.
+
+2026-05-17 23:23 PDT: added another local-only held accessibility mapping
+coverage tranche to the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `7c4a11b0f` (`test(a11y): cover platform mapping fallbacks`). The
+tranche extends `test/test_atk_mapping.cpp` and `test/test_uia_mapping.cpp`
+over invalid/future `AccessRole` fallback behavior for ATK role/interface
+mapping and Windows UIA control type/pattern mapping. Validation passed
+locally: `git diff --check`, built `pulp-test-atk-mapping` and
+`pulp-test-uia-mapping`, then ran
+`./build/test/pulp-test-atk-mapping "[a11y][atk]"` and
+`./build/test/pulp-test-uia-mapping "[a11y][uia]"`, which passed 18 test
+cases / 66 assertions across both binaries. This tranche is held locally and
+should be aggregated into the larger PR rather than submitted individually.
