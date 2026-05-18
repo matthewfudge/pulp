@@ -659,6 +659,34 @@ int main(int argc, char* argv[]) {
                 std::cout.flush();
             } catch (...) {}
 
+            // Dump the addEventListener / removeEventListener log + actual
+            // window._listeners state. The asymmetry between these (15
+            // mousemove adds vs 0 in _listeners) is the smoking gun for
+            // the slider/XY non-response.
+            try {
+                auto elLog = engine.evaluate(
+                    "(function(){"
+                    "  var log = globalThis.__pulpAddELLog__ || [];"
+                    "  var addCounts = {}, remCounts = {};"
+                    "  for (var i = 0; i < log.length; i++) {"
+                    "    var e = log[i];"
+                    "    if (e.op === 'add') addCounts[e.type] = (addCounts[e.type] || 0) + 1;"
+                    "    if (e.op === 'remove') remCounts[e.type] = (remCounts[e.type] || 0) + 1;"
+                    "  }"
+                    "  var actual = {};"
+                    "  if (typeof window !== 'undefined' && window._listeners) {"
+                    "    for (var t in window._listeners) {"
+                    "      var lst = window._listeners[t];"
+                    "      if (lst && lst.length) actual[t] = lst.length;"
+                    "    }"
+                    "  }"
+                    "  var sampleStacks = log.filter(function(e){return e.op === 'add' && e.type === 'mousemove'}).slice(0, 2).map(function(e){return e.stack});"
+                    "  return JSON.stringify({log_add: addCounts, log_remove: remCounts, actual_listeners: actual, mousemove_addstacks: sampleStacks});"
+                    "})()").getWithDefault(std::string(""));
+                std::cout << "[addEL-audit] " << elLog << "\n";
+                std::cout.flush();
+            } catch (...) {}
+
             // Patch __dispatch__ to count __global__ events. Helps verify
             // the drag fan-out path firing into window listeners.
             try {

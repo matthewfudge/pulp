@@ -2151,19 +2151,24 @@ void WidgetBridge::register_api() {
                 }
                 safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', '" + type + "', " + data + ")", "pointer");
 
-                // pulp jsx-instrument-import (2026-05-17) — also fan out to
-                // window-level mouse listeners for the React-DOM idiom of
-                // installing window.addEventListener('mousemove'/'mouseup',
-                // ...) from a useEffect after onMouseDown. Chainer's knob/
-                // fader/XY drag handlers depend on this. Map pointerdown→
-                // mousedown, pointerup→mouseup, pointercancel→mouseup
-                // (cancel is "drag aborted" — treating it as mouseup runs
-                // the cleanup the same way a normal release would).
+                // pulp jsx-instrument-import (2026-05-17) — also fan out the
+                // MOUSE equivalent for BOTH the per-widget dispatch AND the
+                // window-level fan-out. JSX handlers like onMouseDown
+                // register via prop-applier under __callbacks__[id:mousedown]
+                // (NOT id:pointerdown), so a pure pointerdown dispatch never
+                // fires them. Synthesizing the mouse-equivalent at this
+                // level lets both onMouseDown JSX and the window-level
+                // useEffect listeners (Chainer's drag pattern) wire up.
                 std::string mouse_type;
                 if (type == "pointerdown") mouse_type = "mousedown";
                 else if (type == "pointerup") mouse_type = "mouseup";
                 else if (type == "pointercancel") mouse_type = "mouseup";
                 if (!mouse_type.empty()) {
+                    // Per-widget mouse dispatch — fires __callbacks__[id:mousedown].
+                    safe_dispatch_eval(alive, engine,
+                        "__dispatch__('" + id + "', '" + mouse_type + "', " + data + ")",
+                        "per-widget mouse");
+                    // Window-level mouse fan-out — fires window._listeners[mousedown].
                     safe_dispatch_eval(alive, engine,
                         "__dispatch__('__global__', '" + mouse_type + "', " + data + ")",
                         "global mouse");
@@ -2194,12 +2199,14 @@ void WidgetBridge::register_api() {
                     std::cerr << "[bridge] drag id=" << id << " @(" << pos.x << "," << pos.y << ")\n";
                 }
                 safe_dispatch_eval(alive, engine, "__dispatch__('" + id + "', 'pointermove', " + data + ")", "pointermove");
-                // pulp jsx-instrument-import — also fan out as mousemove
-                // on window so Chainer-style window.addEventListener('mousemove')
-                // listeners fire during drag, regardless of cursor position
-                // (the native View tracks drag state, so on_drag fires for
-                // every native pointer move during a drag — including off
-                // the originating widget).
+                // pulp jsx-instrument-import — also fan out as per-widget
+                // mousemove (fires __callbacks__[id:mousemove], for JSX
+                // onMouseMove handlers) AND window-level mousemove
+                // (fires window._listeners[mousemove] for Chainer-style
+                // useEffect drag handlers).
+                safe_dispatch_eval(alive, engine,
+                    "__dispatch__('" + id + "', 'mousemove', " + data + ")",
+                    "per-widget mousemove");
                 safe_dispatch_eval(alive, engine,
                     "__dispatch__('__global__', 'mousemove', " + data + ")",
                     "global mousemove");

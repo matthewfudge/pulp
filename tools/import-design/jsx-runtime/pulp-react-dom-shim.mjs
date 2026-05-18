@@ -33,6 +33,38 @@ globalThis.__pulpShimLogFn__ = __log;
 
 __log('[shim] module loaded; pulpCreateRoot=' + typeof pulpCreateRoot + ' pulpRender=' + typeof pulpRender);
 
+// pulp jsx-instrument-import 2026-05-17 — hook window.addEventListener /
+// removeEventListener at shim-load time so we can audit every install/
+// remove call. Custom-Fader-style JSX (Chainer's knobs use
+// `window.addEventListener('mousemove', ...)` from a useEffect to track
+// drag) needs the listener to STICK across React renders. Diagnostic
+// showed mouseup:15 but mousemove:0 — either the install never fired
+// or removeEventListener succeeded after a re-render but the new
+// install didn't. This hook records exact sequence.
+(function () {
+    var w = (typeof globalThis !== 'undefined') ? globalThis.window : undefined;
+    if (!w || typeof w.addEventListener !== 'function') return;
+    if (w.__pulpAddELHooked__) return;
+    w.__pulpAddELHooked__ = true;
+    var origAdd = w.addEventListener.bind(w);
+    var origRemove = (typeof w.removeEventListener === 'function') ? w.removeEventListener.bind(w) : null;
+    globalThis.__pulpAddELLog__ = [];
+    w.addEventListener = function (type, fn, opts) {
+        try {
+            globalThis.__pulpAddELLog__.push({ op: 'add', type: type, fn: fn ? (fn.name || 'anon') : 'null', stack: (new Error()).stack.split('\n').slice(1, 4).join('|') });
+        } catch (e) {}
+        return origAdd(type, fn, opts);
+    };
+    if (origRemove) {
+        w.removeEventListener = function (type, fn, opts) {
+            try {
+                globalThis.__pulpAddELLog__.push({ op: 'remove', type: type, fn: fn ? (fn.name || 'anon') : 'null' });
+            } catch (e) {}
+            return origRemove(type, fn, opts);
+        };
+    }
+})();
+
 class PulpReactRoot {
     constructor(container) {
         // The bundle calls ReactDOMClient.createRoot(mountEl) where
