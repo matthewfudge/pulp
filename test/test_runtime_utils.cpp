@@ -737,6 +737,30 @@ TEST_CASE("text_diff keeps repeated-line matches stable",
     REQUIRE(diff[5].text == "same");
 }
 
+TEST_CASE("text_diff handles replacement ties and empty line formatting",
+          "[runtime][text-diff][coverage][phase3]") {
+    auto diff = text_diff("old-a\n\nold-b", "new-a\nnew-b");
+
+    REQUIRE(diff.size() == 5);
+    REQUIRE(diff[0].op == DiffOp::Delete);
+    REQUIRE(diff[0].text == "old-a");
+    REQUIRE(diff[1].op == DiffOp::Delete);
+    REQUIRE(diff[1].text.empty());
+    REQUIRE(diff[2].op == DiffOp::Delete);
+    REQUIRE(diff[2].text == "old-b");
+    REQUIRE(diff[3].op == DiffOp::Insert);
+    REQUIRE(diff[3].text == "new-a");
+    REQUIRE(diff[4].op == DiffOp::Insert);
+    REQUIRE(diff[4].text == "new-b");
+
+    REQUIRE(format_diff(diff) ==
+            "- old-a\n"
+            "- \n"
+            "- old-b\n"
+            "+ new-a\n"
+            "+ new-b\n");
+}
+
 // ── Range ───────────────────────────────────────────────────────────────
 
 TEST_CASE("Range basic operations", "[runtime][range]") {
@@ -841,6 +865,28 @@ TEST_CASE("DoubleRange intersections and unions preserve fractional bounds",
     auto combined = a.enclosing_union(b);
     REQUIRE_THAT(combined.start, Catch::Matchers::WithinAbs(0.25, 1e-12));
     REQUIRE_THAT(combined.end, Catch::Matchers::WithinAbs(4.0, 1e-12));
+}
+
+TEST_CASE("SizeRange and FloatRange cover containment and expansion helpers",
+          "[runtime][range][coverage][phase3]") {
+    SizeRange bytes = SizeRange::from_start_length(4u, 8u);
+    REQUIRE(bytes.start == 4u);
+    REQUIRE(bytes.end == 12u);
+    REQUIRE(bytes.length() == 8u);
+    REQUIRE(bytes.contains(4u));
+    REQUIRE_FALSE(bytes.contains(12u));
+    REQUIRE(bytes.contains(SizeRange(6u, 10u)));
+
+    auto expanded = bytes.expanded(16u);
+    REQUIRE(expanded == SizeRange(4u, 17u));
+
+    FloatRange unit(0.0f, 1.0f);
+    REQUIRE(unit.contains(0.25f));
+    REQUIRE_FALSE(unit.contains(1.0f));
+
+    auto overlap = unit.intersection(FloatRange(0.5f, 2.0f));
+    REQUIRE_THAT(overlap.start, Catch::Matchers::WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(overlap.end, Catch::Matchers::WithinAbs(1.0f, 1e-6f));
 }
 
 TEST_CASE("Range boundary touch points remain non-intersections",
