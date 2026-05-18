@@ -455,6 +455,22 @@ TEST_CASE("i18n JSON parser rejects missing object opener", "[runtime][i18n]") {
     REQUIRE(strings.count() == 0);
 }
 
+TEST_CASE("i18n JSON load failure preserves existing translations",
+          "[runtime][i18n][coverage][phase3-batch742]") {
+    TemporaryFile tmp(".json");
+    {
+        std::ofstream f(tmp.path());
+        f << "[]";
+    }
+
+    LocalisedStrings strings;
+    strings.add("existing", "kept");
+
+    REQUIRE_FALSE(strings.load_json_file(tmp.path_string()));
+    REQUIRE(strings.count() == 1);
+    REQUIRE(strings.translate("existing") == "kept");
+}
+
 TEST_CASE("i18n JSON parser allows duplicate keys and trailing comma",
           "[runtime][i18n][issue-641]") {
     TemporaryFile tmp(".json");
