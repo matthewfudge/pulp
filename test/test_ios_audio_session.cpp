@@ -149,3 +149,12 @@ TEST_CASE("to_string covers every event code",
             "silence_secondary_audio_ended");
     REQUIRE(to_string(999) == "unknown");
 }
+
+TEST_CASE("typed audio session event names route through integer mapping",
+          "[ios][audio-session][coverage][phase3]") {
+    REQUIRE(to_string(PulpIosAudioEvent::PULP_IOS_AUDIO_EVENT_NONE) == "none");
+    REQUIRE(to_string(PulpIosAudioEvent::PULP_IOS_AUDIO_EVENT_ROUTE_CHANGED) ==
+            "route_changed");
+    REQUIRE(to_string(PulpIosAudioEvent::PULP_IOS_AUDIO_EVENT_SILENCE_SECONDARY_AUDIO_ENDED) ==
+            "silence_secondary_audio_ended");
+}
