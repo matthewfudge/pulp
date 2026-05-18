@@ -174,6 +174,26 @@ TEST_CASE("motion_policy_to_string / from_string round-trip",
     REQUIRE(motion_policy_from_string("bogus") == MotionPolicy::Full);
 }
 
+TEST_CASE("apply_motion_policy_to_duration follows override and scale",
+          "[motion-preferences][coverage][phase3]") {
+    using pulp::view::apply_motion_policy_to_duration;
+
+    PrefsScope scope;
+    auto& prefs = MotionPreferences::instance();
+
+    prefs.set_override(MotionPolicy::Full);
+    prefs.set_duration_scale(0.25);
+    REQUIRE(apply_motion_policy_to_duration(2.0f) == Approx(2.0f));
+
+    prefs.set_override(MotionPolicy::Reduced);
+    REQUIRE(apply_motion_policy_to_duration(2.0f) == Approx(0.5f));
+    REQUIRE(apply_motion_policy_to_duration(-2.0f) == Approx(-0.5f));
+
+    prefs.set_override(MotionPolicy::Off);
+    REQUIRE(apply_motion_policy_to_duration(2.0f) == Approx(0.0f));
+    REQUIRE(pulp::view::motion_policy_is_off());
+}
+
 // ── Tween honors MotionPolicy ────────────────────────────────────────
 
 TEST_CASE("Tween under MotionPolicy::Off is finished from construction",
