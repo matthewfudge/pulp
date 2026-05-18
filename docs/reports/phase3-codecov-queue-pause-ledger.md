@@ -8430,3 +8430,25 @@ branch was labeled `codecov`. Monitoring remains GitHub-hosted only; #2210,
 #2219, and #2221 still have hosted failures whose detailed logs are pending
 workflow completion while macOS lanes remain queued/running. No Namespace
 dispatch.
+
+2026-05-18 09:00 PDT: pushed and opened the next GitHub-only coverage batch
+`feature/phase3-codecov-batch-736` as #2227
+(`test: batch phase3 coverage signal state audio edges`). The branch is 24
+commits ahead of current `origin/main` and covers audio file conversion and
+registry edges, StateStore version/default notification behavior, typed
+identity hashing, signal gain/mixer helpers, DSP expansion helpers
+(FIR/ballistics/log ramp/lookup/TPT/aligned buffer/special math), and Bias
+zero-length buffers. The batch also found and fixed a real public-header issue:
+`gain.hpp` and `special_functions.hpp` both defined `db_to_linear` and
+`linear_to_db`, so including both failed; `gain.hpp` now reuses
+`special_functions.hpp`, which also includes `<algorithm>` for its `std::max`
+use. Focused local validation passed for all touched suites:
+`pulp-test-audio-file`, `pulp-test-signal`, `pulp-test-dsp-expansion`,
+`pulp-test-state`, `pulp-test-identity`, `pulp-test-v3-gaps`
+`"[signal][bias]"`, and `git diff --check`. A `Version-Bump: sdk=skip`
+trailer was added because the batch is test-only. Local pre-push diff-cover was
+demoted only because the clean coverage configure still hits the known
+FetchContent `mbedtls` tag checkout failure; GitHub-hosted CI remains the
+validation source. GraphQL PR creation was rate-limited, so #2227 was opened
+through the GitHub REST API and labeled `codecov` through REST. No Namespace
+dispatch.
