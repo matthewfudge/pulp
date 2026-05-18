@@ -147,6 +147,18 @@ TEST_CASE("MemoryStream rewind after EOF allows replay",
     REQUIRE(out[1] == 5);
 }
 
+TEST_CASE("MemoryStream close is idempotent",
+          "[stream][memory][coverage][phase3]") {
+    MemoryStream stream(std::vector<std::uint8_t>{1});
+    stream.close();
+    stream.close();
+
+    REQUIRE_FALSE(stream.is_open());
+    std::uint8_t byte = 0;
+    REQUIRE(stream.read(&byte, 1).closed());
+    REQUIRE(stream.write(&byte, 1).closed());
+}
+
 TEST_CASE("MemoryStream close rejects further I/O", "[stream]") {
     MemoryStream s;
     s.close();
