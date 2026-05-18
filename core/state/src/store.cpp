@@ -10,7 +10,7 @@ namespace pulp::state {
 
 namespace detail {
 
-struct ListenerRegistry {
+struct ListenerRegistry : std::enable_shared_from_this<ListenerRegistry> {
     struct Entry {
         std::uint64_t id = 0;
         ParamChangeCallback callback;
@@ -61,6 +61,20 @@ struct ListenerRegistry {
             : std::make_shared<const EntryList>(std::move(copy));
     }
 
+    // Re-look-up + invoke at dispatch time so a token reset between
+    // EventLoop enqueue and drain cancels the queued call.
+    void invoke_if_present(std::uint64_t entry_id, ParamID param_id, float value) {
+        auto snap = load_snapshot();
+        if (!snap) return;
+        for (const auto& entry : *snap) {
+            if (entry.id == entry_id) {
+                if (entry.callback) entry.callback(param_id, value);
+                return;
+            }
+        }
+        // Entry was removed between dispatch and drain — drop the call.
+    }
+
     void notify(ParamID param_id, float value) {
         auto snap = load_snapshot();
         if (!snap || snap->empty()) return;
@@ -70,13 +84,26 @@ struct ListenerRegistry {
             if (entry.thread == ListenerThread::Audio || loop == nullptr) {
                 entry.callback(param_id, value);
             } else {
-                // Dispatch allocates on the firing thread. Format adapters
-                // MUST avoid calling set_value() with Main listeners
-                // attached from the audio thread — see Slice 2 in
-                // planning/2026-05-18-rt-safety-and-debug-dx.md.
-                auto cb = entry.callback;
-                loop->dispatch([cb = std::move(cb), param_id, value]() {
-                    cb(param_id, value);
+                // Capture weak_ptr + entry id. At drain time we re-look-up
+                // by id, so destroying or reset()-ing the ListenerToken
+                // between this enqueue and the EventLoop drain cancels
+                // the queued call — the queued lambda no longer holds a
+                // stale copy of the callback that could fire after the
+                // listener was removed.
+                //
+                // The shared_ptr<ParamChangeCallback> copy that the lambda
+                // would otherwise capture allocates on the firing thread;
+                // capturing a weak_ptr is also non-trivial, so this path
+                // stays unsafe on the audio thread. Format adapters MUST
+                // avoid calling set_value() with Main listeners attached
+                // from the audio thread — Slice 2 fixes the adapters to
+                // route UI notification through a separate enqueue path.
+                std::weak_ptr<ListenerRegistry> weak_self = weak_from_this();
+                const auto entry_id = entry.id;
+                loop->dispatch([weak_self, entry_id, param_id, value]() {
+                    if (auto self = weak_self.lock()) {
+                        self->invoke_if_present(entry_id, param_id, value);
+                    }
                 });
             }
         }

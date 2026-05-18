@@ -4,9 +4,11 @@
 #include <pulp/state/state.hpp>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -736,4 +738,75 @@ TEST_CASE("Tokens survive StateStore destruction without crashing",
     // (and the destructor at end of test) must not crash.
     orphan.reset();
     REQUIRE_FALSE(static_cast<bool>(orphan));
+}
+
+TEST_CASE("Queued Main callback is cancelled by token reset (Codex P1 PR#2270)",
+          "[state][listener][token][thread]") {
+    // Regression for the race Codex flagged on PR #2270: a Main listener
+    // dispatched through the EventLoop must NOT fire if the token is
+    // destroyed/reset between enqueue and drain. The dispatch lambda
+    // re-looks-up the entry by id at drain time, so removal cancels it.
+    pulp::events::EventLoop loop;
+    StateStore store;
+    store.add_parameter(make_param_info(1, "X", "", {0.0f, 1.0f, 0.0f}));
+    store.set_main_loop(&loop);
+
+    std::atomic<bool> callback_fired{false};
+    auto token = store.add_listener(
+        [&](ParamID, float) {
+            callback_fired.store(true, std::memory_order_release);
+        },
+        ListenerThread::Main);
+
+    // Park the loop with a blocking task so we can deterministically
+    // interleave set_value() and token.reset() before the listener
+    // dispatch runs.
+    std::mutex release_mu;
+    std::condition_variable release_cv;
+    bool released = false;
+    std::atomic<bool> blocker_running{false};
+
+    loop.dispatch([&]() {
+        blocker_running.store(true, std::memory_order_release);
+        std::unique_lock lk(release_mu);
+        release_cv.wait(lk, [&]() { return released; });
+    });
+
+    const auto blocker_deadline = std::chrono::steady_clock::now()
+                                  + std::chrono::seconds(2);
+    while (!blocker_running.load(std::memory_order_acquire)
+           && std::chrono::steady_clock::now() < blocker_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(blocker_running.load(std::memory_order_acquire));
+
+    // Loop is parked. Enqueue the listener dispatch, then remove the
+    // listener BEFORE the loop drains.
+    store.set_value(1, 0.5f);
+    token.reset();
+
+    {
+        std::lock_guard lk(release_mu);
+        released = true;
+    }
+    release_cv.notify_all();
+
+    // Drain barrier: enqueue a sentinel and wait. By the time it runs,
+    // the listener dispatch has already had its chance — and should
+    // have observed the removed entry and dropped the call.
+    std::atomic<bool> sentinel_done{false};
+    loop.dispatch([&]() {
+        sentinel_done.store(true, std::memory_order_release);
+    });
+    const auto drain_deadline = std::chrono::steady_clock::now()
+                                + std::chrono::seconds(2);
+    while (!sentinel_done.load(std::memory_order_acquire)
+           && std::chrono::steady_clock::now() < drain_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    REQUIRE(sentinel_done.load(std::memory_order_acquire));
+
+    REQUIRE_FALSE(callback_fired.load(std::memory_order_acquire));
+
+    store.set_main_loop(nullptr);
 }
