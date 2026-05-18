@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01330"></a>
+## [0.133.0] - 2026-05-18
+
+- feat(canvas): word + line break opportunities (font v2 Slice 2.4) ([#2249](https://github.com/danielraffel/pulp/pull/2249))
+
+<a id="v01320"></a>
+## [0.132.0] - 2026-05-18
+
+- refactor(test): P5-1 follow-up — extract Yoga-layer bridge cluster (11,888 → 11,455) ([#2255](https://github.com/danielraffel/pulp/pull/2255))
+- refactor(test): P5-3 follow-up — extract z-index + overflow cluster (1,839 → 1,466) ([#2254](https://github.com/danielraffel/pulp/pull/2254))
+- feat(canvas): cross-backend rendering goldens harness (font v2 Slice 3.4) ([#2261](https://github.com/danielraffel/pulp/pull/2261))
+
 <a id="v01280"></a>
 ## [0.128.0] - 2026-05-18
 
@@ -2007,6 +2019,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.133.0]: https://github.com/danielraffel/pulp/releases/tag/v0.133.0
+[0.132.0]: https://github.com/danielraffel/pulp/releases/tag/v0.132.0
 [0.128.0]: https://github.com/danielraffel/pulp/releases/tag/v0.128.0
 [0.127.0]: https://github.com/danielraffel/pulp/releases/tag/v0.127.0
 [0.126.0]: https://github.com/danielraffel/pulp/releases/tag/v0.126.0
