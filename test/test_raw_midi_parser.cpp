@@ -199,6 +199,33 @@ TEST_CASE("raw_midi_parser accepts null zero-length input",
     REQUIRE((state.sysex_buffer == std::vector<uint8_t>{0xF0, 0x7D}));
 }
 
+TEST_CASE("raw_midi_parser empty reads preserve pending sysex state",
+          "[midi][raw_midi_parser][coverage][phase3]") {
+    RawMidiParserState state;
+    Captured c;
+    auto on_short = [&c](uint8_t s, uint8_t d1, uint8_t d2) {
+        c.shorts.push_back({s, d1, d2});
+    };
+    auto on_sysex = [&c](const std::vector<uint8_t>& sx) {
+        c.sysex.push_back(sx);
+    };
+
+    uint8_t start[] = {0xF0, 0x7D};
+    parse_raw_midi_bytes(start, sizeof(start), state, on_short, on_sysex);
+    REQUIRE(state.sysex_in_progress);
+
+    parse_raw_midi_bytes(nullptr, 0, state, on_short, on_sysex);
+    REQUIRE(state.sysex_in_progress);
+    REQUIRE(state.sysex_buffer == std::vector<uint8_t>{0xF0, 0x7D});
+    REQUIRE(c.shorts.empty());
+    REQUIRE(c.sysex.empty());
+
+    uint8_t finish[] = {0x01, 0xF7};
+    parse_raw_midi_bytes(finish, sizeof(finish), state, on_short, on_sysex);
+    REQUIRE(c.sysex.size() == 1);
+    REQUIRE(c.sysex[0] == std::vector<uint8_t>{0xF0, 0x7D, 0x01, 0xF7});
+}
+
 TEST_CASE("raw_midi_parser restarts sysex when F0 interrupts partial sysex",
           "[midi][raw_midi_parser][coverage]") {
     auto c = parse({0xF0, 0x7D, 0x01,
