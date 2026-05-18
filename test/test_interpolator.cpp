@@ -123,3 +123,11 @@ TEST_CASE("Interpolator sinc6 zero input remains silent",
         REQUIRE_THAT(result, WithinAbs(0.0f, 1e-6f));
     }
 }
+
+TEST_CASE("Interpolator hermite preserves linear ramps",
+          "[signal][interp][codecov]") {
+    REQUIRE_THAT(Interpolator::hermite(0.25f, -1.0f, 0.0f, 1.0f, 2.0f),
+                 WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(Interpolator::hermite(0.75f, 2.0f, 4.0f, 6.0f, 8.0f),
+                 WithinAbs(5.5f, 1e-6f));
+}
