@@ -771,3 +771,32 @@ TEST_CASE("HttpStream default state supports zero reads and idempotent close",
     REQUIRE_FALSE(closed_read.ok());
     REQUIRE(closed_read.closed());
 }
+
+TEST_CASE("HttpStream factories and refetch reset closed state to request results",
+          "[network_stream][http][codecov]") {
+    auto get_stream = HttpStream::get("http://", 1);
+    REQUIRE(get_stream);
+    REQUIRE_FALSE(get_stream->is_open());
+    REQUIRE(get_stream->status_code() == 0);
+    REQUIRE(get_stream->transport_error() == "Invalid URL");
+
+    auto post_stream = HttpStream::post("ftp://127.0.0.1/post", "{}", "application/json", 1);
+    REQUIRE(post_stream);
+    REQUIRE_FALSE(post_stream->is_open());
+    REQUIRE(post_stream->status_code() == 0);
+    REQUIRE(post_stream->transport_error() == "Invalid URL");
+
+    HttpStream stream;
+    stream.close();
+    HttpStream::Request req;
+    req.url = "http://";
+    req.timeout_seconds = 1;
+    REQUIRE_FALSE(stream.fetch(req));
+    REQUIRE_FALSE(stream.is_open());
+    REQUIRE(stream.transport_error() == "Invalid URL");
+
+    std::uint8_t byte = 0;
+    auto read = stream.read(&byte, sizeof(byte));
+    REQUIRE_FALSE(read.ok());
+    REQUIRE(read.error == StreamError::IoError);
+}
