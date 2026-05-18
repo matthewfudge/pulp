@@ -239,3 +239,15 @@ TEST_CASE("Polynomial roots handle negative leading coefficient",
     REQUIRE_THAT(r1.imag(), WithinAbs(0.0f, 0.001f));
     REQUIRE_THAT(r2.imag(), WithinAbs(0.0f, 0.001f));
 }
+
+TEST_CASE("Mat2 inverse handles negative determinants",
+          "[signal][matrix][codecov]") {
+    Mat2 matrix{{{0.0f, 2.0f}, {3.0f, 0.0f}}};
+    REQUIRE_THAT(matrix.determinant(), WithinAbs(-6.0f, 0.001f));
+
+    auto product = matrix * matrix.inverse();
+    REQUIRE_THAT(product.m[0][0], WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(product.m[0][1], WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(product.m[1][0], WithinAbs(0.0f, 0.001f));
+    REQUIRE_THAT(product.m[1][1], WithinAbs(1.0f, 0.001f));
+}
