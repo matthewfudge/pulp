@@ -8580,3 +8580,21 @@ pulp-test-identity`, `pulp-test-i18n`, `pulp-test-json-rpc`,
 `PULP_SKIP_PREPUSH=1`; GitHub-hosted CI is the intended validation source.
 #2237 was opened and labeled `codecov` through the GitHub REST API. No Namespace
 dispatch.
+
+2026-05-18 12:04 PDT: pushed and opened the next GitHub-only coverage batch
+`feature/phase3-codecov-github-batch-743` as #2252
+(`test: batch phase3 coverage runtime view audio edges`). The branch is 24
+commits ahead of current `origin/main` after a clean rebase and batches
+deterministic phase 3 coverage across events helpers, runtime dynamic-library,
+range, expression, and HTTP URL edges, processor sidecar replacement, MIDI and
+MIDI-CI behavior, OSC truncated typed payloads, canvas effects, audio file and
+excerpt edges, scan cache, iOS background descriptors, ARA content-change
+masks, view bridge reset behavior, headless defaults, diagnostic JSON escaping,
+test signal zero-size fills, standalone settings fallbacks, escaped StateTree
+JSON strings, table-model padding growth, and ImageCache clear counters. Local
+validation passed after rebase: `cmake --build build --target` for all touched
+test binaries, direct execution of all 22 touched test binaries with
+`--reporter compact`, and `git diff --check`. The branch was pushed with
+`PULP_SKIP_PREPUSH=1`; #2252 was opened through the GitHub REST API because the
+session's GraphQL quota is exhausted. GitHub-hosted CI is the intended
+validation source. No Namespace dispatch.
