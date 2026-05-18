@@ -8083,3 +8083,32 @@ preserves counters"`, `pulp-test-rendering-integration "RenderPassManager*"`,
 `git diff --check`. PR #2173, #2202, and #2208 have direct squash auto-merge
 enabled and remain on GitHub-hosted CI only with no failures at this update;
 no Namespace dispatch.
+
+2026-05-18 04:34 PDT: completed the next held large GitHub-only coverage batch
+`feature/phase3-codecov-batch-730` at 24 local commits ahead of `origin/main`.
+New commits since the previous ledger entry: `cb96079a4`
+(`test(runtime): cover http loopback success paths`), `5c491a956`
+(`test(runtime): cover sync primitive edge states`), `66e4a28da`
+(`test(runtime): cover json rpc edge responses`), `15c726fc4`
+(`test(platform): cover detection flag consistency`), `a9ade797d`
+(`test(runtime): cover pipe stream wrappers`), `082b3df34`
+(`test(runtime): cover child process working dir`), and `409805c4c`
+(`test(runtime): cover json rpc teardown`). Focused local validation passed for
+the newly added final tranches: `pulp-test-runtime-utils "run_process honors
+working directory and preserves spaced arguments"`, `pulp-test-json-rpc`
+focused sparse-error/notification/teardown cases, `pulp-test-platform`
+platform/architecture consistency cases, `pulp-test-stream` focused PipeStream
+cases, `pulp-test-sync` focused TripleBuffer/SpscQueue cases, and
+`git diff --check`. `git fetch origin main && git rebase origin/main` reported
+the branch already up to date before validation. Next action: push/open this
+as one batched GitHub-hosted PR and enable direct squash auto-merge; do not use
+Namespace.
+
+PR monitoring at this update: #2202's branch-owned Linux/Windows work was
+green, while GitHub-hosted macOS timed out on `cmake-ios-auv3-configure` at the
+1800s CTest limit and the dependent `macos` gate failed; reran failed jobs with
+`gh run rerun 26028443159 --failed`, which restarted the macOS leg. #2173 has
+a Linux GitHub-hosted failure, but GitHub is still withholding the failed job
+log until the overall workflow completes; keep monitoring and inspect before
+patching or rerunning. #2208 has no failures and remains queued/running on
+GitHub-hosted lanes. No Namespace dispatch.
