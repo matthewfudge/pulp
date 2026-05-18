@@ -7437,3 +7437,17 @@ Local validation passed: `python3 tools/import-validation/check-source-contracts
 skipped because the targeted local gates passed and the branch is already in
 GitHub-only CI. PR #2173 is open with head
 `7b1f4d84ffd8f4a62f2506fa2c9e643f0956eabd`; checks were queued at last poll.
+
+2026-05-17 23:50 PDT: started the next held large coverage batch from
+current `origin/main` in `/private/tmp/pulp-phase3-codecov-batch-728` on
+branch `feature/phase3-codecov-batch-728`. First local-only tranche is
+commit `f703f28fe` (`test(canvas): cover font options and scopes`). It adds
+`pulp-test-font-options` and covers the newly landed font v2 typed cache-key
+surface: full `FontOptions` hash participation, OpenType tag packing,
+plugin/view/global `FontScopeId` factories, scope generation isolation,
+view-scope release reset, memory-budget storage, and all resolver fallback
+origin string names. Local validation passed: configured the worktree build,
+built `pulp-test-font-options`, ran
+`./build/test/pulp-test-font-options "[canvas][font]"` (4 cases / 38
+assertions), and `git diff --check` passed. This branch is intentionally held
+locally until it accumulates a larger 24-36-tranche PR batch.
