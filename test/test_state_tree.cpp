@@ -1127,6 +1127,20 @@ TEST_CASE("StateTreeSynchroniser preserves negative child indexes in encoding",
     REQUIRE(decoded[1].child_index == -1);
 }
 
+TEST_CASE("StateTreeSynchroniser decode treats unknown value types as null",
+          "[state][sync][coverage][phase3]") {
+    SyncDelta delta{SyncDeltaType::PropertySet, "root", "mystery", {}, -1};
+    auto encoded = StateTreeSynchroniser::encode({delta});
+    REQUIRE_FALSE(encoded.empty());
+    encoded.back() = 99;
+
+    auto decoded = StateTreeSynchroniser::decode(encoded.data(), encoded.size());
+    REQUIRE(decoded.size() == 1);
+    REQUIRE(decoded[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(decoded[0].key == "mystery");
+    REQUIRE(std::holds_alternative<std::monostate>(decoded[0].value));
+}
+
 TEST_CASE("StateTreeSynchroniser decode rejects truncated typed values",
           "[state][sync][codecov]") {
     const std::vector<SyncDelta> cases = {
