@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 15:01 PDT
+Last updated: 2026-05-18 15:02 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -25,8 +25,9 @@ coverage batches while it runs.
 
 2026-05-18 14:48 PDT: started the next local-only batch
 `feature/phase3-codecov-batch-747` from current `origin/main`
-`3693aa839`. First committed tranche is
-`9e910a2cf test(cli): cover update check parser boundaries`, touching
+`3693aa839`; rebased cleanly at 15:02 PDT after `origin/main`
+advanced. Current post-rebase SHA for the first committed tranche is
+`9474f6db5 test(cli): cover update check parser boundaries`, touching
 `test/test_cli_update_check.cpp`. Scope: deterministic CLI
 `update_check` coverage for cache JSON malformed-int/default-schema
 handling, JSON string escaping, short semver triples, direct semver
@@ -39,7 +40,7 @@ additional related coverage commits toward a larger 24-36 commit batch.
 
 2026-05-18 14:53 PDT: added second committed tranche to
 `feature/phase3-codecov-batch-747`:
-`9d8f6b02a test(cli): cover fetchcontent cache edge paths`, touching
+`9d6b778e5 test(cli): cover fetchcontent cache edge paths`, touching
 `test/test_cli_fetchcontent_cache.cpp`. Scope: deterministic
 `fetchcontent_cache` coverage for empty discovery roots, missing
 `list_dir`, lstat-failed/unknown entries, root-owned dangling symlinks,
@@ -53,7 +54,7 @@ Namespace dispatch.
 
 2026-05-18 15:01 PDT: added eighth committed tranche to
 `feature/phase3-codecov-batch-747`:
-`14d24019d test(cli): cover import detect parser edges`, touching
+`0e3eb313d test(cli): cover import detect parser edges`, touching
 `test/test_cli_import_detect.cpp`. Scope: deterministic import-design
 detection coverage for optional format metadata, malformed source/format
 skip behavior, unknown fingerprint clause parsing, directory snapshot
@@ -67,7 +68,7 @@ Namespace dispatch.
 
 2026-05-18 15:00 PDT: added seventh committed tranche to
 `feature/phase3-codecov-batch-747`:
-`b73350f89 test(cli): cover design binding selection paths`, touching
+`66892163e test(cli): cover design binding selection paths`, touching
 `test/test_cli_design_binding.cpp`. Scope: deterministic design-binding
 coverage for positional script root selection, same-root script
 preservation, explicit build-cache root selection, and binary-root
@@ -80,7 +81,7 @@ Namespace dispatch.
 
 2026-05-18 14:59 PDT: added sixth committed tranche to
 `feature/phase3-codecov-batch-747`:
-`7a19b632a test(cli): cover projects registry relative paths`, touching
+`b24aca198 test(cli): cover projects registry relative paths`, touching
 `test/test_cli_projects_registry.cpp`. Scope: deterministic projects
 registry coverage for relative-path canonicalization during
 `add_project`, refresh/dedupe of relative paths, and canonical
@@ -93,7 +94,7 @@ Namespace dispatch.
 
 2026-05-18 14:55 PDT: added third committed tranche to
 `feature/phase3-codecov-batch-747`:
-`2f06f3c37 test(cli): cover package registry edge paths`, touching
+`997583340 test(cli): cover package registry edge paths`, touching
 `test/test_cli_package_registry.cpp`. Scope: deterministic package
 registry coverage for inserting generated targets into an existing
 `[project]` section, `targets` precedence over later `platforms`,
@@ -108,7 +109,7 @@ related coverage commits toward the larger batch. No Namespace dispatch.
 
 2026-05-18 14:56 PDT: added fourth committed tranche to
 `feature/phase3-codecov-batch-747`:
-`1fec989ea test(cli): cover migration note render edges`, touching
+`76544f3c0 test(cli): cover migration note render edges`, touching
 `test/test_cli_migration_index.cpp`. Scope: deterministic migration
 runtime coverage for text renderer newline termination when note bodies
 lack a trailing newline, plus JSON escaping for quotes, backslashes,
@@ -124,7 +125,7 @@ Namespace dispatch.
 
 2026-05-18 14:58 PDT: added fifth committed tranche to
 `feature/phase3-codecov-batch-747`:
-`d012689ed test(cli): cover validator discovery edge paths`, touching
+`e63d216f8 test(cli): cover validator discovery edge paths`, touching
 `test/test_cli_validator_discovery.cpp`. Scope: deterministic validator
 discovery coverage for PATH-resolved validator fallback, unknown-owner
 broken validator classification/remediation, mixed `apply_fixes`
