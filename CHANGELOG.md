@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01130"></a>
+## [0.113.0] - 2026-05-17
+
+- feat(import-design): JSX-instrument runtime-import (additive slice) [rebased] ([#2163](https://github.com/danielraffel/pulp/pull/2163))
+
 <a id="v01120"></a>
 ## [0.112.0] - 2026-05-17
 
@@ -1908,6 +1913,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.113.0]: https://github.com/danielraffel/pulp/releases/tag/v0.113.0
 [0.112.0]: https://github.com/danielraffel/pulp/releases/tag/v0.112.0
 [0.111.0]: https://github.com/danielraffel/pulp/releases/tag/v0.111.0
 [0.110.0]: https://github.com/danielraffel/pulp/releases/tag/v0.110.0
