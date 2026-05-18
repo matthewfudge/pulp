@@ -11,6 +11,7 @@
 #include <pulp/signal/simd_buffer.hpp>
 #include <pulp/signal/spectrogram.hpp>
 #include <pulp/signal/stft.hpp>
+#include <pulp/signal/smoothed_value.hpp>
 #include <pulp/signal/waveshaper.hpp>
 #include <cmath>
 #include <cstdint>
@@ -210,6 +211,25 @@ TEST_CASE("LogRampedValue skip advances correctly", "[signal][log_ramp]") {
     v.skip(4400);
     float remaining = v.next();
     REQUIRE(remaining > 900.0f);
+}
+
+TEST_CASE("SmoothedValue supports double ramps and terminal skips",
+          "[signal][smooth][coverage]") {
+    SmoothedValue<double> value(2.0);
+    value.set_ramp_time(0.004, 1000.0);
+    value.set_target(10.0);
+
+    REQUIRE(value.is_smoothing());
+    REQUIRE_THAT(value.next(), WithinAbs(4.0, 1e-12));
+
+    value.skip(2);
+    REQUIRE_THAT(value.current(), WithinAbs(8.0, 1e-12));
+    REQUIRE(value.is_smoothing());
+
+    value.skip(99);
+    REQUIRE_FALSE(value.is_smoothing());
+    REQUIRE_THAT(value.current(), WithinAbs(10.0, 1e-12));
+    REQUIRE_THAT(value.target(), WithinAbs(10.0, 1e-12));
 }
 
 TEST_CASE("LogRampedValue jumps for non-positive endpoints",
