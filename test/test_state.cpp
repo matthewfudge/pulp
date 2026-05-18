@@ -401,6 +401,20 @@ TEST_CASE("StateStore deserialize rejects bad magic and future versions",
     REQUIRE_THAT(store.get_value(1), WithinAbs(-12.0, 0.001));
 }
 
+TEST_CASE("StateStore deserialize rejects corrupted CRC without changing values",
+          "[state][serialize][coverage]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "dB", {-60.0f, 12.0f, 0.0f}));
+    store.set_value(1, -6.0f);
+
+    auto data = store.serialize();
+    data[data.size() - 1] ^= 0x7Fu;
+
+    store.set_value(1, -12.0f);
+    REQUIRE_FALSE(store.deserialize(data));
+    REQUIRE_THAT(store.get_value(1), WithinAbs(-12.0, 0.001));
+}
+
 TEST_CASE("StateStore change listener", "[state][listener]") {
     StateStore store;
     store.add_parameter(make_param_info(1, "X", "", {0.0f, 1.0f, 0.5f}));
