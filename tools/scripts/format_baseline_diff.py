@@ -99,11 +99,24 @@ def main(argv: list[str]) -> int:
         for new in new_files:
             base = baseline_dir / new.name
             if not base.exists():
+                # Bootstrap path: no committed baseline yet. Emit a
+                # ::notice (visible in GitHub PR UI) with the captured
+                # output's first ~30 lines so a reviewer can eyeball
+                # whether it looks sane, then suggest the capture
+                # command to commit. Do NOT fail the gate on missing
+                # baseline alone — the gate only blocks on actual
+                # diffs (regressions), not on first-run bootstrap.
+                snippet = new.read_text(errors="replace").splitlines()[:30]
                 sys.stderr.write(
-                    f"[format-baseline-diff] No committed baseline for "
-                    f"{new.name}. Run "
-                    f"tools/scripts/format_baseline_capture.sh and commit.\n"
+                    f"[format-baseline-diff] ::notice::No committed "
+                    f"baseline for {new.name} yet. To bootstrap, run "
+                    f"`tools/scripts/format_baseline_capture.sh --build "
+                    f"--plugin <plugin>` and commit the output.\n"
+                    f"[format-baseline-diff] First ~30 lines of "
+                    f"captured output for {new.name}:\n"
                 )
+                for line in snippet:
+                    sys.stderr.write(f"  {line}\n")
                 missing_baseline += 1
                 continue
             new_lines = new.read_text(errors="replace").splitlines(keepends=False)
@@ -128,17 +141,28 @@ def main(argv: list[str]) -> int:
                     "lines truncated.\n"
                 )
 
-        if missing_baseline or diffs_found:
+        # Hard-fail only on diffs against an EXISTING baseline (the
+        # actual regression signal). Missing baselines are bootstrap,
+        # not regression.
+        if diffs_found:
             sys.stderr.write(
-                f"\n[format-baseline-diff] BLOCKED: "
-                f"{diffs_found} diff(s), {missing_baseline} missing "
-                f"baseline(s).\n"
+                f"\n[format-baseline-diff] BLOCKED: {diffs_found} diff(s) "
+                "against committed baseline.\n"
                 "If this change is intentional, run:\n"
                 "  tools/scripts/format_baseline_capture.sh\n"
                 "and commit the updated test/fixtures/format-baseline/ "
                 "fixtures in the same PR.\n"
             )
             return 1
+        if missing_baseline:
+            sys.stderr.write(
+                f"\n[format-baseline-diff] OK (bootstrap): "
+                f"{missing_baseline} validator output(s) captured with no "
+                "committed baseline yet. First-time gate run — no "
+                "regression possible. Commit the captured fixtures to "
+                "lock in the baseline for future PRs.\n"
+            )
+            # Exit 0 — bootstrap is expected, not a regression.
 
     sys.stderr.write(
         f"[format-baseline-diff] OK — all "

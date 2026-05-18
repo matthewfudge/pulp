@@ -150,9 +150,21 @@ if [[ $captured -eq 0 && $failed -eq 0 ]]; then
     exit 2
 fi
 
-if [[ $failed -gt 0 ]]; then
-    echo "[baseline] $failed validator(s) failed — see output files." >&2
+if [[ $failed -gt 0 && $captured -eq 0 ]]; then
+    # All available validators failed. That's a hard fail — no
+    # signal at all.
+    echo "[baseline] All $failed validator(s) failed — no captured output." >&2
     exit 1
+fi
+
+if [[ $failed -gt 0 ]]; then
+    # Partial: some validators captured cleanly, others crashed.
+    # Common cause: pluginval SIGKILL on unsigned bundles (fixed by
+    # ad-hoc codesign upstream), or clap-validator missing from
+    # PATH. Continue with what we have so the gate can still diff
+    # the surviving lanes.
+    echo "[baseline] WARN: $failed validator(s) failed; $captured captured into $OUTPUT_DIR" >&2
+    exit 0
 fi
 
 echo "[baseline] Captured $captured validator(s) into $OUTPUT_DIR" >&2

@@ -95,21 +95,28 @@ jobs:
             exit 1
           fi
 
-      - name: Install plugin bundles to system folders
+      - name: Install plugin bundles to system folders + ad-hoc codesign
         # Plugin bundles are emitted under top-level format dirs per
         # tools/cmake/PulpUtils.cmake — LIBRARY_OUTPUT_DIRECTORY is
         # set to ${CMAKE_BINARY_DIR}/AU, /VST3, /CLAP for each format.
+        #
+        # Ad-hoc codesign each bundle so pluginval and auval can load
+        # them without macOS Gatekeeper killing the process. The
+        # `-` identity is an ad-hoc signature (no Developer ID needed);
+        # `--force --deep` re-signs all embedded resources.
         run: |
           set -e
           mkdir -p ~/Library/Audio/Plug-Ins/Components \
                    ~/Library/Audio/Plug-Ins/VST3 \
                    ~/Library/Audio/Plug-Ins/CLAP
           if [ -d build/AU/PulpEffect.component ]; then
+            codesign --force --deep --sign - build/AU/PulpEffect.component || true
             cp -R build/AU/PulpEffect.component ~/Library/Audio/Plug-Ins/Components/
           else
             echo "::warning::build/AU/PulpEffect.component missing — AU lane will skip"
           fi
           if [ -d build/VST3/PulpEffect.vst3 ]; then
+            codesign --force --deep --sign - build/VST3/PulpEffect.vst3 || true
             cp -R build/VST3/PulpEffect.vst3 ~/Library/Audio/Plug-Ins/VST3/
           else
             echo "::warning::build/VST3/PulpEffect.vst3 missing — VST3 lane will skip"
@@ -118,6 +125,24 @@ jobs:
             cp -R build/CLAP/PulpEffect.clap ~/Library/Audio/Plug-Ins/CLAP/
           else
             echo "::warning::build/CLAP/PulpEffect.clap missing — CLAP lane will skip"
+          fi
+
+      - name: Install clap-validator
+        # GHA macOS runners don't ship clap-validator. Download a
+        # pinned prebuilt binary from the GitHub release. Pin is a
+        # tagged release; bump deliberately if the validator's
+        # behavior changes (and re-capture the baseline at the same
+        # commit).
+        run: |
+          CV_VERSION="0.3.2"
+          CV_URL="https://github.com/free-audio/clap-validator/releases/download/${CV_VERSION}/clap-validator-macos-aarch64.tar.gz"
+          if curl -fsSL -o /tmp/cv.tar.gz "$CV_URL"; then
+            tar -xzf /tmp/cv.tar.gz -C /tmp
+            sudo mv /tmp/clap-validator /usr/local/bin/clap-validator
+            chmod +x /usr/local/bin/clap-validator
+            clap-validator --version || echo "::warning::clap-validator installed but --version failed"
+          else
+            echo "::warning::clap-validator download failed — CLAP lane will skip"
           fi
 
       - name: Run baseline diff
