@@ -8,6 +8,7 @@
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/expression.hpp>
 #include <pulp/runtime/http.hpp>
+#include <pulp/runtime/ip_address.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/scope_guard.hpp>
 #include <pulp/runtime/text_diff.hpp>
@@ -534,6 +535,16 @@ TEST_CASE("base64 handles explicit byte pointers and exact quartet decoding",
     auto quartet = base64_decode("////");
     REQUIRE(quartet.has_value());
     REQUIRE(*quartet == std::vector<uint8_t>{0xff, 0xff, 0xff});
+}
+
+// ── IP address helpers ─────────────────────────────────────────────────
+
+TEST_CASE("IPv4 validation accepts boundary octets",
+          "[runtime][ip][coverage][phase3-batch742]") {
+    REQUIRE(is_valid_ipv4("0.0.0.0"));
+    REQUIRE(is_valid_ipv4("127.0.0.1"));
+    REQUIRE(is_valid_ipv4("192.168.1.20"));
+    REQUIRE(is_valid_ipv4("255.255.255.255"));
 }
 
 // ── Expression ─────────────────────────────────────────────────────────
