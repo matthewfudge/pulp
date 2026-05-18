@@ -1,0 +1,94 @@
+name: Format validator baseline diff
+
+# Companion-track U-3 (planning/2026-05-17-refactor-roadmap-final.md).
+#
+# Runs the format validator baseline diff whenever a PR touches the
+# format adapters or plugin slots. Catches silent format/protocol
+# regressions that compile clean but break real-DAW compatibility.
+#
+# The gate compares the current validator output (auval / pluginval /
+# clap-validator) against the committed fixtures in
+# test/fixtures/format-baseline/. A diff blocks the PR; intentional
+# changes require regenerating the baseline in the same PR via
+# tools/scripts/format_baseline_capture.sh.
+
+on:
+  pull_request:
+    paths:
+      - 'core/format/**'
+      - 'core/host/src/plugin_slot_*'
+      - 'core/host/include/pulp/host/plugin_slot.hpp'
+      - 'test/fixtures/format-baseline/**'
+      - 'tools/scripts/format_baseline_*'
+      - '.github/workflows/format-baseline-diff.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-diff:
+    # Self-hosted macOS runner — required because auval is macOS-only
+    # and pluginval / clap-validator are easiest to pin there. Linux /
+    # Windows runners would only cover a subset of validators and would
+    # fragment the baseline.
+    runs-on: ${{ fromJSON(vars.PULP_LOCAL_MACOS_RUNS_ON_JSON || '["macos-14"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check validator availability
+        id: validators
+        run: |
+          have_auval=0
+          have_pluginval=0
+          have_clap_validator=0
+          if command -v auval >/dev/null 2>&1; then have_auval=1; fi
+          if command -v pluginval >/dev/null 2>&1; then have_pluginval=1; fi
+          if command -v clap-validator >/dev/null 2>&1; then have_clap_validator=1; fi
+          echo "auval=$have_auval" >> "$GITHUB_OUTPUT"
+          echo "pluginval=$have_pluginval" >> "$GITHUB_OUTPUT"
+          echo "clap_validator=$have_clap_validator" >> "$GITHUB_OUTPUT"
+          echo "Validator availability: auval=$have_auval pluginval=$have_pluginval clap-validator=$have_clap_validator"
+
+      - name: Build representative plugin (PulpEffect — AU + VST3 + CLAP)
+        # PulpDrums is CLAP-only; PulpEffect ships in all three formats
+        # (FORMATS VST3 AU CLAP per examples/pulp-effect/CMakeLists.txt)
+        # so the gate exercises every validator.
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          # pulp_add_plugin() emits per-format targets:
+          # PulpEffect_AU, PulpEffect_VST3, PulpEffect_CLAP.
+          cmake --build build \
+            --target PulpEffect_AU PulpEffect_VST3 PulpEffect_CLAP \
+            -j"$(sysctl -n hw.ncpu)"
+
+      - name: Install plugin bundles to system folders
+        # Plugin bundles are emitted under top-level format dirs per
+        # tools/cmake/PulpUtils.cmake — LIBRARY_OUTPUT_DIRECTORY is
+        # set to ${CMAKE_BINARY_DIR}/AU, /VST3, /CLAP for each format.
+        run: |
+          set -e
+          mkdir -p ~/Library/Audio/Plug-Ins/Components \
+                   ~/Library/Audio/Plug-Ins/VST3 \
+                   ~/Library/Audio/Plug-Ins/CLAP
+          if [ -d build/AU/PulpEffect.component ]; then
+            cp -R build/AU/PulpEffect.component ~/Library/Audio/Plug-Ins/Components/
+          else
+            echo "::warning::build/AU/PulpEffect.component missing — AU lane will skip"
+          fi
+          if [ -d build/VST3/PulpEffect.vst3 ]; then
+            cp -R build/VST3/PulpEffect.vst3 ~/Library/Audio/Plug-Ins/VST3/
+          else
+            echo "::warning::build/VST3/PulpEffect.vst3 missing — VST3 lane will skip"
+          fi
+          if [ -e build/CLAP/PulpEffect.clap ]; then
+            cp -R build/CLAP/PulpEffect.clap ~/Library/Audio/Plug-Ins/CLAP/
+          else
+            echo "::warning::build/CLAP/PulpEffect.clap missing — CLAP lane will skip"
+          fi
+
+      - name: Run baseline diff
+        run: |
+          python3 tools/scripts/format_baseline_diff.py --plugin PulpEffect
