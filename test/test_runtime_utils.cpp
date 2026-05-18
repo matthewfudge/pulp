@@ -1121,3 +1121,12 @@ TEST_CASE("Range intersection is commutative for overlapping integer ranges",
     REQUIRE(a.intersection(b) == IntRange(3, 8));
     REQUIRE(b.intersection(a) == IntRange(3, 8));
 }
+
+TEST_CASE("Range enclosing union keeps reversed ranges isolated",
+          "[runtime][range][coverage][phase3]") {
+    IntRange reversed(8, 3);
+    IntRange normal(1, 4);
+    REQUIRE(reversed.empty());
+    REQUIRE(reversed.enclosing_union(normal) == normal);
+    REQUIRE(normal.enclosing_union(reversed) == normal);
+}
