@@ -2028,6 +2028,11 @@ TEST_CASE("pulp docs covers local reader index, search, open, and show paths",
         REQUIRE_FALSE(r.timed_out);
         REQUIRE((r.stdout_output.find("match(es) found") != std::string::npos ||
                  r.stdout_output.find("docs/") != std::string::npos));
+
+        auto multi_word = run_pulp({"docs", "search", "Getting", "Started"});
+        REQUIRE(multi_word.exit_code == 0);
+        REQUIRE_FALSE(multi_word.timed_out);
+        REQUIRE(multi_word.stdout_output.find("getting-started") != std::string::npos);
     }
 
     SECTION("search reports fuzzy suggestions and empty results") {
