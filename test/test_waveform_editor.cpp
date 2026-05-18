@@ -205,6 +205,24 @@ TEST_CASE("WaveformEditor regions", "[view][waveform_editor]") {
     REQUIRE(editor.regions().empty());
 }
 
+TEST_CASE("WaveformRegion reports signed length", "[view][waveform_editor][coverage][phase3]") {
+    WaveformRegion forward{100, 180, "Forward"};
+    REQUIRE(forward.length() == 80);
+
+    WaveformRegion reversed{220, 150, "Reversed"};
+    REQUIRE(reversed.length() == -70);
+}
+
+TEST_CASE("WaveformEditor paint skips empty audio", "[view][waveform_editor][coverage][phase3]") {
+    WaveformEditor editor;
+    editor.set_bounds({0, 0, 400, 150});
+
+    RecordingCanvas canvas;
+    editor.paint(canvas);
+
+    REQUIRE(canvas.command_count() == 0);
+}
+
 TEST_CASE("WaveformEditor paint produces draw commands", "[view][waveform_editor]") {
     WaveformEditor editor;
     auto data = make_sine(1000);
@@ -275,6 +293,25 @@ TEST_CASE("WaveformEditor key scrolls and release events are ignored", "[view][w
     REQUIRE(editor.visible_start() == 200);
 }
 
+TEST_CASE("WaveformEditor key Cmd+0 zooms to fit", "[view][waveform_editor][coverage][phase3]") {
+    WaveformEditor editor;
+    auto data = make_sine(1000);
+    editor.set_audio_data(data.data(), 1000, 44100.0f);
+    editor.set_visible_range(250, 250);
+
+    KeyEvent zero;
+    zero.key = KeyCode::num0;
+#ifdef __APPLE__
+    zero.modifiers = kModCmd;
+#else
+    zero.modifiers = kModCtrl;
+#endif
+    zero.is_down = true;
+    REQUIRE(editor.on_key_event(zero));
+    REQUIRE(editor.visible_start() == 0);
+    REQUIRE(editor.visible_length() == 1000);
+}
+
 TEST_CASE("WaveformEditor mouse click and shift extend selection", "[view][waveform_editor]") {
     WaveformEditor editor;
     auto data = make_sine(1000);
@@ -307,4 +344,25 @@ TEST_CASE("WaveformEditor mouse click and shift extend selection", "[view][wavef
     REQUIRE(editor.selection_end() == 500);
     REQUIRE(cb_start == 100);
     REQUIRE(cb_end == 500);
+}
+
+TEST_CASE("WaveformEditor mouse up finalizes drag without changing selection", "[view][waveform_editor][coverage][phase3]") {
+    WaveformEditor editor;
+    auto data = make_sine(1000);
+    editor.set_audio_data(data.data(), 1000, 44100.0f);
+    editor.set_bounds({0, 0, 100, 40});
+
+    MouseEvent down;
+    down.is_down = true;
+    down.position = {30, 10};
+    editor.on_mouse_event(down);
+
+    MouseEvent up;
+    up.is_down = false;
+    up.position = {70, 10};
+    editor.on_mouse_event(up);
+
+    REQUIRE(editor.selection_start() == 300);
+    REQUIRE(editor.selection_end() == 300);
+    REQUIRE_FALSE(editor.has_selection());
 }
