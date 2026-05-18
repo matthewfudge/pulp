@@ -9148,3 +9148,23 @@ REST monitoring at this point shows #2281, #2272, and #2268 all have zero
 failed checks and only pending lanes. The #2268 failed/cancelled alias state
 was re-armed via `gh run rerun --failed` after `shipyard rescue 2268` was
 blocked by the current GraphQL rate limit.
+
+2026-05-18 16:45 PDT: continued held local batch
+`feature/phase3-codecov-batch-748` with two more parser/coverage commits:
+`a51e3326a` (`fix(cli): reject dev option parser errors`) rejects missing
+values for `pulp dev --run`, `--design`, and `--target` before build/watch
+side effects; `9b9cab80d` (`fix(cli): reject package parser errors`) rejects
+missing/invalid package-command values for search/suggest/add flags instead
+of silently ignoring them or folding flags into a query. Focused local
+validation passed: `cmake --build build --target pulp-cli
+pulp-test-cli-shellout`, `build/test/pulp-test-cli-shellout
+"[cli][shellout][dev][coverage][phase3]"` from the correct `build/test`
+cwd (24 assertions), `cmake --build build --target
+pulp-test-cli-package-commands`, `build/test/pulp-test-cli-package-commands
+"[cli][package-commands][registry][issue-643],[cli][package-commands][add-remove][issue-643]"`
+(152 assertions), and `git diff --check`. Batch 748 is clean, local-only,
+and now 13 commits ahead of `origin/main`; continue accumulating toward the
+24-36 commit PR target before dispatching GitHub CI. REST monitoring at this
+point shows #2268, #2272, and #2281 all still open with zero failed checks
+and only pending lanes; no empty rerun commits were pushed after the
+Namespace cutover guidance.
