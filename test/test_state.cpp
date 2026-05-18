@@ -762,6 +762,7 @@ TEST_CASE("StateStore deserialize keeps complete prefix on short declared count"
     REQUIRE_THAT(target.get_value(1), WithinAbs(0.75, 0.001));
 }
 
+<<<<<<< HEAD
 // ─── ListenerToken / thread routing (Slice 1) ───────────────────────────────
 
 TEST_CASE("ListenerToken removes its listener on destruction",
@@ -1046,4 +1047,25 @@ TEST_CASE("StateStore custom state version is serialized and accepted",
 
     REQUIRE(target.deserialize(data));
     REQUIRE_THAT(target.get_value(10), WithinAbs(0.75f, 0.001f));
+}
+
+TEST_CASE("StateStore serializes custom state version",
+          "[state][serialize][coverage][phase3-large]") {
+    StateStore store;
+    store.set_state_version(7);
+    store.add_parameter(make_param_info(42, "Answer", "", {0.0f, 100.0f, 10.0f}));
+    store.set_value(42, 64.0f);
+
+    auto data = store.serialize();
+
+    REQUIRE(read_u32_le(data, 4) == 7);
+    REQUIRE(read_u32_le(data, 8) == 1);
+    REQUIRE(read_u32_le(data, 12) == 42);
+
+    StateStore target;
+    target.set_state_version(7);
+    target.add_parameter(make_param_info(42, "Answer", "", {0.0f, 100.0f, 10.0f}));
+
+    REQUIRE(target.deserialize(data));
+    REQUIRE_THAT(target.get_value(42), WithinAbs(64.0, 0.001));
 }
