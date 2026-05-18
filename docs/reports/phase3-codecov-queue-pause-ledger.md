@@ -7202,3 +7202,16 @@ focused license tests, and ran
 which reported 100% diff coverage for `core/runtime/src/license.cpp` and
 97% overall for the held branch diff. This tranche is held locally and
 should be aggregated into the larger PR rather than submitted individually.
+
+2026-05-17 20:15 PDT: rebased the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` onto current `origin/main` and added
+another local-only held runtime utility coverage tranche in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `46799a413` (`test(runtime): cover ip primes and diff utilities`).
+The tranche adds focused unit coverage for IPv4 validation and local address
+fallbacks, prime helper boundaries / sieve output / generated bounded
+primes, and text-diff replacement and trailing-newline edge cases.
+Validation passed locally: rebuilt `pulp-test-runtime-utils` and ran
+`./build/test/pulp-test-runtime-utils "[runtime][ip],[runtime][primes],[runtime][text-diff]"`,
+which passed 10 test cases / 76 assertions. This tranche is held locally and
+should be aggregated into the larger PR rather than submitted individually.
