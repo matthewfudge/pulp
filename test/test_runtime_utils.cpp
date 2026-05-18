@@ -8,6 +8,7 @@
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/expression.hpp>
 #include <pulp/runtime/http.hpp>
+#include <pulp/runtime/ip_address.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/scope_guard.hpp>
 #include <pulp/runtime/text_diff.hpp>
@@ -589,6 +590,16 @@ TEST_CASE("base64 rejects URL-safe alphabet and misplaced padding across whitesp
     auto spaced = base64_decode("\tA B A g M P 8 =\r\n");
     REQUIRE(spaced.has_value());
     REQUIRE(*spaced == std::vector<uint8_t>{0x00, 0x10, 0x20, 0x30, 0xff});
+}
+
+// ── IP address helpers ─────────────────────────────────────────────────
+
+TEST_CASE("IPv4 validation accepts boundary octets",
+          "[runtime][ip][coverage][phase3-batch742]") {
+    REQUIRE(is_valid_ipv4("0.0.0.0"));
+    REQUIRE(is_valid_ipv4("127.0.0.1"));
+    REQUIRE(is_valid_ipv4("192.168.1.20"));
+    REQUIRE(is_valid_ipv4("255.255.255.255"));
 }
 
 // ── Expression ─────────────────────────────────────────────────────────
