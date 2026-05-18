@@ -201,6 +201,19 @@ TEST_CASE("SimpleMixer zero-length buffer processing leaves output untouched",
     REQUIRE_THAT(output[0], WithinAbs(42.0f, 1e-6f));
 }
 
+TEST_CASE("SimpleMixer scalar path clamps endpoint mixes",
+          "[signal][mix][coverage][phase3-github]") {
+    SimpleMixer mixer;
+
+    mixer.set_mix(-0.25f);
+    REQUIRE_THAT(mixer.mix(), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(mixer.process(-0.5f, 0.75f), WithinAbs(-0.5f, 1e-6f));
+
+    mixer.set_mix(1.25f);
+    REQUIRE_THAT(mixer.mix(), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(mixer.process(-0.5f, 0.75f), WithinAbs(0.75f, 1e-6f));
+}
+
 // ── Compressor ───────────────────────────────────────────────────────────────
 
 TEST_CASE("Compressor reduces loud signals", "[signal][comp]") {
