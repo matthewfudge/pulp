@@ -142,6 +142,16 @@ TEST_CASE("FastMath gain conversion round trips common levels",
     }
 }
 
+TEST_CASE("FastMath soft clip is monotonic across control points",
+          "[signal][fast_math][codecov]") {
+    float previous = FastMath::soft_clip(-2.0f);
+    for (float value : {-1.5f, -1.0f, -0.25f, 0.0f, 0.25f, 1.0f, 1.5f, 2.0f}) {
+        const float clipped = FastMath::soft_clip(value);
+        REQUIRE(clipped >= previous);
+        previous = clipped;
+    }
+}
+
 TEST_CASE("FastMath tanh remains odd inside the approximation range",
           "[signal][fast_math][codecov]") {
     for (float value : {0.125f, 0.75f, 1.5f, 3.5f}) {
