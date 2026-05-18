@@ -358,6 +358,15 @@ TEST_CASE("LicenseValidator validate_and_parse accepts minimal product payload",
     REQUIRE(info->expiry_timestamp == 0);
 }
 
+TEST_CASE("LicenseValidator validate_and_parse ignores an empty signature section",
+          "[crypto][license][coverage][phase3-batch742]") {
+    LicenseValidator validator;
+    auto info = validator.validate_and_parse(base64_encode("{\"product_id\":\"PulpParseOnly\"}") + ".");
+
+    REQUIRE(info.has_value());
+    REQUIRE(info->product_id == "PulpParseOnly");
+}
+
 TEST_CASE("LicenseValidator validate_and_parse ignores malformed optional integers",
           "[crypto][license][coverage][phase3-large]") {
     LicenseValidator validator;
