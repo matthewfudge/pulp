@@ -11,7 +11,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v01139"></a>
 ## [0.113.9] - 2026-05-18
 
-- refactor(view-js): P5-5 first cut — extracted CSSStyleDeclaration helpers (_cssToFlex + __cssProperties__ IIFE + setProperty/getPropertyValue/removeProperty) from web-compat-style-decl.js (-148 lines, 2,041 → 1,893)
+- refactor(view-js): Phase 5 P5-5 first cut — extract CSSStyleDeclaration helpers ([#2217](https://github.com/danielraffel/pulp/pull/2217))
+- fix(canvas+view): address Codex review findings on font v2 PRs ([#2215](https://github.com/danielraffel/pulp/pull/2215))
+- feat(canvas): LRU cache cap for variable-font animation (font v2 Slice 3.3) ([#2212](https://github.com/danielraffel/pulp/pull/2212))
+- test: batch phase3 coverage runtime and canvas edges ([#2202](https://github.com/danielraffel/pulp/pull/2202))
 
 <a id="v01138"></a>
 ## [0.113.8] - 2026-05-18
