@@ -388,6 +388,19 @@ TEST_CASE("PropertiesFile save and reload preserves escaped string values",
     REQUIRE(reloaded.get_string("newline").value_or("") == "line one\nline two");
 }
 
+TEST_CASE("PropertiesFile save and reload preserves tab and carriage escapes",
+          "[state][properties][coverage][phase3-github]") {
+    TemporaryFile tmp(".json");
+
+    PropertiesFile props;
+    props.set_string("control", "left\tright\rend");
+    REQUIRE(props.save(tmp.path_string()));
+
+    PropertiesFile reloaded;
+    REQUIRE(reloaded.load(tmp.path_string()));
+    REQUIRE(reloaded.get_string("control").value_or("") == "left\tright\rend");
+}
+
 TEST_CASE("PropertiesFile set_path can clear the implicit save destination",
           "[state][properties][coverage][phase3-large]") {
     TemporaryFile tmp(".json");
