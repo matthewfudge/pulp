@@ -3,11 +3,13 @@
 #include <pulp/inspect/inspector_server.hpp>
 #include <pulp/view/inspector.hpp>
 #include <pulp/view/motion.hpp>
+#include <pulp/view/motion_cost.hpp>
 #include <pulp/view/view.hpp>
 
 #include <choc/text/choc_JSON.h>
 
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -17,9 +19,12 @@ namespace pulp::inspect {
 namespace {
 
 using pulp::view::motion::Coordinator;
+using pulp::view::motion::CostAttributor;
+using pulp::view::motion::CostSample;
 using pulp::view::motion::GeometryProperty;
 using pulp::view::motion::GeometrySource;
 using pulp::view::motion::GeometrySpace;
+using pulp::view::motion::Provenance;
 using pulp::view::motion::SampleEvent;
 using pulp::view::motion::TraceBuilder;
 using pulp::view::motion::TraceHandle;
@@ -58,6 +63,7 @@ const char* sample_kind_to_string(SampleEvent::Kind k) {
         case SampleEvent::Kind::Sample:       return "sample";
         case SampleEvent::Kind::Start:        return "start";
         case SampleEvent::Kind::End:          return "end";
+        case SampleEvent::Kind::Input:        return "input";
     }
     return "?";
 }
@@ -69,8 +75,20 @@ const char* event_method_for_kind(SampleEvent::Kind k) {
         case SampleEvent::Kind::Sample:       return methods::kMotionSample;
         case SampleEvent::Kind::Start:        return methods::kMotionStart;
         case SampleEvent::Kind::End:          return methods::kMotionEnd;
+        case SampleEvent::Kind::Input:        return methods::kMotionSample;
     }
     return methods::kMotionSample;
+}
+
+// Match motion.cpp::format_number — NaN/Inf travel as quoted sentinels
+// on the wire so a fixture round-trip and a live inspector broadcast see
+// the same values. choc::value::createFloat64 would serialize non-finite
+// as JSON `null`, silently dropping the misbehavior signal.
+choc::value::Value wire_number(double v) {
+    if (std::isnan(v))          return choc::value::createString("NaN");
+    if (std::isinf(v) && v > 0) return choc::value::createString("Infinity");
+    if (std::isinf(v) && v < 0) return choc::value::createString("-Infinity");
+    return choc::value::createFloat64(v);
 }
 
 choc::value::Value components_to_object(
@@ -78,7 +96,7 @@ choc::value::Value components_to_object(
 ) {
     auto obj = choc::value::createObject("");
     for (const auto& [k, v] : comps) {
-        obj.addMember(k, choc::value::createFloat64(v));
+        obj.addMember(k, wire_number(v));
     }
     return obj;
 }
@@ -91,12 +109,18 @@ MotionInspector::MotionInspector(pulp::view::View& root, InspectorServer* server
     : root_(&root), server_(server) {
     sink_id_ = Coordinator::instance().add_sink(
         [this](const SampleEvent& e) { broadcast_event(e); });
+    cost_sink_id_ = CostAttributor::instance().add_sink(
+        [this](const CostSample& s) { broadcast_cost(s); });
 }
 
 MotionInspector::~MotionInspector() {
     if (sink_id_) {
         Coordinator::instance().remove_sink(sink_id_);
         sink_id_ = 0;
+    }
+    if (cost_sink_id_) {
+        CostAttributor::instance().remove_sink(cost_sink_id_);
+        cost_sink_id_ = 0;
     }
     std::lock_guard<std::mutex> lock(mtx_);
     traces_.clear();
@@ -108,10 +132,12 @@ std::size_t MotionInspector::active_trace_count() const {
 }
 
 InspectorMessage MotionInspector::handle(const InspectorMessage& req) {
-    if (req.method == methods::kMotionStartTrace) return start_trace(req);
-    if (req.method == methods::kMotionStopTrace)  return stop_trace(req);
-    if (req.method == methods::kMotionSnapshot)   return snapshot(req);
-    if (req.method == methods::kMotionListTraces) return list_traces(req);
+    if (req.method == methods::kMotionStartTrace)  return start_trace(req);
+    if (req.method == methods::kMotionStopTrace)   return stop_trace(req);
+    if (req.method == methods::kMotionSnapshot)    return snapshot(req);
+    if (req.method == methods::kMotionListTraces)  return list_traces(req);
+    if (req.method == methods::kMotionEnableCost)  return enable_cost(req);
+    if (req.method == methods::kMotionDisableCost) return disable_cost(req);
     return make_error(req.id, "Unknown Motion method: " + req.method);
 }
 
@@ -243,6 +269,25 @@ InspectorMessage MotionInspector::snapshot(const InspectorMessage& req) {
     out.addMember("emitted_events",
                   choc::value::createInt64(static_cast<int64_t>(
                       Coordinator::instance().emitted_event_count())));
+    out.addMember("cost_enabled",
+                  choc::value::createBool(CostAttributor::instance().enabled()));
+    out.addMember("cost_samples_emitted",
+                  choc::value::createInt64(static_cast<int64_t>(
+                      CostAttributor::instance().emitted_sample_count())));
+    return make_response(req.id, choc::json::toString(out, false));
+}
+
+InspectorMessage MotionInspector::enable_cost(const InspectorMessage& req) {
+    CostAttributor::instance().set_enabled(true);
+    auto out = choc::value::createObject("");
+    out.addMember("cost_enabled", choc::value::createBool(true));
+    return make_response(req.id, choc::json::toString(out, false));
+}
+
+InspectorMessage MotionInspector::disable_cost(const InspectorMessage& req) {
+    CostAttributor::instance().set_enabled(false);
+    auto out = choc::value::createObject("");
+    out.addMember("cost_enabled", choc::value::createBool(false));
     return make_response(req.id, choc::json::toString(out, false));
 }
 
@@ -267,13 +312,19 @@ void MotionInspector::broadcast_event(const SampleEvent& e) {
     params.addMember("view_name", choc::value::createString(e.view_name));
     params.addMember("metric_name", choc::value::createString(e.metric_name));
     params.addMember("kind", choc::value::createString(sample_kind_to_string(e.kind)));
-    params.addMember("t", choc::value::createFloat64(e.t_seconds));
+    params.addMember("t", wire_number(e.t_seconds));
     params.addMember("frame", choc::value::createInt64(static_cast<int64_t>(e.frame)));
     // Phase 7 stable identifiers — let clients align bursts on the
     // wire the same way the fixture format aligns them.
     params.addMember("trace_id", choc::value::createInt64(e.trace_id));
     params.addMember("metric_id", choc::value::createInt64(e.metric_id));
     params.addMember("burst_id", choc::value::createInt64(e.burst_id));
+    // Phase 10 Input events carry input_kind + view_id; without these
+    // the wire form loses the entire payload of the event.
+    if (e.kind == SampleEvent::Kind::Input) {
+        params.addMember("input_kind", choc::value::createString(e.input_kind));
+        params.addMember("view_id",    choc::value::createString(e.view_id));
+    }
     if (!e.components.empty()) {
         params.addMember("components", components_to_object(e.components));
     }
@@ -290,6 +341,41 @@ void MotionInspector::broadcast_event(const SampleEvent& e) {
     }
 
     InspectorMessage ev = make_event(event_method_for_kind(e.kind),
+                                     choc::json::toString(params, false));
+    server_->broadcast(ev);
+}
+
+void MotionInspector::broadcast_cost(const CostSample& s) {
+    if (!server_) return;
+    auto params = choc::value::createObject("");
+    params.addMember("frame",
+                     choc::value::createInt64(static_cast<int64_t>(s.frame)));
+    params.addMember("t", wire_number(s.t_seconds));
+    params.addMember("render_pass_duration_ms",
+                     wire_number(s.render_pass_duration_ms));
+    params.addMember("dirty_rect_area_px",
+                     wire_number(s.dirty_rect_area_px));
+    params.addMember("dirty_rect_count",
+                     choc::value::createInt64(s.dirty_rect_count));
+
+    auto ids = choc::value::createEmptyArray();
+    for (int id : s.active_trace_ids) {
+        ids.addArrayElement(choc::value::createInt64(id));
+    }
+    params.addMember("active_trace_ids", ids);
+
+    auto provs = choc::value::createEmptyArray();
+    for (const auto& p : s.active_provenance) {
+        auto obj = choc::value::createObject("");
+        obj.addMember("source_kind", choc::value::createString(p.source_kind));
+        obj.addMember("source_id",   choc::value::createString(p.source_id));
+        obj.addMember("source_file", choc::value::createString(p.source_file));
+        obj.addMember("source_line", choc::value::createInt64(p.source_line));
+        provs.addArrayElement(obj);
+    }
+    params.addMember("active_provenance", provs);
+
+    InspectorMessage ev = make_event(methods::kMotionCost,
                                      choc::json::toString(params, false));
     server_->broadcast(ev);
 }

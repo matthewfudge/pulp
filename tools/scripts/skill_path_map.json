@@ -162,9 +162,18 @@
     "motion": {
       "paths": [
         "core/view/include/pulp/view/motion.hpp",
+        "core/view/include/pulp/view/motion_preferences.hpp",
+        "core/view/include/pulp/view/motion_cost.hpp",
+        "core/view/include/pulp/view/motion_cost_render.hpp",
         "core/view/src/motion.cpp",
+        "core/view/src/motion_preferences.cpp",
+        "core/view/src/motion_cost.cpp",
+        "core/view/platform/mac/motion_preferences_mac.mm",
+        "core/view/platform/win/motion_preferences_win.cpp",
         "inspect/include/pulp/inspect/motion_inspector.hpp",
         "inspect/src/motion_inspector.cpp",
+        "inspect/include/pulp/inspect/motion_scrubber.hpp",
+        "inspect/src/motion_scrubber.cpp",
         "tools/motion/**"
       ]
     },

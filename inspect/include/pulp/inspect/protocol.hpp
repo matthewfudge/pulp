@@ -83,14 +83,26 @@ namespace methods {
 
     // Motion domain — agent-first motion observability.
     // Requests:
-    constexpr auto kMotionStartTrace = "Motion.startTrace";
-    constexpr auto kMotionStopTrace  = "Motion.stopTrace";
-    constexpr auto kMotionSnapshot   = "Motion.snapshot";
-    constexpr auto kMotionListTraces = "Motion.listTraces";
+    constexpr auto kMotionStartTrace  = "Motion.startTrace";
+    constexpr auto kMotionStopTrace   = "Motion.stopTrace";
+    constexpr auto kMotionSnapshot    = "Motion.snapshot";
+    constexpr auto kMotionListTraces  = "Motion.listTraces";
+    // Scrubber requests — loads a .motion.jsonl fixture and re-emits
+    // events up to a frame playhead; passive replay.
+    constexpr auto kMotionLoadFixture = "Motion.loadFixture";
+    constexpr auto kMotionScrubTo     = "Motion.scrubTo";
+    constexpr auto kMotionPlay        = "Motion.play";
+    constexpr auto kMotionPause       = "Motion.pause";
+    // Cost attribution requests (off by default; opt-in per session).
+    constexpr auto kMotionEnableCost  = "Motion.enableCost";
+    constexpr auto kMotionDisableCost = "Motion.disableCost";
     // Events (broadcast to subscribed clients):
     constexpr auto kMotionStart  = "Motion.start";
     constexpr auto kMotionSample = "Motion.sample";
     constexpr auto kMotionEnd    = "Motion.end";
+    /// Per-frame cost sample (active trace_ids + render stats).
+    /// Broadcast only while cost attribution is enabled.
+    constexpr auto kMotionCost   = "Motion.cost";
 }
 
 } // namespace pulp::inspect

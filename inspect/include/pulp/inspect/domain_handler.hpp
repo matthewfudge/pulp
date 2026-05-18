@@ -13,6 +13,7 @@ class StateInspector;
 class ConsoleCapture;
 class AudioInspector;
 class MotionInspector;
+class MotionScrubber;
 
 /// Handles inspector protocol requests by delegating to the appropriate
 /// inspector component. All data sources are optional — missing sources
@@ -28,6 +29,7 @@ public:
     void set_console_capture(ConsoleCapture* console) { console_ = console; }
     void set_audio_inspector(AudioInspector* audio) { audio_ = audio; }
     void set_motion_inspector(MotionInspector* motion) { motion_ = motion; }
+    void set_motion_scrubber(MotionScrubber* scrubber) { motion_scrubber_ = scrubber; }
     void set_render_pass_manager(render::RenderPassManager* rpm) { rpm_ = rpm; }
 
     /// Handle a protocol request. Returns a response message.
@@ -40,6 +42,7 @@ private:
     ConsoleCapture* console_ = nullptr;
     AudioInspector* audio_ = nullptr;
     MotionInspector* motion_ = nullptr;
+    MotionScrubber* motion_scrubber_ = nullptr;
     render::RenderPassManager* rpm_ = nullptr;
 
     // Domain handlers

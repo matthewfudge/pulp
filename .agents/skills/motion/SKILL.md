@@ -1,13 +1,33 @@
 ---
 name: motion
-description: Agent-first motion observability for Pulp views and animations. Single entry point for two paths — runtime scalar/geometry tracing (samples values + view geometry over time, attachable at runtime over the inspector wire, emits Start/End burst-framed events) and pixel-truth visual analysis (SSIM + diff heatmaps + keyframe sprites from frame sequences). Use when an animation timing / direction / easing / scroll / drift is suspect, when an imported design needs verification, or when a transition / GPU effect has no observable scalar.
+description: Debug or validate Pulp animations / transitions / scroll behavior using the runtime motion-trace system. TRIGGER on phrases like "animation is wrong", "transition timing off", "fade too late", "card slides too far", "scroll jumps on restore", "easing looks wonky", "imported Figma motion doesn't match source", "settle time / overshoot / drift / monotonic", "what value does the knob reach at frame N", "record this animation so I can replay it", "this animation is expensive — which one and why", "reduced-motion broken", "scrub a captured fixture". Runs over the inspector wire (no source edits needed), captures fixtures (.motion.jsonl), and ships assertion helpers (is_monotonic / settling_time_seconds / overshoot / start_delay_seconds / final_value). Off by default in prod.
 ---
 
 # Motion
 
-Diagnose animation, scroll, and transition behavior with the framework's
-agent-first motion observability system. Two paths share one skill — pick
-based on what's observable.
+Pulp's agent-first motion observability — sample view geometry / scalar
+values / scroll state over time, emit epsilon-bounded events with monotonic
+timestamps and burst framing, and route them to log lines + inspector
+events + JSONL fixtures. **You are reading this skill because an agent
+needs to debug, validate, or reproduce a motion behavior.**
+
+## When to rope this skill in
+
+Trigger this skill the moment a user (or your own reasoning) describes any
+of these symptoms — don't reach for `grep` or `git log`, attach a trace:
+
+- "this fade / slide / scale is too fast / too slow / starts late / ends early"
+- "the knob value isn't reaching its target" / "what value at frame N?"
+- "two elements drift apart during the transition"
+- "scroll position jumps when I restore state"
+- "imported design's motion doesn't match the source intent"
+- "is this animation monotonic / does it overshoot / how long to settle?"
+- "which animation is expensive and why?" → Path F (cost attribution)
+- "reduced-motion path is broken" → Path B + assert under MotionPolicy
+- "I want to scrub through a recorded fixture" → Path E (scrubber)
+
+If the user says any of those, this skill applies. Don't suggest reading
+source; **attach a trace and read the numbers**.
 
 ## Quick decision
 
@@ -16,6 +36,8 @@ based on what's observable.
 | A running app + a node id + a scalar / geometry of interest | **Runtime trace** | `Motion.startTrace` over the inspector wire |
 | A captured frame sequence (no app instrumentation available) | **Visual analysis** | `tools/motion/visual/analyze_sequence.py` |
 | A previously recorded `.motion.jsonl` fixture | **Replay + assert** | `motion::replay_fixture` + `motion::assert_matches` |
+| An interaction that drives the suspect motion | **Input record + replay** | `motion::make_input_recorder` + `motion::replay_inputs` |
+| A fixture + an inspector client (design review / CI triage) | **Timeline scrubber** | `Motion.loadFixture` + `Motion.scrubTo` over the inspector wire |
 | Imported design + intent doc (e.g. "fade in 350 ms ease-out") | **Both** | Record a fixture from the import, assert timing/monotonicity |
 
 ## Path A — Runtime trace
@@ -165,6 +187,148 @@ REQUIRE(diff.matches());  // or inspect diff.differences on failure
 `FixtureMatchOptions { component_epsilon, timing_epsilon_seconds,
 require_same_event_count }` controls tolerances.
 
+## Path D — Input recording and replay
+
+When the bug is "what the user did caused the wrong motion", record the
+interaction alongside the motion stream so a fresh tree can replay the same
+sequence deterministically.
+
+```cpp
+// Recording — paired with whatever motion sinks you already have.
+{
+    auto recorder = motion::make_input_recorder("/tmp/card-open.motion.jsonl");
+    root.simulate_hover({150, 150});
+    clock.tick(1.0f / 60.0f);
+    root.simulate_click({150, 150});
+    // ... drive your animation ...
+}   // RAII: destructor closes the sink + flips recording off.
+
+// Replay against a fresh tree on a fresh FrameClock.
+motion::replay_inputs("/tmp/card-open.motion.jsonl", fresh_root, fresh_clock);
+```
+
+`make_input_recorder(path)` installs a `make_fixture_sink(path)` AND flips
+the process-wide `input_recording_enabled()` flag. `View::simulate_*` checks
+that flag (a single relaxed atomic load, off by default) and emits a
+`SampleEvent::Kind::Input` carrying the `input_kind` ("click" / "drag" /
+"hover"), the recorded target's `View::id()`, and the root-space coords on
+the existing `components` map (sorted by name: `x`/`y` for click+hover;
+`start_x`/`start_y`/`end_x`/`end_y`/`steps` for drag).
+
+`replay_inputs(path, root, clock)`:
+
+- Walks every `Input` event in fixture order.
+- Advances `clock` to match the recorded `t_seconds` (first input anchors,
+  subsequent inputs tick by the delta).
+- Dispatches each input through `root` (not the recorded `view_id` — root
+  coords with `hit_test` land on the same descendant).
+- Returns the number of inputs replayed.
+
+The motion stream that emerges — when paired with the same animation
+primitives — matches the originally-recorded one within
+`FixtureMatchOptions::timing_epsilon_seconds`. Use the ID-keyed
+`assert_matches` for the comparison so reordered identical bursts don't
+false-fail.
+## Path E — Timeline scrubber (inspector replay)
+
+`pulp::inspect::MotionScrubber` loads a `.motion.jsonl` fixture and
+re-emits the prefix of events with `frame <= playhead` to caller
+sinks and (when attached to an `InspectorServer`) to inspector clients
+over the wire. The scrubber is passive — no clock is pumped, no
+animation runs live; `play()` is a jump-to-end that emits every event.
+Real-time pacing and live overlay drawing are intentionally Phase 11+.
+
+Protocol surface (routed by `DomainHandler::handle_motion`):
+
+| Method               | Params              | Response                                                |
+|----------------------|---------------------|---------------------------------------------------------|
+| `Motion.loadFixture` | `{ path }`          | `{ ok, event_count, max_frame, header: {version,policy,duration_scale} }` |
+| `Motion.scrubTo`     | `{ frame }`         | `{ playhead_frame, emitted_count }` + broadcast events  |
+| `Motion.play`        | `{}`                | `{ playing:true, emitted_count, playhead_frame }`       |
+| `Motion.pause`       | `{}`                | `{ playing:false, playhead_frame }`                     |
+
+Broadcast events reuse `MotionInspector`'s `Motion.start / .sample /
+.end` shape, with an additional `"replay":true` marker so clients can
+distinguish replayed bursts from live coordinator events on the same
+wire.
+
+Direct C++ usage:
+
+```cpp
+pulp::inspect::MotionScrubber scrub(/*server=*/nullptr);
+std::vector<motion::SampleEvent> buf;
+scrub.add_sink(motion::make_buffer_sink(&buf));
+scrub.load_fixture("captures/card-open.motion.jsonl");
+scrub.scrub_to(120);   // emits prefix with frame <= 120
+scrub.scrub_to(0);     // emits only the frame-0 prefix (backwards scrub)
+scrub.play();          // jump to max frame, emit everything
+```
+
+Gotchas:
+
+- `load_fixture` is passive. Sinks see no events until `scrub_to` /
+  `play` is called. Don't pre-clear UI overlays on `loadFixture` and
+  expect a refill — wait for the first `scrub_to`.
+- Backwards scrubs re-emit from frame 0. If your sink accumulates,
+  clear it before each scrub or compare counts modulo the prefix size.
+- Replayed event timestamps (`t_seconds`) are the recording's
+  timestamps, not wall clock. Don't drive a live clock from them.
+## Path F — Cost attribution
+
+When the question is **"which animation is expensive and why?"**, switch
+the cost channel on. It's off by default and runs on a separate stream
+from the fixture format — cost samples don't appear in `*.motion.jsonl`.
+
+### Enable + wire a probe (in-process)
+
+```cpp
+#include <pulp/view/motion_cost.hpp>
+#include <pulp/view/motion_cost_render.hpp>
+
+auto& cost = pulp::view::motion::CostAttributor::instance();
+cost.set_enabled(true);
+
+// Optional but recommended: surface real render stats. Pointers may be
+// null — defensive degradation returns 0 for the missing field.
+cost.set_probe(pulp::view::motion::make_render_cost_probe(
+    &render_pass_manager, &dirty_tracker));
+
+// Sink: JSONL on disk for later analysis…
+cost.add_sink(pulp::view::motion::make_cost_sink("/tmp/run.motion-cost.jsonl"));
+// …or a buffer for in-test assertions:
+std::vector<pulp::view::motion::CostSample> samples;
+cost.add_sink(pulp::view::motion::make_cost_buffer_sink(&samples));
+```
+
+Each frame, the Coordinator's tick now emits one `CostSample` per active
+sink with:
+
+- `frame`, `t_seconds`
+- `render_pass_duration_ms` — from `RenderPassManager::total_time_ms()`
+- `dirty_rect_area_px`, `dirty_rect_count` — from `DirtyTracker::dirty_rects()`
+- `active_trace_ids` — every `trace_id` that emitted on this frame
+- `active_provenance` — Phase 9 envelopes for those traces, in the same
+  order, so a reader can answer "this 12ms pass came from
+  `figma:LevelMeter/Panel` (source_kind=`design-import`)" without
+  cross-referencing the event fixture.
+
+### Inspector domain
+
+`Motion.enableCost` / `Motion.disableCost` toggle the channel; while
+enabled, `Motion.cost` events broadcast per frame. `Motion.snapshot`
+also reports `cost_enabled` and `cost_samples_emitted`.
+
+### Notes
+
+- Cost samples are a separate JSONL stream (`*.motion-cost.jsonl`) with
+  its own version header (`{"motion_cost_version":1}`). Do not confuse
+  with the fixture schema — they're independent.
+- When the coordinator has no event sinks but cost is enabled, the
+  attributor still emits cost samples — the render-cost timeline is
+  useful by itself even without any motion trace activity.
+- The render-cost probe is read outside the coordinator lock; keep
+  implementations cheap.
+
 ## Agent contract
 
 Apply these on every motion debugging run:
@@ -193,8 +357,17 @@ Apply these on every motion debugging run:
 
 - `core/view/include/pulp/view/motion.hpp` — public C++ API
 - `core/view/src/motion.cpp` — Coordinator, geometry walker, fixture I/O, assertions
+- `core/view/include/pulp/view/motion_cost.hpp` — `CostSample` / `CostAttributor` / cost JSONL
+- `core/view/include/pulp/view/motion_cost_render.hpp` — `make_render_cost_probe` bridge
+- `core/view/src/motion_cost.cpp` — attributor singleton + sinks + JSONL load
+- `core/view/include/pulp/view/motion_preferences.hpp` — reduced-motion policy + duration_scale
+- `core/view/src/motion_preferences.cpp` — singleton + override + OS readers
+- `core/view/platform/mac/motion_preferences_mac.mm` — NSWorkspace reduced-motion query
+- `core/view/platform/win/motion_preferences_win.cpp` — SPI_GETCLIENTAREAANIMATION query
 - `inspect/include/pulp/inspect/motion_inspector.hpp` — Motion inspector bridge
 - `inspect/src/motion_inspector.cpp` — protocol handler + event broadcaster
+- `inspect/include/pulp/inspect/motion_scrubber.hpp` — timeline scrubber (Phase 7)
+- `inspect/src/motion_scrubber.cpp` — passive fixture replay + scrubber dispatch
 - `tools/motion/visual/analyze_sequence.py` — visual analysis CLI
 - `tools/motion/visual/test_self_check.py` — pipeline self-check
 - `examples/ui-preview/main.cpp` — env-knob wiring for the standalone host
@@ -217,6 +390,80 @@ The envelope shows up on the trace's `TraceStarted` event and in the JSONL
 fixture. When you read a fixture and the burst looks wrong, the provenance
 tells you which file / Figma node / animator the trace was attached to —
 without grepping.
+
+### Adapter shortcuts (each animation surface stamps itself)
+
+Direct `with_provenance(...)` is the bedrock; Phase 9 added per-surface
+shortcuts so common cases don't require hand-building an envelope:
+
+- **Tween** — `t.set_motion_provenance("tween", "knob-hover")`, then call
+  `t.publish(view, metric)` each tick. The macro
+  `PULP_MOTION_TWEEN("knob-hover", from, to, duration)` auto-fills
+  `source_file` / `source_line` from `std::source_location::current()`.
+- **AnimatorSetBuilder** — `.name("knob-glow")` on the builder; the resulting
+  `Runner::publish(view, metric, value)` stamps `source_kind="animator-set"`,
+  `source_id="knob-glow"`.
+- **CSS TransitionSpec** — `parse_transition_shorthand_with_provenance(css,
+  "/styles/card.css", line)` carries `source_file` / `source_line` through;
+  `CssAnimation::publish(view, metric)` stamps
+  `source_kind="css-transition"`, `source_id=<property name>`.
+- **JS rAF** — `WidgetBridge::load_script(code, "my-script.js")` (or
+  `set_active_script_id(...)`) records the script id; `__flushFrames__`
+  sets the ambient envelope per callback so a `motion.publishValue` from
+  inside an rAF body emits `source_kind="rAF"`,
+  `source_id="my-script.js:<callback_id>"`.
+- **JS user code** — `motion.publishValue(view, metric, value)` and
+  `motion.setProvenance(kind, id, file?, line?)` are exposed on the
+  `globalThis.motion` object the bridge installs. `motion.clearProvenance()`
+  empties the slot. Explicit `PublishOptions::provenance` always wins over
+  the ambient slot.
+- **Design import** — `generate_pulp_js` emits a `motion.setProvenance(...)`
+  line at the top of every bundle, tagged with vendor + root-node id
+  (`figma:Card/Hover`, `stitch:Panel`, `claude:HeaderLayout`, …). Drop the
+  generated JS into a bridge and any animation it drives inherits the
+  envelope automatically.
+
+## Reduced-motion policy
+
+`pulp::view::MotionPreferences` (sibling of `AppearanceTracker`) reads the
+OS reduced-motion accessibility setting on first use and exposes it as a
+`MotionPolicy` (`Full` / `Reduced` / `Off`) plus a clamped `duration_scale`
+(0.0–2.0, default 1.0). Animation primitives honor the policy on start:
+
+| Policy | Tween / ValueAnimation | CssAnimation | AnimatorSet |
+|---|---|---|---|
+| Full | Animate as configured | Animate as configured | Animate as configured |
+| Reduced | Scale duration × `duration_scale` | Same | Same (via each Tween) |
+| Off | Jump to target on tick 0 | Complete on first `tick()` | Each Tween starts finished |
+
+Tests get a per-process override that wins over the OS value:
+
+```cpp
+auto& prefs = pulp::view::MotionPreferences::instance();
+prefs.set_override(pulp::view::MotionPolicy::Reduced);
+prefs.set_duration_scale(0.5);
+// …drive the animation…
+prefs.reset_for_tests();   // clears override, re-reads OS
+```
+
+Fixtures recorded under a non-`Full` policy capture it on the v2 header:
+
+```jsonc
+{"motion_fixture_version":2,"policy":"reduced","duration_scale":0.5}
+```
+
+`load_fixture_header(path)` returns the policy + scale; the header-aware
+`assert_matches(g_hdr, g_events, c_hdr, c_events, opts)` overload flags a
+`"policy-mismatch"` diff item if the goldens were recorded under one policy
+and the capture under another — no more silent comparisons of a Reduced
+golden against a Full capture. `policy` / `duration_scale` are additive on
+the header; v2 fixtures without them still load (defaulting to
+`policy="full"`, `duration_scale=1.0`).
+
+Note: `MotionPreferences` is a sibling of `AppearanceTracker`, not a
+subclass. Use the OS reader on the platform that matters (macOS: NSWorkspace
+`accessibilityDisplayShouldReduceMotion`; Windows: `SPI_GETCLIENTAREAANIMATION`)
+or set an override for deterministic tests.
 
 ## Gotchas
 
@@ -243,3 +490,15 @@ without grepping.
 - Per-(view, metric) `epsilon` is sticky on the first publish; subsequent
   publishes inherit it. Pass `PublishOptions` only when you want to configure
   the threshold for that key.
+- `MotionPolicy` is captured at animation start (constructor / `reset()` /
+  `animate_to()` / first `tick()` for CssAnimation). Changing
+  `MotionPreferences::set_override()` partway through a running animation
+  does NOT retroactively re-scale it — the next animation that starts will
+  pick up the new policy.
+- Under `MotionPolicy::Off`, a Tween-driven "publish until finished" loop
+  emits one final-value Sample and exits. That's the contract — Off is not
+  "no observability", it's "single snap" — assertions like `is_monotonic`
+  and `final_value` still work.
+- Test fixtures use `MotionPreferences::instance().reset_for_tests()` to
+  clear overrides between cases. Forgetting it leaks state into the next
+  test (and surprises CI when run with `--shuffle`).

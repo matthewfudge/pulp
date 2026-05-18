@@ -7,6 +7,7 @@
 
 #include <pulp/inspect/protocol.hpp>
 #include <pulp/view/motion.hpp>
+#include <pulp/view/motion_cost.hpp>
 
 #include <cstdint>
 #include <mutex>
@@ -40,6 +41,7 @@ private:
     pulp::view::View* root_ = nullptr;
     InspectorServer* server_ = nullptr;
     int sink_id_ = 0;
+    int cost_sink_id_ = 0;
 
     mutable std::mutex mtx_;
     std::unordered_map<std::int64_t, pulp::view::motion::TraceHandle> traces_;
@@ -49,8 +51,11 @@ private:
     InspectorMessage stop_trace(const InspectorMessage& req);
     InspectorMessage snapshot(const InspectorMessage& req);
     InspectorMessage list_traces(const InspectorMessage& req);
+    InspectorMessage enable_cost(const InspectorMessage& req);
+    InspectorMessage disable_cost(const InspectorMessage& req);
 
     void broadcast_event(const pulp::view::motion::SampleEvent& e);
+    void broadcast_cost(const pulp::view::motion::CostSample& s);
 };
 
 } // namespace pulp::inspect

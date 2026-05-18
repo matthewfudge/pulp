@@ -1472,12 +1472,25 @@ add_executable(pulp-test-motion test_motion.cpp)
 target_link_libraries(pulp-test-motion PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-motion)
 
+# MotionPreferences — Phase 8 reduced-motion policy + animation honoring
+add_executable(pulp-test-motion-preferences test_motion_preferences.cpp)
+target_link_libraries(pulp-test-motion-preferences PRIVATE
+    pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-preferences)
+
 # Motion inspector — Phase 1 Motion.* protocol-domain tests
 if(TARGET pulp::inspect)
     add_executable(pulp-test-motion-inspector test_motion_inspector.cpp)
     target_link_libraries(pulp-test-motion-inspector PRIVATE
         pulp::view pulp::inspect Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-motion-inspector)
+
+    # Motion scrubber — Phase 7 timeline scrubber that consumes
+    # .motion.jsonl fixtures and re-emits events up to a frame playhead.
+    add_executable(pulp-test-motion-scrubber test_motion_scrubber.cpp)
+    target_link_libraries(pulp-test-motion-scrubber PRIVATE
+        pulp::view pulp::inspect Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-motion-scrubber)
 endif()
 
 # Motion end-to-end animation smoke — mirrors what a plugin author
@@ -1487,6 +1500,42 @@ add_executable(pulp-test-motion-animation-smoke test_motion_animation_smoke.cpp)
 target_link_libraries(pulp-test-motion-animation-smoke PRIVATE
     pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-motion-animation-smoke)
+
+# Motion provenance adapters — Phase 9 surface coverage. One test per
+# animation surface (Tween + PULP_MOTION_TWEEN, AnimatorSetBuilder::name,
+# CSS TransitionSpec, ambient slot for rAF + design-import). Verifies the
+# Provenance envelope round-trips end to end through the publish channel.
+add_executable(pulp-test-motion-provenance test_motion_provenance.cpp)
+target_link_libraries(pulp-test-motion-provenance PRIVATE
+    pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-provenance)
+
+# Motion input record + replay end-to-end (Phase 10) — records a
+# hover -> click -> drag against a synthetic view tree, replays the
+# same fixture against a fresh tree, asserts identical motion fixture
+# emerges (modulo timing tolerance).
+add_executable(pulp-test-motion-input-replay test_motion_input_replay.cpp)
+target_link_libraries(pulp-test-motion-input-replay PRIVATE
+    pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-input-replay)
+
+# Motion cost attribution — correlates per-frame render cost +
+# dirty-rect area with the trace_ids that emitted on the same frame
+# (carrying their Phase 9 provenance envelopes). The bridge probe
+# test pulls real RenderPassManager + DirtyTracker stats, so this
+# test target depends on pulp::render alongside pulp::view.
+#
+# Sanitizer builds (ASan/UBSan/TSan) disable PULP_ENABLE_GPU and so
+# pulp::render is never created — skip the cost test in that case
+# instead of failing the CMake generate step. The cost code itself
+# is exercised by the GPU-on lanes (macOS local smoke + linux/windows
+# release-path), so coverage isn't lost.
+if(TARGET pulp::render)
+    add_executable(pulp-test-motion-cost test_motion_cost.cpp)
+    target_link_libraries(pulp-test-motion-cost PRIVATE
+        pulp::view pulp::render Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-motion-cost)
+endif()
 
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without
