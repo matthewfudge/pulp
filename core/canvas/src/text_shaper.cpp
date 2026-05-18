@@ -579,7 +579,25 @@ struct TextShaper::Impl {
             box.ascent  = -top;           // worst-case distance above baseline (positive)
             box.descent =  bottom;        // worst-case distance below baseline (positive)
             box.leading =  m.fLeading > 0 ? m.fLeading : 0;
-            box.line_height = box.ascent + box.descent + box.leading;
+            // pulp #2163 — empirical safety margin. Sk{Font,Shaper}'s
+            // declared metrics (fTop / fBottom) under-report the
+            // y-extent the rasterizer actually paints at small font
+            // sizes, presumably because of subpixel positioning and
+            // anti-aliased pixel coverage that bleeds 1–2px past the
+            // declared bbox. Without this margin, intrinsic_height
+            // returns a box that just barely fits the declared
+            // metrics but visually clips the glyph caps and
+            // descenders of imported designs (CROSSOVER /
+            // MID / SIDE WIDTH section titles, XY pad axis labels at
+            // fontSize 7). The 0.5 * font_size safety is empirical:
+            // a multiplier of 0 reproduced the clipping; PULP_LH_DOUBLE
+            // (200%) over-corrected; 50% looks correct for IBM Plex
+            // Mono and Inter at sizes 7-14. Will be replaced with
+            // a structured anchor + parity-tested measurement in the
+            // FontResolver / ShapedText work (planning doc:
+            // 2026-05-17-font-subsystem-hardening-v2.md slice 1.3).
+            box.line_height = box.ascent + box.descent + box.leading
+                            + font_size * 0.5f;
             box.real = true;
         }
 #endif

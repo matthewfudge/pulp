@@ -1596,6 +1596,20 @@ void SkiaCanvas::set_text_align(TextAlign align) {
 void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     GUARD_CANVAS;
     if (text.empty()) return;
+    // pulp #2163 — `PULP_FILL_TEXT_TRACE=1` env var prints the (text, x, y)
+    // arguments reaching the Skia path for the labels named below.
+    // Useful for triage during the font-hardening rollout — pair with
+    // PULP_LABEL_DEBUG_BOX to compare Label::paint's computed baseline
+    // against the y argument fill_text actually receives.
+    if (std::getenv("PULP_FILL_TEXT_TRACE")) {
+        if (text.find("CROSSOVER") != std::string::npos
+         || text.find("MID / SIDE") != std::string::npos
+         || text.find("MULTIBAND") != std::string::npos
+         || text == "LO" || text == "HI") {
+            std::fprintf(stderr, "[fill_text] text='%s' x=%g y=%g family='%s' size=%g letter_sp=%g\n",
+                         text.c_str(), x, y, font_family_.c_str(), font_size_, letter_spacing_);
+        }
+    }
 
     // pulp #1899 (gap #3) — when any currently-open save_layer carries
     // alpha < 1, Skia's LCD subpixel AA degrades on the non-opaque

@@ -595,6 +595,30 @@ void Label::paint(canvas::Canvas& canvas) {
     const float ascent_for_baseline = (real_ascent > 0)
         ? real_ascent
         : effective_font_size * 0.85f;
+
+    // pulp #2163 — `PULP_LABEL_DEBUG_BOX=1` env var enables a label-box
+    // debug overlay used to triage clipping / baseline misalignment
+    // issues during the font-hardening rollout. Draws:
+    //   - red 1px outline at the Yoga-assigned bounds
+    //   - blue line at expected glyph_top  (baseline_y - real_ascent)
+    //   - green line at the baseline_y passed to fill_text
+    //   - magenta line at expected glyph_bottom (baseline_y + descent)
+    // The lines reflect SDK-side expectations; comparing them against
+    // the rendered glyph extent reveals whether a problem lives in
+    // Label::paint math, fill_text positioning, or font metrics.
+    if (std::getenv("PULP_LABEL_DEBUG_BOX")) {
+        canvas.set_stroke_color(canvas::Color::rgba(1, 0, 0, 1));
+        canvas.set_line_width(1);
+        canvas.stroke_rect(0, 0, bounds().width, bounds().height);
+        const float exp_top = ascent_for_baseline - real_ascent;
+        const float exp_bot = ascent_for_baseline + __prepared_metrics.descent();
+        canvas.set_stroke_color(canvas::Color::rgba(0, 0.6f, 1, 1));
+        canvas.stroke_line(0, exp_top, bounds().width, exp_top);
+        canvas.set_stroke_color(canvas::Color::rgba(0, 1, 0, 1));
+        canvas.stroke_line(0, ascent_for_baseline, bounds().width, ascent_for_baseline);
+        canvas.set_stroke_color(canvas::Color::rgba(1, 0, 1, 1));
+        canvas.stroke_line(0, exp_bot, bounds().width, exp_bot);
+    }
     switch (vertical_align_) {
         case canvas::TextVerticalAlign::top:
             baseline_y = ascent_for_baseline;
@@ -607,9 +631,6 @@ void Label::paint(canvas::Canvas& canvas) {
             break;
         case canvas::TextVerticalAlign::center:
         default:
-            // Centre the visible block within bounds, then offset to the
-            // first line's baseline. For single-line this collapses to
-            // bounds.h/2 + (ascent - text_h*0.5).
             baseline_y = (bounds().height - text_h) * 0.5f + ascent_for_baseline;
             break;
     }
