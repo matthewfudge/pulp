@@ -153,3 +153,31 @@ TEST_CASE("MidiBuffer move construction preserves sidecar contents",
     REQUIRE(moved.sysex()[0].sample_offset == 96);
     REQUIRE(moved.sysex()[0].timestamp == 1.25);
 }
+
+TEST_CASE("MidiBuffer moves sysex sidecar with short messages",
+          "[midi][buffer][sysex][coverage][phase3]") {
+    MidiBuffer original;
+    auto note = MidiEvent::note_on(1, 72, 110);
+    note.sample_offset = 24;
+    original.add(note);
+    original.add_sysex({0xF0, 0x7D, 0x55, 0xF7}, 96, 1.25);
+
+    MidiBuffer moved(std::move(original));
+    REQUIRE(moved.size() == 1);
+    REQUIRE(moved[0].sample_offset == 24);
+    REQUIRE(moved.sysex_size() == 1);
+    REQUIRE(moved.sysex()[0].data == std::vector<uint8_t>{0xF0, 0x7D, 0x55, 0xF7});
+    REQUIRE(moved.sysex()[0].sample_offset == 96);
+    REQUIRE(moved.sysex()[0].timestamp == 1.25);
+
+    MidiBuffer assigned;
+    assigned.add_sysex({0xF0, 0x00, 0xF7}, 4, 0.125);
+    assigned = std::move(moved);
+
+    REQUIRE(assigned.size() == 1);
+    REQUIRE(assigned[0].sample_offset == 24);
+    REQUIRE(assigned.sysex_size() == 1);
+    REQUIRE(assigned.sysex()[0].data == std::vector<uint8_t>{0xF0, 0x7D, 0x55, 0xF7});
+    REQUIRE(assigned.sysex()[0].sample_offset == 96);
+    REQUIRE(assigned.sysex()[0].timestamp == 1.25);
+}
