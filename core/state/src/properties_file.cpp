@@ -1,5 +1,6 @@
 #include <pulp/state/properties_file.hpp>
 #include <choc/text/choc_JSON.h>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -14,8 +15,10 @@ namespace pulp::state {
 static bool parse_property_int(const std::string& text, int64_t& out) {
     if (text.empty()) return false;
     char* end = nullptr;
+    errno = 0;
     long long value = std::strtoll(text.c_str(), &end, 10);
     if (end == text.c_str()) return false;
+    if (errno == ERANGE) return false;
     while (*end != '\0') {
         if (!std::isspace(static_cast<unsigned char>(*end))) return false;
         ++end;

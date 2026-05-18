@@ -32,6 +32,8 @@ TEST_CASE("PropertiesFile get missing key returns nullopt", "[state][properties]
 TEST_CASE("PropertiesFile numeric getters reject invalid stored strings", "[state][properties]") {
     PropertiesFile props;
     props.set_string("count", "not-an-int");
+    props.set_string("overflow_count", "999999999999999999999999999999999999");
+    props.set_string("underflow_count", "-999999999999999999999999999999999999");
     props.set_string("gain", "not-a-double");
     props.set_string("partial_count", "42junk");
     props.set_string("partial_gain", "0.5oops");
@@ -40,6 +42,8 @@ TEST_CASE("PropertiesFile numeric getters reject invalid stored strings", "[stat
     props.set_string("spaced_gain", "0.25 ");
 
     REQUIRE_FALSE(props.get_int("count").has_value());
+    REQUIRE_FALSE(props.get_int("overflow_count").has_value());
+    REQUIRE_FALSE(props.get_int("underflow_count").has_value());
     REQUIRE_FALSE(props.get_double("gain").has_value());
     REQUIRE_FALSE(props.get_int("partial_count").has_value());
     REQUIRE_FALSE(props.get_double("partial_gain").has_value());

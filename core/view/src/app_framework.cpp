@@ -2,9 +2,11 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace pulp::view {
 
@@ -209,8 +211,14 @@ static std::filesystem::path platform_settings_root() {
 static bool parse_settings_int(const std::string& text, int& out) {
     if (text.empty()) return false;
     char* end = nullptr;
+    errno = 0;
     long value = std::strtol(text.c_str(), &end, 10);
     if (end == text.c_str()) return false;
+    if (errno == ERANGE ||
+        value < static_cast<long>(std::numeric_limits<int>::min()) ||
+        value > static_cast<long>(std::numeric_limits<int>::max())) {
+        return false;
+    }
     while (*end != '\0') {
         if (!std::isspace(static_cast<unsigned char>(*end))) return false;
         ++end;

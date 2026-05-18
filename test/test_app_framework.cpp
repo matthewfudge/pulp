@@ -488,6 +488,8 @@ TEST_CASE("AppSettings invalid typed values return null or false",
     AppSettings settings("PulpTest");
 
     settings.set_string("bad_int", "abc");
+    settings.set_string("overflow_int", "5000000000");
+    settings.set_string("underflow_int", "-5000000000");
     settings.set_string("bad_float", "abc");
     settings.set_string("boolish", "yes");
     settings.set_string("partial_int", "512junk");
@@ -497,6 +499,8 @@ TEST_CASE("AppSettings invalid typed values return null or false",
     settings.set_string("spaced_float", "0.5 ");
 
     REQUIRE_FALSE(settings.get_int("bad_int").has_value());
+    REQUIRE_FALSE(settings.get_int("overflow_int").has_value());
+    REQUIRE_FALSE(settings.get_int("underflow_int").has_value());
     REQUIRE_FALSE(settings.get_float("bad_float").has_value());
     REQUIRE_FALSE(settings.get_int("partial_int").has_value());
     REQUIRE_FALSE(settings.get_float("partial_float").has_value());
