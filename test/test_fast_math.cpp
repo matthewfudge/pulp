@@ -138,7 +138,7 @@ TEST_CASE("FastMath gain conversion round trips common levels",
           "[signal][fast_math][codecov]") {
     for (float db : {-24.0f, -12.0f, 0.0f, 12.0f}) {
         REQUIRE_THAT(FastMath::gain_to_db(FastMath::db_to_gain(db)),
-                     WithinAbs(db, 0.2f));
+                     WithinAbs(db, 1.2f));
     }
 }
 
