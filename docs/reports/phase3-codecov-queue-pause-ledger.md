@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 15:02 PDT
+Last updated: 2026-05-18 15:04 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -64,6 +64,21 @@ script attribute scraping. Local validation passed:
 `build/test/pulp-test-cli-import-detect` (151 assertions in 18 test
 cases), and `git diff --check`. PR state: not pushed; keep
 accumulating related coverage commits toward the larger batch. No
+Namespace dispatch.
+
+2026-05-18 15:04 PDT: added ninth committed tranche to
+`feature/phase3-codecov-batch-747`:
+`f23658cfd fix(cli): match create target formats by token`, touching
+`tools/cli/create_targets.cpp` and `test/test_cli_create_targets.cpp`.
+Scope: coverage exposed a real source edge where substring matching made
+`AUv3` imply `AU` and `StandaloneKit` imply `Standalone`; the fix now
+tokenizes the format list and the test pins complete-token behavior.
+Local validation passed:
+`cmake --build build --target pulp-test-cli-create-targets`,
+`build/test/pulp-test-cli-create-targets` (8 assertions in 7 test
+cases), and `git diff --check`. PR state: not pushed; because this
+tranche includes a small source fix, keep it in the same CLI batch only
+if the final PR remains CLI-focused and locally revalidated. No
 Namespace dispatch.
 
 2026-05-18 15:00 PDT: added seventh committed tranche to
