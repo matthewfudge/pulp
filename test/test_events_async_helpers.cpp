@@ -186,6 +186,35 @@ TEST_CASE("ActionBroadcaster snapshots listeners during dispatch",
     REQUIRE(seen.size() == 3);
 }
 
+TEST_CASE("ActionBroadcaster delays listeners added during dispatch",
+          "[events][async_updater][action_broadcaster][coverage][phase3]") {
+    ActionBroadcaster broadcaster;
+    std::vector<std::string> seen;
+    int late_id = -1;
+
+    const auto first_id = broadcaster.add_listener([&](std::string_view action) {
+        seen.emplace_back("first:" + std::string(action));
+        if (late_id < 0) {
+            late_id = broadcaster.add_listener([&](std::string_view late_action) {
+                seen.emplace_back("late:" + std::string(late_action));
+            });
+        }
+    });
+    broadcaster.add_listener([&](std::string_view action) {
+        seen.emplace_back("second:" + std::string(action));
+        broadcaster.remove_listener(first_id);
+    });
+
+    broadcaster.send_action("one");
+    REQUIRE(seen == std::vector<std::string>{"first:one", "second:one"});
+
+    broadcaster.send_action("two");
+    REQUIRE(seen == std::vector<std::string>{
+        "first:one", "second:one", "second:two", "late:two"});
+
+    REQUIRE(late_id >= 0);
+}
+
 TEST_CASE("ActionBroadcaster tolerates null listeners",
           "[events][async_updater][action_broadcaster][coverage]") {
     ActionBroadcaster broadcaster;
