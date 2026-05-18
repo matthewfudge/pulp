@@ -212,3 +212,12 @@ TEST_CASE("Polynomial multiply handles constant factors",
     REQUIRE_THAT(result[1], WithinAbs(-6.0f, 0.001f));
     REQUIRE_THAT(result[2], WithinAbs(10.0f, 0.001f));
 }
+
+TEST_CASE("Polynomial derivative handles cubic coefficients",
+          "[signal][poly][codecov]") {
+    auto result = Polynomial::derivative({-4.0f, 3.0f, -2.0f, 5.0f});
+    REQUIRE(result.size() == 3);
+    REQUIRE_THAT(result[0], WithinAbs(3.0f, 0.001f));
+    REQUIRE_THAT(result[1], WithinAbs(-4.0f, 0.001f));
+    REQUIRE_THAT(result[2], WithinAbs(15.0f, 0.001f));
+}
