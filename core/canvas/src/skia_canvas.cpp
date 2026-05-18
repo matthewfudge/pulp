@@ -1627,13 +1627,13 @@ void SkiaCanvas::fill_text(const std::string& text, float x, float y) {
     // virtually always covered by any Latin typeface.
     //
     // Letter-spacing note: the shape-then-blob path can't carry CSS
-    // letter-spacing per glyph, so the fallback drops letter-spacing
-    // when it activates. The visual cost is text that's slightly
-    // tighter than designed; the alternative (keep falling through
-    // to the per-glyph builder below) renders missing glyphs as
-    // .notdef boxes which is strictly worse. Browsers make the same
-    // tradeoff for fallback runs.
-    if (!active_typeface_covers_text(font.getTypeface(), text)) {
+    // letter-spacing per glyph, so the fallback only activates when
+    // letter_spacing_ == 0. Mixed letter-spacing + missing-glyph text
+    // currently keeps falling through to the per-glyph builder below
+    // (.notdef tofu) rather than risk visible baseline drift between
+    // runs (pulp #2163 #31 regression).
+    if (letter_spacing_ == 0.0f
+        && !active_typeface_covers_text(font.getTypeface(), text)) {
         const bool ltr = (direction_ != TextDirection::rtl);
         shape_with_glyph_fallback(canvas_, text, x, y, font, paint,
                                   font_family_, font_weight_, font_slant_,
