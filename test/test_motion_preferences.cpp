@@ -407,7 +407,15 @@ TEST_CASE("AnimatorSet under MotionPolicy::Reduced scales each Tween's duration"
 namespace {
 
 std::string make_tmp_fixture_path(const char* tag) {
-    std::string p = "/tmp/pulp_phase8_fixture_";
+#if defined(_WIN32)
+    const char* tmpdir = std::getenv("TMP");
+    if (!tmpdir) tmpdir = std::getenv("TEMP");
+    if (!tmpdir) tmpdir = ".";
+#else
+    const char* tmpdir = "/tmp";
+#endif
+    std::string p = tmpdir;
+    p += "/pulp_phase8_fixture_";
     p += tag;
     p += "_";
     p += std::to_string(pulp_test_getpid());

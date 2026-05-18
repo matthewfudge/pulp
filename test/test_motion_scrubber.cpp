@@ -48,8 +48,15 @@ using pulp::view::motion::publish_value;
 namespace {
 
 std::string tmp_fixture_path(const std::string& tag) {
+#if defined(_WIN32)
+    const char* tmpdir = std::getenv("TMP");
+    if (!tmpdir) tmpdir = std::getenv("TEMP");
+    if (!tmpdir) tmpdir = ".";
+#else
+    const char* tmpdir = "/tmp";
+#endif
     std::ostringstream ss;
-    ss << "/tmp/pulp-motion-scrubber-" << tag << "-"
+    ss << tmpdir << "/pulp-motion-scrubber-" << tag << "-"
        << pulp_test_getpid() << "-"
        << std::rand() << ".jsonl";
     return ss.str();
