@@ -478,3 +478,20 @@ TEST_CASE("JsonRpcPeer ignores malformed response payloads without firing callba
     pair.second->send_text(R"json({"jsonrpc":"2.0","id":1,"result":true})json");
     REQUIRE(wait_until([&] { return callbacks.load() == 1; }));
 }
+
+TEST_CASE("JsonRpcPeer destructor clears the channel message callback",
+          "[json_rpc][coverage]") {
+    auto pair = MemoryMessageChannel::make_pair();
+
+    {
+        JsonRpcPeer peer(*pair.first);
+    }
+
+    std::string reply;
+    pair.second->on_message([&](const Message& message) {
+        reply.assign(message.as_text());
+    });
+
+    REQUIRE(pair.second->send_text("{not-json"));
+    REQUIRE(reply.empty());
+}
