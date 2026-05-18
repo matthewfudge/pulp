@@ -169,3 +169,13 @@ TEST_CASE("FilterDesign allpass keeps unity gain at DC and Nyquist",
         REQUIRE_THAT(nyquist_gain(c), WithinAbs(1.0f, 0.01f));
     }
 }
+
+TEST_CASE("FilterDesign notch preserves endpoint gains across Q values",
+          "[signal][filter_design][codecov]") {
+    for (float q : {0.25f, 1.0f, 4.0f}) {
+        auto c = FilterDesign::notch(2400.0f, q, 48000.0f);
+        require_finite(c);
+        REQUIRE_THAT(dc_gain(c), WithinAbs(1.0f, 0.01f));
+        REQUIRE_THAT(nyquist_gain(c), WithinAbs(1.0f, 0.01f));
+    }
+}
