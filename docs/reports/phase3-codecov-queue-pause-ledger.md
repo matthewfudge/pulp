@@ -9168,3 +9168,20 @@ and now 13 commits ahead of `origin/main`; continue accumulating toward the
 point shows #2268, #2272, and #2281 all still open with zero failed checks
 and only pending lanes; no empty rerun commits were pushed after the
 Namespace cutover guidance.
+
+2026-05-18 16:50 PDT: continued held local batch
+`feature/phase3-codecov-batch-748` with two more local-only coverage/fix
+commits: `ce41e2a92` (`fix(cli): reject package subcommand extras`) rejects
+extra/unknown arguments for package target/list/update/remove paths; and
+`78a1d570b` (`fix(cli): reject cache subcommand extras`) rejects extra cache
+status/fetch/clean arguments while adding deterministic shellout coverage for
+`pulp cache` help/status/error/clean paths using an isolated `PULP_HOME`.
+Focused local validation passed: `cmake --build build --target
+pulp-test-cli-package-commands`, `build/test/pulp-test-cli-package-commands
+"[cli][package-commands]"` (238 assertions in 14 test cases),
+`cmake --build build --target pulp-cli pulp-test-cli-shellout`,
+`build/test/pulp-test-cli-shellout
+"[cli][shellout][cache][coverage][phase3]"` from the correct `build/test`
+cwd (32 assertions), and `git diff --check`. Batch 748 is clean, local-only,
+current with `origin/main`, and now 15 commits ahead; keep accumulating
+toward a 24-36 commit GitHub-hosted PR batch before dispatch.
