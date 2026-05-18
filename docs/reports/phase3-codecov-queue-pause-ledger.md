@@ -7403,3 +7403,12 @@ coverage build on the consolidated next-batch branch
 font-probe mode honestly. Validation passed locally: rebuilt
 `pulp-ui-preview` and ran `git diff --check`. This fix stays in the same
 batched PR because the issue was found while preparing the coverage batch.
+
+2026-05-17 23:38 PDT: pushed
+`feature/phase3-codecov-next-batch-727` and opened GitHub PR #2173
+(`test: batch phase3 coverage edges`) via REST because GitHub GraphQL quota
+was exhausted. The PR is labeled `codecov`, head SHA
+`571761653f0da987e0f1cb3be8159a84310d686e`, and is blocked only pending
+GitHub-hosted checks at creation time. Auto-merge was not enabled yet because
+the normal `gh pr` GraphQL path is rate-limited; next action is to monitor
+REST/check-runs, address failures/comments, and merge on green.
