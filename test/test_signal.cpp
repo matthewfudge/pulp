@@ -1045,6 +1045,19 @@ TEST_CASE("Phaser clamps stage and feedback settings and resets",
     REQUIRE_THAT(dry.process(-0.5f), WithinAbs(-0.5f, 1e-6f));
 }
 
+TEST_CASE("Phaser zero-length block processing is a no-op",
+          "[signal][phaser][coverage][phase3-github]") {
+    Phaser phaser;
+    phaser.set_sample_rate(48000.0f);
+    phaser.set_mix(1.0f);
+
+    float samples[] = {0.125f, -0.25f};
+    phaser.process(samples, 0);
+
+    REQUIRE_THAT(samples[0], WithinAbs(0.125f, 1e-6f));
+    REQUIRE_THAT(samples[1], WithinAbs(-0.25f, 1e-6f));
+}
+
 // ── Reverb ───────────────────────────────────────────────────────────────────
 
 TEST_CASE("Reverb produces decay tail", "[signal][reverb]") {
