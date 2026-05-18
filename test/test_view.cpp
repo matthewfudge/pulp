@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/view/frame_clock.hpp>
+#include <pulp/view/live_constant_editor.hpp>
 #include <pulp/view/plugin_view_host.hpp>
 #include <pulp/view/view.hpp>
 #include <pulp/view/window_host.hpp>
@@ -1774,4 +1775,65 @@ TEST_CASE("View::paint_all does NOT route through save_layer_with_mask when mask
     // CSS `mask-image: none` is an explicit no-mask declaration —
     // treated as if no mask were set (no layer overhead, no composite).
     REQUIRE(canvas.mask_calls.empty());
+}
+
+TEST_CASE("LiveConstantRegistry registers reuses clamps and resets constants",
+          "[view][live-constant][coverage][phase3]") {
+    auto& registry = LiveConstantRegistry::instance();
+    registry.on_change = {};
+
+    auto& gain = registry.register_constant(
+        "phase3.live.gain", "test_view.cpp", 101, 0.25f, 0.0f, 1.0f);
+    REQUIRE(gain == Catch::Approx(0.25f));
+
+    auto& same_gain = registry.register_constant(
+        "phase3.live.gain", "other.cpp", 202, 0.75f, -1.0f, 2.0f);
+    REQUIRE(&same_gain == &gain);
+    REQUIRE(same_gain == Catch::Approx(0.25f));
+
+    int change_count = 0;
+    LiveConstant last;
+    registry.on_change = [&](const LiveConstant& c) {
+        ++change_count;
+        last = c;
+    };
+
+    registry.set("phase3.live.gain", 2.0f);
+    REQUIRE(registry.get("phase3.live.gain") == Catch::Approx(1.0f));
+    REQUIRE(change_count == 1);
+    REQUIRE(last.name == "phase3.live.gain");
+    REQUIRE(last.value == Catch::Approx(1.0f));
+
+    registry.set("phase3.live.gain", -2.0f);
+    REQUIRE(registry.get("phase3.live.gain") == Catch::Approx(0.0f));
+    REQUIRE(change_count == 2);
+
+    registry.reset("phase3.live.gain");
+    REQUIRE(registry.get("phase3.live.gain") == Catch::Approx(0.25f));
+
+    registry.reset("phase3.live.missing");
+    registry.set("phase3.live.missing", 0.5f);
+    REQUIRE(registry.get("phase3.live.missing") == Catch::Approx(0.0f));
+
+    registry.on_change = {};
+}
+
+TEST_CASE("LiveConstantEditor toggles visibility and ignores header drags",
+          "[view][live-constant][coverage][phase3]") {
+    auto& registry = LiveConstantRegistry::instance();
+    registry.register_constant(
+        "phase3.live.editor", "test_view.cpp", 303, 5.0f, 0.0f, 10.0f);
+
+    LiveConstantEditor editor;
+    REQUIRE_FALSE(editor.is_showing());
+    editor.toggle();
+    REQUIRE(editor.is_showing());
+    editor.toggle();
+    REQUIRE_FALSE(editor.is_showing());
+
+    editor.set_bounds({0, 0, 200, 100});
+    editor.set_row_height(20.0f);
+    editor.on_mouse_down({80.0f, 10.0f});
+    editor.on_mouse_drag({200.0f, 40.0f});
+    REQUIRE(registry.get("phase3.live.editor") == Catch::Approx(5.0f));
 }
