@@ -536,6 +536,17 @@ TEST_CASE("base64 handles explicit byte pointers and exact quartet decoding",
     REQUIRE(*quartet == std::vector<uint8_t>{0xff, 0xff, 0xff});
 }
 
+TEST_CASE("base64 decodes mixed full quartets and unpadded tails",
+          "[runtime][base64][coverage][phase3]") {
+    auto one_tail = base64_decode("TWFuYQ");
+    REQUIRE(one_tail.has_value());
+    REQUIRE(std::string(one_tail->begin(), one_tail->end()) == "Mana");
+
+    auto two_tail = base64_decode("TWFuYWI");
+    REQUIRE(two_tail.has_value());
+    REQUIRE(std::string(two_tail->begin(), two_tail->end()) == "Manab");
+}
+
 // ── Expression ─────────────────────────────────────────────────────────
 
 TEST_CASE("Expression evaluator handles precedence and exponent edge cases",
