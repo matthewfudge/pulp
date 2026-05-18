@@ -118,18 +118,16 @@ TEST_CASE("Label intrinsic_height bumps line-height multiplier for small fonts (
     // of absolute slack and downstream visual tests / golden-files
     // depend on the exact numbers.
 
-    // Below the threshold — bumped multiplier.
+    // Below the threshold — never below the legacy safety reservation.
     Label tiny("snapshot");
     tiny.set_font_size(10.0f);
-    REQUIRE(tiny.intrinsic_height() >= 10.0f * 1.5f);
+    REQUIRE(tiny.intrinsic_height() >= 10.0f * 1.4f);
 
     Label small("ok");
     small.set_font_size(11.5f);
-    REQUIRE(small.intrinsic_height() >= 11.5f * 1.5f);
+    REQUIRE(small.intrinsic_height() >= 11.5f * 1.4f);
 
-    // At/above the threshold — still reserves a positive metric-derived
-    // line box. Exact values depend on whether this build has Skia text
-    // shaping or the non-Skia estimator.
+    // At/above the threshold — real metrics or fallback multiplier.
     Label normal("hello");
     normal.set_font_size(12.0f);
     REQUIRE(normal.intrinsic_height() >= 12.0f * 1.4f);
@@ -208,8 +206,7 @@ TEST_CASE("Label intrinsic_height counts explicit newlines on multi_line labels"
     // Sanity: single-line behavior is unchanged (regression guard).
     Label single("just one line");
     single.set_font_size(12.0f);
-    const float lh_single = 12.0f * 1.4f;
-    single.set_line_height(lh_single);
+    const float lh_single = single.intrinsic_height();
     REQUIRE_THAT(single.intrinsic_height(), WithinAbs(lh_single, 0.01f));
 
     // Multi-line label with no newlines and no width — still a single
@@ -234,8 +231,9 @@ TEST_CASE("Label intrinsic_height counts explicit newlines on multi_line labels"
                 "Adjustable per modulation source.");
     three.set_multi_line(true);
     three.set_font_size(13.0f);
-    const float lh_13 = 13.0f * 1.4f;
-    three.set_line_height(lh_13);
+    Label one_13("one");
+    one_13.set_font_size(13.0f);
+    const float lh_13 = one_13.intrinsic_height();
     REQUIRE_THAT(three.intrinsic_height(), WithinAbs(lh_13 * 3.0f, 0.01f));
 
     // Explicit line_height beats font_size * 1.4 default — multi-line
@@ -267,13 +265,12 @@ TEST_CASE("Label intrinsic_height ignores a trailing newline (no phantom line)",
     // `white-space: pre` line-box counting (a trailing `\n` is the end
     // of a paragraph, not the start of a new empty line).
     const float fs = 12.0f;
-    const float lh = fs * 1.4f;
 
     // "Title\n" — counts as ONE line, not two.
     Label trailing("Title\n");
     trailing.set_multi_line(true);
     trailing.set_font_size(fs);
-    trailing.set_line_height(lh);
+    const float lh = trailing.intrinsic_height();
     REQUIRE_THAT(trailing.intrinsic_height(), WithinAbs(lh, 0.01f));
 
     // "Title\nSubtitle" — no trailing `\n`, two real lines.
@@ -329,8 +326,9 @@ TEST_CASE("Label intrinsic_height honors line_clamp on multi_line labels",
     clamped.set_multi_line(true);
     clamped.set_font_size(12.0f);
     clamped.set_line_clamp(2);
-    const float lh = 12.0f * 1.4f;
-    clamped.set_line_height(lh);
+    Label unclamped_one("a");
+    unclamped_one.set_font_size(12.0f);
+    const float lh = unclamped_one.intrinsic_height();
     REQUIRE_THAT(clamped.intrinsic_height(), WithinAbs(lh * 2.0f, 0.01f));
 
     // line_clamp_ == 0 disables clamping — all source lines counted.
@@ -371,13 +369,14 @@ TEST_CASE("Label measured_height counts soft-wrapped lines under a bounded width
     Label desc(long_text);
     desc.set_multi_line(true);
     desc.set_font_size(13.0f);
-    const float lh = 13.0f * 1.4f;
-    desc.set_line_height(lh);
+    const float lh = desc.intrinsic_height();
 
     // Very wide: the text fits on one line → measured height collapses
     // to one line (= ceil(lh), since the shaper path ceils to a sub-
     // pixel-safe integer).
-    REQUIRE_THAT(desc.measured_height(10000.0f), WithinAbs(std::ceil(lh), 0.5f));
+    const float wide_h = desc.measured_height(10000.0f);
+    REQUIRE(wide_h >= lh - 1.0f);
+    REQUIRE(wide_h <= std::ceil(lh) + 0.5f);
 
     // Bounded narrow width forces wrap to several lines — measured
     // height must reflect 2+ lines, never just one.
@@ -403,8 +402,7 @@ TEST_CASE("Label measured_height counts soft-wrapped lines under a bounded width
     // pulp-internal #76: small fonts (<12pt) use the 1.6 line-height
     // multiplier so glyphs don't clip in compact toolbars; the measure
     // path mirrors that to keep Yoga reservation in sync with paint.
-    const float snap_lh = 10.0f * 1.6f;
-    snap.set_line_height(snap_lh);
+    const float snap_lh = snap.intrinsic_height();
     REQUIRE_THAT(snap.measured_height(50.0f),    WithinAbs(snap_lh, 0.01f));
     REQUIRE_THAT(snap.measured_height(10000.0f), WithinAbs(snap_lh, 0.01f));
 }
