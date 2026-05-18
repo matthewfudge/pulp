@@ -1034,6 +1034,20 @@ TEST_CASE("format_diff handles manually constructed operation order",
             "- removed\n");
 }
 
+TEST_CASE("text_diff treats trailing newline as no synthetic blank line",
+          "[runtime][text-diff][coverage][phase3-large]") {
+    auto diff = text_diff("alpha\nbeta\n", "alpha\nbeta");
+
+    REQUIRE(diff.size() == 2);
+    REQUIRE(diff[0].op == DiffOp::Equal);
+    REQUIRE(diff[0].text == "alpha");
+    REQUIRE(diff[1].op == DiffOp::Equal);
+    REQUIRE(diff[1].text == "beta");
+    REQUIRE(format_diff(diff) ==
+            "  alpha\n"
+            "  beta\n");
+}
+
 // ── Range ───────────────────────────────────────────────────────────────
 
 TEST_CASE("Range basic operations", "[runtime][range]") {
