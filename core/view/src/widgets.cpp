@@ -10,6 +10,8 @@
 #include <choc/text/choc_JSON.h>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace pulp::view {
@@ -252,7 +254,31 @@ float Label::intrinsic_height() const {
         if (auto inh = inheritable_font_size(); inh.has_value())
             effective_font_size = inh.value();
     }
-    return line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
+
+    // Explicit `line-height` from CSS / setLineHeight wins.
+    if (line_height_ > 0) return line_height_;
+
+    // pulp #2163 — TextShaper.measure_metrics returns SkFontMetrics-
+    // derived ascent + descent + leading of the resolved typeface,
+    // cached per (family, size). Replaces the previous `font_size *
+    // 1.4` heuristic that under-reported height at small font sizes
+    // for fonts with tall ascent (IBM Plex Mono at fontSize 7 has
+    // ascent ~7.17 — the heuristic returned 9.8 which didn't leave
+    // room for `font_size * 0.85` baseline + descent without
+    // clipping the cap row). Paint() reads the same metrics so the
+    // baseline placement and the box height stay in lockstep.
+    std::string effective_family = font_family_;
+    if (effective_family.empty()) {
+        if (auto inh = inheritable_font_family(); inh.has_value())
+            effective_family = inh.value();
+    }
+    if (effective_family.empty()) effective_family = "Inter";
+
+    auto& shaper = canvas::global_text_shaper();
+    auto prepared = shaper.prepare(text_.empty() ? std::string(" ") : text_,
+                                   effective_family, effective_font_size);
+    float lh = prepared.line_height();
+    return lh > 0 ? lh : effective_font_size * 1.4f;
 }
 
 float Label::intrinsic_width() const {
@@ -465,8 +491,27 @@ void Label::paint(canvas::Canvas& canvas) {
         }
     }
 
-    // Vertical alignment
-    float lh = line_height_ > 0 ? line_height_ : effective_font_size * 1.4f;
+    // pulp #2163 — pull SkFontMetrics for the resolved typeface so
+    // line_height and baseline_y stay in lockstep with the intrinsic
+    // measurements Yoga used to size this label's box. Cached per
+    // (family, size) inside TextShaper, so the cost is one hash
+    // lookup per paint. Safe now that fill_text takes one unified
+    // per-glyph path (#4997c3a61) — fallback and non-fallback labels
+    // share baseline placement so changing it here doesn't drift
+    // sibling labels apart.
+    auto& __shaper_metrics = canvas::global_text_shaper();
+    auto __prepared_metrics = __shaper_metrics.prepare(
+        display_text.empty() ? std::string(" ") : display_text,
+        family, effective_font_size);
+    const float real_ascent = __prepared_metrics.ascent();
+
+    // Vertical alignment — prefer SkFontMetrics line_height over the
+    // legacy heuristic; the explicit CSS line-height still wins above.
+    float lh = line_height_ > 0
+             ? line_height_
+             : (__prepared_metrics.line_height() > 0
+                    ? __prepared_metrics.line_height()
+                    : effective_font_size * 1.4f);
 
     // pulp #1737 PR-2 / #1924 — CSS `white-space` / `overflow-wrap` /
     // `word-break` soft-wrap path. Route any multi-line, bounded-width
@@ -522,14 +567,40 @@ void Label::paint(canvas::Canvas& canvas) {
     int visible_lines = source_lines;
     if (multi_line_ && line_clamp_ > 0 && line_clamp_ < source_lines)
         visible_lines = line_clamp_;
-    float text_h = multi_line_ ? lh * static_cast<float>(visible_lines) : effective_font_size;
+
+    // pulp #2163 — for single-line labels, the visible glyph height is
+    // ascent + descent (the actual rasterised extent), NOT just
+    // font_size. The legacy `text_h = effective_font_size` assumed
+    // every font had ascent + descent == em-size, which is rarely
+    // true — IBM Plex Mono Regular at 9pt has ascent+descent ≈ 11.7,
+    // well above the 9-pixel em. Using font_size as text_h shifts the
+    // baseline placement so the descender falls below the box bottom
+    // (visible as section headers clipped to only their bottom edge).
+    // Fall back to font_size when metrics couldn't be queried.
+    const float metrics_text_h = __prepared_metrics.ascent() + __prepared_metrics.descent();
+    float text_h = multi_line_
+                       ? lh * static_cast<float>(visible_lines)
+                       : (metrics_text_h > 0 ? metrics_text_h : effective_font_size);
     float baseline_y;
+    // pulp #2163 — baseline placement uses the resolved typeface's
+    // real ascent when available, falling back to the legacy 0.85em
+    // heuristic only when SkFontMetrics couldn't be queried
+    // (PULP_HAS_SKIA off, RefEmpty font manager, etc). For IBM Plex
+    // Mono at fontSize 7 the real ascent is ~7.17; the 0.85em
+    // heuristic gave 5.95, which placed the baseline so close to the
+    // box top that glyph caps clipped above it. Pairing this with
+    // the metrics-driven intrinsic_height keeps box height and
+    // baseline in lockstep — glyph_top = baseline_y - real_ascent
+    // settles at 0 (top of box) instead of negative.
+    const float ascent_for_baseline = (real_ascent > 0)
+        ? real_ascent
+        : effective_font_size * 0.85f;
     switch (vertical_align_) {
         case canvas::TextVerticalAlign::top:
-            baseline_y = effective_font_size * 0.85f;
+            baseline_y = ascent_for_baseline;
             break;
         case canvas::TextVerticalAlign::bottom:
-            baseline_y = bounds().height - text_h + effective_font_size * 0.85f;
+            baseline_y = bounds().height - text_h + ascent_for_baseline;
             break;
         case canvas::TextVerticalAlign::baseline:
             baseline_y = bounds().height * 0.75f;
@@ -538,9 +609,8 @@ void Label::paint(canvas::Canvas& canvas) {
         default:
             // Centre the visible block within bounds, then offset to the
             // first line's baseline. For single-line this collapses to
-            // bounds.h/2 + 0.35*font_size (the historic formula) because
-            // text_h == effective_font_size and 0.85 - 0.5 == 0.35.
-            baseline_y = (bounds().height - text_h) * 0.5f + effective_font_size * 0.85f;
+            // bounds.h/2 + (ascent - text_h*0.5).
+            baseline_y = (bounds().height - text_h) * 0.5f + ascent_for_baseline;
             break;
     }
 
