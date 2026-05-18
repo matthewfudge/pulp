@@ -7707,3 +7707,33 @@ validation after rebase passed:
 (patch bump suggested because this tranche includes a source fix), and
 `git diff --check`. Batch #728 is now 14 local commits ahead and remains
 held until it reaches a larger 24-36 commit PR size.
+
+2026-05-18 01:12 PDT: repaired #2173 after the enforced
+`Enforce version & skill sync` CI job failed its compat-sync step at head
+`a40b41756`. The failure was caused by internal `WidgetBridge` repair files
+touching mapped compat prefixes without docs updates; local pre-push had only
+reported this as advisory, while CI enforces it. Amended the tip repair commit
+with explicit `Compat-Update` skip trailers for `canvas2d`, `css`, `html`,
+`imports`, `react`, `rn`, and `yoga` because the change restores internal key
+dispatch / runtime-import behavior and does not alter the documented web
+compat surface. Local enforced validation passed:
+`python3 tools/scripts/compat_sync_check.py --base origin/main --mode=report --enforce`,
+`python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD --mode=report`,
+`python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`,
+and `git diff --check`. Force-pushed #2173 at
+`23713c44afe2fa8131177301848bda605967c38e`; fresh GitHub checks are queued.
+
+2026-05-18 01:15 PDT: added a fifteenth local-only canvas/font diagnostics
+tranche to held batch `feature/phase3-codecov-batch-728`: commit
+`160c6ea3b` (`test(canvas): cover font recorder diagnostics`). It extends
+`pulp-test-font-flight-recorder` over active-buffer capacity shrink trimming
+oldest records, `clear()` preserving monotonic sequence numbering, empty JSON
+drain output, JSON string escaping for quotes/backslashes/control characters,
+and drain side effects. Local validation passed:
+`cmake --build build --target pulp-test-font-flight-recorder -j$(sysctl -n hw.ncpu)`,
+`./build/test/pulp-test-font-flight-recorder "[font][diagnostics]"`
+(9 cases / 26 assertions),
+`python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD --mode=report`,
+`python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`,
+and `git diff --check`. Batch #728 is now 15 local commits ahead and remains
+held for the larger 24-36 commit PR.
