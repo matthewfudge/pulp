@@ -1,6 +1,7 @@
 #include "create_targets.hpp"
 
 #include <algorithm>
+#include <sstream>
 
 namespace pulp::cli {
 
@@ -8,6 +9,22 @@ std::vector<std::string> create_default_build_targets(const std::string& class_n
                                                       const std::string& type,
                                                       const std::string& formats) {
     std::vector<std::string> targets;
+    std::vector<std::string> format_tokens;
+    {
+        std::istringstream in(formats);
+        std::string token;
+        while (in >> token) {
+            if (std::find(format_tokens.begin(), format_tokens.end(), token)
+                == format_tokens.end()) {
+                format_tokens.push_back(token);
+            }
+        }
+    }
+    auto has_format = [&](const std::string& format) {
+        return std::find(format_tokens.begin(), format_tokens.end(), format)
+            != format_tokens.end();
+    };
+
     auto add_target = [&](const std::string& target) {
         if (!target.empty() &&
             std::find(targets.begin(), targets.end(), target) == targets.end()) {
@@ -34,7 +51,7 @@ std::vector<std::string> create_default_build_targets(const std::string& class_n
         // CMake CLI options to `cmake --build --target ...`.
         // Codex P2 on PR #1271.
         if (class_name.empty()) return;
-        if (formats.find(format) != std::string::npos) {
+        if (has_format(format)) {
             add_target(class_name + "_" + suffix);
         }
     };
@@ -46,7 +63,7 @@ std::vector<std::string> create_default_build_targets(const std::string& class_n
     add_format_target("LV2", "LV2");
     add_format_target("AAX", "AAX");
 
-    if (formats.find("Standalone") != std::string::npos && !class_name.empty()) {
+    if (has_format("Standalone") && !class_name.empty()) {
         if (type == "app" || type == "bare") {
             add_target(class_name);
         } else {
