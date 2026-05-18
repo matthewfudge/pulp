@@ -942,6 +942,21 @@ TEST_CASE("StateTreeSynchroniser decode keeps complete prefix on truncated batch
     REQUIRE(std::get<std::string>(decoded[0].value) == "Lead");
 }
 
+TEST_CASE("StateTreeSynchroniser preserves negative child indexes in encoding",
+          "[state][sync][coverage][phase3]") {
+    std::vector<SyncDelta> deltas = {
+        {SyncDeltaType::ChildAdd, "root", "child", {}, -1},
+        {SyncDeltaType::ChildRemove, "root", "", {}, -1},
+    };
+
+    auto encoded = StateTreeSynchroniser::encode(deltas);
+    auto decoded = StateTreeSynchroniser::decode(encoded.data(), encoded.size());
+
+    REQUIRE(decoded.size() == 2);
+    REQUIRE(decoded[0].child_index == -1);
+    REQUIRE(decoded[1].child_index == -1);
+}
+
 TEST_CASE("StateTreeSynchroniser decode rejects truncated typed values",
           "[state][sync][codecov]") {
     const std::vector<SyncDelta> cases = {
