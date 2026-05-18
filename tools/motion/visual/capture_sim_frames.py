@@ -166,14 +166,25 @@ def capture(
                 else _capture_simulator(grab_path)
             )
             if not ok:
-                # Treat as transient — bail out as SKIP after the first
-                # failure so we don't loop forever on a misconfigured
-                # source.
+                # Exit code semantics (Codex #2168 P1, also tracked as #2152):
+                #   0 — full requested capture completed
+                #   3 — nothing was saved (e.g. source misconfigured at start)
+                #   4 — partial capture (grabbed some frames then aborted)
+                # The partial case used to silently exit 0, hiding a
+                # truncated run from downstream automation. Distinguish it.
+                if saved == 0:
+                    print(
+                        f"capture_sim_frames: grab failed for source `{source}` "
+                        f"before any frames captured",
+                        file=sys.stderr,
+                    )
+                    return 3
                 print(
-                    f"capture_sim_frames: grab failed for source `{source}`",
+                    f"capture_sim_frames: grab failed for source `{source}` "
+                    f"mid-run — captured {saved}/{frame_count} frames",
                     file=sys.stderr,
                 )
-                return 3 if saved == 0 else 0
+                return 4
             arr = _load_array(grab_path, np_mod, Image)
             if prev_arr is not None:
                 diff = _mean_diff(prev_arr, arr, np_mod)

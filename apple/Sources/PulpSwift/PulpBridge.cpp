@@ -159,6 +159,12 @@ struct PulpMotionGeometryState {
 struct PulpMotionGeometryEntry {
     std::shared_ptr<PulpMotionGeometryState> state;
     pulp::view::motion::TraceHandle handle;
+    // The view_name that the SwiftUI/UIKit/AppKit probe registered
+    // this trace under. Threaded through so out-of-band publish calls
+    // (when `metric_name != "frame"` in pulp_motion_update_geometry)
+    // can preserve the trace's view identity instead of falling back
+    // to a hardcoded "swiftui" label.
+    std::string view_name;
 };
 
 std::mutex& geometry_mutex() {
@@ -279,6 +285,7 @@ int pulp_motion_register_geometry_trace(const char* view_name, int fps) {
         PulpMotionGeometryEntry entry;
         entry.state = state;
         entry.handle = std::move(handle);
+        entry.view_name = safe_string(view_name);
         geometry_registry().emplace(token, std::move(entry));
     }
     return token;
@@ -291,11 +298,13 @@ void pulp_motion_update_geometry(int trace_id,
                                  double width,
                                  double height) {
     std::shared_ptr<PulpMotionGeometryState> state;
+    std::string trace_view_name;
     {
         std::lock_guard<std::mutex> lock(geometry_mutex());
         auto it = geometry_registry().find(trace_id);
         if (it == geometry_registry().end()) return;
         state = it->second.state;
+        trace_view_name = it->second.view_name;
     }
     state->minx.store(minX, std::memory_order_relaxed);
     state->miny.store(minY, std::memory_order_relaxed);
@@ -319,9 +328,13 @@ void pulp_motion_update_geometry(int trace_id,
         pulp::view::motion::PublishOptions opts;
         opts.epsilon = 0.1;
         opts.precision = 2;
-        // Look up the view name from the captured state's trace.
+        // Use the trace's registered view_name (Codex #2168 P1, also
+        // tracked as #2149). Hardcoding "swiftui" lost the trace
+        // identity in fixtures and made it impossible to correlate
+        // out-of-band metrics with their owning SwiftUI/UIKit view.
         pulp::view::motion::publish_components(
-            std::string("swiftui"), name, std::move(comps), opts);
+            trace_view_name.empty() ? std::string("swiftui") : trace_view_name,
+            name, std::move(comps), opts);
     }
 }
 
