@@ -1632,7 +1632,7 @@ add_executable(pulp-test-view test_view.cpp)
 target_link_libraries(pulp-test-view PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-view)
 
-# DirtyTracker, GpuGraphRenderer, DrawBatcher, and RenderLoop timer-state tests
+# DirtyTracker, GpuGraphRenderer, and RenderLoop timer-state tests
 # are pure helpers; keep them available in GPU-off sanitizer and coverage builds.
 add_executable(pulp-test-dirty-tracker test_dirty_tracker.cpp)
 target_include_directories(pulp-test-dirty-tracker PRIVATE
@@ -1640,19 +1640,21 @@ target_include_directories(pulp-test-dirty-tracker PRIVATE
 target_link_libraries(pulp-test-dirty-tracker PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-dirty-tracker)
 
+# Partial-rendering POC test. Pins the DirtyTracker contract the
+# macOS GPU host's tracker wiring relies on.
+# The host integration itself needs Skia + a Metal device for end-to-end
+# coverage, so that lives in the follow-up partial-rendering slice.
+add_executable(pulp-test-partial-rendering-poc test_partial_rendering_poc.cpp)
+target_include_directories(pulp-test-partial-rendering-poc PRIVATE
+    ${CMAKE_SOURCE_DIR}/core/render/include)
+target_link_libraries(pulp-test-partial-rendering-poc PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-partial-rendering-poc)
+
 add_executable(pulp-test-gpu-graph test_gpu_graph.cpp)
 target_include_directories(pulp-test-gpu-graph PRIVATE
     ${CMAKE_SOURCE_DIR}/core/render/include)
 target_link_libraries(pulp-test-gpu-graph PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-gpu-graph)
-
-add_executable(pulp-test-draw-batcher test_draw_batcher.cpp)
-target_include_directories(pulp-test-draw-batcher PRIVATE
-    ${CMAKE_SOURCE_DIR}/core/render/include)
-target_link_libraries(pulp-test-draw-batcher PRIVATE
-    pulp::canvas
-    Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-draw-batcher)
 
 add_executable(pulp-test-render-loop
     test_render_loop.cpp
@@ -1787,6 +1789,14 @@ catch_discover_tests(pulp-test-input-events)
 add_executable(pulp-test-text-editor test_text_editor.cpp)
 target_link_libraries(pulp-test-text-editor PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-text-editor)
+
+# TextEditor multi-line coverage (audit P3: wrap, click-to-caret in
+# wrapped rows, caret_rect pixel positioning, single-vs-multi Enter
+# contract). Keeps the original test_text_editor.cpp file unchanged
+# so the existing single-line surface stays pinned in isolation.
+add_executable(pulp-test-text-editor-multiline test_text_editor_multiline.cpp)
+target_link_libraries(pulp-test-text-editor-multiline PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-text-editor-multiline)
 
 # TextEditor input pipeline tests (headless — validates focus, typing, Enter, backspace)
 add_executable(pulp-test-text-input test_text_input.cpp)
