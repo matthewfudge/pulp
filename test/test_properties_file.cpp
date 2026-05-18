@@ -401,6 +401,20 @@ TEST_CASE("PropertiesFile save and reload preserves tab and carriage escapes",
     REQUIRE(reloaded.get_string("control").value_or("") == "left\tright\rend");
 }
 
+TEST_CASE("PropertiesFile round-trips mixed JSON string escapes",
+          "[state][properties][coverage]") {
+    TemporaryFile tmp(".json");
+    const std::string value = "path\\\\plugin\t\"quoted\"\nnext line";
+
+    PropertiesFile props;
+    props.set_string("escaped", value);
+    REQUIRE(props.save(tmp.path_string()));
+
+    PropertiesFile reloaded;
+    REQUIRE(reloaded.load(tmp.path_string()));
+    REQUIRE(reloaded.get_string("escaped").value_or("") == value);
+}
+
 TEST_CASE("PropertiesFile set_path can clear the implicit save destination",
           "[state][properties][coverage][phase3-large]") {
     TemporaryFile tmp(".json");
