@@ -71,10 +71,20 @@ struct CountingSampler {
 };
 
 std::string unique_path(const char* tag) {
-    std::string p = "/tmp/pulp-motion-cost-";
+#if defined(_WIN32)
+    const char* tmpdir = std::getenv("TMP");
+    if (!tmpdir) tmpdir = std::getenv("TEMP");
+    if (!tmpdir) tmpdir = ".";
+#else
+    const char* tmpdir = "/tmp";
+#endif
+    std::string p = tmpdir;
+    p += "/pulp-motion-cost-";
     p += tag;
     p += "-";
     p += std::to_string(pulp_test_getpid());
+    p += "-";
+    p += std::to_string(std::rand());
     p += ".jsonl";
     return p;
 }
@@ -407,11 +417,7 @@ TEST_CASE("serialize_cost_sample emits NaN/Inf as quoted sentinels",
 
     // Round-trip through write + load. The loader recognizes the same
     // three quoted sentinels and restores the IEEE-754 value.
-    char tmpl[] = "/tmp/pulp-motion-cost-nan-XXXXXX";
-    int fd = ::mkstemp(tmpl);
-    REQUIRE(fd >= 0);
-    ::close(fd);
-    std::string path = tmpl;
+    std::string path = unique_path("nan");
     {
         std::ofstream out(path);
         out << "{\"motion_cost_version\":1}\n" << line << "\n";
@@ -451,11 +457,7 @@ TEST_CASE("load_cost_stream parses provenance objects whose strings contain '}'"
     p2.source_line = 7;
     s.active_provenance = {p1, p2};
 
-    char tmpl[] = "/tmp/pulp-motion-cost-brace-XXXXXX";
-    int fd = ::mkstemp(tmpl);
-    REQUIRE(fd >= 0);
-    ::close(fd);
-    std::string path = tmpl;
+    std::string path = unique_path("brace");
     {
         std::ofstream out(path);
         out << "{\"motion_cost_version\":1}\n"
