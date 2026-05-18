@@ -100,6 +100,43 @@ TEST_CASE("parse_cache_json tolerates missing/unknown fields",
     REQUIRE(c.latest_version.empty());
 }
 
+TEST_CASE("parse_cache_json keeps defaults for non-positive schema and malformed ints",
+          "[cli][update-check][codecov]") {
+    auto negative_schema = uc::parse_cache_json(R"({
+        "schema": -7,
+        "last_check_epoch_sec": -42,
+        "latest_version": "0.1.0"
+    })");
+    REQUIRE(negative_schema.schema == uc::kCacheSchemaVersion);
+    REQUIRE(negative_schema.last_check_epoch_sec == -42);
+    REQUIRE(negative_schema.latest_version == "0.1.0");
+
+    auto huge_int = uc::parse_cache_json(R"({
+        "schema": 999999999999999999999999999999,
+        "last_check_epoch_sec": 999999999999999999999999999999,
+        "latest_version": "0.2.0"
+    })");
+    REQUIRE(huge_int.schema == uc::kCacheSchemaVersion);
+    REQUIRE(huge_int.last_check_epoch_sec == 0);
+    REQUIRE(huge_int.latest_version == "0.2.0");
+}
+
+TEST_CASE("serialize_cache_json escapes cache string fields",
+          "[cli][update-check][codecov]") {
+    uc::CacheEntry entry;
+    entry.latest_version = "1.2.3\nnext";
+    entry.release_notes_url = "https://example.invalid/tag/\"quoted\"";
+    entry.banner_shown_for_version = std::string("shown\t") + char(0x01);
+
+    auto json = uc::serialize_cache_json(entry);
+
+    REQUIRE(json.find("\"latest_version\": \"1.2.3\\nnext\"") != std::string::npos);
+    REQUIRE(json.find("\"release_notes_url\": \"https://example.invalid/tag/\\\"quoted\\\"\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"banner_shown_for_version\": \"shown\\t\\u0001\"") !=
+            std::string::npos);
+}
+
 TEST_CASE("write_cache_file + read_cache_file atomically round-trip",
           "[cli][update-check][issue-547]") {
     auto dir = make_tmpdir("roundtrip");
@@ -200,6 +237,24 @@ TEST_CASE("parse_semver tolerates release tag boundaries",
     REQUIRE_FALSE(uc::parse_semver("1..3").ok);
 }
 
+TEST_CASE("parse_semver accepts short release triples with zero-filled tail",
+          "[cli][update-check][codecov]") {
+    auto major_only = uc::parse_semver("7");
+    REQUIRE(major_only.ok);
+    REQUIRE(major_only.major == 7);
+    REQUIRE(major_only.minor == 0);
+    REQUIRE(major_only.patch == 0);
+
+    auto major_minor = uc::parse_semver("7.8");
+    REQUIRE(major_minor.ok);
+    REQUIRE(major_minor.major == 7);
+    REQUIRE(major_minor.minor == 8);
+    REQUIRE(major_minor.patch == 0);
+
+    REQUIRE_FALSE(uc::parse_semver(".7.8").ok);
+    REQUIRE_FALSE(uc::parse_semver("7.").ok);
+}
+
 TEST_CASE("is_newer compares correctly", "[cli][update-check][issue-547]") {
     REQUIRE(uc::is_newer("0.27.0", "0.28.0"));
     REQUIRE(uc::is_newer("0.27.0", "1.0.0"));
@@ -208,6 +263,18 @@ TEST_CASE("is_newer compares correctly", "[cli][update-check][issue-547]") {
     // Unparseable input is never reported newer.
     REQUIRE_FALSE(uc::is_newer("dev-build", "1.0.0"));
     REQUIRE_FALSE(uc::is_newer("1.0.0", "abc"));
+}
+
+TEST_CASE("compare_semver orders each component and ignores invalid triples",
+          "[cli][update-check][codecov]") {
+    REQUIRE(uc::compare_semver(uc::parse_semver("1.0.0"),
+                               uc::parse_semver("2.0.0")) == -1);
+    REQUIRE(uc::compare_semver(uc::parse_semver("2.1.0"),
+                               uc::parse_semver("2.0.9")) == 1);
+    REQUIRE(uc::compare_semver(uc::parse_semver("2.1.3"),
+                               uc::parse_semver("2.1.3")) == 0);
+    REQUIRE(uc::compare_semver(uc::parse_semver("bad"),
+                               uc::parse_semver("2.1.3")) == 0);
 }
 
 // ── Banner ──────────────────────────────────────────────────────────────────
@@ -230,6 +297,18 @@ TEST_CASE("write_toml_key_in_section creates missing section",
     auto out = uc::write_toml_key_in_section("", "update", "mode", "manual");
     REQUIRE(out.find("[update]") != std::string::npos);
     REQUIRE(out.find("mode = \"manual\"") != std::string::npos);
+    REQUIRE(uc::read_toml_key_in_section(out, "update", "mode") == "manual");
+}
+
+TEST_CASE("write_toml_key_in_section appends after existing content without trailing newline",
+          "[cli][update-check][codecov]") {
+    std::string src =
+        "[create]\n"
+        "projects_dir = \"~/dev\"";
+
+    auto out = uc::write_toml_key_in_section(src, "update", "mode", "manual");
+    REQUIRE(out.find("projects_dir = \"~/dev\"\n\n[update]\nmode = \"manual\"\n") !=
+            std::string::npos);
     REQUIRE(uc::read_toml_key_in_section(out, "update", "mode") == "manual");
 }
 
@@ -329,6 +408,21 @@ TEST_CASE("write_toml_key_in_section appends into empty section before the next 
     REQUIRE(pr_pos != std::string::npos);
     REQUIRE(update_pos < mode_pos);
     REQUIRE(mode_pos < pr_pos);
+}
+
+TEST_CASE("read_toml_key_in_section handles bare values and section boundaries",
+          "[cli][update-check][codecov]") {
+    std::string src =
+        "[update]\n"
+        "mode = manual\n"
+        "\n"
+        "[other]\n"
+        "mode = off\n";
+
+    REQUIRE(uc::read_toml_key_in_section(src, "update", "mode") == "manual");
+    REQUIRE(uc::read_toml_key_in_section(src, "other", "mode") == "off");
+    REQUIRE(uc::read_toml_key_in_section(src, "missing", "mode").empty());
+    REQUIRE(uc::read_toml_key_in_section(src, "update", "interval").empty());
 }
 
 // ── Fetcher injection ───────────────────────────────────────────────────────
@@ -507,6 +601,23 @@ TEST_CASE("resolve_latest_with_persist refreshes when cached version is empty",
     REQUIRE(resolved.ok);
     REQUIRE(resolved.refreshed);
     REQUIRE(resolved.latest_version == "0.80.0");
+}
+
+TEST_CASE("resolve_latest_with_persist supports empty cache path without writing",
+          "[cli][update-check][codecov]") {
+    FakeFetcher fetcher;
+    fetcher.canned.ok = true;
+    fetcher.canned.latest_version = "0.81.0";
+    fetcher.canned.release_notes_url = "https://example/tag/v0.81.0";
+
+    auto resolved = uc::resolve_latest_with_persist(
+        fetcher, {}, "owner/repo", /*now=*/6'000, /*interval_hours=*/24);
+
+    REQUIRE(resolved.ok);
+    REQUIRE(resolved.refreshed);
+    REQUIRE(resolved.latest_version == "0.81.0");
+    REQUIRE(resolved.release_notes_url == "https://example/tag/v0.81.0");
+    REQUIRE(fetcher.call_count == 1);
 }
 
 // ── Banner-suppression bookkeeping ──────────────────────────────────────────
