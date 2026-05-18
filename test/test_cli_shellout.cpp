@@ -807,6 +807,44 @@ TEST_CASE("pulp help output lists the top-level subcommands",
     }
 }
 
+TEST_CASE("pulp macos validates local operator arguments before gh calls",
+          "[cli][shellout][macos][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    ScopedEnvVar update_disabled("PULP_UPDATE_CHECK_DISABLED");
+    update_disabled.set("1");
+
+    auto help = run_pulp({"macos", "--help"}, 10000);
+    REQUIRE_FALSE(help.timed_out);
+    REQUIRE(help.exit_code == 0);
+    REQUIRE(help.stdout_output.find("pulp macos") != std::string::npos);
+    REQUIRE(help.stdout_output.find("retarget --pr") != std::string::npos);
+
+    auto unknown = run_pulp({"macos", "wat"}, 10000);
+    REQUIRE_FALSE(unknown.timed_out);
+    REQUIRE(unknown.exit_code == 1);
+    REQUIRE(unknown.stderr_output.find("unknown subcommand") != std::string::npos);
+
+    auto missing = run_pulp({"macos", "retarget", "--pr", "123"}, 10000);
+    REQUIRE_FALSE(missing.timed_out);
+    REQUIRE(missing.exit_code == 1);
+    REQUIRE(missing.stderr_output.find("Usage: pulp macos retarget")
+            != std::string::npos);
+
+    auto invalid_runner = run_pulp({"macos", "retarget", "--pr", "123", "--to", "mars"},
+                                   10000);
+    REQUIRE_FALSE(invalid_runner.timed_out);
+    REQUIRE(invalid_runner.exit_code == 1);
+    REQUIRE(invalid_runner.stderr_output.find("--to must be one of")
+            != std::string::npos);
+
+    auto status_unknown = run_pulp({"macos", "status", "--surprise"}, 10000);
+    REQUIRE_FALSE(status_unknown.timed_out);
+    REQUIRE(status_unknown.exit_code == 1);
+    REQUIRE(status_unknown.stderr_output.find("unknown arg '--surprise'")
+            != std::string::npos);
+}
+
 TEST_CASE("pulp inspect help and no-discovery paths are deterministic",
           "[cli][shellout][inspect][issue-643][issue-641]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
