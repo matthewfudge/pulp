@@ -9022,3 +9022,14 @@ The bump was pushed to #2272 with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`
 because the local pre-push diff-cover path is still blocked by the known
 FetchContent `mbedtls` tag `v3.6.2` checkout failure. Next action: monitor
 the new head `31a50f982` through GitHub-hosted CI and merge on green.
+
+2026-05-18 15:51 PDT: rechecked active codecov PRs after the Namespace
+cutover note. No Shipyard config or repo-variable changes were made. #2268
+(`feature/phase3-codecov-rollup-746`, head `f939845d3`) still has the two
+historical P2 review comments visible on the latest commit, but code
+inspection confirmed both are addressed: `parse_settings_int` rejects
+`ERANGE` and values outside `int`, and `parse_property_int` resets `errno`
+before `strtoll` and rejects `ERANGE`. Posted replies on both review threads
+with the fixing commit. REST check status: #2268 has no failures, 8 pending,
+16 successful; #2272 has no failures, 16 pending, 8 successful after the
+version-bump fix. Next action: continue REST monitoring and merge on green.
