@@ -1422,6 +1422,26 @@ target_compile_definitions(pulp-test-canvas PRIVATE
     "PULP_TEST_FONT_PATH=\"${CMAKE_SOURCE_DIR}/external/fonts/Inter-Regular.ttf\"")
 catch_discover_tests(pulp-test-canvas)
 
+# Canvas font tests (P5-2 first cut — extracted from test_canvas.cpp).
+# Covers pulp #932 (bundled-font registration via match_bundled_typeface)
+# + pulp #1150 (public register_font(path) API). Shares the
+# PULP_TEST_FONT_PATH compile def so test fixtures find the bundled
+# Inter-Regular.ttf regardless of CWD.
+add_executable(pulp-test-canvas-fonts test_canvas_fonts.cpp)
+target_link_libraries(pulp-test-canvas-fonts PRIVATE pulp::canvas Catch2::Catch2WithMain)
+# pulp::canvas exports PULP_HAS_SKIA=1 as a PUBLIC compile def when Skia
+# is available, but CMake's optimisation skips re-propagating PUBLIC defs
+# to sibling targets that don't trigger a rebuild. Add the define + Skia
+# include path explicitly so the #ifdef PULP_HAS_SKIA blocks register
+# their TEST_CASEs.
+if(PULP_HAS_SKIA)
+    target_compile_definitions(pulp-test-canvas-fonts PRIVATE PULP_HAS_SKIA=1)
+    target_include_directories(pulp-test-canvas-fonts PRIVATE ${SKIA_INCLUDE_DIRS})
+endif()
+target_compile_definitions(pulp-test-canvas-fonts PRIVATE
+    "PULP_TEST_FONT_PATH=\"${CMAKE_SOURCE_DIR}/external/fonts/Inter-Regular.ttf\"")
+catch_discover_tests(pulp-test-canvas-fonts)
+
 # Emoji-parity tests — cover the segmenter + cluster-aware shaping +
 # letter-spacing + cache invalidation paths. Also writes PNGs to
 # `$PULP_EMOJI_TEST_PNG_DIR` (default /tmp/pulp-emoji-validation/) for
