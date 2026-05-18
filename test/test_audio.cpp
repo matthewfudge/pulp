@@ -169,6 +169,30 @@ TEST_CASE("Buffer zero-channel and zero-sample states remain well formed",
     default_view.clear();
 }
 
+TEST_CASE("Buffer copy owns independent channel storage",
+          "[audio][buffer][coverage][phase3]") {
+    Buffer<float> original(2, 3);
+    original.channel(0)[0] = 1.0f;
+    original.channel(1)[2] = 2.0f;
+
+    Buffer<float> copied(original);
+    copied.channel(0)[0] = 10.0f;
+    copied.channel(1)[2] = 20.0f;
+
+    REQUIRE(original.channel(0)[0] == 1.0f);
+    REQUIRE(original.channel(1)[2] == 2.0f);
+    auto copied_view = copied.view();
+    auto original_view = original.view();
+    REQUIRE(copied_view.channel_ptr(0) == copied.channel(0).data());
+    REQUIRE(copied_view.channel_ptr(0) != original_view.channel_ptr(0));
+
+    Buffer<float> assigned;
+    assigned = original;
+    assigned.channel(0)[1] = 30.0f;
+    REQUIRE(original.channel(0)[1] == 0.0f);
+    REQUIRE(assigned.view().channel_ptr(1) != original.view().channel_ptr(1));
+}
+
 TEST_CASE("AudioFileData reports shape from first channel",
           "[audio][file][codecov]") {
     AudioFileData empty;
