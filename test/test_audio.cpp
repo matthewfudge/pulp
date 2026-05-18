@@ -365,6 +365,19 @@ TEST_CASE("ChannelSet discrete layouts compare by speaker map not display name",
     REQUIRE_FALSE(named == ChannelSet::lrc());
 }
 
+TEST_CASE("ChannelSet unsupported surround counts fall back to discrete layouts",
+          "[audio][channel-set][coverage][phase3]") {
+    for (auto channels : {7u, 9u, 10u, 11u}) {
+        auto layout = ChannelSet::from_channel_count(channels);
+        CAPTURE(channels);
+        REQUIRE(layout.name == "Discrete " + std::to_string(channels));
+        REQUIRE(layout.size() == channels);
+        for (auto speaker : layout.speakers) {
+            REQUIRE(speaker == Speaker::Discrete);
+        }
+    }
+}
+
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
 TEST_CASE("CoreAudio system enumerates devices", "[audio][coreaudio]") {
     auto system = create_audio_system();
