@@ -8306,3 +8306,34 @@ thread limit was already reached, so coverage work continued locally. PR
 monitoring remains GitHub-hosted only and REST-only: #2173, #2202, #2208, and
 #2210 still have no failing checks and are blocked only on queued/running
 GitHub-hosted lanes. No Namespace dispatch.
+
+2026-05-18 06:24 PDT: continued the next held large GitHub-only coverage batch
+`feature/phase3-codecov-batch-732`, now 10 local commits ahead of
+`origin/main` and intentionally held for a larger 24-36 commit PR rather than
+pushing a small CI batch. Local-only commits so far: `e5c237c99`
+(`test(runtime): cover range helper edges`), `d491189b2`
+(`test(platform): cover progress parser edge payloads`), `fc42c6c85`
+(`test(midi): cover sysex buffer move semantics`), `da838de44`
+(`test(state): cover undo transaction registration`), `71e9d3f3a`
+(`test(view): cover theme override edge cases`), `747997388`
+(`test(view): cover keyframe animation edges`), `d5ff5e3d9`
+(`test(view): cover motion duration policy helper`), `201eda03e`
+(`test(view): cover animator set and 3d edges`), `576aaa6c6`
+(`test(view): cover accessibility tree ordering`), and `74f520b1f`
+(`test(view): cover app framework edge paths`). Focused local validation
+passed for touched suites: `pulp-test-runtime` `[runtime][range]`,
+`pulp-test-platform` `[platform][progress]`, `pulp-test-midi-buffer-sysex`
+`MidiBuffer moves sysex sidecar with short messages`, `pulp-test-undo-manager`
+`UndoManager add_without_executing participates in transactions`,
+`pulp-test-theme` `[view][theme]`, `pulp-test-animation` `[view][animation]`,
+`pulp-test-motion-preferences` `[motion-preferences]`,
+`pulp-test-animator-set` `[view][animation],[view][3d]`,
+`pulp-test-accessibility-tree` `[a11y][harness]`,
+`pulp-test-app-framework` `[view][keys],[view][settings]`, and
+`git diff --check`. The keyframe animation tests found and fixed two real
+lifecycle issues in `KeyframeAnimation`: `start()` now clears the previous
+finished flag, and exact finite iteration boundaries now hold the terminal
+frame instead of wrapping to the next iteration's start. PR monitoring remains
+GitHub-hosted only and REST-only while GraphQL quota is exhausted: #2173,
+#2208, #2210, and #2211 have no failing checks and are blocked only on
+queued/running GitHub-hosted lanes. No Namespace dispatch.
