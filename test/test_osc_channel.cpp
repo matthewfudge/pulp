@@ -186,3 +186,51 @@ TEST_CASE("OscChannel delivers raw send() bytes verbatim to the peer",
     a->close();
     b->close();
 }
+
+TEST_CASE("OscChannel routes received messages through custom executor",
+          "[osc_channel][raw][coverage][phase3]") {
+    std::mutex queue_mu;
+    std::vector<std::function<void()>> queued;
+    OscChannelOptions options;
+    options.executor = [&](std::function<void()> fn) {
+        std::lock_guard<std::mutex> lock(queue_mu);
+        queued.push_back(std::move(fn));
+    };
+
+    auto a = OscChannel::open("127.0.0.1", 49921, 49922);
+    auto b = OscChannel::open("127.0.0.1", 49922, 49921, options);
+    if (!a || !b) {
+        SUCCEED("could not open loopback UDP pair; skipping");
+        return;
+    }
+
+    std::vector<uint8_t> received;
+    b->on_message([&](const pulp::runtime::Message& m) {
+        received = m.payload;
+    });
+
+    Message msg("/queued");
+    msg.add(int32_t{9});
+    const auto encoded = encode(msg);
+    REQUIRE(a->send(encoded.data(), encoded.size()));
+
+    REQUIRE(wait_until([&] {
+        std::lock_guard<std::mutex> lock(queue_mu);
+        return !queued.empty();
+    }));
+    REQUIRE(received.empty());
+
+    std::function<void()> deliver;
+    {
+        std::lock_guard<std::mutex> lock(queue_mu);
+        deliver = std::move(queued.front());
+    }
+    deliver();
+
+    auto decoded = decode(received.data(), received.size());
+    REQUIRE(decoded.address == "/queued");
+    REQUIRE(decoded.get_int(0) == 9);
+
+    a->close();
+    b->close();
+}
