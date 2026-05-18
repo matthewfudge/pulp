@@ -8939,3 +8939,15 @@ explicit prompt-decision snooze flag contract. Focused local validation passed:
 `git diff --check`. Branch is clean and 21 commits ahead of `origin/main`;
 still held locally to build toward a larger GitHub-hosted PR. No Namespace
 dispatch.
+
+2026-05-18 15:36 PDT: continued the held local-only GitHub batch
+`feature/phase3-codecov-batch-747` with commit `cd5e70ac8`
+(`test(cli): cover update cache write edges`). This tranche adds pure
+update-check coverage for cache writes that create parent directories, blocked
+parent-path write failures, and TOML key reads that must distinguish exact keys
+from substring keys. Focused local validation passed:
+`cmake --build build --target pulp-test-cli-update-check`,
+`build/test/pulp-test-cli-update-check` (152 assertions in 31 test cases), and
+`git diff --check`. Branch is clean and 22 commits ahead of `origin/main`;
+still held locally to build toward a larger GitHub-hosted PR. No Namespace
+dispatch.
