@@ -466,6 +466,46 @@ TEST_CASE("DynamicLibrary move transfers an open handle", "[runtime][dynamic_lib
     REQUIRE(assigned.find_symbol(symbol) != nullptr);
 }
 
+TEST_CASE("DynamicLibrary failed reopen closes the previous handle",
+          "[runtime][dynamic_library][coverage]") {
+    DynamicLibrary library;
+#ifdef __APPLE__
+    REQUIRE(library.open("/usr/lib/libSystem.B.dylib"));
+    const char* symbol = "malloc";
+#elif defined(__linux__)
+    REQUIRE(library.open("libc.so.6"));
+    const char* symbol = "malloc";
+#elif defined(_WIN32)
+    REQUIRE(library.open("kernel32.dll"));
+    const char* symbol = "GetCurrentProcess";
+#else
+    const char* symbol = nullptr;
+    SUCCEED("No stable system library fixture on this platform.");
+    return;
+#endif
+
+    REQUIRE(library.is_open());
+    REQUIRE(library.find_symbol(symbol) != nullptr);
+
+    auto missing_path = std::filesystem::temp_directory_path() /
+                        "pulp_missing_reopen_library_for_test";
+#ifdef _WIN32
+    missing_path += ".dll";
+#elif defined(__APPLE__)
+    missing_path += ".dylib";
+#else
+    missing_path += ".so";
+#endif
+
+    REQUIRE_FALSE(std::filesystem::exists(missing_path));
+    REQUIRE_FALSE(library.open(missing_path.string()));
+    REQUIRE_FALSE(library.is_open());
+    REQUIRE_FALSE(library.error().empty());
+
+    library.close();
+    REQUIRE_FALSE(library.is_open());
+}
+
 TEST_CASE("HighResolutionTimer starts stops and reports running state",
           "[runtime][timer][coverage][phase3]") {
     HighResolutionTimer timer;
