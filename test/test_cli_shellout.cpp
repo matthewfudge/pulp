@@ -2970,6 +2970,43 @@ TEST_CASE("pulp projects list (no --json) emits human text",
     REQUIRE(r.stdout_output.find("(no projects registered)") != std::string::npos);
 }
 
+TEST_CASE("pulp projects validates parser errors before registry mutation",
+          "[cli][shellout][projects][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto pulp_home = unique_temp_dir("pulp-projects-parser-home");
+    auto project = unique_temp_dir("pulp-projects-parser-project");
+    fs::create_directories(pulp_home);
+    fs::create_directories(project);
+    ScopedEnvVar pulp_home_env("PULP_HOME");
+    pulp_home_env.set(pulp_home.string());
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string stderr_substring;
+    };
+    const std::vector<Case> cases = {
+        {{"projects", "list", "--bogus"}, "unknown option"},
+        {{"projects", "add", project.string(), "extra"}, "unexpected argument"},
+        {{"projects", "remove"}, "path argument is required"},
+        {{"projects", "remove", project.string(), "extra"}, "unexpected argument"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("projects args size: " << c.args.size());
+        auto r = run_pulp(c.args, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code != 0);
+        REQUIRE(r.stderr_output.find(c.stderr_substring) != std::string::npos);
+    }
+
+    REQUIRE_FALSE(fs::exists(pulp_home / "projects.json"));
+
+    std::error_code ec;
+    fs::remove_all(pulp_home, ec);
+    fs::remove_all(project, ec);
+}
+
 // Non-empty registry path — exercises the cmd_projects::do_list JSON
 // loop body (lines ~78-92 of cmd_projects.cpp) that the empty-registry
 // test above can't reach. Adds a synthetic project root, registers it,
