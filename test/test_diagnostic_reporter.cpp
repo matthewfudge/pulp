@@ -207,10 +207,10 @@ TEST_CASE("DiagnosticReporter JSON escapes string fields",
     diag.set_plugin_info(desc, store);
 
     auto json = diag.generate_json();
-    REQUIRE(json.find(R"("name": "Quote \"Synth\"")") != std::string::npos);
-    REQUIRE(json.find(R"("manufacturer": "Back\\Slash")") != std::string::npos);
-    REQUIRE(json.find(R"("version": "1.0\nbeta")") != std::string::npos);
-    REQUIRE(json.find(R"("name": "Cutoff \"Hz\"")") != std::string::npos);
+    REQUIRE(json.find(R"JSON("name": "Quote \"Synth\"")JSON") != std::string::npos);
+    REQUIRE(json.find(R"JSON("manufacturer": "Back\\Slash")JSON") != std::string::npos);
+    REQUIRE(json.find(R"JSON("version": "1.0\nbeta")JSON") != std::string::npos);
+    REQUIRE(json.find(R"JSON("name": "Cutoff \"Hz\"")JSON") != std::string::npos);
 }
 
 TEST_CASE("DiagnosticReporter replacing plugin info clears stale parameter snapshot",
