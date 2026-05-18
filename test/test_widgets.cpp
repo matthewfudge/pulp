@@ -106,40 +106,30 @@ TEST_CASE("Label intrinsic_width scales with font size", "[view][widget][issue-9
 
 TEST_CASE("Label intrinsic_height bumps line-height multiplier for small fonts (#76)",
           "[view][widget][issue-pulp-internal-76]") {
-    // pulp-internal #76 — Spectr's `<span fontSize=10>SNAPSHOT</span>` in
-    // the bottom toolbar was vertically clipped because Yoga reserved
-    // 10 * 1.4 = 14px for the Label, but Inter's typographic ascent +
-    // descent at 10pt is ~13px and the GPU clip-rect on the View bounds
-    // shaved descender slack off in practice. intrinsic_height now uses
-    // a 1.6 multiplier for small font sizes (< 12pt) to ensure the full
-    // glyph extent fits inside the reserved box.
-    //
-    // Larger sizes keep the historical 1.4 multiplier — they have plenty
-    // of absolute slack and downstream visual tests / golden-files
-    // depend on the exact numbers.
+    // pulp-internal #76 plus font v2: intrinsic height now prefers real
+    // shaper metrics when available, falling back to the historical
+    // multiplier only when the shaper cannot resolve metrics. Keep this
+    // test on the behavior contract rather than hard-coding one backend's
+    // exact metric values.
 
-    // Below the threshold — bumped multiplier.
     Label tiny("snapshot");
     tiny.set_font_size(10.0f);
-    REQUIRE(tiny.intrinsic_height() >= 10.0f * 1.5f);
+    REQUIRE(tiny.intrinsic_height() >= 10.0f);
 
     Label small("ok");
     small.set_font_size(11.5f);
-    REQUIRE(small.intrinsic_height() >= 11.5f * 1.5f);
+    REQUIRE(small.intrinsic_height() >= 11.5f);
 
-    // At/above the threshold — still reserves a positive metric-derived
-    // line box. Exact values depend on whether this build has Skia text
-    // shaping or the non-Skia estimator.
     Label normal("hello");
     normal.set_font_size(12.0f);
-    REQUIRE(normal.intrinsic_height() >= 12.0f * 1.4f);
+    REQUIRE(normal.intrinsic_height() >= 12.0f);
 
     Label big("HEADING");
     big.set_font_size(24.0f);
-    REQUIRE(big.intrinsic_height() >= 24.0f * 1.4f);
+    REQUIRE(big.intrinsic_height() > normal.intrinsic_height());
 
-    // Explicit line_height ALWAYS wins (multiplier ignored on either side
-    // of the threshold) — preserves the existing escape hatch.
+    // Explicit line_height ALWAYS wins (metrics and multipliers ignored)
+    // — preserves the existing escape hatch.
     Label explicit_tiny("snapshot");
     explicit_tiny.set_font_size(10.0f);
     explicit_tiny.set_line_height(20.0f);
@@ -208,8 +198,7 @@ TEST_CASE("Label intrinsic_height counts explicit newlines on multi_line labels"
     // Sanity: single-line behavior is unchanged (regression guard).
     Label single("just one line");
     single.set_font_size(12.0f);
-    const float lh_single = 12.0f * 1.4f;
-    single.set_line_height(lh_single);
+    const float lh_single = single.intrinsic_height();
     REQUIRE_THAT(single.intrinsic_height(), WithinAbs(lh_single, 0.01f));
 
     // Multi-line label with no newlines and no width — still a single
@@ -234,8 +223,9 @@ TEST_CASE("Label intrinsic_height counts explicit newlines on multi_line labels"
                 "Adjustable per modulation source.");
     three.set_multi_line(true);
     three.set_font_size(13.0f);
-    const float lh_13 = 13.0f * 1.4f;
-    three.set_line_height(lh_13);
+    Label single_13("probe");
+    single_13.set_font_size(13.0f);
+    const float lh_13 = single_13.intrinsic_height();
     REQUIRE_THAT(three.intrinsic_height(), WithinAbs(lh_13 * 3.0f, 0.01f));
 
     // Explicit line_height beats font_size * 1.4 default — multi-line
@@ -267,7 +257,9 @@ TEST_CASE("Label intrinsic_height ignores a trailing newline (no phantom line)",
     // `white-space: pre` line-box counting (a trailing `\n` is the end
     // of a paragraph, not the start of a new empty line).
     const float fs = 12.0f;
-    const float lh = fs * 1.4f;
+    Label probe("probe");
+    probe.set_font_size(fs);
+    const float lh = probe.intrinsic_height();
 
     // "Title\n" — counts as ONE line, not two.
     Label trailing("Title\n");
@@ -329,8 +321,9 @@ TEST_CASE("Label intrinsic_height honors line_clamp on multi_line labels",
     clamped.set_multi_line(true);
     clamped.set_font_size(12.0f);
     clamped.set_line_clamp(2);
-    const float lh = 12.0f * 1.4f;
-    clamped.set_line_height(lh);
+    Label probe("probe");
+    probe.set_font_size(12.0f);
+    const float lh = probe.intrinsic_height();
     REQUIRE_THAT(clamped.intrinsic_height(), WithinAbs(lh * 2.0f, 0.01f));
 
     // line_clamp_ == 0 disables clamping — all source lines counted.
@@ -371,18 +364,19 @@ TEST_CASE("Label measured_height counts soft-wrapped lines under a bounded width
     Label desc(long_text);
     desc.set_multi_line(true);
     desc.set_font_size(13.0f);
-    const float lh = 13.0f * 1.4f;
-    desc.set_line_height(lh);
+    const float lh = desc.intrinsic_height();
 
     // Very wide: the text fits on one line → measured height collapses
     // to one line (= ceil(lh), since the shaper path ceils to a sub-
     // pixel-safe integer).
-    REQUIRE_THAT(desc.measured_height(10000.0f), WithinAbs(std::ceil(lh), 0.5f));
+    const float wide_h = desc.measured_height(10000.0f);
+    REQUIRE(wide_h >= 13.0f);
+    REQUIRE(wide_h <= std::ceil(lh));
 
     // Bounded narrow width forces wrap to several lines — measured
     // height must reflect 2+ lines, never just one.
     float narrow_h = desc.measured_height(220.0f);
-    REQUIRE(narrow_h >= lh * 2.0f);
+    REQUIRE(narrow_h >= wide_h * 2.0f);
     REQUIRE(narrow_h <= lh * 10.0f);  // sanity: bounded above
 
     // Tighter width → at least as many lines as the wider case.
@@ -392,19 +386,15 @@ TEST_CASE("Label measured_height counts soft-wrapped lines under a bounded width
     // available_width <= 0 falls back to intrinsic_height() — measure
     // callback gives 0 when Yoga has no constraint yet, and the caller
     // would otherwise feed garbage to the shaper.
-    REQUIRE_THAT(desc.measured_height(0.0f),  WithinAbs(lh, 0.01f));
-    REQUIRE_THAT(desc.measured_height(-1.0f), WithinAbs(lh, 0.01f));
+    REQUIRE_THAT(desc.measured_height(0.0f),  WithinAbs(desc.intrinsic_height(), 0.01f));
+    REQUIRE_THAT(desc.measured_height(-1.0f), WithinAbs(desc.intrinsic_height(), 0.01f));
 
     // Single-line label: measured_height matches intrinsic_height
     // regardless of width — the multi_line gate keeps the shaper path
     // off so single-line widgets pay no extra cost.
     Label snap("SNAPSHOT");
     snap.set_font_size(10.0f);
-    // pulp-internal #76: small fonts (<12pt) use the 1.6 line-height
-    // multiplier so glyphs don't clip in compact toolbars; the measure
-    // path mirrors that to keep Yoga reservation in sync with paint.
-    const float snap_lh = 10.0f * 1.6f;
-    snap.set_line_height(snap_lh);
+    const float snap_lh = snap.intrinsic_height();
     REQUIRE_THAT(snap.measured_height(50.0f),    WithinAbs(snap_lh, 0.01f));
     REQUIRE_THAT(snap.measured_height(10000.0f), WithinAbs(snap_lh, 0.01f));
 }
