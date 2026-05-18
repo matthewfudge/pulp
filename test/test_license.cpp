@@ -386,6 +386,16 @@ TEST_CASE("LicenseValidator validate_and_parse ignores an empty signature sectio
     REQUIRE(info->product_id == "PulpParseOnly");
 }
 
+TEST_CASE("LicenseValidator validate_and_parse keeps first dotted payload split",
+          "[crypto][license][coverage][phase3-batch742]") {
+    LicenseValidator validator;
+    std::string payload = "{\"product_id\":\"PulpDot\"}";
+    auto info = validator.validate_and_parse(base64_encode(payload) + ".sig.with.dots");
+
+    REQUIRE(info.has_value());
+    REQUIRE(info->product_id == "PulpDot");
+}
+
 TEST_CASE("LicenseValidator validate_and_parse ignores malformed optional integers",
           "[crypto][license][coverage][phase3-large]") {
     LicenseValidator validator;
