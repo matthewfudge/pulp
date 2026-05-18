@@ -277,6 +277,14 @@ TEST_CASE("Typed transient identity wrappers hash deterministic values",
     REQUIRE(correlations.size() == 1);
 }
 
+TEST_CASE("Typed identity generated strings parse back where supported",
+          "[runtime][identity][coverage][phase3-batch742]") {
+    auto object = ObjectId::generate();
+
+    REQUIRE_FALSE(object.is_nil());
+    REQUIRE(ObjectId::from_string(object.to_string()) == object);
+}
+
 TEST_CASE("EventEnvelope defaults are nil and empty before attribution",
           "[runtime][identity][coverage][phase3]") {
     EventEnvelope env;
