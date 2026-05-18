@@ -33,9 +33,19 @@ TEST_CASE("PropertiesFile numeric getters reject invalid stored strings", "[stat
     PropertiesFile props;
     props.set_string("count", "not-an-int");
     props.set_string("gain", "not-a-double");
+    props.set_string("partial_count", "42junk");
+    props.set_string("partial_gain", "0.5oops");
+    props.set_string("overflow_gain", "1e999");
+    props.set_string("spaced_count", "64\t");
+    props.set_string("spaced_gain", "0.25 ");
 
     REQUIRE_FALSE(props.get_int("count").has_value());
     REQUIRE_FALSE(props.get_double("gain").has_value());
+    REQUIRE_FALSE(props.get_int("partial_count").has_value());
+    REQUIRE_FALSE(props.get_double("partial_gain").has_value());
+    REQUIRE_FALSE(props.get_double("overflow_gain").has_value());
+    REQUIRE(props.get_int("spaced_count").value() == 64);
+    REQUIRE_THAT(props.get_double("spaced_gain").value(), WithinAbs(0.25, 1e-9));
 }
 
 TEST_CASE("PropertiesFile bool getter treats stored false-like values as false",
