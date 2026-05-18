@@ -615,6 +615,35 @@ TEST_CASE("ExpressionEvaluator dispatches registered unary functions",
     REQUIRE_FALSE(evaluator.evaluate("missing_fn(1)").has_value());
 }
 
+// ── ScopeGuard ─────────────────────────────────────────────────────────
+
+TEST_CASE("ScopeGuard dismiss and move transfer ownership",
+          "[runtime][scope_guard][coverage][phase3-large]") {
+    int calls = 0;
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+        guard.dismiss();
+    }
+    REQUIRE(calls == 0);
+
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+        auto moved = std::move(guard);
+        REQUIRE(calls == 0);
+    }
+    REQUIRE(calls == 1);
+}
+
+TEST_CASE("PULP_ON_SCOPE_EXIT runs at block exit",
+          "[runtime][scope_guard][coverage][phase3-large]") {
+    int value = 0;
+    {
+        PULP_ON_SCOPE_EXIT(value = 42);
+        REQUIRE(value == 0);
+    }
+    REQUIRE(value == 42);
+}
+
 // ── HTTP URL parsing ───────────────────────────────────────────────────
 
 TEST_CASE("HTTP helpers reject malformed URLs without transport work",
