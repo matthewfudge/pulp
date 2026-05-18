@@ -7911,3 +7911,26 @@ Local validation passed: `pulp-test-runtime-utils "[runtime][expression]"`
 "[network_stream][http]"` (5 cases / 28 assertions), skill-sync,
 version-bump report, and `git diff --check`. Batch #729 is 6 local commits
 ahead and remains held for the next large PR.
+
+2026-05-18 02:20 PDT: continued held batch
+`feature/phase3-codecov-batch-729` after rebasing onto current `origin/main`
+(`dfa391e5c`). The rebased local commit ids are now headed by `e442096a2`.
+Added seven more local-only tranches: `940950357` (`test(runtime): cover prime
+helper boundaries`), `4b7effe61` (`test(midi): cover raw parser interrupted
+messages`), `069e806cd` (`fix(signal): guard smoother skip boundaries`),
+`841345cbb` (`test(runtime): cover logging wrappers`), `01400e3b9`
+(`test(view): cover table model sort edge states`), `8726d84c5` (`test(view):
+cover live constant registry edges`), and `e442096a2` (`fix(view): normalize
+derived theme alpha tokens`). Local validation passed for each focused target:
+`pulp-test-signal "[signal][smooth]"`, `pulp-test-dsp-expansion
+"[signal][log_ramp]"`, `pulp-test-runtime "[runtime][log]"`,
+`pulp-test-table-model "[ui][table-model][coverage][phase3]"`,
+`pulp-test-view "[view][live-constant]"`, and `pulp-test-theme-presets
+"[view][presets][derive][coverage][phase3]"`; the theme-presets tranche caught
+a real source bug where byte-style alpha constants were passed to normalized
+`Color::with_alpha()` and clamped opaque. Batch #729 is 13 local commits ahead
+and remains held for a larger PR. PR #2173 is corrected back to head
+`30035e677` after removing an accidental bad hook commit; PR #2202 is corrected
+at head `a6befed35` with the Windows duplicate-symbol fix and parsed compat
+skip trailers. Both PRs are on GitHub-hosted CI only, with no failures at this
+ledger update.
