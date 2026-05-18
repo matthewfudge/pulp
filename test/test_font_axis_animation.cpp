@@ -34,6 +34,7 @@ TEST_CASE("FontResolver: set_cache_capacity round-trip", "[font][axes]") {
     r.set_cache_capacity(original);
 }
 
+#ifdef PULP_HAS_SKIA
 TEST_CASE("FontResolver: animation respects LRU cache cap", "[font][axes]") {
     auto& r = FontResolver::instance();
     r.clear_cache();
@@ -75,7 +76,6 @@ TEST_CASE("FontResolver: capacity=0 disables cap (legacy unbounded)", "[font][ax
     r.set_cache_capacity(256);
     r.clear_cache();
 }
-
 TEST_CASE("FontResolver: shrinking the cap evicts oldest immediately",
           "[font][axes]") {
     auto& r = FontResolver::instance();
@@ -130,3 +130,4 @@ TEST_CASE("FontResolver: LRU hit promotes entry past eviction line",
     r.set_cache_capacity(256);
     r.clear_cache();
 }
+#endif
