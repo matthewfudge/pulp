@@ -601,6 +601,14 @@ TEST_CASE("Expression evaluator resolves variables and rejects malformed inputs"
     REQUIRE_FALSE(evaluate("2 + @").has_value());
 }
 
+TEST_CASE("Expression evaluator rejects malformed decimal tokens",
+          "[runtime][expression][coverage][phase3]") {
+    REQUIRE_FALSE(evaluate(".").has_value());
+    REQUIRE_FALSE(evaluate("1..2").has_value());
+    REQUIRE_FALSE(evaluate("1.2.3").has_value());
+    REQUIRE_FALSE(evaluate("..5").has_value());
+}
+
 TEST_CASE("ExpressionEvaluator stores variables and clears them",
           "[runtime][expression][coverage][issue-641]") {
     ExpressionEvaluator evaluator;
