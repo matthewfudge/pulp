@@ -52,6 +52,24 @@ jobs:
           echo "clap_validator=$have_clap_validator" >> "$GITHUB_OUTPUT"
           echo "Validator availability: auval=$have_auval pluginval=$have_pluginval clap-validator=$have_clap_validator"
 
+      - name: Fetch external SDKs required for AU / VST3
+        # The AU and VST3 format targets are conditionally created
+        # only when their respective external SDKs are present.
+        # Without these, cmake configure prints "AudioUnitSDK not
+        # found — AU v2 format disabled" and the _AU / _VST3 targets
+        # don't exist, causing `make: *** No rule to make target` on
+        # the build step. Both SDKs are MIT/Apache-2.0 and safe to
+        # clone in CI per CLAUDE.md's "External SDKs" section.
+        run: |
+          if [ ! -d external/AudioUnitSDK ]; then
+            git clone --depth 1 https://github.com/apple/AudioUnitSDK.git external/AudioUnitSDK
+          fi
+          if [ ! -d external/vst3sdk ]; then
+            git clone --depth 1 --branch v3.7.12_build_20 \
+              --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git \
+              external/vst3sdk
+          fi
+
       - name: Build representative plugin (PulpEffect — AU + VST3 + CLAP)
         # PulpDrums is CLAP-only; PulpEffect ships in all three formats
         # (FORMATS VST3 AU CLAP per examples/pulp-effect/CMakeLists.txt)
@@ -59,10 +77,23 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           # pulp_add_plugin() emits per-format targets:
-          # PulpEffect_AU, PulpEffect_VST3, PulpEffect_CLAP.
-          cmake --build build \
-            --target PulpEffect_AU PulpEffect_VST3 PulpEffect_CLAP \
-            -j"$(sysctl -n hw.ncpu)"
+          # PulpEffect_AU, PulpEffect_VST3, PulpEffect_CLAP. If a
+          # target is missing because its SDK couldn't be fetched
+          # (transient network failure), build the rest and let
+          # format_baseline_diff.py skip the missing lane.
+          available=()
+          for fmt in AU VST3 CLAP; do
+            if cmake --build build --target PulpEffect_$fmt -j"$(sysctl -n hw.ncpu)" 2>/dev/null; then
+              available+=("PulpEffect_$fmt")
+              echo "Built PulpEffect_$fmt"
+            else
+              echo "::warning::PulpEffect_$fmt target missing — that lane will skip"
+            fi
+          done
+          if [ ${#available[@]} -eq 0 ]; then
+            echo "::error::No PulpEffect format targets built"
+            exit 1
+          fi
 
       - name: Install plugin bundles to system folders
         # Plugin bundles are emitted under top-level format dirs per
