@@ -7242,3 +7242,18 @@ valid header sort. Validation passed locally: `git diff --check`, built
 `./build/test/pulp-test-table-list-box "[gui][table]"`, which passed 9 test
 cases / 57 assertions. This tranche is held locally and should be aggregated
 into the larger PR rather than submitted individually.
+
+2026-05-17 22:09 PDT: added another local-only held extended button coverage
+tranche to the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `465746955` (`test(view): cover extended button interactions`). The
+tranche extends `test/test_gui_components.cpp` over disabled `TextButton`
+click suppression and paint, all `ArrowButton` directions, `ShapeButton`
+hover/pressed state propagation, `ImageButton` normal/hover/pressed path
+selection plus fallback behavior, and `ResizableCorner` drag deltas.
+Validation passed locally: `git diff --check`, built
+`pulp-test-gui-components`, and ran
+`./build/test/pulp-test-gui-components "[gui][buttons]"`, which passed 6
+test cases / 28 assertions. This tranche is held locally and should be
+aggregated into the larger PR rather than submitted individually.
