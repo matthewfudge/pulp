@@ -88,6 +88,7 @@ TEST_CASE("DelayLine zero max delay uses a stable single-sample buffer",
     dl.push(0.25f);
     REQUIRE_THAT(dl.read(0), WithinAbs(0.25f, 1e-6f));
     REQUIRE_THAT(dl.read(99), WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(dl.process(-0.5f, 0.0f), WithinAbs(-0.5f, 1e-6f));
 
     dl.reset();
     REQUIRE_THAT(dl.read(0), WithinAbs(0.0f, 1e-6f));
