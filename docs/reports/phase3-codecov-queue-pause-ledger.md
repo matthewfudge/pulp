@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 14:48 PDT
+Last updated: 2026-05-18 14:53 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -31,11 +31,25 @@ coverage batches while it runs.
 `update_check` coverage for cache JSON malformed-int/default-schema
 handling, JSON string escaping, short semver triples, direct semver
 comparison, TOML append/read boundaries, and empty-cache-path latest
-resolution. Local validation passed: `cmake -S . -B build`,
+ resolution. Local validation passed: `cmake -S . -B build`,
 `cmake --build build --target pulp-test-cli-update-check`,
 `build/test/pulp-test-cli-update-check` (146 assertions in 29 test
 cases), and `git diff --check`. PR state: not pushed; keep accumulating
 additional related coverage commits toward a larger 24-36 commit batch.
+
+2026-05-18 14:53 PDT: added second committed tranche to
+`feature/phase3-codecov-batch-747`:
+`9d8f6b02a test(cli): cover fetchcontent cache edge paths`, touching
+`test/test_cli_fetchcontent_cache.cpp`. Scope: deterministic
+`fetchcontent_cache` coverage for empty discovery roots, missing
+`list_dir`, lstat-failed/unknown entries, root-owned dangling symlinks,
+sanitized REF equality, and fallback cache-name splitting with and
+without hyphens. Local validation passed:
+`cmake --build build --target pulp-test-cli-fetchcontent-cache`,
+`build/test/pulp-test-cli-fetchcontent-cache` (164 assertions in 31
+test cases), and `git diff --check`. PR state: not pushed; keep
+accumulating related coverage commits toward the larger batch. No
+Namespace dispatch.
 
 Batch size guidance after reopening GitHub-hosted CI: prefer larger
 coherent test-only batches over one-tranche PRs. A good batch is one
