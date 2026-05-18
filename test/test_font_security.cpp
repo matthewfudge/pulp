@@ -15,6 +15,7 @@ using namespace pulp::canvas;
 
 namespace {
 
+#ifdef PULP_HAS_SKIA
 // Minimal valid sfnt header sketch for the rejection tests below.
 // Magic + numTables=0 fails validation (no required tables), but the
 // header parsing should NOT crash. Per-test we adjust fields to
@@ -31,6 +32,7 @@ std::vector<std::uint8_t> minimal_sfnt_header(std::uint32_t magic,
     // searchRange, entrySelector, rangeShift — unused by validator
     return b;
 }
+#endif
 
 void require_malformed_font_contract(const std::uint8_t* data, std::size_t size) {
 #ifdef PULP_HAS_SKIA
@@ -48,28 +50,37 @@ TEST_CASE("validate_font_bytes: null + empty rejected", "[font][security][issue-
     REQUIRE_FALSE(validate_font_bytes(nullptr, 0));
     REQUIRE_FALSE(validate_font_bytes(nullptr, 100));
 
+#ifdef PULP_HAS_SKIA
     std::array<std::uint8_t, 8> too_short{};
     require_malformed_font_contract(too_short.data(), too_short.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: bad magic rejected", "[font][security]") {
+#ifdef PULP_HAS_SKIA
     auto buf = minimal_sfnt_header(0xDEADBEEF, /*num_tables=*/1);
     require_malformed_font_contract(buf.data(), buf.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: zero-table count rejected", "[font][security]") {
+#ifdef PULP_HAS_SKIA
     auto buf = minimal_sfnt_header(0x00010000u, /*num_tables=*/0);
     require_malformed_font_contract(buf.data(), buf.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: claimed table dir beyond file rejected", "[font][security]") {
+#ifdef PULP_HAS_SKIA
     // Header claims 4 tables (= 12 + 64 = 76 bytes) but file is only 30.
     auto buf = minimal_sfnt_header(0x00010000u, /*num_tables=*/4);
     buf.resize(30);
     require_malformed_font_contract(buf.data(), buf.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: out-of-bounds table entry rejected", "[font][security]") {
+#ifdef PULP_HAS_SKIA
     // 1-table directory entry whose offset is past end of file.
     auto buf = minimal_sfnt_header(0x00010000u, /*num_tables=*/1);
     buf.resize(28);  // header (12) + one directory entry (16)
@@ -81,9 +92,11 @@ TEST_CASE("validate_font_bytes: out-of-bounds table entry rejected", "[font][sec
     // Length = 54 at 24..27
     buf[24] = 0; buf[25] = 0; buf[26] = 0; buf[27] = 54;
     require_malformed_font_contract(buf.data(), buf.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: integer overflow in length rejected", "[font][security]") {
+#ifdef PULP_HAS_SKIA
     auto buf = minimal_sfnt_header(0x00010000u, /*num_tables=*/1);
     buf.resize(28);
     // tag head
@@ -92,9 +105,11 @@ TEST_CASE("validate_font_bytes: integer overflow in length rejected", "[font][se
     buf[20] = 0; buf[21] = 0; buf[22] = 0; buf[23] = 100;
     buf[24] = 0xFF; buf[25] = 0xFF; buf[26] = 0xFF; buf[27] = 0xFF;
     require_malformed_font_contract(buf.data(), buf.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: missing required tables rejected", "[font][security]") {
+#ifdef PULP_HAS_SKIA
     // 1-table directory containing only 'name' (no head/cmap/maxp).
     auto buf = minimal_sfnt_header(0x00010000u, /*num_tables=*/1);
     buf.resize(28);
@@ -102,6 +117,7 @@ TEST_CASE("validate_font_bytes: missing required tables rejected", "[font][secur
     buf[20] = 0; buf[21] = 0; buf[22] = 0; buf[23] = 28;  // offset within file
     buf[24] = 0; buf[25] = 0; buf[26] = 0; buf[27] = 0;   // length 0 (fits)
     require_malformed_font_contract(buf.data(), buf.size());
+#endif
 }
 
 TEST_CASE("validate_font_bytes: bundled Inter accepted", "[font][security][skia]") {

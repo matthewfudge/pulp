@@ -10732,7 +10732,7 @@ TEST_CASE("Wave5 css/backgroundClip stores text/border-box/etc keyword",
     REQUIRE(p->background_clip() == "border-box");
 }
 
-TEST_CASE("Wave5 css/fontFamily picks first non-empty family from list",
+TEST_CASE("Wave5 css/fontFamily preserves the CSS family list",
           "[view][bridge][css][wave5][cat2]") {
     ScriptEngine engine;
     View root;
