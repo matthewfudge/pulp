@@ -406,6 +406,23 @@ TEST_CASE("StateStore skips empty change listeners", "[state][listener][codecov]
     REQUIRE(calls == 1);
 }
 
+TEST_CASE("StateStore ignores unknown value writes without notifying listeners",
+          "[state][listener][coverage]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Known", "", {0.0f, 1.0f, 0.5f}));
+
+    int calls = 0;
+    store.add_listener([&](ParamID, float) { ++calls; });
+
+    store.set_value(999, 0.75f);
+    store.set_normalized(998, 0.25f);
+    store.set_mod_offset(997, 1.0f);
+    store.add_mod_offset(996, 1.0f);
+
+    REQUIRE(calls == 0);
+    REQUIRE_THAT(store.get_value(1), WithinAbs(0.5, 0.001));
+}
+
 TEST_CASE("StateStore modulation offsets and default resets", "[state][store]") {
     StateStore store;
     store.add_parameter(make_param_info(1, "Cutoff", "Hz", {20.0f, 20000.0f, 1000.0f}));
