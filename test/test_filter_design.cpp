@@ -52,6 +52,13 @@ TEST_CASE("FilterDesign allpass passes DC", "[signal][filter_design]") {
     REQUIRE_THAT(dc_gain(c), WithinAbs(1.0, 0.01));
 }
 
+TEST_CASE("FilterDesign allpass keeps unity magnitude at Nyquist",
+          "[signal][filter_design][coverage][phase3]") {
+    auto c = FilterDesign::allpass(5000.0f, 0.9f, 48000.0f);
+    require_finite(c);
+    REQUIRE_THAT(std::abs(nyquist_gain(c)), WithinAbs(1.0f, 0.01f));
+}
+
 TEST_CASE("FilterDesign peaking_eq with 0dB gain is unity", "[signal][filter_design]") {
     auto c = FilterDesign::peaking_eq(1000.0f, 1.0f, 0.0f, 44100.0f);
     // 0 dB gain = no change, coefficients should be identity-like
