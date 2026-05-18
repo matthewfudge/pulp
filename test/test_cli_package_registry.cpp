@@ -392,6 +392,44 @@ targets = ["Linux-x64"]
             std::vector<std::string>{"macOS-arm64", "Windows-x64", "Linux-x64"});
 }
 
+TEST_CASE("project target rewriting inserts into existing project section",
+          "[cli][package-registry][targets][coverage]") {
+    TempDir tmp;
+    write_file(tmp.path / "pulp.toml", R"([project]
+name = "Demo"
+
+[plugin]
+name = "DemoPlugin"
+)");
+
+    REQUIRE(write_project_targets(tmp.path, {PlatformTarget{"Android", "arm64-v8a"}}));
+    REQUIRE(target_strings(read_project_targets(tmp.path)) ==
+            std::vector<std::string>{"Android-arm64-v8a"});
+
+    std::ifstream in(tmp.path / "pulp.toml");
+    std::string body{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    auto project_pos = body.find("[project]");
+    auto targets_pos = body.find("targets = [");
+    auto plugin_pos = body.find("[plugin]");
+    REQUIRE(project_pos != std::string::npos);
+    REQUIRE(targets_pos != std::string::npos);
+    REQUIRE(plugin_pos != std::string::npos);
+    REQUIRE(project_pos < targets_pos);
+    REQUIRE(targets_pos < plugin_pos);
+}
+
+TEST_CASE("project target parsing prefers targets over later platforms key",
+          "[cli][package-registry][targets][coverage]") {
+    TempDir tmp;
+    write_file(tmp.path / "pulp.toml", R"([project]
+targets = ["Linux-x64"]
+platforms = ["macOS"]
+)");
+
+    REQUIRE(target_strings(read_project_targets(tmp.path)) ==
+            std::vector<std::string>{"Linux-x64"});
+}
+
 TEST_CASE("licenses, semver, and quality scoring classify local registry metadata",
           "[cli][package-registry][quality][issue-643]") {
     REQUIRE(check_license("MIT") == LicenseVerdict::allowed);
@@ -403,6 +441,7 @@ TEST_CASE("licenses, semver, and quality scoring classify local registry metadat
     REQUIRE(std::string(license_verdict_label(LicenseVerdict::review_required)) ==
             "review required");
     REQUIRE(std::string(license_verdict_label(LicenseVerdict::rejected)) == "rejected");
+    REQUIRE(std::string(license_verdict_label(static_cast<LicenseVerdict>(99))) == "unknown");
     REQUIRE(license_tier("Apache-2.0") == "allowed");
     REQUIRE(license_tier("Custom-1.0") == "review");
     REQUIRE(license_tier("GPL-3.0") == "restricted");
@@ -436,8 +475,10 @@ TEST_CASE("licenses, semver, and quality scoring classify local registry metadat
     auto newer_patch = *SemVer::parse("1.2.4");
     REQUIRE(prerelease < release);
     REQUIRE(release < newer_patch);
+    REQUIRE((*SemVer::parse("1.2.3-alpha")) < (*SemVer::parse("1.2.3-beta")));
     REQUIRE(newer_patch.compatible_with(*SemVer::parse("1.2.3")));
     REQUIRE_FALSE((*SemVer::parse("2.0.0")).compatible_with(*SemVer::parse("1.2.3")));
+    REQUIRE_FALSE((*SemVer::parse("1.1.9")).compatible_with(*SemVer::parse("1.2.0")));
 
     auto q = compute_quality(quality_fixture());
     REQUIRE(q.license == 25);
@@ -497,4 +538,20 @@ TEST_CASE("package registry queries rank search hits and detect unsupported targ
 
     auto missing = search(loaded.registry, "does-not-exist");
     REQUIRE(missing.empty());
+}
+
+TEST_CASE("package registry search handles case and empty query scoring",
+          "[cli][package-registry][search][coverage]") {
+    TempDir tmp;
+    auto loaded = load_registry(write_registry_fixture(tmp.path));
+    REQUIRE(loaded.error.empty());
+
+    auto upper = search(loaded.registry, "SYNTH");
+    REQUIRE_FALSE(upper.empty());
+    REQUIRE(upper.front()->id == "synth-core");
+
+    auto empty = search(loaded.registry, "");
+    REQUIRE(empty.size() == loaded.registry.packages.size());
+    REQUIRE(empty[0]->id == "filter-kit");
+    REQUIRE(empty[1]->id == "synth-core");
 }
