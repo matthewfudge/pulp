@@ -142,7 +142,12 @@ class MotionTraceScope internal constructor() {
  * }
  * ```
  */
-inline fun motionTrace(block: MotionTraceScope.() -> Unit): List<MotionMetric> {
+// Not `inline`: the body calls MotionTraceScope's `internal constructor()`
+// and `internal fun build()`, which `inline` would have to expose at call
+// sites (compilation error: "Public-API inline function cannot access
+// non-public-API constructor/function"). The DSL is invoked once per
+// attach, not in a hot loop, so the call overhead is irrelevant.
+fun motionTrace(block: MotionTraceScope.() -> Unit): List<MotionMetric> {
     val scope = MotionTraceScope()
     scope.block()
     return scope.build()
