@@ -511,3 +511,32 @@ TEST_CASE("JsonRpcPeer destructor releases the channel callback",
     REQUIRE(pair.first->send_text("raw after peer"));
     REQUIRE(raw_message == "raw after peer");
 }
+
+TEST_CASE("JsonRpcPeer consumes pending callbacks after the first response",
+          "[json_rpc][coverage][phase3]") {
+    auto pair = MemoryMessageChannel::make_pair();
+
+    std::string outbound_request;
+    pair.second->on_message([&](const Message& message) {
+        outbound_request.assign(message.as_text());
+    });
+
+    JsonRpcPeer client(*pair.first);
+    std::atomic<int> callbacks{0};
+    std::string last_result;
+
+    REQUIRE(client.send_request("once", "[]", [&](const JsonRpcResult& response) {
+        last_result = response.result_json;
+        callbacks.fetch_add(1);
+    }));
+    REQUIRE(outbound_request.find(R"("id":1)") != std::string::npos);
+
+    pair.second->send_text(R"json({"jsonrpc":"2.0","id":1,"result":"first"})json");
+    REQUIRE(wait_until([&] { return callbacks.load() == 1; }));
+    REQUIRE(last_result == R"("first")");
+
+    pair.second->send_text(R"json({"jsonrpc":"2.0","id":1,"result":"duplicate"})json");
+    std::this_thread::sleep_for(10ms);
+    REQUIRE(callbacks.load() == 1);
+    REQUIRE(last_result == R"("first")");
+}
