@@ -625,6 +625,20 @@ TEST_CASE("UMP conversion covers note-off cc and unsupported packet paths",
     REQUIRE_FALSE(ump_to_midi1_event(utility, out));
 }
 
+TEST_CASE("UMP conversion rejects unsupported MIDI 2.0 channel statuses",
+          "[midi][ump][coverage]") {
+    UmpPacket channel_pressure{};
+    channel_pressure.word_count = 2;
+    channel_pressure.words[0] = (0x4u << 28) | (uint32_t(3) << 24)
+                              | (uint32_t(0xD2) << 16);
+    channel_pressure.words[1] = 0x12345678u;
+
+    MidiEvent out = MidiEvent::note_on(0, 60, 100);
+    REQUIRE_FALSE(ump_to_midi1_event(channel_pressure, out));
+    REQUIRE(out.is_note_on());
+    REQUIRE(out.note() == 60);
+}
+
 TEST_CASE("UMP conversion preserves MIDI 1.0 fallback bytes",
           "[midi][ump][codecov]") {
     auto program = midi1_event_to_ump2(MidiEvent::program_change(5, 42), 15);
