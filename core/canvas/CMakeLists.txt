@@ -63,6 +63,7 @@ if(APPLE)
     target_sources(pulp-canvas PRIVATE
         platform/mac/cg_canvas.mm
         platform/mac/cg_canvas_gradients.mm
+        platform/mac/cg_canvas_shadow.mm
     )
     target_link_libraries(pulp-canvas PRIVATE
         "-framework CoreGraphics"
