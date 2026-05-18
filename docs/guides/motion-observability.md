@@ -1,13 +1,174 @@
 # Motion Observability Guide
 
-Pulp Motion is the framework's agent-first motion observability system. It turns
-"this animation feels wrong" into measurable, machine-readable evidence: a
-time-ordered stream of geometry and value samples with `Start` / `End` burst
-framing, monotonic timestamps, deterministic capture, runtime-attachable over
-the inspector wire, and a Python visual-analysis pipeline for pixel-truth
-fallback.
+Pulp Motion is the framework's agent-first motion observability system. It
+turns "this animation feels wrong" into measurable, machine-readable evidence:
+a time-ordered stream of geometry and value samples that an agent can read
+from a fixture or stream over the inspector wire — instead of guessing from
+source.
+
+Trigger phrases an agent should reach for:
+
+- "this animation feels slow / wrong / janky / late"
+- "did this transition actually animate?"
+- "scroll restore lands at the wrong place"
+- "verify the imported Figma motion matches intent"
+- "frames look fine but the rendered effect is off"
+
+Mechanics: `Start` / `End` burst framing, monotonic timestamps, deterministic
+capture on a scripted `FrameClock`, runtime-attachable over the inspector
+wire, and a Python visual-analysis pipeline for pixel-truth fallback when no
+scalar is observable.
 
 The system is off by default — there is zero overhead when tracing is disabled.
+
+## End-to-end flow
+
+From "I have a bug" to "I have evidence":
+
+1. **Define expected behavior in measurable terms** — settling time, monotonicity, final value, overshoot bound, scroll content offset.
+2. **Locate the views or state values that drive the behavior.**
+3. **Attach a focused trace** — `motion::trace(...).value(...)` for scalars, `.geometry(...)` for layout/presentation rects, `.scrollGeometry(...)` for `ScrollView` offset/visible-rect/content-size.
+4. **Reproduce the issue and capture evidence**: (a) a live event stream over the inspector wire (port 9147), (b) a `.motion.jsonl` fixture for offline replay, or (c) frames + the visual analyzer.
+5. **Read the numbers** — assert with `settling_time_seconds`, `overshoot`, `final_value`, `is_monotonic`, `local_step_outlier_ratio`. Cite frame indices and metric values in the report.
+6. **Apply the fix, re-run validation, remove the temporary instrumentation.** Land a golden fixture so the next regression fails in CI, not after a user reports it.
+
+## Tooling
+
+Three discovery surfaces, pick by what's at hand. All three terminate at the
+same `pulp::view::motion::Coordinator` so fixtures, the scrubber, cost
+attribution, reduced-motion gating, and provenance envelopes work identically
+regardless of which surface launched the trace.
+
+- **`pulp` CLI** — the `/motion` Claude Code slash command surfaces the
+  inspector-wire quick start. From any Pulp source tree:
+  `pulp build && PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview`.
+  Dedicated `pulp motion *` subcommands cover every Motion.* method
+  end-to-end (pulp [#2153](https://github.com/danielraffel/pulp/issues/2153)):
+  `record` / `stop` / `snapshot` / `list-traces` / `load-fixture` /
+  `scrub` / `play` / `pause` / `cost {enable|disable}`. Quick example
+  — kick off a background record alongside the host:
+  ```bash
+  PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview &
+  pulp motion record --view Card --out card-fade.jsonl
+  # → trace started — trace_id=1
+  pulp motion stop --trace-id 1
+  ```
+  See the **CLI subcommands** section below for the full reference.
+- **`pulp-mcp` server** — the MCP server exposes `pulp_inspect_*` (live trees,
+  screenshots, evaluate) and a first-class `pulp_motion_*` wrapper set covering
+  every Motion.* inspector method (start_trace / stop_trace / snapshot /
+  list_traces / load_fixture / scrub_to / play / pause / enable_cost /
+  disable_cost — pulp [#2153](https://github.com/danielraffel/pulp/issues/2153)).
+  Agents on MCP can call these directly without driving the JS bridge through
+  `pulp_inspect_evaluate` or shelling out to `nc localhost 9147`. Example
+  tools/call payload for the equivalent of the inspector-wire start_trace
+  shown in the quick start below:
+
+  ```json
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "pulp_motion_start_trace",
+      "arguments": {
+        "view_name": "Card",
+        "fps": 30,
+        "metrics": [{
+          "kind": "geometry",
+          "name": "frame",
+          "node_id": "card",
+          "properties": ["minX", "minY", "width", "height"],
+          "space": "window",
+          "source": "presentation"
+        }]
+      }
+    }
+  }
+  ```
+- **XcodeBuildMCP** — recommended companion on macOS and the iOS Simulator. Use
+  its log-stream + screenshot tools to drive a simulator while the motion
+  inspector records, and feed the captured frames into
+  `tools/motion/visual/capture_sim_frames.py --source simulator`. XcodeBuildMCP
+  is not required — agents can capture and read simulator logs directly with
+  `xcrun simctl spawn booted log stream --predicate 'subsystem == "PulpMotion"'`
+  — but it is the path of least friction for Apple workflows.
+
+## Quick start
+
+Three ways to land your first trace.
+
+```bash
+# 1. CLI + standalone host (fastest path).
+PULP_MOTION_SERVER=1 PULP_MOTION_LOG=1 ./build/examples/ui-preview/pulp-ui-preview &
+
+# 2. Inspector wire (TCP, line-delimited JSON, port 9147).
+echo '{"id":1,"method":"Motion.startTrace","params":{
+  "view_name":"Card","fps":30,
+  "metrics":[{"kind":"geometry","name":"frame","node_id":"card",
+    "properties":["minX","minY","width","height"],
+    "space":"window","source":"presentation"}]}}' \
+  | nc -w 30 localhost 9147
+
+# 3. Stop the trace + read events as JSONL on the same socket.
+echo '{"id":2,"method":"Motion.stopTrace","params":{"trace_id":1}}' \
+  | nc -w 5 localhost 9147
+
+# 4. /motion slash command in Claude Code — same workflow, links to this guide.
+/motion
+```
+
+For the Swift, Kotlin / Compose, fixture-based, scrubber, and cost-attribution
+paths see the dedicated sections below.
+
+## CLI subcommands
+
+`pulp motion *` wraps every inspector `Motion.*` method as a terminal
+subcommand. Each one runs a 250ms TCP reachability probe against
+`127.0.0.1:9147` first; if nothing is listening it exits 1 with a clear
+"start the host with `PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview`"
+hint. Override the port with `--port N` or the `PULP_INSPECTOR_PORT`
+env var.
+
+| Command | Forwards to | Common use |
+|---|---|---|
+| `pulp motion record [--view NAME] [--out FIXTURE.jsonl] [--fps N] [--metrics SPEC]` | `Motion.startTrace` | Kick off a trace from a terminal. Default probe is a window-space presentation geometry on a node id matching `--view`. Multiple `--metrics` accepted; each is `kind:name:node_id[:p1,p2,...][:space][:source]` short-form or `'{...}'` raw JSON. |
+| `pulp motion stop [--trace-id N]` | `Motion.stopTrace` | Release the trace returned by `record`. |
+| `pulp motion snapshot` | `Motion.snapshot` | One-shot view of `tracing_enabled`, `firehose`, `active_traces`, `inspector_traces`, `emitted_events`, `cost_enabled`, `cost_samples_emitted`. |
+| `pulp motion list-traces` | `Motion.listTraces` | Enumerate inspector-owned trace IDs. |
+| `pulp motion load-fixture <PATH>` | `Motion.loadFixture` | Load a `.motion.jsonl` fixture into the scrubber. |
+| `pulp motion scrub <FRAME>` | `Motion.scrubTo` | Move the scrubber playhead to a given frame. |
+| `pulp motion play` | `Motion.play` | Resume scrubber playback from the playhead. |
+| `pulp motion pause` | `Motion.pause` | Pause scrubber playback. |
+| `pulp motion cost {enable\|disable}` | `Motion.enableCost` / `Motion.disableCost` | Toggle the cost-attribution channel. Off by default. |
+
+All commands accept `--json` to print the raw inspector response
+verbatim (useful for piping into `jq`). The default output is a
+pretty-printed line plus the raw JSON for human readers.
+
+```bash
+# Background the host + record from a terminal.
+PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview &
+pulp motion record --view Card --fps 60 --out card-fade.jsonl
+# → trace started — trace_id=1
+# →   stop with: pulp motion stop --trace-id 1
+
+# Replay a captured fixture in the scrubber.
+pulp motion load-fixture test/motion/goldens/card-open.motion.jsonl
+pulp motion scrub 30
+pulp motion play
+
+# Cost attribution for a short profiling window.
+pulp motion cost enable
+# ... drive the suspect animation ...
+pulp motion cost disable
+pulp motion snapshot --json | jq '.cost_samples_emitted'
+```
+
+The CLI delegates each call to `pulp inspect --command Motion.<verb>
+--params <JSON>` so the wire format and discovery story match the
+MCP `pulp_motion_*` wrappers and the raw `nc localhost 9147` path —
+all three terminate at the same `Coordinator`.
 
 ## When to use it
 
@@ -17,8 +178,51 @@ The system is off by default — there is zero overhead when tracing is disabled
 | "These two cards drift apart during a transition" | Two `motion::trace(...).geometry(...)` traces in the same coordinate space |
 | "Did anything actually move on screen?" | `GeometrySource::Presentation` + `GeometrySpace::Window` |
 | "ScrollView jumps when restored from state" | `motion::trace(...).geometry(...)` on a child of the scroll container — the walker honors the scroll offset |
+| "Scroll restore lands at the wrong content offset" | `motion::trace(...).scroll_geometry(name, scroll_view, props)` — reads `ScrollView`'s offset, visible rect, content size, and scrollable max directly |
 | "An imported Figma animation looks subtly off" | Record a fixture, assert against the imported intent (timing, monotonicity, settling time) |
 | "Frames look fine, the value series is correct, but the rendered effect is wrong" | Capture frames, run `tools/motion/visual/analyze_sequence.py` |
+
+## Visual analysis outputs
+
+The visual-analysis pipeline produces a small fixed set of artifacts. Pick by
+the question you need to answer:
+
+| Artifact | What it shows | When to use it |
+|---|---|---|
+| `keyframes.png` | 5 strategically-picked frames laid out left-to-right, no overlays | Eyeball the overall motion progression in one image |
+| `grid/frame_NNNN.png` (and `keyframes_grid.png`) | Same frames with alphanumeric cell labels (A1..H12) overlaid | Coordinate-aware position checks ("the card lands in F4 by frame 30") |
+| `diff/diff_NNNN_NNNN.png` | Per-frame-pair pixel deltas | Confirm exactly which frames moved and which stayed still |
+| `summary.md` (claim-evidence preamble) | Confidence score + supporting / contradicting evidence | Read first — the preamble names the contract every claim must satisfy and flags low-confidence runs that need a human |
+| `analysis.json` | Per-frame SSIM, dominant motion vectors, keyframe indices, `mean_confidence`, optional `affine_first_to_last` | Machine-readable for downstream automation |
+
+Recommended interpretation flow: keyframe sprite first, grid sequence for
+coordinate checks, adjacent-pair diff for pixel-truth confirmation. The
+`summary.md` preamble is the canonical claim-evidence contract — see Path B in
+`.agents/skills/motion/SKILL.md` for the agent-side wording.
+
+## Example scenarios
+
+Concrete bug shapes Pulp Motion catches in real Pulp UIs:
+
+- Detect unintended movement in UI that should remain still.
+- Confirm expected motion actually happens when a state change should animate.
+- Verify movement direction on each axis (up vs down, left vs right).
+- Confirm two animations are truly staggered instead of firing together.
+- Check relative positioning between two moving elements stays correct during a transition.
+- Detect timing drift — late starts, early stops, incorrect duration.
+- Catch easing or path issues — overshoot or reversal when smooth one-way motion is expected.
+- Diagnose scroll jumps, failed restoration, content-offset desynchronization.
+
+## Limitations
+
+Honest list — what Pulp Motion does not see today:
+
+- Animations driven entirely outside Pulp's view tree (e.g., host DAW chrome) are not observable — motion only sees what the Pulp Coordinator sees.
+- `GeometrySpace::Window` and `GeometrySpace::Screen` currently collapse onto `ViewGlobal` until the host surfaces its window/screen offset to the view system. Planned: host adapter hook in 0.110.
+- `ScrollView`'s base transform is applied before child layout; geometry traces on direct ScrollView children report post-transform coordinates. Planned: explicit `space: scroll-local` in 0.110.
+- `MotionPolicy::Off` short-circuits `Tween` / `ValueAnimation` / `CssAnimation` / `AnimatorSet` at construction — they finish immediately. Off mode is binary, not per-animation.
+- Cost attribution requires a render-side probe; if no `make_render_cost_probe(...)` is installed, the cost fields stay at 0.
+- `.transition`-style visual-only behavior with no exposed scalar is observable only via the visual-analysis pipeline (Path B in the motion skill) — there is no value series to trace.
 
 ## Core concepts
 
@@ -74,6 +278,19 @@ of where the view actually renders.
 | "Did Yoga move it?" | `Layout` | `ViewGlobal` |
 | "Did anything visible move on screen?" | `Presentation` | `Window` |
 | "Is it positioned correctly within its container?" | `Layout` | `ViewLocal` |
+
+**Worked example.** A knob rotates via `transform: rotate(45deg)`. Layout
+reports the static frame (`x=10, y=20, w=64, h=64`). Presentation reports
+the rotated bounding box (`x≈-7, y≈3, w=90.5, h=90.5`). Layout sees what
+the layout engine computed; Presentation sees what the user sees. Choose
+by question: "did anything actually move on screen?" → Presentation. "Did
+Yoga compute the right frame?" → Layout.
+
+**Space picker.** `ViewLocal` is the view's own coordinate system (intra-view
+scroll / transform checks). `ViewGlobal` is the root surface (cross-view
+distance assertions). `Window` adds the host window's offset (true window-
+relative movement, once the host hook lands — see Limitations). `Screen` adds
+the screen offset on top of Window.
 
 ### Sample event shape
 
@@ -230,6 +447,172 @@ Per-(view, metric) `precision` and `epsilon` are sticky — set on the first
 publish and inherited on subsequent calls so hot-path callers can omit
 `PublishOptions` every tick.
 
+## Swift / iOS / macOS
+
+The same publish channel is reachable from Swift via the `PulpSwift` package.
+The Swift facade mirrors the trace-builder DSL so the API reads the same way
+from either language, and every entry point is a no-op when tracing is off —
+zero cost in production.
+
+```swift
+import PulpSwift
+import SwiftUI
+
+struct CardView: View {
+    @State private var opacity: Double = 1
+    var body: some View {
+        Rectangle()
+            .opacity(opacity)
+            .pulpMotionTrace("Card") {
+                Trace.value("opacity", opacity)
+                Trace.geometry("frame",
+                    properties: [.minX, .minY, .width, .height])
+                Trace.scrollGeometry("scroll")
+            }
+    }
+}
+```
+
+The `pulpMotionTrace(_:fps:_:)` modifier registers a Coordinator trace
+stamped with `source_kind="swiftui"` provenance, backs the view with a
+hidden `GeometryReader` probe that pushes every new global-space frame into
+`pulp_motion_update_geometry`, and detaches on `onDisappear`. The modifier
+short-circuits when `PulpMotion.isTracingEnabled` is false — zero cost
+beyond a SwiftUI background view in production.
+
+For non-SwiftUI code paths (UIKit, AppKit, plain audio-graph callbacks)
+the `PulpMotionGeometryProbe` class exposes the same attach / update /
+detach contract:
+
+```swift
+final class CardUIView: UIView {
+    private let probe = PulpMotionGeometryProbe(view: "Card")
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        probe.update(minX: frame.minX, minY: frame.minY,
+                     width: frame.width, height: frame.height)
+    }
+    // deinit auto-detaches.
+}
+```
+
+Direct scalar / component publishes:
+
+```swift
+PulpMotion.publishValue(view: "Card", metric: "opacity", value: 0.5)
+PulpMotion.publishComponents(view: "Card", metric: "frame",
+                             components: [("x", x), ("y", y)])
+
+PulpMotion.setAmbientProvenance(kind: "swiftui", id: "CardView")
+defer { PulpMotion.clearAmbientProvenance() }
+```
+
+Bridging model: `PulpSwift` is a pure-Swift package; the C bridge lives
+in `apple/Sources/PulpSwift/PulpBridge.{h,cpp}` and is linked by the
+AUv3 / standalone host. At launch the host installs a
+`PulpMotionBackend` whose closures forward into the C ABI
+(`pulp_motion_publish_value`, `pulp_motion_register_geometry_trace`,
+…). Unit tests install a recording backend instead so
+`swift test --package-path apple` runs without a C++ host.
+
+Files: `apple/Sources/PulpSwift/PulpMotion.swift` (facade + `Trace.*`
+factories + `@MotionTraceBuilder`), `PulpMotionProbe.swift` (SwiftUI
+modifier + UIKit / AppKit `PulpMotionGeometryProbe`), `PulpBridge.{h,cpp}`
+(C ABI), `apple/Tests/PulpSwiftTests/PulpMotionTests.swift` (XCTest
+coverage), `test/test_motion_swift_bridge.cpp` (Catch2 round-trip).
+
+## Kotlin / Android (Compose + View)
+
+The Android facade mirrors the Swift one — same publish channel, same
+`Trace.*` DSL names, same off-by-default contract. Samples flow into the same
+`pulp::view::motion::Coordinator`, so fixtures, scrubber, cost attribution,
+reduced-motion gating, and provenance envelopes all work identically.
+Compose uses a `Modifier.pulpMotionGeometry(...)`; classic Views use a
+`View.pulpMotionTrace(...)` extension.
+
+```kotlin
+import androidx.compose.ui.Modifier
+import com.pulp.motion.PulpMotion
+import com.pulp.motion.Trace
+import com.pulp.motion.pulpMotionGeometry
+
+@Composable
+fun CardPanel(opacity: Float) {
+    Box(
+        Modifier
+            .size(120.dp)
+            .pulpMotionGeometry("Card") {
+                +Trace.value("opacity", opacity.toDouble())
+                +Trace.geometry("frame")
+            }
+    ) { /* content */ }
+}
+```
+
+The modifier registers a Coordinator trace stamped with
+`source_kind="android"` provenance, plumbs `boundsInWindow()` deltas
+into `pulp_motion_update_geometry`, and detaches on
+`DisposableEffect.onDispose`. It short-circuits when
+`PulpMotion.isTracingEnabled` is false — zero composition-side cost
+beyond a single branch.
+
+For non-Compose UIs:
+
+```kotlin
+class CardView(context: Context) : View(context) {
+    private val probe = pulpMotionTrace("Card") {
+        +Trace.geometry("frame")
+    }
+}
+```
+
+`View.pulpMotionTrace` installs a `ViewTreeObserver.OnPreDrawListener`
+(NOT `OnGlobalLayoutListener` — PreDraw catches intra-frame scroll
+and translation deltas GlobalLayout misses) and auto-detaches when
+the View is removed from the window. The returned
+`PulpMotionGeometryProbe` is `AutoCloseable` so it works inside
+`Closeable.use { }` too.
+
+Direct scalar / component publishes:
+
+```kotlin
+PulpMotion.publishValue(view = "Card", metric = "opacity", value = 0.5)
+PulpMotion.publishComponents(
+    view = "Card",
+    metric = "frame",
+    components = rectF.toMotionComponents(),
+)
+
+PulpMotion.withProvenance(kind = "android", id = "CardView") {
+    PulpMotion.publishValue(view = "Card", metric = "opacity", value = 1.0)
+}
+```
+
+`withProvenance { }` is single-threaded by design — the process-wide
+ambient slot is not coroutine-safe. Do not call from suspending code
+that may switch dispatchers inside the block.
+
+Bridging model: the Android facade lives in
+`android/app/src/main/kotlin/com/pulp/motion/`; the JNI shims and
+the matching C ABI live in
+`core/platform/src/android/jni_motion.cpp` (compiled into the
+`pulp-jni` shared library). `PulpApplication.onCreate` calls
+`PulpMotion.installNativeBackend()` once after
+`System.loadLibrary("pulp")` to wire the closure-bag backend to
+JNI. JVM unit tests install a recording backend instead, so
+`gradle test` exercises the facade without ever loading
+`libpulp.so`.
+
+Files: `android/app/src/main/kotlin/com/pulp/motion/PulpMotion.kt` (facade),
+`Trace.kt` (DSL + `Rect.toMotionComponents()` helpers), `MotionProbe.kt`
+(`View.pulpMotionTrace` + `PulpMotionGeometryProbe`), `MotionCompose.kt`
+(`Modifier.pulpMotionGeometry`), `PulpMotionBackend.kt` +
+`PulpMotionNative.kt` (closure-bag seam + JNI declarations),
+`core/platform/src/android/jni_motion.cpp` (C ABI + JNI shims),
+`android/app/src/test/kotlin/com/pulp/motion/PulpMotionTest.kt` (JVM unit
+tests, no native lib), `test/test_motion_android_bridge.cpp` (Catch2
+round-trip).
+
 ## Fixtures (record / replay / assert)
 
 A fixture is the on-disk form of a motion stream — a versioned JSONL file that
@@ -344,6 +727,7 @@ series extracted with `extract_scalar(events, view, metric, component)`.
 | `overshoot(samples, epsilon)` | Peak excursion beyond final value, as a fraction of total displacement |
 | `frame_jitter_seconds(samples)` | Stddev of inter-sample intervals — frame-pacing jitter at fixed FPS |
 | `final_value(samples)` | Last sample value, NaN when empty |
+| `local_step_outlier_ratio(samples, window_radius, epsilon)` | Max ratio of any step magnitude to the median step magnitude in a local window — flags one-frame jumps. **Separate from** `is_monotonic` / `overshoot` / timing helpers; does NOT conflate continuity, timing, or direction. |
 
 Helpers are split deliberately — combining continuity, monotonicity, and timing
 into a single heuristic obscures which property failed. Pin each concern in its
@@ -371,15 +755,71 @@ python3 -m tools.motion.visual.analyze_sequence \
 Outputs:
 
 - `analysis.json` — per-frame metrics, pairwise SSIM + pixel diff, keyframes,
+  `mean_confidence`, `min_confidence`, optional `affine_first_to_last`,
   schema version
-- `summary.md` — agent-readable summary
+- `summary.md` — agent-readable summary with the claim-evidence preamble
 - `diff/diff_NNNN_NNNN.png` — pairwise pixel-diff heatmaps (capped at
   `--max-diff-frames`)
 - `keyframes.png` — keyframe sprite (first, mid, last, plus top-delta pairs)
+- With `--grid`: `grid/frame_NNNN.png`, `diff_grid/diff_NNNN_NNNN.png`, and
+  `keyframes_grid.png` siblings (alphanumeric cell overlay)
 
 The schema is versioned (`REPORT_SCHEMA_VERSION`) so downstream consumers can
 reject unknown formats. Dependencies (numpy, Pillow, scikit-image) are MIT /
 BSD / Apache 2.0 only and are not redistributed in plugin or app artifacts.
+
+### Recommended flags (visual+)
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--pattern` | `frame_*.png` | Glob for frame filenames |
+| `--keyframes N` | `2` | Top-delta keyframes in addition to first / mid / last |
+| `--max-diff-frames N` | `8` | Cap on emitted diff PNGs; `0` = unlimited (all pairs) |
+| `--grid` | off | Emit alphanumeric grid overlays (A1..H12) on `grid/`, `diff_grid/`, and `keyframes_grid.png` so claims can cite a cell |
+| `--grid-rows N` | `8` | Grid overlay rows (A..Z) |
+| `--grid-cols N` | `12` | Grid overlay columns (1..N) |
+| `--grid-theme` | `auto` | `auto` (samples corner luminance) \| `light` \| `dark` |
+| `--trim` | off | Drop idle prefix + suffix from the analysis window (frames stay on disk; `summary.md` reports `trimmed_leading_frames` / `trimmed_trailing_frames`) |
+| `--trim-threshold F` | `0.01` | Mean-diff luminance fraction for `--trim` |
+| `--affine` | off | Estimate translation / rotation / scale first→last (opencv if installed, else PIL-FFT translation only — see `requirements-optional.txt`); emits `analysis.json#affine_first_to_last` and a `## Net motion` section in `summary.md` |
+
+### Motion-gated capture from a host source
+
+When you don't already have a frame directory, capture one with the gated
+helper. It only starts saving frames once real motion appears, so a short
+pre-roll doesn't pollute the analysis window:
+
+```bash
+# macOS window region (requires --bounds X,Y,W,H)
+python3 tools/motion/visual/capture_sim_frames.py \
+    --source macos --bounds 0,0,800,600 \
+    --output-dir ./captures/card-open/ \
+    --fps 30 --frame-count 60 \
+    --gate-threshold 4.0 --gate-consecutive 1 \
+    --idle-timeout 8
+
+# Booted iOS Simulator (works well alongside XcodeBuildMCP)
+python3 tools/motion/visual/capture_sim_frames.py \
+    --source simulator \
+    --output-dir ./captures/card-open/ \
+    --fps 30 --frame-count 60
+```
+
+The capture tool exits 3 (CTest SKIP) when neither `screencapture` nor a
+booted simulator is available, so it composes cleanly with CI lanes that lack
+the platform tooling.
+
+### Claim-evidence preamble
+
+Every claim made from a visual-analysis report must cite (1) pair index
+(`NN→NN+1`), (2) artifact type (`frames/`, `diff/`, `grid/`, `diff_grid/`,
+`keyframes.png`, or `affine_first_to_last`), and (3) a confidence score
+`0.0..1.0` from `pairs[].confidence` / `summary.mean_confidence`. **Confidence
+< 0.7 means the analyzer is unsure** — escalate by re-running with
+`--max-diff-frames 0` (all pairs), a longer capture window, or fall back to a
+runtime trace (Path A in the motion skill) if instrumentation is possible. The
+`summary.md` preamble carries the same contract verbatim so any downstream
+consumer that reads the report gets the same rules.
 
 ## Reduced-motion policy
 

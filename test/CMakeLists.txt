@@ -1368,6 +1368,37 @@ if(TARGET pulp::render)
     catch_discover_tests(pulp-test-motion-cost)
 endif()
 
+# Motion Swift bridge — exercises the C ABI shims in
+# apple/Sources/PulpSwift/PulpBridge.cpp without needing the Swift
+# compiler. Verifies that pulp_motion_publish_value / publish_components,
+# the ambient provenance slot, and register/update/detach geometry
+# traces round-trip through motion::Coordinator and respect the
+# off-by-default tracing gate.
+add_executable(pulp-test-motion-swift-bridge
+    test_motion_swift_bridge.cpp
+    ${CMAKE_SOURCE_DIR}/apple/Sources/PulpSwift/PulpBridge.cpp)
+target_include_directories(pulp-test-motion-swift-bridge PRIVATE
+    ${CMAKE_SOURCE_DIR}/apple/Sources/PulpSwift)
+target_link_libraries(pulp-test-motion-swift-bridge PRIVATE
+    pulp::view pulp::state pulp::format Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-swift-bridge)
+
+# Motion Android JNI bridge — exercises the C ABI shims in
+# core/platform/src/android/jni_motion.cpp directly. The JNI shims
+# (`Java_com_pulp_motion_PulpMotionNative_*`) only compile under
+# __ANDROID__, but the underlying C ABI (`pulp_motion_*`) compiles on
+# every host so this test runs in the normal Linux/macOS CTest matrix.
+# Includes the Coordinator::reset() deadlock regression test that the
+# Swift bridge's sibling-struct fix is the load-bearing change for.
+add_executable(pulp-test-motion-android-bridge
+    test_motion_android_bridge.cpp
+    ${CMAKE_SOURCE_DIR}/core/platform/src/android/jni_motion.cpp)
+target_include_directories(pulp-test-motion-android-bridge PRIVATE
+    ${CMAKE_SOURCE_DIR}/core/platform/include)
+target_link_libraries(pulp-test-motion-android-bridge PRIVATE
+    pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-motion-android-bridge)
+
 # Motion visual-analysis self-check — Phase 4 pipeline smoke.
 # Skips cleanly (exit 3) when Python deps are absent so CI without
 # numpy/Pillow/scikit-image doesn't false-fail.
@@ -1381,6 +1412,36 @@ if(Python3_Interpreter_FOUND)
     set_tests_properties(pulp-motion-visual-self-check PROPERTIES
         SKIP_RETURN_CODE 3
         LABELS "motion;visual"
+    )
+
+    # Visual-plus extensions (grid overlay, trim, affine first→last).
+    # Same SKIP_RETURN_CODE contract — runs only when numpy / Pillow /
+    # scikit-image are available; optional cv2 path is exercised when
+    # opencv-python is installed.
+    add_test(
+        NAME pulp-motion-visual-grid-self-check
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/motion/visual/test_grid_overlay.py
+    )
+    set_tests_properties(pulp-motion-visual-grid-self-check PROPERTIES
+        SKIP_RETURN_CODE 3
+        LABELS "motion;visual"
+    )
+
+    # Motion-gated capture smoke. Exits 3 when neither screencapture
+    # nor a booted simulator is available, so non-Apple CI hosts skip
+    # cleanly. When the macOS capture path is usable it exercises the
+    # gate logic against a static 4×4 region (gate never opens →
+    # CLI returns 3, smoke wraps that into 0).
+    add_test(
+        NAME pulp-motion-visual-capture-smoke
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tools/motion/visual/test_capture_smoke.py
+    )
+    set_tests_properties(pulp-motion-visual-capture-smoke PROPERTIES
+        SKIP_RETURN_CODE 3
+        LABELS "motion;visual"
+        TIMEOUT 60
     )
 endif()
 

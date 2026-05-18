@@ -85,6 +85,76 @@ bool pulp_state_deserialize(const uint8_t* data, int size);
 /// Free a buffer allocated by pulp_state_serialize().
 void pulp_free(void* ptr);
 
+// ── Motion observability ────────────────────────────────────────────────
+//
+// Swift bridge for `pulp::view::motion` (see core/view/include/pulp/view/motion.hpp).
+// Mirrors the publish channel + ambient-provenance API for SwiftUI / UIKit /
+// AppKit callers (Pulp's iOS AUv3 editors, Swift host apps, `PulpSwift/`).
+//
+// All entry points are no-ops when the process-wide motion Coordinator has
+// tracing disabled (the default). The Swift facade is expected to gate hot
+// paths on `pulp_motion_tracing_enabled()` to avoid even the string-copy
+// cost when motion is off.
+
+/// True when `motion::Coordinator::tracing_enabled()` is true. Cheap;
+/// safe to call per-frame from the Swift side as a gate.
+bool pulp_motion_tracing_enabled(void);
+
+/// Single-scalar publish (mirrors `motion::publish_value`).
+/// `view` and `metric` must be NUL-terminated UTF-8. `epsilon` and `precision`
+/// follow `motion::PublishOptions`.
+void pulp_motion_publish_value(const char* view,
+                               const char* metric,
+                               double value,
+                               double epsilon,
+                               int precision);
+
+/// Multi-component publish (mirrors `motion::publish_components`).
+/// `keys[i]` pairs with `values[i]` for `count` entries. Components are
+/// sorted by name inside the coordinator.
+void pulp_motion_publish_components(const char* view,
+                                    const char* metric,
+                                    const char* const* keys,
+                                    const double* values,
+                                    int count,
+                                    double epsilon,
+                                    int precision);
+
+/// Set the process-wide ambient provenance envelope. Subsequent publishes
+/// with an empty `PublishOptions::provenance` will be stamped with this.
+/// Pass NULL strings to clear individual fields.
+void pulp_motion_set_ambient_provenance(const char* kind,
+                                        const char* id,
+                                        const char* file,
+                                        int line);
+
+/// Clear the ambient provenance slot.
+void pulp_motion_clear_ambient_provenance(void);
+
+/// Register a geometry trace for `view_name`. Returns a positive trace_id
+/// on success, or 0 if tracing is disabled / registration failed. The
+/// Swift-side probe should call `pulp_motion_update_geometry()` whenever
+/// the underlying view's frame changes, and `pulp_motion_detach_trace()`
+/// on dismantle. `fps` mirrors `motion::TraceOptions::fps`.
+int pulp_motion_register_geometry_trace(const char* view_name, int fps);
+
+/// Push a new geometry frame for a trace registered via
+/// `pulp_motion_register_geometry_trace`. The coordinator samples the
+/// most recently-published rect at each FrameClock tick.
+/// `metric_name` is the per-rect label (e.g. "frame"). Coordinates are in
+/// the view's root / window space — they ride straight through as
+/// `minX` / `minY` / `width` / `height` components.
+void pulp_motion_update_geometry(int trace_id,
+                                 const char* metric_name,
+                                 double minX,
+                                 double minY,
+                                 double width,
+                                 double height);
+
+/// Detach a trace previously registered via
+/// `pulp_motion_register_geometry_trace`. Idempotent.
+void pulp_motion_detach_trace(int trace_id);
+
 #ifdef __cplusplus
 }
 #endif

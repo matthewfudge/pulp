@@ -571,6 +571,16 @@ static std::string tools_list_json() {
 {"name":"pulp_inspect_evaluate","description":"Evaluate a JS expression in a running plugin's script engine","inputSchema":{"type":"object","properties":{"expression":{"type":"string","description":"JS expression to evaluate"}}}},
 {"name":"pulp_inspect_performance","description":"Get render performance metrics from a running plugin","inputSchema":{"type":"object","properties":{}}},
 {"name":"pulp_inspect_audio","description":"Get audio configuration and buffer underrun info from a running plugin","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_motion_start_trace","description":"Start a motion trace via the inspector Motion.startTrace protocol. Attaches one or more metric probes (geometry / scroll-geometry) on a target view and begins streaming Motion.sample events. Enables tracing on the Coordinator if it is currently off. Returns the assigned trace_id.","inputSchema":{"type":"object","required":["view_name","metrics"],"properties":{"view_name":{"type":"string","description":"Human-readable trace name attached to all emitted events"},"fps":{"type":"integer","description":"Target sample rate in frames per second (default 15)"},"metrics":{"type":"array","description":"Metric probes. Each item is {kind:'geometry'|'scroll-geometry', name, node_id, properties?, space?, source?}.","items":{"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["geometry","scroll-geometry","scrollGeometry"]},"name":{"type":"string"},"node_id":{"type":"string"},"properties":{"type":"array","items":{"type":"string"}},"space":{"type":"string"},"source":{"type":"string"}}}}}}},
+{"name":"pulp_motion_stop_trace","description":"Stop a previously started motion trace via Motion.stopTrace and release its probe handle. Returns {removed:bool}.","inputSchema":{"type":"object","required":["trace_id"],"properties":{"trace_id":{"type":"integer","description":"trace_id returned by pulp_motion_start_trace"}}}},
+{"name":"pulp_motion_snapshot","description":"Read a snapshot of the motion observability subsystem via Motion.snapshot. Returns tracing_enabled, firehose, active_traces, inspector_traces, emitted_events, cost_enabled, and cost_samples_emitted. Safe to call when nothing is being traced.","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_motion_list_traces","description":"List the inspector-owned motion trace_ids via Motion.listTraces. Returns {trace_ids:[...]} (empty when nothing is active).","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_motion_load_fixture","description":"Load a .motion.jsonl fixture into the MotionScrubber via Motion.loadFixture. Returns {ok, event_count, max_frame, header} on success or an error if the fixture is missing or malformed.","inputSchema":{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Absolute path to a .motion.jsonl fixture"}}}},
+{"name":"pulp_motion_scrub_to","description":"Scrub a previously loaded fixture to the given frame via Motion.scrubTo. Returns {playhead_frame, emitted_count}. Errors with 'no fixture loaded' when called before pulp_motion_load_fixture.","inputSchema":{"type":"object","required":["frame"],"properties":{"frame":{"type":"integer","description":"Target playhead frame (>= 0)"}}}},
+{"name":"pulp_motion_play","description":"Play a previously loaded fixture from the current playhead via Motion.play. Returns {playing, emitted_count, playhead_frame}. Errors when no fixture is loaded.","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_motion_pause","description":"Pause fixture playback via Motion.pause. Returns {playing:false, playhead_frame}. Always safe — no-op when not playing.","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_motion_enable_cost","description":"Enable the cost-attribution channel via Motion.enableCost. Motion.cost events begin broadcasting per frame. Off by default — opt in per session.","inputSchema":{"type":"object","properties":{}}},
+{"name":"pulp_motion_disable_cost","description":"Disable the cost-attribution channel via Motion.disableCost. Stops Motion.cost broadcasts. Safe to call when cost is already disabled.","inputSchema":{"type":"object","properties":{}}},
 {"name":"pulp_compat","description":"Report pulp-mcp / MCP protocol / project SDK versions plus per-tool min_sdk_version floors so clients can pre-filter their tool list. Use this once at startup to detect SDK skew (#2070).","inputSchema":{"type":"object","properties":{}}}
 ]})JSON";
 }
@@ -742,6 +752,77 @@ static std::string handle_request_raw(const std::string& json) {
                 result = "{\"content\":[{\"type\":\"text\",\"text\":\"Error: query is required\"}]}";
             } else {
                 auto output = exec((root / "build" / "tools" / "cli" / "pulp").string() + " docs search \"" + query + "\" 2>&1");
+                result = "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+            }
+        }
+        // Motion inspector tools — delegate to pulp inspect CLI the
+        // same way pulp_inspect_* does. Each tool maps to one of the
+        // Motion.* protocol methods routed by MotionInspector::handle
+        // (inspect/src/motion_inspector.cpp) and MotionScrubber::handle
+        // (inspect/src/motion_scrubber.cpp). Off-by-default semantics:
+        // tools that operate on global state (snapshot, listTraces,
+        // pause, disableCost) return clean payloads even when nothing
+        // is active; tools that require prior state (scrubTo / play
+        // without a loaded fixture, stopTrace with an unknown id) get
+        // a structured inspector error which we propagate verbatim.
+        // pulp_motion_start_trace flips Coordinator::tracing_enabled
+        // on attach (matches motion_inspector.cpp:~265), so callers
+        // don't need to pre-arm tracing.
+        else if (name == "pulp_motion_start_trace" || name == "pulp_motion_stop_trace" ||
+                 name == "pulp_motion_snapshot" || name == "pulp_motion_list_traces" ||
+                 name == "pulp_motion_load_fixture" || name == "pulp_motion_scrub_to" ||
+                 name == "pulp_motion_play" || name == "pulp_motion_pause" ||
+                 name == "pulp_motion_enable_cost" || name == "pulp_motion_disable_cost") {
+            std::string inspector_method;
+            std::string inspector_params;  // pulp inspect --params JSON, empty for none
+            if (name == "pulp_motion_start_trace") {
+                inspector_method = "Motion.startTrace";
+                // Forward the raw args sub-object as params verbatim
+                // — the inspector parses {view_name, fps, metrics}
+                // out of it. Empty {} would fail with "metrics array
+                // required" on the inspector side, which is the
+                // right answer for callers that omit metrics.
+                inspector_params = " --params '" + args_json + "'";
+            } else if (name == "pulp_motion_stop_trace") {
+                inspector_method = "Motion.stopTrace";
+                auto trace_id_raw = extract_raw(args_json, "trace_id");
+                if (trace_id_raw.empty()) trace_id_raw = "0";
+                inspector_params = std::string(" --params '{\"trace_id\":") + trace_id_raw + "}'";
+            } else if (name == "pulp_motion_snapshot") {
+                inspector_method = "Motion.snapshot";
+            } else if (name == "pulp_motion_list_traces") {
+                inspector_method = "Motion.listTraces";
+            } else if (name == "pulp_motion_load_fixture") {
+                inspector_method = "Motion.loadFixture";
+                auto path = extract_string(args_json, "path");
+                // Shell-quote the JSON object in single quotes so the
+                // file path's spaces and special characters survive
+                // the cli's argv parse. Paths cannot contain single
+                // quotes in practice (POSIX) — if a user passes one
+                // the inspector will reject the malformed JSON, which
+                // is the right answer.
+                inspector_params = std::string(" --params '{\"path\":\"") + path + "\"}'";
+            } else if (name == "pulp_motion_scrub_to") {
+                inspector_method = "Motion.scrubTo";
+                auto frame_raw = extract_raw(args_json, "frame");
+                if (frame_raw.empty()) frame_raw = "0";
+                inspector_params = std::string(" --params '{\"frame\":") + frame_raw + "}'";
+            } else if (name == "pulp_motion_play") {
+                inspector_method = "Motion.play";
+            } else if (name == "pulp_motion_pause") {
+                inspector_method = "Motion.pause";
+            } else if (name == "pulp_motion_enable_cost") {
+                inspector_method = "Motion.enableCost";
+            } else if (name == "pulp_motion_disable_cost") {
+                inspector_method = "Motion.disableCost";
+            }
+
+            auto root = find_project_root();
+            if (root.empty()) {
+                result = "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+            } else {
+                auto cli = (root / "build" / "tools" / "cli" / "pulp").string();
+                auto output = exec(cli + " inspect --command " + inspector_method + inspector_params + " 2>&1");
                 result = "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
             }
         }

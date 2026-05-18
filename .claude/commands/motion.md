@@ -7,7 +7,7 @@ Debug a motion behavior the framework's way: attach a runtime trace over
 the inspector wire, capture a fixture, and read the numbers — don't
 guess from source.
 
-## Six paths (pick by what you have)
+## Eight paths (pick by what you have)
 
 | You have | Path | Tool |
 |---|---|---|
@@ -17,6 +17,8 @@ guess from source.
 | An interaction to record | **Input record/replay** | `motion::make_input_recorder` + `motion::replay_inputs` |
 | A fixture to scrub | **Timeline scrubber** | `Motion.loadFixture` + `Motion.scrubTo` |
 | "Which animation is expensive?" | **Cost attribution** | `Motion.enableCost` + `CostAttributor` |
+| SwiftUI / UIKit / AppKit code path | **Swift facade** (Path G) | `View.pulpMotionTrace { Trace.* }` / `PulpMotionGeometryProbe` |
+| Compose / Android View code path | **Kotlin facade** (Path H) | `Modifier.pulpMotionGeometry { +Trace.* }` / `View.pulpMotionTrace` |
 
 ## Fastest path — quick trace via the standalone host
 
@@ -24,7 +26,13 @@ guess from source.
 # 1. Launch the host with the motion inspector server up.
 PULP_MOTION_SERVER=1 ./build/examples/ui-preview/pulp-ui-preview &
 
-# 2. Attach a trace (TCP port 9147, line-delimited JSON).
+# 2a. Easiest: `pulp motion *` CLI subcommands (one verb per Motion.*
+#     method, prints the trace_id, honors --port + $PULP_INSPECTOR_PORT).
+pulp motion record --view Card --out card-fade.jsonl
+# → trace started — trace_id=1
+pulp motion stop --trace-id 1
+
+# 2b. Raw inspector wire (TCP port 9147) — equivalent payload.
 echo '{"id":1,"method":"Motion.startTrace","params":{
   "view_name":"Card","fps":30,
   "metrics":[{"kind":"geometry","name":"frame","node_id":"card",
@@ -34,9 +42,11 @@ echo '{"id":1,"method":"Motion.startTrace","params":{
 
 # 3. Trigger the suspect interaction in the app; events stream as JSON.
 
-# 4. Stop the trace when done.
-echo '{"id":2,"method":"Motion.stopTrace","params":{"trace_id":1}}' \
-  | nc -w 5 localhost 9147
+# 4. Other handy verbs:
+pulp motion snapshot          # view tracing_enabled / active_traces / cost
+pulp motion list-traces       # enumerate inspector-owned trace IDs
+pulp motion load-fixture FOO.motion.jsonl && pulp motion scrub 30
+pulp motion cost enable       # opt in to per-frame cost samples
 ```
 
 ## Useful env knobs in `pulp-ui-preview`
