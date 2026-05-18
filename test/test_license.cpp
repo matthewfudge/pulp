@@ -444,10 +444,27 @@ TEST_CASE("LicenseValidator validate_and_parse keeps first dotted payload split"
 TEST_CASE("LicenseValidator validate_and_parse ignores malformed optional integers",
           "[crypto][license][coverage][phase3-large]") {
     LicenseValidator validator;
-    std::string payload = "{\"product_id\":\"PulpMini\",\"expiry\":not-a-number}";
+    std::string payload = "{\"product_id\":\"PulpMini\",\"issued\":123junk,\"expiry\":not-a-number}";
     auto info = validator.validate_and_parse(base64_encode(payload) + ".sig");
     REQUIRE(info.has_value());
+    REQUIRE(info->issued_timestamp == 0);
     REQUIRE(info->expiry_timestamp == 0);
+}
+
+TEST_CASE("LicenseValidator validate_and_parse accepts whitespace after optional integers",
+          "[crypto][license][coverage][phase3]") {
+    LicenseValidator validator;
+    std::string payload = "{\"product_id\":\"PulpMini\",\"issued\":123 \t,\"expiry\":456 }";
+    auto info = validator.validate_and_parse(base64_encode(payload) + ".sig");
+    REQUIRE(info.has_value());
+    REQUIRE(info->issued_timestamp == 123);
+    REQUIRE(info->expiry_timestamp == 456);
+
+    std::string truncated_after_int = "{\"product_id\":\"PulpMini\",\"issued\":789";
+    auto truncated_info =
+        validator.validate_and_parse(base64_encode(truncated_after_int) + ".sig");
+    REQUIRE(truncated_info.has_value());
+    REQUIRE(truncated_info->issued_timestamp == 789);
 }
 
 TEST_CASE("LicenseValidator validate_file preserves interior whitespace",
