@@ -8951,3 +8951,15 @@ from substring keys. Focused local validation passed:
 `git diff --check`. Branch is clean and 22 commits ahead of `origin/main`;
 still held locally to build toward a larger GitHub-hosted PR. No Namespace
 dispatch.
+
+2026-05-18 15:37 PDT: continued the held local-only GitHub batch
+`feature/phase3-codecov-batch-747` with commit `dbd839583`
+(`test(cli): cover migration parser edge cases`). This tranche adds migration
+runtime coverage for fail-closed malformed expression boundaries, unmatched
+parentheses, single-token operator typos, invalid ampersand separators, and
+JSON escaping of from/to hop version strings. Focused local validation passed:
+`cmake --build build --target pulp-test-cli-migration-index`,
+`PULP_SOURCE_DIR=$PWD build/test/pulp-test-cli-migration-index` (63 assertions
+in 14 test cases), and `git diff --check`. Branch is clean and 23 commits
+ahead of `origin/main`; still held locally to build toward a larger
+GitHub-hosted PR. No Namespace dispatch.
