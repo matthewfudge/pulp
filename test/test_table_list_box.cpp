@@ -192,6 +192,20 @@ TEST_CASE("SimpleTableModel sorts descending and guards out-of-range cells",
     REQUIRE(model.cell_text(0, 0) == "Gamma");
     REQUIRE(model.cell_text(1, 0) == "Beta");
     REQUIRE(model.cell_text(2, 0) == "Alpha");
+}
+
+TEST_CASE("SimpleTableModel set_data replaces rows and sorts descending",
+          "[gui][table][coverage]") {
+    SimpleTableModel model;
+    model.add_row({"stale"});
+    model.set_data({{"A", "2"}, {"C", "1"}, {"B", "3"}});
+
+    REQUIRE(model.row_count() == 3);
+    REQUIRE(model.cell_text(0, 0) == "A");
+    REQUIRE(model.sort(0, false));
+    REQUIRE(model.cell_text(0, 0) == "C");
+    REQUIRE(model.cell_text(1, 0) == "B");
+    REQUIRE(model.cell_text(2, 0) == "A");
 
     REQUIRE(model.sort(1, true));
     REQUIRE(model.cell_text(0, 1) == "1");
