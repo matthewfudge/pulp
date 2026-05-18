@@ -1484,6 +1484,53 @@ TEST_CASE("pulp design validates owned option values before autobind",
     }
 }
 
+TEST_CASE("pulp dev validates value options before build or watch",
+          "[cli][shellout][dev][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-dev-parser-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp / "build");
+    {
+        std::ofstream f(tmp / "pulp.toml");
+        f << "[pulp]\n"
+          << "sdk_version = \"latest\"\n";
+    }
+    {
+        std::ofstream cache(tmp / "build" / "CMakeCache.txt");
+        cache << "# fake cache; parser errors should return before build\n";
+    }
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string needle;
+    };
+    const std::vector<Case> cases = {
+        {{"dev", "--run"}, "--run requires a value"},
+        {{"dev", "--run", "--test"}, "--run requires a value"},
+        {{"dev", "--design"}, "--design requires a value"},
+        {{"dev", "--design", "--validate"}, "--design requires a value"},
+        {{"dev", "--target"}, "--target requires a value"},
+        {{"dev", "--target", "--run", "app"}, "--target requires a value"},
+    };
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    for (const auto& c : cases) {
+        auto r = exec(bin.string(), c.args, 10000);
+        INFO("stderr: " << r.stderr_output);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.needle) != std::string::npos);
+        REQUIRE(r.stdout_output.find("Building") == std::string::npos);
+    }
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
+}
+
 // Issue #499 Slice 1: `pulp doctor --versions` is the foundation of
 // the release-discovery UX. Verify the subcommand is wired, always
 // exits 0 (skew findings are advisory), and surfaces the diagnostic
