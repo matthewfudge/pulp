@@ -7299,3 +7299,16 @@ offsets. Validation passed locally: `git diff --check`, built
 `./build/test/pulp-test-property-list "[view][property_list]"`, which passed
 7 test cases / 46 assertions. This tranche is held locally and should be
 aggregated into the larger PR rather than submitted individually.
+
+2026-05-17 23:20 PDT: added another local-only held runtime JSON-RPC
+coverage tranche to the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `85285836c` (`test(runtime): cover json rpc binary responses`). The
+tranche extends `test/test_json_rpc.cpp` over JSON payloads delivered through
+the binary `MessageChannel::send()` path and incoming error responses with
+default/omitted error fields. Validation passed locally: `git diff --check`,
+built `pulp-test-json-rpc`, and ran
+`./build/test/pulp-test-json-rpc "[json_rpc]"`, which passed 17 test cases /
+100 assertions. This tranche is held locally and should be aggregated into
+the larger PR rather than submitted individually.
