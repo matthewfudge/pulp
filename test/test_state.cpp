@@ -615,6 +615,61 @@ TEST_CASE("Binding gesture end records undoable parameter edits",
     REQUIRE(history.undo_count() == before);
 }
 
+TEST_CASE("EditHistory trims depth clears redo and toggles coalescing",
+          "[state][edit-history][coverage][phase3-large]") {
+    EditHistory history(2);
+    int value = 0;
+
+    history.perform([&] { value = 1; }, [&] { value = 0; }, "one");
+    history.perform([&] { value = 2; }, [&] { value = 1; }, "two");
+    history.perform([&] { value = 3; }, [&] { value = 2; }, "three");
+
+    REQUIRE(value == 3);
+    REQUIRE(history.undo_count() == 2);
+    REQUIRE(history.undo_description() == "three");
+    REQUIRE(history.max_depth() == 2);
+
+    REQUIRE(history.undo());
+    REQUIRE(value == 2);
+    REQUIRE(history.can_redo());
+
+    history.perform([&] { value = 4; }, [&] { value = 2; }, "four");
+    REQUIRE(value == 4);
+    REQUIRE_FALSE(history.can_redo());
+
+    history.set_coalesce(false);
+    history.perform([&] { value = 5; }, [&] { value = 4; }, "same");
+    history.perform([&] { value = 6; }, [&] { value = 5; }, "same");
+    REQUIRE(history.undo_count() == 2);
+    REQUIRE(history.undo_description() == "same");
+
+    history.clear();
+    REQUIRE_FALSE(history.can_undo());
+    REQUIRE_FALSE(history.can_redo());
+    REQUIRE(history.undo_description().empty());
+}
+
+TEST_CASE("EditHistory coalesces matching descriptions and clamps max depth",
+          "[state][edit-history][coverage][phase3-large]") {
+    EditHistory history(4);
+    int value = 0;
+
+    history.perform([&] { value = 1; }, [&] { value = 0; }, "gain");
+    history.perform([&] { value = 2; }, [&] { value = 1; }, "gain");
+    REQUIRE(value == 2);
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "gain");
+
+    REQUIRE(history.undo());
+    REQUIRE(value == 1);
+    REQUIRE(history.redo());
+    REQUIRE(value == 2);
+
+    history.set_max_depth(0);
+    REQUIRE(history.max_depth() == 0);
+    REQUIRE_FALSE(history.can_undo());
+}
+
 TEST_CASE("StateStore deserialize keeps complete prefix on short declared count",
           "[state][serialize][coverage][phase3-large]") {
     StateStore source;
