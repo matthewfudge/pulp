@@ -226,6 +226,7 @@ TEST_CASE("Label intrinsic_height counts explicit newlines on multi_line labels"
     Label single_13("probe");
     single_13.set_font_size(13.0f);
     const float lh_13 = single_13.intrinsic_height();
+    three.set_line_height(lh_13);
     REQUIRE_THAT(three.intrinsic_height(), WithinAbs(lh_13 * 3.0f, 0.01f));
 
     // Explicit line_height beats font_size * 1.4 default — multi-line
@@ -324,6 +325,7 @@ TEST_CASE("Label intrinsic_height honors line_clamp on multi_line labels",
     Label probe("probe");
     probe.set_font_size(12.0f);
     const float lh = probe.intrinsic_height();
+    clamped.set_line_height(lh);
     REQUIRE_THAT(clamped.intrinsic_height(), WithinAbs(lh * 2.0f, 0.01f));
 
     // line_clamp_ == 0 disables clamping — all source lines counted.
