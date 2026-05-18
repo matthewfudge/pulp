@@ -169,6 +169,23 @@ TEST_CASE("AES binary plaintext preserves embedded zero bytes",
     REQUIRE(*decrypted == plaintext);
 }
 
+TEST_CASE("AES one-byte plaintext round-trips with padding",
+          "[crypto][aes][coverage][phase3-batch742]") {
+    uint8_t key[32] = {};
+    uint8_t iv[16] = {};
+    std::memset(key, 0x11, 32);
+    std::memset(iv, 0x22, 16);
+
+    const uint8_t plaintext[] = {0x7b};
+    auto encrypted = aes_encrypt(plaintext, sizeof(plaintext), key, iv);
+    REQUIRE(encrypted.has_value());
+    REQUIRE(encrypted->size() == 16);
+
+    auto decrypted = aes_decrypt(encrypted->data(), encrypted->size(), key, iv);
+    REQUIRE(decrypted.has_value());
+    REQUIRE(*decrypted == std::vector<uint8_t>{0x7b});
+}
+
 TEST_CASE("AES exact block plaintext adds and removes full padding block",
           "[crypto][aes][coverage][issue-641]") {
     uint8_t key[32] = {};
