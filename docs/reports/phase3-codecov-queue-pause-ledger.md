@@ -7353,3 +7353,16 @@ without touch/pen/primary flags. Validation passed locally:
 `./build/test/pulp-test-input-events "[view][input]"`, which passed 24 test
 cases / 93 assertions. This tranche is held locally and should be aggregated
 into the larger PR rather than submitted individually.
+
+2026-05-17 23:26 PDT: added another local-only held format host-type coverage
+tranche to the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `50bbb7fec` (`test(format): cover host type tables`). The tranche
+extends `test/test_diagnostic_reporter.cpp` over every declared `HostType`
+display name and the default-permissive resize/sidechain heuristic set for
+modern hosts. Validation passed locally: `git diff --check`, built
+`pulp-test-diagnostic`, and ran
+`./build/test/pulp-test-diagnostic "[format][host-type]"`, which passed 3
+test cases / 49 assertions. This tranche is held locally and should be
+aggregated into the larger PR rather than submitted individually.
