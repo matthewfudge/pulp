@@ -142,6 +142,20 @@ TEST_CASE("Gain dB conversion floors zero and negative linear values",
     REQUIRE_THAT(buffer[1], WithinAbs(-1.0f, 1e-6f));
 }
 
+TEST_CASE("Gain zero-length buffer calls leave sentinels untouched",
+          "[signal][gain][coverage][phase3-github]") {
+    Gain g;
+    g.set_gain_linear(-2.0f);
+
+    float buffer[] = {0.25f, -0.5f};
+    g.process(buffer, 0);
+
+    REQUIRE_THAT(buffer[0], WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(buffer[1], WithinAbs(-0.5f, 1e-6f));
+    REQUIRE_THAT(g.process(0.5f), WithinAbs(-1.0f, 1e-6f));
+    REQUIRE_THAT(g.gain_db(), WithinAbs(6.0206f, 1e-3f));
+}
+
 TEST_CASE("SimpleMixer", "[signal][mix]") {
     SimpleMixer mixer;
 
