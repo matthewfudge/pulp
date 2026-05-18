@@ -172,6 +172,21 @@ TEST_CASE("MemoryStream write copies caller storage",
     REQUIRE(stream.buffer() == std::vector<std::uint8_t>{1, 2, 3});
 }
 
+TEST_CASE("MemoryStream write preserves existing unread prefix",
+          "[stream][memory][coverage][phase3]") {
+    MemoryStream stream(std::vector<std::uint8_t>{10, 20, 30});
+    std::uint8_t out[2]{};
+    REQUIRE(stream.read(out, 1).bytes == 1);
+
+    const std::uint8_t suffix[] = {40, 50};
+    REQUIRE(stream.write(suffix, sizeof(suffix)).bytes == sizeof(suffix));
+    REQUIRE(stream.buffer() == std::vector<std::uint8_t>{10, 20, 30, 40, 50});
+
+    REQUIRE(stream.read(out, sizeof(out)).bytes == 2);
+    REQUIRE(out[0] == 20);
+    REQUIRE(out[1] == 30);
+}
+
 TEST_CASE("MemoryStream close rejects further I/O", "[stream]") {
     MemoryStream s;
     s.close();
