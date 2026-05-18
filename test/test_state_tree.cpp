@@ -317,6 +317,39 @@ TEST_CASE("StateTree child listener removal stops callbacks", "[state][tree]") {
     REQUIRE(removed_count == 1);
 }
 
+TEST_CASE("StateTree removing unknown listener ids is stable",
+          "[state][tree][coverage]") {
+    auto root = StateTree::create("root");
+    int property_count = 0;
+    int added_count = 0;
+    int removed_count = 0;
+
+    root->remove_listener(1234);
+    root->remove_child_added_listener(1234);
+    root->remove_child_removed_listener(1234);
+
+    auto property_id = root->add_listener(
+        [&](StateTree&, std::string_view, const PropertyValue&, const PropertyValue&) {
+            ++property_count;
+        });
+    auto added_id = root->add_child_added_listener(
+        [&](StateTree&, StateTree&, int) { ++added_count; });
+    auto removed_id = root->add_child_removed_listener(
+        [&](StateTree&, StateTree&, int) { ++removed_count; });
+
+    root->remove_listener(property_id + 100);
+    root->remove_child_added_listener(added_id + 100);
+    root->remove_child_removed_listener(removed_id + 100);
+
+    root->set("name", std::string("kept"));
+    root->add_child(StateTree::create("child"));
+    root->remove_child(0);
+
+    REQUIRE(property_count == 1);
+    REQUIRE(added_count == 1);
+    REQUIRE(removed_count == 1);
+}
+
 TEST_CASE("StateTree remove listener", "[state][tree]") {
     auto tree = StateTree::create("test");
 
@@ -540,6 +573,24 @@ TEST_CASE("StateTree from_json ignores malformed members and children",
     REQUIRE(result->child(1)->type_name() == "node");
 }
 
+TEST_CASE("StateTree JSON keeps integer values available as doubles",
+          "[state][tree][json][coverage]") {
+    auto result = StateTree::from_json(R"({
+        "type": "numbers",
+        "properties": {
+            "whole": 12,
+            "fractional": 12.5
+        }
+    })");
+
+    REQUIRE(result != nullptr);
+    REQUIRE(result->type_name() == "numbers");
+    REQUIRE(result->get_int("whole") == 12);
+    REQUIRE_THAT(result->get_double("whole"), WithinAbs(12.0, 1e-9));
+    REQUIRE(result->get_int("fractional", 99) == 99);
+    REQUIRE_THAT(result->get_double("fractional"), WithinAbs(12.5, 1e-9));
+}
+
 // ── Deep copy ───────────────────────────────────────────────────────────
 
 TEST_CASE("StateTree deep copy", "[state][tree]") {
@@ -568,6 +619,37 @@ TEST_CASE("StateTree deep copy rewires child parent pointers",
     REQUIRE(copy->child(0).get() != child.get());
     REQUIRE(copy->child(0)->parent() == copy.get());
     REQUIRE(child->parent() == root.get());
+}
+
+TEST_CASE("StateTree deep copy does not copy listeners",
+          "[state][tree][coverage]") {
+    auto root = StateTree::create("root");
+    auto child = StateTree::create("child");
+    root->add_child(child);
+
+    int property_count = 0;
+    int added_count = 0;
+    int removed_count = 0;
+    root->add_listener([&](StateTree&, std::string_view, const PropertyValue&, const PropertyValue&) {
+        ++property_count;
+    });
+    root->add_child_added_listener([&](StateTree&, StateTree&, int) {
+        ++added_count;
+    });
+    root->add_child_removed_listener([&](StateTree&, StateTree&, int) {
+        ++removed_count;
+    });
+
+    auto copy = root->deep_copy();
+    copy->set("name", std::string("copy"));
+    copy->add_child(StateTree::create("new_child"));
+    copy->remove_child(0);
+
+    REQUIRE(property_count == 0);
+    REQUIRE(added_count == 0);
+    REQUIRE(removed_count == 0);
+    REQUIRE(root->child_count() == 1);
+    REQUIRE(copy->child_count() == 1);
 }
 
 // ── ObservableValue ─────────────────────────────────────────────────────
