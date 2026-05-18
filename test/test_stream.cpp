@@ -198,6 +198,17 @@ TEST_CASE("MemoryStream clear is idempotent on open streams",
     REQUIRE(stream.read_position() == 0);
 }
 
+TEST_CASE("MemoryStream zero-byte write on closed stream reports closed",
+          "[stream][memory][coverage][phase3]") {
+    MemoryStream stream;
+    stream.close();
+
+    const std::uint8_t byte = 0;
+    auto result = stream.write(&byte, 0);
+    REQUIRE_FALSE(result.ok());
+    REQUIRE(result.closed());
+}
+
 TEST_CASE("MemoryStream close rejects further I/O", "[stream]") {
     MemoryStream s;
     s.close();
