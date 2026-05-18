@@ -337,6 +337,7 @@ if(APPLE)
     else()
         target_sources(pulp-view PRIVATE
             platform/mac/window_host_mac.mm
+            platform/mac/window_host_mac_capture.mm
             platform/mac/window_manager_mac.mm
             platform/mac/plugin_view_host_mac.mm
             platform/mac/screenshot_mac.mm
