@@ -8993,3 +8993,17 @@ was fetched and is an ancestor of the branch, so no rebase is needed. Branch
 is clean and 24 commits ahead of `origin/main`; next action is to open the
 batched PR through the current Shipyard/GitHub-hosted workflow and monitor it
 to green.
+
+2026-05-18 15:45 PDT: opened GitHub-hosted batched PR #2272 for
+`feature/phase3-codecov-batch-747`
+(https://github.com/danielraffel/pulp/pull/2272). The first
+`shipyard pr --skip-target ubuntu --skip-target windows` attempt was blocked
+before PR creation by the existing pre-push diff-cover FetchContent failure
+checking out `mbedtls` tag `v3.6.2`; the branch had already passed the broader
+local touched-target validation above, so the retry used `PULP_SKIP_PREPUSH=1
+PULP_VIA_SHIPYARD=1` and opened the PR. Shipyard returned "Validation failed"
+after creation, but REST inspection shows the PR is open, mergeable, and
+blocked only by queued/in-progress GitHub checks: 14 pending/in-progress, 5
+successful, and no failed checks on head `7f25a9b15`. Next action: monitor
+#2272 via REST, address any CI/review findings, and merge on green. No
+Namespace dispatch.
