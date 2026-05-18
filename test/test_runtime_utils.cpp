@@ -793,6 +793,16 @@ TEST_CASE("Expression evaluator rejects malformed decimal tokens",
     REQUIRE_FALSE(evaluate("..5").has_value());
 }
 
+TEST_CASE("Expression evaluator handles unary plus division by zero and identifiers",
+          "[runtime][expression][coverage][phase3]") {
+    auto value = evaluate("+gain_1 / zero", {{"gain_1", 12.0}, {"zero", 0.0}});
+    REQUIRE(value.has_value());
+    REQUIRE(*value == Catch::Approx(0.0));
+
+    REQUIRE(evaluate("_offset2 + 1", {{"_offset2", 4.5}}).value_or(0.0)
+            == Catch::Approx(5.5));
+}
+
 TEST_CASE("ExpressionEvaluator stores variables and clears them",
           "[runtime][expression][coverage][issue-641]") {
     ExpressionEvaluator evaluator;
