@@ -8452,3 +8452,23 @@ FetchContent `mbedtls` tag checkout failure; GitHub-hosted CI remains the
 validation source. GraphQL PR creation was rate-limited, so #2227 was opened
 through the GitHub REST API and labeled `codecov` through REST. No Namespace
 dispatch.
+
+2026-05-18 09:22 PDT: pushed and opened the next GitHub-only coverage batch
+`feature/phase3-codecov-batch-737` as #2228
+(`test: batch phase3 coverage midi signal audio edges`). The branch is 24
+commits ahead of current `origin/main` and batches MIDI RPN/keyboard,
+running-status, UMP, MIDI sequence/file summary edges; signal delay, ADSR,
+oscillator, phaser, SmoothedValue, DryWetMixer, OSC matcher, runtime
+expression/range, StateTree reparenting, and audio buffer template/regrowth
+coverage. The batch intentionally folded several previously validated
+local-only tranches into one larger PR to reduce GitHub CI runs. Focused local
+validation passed for all touched suites: `pulp-test-signal`,
+`pulp-test-dsp-expansion`, `pulp-test-audio`, `pulp-test-runtime-utils`,
+`pulp-test-state-tree`, `pulp-test-dsp-enhancements`,
+`pulp-test-osc-bundle`, `pulp-test-midi`, `pulp-test-midi-expansion`,
+`pulp-test-running-status`, and `git diff --check`. A `Version-Bump: sdk=skip`
+trailer was added because the batch is test-only. Local pre-push diff-cover was
+demoted only because the clean coverage configure still hits the known
+FetchContent `mbedtls` tag checkout failure; GitHub-hosted CI remains the
+validation source. Auto-merge was enabled for #2228 after PR creation. No
+Namespace dispatch.
