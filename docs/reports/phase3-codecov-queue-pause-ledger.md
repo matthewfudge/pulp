@@ -7567,3 +7567,14 @@ Python coverage XML consumed by Codecov. Local validation passed:
 `python3 tools/scripts/test_run_python_coverage_extra.py CoberturaPathExtraTests`
 (2 tests), plus `git diff --check`. Still held locally for a larger 24-36
 tranche PR batch.
+
+2026-05-18 00:12 PDT: added an eleventh local-only coverage tooling tranche
+to `feature/phase3-codecov-batch-728`: commit `ed3c41751`
+(`test(coverage): cover cobertura verifier edges`). It expands
+`tools/scripts/test_verify_cobertura_xml.py` over non-numeric
+`lines-valid`, missing `lines-valid`, hint propagation on structurally empty
+artifacts, and success output with a custom label. This guards the Codecov
+pre-upload verifier against silently accepting unusable Cobertura XML. Local
+validation passed: `python3 tools/scripts/test_verify_cobertura_xml.py`
+(9 tests), plus `git diff --check`. Still held locally for a larger 24-36
+tranche PR batch.
