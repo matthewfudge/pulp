@@ -309,6 +309,60 @@ TEST_CASE("pulp audio read-bundle json reports missing bundle errors",
     REQUIRE(r.stdout_output.find("bundle path does not exist") != std::string::npos);
 }
 
+TEST_CASE("pulp cache usage and parser errors are deterministic",
+          "[cli][shellout][cache][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto home = unique_temp_dir("pulp-cache-shellout-home");
+    ScopedEnvVar scoped_pulp_home("PULP_HOME");
+    scoped_pulp_home.set(home.string());
+
+    auto help = run_pulp({"cache"});
+    REQUIRE_FALSE(help.timed_out);
+    REQUIRE(help.exit_code == 0);
+    REQUIRE(help.stdout_output.find("pulp cache") != std::string::npos);
+    REQUIRE(help.stdout_output.find("status") != std::string::npos);
+
+    auto status = run_pulp({"cache", "status"});
+    REQUIRE_FALSE(status.timed_out);
+    REQUIRE(status.exit_code == 0);
+    REQUIRE(status.stdout_output.find("Pulp Cache") != std::string::npos);
+    REQUIRE(status.stdout_output.find(home.string()) != std::string::npos);
+
+    struct Case {
+        std::vector<std::string> args;
+        int exit_code;
+        std::string stderr_substring;
+    };
+    const std::vector<Case> cases = {
+        {{"cache", "status", "extra"}, 2, "Unexpected cache status argument"},
+        {{"cache", "fetch"}, 1, "Usage: pulp cache fetch <asset>"},
+        {{"cache", "fetch", "fonts"}, 1, "Unknown asset: fonts"},
+        {{"cache", "fetch", "skia", "extra"}, 2, "Unexpected cache fetch argument"},
+        {{"cache", "clean", "extra"}, 2, "Unexpected cache clean argument"},
+        {{"cache", "mystery"}, 1, "Unknown cache subcommand"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("cache args size: " << c.args.size());
+        auto r = run_pulp(c.args);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == c.exit_code);
+        REQUIRE(r.stderr_output.find(c.stderr_substring) != std::string::npos);
+    }
+
+    fs::create_directories(home / "cache");
+    write_text(home / "cache" / "asset.bin", "cached");
+    auto clean = run_pulp({"cache", "clean"});
+    REQUIRE_FALSE(clean.timed_out);
+    REQUIRE(clean.exit_code == 0);
+    REQUIRE(clean.stdout_output.find("Cache cleared") != std::string::npos);
+    REQUIRE_FALSE(fs::exists(home / "cache"));
+
+    std::error_code ec;
+    fs::remove_all(home, ec);
+}
+
 TEST_CASE("pulp config <unknown-subcommand> exits non-zero with a diagnostic",
           "[cli][shellout][codex-562]") {
     // Codex 2026-04-21 wave 2 P2 on #562: `pulp config foo` previously

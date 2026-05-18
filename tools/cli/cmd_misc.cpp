@@ -254,6 +254,10 @@ int cmd_cache(const std::vector<std::string>& args) {
     std::string sub = args[0];
 
     if (sub == "status") {
+        if (args.size() > 1) {
+            std::cerr << "Unexpected cache status argument: " << args[1] << "\n";
+            return 2;
+        }
         std::cout << "Pulp Cache\n";
         std::cout << "==========\n\n";
         std::cout << "Location: " << home.string() << "\n\n";
@@ -304,6 +308,10 @@ int cmd_cache(const std::vector<std::string>& args) {
             std::cerr << "Usage: pulp cache fetch <asset>\n";
             std::cerr << "Available assets: skia\n";
             return 1;
+        }
+        if (args.size() > 2) {
+            std::cerr << "Unexpected cache fetch argument: " << args[2] << "\n";
+            return 2;
         }
 
         std::string asset = args[1];
@@ -379,6 +387,10 @@ int cmd_cache(const std::vector<std::string>& args) {
     }
 
     if (sub == "clean") {
+        if (args.size() > 1) {
+            std::cerr << "Unexpected cache clean argument: " << args[1] << "\n";
+            return 2;
+        }
         if (fs::exists(cache_dir)) {
             fs::remove_all(cache_dir);
             std::cout << "Cache cleared.\n";
