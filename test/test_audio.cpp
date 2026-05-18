@@ -298,6 +298,28 @@ TEST_CASE("Buffer copy owns independent channel storage",
     REQUIRE(assigned.view().channel_ptr(1) != original.view().channel_ptr(1));
 }
 
+TEST_CASE("Buffer move refreshes channel pointers for the new owner",
+          "[audio][buffer][coverage][phase3]") {
+    Buffer<float> original(2, 2);
+    original.channel(0)[0] = 0.25f;
+    original.channel(1)[1] = -0.5f;
+
+    Buffer<float> moved(std::move(original));
+    REQUIRE(moved.num_channels() == 2);
+    REQUIRE(moved.num_samples() == 2);
+    REQUIRE(moved.channel(0)[0] == 0.25f);
+    REQUIRE(moved.channel(1)[1] == -0.5f);
+    REQUIRE(moved.view().channel_ptr(1) == moved.channel(1).data());
+
+    Buffer<float> assigned;
+    assigned = std::move(moved);
+    REQUIRE(assigned.num_channels() == 2);
+    REQUIRE(assigned.num_samples() == 2);
+    REQUIRE(assigned.channel(0)[0] == 0.25f);
+    REQUIRE(assigned.channel(1)[1] == -0.5f);
+    REQUIRE(assigned.view().channel_ptr(0) == assigned.channel(0).data());
+}
+
 TEST_CASE("AudioFileData reports shape from first channel",
           "[audio][file][codecov]") {
     AudioFileData empty;
