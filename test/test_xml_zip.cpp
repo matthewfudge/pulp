@@ -344,6 +344,18 @@ TEST_CASE("deflate compression levels round-trip edge settings",
     }
 }
 
+TEST_CASE("deflate_decompress rejects truncated raw streams",
+          "[runtime][zip][coverage]") {
+    const std::string payload = "truncated raw deflate payload";
+    auto compressed = deflate_compress(
+        reinterpret_cast<const uint8_t*>(payload.data()), payload.size());
+    REQUIRE(compressed.has_value());
+    REQUIRE(compressed->size() > 2);
+
+    compressed->resize(compressed->size() - 1);
+    REQUIRE_FALSE(deflate_decompress(compressed->data(), compressed->size()).has_value());
+}
+
 // ── RFC 1952 gzip wire-format compliance (issue-468 follow-up) ──────────
 //
 // gzip_compress() must emit a real RFC 1952 stream — magic bytes, deflate
