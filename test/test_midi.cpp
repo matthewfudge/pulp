@@ -545,6 +545,19 @@ TEST_CASE("UmpPacket factories expose MIDI 2.0 fields", "[midi][ump][codecov]") 
     REQUIRE(UmpPacket::size_for_type(UmpMessageType::Data128) == 4);
 }
 
+TEST_CASE("UmpPacket MIDI 1.0 factory masks group channel and data bytes",
+          "[midi][ump][coverage]") {
+    auto packet = UmpPacket::midi1_note_on(0x2F, 0x31, 0xF4, 0xC8);
+
+    REQUIRE(packet.word_count == 1);
+    REQUIRE(packet.message_type() == UmpMessageType::Midi1ChannelVoice);
+    REQUIRE(packet.group() == 0x0F);
+    REQUIRE(packet.status() == 0x91);
+    REQUIRE(packet.channel() == 1);
+    REQUIRE(((packet.words[0] >> 8) & 0xFF) == 0x74);
+    REQUIRE((packet.words[0] & 0xFF) == 0x48);
+}
+
 TEST_CASE("UMP conversion scales MIDI 1.0 events both directions",
           "[midi][ump][codecov]") {
     REQUIRE(scale_7_to_16(0) == 0);
