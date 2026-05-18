@@ -7861,3 +7861,18 @@ push initially surfaced current-main source-contract warnings for the existing
 `Compat-Update` trailer for the HTML helper coverage path. Push preflight then
 passed cleanly. #2202 is open and queued/running on GitHub-hosted CI; no
 Namespace dispatch.
+
+2026-05-18 01:34 PDT: started held batch
+`feature/phase3-codecov-batch-729` from current `origin/main` (`b798b9ebc`)
+and added the first local-only OSC tranche: commit `445bc91ed`
+(`test(osc): cover unknown tag recovery`). It extends `pulp-test-osc` over
+mixed OSC type-tag lists where an unknown tag precedes a valid integer tag,
+verifying the decoder skips the unknown tag without consuming the later
+argument bytes. Local validation passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF`,
+`cmake --build build --target pulp-test-osc -j$(sysctl -n hw.ncpu)`,
+`./build/test/pulp-test-osc "[osc][codec]" -r compact` (30 cases / 93
+assertions), `python3 tools/scripts/skill_sync_check.py --base origin/main
+--head HEAD --mode=report`, `python3 tools/scripts/version_bump_check.py
+--base origin/main --head HEAD --mode=report`, and `git diff --check`. Batch
+#729 is 1 local commit ahead and remains held for the next 24-36 commit PR.
