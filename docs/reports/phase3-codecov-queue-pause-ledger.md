@@ -9056,3 +9056,27 @@ into a larger 24-36 commit PR batch. Active PR poll at this point: #2268 has
 no failures, 7 pending, 17 successful; #2272 has no failures, 11 pending, 13
 successful. Next action: continue adding local batch-748 coverage and keep
 REST-monitoring #2268/#2272 to green.
+
+2026-05-18 16:09 PDT: handled #2268 Windows CI failure and refreshed local
+batch 748 against main. #2268 failed `Windows (x64) [github-hosted]` because
+MSVC rejected default raw-string literals in `test/test_cli_version_diag.cpp`
+and `test/test_diagnostic_reporter.cpp` where the searched JSON fragments
+contained `)"`. Fixed those test assertions with custom raw-string delimiters
+in commit `f253fb33c` (`test: make json escape assertions msvc-safe`).
+Focused local validation passed:
+`cmake --build build --target pulp-test-cli-version-diag pulp-test-diagnostic`,
+`build/test/pulp-test-cli-version-diag "[version-diag][coverage][phase3]"`,
+`build/test/pulp-test-diagnostic "[format][diagnostic][coverage][phase3]"`,
+and `git diff --check`. The first push was blocked by the known local
+FetchContent `mbedtls` tag `v3.6.2` pre-push failure, so the validated fix
+was pushed with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`. After fetching
+current `origin/main` (`d81c071f`), #2268 was dirty, so merged `origin/main`
+into `feature/phase3-codecov-rollup-746`, resolved the single conflict in
+`test/test_font_axis_animation.cpp` by preserving the Skia-only cache tests
+and the newer main gating comment, validated `pulp-test-font-axis-animation`,
+and pushed merge head `70527d2b2` with the same pre-push skip for the known
+mbedtls hook. Local batch `feature/phase3-codecov-batch-748` was also rebased
+onto current `origin/main`; its six local commits now start at `517c5bbef`
+and end at `4d61425b` (`test(cli): cover audio missing option values`).
+Next action: monitor #2268 checks on `70527d2b2`, continue monitoring #2272,
+and keep building batch 748 locally toward a larger PR.
