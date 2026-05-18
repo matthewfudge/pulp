@@ -7876,3 +7876,21 @@ assertions), `python3 tools/scripts/skill_sync_check.py --base origin/main
 --head HEAD --mode=report`, `python3 tools/scripts/version_bump_check.py
 --base origin/main --head HEAD --mode=report`, and `git diff --check`. Batch
 #729 is 1 local commit ahead and remains held for the next 24-36 commit PR.
+
+2026-05-18 01:48 PDT: added two more local-only tranches to held batch
+`feature/phase3-codecov-batch-729`: commit `25238a8ca` (`test(osc): cover
+bundle and pattern edges`) extends `pulp-test-osc` over nested bundle
+serialization/deserialization, malformed bundle element boundaries, bad
+bundle headers, and incomplete OSC address pattern classes/alternatives;
+commit `64e0611b1` (`test(runtime): cover null message channel sends`) adds a
+`MemoryMessageChannel::send(nullptr, nonzero)` regression and fixes the
+channel to reject that invalid input without constructing a vector from a null
+range. Local validation passed:
+`cmake --build build --target pulp-test-osc -j$(sysctl -n hw.ncpu)`,
+`./build/test/pulp-test-osc "[osc][bundle],[osc][pattern]" -r compact` (3
+cases / 23 assertions), `cmake --build build --target
+pulp-test-memory-message-channel -j$(sysctl -n hw.ncpu)`,
+`./build/test/pulp-test-memory-message-channel "[runtime][message_channel]"
+-r compact` (16 cases / 73 assertions), skill-sync, version-bump report, and
+`git diff --check`. Batch #729 is 3 local commits ahead and remains held for
+the next large PR.
