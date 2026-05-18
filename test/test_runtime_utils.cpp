@@ -746,6 +746,13 @@ TEST_CASE("Expression evaluator handles binary math functions",
     REQUIRE(*power == Catch::Approx(27.0));
 }
 
+TEST_CASE("Expression evaluator tolerates whitespace around tokens",
+          "[runtime][expression][coverage][phase3]") {
+    auto value = evaluate("  ( 1 + 2 ) *\t3  ");
+    REQUIRE(value.has_value());
+    REQUIRE(*value == Catch::Approx(9.0));
+}
+
 // ── HTTP URL parsing ───────────────────────────────────────────────────
 
 TEST_CASE("HTTP helpers reject malformed URLs without transport work",
