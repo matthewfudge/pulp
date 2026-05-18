@@ -8874,3 +8874,14 @@ and empty-home undo path behavior. Focused local validation passed:
 `git diff --check`. Branch is clean and 16 commits ahead of `origin/main`;
 still held locally to build toward a larger GitHub-hosted PR. No Namespace
 dispatch.
+
+2026-05-18 15:20 PDT: continued the held local-only GitHub batch
+`feature/phase3-codecov-batch-747` with commit `f46470de8`
+(`test(cli): cover upgrade url literal inputs`). This tranche adds deterministic
+`pulp upgrade` URL helper coverage for empty platform/arch slots and literal
+preservation of whitespace-bearing version/platform/arch inputs. Focused local
+validation passed: `cmake --build build --target pulp-test-cli-upgrade-url`,
+`build/test/pulp-test-cli-upgrade-url` (22 assertions in 12 test cases), and
+`git diff --check`. Branch is clean and 17 commits ahead of `origin/main`;
+still held locally to build toward a larger GitHub-hosted PR. No Namespace
+dispatch.
