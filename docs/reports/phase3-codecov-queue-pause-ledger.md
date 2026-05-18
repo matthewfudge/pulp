@@ -9007,3 +9007,18 @@ blocked only by queued/in-progress GitHub checks: 14 pending/in-progress, 5
 successful, and no failed checks on head `7f25a9b15`. Next action: monitor
 #2272 via REST, address any CI/review findings, and merge on green. No
 Namespace dispatch.
+
+2026-05-18 15:48 PDT: addressed the first #2272 CI failure. The
+`Enforce version & skill sync` job passed skill-sync but failed the PR-title
+version gate because the PR title is `fix(cli): bound json parser recovery`
+and the diff had no canonical `chore: bump versions` commit. The underlying
+version bump check reports an SDK/CLI patch bump, so `CMakeLists.txt` was
+bumped from `0.133.0` to `0.133.1` and committed as `31a50f982`
+(`chore: bump versions`). Local validation of the same gate passed:
+`GITHUB_PR_TITLE='fix(cli): bound json parser recovery' python3
+tools/scripts/version_bump_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat`.
+The bump was pushed to #2272 with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`
+because the local pre-push diff-cover path is still blocked by the known
+FetchContent `mbedtls` tag `v3.6.2` checkout failure. Next action: monitor
+the new head `31a50f982` through GitHub-hosted CI and merge on green.
