@@ -191,3 +191,22 @@ TEST_CASE("Standard kernel weights cover blur edge and emboss paths",
     REQUIRE(emboss.get(0, 0) == -2.0f);
     REQUIRE(emboss.get(2, 2) == 2.0f);
 }
+
+TEST_CASE("Single-pixel convolution clamps repeated edge samples",
+          "[canvas][convolution][coverage][phase3-large]") {
+    uint8_t sharpened[4] = {40, 80, 120, 77};
+    auto sharpen = ImageConvolutionKernel::sharpen();
+    sharpen.apply(sharpened, 1, 1);
+    REQUIRE(sharpened[0] == 40);
+    REQUIRE(sharpened[1] == 80);
+    REQUIRE(sharpened[2] == 120);
+    REQUIRE(sharpened[3] == 77);
+
+    uint8_t edge[4] = {40, 80, 120, 88};
+    auto edge_detect = ImageConvolutionKernel::edge_detect();
+    edge_detect.apply(edge, 1, 1);
+    REQUIRE(edge[0] == 0);
+    REQUIRE(edge[1] == 0);
+    REQUIRE(edge[2] == 0);
+    REQUIRE(edge[3] == 88);
+}
