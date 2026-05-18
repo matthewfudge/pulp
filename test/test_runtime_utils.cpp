@@ -1130,3 +1130,11 @@ TEST_CASE("Range enclosing union keeps reversed ranges isolated",
     REQUIRE(reversed.enclosing_union(normal) == normal);
     REQUIRE(normal.enclosing_union(reversed) == normal);
 }
+
+TEST_CASE("Range expansion handles negative domains",
+          "[runtime][range][coverage][phase3]") {
+    IntRange range(-10, -4);
+    REQUIRE(range.expanded(-12) == IntRange(-12, -4));
+    REQUIRE(range.expanded(-1) == IntRange(-10, 0));
+    REQUIRE(range.expanded(-7) == range);
+}
