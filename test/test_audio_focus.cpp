@@ -84,6 +84,22 @@ TEST_CASE("AudioFocusRegistry: token move transfers ownership",
     REQUIRE(count == 1);  // outer now dropped → no more callbacks
 }
 
+TEST_CASE("AudioFocusRegistry: move construction empties source token",
+          "[audio][focus][coverage][phase3]") {
+    AudioFocusRegistry::instance().reset_for_test();
+    int count = 0;
+    auto source = AudioFocusRegistry::instance().subscribe(
+        [&](AudioFocusState) { ++count; });
+    const int id = source.id();
+
+    AudioFocusRegistry::Token moved(std::move(source));
+    REQUIRE(source.id() == 0);
+    REQUIRE(moved.id() == id);
+
+    AudioFocusRegistry::instance().publish(AudioFocusState::duck);
+    REQUIRE(count == 1);
+}
+
 TEST_CASE("AudioFocusRegistry: move assignment replaces an existing subscription",
           "[audio][focus][issue-640]") {
     AudioFocusRegistry::instance().reset_for_test();
