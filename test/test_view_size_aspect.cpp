@@ -39,3 +39,20 @@ TEST_CASE("aspect ratio is independent of min/max bounds",
     REQUIRE(a.min_width == 0);
     REQUIRE(b.min_width == 400);
 }
+
+TEST_CASE("ViewSize zero max bounds remain unbounded when aspect is locked",
+          "[format][view-size][coverage][phase3]") {
+    ViewSize v;
+    v.preferred_width = 1024;
+    v.preferred_height = 768;
+    v.min_width = 320;
+    v.min_height = 240;
+    v.max_width = 0;
+    v.max_height = 0;
+    v.aspect_ratio = static_cast<double>(v.preferred_width) / v.preferred_height;
+
+    REQUIRE(v.max_width == 0);
+    REQUIRE(v.max_height == 0);
+    REQUIRE(v.aspect_ratio > 1.33);
+    REQUIRE(v.aspect_ratio < 1.34);
+}
