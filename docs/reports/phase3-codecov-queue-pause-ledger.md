@@ -7312,3 +7312,16 @@ built `pulp-test-json-rpc`, and ran
 `./build/test/pulp-test-json-rpc "[json_rpc]"`, which passed 17 test cases /
 100 assertions. This tranche is held locally and should be aggregated into
 the larger PR rather than submitted individually.
+
+2026-05-17 23:21 PDT: added another local-only held signal math coverage
+tranche to the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` in
+`/private/tmp/pulp-phase3-codecov-next-batch-727`. The branch now includes
+commit `b660b9de4` (`test(signal): cover polynomial and matrix edge paths`).
+The tranche extends `test/test_poly_math.cpp` over repeated real quadratic
+roots and nontrivial `Mat3` determinant / identity-composition behavior.
+Validation passed locally: `git diff --check`, built `pulp-test-poly-math`,
+and ran
+`./build/test/pulp-test-poly-math "[signal][poly],[signal][matrix]"`, which
+passed 22 test cases / 101 assertions. This tranche is held locally and
+should be aggregated into the larger PR rather than submitted individually.
