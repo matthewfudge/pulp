@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/state/binding.hpp>
 #include <pulp/state/state.hpp>
 #include <cstring>
 #include <cstddef>
@@ -535,6 +536,83 @@ TEST_CASE("StateStore gesture callbacks can be replaced and cleared",
 
     REQUIRE(began == std::vector<ParamID>{11});
     REQUIRE(ended == std::vector<ParamID>{11});
+}
+
+TEST_CASE("Binding handles unbound and polled parameter changes",
+          "[state][binding][coverage][phase3-large]") {
+    Binding empty;
+    REQUIRE_FALSE(empty.is_bound());
+    REQUIRE(empty.id() == 0);
+    REQUIRE(empty.info() == nullptr);
+    REQUIRE(empty.get() == 0.0f);
+    REQUIRE(empty.get_normalized() == 0.0f);
+    REQUIRE_FALSE(empty.poll());
+    REQUIRE(empty.edit_history() == nullptr);
+    REQUIRE_NOTHROW(empty.set(1.0f));
+    REQUIRE_NOTHROW(empty.set_normalized(0.5f));
+    REQUIRE_NOTHROW(empty.reset());
+
+    StateStore store;
+    store.add_parameter(make_param_info(7, "Level", "dB", {-60.0f, 6.0f, -12.0f}));
+
+    Binding binding(store, 7);
+    std::vector<float> notified;
+    binding.on_change([&](float value) { notified.push_back(value); });
+
+    REQUIRE(binding.is_bound());
+    REQUIRE(binding.id() == 7);
+    REQUIRE(binding.info() != nullptr);
+    REQUIRE(binding.info()->name == "Level");
+    REQUIRE_THAT(binding.get(), WithinAbs(-12.0, 0.001));
+
+    REQUIRE(binding.poll());
+    REQUIRE_THAT(notified.back(), WithinAbs(-12.0, 0.001));
+    REQUIRE_FALSE(binding.poll());
+
+    binding.set(-6.0f);
+    REQUIRE_THAT(store.get_value(7), WithinAbs(-6.0, 0.001));
+    REQUIRE_THAT(notified.back(), WithinAbs(-6.0, 0.001));
+
+    notified.clear();
+    store.set_value(7, 3.0f);
+    REQUIRE(binding.poll());
+    REQUIRE(notified.size() == 1);
+    REQUIRE_THAT(notified[0], WithinAbs(3.0, 0.001));
+
+    binding.reset();
+    REQUIRE_THAT(store.get_value(7), WithinAbs(-12.0, 0.001));
+    REQUIRE_THAT(notified.back(), WithinAbs(-12.0, 0.001));
+}
+
+TEST_CASE("Binding gesture end records undoable parameter edits",
+          "[state][binding][coverage][phase3-large]") {
+    StateStore store;
+    store.add_parameter(make_param_info(9, "Mix", "%", {0.0f, 100.0f, 50.0f}));
+
+    Binding binding(store, 9);
+    EditHistory history;
+    binding.set_edit_history(&history);
+    REQUIRE(binding.edit_history() == &history);
+
+    binding.begin_gesture();
+    binding.set(75.0f);
+    binding.end_gesture();
+
+    REQUIRE(history.can_undo());
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "Mix");
+    REQUIRE_THAT(store.get_value(9), WithinAbs(75.0, 0.001));
+
+    REQUIRE(history.undo());
+    REQUIRE_THAT(store.get_value(9), WithinAbs(50.0, 0.001));
+    REQUIRE(history.redo());
+    REQUIRE_THAT(store.get_value(9), WithinAbs(75.0, 0.001));
+
+    const auto before = history.undo_count();
+    binding.begin_gesture();
+    binding.set(75.0f);
+    binding.end_gesture();
+    REQUIRE(history.undo_count() == before);
 }
 
 TEST_CASE("StateStore deserialize keeps complete prefix on short declared count",
