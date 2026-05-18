@@ -412,6 +412,18 @@ TEST_CASE("ProcessorChain reset skips processors without reset methods",
     REQUIRE_THAT(chain.process(2.0f), WithinAbs(3.0f, 1e-6f));
 }
 
+TEST_CASE("ProcessorChain zero and negative length buffers are no-ops",
+          "[signal][chain][coverage][phase3]") {
+    ProcessorChain<ScaleBy2, AddOne> chain;
+    float samples[] = {1.0f, 2.0f};
+
+    chain.process(samples, 0);
+    chain.process(samples, -4);
+
+    REQUIRE_THAT(samples[0], WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(samples[1], WithinAbs(2.0f, 1e-6f));
+}
+
 // ── LookupTable ──────────────────────────────────────────────────────────
 
 TEST_CASE("LookupTable sine approximation", "[signal][lookup]") {
