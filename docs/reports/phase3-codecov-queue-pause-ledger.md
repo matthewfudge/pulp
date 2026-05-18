@@ -7393,3 +7393,13 @@ fields`). Consolidated local validation passed after the rebase: rebuilt
 and `pulp-test-file-browser`; ran focused filters across all ten binaries;
 and `git diff --check` passed. Next action: push/open this as a GitHub-only
 batched PR and monitor to green; do not dispatch Namespace CI.
+
+2026-05-17 23:34 PDT: fixed a full-build blocker discovered by the pre-push
+coverage build on the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727`. Commit `571761653`
+(`fix(preview): guard font probe without skia`) guards the `ui-preview`
+`--font-probe` call to `pulp::canvas::probe_font_glyph` behind
+`PULP_HAS_SKIA` so CPU-only/no-Skia builds compile and report the unsupported
+font-probe mode honestly. Validation passed locally: rebuilt
+`pulp-ui-preview` and ran `git diff --check`. This fix stays in the same
+batched PR because the issue was found while preparing the coverage batch.
