@@ -8,6 +8,8 @@
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/expression.hpp>
 #include <pulp/runtime/http.hpp>
+#include <pulp/runtime/ip_address.hpp>
+#include <pulp/runtime/primes.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/scope_guard.hpp>
 #include <pulp/runtime/text_diff.hpp>
@@ -667,6 +669,63 @@ TEST_CASE("HTTP helpers reject malformed URL hosts and schemes",
     REQUIRE_FALSE(http_download("http://", "/tmp/pulp-url-invalid-download-656", 1));
 }
 
+// ── IP Address ──────────────────────────────────────────────────────────
+
+TEST_CASE("IPv4 validator accepts dotted quads and rejects malformed input",
+          "[runtime][ip][coverage]") {
+    REQUIRE(is_valid_ipv4("127.0.0.1"));
+    REQUIRE(is_valid_ipv4("0.0.0.0"));
+    REQUIRE(is_valid_ipv4("255.255.255.255"));
+
+    REQUIRE_FALSE(is_valid_ipv4(""));
+    REQUIRE_FALSE(is_valid_ipv4("127.0.0"));
+    REQUIRE_FALSE(is_valid_ipv4("127.0.0.1 trailing"));
+    REQUIRE_FALSE(is_valid_ipv4("256.0.0.1"));
+    REQUIRE_FALSE(is_valid_ipv4("localhost"));
+}
+
+TEST_CASE("local IPv4 helpers return usable fallback values",
+          "[runtime][ip][coverage]") {
+    const auto primary = local_ipv4_address();
+    REQUIRE(is_valid_ipv4(primary));
+
+    for (const auto& address : local_ipv4_addresses()) {
+        REQUIRE(is_valid_ipv4(address));
+        REQUIRE(address != "127.0.0.1");
+    }
+
+    REQUIRE_FALSE(hostname().empty());
+}
+
+// ── Primes ──────────────────────────────────────────────────────────────
+
+TEST_CASE("prime helpers cover small values composites and sieve output",
+          "[runtime][primes][coverage]") {
+    REQUIRE_FALSE(is_prime(0));
+    REQUIRE_FALSE(is_prime(1));
+    REQUIRE(is_prime(2));
+    REQUIRE(is_prime(3));
+    REQUIRE_FALSE(is_prime(4));
+    REQUIRE_FALSE(is_prime(21));
+    REQUIRE(is_prime(97, 4));
+
+    REQUIRE(sieve_primes(1).empty());
+    REQUIRE(sieve_primes(2) == std::vector<uint32_t>{2});
+    REQUIRE(sieve_primes(20) == std::vector<uint32_t>{2, 3, 5, 7, 11, 13, 17, 19});
+}
+
+TEST_CASE("generate_prime rejects impossible bit sizes and returns bounded primes",
+          "[runtime][primes][coverage]") {
+    REQUIRE(generate_prime(0) == 0);
+    REQUIRE(generate_prime(1) == 0);
+    REQUIRE(generate_prime(63) == 0);
+
+    const auto prime = generate_prime(8);
+    REQUIRE(prime >= 128);
+    REQUIRE(prime <= 255);
+    REQUIRE(is_prime(prime, 4));
+}
+
 // ── Text Diff ────────────────────────────────────────────────────────────
 
 TEST_CASE("text_diff handles empty inputs", "[runtime][text-diff][issue-641]") {
@@ -759,6 +818,27 @@ TEST_CASE("text_diff handles replacement ties and empty line formatting",
             "- old-b\n"
             "+ new-a\n"
             "+ new-b\n");
+}
+
+TEST_CASE("text_diff chooses deletions first for single-line replacements",
+          "[runtime][text-diff][coverage]") {
+    auto diff = text_diff("left", "right");
+
+    REQUIRE(diff.size() == 2);
+    REQUIRE(diff[0].op == DiffOp::Delete);
+    REQUIRE(diff[0].text == "left");
+    REQUIRE(diff[1].op == DiffOp::Insert);
+    REQUIRE(diff[1].text == "right");
+    REQUIRE(format_diff(diff) == "- left\n+ right\n");
+}
+
+TEST_CASE("text_diff ignores trailing empty line fragments",
+          "[runtime][text-diff][coverage]") {
+    auto diff = text_diff("same\n", "same");
+
+    REQUIRE(diff.size() == 1);
+    REQUIRE(diff[0].op == DiffOp::Equal);
+    REQUIRE(diff[0].text == "same");
 }
 
 // ── Range ───────────────────────────────────────────────────────────────
