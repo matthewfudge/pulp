@@ -845,6 +845,40 @@ TEST_CASE("pulp macos validates local operator arguments before gh calls",
             != std::string::npos);
 }
 
+TEST_CASE("pulp overflow validates non-mutating operator arguments",
+          "[cli][shellout][overflow][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    ScopedEnvVar update_disabled("PULP_UPDATE_CHECK_DISABLED");
+    update_disabled.set("1");
+
+    auto help = run_pulp({"overflow", "--help"}, 10000);
+    REQUIRE_FALSE(help.timed_out);
+    REQUIRE(help.exit_code == 0);
+    REQUIRE(help.stdout_output.find("pulp overflow") != std::string::npos);
+    REQUIRE(help.stdout_output.find("threshold [N]") != std::string::npos);
+
+    auto unknown = run_pulp({"overflow", "wat"}, 10000);
+    REQUIRE_FALSE(unknown.timed_out);
+    REQUIRE(unknown.exit_code == 1);
+    REQUIRE(unknown.stderr_output.find("unknown subcommand") != std::string::npos);
+
+    auto threshold_extra = run_pulp({"overflow", "threshold", "1", "2"}, 10000);
+    REQUIRE_FALSE(threshold_extra.timed_out);
+    REQUIRE(threshold_extra.exit_code == 1);
+    REQUIRE(threshold_extra.stderr_output.find("too many args") != std::string::npos);
+
+    auto threshold_negative = run_pulp({"overflow", "threshold", "-1"}, 10000);
+    REQUIRE_FALSE(threshold_negative.timed_out);
+    REQUIRE(threshold_negative.exit_code == 1);
+    REQUIRE(threshold_negative.stderr_output.find("must be >= 0") != std::string::npos);
+
+    auto threshold_bad = run_pulp({"overflow", "threshold", "nope"}, 10000);
+    REQUIRE_FALSE(threshold_bad.timed_out);
+    REQUIRE(threshold_bad.exit_code == 1);
+    REQUIRE(threshold_bad.stderr_output.find("is not a number") != std::string::npos);
+}
+
 TEST_CASE("pulp inspect help and no-discovery paths are deterministic",
           "[cli][shellout][inspect][issue-643][issue-641]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
