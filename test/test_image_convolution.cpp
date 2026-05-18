@@ -78,6 +78,31 @@ TEST_CASE("Identity kernel supports explicit row stride", "[canvas][convolution]
     REQUIRE(pixels == original);
 }
 
+TEST_CASE("Convolution preserves padded row stride bytes",
+          "[canvas][convolution][coverage][phase3-large]") {
+    ImageConvolutionKernel identity(1);
+    identity.set(0, 0, 1.0f);
+
+    constexpr int width = 2;
+    constexpr int height = 2;
+    constexpr int stride = 12;
+    std::vector<uint8_t> pixels = {
+        10, 20, 30, 40, 50, 60, 70, 80, 0xA1, 0xA2, 0xA3, 0xA4,
+        90, 91, 92, 93, 94, 95, 96, 97, 0xB1, 0xB2, 0xB3, 0xB4,
+    };
+
+    identity.apply(pixels.data(), width, height, stride);
+
+    REQUIRE(pixels[8] == 0xA1);
+    REQUIRE(pixels[9] == 0xA2);
+    REQUIRE(pixels[10] == 0xA3);
+    REQUIRE(pixels[11] == 0xA4);
+    REQUIRE(pixels[20] == 0xB1);
+    REQUIRE(pixels[21] == 0xB2);
+    REQUIRE(pixels[22] == 0xB3);
+    REQUIRE(pixels[23] == 0xB4);
+}
+
 TEST_CASE("ImageConvolutionKernel clamps color output", "[canvas][convolution][issue-641]") {
     ImageConvolutionKernel boost(1);
     boost.set(0, 0, 3.0f);
