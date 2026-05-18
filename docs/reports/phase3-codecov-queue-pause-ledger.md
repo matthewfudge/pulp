@@ -8362,3 +8362,23 @@ monitoring remains GitHub-hosted only and REST-only: #2173, #2208, #2210, and
 `031f7fa2d9d24245d7e6761ef4e93370b9321642` after its Windows hosted lane
 found a real test portability issue in `run_process honors working directory
 and preserves spaced arguments`. No Namespace dispatch.
+
+2026-05-18 07:26 PDT: pushed and opened the next larger GitHub-only coverage
+batch `feature/phase3-codecov-batch-733` as #2221
+(`test: batch phase3 coverage runtime state edges`). The branch is 26 commits
+ahead of current `origin/main` and covers runtime, state, format, platform,
+view, and ship-adjacent deterministic unit edges. Focused local validation
+passed for all touched suites: `pulp-test-state`, `pulp-test-analytics`,
+`pulp-test-i18n`, `pulp-test-crypto`, `pulp-test-license`,
+`pulp-test-properties`, `pulp-test-runtime-utils`, `pulp-test-xml-zip`,
+`pulp-test-json-rpc`, `pulp-test-appcast`, `pulp-test-identity`,
+`pulp-test-descriptor-validation`, `pulp-test-processor-defaults`,
+`pulp-test-theme-contrast`, `pulp-test-platform`,
+`pulp-test-font-axis-animation`, and `git diff --check`. The batch also
+cherry-picks the real #2210 Linux root fix for non-Skia FontResolver cache-cap
+parity so #2221 does not repeat that failure if it runs before #2210 lands.
+Local pre-push diff-cover was demoted only because the local clean coverage
+configure still hits the known FetchContent `mbedtls` tag checkout failure;
+GitHub-hosted CI remains the validation source. #2210 was separately updated
+and pushed at `8a3bb3152` after local `pulp-test-font-axis-animation` passed.
+No Namespace dispatch.
