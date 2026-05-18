@@ -203,3 +203,12 @@ TEST_CASE("Polynomial eval handles higher order negative inputs",
     auto result = Polynomial::eval({-1.0f, 2.0f, -3.0f, 4.0f}, -2.0f);
     REQUIRE_THAT(result, WithinAbs(-49.0f, 0.001f));
 }
+
+TEST_CASE("Polynomial multiply handles constant factors",
+          "[signal][poly][codecov]") {
+    auto result = Polynomial::multiply({2.0f}, {1.0f, -3.0f, 5.0f});
+    REQUIRE(result.size() == 3);
+    REQUIRE_THAT(result[0], WithinAbs(2.0f, 0.001f));
+    REQUIRE_THAT(result[1], WithinAbs(-6.0f, 0.001f));
+    REQUIRE_THAT(result[2], WithinAbs(10.0f, 0.001f));
+}
