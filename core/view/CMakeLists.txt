@@ -10,6 +10,12 @@ set(PULP_JS_PRELUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-canvas.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
+    # P5-5 first cut — _cssToFlex + __cssProperties__ IIFE +
+    # setProperty/getPropertyValue/removeProperty. Loaded AFTER
+    # web-compat-style-decl.js so the CSSStyleDeclaration constructor
+    # + _applyProperty prototype method are in scope when the IIFE
+    # walks the property list and installs reflection.
+    ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl-helpers.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
     ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-gpu-buffered.js
@@ -45,6 +51,7 @@ add_custom_command(
         ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-element.js
         ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-canvas.js
         ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl.js
+        ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-style-decl-helpers.js
         ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-document.js
         ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-dom-ops.js
         ${CMAKE_CURRENT_SOURCE_DIR}/js/web-compat-gpu-buffered.js
