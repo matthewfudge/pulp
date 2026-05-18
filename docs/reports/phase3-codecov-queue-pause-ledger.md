@@ -8500,3 +8500,22 @@ GraphQL is still rate-limited, so #2231 was opened through the GitHub REST API
 and labeled `codecov` through REST; auto-merge still needs to be enabled once
 GraphQL quota recovers. Monitoring remains GitHub-hosted only. No Namespace
 dispatch.
+
+2026-05-18 10:14 PDT: pushed and opened the next GitHub-only coverage batch
+`feature/phase3-codecov-github-batch-739` as #2232
+(`test: batch phase3 coverage for runtime signal state edges`). The branch is
+28 commits ahead of current `origin/main` and batches deterministic coverage
+across audio, binding move semantics, image convolution single-pixel edge
+clamping, OSC matcher/accessor/move paths, OSC bundle behavior, properties
+escape/presence handling, runtime scope/range/diff/base64 helpers, signal DSP
+edge cases, and StateStore duplicate/unknown modulation paths. Focused local
+validation passed after confirming the branch was current with `origin/main`:
+`pulp-test-audio`, `pulp-test-binding`, `pulp-test-image-convolution`,
+`pulp-test-osc`, `pulp-test-osc-bundle`, `pulp-test-properties`,
+`pulp-test-runtime-utils`, `pulp-test-signal`, `pulp-test-state`, and
+`git diff --check origin/main...HEAD`. The branch was pushed with
+`PULP_SKIP_PREPUSH=1` to avoid the expensive local clean-coverage pre-push path;
+GitHub-hosted CI is the intended validation source. GraphQL remains unreliable
+/rate-limited in this session, so #2232 was opened and labeled `codecov`
+through the GitHub REST API. Auto-merge still needs to be enabled once GraphQL
+quota is usable, or merged manually on green. No Namespace dispatch.
