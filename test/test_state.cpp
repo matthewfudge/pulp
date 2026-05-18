@@ -980,3 +980,22 @@ TEST_CASE("Queued Main callback is cancelled by token reset (Codex P1 PR#2270)",
 
     store.set_main_loop(nullptr);
 }
+
+TEST_CASE("StateStore reset all defaults notifies each registered parameter",
+          "[state][store][coverage][phase3-large]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "A", "", {0.0f, 10.0f, 1.0f}));
+    store.add_parameter(make_param_info(2, "B", "", {-1.0f, 1.0f, 0.0f}));
+
+    store.set_value(1, 5.0f);
+    store.set_value(2, 0.5f);
+
+    std::vector<ParamID> changed;
+    store.add_listener([&](ParamID id, float) { changed.push_back(id); });
+
+    store.reset_all_to_defaults();
+
+    REQUIRE(changed == std::vector<ParamID>{1, 2});
+    REQUIRE_THAT(store.get_value(1), WithinAbs(1.0, 0.001));
+    REQUIRE_THAT(store.get_value(2), WithinAbs(0.0, 0.001));
+}
