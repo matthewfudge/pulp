@@ -9080,3 +9080,47 @@ onto current `origin/main`; its six local commits now start at `517c5bbef`
 and end at `4d61425b` (`test(cli): cover audio missing option values`).
 Next action: monitor #2268 checks on `70527d2b2`, continue monitoring #2272,
 and keep building batch 748 locally toward a larger PR.
+
+2026-05-18 16:31 PDT: CI hygiene pass after the Namespace cutover notes.
+#2272 (`feature/phase3-codecov-batch-747`) was still based before
+`d81c071f` and therefore at risk for the known Skia-less FontResolver cache
+test failure. Rebasing onto current `origin/main` succeeded cleanly and
+`git merge-base --is-ancestor d81c071 HEAD` now passes. Focused local
+validation passed after setting the same source-root env used by CTest:
+`cmake --build build --target pulp-test-cli-json-parser
+pulp-test-cli-update-mode pulp-test-cli-migration-index`,
+`build/test/pulp-test-cli-json-parser`,
+`build/test/pulp-test-cli-update-mode`,
+`PULP_SOURCE_DIR=$PWD build/test/pulp-test-cli-migration-index`, and
+`git diff --check`. Pushed the real rebase update to #2272 with
+`PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`; new head is `23c81c38e`.
+
+2026-05-18 16:31 PDT: recorded two additional local-only commits in held
+batch `feature/phase3-codecov-batch-748`: `abf39ba9c` (`fix(cli): reject
+host scan parser errors`) adds early parser rejection and shellout coverage
+for `pulp scan`/`pulp host`; `991a7be5a` (`fix(cli): reject ship parser
+errors`) adds early parser rejection and shellout coverage for `pulp ship`
+subcommands before side effects. Focused local validation passed:
+`cmake --build build --target pulp-cli pulp-test-cli-shellout
+pulp-test-cli-ship-shellout`,
+`build/test/pulp-test-cli-shellout
+"[cli][shellout][scan][coverage][phase3],[cli][shellout][host][coverage][phase3]"`,
+`build/test/pulp-test-cli-ship-shellout
+"[cli][shellout][ship][coverage][phase3]"`, and `git diff --check`. Batch
+748 remains local-only and is now 8 commits ahead, still below the desired
+larger 24-36 commit PR size.
+
+2026-05-18 16:31 PDT: root-cause release-path fix for the Skia-less
+`ui-preview --font-probe` compile failure is tracked separately as #2281
+(`fix/ui-preview-skia-gate`). The branch gates the `probe_font_glyph` call
+behind `PULP_HAS_SKIA`, returns a clear error in non-Skia builds, and was
+amended with a top-level `Version-Bump: skip reason="..."` trailer after
+the version gate identified the example-only PR title requirement. Local
+gate validation passed with `GITHUB_PR_TITLE='fix(examples): gate
+ui-preview --font-probe behind PULP_HAS_SKIA' python3
+tools/scripts/version_bump_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat`.
+New #2281 head is `d4b1bf626`. #2268 is still open; its current failing
+`linux`/`macos`/`windows` alias jobs are reporting cancelled underlying
+platform legs rather than a new source failure, so the next action is a
+deliberate rerun/rescue instead of another empty commit.
