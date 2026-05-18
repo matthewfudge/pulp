@@ -122,6 +122,21 @@ TEST_CASE("DiagnosticReporter captures parameter values", "[format][diagnostic]"
     REQUIRE(report.find("75") != std::string::npos);
 }
 
+TEST_CASE("DiagnosticReporter renders unitless parameters without a unit suffix",
+          "[format][diagnostic][coverage][phase3]") {
+    DiagnosticReporter diag;
+    auto desc = make_desc();
+    StateStore store;
+    store.add_parameter({.id = 7, .name = "Shape", .unit = "", .range = {0, 1, 0.25f}});
+    store.set_value(7, 0.5f);
+
+    diag.set_plugin_info(desc, store);
+
+    auto report = diag.generate_report();
+    REQUIRE(report.find("[7] Shape: 0.50 (norm=") != std::string::npos);
+    REQUIRE(report.find("Shape: 0.50  (norm=") == std::string::npos);
+}
+
 TEST_CASE("DiagnosticReporter instrument type", "[format][diagnostic]") {
     DiagnosticReporter diag;
     PluginDescriptor desc;
