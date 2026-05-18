@@ -528,16 +528,59 @@ DefaultShortcutScan detect_default_shortcuts(
 
     // Track which (key, mods) chords are already claimed by an extracted
     // shortcut.  Extracted always wins — we suppress same-chord defaults.
+    //
+    // Codex P1 on PR #2161: source code containing the cross-platform
+    // idiom `e.metaKey || e.ctrlKey` causes `collect_modifiers` to emit a
+    // single extracted shortcut whose `modifiers` set contains BOTH
+    // "meta" and "ctrl". Earlier the suppression chord was only ever the
+    // macOS variant (e.g. ",|meta"), so a default check against ",|meta"
+    // failed to match the extracted's "meta+ctrl" sig and the default
+    // still fired — yielding duplicate `registerShortcut` handlers when
+    // generate_pulp_js later split the default into both physical chords.
+    //
+    // Fix: store BOTH single-modifier variants in the claims set when an
+    // extracted shortcut carries the meta+ctrl cross-platform idiom.
+    // That way the per-platform chord_for() check below catches both
+    // pattern variants and the default is suppressed for both physical
+    // chords. Non-cross-platform extracted shortcuts (meta-only or
+    // ctrl-only) keep their original single-modifier sig.
     auto extracted_claims = std::set<std::string>{};
     for (const auto& s : existing_extracted) {
-        std::string sig = s.key;
-        for (const auto& m : s.modifiers) sig += "|" + m;
-        extracted_claims.insert(sig);
+        std::vector<std::string> mods_sorted = s.modifiers;
+        std::sort(mods_sorted.begin(), mods_sorted.end());
+        const bool has_meta = std::find(mods_sorted.begin(), mods_sorted.end(),
+                                        "meta") != mods_sorted.end();
+        const bool has_ctrl = std::find(mods_sorted.begin(), mods_sorted.end(),
+                                        "ctrl") != mods_sorted.end();
+        auto sig_for = [&](const std::vector<std::string>& mods) {
+            std::string sig = s.key;
+            for (const auto& m : mods) sig += "|" + m;
+            return sig;
+        };
+        if (has_meta && has_ctrl) {
+            // Cross-platform idiom — claim BOTH single-modifier chords so
+            // the default suppression catches both physical variants.
+            std::vector<std::string> meta_only, ctrl_only;
+            for (const auto& m : mods_sorted) {
+                if (m == "ctrl") continue;
+                meta_only.push_back(m);
+            }
+            for (const auto& m : mods_sorted) {
+                if (m == "meta") continue;
+                ctrl_only.push_back(m);
+            }
+            extracted_claims.insert(sig_for(meta_only));
+            extracted_claims.insert(sig_for(ctrl_only));
+        }
+        // Always also record the raw extracted sig so a non-cross-platform
+        // extracted shortcut suppresses only its own platform's default.
+        extracted_claims.insert(sig_for(mods_sorted));
     }
     auto chord_for = [](DefaultShortcutPattern p) -> std::string {
         // Used only for the extracted-shortcut collision check, so always
         // use the macOS chord (extracted shortcuts in the source already
-        // collapse cross-platform via the meta||ctrl idiom).
+        // collapse cross-platform via the meta||ctrl idiom — handled by
+        // the meta+ctrl branch in the claim builder above).
         switch (p) {
             case DefaultShortcutPattern::settings:   return ",|meta";
             case DefaultShortcutPattern::help:       return "?|meta";

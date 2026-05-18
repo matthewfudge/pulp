@@ -677,6 +677,40 @@ TEST_CASE("default shortcuts: extracted shortcut suppresses same-chord default",
     REQUIRE(scan.accepted.empty());
 }
 
+TEST_CASE("default shortcuts: cross-platform extracted (meta+ctrl) suppresses default on both platforms",
+          "[design-import][shortcuts][defaults][codex-p1-2161]") {
+    // Codex P1 on PR #2161: when source contains the cross-platform idiom
+    // `e.metaKey || e.ctrlKey`, collect_modifiers emits a single extracted
+    // shortcut with BOTH "meta" and "ctrl" modifiers. Before the fix, the
+    // suppression chord only checked the macOS sig (",|meta") so the
+    // default still fired on top of the already-cross-platform extracted
+    // shortcut — and generate_pulp_js's meta+ctrl branch then emitted
+    // TWO bindings, yielding duplicate handlers for the same physical
+    // chord. Verify that the cross-platform sig now suppresses the
+    // default entirely.
+    pulp::view::DetectedShortcut cross_platform;
+    cross_platform.key = ",";
+    cross_platform.modifiers = {"meta", "ctrl"};
+
+    auto scan = detect_default_shortcuts(R"JS(
+        function SettingsModal() {
+            return <div role="dialog" aria-label="Settings"><h1>Settings</h1></div>;
+        }
+    )JS", {cross_platform});
+    REQUIRE(scan.accepted.empty());
+
+    // Order-independent: same result if modifiers are reversed.
+    pulp::view::DetectedShortcut cross_platform_reversed;
+    cross_platform_reversed.key = ",";
+    cross_platform_reversed.modifiers = {"ctrl", "meta"};
+    auto scan_rev = detect_default_shortcuts(R"JS(
+        function SettingsModal() {
+            return <div role="dialog" aria-label="Settings"><h1>Settings</h1></div>;
+        }
+    )JS", {cross_platform_reversed});
+    REQUIRE(scan_rev.accepted.empty());
+}
+
 TEST_CASE("default shortcuts: apply_default_shortcuts maps per-platform chords",
           "[design-import][shortcuts][defaults]") {
     pulp::view::DefaultShortcutCandidate settings;
