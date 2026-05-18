@@ -8113,6 +8113,42 @@ log until the overall workflow completes; keep monitoring and inspect before
 patching or rerunning. #2208 has no failures and remains queued/running on
 GitHub-hosted lanes. No Namespace dispatch.
 
+2026-05-18 05:47 PDT: repaired and continued GitHub-only coverage work after
+new PR queue failures. PR #2202 had merged, so its worktree
+`/private/tmp/pulp-phase3-codecov-batch-728`, local branch
+`feature/phase3-codecov-batch-728`, and remote branch were removed. PR #2208
+was rebased onto current `origin/main`, resolving conflicts in
+`test/test_raw_midi_parser.cpp`, `core/view/src/widget_bridge.cpp`,
+`test/test_font_security.cpp`, `test/test_widgets.cpp`, and
+`test/test_layout_w3c.cpp`; the branch was force-pushed at `00bee6c15` after
+adding the required `Compat-Update: skip prefix=html` trailer to the bridge
+repair commit. Focused local validation passed `pulp-test-raw-midi-parser`
+`[midi][raw_midi_parser]`, `pulp-test-font-security` `[font][security]`,
+`pulp-test-widgets` `[view][widget]`, full `pulp-test-widget-bridge`,
+`pulp-test-layout-w3c` `[layout][w3c]`, and `git diff --check`. PR #2210's
+Linux failure had the same root cause, so the bridge/metric/font repair was
+ported there, the branch was rebased onto current `origin/main`, amended with
+the same html compat trailer, and force-pushed at `660098293`. Focused local
+validation passed `pulp-test-font-security` `[font][security]`,
+`pulp-test-font-variable-axes`, `pulp-test-widgets` `[view][widget]`, full
+`pulp-test-widget-bridge`, `pulp-test-layout-w3c` `[layout][w3c]`, and
+`git diff --check`. The held batch `feature/phase3-codecov-batch-731` was
+expanded to 16 local commits ahead of `origin/main` and remains intentionally
+unpublished until it reaches the larger 24-36 commit target. New local-only
+commits since the prior ledger entry: `eca778ec5` (`test(canvas): cover stride
+and rectangle edge cases`), including a real padded-row-stride preservation fix
+in `ImageConvolutionKernel`; `abc37f231` (`test(signal): cover fast math
+fractional edges`); `dfc9742ef` (`test(view): cover property list empty and
+variant paths`); and `bb03efb8b` (`test(format): cover descriptor bus and
+capability defaults`). Focused local validation passed
+`pulp-test-image-convolution` `[canvas][convolution]`,
+`pulp-test-rectangle-list` `[canvas][rect]`, `pulp-test-fast-math`
+`[signal][fast_math]`, `pulp-test-property-list` `[view][property_list]`,
+`pulp-test-vendor-url`, and `git diff --check`. REST-only PR monitoring showed
+#2173, #2208, and #2210 with no failing checks after the repair pushes; all
+three remain blocked only on queued/running GitHub-hosted lanes. No Namespace
+dispatch.
+
 2026-05-18 04:59 PDT: continued GitHub-only PR monitoring and repair after the
 user flagged #2173 as unattended. #2173's previous Linux/Windows failure was a
 real portability edge in SVG gradient parsing, not a runner issue: libc/MSVC
