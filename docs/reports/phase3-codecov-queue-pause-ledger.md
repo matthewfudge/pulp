@@ -8024,3 +8024,29 @@ commits ahead and still intentionally not opened. New local-only commits:
 gradient*"`, `pulp-test-clap-webview`, and `git diff --check`. #2202 and
 #2208 remain open with no current failures and queued/running GitHub-hosted
 lanes. No Namespace dispatch.
+
+2026-05-18 04:03 PDT: investigated #2208 after Linux x64 reported 27 failing
+tests. The run was not an external runner issue: it exposed stale test
+contracts plus real WidgetBridge source gaps. Fixed the root causes in #2208 as
+`dba9aa64b` (`fix(view): restore bridge dispatch contracts`): WidgetBridge now
+registers/unregisters live bridge instances for the static key/document-event
+fan-out paths, runtime import dispatch recognizes React Native and Pencil
+source labels (including auto-detect for RN and `open-pencil` rejection
+diagnostics), font-security tests respect the non-Skia relaxed stub contract,
+font-axis tests skip resolver assertions on non-Skia builds, and stale
+font-family/Label-height assertions now match the current full-family-list and
+real-metrics contracts. Local validation passed:
+`pulp-test-widgets`, `pulp-test-widget-bridge "CSSStyleDeclaration forwards
+font-family to bridge"`, `pulp-test-widget-bridge "Wave5 css/fontFamily
+preserves the CSS family list"`, `pulp-test-widget-bridge-runtime-import`
+focused RN/Pencil dispatch cases, `pulp-test-widget-bridge-dispatch-global-key`,
+`pulp-test-widget-bridge-dispatch-document-event`, `pulp-test-font-security`,
+`pulp-test-font-variable-axes`, and `git diff --check`. Pushed #2208 with
+GitHub-hosted checks restarted; no Namespace dispatch.
+
+Held batch `feature/phase3-codecov-batch-730` also gained `c087863a6`
+(`test(format): cover wam bridge edge states`), bringing it to 10 local commits
+ahead and still intentionally held for a larger PR. Focused validation passed
+`pulp-test-wam-wclap` (62 assertions / 14 cases) and `git diff --check`.
+#2173 and #2202 still have no failing checks at this ledger update and remain
+waiting on GitHub-hosted queued/running lanes.
