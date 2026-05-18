@@ -221,3 +221,12 @@ TEST_CASE("Polynomial derivative handles cubic coefficients",
     REQUIRE_THAT(result[1], WithinAbs(-4.0f, 0.001f));
     REQUIRE_THAT(result[2], WithinAbs(15.0f, 0.001f));
 }
+
+TEST_CASE("Mat3 determinant handles singular and scaled matrices",
+          "[signal][matrix][codecov]") {
+    Mat3 singular{{{1.0f, 2.0f, 3.0f}, {2.0f, 4.0f, 6.0f}, {0.0f, 1.0f, 0.0f}}};
+    REQUIRE_THAT(singular.determinant(), WithinAbs(0.0f, 0.001f));
+
+    Mat3 scaled{{{2.0f, 0.0f, 0.0f}, {0.0f, -3.0f, 0.0f}, {0.0f, 0.0f, 4.0f}}};
+    REQUIRE_THAT(scaled.determinant(), WithinAbs(-24.0f, 0.001f));
+}
