@@ -8832,3 +8832,15 @@ passed: `cmake --build build --target pulp-test-cli-upgrade-install`,
 `git diff --check`. Branch is clean and 14 commits ahead of `origin/main`;
 still held locally to build toward a larger GitHub-hosted PR. No Namespace
 dispatch.
+
+2026-05-18 15:14 PDT: continued the held local-only GitHub batch
+`feature/phase3-codecov-batch-747` with commit `6f30fcb8a`
+(`test(cli): cover sdk cache filename edge inputs`). This tranche adds
+deterministic SDK cache filename helper coverage for empty version slots, empty
+platform slots, and literal preservation of whitespace-bearing version/platform
+inputs in both versioned and legacy cache-key shapes. Focused local validation
+passed: `cmake --build build --target pulp-test-cli-sdk-tarball-filename`,
+`build/test/pulp-test-cli-sdk-tarball-filename` (20 assertions in 10 test
+cases), and `git diff --check`. Branch is clean and 15 commits ahead of
+`origin/main`; still held locally to build toward a larger GitHub-hosted PR. No
+Namespace dispatch.
