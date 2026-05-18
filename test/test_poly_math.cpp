@@ -197,3 +197,9 @@ TEST_CASE("Polynomial eval_complex", "[signal][poly]") {
     REQUIRE_THAT(result.real(), WithinAbs(1.0, 0.001));
     REQUIRE_THAT(result.imag(), WithinAbs(1.0, 0.001));
 }
+
+TEST_CASE("Polynomial eval handles higher order negative inputs",
+          "[signal][poly][codecov]") {
+    auto result = Polynomial::eval({-1.0f, 2.0f, -3.0f, 4.0f}, -2.0f);
+    REQUIRE_THAT(result, WithinAbs(-49.0f, 0.001f));
+}
