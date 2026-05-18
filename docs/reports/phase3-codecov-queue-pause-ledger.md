@@ -7451,3 +7451,16 @@ built `pulp-test-font-options`, ran
 `./build/test/pulp-test-font-options "[canvas][font]"` (4 cases / 38
 assertions), and `git diff --check` passed. This branch is intentionally held
 locally until it accumulates a larger 24-36-tranche PR batch.
+
+2026-05-17 23:52 PDT: added a second local-only font/canvas tranche to
+`feature/phase3-codecov-batch-728`: commit `6ae3f0838`
+(`test(canvas): cover text run planner skeleton`). It extends
+`pulp-test-font-options` over `TextRunPlanner` skeleton behavior: mixed
+UTF-8 scalar offset mapping, hard newline and soft tab line-break
+opportunities, one-run logical span, RTL base-direction bidi level, automatic
+scope registry-generation capture, and explicit caller-supplied
+registry-generation preservation. Validation passed locally: rebuilt
+`pulp-test-font-options`, ran
+`./build/test/pulp-test-font-options "[canvas][font]"` (6 cases / 58
+assertions), and `git diff --check` passed. Still held locally for the next
+large batch PR.
