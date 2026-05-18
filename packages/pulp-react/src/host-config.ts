@@ -173,7 +173,22 @@ function createWidget(type: Type, id: string, parentId: string, props: Props): v
                 case 'img':      call('createImage', id, parentId); return;
                 case 'canvas':   call('createCanvas', id, parentId); return;
                 case 'svg':      call('createCol', id, parentId); return;  // SVG = container; children paint
-                case 'path':     call('createSvgPath', id, parentId); return;
+                case 'path': {
+                    call('createSvgPath', id, parentId);
+                    // pulp jsx-instrument-import 2026-05-17 — lowercase
+                    // <path>/<circle>/<line> children of <svg> have no
+                    // intrinsic flex sizing (JSX puts width/height on the
+                    // parent <svg>, children inherit via viewBox in a
+                    // real browser). SvgPathWidget::paint early-returns
+                    // when local_bounds is 0×0. Pin children to fill
+                    // their parent svg via position:absolute + inset:0.
+                    call('setPosition', id, 'absolute');
+                    call('setFlex', id, 'top', 0);
+                    call('setFlex', id, 'left', 0);
+                    call('setFlex', id, 'right', 0);
+                    call('setFlex', id, 'bottom', 0);
+                    return;
+                }
                 case 'circle': {
                     // SVG <circle cx="..." cy="..." r="..."> → SvgPath
                     // with synthesized `d` from a 2-arc construction.
@@ -185,14 +200,49 @@ function createWidget(type: Type, id: string, parentId: string, props: Props): v
                     const cx = typeof props.cx === 'number' ? props.cx as number : Number(props.cx) || 0;
                     const cy = typeof props.cy === 'number' ? props.cy as number : Number(props.cy) || 0;
                     const r  = typeof props.r  === 'number' ? props.r  as number : Number(props.r)  || 0;
+                    // Diagnostic counter — confirms circle reaches host-config
+                    // before chasing downstream prop-applier issues.
+                    const gg = g as Record<string, unknown>;
+                    if (typeof gg.__pulpCircleStats__ !== 'object' || gg.__pulpCircleStats__ === null) {
+                        gg.__pulpCircleStats__ = { total: 0, withR: 0, samples: [] };
+                    }
+                    const stats = gg.__pulpCircleStats__ as Record<string, unknown>;
+                    stats.total = (stats.total as number) + 1;
                     if (r > 0) {
+                        stats.withR = (stats.withR as number) + 1;
                         const d = `M ${cx - r} ${cy} a ${r} ${r} 0 1 0 ${2 * r} 0 a ${r} ${r} 0 1 0 ${-2 * r} 0 Z`;
                         call('setSvgPath', id, d);
+                        const samples = stats.samples as unknown[];
+                        if (samples.length < 5) {
+                            samples.push({ id, cx, cy, r, d, fill: props.fill, stroke: props.stroke });
+                        }
                     }
+                    // Same fill-parent sizing as <path> (see comment above).
+                    call('setPosition', id, 'absolute');
+                    call('setFlex', id, 'top', 0);
+                    call('setFlex', id, 'left', 0);
+                    call('setFlex', id, 'right', 0);
+                    call('setFlex', id, 'bottom', 0);
                     return;
                 }
-                case 'rect':     call('createSvgRect', id, parentId); return;
-                case 'line':     call('createSvgLine', id, parentId); return;
+                case 'rect': {
+                    call('createSvgRect', id, parentId);
+                    call('setPosition', id, 'absolute');
+                    call('setFlex', id, 'top', 0);
+                    call('setFlex', id, 'left', 0);
+                    call('setFlex', id, 'right', 0);
+                    call('setFlex', id, 'bottom', 0);
+                    return;
+                }
+                case 'line': {
+                    call('createSvgLine', id, parentId);
+                    call('setPosition', id, 'absolute');
+                    call('setFlex', id, 'top', 0);
+                    call('setFlex', id, 'left', 0);
+                    call('setFlex', id, 'right', 0);
+                    call('setFlex', id, 'bottom', 0);
+                    return;
+                }
                 case 'g':        call('createCol', id, parentId); return; // <svg><g> group
                 default: {
                     // Last-resort fallback: treat any unknown intrinsic as a

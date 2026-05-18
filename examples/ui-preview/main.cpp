@@ -659,6 +659,14 @@ int main(int argc, char* argv[]) {
                 std::cout.flush();
             } catch (...) {}
 
+            // Circle diagnostic — confirms host-config's lowercase circle
+            // case fired + d-synth ran.
+            try {
+                auto circleStats = engine.evaluate("JSON.stringify(globalThis.__pulpCircleStats__ || {total:0, withR:0, samples:[]})").getWithDefault(std::string(""));
+                std::cout << "[circle-stats] " << circleStats << "\n";
+                std::cout.flush();
+            } catch (...) {}
+
             // Dump the addEventListener / removeEventListener log + actual
             // window._listeners state. The asymmetry between these (15
             // mousemove adds vs 0 in _listeners) is the smoking gun for
