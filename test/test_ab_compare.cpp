@@ -90,3 +90,25 @@ TEST_CASE("ABCompare: clear + snapshot access", "[ui][ab-compare]") {
     REQUIRE_FALSE(ab.has(ABCompare::Slot::A));
     REQUIRE(ab.snapshot(ABCompare::Slot::A).size() == 0);
 }
+
+TEST_CASE("ABCompare: null store and same-slot copy are no-ops",
+          "[ui][ab-compare][coverage][phase3]") {
+    ABCompare null_ab(nullptr);
+    null_ab.save_to(ABCompare::Slot::A);
+    REQUIRE_FALSE(null_ab.has(ABCompare::Slot::A));
+    REQUIRE_FALSE(null_ab.load_from(ABCompare::Slot::A));
+    REQUIRE_FALSE(null_ab.toggle());
+    REQUIRE(null_ab.current() == ABCompare::Slot::A);
+
+    state::StateStore store;
+    populate(store);
+    ABCompare ab(&store);
+    store.set_value(1, 4.0f);
+    ab.save_to(ABCompare::Slot::A);
+    auto before_size = ab.snapshot(ABCompare::Slot::A).size();
+
+    ab.copy(ABCompare::Slot::A, ABCompare::Slot::A);
+    REQUIRE(ab.has(ABCompare::Slot::A));
+    REQUIRE_FALSE(ab.has(ABCompare::Slot::B));
+    REQUIRE(ab.snapshot(ABCompare::Slot::A).size() == before_size);
+}
