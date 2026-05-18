@@ -1454,10 +1454,16 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     auto android = exec(bin.string(), {"doctor", "android", "--versions"}, 10000);
     auto ios     = exec(bin.string(), {"doctor", "ios", "--versions"},     10000);
     auto bogus   = exec(bin.string(), {"doctor", "potato", "--versions"},  10000);
+    auto missing_only = exec(bin.string(), {"doctor", "--only"}, 10000);
+    auto flag_only = exec(bin.string(), {"doctor", "--only", "--versions"}, 10000);
+    auto extra_positional = exec(bin.string(), {"doctor", "android", "extra"}, 10000);
 
     REQUIRE_FALSE(android.timed_out);
     REQUIRE_FALSE(ios.timed_out);
     REQUIRE_FALSE(bogus.timed_out);
+    REQUIRE_FALSE(missing_only.timed_out);
+    REQUIRE_FALSE(flag_only.timed_out);
+    REQUIRE_FALSE(extra_positional.timed_out);
 
     REQUIRE(android.exit_code == 0);
     REQUIRE(ios.exit_code == 0);
@@ -1468,6 +1474,15 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE(bogus.exit_code == 2);
     REQUIRE(bogus.stderr_output.find("unknown subcommand") != std::string::npos);
     REQUIRE(bogus.stderr_output.find("Usage:") != std::string::npos);
+
+    REQUIRE(missing_only.exit_code == 2);
+    REQUIRE(missing_only.stderr_output.find("--only requires a value") !=
+            std::string::npos);
+    REQUIRE(flag_only.exit_code == 2);
+    REQUIRE(flag_only.stderr_output.find("--only requires a value") != std::string::npos);
+    REQUIRE(extra_positional.exit_code == 2);
+    REQUIRE(extra_positional.stderr_output.find("unexpected argument") !=
+            std::string::npos);
 }
 
 // Issue #743: `pulp doctor --validators` is a recognized flag and
