@@ -42,6 +42,27 @@ TEST_CASE("miss then hit", "[view][image-cache]") {
     REQUIRE(calls.load() == 1);
 }
 
+TEST_CASE("decoder replacement does not invalidate cached image entries",
+          "[view][image-cache][coverage][phase3-large]") {
+    ImageCache c;
+    std::atomic<int> first_calls{0};
+    std::atomic<int> second_calls{0};
+    c.set_decoder(make_fake_decoder(first_calls));
+
+    auto* first = c.get("stable");
+    REQUIRE(first != nullptr);
+    auto* first_handle = first->native_handle;
+
+    c.set_decoder(make_fake_decoder(second_calls));
+    auto* cached = c.get("stable");
+    REQUIRE(cached == first);
+    REQUIRE(cached->native_handle == first_handle);
+    REQUIRE(first_calls.load() == 1);
+    REQUIRE(second_calls.load() == 0);
+    REQUIRE(c.stats().hits == 1);
+    REQUIRE(c.stats().misses == 1);
+}
+
 TEST_CASE("no-decoder returns nullptr", "[view][image-cache]") {
     ImageCache c;
     REQUIRE(c.get("a") == nullptr);
@@ -136,14 +157,18 @@ TEST_CASE("clear preserves cache counters while removing entries",
     const auto* first = c.get("a");
     REQUIRE(first != nullptr);
     REQUIRE(c.get("a") == first);
+    auto before = c.stats();
+    REQUIRE(before.misses == 1);
+    REQUIRE(before.hits == 1);
 
     c.clear();
 
     auto s = c.stats();
     REQUIRE(s.entry_count == 0);
     REQUIRE(s.total_bytes == 0);
-    REQUIRE(s.misses == 1);
-    REQUIRE(s.hits == 1);
+    REQUIRE(s.misses == before.misses);
+    REQUIRE(s.hits == before.hits);
+    REQUIRE(s.evictions == before.evictions);
     REQUIRE(calls.load() == 1);
 
     REQUIRE(c.get("a") != nullptr);
