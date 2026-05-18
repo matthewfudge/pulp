@@ -150,6 +150,43 @@ TEST_CASE("FileBrowser paint clips rows and keeps directories through filters",
     REQUIRE_FALSE(contains_text(texts, "gamma.wav"));
 }
 
+TEST_CASE("FileBrowser non-wildcard filters keep directories and reject files",
+          "[view][file-browser][coverage][phase3]") {
+    TempDir tmp("non-wildcard-filter");
+    std::filesystem::create_directory(tmp.path / "Presets");
+    write_file(tmp.path / "alpha.wav");
+
+    FileBrowser browser;
+    browser.set_bounds({0, 0, 320, 120});
+    browser.set_root(tmp.path);
+    browser.set_filters({"wav"});
+
+    RecordingCanvas canvas;
+    browser.paint(canvas);
+    auto texts = fill_texts(canvas);
+
+    REQUIRE(contains_text(texts, "Presets"));
+    REQUIRE_FALSE(contains_text(texts, "alpha.wav"));
+}
+
+TEST_CASE("FileBrowser navigating to a regular file is a safe empty listing",
+          "[view][file-browser][coverage][phase3]") {
+    TempDir tmp("file-as-root");
+    const auto file = tmp.path / "single.wav";
+    write_file(file);
+
+    FileBrowser browser;
+    browser.set_bounds({0, 0, 320, 120});
+    browser.set_root(tmp.path);
+    browser.navigate(file);
+
+    REQUIRE(browser.current_directory() == file);
+
+    RecordingCanvas canvas;
+    browser.paint(canvas);
+    REQUIRE(canvas.count(DrawCommand::Type::fill_text) == 0);
+}
+
 TEST_CASE("FileTree skips hidden nodes and paints one expanded directory level",
           "[view][file-tree][coverage][issue-493][issue-641]") {
     TempDir tmp("tree");
