@@ -7842,3 +7842,22 @@ the reset cursor; validation passed with `pulp-test-stream "[stream][memory]"`
 version-bump report, and `git diff --check`. Batch #728 is now 24 local
 commits ahead; next action is broad local validation across touched targets,
 then push/open the batched GitHub-hosted PR if clean.
+
+2026-05-18 02:34 PDT: pushed batch #728 as GitHub-hosted PR #2202
+(`feature/phase3-codecov-batch-728`) at head `e22b12e66`. Before push, the
+batch was rebased cleanly onto current `origin/main` (`b798b9ebc`) and broad
+local validation passed: built `pulp-test-font-options`,
+`pulp-test-cluster-step`, `pulp-test-canvas-emoji`,
+`pulp-test-font-flight-recorder`, `pulp-test-path-to-sdf`,
+`pulp-test-sdf-atlas-cache`, `pulp-test-midi-ci`,
+`pulp-test-raw-midi-parser`, `pulp-test-stream`, `pulp-test-license`,
+`pulp-test-runtime-utils`, and `pulp-test-widget-bridge`; ran focused/full
+touched binaries plus `test_verify_cobertura_xml.py`,
+`test_run_python_coverage_extra.py`, source-contract checks, enforced
+compat-sync, skill-sync, version-bump report, and `git diff --check`. The
+push initially surfaced current-main source-contract warnings for the existing
+`jsx` parser label and `jsx-roundtrip.sh`; fixed root cause with commit
+`e22b12e66` (`test(import): register jsx source contract`) and a parsed
+`Compat-Update` trailer for the HTML helper coverage path. Push preflight then
+passed cleanly. #2202 is open and queued/running on GitHub-hosted CI; no
+Namespace dispatch.
