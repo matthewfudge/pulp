@@ -1603,6 +1603,13 @@ pulp_add_test_suite(pulp-test-widget-bridge LIBRARIES pulp::view)
 # the 14k-line god-test file shrinks toward per-surface modules.
 pulp_add_test_suite(pulp-test-widget-bridge-runtime-import LIBRARIES pulp::view)
 
+# Widget bridge — Canvas2D surface (P5-1 continuation).
+# Covers canvasSetTransform / canvasClip / canvasGlobalCompositeOperation
+# (issue-896), canvasMeasureText / canvasSetLineDash / canvasDrawImage /
+# canvasGetImageData / canvasPutImageData (issue-916), and pulp #1899 /
+# #1901 4-arg canvasFillText prior-state preservation.
+pulp_add_test_suite(pulp-test-widget-bridge-canvas2d LIBRARIES pulp::view)
+
 # Autonomous Spectr regression suite (pulp-internal task #63, follow-up to
 # pulp #1792). Composes the six [contract] invariants from
 # test_widget_bridge.cpp into a Spectr-shaped mini-scenario so a future
