@@ -42,6 +42,34 @@ const char* system_library_symbol() {
 
 }  // namespace
 
+// ── ScopeGuard ─────────────────────────────────────────────────────────
+
+TEST_CASE("ScopeGuard runs once on scope exit and can be dismissed",
+          "[runtime][scope_guard][coverage][phase3]") {
+    int calls = 0;
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+    }
+    REQUIRE(calls == 1);
+
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+        guard.dismiss();
+    }
+    REQUIRE(calls == 1);
+}
+
+TEST_CASE("ScopeGuard move transfers the active cleanup",
+          "[runtime][scope_guard][coverage][phase3]") {
+    int calls = 0;
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+        auto moved = std::move(guard);
+        (void)moved;
+    }
+    REQUIRE(calls == 1);
+}
+
 // ── TemporaryFile ───────────────────────────────────────────────────────
 
 TEST_CASE("TemporaryFile creates and deletes", "[runtime][temp_file]") {
