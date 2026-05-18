@@ -107,6 +107,28 @@ TEST_CASE("BufferView clears external storage and supports const access",
     }
 }
 
+TEST_CASE("BufferView supports int16 external storage",
+          "[audio][buffer][coverage]") {
+    int16_t ch0[3] = {1, -2, 3};
+    int16_t ch1[3] = {4, -5, 6};
+    int16_t* ptrs[2] = {ch0, ch1};
+
+    BufferView<int16_t> view(ptrs, 2, 3);
+    REQUIRE_FALSE(view.empty());
+    REQUIRE(view.channel(0)[1] == -2);
+    REQUIRE(view.channel_ptr(1) == ch1);
+
+    view.channel(1)[2] = -12;
+    REQUIRE(ch1[2] == -12);
+
+    view.clear();
+    for (std::size_t ch = 0; ch < view.num_channels(); ++ch) {
+        for (auto sample : view.channel(ch)) {
+            REQUIRE(sample == 0);
+        }
+    }
+}
+
 TEST_CASE("Buffer resize and views expose contiguous channel storage",
           "[audio][buffer][issue-640]") {
     Buffer<float> empty;
