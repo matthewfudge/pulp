@@ -762,7 +762,6 @@ TEST_CASE("StateStore deserialize keeps complete prefix on short declared count"
     REQUIRE_THAT(target.get_value(1), WithinAbs(0.75, 0.001));
 }
 
-<<<<<<< HEAD
 // ─── ListenerToken / thread routing (Slice 1) ───────────────────────────────
 
 TEST_CASE("ListenerToken removes its listener on destruction",
