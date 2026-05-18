@@ -42,6 +42,27 @@ TEST_CASE("miss then hit", "[view][image-cache]") {
     REQUIRE(calls.load() == 1);
 }
 
+TEST_CASE("decoder replacement does not invalidate cached image entries",
+          "[view][image-cache][coverage][phase3-large]") {
+    ImageCache c;
+    std::atomic<int> first_calls{0};
+    std::atomic<int> second_calls{0};
+    c.set_decoder(make_fake_decoder(first_calls));
+
+    auto* first = c.get("stable");
+    REQUIRE(first != nullptr);
+    auto* first_handle = first->native_handle;
+
+    c.set_decoder(make_fake_decoder(second_calls));
+    auto* cached = c.get("stable");
+    REQUIRE(cached == first);
+    REQUIRE(cached->native_handle == first_handle);
+    REQUIRE(first_calls.load() == 1);
+    REQUIRE(second_calls.load() == 0);
+    REQUIRE(c.stats().hits == 1);
+    REQUIRE(c.stats().misses == 1);
+}
+
 TEST_CASE("no-decoder returns nullptr", "[view][image-cache]") {
     ImageCache c;
     REQUIRE(c.get("a") == nullptr);
@@ -125,6 +146,27 @@ TEST_CASE("clear invokes releaser for every entry",
     REQUIRE(released.load() == 3);
     REQUIRE(c.stats().entry_count == 0);
     REQUIRE(c.stats().total_bytes == 0);
+}
+
+TEST_CASE("clear keeps accumulated cache statistics while dropping entries",
+          "[view][image-cache][coverage][phase3-large]") {
+    ImageCache c;
+    std::atomic<int> calls{0};
+    c.set_decoder(make_fake_decoder(calls));
+
+    REQUIRE(c.get("a") != nullptr);
+    REQUIRE(c.get("a") != nullptr);
+    auto before = c.stats();
+    REQUIRE(before.hits == 1);
+    REQUIRE(before.misses == 1);
+
+    c.clear();
+    auto after = c.stats();
+    REQUIRE(after.entry_count == 0);
+    REQUIRE(after.total_bytes == 0);
+    REQUIRE(after.hits == before.hits);
+    REQUIRE(after.misses == before.misses);
+    REQUIRE(after.evictions == before.evictions);
 }
 
 TEST_CASE("zero budget disables trimming", "[view][image-cache]") {
