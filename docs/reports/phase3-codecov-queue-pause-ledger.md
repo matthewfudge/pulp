@@ -7379,3 +7379,17 @@ built `pulp-test-file-browser`, and ran
 `./build/test/pulp-test-file-browser "[view][file-browser]"`, which passed 5
 test cases / 30 assertions. This tranche is held locally and should be
 aggregated into the larger PR rather than submitted individually.
+
+2026-05-17 23:29 PDT: rebased the consolidated next-batch branch
+`feature/phase3-codecov-next-batch-727` onto current `origin/main`
+(`51af86203`) after recent main movement. The branch remained clean and now
+contains 24 local coverage/fix commits ahead of `origin/main`, with rebased
+tip `c5c51bd78` (`test(view): cover file browser filter edge paths`) and base
+commit sequence through `0bb251da4` (`fix(parsers): reject partial numeric
+fields`). Consolidated local validation passed after the rebase: rebuilt
+`pulp-test-audio-file`, `pulp-test-gui-components`, `pulp-test-property-list`,
+`pulp-test-json-rpc`, `pulp-test-poly-math`, `pulp-test-atk-mapping`,
+`pulp-test-uia-mapping`, `pulp-test-input-events`, `pulp-test-diagnostic`,
+and `pulp-test-file-browser`; ran focused filters across all ten binaries;
+and `git diff --check` passed. Next action: push/open this as a GitHub-only
+batched PR and monitor to green; do not dispatch Namespace CI.
