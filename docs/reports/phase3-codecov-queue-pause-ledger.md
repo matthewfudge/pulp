@@ -8914,3 +8914,16 @@ keys before returning quoted values. Focused local validation passed:
 and `git diff --check`. Branch is clean and 19 commits ahead of `origin/main`;
 still held locally to build toward a larger GitHub-hosted PR. No Namespace
 dispatch.
+
+2026-05-18 15:33 PDT: continued the held local-only GitHub batch
+`feature/phase3-codecov-batch-747` with commit `df7a3c0de`
+(`test(cli): cover package command license edges`). This tranche adds
+deterministic package-command coverage for target-parser invalid architecture
+diagnostics, invalid target removal, and successful review-required MPL package
+adds that update the lockfile plus local dependency/notice metadata without
+remote fetch or CMake side effects. Focused local validation passed:
+`cmake --build build --target pulp-test-cli-package-commands`,
+`build/test/pulp-test-cli-package-commands` (223 assertions in 15 test cases),
+and `git diff --check`. Branch is clean and 20 commits ahead of `origin/main`;
+still held locally to build toward a larger GitHub-hosted PR. No Namespace
+dispatch.
