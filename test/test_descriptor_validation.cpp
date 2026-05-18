@@ -284,6 +284,19 @@ TEST_CASE("DescriptorValidation: MidiEffect without audio output is valid",
     REQUIRE(descriptor_is_valid(issues));
 }
 
+TEST_CASE("DescriptorValidation: MidiEffect ignores zero-channel audio output",
+          "[format][descriptor-validation][coverage][phase3]") {
+    auto d = well_formed_effect();
+    d.category = PluginCategory::MidiEffect;
+    d.accepts_midi = true;
+    d.produces_midi = true;
+    d.output_buses = {{"No Audio Out", 0, false}};
+
+    auto issues = validate_descriptor(d);
+    REQUIRE_FALSE(has_error_on(issues, "output_buses"));
+    REQUIRE(descriptor_is_valid(issues));
+}
+
 TEST_CASE("DescriptorValidation: reverse-DNS bundle_id passes",
           "[format][descriptor-validation]") {
     auto d = well_formed_effect();

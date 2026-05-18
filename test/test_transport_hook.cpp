@@ -35,6 +35,16 @@ public:
     }
 };
 
+class TempoAwareProcessor : public PlainProcessor {
+public:
+    double last_tempo = -1.0;
+    int calls = 0;
+    void on_host_tempo_changed(double tempo) override {
+        last_tempo = tempo;
+        ++calls;
+    }
+};
+
 } // namespace
 
 TEST_CASE("default on_host_transport_changed is a no-op",
@@ -122,4 +132,37 @@ TEST_CASE("exception thrown by transport hook propagates to the caller",
     };
     ThrowingProcessor p;
     REQUIRE_THROWS_AS(p.on_host_transport_changed(true, 0.0), std::runtime_error);
+}
+
+TEST_CASE("tempo hook override receives host tempo changes",
+          "[processor][transport][coverage][phase3]") {
+    TempoAwareProcessor p;
+
+    p.on_host_tempo_changed(120.0);
+    p.on_host_tempo_changed(87.5);
+    p.on_host_tempo_changed(0.0);
+
+    REQUIRE(p.calls == 3);
+    REQUIRE(p.last_tempo == 0.0);
+}
+
+TEST_CASE("default tempo hook is a no-op",
+          "[processor][transport][coverage][phase3]") {
+    PlainProcessor p;
+    p.on_host_tempo_changed(60.0);
+    p.on_host_tempo_changed(240.0);
+    SUCCEED("default tempo hook returned cleanly");
+}
+
+TEST_CASE("exception thrown by tempo hook propagates to the caller",
+          "[processor][transport][coverage][phase3]") {
+    class ThrowingTempoProcessor : public PlainProcessor {
+    public:
+        void on_host_tempo_changed(double) override {
+            throw std::runtime_error("tempo hook exploded");
+        }
+    };
+
+    ThrowingTempoProcessor p;
+    REQUIRE_THROWS_AS(p.on_host_tempo_changed(128.0), std::runtime_error);
 }

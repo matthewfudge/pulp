@@ -568,6 +568,21 @@ TEST_CASE("Expression evaluator handles constants, functions, and scientific not
     REQUIRE(*scientific == Catch::Approx(150.2));
 }
 
+TEST_CASE("Expression evaluator covers remaining built-in math functions",
+          "[runtime][expression][codecov]") {
+    auto builtins = evaluate("tan(0) + sqrt(9) + abs(-4) + log(e) + log10(100) + exp(0) + floor(2.9) + ceil(2.1) + round(2.5)");
+    REQUIRE(builtins.has_value());
+    REQUIRE(*builtins == Catch::Approx(19.0));
+
+    auto minmax = evaluate("min(3, max(4, 9))");
+    REQUIRE(minmax.has_value());
+    REQUIRE(*minmax == Catch::Approx(3.0));
+
+    auto powered = evaluate("pow(2, 5)");
+    REQUIRE(powered.has_value());
+    REQUIRE(*powered == Catch::Approx(32.0));
+}
+
 TEST_CASE("Expression evaluator resolves variables and rejects malformed inputs",
           "[runtime][expression][coverage][issue-641]") {
     auto variable = evaluate("gain * 2 + offset", {{"gain", 0.75}, {"offset", 0.25}});
@@ -581,6 +596,9 @@ TEST_CASE("Expression evaluator resolves variables and rejects malformed inputs"
     REQUIRE_FALSE(evaluate("1e-").has_value());
     REQUIRE_FALSE(evaluate("(1 + 2").has_value());
     REQUIRE_FALSE(evaluate("").has_value());
+    REQUIRE_FALSE(evaluate("pow(2)").has_value());
+    REQUIRE_FALSE(evaluate("max(1, 2, 3)").has_value());
+    REQUIRE_FALSE(evaluate("2 + @").has_value());
 }
 
 TEST_CASE("ExpressionEvaluator stores variables and clears them",

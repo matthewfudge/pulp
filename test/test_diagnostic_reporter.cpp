@@ -122,6 +122,21 @@ TEST_CASE("DiagnosticReporter captures parameter values", "[format][diagnostic]"
     REQUIRE(report.find("75") != std::string::npos);
 }
 
+TEST_CASE("DiagnosticReporter renders unitless parameters without a unit suffix",
+          "[format][diagnostic][coverage][phase3]") {
+    DiagnosticReporter diag;
+    auto desc = make_desc();
+    StateStore store;
+    store.add_parameter({.id = 7, .name = "Shape", .unit = "", .range = {0, 1, 0.25f}});
+    store.set_value(7, 0.5f);
+
+    diag.set_plugin_info(desc, store);
+
+    auto report = diag.generate_report();
+    REQUIRE(report.find("[7] Shape: 0.50 (norm=") != std::string::npos);
+    REQUIRE(report.find("Shape: 0.50  (norm=") == std::string::npos);
+}
+
 TEST_CASE("DiagnosticReporter instrument type", "[format][diagnostic]") {
     DiagnosticReporter diag;
     PluginDescriptor desc;
@@ -175,6 +190,38 @@ TEST_CASE("DiagnosticReporter JSON reflects instrument/effect type and parameter
     REQUIRE(json.find("\"outputChannels\": 2") != std::string::npos);
     REQUIRE(json.find("\"value\": -18.0000") != std::string::npos);
     REQUIRE(json.find("\"value\": 25.0000") != std::string::npos);
+}
+
+TEST_CASE("DiagnosticReporter replacing plugin info clears stale parameter snapshot",
+          "[format][diagnostic][coverage][phase3]") {
+    DiagnosticReporter diag;
+
+    auto first_desc = make_desc();
+    StateStore first_store;
+    setup_store(first_store);
+    first_store.set_value(1, -24.0f);
+    diag.set_plugin_info(first_desc, first_store);
+
+    PluginDescriptor second_desc;
+    second_desc.name = "Second";
+    second_desc.manufacturer = "OtherCo";
+    second_desc.version = "2.0.0";
+    second_desc.bundle_id = "com.other.second";
+    StateStore second_store;
+    second_store.add_parameter({.id = 99, .name = "Depth", .unit = "%", .range = {0, 100, 10}});
+    second_store.set_value(99, 60.0f);
+    diag.set_plugin_info(second_desc, second_store);
+
+    auto report = diag.generate_report();
+    auto json = diag.generate_json();
+
+    REQUIRE(report.find("Name: Second") != std::string::npos);
+    REQUIRE(report.find("OtherCo") != std::string::npos);
+    REQUIRE(report.find("Depth") != std::string::npos);
+    REQUIRE(report.find("Gain") == std::string::npos);
+    REQUIRE(report.find("Mix") == std::string::npos);
+    REQUIRE(json.find("\"id\": 99") != std::string::npos);
+    REQUIRE(json.find("\"Gain\"") == std::string::npos);
 }
 
 TEST_CASE("HostType names and feature heuristics cover fixed-size and no-sidechain hosts",

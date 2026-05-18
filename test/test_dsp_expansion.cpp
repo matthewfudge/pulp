@@ -229,6 +229,21 @@ TEST_CASE("LogRampedValue jumps for non-positive endpoints",
     REQUIRE_THAT(positive.next(), WithinAbs(0.0f, 1e-6f));
 }
 
+TEST_CASE("LogRampedValue ignores non-positive skips",
+          "[signal][log_ramp][coverage][phase3]") {
+    LogRampedValue v(100.0f);
+    v.set_ramp_time(0.01f, 1000.0f);
+    v.set_target(200.0f);
+
+    v.skip(0);
+    v.skip(-3);
+
+    REQUIRE(v.is_smoothing());
+    REQUIRE_THAT(v.current_value(), WithinAbs(100.0f, 1e-6f));
+    REQUIRE(v.next() > 100.0f);
+    REQUIRE(v.next() < 200.0f);
+}
+
 // ── WaveShaper ───────────────────────────────────────────────────────────
 
 TEST_CASE("WaveShaper covers all curve branches", "[signal][waveshaper][issue-645]") {

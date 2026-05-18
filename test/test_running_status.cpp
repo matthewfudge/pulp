@@ -81,6 +81,33 @@ TEST_CASE("running status handles one and two byte channel messages",
     REQUIRE(v[3].d1 == 0x70);
 }
 
+TEST_CASE("running status completes channel messages across feed boundaries",
+          "[midi][running-status][coverage][phase3]") {
+    RunningStatusParser p;
+    std::vector<Captured> shorts;
+    p.on_short_message([&](const MidiEvent& e) {
+        const auto& m = e.message;
+        shorts.push_back({m.data()[0],
+                          m.length() > 1 ? m.data()[1] : uint8_t(0),
+                          m.length() > 2 ? m.data()[2] : uint8_t(0)});
+    });
+
+    const uint8_t status_and_first_data[] = {0x90, 0x3C};
+    p.feed(status_and_first_data, sizeof(status_and_first_data));
+    REQUIRE(shorts.empty());
+
+    const uint8_t second_data_and_running[] = {0x7F, 0x3D, 0x40};
+    p.feed(second_data_and_running, sizeof(second_data_and_running));
+
+    REQUIRE(shorts.size() == 2);
+    REQUIRE(shorts[0].status == 0x90);
+    REQUIRE(shorts[0].d1 == 0x3C);
+    REQUIRE(shorts[0].d2 == 0x7F);
+    REQUIRE(shorts[1].status == 0x90);
+    REQUIRE(shorts[1].d1 == 0x3D);
+    REQUIRE(shorts[1].d2 == 0x40);
+}
+
 TEST_CASE("system common messages use their status-specific data lengths",
           "[midi][running-status][issue-645]") {
     auto v = parse({
@@ -97,6 +124,30 @@ TEST_CASE("system common messages use their status-specific data lengths",
     REQUIRE(v[1].d2 == 0x20);
     REQUIRE(v[2].status == 0xF3);
     REQUIRE(v[2].d1 == 0x07);
+}
+
+TEST_CASE("system common messages complete across feed boundaries without running",
+          "[midi][running-status][coverage][phase3]") {
+    RunningStatusParser p;
+    std::vector<Captured> shorts;
+    p.on_short_message([&](const MidiEvent& e) {
+        const auto& m = e.message;
+        shorts.push_back({m.data()[0],
+                          m.length() > 1 ? m.data()[1] : uint8_t(0),
+                          m.length() > 2 ? m.data()[2] : uint8_t(0)});
+    });
+
+    const uint8_t start[] = {0xF2, 0x10};
+    p.feed(start, sizeof(start));
+    REQUIRE(shorts.empty());
+
+    const uint8_t finish_and_stray[] = {0x20, 0x30};
+    p.feed(finish_and_stray, sizeof(finish_and_stray));
+
+    REQUIRE(shorts.size() == 1);
+    REQUIRE(shorts[0].status == 0xF2);
+    REQUIRE(shorts[0].d1 == 0x10);
+    REQUIRE(shorts[0].d2 == 0x20);
 }
 
 TEST_CASE("real-time clock interleaves without breaking running status",

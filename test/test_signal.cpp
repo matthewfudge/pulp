@@ -287,6 +287,20 @@ TEST_CASE("SmoothedValue clamps one-sample ramps and partially skips",
     REQUIRE_THAT(partial.target(), WithinAbs(10.0f, 1e-6f));
 }
 
+TEST_CASE("SmoothedValue ignores non-positive skips",
+          "[signal][smooth][coverage][phase3]") {
+    SmoothedValue<float> sv(0.0f);
+    sv.set_ramp_time(0.01f, 1000.0f);
+    sv.set_target(10.0f);
+
+    sv.skip(0);
+    sv.skip(-4);
+
+    REQUIRE(sv.is_smoothing());
+    REQUIRE_THAT(sv.current(), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(sv.next(), WithinAbs(1.0f, 1e-6f));
+}
+
 // ── ADSR ─────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ADSR idle by default", "[signal][adsr]") {
@@ -373,6 +387,32 @@ TEST_CASE("ADSR handles immediate stages, idle note_off, and reset",
     REQUIRE_FALSE(env.is_active());
     REQUIRE(env.stage() == Adsr::Stage::idle);
     REQUIRE_THAT(env.next(), WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("ADSR retrigger continues from current release level",
+          "[signal][adsr][coverage][phase3]") {
+    Adsr env;
+    env.set_sample_rate(1000.0f);
+    env.set_params({0.01f, 0.01f, 0.5f, 0.02f});
+
+    env.note_on();
+    for (int i = 0; i < 10; ++i) env.next();
+    REQUIRE(env.stage() == Adsr::Stage::decay);
+
+    env.note_off();
+    float release_level = 0.0f;
+    for (int i = 0; i < 5; ++i) release_level = env.next();
+    REQUIRE(env.stage() == Adsr::Stage::release);
+    REQUIRE(release_level > 0.0f);
+    REQUIRE(release_level < 1.0f);
+
+    env.note_on();
+    REQUIRE(env.stage() == Adsr::Stage::attack);
+    const float retriggered = env.next();
+
+    REQUIRE(retriggered > release_level);
+    REQUIRE(retriggered < 1.0f);
+    REQUIRE(env.is_active());
 }
 
 // ── Biquad ───────────────────────────────────────────────────────────────────

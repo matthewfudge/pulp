@@ -117,6 +117,32 @@ TEST_CASE("ValidationHarness creates and reports descriptor", "[harness][phase2]
     REQUIRE(harness.descriptor().name == "HarnessTestGain");
 }
 
+TEST_CASE("ValidationHarness option and entry defaults match report schema",
+          "[harness][coverage][phase3]") {
+    pulp::format::ValidationRunOptions options;
+    REQUIRE(options.output_dir.empty());
+    REQUIRE(options.sample_rate == 48000.0);
+    REQUIRE(options.buffer_size == 512);
+    REQUIRE(options.input_channels == 2);
+    REQUIRE(options.output_channels == 2);
+    REQUIRE(options.screenshot_width == 800);
+    REQUIRE(options.screenshot_height == 600);
+    REQUIRE(options.screenshot_scale == 2.0f);
+    REQUIRE(options.screenshot_backend == "default");
+    REQUIRE(options.diff_tolerance == 32);
+    REQUIRE(options.diff_threshold == 0.85f);
+    REQUIRE(options.git_ref.empty());
+    REQUIRE(options.run_id.empty());
+
+    pulp::format::ReportEntry entry;
+    REQUIRE(entry.status == pulp::format::ValidationStatus::pass);
+    REQUIRE(entry.type.empty());
+    REQUIRE(entry.target.empty());
+    REQUIRE(entry.duration_ms == 0.0);
+    REQUIRE(entry.error_message.empty());
+    REQUIRE(entry.payload_json.empty());
+}
+
 TEST_CASE("ValidationHarness set/get param", "[harness][phase2]") {
     pulp::format::ValidationHarness harness(create_test_gain);
     harness.configure({});
@@ -331,6 +357,26 @@ TEST_CASE("ValidationHarness report omits payload for unknown entry types",
     REQUIRE_THAT(report, ContainsSubstring("\"custom_probe\""));
     REQUIRE_THAT(report, ContainsSubstring("\"probe\""));
     REQUIRE(report.find("should_not_appear") == std::string::npos);
+}
+
+TEST_CASE("ValidationHarness report includes sanitizer payloads",
+          "[harness][coverage][phase3]") {
+    pulp::format::ValidationHarness harness(create_test_gain);
+    harness.configure({});
+
+    pulp::format::ReportEntry entry;
+    entry.type = "sanitizer";
+    entry.status = pulp::format::ValidationStatus::fail;
+    entry.target = "asan";
+    entry.error_message = "heap-use-after-free";
+    entry.payload_json = "{\"kind\":\"address\",\"reports\":1}";
+    harness.add_entry(entry);
+
+    const auto report = harness.generate_report();
+    REQUIRE_THAT(report, ContainsSubstring("\"type\": \"sanitizer\""));
+    REQUIRE_THAT(report, ContainsSubstring("\"status\": \"fail\""));
+    REQUIRE_THAT(report, ContainsSubstring("\"error_message\": \"heap-use-after-free\""));
+    REQUIRE_THAT(report, ContainsSubstring("\"sanitizer\": {\"kind\":\"address\",\"reports\":1}"));
 }
 
 TEST_CASE("ValidationHarness report escapes JSON metadata and entry strings",
@@ -737,4 +783,12 @@ TEST_CASE("ValidationStatus to_string covers all values", "[harness][phase2]") {
     REQUIRE(std::string(to_string(ValidationStatus::fail)) == "fail");
     REQUIRE(std::string(to_string(ValidationStatus::skip)) == "skip");
     REQUIRE(std::string(to_string(ValidationStatus::error)) == "error");
+}
+
+TEST_CASE("ValidationStatus to_string falls back to error for unknown values",
+          "[harness][coverage][phase3]") {
+    using pulp::format::ValidationStatus;
+    using pulp::format::to_string;
+
+    REQUIRE(std::string(to_string(static_cast<ValidationStatus>(99))) == "error");
 }
