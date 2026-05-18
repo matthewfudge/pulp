@@ -9,9 +9,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v01110"></a>
-## [0.111.0] - 2026-05-18
+## [0.111.0] - 2026-05-17
 
-- feat(design-import): Phase A — default shortcuts (source-matched heuristic) ([#2161](https://github.com/danielraffel/pulp/pull/2161))
+- test(midi): batch ci and ump coverage edges ([#2126](https://github.com/danielraffel/pulp/pull/2126))
+- feat(design-import): Phase A — default shortcuts (source-matched heuristic) [rebased] ([#2161](https://github.com/danielraffel/pulp/pull/2161))
+- refactor(test): split runtime-import tests out of test_widget_bridge.cpp (P5-1 first cut) ([#2160](https://github.com/danielraffel/pulp/pull/2160))
+- feat(view+render+docs): partial-rendering POC + TextEditor multi-line + DrawBatcher delete + shader docs ([#2162](https://github.com/danielraffel/pulp/pull/2162))
+- feat(canvas+view): color-emoji parity for Canvas2D text ([#2157](https://github.com/danielraffel/pulp/pull/2157))
 
 <a id="v01100"></a>
 ## [0.110.0] - 2026-05-17
