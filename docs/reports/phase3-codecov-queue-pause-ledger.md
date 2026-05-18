@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 14:59 PDT
+Last updated: 2026-05-18 15:00 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -48,6 +48,19 @@ without hyphens. Local validation passed:
 `cmake --build build --target pulp-test-cli-fetchcontent-cache`,
 `build/test/pulp-test-cli-fetchcontent-cache` (164 assertions in 31
 test cases), and `git diff --check`. PR state: not pushed; keep
+accumulating related coverage commits toward the larger batch. No
+Namespace dispatch.
+
+2026-05-18 15:00 PDT: added seventh committed tranche to
+`feature/phase3-codecov-batch-747`:
+`b73350f89 test(cli): cover design binding selection paths`, touching
+`test/test_cli_design_binding.cpp`. Scope: deterministic design-binding
+coverage for positional script root selection, same-root script
+preservation, explicit build-cache root selection, and binary-root
+mismatch build-dir fallback. Local validation passed:
+`cmake --build build --target pulp-test-cli-design-binding`,
+`build/test/pulp-test-cli-design-binding` (43 assertions in 9 test
+cases), and `git diff --check`. PR state: not pushed; keep
 accumulating related coverage commits toward the larger batch. No
 Namespace dispatch.
 
