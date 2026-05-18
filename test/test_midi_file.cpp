@@ -50,6 +50,27 @@ std::vector<uint8_t> read_bytes(const fs::path& path) {
 
 } // namespace
 
+TEST_CASE("MidiFileData aggregates empty and multi-track metadata",
+          "[midi][file][coverage][phase3]") {
+    MidiFileData empty;
+    REQUIRE(empty.duration_seconds() == Approx(0.0).margin(1e-9));
+    REQUIRE(empty.total_events() == 0);
+
+    MidiFileData data;
+    MidiTrack early;
+    early.events.push_back({0.125, MidiEvent::note_on(0, 60, 100)});
+    early.events.push_back({0.25, MidiEvent::note_off(0, 60)});
+
+    MidiTrack late;
+    late.events.push_back({1.5, MidiEvent::cc(1, 74, 64)});
+
+    data.tracks.push_back(std::move(early));
+    data.tracks.push_back(std::move(late));
+
+    REQUIRE(data.total_events() == 3);
+    REQUIRE(data.duration_seconds() == Approx(1.5).margin(1e-9));
+}
+
 TEST_CASE("read_midi_file decodes running status byte fixtures",
           "[midi][file][issue-645]") {
     TempDir tmp;
