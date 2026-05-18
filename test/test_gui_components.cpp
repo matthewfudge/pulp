@@ -863,3 +863,68 @@ TEST_CASE("LassoComponent callback fires", "[gui][lasso]") {
     REQUIRE(last_rect.width == 100.0f);
     REQUIRE(last_rect.height == 100.0f);
 }
+
+TEST_CASE("SelectionRect contains and intersects use half-open bounds",
+          "[gui][lasso][coverage][phase3]") {
+    SelectionRect rect{10.0f, 20.0f, 40.0f, 30.0f};
+
+    REQUIRE(rect.contains(10.0f, 20.0f));
+    REQUIRE(rect.contains(49.9f, 49.9f));
+    REQUIRE_FALSE(rect.contains(50.0f, 20.0f));
+    REQUIRE_FALSE(rect.contains(10.0f, 50.0f));
+    REQUIRE_FALSE(rect.contains(9.9f, 25.0f));
+
+    REQUIRE(rect.intersects(0.0f, 0.0f, 11.0f, 21.0f));
+    REQUIRE(rect.intersects(49.0f, 49.0f, 5.0f, 5.0f));
+    REQUIRE_FALSE(rect.intersects(50.0f, 20.0f, 10.0f, 10.0f));
+    REQUIRE_FALSE(rect.intersects(0.0f, 50.0f, 100.0f, 10.0f));
+}
+
+TEST_CASE("LassoComponent inactive updates and end are no-ops",
+          "[gui][lasso][coverage][phase3]") {
+    LassoComponent lasso;
+    int changed = 0;
+    int completed = 0;
+    lasso.on_selection_changed = [&](const SelectionRect&) { ++changed; };
+    lasso.on_selection_complete = [&](const SelectionRect&) { ++completed; };
+
+    lasso.update_selection(20.0f, 30.0f);
+    lasso.end_selection();
+
+    REQUIRE_FALSE(lasso.is_active());
+    REQUIRE(changed == 0);
+    REQUIRE(completed == 0);
+    REQUIRE(lasso.selection_rect().width == 0.0f);
+    REQUIRE(lasso.selection_rect().height == 0.0f);
+}
+
+TEST_CASE("LassoComponent mouse path completes and paint reflects active state",
+          "[gui][lasso][coverage][phase3]") {
+    LassoComponent lasso;
+    SelectionRect completed;
+    int completed_count = 0;
+    lasso.on_selection_complete = [&](const SelectionRect& rect) {
+        completed = rect;
+        ++completed_count;
+    };
+
+    RecordingCanvas inactive_canvas;
+    lasso.paint(inactive_canvas);
+    REQUIRE(inactive_canvas.command_count() == 0);
+
+    lasso.on_mouse_down({80.0f, 40.0f});
+    lasso.on_mouse_drag({20.0f, 70.0f});
+
+    RecordingCanvas active_canvas;
+    lasso.paint(active_canvas);
+    REQUIRE(active_canvas.count(DrawCommand::Type::fill_rect) == 1);
+    REQUIRE(active_canvas.count(DrawCommand::Type::stroke_rect) == 1);
+
+    lasso.on_mouse_up({20.0f, 70.0f});
+    REQUIRE_FALSE(lasso.is_active());
+    REQUIRE(completed_count == 1);
+    REQUIRE(completed.x == 20.0f);
+    REQUIRE(completed.y == 40.0f);
+    REQUIRE(completed.width == 60.0f);
+    REQUIRE(completed.height == 30.0f);
+}
