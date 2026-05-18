@@ -148,6 +148,20 @@ TEST_CASE("BigInteger self assignment and identity arithmetic stay stable",
     REQUIRE(value.mod_pow(BigInteger(0), BigInteger(17)).to_string() == "1");
 }
 
+TEST_CASE("BigInteger comparison covers equal and greater-than paths",
+          "[crypto][bigint][coverage][phase3]") {
+    BigInteger low(255);
+    auto same = BigInteger::from_hex("FF");
+    BigInteger high(256);
+
+    REQUIRE(low == same);
+    REQUIRE_FALSE(low != same);
+    REQUIRE_FALSE(same < low);
+    REQUIRE_FALSE(high < low);
+    REQUIRE(low < high);
+    REQUIRE(BigInteger().bit_count() == 0);
+}
+
 // ── License ─────────────────────────────────────────────────────────────
 
 TEST_CASE("LicenseValidator invalid format", "[crypto][license]") {
