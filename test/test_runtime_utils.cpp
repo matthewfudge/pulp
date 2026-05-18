@@ -816,6 +816,23 @@ TEST_CASE("Expression evaluator handles nested function calls",
     REQUIRE(*value == Catch::Approx(7.0));
 }
 
+TEST_CASE("Expression evaluator covers multi-argument builtins",
+          "[runtime][expression][coverage][phase3-large]") {
+    REQUIRE(evaluate("min(5, 3)") == Catch::Approx(3.0));
+    REQUIRE(evaluate("max(5, 3)") == Catch::Approx(5.0));
+    REQUIRE(evaluate("pow(2, 5)") == Catch::Approx(32.0));
+    REQUIRE(evaluate("clamp(8, 5)") == Catch::Approx(5.0));
+    REQUIRE(evaluate("clamp(-2, 5)") == Catch::Approx(0.0));
+}
+
+TEST_CASE("Expression evaluator rejects incomplete multi-argument calls",
+          "[runtime][expression][coverage][phase3-large]") {
+    REQUIRE_FALSE(evaluate("min(1)").has_value());
+    REQUIRE_FALSE(evaluate("max(1)").has_value());
+    REQUIRE_FALSE(evaluate("pow(2)").has_value());
+    REQUIRE_FALSE(evaluate("clamp(2)").has_value());
+}
+
 // ── ScopeGuard ─────────────────────────────────────────────────────────
 
 TEST_CASE("ScopeGuard dismiss and move transfer ownership",
