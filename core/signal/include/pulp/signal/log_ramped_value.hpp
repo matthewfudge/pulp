@@ -61,6 +61,7 @@ public:
     }
 
     void skip(int n) {
+        if (n <= 0) return;
         if (steps_remaining_ <= 0) return;
         if (n >= steps_remaining_) {
             current_ = target_;

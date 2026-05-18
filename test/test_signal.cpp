@@ -287,6 +287,20 @@ TEST_CASE("SmoothedValue clamps one-sample ramps and partially skips",
     REQUIRE_THAT(partial.target(), WithinAbs(10.0f, 1e-6f));
 }
 
+TEST_CASE("SmoothedValue ignores non-positive skips",
+          "[signal][smooth][coverage][phase3]") {
+    SmoothedValue<float> sv(0.0f);
+    sv.set_ramp_time(0.01f, 1000.0f);
+    sv.set_target(10.0f);
+
+    sv.skip(0);
+    sv.skip(-4);
+
+    REQUIRE(sv.is_smoothing());
+    REQUIRE_THAT(sv.current(), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(sv.next(), WithinAbs(1.0f, 1e-6f));
+}
+
 // ── ADSR ─────────────────────────────────────────────────────────────────────
 
 TEST_CASE("ADSR idle by default", "[signal][adsr]") {
