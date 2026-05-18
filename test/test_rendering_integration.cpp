@@ -217,6 +217,27 @@ TEST_CASE("FillStyle linear gradient", "[canvas][gradient]") {
     REQUIRE_FALSE(fs.is_solid());
 }
 
+TEST_CASE("FillStyle radial gradient exposes focal point and stops",
+          "[canvas][gradient][coverage][phase3]") {
+    canvas::RadialGradient rg{10.0f, 20.0f, 30.0f, 0.0f, 0.0f, {}};
+    rg.focal_x = 12.0f;
+    rg.focal_y = 18.0f;
+    rg.stops = {{0.0f, canvas::Color::rgba(1, 1, 1)},
+                {1.0f, canvas::Color::rgba(0, 0, 0)}};
+
+    canvas::FillStyle fs(rg);
+
+    REQUIRE(fs.is_radial());
+    REQUIRE_FALSE(fs.is_linear());
+    REQUIRE_FALSE(fs.is_conic());
+    REQUIRE(fs.radial().cx == 10.0f);
+    REQUIRE(fs.radial().cy == 20.0f);
+    REQUIRE(fs.radial().radius == 30.0f);
+    REQUIRE(fs.radial().focal_x == 12.0f);
+    REQUIRE(fs.radial().focal_y == 18.0f);
+    REQUIRE(fs.radial().stops.size() == 2);
+}
+
 TEST_CASE("FillStyle conic gradient", "[canvas][gradient]") {
     canvas::ConicGradient cg;
     cg.cx = 50; cg.cy = 50; cg.start_angle = 0;
