@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/view/frame_clock.hpp>
+#include <pulp/view/live_constant_editor.hpp>
 #include <pulp/view/plugin_view_host.hpp>
 #include <pulp/view/view.hpp>
 #include <pulp/view/window_host.hpp>
@@ -1774,4 +1775,55 @@ TEST_CASE("View::paint_all does NOT route through save_layer_with_mask when mask
     // CSS `mask-image: none` is an explicit no-mask declaration —
     // treated as if no mask were set (no layer overhead, no composite).
     REQUIRE(canvas.mask_calls.empty());
+}
+
+TEST_CASE("LiveConstantRegistry clamps resets and reports callbacks",
+          "[view][live_constant][codecov]") {
+    auto& registry = LiveConstantRegistry::instance();
+    registry.on_change = nullptr;
+
+    auto& value = registry.register_constant(
+        "phase3.live.constant", "test_view.cpp", 10, 0.5f, 0.0f, 1.0f);
+    auto& duplicate = registry.register_constant(
+        "phase3.live.constant", "ignored.cpp", 99, 0.75f, -1.0f, 2.0f);
+
+    REQUIRE(&value == &duplicate);
+    REQUIRE_THAT(registry.get("phase3.live.constant"), WithinAbs(0.5f, 1e-6f));
+
+    std::vector<LiveConstant> changes;
+    registry.on_change = [&](const LiveConstant& c) { changes.push_back(c); };
+
+    registry.set("phase3.live.constant", 2.0f);
+    REQUIRE_THAT(registry.get("phase3.live.constant"), WithinAbs(1.0f, 1e-6f));
+    REQUIRE(changes.size() == 1);
+    REQUIRE(changes.back().name == "phase3.live.constant");
+    REQUIRE_THAT(changes.back().value, WithinAbs(1.0f, 1e-6f));
+
+    registry.set("phase3.live.constant", -2.0f);
+    REQUIRE_THAT(registry.get("phase3.live.constant"), WithinAbs(0.0f, 1e-6f));
+    REQUIRE(changes.size() == 2);
+    REQUIRE_THAT(changes.back().value, WithinAbs(0.0f, 1e-6f));
+
+    registry.reset("phase3.live.constant");
+    REQUIRE_THAT(registry.get("phase3.live.constant"), WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(value, WithinAbs(0.5f, 1e-6f));
+
+    registry.set("phase3.live.constant", 0.25f);
+    registry.reset_all();
+    REQUIRE_THAT(registry.get("phase3.live.constant"), WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(registry.get("phase3.live.missing"), WithinAbs(0.0f, 1e-6f));
+
+    registry.on_change = nullptr;
+}
+
+TEST_CASE("LiveConstantEditor toggles visibility from hidden default",
+          "[view][live_constant][codecov]") {
+    LiveConstantEditor editor;
+    REQUIRE_FALSE(editor.is_showing());
+
+    editor.toggle();
+    REQUIRE(editor.is_showing());
+
+    editor.toggle();
+    REQUIRE_FALSE(editor.is_showing());
 }
