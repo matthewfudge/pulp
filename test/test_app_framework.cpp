@@ -330,6 +330,7 @@ TEST_CASE("KeyMapping save/load binding edge paths", "[view][keys]") {
 
     REQUIRE(km.load_bindings(path));
     REQUIRE_FALSE(km.load_bindings(root / "missing.json"));
+    REQUIRE_FALSE(km.save_bindings(root));
 
     std::filesystem::remove_all(root);
 }
@@ -600,6 +601,38 @@ TEST_CASE("AppSettings load clears stale values from an empty settings file",
     REQUIRE(settings.load());
     REQUIRE_FALSE(settings.get_string("stale").has_value());
     REQUIRE_FALSE(settings.load_window_state().has_value());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("AppSettings load clears stale values before partial parse",
+          "[view][settings][coverage][phase3]") {
+    auto root = make_temp_root("pulp-app-settings-partial");
+
+#if defined(_WIN32)
+    ScopedEnvVar settings_root("APPDATA", root.string());
+#elif defined(__APPLE__)
+    ScopedEnvVar settings_root("HOME", root.string());
+#else
+    ScopedEnvVar settings_root("XDG_CONFIG_HOME", root.string());
+#endif
+
+    AppSettings settings("PulpSettingsPartial");
+    settings.set_string("stale", "value");
+    settings.set_string("keep", "old");
+
+    std::filesystem::create_directories(settings.settings_path().parent_path());
+    {
+        std::ofstream out(settings.settings_path());
+        out << "{\n"
+            << "  \"keep\": \"new\",\n"
+            << "  \"dangling\": \n";
+    }
+
+    REQUIRE(settings.load());
+    REQUIRE_FALSE(settings.get_string("stale").has_value());
+    REQUIRE(settings.get_string("keep") == std::optional<std::string>{"new"});
+    REQUIRE_FALSE(settings.get_string("dangling").has_value());
 
     std::filesystem::remove_all(root);
 }
