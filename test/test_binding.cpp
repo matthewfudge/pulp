@@ -444,3 +444,19 @@ TEST_CASE("Binding move construction preserves store and callbacks",
     REQUIRE_THAT(store->get_value(1), WithinAbs(-3.0f, 1e-6f));
     REQUIRE(values == std::vector<float>{-3.0f});
 }
+
+TEST_CASE("Binding move assignment replaces destination binding",
+          "[binding][coverage][phase3-github]") {
+    auto store = make_store();
+    Binding destination(*store, 2);
+    Binding source(*store, 1);
+    source.set_edit_history(nullptr);
+
+    destination = std::move(source);
+    destination.set(-12.0f);
+
+    REQUIRE(destination.is_bound());
+    REQUIRE(destination.id() == 1);
+    REQUIRE_THAT(store->get_value(1), WithinAbs(-12.0f, 1e-6f));
+    REQUIRE_THAT(store->get_value(2), WithinAbs(50.0f, 1e-6f));
+}
