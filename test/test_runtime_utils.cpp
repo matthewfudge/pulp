@@ -772,6 +772,20 @@ TEST_CASE("text_diff handles replacement ties and empty line formatting",
             "+ new-b\n");
 }
 
+TEST_CASE("format_diff handles manually constructed operation order",
+          "[runtime][text-diff][coverage][phase3-github]") {
+    std::vector<DiffEntry> diff{
+        {DiffOp::Equal, "context"},
+        {DiffOp::Insert, "added"},
+        {DiffOp::Delete, "removed"},
+    };
+
+    REQUIRE(format_diff(diff) ==
+            "  context\n"
+            "+ added\n"
+            "- removed\n");
+}
+
 // ── Range ───────────────────────────────────────────────────────────────
 
 TEST_CASE("Range basic operations", "[runtime][range]") {
