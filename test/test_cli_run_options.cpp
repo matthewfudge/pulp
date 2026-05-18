@@ -117,6 +117,14 @@ TEST_CASE("pulp run --frames rejects non-positive and non-integer values",
     REQUIRE(partial.frames == 1);
 }
 
+TEST_CASE("pulp run --frames rejects overflow and plus-prefixed values",
+          "[cli][run][coverage]") {
+    REQUIRE_FALSE(parse_run_options({"--frames", "999999999999999999999"}).error.empty());
+    REQUIRE_FALSE(parse_run_options({"--frames=999999999999999999999"}).error.empty());
+    REQUIRE_FALSE(parse_run_options({"--frames", "+5"}).error.empty());
+    REQUIRE_FALSE(parse_run_options({"--frames=+5"}).error.empty());
+}
+
 TEST_CASE("pulp run --watch is recorded and composes with --headless",
           "[cli][run][issue-914]") {
     auto plain = parse_run_options({"--watch"});
@@ -184,6 +192,13 @@ TEST_CASE("pulp run forwards all tokens after separator including known flags",
 
     auto args = assemble_launch_args(r);
     REQUIRE(args == r.user_pass_through);
+}
+
+TEST_CASE("pulp run ignores repeated separator tokens before pass-through",
+          "[cli][run][coverage]") {
+    auto r = parse_run_options({"target", "--", "--", "--frames=4"});
+    REQUIRE(r.target_name == "target");
+    REQUIRE(r.user_pass_through == std::vector<std::string>{"--frames=4"});
 }
 
 TEST_CASE("pulp run treats additional positionals as pass-through",
