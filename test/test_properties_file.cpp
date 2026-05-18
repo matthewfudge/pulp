@@ -444,6 +444,22 @@ TEST_CASE("PropertiesFile remove and reinsert keeps sorted key enumeration",
     REQUIRE(props.get_string("b").value_or("") == "new");
 }
 
+TEST_CASE("PropertiesFile contains tracks string-view keys across mutation",
+          "[state][properties][coverage][phase3-large]") {
+    PropertiesFile props;
+    std::string key = "dynamic";
+
+    props.set_int(std::string_view(key), 12);
+    key = "changed";
+
+    REQUIRE(props.contains("dynamic"));
+    REQUIRE_FALSE(props.contains("changed"));
+
+    props.remove(std::string_view("dynamic"));
+    REQUIRE_FALSE(props.contains("dynamic"));
+    REQUIRE(props.size() == 0);
+}
+
 // ── ApplicationProperties ───────────────────────────────────────────────
 
 TEST_CASE("ApplicationProperties paths are platform-appropriate", "[state][properties]") {
