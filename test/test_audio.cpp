@@ -430,6 +430,23 @@ TEST_CASE("AudioProcessLoadMeasurer clamps smoothing and resets peak load",
     REQUIRE(measurer.peak_load() == 0.0f);
 }
 
+TEST_CASE("CallbackContext defaults and sample position remain explicit",
+          "[audio][device][codecov]") {
+    CallbackContext empty;
+    REQUIRE(empty.sample_rate == 0.0);
+    REQUIRE(empty.buffer_size == 0);
+    REQUIRE(empty.sample_position == 0);
+
+    CallbackContext block;
+    block.sample_rate = 44100.0;
+    block.buffer_size = 512;
+    block.sample_position = 4096;
+
+    REQUIRE(block.sample_rate == 44100.0);
+    REQUIRE(block.buffer_size == 512);
+    REQUIRE(block.sample_position == 4096);
+}
+
 TEST_CASE("ChannelSet maps standard layouts by count and name",
           "[audio][channel-set][issue-640]") {
     REQUIRE(ChannelSet::from_channel_count(0).name == "Discrete 0");
