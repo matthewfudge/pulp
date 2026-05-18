@@ -519,6 +519,7 @@ int main(int argc, char* argv[]) {
                           << spec << ")\n";
             }
         } else if (starts_with(argv[i], "--font-probe=")) {
+#ifdef PULP_HAS_SKIA
             // pulp #2163 — programmatic verification that a font is
             // resolvable AND has a given glyph. Spec is `FAMILY:HEX[,HEX...]`
             // where HEX is a Unicode codepoint (with or without 0x prefix).
@@ -567,6 +568,10 @@ int main(int argc, char* argv[]) {
                 if (!pr.family_resolved || !pr.glyph_present) all_ok = false;
             }
             return all_ok ? 0 : 1;
+#else
+            std::cerr << "[ui-preview] --font-probe requires a Skia-enabled build\n";
+            return 2;
+#endif
         } else if (starts_with(argv[i], "--font-dir=")) {
             // pulp #2163 — `--font-dir=/path/to/fonts` walks a directory and
             // registers every .ttf / .otf under it. The font family name
