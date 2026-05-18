@@ -97,3 +97,11 @@ TEST_CASE("Interpolator linear preserves constants outside the unit interval",
     REQUIRE_THAT(Interpolator::linear(-2.0f, -0.75f, -0.75f), WithinAbs(-0.75f, 1e-6f));
     REQUIRE_THAT(Interpolator::linear(3.0f, 4.5f, 4.5f), WithinAbs(4.5f, 1e-6f));
 }
+
+TEST_CASE("Interpolator hermite reproduces quadratic midpoint samples",
+          "[signal][interp][codecov]") {
+    REQUIRE_THAT(Interpolator::hermite(0.5f, 1.0f, 0.0f, 1.0f, 4.0f),
+                 WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(Interpolator::hermite(0.25f, 4.0f, 1.0f, 0.0f, 1.0f),
+                 WithinAbs(0.5625f, 1e-6f));
+}
