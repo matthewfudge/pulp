@@ -7661,3 +7661,26 @@ CoberturaPathExtraTests` (2 tests),
 `python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`,
 and `git diff --check`. Still held locally; do not push until the batch grows
 to roughly 24-36 coverage commits.
+
+2026-05-18 00:47 PDT: investigated #2173 after GitHub-hosted
+`Release-path build (linux-x64)` failed on head `b9d74decf`. The failed job
+was a Skia-enabled Linux release compile error in `skia_canvas_box_shadow.cpp`
+(`to_sk_color4f` / `SkImageFilters` not visible). Root cause was that the PR
+branch was still carrying stale canvas/font deletions against newer `main`,
+including deletion of `core/canvas/src/skia_canvas_internal.hpp`; this made the
+branch revert mainline split-build repairs rather than testing only the
+coverage batch. Rebased `feature/phase3-codecov-next-batch-727` onto current
+`origin/main` (`6c198a9e`), skipped the accidental Clock fixture commit and
+its follow-up removal during replay, and force-pushed #2173 at
+`a40b41756d4e6aed30f366aa76af79307e64891a`. Local validation before push:
+`cmake --build build --target pulp-cli pulp-ui-preview pulp-test-widget-bridge pulp-test-widget-bridge-runtime-import pulp-test-widget-bridge-dispatch-global-key pulp-test-widget-bridge-dispatch-document-event pulp-test-svg-path-widget -j$(sysctl -n hw.ncpu)`,
+the focus-guard WidgetBridge test, explicit RN runtime-import test, RN
+auto-detect runtime-import test, explicit Pencil runtime-import test,
+malformed SVG gradient test, `pulp-test-widget-bridge-dispatch-global-key`,
+`pulp-test-widget-bridge-dispatch-document-event`,
+`python3 tools/import-validation/check-source-contracts.py`,
+`python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD --mode=report`,
+`python3 tools/scripts/version_bump_check.py --base origin/main --head HEAD --mode=report`,
+and `git diff --check`. Push used `PULP_VIA_SHIPYARD=1
+PULP_SKIP_DIFF_COVER=1 git push --force-with-lease`; #2173 is open and
+queued on GitHub-hosted checks at the rebased head.
