@@ -25,6 +25,15 @@ TEST_CASE("SHA-256 binary data", "[crypto][sha256]") {
     REQUIRE(digest.size() == 32);
 }
 
+TEST_CASE("SHA-256 pointer hex overload handles empty input",
+          "[crypto][sha256][coverage][phase3-batch742]") {
+    auto digest = sha256(nullptr, 0);
+    auto hex = sha256_hex(nullptr, 0);
+
+    REQUIRE(digest.size() == 32);
+    REQUIRE(hex == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
 TEST_CASE("SHA-256 pointer overload preserves embedded NUL bytes",
           "[crypto][sha256][coverage][issue-641]") {
     const std::vector<uint8_t> data = {'a', 'b', 'c', 0x00, 'd', 'e', 'f'};
