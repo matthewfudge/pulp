@@ -72,6 +72,17 @@ TEST_CASE("i18n duplicate keys overwrite previous values", "[runtime][i18n][cove
     REQUIRE(strings.translate("mode") == "new");
 }
 
+TEST_CASE("i18n accepts empty in-memory keys", "[runtime][i18n][coverage][phase3-batch742]") {
+    LocalisedStrings strings;
+    strings.add("", "metadata");
+    strings.add("normal", "value");
+
+    REQUIRE(strings.count() == 2);
+    REQUIRE(strings.has(""));
+    REQUIRE(strings.translate("") == "metadata");
+    REQUIRE(strings.translate("normal") == "value");
+}
+
 TEST_CASE("i18n translate missing key returns key", "[runtime][i18n]") {
     LocalisedStrings strings;
     REQUIRE(strings.translate("missing_key") == "missing_key");
