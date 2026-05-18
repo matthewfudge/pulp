@@ -504,6 +504,24 @@ TEST_CASE("ADSR retrigger continues from current release level",
     REQUIRE(env.is_active());
 }
 
+TEST_CASE("ADSR retrigger continues from current level",
+          "[signal][adsr][coverage][phase3-github]") {
+    Adsr env;
+    env.set_sample_rate(100.0f);
+    env.set_params({0.1f, 0.2f, 0.25f, 0.1f});
+
+    env.note_on();
+    const float first = env.next();
+    const float second = env.next();
+    REQUIRE(second > first);
+
+    env.note_on();
+    const float retriggered = env.next();
+    REQUIRE(retriggered > second);
+    REQUIRE(env.is_active());
+    REQUIRE(env.stage() == Adsr::Stage::attack);
+}
+
 // ── Biquad ───────────────────────────────────────────────────────────────────
 
 TEST_CASE("Biquad lowpass attenuates high frequencies", "[signal][biquad]") {
