@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 14:55 PDT
+Last updated: 2026-05-18 14:56 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -65,6 +65,22 @@ test cases), and `git diff --check`. Local validation caught one
 over-specific empty-query ordering assertion; the test now pins the
 actual map-order contract. PR state: not pushed; keep accumulating
 related coverage commits toward the larger batch. No Namespace dispatch.
+
+2026-05-18 14:56 PDT: added fourth committed tranche to
+`feature/phase3-codecov-batch-747`:
+`1fec989ea test(cli): cover migration note render edges`, touching
+`test/test_cli_migration_index.cpp`. Scope: deterministic migration
+runtime coverage for text renderer newline termination when note bodies
+lack a trailing newline, plus JSON escaping for quotes, backslashes,
+tabs, newlines, carriage returns, and control characters. Local
+validation passed: `cmake --build build --target
+pulp-test-cli-migration-index`, `PULP_SOURCE_DIR=$PWD
+build/test/pulp-test-cli-migration-index` (56 assertions in 13 test
+cases), and `git diff --check`. Direct execution without
+`PULP_SOURCE_DIR` still fails the pre-existing codegen shellout fixture;
+the rerun used the environment CMake supplies. PR state: not pushed;
+keep accumulating related coverage commits toward the larger batch. No
+Namespace dispatch.
 
 Batch size guidance after reopening GitHub-hosted CI: prefer larger
 coherent test-only batches over one-tranche PRs. A good batch is one
