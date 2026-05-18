@@ -568,6 +568,18 @@ function applyEventHandler(id: string, key: string, value: unknown): void {
         // Idempotent on the bridge side (replaces the lambda).
         call('registerPointer', id);
     }
+    // pulp jsx-instrument-import 2026-05-17 — also arm the pointer
+    // dispatch path for mouse events. Native NSEvent → on_mouse_event
+    // dispatches via View::on_pointer_event lambda (the W3C bubbling
+    // channel); on_click only fires on full mouse-up. Imported JSX
+    // bundles (Chainer's knobs/faders/XY pad) install onMouseDown
+    // handlers that need to fire on press, not release. Without this
+    // pre-fix, hit_test returns the widget with has_pointer=no and the
+    // bridge's pointer event lambda never fires for mouse* event types.
+    if (eventName === 'mousedown' || eventName === 'mouseup' ||
+        eventName === 'mousemove' || eventName === 'click') {
+        call('registerPointer', id);
+    }
     if (isWheelEvent(eventName)) {
         // pulp #1387 gap #4 — Spectr's zoom-via-onWheel doesn't fire
         // unless we explicitly arm the wheel dispatch path.

@@ -274,20 +274,30 @@ async function main() {
                 // they live in @pulp/react's node_modules.
                 resolve(__dirname, '..', '..', '..', 'packages', 'pulp-react', 'node_modules'),
             ],
-            // pulp jsx-instrument-import 2026-05-17 — temporarily reverted
-            // the react-dom → @pulp/react alias. Re-bundling @pulp/react
-            // duplicated React (esbuild emitted `useState2` for Chainer's
-            // imports, distinct from @pulp/react's React) — the bundled
-            // user component crashed with "Cannot read properties of null
-            // (reading 'useState')" inside renderWithHooks. The dedup
-            // requires a proper externalization strategy (@pulp/react's
-            // build externalizes react; our re-bundle needs to externalize
-            // it too, then resolve to the SAME react instance the user
-            // imports). Follow-up PR scope.
+            // pulp jsx-instrument-import 2026-05-17 — route the bundle's
+            // ReactDOM imports through pulp-react-dom-shim.mjs, which
+            // delegates to @pulp/react's reconciler. React-dedup is
+            // critical: the FULL alias map below points every reachable
+            // copy of react / react-reconciler / scheduler at ONE on-disk
+            // location (jsx-runtime/node_modules/...). Without this,
+            // esbuild ships a second React instance for @pulp/react's
+            // bridge and the user's `useState` from `react` returns null
+            // (ReactCurrentDispatcher.current desync).
             //
-            // For now: use the working bundled-ReactDOM path. Static render
-            // is perfect; interactivity is the next-PR scope per Codex's
-            // 2-week-trap warning.
+            // Architecturally aligned with react-konva / react-three-fiber /
+            // React Native Fabric: onClick attaches to the native node at
+            // commit time, native dispatcher invokes JSX handler directly,
+            // no ReactDOM event delegation through a fake DOM.
+            alias: {
+                'react-dom/client':            resolve(__dirname, 'pulp-react-dom-shim.mjs'),
+                'react-dom':                   resolve(__dirname, 'pulp-react-dom-shim.mjs'),
+                'react':                       resolve(__dirname, 'node_modules/react'),
+                'react/jsx-runtime':           resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
+                'react/jsx-dev-runtime':       resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js'),
+                'react-reconciler':            resolve(__dirname, 'node_modules/react-reconciler'),
+                'react-reconciler/constants.js': resolve(__dirname, 'node_modules/react-reconciler/constants.js'),
+                'scheduler':                   resolve(__dirname, 'node_modules/scheduler'),
+            },
             // Banner emits BEFORE esbuild's IIFE wrapper — that's
             // where the sandbox shims must live so they run before any
             // ESM import (esp. react-dom/client's DevTools UA sniff).

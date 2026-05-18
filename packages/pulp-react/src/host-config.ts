@@ -154,7 +154,23 @@ function createWidget(type: Type, id: string, parentId: string, props: Props): v
                 case 'canvas':   call('createCanvas', id, parentId); return;
                 case 'svg':      call('createCol', id, parentId); return;  // SVG = container; children paint
                 case 'path':     call('createSvgPath', id, parentId); return;
-                case 'circle':   call('createSvgPath', id, parentId); return; // synthesized 'd' from cx/cy/r
+                case 'circle': {
+                    // SVG <circle cx="..." cy="..." r="..."> → SvgPath
+                    // with synthesized `d` from a 2-arc construction.
+                    // Mirrors web-compat-element.js __replaySvgCircleAttributes__.
+                    // Render at construction time using whatever cx/cy/r
+                    // the JSX commits in this pass; subsequent prop updates
+                    // re-synth via the cx/cy/r handlers in prop-applier.
+                    call('createSvgPath', id, parentId);
+                    const cx = typeof props.cx === 'number' ? props.cx as number : Number(props.cx) || 0;
+                    const cy = typeof props.cy === 'number' ? props.cy as number : Number(props.cy) || 0;
+                    const r  = typeof props.r  === 'number' ? props.r  as number : Number(props.r)  || 0;
+                    if (r > 0) {
+                        const d = `M ${cx - r} ${cy} a ${r} ${r} 0 1 0 ${2 * r} 0 a ${r} ${r} 0 1 0 ${-2 * r} 0 Z`;
+                        call('setSvgPath', id, d);
+                    }
+                    return;
+                }
                 case 'rect':     call('createSvgRect', id, parentId); return;
                 case 'line':     call('createSvgLine', id, parentId); return;
                 case 'g':        call('createCol', id, parentId); return; // <svg><g> group
