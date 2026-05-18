@@ -8899,3 +8899,18 @@ behavior. Focused local validation passed:
 `git diff --check`. Branch is clean and 18 commits ahead of `origin/main`;
 still held locally to build toward a larger GitHub-hosted PR. No Namespace
 dispatch.
+
+2026-05-18 15:31 PDT: continued the held local-only GitHub batch
+`feature/phase3-codecov-batch-747` with commit `a88709008`
+(`fix(cli): harden common scalar parsers`). This tranche adds CLI common edge
+coverage for signed numeric inputs, exact YAML key matching, NUL-stripping
+process output, non-truncating message boundaries, and `pulp.toml` metadata
+lookups that must ignore commented keys and substring keys. Local validation
+caught real parser bugs, so the source now rejects negative unsigned/size
+arguments, requires exact YAML key tokens, and reads exact uncommented TOML
+keys before returning quoted values. Focused local validation passed:
+`cmake --build build --target pulp-test-cli-project-command`,
+`build/test/pulp-test-cli-project-command` (538 assertions in 35 test cases),
+and `git diff --check`. Branch is clean and 19 commits ahead of `origin/main`;
+still held locally to build toward a larger GitHub-hosted PR. No Namespace
+dispatch.
