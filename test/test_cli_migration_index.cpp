@@ -117,6 +117,10 @@ TEST_CASE("applies_if - malformed expressions fail closed",
     REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < garbage", ctx));
     REQUIRE_FALSE(mig::evaluate_applies_if("&&", ctx));
     REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < 0.1.0 &&", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("(cli_version_from < 0.27.0", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < 0.27.0)", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from ! 0.27.0", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < 0.27.0 & cli_version_to > 0.1.0", ctx));
 }
 
 TEST_CASE("applies_if - non-parseable context fails closed",
@@ -219,6 +223,18 @@ TEST_CASE("render_notes_json - escapes strings and control characters",
     auto out = mig::render_notes_json(entries, "1.0.0", "1.2.3");
     REQUIRE(out.find("quote \\\" slash \\\\ tab\\t") != std::string::npos);
     REQUIRE(out.find("line\\ncarriage\\rcontrol \\u0001") != std::string::npos);
+}
+
+TEST_CASE("render_notes_json escapes hop version strings",
+          "[cli][migration][coverage]") {
+    std::vector<const mig::MigrationEntry*> empty;
+    auto out = mig::render_notes_json(empty,
+                                      "1.0.0\"from",
+                                      std::string("1.1.0\nto"));
+
+    REQUIRE(out.find("\"from\": \"1.0.0\\\"from\"") != std::string::npos);
+    REQUIRE(out.find("\"to\": \"1.1.0\\nto\"") != std::string::npos);
+    REQUIRE(out.find("\"entries\": []") != std::string::npos);
 }
 
 // ── Generated-code round-trip via the Python script ────────────────────────
