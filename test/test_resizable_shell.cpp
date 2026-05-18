@@ -25,6 +25,17 @@ TEST_CASE("max clamp", "[ui][resizable-shell]") {
     REQUIRE(got.height == 600);
 }
 
+TEST_CASE("negotiate reports clamped size without mutating current",
+          "[ui][resizable-shell]") {
+    ResizableShell s({.min_size = {320, 240}, .initial_size = {400, 300}});
+
+    auto got = s.negotiate({10, 10});
+    REQUIRE(got.width == 320);
+    REQUIRE(got.height == 240);
+    REQUIRE(s.current().width == 400);
+    REQUIRE(s.current().height == 300);
+}
+
 TEST_CASE("aspect lock shrinks the overgrown dimension",
           "[ui][resizable-shell]") {
     // 16:9 aspect — target ratio ≈ 1.7778
@@ -64,6 +75,9 @@ TEST_CASE("serialize + deserialize round-trip", "[ui][resizable-shell]") {
     ResizableShell s({.initial_size = {1024, 768}});
     s.apply({1000, 700});
     auto blob = s.serialize();
+
+    REQUIRE(blob == std::vector<uint8_t>{0xE8, 0x03, 0x00, 0x00,
+                                         0xBC, 0x02, 0x00, 0x00});
 
     ResizableShell other({.initial_size = {640, 480}});
     REQUIRE(other.deserialize(blob));
