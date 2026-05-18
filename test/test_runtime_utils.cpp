@@ -693,6 +693,13 @@ TEST_CASE("HTTP helpers reject malformed URL hosts and schemes",
     REQUIRE_FALSE(http_download("http://", "/tmp/pulp-url-invalid-download-656", 1));
 }
 
+TEST_CASE("HTTP helpers accept case-insensitive URL schemes during parsing",
+          "[runtime][http][url][coverage][phase3]") {
+    const auto response = http_get("HTTP://127.0.0.1:1/path", 1);
+    REQUIRE(response.status_code == 0);
+    REQUIRE(response.error != "Invalid URL");
+}
+
 // ── Text Diff ────────────────────────────────────────────────────────────
 
 TEST_CASE("text_diff handles empty inputs", "[runtime][text-diff][issue-641]") {
