@@ -689,6 +689,77 @@ TEST_CASE("ConcertinaPanel paint and mouse hit testing cover content offsets",
     REQUIRE(canvas.count(DrawCommand::Type::restore) == 2);
 }
 
+TEST_CASE("ConcertinaPanel handles null content and default content heights",
+          "[gui][concertina][coverage][phase3]") {
+    ConcertinaPanel panel;
+    panel.set_bounds({0, 0, 160, 220});
+    panel.set_header_height(18.0f);
+
+    auto fixed = std::make_unique<PanelProbeView>(32.0f);
+    auto* fixed_ptr = fixed.get();
+    panel.add_section("Empty", nullptr, true);
+    panel.add_section("Fixed", std::move(fixed), false);
+    panel.add_section("Fallback", std::make_unique<PanelProbeView>(0.0f), false);
+
+    REQUIRE(panel.header_height() == 18.0f);
+    REQUIRE(panel.is_expanded(0));
+    REQUIRE_FALSE(panel.is_expanded(1));
+    REQUIRE_FALSE(panel.is_expanded(2));
+
+    RecordingCanvas initial;
+    panel.paint(initial);
+    REQUIRE(initial.count(DrawCommand::Type::fill_text) >= 6);
+    REQUIRE(fixed_ptr->paint_count == 0);
+
+    panel.on_mouse_down({8, 124});  // after Empty's default 100px expanded area
+    REQUIRE(panel.is_expanded(1));
+    REQUIRE(fixed_ptr->visible());
+
+    panel.layout_sections();
+    REQUIRE(fixed_ptr->bounds().height == 32.0f);
+
+    RecordingCanvas expanded;
+    panel.paint(expanded);
+    REQUIRE(fixed_ptr->paint_count == 1);
+    REQUIRE(expanded.count(DrawCommand::Type::save) == 1);
+    REQUIRE(expanded.count(DrawCommand::Type::restore) == 1);
+}
+
+TEST_CASE("ConcertinaPanel exclusive expansion collapses visible content",
+          "[gui][concertina][coverage][phase3]") {
+    ConcertinaPanel panel;
+    panel.set_exclusive(true);
+
+    auto first = std::make_unique<PanelProbeView>(20.0f);
+    auto* first_ptr = first.get();
+    auto second = std::make_unique<PanelProbeView>(20.0f);
+    auto* second_ptr = second.get();
+    auto third = std::make_unique<PanelProbeView>(20.0f);
+    auto* third_ptr = third.get();
+
+    panel.add_section("First", std::move(first), true);
+    panel.add_section("Second", std::move(second), true);
+    panel.add_section("Third", std::move(third), false);
+
+    REQUIRE(panel.is_expanded(0));
+    REQUIRE(panel.is_expanded(1));
+    REQUIRE(first_ptr->visible());
+    REQUIRE(second_ptr->visible());
+    REQUIRE_FALSE(third_ptr->visible());
+
+    panel.expand(2);
+    REQUIRE_FALSE(panel.is_expanded(0));
+    REQUIRE_FALSE(panel.is_expanded(1));
+    REQUIRE(panel.is_expanded(2));
+    REQUIRE_FALSE(first_ptr->visible());
+    REQUIRE_FALSE(second_ptr->visible());
+    REQUIRE(third_ptr->visible());
+
+    panel.toggle(2);
+    REQUIRE_FALSE(panel.is_expanded(2));
+    REQUIRE_FALSE(third_ptr->visible());
+}
+
 // ── TextButton ──────────────────────────────────────────────────────────
 
 TEST_CASE("TextButton click callback", "[gui][button]") {
