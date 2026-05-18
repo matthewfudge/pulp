@@ -9033,3 +9033,26 @@ before `strtoll` and rejects `ERANGE`. Posted replies on both review threads
 with the fixing commit. REST check status: #2268 has no failures, 8 pending,
 16 successful; #2272 has no failures, 16 pending, 8 successful after the
 version-bump fix. Next action: continue REST monitoring and merge on green.
+
+2026-05-18 16:04 PDT: started the next held local-only GitHub batch
+`feature/phase3-codecov-batch-748` from current `origin/main`
+(`1e08b32e`, which includes #2269 Namespace routing config already merged;
+no Shipyard config or repo-variable changes were made here). The batch is
+currently 5 commits ahead and clean:
+`d5817da68` (`test(cli): cover inspect port bounds`) adds shellout coverage
+for numeric inspect port boundary rejection and trailing characters;
+`e526196cb` (`fix(cli): require validate report path`) fixes and covers
+`pulp validate --report` missing-value handling before project discovery;
+`227d75333` (`test(cli): cover docs multiword search`) covers docs search
+argument joining; `8e3adb6d5` (`test(cli): cover macos operator argument
+errors`) covers non-networking `pulp macos` usage/error branches; and
+`c91bf2203` (`test(cli): cover overflow argument errors`) covers
+non-mutating `pulp overflow` parser errors. Focused local validation passed:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`, repeated
+`cmake --build build --target pulp-test-cli-shellout`, targeted
+`build/test/pulp-test-cli-shellout` filters for inspect, validate/docs/macos/
+overflow, and `git diff --check`. Branch remains local-only until it grows
+into a larger 24-36 commit PR batch. Active PR poll at this point: #2268 has
+no failures, 7 pending, 17 successful; #2272 has no failures, 11 pending, 13
+successful. Next action: continue adding local batch-748 coverage and keep
+REST-monitoring #2268/#2272 to green.
