@@ -834,6 +834,19 @@ TEST_CASE("pulp macos validates local operator arguments before gh calls",
     REQUIRE(missing.stderr_output.find("Usage: pulp macos retarget")
             != std::string::npos);
 
+    auto missing_pr_value = run_pulp({"macos", "retarget", "--pr"}, 10000);
+    REQUIRE_FALSE(missing_pr_value.timed_out);
+    REQUIRE(missing_pr_value.exit_code == 2);
+    REQUIRE(missing_pr_value.stderr_output.find("--pr requires a value")
+            != std::string::npos);
+
+    auto missing_to_value = run_pulp({"macos", "retarget", "--pr", "123", "--to"},
+                                     10000);
+    REQUIRE_FALSE(missing_to_value.timed_out);
+    REQUIRE(missing_to_value.exit_code == 2);
+    REQUIRE(missing_to_value.stderr_output.find("--to requires a value")
+            != std::string::npos);
+
     auto invalid_runner = run_pulp({"macos", "retarget", "--pr", "123", "--to", "mars"},
                                    10000);
     REQUIRE_FALSE(invalid_runner.timed_out);
@@ -845,6 +858,12 @@ TEST_CASE("pulp macos validates local operator arguments before gh calls",
     REQUIRE_FALSE(status_unknown.timed_out);
     REQUIRE(status_unknown.exit_code == 1);
     REQUIRE(status_unknown.stderr_output.find("unknown arg '--surprise'")
+            != std::string::npos);
+
+    auto status_missing_pr = run_pulp({"macos", "status", "--pr"}, 10000);
+    REQUIRE_FALSE(status_missing_pr.timed_out);
+    REQUIRE(status_missing_pr.exit_code == 2);
+    REQUIRE(status_missing_pr.stderr_output.find("--pr requires a value")
             != std::string::npos);
 }
 
@@ -880,6 +899,19 @@ TEST_CASE("pulp overflow validates non-mutating operator arguments",
     REQUIRE_FALSE(threshold_bad.timed_out);
     REQUIRE(threshold_bad.exit_code == 1);
     REQUIRE(threshold_bad.stderr_output.find("is not a number") != std::string::npos);
+
+    auto enable_missing_to = run_pulp({"overflow", "enable", "--to"}, 10000);
+    REQUIRE_FALSE(enable_missing_to.timed_out);
+    REQUIRE(enable_missing_to.exit_code == 2);
+    REQUIRE(enable_missing_to.stderr_output.find("--to requires a value")
+            != std::string::npos);
+
+    auto enable_flag_value = run_pulp({"overflow", "enable", "--to", "--flag"},
+                                      10000);
+    REQUIRE_FALSE(enable_flag_value.timed_out);
+    REQUIRE(enable_flag_value.exit_code == 2);
+    REQUIRE(enable_flag_value.stderr_output.find("--to requires a value")
+            != std::string::npos);
 }
 
 TEST_CASE("pulp inspect help and no-discovery paths are deterministic",
