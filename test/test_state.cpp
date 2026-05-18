@@ -576,3 +576,26 @@ TEST_CASE("StateStore serializes custom state version",
     REQUIRE(target.deserialize(data));
     REQUIRE_THAT(target.get_value(42), WithinAbs(64.0, 0.001));
 }
+
+TEST_CASE("StateStore reset_all_to_defaults notifies in registration order",
+          "[state][listener][coverage][phase3-large]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {-60.0f, 12.0f, 0.0f}));
+    store.add_parameter(make_param_info(2, "Mix", "", {0.0f, 100.0f, 50.0f}));
+    store.set_value(1, -12.0f);
+    store.set_value(2, 75.0f);
+
+    std::vector<ParamID> ids;
+    std::vector<float> values;
+    store.add_listener([&](ParamID id, float value) {
+        ids.push_back(id);
+        values.push_back(value);
+    });
+
+    store.reset_all_to_defaults();
+
+    REQUIRE(ids == std::vector<ParamID>{1, 2});
+    REQUIRE(values.size() == 2);
+    REQUIRE_THAT(values[0], WithinAbs(0.0, 0.001));
+    REQUIRE_THAT(values[1], WithinAbs(50.0, 0.001));
+}
