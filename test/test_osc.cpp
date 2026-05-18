@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/osc/bundle.hpp>
 #include <pulp/osc/osc.hpp>
 #include <thread>
 #include <chrono>
@@ -647,4 +648,72 @@ TEST_CASE("OSC Receiver accepts an empty handler and stops cleanly",
     REQUIRE(rx.is_listening());
     rx.stop();
     REQUIRE_FALSE(rx.is_listening());
+}
+
+// ── Bundles and address patterns ────────────────────────────────────────────
+
+TEST_CASE("OSC bundle serializes and restores nested messages and bundles",
+          "[osc][bundle][codecov]") {
+    Bundle nested;
+    Message nested_msg("/nested");
+    nested_msg.add(std::string("ok"));
+    nested.add(std::move(nested_msg));
+
+    Bundle bundle;
+    bundle.timetag = TimeTag::from_unix(1'700'000'000.25);
+    Message root_msg("/root");
+    root_msg.add(17);
+    bundle.add(std::move(root_msg));
+    bundle.add(std::move(nested));
+
+    auto data = bundle.serialize();
+    auto decoded = Bundle::deserialize(data.data(), data.size());
+
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->timetag == bundle.timetag);
+    REQUIRE(decoded->elements.size() == 2);
+    REQUIRE(decoded->elements[0].is_message());
+    REQUIRE(decoded->elements[0].message().address == "/root");
+    REQUIRE(decoded->elements[0].message().get_int(0) == 17);
+    REQUIRE(decoded->elements[1].is_bundle());
+    REQUIRE(decoded->elements[1].bundle().elements.size() == 1);
+    REQUIRE(decoded->elements[1].bundle().elements[0].message().address == "/nested");
+    REQUIRE(decoded->elements[1].bundle().elements[0].message().get_string(0) == "ok");
+}
+
+TEST_CASE("OSC bundle rejects malformed element boundaries",
+          "[osc][bundle][codecov]") {
+    Bundle bundle;
+    Message msg("/one");
+    msg.add(1);
+    bundle.add(std::move(msg));
+
+    auto data = bundle.serialize();
+    REQUIRE(Bundle::deserialize(nullptr, 0) == std::nullopt);
+
+    auto truncated = data;
+    truncated.pop_back();
+    REQUIRE(Bundle::deserialize(truncated.data(), truncated.size()) == std::nullopt);
+
+    auto oversized = data;
+    oversized[16] = 0x7F;
+    REQUIRE(Bundle::deserialize(oversized.data(), oversized.size()) == std::nullopt);
+
+    std::vector<uint8_t> bad_header(16, 0);
+    REQUIRE(Bundle::deserialize(bad_header.data(), bad_header.size()) == std::nullopt);
+}
+
+TEST_CASE("OSC address pattern rejects incomplete classes and alternatives",
+          "[osc][pattern][codecov]") {
+    REQUIRE(address_matches("/note/[0-9]", "/note/7"));
+    REQUIRE(address_matches("/note/[!0-3]", "/note/8"));
+    REQUIRE_FALSE(address_matches("/note/[!0-3]", "/note/2"));
+    REQUIRE_FALSE(address_matches("/note/[0-9", "/note/7"));
+
+    REQUIRE(address_matches("/voice/{lead,bass}", "/voice/bass"));
+    REQUIRE_FALSE(address_matches("/voice/{lead,bass", "/voice/bass"));
+    REQUIRE_FALSE(address_matches("/voice/{lead,bass}", "/voice/pad"));
+
+    REQUIRE(address_matches("/track/?", "/track/A"));
+    REQUIRE_FALSE(address_matches("/track/?", "/track//"));
 }
