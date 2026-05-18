@@ -433,6 +433,23 @@ TEST_CASE("pulp status reports effective PR workflow",
     REQUIRE(r.stdout_output.find("Shipyard tracking: disabled by pr.workflow=manual") != std::string::npos);
 }
 
+TEST_CASE("pulp status and clean reject unexpected arguments before side effects",
+          "[cli][shellout][misc][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto status_extra = run_pulp({"status", "extra"});
+    REQUIRE_FALSE(status_extra.timed_out);
+    REQUIRE(status_extra.exit_code == 2);
+    REQUIRE(status_extra.stderr_output.find("Unexpected status argument") !=
+            std::string::npos);
+
+    auto clean_extra = run_pulp({"clean", "extra"});
+    REQUIRE_FALSE(clean_extra.timed_out);
+    REQUIRE(clean_extra.exit_code == 2);
+    REQUIRE(clean_extra.stderr_output.find("Unexpected clean argument") !=
+            std::string::npos);
+}
+
 TEST_CASE("pulp status reports invalid and github PR workflow modes",
           "[cli][shellout][pr-workflow]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }

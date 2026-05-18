@@ -110,7 +110,12 @@ int cmd_test(const std::vector<std::string>& args) {
 
 // ── cmd_status ──────────────────────────────────────────────────────────────
 
-int cmd_status([[maybe_unused]] const std::vector<std::string>& args) {
+int cmd_status(const std::vector<std::string>& args) {
+    if (!args.empty()) {
+        std::cerr << "Unexpected status argument: " << args[0] << "\n";
+        return 2;
+    }
+
     bool standalone_mode = false;
     auto root = resolve_active_project_root(&standalone_mode);
     if (root.empty()) {
@@ -213,7 +218,12 @@ int cmd_status([[maybe_unused]] const std::vector<std::string>& args) {
 
 // ── cmd_clean ───────────────────────────────────────────────────────────────
 
-int cmd_clean([[maybe_unused]] const std::vector<std::string>& args) {
+int cmd_clean(const std::vector<std::string>& args) {
+    if (!args.empty()) {
+        std::cerr << "Unexpected clean argument: " << args[0] << "\n";
+        return 2;
+    }
+
     auto root = resolve_active_project_root(nullptr);
     if (root.empty()) {
         std::cerr << "Error: not in a Pulp project directory\n";
