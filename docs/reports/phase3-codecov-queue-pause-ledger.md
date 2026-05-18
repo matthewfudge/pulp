@@ -7465,6 +7465,17 @@ registry-generation preservation. Validation passed locally: rebuilt
 assertions), and `git diff --check` passed. Still held locally for the next
 large batch PR.
 
+2026-05-18 00:03 PDT: added a fifth local-only font/canvas tranche to
+`feature/phase3-codecov-batch-728`: commit `52cff6992`
+(`test(canvas): cover text planner cache edges`). It extends
+`pulp-test-font-options` over empty-text shaping, cache-hit parity,
+`clear_cache()` behavior, and ASCII space/tab/newline soft/hard break
+ordering in `TextRunPlanner`. Validation passed locally: rebuilt
+`pulp-test-font-options`, ran
+`./build/test/pulp-test-font-options "[canvas][font]"` (11 cases / 119
+assertions), and `git diff --check` passed. Still held locally for the next
+large batch PR.
+
 2026-05-18 00:00 PDT: added a fourth local-only font/canvas tranche to
 `feature/phase3-codecov-batch-728`: commit `556382a76`
 (`test(canvas): cover font registry stubs`). It extends
