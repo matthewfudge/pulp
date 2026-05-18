@@ -205,6 +205,26 @@ TEST_CASE("WaveformEditor regions", "[view][waveform_editor]") {
     REQUIRE(editor.regions().empty());
 }
 
+TEST_CASE("WaveformRegion length reflects exclusive end sample",
+          "[view][waveform_editor][coverage][phase3-batch]") {
+    WaveformRegion region{120, 360, "Loop"};
+    REQUIRE(region.length() == 240);
+
+    WaveformRegion reversed{360, 120, "Reverse marker"};
+    REQUIRE(reversed.length() == -240);
+}
+
+TEST_CASE("WaveformEditor paint is empty without audio data",
+          "[view][waveform_editor][coverage][phase3-batch]") {
+    WaveformEditor editor;
+    editor.set_bounds({0, 0, 400, 150});
+
+    RecordingCanvas canvas;
+    editor.paint(canvas);
+
+    REQUIRE(canvas.commands().empty());
+}
+
 TEST_CASE("WaveformEditor paint produces draw commands", "[view][waveform_editor]") {
     WaveformEditor editor;
     auto data = make_sine(1000);
@@ -273,6 +293,27 @@ TEST_CASE("WaveformEditor key scrolls and release events are ignored", "[view][w
     left.key = KeyCode::left;
     REQUIRE(editor.on_key_event(left));
     REQUIRE(editor.visible_start() == 200);
+}
+
+TEST_CASE("WaveformEditor key Cmd+0 zooms to fit",
+          "[view][waveform_editor][coverage][phase3-batch]") {
+    WaveformEditor editor;
+    auto data = make_sine(1000);
+    editor.set_audio_data(data.data(), 1000, 44100.0f);
+    editor.set_visible_range(200, 200);
+
+    KeyEvent reset;
+    reset.key = KeyCode::num0;
+#ifdef __APPLE__
+    reset.modifiers = kModCmd;
+#else
+    reset.modifiers = kModCtrl;
+#endif
+    reset.is_down = true;
+
+    REQUIRE(editor.on_key_event(reset));
+    REQUIRE(editor.visible_start() == 0);
+    REQUIRE(editor.visible_length() == 1000);
 }
 
 TEST_CASE("WaveformEditor mouse click and shift extend selection", "[view][waveform_editor]") {
