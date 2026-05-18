@@ -428,3 +428,26 @@ TEST_CASE("MidiKeyboardState retrigger updates velocity without duplicating held
     REQUIRE(keys.velocity(0, 60) == 120);
     REQUIRE(on_count == 2);
 }
+
+TEST_CASE("MidiKeyboardState tracks note range boundaries",
+          "[midi][keyboard][coverage]") {
+    MidiKeyboardState keys;
+
+    keys.process(MidiEvent::note_on(15, 0, 1));
+    keys.process(MidiEvent::note_on(15, 127, 127));
+
+    REQUIRE(keys.is_note_on(15, 0));
+    REQUIRE(keys.is_note_on(15, 127));
+    REQUIRE(keys.velocity(15, 0) == 1);
+    REQUIRE(keys.velocity(15, 127) == 127);
+    REQUIRE(keys.lowest_note(15) == 0);
+    REQUIRE(keys.highest_note(15) == 127);
+    REQUIRE(keys.notes_held(15) == 2);
+
+    keys.process(MidiEvent::note_off(15, 0));
+    keys.process(MidiEvent::note_off(15, 127));
+
+    REQUIRE_FALSE(keys.any_notes_held());
+    REQUIRE(keys.lowest_note(15) == -1);
+    REQUIRE(keys.highest_note(15) == -1);
+}
