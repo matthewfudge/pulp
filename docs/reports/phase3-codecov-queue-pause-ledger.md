@@ -8598,3 +8598,29 @@ test binaries, direct execution of all 22 touched test binaries with
 `PULP_SKIP_PREPUSH=1`; #2252 was opened through the GitHub REST API because the
 session's GraphQL quota is exhausted. GitHub-hosted CI is the intended
 validation source. No Namespace dispatch.
+
+2026-05-18 12:38 PDT: pushed and opened the next GitHub-only coverage batch
+`feature/phase3-codecov-github-batch-744` as #2256
+(`test: batch phase3 coverage view runtime cli edges`). The branch is 28
+commits ahead of current `origin/main` after a clean rebase and batches
+deterministic phase 3 coverage across view/theme/window/widget behavior,
+runtime JSON-RPC, async stream, BigInteger, and analytics edges, plus CLI
+run/update/version/project-bump parsing and JSON rendering paths. Focused local
+validation passed after rebase: `git diff --check`,
+`version_bump_check.py --mode=report --require-bump-for-fix-feat`, and direct
+macOS build/execution of 24 touched test binaries: `pulp-test-theme`,
+`pulp-test-window-manager`, `pulp-test-theme-contrast`,
+`pulp-test-asset-manager`, `pulp-test-appearance`,
+`pulp-test-motion-preferences`, `pulp-test-image-view-cache`,
+`pulp-test-tree-view`, `pulp-test-view-layout-widgets`,
+`pulp-test-gui-components`, `pulp-test-ab-compare`,
+`pulp-test-param-attachment`, `pulp-test-table-list-box`,
+`pulp-test-ui-components`, `pulp-test-json-rpc`, `pulp-test-async-stream`,
+`pulp-test-license`, `pulp-test-analytics`, `pulp-test-cli-run-options`,
+`pulp-test-cli-update-mode`, `pulp-test-cli-update-check`,
+`pulp-test-cli-sdk-tarball-filename`, `pulp-test-cli-project-bump`, and
+`pulp-test-cli-version-diag`. The branch was pushed with
+`PULP_SKIP_PREPUSH=1`; #2256 was opened and labeled `codecov` through the
+GitHub REST API because the session's GraphQL quota is exhausted. Initial CI
+state was 20 pending checks, 0 failures. GitHub-hosted CI is the intended
+validation source. No Namespace dispatch.
