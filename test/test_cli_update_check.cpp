@@ -155,6 +155,25 @@ TEST_CASE("write_cache_file + read_cache_file atomically round-trip",
     fs::remove_all(dir);
 }
 
+TEST_CASE("write_cache_file creates parents and reports blocked parent paths",
+          "[cli][update-check][codecov]") {
+    auto dir = make_tmpdir("write-cache-parents");
+
+    uc::CacheEntry entry;
+    entry.latest_version = "1.2.3";
+
+    auto nested = dir / "nested" / "cache" / "update-cache.json";
+    REQUIRE(uc::write_cache_file(nested, entry));
+    REQUIRE(fs::exists(nested));
+    REQUIRE(uc::read_cache_file(nested)->latest_version == "1.2.3");
+
+    auto blocker = dir / "blocker";
+    std::ofstream(blocker) << "not-a-dir";
+    REQUIRE_FALSE(uc::write_cache_file(blocker / "update-cache.json", entry));
+
+    fs::remove_all(dir);
+}
+
 TEST_CASE("read_cache_file returns nullopt only for missing files",
           "[cli][update-check][issue-547]") {
     auto dir = make_tmpdir("missing");
@@ -423,6 +442,18 @@ TEST_CASE("read_toml_key_in_section handles bare values and section boundaries",
     REQUIRE(uc::read_toml_key_in_section(src, "other", "mode") == "off");
     REQUIRE(uc::read_toml_key_in_section(src, "missing", "mode").empty());
     REQUIRE(uc::read_toml_key_in_section(src, "update", "interval").empty());
+}
+
+TEST_CASE("read_toml_key_in_section does not match substring keys",
+          "[cli][update-check][codecov]") {
+    std::string src =
+        "[update]\n"
+        "mode_name = \"auto\"\n"
+        "my_mode = \"off\"\n"
+        "mode = \"manual\"\n";
+
+    REQUIRE(uc::read_toml_key_in_section(src, "update", "mode") == "manual");
+    REQUIRE(uc::read_toml_key_in_section(src, "update", "mode_name") == "auto");
 }
 
 // ── Fetcher injection ───────────────────────────────────────────────────────
