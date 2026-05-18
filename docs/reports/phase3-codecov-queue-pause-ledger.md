@@ -8519,3 +8519,13 @@ GitHub-hosted CI is the intended validation source. GraphQL remains unreliable
 /rate-limited in this session, so #2232 was opened and labeled `codecov`
 through the GitHub REST API. Auto-merge still needs to be enabled once GraphQL
 quota is usable, or merged manually on green. No Namespace dispatch.
+
+2026-05-18 10:20 PDT: addressed the Codex review finding on #2222
+(`feature/phase3-codecov-batch-734`). `Buffer` move construction and move
+assignment now omit `noexcept` because refreshing moved channel pointers can
+resize the pointer table and therefore allocate; allocation failure should
+propagate instead of terminating. Local validation passed in the #2222 worktree:
+`cmake --build build --target pulp-test-audio`, `./build/test/pulp-test-audio`,
+and `git diff --check`. Commit `144250f04` was pushed with
+`PULP_SKIP_PREPUSH=1` to avoid local clean-coverage dispatch; GitHub-hosted CI
+restarted for #2222. No Namespace dispatch.
