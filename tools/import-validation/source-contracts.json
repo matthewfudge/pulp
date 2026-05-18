@@ -161,11 +161,13 @@
         "roundtrip_script": "tools/import-validation/stitch-roundtrip.sh",
         "test_targets": [
           "pulp-test-design-import",
-          "pulp-test-widget-bridge"
+          "pulp-test-widget-bridge",
+          "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
           "test/test_design_import.cpp",
-          "test/test_widget_bridge.cpp"
+          "test/test_widget_bridge.cpp",
+          "test/test_widget_bridge_runtime_import.cpp"
         ],
         "test_tags": [
           "[view][import][parser][stitch][phase-6.6.4]",
@@ -326,11 +328,13 @@
         "roundtrip_script": "tools/import-validation/pencil-roundtrip.sh",
         "test_targets": [
           "pulp-test-design-import",
-          "pulp-test-widget-bridge"
+          "pulp-test-widget-bridge",
+          "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
           "test/test_design_import.cpp",
-          "test/test_widget_bridge.cpp"
+          "test/test_widget_bridge.cpp",
+          "test/test_widget_bridge_runtime_import.cpp"
         ],
         "test_tags": [
           "[view][import][parser][pencil][phase-6.6.6]",
@@ -420,11 +424,13 @@
         "roundtrip_script": "tools/import-validation/figma-roundtrip.sh",
         "test_targets": [
           "pulp-test-design-import",
-          "pulp-test-widget-bridge"
+          "pulp-test-widget-bridge",
+          "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
           "test/test_design_import.cpp",
-          "test/test_widget_bridge.cpp"
+          "test/test_widget_bridge.cpp",
+          "test/test_widget_bridge_runtime_import.cpp"
         ],
         "test_tags": [
           "[view][import][parser][figma][phase-6.6.3]",
@@ -507,11 +513,13 @@
         "roundtrip_script": "tools/import-validation/v0-roundtrip.sh",
         "test_targets": [
           "pulp-test-design-import",
-          "pulp-test-widget-bridge"
+          "pulp-test-widget-bridge",
+          "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
           "test/test_design_import.cpp",
-          "test/test_widget_bridge.cpp"
+          "test/test_widget_bridge.cpp",
+          "test/test_widget_bridge_runtime_import.cpp"
         ],
         "test_tags": [
           "[view][import][parser][v0][phase-6.6.2]",
@@ -593,11 +601,13 @@
         "roundtrip_script": "tools/import-validation/rn-roundtrip.sh",
         "test_targets": [
           "pulp-test-design-import",
-          "pulp-test-widget-bridge"
+          "pulp-test-widget-bridge",
+          "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
           "test/test_design_import.cpp",
-          "test/test_widget_bridge.cpp"
+          "test/test_widget_bridge.cpp",
+          "test/test_widget_bridge_runtime_import.cpp"
         ],
         "test_tags": [
           "[view][import][parser][rn][phase-6.6.5]",

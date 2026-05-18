@@ -129,6 +129,17 @@ Provider MCP lanes are input-acquisition lanes only unless the source contract
 explicitly says otherwise. Current runtime parsers reject raw Figma/Stitch/Pencil
 MCP JSON and accept only their constrained exported artifacts.
 
+**Where the `runtime-import-dispatch` tests live (2026-05-17 P5-1 split):**
+the `WidgetBridge::install_runtime_import_handlers` tests for Figma /
+Stitch / v0 / Pencil / RN were moved out of `test/test_widget_bridge.cpp`
+into a sibling `test/test_widget_bridge_runtime_import.cpp` so the 14k-line
+god-test file can shrink toward per-surface modules. Both files are
+listed in `source-contracts.json`'s per-source `test_files` arrays, and
+both targets (`pulp-test-widget-bridge` and
+`pulp-test-widget-bridge-runtime-import`) are registered in
+`test_targets`. When adding a new runtime-import dispatch test, place
+it in the runtime-import sibling — keeping the parent file shrinking.
+
 ### Step 3: Translate to Pulp code
 
 Use the appropriate mapping document as your translation reference:

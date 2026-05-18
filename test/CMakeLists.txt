@@ -1756,6 +1756,13 @@ add_executable(pulp-test-widget-bridge test_widget_bridge.cpp)
 target_link_libraries(pulp-test-widget-bridge PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-widget-bridge)
 
+# Widget bridge — runtime-import handlers (pulp #468 follow-up).
+# Split out of test_widget_bridge.cpp in the Phase 5 P5-1 first cut so
+# the 14k-line god-test file shrinks toward per-surface modules.
+add_executable(pulp-test-widget-bridge-runtime-import test_widget_bridge_runtime_import.cpp)
+target_link_libraries(pulp-test-widget-bridge-runtime-import PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-widget-bridge-runtime-import)
+
 # Autonomous Spectr regression suite (pulp-internal task #63, follow-up to
 # pulp #1792). Composes the six [contract] invariants from
 # test_widget_bridge.cpp into a Spectr-shaped mini-scenario so a future
