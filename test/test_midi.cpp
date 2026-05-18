@@ -616,6 +616,27 @@ TEST_CASE("UmpBuffer and MidiBuffer bridge preserve order and offsets",
     REQUIRE(ump.empty());
 }
 
+TEST_CASE("MidiBuffer UMP sidecar pointer can be replaced and detached",
+          "[midi][ump][buffer][coverage]") {
+    MidiBuffer midi;
+    UmpBuffer first;
+    UmpBuffer second;
+
+    REQUIRE(midi.ump() == nullptr);
+
+    midi.attach_ump(&first);
+    REQUIRE(midi.ump() == &first);
+    const auto& const_midi = midi;
+    REQUIRE(const_midi.ump() == &first);
+
+    midi.attach_ump(&second);
+    REQUIRE(midi.ump() == &second);
+
+    midi.attach_ump(nullptr);
+    REQUIRE(midi.ump() == nullptr);
+    REQUIRE(const_midi.ump() == nullptr);
+}
+
 TEST_CASE("UmpBuffer flatten skips packets without MIDI 1.0 equivalents",
           "[midi][ump][buffer][codecov]") {
     UmpBuffer ump;
