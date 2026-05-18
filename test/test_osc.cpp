@@ -516,6 +516,22 @@ TEST_CASE("OSC encode is deterministic for identical messages",
     REQUIRE(a == b);
 }
 
+TEST_CASE("OSC encode preserves moved string and blob arguments",
+          "[osc][codec][coverage][phase3-github]") {
+    std::string label = "moved-label";
+    std::vector<uint8_t> payload{0x10, 0x20, 0x30, 0x40};
+
+    Message msg("/move");
+    msg.add(std::move(label)).add(std::move(payload));
+
+    auto data = encode(msg);
+    auto decoded = decode(data.data(), data.size());
+    REQUIRE(decoded.address == "/move");
+    REQUIRE(decoded.get_string(0) == "moved-label");
+    REQUIRE(std::get<std::vector<uint8_t>>(decoded.args[1])
+            == std::vector<uint8_t>{0x10, 0x20, 0x30, 0x40});
+}
+
 TEST_CASE("OSC encode output stays 4-byte aligned for odd-length strings",
           "[osc][codec][alignment]") {
     // Address length 5 ("/a/bc") + null = 6, padded to 8.
