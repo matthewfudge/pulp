@@ -8050,3 +8050,20 @@ ahead and still intentionally held for a larger PR. Focused validation passed
 `pulp-test-wam-wclap` (62 assertions / 14 cases) and `git diff --check`.
 #2173 and #2202 still have no failing checks at this ledger update and remain
 waiting on GitHub-hosted queued/running lanes.
+
+2026-05-18 04:07 PDT: #2208's first repair push (`dba9aa64b`) passed focused
+local tests but failed GitHub's `Enforce version & skill sync` gate on
+compat-sync trailers for `core/view/src/widget_bridge.cpp`. Amended the same
+repair commit to `86e64118d` with contiguous `Compat-Update: skip` trailers
+for canvas2d/css/imports/react/rn/yoga, reran local
+`python3 tools/scripts/compat_sync_check.py --base origin/main --mode=report
+--enforce` successfully, and force-pushed the corrected head. GitHub checks
+restarted; no Namespace dispatch.
+
+Continued held batch `feature/phase3-codecov-batch-730`, now 12 local commits
+ahead and still held for a larger PR. New local-only commits: `e3e67446c`
+(`test(view): cover app framework edge paths`) and `2ebd0f3b7` (`test(midi):
+cover midi file error paths`). Focused validation passed
+`pulp-test-app-framework` app-framework/keymapping cases,
+`pulp-test-midi-file "midi file helpers report missing and unwritable paths"`,
+and `git diff --check`.
