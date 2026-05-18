@@ -54,6 +54,11 @@ void write_file(const fs::path& path, const std::string& body) {
     out << body;
 }
 
+void write_file_create_parent(const fs::path& path, const std::string& body) {
+    fs::create_directories(path.parent_path());
+    write_file(path, body);
+}
+
 std::string read_file(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(in),
@@ -95,6 +100,86 @@ TEST_CASE("upgrade install copies sibling payloads before self replacement",
 
     fs::remove_all(extracted);
     fs::remove_all(install);
+}
+
+TEST_CASE("upgrade install skips directories, primary binary, and downloaded archive",
+          "[cli][upgrade][coverage][issue-643]") {
+    auto extracted = make_tmpdir("skip");
+    auto install = make_tmpdir("skip-install");
+
+    auto primary = extracted / ui::primary_binary_name();
+    auto archive = extracted / "pulp-test.tar.gz";
+    auto readme = extracted / "README.txt";
+    auto nested = extracted / "nested";
+
+    write_file(primary, "primary");
+    write_file(archive, "archive");
+    write_file(readme, "readme");
+    fs::create_directories(nested);
+    write_file_create_parent(nested / "ignored.txt", "ignored");
+
+    auto installed = ui::install_sibling_payloads(extracted, install, primary, archive);
+
+    REQUIRE(installed.size() == 1);
+    REQUIRE(installed[0].filename() == "README.txt");
+    REQUIRE(read_file(install / "README.txt") == "readme");
+    REQUIRE_FALSE(fs::exists(install / primary.filename()));
+    REQUIRE_FALSE(fs::exists(install / archive.filename()));
+    REQUIRE_FALSE(fs::exists(install / "nested"));
+
+    fs::remove_all(extracted);
+    fs::remove_all(install);
+}
+
+TEST_CASE("upgrade install detects cpp delegate only by exact filename",
+          "[cli][upgrade][coverage][issue-643]") {
+    REQUIRE(ui::installed_cpp_delegate({fs::path{"bin"} / ui::cpp_binary_name()}));
+    REQUIRE_FALSE(ui::installed_cpp_delegate({fs::path{"bin"} / "pulp-cpp-helper"}));
+    REQUIRE_FALSE(ui::installed_cpp_delegate({}));
+}
+
+TEST_CASE("upgrade install same_path falls back to lexical normalization",
+          "[cli][upgrade][coverage][issue-643]") {
+    auto root = make_tmpdir("same-path");
+    auto path = root / "a" / ".." / "artifact";
+    auto normalized = root / "artifact";
+
+    REQUIRE(ui::same_path(path, normalized));
+    REQUIRE_FALSE(ui::same_path(root / "artifact-one", root / "artifact-two"));
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("upgrade install executable permission policy covers binary names and source bits",
+          "[cli][upgrade][coverage][issue-643]") {
+    auto root = make_tmpdir("perms");
+    auto primary = root / ui::primary_binary_name();
+    auto cpp = root / ui::cpp_binary_name();
+    auto plain = root / "plain.txt";
+    auto executable = root / "helper";
+
+    write_file(primary, "primary");
+    write_file(cpp, "cpp");
+    write_file(plain, "plain");
+    write_file(executable, "helper");
+
+    REQUIRE(ui::should_add_exec_permissions(primary));
+    REQUIRE(ui::should_add_exec_permissions(cpp));
+
+#ifndef _WIN32
+    REQUIRE_FALSE(ui::should_add_exec_permissions(plain));
+    fs::permissions(executable, fs::perms::owner_exec, fs::perm_options::add);
+    REQUIRE(ui::has_any_exec_bit(executable));
+    REQUIRE(ui::should_add_exec_permissions(executable));
+
+    ui::add_exec_permissions(plain);
+    REQUIRE(ui::has_any_exec_bit(plain));
+#else
+    REQUIRE_FALSE(ui::should_add_exec_permissions(plain));
+    REQUIRE_FALSE(ui::has_any_exec_bit(executable));
+#endif
+
+    fs::remove_all(root);
 }
 
 TEST_CASE("upgrade install tolerates archives without a cpp delegate",
