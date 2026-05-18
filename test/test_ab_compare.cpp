@@ -91,24 +91,60 @@ TEST_CASE("ABCompare: clear + snapshot access", "[ui][ab-compare]") {
     REQUIRE(ab.snapshot(ABCompare::Slot::A).size() == 0);
 }
 
-TEST_CASE("ABCompare: null store and same-slot copy are no-ops",
+TEST_CASE("ABCompare: null store operations fail closed",
           "[ui][ab-compare][coverage][phase3]") {
-    ABCompare null_ab(nullptr);
-    null_ab.save_to(ABCompare::Slot::A);
-    REQUIRE_FALSE(null_ab.has(ABCompare::Slot::A));
-    REQUIRE_FALSE(null_ab.load_from(ABCompare::Slot::A));
-    REQUIRE_FALSE(null_ab.toggle());
-    REQUIRE(null_ab.current() == ABCompare::Slot::A);
+    ABCompare ab(nullptr);
 
+    REQUIRE(ab.current() == ABCompare::Slot::A);
+    REQUIRE_FALSE(ab.has(ABCompare::Slot::A));
+    REQUIRE_FALSE(ab.has(ABCompare::Slot::B));
+
+    ab.save_to(ABCompare::Slot::A);
+    REQUIRE_FALSE(ab.has(ABCompare::Slot::A));
+    REQUIRE_FALSE(ab.load_from(ABCompare::Slot::A));
+    REQUIRE_FALSE(ab.toggle());
+
+    ab.copy(ABCompare::Slot::A, ABCompare::Slot::B);
+    ab.swap();
+    ab.clear(ABCompare::Slot::B);
+    REQUIRE(ab.snapshot(ABCompare::Slot::B).empty());
+}
+
+TEST_CASE("ABCompare: copy to same slot leaves snapshot unchanged",
+          "[ui][ab-compare][coverage][phase3]") {
     state::StateStore store;
     populate(store);
     ABCompare ab(&store);
-    store.set_value(1, 4.0f);
-    ab.save_to(ABCompare::Slot::A);
-    auto before_size = ab.snapshot(ABCompare::Slot::A).size();
 
+    store.set_value(1, 2.0f);
+    ab.save_to(ABCompare::Slot::A);
+    auto before = std::vector<uint8_t>(ab.snapshot(ABCompare::Slot::A).begin(),
+                                       ab.snapshot(ABCompare::Slot::A).end());
+
+    store.set_value(1, 9.0f);
     ab.copy(ABCompare::Slot::A, ABCompare::Slot::A);
+
+    REQUIRE(ab.has(ABCompare::Slot::A));
+    REQUIRE(std::vector<uint8_t>(ab.snapshot(ABCompare::Slot::A).begin(),
+                                 ab.snapshot(ABCompare::Slot::A).end()) == before);
+    REQUIRE(ab.load_from(ABCompare::Slot::A));
+    REQUIRE(store.get_value(1) == 2.0f);
+}
+
+TEST_CASE("ABCompare: swapping empty and populated slots moves availability",
+          "[ui][ab-compare][coverage][phase3]") {
+    state::StateStore store;
+    populate(store);
+    ABCompare ab(&store);
+
+    store.set_value(2, 0.9f);
+    ab.save_to(ABCompare::Slot::A);
     REQUIRE(ab.has(ABCompare::Slot::A));
     REQUIRE_FALSE(ab.has(ABCompare::Slot::B));
-    REQUIRE(ab.snapshot(ABCompare::Slot::A).size() == before_size);
+
+    ab.swap();
+    REQUIRE_FALSE(ab.has(ABCompare::Slot::A));
+    REQUIRE(ab.has(ABCompare::Slot::B));
+    REQUIRE(ab.load_from(ABCompare::Slot::B));
+    REQUIRE(store.get_value(2) == 0.9f);
 }
