@@ -1180,3 +1180,15 @@ TEST_CASE("DoubleRange empty constrain returns start",
     REQUIRE_THAT(empty.constrain(-100.0), Catch::Matchers::WithinAbs(4.5, 1e-12));
     REQUIRE_THAT(empty.constrain(100.0), Catch::Matchers::WithinAbs(4.5, 1e-12));
 }
+
+TEST_CASE("Range expanded covers negative fractional values",
+          "[runtime][range][coverage][phase3-github]") {
+    DoubleRange empty(2.0, 2.0);
+    auto seeded = empty.expanded(-1.5);
+    REQUIRE_THAT(seeded.start, Catch::Matchers::WithinAbs(-1.5, 1e-12));
+    REQUIRE_THAT(seeded.end, Catch::Matchers::WithinAbs(-0.5, 1e-12));
+
+    auto expanded = DoubleRange(-2.0, -1.0).expanded(-3.25);
+    REQUIRE_THAT(expanded.start, Catch::Matchers::WithinAbs(-3.25, 1e-12));
+    REQUIRE_THAT(expanded.end, Catch::Matchers::WithinAbs(-1.0, 1e-12));
+}
