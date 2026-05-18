@@ -63,6 +63,14 @@ TEST_CASE("json parser: unicode escapes advance and use placeholder text",
     CHECK(value.get("after")->as_string() == "ok");
 }
 
+TEST_CASE("json parser: short unicode escapes still advance safely",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json(R"({"symbol":"A\u12"})");
+    auto* symbol = value.get("symbol");
+    REQUIRE(symbol != nullptr);
+    CHECK(symbol->as_string() == "A?");
+}
+
 TEST_CASE("json parser: unknown escapes preserve the escaped character",
           "[cli][json-parser][coverage][phase3-large]") {
     auto value = parse_json(R"({"s":"prefix\q\/suffix"})");
@@ -223,4 +231,21 @@ TEST_CASE("json parser: empty input becomes a zero-valued number",
     auto value = parse_json("");
     CHECK(value.type == json::JsonValue::Number);
     CHECK(value.as_int() == 0);
+}
+
+TEST_CASE("json parser: lenient object and array delimiter recovery is stable",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto object = parse_json(R"({"a":1 "b":2})");
+    REQUIRE(object.type == json::JsonValue::Object);
+    REQUIRE(object.get("a") != nullptr);
+    REQUIRE(object.get("b") != nullptr);
+    CHECK(object.get("a")->as_int() == 1);
+    CHECK(object.get("b")->as_int() == 2);
+
+    auto array = parse_json(R"([1 2 true])");
+    REQUIRE(array.type == json::JsonValue::Array);
+    REQUIRE(array.arr().size() == 3);
+    CHECK(array.arr()[0].as_int() == 1);
+    CHECK(array.arr()[1].as_int() == 2);
+    CHECK(array.arr()[2].as_bool());
 }
