@@ -1757,6 +1757,15 @@ pulp_add_test_suite(pulp-test-widget-bridge-runtime-import LIBRARIES pulp::view)
 # #1901 4-arg canvasFillText prior-state preservation.
 pulp_add_test_suite(pulp-test-widget-bridge-canvas2d LIBRARIES pulp::view)
 
+# Widget bridge — Yoga layer (P5-1 follow-up). Three coherent clusters:
+# (1) pulp #1434 rn-batch-C dimension percent strings (width/height +
+# min/max via Yoga's percent API), (2) pulp #1545 flexBasis%
+# promotion (basis "NN%" + "flex 1 1 NN%" decomposition), (3) pulp
+# #1434 rn-batch-B yoga value-aliasing (flexDirection /
+# justifyContent / alignItems / alignSelf / order / flexWrap value
+# translations).
+pulp_add_test_suite(pulp-test-widget-bridge-yoga LIBRARIES pulp::view)
+
 # Widget bridge — Canvas2D Wave 2 cheap-wiring surface (P5-1 follow-up).
 # Covers canvas2d/fill + canvas2d/clip evenodd, canvas2d/roundRect
 # 4-corner radii, canvas2d/ellipse rotation, canvas2d/strokeText
