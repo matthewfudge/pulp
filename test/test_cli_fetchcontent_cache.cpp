@@ -130,6 +130,38 @@ TEST_CASE("discover: healthy entries report Healthy and exit 0",
     CHECK(s.find(entry.filename().string()) != std::string::npos);
 }
 
+TEST_CASE("discover: empty root or missing list_dir returns no entries",
+          "[fetchcontent_cache][coverage]") {
+    MockState state;
+
+    auto env = make_mock_env("/fake/cache", {}, state);
+    env.cache_root.clear();
+    CHECK(fcc::discover_fetchcontent_cache(env).empty());
+
+    env.cache_root = "/fake/cache";
+    env.list_dir = {};
+    CHECK(fcc::discover_fetchcontent_cache(env).empty());
+}
+
+TEST_CASE("discover: lstat miss reports unknown with manual remediation",
+          "[fetchcontent_cache][coverage]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "mystery-v1";
+    MockState state;
+    state.children = {entry};
+
+    auto env = make_mock_env(root, {}, state);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].status == fcc::CacheStatus::Unknown);
+    CHECK(entries[0].reason == "lstat failed");
+    CHECK(entries[0].remediation.find("manually inspect: ls -la")
+          != std::string::npos);
+    CHECK(fcc::any_unhealthy(entries));
+    CHECK(fcc::blocks_preflight(entries));
+}
+
 // ── Acceptance scenario 2: dangling symlink ─────────────────────────────────
 
 TEST_CASE("discover: dangling symlink reports Dangling, fixable, exit 1",
@@ -169,6 +201,33 @@ TEST_CASE("discover: dangling symlink reports Dangling, fixable, exit 1",
     CHECK(out.str().find("/Users/me/Code/three.js") != std::string::npos);
 }
 
+TEST_CASE("discover: root-owned dangling symlink reports RootOwned",
+          "[fetchcontent_cache][coverage]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "threejs-077dd13c0e869d9f3dbe55875686f920367de457";
+    MockState state;
+    state.children = {entry};
+
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_symlink = true;
+    info.symlink_target = "/Users/root/Code/three.js";
+    info.is_user_writable = false;
+    state.lstat_results[entry] = info;
+
+    fcc::DeclaredRefs refs{
+        {"threejs", "077dd13c0e869d9f3dbe55875686f920367de457"}};
+    auto env = make_mock_env(root, refs, state);
+
+    auto entries = fcc::discover_fetchcontent_cache(env);
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].status == fcc::CacheStatus::RootOwned);
+    CHECK_FALSE(entries[0].fixable);
+    CHECK(entries[0].reason.find("symlink target missing") != std::string::npos);
+    CHECK(entries[0].remediation.find("sudo rm ") != std::string::npos);
+    CHECK(fcc::blocks_preflight(entries));
+}
+
 // ── Acceptance scenario 3: stale commit ─────────────────────────────────────
 
 TEST_CASE("discover: cached ref differs from declared REF reports StaleCommit",
@@ -198,6 +257,29 @@ TEST_CASE("discover: cached ref differs from declared REF reports StaleCommit",
     CHECK(entries[0].declared_ref == "f0f5cdf5a938b8b779fea6c083571cce5ccab925");
     CHECK(entries[0].cached_ref == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     CHECK(fcc::any_unhealthy(entries));
+}
+
+TEST_CASE("discover: sanitized declared ref matches cache suffix",
+          "[fetchcontent_cache][coverage]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "yoga-release_3.2.12";
+    MockState state;
+    state.children = {entry};
+
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_symlink = false;
+    info.is_directory = true;
+    info.is_user_writable = true;
+    state.lstat_results[entry] = info;
+
+    auto env = make_mock_env(root, {{"yoga", "release/3.2.12"}}, state);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].declared_ref == "release/3.2.12");
+    CHECK(entries[0].cached_ref == "release_3.2.12");
+    CHECK(entries[0].status == fcc::CacheStatus::Healthy);
 }
 
 // ── Acceptance scenario 4: root-owned ───────────────────────────────────────
@@ -526,6 +608,49 @@ TEST_CASE("split_entry_name: longest-match prefers declared dep names",
     REQUIRE(entries.size() == 1);
     CHECK(entries[0].dep_name == "wgpu-macos-aarch64-release");
     CHECK(entries[0].cached_ref == "v24.0.3.1");
+    CHECK(entries[0].status == fcc::CacheStatus::Healthy);
+}
+
+TEST_CASE("split_entry_name: fallback uses last hyphen when dep is undeclared",
+          "[fetchcontent_cache][coverage]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "custom-dep-v1.2.3";
+    MockState state;
+    state.children = {entry};
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_directory = true;
+    info.is_user_writable = true;
+    state.lstat_results[entry] = info;
+
+    auto env = make_mock_env(root, {}, state);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].dep_name == "custom-dep");
+    CHECK(entries[0].cached_ref == "v1.2.3");
+    CHECK(entries[0].declared_ref.empty());
+    CHECK(entries[0].status == fcc::CacheStatus::Healthy);
+}
+
+TEST_CASE("split_entry_name: fallback without hyphen lowercases whole name",
+          "[fetchcontent_cache][coverage]") {
+    fs::path root = "/fake/cache";
+    fs::path entry = root / "Catch2";
+    MockState state;
+    state.children = {entry};
+    fcc::StatInfo info;
+    info.exists = true;
+    info.is_directory = true;
+    info.is_user_writable = true;
+    state.lstat_results[entry] = info;
+
+    auto env = make_mock_env(root, {}, state);
+    auto entries = fcc::discover_fetchcontent_cache(env);
+
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].dep_name == "catch2");
+    CHECK(entries[0].cached_ref.empty());
     CHECK(entries[0].status == fcc::CacheStatus::Healthy);
 }
 
