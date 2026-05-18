@@ -67,6 +67,14 @@ bool scan_grad_number(const std::string& text, size_t& i, float& out) {
         if (i == exp_digits) i = exp_start;
     }
 
+    if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
+        i = start;
+        return false;
+    }
+    if (i - start > 16) {
+        i = start;
+        return false;
+    }
     if (!parse_grad_float(text.substr(start, i - start), out)) {
         i = start;
         return false;
