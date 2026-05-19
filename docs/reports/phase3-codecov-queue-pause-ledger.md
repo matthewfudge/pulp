@@ -11364,3 +11364,24 @@ at base `a80b97b0e`, head `987bd3a1a`, `mergeable: true`,
 baseline-diff, Yoga layout snapshots, and macOS local smoke completed success,
 android-build (windows-latest) in progress, remaining lanes queued, and no
 failed checks. Do not push/open #754 until #2268 is merged.
+
+2026-05-19 04:23 PDT: added `80121c51c` (`test(runtime): cover json rpc
+peer edges`) to local-only `feature/phase3-codecov-runtime-batch-754`. This
+touches only `test/test_memory_message_channel.cpp` and adds direct
+in-memory coverage for `JsonRpcPeer` parse-error replies, ignored batch
+envelopes, notification params dispatch, method-not-found after unregister,
+handler exceptions, default `null` results, outbound request serialization,
+error response `data`, and one-shot pending callback removal. Focused local
+validation passed: `cmake --build build --target
+pulp-test-memory-message-channel -j4`,
+`./build/test/pulp-test-memory-message-channel "[runtime][json_rpc]"` (47
+assertions / 3 test cases), full
+`./build/test/pulp-test-memory-message-channel` (120 assertions / 19 test
+cases), and `git diff --check`. The #754 batch is clean, local-only, and 2
+commits ahead of `origin/main`. PR #2268 remains the merge priority at base
+`a80b97b0e`, head `987bd3a1a`, `mergeable: true`,
+`mergeable_state: blocked`, open and not draft; polling at 11:23Z showed
+baseline-diff, android-build (windows-latest), macOS local smoke, Yoga layout
+snapshots, source-tree pollution check, and docs-consistency resolve-provider
+completed success, with IWYU advisory, ubuntu-24.04, and sandbox-e2e
+(ubuntu-latest) in progress, remaining lanes queued, and no failed checks.
