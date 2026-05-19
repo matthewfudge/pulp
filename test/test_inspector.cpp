@@ -964,3 +964,55 @@ TEST_CASE("Destroying StateInspector removes its listener (no alive-guard)",
     store.set_value(1, 0.75f);
     REQUIRE_THAT(store.get_value(1), Catch::Matchers::WithinAbs(0.75, 0.001));
 }
+
+// ─── Performance.setRepaintFlash (Tier A Slice 6) ───────────────────────────
+
+#include <pulp/render/dirty_tracker.hpp>
+
+TEST_CASE("Performance.setRepaintFlash toggles DirtyTracker::debug_overlay",
+          "[inspect][perf][repaint-flash]") {
+    pulp::render::DirtyTracker dirty;
+    REQUIRE_FALSE(dirty.debug_overlay());
+
+    DomainHandler handler;
+    handler.set_dirty_tracker(&dirty);
+
+    auto enable_req = make_request(1, methods::kPerfSetRepaintFlash,
+                                   R"({"enabled":true})");
+    auto enable_resp = handler.handle(enable_req);
+    REQUIRE_FALSE(enable_resp.is_error);
+    REQUIRE(dirty.debug_overlay());
+
+    auto get_req = make_request(2, methods::kPerfGetRepaintFlash);
+    auto get_resp = handler.handle(get_req);
+    REQUIRE_FALSE(get_resp.is_error);
+    REQUIRE(get_resp.params_json.find("\"enabled\": true")
+            != std::string::npos);
+    REQUIRE(get_resp.params_json.find("\"available\": true")
+            != std::string::npos);
+
+    auto disable_req = make_request(3, methods::kPerfSetRepaintFlash,
+                                    R"({"enabled":false})");
+    auto disable_resp = handler.handle(disable_req);
+    REQUIRE_FALSE(disable_resp.is_error);
+    REQUIRE_FALSE(dirty.debug_overlay());
+}
+
+TEST_CASE("Performance.setRepaintFlash without a tracker reports unavailable",
+          "[inspect][perf][repaint-flash]") {
+    DomainHandler handler;
+    // Deliberately not calling set_dirty_tracker — the inspector
+    // grew the toggle, but the host process may not have wired one
+    // yet. Behavior: get reports available=false; set returns an
+    // error so the UI can grey out the toggle.
+    auto get_resp = handler.handle(
+        make_request(1, methods::kPerfGetRepaintFlash));
+    REQUIRE_FALSE(get_resp.is_error);
+    REQUIRE(get_resp.params_json.find("\"available\": false")
+            != std::string::npos);
+
+    auto set_resp = handler.handle(
+        make_request(2, methods::kPerfSetRepaintFlash,
+                     R"({"enabled":true})"));
+    REQUIRE(set_resp.is_error);
+}
