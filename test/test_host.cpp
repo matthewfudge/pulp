@@ -696,6 +696,33 @@ TEST_CASE("SignalGraph disconnected output stays silent", "[host][graph][routing
     graph.release();
 }
 
+TEST_CASE("SignalGraph ignores stale audio connections with invalid ports",
+          "[host][graph][routing][coverage][phase3]") {
+    SignalGraph graph;
+    auto input = graph.add_input_node(1, "in");
+    auto gain = graph.add_gain_node("gain");
+    auto output = graph.add_output_node(1, "out");
+
+    REQUIRE(graph.connect(input, 99, gain, 0));
+    REQUIRE(graph.connect(input, 0, gain, 99));
+    REQUIRE(graph.connect(gain, 42, output, 0));
+    REQUIRE(graph.prepare(48000.0, 8));
+
+    std::vector<float> input_samples(8, 1.0f);
+    std::vector<float> output_samples(8, -1.0f);
+    const float* in_ptrs[1] = {input_samples.data()};
+    float* out_ptrs[1] = {output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 8);
+    pulp::audio::BufferView<float> out_view(out_ptrs, 1, 8);
+
+    graph.process(out_view, in_view, 8);
+
+    for (float sample : output_samples) {
+        REQUIRE(sample == 0.0f);
+    }
+    graph.release();
+}
+
 // ── Mock plugin for PDC tests ───────────────────────────────────────────
 
 namespace {
