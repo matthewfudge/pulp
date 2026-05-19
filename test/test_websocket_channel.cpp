@@ -194,6 +194,20 @@ TEST_CASE("WebSocket accept_key rejects empty input gracefully",
     REQUIRE(result == WebSocketChannel::compute_accept_key(""));
 }
 
+TEST_CASE("WebSocketChannel rejects null and closed streams before handshake",
+          "[websocket][handshake][coverage][phase3]") {
+    REQUIRE(WebSocketChannel::connect(nullptr, "127.0.0.1", "/") == nullptr);
+    REQUIRE(WebSocketChannel::accept(nullptr) == nullptr);
+
+    auto closed_client = std::make_unique<TcpStream>();
+    REQUIRE_FALSE(closed_client->is_open());
+    REQUIRE(WebSocketChannel::connect(std::move(closed_client), "127.0.0.1", "/") == nullptr);
+
+    auto closed_server = std::make_unique<TcpStream>();
+    REQUIRE_FALSE(closed_server->is_open());
+    REQUIRE(WebSocketChannel::accept(std::move(closed_server)) == nullptr);
+}
+
 TEST_CASE("WebSocketChannel connect fails gracefully on non-WS peer",
           "[websocket][handshake]") {
     // A peer that accepts the TCP connection but never sends a valid
