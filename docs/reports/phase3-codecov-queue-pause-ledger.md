@@ -11404,3 +11404,22 @@ commits ahead of `origin/main`. PR #2268 remains the merge priority at base
 same green set as 11:23Z, IWYU advisory, ubuntu-24.04, and sandbox-e2e
 (ubuntu-latest) still in progress, remaining lanes queued, and no failed
 checks. Queued macOS lanes were still under the 30-minute rescue threshold.
+
+2026-05-19 04:30 PDT: added `33268b070` (`test(runtime): cover high
+resolution timer lifecycle`) to local-only
+`feature/phase3-codecov-runtime-batch-754`. This touches only
+`test/test_runtime.cpp` and adds bounded coverage for `HighResolutionTimer`
+initial stopped state, idempotent stop-before-start, start callbacks,
+restart replacing the callback while joining the previous worker, and stopped
+callback quiescence. Focused local validation passed:
+`cmake --build build --target pulp-test-runtime -j4`,
+`./build/test/pulp-test-runtime "[runtime][timer]"` (19 assertions / 3 test
+cases), full `./build/test/pulp-test-runtime` (216 assertions / 31 test
+cases), and `git diff --check`. The #754 batch is clean, local-only, and 4
+commits ahead of `origin/main`. PR #2268 remains the merge priority at base
+`a80b97b0e`, head `987bd3a1a`, `mergeable: true`,
+`mergeable_state: blocked`, open and not draft; polling at 11:30Z showed more
+movement with resolve-runners and workflow lint completed success, docs
+preview build, IWYU advisory, ubuntu-24.04, and sandbox-e2e (ubuntu-latest)
+in progress, sanitizer macOS lanes queued, and no failed checks. Queued macOS
+lanes were still under the 30-minute rescue threshold.
