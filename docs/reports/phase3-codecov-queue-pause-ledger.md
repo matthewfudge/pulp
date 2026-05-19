@@ -9588,3 +9588,14 @@ passed: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`, `cmake --build build
 "[state][sync][coverage][phase3]"` (12 assertions / 1 case), and `git diff
 --check`. The new batch has 1 local coverage commit; continue accumulating
 related runtime/state coverage before opening a PR.
+
+2026-05-18 22:33 PDT: added `696eca7d5` (`test(state): cover listener token
+self move`) to `feature/phase3-codecov-runtime-state-batch-751`. This covers
+the `ListenerToken::operator=(ListenerToken&&)` self-assignment guard by
+self-moving through an alias and verifying the subscription id and callback
+remain live. Focused local validation passed: `cmake --build build --target
+pulp-test-state`, `./build/test/pulp-test-state "ListenerToken self
+move-assignment keeps the subscription"` (3 assertions / 1 case),
+`./build/test/pulp-test-state "[state][listener][token][coverage][phase3]"`
+(3 assertions / 1 case), and `git diff --check`. The new batch now has 2
+local coverage commits; continue accumulating before opening a PR.
