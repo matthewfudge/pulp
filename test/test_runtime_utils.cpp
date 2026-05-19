@@ -64,6 +64,7 @@ struct OneShotHttpResponse {
     HttpResponse response;
     std::string request;
     bool accepted = false;
+    bool downloaded = false;
 };
 
 OneShotHttpResponse serve_one_http_response(std::string_view method,
@@ -119,6 +120,8 @@ OneShotHttpResponse serve_one_http_response(std::string_view method,
     const auto url = "http://127.0.0.1:" + std::to_string(port) + std::string(path);
     if (method == "POST") {
         exchange.response = http_post(url, body, "application/json", 2);
+    } else if (method == "DOWNLOAD") {
+        exchange.downloaded = http_download(url, body, 2);
     } else {
         exchange.response = http_get(url, 2);
     }
@@ -1635,6 +1638,22 @@ TEST_CASE("HTTP helpers copy successful POST request bodies",
     REQUIRE(exchange.response.error.empty());
     REQUIRE(exchange.response.status_code == 200);
     REQUIRE(exchange.response.body == "ok-response");
+}
+
+TEST_CASE("HTTP download writes successful response bodies",
+          "[runtime][http][coverage][phase3]") {
+    TemporaryFile output(".http-body");
+    auto exchange = serve_one_http_response("DOWNLOAD", "/artifact.bin", output.path_string());
+
+    REQUIRE(exchange.accepted);
+    REQUIRE(exchange.downloaded);
+    REQUIRE(exchange.request.find("GET /artifact.bin HTTP/1.1") != std::string::npos);
+
+    std::ifstream file(output.path(), std::ios::binary);
+    REQUIRE(file.good());
+    const std::string contents((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+    REQUIRE(contents == "ok-response");
 }
 
 TEST_CASE("local IPv4 helpers return usable fallback values",
