@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -96,16 +97,40 @@ TEST_CASE("BackgroundScanner: idle cancel and join are no-ops",
     REQUIRE_FALSE(bs.is_running());
 }
 
-TEST_CASE("CancelToken request and reset toggle the shared flag",
-          "[host][bg-scan][coverage]") {
-    CancelToken token;
-    REQUIRE_FALSE(token.requested());
+TEST_CASE("BackgroundScanner: destructor requests cancel and joins active worker",
+          "[host][bg-scan][coverage][phase3]") {
+    std::atomic<bool> started{false};
+    std::atomic<bool> worker_saw_cancel{false};
+    std::atomic<bool> completed{false};
+    bool final_cancelled = false;
 
-    token.request();
-    REQUIRE(token.requested());
+    {
+        auto scanner = std::make_unique<BackgroundScanner>();
+        REQUIRE(scanner->start(
+            [&](const CancelToken& tok, const ScanProgressCallback&) {
+                started.store(true, std::memory_order_release);
+                while (!tok.requested()) {
+                    std::this_thread::yield();
+                }
+                worker_saw_cancel.store(true, std::memory_order_release);
+                return std::vector<PluginInfo>{fake_info("cancelled", PluginFormat::CLAP)};
+            },
+            nullptr,
+            [&](std::vector<PluginInfo> results, bool cancelled) {
+                REQUIRE(results.size() == 1);
+                REQUIRE(results[0].name == "cancelled");
+                final_cancelled = cancelled;
+                completed.store(true, std::memory_order_release);
+            }));
 
-    token.reset();
-    REQUIRE_FALSE(token.requested());
+        REQUIRE(wait_until([&] {
+            return started.load(std::memory_order_acquire);
+        }));
+    }
+
+    REQUIRE(worker_saw_cancel.load(std::memory_order_acquire));
+    REQUIRE(completed.load(std::memory_order_acquire));
+    REQUIRE(final_cancelled);
 }
 
 TEST_CASE("BackgroundScanner: second start while running returns false",
