@@ -2,12 +2,15 @@
 #include <pulp/runtime/license.hpp>
 #include <pulp/runtime/big_integer.hpp>
 #include <pulp/runtime/base64.hpp>
+#include <pulp/runtime/socket.hpp>
 #include <pulp/runtime/temporary_file.hpp>
 #include "../external/cpp-httplib/httplib.h"
 
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <thread>
 #include <utility>
 
@@ -39,6 +42,77 @@ struct LicenseHttpServerRunner {
     httplib::Server& server;
     std::thread thread;
 };
+
+}  // namespace
+
+namespace {
+
+struct LoopbackHttpExchange {
+    std::string base_url;
+    std::shared_ptr<std::string> request = std::make_shared<std::string>();
+    std::thread worker;
+
+    LoopbackHttpExchange() = default;
+    LoopbackHttpExchange(const LoopbackHttpExchange&) = delete;
+    LoopbackHttpExchange& operator=(const LoopbackHttpExchange&) = delete;
+    LoopbackHttpExchange(LoopbackHttpExchange&&) noexcept = default;
+    LoopbackHttpExchange& operator=(LoopbackHttpExchange&&) noexcept = default;
+
+    ~LoopbackHttpExchange() {
+        if (worker.joinable()) worker.join();
+    }
+};
+
+LoopbackHttpExchange serve_loopback_http_response(std::string response_body) {
+    Socket server;
+    REQUIRE(server.create(SocketType::TCP));
+    REQUIRE(server.bind("127.0.0.1", 0));
+    REQUIRE(server.listen(1));
+    const auto port = server.local_port();
+    REQUIRE(port != 0);
+
+    LoopbackHttpExchange exchange;
+    exchange.base_url = "http://127.0.0.1:" + std::to_string(port);
+    auto request = exchange.request;
+    exchange.worker = std::thread([server = std::move(server),
+                                   response_body = std::move(response_body),
+                                   request = std::move(request)]() mutable {
+        auto client = server.accept();
+        if (!client) return;
+
+        std::array<std::uint8_t, 2048> buffer{};
+        while (true) {
+            const auto received = client->receive(buffer.data(), buffer.size());
+            if (received <= 0) break;
+            request->append(reinterpret_cast<const char*>(buffer.data()),
+                            static_cast<std::size_t>(received));
+
+            const auto header_end = request->find("\r\n\r\n");
+            if (header_end == std::string::npos) continue;
+
+            std::size_t expected_body_size = 0;
+            const auto length_key = std::string("Content-Length: ");
+            const auto length_pos = request->find(length_key);
+            if (length_pos != std::string::npos) {
+                const auto start = length_pos + length_key.size();
+                const auto end = request->find("\r\n", start);
+                expected_body_size =
+                    static_cast<std::size_t>(std::stoul(request->substr(start, end - start)));
+            }
+
+            const auto body_size = request->size() - (header_end + 4);
+            if (body_size >= expected_body_size) break;
+        }
+
+        const std::string wire_response =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: " + std::to_string(response_body.size()) + "\r\n"
+            "Connection: close\r\n\r\n" + response_body;
+        (void) client->send(wire_response);
+    });
+    return exchange;
+}
 
 }  // namespace
 
@@ -569,6 +643,56 @@ TEST_CASE("OnlineActivation treats empty server URL as failed request",
     REQUIRE_FALSE(OnlineActivation::activate("", "serial", "product"));
     REQUIRE_FALSE(OnlineActivation::deactivate("", "license"));
     REQUIRE(OnlineActivation::check_status("", "license") == LicenseStatus::NotFound);
+}
+
+TEST_CASE("OnlineActivation activate returns loopback license response",
+          "[crypto][license][coverage][phase3]") {
+    auto exchange = serve_loopback_http_response("license-key");
+
+    auto license = OnlineActivation::activate(exchange.base_url, "serial-123", "PulpSynth");
+    exchange.worker.join();
+
+    REQUIRE(license.has_value());
+    REQUIRE(*license == "license-key");
+    REQUIRE(exchange.request->find("POST /activate HTTP/1.1") != std::string::npos);
+    REQUIRE(exchange.request->find(R"("serial":"serial-123")") != std::string::npos);
+    REQUIRE(exchange.request->find(R"("product":"PulpSynth")") != std::string::npos);
+}
+
+TEST_CASE("OnlineActivation deactivate accepts successful loopback response",
+          "[crypto][license][coverage][phase3]") {
+    auto exchange = serve_loopback_http_response(R"({"ok":true})");
+
+    REQUIRE(OnlineActivation::deactivate(exchange.base_url, "license-key"));
+    exchange.worker.join();
+
+    REQUIRE(exchange.request->find("POST /deactivate HTTP/1.1") != std::string::npos);
+    REQUIRE(exchange.request->find(R"("key":"license-key")") != std::string::npos);
+}
+
+TEST_CASE("OnlineActivation check_status maps loopback response bodies",
+          "[crypto][license][coverage][phase3]") {
+    {
+        auto exchange = serve_loopback_http_response(R"({"status":"valid"})");
+        REQUIRE(OnlineActivation::check_status(exchange.base_url, "valid-key") == LicenseStatus::Valid);
+        exchange.worker.join();
+        REQUIRE(exchange.request->find("GET /status?key=valid-key&machine=") != std::string::npos);
+    }
+
+    {
+        auto exchange = serve_loopback_http_response(R"({"status":"expired"})");
+        REQUIRE(OnlineActivation::check_status(exchange.base_url, "expired-key") == LicenseStatus::Expired);
+        exchange.worker.join();
+        REQUIRE(exchange.request->find("GET /status?key=expired-key&machine=") != std::string::npos);
+    }
+
+    {
+        auto exchange = serve_loopback_http_response(R"({"status":"rejected"})");
+        REQUIRE(OnlineActivation::check_status(exchange.base_url, "rejected-key") ==
+                LicenseStatus::InvalidSignature);
+        exchange.worker.join();
+        REQUIRE(exchange.request->find("GET /status?key=rejected-key&machine=") != std::string::npos);
+    }
 }
 
 TEST_CASE("LicenseGenerator requires a usable private key", "[crypto][license]") {
