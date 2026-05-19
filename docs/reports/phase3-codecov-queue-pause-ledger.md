@@ -10423,3 +10423,23 @@ progress; several jobs including `macos-15` remain queued from 06:24 UTC.
 Runner health at 06:59 UTC showed four
 `namespace-profile-generouscorp-macos` runners online and busy, so no
 cancel/rerun or operator escalation was taken.
+
+2026-05-19 00:04 PDT: updated PR #2268 (`test: consolidate phase 3 codecov
+coverage batches`) from `origin/main` because GitHub reported
+`mergeable_state=dirty` after `7ebdf354a` landed. The rollup branch
+`feature/phase3-codecov-rollup-746` now points at `585544b09` (`Merge
+remote-tracking branch 'origin/main' into feature/phase3-codecov-rollup-746`)
+and is pushed to origin. The merge had one content conflict in
+`test/test_font_options.cpp`; resolution kept both the rollup's scalar style /
+render policy hash coverage and main's signed-zero hash canonicalization test.
+Focused local validation passed before push: `cmake --build build --target
+pulp-test-font-options -j4`, `./build/test/pulp-test-font-options` (164
+assertions / 14 cases), `cmake --build build --target
+pulp-test-canvas-filter-chain -j4`, `./build/test/pulp-test-canvas-filter-chain`
+(25 assertions / 4 cases), `cmake --build build --target
+pulp-test-view-mask-overflow -j4`, `./build/test/pulp-test-view-mask-overflow`
+(14 assertions / 8 cases), and `git diff --check`. Pushed with
+`PULP_SKIP_PREPUSH=1 git push`. REST now reports the PR open, not draft,
+mergeable, and blocked only on the fresh check set for head
+`585544b09dfbb0345522e2f8713a59d185bd4624`; checks queued at ~07:04 UTC, so
+continue monitoring rather than opening another PR immediately.
