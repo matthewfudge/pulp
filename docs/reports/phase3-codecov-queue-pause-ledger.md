@@ -10286,3 +10286,15 @@ completes without queuing"` (5 assertions / 1 case),
 `./build/test/pulp-test-async-stream "[async_stream][coverage][phase3]"` (24
 assertions / 5 cases), and `git diff --check`. The batch now has 17 local
 coverage commits plus main merges; continue accumulating before opening a PR.
+
+2026-05-18 23:22 PDT: added `7e647c213` (`test(http): cover default root path
+parsing`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers the
+HTTP URL parser branch where a valid URL omits the path and defaults to `/`,
+using a loopback server to assert the request line is `GET / HTTP/1.1` without
+external network. Focused local validation passed: `cmake --build build
+--target pulp-test-network-stream -j4`, `./build/test/pulp-test-network-stream
+"http_get defaults missing URL path to slash"` (5 assertions / 1 case),
+`./build/test/pulp-test-network-stream
+"[network_stream][http][coverage][phase3]"` (51 assertions / 5 cases), and
+`git diff --check`. The batch now has 18 local coverage commits plus main
+merges; continue accumulating before opening a PR.
