@@ -10962,3 +10962,17 @@ cases), and `git diff --check`. PR #2268 remained current at head
 were green, `android-build (windows-latest)` was in progress, and the remaining
 checks were queued with no failures. The batch is clean, local-only, and 17
 coverage commits ahead of `origin/main`.
+
+2026-05-19 02:41 PDT: added `4b35dbfba` (`test(runtime): cover HTTP download
+write failure`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_runtime_utils.cpp` and covers the
+`http_download` failure path after a successful HTTP fetch when the output path
+cannot be opened for writing. Focused local validation passed:
+`cmake --build build --target pulp-test-runtime-utils -j4`,
+`./build/test/pulp-test-runtime-utils "[runtime][http]"` (59 assertions / 8
+cases), and `git diff --check`. PR #2268 remained current at head
+`5f511a733`, `mergeable: true`, `mergeable_state: blocked`; `baseline-diff`,
+`macOS local smoke`, and `Yoga layout snapshots` were green, `IWYU (Linux,
+Clang) — advisory` and `android-build (windows-latest)` were in progress, and
+the remaining checks were queued with no failures. The batch is clean,
+local-only, and 18 coverage commits ahead of `origin/main`.
