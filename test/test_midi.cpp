@@ -312,6 +312,22 @@ TEST_CASE("MidiBuffer stores independent SysEx sidecar events",
     REQUIRE(buffer.empty());
 }
 
+TEST_CASE("MidiBuffer clear preserves SysEx sidecar until explicit clear",
+          "[midi][buffer][sysex][coverage][phase3]") {
+    MidiBuffer buffer;
+    buffer.add(MidiEvent::note_on(0, 60, 100));
+    buffer.add_sysex({0xF0, 0x7D, 0x02, 0xF7}, 32, 1.0);
+
+    buffer.clear();
+
+    REQUIRE(buffer.empty());
+    REQUIRE(buffer.sysex_size() == 1);
+    REQUIRE(buffer.sysex()[0].sample_offset == 32);
+
+    buffer.clear_sysex();
+    REQUIRE(buffer.sysex_size() == 0);
+}
+
 TEST_CASE("MidiKeyboardState tracks notes and releases with callbacks",
           "[midi][keyboard][codecov]") {
     MidiKeyboardState keys;
