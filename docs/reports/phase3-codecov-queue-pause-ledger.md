@@ -10309,3 +10309,15 @@ directory to `$GITHUB_PATH`, and exports it for the current step before running
 `PULP_SKIP_PREPUSH=1 git push`; PR #2268 head is now
 `4e02bfdf953c9b2ab1f57e4a13b274a72925bb94`, mergeable, and waiting on the new
 check set.
+
+2026-05-18 23:34 PDT: added `950d08ab8` (`test(audio): cover focus token self
+move`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers
+`AudioFocusRegistry::Token` self move-assignment, asserting the live
+subscription survives the guarded self-assignment path and is still removed by
+`reset()`. Focused local validation passed: `cmake --build build --target
+pulp-test-audio-focus -j4`, `./build/test/pulp-test-audio-focus
+"AudioFocusRegistry: token self move-assignment keeps subscription"` (3
+assertions / 1 case), `./build/test/pulp-test-audio-focus
+"[audio][focus][coverage][phase3]"` (3 assertions / 1 case), and `git diff
+--check`. The batch now has 19 local coverage commits plus main merges;
+continue accumulating before opening a PR.
