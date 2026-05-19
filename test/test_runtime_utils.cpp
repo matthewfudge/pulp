@@ -633,6 +633,20 @@ TEST_CASE("ExpressionEvaluator dispatches registered unary functions",
     REQUIRE_FALSE(evaluator.evaluate("missing_fn(1)").has_value());
 }
 
+TEST_CASE("ExpressionEvaluator rejects extra arguments for custom unary functions",
+          "[runtime][expression][coverage][phase3]") {
+    ExpressionEvaluator evaluator;
+    evaluator.register_function("double_it", [](double value) {
+        return value * 2.0;
+    });
+
+    auto valid = evaluator.evaluate("double_it(3)");
+    REQUIRE(valid.has_value());
+    REQUIRE(*valid == Catch::Approx(6.0));
+
+    REQUIRE_FALSE(evaluator.evaluate("double_it(3, 99)").has_value());
+}
+
 // ── HTTP URL parsing ───────────────────────────────────────────────────
 
 TEST_CASE("HTTP helpers reject malformed URLs without transport work",
