@@ -14,6 +14,7 @@ class ConsoleCapture;
 class AudioInspector;
 class MotionInspector;
 class MotionScrubber;
+class TweakStore;
 
 /// Handles inspector protocol requests by delegating to the appropriate
 /// inspector component. All data sources are optional — missing sources
@@ -31,6 +32,7 @@ public:
     void set_motion_inspector(MotionInspector* motion) { motion_ = motion; }
     void set_motion_scrubber(MotionScrubber* scrubber) { motion_scrubber_ = scrubber; }
     void set_render_pass_manager(render::RenderPassManager* rpm) { rpm_ = rpm; }
+    void set_tweak_store(TweakStore* store) { tweak_store_ = store; }
 
     /// Tier A Slice 6: wire the per-frame dirty tracker so the inspector's
     /// Performance tab can toggle `DirtyTracker::set_debug_overlay()` at
@@ -51,6 +53,7 @@ private:
     MotionScrubber* motion_scrubber_ = nullptr;
     render::RenderPassManager* rpm_ = nullptr;
     render::DirtyTracker* dirty_ = nullptr;
+    TweakStore* tweak_store_ = nullptr;
 
     // Domain handlers
     InspectorMessage handle_inspector(const InspectorMessage& req);

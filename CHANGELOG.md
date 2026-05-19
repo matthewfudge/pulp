@@ -8,6 +8,36 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01580"></a>
+## [0.158.0] - 2026-05-19
+
+- refactor(test): P5-1 follow-up — extract Wave 5 css.5 audit (9,074 → 7,475) ([#2373](https://github.com/danielraffel/pulp/pull/2373))
+
+<a id="v01550"></a>
+## [0.155.0] - 2026-05-19
+
+- fix(tools): add .clang-format to source-tree pollution allowlist ([#2369](https://github.com/danielraffel/pulp/pull/2369))
+- refactor(test): P5-3 follow-up — extract Label cluster (2,288 → 1,716) ([#2371](https://github.com/danielraffel/pulp/pull/2371))
+
+<a id="v01540"></a>
+## [0.154.0] - 2026-05-19
+
+- refactor(test): P5-2 follow-up — extract Canvas2D shim post-Wave-2 (3,121 → 1,634) ([#2372](https://github.com/danielraffel/pulp/pull/2372))
+- refactor(render): extract texture_atlas.hpp impl bodies to .cpp (U-10) ([#2330](https://github.com/danielraffel/pulp/pull/2330))
+- chore(ci): apply Namespace macOS overflow routing on workflow_dispatch too (refs #2314) () ([#2315](https://github.com/danielraffel/pulp/pull/2315))
+
+<a id="v01510"></a>
+## [0.151.0] - 2026-05-19
+
+- feat(inspect): Phase 0b PR-C-1 — overlay gesture-tweak emission wiring ([#2363](https://github.com/danielraffel/pulp/pull/2363))
+- feat(inspect): Phase 3f — Alt-hover sibling distance lines ([#2328](https://github.com/danielraffel/pulp/pull/2328))
+- feat(view): Phase 3d — per-component paint timing ([#2338](https://github.com/danielraffel/pulp/pull/2338))
+
+<a id="v01500"></a>
+## [0.150.0] - 2026-05-19
+
+- feat(inspect): Phase 0b PR-A — Inspector.applyTweak protocol + TweakStore ([#2300](https://github.com/danielraffel/pulp/pull/2300))
+
 <a id="v01480"></a>
 ## [0.148.0] - 2026-05-19
 
@@ -2123,6 +2153,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.158.0]: https://github.com/danielraffel/pulp/releases/tag/v0.158.0
+[0.155.0]: https://github.com/danielraffel/pulp/releases/tag/v0.155.0
+[0.154.0]: https://github.com/danielraffel/pulp/releases/tag/v0.154.0
+[0.151.0]: https://github.com/danielraffel/pulp/releases/tag/v0.151.0
+[0.150.0]: https://github.com/danielraffel/pulp/releases/tag/v0.150.0
 [0.148.0]: https://github.com/danielraffel/pulp/releases/tag/v0.148.0
 [0.147.0]: https://github.com/danielraffel/pulp/releases/tag/v0.147.0
 [0.146.1]: https://github.com/danielraffel/pulp/releases/tag/v0.146.1
