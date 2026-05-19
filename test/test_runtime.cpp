@@ -173,6 +173,24 @@ TEST_CASE("SpscQueue accepts rvalue pushes", "[runtime][spsc][coverage][phase3]"
     REQUIRE(q.empty());
 }
 
+TEST_CASE("SpscQueue preserves moved string payload order",
+          "[runtime][spsc][coverage][phase3]") {
+    SpscQueue<std::string, 3> q;
+
+    std::string alpha = "alpha";
+    std::string beta = "beta";
+    REQUIRE(q.try_push(std::move(alpha)));
+    REQUIRE(q.try_push(std::move(beta)));
+    REQUIRE(q.try_push(std::string("gamma")));
+    REQUIRE_FALSE(q.try_push(std::string("overflow")));
+
+    REQUIRE(q.try_pop().value() == "alpha");
+    REQUIRE(q.try_pop().value() == "beta");
+    REQUIRE(q.try_pop().value() == "gamma");
+    REQUIRE_FALSE(q.try_pop().has_value());
+    REQUIRE(q.empty());
+}
+
 TEST_CASE("ScopeGuard executes on exit", "[runtime][scope_guard]") {
     int x = 0;
     {
