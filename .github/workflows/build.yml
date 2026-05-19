@@ -426,6 +426,24 @@ jobs:
             wayland-protocols \
             ccache
 
+      # Namespace-native cache volumes for brew + ccache on the cloud
+      # macOS lane (namespace-profile-generouscorp-macos). Namespace's
+      # nscloud-cache-action stores cache state on the workspace's
+      # snapshot volumes — orders of magnitude faster than the standard
+      # actions/cache backend, which round-trips through GitHub's
+      # cache service over the network. Local self-hosted Mac already
+      # persists these paths on disk between jobs; GHA-hosted macos-15
+      # falls back to actions/cache below. Detection via the runner's
+      # `namespace-profile-*` label.
+      # Source: namespace.so/docs/reference/github-actions/nscloud-cache-action
+      - name: Restore Namespace cache (macOS, brew + ccache)
+        if: runner.os == 'macOS' && contains(toJSON(runner.labels), 'namespace-profile')
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          cache: brew
+          path: |
+            ~/Library/Caches/ccache
+
       - name: Install ccache (macOS)
         if: runner.os == 'macOS'
         run: brew install ccache
