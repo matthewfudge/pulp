@@ -9,6 +9,7 @@
 #include <pulp/inspect/motion_scrubber.hpp>
 #include <pulp/view/inspector.hpp>
 #include <pulp/view/view.hpp>
+#include <pulp/render/dirty_tracker.hpp>
 #include <pulp/render/render_pass.hpp>
 
 #include <choc/text/choc_JSON.h>
@@ -230,6 +231,43 @@ InspectorMessage DomainHandler::handle_performance(const InspectorMessage& req) 
     if (req.method == methods::kPerfEnableTracking) {
         // Tracking is always on when RenderPassManager exists
         return make_response(req.id, R"({"tracking":true})");
+    }
+    // Tier A Slice 6: per-repaint "flash" overlay. Wraps
+    // DirtyTracker::set_debug_overlay(). When no tracker is wired
+    // we report the toggle as unavailable so the UI can grey it out
+    // instead of silently dropping clicks.
+    if (req.method == methods::kPerfGetRepaintFlash) {
+        auto obj = choc::value::createObject("");
+        if (dirty_) {
+            obj.addMember("available", choc::value::createBool(true));
+            obj.addMember("enabled",
+                          choc::value::createBool(dirty_->debug_overlay()));
+        } else {
+            obj.addMember("available", choc::value::createBool(false));
+            obj.addMember("enabled", choc::value::createBool(false));
+        }
+        return make_response(req.id, choc::json::toString(obj, false));
+    }
+    if (req.method == methods::kPerfSetRepaintFlash) {
+        if (!dirty_) {
+            return make_error(req.id,
+                "Performance.setRepaintFlash: no DirtyTracker attached");
+        }
+        // Parse {"enabled": true|false}. Default to true if absent so a
+        // bare invocation enables (the most common case from a UI toggle).
+        bool enabled = true;
+        try {
+            auto v = choc::json::parse(req.params_json);
+            if (v.isObject() && v.hasObjectMember("enabled")) {
+                enabled = v["enabled"].getBool();
+            }
+        } catch (...) {
+            // Malformed JSON: keep default (enabled = true).
+        }
+        dirty_->set_debug_overlay(enabled);
+        auto obj = choc::value::createObject("");
+        obj.addMember("enabled", choc::value::createBool(enabled));
+        return make_response(req.id, choc::json::toString(obj, false));
     }
     return make_error(req.id, "Unknown Performance method: " + req.method);
 }

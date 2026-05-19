@@ -55,6 +55,11 @@ namespace methods {
     constexpr auto kPerfGetMetrics      = "Performance.getMetrics";
     constexpr auto kPerfEnableTracking  = "Performance.enableTracking";
     constexpr auto kPerfMetrics         = "Performance.metrics";
+    // Tier A Slice 6: toggle DirtyTracker::debug_overlay() from the
+    // inspector. Body for set: {"enabled": <bool>}. get returns
+    // {"enabled": <bool>, "available": <bool>}.
+    constexpr auto kPerfSetRepaintFlash = "Performance.setRepaintFlash";
+    constexpr auto kPerfGetRepaintFlash = "Performance.getRepaintFlash";
 
     // State domain
     constexpr auto kStateGetParameters    = "State.getParameters";
