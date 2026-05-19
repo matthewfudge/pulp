@@ -9,9 +9,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
 <a id="v01352"></a>
-## [0.135.2] - 2026-05-19
+## [0.135.2] - 2026-05-18
 
-- fix(harness): canvas2d adapter reads split preludes — addresses Codex P1 on #2253 (verifier now reports 66/66 pass instead of 60/66 with 6 NOT-IMPL)
+- fix(harness): canvas2d adapter reads split preludes (Codex P1 on #2253) ([#2317](https://github.com/danielraffel/pulp/pull/2317))
+- feat(state): RT-safe set_value path with deferred main-listener pump ([#2294](https://github.com/danielraffel/pulp/pull/2294))
 
 <a id="v01351"></a>
 ## [0.135.1] - 2026-05-18
@@ -2049,6 +2050,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.135.2]: https://github.com/danielraffel/pulp/releases/tag/v0.135.2
 [0.135.1]: https://github.com/danielraffel/pulp/releases/tag/v0.135.1
 [0.135.0]: https://github.com/danielraffel/pulp/releases/tag/v0.135.0
 [0.134.0]: https://github.com/danielraffel/pulp/releases/tag/v0.134.0
