@@ -9422,3 +9422,17 @@ silent"` (21 assertions / 1 case), `./build/test/pulp-test-host
 "[host][graph][coverage][phase3]"` (39 assertions / 3 cases), and `git diff
 --check`. The held batch now has 14 local coverage commits; continue
 accumulating before opening a PR.
+
+2026-05-18 20:28 PDT: added `ae7a73f5d` (`test(host): cover signal graph
+oversized process blocks`) to the held `feature/phase3-codecov-host-cache-batch-750`
+batch. This covers the `process()` guard where `num_samples` exceeds the
+prepared max block size, asserting output is silenced rather than processing
+past per-node scratch buffers. Focused local validation passed: `cmake --build
+build --target pulp-test-host`, `./build/test/pulp-test-host "SignalGraph
+process silences oversized blocks"` (10 assertions / 1 case),
+`./build/test/pulp-test-host "[host][graph][coverage][phase3]"` (49 assertions /
+4 cases), and `git diff --check`. PR poll also showed #2268 `baseline-diff`
+failed again only because the local runner could not install clap-validator
+(404) and `pluginval` was killed; no code change or empty rerun commit was made.
+The held batch now has 15 local coverage commits; continue accumulating before
+opening a PR.
