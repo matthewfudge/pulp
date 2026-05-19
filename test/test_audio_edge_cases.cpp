@@ -27,6 +27,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <pulp/audio/frame_fill.hpp>
 #include <pulp/format/headless.hpp>
 
 #include <cmath>
@@ -65,6 +66,41 @@ void process_once(pulp::format::HeadlessHost& host,
 }
 
 }  // namespace
+
+TEST_CASE("Audio frame fill clamps partial reads and preserves valid samples",
+          "[audio][edges][frame-fill][codecov]") {
+    float buffer[] = {
+        1.0f, 2.0f,
+        3.0f, 4.0f,
+        5.0f, 6.0f,
+    };
+
+    pulp::audio::zero_fill_short_read(buffer, 2, 3, 2);
+
+    REQUIRE(buffer[0] == 1.0f);
+    REQUIRE(buffer[1] == 2.0f);
+    REQUIRE(buffer[2] == 3.0f);
+    REQUIRE(buffer[3] == 4.0f);
+    REQUIRE(buffer[4] == 0.0f);
+    REQUIRE(buffer[5] == 0.0f);
+
+    float negative_read[] = {7.0f, 8.0f, 9.0f, 10.0f};
+    pulp::audio::zero_fill_short_read(negative_read, -4, 2, 2);
+    REQUIRE(negative_read[0] == 0.0f);
+    REQUIRE(negative_read[1] == 0.0f);
+    REQUIRE(negative_read[2] == 0.0f);
+    REQUIRE(negative_read[3] == 0.0f);
+
+    float overfull_read[] = {11.0f, 12.0f};
+    pulp::audio::zero_fill_short_read(overfull_read, 8, 1, 2);
+    REQUIRE(overfull_read[0] == 11.0f);
+    REQUIRE(overfull_read[1] == 12.0f);
+
+    pulp::audio::zero_fill_short_read(nullptr, 0, 2, 2);
+    pulp::audio::zero_fill_short_read(overfull_read, 0, 2, 0);
+    REQUIRE(overfull_read[0] == 11.0f);
+    REQUIRE(overfull_read[1] == 12.0f);
+}
 
 // ── 1. Zero-length block is a safe no-op ─────────────────────────────
 
