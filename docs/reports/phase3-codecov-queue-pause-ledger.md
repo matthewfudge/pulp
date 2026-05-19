@@ -10152,3 +10152,16 @@ and closes"` (12 assertions / 1 case), `./build/test/pulp-test-websocket-channel
 "[websocket][frame-kind][coverage][phase3]"` (41 assertions / 4 cases), and
 `git diff --check`. The batch now has 9 local coverage commits plus main
 merges; continue accumulating before opening a PR.
+
+2026-05-18 22:53 PDT: added `552380549` (`test(runtime): cover http stream
+success reads`) to `feature/phase3-codecov-runtime-state-batch-752`. This
+covers the `HttpStream::get()` success path against a local loopback HTTP
+response, including status/header capture, chunked body reads from the cached
+response, `is_open()` remaining true before EOF, and closed reads after the
+body is exhausted. Focused local validation passed: `cmake --build build
+--target pulp-test-network-stream -j4`, `./build/test/pulp-test-network-stream
+"HttpStream reads a successful local response body in chunks"` (19 assertions /
+1 case), `./build/test/pulp-test-network-stream
+"[network_stream][http][coverage][phase3]"` (31 assertions / 2 cases), and
+`git diff --check`. The batch now has 10 local coverage commits plus main
+merges; continue accumulating before opening a PR.
