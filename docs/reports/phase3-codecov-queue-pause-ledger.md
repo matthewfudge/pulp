@@ -11136,3 +11136,18 @@ Windows hosted lanes were in progress, macOS ARM64 was green, and the remaining
 macOS sanitizer/local-runner/sandbox/android lanes were queued. Keep the batch
 local until #2268 is green or otherwise actionable. The batch is clean,
 local-only, and 27 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:28 PDT: added `e74b40e17` (`test(midi): cover nested sysex
+restart`) to local-only `feature/phase3-codecov-audio-midi-batch-753`. This
+touches only `test/test_raw_midi_parser.cpp` and covers the raw-MIDI parser
+case where a fresh `F0` arrives while a SysEx packet is already in progress:
+the partial packet is abandoned and the new complete SysEx is emitted.
+Focused local validation passed:
+`cmake --build build --target pulp-test-raw-midi-parser -j4`,
+`./build/test/pulp-test-raw-midi-parser "[midi][raw_midi_parser]"` (73
+assertions / 12 cases), and `git diff --check`. PR #2268 remained current at
+head `5f511a733`, `mergeable_state: blocked`, with no failed checks. Because
+several macOS lanes had been queued beyond the CI-skill threshold, retried
+`shipyard rescue 2268`; Shipyard reported no stuck queued runs, so no manual
+runner action was applied. The batch is clean, local-only, and 28 coverage
+commits ahead of `origin/main`.
