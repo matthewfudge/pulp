@@ -369,6 +369,53 @@ TEST_CASE("PluginScanner VST3 moduleinfo raw CID bytes normalize to lowercase he
     REQUIRE(found);
 }
 
+TEST_CASE("PluginScanner VST3 moduleinfo skips unusable class records",
+          "[host][scanner][regression][codecov][phase3]") {
+    ScratchDir scratch("vst3-unusable-classes");
+
+    const std::string body = R"({
+  "Classes": [
+    "not an object",
+    {
+      "Category": "Component Controller Class",
+      "CID": "11111111111111111111111111111111",
+      "Name": "Controller"
+    },
+    {
+      "Category": "Audio Module Class",
+      "Name": "MissingCID"
+    },
+    {
+      "Category": "Audio Module Class",
+      "CID": "not-a-normalizable-cid",
+      "Name": "BadCID"
+    }
+  ]
+})";
+    auto bundle = make_vst3_bundle(scratch.path, "NoUsableClass", body);
+
+    ScanOptions opts;
+    opts.scan_clap = false;
+    opts.scan_au = false;
+    opts.scan_lv2 = false;
+    opts.scan_vst3 = true;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back(scratch.path.string());
+
+    PluginScanner scanner;
+    auto plugins = scanner.scan(opts);
+
+    bool found = false;
+    for (const auto& p : plugins) {
+        if (p.path != bundle.string()) continue;
+        found = true;
+        REQUIRE(p.format == PluginFormat::VST3);
+        REQUIRE(p.name == "NoUsableClass");
+        REQUIRE(p.unique_id == p.name);
+    }
+    REQUIRE(found);
+}
+
 // ── Scanner regression: malformed moduleinfo.json falls back cleanly ──────
 
 TEST_CASE("PluginScanner VST3 bundle with malformed moduleinfo.json falls back to stem",
