@@ -40,22 +40,40 @@ endif()
 
 # Compose a single ready-to-display label so the running app can just
 # print kStampLabel without re-formatting.
+#
+# Multi-config generators (Xcode, Visual Studio) leave CMAKE_BUILD_TYPE
+# empty at configure time — the config is chosen per build invocation.
+# Stamp label composition must still produce a useful value in that
+# case: it falls back to "config@build" with the SHA + ISO timestamp
+# still appearing, so the inspector / About dialog never renders an
+# information-free label. Codex P2 on PR #2335.
 set(PULP_BUILD_STAMP "${PULP_VERSION}")
-if(PULP_BUILD_TYPE)
-    string(APPEND PULP_BUILD_STAMP " (${PULP_BUILD_TYPE}")
-    if(PULP_GIT_SHA)
-        string(APPEND PULP_BUILD_STAMP ", ${PULP_GIT_SHA}")
-        if(PULP_GIT_DIRTY STREQUAL "true")
-            string(APPEND PULP_BUILD_STAMP "+dirty")
-        endif()
-    endif()
-    string(APPEND PULP_BUILD_STAMP ", ${PULP_BUILD_ISO8601})")
+set(_pulp_build_label "${PULP_BUILD_TYPE}")
+if(NOT _pulp_build_label)
+    set(_pulp_build_label "config@build")
 endif()
+string(APPEND PULP_BUILD_STAMP " (${_pulp_build_label}")
+if(PULP_GIT_SHA)
+    string(APPEND PULP_BUILD_STAMP ", ${PULP_GIT_SHA}")
+    if(PULP_GIT_DIRTY STREQUAL "true")
+        string(APPEND PULP_BUILD_STAMP "+dirty")
+    endif()
+endif()
+string(APPEND PULP_BUILD_STAMP ", ${PULP_BUILD_ISO8601})")
 
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/include/pulp/runtime/build_info.hpp.in"
     "${_pulp_build_info_path}"
     @ONLY)
+
+# Install the generated header so consumers using `find_package(Pulp)`
+# after `cmake --install` can `#include <pulp/runtime/build_info.hpp>`
+# the same way they do during a source-tree build. PulpInstallRules.cmake
+# only globs core/*/include for the canonical headers; the build-time-
+# generated header has to be installed explicitly. Codex P2 on PR #2335.
+install(
+    FILES "${_pulp_build_info_path}"
+    DESTINATION include/pulp/runtime)
 
 target_include_directories(pulp-runtime
     PUBLIC
