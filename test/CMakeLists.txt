@@ -2180,6 +2180,17 @@ target_compile_definitions(pulp-test-design-import PRIVATE PULP_REPO_ROOT="${CMA
 catch_discover_tests(pulp-test-design-import
     PROPERTIES LABELS "parser-import")
 
+# P5-3 follow-up — W3C Design Tokens cluster extracted from
+# test_design_import.cpp. Covers parse_w3c_tokens, export_w3c_tokens,
+# composite typography/shadow shapes, alias resolution, math
+# expressions, group $type inheritance, ir_tokens_to_theme +
+# theme_to_ir_tokens round-trips.
+add_executable(pulp-test-design-import-w3c-tokens test_design_import_w3c_tokens.cpp)
+target_link_libraries(pulp-test-design-import-w3c-tokens PRIVATE pulp::view Catch2::Catch2WithMain)
+target_compile_definitions(pulp-test-design-import-w3c-tokens PRIVATE PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(pulp-test-design-import-w3c-tokens
+    PROPERTIES LABELS "parser-import")
+
 # Phase 0a: stable_anchor_id assignment per
 # planning/2026-05-18-inspector-direct-manipulation-roadmap.md
 add_executable(pulp-test-design-import-anchors test_design_import_anchors.cpp)
