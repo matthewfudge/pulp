@@ -10262,3 +10262,15 @@ chain test extraction (`test/test_canvas_filter_chain.cpp`). Validation passed:
 `cmake --build build --target pulp-test-canvas-filter-chain -j4`,
 `./build/test/pulp-test-canvas-filter-chain` (25 assertions / 4 cases), and
 `git diff --check`. No #752 coverage changes were modified by the merge.
+
+2026-05-18 23:16 PDT: added `799451e73` (`test(stream): cover pipe stream fifo
+round trip`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers
+the live `PipeStream` wrapper path over a connected POSIX FIFO, including
+zero-byte I/O, bidirectional read/write forwarding, pipe ownership exposure, and
+close/unlink behavior through the stream wrapper. Focused local validation
+passed: `cmake --build build --target pulp-test-stream -j4`,
+`./build/test/pulp-test-stream "PipeStream forwards reads and writes over a
+connected POSIX FIFO"` (20 assertions / 1 case), `./build/test/pulp-test-stream
+"[stream][pipe][coverage][phase3]"` (30 assertions / 2 cases), and `git diff
+--check`. The batch now has 16 local coverage commits plus main merges; continue
+accumulating before opening a PR.
