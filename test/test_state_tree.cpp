@@ -724,6 +724,29 @@ TEST_CASE("CachedProperty ignores mismatched external updates",
     REQUIRE(tree->get_string("name") == "Restored");
 }
 
+TEST_CASE("CachedProperty destruction removes its StateTree listener",
+          "[state][cached][coverage][phase3]") {
+    auto tree = StateTree::create("params");
+    tree->set("gain", 0.25);
+
+    {
+        CachedProperty<double> gain(tree, "gain", 0.0);
+        REQUIRE_THAT(gain.get(), WithinAbs(0.25, 1e-5));
+        tree->set("gain", 0.5);
+        REQUIRE_THAT(gain.get(), WithinAbs(0.5, 1e-5));
+    }
+
+    int count = 0;
+    tree->add_listener([&](StateTree&, std::string_view prop,
+                           const PropertyValue&, const PropertyValue&) {
+        REQUIRE(prop == "gain");
+        ++count;
+    });
+
+    tree->set("gain", 0.75);
+    REQUIRE(count == 1);
+}
+
 // ── StateTreeSynchroniser ───────────────────────────────────────────────
 
 TEST_CASE("StateTreeSynchroniser records property and child deltas", "[state][sync]") {
