@@ -10992,3 +10992,19 @@ and `macos-15` still queued. A REST/repo-wide Shipyard dry-run
 returned `candidate_count: 0`, so no manual rescue was applied. Continue
 REST polling until GraphQL resets, then retry `shipyard rescue 2268` if
 required macOS checks are still queued.
+
+2026-05-19 02:53 PDT: added `03e1fc206` (`test(runtime): cover online
+activation success`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_license.cpp` and adds a deterministic loopback
+HTTP fixture for `OnlineActivation`: successful `/activate` responses return a
+license key, `/deactivate` success returns true, and `/status` bodies map to
+`Valid`, `Expired`, and `InvalidSignature`. Focused local validation passed:
+`cmake --build build --target pulp-test-license -j4`,
+`./build/test/pulp-test-license "[crypto][license]"` (93 assertions / 28
+cases), and `git diff --check`. PR #2268 remained current at head
+`5f511a733`; `baseline-diff`, `macOS local smoke`, `Yoga layout snapshots`,
+`android-build (windows-latest)`, `IWYU (Linux, Clang) — advisory`,
+`Linux Docker smoke`, `pollution-check`, `build`, and `Enforce version & skill
+sync` were green, `Windows MSVC release-path gate` and `ubuntu-24.04` were in
+progress, and the macOS-required checks were still queued with no failures.
+The batch is clean, local-only, and 19 coverage commits ahead of `origin/main`.
