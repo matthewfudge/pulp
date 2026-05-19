@@ -9871,3 +9871,15 @@ closed errors"` (7 assertions / 1 case), `./build/test/pulp-test-stream
 "[stream][coverage][phase3]"` (89 assertions / 9 cases), and `git diff
 --check`. The batch now has 23 local coverage commits; continue accumulating
 before opening a PR.
+
+2026-05-19 00:44 PDT: added `cfc109cc6` (`test(runtime): cover async stream
+repeated lifecycle calls`) to `feature/phase3-codecov-runtime-state-batch-751`.
+This covers the `AsyncStream::start()` already-running no-op and repeated
+`stop()` lifecycle behavior, asserting a close callback is not fired before the
+stream starts and fires only once after repeated start/stop calls. Focused local
+validation passed: `cmake --build build --target pulp-test-async-stream`,
+`./build/test/pulp-test-async-stream "AsyncStream repeated start and stop keep
+close callback single-shot"` (2 assertions / 1 case),
+`./build/test/pulp-test-async-stream "[async_stream][coverage][phase3]"` (32
+assertions / 7 cases), and `git diff --check`. The batch now has 24 local
+coverage commits and has reached the lower bound for the next PR batch.
