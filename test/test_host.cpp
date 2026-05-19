@@ -793,7 +793,69 @@ private:
     std::vector<std::vector<float>> rings_;
     int wp_ = 0;
 };
+
+class PrepareFailPlugin final : public PluginSlot {
+public:
+    PrepareFailPlugin() {
+        info_.name = "PrepareFail";
+        info_.num_inputs = 1;
+        info_.num_outputs = 1;
+    }
+
+    const PluginInfo& info() const override { return info_; }
+    bool is_loaded() const override { return true; }
+    bool prepare(double, int) override { return false; }
+    void release() override {}
+    void process(pulp::audio::BufferView<float>&,
+                 const pulp::audio::BufferView<const float>&,
+                 const pulp::midi::MidiBuffer&,
+                 pulp::midi::MidiBuffer&,
+                 const pulp::host::ParameterEventQueue&,
+                 int) override {}
+    std::vector<HostParamInfo> parameters() const override { return {}; }
+    float get_parameter(uint32_t) const override { return 0.f; }
+    void set_parameter(uint32_t, float) override {}
+    void set_bypass(bool) override {}
+    bool is_bypassed() const override { return false; }
+    std::vector<uint8_t> save_state() const override { return {}; }
+    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    bool has_editor() const override { return false; }
+    void* create_editor_view() override { return nullptr; }
+    void destroy_editor_view() override {}
+    int latency_samples() const override { return 0; }
+    int tail_samples() const override { return 0; }
+
+private:
+    PluginInfo info_;
+};
 } // namespace
+
+TEST_CASE("SignalGraph prepare failure leaves process output silent",
+          "[host][graph][coverage][phase3]") {
+    SignalGraph graph;
+    auto input = graph.add_input_node(1, "in");
+    auto plugin = graph.add_plugin_node(std::make_unique<PrepareFailPlugin>(),
+                                        1, 1, "fail");
+    auto output = graph.add_output_node(1, "out");
+
+    REQUIRE(graph.connect(input, 0, plugin, 0));
+    REQUIRE(graph.connect(plugin, 0, output, 0));
+    REQUIRE_FALSE(graph.prepare(48000.0, 16));
+    REQUIRE(graph.latency_samples() == 0);
+    REQUIRE(graph.node_latency_samples(plugin) == 0);
+
+    std::vector<float> input_samples(16, 1.0f);
+    std::vector<float> output_samples(16, -1.0f);
+    const float* in_ptrs[1] = {input_samples.data()};
+    float* out_ptrs[1] = {output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 16);
+    pulp::audio::BufferView<float> out_view(out_ptrs, 1, 16);
+
+    graph.process(out_view, in_view, 16);
+    for (float sample : output_samples) {
+        REQUIRE(sample == 0.0f);
+    }
+}
 
 TEST_CASE("SignalGraph PDC aligns parallel branches", "[host][graph][pdc]") {
     // in → A(latency=32) → mix
