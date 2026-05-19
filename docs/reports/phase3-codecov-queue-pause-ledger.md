@@ -10220,3 +10220,15 @@ notification contract. Focused local validation passed: `cmake --build build
 / 1 case), `./build/test/pulp-test-json-rpc "[json_rpc][coverage][phase3]"`
 (39 assertions / 7 cases), and `git diff --check`. The batch now has 13 local
 coverage commits plus main merges; continue accumulating before opening a PR.
+
+2026-05-18 23:04 PDT: added `2c0946af5` (`test(runtime): cover json rpc sparse
+error responses`) to `feature/phase3-codecov-runtime-state-batch-752`. This
+covers incoming JSON-RPC error responses whose `error` object omits optional
+`code`, `message`, and `data` fields, asserting the dispatch path still
+consumes the pending callback and surfaces the parser defaults. Focused local
+validation passed: `cmake --build build --target pulp-test-json-rpc -j4`,
+`./build/test/pulp-test-json-rpc "JsonRpcPeer defaults missing incoming error
+fields"` (7 assertions / 1 case), `./build/test/pulp-test-json-rpc
+"[json_rpc][coverage][phase3]"` (46 assertions / 8 cases), and `git diff
+--check`. The batch now has 14 local coverage commits plus main merges;
+continue accumulating before opening a PR.
