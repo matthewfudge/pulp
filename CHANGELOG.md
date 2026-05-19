@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01720"></a>
+## [0.172.0] - 2026-05-19
+
+- fix(runtime): batch phase 3 coverage hardening ([#2298](https://github.com/danielraffel/pulp/pull/2298))
+- fix(cli): batch phase 3 parser coverage ([#2292](https://github.com/danielraffel/pulp/pull/2292))
+
 <a id="v01710"></a>
 ## [0.171.0] - 2026-05-19
 
@@ -2196,6 +2202,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.172.0]: https://github.com/danielraffel/pulp/releases/tag/v0.172.0
 [0.171.0]: https://github.com/danielraffel/pulp/releases/tag/v0.171.0
 [0.169.0]: https://github.com/danielraffel/pulp/releases/tag/v0.169.0
 [0.167.0]: https://github.com/danielraffel/pulp/releases/tag/v0.167.0
