@@ -1669,3 +1669,24 @@ python3 tools/scripts/verify_cobertura_xml.py "$xml" \
 ```
 
 If you add a third Cobertura artifact (e.g. a future Kotlin lane), reuse the same script — do not paste a new heredoc. Tests in `tools/scripts/test_verify_cobertura_xml.py` cover missing file, empty file, unparseable XML, lines-valid=0 (with and without `--hint`), lines-valid>0, and label propagation. The pattern follows B1's `classify-subject` extraction — script over inline-Python, single source of truth.
+
+## Format validator baseline diff gate
+
+`.github/workflows/format-baseline-diff.yml` runs the format-validator baseline diff (`tools/scripts/format_baseline_diff.py`) whenever a PR touches `core/format/**`, `core/host/src/plugin_slot_*`, `core/host/include/pulp/host/plugin_slot.hpp`, the baseline fixtures, or the scripts themselves.
+
+Behavior:
+
+- Builds `PulpEffect` (AU + VST3 + CLAP) in Release on the self-hosted macOS lane.
+- Installs the three bundles into `~/Library/Audio/Plug-Ins/{Components,VST3,CLAP}/`.
+- Captures normalized output from `auval`, `pluginval`, `clap-validator`.
+- Diffs against committed fixtures in `test/fixtures/format-baseline/`.
+
+Re-capture procedure (when a diff is intentional):
+
+```bash
+tools/scripts/format_baseline_capture.sh --build --plugin PulpEffect
+```
+
+Commit the updated `test/fixtures/format-baseline/*.txt` files in the same PR. No exception path — intentional behavior changes update the baseline; unintentional regressions get fixed at the source.
+
+Companion-track item U-3 in `planning/2026-05-17-refactor-roadmap-final.md`.

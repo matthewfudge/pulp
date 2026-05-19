@@ -1,0 +1,150 @@
+name: Format validator baseline diff
+
+# Companion-track U-3 (planning/2026-05-17-refactor-roadmap-final.md).
+#
+# Runs the format validator baseline diff whenever a PR touches the
+# format adapters or plugin slots. Catches silent format/protocol
+# regressions that compile clean but break real-DAW compatibility.
+#
+# The gate compares the current validator output (auval / pluginval /
+# clap-validator) against the committed fixtures in
+# test/fixtures/format-baseline/. A diff blocks the PR; intentional
+# changes require regenerating the baseline in the same PR via
+# tools/scripts/format_baseline_capture.sh.
+
+on:
+  pull_request:
+    paths:
+      - 'core/format/**'
+      - 'core/host/src/plugin_slot_*'
+      - 'core/host/include/pulp/host/plugin_slot.hpp'
+      - 'test/fixtures/format-baseline/**'
+      - 'tools/scripts/format_baseline_*'
+      - '.github/workflows/format-baseline-diff.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-diff:
+    # Self-hosted macOS runner — required because auval is macOS-only
+    # and pluginval / clap-validator are easiest to pin there. Linux /
+    # Windows runners would only cover a subset of validators and would
+    # fragment the baseline.
+    runs-on: ${{ fromJSON(vars.PULP_LOCAL_MACOS_RUNS_ON_JSON || '["macos-14"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check validator availability
+        id: validators
+        run: |
+          have_auval=0
+          have_pluginval=0
+          have_clap_validator=0
+          if command -v auval >/dev/null 2>&1; then have_auval=1; fi
+          if command -v pluginval >/dev/null 2>&1; then have_pluginval=1; fi
+          if command -v clap-validator >/dev/null 2>&1; then have_clap_validator=1; fi
+          echo "auval=$have_auval" >> "$GITHUB_OUTPUT"
+          echo "pluginval=$have_pluginval" >> "$GITHUB_OUTPUT"
+          echo "clap_validator=$have_clap_validator" >> "$GITHUB_OUTPUT"
+          echo "Validator availability: auval=$have_auval pluginval=$have_pluginval clap-validator=$have_clap_validator"
+
+      - name: Fetch external SDKs required for AU / VST3
+        # The AU and VST3 format targets are conditionally created
+        # only when their respective external SDKs are present.
+        # Without these, cmake configure prints "AudioUnitSDK not
+        # found — AU v2 format disabled" and the _AU / _VST3 targets
+        # don't exist, causing `make: *** No rule to make target` on
+        # the build step. Both SDKs are MIT/Apache-2.0 and safe to
+        # clone in CI per CLAUDE.md's "External SDKs" section.
+        run: |
+          if [ ! -d external/AudioUnitSDK ]; then
+            git clone --depth 1 https://github.com/apple/AudioUnitSDK.git external/AudioUnitSDK
+          fi
+          if [ ! -d external/vst3sdk ]; then
+            git clone --depth 1 --branch v3.7.12_build_20 \
+              --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git \
+              external/vst3sdk
+          fi
+
+      - name: Build representative plugin (PulpEffect — AU + VST3 + CLAP)
+        # PulpDrums is CLAP-only; PulpEffect ships in all three formats
+        # (FORMATS VST3 AU CLAP per examples/pulp-effect/CMakeLists.txt)
+        # so the gate exercises every validator.
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          # pulp_add_plugin() emits per-format targets:
+          # PulpEffect_AU, PulpEffect_VST3, PulpEffect_CLAP. If a
+          # target is missing because its SDK couldn't be fetched
+          # (transient network failure), build the rest and let
+          # format_baseline_diff.py skip the missing lane.
+          available=()
+          for fmt in AU VST3 CLAP; do
+            if cmake --build build --target PulpEffect_$fmt -j"$(sysctl -n hw.ncpu)" 2>/dev/null; then
+              available+=("PulpEffect_$fmt")
+              echo "Built PulpEffect_$fmt"
+            else
+              echo "::warning::PulpEffect_$fmt target missing — that lane will skip"
+            fi
+          done
+          if [ ${#available[@]} -eq 0 ]; then
+            echo "::error::No PulpEffect format targets built"
+            exit 1
+          fi
+
+      - name: Install plugin bundles to system folders + ad-hoc codesign
+        # Plugin bundles are emitted under top-level format dirs per
+        # tools/cmake/PulpUtils.cmake — LIBRARY_OUTPUT_DIRECTORY is
+        # set to ${CMAKE_BINARY_DIR}/AU, /VST3, /CLAP for each format.
+        #
+        # Ad-hoc codesign each bundle so pluginval and auval can load
+        # them without macOS Gatekeeper killing the process. The
+        # `-` identity is an ad-hoc signature (no Developer ID needed);
+        # `--force --deep` re-signs all embedded resources.
+        run: |
+          set -e
+          mkdir -p ~/Library/Audio/Plug-Ins/Components \
+                   ~/Library/Audio/Plug-Ins/VST3 \
+                   ~/Library/Audio/Plug-Ins/CLAP
+          if [ -d build/AU/PulpEffect.component ]; then
+            codesign --force --deep --sign - build/AU/PulpEffect.component || true
+            cp -R build/AU/PulpEffect.component ~/Library/Audio/Plug-Ins/Components/
+          else
+            echo "::warning::build/AU/PulpEffect.component missing — AU lane will skip"
+          fi
+          if [ -d build/VST3/PulpEffect.vst3 ]; then
+            codesign --force --deep --sign - build/VST3/PulpEffect.vst3 || true
+            cp -R build/VST3/PulpEffect.vst3 ~/Library/Audio/Plug-Ins/VST3/
+          else
+            echo "::warning::build/VST3/PulpEffect.vst3 missing — VST3 lane will skip"
+          fi
+          if [ -e build/CLAP/PulpEffect.clap ]; then
+            cp -R build/CLAP/PulpEffect.clap ~/Library/Audio/Plug-Ins/CLAP/
+          else
+            echo "::warning::build/CLAP/PulpEffect.clap missing — CLAP lane will skip"
+          fi
+
+      - name: Install clap-validator
+        # GHA macOS runners don't ship clap-validator. Download a
+        # pinned prebuilt binary from the GitHub release. Pin is a
+        # tagged release; bump deliberately if the validator's
+        # behavior changes (and re-capture the baseline at the same
+        # commit).
+        run: |
+          CV_VERSION="0.3.2"
+          CV_URL="https://github.com/free-audio/clap-validator/releases/download/${CV_VERSION}/clap-validator-macos-aarch64.tar.gz"
+          if curl -fsSL -o /tmp/cv.tar.gz "$CV_URL"; then
+            tar -xzf /tmp/cv.tar.gz -C /tmp
+            sudo mv /tmp/clap-validator /usr/local/bin/clap-validator
+            chmod +x /usr/local/bin/clap-validator
+            clap-validator --version || echo "::warning::clap-validator installed but --version failed"
+          else
+            echo "::warning::clap-validator download failed — CLAP lane will skip"
+          fi
+
+      - name: Run baseline diff
+        run: |
+          python3 tools/scripts/format_baseline_diff.py --plugin PulpEffect
