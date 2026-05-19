@@ -11285,3 +11285,18 @@ priority at base `f51fd8ca4`, head `a2dba7534`, `mergeable: true`,
 `mergeable_state: blocked`, open and not draft; REST polling at 10:59Z showed
 macOS local smoke, Yoga layout snapshots, and baseline-diff completed success,
 with all other lanes still queued and no failed checks.
+
+2026-05-19 04:03 PDT: added `d9b4c20b3` (`test(midi): cover ump buffer
+helpers`) to local-only `feature/phase3-codecov-audio-midi-batch-753`. This
+touches only `test/test_ump_buffer_conversion.cpp` and covers `UmpBuffer`'s
+moved-event append plus const iteration path, and `UmpPacket::size_for_type`
+for all supported packet classes plus the default fallback. Focused local
+validation passed: `cmake --build build --target pulp-test-ump-buffer-conversion
+-j4`, `./build/test/pulp-test-ump-buffer-conversion "[midi][ump]"` (151
+assertions / 19 cases), and `git diff --check`. The local batch is clean,
+local-only, and 34 commits ahead of `origin/main`. PR #2268 remains the merge
+priority at base `f51fd8ca4`, head `a2dba7534`, `mergeable: true`,
+`mergeable_state: blocked`, open and not draft; REST polling at 11:03Z showed
+macOS local smoke, Yoga layout snapshots, and baseline-diff completed success,
+IWYU advisory in progress, remaining lanes queued, and no failed checks. No
+Namespace CI was used.
