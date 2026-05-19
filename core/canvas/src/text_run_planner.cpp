@@ -298,8 +298,15 @@ segment_with_icu(std::string_view text, std::uint8_t base_level) {
         BidiScriptSegment seg;
         seg.start      = cursor;
         seg.end        = end;
-        seg.bidi_level = be ? base_level : bidi->currentLevel();
-        seg.script_tag = se ? 0u        : scr->currentScript();
+        // SkShaper RunIterator contract: after the final consume() on
+        // a one-run input (e.g. pure Hebrew "שלום", pure CJK "日本語"),
+        // atEnd() reports true but currentLevel() / currentScript()
+        // remain valid for the just-consumed run. Substituting
+        // base_level / 0 here would shape pure-RTL text as LTR and
+        // drop the script tag for any final or single-script run.
+        // See Codex review on PR #2311.
+        seg.bidi_level = bidi->currentLevel();
+        seg.script_tag = scr->currentScript();
 
         // Merge with the previous segment when both properties match,
         // which happens at seams where one iterator's run ended and

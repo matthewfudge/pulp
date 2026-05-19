@@ -122,6 +122,61 @@ TEST_CASE("planner — script split for Hello 日本語 world",
 #endif
 }
 
+// ── Single-run bidi: pure-RTL Hebrew keeps RTL level (Codex review on #2311) ─
+//
+// `"שלום"` is one bidi run AND one script run. SkShaper iterators report
+// `atEnd()` true after the first consume(), but `currentLevel()` still
+// reports the RTL level (1) for the just-consumed run. The planner must
+// trust currentLevel(), not substitute `base_level` (0 for LTR default),
+// or pure RTL strings get shaped as LTR.
+TEST_CASE("planner — single-run RTL preserves bidi level after atEnd",
+          "[font][planner][bidi][issue-2311]") {
+#ifndef PULP_HAS_SKIA
+    SUCCEED("Skia not linked — real ICU iterators not available");
+    return;
+#else
+    const std::string text = "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D";  // שלום
+    auto out = pulp::canvas::TextRunPlanner::instance().shape(text, default_opts());
+
+    REQUIRE(out.runs.size() >= 1);
+    // Every run must report an odd (RTL) bidi level — if the planner
+    // substituted base_level on the atEnd branch we'd see level 0 here.
+    bool any_rtl = false;
+    for (const auto& r : out.runs) {
+        if ((r.bidi_level & 1u) != 0u) any_rtl = true;
+    }
+    REQUIRE(any_rtl);
+#endif
+}
+
+// ── Single-run script: pure CJK keeps Hani tag after atEnd (Codex review on #2311) ─
+//
+// `"日本語"` is one script run. After consume() the script iterator's
+// `atEnd()` returns true, but `currentScript()` still reports 'Hani'
+// (0x48616E69) for the just-consumed run. Substituting 0 here drops
+// the script tag for any final / single-script run.
+TEST_CASE("planner — single-run CJK preserves script tag after atEnd",
+          "[font][planner][script][issue-2311]") {
+#ifndef PULP_HAS_SKIA
+    SUCCEED("Skia not linked — real ICU iterators not available");
+    return;
+#else
+    const std::string text = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";  // 日本語
+    auto out = pulp::canvas::TextRunPlanner::instance().shape(text, default_opts());
+
+    REQUIRE(out.runs.size() >= 1);
+    // 'Hani' = 0x48616E69 (big-endian ASCII tag).
+    constexpr std::uint32_t kHani = 0x48616E69u;
+    bool saw_hani = false;
+    for (const auto& r : out.runs) {
+        if (r.script_tag == kHani) saw_hani = true;
+    }
+    // If the planner substituted 0 on the atEnd branch, no run would
+    // carry the 'Hani' tag and saw_hani would stay false.
+    REQUIRE(saw_hani);
+#endif
+}
+
 // ── Devanagari virama: क्ष is one cluster ─────────────────────────────────
 //
 // `"क्ष"` decomposes as ka (U+0915) + virama (U+094D) + ssa (U+0937).
