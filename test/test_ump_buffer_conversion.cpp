@@ -25,6 +25,36 @@ TEST_CASE("UmpBuffer sort + clear", "[midi][ump]") {
     REQUIRE(buf.empty());
 }
 
+TEST_CASE("UmpBuffer accepts moved events and exposes const iteration",
+          "[midi][ump][coverage][phase3]") {
+    UmpBuffer buf;
+    UmpEvent event{UmpPacket::note_on_2(2, 3, 60, 0x4000), 48};
+    buf.add(std::move(event));
+
+    const UmpBuffer& view = buf;
+    int visited = 0;
+    for (const auto& item : view) {
+        REQUIRE(item.sample_offset == 48);
+        REQUIRE(item.packet.group() == 2);
+        REQUIRE(item.packet.channel() == 3);
+        ++visited;
+    }
+
+    REQUIRE(visited == 1);
+    REQUIRE(view[0].packet.note_number() == 60);
+}
+
+TEST_CASE("UmpPacket size_for_type covers supported packet classes",
+          "[midi][ump][coverage][phase3]") {
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::Utility) == 1);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::System) == 1);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::Midi1ChannelVoice) == 1);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::DataSysEx) == 2);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::Midi2ChannelVoice) == 2);
+    REQUIRE(UmpPacket::size_for_type(UmpMessageType::Data128) == 4);
+    REQUIRE(UmpPacket::size_for_type(static_cast<UmpMessageType>(0x0F)) == 1);
+}
+
 TEST_CASE("UmpPacket helper factories mask groups channels and data fields",
           "[midi][ump][helpers]") {
     auto note = UmpPacket::note_on_2(0x2F, 0x1E, 0xFF, 0x1234, 0x8F, 0xABCD);
