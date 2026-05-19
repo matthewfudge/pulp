@@ -420,6 +420,28 @@ TEST_CASE("MemoryMappedFile read-write maps persist and move assignment closes o
     REQUIRE(saved == "w!yz");
 }
 
+TEST_CASE("MemoryMappedFile self move assignment preserves the active map",
+          "[runtime][mmap][coverage][phase3]") {
+    TemporaryFile tmp(".bin");
+    {
+        std::ofstream f(tmp.path(), std::ios::binary);
+        f << "stable";
+    }
+
+    MemoryMappedFile mmap;
+    REQUIRE(mmap.open(tmp.path_string()));
+    auto* original_data = mmap.data();
+    const auto original_size = mmap.size();
+
+    auto& same_map = mmap;
+    mmap = std::move(same_map);
+
+    REQUIRE(mmap.is_open());
+    REQUIRE(mmap.data() == original_data);
+    REQUIRE(mmap.size() == original_size);
+    REQUIRE(std::string(reinterpret_cast<const char*>(mmap.data()), mmap.size()) == "stable");
+}
+
 TEST_CASE("MemoryMappedFile rejects empty files and close is idempotent",
           "[runtime][mmap][coverage][issue-656]") {
     TemporaryFile tmp(".bin");
