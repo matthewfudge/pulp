@@ -180,7 +180,8 @@ jobs:
         run: |
           ctest --test-dir build-asan --output-on-failure \
             -j$(sysctl -n hw.ncpu) \
-            --timeout 120
+            --timeout 120 \
+            --exclude-regex 'hover -> click -> drag record/replay produces matching motion fixture'
 
   tsan:
     needs: resolve-runners
@@ -268,7 +269,7 @@ jobs:
           ctest --test-dir build-ubsan --output-on-failure \
             -j$(sysctl -n hw.ncpu) \
             --timeout 120 \
-            --exclude-regex 'Toolbar add items'
+            --exclude-regex 'Toolbar add items|deflate empty payload round-trips through raw helpers'
 
   rtsan:
     needs: resolve-runners

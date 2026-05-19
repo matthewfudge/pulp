@@ -86,7 +86,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install pytest
-        run: python -m pip install --upgrade pip pytest
+        run: |
+          python -m venv .sandbox-e2e-venv
+          .sandbox-e2e-venv/bin/python -m pip install --upgrade pip pytest
 
       # Linux-only: install the system deps the Pulp C++ CLI build
       # needs. SDL3 pulls in alsa / X11 / Wayland headers; without
@@ -150,7 +152,7 @@ jobs:
           # runs plugin-command enumeration + contamination audit + any
           # other binary-free scenarios. pytest.skip takes care of the
           # per-test gating.
-          pytest tools/sandbox-e2e/ -v --tb=short
+          .sandbox-e2e-venv/bin/pytest tools/sandbox-e2e/ -v --tb=short
 
       - name: Upload contamination-audit report on failure
         if: failure()
