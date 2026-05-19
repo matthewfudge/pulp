@@ -10525,16 +10525,18 @@ has 26 local coverage commits plus main merges and remains current with
 2026-05-19 00:46 PDT: started
 `feature/phase3-codecov-audio-midi-batch-753` from current `origin/main`,
 fast-forwarded through `2644adbb3` (`docs: regenerate changelog for v0.137.0
-[skip ci]`), and added `5eedec1f3` (`test(midi): cover MPE zone disabled
-layouts`; originally `9417253ab` before rebasing onto `cbb56045e`). This
-covers `MpeZone::contains_channel` for disabled lower/upper zones and
-non-standard manager layouts without changing production code. Focused local
-validation passed in the fresh worktree after configure: `cmake --build build
---target pulp-test-mpe-buffer -j4`, `./build/test/pulp-test-mpe-buffer
-"MpeZone rejects disabled and non-standard manager layouts"` (8 assertions / 1
-case), `./build/test/pulp-test-mpe-buffer "[midi][mpe]"` (94 assertions / 12
-cases), and `git diff --check`. The branch is local-only; do not push/open it
-while #2268 is still blocked.
+[skip ci]`), and added `6f079c165` (`test(midi): cover MPE zone disabled
+layouts`; originally `9417253ab`, then `5eedec1f3`, before rebasing onto
+`9938b75ea`). This covers `MpeZone::contains_channel` for disabled lower/upper
+zones and non-standard manager layouts without changing production code.
+Focused local validation passed in the fresh worktree after configure:
+`cmake --build build --target pulp-test-mpe-buffer -j4`,
+`./build/test/pulp-test-mpe-buffer "MpeZone rejects disabled and non-standard
+manager layouts"` (8 assertions / 1 case),
+`./build/test/pulp-test-mpe-buffer "[midi][mpe]"` (94 assertions / 12 cases),
+and `git diff --check`. Post-rebase focused validation also passed with the
+same single-test filter. The branch is local-only; do not push/open it while
+#2268 is still blocked.
 
 2026-05-19 00:46 PDT: rechecked PR #2268. Head remains
 `585544b09dfbb0345522e2f8713a59d185bd4624`; REST reports the PR open and not
@@ -10550,8 +10552,9 @@ condition described in the Namespace hygiene handoff.
 
 2026-05-19 00:52 PDT: rebased local-only
 `feature/phase3-codecov-audio-midi-batch-753` onto current `origin/main`
-(`cbb56045e`) and added `0807028a8` (`test(midi): cover reserved
-running-status realtime bytes`). This covers the `RunningStatusParser`
+(`cbb56045e`), then later onto `9938b75ea`, and added `5f648bb38`
+(`test(midi): cover reserved running-status realtime bytes`; originally
+`0807028a8`). This covers the `RunningStatusParser`
 real-time pass-through branch for reserved `0xF9` and `0xFD` bytes, asserting
 they are emitted while preserving the active note-on running status for the
 following data bytes. Focused local validation passed:
@@ -10559,19 +10562,35 @@ following data bytes. Focused local validation passed:
 `./build/test/pulp-test-running-status "reserved real-time bytes preserve
 running status"` (11 assertions / 1 case),
 `./build/test/pulp-test-running-status "[midi][running-status]"` (93
-assertions / 20 cases), and `git diff --check`. The branch is local-only and
-ahead of `origin/main` by 2 coverage commits; keep it queued behind #2268.
+assertions / 20 cases), and `git diff --check`. Post-rebase focused validation
+also passed with the same single-test filter. The branch is local-only; keep
+it queued behind #2268.
 
-2026-05-19 01:00 PDT: added `8787f61a4` (`test(midi): cover MIDI-CI profile
-count encoding`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
-This covers `CiDiscovery::handle_profile_inquiry` count-byte encoding for
-enabled and disabled profile counts greater than 127, asserting the MIDI-CI
-profile reply writes the low/high 7-bit count bytes and preserves the final
-SysEx terminator. Focused local validation passed:
+2026-05-19 01:00 PDT: added `537f9a5f1` (`test(midi): cover MIDI-CI profile
+count encoding`; originally `8787f61a4`) to local-only
+`feature/phase3-codecov-audio-midi-batch-753`. This covers
+`CiDiscovery::handle_profile_inquiry` count-byte encoding for enabled and
+disabled profile counts greater than 127, asserting the MIDI-CI profile reply
+writes the low/high 7-bit count bytes and preserves the final SysEx
+terminator. Focused local validation passed:
 `cmake --build build --target pulp-test-midi-ci -j4`,
 `./build/test/pulp-test-midi-ci "CiDiscovery profile reply encodes multi-byte
 profile counts"` (6 assertions / 1 case),
 `./build/test/pulp-test-midi-ci "[midi][ci]"` (132 assertions / 27 cases),
-and `git diff --check`. The branch is local-only and ahead of `origin/main`
-by 3 coverage commits; keep it queued behind #2268 and continue accumulating
-deterministic audio/MIDI coverage.
+and `git diff --check`. Post-rebase focused validation also passed with the
+same single-test filter. The branch is local-only; keep it queued behind #2268
+and continue accumulating deterministic audio/MIDI coverage.
+
+2026-05-19 01:05 PDT: rebased local-only
+`feature/phase3-codecov-audio-midi-batch-753` onto current `origin/main`
+(`9938b75ea`) and added `e5ff7ce5f` (`test(audio): cover short-read frame fill
+clamps`). This covers `zero_fill_short_read` for a partial interleaved read,
+negative `frames_read` clamping, overfull `frames_read` no-op behavior, null
+buffer handling, and invalid channel count no-op behavior. Focused local
+validation passed: `cmake --build build --target pulp-test-audio-edge-cases
+-j4`, `./build/test/pulp-test-audio-edge-cases "Audio frame fill clamps
+partial reads and preserves valid samples"` (14 assertions / 1 case),
+`./build/test/pulp-test-audio-edge-cases "[audio][edges]"` (3089 assertions /
+7 cases), the post-rebase focused filters for all four batch 753 tests, and
+`git diff --check`. The branch is local-only and ahead of `origin/main` by 4
+coverage commits; keep it queued behind #2268.
