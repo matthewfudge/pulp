@@ -9514,3 +9514,15 @@ automation sources sum beyond the target range. Focused local validation passed:
 "[host][graph][automation][coverage][phase3]"` (19 assertions / 2 cases), and
 `git diff --check`. The held batch now has 21 local coverage commits; continue
 accumulating before opening a PR.
+
+2026-05-18 21:28 PDT: added `3ee4f0d7f` (`test(host): cover slot load dispatch
+failures`) to the held `feature/phase3-codecov-host-cache-batch-750` batch.
+This covers deterministic `PluginSlot::load()` dispatch failure paths for a
+missing CLAP bundle and malformed AU/AUv3 4CC identifiers, without depending on
+installed plugins. Focused local validation passed: `cmake --build build
+--target pulp-test-host`, `./build/test/pulp-test-host "PluginSlot load fails
+cleanly for invalid dispatch inputs"` (3 assertions / 1 case),
+`./build/test/pulp-test-host "[host][slot][coverage][phase3]"` (3 assertions /
+1 case; expected loader error logs for invalid inputs), and `git diff --check`.
+The held batch now has 22 local coverage commits; continue accumulating before
+opening a PR.
