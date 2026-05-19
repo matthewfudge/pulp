@@ -1714,6 +1714,21 @@ if(PULP_HAS_SKIA)
 endif()
 catch_discover_tests(pulp-test-canvas-filter-chain)
 
+# Canvas arcs / path-primitive Skia rasterization fixtures (P5-2
+# follow-up — extracted from test_canvas.cpp). pulp #1521 native
+# arc / arcTo / ellipse / roundRect cluster: RecordingCanvas captures
+# of native primitives + Skia rasterization fixtures (full / half
+# circle arc matches reference SkPath::arcTo, arc_to collinear
+# lineTos, round_rect 4-corner radii, ellipse rotation contour
+# continuity).
+add_executable(pulp-test-canvas-arcs test_canvas_arcs.cpp)
+target_link_libraries(pulp-test-canvas-arcs PRIVATE pulp::canvas Catch2::Catch2WithMain)
+if(PULP_HAS_SKIA)
+    target_compile_definitions(pulp-test-canvas-arcs PRIVATE PULP_HAS_SKIA=1)
+    target_include_directories(pulp-test-canvas-arcs PRIVATE ${SKIA_INCLUDE_DIRS})
+endif()
+catch_discover_tests(pulp-test-canvas-arcs)
+
 # Emoji-parity tests — cover the segmenter + cluster-aware shaping +
 # letter-spacing + cache invalidation paths. Also writes PNGs to
 # `$PULP_EMOJI_TEST_PNG_DIR` (default /tmp/pulp-emoji-validation/) for
