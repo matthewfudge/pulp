@@ -9539,3 +9539,17 @@ finish without completion callback"` (7 assertions / 1 case),
 "[host][bg-scan][coverage][phase3]"` (14 assertions / 2 cases), and `git diff
 --check`. The held batch now has 23 local coverage commits; add at least one
 more focused slice before opening a PR.
+
+2026-05-18 21:41 PDT: added `1db18d834` (`test(host): cover VST3 unusable
+moduleinfo classes`) to the held `feature/phase3-codecov-host-cache-batch-750`
+batch. This covers the VST3 moduleinfo scanner branch that skips non-object
+class records, non-audio classes, audio classes with missing CIDs, and audio
+classes whose CIDs cannot normalize, falling back to the bundle stem. Focused
+local validation passed: `cmake --build build --target
+pulp-test-host-regression`, `./build/test/pulp-test-host-regression
+"PluginScanner VST3 moduleinfo skips unusable class records"` (5 assertions / 1
+case), `./build/test/pulp-test-host-regression
+"[host][scanner][regression][codecov][phase3]"` (10 assertions / 2 cases), and
+`git diff --check`. The held batch now has 24 local coverage commits and is at
+the lower bound for the planned PR batch size; next action is a final readiness
+check and then open a batched PR if main remains current.
