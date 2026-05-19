@@ -9646,3 +9646,15 @@ assertions / 1 case), `./build/test/pulp-test-preset-manager
 "[state][preset][coverage][phase3]"` (15 assertions / 2 cases), and `git diff
 --check`. The new batch now has 5 local coverage commits; continue
 accumulating before opening a PR.
+
+2026-05-18 23:03 PDT: added `70a545fd3` (`test(state): cover undo
+transaction pre-applied actions`) to `feature/phase3-codecov-runtime-state-batch-751`.
+This covers `UndoManager::add_without_executing()` while a transaction is open,
+asserting pre-applied actions are grouped without immediate redo, undo together
+in reverse, and redo together later. Focused local validation passed:
+`cmake --build build --target pulp-test-undo-manager`,
+`./build/test/pulp-test-undo-manager "UndoManager add_without_executing
+participates in transactions"` (13 assertions / 1 case),
+`./build/test/pulp-test-undo-manager "[state][undo][coverage][phase3]"`
+(13 assertions / 1 case), and `git diff --check`. The new batch now has 6
+local coverage commits; continue accumulating before opening a PR.
