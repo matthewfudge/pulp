@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <pulp/midi/midi.hpp>
 #include <pulp/midi/mpe_buffer.hpp>
+#include <pulp/midi/device.hpp>
 #include <pulp/midi/midi_file.hpp>
 #include <pulp/midi/midi_message_sequence.hpp>
 #include <pulp/midi/ump_buffer.hpp>
@@ -30,6 +31,33 @@ struct TempDir {
     ~TempDir() {
         std::error_code ec;
         fs::remove_all(path, ec);
+    }
+};
+
+class NoopMidiInput final : public MidiInput {
+public:
+    bool open(const std::string&, MidiInputCallback) override { return false; }
+    void close() override {}
+    bool is_open() const override { return false; }
+};
+
+class NoopMidiOutput final : public MidiOutput {
+public:
+    bool open(const std::string&) override { return false; }
+    void close() override {}
+    bool is_open() const override { return false; }
+    void send(const MidiEvent&) override {}
+};
+
+class DefaultHookMidiSystem final : public MidiSystem {
+public:
+    std::vector<MidiPortInfo> enumerate_inputs() override { return {}; }
+    std::vector<MidiPortInfo> enumerate_outputs() override { return {}; }
+    std::unique_ptr<MidiInput> create_input() override {
+        return std::make_unique<NoopMidiInput>();
+    }
+    std::unique_ptr<MidiOutput> create_output() override {
+        return std::make_unique<NoopMidiOutput>();
     }
 };
 
@@ -183,6 +211,32 @@ TEST_CASE("MidiEvent factory methods mask MIDI data-byte boundaries",
         auto evt = MidiEvent::pitch_bend(4, 0xFFFF);
         require_bytes(evt, 0xE4, 0x7F, 0x7F);
     }
+}
+
+TEST_CASE("MIDI device defaults expose safe no-op extension hooks",
+          "[midi][device][codecov]") {
+    MidiPortInfo info;
+    REQUIRE(info.id.empty());
+    REQUIRE(info.name.empty());
+    REQUIRE_FALSE(info.is_input);
+    REQUIRE_FALSE(info.is_output);
+
+    NoopMidiInput input;
+    input.set_sysex_callback([](const std::vector<uint8_t>&, double) {
+        FAIL("base MidiInput sysex hook should not invoke callbacks");
+    });
+    input.set_sysex_callback({});
+    REQUIRE_FALSE(input.is_open());
+
+    DefaultHookMidiSystem system;
+    int callbacks = 0;
+    system.set_port_change_callback([&] { ++callbacks; });
+    system.set_port_change_callback({});
+    REQUIRE(callbacks == 0);
+    REQUIRE(system.enumerate_inputs().empty());
+    REQUIRE(system.enumerate_outputs().empty());
+    REQUIRE(system.create_input() != nullptr);
+    REQUIRE(system.create_output() != nullptr);
 }
 
 TEST_CASE("MidiBuffer operations", "[midi][buffer]") {
