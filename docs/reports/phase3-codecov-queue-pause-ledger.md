@@ -11091,3 +11091,19 @@ were still active or queued, and GraphQL had reset. Retried
 `shipyard rescue 2268` from the PR worktree after the reset; Shipyard reported
 no stuck queued runs older than 30 minutes, so no manual rescue was applied.
 The batch is clean, local-only, and 24 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:17 PDT: added `7cbfd38f3` (`test(runtime): cover malformed
+deflate streams`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_xml_zip.cpp` and adds deterministic negative-path
+coverage for raw deflate decompression: malformed bytes and an empty raw
+stream both return `nullopt`. Focused local validation passed:
+`cmake --build build --target pulp-test-xml-zip -j4`,
+`./build/test/pulp-test-xml-zip "[runtime][zip]"` (68 assertions / 20 cases),
+and `git diff --check`. PR #2268 remained current at head `5f511a733`; REST
+returned a transient `mergeable: null`/`mergeable_state: unknown` while
+recomputing, but check-runs showed no failures. `sandbox-e2e (ubuntu-latest)`
+was green, Windows/macOS hosted lanes were still running or queued, and
+`macos-15`, `sandbox-e2e (macos-latest)`, and `android-build (macos-latest)`
+were still queued. Keep #2268 first and continue local-only accumulation until
+that PR is actionable or green. The batch is clean, local-only, and 25
+coverage commits ahead of `origin/main`.
