@@ -11206,3 +11206,17 @@ coverage. Focused local validation passed:
 `mergeable_state: blocked`, with no failed checks; Linux and Windows hosted
 lanes remained in progress and several macOS lanes remained queued. The batch
 is clean, local-only, and 30 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:43 PDT: added `873a14b84` (`fix(audio): rebind copied buffer
+channel pointers`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This fixes the owning `audio::Buffer` copy constructor/assignment path so the
+copied `BufferView` channel pointer table is rebuilt against the copied sample
+storage instead of aliasing the source buffer, and adds a focused regression in
+`test/test_audio.cpp`. Focused local validation passed:
+`cmake --build build --target pulp-test-audio -j4`,
+`./build/test/pulp-test-audio "[audio][buffer]"` (593 assertions / 8 cases),
+and `git diff --check`. PR #2268 remained current at head `5f511a733`,
+`mergeable: true`, `mergeable_state: blocked`, with no failed checks; Linux
+and Windows hosted lanes remained in progress while the macOS sanitizer,
+macOS local-runner, macOS sandbox, and Android macOS lanes remained queued.
+The batch is clean, local-only, and 31 commits ahead of `origin/main`.
