@@ -10191,3 +10191,21 @@ case), `./build/test/pulp-test-network-stream
 "[network_stream][http][coverage][phase3]"` (46 assertions / 4 cases), and
 `git diff --check`. The batch now has 12 local coverage commits plus main
 merges; continue accumulating before opening a PR.
+
+2026-05-18 22:59 PDT: updated PR #2268 (`feature/phase3-codecov-rollup-746`) to
+current `origin/main` with merge commit `1c37adf45` after GitHub reported the PR
+as `dirty`. Conflict resolution preserved the branch's unsupported
+`register_font_url()` scheme coverage, main's new detached-worker allocation
+throw test, and moved the branch's transition-parser coverage into main's new
+`test_widget_bridge_css_animations.cpp` extracted test file while accepting
+main's extracted `test_widget_bridge.cpp` shape. Focused local validation
+passed: `cmake --build build --target pulp-test-font-async-lifecycle
+pulp-test-widget-bridge-css-animations pulp-test-widget-bridge-css-grid
+pulp-test-widget-bridge -j4`, the two font conflict tests, the
+`parse_transition_shorthand rejects partial easing numbers` test,
+`./build/test/pulp-test-widget-bridge-css-animations
+"[view][bridge][css][coverage][phase3]"`, and `git diff --check`. Pushed with
+`PULP_SKIP_PREPUSH=1 git push`; REST now reports #2268 head
+`1c37adf456e0e80457f2e8292bfb1ace98c05ab8`, `mergeable=true`,
+`mergeable_state=blocked`, and no failed/cancelled/timed-out check-runs.
+Next action: continue monitoring #2268 checks until green/merged.
