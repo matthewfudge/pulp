@@ -9860,3 +9860,14 @@ write without a backing stream completes as closed"` (6 assertions / 1 case),
 `./build/test/pulp-test-async-stream "[async_stream][coverage][phase3]"` (30
 assertions / 6 cases), and `git diff --check`. The batch now has 22 local
 coverage commits; continue accumulating before opening a PR.
+
+2026-05-19 00:39 PDT: added `cc000faaa` (`test(runtime): cover closed stream
+result predicate`) to `feature/phase3-codecov-runtime-state-batch-751`. This
+covers the `StreamResult::closed()` predicate for `StreamError::Closed` and
+asserts other non-ok errors such as `IoError` do not report as closed. Focused
+local validation passed: `cmake --build build --target pulp-test-stream`,
+`./build/test/pulp-test-stream "StreamResult closed predicate only matches
+closed errors"` (7 assertions / 1 case), `./build/test/pulp-test-stream
+"[stream][coverage][phase3]"` (89 assertions / 9 cases), and `git diff
+--check`. The batch now has 23 local coverage commits; continue accumulating
+before opening a PR.
