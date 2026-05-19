@@ -173,17 +173,25 @@ TEST_CASE("ScopedNoAlloc state is thread-local",
     bool worker_initial_in_scope = true;
     int worker_nested_depth = -1;
     bool worker_nested_in_scope = false;
+    int worker_final_depth = -1;
+    bool worker_final_in_scope = true;
     std::thread worker([&] {
         worker_initial_depth = no_alloc_scope_depth();
         worker_initial_in_scope = is_in_no_alloc_scope();
-        ScopedNoAlloc worker_scope;
-        worker_nested_depth = no_alloc_scope_depth();
-        worker_nested_in_scope = is_in_no_alloc_scope();
+        {
+            ScopedNoAlloc worker_scope;
+            worker_nested_depth = no_alloc_scope_depth();
+            worker_nested_in_scope = is_in_no_alloc_scope();
+        }
+        worker_final_depth = no_alloc_scope_depth();
+        worker_final_in_scope = is_in_no_alloc_scope();
     });
     worker.join();
 
     REQUIRE(worker_initial_depth == 0);
     REQUIRE_FALSE(worker_initial_in_scope);
+    REQUIRE(worker_final_depth == 0);
+    REQUIRE_FALSE(worker_final_in_scope);
 #ifndef NDEBUG
     REQUIRE(no_alloc_scope_depth() == 1);
     REQUIRE(is_in_no_alloc_scope());
