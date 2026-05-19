@@ -2105,6 +2105,16 @@ set_tests_properties(visual-harness-self-test PROPERTIES
 # CanvasWidget tests (JS-driven custom drawing)
 pulp_add_test_suite(pulp-test-canvas-widget LIBRARIES pulp::view)
 
+# CanvasWidget NaN/Infinity sanitization cluster (P5-3 follow-up,
+# pulp #1387 gap #2). Pins that JS-supplied NaN / ±Inf coords land
+# as 0 in the recorded draw command, while finite values pass through.
+pulp_add_test_suite(pulp-test-canvas-widget-sanitize LIBRARIES pulp::view)
+
+# CanvasWidget + SkiaCanvas Canvas2D shadow-state cluster (P5-3
+# follow-up). Replay + clear + transparent/zero short-circuit
+# of sticky Canvas2D shadow* state.
+pulp_add_test_suite(pulp-test-canvas-widget-shadow LIBRARIES pulp::view)
+
 # pulp #964 — Canvas2D JS-shim coverage. Drives the full
 # web-compat-canvas.js → bridge → CanvasWidget path so a regression
 # that drops a save/restore/setTransform/createLinearGradient method
