@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01500"></a>
+## [0.150.0] - 2026-05-19
+
+- feat(inspect): Phase 0b PR-A — Inspector.applyTweak protocol + TweakStore ([#2300](https://github.com/danielraffel/pulp/pull/2300))
+
 <a id="v01480"></a>
 ## [0.148.0] - 2026-05-19
 
@@ -2123,6 +2128,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.150.0]: https://github.com/danielraffel/pulp/releases/tag/v0.150.0
 [0.148.0]: https://github.com/danielraffel/pulp/releases/tag/v0.148.0
 [0.147.0]: https://github.com/danielraffel/pulp/releases/tag/v0.147.0
 [0.146.1]: https://github.com/danielraffel/pulp/releases/tag/v0.146.1
