@@ -960,6 +960,28 @@ TEST_CASE("StateStore empty serialization round-trips as a minimum frame",
                                                               data.size() - 1}));
 }
 
+TEST_CASE("StateStore deserialize ignores valid trailing payload extensions",
+          "[state][serialize][coverage][phase3-large]") {
+    StateStore source;
+    auto p1 = make_param_info(1, "One", "", {0.0f, 1.0f, 0.0f});
+    source.add_parameter(p1);
+    source.set_value(1, 0.5f);
+
+    auto data = source.serialize();
+    const auto old_crc_offset = data.size() - 4;
+    data.insert(data.begin() + static_cast<std::ptrdiff_t>(old_crc_offset),
+                {0xde, 0xad, 0xbe, 0xef});
+    const auto payload_size = data.size() - 4;
+    write_le_u32(data, payload_size, test_crc32(data.data(), payload_size));
+
+    StateStore target;
+    target.add_parameter(p1);
+    target.set_value(1, 0.25f);
+
+    REQUIRE(target.deserialize(data));
+    REQUIRE_THAT(target.get_value(1), WithinAbs(0.5, 0.001));
+}
+
 // ─── ListenerToken / thread routing (Slice 1) ───────────────────────────────
 
 TEST_CASE("ListenerToken removes its listener on destruction",
