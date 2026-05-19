@@ -10178,3 +10178,16 @@ case), `./build/test/pulp-test-network-stream
 "[network_stream][http][coverage][phase3]"` (41 assertions / 3 cases), and
 `git diff --check`. The batch now has 11 local coverage commits plus main
 merges; continue accumulating before opening a PR.
+
+2026-05-18 22:56 PDT: added `aa9a2bf9e` (`test(runtime): cover http download
+success`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers the
+`http_download()` success path using a local loopback HTTP response, asserting
+the helper accepts an OK response, writes the response body to disk, and leaves
+the expected bytes in the output file without relying on external network.
+Focused local validation passed: `cmake --build build --target
+pulp-test-network-stream -j4`, `./build/test/pulp-test-network-stream
+"http_download writes a successful local response to disk"` (5 assertions / 1
+case), `./build/test/pulp-test-network-stream
+"[network_stream][http][coverage][phase3]"` (46 assertions / 4 cases), and
+`git diff --check`. The batch now has 12 local coverage commits plus main
+merges; continue accumulating before opening a PR.
