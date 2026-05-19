@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 22:42 PDT
+Last updated: 2026-05-18 22:43 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -189,6 +189,19 @@ guarded in the test. Local validation passed:
 `cmake --build build --target pulp-test-runtime-utils`,
 `./build/test/pulp-test-runtime-utils "is_process_running recognizes the
 current process"`, `./build/test/pulp-test-runtime-utils
+"[runtime][child_process][coverage][phase3]"`, and `git diff --check`.
+PR state: not pushed; keep accumulating runtime coverage commits toward
+the larger batch. No Namespace dispatch.
+
+2026-05-18 22:43 PDT: added thirteenth committed tranche to
+`feature/phase3-codecov-runtime-state-batch-752`:
+`2a1bbc125 test(runtime): cover missing process query`, touching
+`test/test_runtime_utils.cpp`. Scope: deterministic `is_process_running`
+coverage for the false path using an impossible high PID, complementing
+the current-process true-path assertion. Local validation passed:
+`cmake --build build --target pulp-test-runtime-utils`,
+`./build/test/pulp-test-runtime-utils "is_process_running rejects an
+impossible high pid"`, `./build/test/pulp-test-runtime-utils
 "[runtime][child_process][coverage][phase3]"`, and `git diff --check`.
 PR state: not pushed; keep accumulating runtime coverage commits toward
 the larger batch. No Namespace dispatch.
