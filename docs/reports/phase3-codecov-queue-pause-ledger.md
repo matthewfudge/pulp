@@ -9231,3 +9231,18 @@ checkout the pinned `mbedtls` tag `v3.6.2`. After the already-recorded focused
 local validation, pushed the branch with `PULP_SKIP_PREPUSH=1
 PULP_VIA_SHIPYARD=1` and created the PR via `gh pr create` with label
 `codecov`. Monitor #2292 to green and merge; do not push empty rerun commits.
+
+2026-05-18 17:58 PDT: fixed #2292 enforcement failure. CI showed skill-sync
+passed, but docs-sync required `docs/reference/cli.md` coverage and the PR title
+`fix(cli): ...` required a canonical `chore: bump versions` commit. Added
+`chore: bump versions` with `CMakeLists.txt` `0.134.0 -> 0.134.1`, plus
+`Docs-Update: skip doc=cli.md reason="parser hardening only; documented CLI
+surface unchanged"` and the existing parser-hardening skill skip trailers.
+Local enforcement now passes: docs-sync, version-bump with
+`GITHUB_PR_TITLE='fix(cli): batch phase 3 parser coverage'`, and skill-sync.
+Focused post-bump local validation passed: `cmake --build build --target
+pulp-cli pulp-test-cli-shellout`; `build/test/pulp-test-cli-shellout` over
+build/project/pr Phase 3 filters (50 assertions in 4 test cases); and
+`git diff --check`. Pushed #2292 fixup with `PULP_SKIP_PREPUSH=1
+PULP_VIA_SHIPYARD=1` because the local pre-push diff-cover path still fails
+on the fresh FetchContent `mbedtls` `v3.6.2` checkout.
