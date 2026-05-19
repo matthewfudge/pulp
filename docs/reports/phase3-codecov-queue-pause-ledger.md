@@ -11036,3 +11036,30 @@ assertions / 5 cases), and `git diff --check`. PR #2268 remained current at
 head `5f511a733`; `macOS (ARM64) [github-hosted]` had started, several
 GitHub-hosted build/sanitizer lanes were queued, and no failures were present.
 The batch is clean, local-only, and 21 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:04 PDT: rebased local-only
+`feature/phase3-codecov-audio-midi-batch-753` onto current `origin/main`
+`8a6a5552a` (`fix(view): TextEditor single-line snapshot honors horizontal
+scroll`). Rebase completed cleanly and rewrote the 22 local coverage commits;
+current top commits are `e9f222612 test(runtime): cover launched child pids`,
+`005ce252e test(runtime): cover child process working dir`, `98f7bfa83
+test(runtime): cover online activation HTTP failures`, `d89ed584e
+test(runtime): cover online activation success`, `105bb1a00 test(runtime):
+cover HTTP download write failure`, `10f28f5a1 test(runtime): cover HTTP
+download success`, `4e0142482 test(runtime): cover HTTP loopback success`,
+`8bafe610a test(runtime): cover sparse JSON-RPC errors`, `d7cda3fe6
+test(runtime): cover JSON-RPC handler detach`, and `3ad4bcf93 test(state):
+cover trailing state payloads`. Post-rebase focused validation passed:
+`./build/test/pulp-test-runtime-utils "[runtime][http],[runtime][child_process]"`
+(77 assertions / 14 cases), `./build/test/pulp-test-license
+"[crypto][license]"` (111 assertions / 29 cases), `./build/test/pulp-test-json-rpc
+"[json_rpc]"` (100 assertions / 18 cases), `./build/test/pulp-test-state
+"[state]"` (189 assertions / 42 cases), `./build/test/pulp-test-preset-manager
+"[state][preset]"` (165 assertions / 27 cases), `./build/test/pulp-test-properties
+"[state][properties]"` (112 assertions / 31 cases), `./build/test/pulp-test-network-stream
+"[network_stream][ip-address]"` (34 assertions / 7 cases),
+`./build/test/pulp-test-memory-message-channel "[runtime][message_channel]"`
+(80 assertions / 17 cases), and `git diff --check`. PR #2268 remained current
+at head `5f511a733`; `macOS (ARM64) [github-hosted]` was in progress, Ubuntu
+was green, and no failures were present. The batch is clean, local-only, and
+22 coverage commits ahead of `origin/main`.
