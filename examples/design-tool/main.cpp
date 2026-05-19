@@ -113,6 +113,8 @@ struct AutomationOptions {
 static void print_usage() {
     std::cerr << "Usage: pulp-design-tool [path/to/design-tool.js] [options]\n";
     std::cerr << "  --script <file.js>                 Explicit design-tool.js path\n";
+    std::cerr << "  --design-width <px>                Override design viewport width (else auto-measure)\n";
+    std::cerr << "  --design-height <px>               Override design viewport height (else auto-measure)\n";
     std::cerr << "  --automation-prompt <text>         Run a one-shot automated chat restyle\n";
     std::cerr << "  --automation-target <id|all>       Target widget for automation (default: all)\n";
     std::cerr << "  --automation-provider <name>       Metadata provider name (default: claude)\n";
@@ -137,11 +139,20 @@ int main(int argc, char* argv[]) {
     AutomationOptions automation;
     uint64_t exit_after_ms = 0;     // pulp-internal #71 — 0 = disabled (normal interactive use)
     bool no_show_window = false;    // pulp-internal #71 — true = skip Dock icon + window display
+    // pulp-internal #70 — design viewport sizing. Operator-level CLI
+    // overrides; if both stay 0 the size is read from JS metadata,
+    // auto-measured from the view tree, or falls back to 1320×860.
+    float cli_design_w = 0.0f;
+    float cli_design_h = 0.0f;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--script" && i + 1 < argc) {
             js_path = argv[++i];
+        } else if (arg == "--design-width" && i + 1 < argc) {
+            cli_design_w = static_cast<float>(std::atof(argv[++i]));
+        } else if (arg == "--design-height" && i + 1 < argc) {
+            cli_design_h = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--automation-prompt" && i + 1 < argc) {
             automation.enabled = true;
             automation.prompt = argv[++i];
@@ -329,10 +340,149 @@ int main(int argc, char* argv[]) {
     // that Yoga can't size into a fill, so per-child scale and JS
     // canvas-refit both fail. The window host instead pins the root
     // at design size and applies an aspect-correct paint-time fit.
-    // TODO(pulp-internal #70): read these from runtime-import metadata
-    // declared by the imported HTML/JS instead of hardcoding here.
-    constexpr float kDesignWidth  = 1320.0f;
-    constexpr float kDesignHeight = 860.0f;
+    //
+    // pulp-internal #70 — auto-measure / metadata-driven viewport.
+    // Priority order (first match wins):
+    //   1. CLI flag --design-width / --design-height (operator override)
+    //   2. PULP_DESIGN_WIDTH / _HEIGHT env vars (CI / scripted runs)
+    //   3. globalThis.__pulpDesignViewport__ = { width, height } in JS
+    //   4. root.intrinsic_width() / intrinsic_height() (auto-measure)
+    //   5. Fallback: 1320 × 860 (Spectr-era default)
+    // Each fallback is logged so an operator can tell why a given size
+    // was selected without diff-rebuilding.
+    constexpr float kFallbackDesignWidth  = 1320.0f;
+    constexpr float kFallbackDesignHeight = 860.0f;
+    constexpr float kMinSensibleDim       = 100.0f;
+    constexpr float kMaxSensibleDim       = 4000.0f;
+    auto in_range = [](float v) {
+        return v >= kMinSensibleDim && v <= kMaxSensibleDim;
+    };
+
+    float design_w = 0.0f, design_h = 0.0f;
+    const char* viewport_source = "fallback";
+
+    // 1. CLI flag override.
+    if (cli_design_w > 0.0f && cli_design_h > 0.0f) {
+        design_w = cli_design_w;
+        design_h = cli_design_h;
+        viewport_source = "--design-width/--design-height";
+    }
+
+    // 2. Env-var override (useful for CI sweeps + screenshot harnesses).
+    if (design_w <= 0.0f) {
+        const char* envw = std::getenv("PULP_DESIGN_WIDTH");
+        const char* envh = std::getenv("PULP_DESIGN_HEIGHT");
+        if (envw && envh) {
+            float vw = static_cast<float>(std::atof(envw));
+            float vh = static_cast<float>(std::atof(envh));
+            if (vw > 0.0f && vh > 0.0f) {
+                design_w = vw;
+                design_h = vh;
+                viewport_source = "PULP_DESIGN_WIDTH/_HEIGHT";
+            }
+        }
+    }
+
+    // 3. JSX-side declaration via globalThis.__pulpDesignViewport__.
+    //    Lets the imported design file specify its target size:
+    //      globalThis.__pulpDesignViewport__ = { width: 1280, height: 720 };
+    if (design_w <= 0.0f) {
+        try {
+            auto vp = engine->evaluate(
+                "(typeof globalThis.__pulpDesignViewport__ === 'object' "
+                "  && globalThis.__pulpDesignViewport__ !== null "
+                "  && typeof globalThis.__pulpDesignViewport__.width === 'number' "
+                "  && typeof globalThis.__pulpDesignViewport__.height === 'number') "
+                "? (globalThis.__pulpDesignViewport__.width + 'x' "
+                "   + globalThis.__pulpDesignViewport__.height) "
+                ": ''");
+            if (vp.isString()) {
+                std::string s(vp.getString());
+                float vw = 0.0f, vh = 0.0f;
+                if (std::sscanf(s.c_str(), "%fx%f", &vw, &vh) == 2
+                    && vw > 0.0f && vh > 0.0f) {
+                    design_w = vw;
+                    design_h = vh;
+                    viewport_source = "globalThis.__pulpDesignViewport__";
+                }
+            }
+        } catch (...) {
+            // engine error — ignore and fall through to auto-measure
+        }
+    }
+
+    // 4. Probe-layout from the view tree built by the JS script. Run a
+    //    real Yoga pass at (kFallbackDesignWidth, 99999) and read the
+    //    first laid-out child's actual measured height. This is more
+    //    reliable than root.intrinsic_height() (which returns 0 for
+    //    flex:row and display:grid containers) because Yoga's real
+    //    layout algorithm correctly accounts for grid track sizing,
+    //    absolute-positioned children, and nested column/row mixes.
+    //    The probe is cheap (single yoga pass, no paint) and only runs
+    //    once at startup before the window is created.
+    if (design_w <= 0.0f && root.child_count() > 0) {
+        constexpr float kProbeHeight = 99999.0f;
+        root.set_bounds({0.0f, 0.0f, kFallbackDesignWidth, kProbeHeight});
+        root.layout_children();
+        // The JSX root mounts as root.child_at(0); its measured height
+        // is the natural content height. Width may stretch to fill the
+        // probe width — fall back to the probe width if the child
+        // didn't declare a narrower preferred width.
+        float measured_h = 0.0f;
+        float measured_w = 0.0f;
+        for (size_t i = 0; i < root.child_count(); ++i) {
+            const auto* c = root.child_at(i);
+            if (!c || !c->visible()) continue;
+            float ch = c->local_bounds().height;
+            float cw = c->local_bounds().width;
+            if (ch > measured_h) measured_h = ch;
+            if (cw > measured_w) measured_w = cw;
+        }
+        if (measured_w < kMinSensibleDim) measured_w = kFallbackDesignWidth;
+        if (in_range(measured_w) && in_range(measured_h)) {
+            design_w = measured_w;
+            design_h = measured_h;
+            viewport_source = "probe-layout (yoga-measured child bounds)";
+        } else if (std::getenv("PULP_DESIGN_VIEWPORT_DEBUG")) {
+            std::cerr << "[design-viewport] probe-layout rejected: w="
+                      << measured_w << " h=" << measured_h
+                      << " (need both in [" << kMinSensibleDim
+                      << ", " << kMaxSensibleDim << "])\n";
+        }
+    }
+
+    // 4b. Fall back to intrinsic-only measurement if probe-layout
+    //     didn't yield sensible values (e.g. tree built but every
+    //     child invisible).
+    if (design_w <= 0.0f) {
+        float ih = root.intrinsic_height();
+        float iw = root.intrinsic_width();
+        for (size_t i = 0; i < root.child_count(); ++i) {
+            const auto* c = root.child_at(i);
+            if (!c || !c->visible()) continue;
+            float cw = c->flex().preferred_width;
+            if (cw > iw) iw = cw;
+        }
+        if (iw < kMinSensibleDim) iw = kFallbackDesignWidth;
+        if (in_range(iw) && in_range(ih)) {
+            design_w = iw;
+            design_h = ih;
+            viewport_source = "auto-measure (intrinsic fallback)";
+        }
+    }
+
+    // 5. Fallback (Spectr-era default).
+    if (design_w <= 0.0f) {
+        design_w = kFallbackDesignWidth;
+        design_h = kFallbackDesignHeight;
+        viewport_source = "default 1320x860";
+    }
+
+    const float kDesignWidth  = design_w;
+    const float kDesignHeight = design_h;
+    std::cout << "Design viewport: " << kDesignWidth << " x " << kDesignHeight
+              << " (source: " << viewport_source << ")\n";
+
     opts.width  = static_cast<uint32_t>(kDesignWidth);
     opts.height = static_cast<uint32_t>(kDesignHeight);
     opts.min_width  = static_cast<uint32_t>(kDesignWidth  * 0.5f);
