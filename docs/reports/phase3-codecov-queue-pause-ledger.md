@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-19 01:21 PDT
+Last updated: 2026-05-19 01:25 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -318,6 +318,22 @@ and writable output views"`, `./build/test/pulp-test-audio
 "[audio][device]"`, and `git diff --check`. PR state: not pushed/opened;
 batch has 6 local commits and should keep accumulating toward a larger
 audio/MIDI coverage PR while #2268 checks run. No Namespace dispatch.
+
+2026-05-19 01:25 PDT: added seventh committed tranche to
+`feature/phase3-codecov-audio-midi-batch-753`:
+`fe98aaef1 test(midi): cover glide detector reset guard`, touching
+`test/test_mpe_synth_voice.cpp`. Scope: deterministic MPE glide
+detector coverage for unmatched note-off on an empty channel, direct
+reset clearing held-channel state, and a fresh post-reset note-on not
+being misclassified as glide. Local validation passed:
+`cmake --build build --target pulp-test-mpe-synth-voice`,
+`./build/test/pulp-test-mpe-synth-voice "MpeGlideDetector ignores
+unmatched releases and reset clears channels"`,
+`./build/test/pulp-test-mpe-synth-voice "[midi][mpe]"`, and
+`git diff --check`. PR state: not pushed/opened; batch has 7 local
+commits on `origin/main` `baeaf64d0`. #2268 remains the active merge
+priority and is still queue-only on GitHub-hosted checks. No Namespace
+dispatch.
 
 2026-05-18 15:05 PDT: added tenth committed tranche to
 `feature/phase3-codecov-batch-747`:
