@@ -9780,3 +9780,15 @@ local cache unchanged"` (2 assertions / 1 case),
 `./build/test/pulp-test-state-tree "[state][cached][coverage][phase3]"` (2
 assertions / 1 case), and `git diff --check`. The batch now has 15 local
 coverage commits; continue accumulating before opening a PR.
+
+2026-05-19 00:03 PDT: added `35840987a` (`test(state): cover state tree null
+JSON serialization`) to `feature/phase3-codecov-runtime-state-batch-751`. This
+covers `StateTree::to_json()` when a property is explicitly set to
+`std::monostate`, asserting unsupported/null property values are skipped during
+JSON serialization while scalar properties still round-trip. Focused local
+validation passed: `cmake --build build --target pulp-test-state-tree`,
+`./build/test/pulp-test-state-tree "StateTree JSON serialization skips explicit
+null properties"` (5 assertions / 1 case), `./build/test/pulp-test-state-tree
+"[state][tree][json][coverage][phase3]"` (5 assertions / 1 case), and `git
+diff --check`. The batch now has 16 local coverage commits; continue
+accumulating before opening a PR.
