@@ -10321,3 +10321,15 @@ assertions / 1 case), `./build/test/pulp-test-audio-focus
 "[audio][focus][coverage][phase3]"` (3 assertions / 1 case), and `git diff
 --check`. The batch now has 19 local coverage commits plus main merges;
 continue accumulating before opening a PR.
+
+2026-05-18 23:43 PDT: added `f11093030` (`test(midi): cover midi file
+aggregate helpers`) to `feature/phase3-codecov-runtime-state-batch-752`. This
+covers `MidiFileData::total_events()` and `duration_seconds()` across multiple
+tracks, the empty aggregate defaults, and the `write_midi_file()` failure path
+when the target path is a directory rather than a writable file. Focused local
+validation passed: `cmake --build build --target pulp-test-midi-file -j4`,
+`./build/test/pulp-test-midi-file "MidiFileData aggregates event counts and
+write failures"` (5 assertions / 1 case), `./build/test/pulp-test-midi-file
+"[midi][file][coverage][phase3]"` (5 assertions / 1 case), and `git diff
+--check`. The batch now has 20 local coverage commits plus main merges;
+continue accumulating before opening a PR.
