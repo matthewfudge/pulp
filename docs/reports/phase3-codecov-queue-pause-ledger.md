@@ -11270,3 +11270,18 @@ cases), `./build/test/pulp-test-simd "[simd]"` (2929 assertions / 24 cases),
 assertions / 12 cases), and `git diff --check`. The batch is clean,
 local-only, and 32 commits ahead of `origin/main`; keep monitoring #2268 first
 before opening another CI-consuming PR.
+
+2026-05-19 03:59 PDT: added `9a6ac6d52` (`test(midi): cover sysex reset
+cleanup`) to local-only `feature/phase3-codecov-audio-midi-batch-753`. This
+touches only `test/test_running_status.cpp` and covers
+`RunningStatusParser::reset()` while a SysEx payload is buffered, verifying the
+partial payload is dropped, no SysEx callback fires, and the next complete
+short message is parsed fresh. Focused local validation passed:
+`cmake --build build --target pulp-test-running-status -j4`,
+`./build/test/pulp-test-running-status "[midi][running-status]"` (98
+assertions / 21 cases), and `git diff --check`. The local batch is clean,
+local-only, and 33 commits ahead of `origin/main`. PR #2268 remains the merge
+priority at base `f51fd8ca4`, head `a2dba7534`, `mergeable: true`,
+`mergeable_state: blocked`, open and not draft; REST polling at 10:59Z showed
+macOS local smoke, Yoga layout snapshots, and baseline-diff completed success,
+with all other lanes still queued and no failed checks.
