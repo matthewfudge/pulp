@@ -10852,3 +10852,41 @@ true`, `mergeable_state: blocked`, with all refreshed check runs still queued
 and no failures. The batch is now local-only and 12 coverage commits ahead of
 `origin/main`; continue accumulating while #2268 waits on GitHub-hosted
 runners.
+
+2026-05-19 02:15 PDT: reprioritized #2268 after `origin/main` advanced by
+two commits to `180804ec13fd` (`feat(cli): pulp doctor --au-cache refreshes
+macOS AU registrar`). Merged current `origin/main` into
+`feature/phase3-codecov-rollup-746` cleanly, producing new PR head
+`5f511a7338991ac5e4307931291512a6de322d7c`. Local validation before push
+passed `python3 tools/scripts/skill_sync_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report` with the same expected
+coverage-rollup bypass notes. Pushed with
+`PULP_DISABLE_PREPUSH_DIFF_COVER=1`; the source/skill and source-contract
+pre-push gates passed, and the local diff-cover gate again hit the known
+FetchContent `mbedtls` checkout failure (`fatal: invalid reference: v3.6.2`)
+and was demoted to advisory. GitHub REST then reported #2268 head
+`5f511a7338991ac5e4307931291512a6de322d7c`, base `180804ec13fd`, `behind_by:
+0`, `ahead_by: 446`, `mergeable: true`, `mergeable_state: blocked`; all
+refreshed check runs were queued with no failures.
+
+2026-05-19 02:15 PDT: rebased local-only
+`feature/phase3-codecov-audio-midi-batch-753` onto current `origin/main`
+`180804ec13fd`; rebase completed cleanly and rewrote the 12 local coverage
+commits. Current top commits are `fb8effe2c test(state): cover duplicate
+preset imports`, `c4a8d3b75 test(state): cover exact property bool tokens`,
+`d1a691c67 test(runtime): cover empty null message sends`, `64b22631c
+test(runtime): cover canonical IPv4 parsing`, `c049df90a test(runtime): cover
+scoped no-alloc depth`, `43e8ea151 test(midi): cover glide detector reset
+guard`, `79138834c test(audio): cover callback context contract`,
+`ae5c9cfeb test(midi): cover device default hooks`, `c0c3cec38 test(audio):
+cover short-read frame fill clamps`, `0b66e3240 test(midi): cover MIDI-CI
+profile count encoding`, `c978a40c0 test(midi): cover reserved running-status
+realtime bytes`, and `e66d924ad test(midi): cover MPE zone disabled layouts`.
+Post-rebase focused validation passed:
+`./build/test/pulp-test-preset-manager "[state][preset]"` (165 assertions /
+27 cases), `./build/test/pulp-test-properties "[state][properties]"` (112
+assertions / 31 cases), `./build/test/pulp-test-network-stream
+"[network_stream][ip-address]"` (34 assertions / 7 cases),
+`./build/test/pulp-test-memory-message-channel "[runtime][message_channel]"`
+(80 assertions / 17 cases), and `git diff --check`. The branch is clean,
+local-only, and 12 commits ahead of `origin/main`.
