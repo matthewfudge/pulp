@@ -297,6 +297,30 @@ TEST_CASE("AsyncStream zero-byte write dispatches completion without worker", "[
     REQUIRE(error.load() == StreamError::Ok);
 }
 
+TEST_CASE("AsyncStream rejects null non-empty writes via callback",
+          "[async_stream][coverage][phase3]") {
+    auto backing = std::make_unique<TestStream>();
+
+    AsyncStream::Options opts;
+    opts.auto_read = false;
+    AsyncStream stream(std::move(backing), opts);
+
+    std::atomic<bool> done{false};
+    std::atomic<std::size_t> bytes{99};
+    std::atomic<StreamError> error{StreamError::Ok};
+
+    REQUIRE(stream.write_async(nullptr, 4, [&](std::size_t n, StreamError err) {
+        bytes.store(n);
+        error.store(err);
+        done.store(true);
+    }));
+
+    REQUIRE(done.load());
+    REQUIRE(bytes.load() == 0);
+    REQUIRE(error.load() == StreamError::Invalid);
+    REQUIRE(stream.pending_write_bytes() == 0);
+}
+
 TEST_CASE("CancellationToken sharing and idempotent cancel", "[async_stream]") {
     CancellationToken token;
     CancellationToken copy = token;
