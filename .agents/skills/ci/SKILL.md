@@ -1785,3 +1785,23 @@ Precedence on `workflow_dispatch`:
 3. Local default (`PULP_LOCAL_MACOS_RUNS_ON_JSON`).
 
 Manual `workflow_dispatch` with an explicit selector input still overrides; the fix only changes behavior for dispatches that arrive without one (which is the `shipyard pr` shape).
+
+## Namespace macOS cache volumes
+
+Namespace-hosted macOS runners (label `namespace-profile-generouscorp-macos`, runner names start with `nsc-runner-`) are **ephemeral** — disk is discarded between jobs. The standard `actions/cache/restore@v4` flow is gated to skip `runner.environment == 'self-hosted'` because the original local self-hosted Mac kept caches on disk between runs. After the 2026-05-18 Namespace cutover, that gate would have meant every macOS PR build paid the full Skia/Dawn FetchContent download + cold ccache cost.
+
+`.github/workflows/build.yml` runs `namespacelabs/nscloud-cache-action@v1` early in the macOS path when `startsWith(runner.name, 'nsc-runner-')`. The action mounts Namespace-managed persistent volumes at:
+
+- `~/Library/Caches/ccache` (compiler cache; warm cache delivers ~order-of-magnitude faster rebuilds for Skia/Dawn/mbedtls)
+- `~/Library/Caches/Pulp/fetchcontent-src` (CMake FetchContent payloads — Dawn, Skia, mbedtls, etc.)
+
+The `cache: brew` named profile was tried (per Namespace's documented example) but caused a Homebrew Ruby crash (`Utils::Bottles.load_tab: undefined method '[]' for nil`) when the mounted brew state interfered with the runner's pre-installed Homebrew on the subsequent `brew install ccache`. Dropped for now; ccache + FetchContent capture the main wins (Skia/Dawn cold rebuild cost). If Namespace publishes a fix for the brew profile, re-add it.
+
+The `Daniels-MacBook-Pro` fallback continues to skip GHA cache restore/save because its on-disk caches persist locally; it doesn't get the nscloud mount (the `startsWith(runner.name, 'nsc-runner-')` guard).
+
+To add a new cached path:
+1. Add the path under `path:` on the `Restore Namespace cache volumes` step in `build.yml`.
+2. Verify the path is `~/Library/Caches/*` shape (Namespace docs scope volume mounts there).
+3. Bump expected build-time savings in the PR description.
+
+Source: Namespace telemetry feedback, 2026-05-19. Docs: https://namespace.so/docs/reference/github-actions/nscloud-cache-action

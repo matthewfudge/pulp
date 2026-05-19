@@ -426,6 +426,34 @@ jobs:
             wayland-protocols \
             ccache
 
+      # ── Namespace persistent cache volumes ────────────────────────────
+      # Namespace-hosted macOS runners (label `namespace-profile-generouscorp-macos`,
+      # runner name starts with `nsc-runner-`) are ephemeral — disk is
+      # discarded between jobs. The standard GHA `actions/cache` flow is
+      # skipped for `runner.environment == self-hosted` (see the
+      # Restore/Save ccache steps below). Without explicit Namespace
+      # cache volumes, every macOS PR build pays the full Skia/Dawn
+      # FetchContent download + cold ccache cost (~10-15 min wasted).
+      #
+      # `nscloud-cache-action@v1` mounts Namespace-managed cache volumes
+      # at the listed paths. Per Namespace telemetry guidance, 2026-05-19.
+      #
+      # NOTE: the `cache: brew` named profile was tried but broke
+      # `brew install ccache` below (Utils::Bottles.load_tab undefined
+      # method '[]' for nil — Ruby crash inside Homebrew when the cached
+      # brew state conflicted with the runner's existing Homebrew
+      # install). Dropping `cache: brew` and just caching ccache +
+      # FetchContent — that captures the main wins (Skia/Dawn cold
+      # rebuild cost). If Namespace publishes a fix for the brew
+      # profile, re-add `cache: brew` here.
+      - name: Restore Namespace cache volumes (ccache + FetchContent)
+        if: runner.os == 'macOS' && startsWith(runner.name, 'nsc-runner-')
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          path: |
+            ~/Library/Caches/ccache
+            ~/Library/Caches/Pulp/fetchcontent-src
+
       - name: Install ccache (macOS)
         if: runner.os == 'macOS'
         run: brew install ccache
@@ -437,6 +465,7 @@ jobs:
 
       # ── Caches (#420) ──────────────────────────────────────────────────
       # The local macOS runner keeps these paths on disk between jobs.
+      # Namespace macOS runners get them via nscloud-cache-action above.
       # Avoid round-tripping multi-GB compiler/source caches through
       # GitHub's cloud cache there; GitHub-hosted runners restore main's
       # cache and only non-PR main runs publish fresh cache entries.
