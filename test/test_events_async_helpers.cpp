@@ -160,6 +160,24 @@ TEST_CASE("ActionBroadcaster handles empty actions and no-listener sends",
     REQUIRE(seen.size() == 2);
 }
 
+TEST_CASE("ActionBroadcaster skips empty listener callbacks",
+          "[events][async_updater][action_broadcaster][coverage][phase3]") {
+    ActionBroadcaster broadcaster;
+    std::vector<std::string> seen;
+
+    const auto empty = broadcaster.add_listener({});
+    broadcaster.add_listener([&](std::string_view action) {
+        seen.emplace_back(action);
+    });
+
+    broadcaster.send_action("refresh");
+    REQUIRE(seen == std::vector<std::string>{"refresh"});
+
+    broadcaster.remove_listener(empty);
+    broadcaster.send_action("again");
+    REQUIRE(seen == std::vector<std::string>{"refresh", "again"});
+}
+
 TEST_CASE("ActionBroadcaster tolerates listener mutation during dispatch",
           "[events][async_updater][action_broadcaster][coverage][phase3]") {
     ActionBroadcaster broadcaster;
