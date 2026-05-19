@@ -9896,3 +9896,16 @@ Namespace CI. Local validation before opening passed: targeted rebuild of
 `pulp-test-undo-manager`; focused phase3 filters across those suites; and `git
 diff --check`. Next action: monitor GitHub-hosted checks for #2318 and address
 failures or review comments.
+
+2026-05-19 01:09 PDT: started `feature/phase3-codecov-runtime-state-batch-752`
+from current `origin/main` (`8f4674828`) and added `222fb3229`
+(`test(runtime): cover default seqlock snapshot`). This covers the default
+`SeqLock<T>` storage path before any writer publishes a value, asserting a
+reader receives the default-constructed `TransportState` coherently. Focused
+local validation passed after a cold configure/build in the new worktree:
+`cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`, `cmake --build build --target
+pulp-test-sync`, `./build/test/pulp-test-sync "SeqLock default value is readable
+before first write"` (4 assertions / 1 case),
+`./build/test/pulp-test-sync "[runtime][seqlock][coverage][phase3]"` (8
+assertions / 2 cases), and `git diff --check`. The new batch has 1 local
+coverage commit; continue accumulating before opening a PR.
