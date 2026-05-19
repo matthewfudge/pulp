@@ -736,6 +736,10 @@ pulp_add_test_suite(pulp-test-table-model LIBRARIES pulp::view)
 pulp_add_test_suite(pulp-test-modulation-matrix LIBRARIES pulp::view)
 # ModulationMatrixWidget canvas widget (workstream 07 slice B5)
 pulp_add_test_suite(pulp-test-modulation-matrix-widget LIBRARIES pulp::view)
+# Lasso selection overlay
+pulp_add_test_suite(pulp-test-lasso LIBRARIES pulp::view)
+# Split pane layout widget
+pulp_add_test_suite(pulp-test-split-view LIBRARIES pulp::view)
 # PluginDescriptor vendor_url + vendor_email (workstream 01 slice 1.8)
 pulp_add_test_suite(pulp-test-vendor-url LIBRARIES pulp::format)
 # Image cache (workstream 07 slice 7.4)
@@ -1910,6 +1914,15 @@ if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
     add_executable(pulp-test-tweak-store test_tweak_store.cpp)
     target_link_libraries(pulp-test-tweak-store PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-tweak-store)
+
+    # Phase 5.3: editor URI plumbing for the future source-jump action.
+    # Pure config / format-helper / protocol — no overlay / GPU surface,
+    # but lives under the same PULP_ENABLE_GPU guard as the rest of
+    # pulp-inspect's tests so it links against the same library.
+    # planning/2026-05-19-inspector-phase5-source-jump-spike.md
+    add_executable(pulp-test-editor-url test_editor_url.cpp)
+    target_link_libraries(pulp-test-editor-url PRIVATE pulp::inspect Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-editor-url)
 endif()
 
 # Widget bridge tests
@@ -1942,6 +1955,20 @@ pulp_add_test_suite(pulp-test-widget-bridge-yoga LIBRARIES pulp::view)
 # dedicated-command routing — the five Wave 2 partial → supported
 # compat.json entries.
 pulp_add_test_suite(pulp-test-widget-bridge-canvas2d-wave2 LIBRARIES pulp::view)
+
+# Widget bridge — RN style-prop bridge primitives (P5-1 follow-up,
+# pulp #1026). setShadow / setOpacity / setTransform RN-shaped style
+# functions flow through bridge into View's slots. Includes RN's
+# shadowOpacity-into-color-alpha composition + transform-prop
+# aggregation.
+pulp_add_test_suite(pulp-test-widget-bridge-rn-style LIBRARIES pulp::view)
+
+# Widget bridge — Tier-4 OOS / perf-hints / interaction misc pins
+# (P5-1 follow-up, pulp #1434). Pins the no-op / fallback contract
+# for properties Pulp deliberately doesn't paint: 3D transforms,
+# generated content, scroll-snap, will-change, contain, touch-action
+# secondary keywords. Catalog hygiene tests.
+pulp_add_test_suite(pulp-test-widget-bridge-tier4-oos LIBRARIES pulp::view)
 
 # Widget bridge — RN outline cluster (P5-1 follow-up, pulp #1519).
 # outlineColor / outlineOffset / outlineStyle / outlineWidth longhands

@@ -1,5 +1,9 @@
 #include <pulp/state/properties_file.hpp>
 #include <choc/text/choc_JSON.h>
+#include <cerrno>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -20,6 +24,34 @@ bool only_trailing_space(const std::string& text, std::size_t pos) {
 }  // namespace
 
 // ── PropertiesFile ──────────────────────────────────────────────────────
+
+static bool parse_property_int(const std::string& text, int64_t& out) {
+    if (text.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    long long value = std::strtoll(text.c_str(), &end, 10);
+    if (end == text.c_str()) return false;
+    if (errno == ERANGE) return false;
+    while (*end != '\0') {
+        if (!std::isspace(static_cast<unsigned char>(*end))) return false;
+        ++end;
+    }
+    out = static_cast<int64_t>(value);
+    return true;
+}
+
+static bool parse_property_double(const std::string& text, double& out) {
+    if (text.empty()) return false;
+    char* end = nullptr;
+    double value = std::strtod(text.c_str(), &end);
+    if (end == text.c_str() || !std::isfinite(value)) return false;
+    while (*end != '\0') {
+        if (!std::isspace(static_cast<unsigned char>(*end))) return false;
+        ++end;
+    }
+    out = value;
+    return true;
+}
 
 bool PropertiesFile::load(std::string_view path) {
     path_ = std::string(path);
@@ -103,14 +135,9 @@ void PropertiesFile::set_string(std::string_view key, std::string_view value) {
 std::optional<int64_t> PropertiesFile::get_int(std::string_view key) const {
     auto it = values_.find(key);
     if (it == values_.end()) return std::nullopt;
-    try {
-        std::size_t consumed = 0;
-        auto value = std::stoll(it->second, &consumed);
-        if (!only_trailing_space(it->second, consumed)) return std::nullopt;
-        return value;
-    } catch (...) {
-        return std::nullopt;
-    }
+    int64_t value = 0;
+    if (parse_property_int(it->second, value)) return value;
+    return std::nullopt;
 }
 
 void PropertiesFile::set_int(std::string_view key, int64_t value) {
@@ -120,14 +147,9 @@ void PropertiesFile::set_int(std::string_view key, int64_t value) {
 std::optional<double> PropertiesFile::get_double(std::string_view key) const {
     auto it = values_.find(key);
     if (it == values_.end()) return std::nullopt;
-    try {
-        std::size_t consumed = 0;
-        auto value = std::stod(it->second, &consumed);
-        if (!only_trailing_space(it->second, consumed)) return std::nullopt;
-        return value;
-    } catch (...) {
-        return std::nullopt;
-    }
+    double value = 0.0;
+    if (parse_property_double(it->second, value)) return value;
+    return std::nullopt;
 }
 
 void PropertiesFile::set_double(std::string_view key, double value) {
