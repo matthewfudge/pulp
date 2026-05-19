@@ -11063,3 +11063,16 @@ cover trailing state payloads`. Post-rebase focused validation passed:
 at head `5f511a733`; `macOS (ARM64) [github-hosted]` was in progress, Ubuntu
 was green, and no failures were present. The batch is clean, local-only, and
 22 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:07 PDT: added `62757b848` (`test(runtime): cover launch
+process failures`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_runtime_utils.cpp` and covers the
+`launch_process` missing-executable failure path after the runtime child
+process helper coverage was expanded. Focused local validation passed:
+`cmake --build build --target pulp-test-runtime-utils -j4`,
+`./build/test/pulp-test-runtime-utils "[runtime][child_process]"` (19
+assertions / 7 cases), and `git diff --check`. PR #2268 remained current at
+head `5f511a733`; `Validate docs consistency` joined the green checks,
+`macOS (ARM64) [github-hosted]` and `sandbox-e2e (ubuntu-latest)` were in
+progress, and no failures were present. The batch is clean, local-only, and 23
+coverage commits ahead of `origin/main`.
