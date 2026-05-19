@@ -854,6 +854,23 @@ TEST_CASE("StateStore deserialize keeps complete prefix on short declared count"
     REQUIRE_THAT(target.get_value(1), WithinAbs(0.75, 0.001));
 }
 
+TEST_CASE("StateStore empty serialization round-trips as a minimum frame",
+          "[state][serialize][coverage][phase3]") {
+    StateStore source;
+
+    auto data = source.serialize();
+
+    REQUIRE(data.size() == 16);
+    REQUIRE(std::memcmp(data.data(), "PULP", 4) == 0);
+    REQUIRE(read_u32_le(data, 8) == 0);
+
+    StateStore target;
+    REQUIRE(target.deserialize(data));
+    REQUIRE(target.param_count() == 0);
+    REQUIRE_FALSE(target.deserialize(std::span<const uint8_t>{data.data(),
+                                                              data.size() - 1}));
+}
+
 // ─── ListenerToken / thread routing (Slice 1) ───────────────────────────────
 
 TEST_CASE("ListenerToken removes its listener on destruction",
