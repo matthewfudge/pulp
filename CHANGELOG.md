@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01580"></a>
+## [0.158.0] - 2026-05-19
+
+- refactor(test): P5-1 follow-up — extracted Wave 5 css.5 audit cluster from test_widget_bridge.cpp (-1,599 lines, 9,074 → 7,475)
+
 <a id="v01550"></a>
 ## [0.155.0] - 2026-05-19
 
