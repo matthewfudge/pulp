@@ -323,6 +323,35 @@ Plan source: `planning/2026-05-13-namespace-overflow-implementation.md`
 (reviewed by `/codex` 2026-05-13). Full operator docs:
 `docs/guides/local-ci.md` § "macOS overflow routing".
 
+### Release workflows: Namespace routing (post-2026-05-18 incident)
+
+`.github/workflows/sign-and-release.yml` and `.github/workflows/release-cli.yml`
+also route their macOS legs through Namespace when
+`PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON` is set. Unlike `build.yml` (which
+has the full overflow logic above), release workflows take a simpler
+"namespace if configured, GitHub-hosted otherwise" approach via a tiny
+`resolve-macos-runner` job at the top of each file.
+
+**Why this matters:** during the 2026-05-18 SDK starvation incident,
+the GitHub-hosted `macos-14` / `macos-15` queue backed up for hours and
+blocked every release-cli darwin-arm64 leg and every sign-and-release
+build from v0.111.0 through v0.134.0 (25 tags piled up). PR work was
+already routing through Namespace post-cutover; releases were still
+hitting the GitHub-hosted pool because release-cli.yml and
+sign-and-release.yml had hardcoded `runs-on: macos-14` / `macos-15`.
+
+**Fall-back behavior:** when `PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON`
+is unset, both workflows revert to the previous GitHub-hosted runners —
+so removing the variable doesn't break releases.
+
+**Caveat:** this does NOT include the `PULP_LOCAL_MAC_OVERFLOW_THRESHOLD`
+logic from build.yml. Releases are infrequent enough that overflow isn't
+the bottleneck; sending all release macOS legs to Namespace directly is
+simpler and matches what the user has already configured.
+
+See pulp #2238 (supersede cascade fix), pulp #2281 (Skia gate fix),
+and the post-mortem-driven follow-up that introduced this routing.
+
 ### Per-PR macOS retargeting: `pulp macos`
 
 The matrix in `build.yml` couples Linux/Windows/macOS into a single
@@ -573,6 +602,18 @@ machine-readers (auto-resolution routines, agent-status dashboards)
 can act on it without parsing the human text. Source design:
 `https://github.com/danielraffel/Shipyard/issues/303` + the codex-
 vetted comment thread there.
+
+## Phase 2 watch diagnostics (>= v0.59.0)
+
+Shipyard v0.59.0 (Shipyard PR #310, 2026-05-19) extends `shipyard
+watch --pr N --follow` to surface the same structured failure block
+on every terminal-failure transition observed during the poll. The
+watch loop caches diagnostics by `(target, run_id)` so at most one
+log fetch per transition fires for the lifetime of one watch
+invocation. Reuses Phase 1's 256 KB log-tail cap. Both human and
+JSON modes carry the diagnostics. Lets you chain
+`shipyard pr && shipyard watch --pr <N>` and stop babysitting the
+GitHub UI on slow CI runs.
 
 ## Recovery + maintenance toolkit (>= v0.56.2)
 
@@ -1731,3 +1772,16 @@ Wiring:
 Adding a new top-level entry requires the same-PR allowlist update — the gate's error message points contributors to the exact line in the script. See the new "Repo-root hygiene" section in `CONTRIBUTING.md` for the contributor-facing explanation.
 
 Companion-track item U-1 in `planning/2026-05-17-refactor-roadmap-final.md`.
+
+## Namespace macOS overflow on `workflow_dispatch`
+
+`resolve-provider` in `.github/workflows/build.yml` applies the Namespace macOS overflow logic on both `pull_request` AND `workflow_dispatch` events (since 2026-05-19, closes #2314).
+
+Pre-2026-05-19 behavior gated overflow on `EVENT_NAME == "pull_request"` only, which silently routed `shipyard pr` ship cycles (`workflow_dispatch`-triggered) back to the local self-hosted Mac. That defeated the 2026-05-18 cloud cutover for the path most contributors hit.
+
+Precedence on `workflow_dispatch`:
+1. `inputs.macos_runner_selector_json` (operator override) — always wins.
+2. Namespace overflow when local Mac BUSY ≥ threshold.
+3. Local default (`PULP_LOCAL_MACOS_RUNS_ON_JSON`).
+
+Manual `workflow_dispatch` with an explicit selector input still overrides; the fix only changes behavior for dispatches that arrive without one (which is the `shipyard pr` shape).
