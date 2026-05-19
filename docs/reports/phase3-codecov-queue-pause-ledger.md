@@ -10298,3 +10298,14 @@ external network. Focused local validation passed: `cmake --build build
 "[network_stream][http][coverage][phase3]"` (51 assertions / 5 cases), and
 `git diff --check`. The batch now has 18 local coverage commits plus main
 merges; continue accumulating before opening a PR.
+
+2026-05-18 23:24 PDT: patched PR #2268 with `4e02bfdf9` (`ci: install
+clap-validator without sudo`) after the `baseline-diff` job failed installing
+`clap-validator` on the self-hosted macOS runner: `sudo mv /tmp/clap-validator
+/usr/local/bin/clap-validator` required an interactive password. The workflow
+now installs the downloaded binary into `$RUNNER_TEMP/pulp-bin`, appends that
+directory to `$GITHUB_PATH`, and exports it for the current step before running
+`clap-validator --version`. Local validation: `git diff --check`. Pushed with
+`PULP_SKIP_PREPUSH=1 git push`; PR #2268 head is now
+`4e02bfdf953c9b2ab1f57e4a13b274a72925bb94`, mergeable, and waiting on the new
+check set.
