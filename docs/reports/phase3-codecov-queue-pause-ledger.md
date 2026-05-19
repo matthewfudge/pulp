@@ -11193,3 +11193,16 @@ does not disturb the queued item or size. Focused local validation passed:
 `mergeable_state: blocked`, with no failed checks; Linux and Windows hosted
 lanes were in progress and several macOS lanes remained queued. The batch is
 clean, local-only, and 29 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:38 PDT: added `ea5628b5f` (`test(runtime): cover empty simd
+extrema reductions`) to local-only
+`feature/phase3-codecov-audio-midi-batch-753`. This touches only
+`test/test_simd.cpp` and covers the empty-input contracts for
+`simd_reduce_max` and `simd_reduce_min`, matching the existing empty add
+coverage. Focused local validation passed:
+`cmake --build build --target pulp-test-simd -j4`,
+`./build/test/pulp-test-simd "[simd]"` (2929 assertions / 24 cases), and
+`git diff --check`. PR #2268 remained current at head `5f511a733`,
+`mergeable_state: blocked`, with no failed checks; Linux and Windows hosted
+lanes remained in progress and several macOS lanes remained queued. The batch
+is clean, local-only, and 30 coverage commits ahead of `origin/main`.
