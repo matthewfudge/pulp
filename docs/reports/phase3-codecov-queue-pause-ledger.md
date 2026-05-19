@@ -9745,3 +9745,15 @@ no-op"` (8 assertions / 1 case), `./build/test/pulp-test-state-tree
 "[state][tree][coverage][phase3]"` (8 assertions / 1 case), and `git diff
 --check`. The batch now has 12 local coverage commits; continue accumulating
 before opening a PR.
+
+2026-05-18 23:48 PDT: added `80260f12c` (`test(runtime): cover launch process
+failure`) to `feature/phase3-codecov-runtime-state-batch-751`. This covers the
+cross-platform `launch_process()` failure path for nonexistent executables,
+asserting the fire-and-forget helper returns `-1` without creating a process.
+Focused local validation passed: `cmake --build build --target
+pulp-test-runtime-utils`, `./build/test/pulp-test-runtime-utils
+"launch_process returns minus one for nonexistent executables"` (1 assertion /
+1 case), `./build/test/pulp-test-runtime-utils
+"[runtime][child_process][coverage][phase3]"` (4 assertions / 2 cases), and
+`git diff --check`. The batch now has 13 local coverage commits; continue
+accumulating before opening a PR.
