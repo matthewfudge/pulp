@@ -509,8 +509,32 @@ void InspectorOverlay::paint_props_section(Canvas& canvas, float x, float y, flo
     float line_y = y + 4;
     float line_h = 15.0f;
 
-    auto draw_label = [&](const std::string& label, const std::string& value) {
+    // Phase 0b PR-C-2 — dot indicator for properties with local tweaks.
+    // When the TweakStore (PR-A) has an entry for this view's anchor at
+    // the given dotted path, paint a small orange dot in the gutter to
+    // the LEFT of the label. The label/value text remains untouched so
+    // the row still reads cleanly without color. The dot stays small
+    // (3px radius) so the panel doesn't pulse with visual noise when
+    // many tweaks are active. Designed to live next to (not over) the
+    // existing label column at x.
+    auto has_tweak = [&](std::string_view path) -> bool {
+        if (!tweak_store_) return false;
+        const auto& anchor = selected_->anchor_id();
+        if (anchor.empty()) return false;
+        if (tweak_store_->is_bypassed(anchor, path)) return false;
+        return tweak_store_->lookup(anchor, path).has_value();
+    };
+
+    auto draw_label = [&](const std::string& label, const std::string& value,
+                          std::string_view tweak_path = {}) {
         if (line_y > y + h) return;
+        if (!tweak_path.empty() && has_tweak(tweak_path)) {
+            // Orange dot indicator — same hue as the kSelectedStroke
+            // selection color so users associate it visually with
+            // "this is a Pulp-owned modification."
+            canvas.set_fill_color(Color::rgba(1.0f, 0.5f, 0.0f, 0.9f));
+            canvas.fill_circle(x - 6, line_y + 8, 3);
+        }
         canvas.set_fill_color(kPanelDim);
         canvas.fill_text(label, x, line_y + 11);
         canvas.set_fill_color(kPanelText);
@@ -543,6 +567,16 @@ void InspectorOverlay::paint_props_section(Canvas& canvas, float x, float y, flo
         float value_w = (x + w) - value_x;
         Rect hit{value_x, line_y, value_w, line_h};
         editable_fields_.push_back({field_path, hit, value});
+
+        // Phase 0b PR-C-2 — dot indicator coexists with Phase 3b edit
+        // mode. The tweak-path here matches the field_path the editable
+        // emits on commit, so an edit immediately shows a dot next time
+        // the panel paints (and clears when bypassed). Drawn before the
+        // label so the label/value text remains untouched.
+        if (!field_path.empty() && has_tweak(field_path)) {
+            canvas.set_fill_color(Color::rgba(1.0f, 0.5f, 0.0f, 0.9f));
+            canvas.fill_circle(x - 6, line_y + 8, 3);
+        }
 
         canvas.set_fill_color(kPanelDim);
         canvas.fill_text(label, x, line_y + 11);
@@ -599,10 +633,12 @@ void InspectorOverlay::paint_props_section(Canvas& canvas, float x, float y, flo
     draw_label("absolute", std::to_string(static_cast<int>(abs.x)) + ", " +
                std::to_string(static_cast<int>(abs.y)));
 
-    // Visibility (not editable in Phase 3b)
-    draw_label("visible", selected_->visible() ? "true" : "false");
+    // Visibility (not editable in Phase 3b — Phase 0b PR-C-2 adds dot)
+    draw_label("visible", selected_->visible() ? "true" : "false", "paint.visible");
 
-    // Phase 3b editable: opacity (always present, default 1.0)
+    // Phase 3b editable: opacity (always present, default 1.0).
+    // Phase 0b PR-C-2: draw_editable now also paints the tweak dot when
+    // style.opacity has a TweakStore entry.
     {
         float op = selected_->opacity();
         std::ostringstream oss;
@@ -621,11 +657,11 @@ void InspectorOverlay::paint_props_section(Canvas& canvas, float x, float y, flo
         }
         return "?";
     };
-    draw_label("direction", dir_str(f.direction));
+    draw_label("direction", dir_str(f.direction), "layout.direction");
 
-    if (f.flex_grow > 0) draw_label("grow", std::to_string(f.flex_grow));
-    if (f.flex_shrink != 1.0f) draw_label("shrink", std::to_string(f.flex_shrink));
-    if (f.gap > 0) draw_label("gap", std::to_string(static_cast<int>(f.gap)));
+    if (f.flex_grow > 0) draw_label("grow", std::to_string(f.flex_grow), "layout.grow");
+    if (f.flex_shrink != 1.0f) draw_label("shrink", std::to_string(f.flex_shrink), "layout.shrink");
+    if (f.gap > 0) draw_label("gap", std::to_string(static_cast<int>(f.gap)), "layout.gap");
 
     // Phase 3b editable: width / height — uses preferred_width /
     // preferred_height which are the Yoga flex INPUTS (Codex Phase 3
@@ -668,7 +704,8 @@ void InspectorOverlay::paint_props_section(Canvas& canvas, float x, float y, flo
                    std::to_string(static_cast<int>(pt2)) + " " +
                    std::to_string(static_cast<int>(pr2)) + " " +
                    std::to_string(static_cast<int>(pb2)) + " " +
-                   std::to_string(static_cast<int>(pl2)));
+                   std::to_string(static_cast<int>(pl2)),
+                   "layout.padding");
     }
 
     // Theme colors (first 5)
