@@ -59,16 +59,17 @@ Per sudara "Big List of JUCE Tips" #21.
     </Expand>
   </Type>
 
-  <!-- pulp::canvas::Rect: x, y, w, h. -->
+  <!-- pulp::canvas::Rect: x, y, width, height (per
+       core/canvas/include/pulp/canvas/rectangle_list.hpp:12). -->
   <Type Name="pulp::canvas::Rect">
-    <DisplayString>{{ x={x} y={y} w={w} h={h} }}</DisplayString>
+    <DisplayString>{{ x={x} y={y} w={width} h={height} }}</DisplayString>
     <Expand>
       <Item Name="x">x</Item>
       <Item Name="y">y</Item>
-      <Item Name="w">w</Item>
-      <Item Name="h">h</Item>
-      <Item Name="right">x + w</Item>
-      <Item Name="bottom">y + h</Item>
+      <Item Name="width">width</Item>
+      <Item Name="height">height</Item>
+      <Item Name="right">x + width</Item>
+      <Item Name="bottom">y + height</Item>
     </Expand>
   </Type>
 
@@ -82,17 +83,17 @@ Per sudara "Big List of JUCE Tips" #21.
     <DisplayString>{{ r={r,d} g={g,d} b={b,d} a={a,d} }}</DisplayString>
   </Type>
 
-  <!-- pulp::audio::BufferView: channels x frames audio buffer.
-       Format string previews the dimensions; channels/frames are
-       reachable for drilling in. -->
+  <!-- pulp::audio::BufferView<T>: channels x samples audio buffer.
+       Real field names live in
+       core/audio/include/pulp/audio/buffer.hpp:70-74. -->
   <Type Name="pulp::audio::BufferView&lt;*&gt;">
-    <DisplayString>BufferView {num_channels}ch x {num_frames} frames</DisplayString>
+    <DisplayString>BufferView {num_channels_}ch x {num_samples_} samples</DisplayString>
     <Expand>
-      <Item Name="num_channels">num_channels</Item>
-      <Item Name="num_frames">num_frames</Item>
+      <Item Name="num_channels">num_channels_</Item>
+      <Item Name="num_samples">num_samples_</Item>
       <ArrayItems>
-        <Size>num_channels</Size>
-        <ValuePointer>channel_data_</ValuePointer>
+        <Size>num_channels_</Size>
+        <ValuePointer>channels_</ValuePointer>
       </ArrayItems>
     </Expand>
   </Type>

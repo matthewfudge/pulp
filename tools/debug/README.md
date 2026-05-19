@@ -15,7 +15,7 @@ Types covered today:
 * `pulp::state::StateStore` — surfaces param count
 * `pulp::state::ListenerToken` — RAII subscription handle
 * `pulp::canvas::Rect` / `Point` / `Color`
-* `pulp::audio::BufferView<T>` — channels × frames, LLDB version
+* `pulp::audio::BufferView<T>` — channels × samples, LLDB version
   draws a 16-sample sparkline of the first channel
 
 Adding a new type? Match its name in both files and keep them in

@@ -79,11 +79,15 @@ def state_store_summary(valobj, internal_dict):
 
 
 def rect_summary(valobj, internal_dict):
-    """Formatter for pulp::canvas::Rect."""
+    """Formatter for pulp::canvas::Rect.
+
+    Fields per core/canvas/include/pulp/canvas/rectangle_list.hpp:12 —
+    `x`, `y`, `width`, `height` (not `w`/`h`).
+    """
     x = valobj.GetChildMemberWithName("x").GetValueAsFloat()
     y = valobj.GetChildMemberWithName("y").GetValueAsFloat()
-    w = valobj.GetChildMemberWithName("w").GetValueAsFloat()
-    h = valobj.GetChildMemberWithName("h").GetValueAsFloat()
+    w = valobj.GetChildMemberWithName("width").GetValueAsFloat()
+    h = valobj.GetChildMemberWithName("height").GetValueAsFloat()
     return f"{{ x={x:.3g} y={y:.3g} w={w:.3g} h={h:.3g} }}"
 
 
@@ -104,23 +108,27 @@ def color_summary(valobj, internal_dict):
 
 
 def buffer_view_summary(valobj, internal_dict):
-    """Formatter for pulp::audio::BufferView<T>. Includes a 16-sample
-    sparkline of the first channel when reachable."""
-    ch = valobj.GetChildMemberWithName("num_channels").GetValueAsSigned()
-    fr = valobj.GetChildMemberWithName("num_frames").GetValueAsSigned()
-    if ch <= 0 or fr <= 0:
-        return f"BufferView {ch}ch x {fr} frames"
+    """Formatter for pulp::audio::BufferView<T>.
+
+    Real members per core/audio/include/pulp/audio/buffer.hpp:70-74 —
+    `channels_` (SampleType* const*), `num_channels_`, `num_samples_`.
+    Includes a 16-sample sparkline of the first channel when reachable.
+    """
+    ch = valobj.GetChildMemberWithName("num_channels_").GetValueAsSigned()
+    samples_n = valobj.GetChildMemberWithName("num_samples_").GetValueAsSigned()
+    if ch <= 0 or samples_n <= 0:
+        return f"BufferView {ch}ch x {samples_n} samples"
 
     spark = ""
     try:
-        data = valobj.GetChildMemberWithName("channel_data_")
+        data = valobj.GetChildMemberWithName("channels_")
         if data.IsValid():
             first_ch = data.GetChildAtIndex(0)
             if first_ch.IsValid():
                 blocks = "▁▂▃▄▅▆▇█"
-                stride = max(1, fr // 16)
+                stride = max(1, samples_n // 16)
                 samples = []
-                for i in range(0, min(fr, 16 * stride), stride):
+                for i in range(0, min(samples_n, 16 * stride), stride):
                     sample_obj = first_ch.Cast(first_ch.GetType()).GetPointeeData(i, 1)
                     err = lldb.SBError()
                     raw = sample_obj.GetFloat(err, 0)
@@ -133,7 +141,7 @@ def buffer_view_summary(valobj, internal_dict):
     except Exception:
         pass
 
-    return f"BufferView {ch}ch x {fr} frames{spark}"
+    return f"BufferView {ch}ch x {samples_n} samples{spark}"
 
 
 def listener_token_summary(valobj, internal_dict):
