@@ -11300,3 +11300,19 @@ priority at base `f51fd8ca4`, head `a2dba7534`, `mergeable: true`,
 macOS local smoke, Yoga layout snapshots, and baseline-diff completed success,
 IWYU advisory in progress, remaining lanes queued, and no failed checks. No
 Namespace CI was used.
+
+2026-05-19 04:06 PDT: added `ed76a7240` (`test(midi): cover sysex sidecar
+clear`) to local-only `feature/phase3-codecov-audio-midi-batch-753`. This
+touches only `test/test_midi.cpp` and covers the `MidiBuffer` contract that
+`clear()` removes short MIDI events while leaving the SysEx sidecar intact
+until `clear_sysex()` is called explicitly. Focused local validation passed:
+`cmake --build build --target pulp-test-midi -j4`,
+`./build/test/pulp-test-midi "[midi][buffer]"` (85 assertions / 7 cases), and
+`git diff --check`. The local batch is clean, local-only, and 35 commits ahead
+of `origin/main`, within the intended 24-36 commit batch window. PR #2268
+remains the merge priority at base `f51fd8ca4`, head `a2dba7534`,
+`mergeable: true`, `mergeable_state: blocked`, open and not draft; REST
+polling at 11:06Z showed macOS local smoke, Yoga layout snapshots, and
+baseline-diff completed success, IWYU advisory in progress, remaining lanes
+queued, and no failed checks. Keep #2268 ahead of opening another CI-consuming
+coverage PR.
