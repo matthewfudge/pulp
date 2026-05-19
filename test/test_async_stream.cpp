@@ -353,6 +353,34 @@ TEST_CASE("AsyncStream start after stop refreshes cancellation state",
             std::vector<std::uint8_t>{'r', 'e', 's', 't', 'a', 'r', 't'});
 }
 
+TEST_CASE("AsyncStream write on a closed backing stream completes without queueing",
+          "[async_stream][coverage][phase3]") {
+    auto backing = std::make_unique<TestStream>();
+    auto* raw = backing.get();
+    raw->close();
+
+    AsyncStream::Options opts;
+    opts.auto_read = false;
+    AsyncStream stream(std::move(backing), opts);
+
+    std::atomic<int> completions{0};
+    std::atomic<std::size_t> bytes{99};
+    std::atomic<StreamError> error{StreamError::Ok};
+    const std::uint8_t payload[] = {'x', 'y'};
+
+    REQUIRE(stream.write_async(payload, sizeof(payload),
+                               [&](std::size_t n, StreamError err) {
+                                   bytes.store(n);
+                                   error.store(err);
+                                   completions.fetch_add(1);
+                               }));
+
+    REQUIRE(completions.load() == 1);
+    REQUIRE(bytes.load() == 0);
+    REQUIRE(error.load() == StreamError::Closed);
+    REQUIRE(stream.pending_write_bytes() == 0);
+}
+
 TEST_CASE("CancellationToken sharing and idempotent cancel", "[async_stream]") {
     CancellationToken token;
     CancellationToken copy = token;
