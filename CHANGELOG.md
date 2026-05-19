@@ -11,7 +11,9 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v01710"></a>
 ## [0.171.0] - 2026-05-19
 
-- refactor(test): P5-1 bundled — yoga logical-edge + A4 OOS (#1542 + #1434, -497) + Wave 2 cheap-wiring bundle (canvas2d + css, -731) from test_widget_bridge.cpp (6,711 → 5,483, -1,228 total)
+- refactor(test): P5-1 bundled — yoga + A4 OOS + Wave 2 cheap-wiring (6,711 → 5,483) ([#2414](https://github.com/danielraffel/pulp/pull/2414))
+- test: consolidate phase 3 codecov coverage batches ([#2268](https://github.com/danielraffel/pulp/pull/2268))
+- feat(inspect): editor URI config for source-jump (Phase 5.3) ([#2388](https://github.com/danielraffel/pulp/pull/2388))
 
 <a id="v01690"></a>
 ## [0.169.0] - 2026-05-19
@@ -2194,6 +2196,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.171.0]: https://github.com/danielraffel/pulp/releases/tag/v0.171.0
 [0.169.0]: https://github.com/danielraffel/pulp/releases/tag/v0.169.0
 [0.167.0]: https://github.com/danielraffel/pulp/releases/tag/v0.167.0
 [0.166.0]: https://github.com/danielraffel/pulp/releases/tag/v0.166.0
