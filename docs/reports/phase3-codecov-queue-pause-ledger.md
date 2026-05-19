@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-19 00:25 PDT
+Last updated: 2026-05-19 00:28 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -244,6 +244,20 @@ preserves subscription"`, `./build/test/pulp-test-state
 "[state][listener][token]"`, and `git diff --check`. PR state: not
 pushed; keep accumulating runtime/state coverage commits toward the
 larger batch. No Namespace dispatch.
+
+2026-05-19 00:28 PDT: `feature/phase3-codecov-runtime-state-batch-752`
+is locally PR-sized at head `e98c5be73` with 38 non-merge coverage
+commits touching runtime, platform, events, audio, MIDI, OSC, and state
+tests. Broad targeted pre-PR validation passed across every touched test
+binary: `pulp-test-async-stream`, `pulp-test-audio-focus`,
+`pulp-test-child-process`, `pulp-test-ipc`, `pulp-test-json-rpc`,
+`pulp-test-memory-message-channel`, `pulp-test-midi-file`,
+`pulp-test-network-stream`, `pulp-test-osc-channel`, `pulp-test-runtime`,
+`pulp-test-runtime-utils`, `pulp-test-state`, `pulp-test-stream`,
+`pulp-test-sync`, `pulp-test-websocket-channel`, `pulp-test-xml-zip`,
+plus `git diff --check`. PR state: not pushed/opened yet; next action is
+to coordinate with the still-running #2268 rollup before spending
+another hosted CI lane. No Namespace dispatch.
 
 2026-05-18 15:05 PDT: added tenth committed tranche to
 `feature/phase3-codecov-batch-747`:
