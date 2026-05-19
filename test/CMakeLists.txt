@@ -1888,6 +1888,16 @@ pulp_add_test_suite(pulp-test-widget-bridge-clip-mask LIBRARIES pulp::view)
 # parser regression (Spectr PEAK / AVG / BOTH / OFF analyzer icons).
 pulp_add_test_suite(pulp-test-widget-bridge-svg LIBRARIES pulp::view)
 
+# Widget bridge — Wave 5 css.5 audit (P5-1 follow-up). Runtime-path
+# coverage for the 49 entries PR #1649 flipped from partial/DIVERGE
+# to supported: backgroundPosition / backgroundSize / textShadow /
+# border / border-side / borderRadius / per-corner radius / boxShadow
+# / opacity / outline / textOverflow / transformOrigin / zIndex /
+# backdropFilter / display / overflow / overflow per-axis / and
+# many more. 45 TEST_CASEs each exercising JS shim → bridge → View
+# slot round-trip.
+pulp_add_test_suite(pulp-test-widget-bridge-wave5-css LIBRARIES pulp::view)
+
 # Widget bridge — HTML ARIA + querySelector (P5-1 follow-up, Wave 3
 # html bundle). aria-label / role flow into View accessibility slots;
 # document.querySelector accepts attribute selectors + combinators +
