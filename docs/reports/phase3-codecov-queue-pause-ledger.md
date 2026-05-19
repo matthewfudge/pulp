@@ -10209,3 +10209,14 @@ pulp-test-widget-bridge -j4`, the two font conflict tests, the
 `1c37adf456e0e80457f2e8292bfb1ace98c05ab8`, `mergeable=true`,
 `mergeable_state=blocked`, and no failed/cancelled/timed-out check-runs.
 Next action: continue monitoring #2268 checks until green/merged.
+
+2026-05-18 23:02 PDT: added `6595bae7e` (`test(runtime): cover json rpc
+omitted notification params`) to `feature/phase3-codecov-runtime-state-batch-752`.
+This covers the incoming JSON-RPC notification path when `params` is omitted,
+including handler replacement, empty params propagation, and the no-response
+notification contract. Focused local validation passed: `cmake --build build
+--target pulp-test-json-rpc -j4`, `./build/test/pulp-test-json-rpc
+"JsonRpcPeer notification handlers receive empty omitted params"` (5 assertions
+/ 1 case), `./build/test/pulp-test-json-rpc "[json_rpc][coverage][phase3]"`
+(39 assertions / 7 cases), and `git diff --check`. The batch now has 13 local
+coverage commits plus main merges; continue accumulating before opening a PR.
