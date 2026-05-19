@@ -10443,3 +10443,16 @@ pulp-test-view-mask-overflow -j4`, `./build/test/pulp-test-view-mask-overflow`
 mergeable, and blocked only on the fresh check set for head
 `585544b09dfbb0345522e2f8713a59d185bd4624`; checks queued at ~07:04 UTC, so
 continue monitoring rather than opening another PR immediately.
+
+2026-05-19 00:06 PDT: added `3fe1bfc02` (`test(platform): cover child process
+move construction`) to `feature/phase3-codecov-runtime-state-batch-752`. This
+covers the declared `ChildProcess` move constructor while a child process is
+already running, complementing the prior move-assignment tranche and asserting
+the moved-to owner can wait, collect stdout, and preserve non-timeout /
+non-cancelled result state. Focused local validation passed: `cmake --build
+build --target pulp-test-child-process -j4`,
+`./build/test/pulp-test-child-process "move constructor transfers a running
+child process"` (5 assertions / 1 case), `./build/test/pulp-test-child-process
+"[phase3]"` (13 assertions / 3 cases), and `git diff --check`. The batch now
+has 25 local coverage commits plus main merges and remains current with
+`origin/main`; continue accumulating locally while #2268 runs.
