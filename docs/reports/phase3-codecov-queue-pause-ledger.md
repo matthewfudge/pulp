@@ -10139,3 +10139,16 @@ frames with pong"` (10 assertions / 1 case),
 "[websocket][frame-kind][coverage][phase3]"` (29 assertions / 3 cases), and
 `git diff --check`. The batch now has 8 local coverage commits plus main
 merges; continue accumulating before opening a PR.
+
+2026-05-18 22:50 PDT: added `c398641c0` (`test(runtime): cover websocket close
+frames`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers the
+WebSocket reader's close-control-frame branch by completing a raw client
+handshake, sending a masked close payload, asserting the server echoes an
+unmasked close frame with the same status bytes, and confirming the channel
+fires closed and transitions out of open state. Focused local validation passed:
+`cmake --build build --target pulp-test-websocket-channel -j4`,
+`./build/test/pulp-test-websocket-channel "WebSocketChannel echoes close frames
+and closes"` (12 assertions / 1 case), `./build/test/pulp-test-websocket-channel
+"[websocket][frame-kind][coverage][phase3]"` (41 assertions / 4 cases), and
+`git diff --check`. The batch now has 9 local coverage commits plus main
+merges; continue accumulating before opening a PR.
