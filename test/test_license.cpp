@@ -387,6 +387,22 @@ TEST_CASE("LicenseValidator validate_file preserves interior whitespace",
     REQUIRE(validator.validate_file(tmp.path_string()) == LicenseStatus::InvalidSignature);
 }
 
+TEST_CASE("LicenseValidator validate_file preserves leading whitespace",
+          "[crypto][license][coverage][phase3]") {
+    TemporaryFile tmp(".license");
+    std::string payload = "{\"product_id\":\"PulpSynth\"}";
+    std::string key = " " + base64_encode(payload) + "." + base64_encode("sig") + "\n";
+
+    {
+        std::ofstream out(tmp.path());
+        REQUIRE(out.good());
+        out << key;
+    }
+
+    LicenseValidator validator;
+    REQUIRE(validator.validate_file(tmp.path_string()) == LicenseStatus::InvalidSignature);
+}
+
 TEST_CASE("LicenseValidator machine check accepts copied machine id",
           "[crypto][license][coverage][phase3-large]") {
     LicenseValidator validator;
