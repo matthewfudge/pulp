@@ -10274,3 +10274,15 @@ connected POSIX FIFO"` (20 assertions / 1 case), `./build/test/pulp-test-stream
 "[stream][pipe][coverage][phase3]"` (30 assertions / 2 cases), and `git diff
 --check`. The batch now has 16 local coverage commits plus main merges; continue
 accumulating before opening a PR.
+
+2026-05-18 23:19 PDT: added `b873cff79` (`test(async): cover pre-closed stream
+writes`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers the
+`AsyncStream::write_async()` branch where a nonzero write targets an already
+closed underlying stream before the worker starts, asserting it completes with
+`StreamError::Closed` and leaves `pending_write_bytes()` at zero. Focused local
+validation passed: `cmake --build build --target pulp-test-async-stream -j4`,
+`./build/test/pulp-test-async-stream "AsyncStream write on pre-closed stream
+completes without queuing"` (5 assertions / 1 case),
+`./build/test/pulp-test-async-stream "[async_stream][coverage][phase3]"` (24
+assertions / 5 cases), and `git diff --check`. The batch now has 17 local
+coverage commits plus main merges; continue accumulating before opening a PR.
