@@ -9769,3 +9769,14 @@ assertions / 1 case), `./build/test/pulp-test-state-tree
 "[state][observable][coverage][phase3]"` (3 assertions / 1 case), and `git
 diff --check`. The batch now has 14 local coverage commits; continue
 accumulating before opening a PR.
+
+2026-05-18 23:58 PDT: added `b562126d7` (`test(state): cover unbound cached
+property refresh`) to `feature/phase3-codecov-runtime-state-batch-751`. This
+covers the unbound early-return path in `CachedProperty::refresh()`, asserting a
+local cached value survives a refresh when no `StateTree` is bound. Focused
+local validation passed: `cmake --build build --target pulp-test-state-tree`,
+`./build/test/pulp-test-state-tree "CachedProperty unbound refresh leaves the
+local cache unchanged"` (2 assertions / 1 case),
+`./build/test/pulp-test-state-tree "[state][cached][coverage][phase3]"` (2
+assertions / 1 case), and `git diff --check`. The batch now has 15 local
+coverage commits; continue accumulating before opening a PR.
