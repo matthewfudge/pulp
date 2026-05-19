@@ -9396,3 +9396,17 @@ missing-plugin diagnostic. Focused local validation passed: `cmake --build build
 pulp-test-graph-serializer`, the missing-plugin-payload single-test filter,
 `[host][serializer][coverage][phase3]`, and `git diff --check`. The held batch
 now has 11 local coverage commits; continue accumulating before opening a PR.
+
+2026-05-18 20:19 PDT: added two SignalGraph coverage commits to the held
+`feature/phase3-codecov-host-cache-batch-750` batch. `8c9cde63a`
+(`test(host): cover signal graph stale port skips`) covers process-time guards
+for stale audio connections with oversized source/destination ports, asserting
+the graph stays silent rather than reading/writing invalid scratch channels.
+`85ae08543` (`test(host): cover automation edge rejects`) covers
+`connect_automation` rejects for missing source, missing destination,
+non-plugin destination, invalid source port, and unknown parameter id. Focused
+local validation passed: `cmake --build build --target pulp-test-host`, the
+stale-port single-test filter, `[host][graph][routing][coverage][phase3]`, the
+automation-reject single-test filter, `[host][graph][automation][coverage][phase3]`,
+and `git diff --check`. The held batch now has 13 local coverage commits;
+continue accumulating before opening a PR.
