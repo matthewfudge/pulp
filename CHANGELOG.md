@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01610"></a>
+## [0.161.0] - 2026-05-19
+
+- test(tools): unit tests for version_consistency_check.py — covers the two Codex P2 bug-classes (CHANGELOG advertising un-bumped CMake version, plugin.json vs marketplace plugins[0].version drift) + the harmless reverse-direction window after auto-release bumps CMake before CHANGELOG regen
+
 <a id="v01581"></a>
 ## [0.158.1] - 2026-05-19
 
