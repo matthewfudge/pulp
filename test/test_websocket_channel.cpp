@@ -638,6 +638,61 @@ TEST_CASE("WebSocketChannel replies to ping frames with pong",
     server_thread.join();
 }
 
+TEST_CASE("WebSocketChannel echoes close frames and closes",
+          "[websocket][frame-kind][coverage][phase3]") {
+    Socket listener;
+    REQUIRE(listener.create(SocketType::TCP));
+    auto port = bind_loopback(listener, 48001);
+    if (!port) { SUCCEED("could not bind loopback; skipping"); return; }
+
+    std::atomic<bool> ready{false};
+    std::atomic<bool> server_accept_done{false};
+    std::atomic<bool> closed{false};
+    std::unique_ptr<WebSocketChannel> server_ws;
+
+    std::thread server_thread([&] {
+        ready.store(true);
+        auto accepted = listener.accept();
+        if (!accepted) return;
+        auto server_tcp = std::make_unique<TcpStream>(std::move(*accepted));
+        server_ws = WebSocketChannel::accept(std::move(server_tcp));
+        if (!server_ws) return;
+        server_ws->on_closed([&] { closed.store(true); });
+        server_accept_done.store(true);
+    });
+    while (!ready.load()) std::this_thread::sleep_for(1ms);
+
+    Socket client;
+    REQUIRE(client.create(SocketType::TCP));
+    REQUIRE(client.connect("127.0.0.1", *port));
+    const std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+    const std::string request =
+        "GET /close HTTP/1.1\r\n"
+        "Host: 127.0.0.1\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: " + key + "\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
+    REQUIRE(client.send(request) == static_cast<int>(request.size()));
+    auto response = receive_http_headers(client);
+    REQUIRE(response.find("101") != std::string::npos);
+    REQUIRE(wait_until([&] { return server_accept_done.load(); }));
+
+    const std::string close_payload{"\x03\xe8", 2};
+    REQUIRE(send_masked_client_frame(client, true, 0x8, close_payload));
+    std::uint8_t opcode = 0;
+    auto payload = receive_unmasked_server_frame(client, opcode);
+    REQUIRE(payload.has_value());
+    REQUIRE(opcode == 0x8);
+    REQUIRE(*payload == std::vector<std::uint8_t>{0x03, 0xe8});
+    REQUIRE(wait_until([&] { return closed.load(); }));
+    REQUIRE_FALSE(server_ws->is_open());
+
+    client.close();
+    if (server_ws) server_ws->close();
+    server_thread.join();
+}
+
 TEST_CASE("WebSocketChannel receives 64-bit payload length frames",
           "[websocket][frame-length][issue-641]") {
     Socket listener;
