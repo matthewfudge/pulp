@@ -506,6 +506,63 @@ TEST_CASE("WebSocketChannel assembles fragmented text frames",
     server_thread.join();
 }
 
+TEST_CASE("WebSocketChannel reports unknown frame opcodes",
+          "[websocket][frame-kind][coverage][phase3]") {
+    Socket listener;
+    REQUIRE(listener.create(SocketType::TCP));
+    auto port = bind_loopback(listener, 47801);
+    if (!port) { SUCCEED("could not bind loopback; skipping"); return; }
+
+    std::atomic<bool> ready{false};
+    std::atomic<bool> server_accept_done{false};
+    std::atomic<bool> closed{false};
+    std::unique_ptr<WebSocketChannel> server_ws;
+    std::mutex mu;
+    std::string error;
+
+    std::thread server_thread([&] {
+        ready.store(true);
+        auto accepted = listener.accept();
+        if (!accepted) return;
+        auto server_tcp = std::make_unique<TcpStream>(std::move(*accepted));
+        server_ws = WebSocketChannel::accept(std::move(server_tcp));
+        if (!server_ws) return;
+        server_ws->on_error([&](std::string_view reason) {
+            std::lock_guard<std::mutex> lock(mu);
+            error = std::string(reason);
+        });
+        server_ws->on_closed([&] { closed.store(true); });
+        server_accept_done.store(true);
+    });
+    while (!ready.load()) std::this_thread::sleep_for(1ms);
+
+    Socket client;
+    REQUIRE(client.create(SocketType::TCP));
+    REQUIRE(client.connect("127.0.0.1", *port));
+    const std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
+    const std::string request =
+        "GET /unknown-opcode HTTP/1.1\r\n"
+        "Host: 127.0.0.1\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: " + key + "\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
+    REQUIRE(client.send(request) == static_cast<int>(request.size()));
+    auto response = receive_http_headers(client);
+    REQUIRE(response.find("101") != std::string::npos);
+    REQUIRE(wait_until([&] { return server_accept_done.load(); }));
+
+    REQUIRE(send_masked_client_frame(client, true, 0x3, "reserved"));
+    REQUIRE(wait_until([&] {
+        std::lock_guard<std::mutex> lock(mu);
+        return error == "unknown opcode" && closed.load();
+    }));
+
+    client.close();
+    if (server_ws) server_ws->close();
+    server_thread.join();
+}
+
 TEST_CASE("WebSocketChannel receives 64-bit payload length frames",
           "[websocket][frame-length][issue-641]") {
     Socket listener;
