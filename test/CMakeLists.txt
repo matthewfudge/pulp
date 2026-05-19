@@ -1654,6 +1654,13 @@ pulp_add_test_suite(pulp-test-view-corner-radius LIBRARIES pulp::view)
 # #1148 slice (a) symmetric overflow:visible hit-test extension.
 pulp_add_test_suite(pulp-test-view-zindex-overflow LIBRARIES pulp::view)
 
+# View CSS mask + overflow:visible hit-test extension (P5-3 follow-up).
+# pulp #1148 slice (a) symmetric overflow:visible hit-test extension
+# (500px in each direction so absolutely-positioned popovers protrude
+# past their parent) + pulp #1737 / #1515 CSS mask-image + mask-size
+# paint slice (save_layer_with_mask routing).
+pulp_add_test_suite(pulp-test-view-mask-overflow LIBRARIES pulp::view)
+
 # DirtyTracker, GpuGraphRenderer, and RenderLoop timer-state tests
 # are pure helpers; keep them available in GPU-off sanitizer and coverage builds.
 add_executable(pulp-test-dirty-tracker test_dirty_tracker.cpp)
