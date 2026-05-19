@@ -953,6 +953,23 @@ TEST_CASE("StateTreeSynchroniser decode rejects truncated typed values",
     }
 }
 
+TEST_CASE("StateTreeSynchroniser decode preserves negative child indexes",
+          "[state][sync][coverage][phase3]") {
+    std::vector<SyncDelta> deltas = {
+        {SyncDeltaType::ChildRemove, "root", "", {}, -1},
+        {SyncDeltaType::ChildAdd, "root", "tail", {}, -2},
+    };
+
+    auto encoded = StateTreeSynchroniser::encode(deltas);
+    auto decoded = StateTreeSynchroniser::decode(encoded.data(), encoded.size());
+
+    REQUIRE(decoded.size() == 2);
+    REQUIRE(decoded[0].type == SyncDeltaType::ChildRemove);
+    REQUIRE(decoded[0].child_index == -1);
+    REQUIRE(decoded[1].type == SyncDeltaType::ChildAdd);
+    REQUIRE(decoded[1].child_index == -2);
+}
+
 TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state][sync]") {
     auto tree = StateTree::create("root");
     tree->set("remove_me", std::string("bye"));
