@@ -10165,3 +10165,16 @@ body is exhausted. Focused local validation passed: `cmake --build build
 "[network_stream][http][coverage][phase3]"` (31 assertions / 2 cases), and
 `git diff --check`. The batch now has 10 local coverage commits plus main
 merges; continue accumulating before opening a PR.
+
+2026-05-18 22:54 PDT: added `5a1c1765e` (`test(runtime): cover http stream post
+reads`) to `feature/phase3-codecov-runtime-state-batch-752`. This covers the
+`HttpStream::post()` factory and POST request path against a local loopback HTTP
+response, asserting the request reaches the server as POST with the configured
+content type and that the response status/body are readable through the Stream
+contract. Focused local validation passed: `cmake --build build --target
+pulp-test-network-stream -j4`, `./build/test/pulp-test-network-stream
+"HttpStream post factory reads a successful local response"` (10 assertions / 1
+case), `./build/test/pulp-test-network-stream
+"[network_stream][http][coverage][phase3]"` (41 assertions / 3 cases), and
+`git diff --check`. The batch now has 11 local coverage commits plus main
+merges; continue accumulating before opening a PR.
