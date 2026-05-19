@@ -870,6 +870,18 @@ TEST_CASE("FloatRange", "[runtime][range]") {
     REQUIRE_FALSE(r.contains(1.0f));
 }
 
+TEST_CASE("FloatRange constrain clamps to the floating endpoint",
+          "[runtime][range][coverage][phase3]") {
+    FloatRange unit(0.0f, 1.0f);
+    REQUIRE_THAT(unit.constrain(-0.5f), Catch::Matchers::WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(unit.constrain(0.25f), Catch::Matchers::WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(unit.constrain(2.0f), Catch::Matchers::WithinAbs(1.0f, 1e-6f));
+
+    DoubleRange bipolar(-1.0, 1.0);
+    REQUIRE_THAT(bipolar.constrain(-2.0), Catch::Matchers::WithinAbs(-1.0, 1e-12));
+    REQUIRE_THAT(bipolar.constrain(2.0), Catch::Matchers::WithinAbs(1.0, 1e-12));
+}
+
 
 TEST_CASE("DoubleRange intersections and unions preserve fractional bounds",
           "[runtime][range][coverage][issue-641]") {
