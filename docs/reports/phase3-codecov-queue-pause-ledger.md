@@ -335,6 +335,47 @@ commits on `origin/main` `baeaf64d0`. #2268 remains the active merge
 priority and is still queue-only on GitHub-hosted checks. No Namespace
 dispatch.
 
+2026-05-19 01:32 PDT: reprioritized #2268 after `origin/main` advanced
+again. PR #2268 had head `9cae7b993`, base `baeaf64d0`, and REST compare
+reported `behind_by: 1`, so merged current `origin/main` `2f3ddccf2`
+into `feature/phase3-codecov-rollup-746`. The merge was clean and
+produced PR head `f15d41847`. Local pre-push validation passed
+`python3 tools/scripts/skill_sync_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report`; the push hook also passed
+skill/version and source-contract checks. The local diff-coverage
+pre-push setup again failed while fetching mbedTLS (`fatal: invalid
+reference: v3.6.2`), so the push used `PULP_DISABLE_PREPUSH_DIFF_COVER=1`
+to demote only that local diff-cover gate. GitHub REST then reported
+#2268 base `2f3ddccf2`, head `f15d41847`, `behind_by: 0`,
+`mergeable: true`, `mergeable_state: blocked`, with required checks
+freshly queued on the new head. No Namespace dispatch.
+
+2026-05-19 01:33 PDT: rebased
+`feature/phase3-codecov-audio-midi-batch-753` onto `origin/main`
+`2f3ddccf2`; the seven local tranche commits are now:
+`e9155222d test(midi): cover MPE zone disabled layouts`,
+`28f4b8d34 test(midi): cover reserved running-status realtime bytes`,
+`af34afcff test(midi): cover MIDI-CI profile count encoding`,
+`0ee56b50f test(audio): cover short-read frame fill clamps`,
+`246479513 test(midi): cover device default hooks`,
+`03fad61c7 test(audio): cover callback context contract`, and
+`92d3629c5 test(midi): cover glide detector reset guard`. Post-rebase
+validation passed all seven focused filters:
+`./build/test/pulp-test-mpe-buffer "MpeZone rejects disabled and
+non-standard manager layouts"`, `./build/test/pulp-test-running-status
+"reserved real-time bytes preserve running status"`,
+`./build/test/pulp-test-midi-ci "CiDiscovery profile reply encodes
+multi-byte profile counts"`, `./build/test/pulp-test-audio-edge-cases
+"Audio frame fill clamps partial reads and preserves valid samples"`,
+`./build/test/pulp-test-midi "MIDI device defaults expose safe no-op
+extension hooks"`, `./build/test/pulp-test-audio "AudioCallback
+receives stable context and writable output views"`,
+`./build/test/pulp-test-mpe-synth-voice "MpeGlideDetector ignores
+unmatched releases and reset clears channels"`, plus `git diff --check`.
+PR state: batch remains local-only, 7 commits ahead of `origin/main`;
+continue accumulating into a larger first-party coverage PR while #2268
+runs. No Namespace dispatch.
+
 2026-05-18 15:05 PDT: added tenth committed tranche to
 `feature/phase3-codecov-batch-747`:
 `a2b5ba0cf test(cli): cover run option pass-through edges`, touching
