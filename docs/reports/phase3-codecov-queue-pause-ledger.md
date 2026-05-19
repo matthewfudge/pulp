@@ -11122,3 +11122,17 @@ cases), and `git diff --check`. PR #2268 remained current at head
 started, while macOS sanitizer/local-runner lanes and the macOS sandbox/android
 lanes remained queued. The batch is clean, local-only, and 26 coverage commits
 ahead of `origin/main`.
+
+2026-05-19 03:24 PDT: added `f866020e8` (`test(runtime): cover async
+cancellation token`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_async_stream.cpp` and covers the public
+`AsyncStream::cancellation_token()` sharing path, verifying callers holding a
+previous token observe cancellation after `AsyncStream::cancel()`. Focused
+local validation passed: `cmake --build build --target pulp-test-async-stream
+-j4`, `./build/test/pulp-test-async-stream "[async_stream]"` (63 assertions /
+14 cases), and `git diff --check`. PR #2268 remained current at head
+`5f511a733`, `mergeable_state: blocked`, with no failed checks; Linux and
+Windows hosted lanes were in progress, macOS ARM64 was green, and the remaining
+macOS sanitizer/local-runner/sandbox/android lanes were queued. Keep the batch
+local until #2268 is green or otherwise actionable. The batch is clean,
+local-only, and 27 coverage commits ahead of `origin/main`.
