@@ -11181,3 +11181,15 @@ Post-rebase focused validation passed:
 assertions / 12 cases), and `git diff --check`. PR #2268 remained current at
 head `5f511a733`, `mergeable_state: blocked`, with no failed checks. The
 batch is clean, local-only, and 28 coverage commits ahead of `origin/main`.
+
+2026-05-19 03:34 PDT: added `1a9de62c1` (`test(runtime): cover spsc full
+queue preserves item`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_sync_primitives.cpp` and covers the
+single-producer/single-consumer queue contract that a failed full-queue push
+does not disturb the queued item or size. Focused local validation passed:
+`cmake --build build --target pulp-test-sync -j4`,
+`./build/test/pulp-test-sync "[runtime][spsc]"` (10 assertions / 1 case), and
+`git diff --check`. PR #2268 remained current at head `5f511a733`,
+`mergeable_state: blocked`, with no failed checks; Linux and Windows hosted
+lanes were in progress and several macOS lanes remained queued. The batch is
+clean, local-only, and 29 coverage commits ahead of `origin/main`.
