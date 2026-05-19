@@ -1800,6 +1800,13 @@ pulp_add_test_suite(pulp-test-widget-bridge-html-aria LIBRARIES pulp::view)
 # through the CSS shim and bridge.
 pulp_add_test_suite(pulp-test-widget-bridge-css-animations LIBRARIES pulp::view)
 
+# Widget bridge — CSS Grid extended surface (P5-1 follow-up, pulp #1434
+# Phase A2-2). grid-template-columns / -rows / -areas, grid-column /
+# -row / -area placement shorthand, gap longhands + shorthand,
+# justify-* / align-* / place-* alignment, repeat() + minmax() +
+# fr-unit + auto sizing tokens round-trip through the bridge.
+pulp_add_test_suite(pulp-test-widget-bridge-css-grid LIBRARIES pulp::view)
+
 # Autonomous Spectr regression suite (pulp-internal task #63, follow-up to
 # pulp #1792). Composes the six [contract] invariants from
 # test_widget_bridge.cpp into a Spectr-shaped mini-scenario so a future
