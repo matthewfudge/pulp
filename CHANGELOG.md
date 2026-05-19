@@ -11,7 +11,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v01610"></a>
 ## [0.161.0] - 2026-05-19
 
-- test(tools): unit tests for version_consistency_check.py — covers the two Codex P2 bug-classes (CHANGELOG advertising un-bumped CMake version, plugin.json vs marketplace plugins[0].version drift) + the harmless reverse-direction window after auto-release bumps CMake before CHANGELOG regen
+- test(tools): unit tests for version_consistency_check.py ([#2383](https://github.com/danielraffel/pulp/pull/2383))
+- fix(cli): cross-platform exit_status decode in pulp fmt (Windows release build) ([#2375](https://github.com/danielraffel/pulp/pull/2375))
 
 <a id="v01581"></a>
 ## [0.158.1] - 2026-05-19
@@ -2164,6 +2165,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.161.0]: https://github.com/danielraffel/pulp/releases/tag/v0.161.0
 [0.158.1]: https://github.com/danielraffel/pulp/releases/tag/v0.158.1
 [0.158.0]: https://github.com/danielraffel/pulp/releases/tag/v0.158.0
 [0.155.0]: https://github.com/danielraffel/pulp/releases/tag/v0.155.0
