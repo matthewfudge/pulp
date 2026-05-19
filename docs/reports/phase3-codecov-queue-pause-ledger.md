@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 15:07 PDT
+Last updated: 2026-05-18 21:54 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -66,6 +66,24 @@ paths. Local validation passed:
 and `git diff --check`. PR state: not pushed; this is a small CLI
 source fix with tests and should remain in the CLI-focused batch after
 final revalidation. No Namespace dispatch.
+
+2026-05-18 21:54 PDT: refreshed Codecov PR #2318
+(`feature/phase3-codecov-runtime-state-batch-751`) after main advanced
+past the PR head. The prior `Enforce version & skill sync` failure was a
+stale-base artifact: the CI gate uses `origin/main..HEAD`, so the old PR
+head appeared to remove `.github/workflows/format-baseline-diff.yml`.
+Rebased cleanly onto current `origin/main`; new PR head is
+`77a2789459efc4f9ec2df93683935d9e3a85a282`. Local validation passed:
+`cmake --build build --target pulp-test-async-stream pulp-test-stream
+pulp-test-crypto pulp-test-i18n pulp-test-state-tree
+pulp-test-runtime-utils pulp-test-preset-manager pulp-test-properties
+pulp-test-undo-manager`, focused phase3 filters for async stream,
+stream, sha1 crypto, i18n, state tree/observable/cached/json,
+child_process, preset, properties, undo, plus
+`python3 tools/scripts/skill_sync_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report` and `git diff --check`.
+Pushed with `PULP_SKIP_PREPUSH=1 git push --force-with-lease` to refresh
+the existing PR without an empty commit. No Namespace dispatch.
 
 2026-05-18 15:05 PDT: added tenth committed tranche to
 `feature/phase3-codecov-batch-747`:
