@@ -9572,3 +9572,19 @@ creation showed #2310 open, `mergeable_state=blocked`, 0 failing checks, 15
 pending checks, 7 successful checks, and 23 total check runs. GitHub GraphQL
 was rate-limited during the handoff, so continue monitoring #2310 via REST
 until the GraphQL limit resets; do not push an empty rerun commit.
+
+2026-05-18 22:23 PDT: started the next Phase 3 coverage batch from current
+`origin/main` (`b0dd7b3e`) in clean worktree
+`/private/tmp/pulp-phase3-codecov-runtime-state-batch-751` on branch
+`feature/phase3-codecov-runtime-state-batch-751`. Added `9b1e0acee`
+(`test(state): cover sync decode malformed framing`), covering defensive
+`StateTreeSynchroniser::decode()` framing exits for truncated path length,
+path bytes, key length, key bytes, child index, missing value type, and the
+unknown-value-type branch that preserves a monostate value. Local validation
+passed: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug`, `cmake --build build
+--target pulp-test-state-tree`, `./build/test/pulp-test-state-tree
+"StateTreeSynchroniser decode rejects malformed delta framing"` (12 assertions
+/ 1 case), `./build/test/pulp-test-state-tree
+"[state][sync][coverage][phase3]"` (12 assertions / 1 case), and `git diff
+--check`. The new batch has 1 local coverage commit; continue accumulating
+related runtime/state coverage before opening a PR.
