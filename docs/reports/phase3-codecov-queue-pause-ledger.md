@@ -10561,3 +10561,17 @@ running status"` (11 assertions / 1 case),
 `./build/test/pulp-test-running-status "[midi][running-status]"` (93
 assertions / 20 cases), and `git diff --check`. The branch is local-only and
 ahead of `origin/main` by 2 coverage commits; keep it queued behind #2268.
+
+2026-05-19 01:00 PDT: added `8787f61a4` (`test(midi): cover MIDI-CI profile
+count encoding`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This covers `CiDiscovery::handle_profile_inquiry` count-byte encoding for
+enabled and disabled profile counts greater than 127, asserting the MIDI-CI
+profile reply writes the low/high 7-bit count bytes and preserves the final
+SysEx terminator. Focused local validation passed:
+`cmake --build build --target pulp-test-midi-ci -j4`,
+`./build/test/pulp-test-midi-ci "CiDiscovery profile reply encodes multi-byte
+profile counts"` (6 assertions / 1 case),
+`./build/test/pulp-test-midi-ci "[midi][ci]"` (132 assertions / 27 cases),
+and `git diff --check`. The branch is local-only and ahead of `origin/main`
+by 3 coverage commits; keep it queued behind #2268 and continue accumulating
+deterministic audio/MIDI coverage.
