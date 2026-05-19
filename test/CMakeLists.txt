@@ -897,6 +897,23 @@ add_executable(pulp-test-text-run-planner-parallel test_text_run_planner_paralle
 target_link_libraries(pulp-test-text-run-planner-parallel PRIVATE pulp::canvas Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-text-run-planner-parallel)
 
+# pulp #2163 / font v2 Slice 1.2.a finish — real ICU bidi + script run
+# iterators. Verifies multi-run shaping on bidi / script boundaries and
+# UAX #29 cluster grouping (ZWJ, regional-indicator-pair, virama,
+# combining marks). Cluster-grouping cases run on every build; the
+# bidi / script cases auto-skip under non-Skia builds via SUCCEED.
+#
+# Add PULP_HAS_SKIA explicitly so the ICU-path assertions register
+# (mirrors test_canvas_fonts.cpp's pattern — pulp::canvas exports the
+# define PUBLIC but CMake's PUBLIC propagation doesn't always reach
+# sibling test targets, depending on configure ordering).
+add_executable(pulp-test-text-run-planner-icu test_text_run_planner_icu.cpp)
+target_link_libraries(pulp-test-text-run-planner-icu PRIVATE pulp::canvas Catch2::Catch2WithMain)
+if(PULP_HAS_SKIA)
+    target_compile_definitions(pulp-test-text-run-planner-icu PRIVATE PULP_HAS_SKIA=1)
+endif()
+catch_discover_tests(pulp-test-text-run-planner-icu)
+
 # pulp #2163 / font v2 Slice 2.1 — async font lifecycle (register_font_url).
 add_executable(pulp-test-font-async-lifecycle test_font_async_lifecycle.cpp)
 target_link_libraries(pulp-test-font-async-lifecycle PRIVATE pulp::canvas Catch2::Catch2WithMain)
