@@ -93,8 +93,10 @@ drives it, and it's how AI tools like the design import skill drive it.
 
 JUCE: `JUCE_LIVE_CONSTANT(3.14)` lets you scrub a literal at runtime.
 Pulp: `PULP_LIVE_CONSTANT(3.14, 0.0, 10.0)` — same idea, with min/max
-hints so the inspector can show a sane slider range. Compiles to the
-plain value in `NDEBUG`.
+hints so the inspector can show a sane slider range. Registers a
+sliderable constant via `LiveConstantRegistry` and returns the current
+value; the registration is one-shot (mutex + first-call alloc), so
+keep these in UI/init code, not inside RT-critical hot loops.
 
 ```cpp
 auto cutoff = PULP_LIVE_CONSTANT(440.0f, 20.0f, 20000.0f);
@@ -142,17 +144,20 @@ for (int s = 0; s < numSamples; ++s) {
     out[s] = in[s] * *params.getRawParameterValue("gain");
 }
 
-// Pulp — block-local snapshot:
-constexpr std::array<ParamID, 1> kIds{ kGainId };
-auto p = state_store().snapshot(kIds);
+// Pulp — block-local snapshot, manual today:
+const float gain = state_store().get_value(kGainId);
 for (int s = 0; s < n; ++s) {
-    out[s] = in[s] * p[0];
+    out[s] = in[s] * gain;
 }
 ```
 
-`snapshot()` returns a `std::array<float, N>` you read from inside
-the per-sample loop. See [DSP threading](dsp-threading.md) for the
-full contract. Pulp's `ScopedNoAlloc` debug guard wraps
+Call `get_value()` once per parameter at the top of `process()` and
+read from the local inside the per-sample loop. A
+`StateStore::snapshot(std::array<ParamID, N>)` helper that returns
+all N values at once is the right ergonomic; it lands with the
+follow-up "snapshot helper" slice and this guide will get a one-line
+update when it's in main. See [DSP threading](dsp-threading.md) for
+the full contract. Pulp's `ScopedNoAlloc` debug guard wraps
 `Processor::process` so allocation-on-RT is catchable by hooks.
 
 ## macOS AU cache refresh
@@ -164,12 +169,10 @@ stale `Info.plist`, you reach for:
 killall -9 AudioComponentRegistrar
 ```
 
-Pulp builds this in:
-
-```
-pulp doctor --au-cache         # diagnose
-pulp validate --refresh-au     # refresh + re-run AU validation
-```
+Same trick on Pulp today. A `pulp doctor --au-cache` subcommand
+that runs the killall for you ships in a follow-up slice (planning
+doc Tier A #11); in the meantime, the manual command is still the
+one you want.
 
 ## Windows: static MSVC runtime by default
 
@@ -196,9 +199,11 @@ If you want the dynamic runtime back, override with
   hacks. If you need to detect the host for a quirk, use
   `descriptor()` fields.
 * **DBG-allocates trick.** Pulp doesn't have a `DBG(...)` macro. Use
-  `PULP_DBG_VAR(x, y, z)` (added in slice 8) or just
-  `pulp::runtime::log_info` (its formatter doesn't allocate on the
-  audio thread).
+  `pulp::runtime::log_info` / `log_warn` / `log_error` — its
+  formatter doesn't allocate on the audio thread. A name-printing
+  `PULP_DBG_VAR(x, y, z)` macro (sudara tips #26) lands in a
+  follow-up slice (planning doc Tier A #8); this guide will pick it
+  up once it's in main.
 
 ## Already ahead of JUCE (you don't have to add these)
 
