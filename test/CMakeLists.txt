@@ -1810,6 +1810,13 @@ pulp_add_test_suite(pulp-test-audio-bridge LIBRARIES pulp::view)
 # Widget tests
 pulp_add_test_suite(pulp-test-widgets LIBRARIES pulp::view)
 
+# Widget tests — Label cluster (P5-3 follow-up — extracted from
+# test_widgets.cpp). Label intrinsic_width / intrinsic_height /
+# line-height multiplier (#76) / line_clamp / measured_height under
+# bounded width / baseline_y from text metrics / vertical text
+# direction / letter_spacing glyph counting (#928 + #1407 + #76).
+pulp_add_test_suite(pulp-test-widgets-label LIBRARIES pulp::view)
+
 # Hot-reload tests
 add_executable(pulp-test-hot-reload test_hot_reload.cpp)
 target_link_libraries(pulp-test-hot-reload PRIVATE pulp::view Catch2::Catch2WithMain)
