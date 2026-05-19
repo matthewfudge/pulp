@@ -1943,6 +1943,20 @@ pulp_add_test_suite(pulp-test-widget-bridge-yoga LIBRARIES pulp::view)
 # compat.json entries.
 pulp_add_test_suite(pulp-test-widget-bridge-canvas2d-wave2 LIBRARIES pulp::view)
 
+# Widget bridge — RN style-prop bridge primitives (P5-1 follow-up,
+# pulp #1026). setShadow / setOpacity / setTransform RN-shaped style
+# functions flow through bridge into View's slots. Includes RN's
+# shadowOpacity-into-color-alpha composition + transform-prop
+# aggregation.
+pulp_add_test_suite(pulp-test-widget-bridge-rn-style LIBRARIES pulp::view)
+
+# Widget bridge — Tier-4 OOS / perf-hints / interaction misc pins
+# (P5-1 follow-up, pulp #1434). Pins the no-op / fallback contract
+# for properties Pulp deliberately doesn't paint: 3D transforms,
+# generated content, scroll-snap, will-change, contain, touch-action
+# secondary keywords. Catalog hygiene tests.
+pulp_add_test_suite(pulp-test-widget-bridge-tier4-oos LIBRARIES pulp::view)
+
 # Widget bridge — RN outline cluster (P5-1 follow-up, pulp #1519).
 # outlineColor / outlineOffset / outlineStyle / outlineWidth longhands
 # + `outline` shorthand decomposition through the RN style shim.
