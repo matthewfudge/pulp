@@ -1458,6 +1458,40 @@ TEST_CASE("pulp build allows explicit unsupported SDK bypass",
     REQUIRE(combined.find("pulp upgrade 99.0.0") == std::string::npos);
 }
 
+TEST_CASE("pulp build validates js engine option before compatibility checks",
+          "[cli][shellout][build][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = unique_temp_dir("pulp-shellout-build-js-engine");
+    fs::create_directories(tmp);
+    write_text(tmp / "pulp.toml",
+               "[pulp]\n"
+               "sdk_version = \"99.0.0\"\n"
+               "cli_min_version = \"99.0.0\"\n");
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    auto missing = exec(bin.string(), {"build", "--js-engine"}, 10000);
+    auto invalid = exec(bin.string(), {"build", "--js-engine=spidermonkey"}, 10000);
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(missing.timed_out);
+    REQUIRE(missing.exit_code == 2);
+    REQUIRE(missing.stderr_output.find("--js-engine requires a value")
+            != std::string::npos);
+    REQUIRE(missing.stderr_output.find("requires a newer Pulp CLI")
+            == std::string::npos);
+
+    REQUIRE_FALSE(invalid.timed_out);
+    REQUIRE(invalid.exit_code == 1);
+    REQUIRE(invalid.stderr_output.find("--js-engine must be auto, quickjs, jsc, or v8")
+            != std::string::npos);
+    REQUIRE(invalid.stderr_output.find("requires a newer Pulp CLI")
+            == std::string::npos);
+}
+
 // #8 / #355 — `pulp doctor android` and `pulp doctor ios` are
 // recognized subcommands; bogus subcommand fails with exit 2 + Usage.
 TEST_CASE("pulp doctor android|ios are recognized subcommands",
