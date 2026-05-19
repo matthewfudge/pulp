@@ -1375,6 +1375,48 @@ TEST_CASE("SignalGraph connect_automation rejects invalid endpoints and params",
     REQUIRE(graph.connections().empty());
 }
 
+TEST_CASE("SignalGraph automation clamps add-mode and stored smoothing",
+          "[host][graph][automation][coverage][phase3]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto slot = std::make_unique<MockAutomatable>();
+    auto* slot_ptr = slot.get();
+    auto plug = graph.add_plugin_node(std::move(slot), 0, 1, "auto");
+
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f,
+        -25.0f, AutomationMix::Add));
+    REQUIRE(graph.connections().size() == 1);
+    REQUIRE(graph.connections().front().automation_smoothing_ms == 0.0f);
+    REQUIRE(graph.connections().front().automation_mix == AutomationMix::Add);
+
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f,
+        0.0f, AutomationMix::Add));
+    REQUIRE(graph.connections().size() == 2);
+
+    REQUIRE(graph.prepare(48000.0, 4));
+
+    std::vector<float> input_samples(4, 0.0f);
+    input_samples[0] = 0.8f;
+    input_samples[3] = 0.7f;
+    std::vector<float> output_samples(4, 0.0f);
+    const float* in_ptrs[1] = {input_samples.data()};
+    float* out_ptrs[1] = {output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 4);
+    pulp::audio::BufferView<float> out_view(out_ptrs, 1, 4);
+
+    graph.process(out_view, in_view, 4);
+
+    const auto& events = slot_ptr->received();
+    REQUIRE(events.size() == 2);
+    REQUIRE(events[0].param_id == MockAutomatable::kParamId);
+    REQUIRE(events[0].sample_offset == 0);
+    REQUIRE(events[0].value == 1.0f);
+    REQUIRE(events[1].sample_offset == 3);
+    REQUIRE(events[1].value == 1.0f);
+}
+
 // ── Phase 3 GraphSerializer round-trip ──────────────────────────────────
 
 #include <pulp/host/graph_serializer.hpp>
