@@ -319,6 +319,26 @@ TEST_CASE("PluginSlot load returns nullptr for stub", "[host][slot]") {
     REQUIRE(slot == nullptr); // Stub always returns nullptr
 }
 
+TEST_CASE("PluginSlot load fails cleanly for invalid dispatch inputs",
+          "[host][slot][coverage][phase3]") {
+    PluginInfo clap;
+    clap.name = "MissingClap";
+    clap.path = "/definitely/missing/Missing.clap";
+    clap.format = PluginFormat::CLAP;
+    REQUIRE(PluginSlot::load(clap) == nullptr);
+
+    PluginInfo au;
+    au.name = "BadAU";
+    au.unique_id = "not-a-4cc-triplet";
+    au.format = PluginFormat::AudioUnit;
+    REQUIRE(PluginSlot::load(au) == nullptr);
+
+    PluginInfo auv3 = au;
+    auv3.name = "BadAUv3";
+    auv3.format = PluginFormat::AudioUnitV3;
+    REQUIRE(PluginSlot::load(auv3) == nullptr);
+}
+
 // #296 regression: set_parameter on the CLAP slot must be observable via
 // get_parameter immediately (cached readback), not silently dropped.
 // Unknown param IDs must be rejected instead of polluting the cache.
