@@ -9366,3 +9366,18 @@ pulp-test-host-regression`, the VST3 raw-CID single-test filter,
 `[host][scanner][regression][codecov][phase3]`, and `git diff --check`. The held
 batch now has 9 local coverage commits; continue accumulating a larger batch
 before opening a PR.
+
+2026-05-18 20:15 PDT: addressed the #2268 macOS test failure on head
+`30123a752`. GitHub reported `macOS (ARM64) [github-hosted]` failing in
+`Test (non-Windows)` because `Address pattern alternatives reject empty
+branches` matched `/prefix{,Suffix}` against `/prefix`. Added `608a2c4e5`
+(`fix(osc): reject empty address alternatives`) so malformed OSC address
+alternative lists fail closed when any branch is empty. Focused local validation
+passed in `feature/phase3-codecov-rollup-746`: `cmake --build build --target
+pulp-test-osc-bundle`, `./build/test/pulp-test-osc-bundle "Address pattern
+alternatives reject empty branches"` (3 assertions / 1 case),
+`./build/test/pulp-test-osc-bundle "[osc][bundle][pattern]"` (40 assertions /
+15 cases), and `git diff --check`. Pushed with `PULP_SKIP_PREPUSH=1
+PULP_VIA_SHIPYARD=1`; monitor #2268 checks on SHA `608a2c4e5`. The #2268 review
+comments about integer overflow had already been answered/fixed by
+`f939845d3`; no unresolved review comments remained when this fix was made.
