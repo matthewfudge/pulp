@@ -9381,3 +9381,18 @@ alternatives reject empty branches"` (3 assertions / 1 case),
 PULP_VIA_SHIPYARD=1`; monitor #2268 checks on SHA `608a2c4e5`. The #2268 review
 comments about integer overflow had already been answered/fixed by
 `f939845d3`; no unresolved review comments remained when this fix was made.
+
+2026-05-18 20:14 PDT: added two more focused local commits to the held
+`feature/phase3-codecov-host-cache-batch-750` batch. `dcfe16f59`
+(`test(host): cover background scanner destructor cancel`) covers
+`BackgroundScanner` destructor teardown via `stop_and_join()`, asserting that an
+active worker observes cancellation, completes, and reports `cancelled=true`.
+`ee80bf037` (`test(host): cover graph serializer missing plugin payload`) covers
+GraphSerializer's plugin-node-without-plugin-payload branch, preserving valid
+audio nodes, skipping stale connections to the missing plugin, and recording the
+missing-plugin diagnostic. Focused local validation passed: `cmake --build build
+--target pulp-test-background-scanner`, the destructor single-test filter,
+`[host][bg-scan][coverage][phase3]`, `cmake --build build --target
+pulp-test-graph-serializer`, the missing-plugin-payload single-test filter,
+`[host][serializer][coverage][phase3]`, and `git diff --check`. The held batch
+now has 11 local coverage commits; continue accumulating before opening a PR.
