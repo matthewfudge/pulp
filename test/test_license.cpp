@@ -114,6 +114,42 @@ LoopbackHttpExchange serve_loopback_http_response(std::string response_body) {
     return exchange;
 }
 
+LoopbackHttpExchange serve_loopback_http_status(int status_code, std::string response_body = {}) {
+    Socket server;
+    REQUIRE(server.create(SocketType::TCP));
+    REQUIRE(server.bind("127.0.0.1", 0));
+    REQUIRE(server.listen(1));
+    const auto port = server.local_port();
+    REQUIRE(port != 0);
+
+    LoopbackHttpExchange exchange;
+    exchange.base_url = "http://127.0.0.1:" + std::to_string(port);
+    auto request = exchange.request;
+    exchange.worker = std::thread([server = std::move(server),
+                                   status_code,
+                                   response_body = std::move(response_body),
+                                   request = std::move(request)]() mutable {
+        auto client = server.accept();
+        if (!client) return;
+
+        std::array<std::uint8_t, 2048> buffer{};
+        const auto received = client->receive(buffer.data(), buffer.size());
+        if (received > 0) {
+            request->assign(reinterpret_cast<const char*>(buffer.data()),
+                            static_cast<std::size_t>(received));
+        }
+
+        const auto reason = status_code >= 200 && status_code < 300 ? "OK" : "Rejected";
+        const std::string wire_response =
+            "HTTP/1.1 " + std::to_string(status_code) + " " + reason + "\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: " + std::to_string(response_body.size()) + "\r\n"
+            "Connection: close\r\n\r\n" + response_body;
+        (void) client->send(wire_response);
+    });
+    return exchange;
+}
+
 }  // namespace
 
 // ── BigInteger ──────────────────────────────────────────────────────────
@@ -692,6 +728,30 @@ TEST_CASE("OnlineActivation check_status maps loopback response bodies",
                 LicenseStatus::InvalidSignature);
         exchange.worker.join();
         REQUIRE(exchange.request->find("GET /status?key=rejected-key&machine=") != std::string::npos);
+    }
+}
+
+TEST_CASE("OnlineActivation treats non-2xx loopback responses as activation failures",
+          "[crypto][license][coverage][phase3]") {
+    {
+        auto exchange = serve_loopback_http_status(403, R"({"error":"denied"})");
+        REQUIRE_FALSE(OnlineActivation::activate(exchange.base_url, "serial", "product"));
+        exchange.worker.join();
+        REQUIRE(exchange.request->find("POST /activate HTTP/1.1") != std::string::npos);
+    }
+
+    {
+        auto exchange = serve_loopback_http_status(500, R"({"error":"server"})");
+        REQUIRE_FALSE(OnlineActivation::deactivate(exchange.base_url, "license"));
+        exchange.worker.join();
+        REQUIRE(exchange.request->find("POST /deactivate HTTP/1.1") != std::string::npos);
+    }
+
+    {
+        auto exchange = serve_loopback_http_status(404, R"({"status":"valid"})");
+        REQUIRE(OnlineActivation::check_status(exchange.base_url, "license") == LicenseStatus::NotFound);
+        exchange.worker.join();
+        REQUIRE(exchange.request->find("GET /status?key=license&machine=") != std::string::npos);
     }
 }
 
