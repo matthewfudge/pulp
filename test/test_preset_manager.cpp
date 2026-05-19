@@ -556,6 +556,34 @@ TEST_CASE("PresetManager import creates the user preset directory",
     REQUIRE(pm.user_presets().size() == 1);
 }
 
+TEST_CASE("PresetManager import of duplicate destination preserves existing preset",
+          "[state][preset][coverage][phase3]") {
+    pulp::test::PresetTestSandbox sandbox("pulp-preset-import-duplicate");
+    StateStore store;
+    setup_test_store(store);
+    PresetManager pm(store, "TestCo", "TestPlugin");
+
+    REQUIRE(pm.save("Imported"));
+
+    const auto external = sandbox.root / "external" / "Imported.json";
+    write_text_file(external, R"json({"parameters":{"Gain":-9}})json");
+
+    int list_changes = 0;
+    pm.on_list_changed = [&] { ++list_changes; };
+
+    auto imported = pm.import_file(external);
+
+    REQUIRE(imported.has_value());
+    REQUIRE(imported->name == "Imported");
+    REQUIRE(list_changes == 1);
+    REQUIRE(pm.user_presets().size() == 1);
+
+    store.set_value(1, 0.0f);
+    auto listed = require_user_preset(pm, "Imported");
+    REQUIRE(pm.load(listed));
+    REQUIRE(store.get_value(1) == Catch::Approx(0.0f));
+}
+
 TEST_CASE("PresetManager rename failure leaves current preset unchanged",
           "[state][preset][coverage][phase3-large]") {
     pulp::test::PresetTestSandbox sandbox("pulp-preset-rename-missing-current");
