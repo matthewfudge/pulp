@@ -9658,3 +9658,15 @@ participates in transactions"` (13 assertions / 1 case),
 `./build/test/pulp-test-undo-manager "[state][undo][coverage][phase3]"`
 (13 assertions / 1 case), and `git diff --check`. The new batch now has 6
 local coverage commits; continue accumulating before opening a PR.
+
+2026-05-18 23:07 PDT: added `430af32dd` (`test(state): cover undo zero
+history depth`) to `feature/phase3-codecov-runtime-state-batch-751`. This
+covers `UndoManager::push_undo()` when `max_history` is zero, asserting the
+redo action still runs, the trimming loop drops the undo entry immediately,
+`undo()` remains unavailable, and the state-change callback fires once.
+Focused local validation passed: `cmake --build build --target
+pulp-test-undo-manager`, `./build/test/pulp-test-undo-manager "UndoManager
+zero max history performs without retaining undo"` (6 assertions / 1 case),
+`./build/test/pulp-test-undo-manager "[state][undo][coverage][phase3]"`
+(19 assertions / 2 cases), and `git diff --check`. The new batch now has 7
+local coverage commits; continue accumulating before opening a PR.
