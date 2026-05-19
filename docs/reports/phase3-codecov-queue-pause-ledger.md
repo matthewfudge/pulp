@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-19 01:25 PDT
+Last updated: 2026-05-19 01:52 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -389,6 +389,23 @@ pulp-test-runtime-utils -j4`, `./build/test/pulp-test-runtime-utils
 local-only, 8 commits ahead of `origin/main`; #2268 head `f15d41847`
 has `baseline-diff` completed success and the remaining required checks
 queued. Continue accumulating into a larger first-party coverage PR. No
+Namespace dispatch.
+
+2026-05-19 01:52 PDT: reprioritized #2268 after `origin/main` advanced
+from `2f3ddccf2` to `8b723618f`. GitHub initially reported #2268 head
+`f15d41847`, base `2f3ddccf2`, compare `behind_by: 1`, and most checks
+still queued, so merged current `origin/main` into
+`feature/phase3-codecov-rollup-746`. The merge was clean, including the
+latest widget-bridge test split, and produced PR head `f98933cd2`. Local
+validation passed `python3 tools/scripts/skill_sync_check.py --base
+origin/main --config tools/scripts/versioning.json --mode=report`; the
+push hook also passed skill/version and source-contract checks. The local
+diff-coverage pre-push setup again failed while fetching mbedTLS (`fatal:
+invalid reference: v3.6.2`), so the push used
+`PULP_DISABLE_PREPUSH_DIFF_COVER=1` to demote only that local diff-cover
+gate. GitHub REST then reported #2268 base `8b723618f`, head
+`f98933cd2`, `behind_by: 0`, `mergeable: true`, `mergeable_state:
+blocked`, with required checks freshly queued on the refreshed head. No
 Namespace dispatch.
 
 2026-05-18 15:05 PDT: added tenth committed tranche to
