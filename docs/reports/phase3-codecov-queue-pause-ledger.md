@@ -9313,3 +9313,15 @@ buffers for non-empty I/O"` (13 assertions), `build/test/pulp-test-stream
 "[stream][file][coverage][phase3]"` (30 assertions in 3 test cases), and
 `git diff --check`. Pushed with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`; monitor
 #2298 checks on SHA `0642a6535`.
+
+2026-05-18 19:48 PDT: fixed #2298 version enforcement after the Windows cleanup
+commit. The new enforcement run on `0642a6535` passed skill-sync and docs-sync
+but failed `Version-bump check` because the runtime coverage batch still
+required an SDK/CLI minor bump after rebasing onto newer main. Ran
+`python3 tools/scripts/version_bump_check.py --mode=apply`, which updated
+`CMakeLists.txt` from `0.135.0` to `0.136.0`; verified locally with
+`python3 tools/scripts/version_bump_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat`
+and `git diff --check`. Added `9163d1237` (`chore: bump SDK version for runtime
+coverage batch`) and pushed with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`;
+monitor #2298 checks on SHA `9163d1237`.
