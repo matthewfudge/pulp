@@ -548,6 +548,32 @@ the same `--base` flag for develop branches. Shipyard adds evidence-gated
 merge that checks per-platform proof for the exact merge-candidate SHA, which
 is stricter than `local_ci.py`'s `job.passed` check.
 
+## Phase 1 failure diagnostics (>= v0.58.0)
+
+Shipyard v0.58.0 (Shipyard PR #304, 2026-05-18) replaces the lossy
+`Validation failed. PR #<N> not merged.` emit with a structured failure
+block carrying the failing job URL, the failing step name, and a parsed
+test-framework footer (CTest by default; `failure_parser` config knob
+allows opting into catch2 / pytest / go / auto in a future phase). On a
+real failure you now see:
+
+```
+✗ Validation failed
+  Target: mac (cloud=namespace)
+  Job:    macOS (ARM64) [github-hosted]
+  URL:    https://github.com/<org>/<repo>/actions/runs/<R>/job/<J>
+  Step:   "Test (non-Windows)" — exit 8
+  Tests:
+    1236 - FontResolver: animation respects LRU cache cap (Failed)
+    ...
+```
+
+Same data lands in the JSON event under `diagnostics: {...}` so
+machine-readers (auto-resolution routines, agent-status dashboards)
+can act on it without parsing the human text. Source design:
+`https://github.com/danielraffel/Shipyard/issues/303` + the codex-
+vetted comment thread there.
+
 ## Recovery + maintenance toolkit (>= v0.56.2)
 
 Three operational commands cover the prevention → recovery → maintenance
