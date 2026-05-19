@@ -29,13 +29,17 @@ namespace pulp::runtime {
 /// like the audio thread.
 class ScopedNoAlloc {
 public:
-#ifndef NDEBUG
+    // The ctor/dtor symbols are ALWAYS defined out-of-line so the
+    // ABI is identical whether Pulp was compiled with NDEBUG or not.
+    // Previously the header was guarded with `#ifdef NDEBUG` and the
+    // .cpp body was compiled out under NDEBUG, which broke any
+    // mixed-mode link (Release SDK + Debug downstream plugin emitted
+    // calls to symbols the Release archive didn't ship). The body of
+    // each ctor/dtor is conditional on NDEBUG inside scoped_no_alloc.cpp
+    // — the symbol exists in both modes but does nothing in Release.
+    // Codex P1 on PR #2316.
     ScopedNoAlloc() noexcept;
     ~ScopedNoAlloc() noexcept;
-#else
-    ScopedNoAlloc() noexcept = default;
-    ~ScopedNoAlloc() noexcept = default;
-#endif
 
     ScopedNoAlloc(const ScopedNoAlloc&) = delete;
     ScopedNoAlloc& operator=(const ScopedNoAlloc&) = delete;

@@ -602,3 +602,20 @@ TEST_CASE("ScopedNoAlloc is thread-local",
 
     REQUIRE_FALSE(other_thread_saw_scope.load(std::memory_order_acquire));
 }
+
+TEST_CASE("ScopedNoAlloc ctor/dtor symbols link in any build mode "
+          "(Codex P1 PR#2316)",
+          "[runtime][rt-safety][scoped-no-alloc][abi]") {
+    // Regression: the ctor/dtor must be defined out-of-line and link
+    // in both NDEBUG and !NDEBUG so a mixed-mode SDK install (Release
+    // archive + Debug downstream plugin, or vice versa) doesn't blow
+    // up with "undefined reference to ScopedNoAlloc::ScopedNoAlloc()"
+    // at link time. Constructing + destroying a guard inside a test
+    // proves the symbols resolve in whatever mode this test was built
+    // with. If they're elided under NDEBUG, the linker fails this TU.
+    {
+        pulp::runtime::ScopedNoAlloc guard;
+        (void) guard;
+    }
+    SUCCEED("ctor + dtor symbols present in this build mode");
+}
