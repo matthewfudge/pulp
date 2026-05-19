@@ -381,6 +381,31 @@ TEST_CASE("AsyncStream write on a closed backing stream completes without queuei
     REQUIRE(stream.pending_write_bytes() == 0);
 }
 
+TEST_CASE("AsyncStream write without a backing stream completes as closed",
+          "[async_stream][coverage][phase3]") {
+    AsyncStream::Options opts;
+    opts.auto_read = false;
+    AsyncStream stream(nullptr, opts);
+
+    std::atomic<int> completions{0};
+    std::atomic<std::size_t> bytes{99};
+    std::atomic<StreamError> error{StreamError::Ok};
+    const std::uint8_t payload[] = {'n', 'o'};
+
+    REQUIRE(stream.stream() == nullptr);
+    REQUIRE(stream.write_async(payload, sizeof(payload),
+                               [&](std::size_t n, StreamError err) {
+                                   bytes.store(n);
+                                   error.store(err);
+                                   completions.fetch_add(1);
+                               }));
+
+    REQUIRE(completions.load() == 1);
+    REQUIRE(bytes.load() == 0);
+    REQUIRE(error.load() == StreamError::Closed);
+    REQUIRE(stream.pending_write_bytes() == 0);
+}
+
 TEST_CASE("CancellationToken sharing and idempotent cancel", "[async_stream]") {
     CancellationToken token;
     CancellationToken copy = token;
