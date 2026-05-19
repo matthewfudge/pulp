@@ -1783,9 +1783,13 @@ if(PULP_ENABLE_GPU)
 
 endif()
 
-# Texture atlas helpers are header-only; keep this pure test available in
-# GPU-off builds so sanitizer and local coverage lanes do not fetch GPU assets.
-add_executable(pulp-test-texture-atlas test_texture_atlas.cpp)
+# Texture atlas helpers compile cleanly without GPU deps; keep this pure
+# test available in GPU-off builds so sanitizer and local coverage lanes do
+# not fetch GPU assets. The atlas .cpp impl is compiled directly into the
+# test target rather than linking pulp::render (which would pull in Skia/Dawn).
+add_executable(pulp-test-texture-atlas
+    test_texture_atlas.cpp
+    ${CMAKE_SOURCE_DIR}/core/render/src/texture_atlas.cpp)
 target_include_directories(pulp-test-texture-atlas PRIVATE
     ${CMAKE_SOURCE_DIR}/core/render/include)
 target_link_libraries(pulp-test-texture-atlas PRIVATE Catch2::Catch2WithMain)
