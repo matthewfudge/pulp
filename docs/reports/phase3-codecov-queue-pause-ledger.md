@@ -9325,3 +9325,16 @@ tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat`
 and `git diff --check`. Added `9163d1237` (`chore: bump SDK version for runtime
 coverage batch`) and pushed with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`;
 monitor #2298 checks on SHA `9163d1237`.
+
+2026-05-18 19:52 PDT: rebased #2298 (`feature/phase3-codecov-batch-749`) onto
+current `origin/main` after main advanced through #2281/#2303. The rebase
+completed cleanly; the earlier version-bump commit `705eb83e0` dropped because
+its patch content was already upstream, while the final required SDK bump stayed
+as `e07bbdbb0`. Focused validation after rebase passed:
+`cmake --build build --target pulp-test-stream`,
+`build/test/pulp-test-stream "FileStream rejects null buffers for non-empty I/O"`,
+`build/test/pulp-test-stream "[stream][file][coverage][phase3]"`,
+`python3 tools/scripts/version_bump_check.py --base origin/main --config
+tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat`, and
+`git diff --check`. Force-with-lease pushed with `PULP_SKIP_PREPUSH=1
+PULP_VIA_SHIPYARD=1`; monitor #2298 checks on SHA `e07bbdbb0`.
