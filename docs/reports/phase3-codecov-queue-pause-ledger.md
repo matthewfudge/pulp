@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 22:02 PDT
+Last updated: 2026-05-18 22:08 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -95,6 +95,19 @@ cleanup remains suppressed. Local validation passed:
 `./build/test/pulp-test-runtime "ScopeGuard moved guard can still be
 dismissed"`, `./build/test/pulp-test-runtime
 "[runtime][scope_guard][coverage][phase3]"`, and `git diff --check`.
+PR state: not pushed; keep accumulating runtime coverage commits toward
+the larger batch. No Namespace dispatch.
+
+2026-05-18 22:08 PDT: added sixth committed tranche to
+`feature/phase3-codecov-runtime-state-batch-752`:
+`dfc1c3cd2 test(runtime): cover temporary file self move`, touching
+`test/test_runtime.cpp`. Scope: deterministic `TemporaryFile` coverage
+for self move-assignment preserving the owned path and still cleaning it
+up at scope exit. Local validation passed:
+`cmake --build build --target pulp-test-runtime`,
+`./build/test/pulp-test-runtime "TemporaryFile self move assignment
+leaves file ownership intact"`, `./build/test/pulp-test-runtime
+"[runtime][temporary_file][coverage][phase3]"`, and `git diff --check`.
 PR state: not pushed; keep accumulating runtime coverage commits toward
 the larger batch. No Namespace dispatch.
 
