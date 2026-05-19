@@ -149,6 +149,17 @@ TEST_CASE("BigInteger self assignment and identity arithmetic stay stable",
     REQUIRE(value.mod_pow(BigInteger(0), BigInteger(17)).to_string() == "1");
 }
 
+TEST_CASE("BigInteger parses case-insensitive hex and decimal leading zeroes",
+          "[crypto][bigint][coverage][phase3]") {
+    auto hex = BigInteger::from_hex("00ff");
+    REQUIRE(hex.to_string() == "255");
+    REQUIRE(hex.to_hex() == "FF");
+
+    auto decimal = BigInteger::from_string("000123");
+    REQUIRE(decimal.to_string() == "123");
+    REQUIRE(decimal.bit_count() == 7);
+}
+
 TEST_CASE("BigInteger uint64 constructor preserves unsigned high values",
           "[crypto][bigint][coverage][phase3]") {
     BigInteger max_value(std::numeric_limits<std::uint64_t>::max());
@@ -472,6 +483,22 @@ TEST_CASE("LicenseValidator validate_file preserves interior whitespace",
     TemporaryFile tmp(".license");
     std::string payload = "{\"product_id\":\"PulpSynth\"}";
     std::string key = base64_encode(payload) + "." + base64_encode("sig") + "\n\n";
+
+    {
+        std::ofstream out(tmp.path());
+        REQUIRE(out.good());
+        out << key;
+    }
+
+    LicenseValidator validator;
+    REQUIRE(validator.validate_file(tmp.path_string()) == LicenseStatus::InvalidSignature);
+}
+
+TEST_CASE("LicenseValidator validate_file preserves leading whitespace",
+          "[crypto][license][coverage][phase3]") {
+    TemporaryFile tmp(".license");
+    std::string payload = "{\"product_id\":\"PulpSynth\"}";
+    std::string key = " " + base64_encode(payload) + "." + base64_encode("sig") + "\n";
 
     {
         std::ofstream out(tmp.path());

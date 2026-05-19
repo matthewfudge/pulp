@@ -297,7 +297,7 @@ TEST_CASE("AsyncStream zero-byte write dispatches completion without worker", "[
     REQUIRE(error.load() == StreamError::Ok);
 }
 
-TEST_CASE("AsyncStream rejects nonempty null writes via callback",
+TEST_CASE("AsyncStream rejects null non-empty writes via callback",
           "[async_stream][coverage][phase3]") {
     auto backing = std::make_unique<TestStream>();
 

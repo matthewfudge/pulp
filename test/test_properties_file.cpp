@@ -70,6 +70,16 @@ TEST_CASE("PropertiesFile numeric getters reject partially parsed strings",
     REQUIRE_THAT(props.get_double("fraction").value_or(0.0), WithinAbs(-12.25, 0.001));
 }
 
+TEST_CASE("PropertiesFile numeric getters reject trailing text",
+          "[state][properties][coverage][phase3]") {
+    PropertiesFile props;
+    props.set_string("count", "12abc");
+    props.set_string("gain", "3.5ms");
+
+    REQUIRE_FALSE(props.get_int("count").has_value());
+    REQUIRE_FALSE(props.get_double("gain").has_value());
+}
+
 TEST_CASE("PropertiesFile bool getter treats stored false-like values as false",
           "[state][properties][issue-641]") {
     PropertiesFile props;

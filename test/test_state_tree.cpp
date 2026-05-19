@@ -903,6 +903,29 @@ TEST_CASE("CachedProperty ignores mismatched external updates",
     REQUIRE(tree->get_string("name") == "Restored");
 }
 
+TEST_CASE("CachedProperty destruction removes its StateTree listener",
+          "[state][cached][coverage][phase3]") {
+    auto tree = StateTree::create("params");
+    tree->set("gain", 0.25);
+
+    {
+        CachedProperty<double> gain(tree, "gain", 0.0);
+        REQUIRE_THAT(gain.get(), WithinAbs(0.25, 1e-5));
+        tree->set("gain", 0.5);
+        REQUIRE_THAT(gain.get(), WithinAbs(0.5, 1e-5));
+    }
+
+    int count = 0;
+    tree->add_listener([&](StateTree&, std::string_view prop,
+                           const PropertyValue&, const PropertyValue&) {
+        REQUIRE(prop == "gain");
+        ++count;
+    });
+
+    tree->set("gain", 0.75);
+    REQUIRE(count == 1);
+}
+
 TEST_CASE("CachedProperty bool ignores mismatched refresh values",
           "[state][cached][coverage][phase3-large]") {
     auto tree = StateTree::create("params");
@@ -1181,6 +1204,23 @@ TEST_CASE("StateTreeSynchroniser decode rejects truncated typed values",
         auto decoded = StateTreeSynchroniser::decode(encoded.data(), encoded.size());
         REQUIRE(decoded.empty());
     }
+}
+
+TEST_CASE("StateTreeSynchroniser decode preserves negative child indexes",
+          "[state][sync][coverage][phase3]") {
+    std::vector<SyncDelta> deltas = {
+        {SyncDeltaType::ChildRemove, "root", "", {}, -1},
+        {SyncDeltaType::ChildAdd, "root", "tail", {}, -2},
+    };
+
+    auto encoded = StateTreeSynchroniser::encode(deltas);
+    auto decoded = StateTreeSynchroniser::decode(encoded.data(), encoded.size());
+
+    REQUIRE(decoded.size() == 2);
+    REQUIRE(decoded[0].type == SyncDeltaType::ChildRemove);
+    REQUIRE(decoded[0].child_index == -1);
+    REQUIRE(decoded[1].type == SyncDeltaType::ChildAdd);
+    REQUIRE(decoded[1].child_index == -2);
 }
 
 TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state][sync]") {

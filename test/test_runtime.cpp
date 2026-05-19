@@ -174,6 +174,24 @@ TEST_CASE("SpscQueue accepts rvalue pushes", "[runtime][spsc][coverage][phase3]"
     REQUIRE(q.empty());
 }
 
+TEST_CASE("SpscQueue preserves moved string payload order",
+          "[runtime][spsc][coverage][phase3]") {
+    SpscQueue<std::string, 3> q;
+
+    std::string alpha = "alpha";
+    std::string beta = "beta";
+    REQUIRE(q.try_push(std::move(alpha)));
+    REQUIRE(q.try_push(std::move(beta)));
+    REQUIRE(q.try_push(std::string("gamma")));
+    REQUIRE_FALSE(q.try_push(std::string("overflow")));
+
+    REQUIRE(q.try_pop().value() == "alpha");
+    REQUIRE(q.try_pop().value() == "beta");
+    REQUIRE(q.try_pop().value() == "gamma");
+    REQUIRE_FALSE(q.try_pop().has_value());
+    REQUIRE(q.empty());
+}
+
 TEST_CASE("ScopeGuard executes on exit", "[runtime][scope_guard]") {
     int x = 0;
     {
@@ -221,6 +239,19 @@ TEST_CASE("PULP_ON_SCOPE_EXIT runs at block exit",
         REQUIRE(calls == 0);
     }
     REQUIRE(calls == 1);
+}
+
+TEST_CASE("ScopeGuard move preserves dismissed state",
+          "[runtime][scope_guard][coverage][phase3]") {
+    int calls = 0;
+    {
+        auto guard = make_scope_guard([&] { ++calls; });
+        guard.dismiss();
+        auto moved = std::move(guard);
+        static_cast<void>(moved);
+    }
+
+    REQUIRE(calls == 0);
 }
 
 TEST_CASE("Range reports containment intersections and empty spans",
@@ -363,6 +394,18 @@ TEST_CASE("Runtime C string copy handles exact fits and leaves tail bytes alone"
     REQUIRE(padded[3] == '?');
     REQUIRE(padded[4] == '?');
     REQUIRE(padded[5] == '?');
+}
+
+TEST_CASE("Runtime C string copy writes terminator for empty sources",
+          "[runtime][system][coverage][phase3]") {
+    std::array<char, 4> buffer{'x', 'y', 'z', 'w'};
+
+    copy_c_string(buffer.data(), buffer.size(), "");
+
+    REQUIRE(buffer[0] == '\0');
+    REQUIRE(buffer[1] == 'y');
+    REQUIRE(buffer[2] == 'z');
+    REQUIRE(buffer[3] == 'w');
 }
 
 TEST_CASE("Runtime C string copy respects string_view length with embedded nulls",

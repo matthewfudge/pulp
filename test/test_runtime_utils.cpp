@@ -360,6 +360,24 @@ TEST_CASE("MemoryMappedFile rejects empty files and close is idempotent",
     REQUIRE_FALSE(mmap.is_open());
 }
 
+TEST_CASE("MemoryMappedFile self move assignment preserves mapping",
+          "[runtime][mmap][coverage][phase3]") {
+    TemporaryFile tmp(".bin");
+    {
+        std::ofstream f(tmp.path(), std::ios::binary);
+        f << "self-move";
+    }
+
+    MemoryMappedFile mmap;
+    REQUIRE(mmap.open(tmp.path_string()));
+    auto& ref = mmap;
+    mmap = std::move(ref);
+
+    REQUIRE(mmap.is_open());
+    REQUIRE(mmap.size() == 9);
+    REQUIRE(std::string(reinterpret_cast<const char*>(mmap.data()), mmap.size()) == "self-move");
+}
+
 // ── DynamicLibrary ──────────────────────────────────────────────────────
 
 TEST_CASE("DynamicLibrary loads system library", "[runtime][dynlib]") {
@@ -440,6 +458,20 @@ TEST_CASE("DynamicLibrary failed reopen clears a previously loaded handle",
     REQUIRE_FALSE(lib.open("/tmp/nonexistent_lib_after_success_12345.dylib"));
     REQUIRE_FALSE(lib.is_open());
     REQUIRE_FALSE(lib.error().empty());
+}
+
+TEST_CASE("DynamicLibrary missing symbol records an error while staying open",
+          "[runtime][dynlib][coverage][phase3]") {
+    DynamicLibrary lib;
+    REQUIRE(lib.open(system_library_path()));
+    REQUIRE(lib.is_open());
+
+    REQUIRE(lib.find_symbol("pulp_missing_symbol_for_phase3_coverage") == nullptr);
+    REQUIRE_FALSE(lib.error().empty());
+    REQUIRE(lib.is_open());
+
+    REQUIRE(lib.find_symbol(system_library_symbol()) != nullptr);
+    REQUIRE(lib.is_open());
 }
 
 // ── InterProcessLock ────────────────────────────────────────────────────
@@ -654,6 +686,7 @@ TEST_CASE("base64 binary round-trip", "[runtime][base64]") {
 TEST_CASE("base64 handles explicit byte pointers and exact quartet decoding",
           "[runtime][base64][coverage][issue-641]") {
     REQUIRE(base64_encode(nullptr, 0) == "");
+    REQUIRE(base64_encode(nullptr, 3) == "");
 
     const uint8_t bytes[] = {0x00, 0x10, 0x20, 0x30, 0xff};
     auto encoded = base64_encode(bytes, sizeof(bytes));
@@ -915,6 +948,20 @@ TEST_CASE("ExpressionEvaluator dispatches registered unary functions",
     REQUIRE(*unity == Catch::Approx(1.0));
 
     REQUIRE_FALSE(evaluator.evaluate("missing_fn(1)").has_value());
+}
+
+TEST_CASE("ExpressionEvaluator rejects extra arguments for custom unary functions",
+          "[runtime][expression][coverage][phase3]") {
+    ExpressionEvaluator evaluator;
+    evaluator.register_function("double_it", [](double value) {
+        return value * 2.0;
+    });
+
+    auto valid = evaluator.evaluate("double_it(3)");
+    REQUIRE(valid.has_value());
+    REQUIRE(*valid == Catch::Approx(6.0));
+
+    REQUIRE_FALSE(evaluator.evaluate("double_it(3, 99)").has_value());
 }
 
 TEST_CASE("Expression evaluator handles binary math functions",
@@ -1314,6 +1361,20 @@ TEST_CASE("text_diff handles replacement ties and empty line formatting",
             "- old-b\n"
             "+ new-a\n"
             "+ new-b\n");
+}
+
+TEST_CASE("text_diff treats missing terminal newlines equivalently",
+          "[runtime][text-diff][coverage][phase3]") {
+    auto diff = text_diff("one\ntwo", "one\ntwo\n");
+
+    REQUIRE(diff.size() == 2);
+    REQUIRE(diff[0].op == DiffOp::Equal);
+    REQUIRE(diff[0].text == "one");
+    REQUIRE(diff[1].op == DiffOp::Equal);
+    REQUIRE(diff[1].text == "two");
+    REQUIRE(format_diff(diff) ==
+            "  one\n"
+            "  two\n");
 }
 
 TEST_CASE("format_diff handles manually constructed operation order",
