@@ -9436,3 +9436,19 @@ failed again only because the local runner could not install clap-validator
 (404) and `pluginval` was killed; no code change or empty rerun commit was made.
 The held batch now has 15 local coverage commits; continue accumulating before
 opening a PR.
+
+2026-05-18 20:42 PDT: rebased the held
+`feature/phase3-codecov-host-cache-batch-750` batch onto current `origin/main`
+after the release `--font-probe` non-Skia fix landed in #2301. Added
+`b2f705038` (`test(host): cover sparse LV2 discovery bundles`), covering LV2
+discovery behavior for missing bundle directories, sparse/malformed TTL input,
+multi-TTL aggregation, default control-port metadata, and `.dylib` module
+resolution. Focused local validation passed: `cmake --build build --target
+pulp-test-lv2-host-discovery`, `./build/test/pulp-test-lv2-host-discovery
+"LV2 host discovery tolerates sparse bundles and dylib modules"` (18 assertions
+/ 1 case), `./build/test/pulp-test-lv2-host-discovery
+"[host][lv2][coverage][phase3]"` (18 assertions / 1 case), and `git diff
+--check`. PR poll showed #2268 still blocked only by the known local-runner
+`baseline-diff` failure, #2272 with no failures, #2292 dirty but with no
+failures, and #2298 pending with no failures. The held batch now has 16 local
+coverage commits; continue accumulating before opening a PR.
