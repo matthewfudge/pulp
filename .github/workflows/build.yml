@@ -449,6 +449,19 @@ jobs:
             ~/Library/Caches/Pulp/fetchcontent-src
             ~/.cache/Pulp/fetchcontent-src
 
+      # Namespace macOS runners come up with a stale Homebrew config.
+      # Without this `brew update`, any subsequent `brew install` fails
+      # fast with: "You have disabled automatic updates and have not
+      # updated today. Do not report this issue until you've run
+      # `brew update` and tried again." (PR #2399 — unblocks #2367,
+      # #2374, #2378, #2388 which all wedged on this on 2026-05-19.)
+      # Local self-hosted Macs already keep brew warm between runs, but
+      # `brew update --quiet` is idempotent and cheap there; cheap
+      # enough to run unconditionally on every macOS leg.
+      - name: brew update (macOS)
+        if: runner.os == 'macOS'
+        run: brew update --quiet
+
       - name: Install ccache (macOS)
         if: runner.os == 'macOS'
         run: brew install ccache
