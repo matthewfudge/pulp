@@ -122,6 +122,36 @@ TEST_CASE("from_text skips malformed lines", "[host][blacklist]") {
     REQUIRE(bl.entries().count("not-enough-fields") == 0);
 }
 
+TEST_CASE("from_text clears existing entries when every line is malformed",
+          "[host][blacklist][codecov]") {
+    ScanBlacklist bl;
+    REQUIRE(bl.from_text("/old.vst3|1|2|stale\n"));
+    REQUIRE(bl.size() == 1);
+
+    REQUIRE(bl.from_text(
+        "not-enough-fields\n"
+        "/bad-mtime|abc|2|reason\n"
+        "/bad-size|1|xyz|reason\n"));
+
+    REQUIRE(bl.size() == 0);
+    REQUIRE(bl.entries().empty());
+}
+
+TEST_CASE("from_text preserves empty blacklist reasons",
+          "[host][blacklist][codecov]") {
+    ScanBlacklist bl;
+    REQUIRE(bl.from_text("/plugin.vst3|10|20|\n"));
+
+    REQUIRE(bl.size() == 1);
+    const auto& entry = bl.entries().at("/plugin.vst3");
+    REQUIRE(entry.mtime == 10);
+    REQUIRE(entry.size == 20);
+    REQUIRE(entry.reason.empty());
+
+    const auto text = bl.to_text();
+    REQUIRE(text.find("/plugin.vst3|10|20|") != std::string::npos);
+}
+
 TEST_CASE("save_to + load_from via disk", "[host][blacklist]") {
     TempFile f;
     auto out_path = (f.path.parent_path() /
