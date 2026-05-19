@@ -1223,6 +1223,68 @@ TEST_CASE("StateTreeSynchroniser decode preserves negative child indexes",
     REQUIRE(decoded[1].child_index == -2);
 }
 
+TEST_CASE("StateTreeSynchroniser decode rejects malformed delta framing",
+          "[state][sync][coverage][phase3]") {
+    auto one_delta_prefix = [] {
+        return std::vector<uint8_t>{1, 0, static_cast<uint8_t>(SyncDeltaType::PropertySet)};
+    };
+
+    auto append_u16 = [](std::vector<uint8_t>& bytes, uint16_t value) {
+        bytes.push_back(static_cast<uint8_t>(value & 0xFF));
+        bytes.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+    };
+
+    auto truncated_path_len = one_delta_prefix();
+    truncated_path_len.push_back(4);
+    REQUIRE(StateTreeSynchroniser::decode(truncated_path_len.data(),
+                                          truncated_path_len.size()).empty());
+
+    auto truncated_path = one_delta_prefix();
+    append_u16(truncated_path, 4);
+    truncated_path.push_back('r');
+    REQUIRE(StateTreeSynchroniser::decode(truncated_path.data(),
+                                          truncated_path.size()).empty());
+
+    auto truncated_key_len = one_delta_prefix();
+    append_u16(truncated_key_len, 4);
+    truncated_key_len.insert(truncated_key_len.end(), {'r', 'o', 'o', 't'});
+    truncated_key_len.push_back(3);
+    REQUIRE(StateTreeSynchroniser::decode(truncated_key_len.data(),
+                                          truncated_key_len.size()).empty());
+
+    auto truncated_key = one_delta_prefix();
+    append_u16(truncated_key, 4);
+    truncated_key.insert(truncated_key.end(), {'r', 'o', 'o', 't'});
+    append_u16(truncated_key, 4);
+    truncated_key.push_back('n');
+    REQUIRE(StateTreeSynchroniser::decode(truncated_key.data(),
+                                          truncated_key.size()).empty());
+
+    auto missing_child_index = one_delta_prefix();
+    append_u16(missing_child_index, 4);
+    missing_child_index.insert(missing_child_index.end(), {'r', 'o', 'o', 't'});
+    append_u16(missing_child_index, 4);
+    missing_child_index.insert(missing_child_index.end(), {'n', 'a', 'm', 'e'});
+    REQUIRE(StateTreeSynchroniser::decode(missing_child_index.data(),
+                                          missing_child_index.size()).empty());
+
+    auto missing_value_type = missing_child_index;
+    missing_value_type.push_back(0);
+    REQUIRE(StateTreeSynchroniser::decode(missing_value_type.data(),
+                                          missing_value_type.size()).empty());
+
+    auto unknown_value_type = missing_value_type;
+    unknown_value_type.push_back(99);
+    auto decoded = StateTreeSynchroniser::decode(unknown_value_type.data(),
+                                                 unknown_value_type.size());
+    REQUIRE(decoded.size() == 1);
+    REQUIRE(decoded[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(decoded[0].path == "root");
+    REQUIRE(decoded[0].key == "name");
+    REQUIRE(decoded[0].child_index == 0);
+    REQUIRE(decoded[0].value.index() == 0);
+}
+
 TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state][sync]") {
     auto tree = StateTree::create("root");
     tree->set("remove_me", std::string("bye"));
