@@ -1186,6 +1186,27 @@ TEST_CASE("SignalGraph connect_automation rejects duplicate Replace edges",
         0.0f, pulp::host::AutomationMix::Add));
 }
 
+TEST_CASE("SignalGraph connect_automation rejects invalid endpoints and params",
+          "[host][graph][automation][coverage][phase3]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1);
+    auto out_node = graph.add_output_node(1);
+    auto plug = graph.add_plugin_node(std::make_unique<MockAutomatable>(), 0, 1);
+
+    REQUIRE_FALSE(graph.connect_automation(
+        999, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_automation(
+        in_node, 0, 999, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_automation(
+        in_node, 0, out_node, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_automation(
+        in_node, 2, plug, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_automation(
+        in_node, 0, plug, MockAutomatable::kParamId + 1, 0.0f, 1.0f));
+
+    REQUIRE(graph.connections().empty());
+}
+
 // ── Phase 3 GraphSerializer round-trip ──────────────────────────────────
 
 #include <pulp/host/graph_serializer.hpp>
