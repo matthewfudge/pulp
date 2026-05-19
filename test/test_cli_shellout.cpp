@@ -269,12 +269,15 @@ TEST_CASE("pulp audio usage and parser errors are deterministic",
         {{"audio", "model", "activate"}, "model id is required", "pulp audio"},
         {{"audio", "model", "list", "--surprise"}, "Unknown option: --surprise", ""},
         {{"audio", "model", "status", "--surprise"}, "Unknown option: --surprise", ""},
+        {{"audio", "excerpt-find", "--text"}, "--text requires a value", ""},
         {{"audio", "excerpt-find", "--text", "kick", "--input"}, "--input requires a value", ""},
+        {{"audio", "excerpt-find", "--model"}, "--model requires a value", ""},
         {{"audio", "excerpt-find", "--top", "many"}, "invalid value for --top", ""},
         {{"audio", "excerpt-find", "--window-ms", "soon"}, "invalid value for --window-ms", ""},
         {{"audio", "excerpt-find", "--hop-ms", "soon"}, "invalid value for --hop-ms", ""},
         {{"audio", "excerpt-find", "--min-score", "loud"}, "invalid value for --min-score", ""},
         {{"audio", "excerpt-find", "--max-candidates-per-file", "lots"}, "invalid value for --max-candidates-per-file", ""},
+        {{"audio", "excerpt-find", "--bundle-out"}, "--bundle-out requires a value", ""},
         {{"audio", "excerpt-find", "--unknown"}, "Unknown option: --unknown", ""},
         {{"audio", "read-bundle"}, "bundle path is required", "pulp audio"},
         {{"audio", "read-bundle", "bundle-a", "bundle-b"}, "Unknown argument: bundle-b", ""},
@@ -304,6 +307,60 @@ TEST_CASE("pulp audio read-bundle json reports missing bundle errors",
     REQUIRE(r.stderr_output.empty());
     REQUIRE(r.stdout_output.find("\"ok\": false") != std::string::npos);
     REQUIRE(r.stdout_output.find("bundle path does not exist") != std::string::npos);
+}
+
+TEST_CASE("pulp cache usage and parser errors are deterministic",
+          "[cli][shellout][cache][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto home = unique_temp_dir("pulp-cache-shellout-home");
+    ScopedEnvVar scoped_pulp_home("PULP_HOME");
+    scoped_pulp_home.set(home.string());
+
+    auto help = run_pulp({"cache"});
+    REQUIRE_FALSE(help.timed_out);
+    REQUIRE(help.exit_code == 0);
+    REQUIRE(help.stdout_output.find("pulp cache") != std::string::npos);
+    REQUIRE(help.stdout_output.find("status") != std::string::npos);
+
+    auto status = run_pulp({"cache", "status"});
+    REQUIRE_FALSE(status.timed_out);
+    REQUIRE(status.exit_code == 0);
+    REQUIRE(status.stdout_output.find("Pulp Cache") != std::string::npos);
+    REQUIRE(status.stdout_output.find(home.string()) != std::string::npos);
+
+    struct Case {
+        std::vector<std::string> args;
+        int exit_code;
+        std::string stderr_substring;
+    };
+    const std::vector<Case> cases = {
+        {{"cache", "status", "extra"}, 2, "Unexpected cache status argument"},
+        {{"cache", "fetch"}, 1, "Usage: pulp cache fetch <asset>"},
+        {{"cache", "fetch", "fonts"}, 1, "Unknown asset: fonts"},
+        {{"cache", "fetch", "skia", "extra"}, 2, "Unexpected cache fetch argument"},
+        {{"cache", "clean", "extra"}, 2, "Unexpected cache clean argument"},
+        {{"cache", "mystery"}, 1, "Unknown cache subcommand"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("cache args size: " << c.args.size());
+        auto r = run_pulp(c.args);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == c.exit_code);
+        REQUIRE(r.stderr_output.find(c.stderr_substring) != std::string::npos);
+    }
+
+    fs::create_directories(home / "cache");
+    write_text(home / "cache" / "asset.bin", "cached");
+    auto clean = run_pulp({"cache", "clean"});
+    REQUIRE_FALSE(clean.timed_out);
+    REQUIRE(clean.exit_code == 0);
+    REQUIRE(clean.stdout_output.find("Cache cleared") != std::string::npos);
+    REQUIRE_FALSE(fs::exists(home / "cache"));
+
+    std::error_code ec;
+    fs::remove_all(home, ec);
 }
 
 TEST_CASE("pulp config <unknown-subcommand> exits non-zero with a diagnostic",
@@ -374,6 +431,23 @@ TEST_CASE("pulp status reports effective PR workflow",
     REQUIRE(r.exit_code == 0);
     REQUIRE(r.stdout_output.find("PR workflow: manual (config:pr.workflow)") != std::string::npos);
     REQUIRE(r.stdout_output.find("Shipyard tracking: disabled by pr.workflow=manual") != std::string::npos);
+}
+
+TEST_CASE("pulp status and clean reject unexpected arguments before side effects",
+          "[cli][shellout][misc][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto status_extra = run_pulp({"status", "extra"});
+    REQUIRE_FALSE(status_extra.timed_out);
+    REQUIRE(status_extra.exit_code == 2);
+    REQUIRE(status_extra.stderr_output.find("Unexpected status argument") !=
+            std::string::npos);
+
+    auto clean_extra = run_pulp({"clean", "extra"});
+    REQUIRE_FALSE(clean_extra.timed_out);
+    REQUIRE(clean_extra.exit_code == 2);
+    REQUIRE(clean_extra.stderr_output.find("Unexpected clean argument") !=
+            std::string::npos);
 }
 
 TEST_CASE("pulp status reports invalid and github PR workflow modes",
@@ -675,6 +749,24 @@ TEST_CASE("pulp config rejects malformed and invalid update keys",
     REQUIRE(bad_interval.exit_code != 0);
     REQUIRE(bad_interval.stderr_output.find("non-negative integer") != std::string::npos);
     REQUIRE_FALSE(config_written);
+
+    auto extra_get = run_pulp({"config", "get", "update.mode", "extra"}, 10000);
+    REQUIRE_FALSE(extra_get.timed_out);
+    REQUIRE(extra_get.exit_code == 2);
+    REQUIRE(extra_get.stderr_output.find("unexpected `pulp config get` argument") !=
+            std::string::npos);
+
+    auto extra_set = run_pulp({"config", "set", "update.mode", "manual", "extra"}, 10000);
+    REQUIRE_FALSE(extra_set.timed_out);
+    REQUIRE(extra_set.exit_code == 2);
+    REQUIRE(extra_set.stderr_output.find("unexpected `pulp config set` argument") !=
+            std::string::npos);
+
+    auto extra_list = run_pulp({"config", "list", "extra"}, 10000);
+    REQUIRE_FALSE(extra_list.timed_out);
+    REQUIRE(extra_list.exit_code == 2);
+    REQUIRE(extra_list.stderr_output.find("unexpected `pulp config list` argument") !=
+            std::string::npos);
 }
 
 TEST_CASE("pulp version subcommand runs and mentions the SDK",
@@ -807,6 +899,110 @@ TEST_CASE("pulp help output lists the top-level subcommands",
     }
 }
 
+TEST_CASE("pulp macos validates local operator arguments before gh calls",
+          "[cli][shellout][macos][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    ScopedEnvVar update_disabled("PULP_UPDATE_CHECK_DISABLED");
+    update_disabled.set("1");
+
+    auto help = run_pulp({"macos", "--help"}, 10000);
+    REQUIRE_FALSE(help.timed_out);
+    REQUIRE(help.exit_code == 0);
+    REQUIRE(help.stdout_output.find("pulp macos") != std::string::npos);
+    REQUIRE(help.stdout_output.find("retarget --pr") != std::string::npos);
+
+    auto unknown = run_pulp({"macos", "wat"}, 10000);
+    REQUIRE_FALSE(unknown.timed_out);
+    REQUIRE(unknown.exit_code == 1);
+    REQUIRE(unknown.stderr_output.find("unknown subcommand") != std::string::npos);
+
+    auto missing = run_pulp({"macos", "retarget", "--pr", "123"}, 10000);
+    REQUIRE_FALSE(missing.timed_out);
+    REQUIRE(missing.exit_code == 1);
+    REQUIRE(missing.stderr_output.find("Usage: pulp macos retarget")
+            != std::string::npos);
+
+    auto missing_pr_value = run_pulp({"macos", "retarget", "--pr"}, 10000);
+    REQUIRE_FALSE(missing_pr_value.timed_out);
+    REQUIRE(missing_pr_value.exit_code == 2);
+    REQUIRE(missing_pr_value.stderr_output.find("--pr requires a value")
+            != std::string::npos);
+
+    auto missing_to_value = run_pulp({"macos", "retarget", "--pr", "123", "--to"},
+                                     10000);
+    REQUIRE_FALSE(missing_to_value.timed_out);
+    REQUIRE(missing_to_value.exit_code == 2);
+    REQUIRE(missing_to_value.stderr_output.find("--to requires a value")
+            != std::string::npos);
+
+    auto invalid_runner = run_pulp({"macos", "retarget", "--pr", "123", "--to", "mars"},
+                                   10000);
+    REQUIRE_FALSE(invalid_runner.timed_out);
+    REQUIRE(invalid_runner.exit_code == 1);
+    REQUIRE(invalid_runner.stderr_output.find("--to must be one of")
+            != std::string::npos);
+
+    auto status_unknown = run_pulp({"macos", "status", "--surprise"}, 10000);
+    REQUIRE_FALSE(status_unknown.timed_out);
+    REQUIRE(status_unknown.exit_code == 1);
+    REQUIRE(status_unknown.stderr_output.find("unknown arg '--surprise'")
+            != std::string::npos);
+
+    auto status_missing_pr = run_pulp({"macos", "status", "--pr"}, 10000);
+    REQUIRE_FALSE(status_missing_pr.timed_out);
+    REQUIRE(status_missing_pr.exit_code == 2);
+    REQUIRE(status_missing_pr.stderr_output.find("--pr requires a value")
+            != std::string::npos);
+}
+
+TEST_CASE("pulp overflow validates non-mutating operator arguments",
+          "[cli][shellout][overflow][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    ScopedEnvVar update_disabled("PULP_UPDATE_CHECK_DISABLED");
+    update_disabled.set("1");
+
+    auto help = run_pulp({"overflow", "--help"}, 10000);
+    REQUIRE_FALSE(help.timed_out);
+    REQUIRE(help.exit_code == 0);
+    REQUIRE(help.stdout_output.find("pulp overflow") != std::string::npos);
+    REQUIRE(help.stdout_output.find("threshold [N]") != std::string::npos);
+
+    auto unknown = run_pulp({"overflow", "wat"}, 10000);
+    REQUIRE_FALSE(unknown.timed_out);
+    REQUIRE(unknown.exit_code == 1);
+    REQUIRE(unknown.stderr_output.find("unknown subcommand") != std::string::npos);
+
+    auto threshold_extra = run_pulp({"overflow", "threshold", "1", "2"}, 10000);
+    REQUIRE_FALSE(threshold_extra.timed_out);
+    REQUIRE(threshold_extra.exit_code == 1);
+    REQUIRE(threshold_extra.stderr_output.find("too many args") != std::string::npos);
+
+    auto threshold_negative = run_pulp({"overflow", "threshold", "-1"}, 10000);
+    REQUIRE_FALSE(threshold_negative.timed_out);
+    REQUIRE(threshold_negative.exit_code == 1);
+    REQUIRE(threshold_negative.stderr_output.find("must be >= 0") != std::string::npos);
+
+    auto threshold_bad = run_pulp({"overflow", "threshold", "nope"}, 10000);
+    REQUIRE_FALSE(threshold_bad.timed_out);
+    REQUIRE(threshold_bad.exit_code == 1);
+    REQUIRE(threshold_bad.stderr_output.find("is not a number") != std::string::npos);
+
+    auto enable_missing_to = run_pulp({"overflow", "enable", "--to"}, 10000);
+    REQUIRE_FALSE(enable_missing_to.timed_out);
+    REQUIRE(enable_missing_to.exit_code == 2);
+    REQUIRE(enable_missing_to.stderr_output.find("--to requires a value")
+            != std::string::npos);
+
+    auto enable_flag_value = run_pulp({"overflow", "enable", "--to", "--flag"},
+                                      10000);
+    REQUIRE_FALSE(enable_flag_value.timed_out);
+    REQUIRE(enable_flag_value.exit_code == 2);
+    REQUIRE(enable_flag_value.stderr_output.find("--to requires a value")
+            != std::string::npos);
+}
+
 TEST_CASE("pulp inspect help and no-discovery paths are deterministic",
           "[cli][shellout][inspect][issue-643][issue-641]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
@@ -892,6 +1088,16 @@ TEST_CASE("pulp inspect rejects invalid arguments before networking",
     REQUIRE(invalid_port.stderr_output.find("invalid --port value: not-a-port")
             != std::string::npos);
     REQUIRE(invalid_port.stdout_output.find("Connecting to") == std::string::npos);
+
+    for (const char* port : {"0", "65536", "123abc"}) {
+        INFO("port=" << port);
+        auto rejected_port = run_pulp({"inspect", "--port", port}, 10000);
+        REQUIRE_FALSE(rejected_port.timed_out);
+        REQUIRE(rejected_port.exit_code == 2);
+        REQUIRE(rejected_port.stderr_output.find(std::string("invalid --port value: ") + port)
+                != std::string::npos);
+        REQUIRE(rejected_port.stdout_output.find("Connecting to") == std::string::npos);
+    }
 
     auto output_without_command = run_pulp({"inspect", "--output", "out.json"}, 10000);
     REQUIRE_FALSE(output_without_command.timed_out);
@@ -1012,6 +1218,51 @@ TEST_CASE("pulp create rejects invalid type before scaffolding",
     REQUIRE(r.stderr_output.find("--type must be") != std::string::npos);
 }
 
+TEST_CASE("pulp create validates parser errors before scaffolding",
+          "[cli][shellout][create][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto base = fs::temp_directory_path() /
+                ("pulp-shellout-create-parser-" +
+                 std::to_string(std::chrono::steady_clock::now()
+                                    .time_since_epoch().count()));
+    auto home = base / "home";
+    auto out = base / "out";
+    fs::create_directories(home);
+    {
+        std::ofstream cfg(home / "config.toml");
+        cfg << "[update]\nmode = \"off\"\n";
+    }
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string needle;
+    };
+    const std::vector<Case> cases = {
+        {{"create", "Missing Type", "--type"}, "--type requires a value"},
+        {{"create", "Missing Template", "--template", "--no-build"}, "--template requires a value"},
+        {{"create", "Missing Manufacturer", "--manufacturer"}, "--manufacturer requires a value"},
+        {{"create", "Missing Output", "--output"}, "--output requires a value"},
+        {{"create", "Missing Targets", "--targets"}, "--targets requires a value"},
+        {{"create", "Unknown Flag", "--definitely-not-create"}, "unknown flag"},
+    };
+
+    pulp_setenv("PULP_HOME", home.string().c_str(), 1);
+    pulp_setenv("PULP_UPDATE_CHECK_DISABLED", "1", 1);
+    for (const auto& c : cases) {
+        auto r = run_pulp(c.args, 10000);
+        INFO("stderr: " << r.stderr_output);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.needle) != std::string::npos);
+    }
+    pulp_unsetenv("PULP_UPDATE_CHECK_DISABLED");
+    pulp_unsetenv("PULP_HOME");
+
+    REQUIRE_FALSE(fs::exists(out));
+    fs::remove_all(base);
+}
+
 // #51 / #356: `pulp validate --strict` is supposed to upgrade
 // skipped-because-missing-tool into a hard failure.
 //
@@ -1039,10 +1290,12 @@ TEST_CASE("pulp validate --strict is a recognized flag",
     fs::current_path(fs::temp_directory_path());
     auto strict = exec(bin.string(), {"validate", "--strict"}, 10000);
     auto bogus = exec(bin.string(), {"validate", "--this-flag-does-not-exist"}, 10000);
+    auto missing_report = exec(bin.string(), {"validate", "--report"}, 10000);
     fs::current_path(cwd_saver);
 
     REQUIRE_FALSE(strict.timed_out);
     REQUIRE_FALSE(bogus.timed_out);
+    REQUIRE_FALSE(missing_report.timed_out);
 
     // --strict is known: flag parser accepts, we fall through to the
     // project-root bail-out, exit 1.
@@ -1056,6 +1309,12 @@ TEST_CASE("pulp validate --strict is a recognized flag",
     REQUIRE(bogus.stderr_output.find("unknown flag") != std::string::npos);
     REQUIRE(bogus.stderr_output.find("--this-flag-does-not-exist")
             != std::string::npos);
+
+    REQUIRE(missing_report.exit_code == 2);
+    REQUIRE(missing_report.stderr_output.find("--report requires a path")
+            != std::string::npos);
+    REQUIRE(missing_report.stderr_output.find("not in a Pulp project directory")
+            == std::string::npos);
 }
 
 TEST_CASE("pulp validate strict json report records missing VST3 validators",
@@ -1199,6 +1458,40 @@ TEST_CASE("pulp build allows explicit unsupported SDK bypass",
     REQUIRE(combined.find("pulp upgrade 99.0.0") == std::string::npos);
 }
 
+TEST_CASE("pulp build validates js engine option before compatibility checks",
+          "[cli][shellout][build][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = unique_temp_dir("pulp-shellout-build-js-engine");
+    fs::create_directories(tmp);
+    write_text(tmp / "pulp.toml",
+               "[pulp]\n"
+               "sdk_version = \"99.0.0\"\n"
+               "cli_min_version = \"99.0.0\"\n");
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    auto missing = exec(bin.string(), {"build", "--js-engine"}, 10000);
+    auto invalid = exec(bin.string(), {"build", "--js-engine=spidermonkey"}, 10000);
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
+
+    REQUIRE_FALSE(missing.timed_out);
+    REQUIRE(missing.exit_code == 2);
+    REQUIRE(missing.stderr_output.find("--js-engine requires a value")
+            != std::string::npos);
+    REQUIRE(missing.stderr_output.find("requires a newer Pulp CLI")
+            == std::string::npos);
+
+    REQUIRE_FALSE(invalid.timed_out);
+    REQUIRE(invalid.exit_code == 1);
+    REQUIRE(invalid.stderr_output.find("--js-engine must be auto, quickjs, jsc, or v8")
+            != std::string::npos);
+    REQUIRE(invalid.stderr_output.find("requires a newer Pulp CLI")
+            == std::string::npos);
+}
+
 // #8 / #355 — `pulp doctor android` and `pulp doctor ios` are
 // recognized subcommands; bogus subcommand fails with exit 2 + Usage.
 TEST_CASE("pulp doctor android|ios are recognized subcommands",
@@ -1213,10 +1506,16 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     auto android = exec(bin.string(), {"doctor", "android", "--versions"}, 10000);
     auto ios     = exec(bin.string(), {"doctor", "ios", "--versions"},     10000);
     auto bogus   = exec(bin.string(), {"doctor", "potato", "--versions"},  10000);
+    auto missing_only = exec(bin.string(), {"doctor", "--only"}, 10000);
+    auto flag_only = exec(bin.string(), {"doctor", "--only", "--versions"}, 10000);
+    auto extra_positional = exec(bin.string(), {"doctor", "android", "extra"}, 10000);
 
     REQUIRE_FALSE(android.timed_out);
     REQUIRE_FALSE(ios.timed_out);
     REQUIRE_FALSE(bogus.timed_out);
+    REQUIRE_FALSE(missing_only.timed_out);
+    REQUIRE_FALSE(flag_only.timed_out);
+    REQUIRE_FALSE(extra_positional.timed_out);
 
     REQUIRE(android.exit_code == 0);
     REQUIRE(ios.exit_code == 0);
@@ -1227,6 +1526,15 @@ TEST_CASE("pulp doctor android|ios are recognized subcommands",
     REQUIRE(bogus.exit_code == 2);
     REQUIRE(bogus.stderr_output.find("unknown subcommand") != std::string::npos);
     REQUIRE(bogus.stderr_output.find("Usage:") != std::string::npos);
+
+    REQUIRE(missing_only.exit_code == 2);
+    REQUIRE(missing_only.stderr_output.find("--only requires a value") !=
+            std::string::npos);
+    REQUIRE(flag_only.exit_code == 2);
+    REQUIRE(flag_only.stderr_output.find("--only requires a value") != std::string::npos);
+    REQUIRE(extra_positional.exit_code == 2);
+    REQUIRE(extra_positional.stderr_output.find("unexpected argument") !=
+            std::string::npos);
 }
 
 // Issue #743: `pulp doctor --validators` is a recognized flag and
@@ -1287,6 +1595,78 @@ TEST_CASE("pulp dev fails fast when standalone SDK is ahead of the installed CLI
     REQUIRE(combined.find("requires a newer Pulp CLI") != std::string::npos);
     REQUIRE(combined.find("pulp upgrade 99.0.0") != std::string::npos);
     REQUIRE(combined.find("--allow-unsupported-sdk") != std::string::npos);
+}
+
+TEST_CASE("pulp design validates owned option values before autobind",
+          "[cli][shellout][design][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string needle;
+    };
+    const std::vector<Case> cases = {
+        {{"design", "--build-dir"}, "--build-dir requires a value"},
+        {{"design", "--build-dir", "--script", "tool.js"}, "--build-dir requires a value"},
+        {{"design", "--script"}, "--script requires a value"},
+        {{"design", "--script", "--watch"}, "--script requires a value"},
+    };
+
+    for (const auto& c : cases) {
+        auto r = run_pulp(c.args, 10000);
+        INFO("stderr: " << r.stderr_output);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.needle) != std::string::npos);
+        REQUIRE(r.stderr_output.find("Cannot infer design binding") == std::string::npos);
+    }
+}
+
+TEST_CASE("pulp dev validates value options before build or watch",
+          "[cli][shellout][dev][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp = fs::temp_directory_path() /
+               ("pulp-shellout-dev-parser-" +
+                std::to_string(std::chrono::steady_clock::now()
+                                   .time_since_epoch().count()));
+    fs::create_directories(tmp / "build");
+    {
+        std::ofstream f(tmp / "pulp.toml");
+        f << "[pulp]\n"
+          << "sdk_version = \"latest\"\n";
+    }
+    {
+        std::ofstream cache(tmp / "build" / "CMakeCache.txt");
+        cache << "# fake cache; parser errors should return before build\n";
+    }
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string needle;
+    };
+    const std::vector<Case> cases = {
+        {{"dev", "--run"}, "--run requires a value"},
+        {{"dev", "--run", "--test"}, "--run requires a value"},
+        {{"dev", "--design"}, "--design requires a value"},
+        {{"dev", "--design", "--validate"}, "--design requires a value"},
+        {{"dev", "--target"}, "--target requires a value"},
+        {{"dev", "--target", "--run", "app"}, "--target requires a value"},
+    };
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(tmp);
+    for (const auto& c : cases) {
+        auto r = exec(bin.string(), c.args, 10000);
+        INFO("stderr: " << r.stderr_output);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.needle) != std::string::npos);
+        REQUIRE(r.stdout_output.find("Building") == std::string::npos);
+    }
+    fs::current_path(cwd_saver);
+    fs::remove_all(tmp);
 }
 
 // Issue #499 Slice 1: `pulp doctor --versions` is the foundation of
@@ -1368,6 +1748,66 @@ TEST_CASE("pulp upgrade --notes --json emits stable-shape JSON keys",
     REQUIRE(r.stdout_output.find("\"summary\":")    != std::string::npos);
     REQUIRE(r.stdout_output.find("\"applies_if\":") != std::string::npos);
     REQUIRE(r.stdout_output.find("\"body\":")       != std::string::npos);
+}
+
+TEST_CASE("pulp upgrade validates parser errors before network access",
+          "[cli][shellout][upgrade][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string needle;
+    };
+    const std::vector<Case> cases = {
+        {{"upgrade", "--from"}, "--from requires a value"},
+        {{"upgrade", "--from", "--to", "0.29.0"}, "--from requires a value"},
+        {{"upgrade", "--to"}, "--to requires a value"},
+        {{"upgrade", "--to", "--notes"}, "--to requires a value"},
+        {{"upgrade", "--definitely-not-upgrade"}, "unknown flag"},
+    };
+
+    for (const auto& c : cases) {
+        auto r = run_pulp(c.args, 10000);
+        INFO("stderr: " << r.stderr_output);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.needle) != std::string::npos);
+        REQUIRE(r.stdout_output.find("Downloading") == std::string::npos);
+    }
+}
+
+TEST_CASE("pulp sdk install validates parser errors before side effects",
+          "[cli][shellout][sdk][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto home = unique_temp_dir("pulp-sdk-parser-home");
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string needle;
+    };
+    const std::vector<Case> cases = {
+        {{"sdk", "install", "--version"}, "--version requires a value"},
+        {{"sdk", "install", "--version", "--local"}, "--version requires a value"},
+        {{"sdk", "install", "--definitely-not-sdk"}, "unknown flag"},
+        {{"sdk", "install", "extra"}, "unknown argument"},
+    };
+
+    pulp_setenv("PULP_HOME", home.string().c_str(), 1);
+    for (const auto& c : cases) {
+        auto r = run_pulp(c.args, 10000);
+        INFO("stderr: " << r.stderr_output);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.needle) != std::string::npos);
+        REQUIRE(r.stdout_output.find("Downloading SDK") == std::string::npos);
+        REQUIRE(r.stdout_output.find("Building SDK") == std::string::npos);
+    }
+    pulp_unsetenv("PULP_HOME");
+
+    REQUIRE_FALSE(fs::exists(home / "sdk"));
+    REQUIRE_FALSE(fs::exists(home / "sdk-local"));
+    fs::remove_all(home);
 }
 
 TEST_CASE("pulp upgrade --check-only honors disabled update checks with an empty cache",
@@ -1660,6 +2100,53 @@ TEST_CASE("pulp project bump rejects non-semver --to",
     REQUIRE(r.stderr_output.find("invalid target version") != std::string::npos);
 }
 
+TEST_CASE("pulp project bump rejects missing --to values before project lookup",
+          "[cli][shellout][project][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(fs::temp_directory_path());
+
+    for (const auto& args : std::vector<std::vector<std::string>>{
+             {"project", "bump", "--to"},
+             {"project", "bump", "--to", "--dry-run"},
+             {"project", "pin", "--to"},
+             {"project", "pin", "--to", "--all"},
+         }) {
+        auto r = exec(bin.string(), args, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find("--to requires a version argument")
+                != std::string::npos);
+    }
+
+    fs::current_path(cwd_saver);
+}
+
+TEST_CASE("pulp project validates stray parser arguments before project lookup",
+          "[cli][shellout][project][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(fs::temp_directory_path());
+
+    for (const auto& c : std::vector<std::pair<std::vector<std::string>, std::string>>{
+             {{"project", "bump", "--bogus"}, "unknown argument '--bogus'"},
+             {{"project", "pin", "1.2.3", "2.3.4"}, "unexpected extra version argument '2.3.4'"},
+             {{"project", "unpin", "--bogus"}, "unknown argument '--bogus'"},
+         }) {
+        auto r = exec(bin.string(), c.first, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.second) != std::string::npos);
+        REQUIRE(r.stderr_output.find("not inside") == std::string::npos);
+    }
+
+    fs::current_path(cwd_saver);
+}
+
 TEST_CASE("pulp pr without shipyard prints install guidance",
           "[cli][shellout][pr][issue-643]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
@@ -1722,6 +2209,30 @@ TEST_CASE("pulp pr native help stays available without shipyard",
     REQUIRE(r.stdout_output.find("Usage: pulp pr [options]") != std::string::npos);
     REQUIRE(r.stdout_output.find("--no-ship") != std::string::npos);
     REQUIRE(r.stdout_output.find("--dry-run") != std::string::npos);
+}
+
+TEST_CASE("pulp pr native validates option values before checkout lookup",
+          "[cli][shellout][pr][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(fs::temp_directory_path());
+
+    for (const auto& c : std::vector<std::pair<std::vector<std::string>, std::string>>{
+             {{"pr", "--native", "--base"}, "--base requires a value"},
+             {{"pr", "--native", "--base", "--dry-run"}, "--base requires a value"},
+             {{"pr", "--native", "--title"}, "--title requires a value"},
+             {{"pr", "--native", "--title", "--no-push"}, "--title requires a value"},
+         }) {
+        auto r = exec(bin.string(), c.first, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.second) != std::string::npos);
+        REQUIRE(r.stderr_output.find("not inside a pulp project") == std::string::npos);
+    }
+
+    fs::current_path(cwd_saver);
 }
 
 TEST_CASE("pulp pr native mode refuses to run outside a project",
@@ -2030,6 +2541,11 @@ TEST_CASE("pulp docs covers local reader index, search, open, and show paths",
         REQUIRE_FALSE(r.timed_out);
         REQUIRE((r.stdout_output.find("match(es) found") != std::string::npos ||
                  r.stdout_output.find("docs/") != std::string::npos));
+
+        auto multi_word = run_pulp({"docs", "search", "Getting", "Started"});
+        REQUIRE(multi_word.exit_code == 0);
+        REQUIRE_FALSE(multi_word.timed_out);
+        REQUIRE(multi_word.stdout_output.find("getting-started") != std::string::npos);
     }
 
     SECTION("search reports fuzzy suggestions and empty results") {
@@ -2421,6 +2937,48 @@ TEST_CASE("pulp loop --platform=<unknown> exits non-zero with diagnostic",
     fs::remove_all(tmp_home);
 }
 
+TEST_CASE("pulp loop validates value options before focus state changes",
+          "[cli][shellout][loop][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp_home = unique_temp_dir("pulp-loop-parser-errors");
+    fs::create_directories(tmp_home);
+    ScopedEnvVar pulp_home("PULP_HOME");
+    pulp_home.set(tmp_home.string());
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string stderr_substring;
+    };
+    const std::vector<Case> cases = {
+        {{"loop", "--platform"}, "--platform requires a value"},
+        {{"loop", "--platform", "--no-watch"}, "--platform requires a value"},
+        {{"loop", "--watch-issues"}, "--watch-issues requires a value"},
+        {{"loop", "--watch-issues", "--no-watch"}, "--watch-issues requires a value"},
+        {{"loop", "--ar-swap-from"}, "--ar-swap-from requires a value"},
+        {{"loop", "--ar-swap-from", "--no-watch"}, "--ar-swap-from requires a value"},
+        {{"loop", "--run"}, "--run requires a value"},
+        {{"loop", "--run", "--target", "pulp-format"}, "--run requires a value"},
+        {{"loop", "--target"}, "--target requires a value"},
+        {{"loop", "--target", "--no-watch"}, "--target requires a value"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("loop args size: " << c.args.size());
+        auto r = run_pulp(c.args, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.stderr_substring) != std::string::npos);
+    }
+
+    auto status = run_pulp({"loop", "--status"}, 10000);
+    REQUIRE_FALSE(status.timed_out);
+    REQUIRE(status.exit_code == 0);
+    REQUIRE(status.stdout_output.find("focus platform: (none") != std::string::npos);
+
+    fs::remove_all(tmp_home);
+}
+
 TEST_CASE("pulp loop --watch-issues prints deferred-slice hint",
           "[cli][shellout][loop][issue-940]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
@@ -2579,6 +3137,43 @@ TEST_CASE("pulp projects list (no --json) emits human text",
     REQUIRE(r.stdout_output.find("(no projects registered)") != std::string::npos);
 }
 
+TEST_CASE("pulp projects validates parser errors before registry mutation",
+          "[cli][shellout][projects][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto pulp_home = unique_temp_dir("pulp-projects-parser-home");
+    auto project = unique_temp_dir("pulp-projects-parser-project");
+    fs::create_directories(pulp_home);
+    fs::create_directories(project);
+    ScopedEnvVar pulp_home_env("PULP_HOME");
+    pulp_home_env.set(pulp_home.string());
+
+    struct Case {
+        std::vector<std::string> args;
+        std::string stderr_substring;
+    };
+    const std::vector<Case> cases = {
+        {{"projects", "list", "--bogus"}, "unknown option"},
+        {{"projects", "add", project.string(), "extra"}, "unexpected argument"},
+        {{"projects", "remove"}, "path argument is required"},
+        {{"projects", "remove", project.string(), "extra"}, "unexpected argument"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("projects args size: " << c.args.size());
+        auto r = run_pulp(c.args, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code != 0);
+        REQUIRE(r.stderr_output.find(c.stderr_substring) != std::string::npos);
+    }
+
+    REQUIRE_FALSE(fs::exists(pulp_home / "projects.json"));
+
+    std::error_code ec;
+    fs::remove_all(pulp_home, ec);
+    fs::remove_all(project, ec);
+}
+
 // Non-empty registry path — exercises the cmd_projects::do_list JSON
 // loop body (lines ~78-92 of cmd_projects.cpp) that the empty-registry
 // test above can't reach. Adds a synthetic project root, registers it,
@@ -2688,6 +3283,58 @@ TEST_CASE("pulp scan --help exits 0 with usage on stdout",
     // The new --no-load flag must be advertised so users hitting #812
     // can discover the safe-fast escape hatch.
     REQUIRE(r.stdout_output.find("--no-load") != std::string::npos);
+}
+
+TEST_CASE("pulp scan validates parser errors before filesystem enumeration",
+          "[cli][shellout][scan][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const struct {
+        std::vector<std::string> args;
+        const char* message;
+    } cases[] = {
+        {{"scan", "--format"}, "--format requires a value"},
+        {{"scan", "-f"}, "-f requires a value"},
+        {{"scan", "--format", "--no-load"}, "--format requires a value"},
+        {{"scan", "--definitely-not-a-scan-flag"}, "unknown flag"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("scan args under test");
+        auto r = run_pulp(c.args, /*timeout_ms=*/10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.message) != std::string::npos);
+        REQUIRE(r.stdout_output.find("[CLAP]") == std::string::npos);
+        REQUIRE(r.stdout_output.find("No plugins found") == std::string::npos);
+    }
+}
+
+TEST_CASE("pulp host validates parser errors before plugin loading",
+          "[cli][shellout][host][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const struct {
+        std::vector<std::string> args;
+        const char* message;
+    } cases[] = {
+        {{"host", "--format"}, "--format requires a value"},
+        {{"host", "-f"}, "-f requires a value"},
+        {{"host", "--format", "--id"}, "--format requires a value"},
+        {{"host", "--id"}, "--id requires a value"},
+        {{"host", "--id", "--format"}, "--id requires a value"},
+        {{"host", "--definitely-not-a-host-flag"}, "unknown flag"},
+    };
+
+    for (const auto& c : cases) {
+        INFO("host args under test");
+        auto r = run_pulp(c.args, /*timeout_ms=*/10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find(c.message) != std::string::npos);
+        REQUIRE(r.stderr_output.find("failed to load") == std::string::npos);
+        REQUIRE(r.stdout_output.find("Loaded:") == std::string::npos);
+    }
 }
 
 TEST_CASE("pulp scan --no-load runs filesystem-only enumeration cleanly",
