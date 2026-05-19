@@ -888,3 +888,33 @@ TEST_CASE("JsonRpcPeer accepts binary JSON and default error envelopes",
     REQUIRE(default_error->message.empty());
     REQUIRE(default_error->data_json.empty());
 }
+
+TEST_CASE("JsonRpcPeer consumes responses for requests without callbacks",
+          "[json_rpc][coverage][phase3]") {
+    auto pair = MemoryMessageChannel::make_pair();
+
+    std::vector<std::string> outbound;
+    pair.second->on_message([&](const Message& message) {
+        outbound.emplace_back(message.as_text());
+    });
+
+    JsonRpcPeer client(*pair.first);
+    REQUIRE(client.send_request("fireAndForget", "", {}));
+    REQUIRE(outbound.size() == 1);
+    REQUIRE(outbound.back().find(R"("id":1)") != std::string::npos);
+
+    pair.second->send_text(R"json({"jsonrpc":"2.0","id":1,"result":true})json");
+
+    std::atomic<int> callbacks{0};
+    std::string result;
+    REQUIRE(client.send_request("followup", "", [&](const JsonRpcResult& response) {
+        result = response.result_json;
+        callbacks.fetch_add(1);
+    }));
+    REQUIRE(outbound.size() == 2);
+    REQUIRE(outbound.back().find(R"("id":2)") != std::string::npos);
+
+    pair.second->send_text(R"json({"jsonrpc":"2.0","id":2,"result":"ok"})json");
+    REQUIRE(wait_until([&] { return callbacks.load() == 1; }));
+    REQUIRE(result == R"("ok")");
+}
