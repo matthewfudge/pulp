@@ -912,6 +912,30 @@ TEST_CASE("SignalGraph process silences oversized blocks",
     graph.release();
 }
 
+TEST_CASE("SignalGraph process ignores non-positive block sizes",
+          "[host][graph][coverage][phase3]") {
+    SignalGraph graph;
+    auto input = graph.add_input_node(1, "in");
+    auto output = graph.add_output_node(1, "out");
+    REQUIRE(graph.connect(input, 0, output, 0));
+    REQUIRE(graph.prepare(48000.0, 4));
+
+    std::vector<float> input_samples(4, 1.0f);
+    std::vector<float> output_samples{3.0f, 4.0f, 5.0f, 6.0f};
+    const float* in_ptrs[1] = {input_samples.data()};
+    float* out_ptrs[1] = {output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 4);
+    pulp::audio::BufferView<float> out_view(out_ptrs, 1, 4);
+
+    graph.process(out_view, in_view, 0);
+    REQUIRE(output_samples == std::vector<float>{3.0f, 4.0f, 5.0f, 6.0f});
+
+    graph.process(out_view, in_view, -1);
+    REQUIRE(output_samples == std::vector<float>{3.0f, 4.0f, 5.0f, 6.0f});
+
+    graph.release();
+}
+
 TEST_CASE("SignalGraph PDC aligns parallel branches", "[host][graph][pdc]") {
     // in → A(latency=32) → mix
     // in → B(latency=0)  → mix   (should be delayed by 32 so A and B align)
