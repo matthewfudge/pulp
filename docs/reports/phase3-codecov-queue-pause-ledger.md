@@ -10905,3 +10905,17 @@ and `git diff --check`. PR #2268 remained current at head `5f511a733`,
 `mergeable: true`, `mergeable_state: blocked`; `baseline-diff` was in
 progress and all other refreshed checks were queued with no failures. The
 batch is clean, local-only, and 13 coverage commits ahead of `origin/main`.
+
+2026-05-19 02:24 PDT: added `94d6720bf` (`test(runtime): cover JSON-RPC
+handler detach`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_json_rpc.cpp` and covers the current
+`JsonRpcPeer` lifecycle contract: destroying a peer clears the wrapped
+`MessageChannel` callback, so later malformed messages on that channel no
+longer produce parse-error replies. Focused local validation passed:
+`cmake --build build --target pulp-test-json-rpc -j4`,
+`./build/test/pulp-test-json-rpc "[json_rpc]"` (93 assertions / 17 cases),
+and `git diff --check`. PR #2268 remained current at head `5f511a733`,
+`mergeable: true`, `mergeable_state: blocked`; `baseline-diff` and
+`macOS local smoke` were green, `Yoga layout snapshots` was in progress, and
+the remaining checks were queued with no failures. The batch is clean,
+local-only, and 14 coverage commits ahead of `origin/main`.
