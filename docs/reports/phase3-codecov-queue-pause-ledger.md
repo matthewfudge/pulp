@@ -9410,3 +9410,15 @@ stale-port single-test filter, `[host][graph][routing][coverage][phase3]`, the
 automation-reject single-test filter, `[host][graph][automation][coverage][phase3]`,
 and `git diff --check`. The held batch now has 13 local coverage commits;
 continue accumulating before opening a PR.
+
+2026-05-18 20:24 PDT: added `037114a61` (`test(host): cover signal graph prepare
+failure`) to the held `feature/phase3-codecov-host-cache-batch-750` batch. This
+covers the `SignalGraph::prepare()` branch where a plugin slot refuses
+preparation, asserting that no live graph is published, latency queries remain
+zero, and a subsequent `process()` call silences output. Focused local
+validation passed: `cmake --build build --target pulp-test-host`,
+`./build/test/pulp-test-host "SignalGraph prepare failure leaves process output
+silent"` (21 assertions / 1 case), `./build/test/pulp-test-host
+"[host][graph][coverage][phase3]"` (39 assertions / 3 cases), and `git diff
+--check`. The held batch now has 14 local coverage commits; continue
+accumulating before opening a PR.
