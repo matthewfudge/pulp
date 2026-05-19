@@ -10,6 +10,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <thread>
@@ -930,6 +932,51 @@ TEST_CASE("HttpStream post factory reads a successful local response",
 
     join_server.join();
     REQUIRE(saw_post.load());
+}
+
+TEST_CASE("http_download writes a successful local response to disk",
+          "[network_stream][http][coverage][phase3]") {
+    Socket listener;
+    REQUIRE(listener.create(SocketType::TCP));
+    auto port = try_bind_loopback_ephemeral(listener);
+    REQUIRE(port);
+
+    std::atomic<bool> server_ready{false};
+    std::thread server_thread([&] {
+        server_ready.store(true);
+        auto accepted = listener.accept();
+        if (!accepted) return;
+
+        std::array<std::uint8_t, 512> request{};
+        accepted->receive(request.data(), request.size());
+        const std::string response =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 10\r\n"
+            "\r\n"
+            "downloaded";
+        accepted->send(reinterpret_cast<const std::uint8_t*>(response.data()),
+                       response.size());
+        accepted->close();
+    });
+    ThreadJoiner join_server{server_thread};
+    while (!server_ready.load()) std::this_thread::sleep_for(1ms);
+
+    const auto output_path = std::filesystem::temp_directory_path() /
+        ("pulp-http-download-" + std::to_string(*port) + ".bin");
+    std::filesystem::remove(output_path);
+
+    REQUIRE(http_download("http://127.0.0.1:" + std::to_string(*port) + "/artifact",
+                          output_path.string(), 2));
+    REQUIRE(std::filesystem::exists(output_path));
+
+    std::ifstream file(output_path, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+    file.close();
+    REQUIRE(contents == "downloaded");
+    std::filesystem::remove(output_path);
+
+    join_server.join();
 }
 
 TEST_CASE("HttpStream default state supports zero reads and idempotent close",
