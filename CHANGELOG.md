@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01352"></a>
+## [0.135.2] - 2026-05-19
+
+- fix(harness): canvas2d adapter reads split preludes — addresses Codex P1 on #2253 (verifier now reports 66/66 pass instead of 60/66 with 6 NOT-IMPL)
+
 <a id="v01351"></a>
 ## [0.135.1] - 2026-05-18
 
