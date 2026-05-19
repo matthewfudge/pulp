@@ -10835,3 +10835,20 @@ false. Focused local validation passed after using the actual target name:
 31 cases), and `git diff --check`. The branch is now local-only and 11
 coverage commits ahead of `origin/main`; keep accumulating deterministic
 first-party tests while #2268 remains blocked only by queued checks.
+
+2026-05-19 02:12 PDT: added `f2de08c7f` (`test(state): cover duplicate preset
+imports`) to local-only `feature/phase3-codecov-audio-midi-batch-753`. This
+touches only `test/test_preset_manager.cpp` and covers the current
+`PresetManager::import_file` duplicate-destination contract: importing a file
+whose basename already exists in the user preset directory reports that user
+preset, fires the list-change callback, and leaves the existing destination
+content intact because `std::filesystem::copy_file(..., skip_existing)` does
+not overwrite. Focused local validation passed:
+`cmake --build build --target pulp-test-preset-manager -j4`,
+`./build/test/pulp-test-preset-manager "[state][preset]"` (165 assertions /
+27 cases), and `git diff --check`. PR #2268 remained current at head
+`f09d96b24f1b3ecf91d38e3fcad29a245ab12844`, `behind_by: 0`, `mergeable:
+true`, `mergeable_state: blocked`, with all refreshed check runs still queued
+and no failures. The batch is now local-only and 12 coverage commits ahead of
+`origin/main`; continue accumulating while #2268 waits on GitHub-hosted
+runners.
