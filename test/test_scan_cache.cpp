@@ -200,6 +200,30 @@ TEST_CASE("from_json rejects wrong schema version", "[scan_cache]") {
     REQUIRE_FALSE(b.from_json("not json"));
 }
 
+TEST_CASE("ScanCache from_json rejects non-object roots without replacing cache",
+          "[scan_cache][codecov]") {
+    HostScanCache cache;
+    cache.put("/tmp/existing.vst3", sample_info());
+
+    REQUIRE_FALSE(cache.from_json(R"([{"schema_version": 1}])"));
+    REQUIRE(cache.size() == 1);
+    REQUIRE(cache.entries().count("/tmp/existing.vst3") == 1);
+
+    REQUIRE_FALSE(cache.from_json(R"("not an object")"));
+    REQUIRE(cache.size() == 1);
+    REQUIRE(cache.entries().count("/tmp/existing.vst3") == 1);
+}
+
+TEST_CASE("ScanCache from_json rejects missing schema without replacing cache",
+          "[scan_cache][codecov]") {
+    HostScanCache cache;
+    cache.put("/tmp/existing.vst3", sample_info());
+
+    REQUIRE_FALSE(cache.from_json(R"({"entries": []})"));
+    REQUIRE(cache.size() == 1);
+    REQUIRE(cache.entries().count("/tmp/existing.vst3") == 1);
+}
+
 TEST_CASE("ScanCache from_json accepts schema-only blob as an empty cache",
           "[scan_cache]") {
     HostScanCache cache;
