@@ -282,6 +282,19 @@ TEST_CASE("from_text keeps unknown percent escapes literal",
     REQUIRE(text.find("bad%252Greason%7Cok") != std::string::npos);
 }
 
+TEST_CASE("from_text keeps trailing incomplete percent escapes literal",
+          "[host][blacklist][codecov]") {
+    ScanBlacklist bl;
+    REQUIRE(bl.from_text("/plugin.vst3|1|2|reason%"));
+
+    auto entry = bl.entries().find("/plugin.vst3");
+    REQUIRE(entry != bl.entries().end());
+    REQUIRE(entry->second.reason == "reason%");
+
+    const auto text = bl.to_text();
+    REQUIRE(text.find("reason%25") != std::string::npos);
+}
+
 TEST_CASE("save_to creates nested blacklist parent directories",
           "[host][blacklist][codecov]") {
     TempFile f;
