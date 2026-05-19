@@ -1656,6 +1656,19 @@ TEST_CASE("HTTP download writes successful response bodies",
     REQUIRE(contents == "ok-response");
 }
 
+TEST_CASE("HTTP download reports unwritable output paths after successful fetch",
+          "[runtime][http][coverage][phase3]") {
+    const auto missing_dir_output =
+        (std::filesystem::temp_directory_path()
+         / "pulp-http-download-missing-dir"
+         / "artifact.bin").string();
+    auto exchange = serve_one_http_response("DOWNLOAD", "/unwritable.bin", missing_dir_output);
+
+    REQUIRE(exchange.accepted);
+    REQUIRE_FALSE(exchange.downloaded);
+    REQUIRE(exchange.request.find("GET /unwritable.bin HTTP/1.1") != std::string::npos);
+}
+
 TEST_CASE("local IPv4 helpers return usable fallback values",
           "[runtime][ip][coverage]") {
     const auto primary = local_ipv4_address();
