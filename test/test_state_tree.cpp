@@ -680,6 +680,22 @@ TEST_CASE("StateTree JSON keeps integer values available as doubles",
     REQUIRE_THAT(result->get_double("fractional"), WithinAbs(12.5, 1e-9));
 }
 
+TEST_CASE("StateTree JSON serialization skips explicit null properties",
+          "[state][tree][json][coverage][phase3]") {
+    auto tree = StateTree::create("root");
+    tree->set("nullable", PropertyValue{});
+    tree->set("name", std::string("kept"));
+
+    const auto json = tree->to_json();
+    REQUIRE(json.find("nullable") == std::string::npos);
+    REQUIRE(json.find("kept") != std::string::npos);
+
+    auto restored = StateTree::from_json(json);
+    REQUIRE(restored != nullptr);
+    REQUIRE_FALSE(restored->has("nullable"));
+    REQUIRE(restored->get_string("name") == "kept");
+}
+
 // ── Deep copy ───────────────────────────────────────────────────────────
 
 TEST_CASE("StateTree deep copy", "[state][tree]") {
