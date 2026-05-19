@@ -453,6 +453,18 @@ TEST_CASE("raw_midi_parser recovers from aborted sysex (#406 codex P2)",
     REQUIRE(c.sysex[0] == std::vector<uint8_t>{0xF0, 0x01, 0xF7});
 }
 
+TEST_CASE("raw_midi_parser restarts sysex on nested start byte",
+          "[midi][raw_midi_parser][coverage][phase3]") {
+    auto c = parse({
+        0xF0, 0x7E, 0x00,  // abandoned sysex prefix
+        0xF0, 0x01, 0xF7,  // fresh complete sysex
+    });
+
+    REQUIRE(c.shorts.empty());
+    REQUIRE(c.sysex.size() == 1);
+    REQUIRE(c.sysex[0] == std::vector<uint8_t>{0xF0, 0x01, 0xF7});
+}
+
 TEST_CASE("raw_midi_parser aborted sysex handles system-common too",
           "[midi][raw_midi_parser][issue-406]") {
     // 0xF1 (MTC Quarter Frame) is a 2-byte system-common status that
