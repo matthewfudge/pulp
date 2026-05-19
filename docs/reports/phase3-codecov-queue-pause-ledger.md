@@ -11023,3 +11023,16 @@ green checks, `Windows MSVC release-path gate` and `ubuntu-24.04` were in
 progress, sanitizer/doc checks were queued, and the macOS-required checks were
 still queued with no failures. The batch is clean, local-only, and 20 coverage
 commits ahead of `origin/main`.
+
+2026-05-19 03:00 PDT: added `3f2987e34` (`test(runtime): cover child process
+working dir`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_runtime_utils.cpp` and covers the
+`run_process(..., working_dir)` branch by creating a temporary directory,
+spawning `pwd`/PowerShell from it, and asserting the child observes that
+working directory. Focused local validation passed:
+`cmake --build build --target pulp-test-runtime-utils -j4`,
+`./build/test/pulp-test-runtime-utils "[runtime][child_process]"` (13
+assertions / 5 cases), and `git diff --check`. PR #2268 remained current at
+head `5f511a733`; `macOS (ARM64) [github-hosted]` had started, several
+GitHub-hosted build/sanitizer lanes were queued, and no failures were present.
+The batch is clean, local-only, and 21 coverage commits ahead of `origin/main`.
