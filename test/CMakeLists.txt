@@ -954,6 +954,28 @@ if(PULP_HAS_SKIA)
     catch_discover_tests(pulp-test-font-rendering-goldens)
 endif()
 
+# Font v2 Slice 3.4 — Skia GPU lane (Dawn → Metal on macOS-arm64).
+# Sibling of `pulp-test-font-rendering-goldens` (raster). Same
+# three strings, same structural digest, ±15% tolerance to absorb
+# Graphite/Metal subpixel + AA drift. Gated at compile time on
+# PULP_HAS_SKIA && APPLE && PULP_ENABLE_GPU — the test soft-skips
+# at runtime when Dawn / Graphite init fails so CI lanes without a
+# working adapter don't hard-fail. Vulkan + D3D backends are
+# deferred (out-of-scope for Slice 3.4 GPU).
+if(PULP_HAS_SKIA AND APPLE AND PULP_ENABLE_GPU)
+    add_executable(pulp-test-font-rendering-goldens-gpu
+        test_font_rendering_goldens_gpu.cpp)
+    target_link_libraries(pulp-test-font-rendering-goldens-gpu PRIVATE
+        pulp::canvas pulp::render Catch2::Catch2WithMain skia::skia)
+    target_compile_definitions(pulp-test-font-rendering-goldens-gpu PRIVATE
+        PULP_HAS_SKIA=1)
+    target_include_directories(pulp-test-font-rendering-goldens-gpu PRIVATE
+        ${SKIA_INCLUDE_DIRS})
+    # APPLE-gated, so the Windows webgpu DL_PATHS dance from the
+    # PULP_GPU_TEST_DISCOVERY_ARGS block below isn't needed here.
+    catch_discover_tests(pulp-test-font-rendering-goldens-gpu)
+endif()
+
 # Analytics tests
 pulp_add_test_suite(pulp-test-analytics LIBRARIES pulp::runtime)
 
