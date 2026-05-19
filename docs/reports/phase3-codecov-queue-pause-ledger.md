@@ -10098,3 +10098,17 @@ Focused local validation passed after the main merge: `cmake --build build
 closed streams before handshake"` (6 assertions / 1 case), and `git diff
 --check`. The batch now has 5 local coverage commits plus the main merge;
 continue accumulating before opening a PR.
+
+2026-05-18 22:45 PDT: added `1f3c1fa6f` (`test(runtime): cover websocket
+fragmented text frames`) to `feature/phase3-codecov-runtime-state-batch-752`.
+This covers the WebSocket reader's continuation-frame path by driving a raw
+client handshake and sending a masked text message split across an initial
+text frame and a final continuation frame, asserting the server emits the
+assembled `"fragment"` message. Focused local validation passed:
+`cmake --build build --target pulp-test-websocket-channel -j4`,
+`./build/test/pulp-test-websocket-channel "WebSocketChannel assembles
+fragmented text frames"` (11 assertions / 1 case),
+`./build/test/pulp-test-websocket-channel
+"[websocket][frame-kind][coverage][phase3]"` (11 assertions / 1 case), and
+`git diff --check`. The batch now has 6 local coverage commits plus the main
+merge; continue accumulating before opening a PR.
