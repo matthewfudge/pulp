@@ -9633,3 +9633,16 @@ SHAs are: `cb3f951d7` (`test(state): cover sync decode malformed framing`),
 (`test(state): cover empty store serialization`), and `7399e23fe`
 (`test(state): cover duplicate preset imports`). Next action remains to keep
 accumulating related runtime/state coverage before opening a PR.
+
+2026-05-18 22:54 PDT: added `cb8fdacd7` (`test(state): cover malformed preset
+parameter keys`) to `feature/phase3-codecov-runtime-state-batch-751`. This
+covers the `PresetManager::load()` scanner path where a known parameter key is
+present but no value separator appears later in the file, so the malformed
+member is skipped and the load still completes using the file stem as the
+current preset name. Focused local validation passed: `cmake --build build
+--target pulp-test-preset-manager`, `./build/test/pulp-test-preset-manager
+"PresetManager load skips parameter keys with missing value separators"` (6
+assertions / 1 case), `./build/test/pulp-test-preset-manager
+"[state][preset][coverage][phase3]"` (15 assertions / 2 cases), and `git diff
+--check`. The new batch now has 5 local coverage commits; continue
+accumulating before opening a PR.
