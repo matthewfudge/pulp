@@ -9803,3 +9803,14 @@ child insertion listeners observe clamped indexes"` (4 assertions / 1 case),
 `./build/test/pulp-test-state-tree "[state][tree][coverage][phase3]"` (17
 assertions / 3 cases), and `git diff --check`. The batch now has 17 local
 coverage commits; continue accumulating before opening a PR.
+
+2026-05-19 00:12 PDT: added `9f1512c0e` (`test(runtime): cover empty i18n JSON
+objects`) to `feature/phase3-codecov-runtime-state-batch-751`. This covers the
+`LocalisedStrings::load_json_file()` branch that sees a closing brace before any
+members, asserting an empty JSON object loads successfully and preserves the
+existing in-memory table. Focused local validation passed: `cmake --build build
+--target pulp-test-i18n`, `./build/test/pulp-test-i18n "i18n JSON parser
+accepts empty objects"` (3 assertions / 1 case), `./build/test/pulp-test-i18n
+"[runtime][i18n][coverage][phase3]"` (3 assertions / 1 case), and `git diff
+--check`. The batch now has 18 local coverage commits; continue accumulating
+before opening a PR.
