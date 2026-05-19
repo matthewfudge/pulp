@@ -10933,3 +10933,18 @@ and `git diff --check`. PR #2268 remained current at head `5f511a733`,
 `macOS local smoke`, and `Yoga layout snapshots` were green, and the remaining
 checks were queued with no failures. The batch is clean, local-only, and 15
 coverage commits ahead of `origin/main`.
+
+2026-05-19 02:35 PDT: added `a48b2a020` (`test(runtime): cover HTTP loopback
+success`) to local-only `feature/phase3-codecov-audio-midi-batch-753`. This
+touches only `test/test_runtime_utils.cpp` and adds deterministic loopback
+coverage for the runtime HTTP success path: `http_get` and `http_post` now
+exercise status/body/header copying from `cpp-httplib`, and the POST request
+asserts the JSON body is sent through. Focused local validation passed:
+`cmake --build build --target pulp-test-runtime-utils -j4`,
+`./build/test/pulp-test-runtime-utils "[runtime][http]"` (43 assertions / 6
+cases), and `git diff --check`. PR #2268 remained current at head
+`5f511a733`, `mergeable: true`, `mergeable_state: blocked`; `baseline-diff`,
+`macOS local smoke`, and `Yoga layout snapshots` were green, `android-build
+(windows-latest)` was in progress, and the remaining checks were queued with
+no failures. The batch is clean, local-only, and 16 coverage commits ahead of
+`origin/main`.
