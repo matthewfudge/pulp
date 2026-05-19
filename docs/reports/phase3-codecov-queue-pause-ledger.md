@@ -9490,3 +9490,15 @@ non-positive block sizes"` (4 assertions / 1 case),
 / 6 cases; expected prepare-failure log from the existing failing-slot test),
 and `git diff --check`. The held batch now has 19 local coverage commits;
 continue accumulating before opening a PR.
+
+2026-05-18 21:15 PDT: added `a1cd2b6ba` (`test(host): cover graph MIDI live
+guards`) to the held `feature/phase3-codecov-host-cache-batch-750` batch. This
+covers `SignalGraph::inject_midi()` and `extract_midi()` guard behavior before
+prepare, for unknown node IDs, and after release, asserting failed operations do
+not mutate the caller's output MIDI buffer. Focused local validation passed:
+`cmake --build build --target pulp-test-host`, `./build/test/pulp-test-host
+"SignalGraph MIDI injection and extraction require a live node runtime"` (11
+assertions / 1 case), `./build/test/pulp-test-host
+"[host][graph][midi][coverage][phase3]"` (11 assertions / 1 case), and
+`git diff --check`. The held batch now has 20 local coverage commits; continue
+accumulating before opening a PR.
