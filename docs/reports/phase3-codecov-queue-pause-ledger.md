@@ -9610,3 +9610,17 @@ empty serialization round-trips as a minimum frame"` (6 assertions / 1 case),
 `./build/test/pulp-test-state "[state][serialize][coverage][phase3]"`
 (6 assertions / 1 case), and `git diff --check`. The new batch now has 3
 local coverage commits; continue accumulating before opening a PR.
+
+2026-05-18 22:45 PDT: added `8d89aa22b` (`test(state): cover duplicate
+preset imports`) to `feature/phase3-codecov-runtime-state-batch-751`. This
+covers `PresetManager::import_file()` when the destination filename already
+exists under the user preset directory: the imported result reports the
+destination metadata, the existing preset remains the single listed preset, and
+the existing file contents are preserved. Focused local validation passed:
+`cmake --build build --target pulp-test-preset-manager`,
+`./build/test/pulp-test-preset-manager "PresetManager import of duplicate
+destination preserves existing preset"` (9 assertions / 1 case),
+`./build/test/pulp-test-preset-manager "[state][preset][coverage][phase3]"`
+(9 assertions / 1 case), and `git diff --check`. `origin/main` advanced during
+this tranche, leaving the batch ahead 4 / behind 2; next action is to rebase
+onto fresh main before continuing.
