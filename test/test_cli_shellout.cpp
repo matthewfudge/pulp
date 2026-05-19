@@ -2046,6 +2046,30 @@ TEST_CASE("pulp project bump rejects non-semver --to",
     REQUIRE(r.stderr_output.find("invalid target version") != std::string::npos);
 }
 
+TEST_CASE("pulp project bump rejects missing --to values before project lookup",
+          "[cli][shellout][project][coverage][phase3]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const auto bin = fs::absolute(pulp_binary());
+    auto cwd_saver = fs::current_path();
+    fs::current_path(fs::temp_directory_path());
+
+    for (const auto& args : std::vector<std::vector<std::string>>{
+             {"project", "bump", "--to"},
+             {"project", "bump", "--to", "--dry-run"},
+             {"project", "pin", "--to"},
+             {"project", "pin", "--to", "--all"},
+         }) {
+        auto r = exec(bin.string(), args, 10000);
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 2);
+        REQUIRE(r.stderr_output.find("--to requires a version argument")
+                != std::string::npos);
+    }
+
+    fs::current_path(cwd_saver);
+}
+
 TEST_CASE("pulp pr without shipyard prints install guidance",
           "[cli][shellout][pr][issue-643]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }

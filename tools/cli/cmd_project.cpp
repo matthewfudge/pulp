@@ -85,7 +85,8 @@ BumpOptions parse_bump_options(const std::vector<std::string>& args,
         if (a == "--allow-redundant")  { opts.allow_redundant = true; continue; }
         if (a == "--verify-builds")    { opts.verify_builds = true; continue; }
         if (a == "--to") {
-            if (i + 1 >= args.size() || args[i + 1].empty()) {
+            if (i + 1 >= args.size() || args[i + 1].empty()
+                || args[i + 1].front() == '-') {
                 std::cerr << "pulp project bump: --to requires a version argument\n";
                 std::exit(2);
             }
