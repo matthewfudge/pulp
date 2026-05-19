@@ -10919,3 +10919,17 @@ and `git diff --check`. PR #2268 remained current at head `5f511a733`,
 `macOS local smoke` were green, `Yoga layout snapshots` was in progress, and
 the remaining checks were queued with no failures. The batch is clean,
 local-only, and 14 coverage commits ahead of `origin/main`.
+
+2026-05-19 02:29 PDT: added `befd35ae8` (`test(runtime): cover sparse
+JSON-RPC errors`) to local-only `feature/phase3-codecov-audio-midi-batch-753`.
+This touches only `test/test_json_rpc.cpp` and covers the
+`JsonRpcPeer::dispatch_response` error-object path where an incoming response
+has a matching integer id but an empty `error` object; the pending callback is
+settled with default error fields instead of remaining pending. Focused local
+validation passed: `cmake --build build --target pulp-test-json-rpc -j4`,
+`./build/test/pulp-test-json-rpc "[json_rpc]"` (100 assertions / 18 cases),
+and `git diff --check`. PR #2268 remained current at head `5f511a733`,
+`mergeable: true`, `mergeable_state: blocked`; `baseline-diff`,
+`macOS local smoke`, and `Yoga layout snapshots` were green, and the remaining
+checks were queued with no failures. The batch is clean, local-only, and 15
+coverage commits ahead of `origin/main`.
