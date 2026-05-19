@@ -4,7 +4,7 @@
 #include <pulp/inspect/protocol.hpp>
 
 namespace pulp::view { class View; }
-namespace pulp::render { class RenderPassManager; }
+namespace pulp::render { class RenderPassManager; class DirtyTracker; }
 
 namespace pulp::inspect {
 
@@ -32,6 +32,12 @@ public:
     void set_motion_scrubber(MotionScrubber* scrubber) { motion_scrubber_ = scrubber; }
     void set_render_pass_manager(render::RenderPassManager* rpm) { rpm_ = rpm; }
 
+    /// Tier A Slice 6: wire the per-frame dirty tracker so the inspector's
+    /// Performance tab can toggle `DirtyTracker::set_debug_overlay()` at
+    /// runtime. The host installs the tracker once during plugin / app
+    /// init; if unset, the toggle silently no-ops.
+    void set_dirty_tracker(render::DirtyTracker* dirty) { dirty_ = dirty; }
+
     /// Handle a protocol request. Returns a response message.
     InspectorMessage handle(const InspectorMessage& request);
 
@@ -44,6 +50,7 @@ private:
     MotionInspector* motion_ = nullptr;
     MotionScrubber* motion_scrubber_ = nullptr;
     render::RenderPassManager* rpm_ = nullptr;
+    render::DirtyTracker* dirty_ = nullptr;
 
     // Domain handlers
     InspectorMessage handle_inspector(const InspectorMessage& req);
