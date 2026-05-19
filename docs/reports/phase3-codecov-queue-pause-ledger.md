@@ -11316,3 +11316,35 @@ polling at 11:06Z showed macOS local smoke, Yoga layout snapshots, and
 baseline-diff completed success, IWYU advisory in progress, remaining lanes
 queued, and no failed checks. Keep #2268 ahead of opening another CI-consuming
 coverage PR.
+
+2026-05-19 04:10 PDT: reprioritized PR #2268 again after `origin/main`
+advanced to `a80b97b0e` (`feat(format): Processor::suspend() / resume()
+virtuals (Tier B Slice 15) (#2352)`). Merged current `origin/main` into
+`feature/phase3-codecov-rollup-746` cleanly, producing new rollup head
+`987bd3a1a`, then validated `git diff --check` and
+`python3 tools/scripts/skill_sync_check.py --mode report`. Pushed the
+refreshed rollup with `PULP_SKIP_PREPUSH=1 PULP_VIA_SHIPYARD=1`; REST now
+reports #2268 base `a80b97b0e`, head `987bd3a1a`, `mergeable: true`,
+`mergeable_state: blocked`, open and not draft. The new check set started at
+11:09Z; baseline-diff and android-build (windows-latest) are in progress,
+remaining lanes are queued, and no failed checks are present.
+
+2026-05-19 04:10 PDT: rebased local-only
+`feature/phase3-codecov-audio-midi-batch-753` onto current `origin/main`
+`a80b97b0e` after the #2268 refresh. Rebase completed cleanly and rewrote the
+35 local commits; current top commits are `227f8b3a4 test(midi): cover sysex
+sidecar clear`, `e08ae9da3 test(midi): cover ump buffer helpers`,
+`21393a905 test(midi): cover sysex reset cleanup`, `a6d992cee test(audio):
+cover focus token self move`, `5bda4ae30 fix(audio): rebind copied buffer
+channel pointers`, `38aba25db test(runtime): cover empty simd extrema
+reductions`, `ca4c4dab4 test(runtime): cover spsc full queue preserves item`,
+and `3d65a5700 test(midi): cover nested sysex restart`. Post-rebase focused
+validation passed: `cmake --build build --target pulp-test-running-status
+pulp-test-ump-buffer-conversion pulp-test-midi -j4`,
+`./build/test/pulp-test-running-status "[midi][running-status]"` (98
+assertions / 21 cases), `./build/test/pulp-test-ump-buffer-conversion
+"[midi][ump]"` (151 assertions / 19 cases), `./build/test/pulp-test-midi
+"[midi][buffer]"` (85 assertions / 7 cases), and `git diff --check`. The
+batch is clean, local-only, and 35 commits ahead of `origin/main`; keep #2268
+first before opening another CI-consuming coverage PR. No Namespace CI was
+used.
