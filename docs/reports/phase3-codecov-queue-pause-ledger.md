@@ -10355,3 +10355,27 @@ draining them explicitly. Focused local validation passed: `cmake --build build
 case), `./build/test/pulp-test-osc-channel "[phase3]"` (9 assertions / 1
 case), and `git diff --check`. The batch now has 22 local coverage commits
 plus main merges; continue accumulating before opening a PR.
+
+2026-05-18 23:56 PDT: added `000d614a5` (`test(platform): cover progress
+parser colon payloads`) to `feature/phase3-codecov-runtime-state-batch-752`.
+This covers `ProgressParser` events with empty event types plus payloads that
+contain additional colons, asserting only the first post-prefix colon splits the
+type from the payload. Focused local validation passed: `cmake --build build
+--target pulp-test-platform -j4`, `./build/test/pulp-test-platform
+"ProgressParser preserves empty types and colon-rich payloads"` (7 assertions /
+1 case), `./build/test/pulp-test-platform "[phase3]"` (7 assertions / 1 case),
+and `git diff --check`. The batch now has 23 local coverage commits plus main
+merges.
+
+2026-05-18 23:58 PDT: merged current `origin/main` into
+`feature/phase3-codecov-runtime-state-batch-752` with `0886f20ab` after one new
+main commit landed. The merge was clean and picked up main's
+`font_options.cpp` / `test_font_options.cpp` changes. Validation passed after
+rerunning the platform target serially because parallel CMake regeneration
+temporarily collided in FetchContent: `cmake --build build --target
+pulp-test-platform -j4`, `cmake --build build --target pulp-test-font-options
+-j4`, `./build/test/pulp-test-platform "ProgressParser preserves empty types
+and colon-rich payloads"` (7 assertions / 1 case), `./build/test/pulp-test-platform
+"[phase3]"` (7 assertions / 1 case), `./build/test/pulp-test-font-options` (138
+assertions / 13 cases), and `git diff --check`. The batch is now current with
+`origin/main`; continue accumulating before opening a PR.
