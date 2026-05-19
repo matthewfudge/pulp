@@ -360,6 +360,29 @@ TEST_CASE("move assignment transfers a running child process",
 #endif
 }
 
+TEST_CASE("move constructor transfers a running child process",
+          "[child_process][edge][coverage][phase3]") {
+    ChildProcess cp;
+
+#ifdef _WIN32
+    REQUIRE(cp.start("cmd", {"/c", "<nul set /p dummy=move-ctor & exit /b 0"}));
+#else
+    REQUIRE(cp.start("/bin/sh", {"-c", "printf move-ctor"}));
+#endif
+
+    ChildProcess moved(std::move(cp));
+
+    auto r = moved.wait();
+    REQUIRE(r.exit_code == 0);
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE_FALSE(r.was_cancelled);
+#ifdef _WIN32
+    REQUIRE(r.stdout_output.find("move-ctor") != std::string::npos);
+#else
+    REQUIRE(r.stdout_output == "move-ctor");
+#endif
+}
+
 TEST_CASE("wait is idempotent after process completion",
           "[child_process][edge][issue-640]") {
     ChildProcess cp;
