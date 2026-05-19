@@ -1794,6 +1794,12 @@ pulp_add_test_suite(pulp-test-widget-bridge-svg LIBRARIES pulp::view)
 # :nth-child / :empty pseudo-classes.
 pulp_add_test_suite(pulp-test-widget-bridge-html-aria LIBRARIES pulp::view)
 
+# Widget bridge — CSS animations + transitions (P5-1 follow-up,
+# pulp #1434 Phase A2-1). animation-* longhands + shorthand
+# decomposition; transition-* longhands + shorthand round-trip
+# through the CSS shim and bridge.
+pulp_add_test_suite(pulp-test-widget-bridge-css-animations LIBRARIES pulp::view)
+
 # Autonomous Spectr regression suite (pulp-internal task #63, follow-up to
 # pulp #1792). Composes the six [contract] invariants from
 # test_widget_bridge.cpp into a Spectr-shaped mini-scenario so a future
