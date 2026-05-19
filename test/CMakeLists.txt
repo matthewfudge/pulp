@@ -1821,6 +1821,12 @@ if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
     add_executable(pulp-test-inspector test_inspector.cpp)
     target_link_libraries(pulp-test-inspector PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-inspector)
+
+    # Phase 0b PR-A: TweakStore + Inspector.applyTweak protocol surface.
+    # planning/2026-05-18-inspector-direct-manipulation-roadmap.md
+    add_executable(pulp-test-tweak-store test_tweak_store.cpp)
+    target_link_libraries(pulp-test-tweak-store PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-tweak-store)
 endif()
 
 # Widget bridge tests
