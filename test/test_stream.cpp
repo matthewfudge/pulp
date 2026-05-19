@@ -537,6 +537,7 @@ TEST_CASE("FileStream rejects null buffers for non-empty I/O",
     REQUIRE(reader.read(&byte, 1).bytes == 1);
     REQUIRE(byte == 'o');
 
+    reader.close();
     std::filesystem::remove(path);
 }
 
