@@ -13,6 +13,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 
 - refactor(test): P5-2 extract CG-paths cluster from test_canvas (2,026 → 1,254)
 - refactor(test): P5-3 extract W3C Design Tokens cluster from test_design_import (2,491 → 2,182)
+- fix(test): drop Label tests duplicated in test_widgets.cpp + test_widgets_label.cpp (-569)
 
 <a id="v01722"></a>
 ## [0.172.2] - 2026-05-19
