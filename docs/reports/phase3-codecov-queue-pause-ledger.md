@@ -9825,3 +9825,14 @@ orphan msgstr lines"` (4 assertions / 1 case), `./build/test/pulp-test-i18n
 "[runtime][i18n][coverage][phase3]"` (7 assertions / 2 cases), and `git diff
 --check`. The batch now has 19 local coverage commits; continue accumulating
 before opening a PR.
+
+2026-05-19 00:21 PDT: added `37bf048b6` (`test(runtime): cover empty sha1
+digest`) to `feature/phase3-codecov-runtime-state-batch-751`. This covers the
+`sha1(std::string_view)` empty-input path with the standard SHA-1 empty string
+known vector, matching the existing SHA-256 and MD5 empty-input coverage style.
+Focused local validation passed: `cmake --build build --target
+pulp-test-crypto`, `./build/test/pulp-test-crypto "SHA-1 empty string"` (1
+assertion / 1 case), `./build/test/pulp-test-crypto
+"[crypto][sha1][coverage][phase3]"` (1 assertion / 1 case), and `git diff
+--check`. The batch now has 20 local coverage commits; continue accumulating
+before opening a PR.
