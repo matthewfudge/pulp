@@ -79,6 +79,9 @@ TEST_CASE("clear unconditionally removes", "[host][blacklist]") {
     bl.blacklist(f.path.string(), "r");
     bl.clear(f.path.string());
     REQUIRE_FALSE(bl.is_blacklisted(f.path.string()));
+
+    bl.clear("/tmp/not-present.vst3");
+    REQUIRE(bl.size() == 0);
 }
 
 TEST_CASE("text round-trip handles pipes, newlines, and percents",
