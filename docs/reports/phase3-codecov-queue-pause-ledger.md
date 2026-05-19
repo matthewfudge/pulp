@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-19 00:17 PDT
+Last updated: 2026-05-19 00:25 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -231,6 +231,19 @@ and notification names"`, `./build/test/pulp-test-json-rpc
 "[json_rpc][coverage][phase3]"`, and `git diff --check`. PR state: not
 pushed; keep accumulating runtime coverage commits toward the larger
 batch. No Namespace dispatch.
+
+2026-05-19 00:25 PDT: added twenty-ninth committed tranche to
+`feature/phase3-codecov-runtime-state-batch-752`:
+`e98c5be73 test(state): cover listener token self move assignment`,
+touching `test/test_state.cpp`. Scope: deterministic `ListenerToken`
+coverage for the self move-assignment branch preserving the existing
+subscription and token id. Local validation passed:
+`cmake --build build --target pulp-test-state`,
+`./build/test/pulp-test-state "ListenerToken self move assignment
+preserves subscription"`, `./build/test/pulp-test-state
+"[state][listener][token]"`, and `git diff --check`. PR state: not
+pushed; keep accumulating runtime/state coverage commits toward the
+larger batch. No Namespace dispatch.
 
 2026-05-18 15:05 PDT: added tenth committed tranche to
 `feature/phase3-codecov-batch-747`:
