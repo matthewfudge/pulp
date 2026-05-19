@@ -1,6 +1,6 @@
 # Phase 3 Codecov Queue Pause Ledger
 
-Last updated: 2026-05-18 22:20 PDT
+Last updated: 2026-05-18 22:26 PDT
 
 This local ledger records the open `codecov` PR validation runs paused to free Namespace capacity for higher-priority work, plus the small-batch resume queue. Branches, PRs, commits, labels, and tracker comments stay intact; queued GitHub Actions validation attempts are cancellable and replaceable.
 
@@ -138,6 +138,20 @@ identifier edges and function replacement"`,
 "[runtime][expression][coverage][phase3]"`, and `git diff --check`. PR
 state: not pushed; keep accumulating runtime coverage commits toward the
 larger batch. No Namespace dispatch.
+
+2026-05-18 22:26 PDT: added ninth committed tranche to
+`feature/phase3-codecov-runtime-state-batch-752`:
+`92a8eed27 test(runtime): cover mmap self move`, touching
+`test/test_runtime_utils.cpp`. Scope: deterministic `MemoryMappedFile`
+coverage for self move-assignment preserving an active mapping, mapped
+contents, and close cleanup. Local validation passed:
+`cmake --build build --target pulp-test-runtime-utils`,
+`./build/test/pulp-test-runtime-utils "MemoryMappedFile self move
+assignment preserves the active mapping"`,
+`./build/test/pulp-test-runtime-utils
+"[runtime][mmap][coverage][phase3]"`, and `git diff --check`. PR state:
+not pushed; keep accumulating runtime coverage commits toward the larger
+batch. No Namespace dispatch.
 
 2026-05-18 15:05 PDT: added tenth committed tranche to
 `feature/phase3-codecov-batch-747`:
