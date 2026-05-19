@@ -1672,6 +1672,24 @@ target_compile_definitions(pulp-test-canvas PRIVATE
     "PULP_TEST_FONT_PATH=\"${CMAKE_SOURCE_DIR}/external/fonts/Inter-Regular.ttf\"")
 catch_discover_tests(pulp-test-canvas)
 
+# Canvas CG-paths tests (P5-2 follow-up — extracted from test_canvas.cpp,
+# 2026-05). Apple-only TU covering pulp #943 / #933 concat_transform,
+# pulp #1322 Canvas2D path API (fill + curves + stroke + gradients),
+# fill_rect / fill_path with active gradient, pulp #1368 save/restore
+# tracking, and pulp #1322 BlendMode every-value round-trip. Companion
+# to test_canvas_cg_gradients.cpp; the non-Apple parts stay in
+# test_canvas.cpp.
+add_executable(pulp-test-canvas-cg-paths test_canvas_cg_paths.cpp)
+target_link_libraries(pulp-test-canvas-cg-paths PRIVATE pulp::canvas Catch2::Catch2WithMain)
+if(APPLE)
+    target_link_libraries(pulp-test-canvas-cg-paths PRIVATE
+        "-framework CoreGraphics"
+        "-framework ImageIO"
+        "-framework CoreServices"
+    )
+endif()
+catch_discover_tests(pulp-test-canvas-cg-paths)
+
 # Canvas font tests (P5-2 first cut — extracted from test_canvas.cpp).
 # Covers pulp #932 (bundled-font registration via match_bundled_typeface)
 # + pulp #1150 (public register_font(path) API). Shares the
