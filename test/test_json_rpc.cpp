@@ -499,6 +499,34 @@ TEST_CASE("JsonRpcPeer dispatches incoming error responses with data",
     REQUIRE(error->data_json.find("false") != std::string::npos);
 }
 
+TEST_CASE("JsonRpcPeer defaults missing incoming error fields",
+          "[json_rpc][coverage][phase3]") {
+    auto pair = MemoryMessageChannel::make_pair();
+
+    std::string outbound_request;
+    pair.second->on_message([&](const Message& message) {
+        outbound_request.assign(message.as_text());
+    });
+
+    JsonRpcPeer client(*pair.first);
+    std::atomic<bool> done{false};
+    std::optional<JsonRpcError> error;
+
+    REQUIRE(client.send_request("willFail", "[]", [&](const JsonRpcResult& response) {
+        error = response.error;
+        done.store(true);
+    }));
+    REQUIRE(outbound_request.find(R"("id":1)") != std::string::npos);
+
+    pair.second->send_text(R"json({"jsonrpc":"2.0","id":1,"error":{}})json");
+
+    REQUIRE(wait_until([&] { return done.load(); }));
+    REQUIRE(error.has_value());
+    REQUIRE(error->code == 0);
+    REQUIRE(error->message.empty());
+    REQUIRE(error->data_json.empty());
+}
+
 TEST_CASE("JsonRpcPeer replies to null id requests and notification gaps",
           "[json_rpc][coverage][phase3]") {
     auto pair = MemoryMessageChannel::make_pair();
