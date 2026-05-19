@@ -9670,3 +9670,15 @@ zero max history performs without retaining undo"` (6 assertions / 1 case),
 `./build/test/pulp-test-undo-manager "[state][undo][coverage][phase3]"`
 (19 assertions / 2 cases), and `git diff --check`. The new batch now has 7
 local coverage commits; continue accumulating before opening a PR.
+
+2026-05-18 23:12 PDT: added `06277988f` (`test(runtime): cover mmap self move
+assignment`) to `feature/phase3-codecov-runtime-state-batch-751`. This covers
+the `MemoryMappedFile::operator=(MemoryMappedFile&&)` self-assignment guard,
+verifying an active mapping keeps its data pointer, size, and readable content.
+Focused local validation passed: `cmake --build build --target
+pulp-test-runtime-utils`, `./build/test/pulp-test-runtime-utils
+"MemoryMappedFile self move assignment preserves the active map"` (5
+assertions / 1 case), `./build/test/pulp-test-runtime-utils
+"[runtime][mmap][coverage][phase3]"` (5 assertions / 1 case), and `git diff
+--check`. `origin/main` advanced during this tranche, leaving the batch ahead 8
+/ behind 1; next action is to rebase before continuing.
