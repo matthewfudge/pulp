@@ -12,7 +12,7 @@ Import a design from an external tool into Pulp web-compat JS code.
 pulp import-design --from <source> [options]
 ```
 
-**Sources:** `figma`, `stitch`, `v0`, `pencil`
+**Sources:** `figma`, `stitch`, `v0`, `pencil`, `claude`, `designmd`, `jsx`
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -21,7 +21,10 @@ pulp import-design --from <source> [options]
 | `--url <url>` | Design URL (Figma file URL, v0 share link) | — |
 | `--frame <name>` | Frame/artboard to import (Figma) | first frame |
 | `--screen <name>` | Screen to import (Stitch) | first screen |
-| `--output <path>` | Output JS file | `ui.js` |
+| `--output <path>` | Destination file for the primary artifact | `ui.js` |
+| `--emit {js\|ir-json\|cpp}` | Primary artifact kind. `js` is implemented; `ir-json` and `cpp` are reserved and fail cleanly until future implementations land. | `js` |
+| `--mode {live\|baked}` | Runtime model. `live` is implemented; `baked` is reserved and fails cleanly until the baked import mode lands. | `live` |
+| `--snapshot-semantics {fail\|warn\|accept}` | Future JSX baked snapshot policy, parsed now for stable scripting vocabulary. | `fail` |
 | `--tokens <path>` | Output W3C token file | `tokens.json` |
 | `--dry-run` | Show generated code without writing | — |
 | `--no-tokens` | Skip token extraction | — |
@@ -39,7 +42,7 @@ pulp import-design --from <source> [options]
 | `--compat <path>` | Override `compat.json` discovery | walk up from input |
 | `--report-new-format` | Emit a fingerprint-diff JSON for a new format-version. Implies `--detect-only` | — |
 
-Either `--file` or `--url` is required (or `--directory` for `--detect-only`). When `--url` is provided without `--file`, the URL is fetched via `curl`.
+Either `--file` or `--url` is required (or `--directory` for `--detect-only`). When `--url` is provided without `--file`, the URL is fetched through an argv-safe `curl` invocation into a unique temporary file. Shell metacharacters in `--file` and `--url` are rejected with a usage diagnostic before parsing or fetching.
 
 ### export-tokens
 

@@ -952,7 +952,7 @@ file error.
 
 **Status**: experimental
 
-Import designs from Figma, Stitch, v0, Pencil, Claude Design, or
+Import designs from Figma, Stitch, v0, Pencil, Claude Design, React JSX, or
 Google DESIGN.md source files into generated Pulp UI code.
 
 ```bash
@@ -966,9 +966,9 @@ pulp import-design --from claude --file design.html --classnames classnames.json
 pulp import-design --from designmd --file DESIGN.md --tokens out.json
 ```
 
-Accepted `--from` values: `figma`, `stitch`, `v0`, `pencil`, `claude`, `designmd`.
+Accepted `--from` values: `figma`, `stitch`, `v0`, `pencil`, `claude`, `designmd`, `jsx`.
 
-Supports `--url` (fetches via curl), `--frame` (Figma frame selection), and `--screen` (Stitch screen selection). See [Design Import API Reference](design-import.md) for the full flag list.
+Supports `--url` (fetched through an argv-safe `curl` invocation into a unique temporary file), `--frame` (Figma frame selection), and `--screen` (Stitch screen selection). See [Design Import API Reference](design-import.md) for the full flag list.
 
 For `--from claude`, the CLI emits a `classnames.json` artifact alongside the generated JS view and `tokens.json`. The artifact maps `classname → { cssProp(camelCase): cssValue, ... }` for every `<style>` rule with a plain classname selector — `@pulp/css-adapt` (and downstream) consumes it to merge class-based styles into inline before forwarding to bridge calls. Mirrors the output shape of Spectr's `tools/extract-html-bundle/extract.mjs`.
 
@@ -980,6 +980,10 @@ exit codes, diagnostics, and the staged rollout split).
 
 | Flag | Description |
 |------|-------------|
+| `--output <path>` | Destination for the primary generated artifact. Today the default primary artifact is JS at `ui.js`; sidecars remain anchored beside this path when not explicitly overridden. |
+| `--emit {js\|ir-json\|cpp}` | Select the primary artifact kind. `js` is implemented today; `ir-json` and `cpp` are recognized reserved values for future design-import implementations and fail cleanly. |
+| `--mode {live\|baked}` | Select the import runtime model. `live` is implemented today; `baked` is recognized and reserved for a future import mode. |
+| `--snapshot-semantics {fail\|warn\|accept}` | Records the future JSX baked snapshot policy. The flag is parsed today so scripts can adopt the vocabulary before baked import lands. |
 | `--classnames <path>` | Where to write the classname artifact (default: `classnames.json`). Only emitted for `--from claude`. |
 | `--emit classnames` | Force-emit `classnames.json` (default on for `--from claude`). |
 | `--no-emit-classnames` | Skip the classname artifact for the run. |

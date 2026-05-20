@@ -4,20 +4,209 @@
 #include <pulp/view/screenshot.hpp>
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
+#include <pulp/platform/child_process.hpp>
 #include <pulp/state/store.hpp>
 #include "import_detect.hpp"
 #include "widget_promotion.hpp"
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <cstring>
 #include <filesystem>
 #include <chrono>
+#include <stdexcept>
+#include <system_error>
 
 namespace fs = std::filesystem;
 using namespace pulp::view;
 using namespace pulp::state;
+
+namespace {
+
+enum class ArtifactEmit {
+    js,
+    ir_json,
+    cpp
+};
+
+enum class RuntimeMode {
+    live,
+    baked
+};
+
+enum class SnapshotSemantics {
+    fail,
+    warn,
+    accept
+};
+
+class ScopedTempDir {
+public:
+    explicit ScopedTempDir(std::string prefix) {
+        auto base = fs::temp_directory_path();
+        std::random_device rd;
+        std::mt19937_64 rng(rd());
+        std::uniform_int_distribution<unsigned long long> dist;
+        const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            std::ostringstream name;
+            name << prefix << "-" << std::hex << tick << "-" << dist(rng);
+            auto candidate = base / name.str();
+            std::error_code ec;
+            if (fs::create_directory(candidate, ec)) {
+                path_ = std::move(candidate);
+                active_ = true;
+                return;
+            }
+            if (ec && !fs::exists(candidate)) {
+                throw std::runtime_error("failed to create temporary directory: " + ec.message());
+            }
+        }
+        throw std::runtime_error("failed to allocate a unique temporary directory");
+    }
+
+    ~ScopedTempDir() {
+        if (active_ && !path_.empty()) {
+            std::error_code ec;
+            fs::remove_all(path_, ec);
+        }
+    }
+
+    ScopedTempDir(const ScopedTempDir&) = delete;
+    ScopedTempDir& operator=(const ScopedTempDir&) = delete;
+
+    const fs::path& path() const { return path_; }
+
+private:
+    fs::path path_;
+    bool active_ = false;
+};
+
+bool has_disallowed_url_char(const std::string& url) {
+    for (unsigned char c : url) {
+        if (c <= 0x20 || c == 0x7f) return true;
+        switch (c) {
+            case '\'':
+            case '"':
+            case '`':
+            case '<':
+            case '>':
+            case '|':
+            case '\\':
+                return true;
+            default:
+                break;
+        }
+    }
+    return false;
+}
+
+bool has_file_shell_metachar(const std::string& value) {
+    for (unsigned char c : value) {
+        if (c < 0x20 || c == 0x7f) return true;
+        switch (c) {
+            case '\'':
+            case '"':
+            case '`':
+            case ';':
+            case '&':
+            case '|':
+            case '<':
+            case '>':
+            case '$':
+            case '(':
+            case ')':
+            case '*':
+            case '?':
+            case '[':
+            case ']':
+            case '{':
+            case '}':
+            case '!':
+                return true;
+            default:
+                break;
+        }
+    }
+    return false;
+}
+
+bool has_url_shell_metachar(const std::string& value) {
+    for (unsigned char c : value) {
+        if (c <= 0x20 || c == 0x7f) return true;
+        switch (c) {
+            case '\'':
+            case '"':
+            case '`':
+            case ';':
+            case '|':
+            case '<':
+            case '>':
+            case '$':
+            case '\\':
+            case '(':
+            case ')':
+            case '*':
+            case '[':
+            case ']':
+            case '{':
+            case '}':
+            case '!':
+                return true;
+            default:
+                break;
+        }
+    }
+    return false;
+}
+
+bool is_supported_http_url(const std::string& url) {
+    return url.rfind("https://", 0) == 0 || url.rfind("http://", 0) == 0;
+}
+
+bool fetch_url_to_file(const std::string& url, const fs::path& output_path) {
+    if (!is_supported_http_url(url)) {
+        std::cerr << "Error: --url must start with http:// or https://\n";
+        return false;
+    }
+    if (has_disallowed_url_char(url)) {
+        std::cerr << "Error: --url contains characters that are not accepted by the import fetcher\n";
+        return false;
+    }
+
+    auto curl = pulp::platform::find_on_path("curl");
+    if (!curl) {
+        std::cerr << "Error: curl not found on PATH; pass --file <path> or install curl\n";
+        return false;
+    }
+
+    pulp::platform::ProcessOptions opts;
+    opts.timeout_ms = 30000;
+    opts.max_output_bytes = 64 * 1024;
+    auto result = pulp::platform::ChildProcess::run(
+        curl->string(),
+        {"-fsSL", "--max-time", "30", "--output", output_path.string(), url},
+        opts);
+    if (result.timed_out) {
+        std::cerr << "Error: timed out fetching URL: " << url << "\n";
+        return false;
+    }
+    if (result.exit_code != 0) {
+        std::cerr << "Error: failed to fetch URL: " << url << "\n";
+        if (!result.stderr_output.empty()) std::cerr << result.stderr_output;
+        else if (!result.stdout_output.empty()) std::cerr << result.stdout_output;
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 static void print_usage() {
     std::cout << "pulp import-design — Import designs from external tools into Pulp\n\n";
@@ -28,14 +217,22 @@ static void print_usage() {
     std::cout << "  stitch   Google Stitch screen HTML or MCP data\n";
     std::cout << "  v0       v0.dev TSX/Tailwind output\n";
     std::cout << "  pencil   Pencil/OpenPencil node JSON or .pen export\n";
-    std::cout << "  claude   Anthropic Claude Design — manually-exported standalone HTML\n\n";
+    std::cout << "  claude   Anthropic Claude Design — manually-exported standalone HTML\n";
+    std::cout << "  designmd Google DESIGN.md design-system spec (tokens only)\n";
+    std::cout << "  jsx      React JSX instrument bundle (CLI dispatch reserved)\n\n";
     std::cout << "Options:\n";
     std::cout << "  --from <source>   Design source (required)\n";
     std::cout << "  --file <path>     Input file path\n";
     std::cout << "  --url <url>       Design URL (Figma file URL or v0 share link)\n";
     std::cout << "  --frame <name>    Frame/artboard to import (Figma)\n";
     std::cout << "  --screen <name>   Screen to import (Stitch)\n";
-    std::cout << "  --output <path>   Output JS file (default: ui.js)\n";
+    std::cout << "  --output <path>   Destination file for the primary artifact (default: ui.js)\n";
+    std::cout << "  --emit {js|ir-json|cpp}\n";
+    std::cout << "                    Primary artifact kind (default: js; ir-json/cpp reserved)\n";
+    std::cout << "  --mode {live|baked}\n";
+    std::cout << "                    Runtime model (default: live; baked reserved for future imports)\n";
+    std::cout << "  --snapshot-semantics {fail|warn|accept}\n";
+    std::cout << "                    JSX baked snapshot policy (default: fail)\n";
     std::cout << "  --tokens <path>   Output W3C token file (default: tokens.json)\n";
     std::cout << "  --dry-run         Show generated code without writing files\n";
     std::cout << "  --no-tokens       Skip token extraction\n";
@@ -50,7 +247,7 @@ static void print_usage() {
     std::cout << "  --no-bridge-scaffold    Skip bridge handler scaffold (claude only)\n";
     std::cout << "  --classnames <path>     Output classname → style map (default: classnames.json,\n";
     std::cout << "                          only emitted for --from claude — pulp #1035)\n";
-    std::cout << "  --emit classnames       Force-emit classnames.json (default on for --from claude)\n";
+    std::cout << "  --emit classnames       Legacy sidecar: force-emit classnames.json (claude)\n";
     std::cout << "  --no-emit-classnames    Skip classname emission (claude only)\n";
     std::cout << "  --shortcuts <path>      Output keyboard-shortcut manifest (default: shortcuts.json)\n";
     std::cout << "  --no-import-shortcuts   Skip keyboard shortcut auto-import (default: import)\n";
@@ -155,6 +352,9 @@ int main(int argc, char* argv[]) {
     bool report_new_format = false;
     std::string input_directory;                          // --directory: alternative to --file
     std::string compat_override;                          // --compat: explicit compat.json path
+    ArtifactEmit artifact_emit = ArtifactEmit::js;
+    RuntimeMode runtime_mode = RuntimeMode::live;
+    SnapshotSemantics snapshot_semantics = SnapshotSemantics::fail;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--from") == 0 && i + 1 < argc) {
@@ -217,13 +417,57 @@ int main(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--classnames") == 0 && i + 1 < argc) {
             classnames_output = argv[++i];
             classnames_output_explicit = true;
-        } else if (std::strcmp(argv[i], "--emit") == 0 && i + 1 < argc) {
-            // Currently only `--emit classnames` is recognized — additional
-            // emit targets (e.g. `--emit tokens`) can layer on later
-            // without changing the flag shape. Unknown values are
-            // silently no-ops to keep forward compatibility.
+        } else if (std::strcmp(argv[i], "--emit") == 0) {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --emit requires a value: js, ir-json, cpp, or classnames\n";
+                return 2;
+            }
             std::string what = argv[++i];
-            if (what == "classnames") emit_classnames = true;
+            if (what == "js") {
+                artifact_emit = ArtifactEmit::js;
+            } else if (what == "ir-json") {
+                artifact_emit = ArtifactEmit::ir_json;
+            } else if (what == "cpp") {
+                artifact_emit = ArtifactEmit::cpp;
+            } else if (what == "classnames") {
+                emit_classnames = true;
+            } else {
+                std::cerr << "Error: unsupported --emit value '" << what
+                          << "' (expected js, ir-json, cpp, or classnames)\n";
+                return 2;
+            }
+        } else if (std::strcmp(argv[i], "--mode") == 0) {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --mode requires a value: live or baked\n";
+                return 2;
+            }
+            std::string mode = argv[++i];
+            if (mode == "live") {
+                runtime_mode = RuntimeMode::live;
+            } else if (mode == "baked") {
+                runtime_mode = RuntimeMode::baked;
+            } else {
+                std::cerr << "Error: unsupported --mode value '" << mode
+                          << "' (expected live or baked)\n";
+                return 2;
+            }
+        } else if (std::strcmp(argv[i], "--snapshot-semantics") == 0) {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --snapshot-semantics requires a value: fail, warn, or accept\n";
+                return 2;
+            }
+            std::string semantics = argv[++i];
+            if (semantics == "fail") {
+                snapshot_semantics = SnapshotSemantics::fail;
+            } else if (semantics == "warn") {
+                snapshot_semantics = SnapshotSemantics::warn;
+            } else if (semantics == "accept") {
+                snapshot_semantics = SnapshotSemantics::accept;
+            } else {
+                std::cerr << "Error: unsupported --snapshot-semantics value '" << semantics
+                          << "' (expected fail, warn, or accept)\n";
+                return 2;
+            }
         } else if (std::strcmp(argv[i], "--no-emit-classnames") == 0) {
             emit_classnames = false;
         } else if (std::strcmp(argv[i], "--shortcuts") == 0 && i + 1 < argc) {
@@ -260,6 +504,7 @@ int main(int argc, char* argv[]) {
             };
             if (!bridge_output_explicit)     anchor(bridge_output,     "bridge_handlers.cpp");
             if (!classnames_output_explicit) anchor(classnames_output, "classnames.json");
+            if (!shortcuts_output_explicit)  anchor(shortcuts_output,  "shortcuts.json");
             if (!tokens_file_explicit)       anchor(tokens_file,       "tokens.json");
         }
     }
@@ -387,7 +632,7 @@ int main(int argc, char* argv[]) {
     auto source = parse_design_source(source_str);
     if (!source) {
         std::cerr << "Error: unknown source '" << source_str << "'\n";
-        std::cerr << "Valid sources: figma, stitch, v0, pencil, claude, designmd\n";
+        std::cerr << "Valid sources: figma, stitch, v0, pencil, claude, designmd, jsx\n";
         return 1;
     }
 
@@ -396,16 +641,44 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // --url without --file: fetch the URL content via curl
+    if (!input_file.empty() && has_file_shell_metachar(input_file)) {
+        std::cerr << "Error: --file contains shell metacharacters that are not accepted\n";
+        return 2;
+    }
+    if (!input_url.empty() && has_url_shell_metachar(input_url)) {
+        std::cerr << "Error: --url contains shell metacharacters that are not accepted\n";
+        return 2;
+    }
+
+    if (artifact_emit == ArtifactEmit::ir_json) {
+        std::cerr << "Error: --emit ir-json is reserved for the IR-v1 design-import implementation and is not implemented yet\n";
+        return 2;
+    }
+    if (artifact_emit == ArtifactEmit::cpp) {
+        std::cerr << "Error: --emit cpp is reserved for the baked C++ design-import implementation and is not implemented yet\n";
+        return 2;
+    }
+    if (runtime_mode == RuntimeMode::baked) {
+        if (*source == DesignSource::jsx && snapshot_semantics == SnapshotSemantics::fail) {
+            std::cerr << "Error: --mode baked for JSX requires --snapshot-semantics warn or accept\n";
+            return 2;
+        }
+        std::cerr << "Error: --mode baked is reserved for a future design-import mode and is not implemented yet\n";
+        return 2;
+    }
+
+    // --url without --file: fetch the URL content via argv-safe curl.
     std::string fetched_tmp;
+    std::unique_ptr<ScopedTempDir> fetched_tmp_dir;
     if (input_file.empty() && !input_url.empty()) {
-        fetched_tmp = (fs::temp_directory_path() / "pulp-import-fetched.tmp").string();
-        std::string cmd = "curl -sL -o '" + fetched_tmp + "' '" + input_url + "' 2>&1";
-        int rc = std::system(cmd.c_str());
-        if (rc != 0) {
-            std::cerr << "Error: failed to fetch URL: " << input_url << "\n";
+        try {
+            fetched_tmp_dir = std::make_unique<ScopedTempDir>("pulp-import-design");
+            fetched_tmp = (fetched_tmp_dir->path() / "download.html").string();
+        } catch (const std::exception& e) {
+            std::cerr << "Error: failed to prepare URL fetch workspace: " << e.what() << "\n";
             return 1;
         }
+        if (!fetch_url_to_file(input_url, fetched_tmp)) return 1;
         input_file = fetched_tmp;
         std::cout << "Fetched " << input_url << " → " << fetched_tmp << "\n";
     }

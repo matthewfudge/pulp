@@ -153,6 +153,17 @@ acceptance varies by implementation for signed prefixes, and the Rust-facing
 CLI surface should stay deterministic across platforms. Add regression tests
 for boundary spelling when changing these parsers.
 
+### Import-design artifact flags
+
+`pulp import-design --output <path>` is the destination for the primary
+artifact, not an artifact-kind selector. Keep sidecar anchoring tied to
+`--output` while using `--emit {js|ir-json|cpp}` for the primary artifact
+vocabulary. Reserved import-design artifact or runtime values should parse and
+fail cleanly until their implementation lands, and their accepted spelling must
+stay aligned across `pulp_import_design.cpp`, `docs/reference/cli.md`,
+`docs/reference/design-import.md`, `docs/status/cli-commands.yaml`, and the
+import-design skill.
+
 **Sidecar output anchoring:** when a CLI command takes `--output
 <path>/main.ext` and also emits sidecar artifacts (e.g.
 `pulp import-design` writes `bridge_handlers.cpp`, `classnames.json`,
