@@ -19,8 +19,22 @@
 #include <pulp/tools/audio/service.hpp>
 
 #include "pulp_mcp_version.h"
+#include "mcp_json.hpp"
 
 namespace fs = std::filesystem;
+
+// JSON-RPC framing + field extraction extracted to mcp_json.hpp in the
+// Phase 6 (B4) refactor. Pull the helpers into file scope so the rest
+// of this TU keeps its existing unqualified call sites.
+using pulp_mcp::json_string;
+using pulp_mcp::json_error;
+using pulp_mcp::json_result;
+using pulp_mcp::json_tool_payload;
+using pulp_mcp::extract_string;
+using pulp_mcp::extract_raw;
+using pulp_mcp::extract_int;
+using pulp_mcp::extract_double;
+using pulp_mcp::extract_bool;
 
 #if defined(_WIN32)
 #define PULP_POPEN _popen
@@ -30,90 +44,6 @@ namespace fs = std::filesystem;
 #define PULP_PCLOSE pclose
 #endif
 
-// ── JSON helpers (minimal, no external deps for MCP server) ──────────────────
-
-static std::string json_string(const std::string& s) {
-    std::string out = "\"";
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:   out += c;
-        }
-    }
-    out += "\"";
-    return out;
-}
-
-static std::string json_error(const std::string& id, int code, const std::string& msg) {
-    return "{\"jsonrpc\":\"2.0\",\"id\":" + id +
-           ",\"error\":{\"code\":" + std::to_string(code) +
-           ",\"message\":" + json_string(msg) + "}}";
-}
-
-static std::string json_result(const std::string& id, const std::string& result_json) {
-    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":" + result_json + "}";
-}
-
-static std::string json_tool_payload(const std::string& structured_json) {
-    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(structured_json) +
-           "}],\"structuredContent\":" + structured_json + "}";
-}
-
-// ── Extract JSON fields (simple parsing) ─────────────────────────────────────
-
-static std::string extract_string(const std::string& json, const std::string& key) {
-    auto key_pos = json.find("\"" + key + "\"");
-    if (key_pos == std::string::npos) return {};
-
-    auto colon = json.find(':', key_pos + key.size() + 2);
-    if (colon == std::string::npos) return {};
-
-    auto start = json.find('"', colon + 1);
-    if (start == std::string::npos) return {};
-
-    auto end = json.find('"', start + 1);
-    while (end != std::string::npos && json[end - 1] == '\\') {
-        end = json.find('"', end + 1);
-    }
-    if (end == std::string::npos) return {};
-
-    return json.substr(start + 1, end - start - 1);
-}
-
-static std::string extract_raw(const std::string& json, const std::string& key) {
-    auto key_pos = json.find("\"" + key + "\"");
-    if (key_pos == std::string::npos) return {};
-
-    auto colon = json.find(':', key_pos + key.size() + 2);
-    if (colon == std::string::npos) return {};
-
-    // Skip whitespace
-    auto start = colon + 1;
-    while (start < json.size() && (json[start] == ' ' || json[start] == '\t')) ++start;
-
-    if (start >= json.size()) return {};
-
-    // If it's a string
-    if (json[start] == '"') {
-        auto end = json.find('"', start + 1);
-        while (end != std::string::npos && json[end - 1] == '\\')
-            end = json.find('"', end + 1);
-        if (end == std::string::npos) return {};
-        return json.substr(start, end - start + 1);
-    }
-
-    // If it's a number or null
-    auto end = json.find_first_of(",}", start);
-    if (end == std::string::npos) end = json.size();
-    auto value = json.substr(start, end - start);
-    // Trim
-    while (!value.empty() && (value.back() == ' ' || value.back() == '\n')) value.pop_back();
-    return value;
-}
 
 // ── Shell execution ──────────────────────────────────────────────────────────
 
@@ -497,43 +427,6 @@ static std::string handle_audio_read_bundle(const std::string& params_json) {
     return json_tool_payload(pulp::tools::audio::to_json(bundle));
 }
 
-static int extract_int(const std::string& json, const std::string& key, int fallback) {
-    auto raw = extract_raw(json, key);
-    if (raw.empty() || raw == "null") return fallback;
-    try {
-        std::size_t pos = 0;
-        int value = std::stoi(raw, &pos);
-        while (pos < raw.size()) {
-            if (!std::isspace(static_cast<unsigned char>(raw[pos]))) return fallback;
-            ++pos;
-        }
-        return value;
-    } catch (...) {
-        return fallback;
-    }
-}
-
-static double extract_double(const std::string& json, const std::string& key, double fallback) {
-    auto raw = extract_raw(json, key);
-    if (raw.empty() || raw == "null") return fallback;
-    try {
-        std::size_t pos = 0;
-        double value = std::stod(raw, &pos);
-        while (pos < raw.size()) {
-            if (!std::isspace(static_cast<unsigned char>(raw[pos]))) return fallback;
-            ++pos;
-        }
-        return value;
-    } catch (...) {
-        return fallback;
-    }
-}
-
-static bool extract_bool(const std::string& json, const std::string& key, bool fallback) {
-    auto raw = extract_raw(json, key);
-    if (raw.empty() || raw == "null") return fallback;
-    return raw == "true" ? true : raw == "false" ? false : fallback;
-}
 
 static std::string handle_audio_excerpt_find(const std::string& params_json) {
     auto text = extract_string(params_json, "text");
