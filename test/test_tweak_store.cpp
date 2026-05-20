@@ -142,14 +142,17 @@ TEST_CASE("TweakStore: remove_anchor wipes all paths under an anchor",
     REQUIRE(s.lookup("anchor:b", "layout.gap").has_value());
 }
 
-TEST_CASE("TweakStore: clear wipes tweaks + bypass overlay",
+TEST_CASE("TweakStore: clear wipes tweaks + bypass overlay + lock set",
           "[inspect][tweak-store]") {
     TweakStore s;
     s.apply_tweak("anchor:a", "layout.padding", choc::value::createInt32(12), {});
     s.set_bypass("anchor:a", true);
+    s.set_locked("anchor:a", true);
     s.clear();
     REQUIRE(s.count() == 0);
     REQUIRE_FALSE(s.bypass_for("anchor:a").has_value());
+    REQUIRE_FALSE(s.is_locked("anchor:a"));
+    REQUIRE(s.locked_anchors().empty());
 }
 
 // ── Bypass overlay ──────────────────────────────────────────────────────
@@ -187,6 +190,115 @@ TEST_CASE("TweakStore: bypass=empty vector clears the overlay (per Codex spec)",
     s.set_bypass("anchor:a", std::vector<std::string>{"x"});
     s.set_bypass("anchor:a", std::vector<std::string>{});
     REQUIRE_FALSE(s.bypass_for("anchor:a").has_value());
+}
+
+// ── Phase 2.5: lock overlay ─────────────────────────────────────────────
+
+TEST_CASE("TweakStore: set_locked marks an anchor protected",
+          "[inspect][tweak-store][lock]") {
+    TweakStore s;
+    REQUIRE_FALSE(s.is_locked("anchor:a"));
+    s.set_locked("anchor:a", true);
+    REQUIRE(s.is_locked("anchor:a"));
+    REQUIRE_FALSE(s.is_locked("anchor:b"));
+}
+
+TEST_CASE("TweakStore: set_locked(false) and clear_lock remove the lock",
+          "[inspect][tweak-store][lock]") {
+    TweakStore s;
+    s.set_locked("anchor:a", true);
+    s.set_locked("anchor:a", false);
+    REQUIRE_FALSE(s.is_locked("anchor:a"));
+
+    s.set_locked("anchor:b", true);
+    s.clear_lock("anchor:b");
+    REQUIRE_FALSE(s.is_locked("anchor:b"));
+}
+
+TEST_CASE("TweakStore: locked_anchors enumerates every locked anchor",
+          "[inspect][tweak-store][lock]") {
+    TweakStore s;
+    REQUIRE(s.locked_anchors().empty());
+    s.set_locked("anchor:a", true);
+    s.set_locked("anchor:c", true);
+    s.set_locked("anchor:b", true);
+    auto locked = s.locked_anchors();
+    std::sort(locked.begin(), locked.end());
+    REQUIRE(locked == std::vector<std::string>{"anchor:a", "anchor:b", "anchor:c"});
+
+    // Lock is independent of whether the anchor has tweak records —
+    // a lock-only anchor still enumerates.
+    REQUIRE(s.count() == 0);
+}
+
+TEST_CASE("TweakStore: lock state is independent of bypass state",
+          "[inspect][tweak-store][lock]") {
+    TweakStore s;
+    s.set_locked("anchor:a", true);
+    REQUIRE_FALSE(s.is_bypassed("anchor:a", "any.path"));  // lock != bypass
+    s.set_bypass("anchor:a", true);
+    REQUIRE(s.is_locked("anchor:a"));                      // bypass != lock
+    s.clear_bypass("anchor:a");
+    REQUIRE(s.is_locked("anchor:a"));                      // still locked
+}
+
+TEST_CASE("TweakStore: lock state round-trips through disk",
+          "[inspect][tweak-store][lock][disk]") {
+    TempTweaksDir tmp;
+    TweakStore s;
+    s.apply_tweak("anchor:a", "layout.padding", choc::value::createInt32(8), "drag");
+    s.apply_tweak("anchor:b", "paint.bg", choc::value::createString("#fff"), "picker");
+    s.set_locked("anchor:a", true);
+    // A lock-only anchor (no tweaks) must also persist.
+    s.set_locked("anchor:lonely", true);
+
+    auto saved = s.save_to_disk(tmp.file.string());
+    REQUIRE(saved.ok);
+    // The serialized file should carry a `locked` array.
+    REQUIRE(tmp.read().find("\"locked\"") != std::string::npos);
+
+    TweakStore t;
+    auto loaded = t.load_from_disk(tmp.file.string());
+    REQUIRE(loaded.ok);
+    REQUIRE(t.is_locked("anchor:a"));
+    REQUIRE(t.is_locked("anchor:lonely"));
+    REQUIRE_FALSE(t.is_locked("anchor:b"));
+    auto locked = t.locked_anchors();
+    REQUIRE(locked.size() == 2);
+}
+
+TEST_CASE("TweakStore: lock round-trips through from_json without disk",
+          "[inspect][tweak-store][lock]") {
+    TweakStore s;
+    s.set_locked("anchor:x", true);
+    auto json = s.to_json();
+    TweakStore t;
+    REQUIRE(t.from_json(json).ok);
+    REQUIRE(t.is_locked("anchor:x"));
+}
+
+TEST_CASE("TweakStore: a v1 file with no `locked` key loads with an empty lock set",
+          "[inspect][tweak-store][lock][disk][schema]") {
+    // Pre-2.5 files have no `locked` key — they must still load and
+    // simply carry no lock state. (Forward-compat: 2.5 reading v1.)
+    TempTweaksDir tmp;
+    tmp.write(R"({
+        "$schema": "pulp-tweaks://v1",
+        "tweaks": { "anchor:a": { "paint.bg": "#abc" } }
+    })");
+    TweakStore s;
+    auto loaded = s.load_from_disk(tmp.file.string());
+    REQUIRE(loaded.ok);
+    REQUIRE(s.lookup("anchor:a", "paint.bg")->getString() == "#abc");
+    REQUIRE(s.locked_anchors().empty());
+}
+
+TEST_CASE("TweakStore: empty lock set is omitted from the serialized JSON",
+          "[inspect][tweak-store][lock]") {
+    // Keep trivial files small — no `locked` key when nothing is locked.
+    TweakStore s;
+    s.apply_tweak("anchor:a", "p", choc::value::createInt32(1), {});
+    REQUIRE(s.to_json().find("\"locked\"") == std::string::npos);
 }
 
 // ── Protocol round-trip via DomainHandler ───────────────────────────────
@@ -343,6 +455,71 @@ TEST_CASE("Inspector.setBypass with non-bool/non-array value errors",
     auto resp = f.handler.handle(req(methods::kInspectorSetBypass,
         R"({"anchorId":"a","value":42})"));
     REQUIRE(resp.is_error);
+}
+
+// ── Phase 2.5: Inspector.setLocked protocol ─────────────────────────────
+
+TEST_CASE("Inspector.setLocked with value=true locks the anchor",
+          "[inspect][protocol][setLocked]") {
+    Fixture f;
+    auto resp = f.handler.handle(req(methods::kInspectorSetLocked,
+        R"({"anchorId":"a","value":true})"));
+    REQUIRE_FALSE(resp.is_error);
+    auto parsed = choc::json::parse(resp.params_json);
+    REQUIRE(parsed["ok"].getBool());
+    REQUIRE(parsed["locked"].getBool());
+    REQUIRE(f.store.is_locked("a"));
+}
+
+TEST_CASE("Inspector.setLocked with value=false unlocks the anchor",
+          "[inspect][protocol][setLocked]") {
+    Fixture f;
+    f.store.set_locked("a", true);
+    auto resp = f.handler.handle(req(methods::kInspectorSetLocked,
+        R"({"anchorId":"a","value":false})"));
+    REQUIRE_FALSE(resp.is_error);
+    auto parsed = choc::json::parse(resp.params_json);
+    REQUIRE_FALSE(parsed["locked"].getBool());
+    REQUIRE_FALSE(f.store.is_locked("a"));
+}
+
+TEST_CASE("Inspector.setLocked with a non-bool value errors cleanly",
+          "[inspect][protocol][setLocked]") {
+    Fixture f;
+    auto resp = f.handler.handle(req(methods::kInspectorSetLocked,
+        R"({"anchorId":"a","value":"yes"})"));
+    REQUIRE(resp.is_error);
+}
+
+TEST_CASE("Inspector.setLocked without a tweak store errors cleanly",
+          "[inspect][protocol][setLocked][no-store]") {
+    DomainHandler h;  // no tweak store
+    auto resp = h.handle(req(methods::kInspectorSetLocked,
+        R"({"anchorId":"a","value":true})"));
+    REQUIRE(resp.is_error);
+}
+
+TEST_CASE("Inspector.setLocked with un-parseable JSON errors cleanly",
+          "[inspect][protocol][setLocked]") {
+    Fixture f;
+    auto resp = f.handler.handle(req(methods::kInspectorSetLocked, "not json"));
+    REQUIRE(resp.is_error);
+}
+
+TEST_CASE("Inspector.listTweaks surfaces the locked anchor set",
+          "[inspect][protocol][listTweaks][lock]") {
+    Fixture f;
+    f.store.apply_tweak("a", "layout.padding", choc::value::createInt32(8), {});
+    f.store.apply_tweak("b", "paint.bg", choc::value::createString("#fff"), {});
+    f.store.set_locked("a", true);
+
+    auto resp = f.handler.handle(req(methods::kInspectorListTweaks, "{}"));
+    REQUIRE_FALSE(resp.is_error);
+    auto parsed = choc::json::parse(resp.params_json);
+    auto locked = parsed["locked"];
+    REQUIRE(locked.isArray());
+    REQUIRE(locked.size() == 1);
+    REQUIRE(locked[0].getString() == "a");
 }
 
 TEST_CASE("Inspector.listTweaks round-trips string[] bypass for an anchor",
