@@ -362,8 +362,19 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             // Resolved-style sampling is synchronous + frame-
             // independent, so a click without a prior move still
             // picks a real color (covers headless / scripted use).
-            // Always refresh here; a hover/readback sample from a
-            // previous point must not be applied to a different click.
+            //
+            // Codex P1 (#2434): the click must be authoritative on the
+            // click coordinate. Invalidate any prior sample FIRST — a
+            // hover move or a paint_eyedropper_cursor() framebuffer
+            // readback at the default/old cursor position may have left
+            // a stale `eyedropper_sample_` with `eyedropper_has_sample_`
+            // still true. If the click-position resample then fails
+            // (e.g. the click lands where no view carries a background
+            // color and only the resolved-style fallback is available),
+            // apply_eyedropper_pick() must no-op rather than commit the
+            // stale color — so the invalidation has to happen before the
+            // resample, not be skipped on a failed read.
+            eyedropper_has_sample_ = false;
             Color sampled;
             if (sample_color_at(pos, nullptr, sampled)) {
                 eyedropper_sample_ = sampled;

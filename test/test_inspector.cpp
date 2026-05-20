@@ -1477,6 +1477,36 @@ TEST_CASE("InspectorOverlay Phase 3c: click refreshes stale hover sample",
     REQUIRE(std::string(v->getString()) == "#0066ff");
 }
 
+TEST_CASE("InspectorOverlay Phase 3c: click never commits a stale sample",
+          "[inspect][overlay][phase3c][regression]") {
+    // Codex P1 (#2434): pressing E and clicking on empty canvas must
+    // not write a stale color into the tweak store. A prior sample can
+    // be left behind by an earlier hover (or by paint_eyedropper_cursor
+    // sampling from the default cursor position before any mouse-move).
+    // When the click lands where the resolved-style fallback finds no
+    // background-colored view, the resample fails — and the pick must
+    // no-op rather than commit the stale color from the old position.
+    Phase3cScene s(Color::rgba8(0xff, 0x00, 0x00));
+    s.overlay.set_eyedropper_active(true);
+
+    // Seed a stale sample by hovering over the colored child.
+    s.overlay.handle_mouse_event(make_move(90, 80));
+    REQUIRE(s.overlay.eyedropper_has_sample());
+    REQUIRE(s.overlay.eyedropper_sample().r8() == 0xff);
+
+    // Click on empty canvas — (60, 300) is inside the root and clear of
+    // the inspector panel (x >= 200), but hits no background-colored
+    // view, so the resolved-style fallback returns false. The stale red
+    // sample must not survive into the store.
+    bool consumed = s.overlay.handle_mouse_event(make_click(60, 300));
+    REQUIRE(consumed);  // the click is still consumed by the eyedropper
+
+    // No tweak — the failed resample invalidated the sample, so
+    // apply_eyedropper_pick() correctly no-ops instead of writing red.
+    REQUIRE(s.store.count() == 0);
+    REQUIRE_FALSE(s.overlay.eyedropper_has_sample());
+}
+
 TEST_CASE("InspectorOverlay Phase 3c: retargeting writes a different property",
           "[inspect][overlay][phase3c]") {
     Phase3cScene s(Color::rgba8(0x00, 0x99, 0xff));
