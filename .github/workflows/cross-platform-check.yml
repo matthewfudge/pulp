@@ -1,0 +1,422 @@
+name: Cross-platform check
+
+# Nightly cross-platform safety net.
+#
+# Pulp's team actively develops and tests on macOS; Linux, Windows, and
+# Android are "tell us if they break" signal. Per-PR CI is being slimmed
+# so those advisory legs no longer run on every PR. Without a backstop,
+# cross-platform breakage on `main` would go unnoticed for days.
+#
+# This workflow is that backstop. Every night it runs the FULL Linux,
+# Windows, and Android build + test on GitHub-hosted runners — never the
+# scarce self-hosted macOS runners — and, on failure, files (or updates)
+# ONE labeled GitHub issue per broken platform so cross-platform debt is
+# visible and batch-fixable rather than silent. On recovery, that
+# platform's tracking issue auto-closes.
+#
+# Distinct from `nightly-full-build.yml`: that workflow does the full
+# macOS `make all` to catch test targets that PR CI never compiles. This
+# one is the cross-platform (non-macOS) coverage that PR CI has stopped
+# providing.
+#
+# The platform jobs run with `fail-fast: false` so one platform failing
+# does NOT abort the others — catching ALL breakage in a single nightly
+# pass is the whole point.
+
+on:
+  schedule:
+    # 07:17 UTC — overnight in the Americas, off-peak. Odd minute (:17,
+    # not :00 / :30) avoids the top-of-hour GitHub scheduler stampede.
+    - cron: '17 7 * * *'
+  # Manual trigger retained for bisecting a regression or re-running
+  # after a fix lands without waiting for the next nightly.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # issues: write — the issue-maintenance job opens/edits/closes the
+  # per-platform tracking issues. actions: read — it queries this run's
+  # jobs and the previous run via the Actions API.
+  issues: write
+  actions: read
+
+concurrency:
+  group: cross-platform-check
+  cancel-in-progress: false
+
+jobs:
+  # ── Linux build + test ─────────────────────────────────────────────────
+  # Mirrors build.yml's Linux matrix leg: same apt dependency set, same
+  # `setup.sh --ci --deps-only` bootstrap, same Release configure, same
+  # ctest filters. GitHub-hosted ubuntu-latest only.
+  linux:
+    name: Linux build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PULP_BUILD_DIR: build-linux
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: false
+
+      - name: Install Linux dependencies
+        run: |
+          # Dependency set mirrors build.yml's "Install Linux
+          # dependencies" step (libfontconfig1-dev included — chrome/m144
+          # Skia exposes fontconfig symbols the Linux link step needs).
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libdbus-1-dev \
+            libdrm-dev \
+            libegl1-mesa-dev \
+            libfontconfig1-dev \
+            libgbm-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libxss-dev \
+            libxtst-dev \
+            libwayland-dev \
+            wayland-protocols \
+            ccache
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+        shell: bash
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B "$PULP_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash
+        run: cmake --build "$PULP_BUILD_DIR" --config Release 2>&1 | tee build-linux.log
+
+      - name: Test
+        shell: bash
+        # Mirrors build.yml's "Test (non-Windows)" filters: exclude the
+        # `validation` and `slow` label groups, plus the GPU / harness
+        # tests that need a display the GitHub-hosted runner lacks.
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          ctest --test-dir "$PULP_BUILD_DIR" --output-on-failure -C Release \
+            -LE 'validation|slow' -j8 --timeout 120 \
+            --exclude-regex 'STFT|VisualizationBridge|Clipboard|Toolbar add items' \
+            2>&1 | tee test-linux.log
+
+      - name: Upload Linux build + test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-platform-linux-logs
+          path: |
+            build-linux.log
+            test-linux.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ── Windows build + test ───────────────────────────────────────────────
+  # Mirrors build.yml's Windows matrix leg: same bootstrap, same Release
+  # configure, same UTF-8-code-page-wrapped ctest. GitHub-hosted
+  # windows-latest only.
+  windows:
+    name: Windows build + test
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PULP_BUILD_DIR: build-windows
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: false
+
+      - name: Install ccache (Windows)
+        continue-on-error: true
+        run: choco install ccache --no-progress -y
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+        shell: bash
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B "$PULP_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: bash
+        run: cmake --build "$PULP_BUILD_DIR" --config Release 2>&1 | tee build-windows.log
+
+      - name: Test (UTF-8 code page wrapped)
+        # Windows needs a UTF-8 console code page so ctest's child
+        # processes receive filter args (test names with em-dashes)
+        # without CP-1252 mangling — mirrors build.yml's Windows test
+        # step. The `chcp 65001` must apply to the cmd subshell that
+        # spawns the test binaries.
+        shell: cmd
+        run: |
+          chcp 65001
+          ctest --test-dir "%PULP_BUILD_DIR%" --output-on-failure -C Release -LE "validation|slow" -j8 --timeout 120 --exclude-regex "STFT|VisualizationBridge|Clipboard|Toolbar add items" > test-windows.log 2>&1
+          type test-windows.log
+
+      - name: Upload Windows build + test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-platform-windows-logs
+          path: |
+            build-windows.log
+            test-windows.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ── Android build ──────────────────────────────────────────────────────
+  # Scope: Android NDK build only — `./gradlew assembleDebug`, which
+  # cross-compiles libpulp.so via the NDK and packages the debug APK,
+  # plus the APK-contains-libpulp.so verification. This mirrors the
+  # build leg of android.yml's `android-build` job (run on Linux here
+  # instead of macOS/Windows since this lane uses GitHub-hosted runners).
+  #
+  # Android Kotlin unit tests are NOT included: android.yml has no
+  # `./gradlew test` step, so there is no clean command to lift. The
+  # emulator/JNI smoke from android.yml is also out of scope here — it
+  # is gated off in android.yml itself (HV_UNSUPPORTED on Apple-Silicon
+  # runners, see android.yml #487) and needs a KVM-capable runner.
+  android:
+    name: Android NDK build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;30.0.14904198"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/app/.cxx
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle.kts') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Build Android APK (arm64-v8a + x86_64)
+        working-directory: android
+        run: ./gradlew assembleDebug 2>&1 | tee ../build-android.log
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/30.0.14904198
+
+      - name: Verify APK contains libpulp.so
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          echo "--- APK full contents ---"
+          unzip -l "$APK" || echo "(APK unreadable)"
+          echo "---"
+          if unzip -l "$APK" | grep -q "libpulp.so"; then
+            echo "libpulp.so found in APK"
+            unzip -l "$APK" | grep "\.so"
+          else
+            echo "libpulp.so NOT found in APK"
+            exit 1
+          fi
+
+      - name: Upload Android build logs + APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-platform-android-logs
+          path: |
+            build-android.log
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/.cxx/**/CMakeFiles/CMakeOutput.log
+            android/app/.cxx/**/CMakeFiles/CMakeError.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ── Per-platform tracking-issue maintenance ────────────────────────────
+  # `needs:` all three platform jobs and `if: always()` so it runs even
+  # when a platform job fails. For EACH platform: if its job failed,
+  # find-or-create (and reopen if closed) that platform's tracking issue;
+  # if its job succeeded, close that platform's open tracking issue.
+  #
+  # Reuses the find-or-create / edit / reopen / close gh-api pattern from
+  # auto-release-watchdog.yml — exactly ONE tracking issue per platform,
+  # keyed by exact title, never a fresh issue per night.
+  tracking-issues:
+    name: Maintain per-platform tracking issues
+    needs: [linux, windows, android]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LINUX_RESULT: ${{ needs.linux.result }}
+      WINDOWS_RESULT: ${{ needs.windows.result }}
+      ANDROID_RESULT: ${{ needs.android.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      RUN_SHA: ${{ github.sha }}
+    steps:
+      - name: Resolve commit range since last green run
+        id: range
+        shell: bash
+        # Find the head SHA of the most recent successful run of this
+        # workflow so the tracking issue can show the commit range to
+        # bisect within tonight's batch. Best-effort — if no prior green
+        # run exists (or the API call fails) the range is left empty.
+        run: |
+          set -euo pipefail
+          repo='${{ github.repository }}'
+          run_id='${{ github.run_id }}'
+
+          last_green_sha=$(
+            gh api "repos/${repo}/actions/workflows/cross-platform-check.yml/runs?status=success&per_page=20" \
+              --jq "[.workflow_runs[] | select((.id | tostring) != \"${run_id}\")] | first | .head_sha // \"\"" \
+              2>/dev/null || echo ""
+          )
+
+          if [ -n "${last_green_sha}" ]; then
+            range="${last_green_sha}...${RUN_SHA}"
+            compare_url="${{ github.server_url }}/${repo}/compare/${last_green_sha}...${RUN_SHA}"
+          else
+            range=""
+            compare_url=""
+          fi
+          echo "last_green_sha=${last_green_sha}" >> "$GITHUB_OUTPUT"
+          echo "range=${range}"                  >> "$GITHUB_OUTPUT"
+          echo "compare_url=${compare_url}"       >> "$GITHUB_OUTPUT"
+          echo "Last green run head SHA: ${last_green_sha:-<none>}; range: ${range:-<none>}"
+
+      - name: Maintain tracking issues
+        shell: bash
+        env:
+          LAST_GREEN_SHA: ${{ steps.range.outputs.last_green_sha }}
+          COMMIT_RANGE: ${{ steps.range.outputs.range }}
+          COMPARE_URL: ${{ steps.range.outputs.compare_url }}
+        run: |
+          set -euo pipefail
+
+          repo='${{ github.repository }}'
+
+          # maintain_platform <key> <title> <result> <platform-label> <artifact>
+          #
+          # De-dup: exactly ONE tracking issue per platform, keyed by the
+          # EXACT title. `gh issue list --search "in:title <title>"
+          # --state all` searches OPEN and CLOSED so a green run closes an
+          # open tracker and a failure reopens a closed one — never a
+          # fresh issue per night. Find-or-create / edit / reopen / close
+          # mirrors auto-release-watchdog.yml.
+          maintain_platform() {
+            local key="$1" title="$2" result="$3" platform_label="$4" artifact="$5"
+
+            local existing_json existing existing_state
+            existing_json=$(
+              gh issue list \
+                --repo "$repo" \
+                --state all \
+                --search "in:title \"${title}\"" \
+                --json number,title,state \
+                --jq "[.[] | select(.title == \"${title}\")] | first // {}"
+            )
+            existing=$(echo "$existing_json" | python3 -c "import json, sys; d=json.load(sys.stdin); print(d.get('number','') or '')")
+            existing_state=$(echo "$existing_json" | python3 -c "import json, sys; d=json.load(sys.stdin); print(d.get('state','') or '')")
+
+            if [ "$result" = "success" ]; then
+              if [ -n "${existing:-}" ] && [ "$existing_state" = "OPEN" ]; then
+                echo "${key}: recovered — closing tracker #${existing}."
+                gh issue comment "$existing" --repo "$repo" \
+                  --body "Cross-platform ${key} check returned to green on ${RUN_URL} (sha \`${RUN_SHA}\`). Closing."
+                gh issue close "$existing" --repo "$repo" --reason completed
+              else
+                echo "${key}: green and no open tracker — nothing to do."
+              fi
+              return 0
+            fi
+
+            # result is "failure", "cancelled", or anything non-success —
+            # treat as broken and open/update the tracker.
+            local range_line
+            if [ -n "${COMMIT_RANGE}" ]; then
+              range_line="**Commit range since last green run:** [\`${COMMIT_RANGE}\`](${COMPARE_URL}) — bisect within this range."
+            else
+              range_line="**Commit range since last green run:** unavailable (no prior green run of this workflow found)."
+            fi
+
+            {
+              echo "_Auto-generated by \`.github/workflows/cross-platform-check.yml\` on $(date -u '+%Y-%m-%d %H:%M UTC')._"
+              echo
+              echo "The nightly cross-platform **${key}** build + test job failed."
+              echo "Pulp's team develops on macOS; ${key} is advisory \"tell us if it"
+              echo "breaks\" signal — this tracker makes that breakage visible and"
+              echo "batch-fixable instead of silent."
+              echo
+              echo "**Platform job result:** \`${result}\`"
+              echo "**Run:** ${RUN_URL}"
+              echo "**Tip SHA:** \`${RUN_SHA}\`"
+              echo "${range_line}"
+              echo
+              echo "**Job / step summary:**"
+              echo "- Linux job: \`${LINUX_RESULT}\`"
+              echo "- Windows job: \`${WINDOWS_RESULT}\`"
+              echo "- Android job: \`${ANDROID_RESULT}\`"
+              echo
+              echo "  The failing job's build/test steps are the ones to inspect —"
+              echo "  download the artifact below for the full \`cmake --build\` and"
+              echo "  \`ctest\` (or \`gradlew\`) output."
+              echo
+              echo "**Artifact:** \`${artifact}\` (attached to the run linked above)."
+              echo
+              echo "_This tracker is de-duplicated (exactly one issue per platform,"
+              echo "edited in place) and closes automatically on the next green"
+              echo "cross-platform run._"
+            } > "body-${key}.md"
+
+            if [ -z "${existing:-}" ]; then
+              echo "${key}: creating tracking issue."
+              gh issue create --repo "$repo" --title "$title" --body-file "body-${key}.md" \
+                --label "bug,ci,cross-platform,${platform_label}" 2>&1 || \
+                gh issue create --repo "$repo" --title "$title" --body-file "body-${key}.md"
+            else
+              echo "${key}: updating tracking issue #${existing}."
+              gh issue edit "$existing" --repo "$repo" --body-file "body-${key}.md"
+              gh issue reopen "$existing" --repo "$repo" 2>/dev/null || true
+            fi
+          }
+
+          maintain_platform linux \
+            "Cross-platform Linux check is broken" \
+            "$LINUX_RESULT" platform:linux cross-platform-linux-logs
+
+          maintain_platform windows \
+            "Cross-platform Windows check is broken" \
+            "$WINDOWS_RESULT" platform:windows cross-platform-windows-logs
+
+          maintain_platform android \
+            "Cross-platform Android check is broken" \
+            "$ANDROID_RESULT" platform:android cross-platform-android-logs
