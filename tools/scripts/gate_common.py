@@ -193,7 +193,7 @@ def glob_match(path: str, pattern: str) -> bool:
 
 
 def matches_any(path: str, patterns: Iterable[str]) -> bool:
-    p = path.replace(os.sep, "/")
+    p = path.replace("\\", "/").replace(os.sep, "/")
     for pat in patterns:
         if glob_match(p, pat):
             return True

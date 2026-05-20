@@ -52,6 +52,15 @@ class GlobToRegexTests(unittest.TestCase):
         self.assertTrue(gc.glob_match("a/b.cpp", "**/*.cpp"))
         self.assertTrue(gc.glob_match("b.cpp", "**/*.cpp"))
 
+    def test_bare_double_star_matches_everything(self) -> None:
+        self.assertTrue(gc.glob_match("a/b/c.txt", "**"))
+        self.assertTrue(gc.glob_match("file.txt", "**"))
+
+    def test_trailing_double_star_preserves_prefix_boundary(self) -> None:
+        self.assertTrue(gc.glob_match("tools/cli", "tools/cli/**"))
+        self.assertTrue(gc.glob_match("tools/cli/sub/file.cpp", "tools/cli/**"))
+        self.assertFalse(gc.glob_match("tools/clicmd.cpp", "tools/cli/**"))
+
     def test_glob_to_regex_returns_compiled_pattern(self) -> None:
         p = gc.glob_to_regex("a/**")
         self.assertIsInstance(p, re.Pattern)
@@ -59,6 +68,10 @@ class GlobToRegexTests(unittest.TestCase):
     def test_matches_any(self) -> None:
         self.assertTrue(gc.matches_any("a/b.cpp", ["x/**", "a/*.cpp"]))
         self.assertFalse(gc.matches_any("a/b.cpp", ["x/**", "y/**"]))
+
+    def test_matches_any_normalizes_os_separators(self) -> None:
+        win_path = "tools\\scripts\\gate_common.py"
+        self.assertTrue(gc.matches_any(win_path, ["tools/scripts/*.py"]))
 
 
 class StripMetaTests(unittest.TestCase):
@@ -95,6 +108,13 @@ class GitHelperTests(unittest.TestCase):
                 gc.git_diff_names("main", "HEAD"),
                 ["a.txt", "b.txt", "c.txt"],
             )
+
+    def test_parse_trailer_block_ignores_non_trailer_output(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [], 0, stdout="not a trailer\nAlso not one\nKey: value\n",
+        )
+        with mock.patch.object(gc.subprocess, "run", return_value=completed):
+            self.assertEqual(gc._parse_trailer_block("body"), {"key": ["value"]})
 
 
 class TrailerParseTests(unittest.TestCase):
@@ -170,6 +190,13 @@ class TrailerParseTests(unittest.TestCase):
         self.assertEqual(
             t["compat-update"], ["skip prefix=css reason=\"ok\""],
         )
+
+    def test_commit_trailers_returns_empty_on_git_failure(self) -> None:
+        def boom(cmd, *args, **kwargs):
+            raise subprocess.CalledProcessError(128, cmd)
+
+        with mock.patch.object(gc.subprocess, "run", side_effect=boom):
+            self.assertEqual(gc.git_commit_trailers("missing"), {})
 
 
 if __name__ == "__main__":

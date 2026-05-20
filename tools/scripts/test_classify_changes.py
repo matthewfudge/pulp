@@ -11,12 +11,16 @@ Run:
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import json
 import os
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 THIS_DIR = Path(__file__).parent
 SCRIPT = THIS_DIR / "classify_changes.py"
@@ -117,6 +121,66 @@ class NativeBuildRequiredTests(unittest.TestCase):
         # scripts are build-coupled. Conservative > clever.
         self.assertTrue(classify.native_build_required(
             ["tools/scripts/source_tree_pollution_check.py"]))
+
+
+class DiffModeTests(unittest.TestCase):
+    def test_changed_files_from_diff_disables_rename_detection(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["git"],
+            0,
+            stdout="\nREADME.md\n core/signal/src/fft.cpp \n\n",
+            stderr="",
+        )
+
+        with mock.patch.object(
+            classify.subprocess, "run", return_value=completed
+        ) as run:
+            files = classify._changed_files_from_diff("origin/main")
+
+        self.assertEqual(files, ["README.md", "core/signal/src/fft.cpp"])
+        run.assert_called_once_with(
+            ["git", "diff", "--no-renames", "--name-only", "origin/main...HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_changed_files_from_diff_returns_none_on_git_failure(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["git"],
+            128,
+            stdout="",
+            stderr="fatal: bad revision 'missing...HEAD'",
+        )
+        stderr = io.StringIO()
+
+        with mock.patch.object(classify.subprocess, "run", return_value=completed):
+            with contextlib.redirect_stderr(stderr):
+                files = classify._changed_files_from_diff("missing")
+
+        self.assertIsNone(files)
+        self.assertIn("[classify] git diff failed (exit 128)", stderr.getvalue())
+
+    def test_main_diff_failure_is_json_fail_closed(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["git"],
+            128,
+            stdout="",
+            stderr="fatal: bad revision 'missing...HEAD'",
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with mock.patch.object(classify.subprocess, "run", return_value=completed):
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                rc = classify.main(["--mode=diff", "--base", "missing", "--json"])
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["native_build_required"])
+        self.assertEqual(payload["changed_file_count"], 0)
+        self.assertIn("fail-closed", payload["reason"])
+        self.assertIn("native_build_required=true", stderr.getvalue())
 
 
 class CliTests(unittest.TestCase):

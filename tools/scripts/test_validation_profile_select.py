@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -56,6 +59,11 @@ class PathMatchingTests(unittest.TestCase):
         # runtime JS — generic view code is broader.
         self.assertFalse(vps.is_parser_only_path("core/view/src/widget.cpp"))
         self.assertFalse(vps.is_parser_only_path("core/view/include/pulp/view/widget.hpp"))
+
+    def test_recursive_match_handles_zero_and_multiple_segments(self):
+        self.assertTrue(vps._match_recursive("docs/reference/imports/**", "docs/reference/imports"))
+        self.assertTrue(vps._match_recursive("docs/reference/imports/**", "docs/reference/imports/designmd/ref.md"))
+        self.assertFalse(vps._match_recursive("docs/reference/imports/**", "docs/reference/imports-extra/ref.md"))
 
 
 class ClassifyTests(unittest.TestCase):
@@ -118,6 +126,59 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["profile"], "default")
         self.assertEqual(payload["unmatched"], ["core/format/src/vst3_adapter.cpp"])
         self.assertEqual(payload["matched"], [])
+
+    def test_paths_from_file_ignores_blank_lines(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "paths.txt"
+            path.write_text(
+                "\n tools/import-design/foo.cpp \n\n"
+                "test/test_design_import.cpp\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                vps.paths_from_file(str(path)),
+                [" tools/import-design/foo.cpp ", "test/test_design_import.cpp"],
+            )
+
+    def test_mixed_paths_json_reports_both_sides(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "paths.txt"
+            path.write_text(
+                "tools/import-design/foo.cpp\n"
+                "core/audio/src/buffer.cpp\n",
+                encoding="utf-8",
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = vps.main(["--paths-from", str(path), "--json"])
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload["profile"], "default")
+        self.assertEqual(payload["matched"], ["tools/import-design/foo.cpp"])
+        self.assertEqual(payload["unmatched"], ["core/audio/src/buffer.cpp"])
+
+    def test_git_query_failure_returns_two(self):
+        with mock.patch.object(
+            vps,
+            "changed_paths_from_git",
+            side_effect=subprocess.CalledProcessError(128, ["git"], stderr="bad base"),
+        ):
+            rc = vps.main(["--base", "missing"])
+        self.assertEqual(rc, 2)
+
+    def test_changed_paths_from_git_filters_blank_lines(self):
+        with mock.patch.object(
+            vps,
+            "_run_git",
+            return_value="tools/import-design/foo.cpp\n\ncore/audio/src/buffer.cpp\n",
+        ) as run:
+            self.assertEqual(
+                vps.changed_paths_from_git("origin/main"),
+                ["tools/import-design/foo.cpp", "core/audio/src/buffer.cpp"],
+            )
+        run.assert_called_once_with(["diff", "--name-only", "origin/main...HEAD"])
 
 
 if __name__ == "__main__":

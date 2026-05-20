@@ -6,6 +6,7 @@ Run via:
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -13,9 +14,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 THIS_DIR = Path(__file__).parent
 SCRIPT = THIS_DIR / "docs_noise_lint.py"
+
+spec = importlib.util.spec_from_file_location("docs_noise_lint", SCRIPT)
+assert spec and spec.loader
+noise = importlib.util.module_from_spec(spec)
+sys.modules["docs_noise_lint"] = noise
+spec.loader.exec_module(noise)
 
 
 class DocsNoiseLintTests(unittest.TestCase):
@@ -200,6 +208,65 @@ class DocsNoiseLintTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 2)
+
+    def test_root_must_be_directory(self) -> None:
+        missing = self.tmpdir / "missing-root"
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--root", str(missing)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("root is not a directory", result.stderr)
+
+    def test_helper_edges_for_line_maps_and_paths(self) -> None:
+        outside = Path(tempfile.mkdtemp(prefix="pulp-docs-noise-outside-")) / "outside.md"
+        outside.write_text("See #123.\n", encoding="utf-8")
+        self.addCleanup(lambda: shutil.rmtree(outside.parent, ignore_errors=True))
+        self.assertEqual(noise._norm_path(outside, self.tmpdir), outside.as_posix())
+
+        target: noise.LineMap = {"all.md": None}
+        noise._merge_line_map(target, {"all.md": {1}, "new.md": None})
+        self.assertIsNone(target["all.md"])
+        self.assertIsNone(target["new.md"])
+
+        parsed = noise._parse_unified_zero_diff(
+            "+++ b/docs/reference/page.md\n"
+            "@@ malformed hunk\n"
+            "@@ -1,0 +4,0 @@\n"
+            "@@ -1 +8,2 @@\n"
+        )
+        self.assertEqual(parsed, {"docs/reference/page.md": {8, 9}})
+
+        failed = subprocess.CompletedProcess(["git"], 1, stdout="", stderr="bad")
+        with mock.patch.object(noise.subprocess, "run", return_value=failed):
+            self.assertEqual(noise._git_diff_line_map(self.tmpdir, []), {})
+            self.assertEqual(noise._git_untracked_line_map(self.tmpdir), {})
+
+    def test_scan_file_read_errors_are_reported(self) -> None:
+        directory = self.tmpdir / "docs" / "reference"
+        with self.assertRaisesRegex(RuntimeError, "could not read"):
+            noise.scan_file(directory, self.tmpdir)
+
+    def test_format_findings_truncates_long_snippets(self) -> None:
+        finding = noise.Finding(
+            path="docs/reference/long.md",
+            line_no=7,
+            rule=noise.RULES[0],
+            text="x" * 200,
+        )
+        formatted = noise._format_findings([finding], "report")
+        self.assertIn("BLOCKED", formatted)
+        self.assertIn("xxx...", formatted)
+        self.assertLess(len(formatted.splitlines()[1]), 220)
+
+    def test_main_reports_runtime_scan_errors(self) -> None:
+        with mock.patch.object(noise, "scan", side_effect=RuntimeError("boom")), \
+             mock.patch.object(noise.sys, "stderr") as stderr:
+            self.assertEqual(noise.main(["--root", str(self.tmpdir)]), 2)
+        stderr.write.assert_called_once()
+        self.assertIn("boom", stderr.write.call_args.args[0])
 
 
 if __name__ == "__main__":

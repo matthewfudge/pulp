@@ -81,7 +81,7 @@ class ConfigAndGlobTests(unittest.TestCase):
         raw = ["not", "a", "mapping"]
         self.assertIs(csc._strip_comments(raw), raw)
 
-    def test_load_compat_map_strips_comments_and_unknown_requirements(self) -> None:
+    def test_load_compat_map_strips_comments_and_fails_closed_on_unknown_requirements(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = pathlib.Path(td) / "compat_path_map.json"
             path.write_text(
@@ -102,6 +102,28 @@ class ConfigAndGlobTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            with self.assertRaisesRegex(
+                ValueError,
+                "unknown requirement kind 'unknown'.*valid kinds",
+            ):
+                csc.load_compat_map(path)
+
+            path.write_text(
+                json.dumps(
+                    {
+                        "$schema": "ignored",
+                        "_comment": "ignored",
+                        "paths": {
+                            "src.cpp": [
+                                {"kind": "compat-json", "prefix": "css/"},
+                                {"kind": "doc", "path": "docs/css.md"},
+                                {"kind": "test", "glob": "test/test_css*.cpp"},
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
             compat_map = csc.load_compat_map(path)
 
         reqs = compat_map.paths["src.cpp"]
