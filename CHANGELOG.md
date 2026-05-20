@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01760"></a>
+## [0.176.0] - 2026-05-20
+
+- feat(inspect): drift drawer + `pulp tweaks diff` CLI (Inspector Phase 2) ([#2437](https://github.com/danielraffel/pulp/pull/2437))
+- feat(inspect): Phase 3c — color eyedropper ([#2434](https://github.com/danielraffel/pulp/pull/2434))
+- feat(inspect): Phase 5.1 source-jump foundation — open editor at JSX file:line ([#2465](https://github.com/danielraffel/pulp/pull/2465))
+
 <a id="v01750"></a>
 ## [0.175.0] - 2026-05-20
 
@@ -2290,6 +2297,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.176.0]: https://github.com/danielraffel/pulp/releases/tag/v0.176.0
 [0.175.0]: https://github.com/danielraffel/pulp/releases/tag/v0.175.0
 [0.174.0]: https://github.com/danielraffel/pulp/releases/tag/v0.174.0
 [0.173.13]: https://github.com/danielraffel/pulp/releases/tag/v0.173.13
