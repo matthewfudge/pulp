@@ -328,6 +328,38 @@ TEST_CASE("MidiKeyboard paint emits note names and active highlight color",
     REQUIRE(has_fill_color(canvas, Color::rgba8(255, 0, 0)));
 }
 
+TEST_CASE("MidiKeyboard forwards rich mouse events to the base pointer hook",
+          "[view][midi_keyboard][coverage][phase3]") {
+    MidiKeyboard kb;
+    int forwarded = 0;
+    Point last{};
+    kb.on_pointer_event = [&](const MouseEvent& event) {
+        ++forwarded;
+        last = event.position;
+    };
+
+    kb.on_mouse_event(MouseEvent{{12, 34}, {12, 34}, MouseButton::left, 0, 7, 1, true});
+
+    REQUIRE(forwarded == 1);
+    REQUIRE(last.x == 12.0f);
+    REQUIRE(last.y == 34.0f);
+}
+
+TEST_CASE("MidiKeyboard overlapping black keys win hit testing",
+          "[view][midi_keyboard][coverage][phase3]") {
+    MidiKeyboard kb;
+    kb.set_range(60, 61);
+    kb.set_bounds({0, 0, 100, 80});
+    std::vector<int> notes;
+    kb.on_note_on = [&](int note, float) { notes.push_back(note); };
+
+    kb.on_mouse_down({80, 20});
+
+    REQUIRE(notes == std::vector<int>{61});
+    REQUIRE(kb.is_note_on(61));
+    REQUIRE_FALSE(kb.is_note_on(60));
+}
+
 // ── ColorPicker ─────────────────────────────────────────────────────────────
 
 TEST_CASE("ColorPicker set/get color", "[view][color_picker]") {
@@ -446,6 +478,58 @@ TEST_CASE("ColorPicker paint positions alpha cursor from normalized alpha",
         REQUIRE(command.f[0] < 91.0f);
     }
     REQUIRE(found_alpha_cursor);
+}
+
+TEST_CASE("ColorPicker paint draws configured swatches",
+          "[view][color_picker][coverage][phase3]") {
+    ColorPicker picker;
+    picker.set_bounds({0, 0, 200, 260});
+    picker.set_swatches({
+        Color::rgba8(255, 0, 0),
+        Color::rgba8(0, 255, 0),
+        Color::rgba8(0, 0, 255),
+    });
+
+    RecordingCanvas canvas;
+    picker.paint(canvas);
+
+    REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) >= 5);
+    REQUIRE(canvas.count(DrawCommand::Type::stroke_rounded_rect) >= 4);
+    REQUIRE(has_fill_color(canvas, Color::rgba8(255, 0, 0)));
+    REQUIRE(has_fill_color(canvas, Color::rgba8(0, 255, 0)));
+    REQUIRE(has_fill_color(canvas, Color::rgba8(0, 0, 255)));
+}
+
+TEST_CASE("ColorPicker forwards rich mouse events to the base pointer hook",
+          "[view][color_picker][coverage][phase3]") {
+    ColorPicker picker;
+    int forwarded = 0;
+    picker.on_pointer_event = [&](const MouseEvent& event) {
+        ++forwarded;
+        REQUIRE(event.pointer_id == 3);
+        REQUIRE(event.is_down);
+    };
+
+    picker.on_mouse_event(MouseEvent{{1, 2}, {1, 2}, MouseButton::left, 0, 3, 1, true});
+
+    REQUIRE(forwarded == 1);
+}
+
+TEST_CASE("ColorPicker hidden alpha bar ignores alpha-region input",
+          "[view][color_picker][coverage][phase3]") {
+    ColorPicker picker;
+    picker.set_bounds({0, 0, 200, 280});
+    picker.set_show_alpha(false);
+    picker.set_hex("#33669980");
+    int changes = 0;
+    picker.on_change = [&](Color) { ++changes; };
+
+    picker.on_mouse_down({60, 212});
+    picker.on_mouse_drag({176, 212});
+    picker.on_mouse_up({176, 212});
+
+    REQUIRE(changes == 0);
+    REQUIRE(picker.hex() == "#33669980");
 }
 
 TEST_CASE("ColorPicker mode and outside mouse input are stable",
@@ -746,6 +830,20 @@ TEST_CASE("SplitView can replace panes and lays out with custom divider width",
     REQUIRE(split.second() == nullptr);
     split.layout_children();
     REQUIRE(split.first() == replacement_ptr);
+}
+
+TEST_CASE("SplitView forwards rich mouse events to the base pointer hook",
+          "[view][split_view][coverage][phase3]") {
+    SplitView split;
+    int forwarded = 0;
+    split.on_pointer_event = [&](const MouseEvent& event) {
+        ++forwarded;
+        REQUIRE(event.position.x == 5.0f);
+    };
+
+    split.on_mouse_event(MouseEvent{{5, 6}, {5, 6}, MouseButton::left, 0, 0, 1, true});
+
+    REQUIRE(forwarded == 1);
 }
 
 // ── PropertyList ────────────────────────────────────────────────────────────
