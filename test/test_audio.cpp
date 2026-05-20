@@ -425,6 +425,55 @@ TEST_CASE("Device metadata defaults and custom configs are stable",
     REQUIRE(config.output_channels == 6);
 }
 
+TEST_CASE("AudioSystem default device-change callback is snapshot safe",
+          "[audio][device][coverage][phase3]") {
+    class DummyAudioSystem final : public AudioSystem {
+    public:
+        std::vector<DeviceInfo> enumerate_devices() override { return {}; }
+        std::unique_ptr<AudioDevice> create_device(const std::string& = "") override {
+            return {};
+        }
+        DeviceInfo default_output_device() override { return {}; }
+        DeviceInfo default_input_device() override { return {}; }
+    };
+
+    DummyAudioSystem system;
+    int calls = 0;
+
+    REQUIRE_FALSE(system.has_device_change_callback());
+    system.fire_device_change();
+    REQUIRE(calls == 0);
+
+    system.set_device_change_callback([&] {
+        ++calls;
+        system.set_device_change_callback(nullptr);
+    });
+    REQUIRE(system.has_device_change_callback());
+
+    system.fire_device_change();
+    REQUIRE(calls == 1);
+    REQUIRE_FALSE(system.has_device_change_callback());
+
+    system.fire_device_change();
+    REQUIRE(calls == 1);
+
+    system.set_device_change_callback([&] {
+        ++calls;
+        system.set_device_change_callback([&] { calls += 10; });
+    });
+    REQUIRE(system.has_device_change_callback());
+
+    system.fire_device_change();
+    REQUIRE(calls == 2);
+    REQUIRE(system.has_device_change_callback());
+
+    system.fire_device_change();
+    REQUIRE(calls == 12);
+
+    system.set_device_change_callback(nullptr);
+    REQUIRE_FALSE(system.has_device_change_callback());
+}
+
 TEST_CASE("AudioProcessLoadMeasurer ignores invalid callback geometry",
           "[audio][load][coverage][phase3]") {
     AudioProcessLoadMeasurer measurer;
