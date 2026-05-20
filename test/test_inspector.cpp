@@ -1448,6 +1448,35 @@ TEST_CASE("InspectorOverlay Phase 3c: click without prior move still picks",
     REQUIRE(std::string(v->getString()) == "#404040");
 }
 
+TEST_CASE("InspectorOverlay Phase 3c: click refreshes stale hover sample",
+          "[inspect][overlay][phase3c][regression]") {
+    Phase3cScene s(Color::rgba8(0xff, 0x00, 0x00));
+
+    auto second = std::make_unique<View>();
+    second->set_anchor_id("figma:3c:2");
+    second->set_bounds({40, 150, 120, 80});
+    second->set_background_color(Color::rgba8(0x00, 0x66, 0xff));
+    s.root.add_child(std::move(second));
+
+    s.overlay.set_eyedropper_active(true);
+
+    // Hover over the selected child first, then click elsewhere. The
+    // committed tweak must use the click location, not the stale hover
+    // swatch sample.
+    s.overlay.handle_mouse_event(make_move(90, 80));
+    auto hover_sample = s.overlay.eyedropper_sample();
+    REQUIRE(hover_sample.r8() == 0xff);
+    REQUIRE(hover_sample.g8() == 0x00);
+    REQUIRE(hover_sample.b8() == 0x00);
+
+    bool consumed = s.overlay.handle_mouse_event(make_click(90, 170));
+    REQUIRE(consumed);
+
+    auto v = s.store.lookup("figma:3c:1", "style.background_color");
+    REQUIRE(v.has_value());
+    REQUIRE(std::string(v->getString()) == "#0066ff");
+}
+
 TEST_CASE("InspectorOverlay Phase 3c: retargeting writes a different property",
           "[inspect][overlay][phase3c]") {
     Phase3cScene s(Color::rgba8(0x00, 0x99, 0xff));

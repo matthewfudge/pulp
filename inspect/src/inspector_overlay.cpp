@@ -362,9 +362,10 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             // Resolved-style sampling is synchronous + frame-
             // independent, so a click without a prior move still
             // picks a real color (covers headless / scripted use).
+            // Always refresh here; a hover/readback sample from a
+            // previous point must not be applied to a different click.
             Color sampled;
-            if (!eyedropper_has_sample_ &&
-                sample_color_at(pos, nullptr, sampled)) {
+            if (sample_color_at(pos, nullptr, sampled)) {
                 eyedropper_sample_ = sampled;
                 eyedropper_has_sample_ = true;
             }
