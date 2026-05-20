@@ -2288,8 +2288,20 @@ bool InspectorOverlay::resolve_view_color_at(Point p, Color& out) const {
 // view color, and records which path ran in zoom_center_from_readback_
 // so the readout can label degraded samples honestly.
 void InspectorOverlay::update_zoom_sample(Canvas& canvas) {
+    // The overlay paints onto a surface sized to the root view, so the
+    // root bounds are the readback clamp limits. Clamp the sample pixel
+    // into [0, w-1] × [0, h-1] — a raw read at an off-canvas coord (the
+    // cursor sitting on the very edge) fails outright, which would push
+    // the readout onto the degraded fallback path even on a readback-
+    // capable surface. Clamping keeps the center readout honest about
+    // readback at edges, and keeps it consistent with the block read in
+    // paint_zoom_panel() (which clamps to the same bounds).
+    const int cw = static_cast<int>(root_.bounds().width);
+    const int ch = static_cast<int>(root_.bounds().height);
     int cx = static_cast<int>(zoom_sample_center_.x);
     int cy = static_cast<int>(zoom_sample_center_.y);
+    if (cw > 0) cx = std::clamp(cx, 0, cw - 1);
+    if (ch > 0) cy = std::clamp(cy, 0, ch - 1);
 
     std::uint8_t rgba[4] = {0, 0, 0, 0};
     if (canvas.read_pixels(cx, cy, 1, 1, rgba)) {
@@ -2339,13 +2351,39 @@ void InspectorOverlay::paint_zoom_panel(Canvas& canvas) {
     canvas.stroke_rect(panel_x, panel_y, panel_w, panel_h);
 
     // ── Magnified pixel grid ────────────────────────────────────────
-    // Each cell maps to one source pixel offset (dx, dy) from the
-    // sample center. With a real readback we ask the canvas for the
-    // whole NxN block at once; otherwise we synthesize a checkerboard
-    // (with the resolved center color in the middle) so the loupe
-    // still communicates "this is where you're sampling".
-    const int   ox = static_cast<int>(zoom_sample_center_.x) - half;
-    const int   oy = static_cast<int>(zoom_sample_center_.y) - half;
+    // Each cell maps to one source pixel. With a real readback we ask
+    // the canvas for the whole NxN block at once; otherwise we
+    // synthesize a checkerboard (with the resolved center color in the
+    // middle) so the loupe still communicates "this is where you're
+    // sampling".
+    //
+    // Edge clamping (codex P2 #2464): a window centered on a cursor
+    // within `half` pixels of any canvas edge would put `ox`/`oy`
+    // negative or push `ox+cells`/`oy+cells` past the surface — Skia's
+    // readPixels() rejects an out-of-bounds source rect outright, so
+    // the WHOLE block dropped to checkerboard exactly where pixel
+    // inspection matters most. Clamp the read origin so the full
+    // `cells × cells` window stays in-bounds; the magnified region
+    // shifts slightly near edges but still shows real device pixels.
+    // The sample pixel may then sit off-center within the grid, so the
+    // crosshair below tracks its actual cell (cross_gx/cross_gy)
+    // instead of assuming the middle.
+    const int   cw = static_cast<int>(root_.bounds().width);
+    const int   ch = static_cast<int>(root_.bounds().height);
+    int ox = static_cast<int>(zoom_sample_center_.x) - half;
+    int oy = static_cast<int>(zoom_sample_center_.y) - half;
+    if (cw >= cells) ox = std::clamp(ox, 0, cw - cells);
+    if (ch >= cells) oy = std::clamp(oy, 0, ch - cells);
+
+    // The sample pixel's cell within the (possibly clamped) grid. When
+    // the window isn't clamped this is the exact center (half, half);
+    // near an edge it shifts toward the edge the cursor approached.
+    int sample_px = std::clamp(static_cast<int>(zoom_sample_center_.x),
+                               0, cw > 0 ? cw - 1 : 0);
+    int sample_py = std::clamp(static_cast<int>(zoom_sample_center_.y),
+                               0, ch > 0 ? ch - 1 : 0);
+    const int cross_gx = std::clamp(sample_px - ox, 0, cells - 1);
+    const int cross_gy = std::clamp(sample_py - oy, 0, cells - 1);
 
     std::vector<std::uint8_t> block(static_cast<size_t>(cells) * cells * 4, 0);
     const bool have_block = canvas.read_pixels(ox, oy, cells, cells,
@@ -2358,9 +2396,11 @@ void InspectorOverlay::paint_zoom_panel(Canvas& canvas) {
                 const size_t i = (static_cast<size_t>(gy) * cells + gx) * 4;
                 c = Color::rgba(block[i] / 255.0f, block[i + 1] / 255.0f,
                                 block[i + 2] / 255.0f, block[i + 3] / 255.0f);
-            } else if (gx == half && gy == half) {
-                // Center cell shows the resolved sample color even on
-                // the fallback path so the readout and grid agree.
+            } else if (gx == cross_gx && gy == cross_gy) {
+                // Center (sample) cell shows the resolved sample color
+                // even on the fallback path so the readout and grid
+                // agree — and so they agree about WHICH cell is the
+                // sample pixel when the window is edge-clamped.
                 c = zoom_center_color_;
             } else {
                 c = ((gx + gy) & 1) ? kZoomCheckerB : kZoomCheckerA;
@@ -2385,8 +2425,10 @@ void InspectorOverlay::paint_zoom_panel(Canvas& canvas) {
 
     // ── Center crosshair / target ───────────────────────────────────
     // Outlines the exact sample pixel — the cell the readout describes.
-    const float center_x = grid_x + half * cell;
-    const float center_y = grid_y + half * cell;
+    // Uses cross_gx/cross_gy (not `half`) so the crosshair still marks
+    // the true sample pixel when the read window was edge-clamped.
+    const float center_x = grid_x + cross_gx * cell;
+    const float center_y = grid_y + cross_gy * cell;
     canvas.set_stroke_color(kZoomCrosshair);
     canvas.set_line_width(2.0f);
     canvas.stroke_rect(center_x, center_y, cell, cell);
@@ -2435,10 +2477,16 @@ void InspectorOverlay::paint_zoom_panel(Canvas& canvas) {
     canvas.set_fill_color(kZoomReadoutText);
     canvas.fill_text(hex.str(), grid_x + swatch + 6.0f, swatch_y + 9.0f);
 
-    // Honesty label: tell the user when the grid is a fallback render
-    // rather than true device pixels, so they don't trust a checker
-    // pattern as real output.
-    if (!zoom_center_from_readback_) {
+    // Honesty label: tell the user when the magnified grid is a
+    // fallback render rather than true device pixels, so they don't
+    // trust a checker pattern as real output. Keyed off `have_block`
+    // (the grid's actual readback result) rather than just the center
+    // pixel's `zoom_center_from_readback_` — with edge clamping the
+    // two now agree on any normal surface, but on a degenerate canvas
+    // narrower than the grid the 1×1 center read can still succeed
+    // while the cells×cells block cannot, and the label must describe
+    // the grid the user is looking at.
+    if (!have_block) {
         canvas.set_fill_color(kZoomReadoutDim);
         canvas.fill_text("no readback", grid_x + grid_px - 64.0f,
                          swatch_y + 9.0f);

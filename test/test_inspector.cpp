@@ -6,6 +6,7 @@
 #include <pulp/view/widgets.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string_view>
 #include <tuple>
@@ -45,6 +46,52 @@ bool has_label_containing(View& root, std::string_view text) {
     }
     return false;
 }
+
+// A RecordingCanvas that also serves real pixel readback over a small
+// synthetic surface — lets phase-3e tests exercise the loupe's
+// readback path (which the plain RecordingCanvas never does) and
+// assert the read rect that the loupe actually requested.
+class ReadbackCanvas : public pulp::canvas::RecordingCanvas {
+public:
+    ReadbackCanvas(int w, int h) : surface_w_(w), surface_h_(h) {}
+
+    bool read_pixels(int x, int y, int width, int height,
+                     std::uint8_t* out) override {
+        // Mirror Skia's SkSurface::readPixels() contract: the source
+        // rect must lie fully within the surface or the read fails.
+        if (!out || width <= 0 || height <= 0) return false;
+        if (x < 0 || y < 0 ||
+            x + width > surface_w_ || y + height > surface_h_) {
+            return false;
+        }
+        last_read_x_ = x;
+        last_read_y_ = y;
+        last_read_w_ = width;
+        last_read_h_ = height;
+        ++read_count_;
+        // Fill with a deterministic non-checkerboard color so callers
+        // can tell "real readback" from the loupe's fallback render.
+        for (int i = 0; i < width * height; ++i) {
+            out[i * 4 + 0] = 64;
+            out[i * 4 + 1] = 128;
+            out[i * 4 + 2] = 192;
+            out[i * 4 + 3] = 255;
+        }
+        return true;
+    }
+
+    int  last_read_x() const { return last_read_x_; }
+    int  last_read_y() const { return last_read_y_; }
+    int  last_read_w() const { return last_read_w_; }
+    int  last_read_h() const { return last_read_h_; }
+    int  read_count()  const { return read_count_; }
+
+private:
+    int surface_w_, surface_h_;
+    int last_read_x_ = -1, last_read_y_ = -1;
+    int last_read_w_ = -1, last_read_h_ = -1;
+    int read_count_ = 0;
+};
 
 } // namespace
 
@@ -663,6 +710,91 @@ TEST_CASE("InspectorOverlay: zoom factor is clamped to a sane range",
 
     overlay.set_zoom_factor(1000);
     REQUIRE(overlay.zoom_factor() <= 40);
+}
+
+TEST_CASE("InspectorOverlay: loupe clamps the sample window at canvas edges",
+          "[inspect][overlay][phase3e]") {
+    // codex P2 #2464 — a loupe centered within kZoomGridCells/2 pixels
+    // of a canvas edge used to push the cells×cells read rect
+    // out of bounds, so read_pixels() rejected the WHOLE block and the
+    // grid fell back to checkerboard exactly where edge inspection
+    // matters most. With clamping the read rect stays in-bounds and the
+    // grid keeps showing real device pixels.
+    const int kW = 400, kH = 300;
+    View root;
+    root.set_bounds({0, 0, static_cast<float>(kW),
+                     static_cast<float>(kH)});
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_zoom_active(true);
+
+    // Park the loupe on the exact top-left corner — the worst case:
+    // an unclamped window would read from (-5, -5).
+    MouseEvent corner;
+    corner.position = {0, 0};
+    corner.is_down = false;
+    overlay.handle_mouse_event(corner);
+
+    ReadbackCanvas canvas(kW, kH);
+    overlay.paint(canvas);
+
+    // The loupe must have issued a block read AND it must have
+    // succeeded — i.e. the requested rect was clamped fully in-bounds.
+    REQUIRE(canvas.read_count() >= 1);
+    REQUIRE(canvas.last_read_x() >= 0);
+    REQUIRE(canvas.last_read_y() >= 0);
+    REQUIRE(canvas.last_read_x() + canvas.last_read_w() <= kW);
+    REQUIRE(canvas.last_read_y() + canvas.last_read_h() <= kH);
+
+    // The center-pixel readout must agree with the block: a real
+    // readback succeeded, so the readout reports the synthetic
+    // readback color (64,128,192) — not the degraded fallback path.
+    auto c = overlay.zoom_center_color();
+    REQUIRE(c.r == Catch::Approx(64.0f / 255.0f));
+    REQUIRE(c.g == Catch::Approx(128.0f / 255.0f));
+    REQUIRE(c.b == Catch::Approx(192.0f / 255.0f));
+
+    // The magnified grid is painted with the synthetic readback color
+    // (it is NOT a checkerboard). The loupe draws kZoomGridCells² grid
+    // cells; all of them should carry the real readback color, proving
+    // the whole block — corner included — used real pixels.
+    int readback_cells = 0;
+    const Color kReadback =
+        Color::rgba(64.0f / 255.0f, 128.0f / 255.0f, 192.0f / 255.0f, 1.0f);
+    for (const auto& cmd : canvas.commands()) {
+        if (cmd.type != pulp::canvas::DrawCommand::Type::set_fill_color)
+            continue;
+        if (cmd.color.r == Catch::Approx(kReadback.r) &&
+            cmd.color.g == Catch::Approx(kReadback.g) &&
+            cmd.color.b == Catch::Approx(kReadback.b)) {
+            ++readback_cells;
+        }
+    }
+    // 11×11 = 121 cells, all real-readback colored. Allow a generous
+    // floor — the point is "many real cells", not "exactly zero
+    // checkerboard" (panel chrome uses other colors).
+    REQUIRE(readback_cells >= 100);
+
+    // Bottom-right corner is the symmetric worst case: an unclamped
+    // window would read past the surface.
+    MouseEvent br;
+    br.position = {static_cast<float>(kW), static_cast<float>(kH)};
+    br.is_down = false;
+    overlay.handle_mouse_event(br);
+
+    ReadbackCanvas canvas2(kW, kH);
+    overlay.paint(canvas2);
+    REQUIRE(canvas2.read_count() >= 1);
+    REQUIRE(canvas2.last_read_x() >= 0);
+    REQUIRE(canvas2.last_read_y() >= 0);
+    REQUIRE(canvas2.last_read_x() + canvas2.last_read_w() <= kW);
+    REQUIRE(canvas2.last_read_y() + canvas2.last_read_h() <= kH);
+
+    auto c2 = overlay.zoom_center_color();
+    REQUIRE(c2.r == Catch::Approx(64.0f / 255.0f));
+    REQUIRE(c2.g == Catch::Approx(128.0f / 255.0f));
+    REQUIRE(c2.b == Catch::Approx(192.0f / 255.0f));
 }
 
 // ── Phase 0b PR-C-1: gesture-tweak emission via TweakStore ────────────────
