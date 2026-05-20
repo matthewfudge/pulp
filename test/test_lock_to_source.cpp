@@ -101,6 +101,10 @@ TEST_CASE("lock_property_to_style_name maps dotted paths", "[lock-to-source][iss
     SECTION("bare path with no namespace") {
         REQUIRE(lock_property_to_style_name("width") == "width");
     }
+    SECTION("empty paths are rejected after trimming") {
+        REQUIRE_FALSE(lock_property_to_style_name("   ").has_value());
+        REQUIRE_FALSE(lock_property_to_style_name("layout.   ").has_value());
+    }
     SECTION("unknown namespace rejected") {
         REQUIRE_FALSE(lock_property_to_style_name("audio.gain").has_value());
     }
@@ -124,6 +128,11 @@ TEST_CASE("is_generated_source recognizes the Pulp codegen banner", "[lock-to-so
     SECTION("hand-authored source is not flagged generated") {
         REQUIRE_FALSE(is_generated_source(
             "// MyPanel.tsx — hand written\nexport const Panel = () => <div/>;\n"));
+    }
+    SECTION("late generated marker is ignored") {
+        REQUIRE_FALSE(is_generated_source(
+            "// one\n// two\n// three\n// four\n// five\n// six\n// seven\n// eight\n"
+            "// @generated too late\n"));
     }
 }
 
@@ -233,6 +242,17 @@ TEST_CASE("lock_tweak_into_source fails gracefully on unknown anchor", "[lock-to
     REQUIRE_FALSE(r.message.empty());
 }
 
+TEST_CASE("lock_tweak_into_source rejects an empty anchor id",
+          "[lock-to-source][coverage][phase3]") {
+    const std::string gen = make_generated_source();
+
+    LockResult r = lock_tweak_into_source(gen, {"", "paint.backgroundColor", "#000000"});
+
+    REQUIRE(r.status == LockStatus::anchor_not_found);
+    REQUIRE_FALSE(r.ok());
+    REQUIRE(r.source == gen);
+}
+
 TEST_CASE("lock_tweak_into_source rejects an unsupported property path", "[lock-to-source][issue-1307]") {
     const std::string gen = make_generated_source();
     const std::string anchor = first_child_anchor();
@@ -258,6 +278,85 @@ TEST_CASE("lock_tweak_into_source escapes single quotes in the value", "[lock-to
     REQUIRE(r.ok());
     // The literal must carry an escaped quote so the JS stays valid.
     REQUIRE(r.source.find("fontFamily = 'Mike\\'s Font'") != std::string::npos);
+}
+
+TEST_CASE("lock_tweak_into_source escapes backslashes in inserted values",
+          "[lock-to-source][coverage][phase3]") {
+    const std::string gen = make_generated_source();
+    const std::string anchor = first_child_anchor();
+
+    LockResult r = lock_tweak_into_source(gen, {anchor, "paint.fontFamily", "C:\\Fonts\\Pulp"});
+
+    REQUIRE(r.status == LockStatus::inserted);
+    REQUIRE(r.source.find("fontFamily = 'C:\\\\Fonts\\\\Pulp'") != std::string::npos);
+}
+
+TEST_CASE("lock_tweak_into_source preserves missing trailing newline",
+          "[lock-to-source][coverage][phase3]") {
+    const std::string src =
+        "// @pulp-anchor solo\n"
+        "const solo = document.createElement('div');\n"
+        "solo.style.width = '20px';\n"
+        "setAnchor(solo._id, 'solo');";
+
+    LockResult r = lock_tweak_into_source(src, {"solo", "layout.width", "24px"});
+
+    REQUIRE(r.status == LockStatus::rewritten);
+    REQUIRE_FALSE(r.source.empty());
+    REQUIRE(r.source.back() != '\n');
+    REQUIRE(r.source.find("solo.style.width = '24px';") != std::string::npos);
+}
+
+TEST_CASE("lock_tweak_into_source stops a block at the next anchor",
+          "[lock-to-source][coverage][phase3]") {
+    const std::string src =
+        "// @pulp-anchor first\n"
+        "const first = document.createElement('div');\n"
+        "first.style.paddingTop = '8px';\n"
+        "setAnchor(first._id, 'first');\n"
+        "// @pulp-anchor second\n"
+        "const second = document.createElement('div');\n"
+        "second.style.padding = '2px';\n";
+
+    LockResult r = lock_tweak_into_source(src, {"first", "layout.padding", "4px"});
+
+    REQUIRE(r.status == LockStatus::inserted);
+    const auto inserted = r.source.find("first.style.padding = '4px';");
+    const auto next_anchor = r.source.find("// @pulp-anchor second");
+    REQUIRE(inserted != std::string::npos);
+    REQUIRE(next_anchor != std::string::npos);
+    REQUIRE(inserted < next_anchor);
+    REQUIRE(r.source.find("first.style.paddingTop = '8px';") != std::string::npos);
+    REQUIRE(r.source.find("second.style.padding = '2px';") != std::string::npos);
+}
+
+TEST_CASE("lock_tweak_into_source falls back to el when declaration is missing",
+          "[lock-to-source][coverage][phase3]") {
+    const std::string src =
+        "// @pulp-anchor orphan\n"
+        "setAnchor(orphan._id, 'orphan');\n";
+
+    LockResult r = lock_tweak_into_source(src, {"orphan", "paint.opacity", "0.25"});
+
+    REQUIRE(r.status == LockStatus::inserted);
+    REQUIRE(r.source.find("el.style.opacity = '0.25';") != std::string::npos);
+    REQUIRE(r.source.find("setAnchor(orphan._id, 'orphan');") != std::string::npos);
+}
+
+TEST_CASE("lock_tweak_into_source appends when no tail call is present",
+          "[lock-to-source][coverage][phase3]") {
+    const std::string src =
+        "// @pulp-anchor solo\n"
+        "const solo = document.createElement('div');\n"
+        "solo.style.width = '20px';";
+
+    LockResult r = lock_tweak_into_source(src, {"solo", "paint.opacity", "0.5"});
+
+    REQUIRE(r.status == LockStatus::inserted);
+    REQUIRE(r.line == 4);
+    REQUIRE(r.source.find("solo.style.opacity = '0.5';") != std::string::npos);
+    REQUIRE_FALSE(r.source.empty());
+    REQUIRE(r.source.back() != '\n');
 }
 
 // ── Multi-tweak pass over the same element ──────────────────────────────

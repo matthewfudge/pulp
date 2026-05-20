@@ -64,6 +64,26 @@ TEST_CASE("ComboBox paint produces draw commands", "[view][combo]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) > 0);
 }
 
+TEST_CASE("ComboBox paint truncates long selected text",
+          "[view][combo][coverage][phase3]") {
+    ComboBox combo;
+    combo.set_items({"SuperLongOscillatorName"});
+    combo.set_bounds({0, 0, 75, 28});
+
+    RecordingCanvas canvas;
+    combo.paint(canvas);
+
+    bool truncated = false;
+    for (const auto& command : canvas.commands()) {
+        if (command.type != DrawCommand::Type::fill_text) continue;
+        if (command.text.size() >= 3 &&
+            command.text.substr(command.text.size() - 3) == "...") {
+            truncated = true;
+        }
+    }
+    REQUIRE(truncated);
+}
+
 TEST_CASE("ComboBox key up/down changes selection", "[view][combo]") {
     ComboBox combo;
     combo.set_items({"A", "B", "C"});
@@ -181,6 +201,54 @@ TEST_CASE("ComboBox popup overlay paints separators hover and selection guards",
     REQUIRE(canvas.command_count() > before_overlay);
 
     ComboBox::close_active_popup();
+}
+
+TEST_CASE("ComboBox mouse selection and hover guard paths",
+          "[view][combo][coverage][phase3]") {
+    ComboBox::close_active_popup();
+
+    ComboBox combo;
+    combo.set_bounds({0, 0, 96, 28});
+    combo.set_items({"One", "Two", "Three"});
+
+    int changed_to = -1;
+    combo.on_change = [&](int index) { changed_to = index; };
+
+    MouseEvent open;
+    open.position = {48.0f, 14.0f};
+    open.is_down = true;
+    combo.on_mouse_event(open);
+    REQUIRE(combo.is_open());
+
+    MouseEvent hover_above;
+    hover_above.position = {48.0f, 10.0f};
+    hover_above.is_down = false;
+    combo.on_mouse_event(hover_above);
+
+    MouseEvent hover_beyond;
+    hover_beyond.position = {48.0f, 180.0f};
+    hover_beyond.is_down = false;
+    combo.on_mouse_event(hover_beyond);
+
+    MouseEvent pick_three;
+    pick_three.position = {48.0f, 84.0f};
+    pick_three.is_down = true;
+    combo.on_mouse_event(pick_three);
+
+    REQUIRE_FALSE(combo.is_open());
+    REQUIRE(combo.selected() == 2);
+    REQUIRE(changed_to == 2);
+}
+
+TEST_CASE("ComboBox returns false for unrelated key presses",
+          "[view][combo][coverage][phase3]") {
+    ComboBox combo;
+    combo.set_items({"One", "Two"});
+
+    KeyEvent tab;
+    tab.key = KeyCode::tab;
+    tab.is_down = true;
+    REQUIRE_FALSE(combo.on_key_event(tab));
 }
 
 TEST_CASE("ComboBox global click closes only outside active popup",
@@ -607,6 +675,81 @@ TEST_CASE("ScrollView vertical wheel leave and horizontal track click edges",
     horizontal_track.on_mouse_event(down);
     horizontal_track.advance_animations(1.0f);
     REQUIRE(horizontal_track.scroll_x() > 0.0f);
+}
+
+TEST_CASE("ScrollView auto scroll behavior updates immediately",
+          "[view][scroll][coverage][phase3]") {
+    ScrollView sv;
+    sv.set_direction(ScrollView::Direction::both);
+    sv.set_bounds({0, 0, 100, 100});
+    sv.set_content_size({300, 300});
+    sv.set_scroll_behavior("auto");
+
+    sv.scroll_by(40.0f, 60.0f);
+
+    REQUIRE(sv.scroll_x() == 40.0f);
+    REQUIRE(sv.scroll_y() == 60.0f);
+    REQUIRE_FALSE(sv.scroll_animating());
+}
+
+TEST_CASE("ScrollView layout children restores viewport bounds",
+          "[view][scroll][coverage][phase3]") {
+    ScrollView sv;
+    sv.set_bounds({3, 4, 100, 50});
+    sv.set_content_size({220, 180});
+    sv.add_child(std::make_unique<View>());
+
+    sv.layout_children();
+
+    REQUIRE(sv.bounds().x == 3.0f);
+    REQUIRE(sv.bounds().y == 4.0f);
+    REQUIRE(sv.bounds().width == 100.0f);
+    REQUIRE(sv.bounds().height == 50.0f);
+}
+
+TEST_CASE("ScrollView paint_all applies opacity reset path",
+          "[view][scroll][coverage][phase3]") {
+    ScrollView sv;
+    sv.set_direction(ScrollView::Direction::both);
+    sv.set_bounds({0, 0, 100, 50});
+    sv.set_content_size({200, 150});
+    sv.set_scroll(10, 20);
+    sv.set_opacity(0.5f);
+
+    RecordingCanvas canvas;
+    sv.paint_all(canvas);
+    REQUIRE(canvas.command_count() > 0);
+}
+
+TEST_CASE("ScrollView box-none suppresses scrollbar self hits",
+          "[view][scroll][coverage][phase3]") {
+    ScrollView sv;
+    sv.set_direction(ScrollView::Direction::both);
+    sv.set_bounds({0, 0, 100, 100});
+    sv.set_content_size({300, 500});
+    sv.on_mouse_enter();
+    sv.advance_animations(1.0f);
+    sv.set_pointer_events(View::PointerEvents::box_none);
+
+    REQUIRE(sv.hit_test({98.0f, 25.0f}) == nullptr);
+}
+
+TEST_CASE("ScrollView both-direction wheel preserves both deltas",
+          "[view][scroll][coverage][phase3]") {
+    ScrollView sv;
+    sv.set_direction(ScrollView::Direction::both);
+    sv.set_bounds({0, 0, 100, 100});
+    sv.set_content_size({300, 500});
+
+    MouseEvent wheel;
+    wheel.is_wheel = true;
+    wheel.scroll_delta_x = 25.0f;
+    wheel.scroll_delta_y = 35.0f;
+    sv.on_mouse_event(wheel);
+    sv.advance_animations(1.0f);
+
+    REQUIRE(sv.scroll_x() > 0.0f);
+    REQUIRE(sv.scroll_y() > 0.0f);
 }
 
 TEST_CASE("ScrollView hit testing honors pointer modes with scrolled children",

@@ -178,6 +178,25 @@ TEST_CASE("clear preserves cache counters while removing entries",
     REQUIRE(calls.load() == 2);
 }
 
+TEST_CASE("clear without a releaser drops entries safely",
+          "[view][image-cache][coverage][phase3]") {
+    ImageCache c;
+    std::atomic<int> calls{0};
+    c.set_decoder(make_fake_decoder(calls));
+
+    REQUIRE(c.get("a") != nullptr);
+    REQUIRE(c.get("b") != nullptr);
+    REQUIRE(c.stats().entry_count == 2);
+
+    c.clear();
+
+    auto s = c.stats();
+    REQUIRE(s.entry_count == 0);
+    REQUIRE(s.total_bytes == 0);
+    REQUIRE(s.misses == 2);
+    REQUIRE(calls.load() == 2);
+}
+
 TEST_CASE("clear on an empty cache is a no-op and preserves counters",
           "[view][image-cache][coverage][phase3]") {
     ImageCache c;
@@ -194,6 +213,24 @@ TEST_CASE("clear on an empty cache is a no-op and preserves counters",
     REQUIRE(s.hits == 0);
     REQUIRE(s.misses == 0);
     REQUIRE(s.evictions == 0);
+}
+
+TEST_CASE("entry exactly matching byte budget remains cached",
+          "[view][image-cache][coverage][phase3]") {
+    ImageCache c;
+    std::atomic<int> calls{0};
+    c.set_decoder(make_fake_decoder(calls));
+    c.set_byte_budget(64);
+
+    const auto* first = c.get("exact");
+    REQUIRE(first != nullptr);
+    REQUIRE(c.stats().entry_count == 1);
+    REQUIRE(c.stats().evictions == 0);
+
+    calls = 0;
+    REQUIRE(c.get("exact") == first);
+    REQUIRE(calls.load() == 0);
+    REQUIRE(c.stats().hits == 1);
 }
 
 TEST_CASE("zero budget disables trimming", "[view][image-cache]") {
