@@ -55,6 +55,14 @@ class ScriptContractTests(unittest.TestCase):
         r = _run("--definitely-not-a-real-flag")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
 
+    def test_runner_env_enables_ccache_depend_mode(self) -> None:
+        # The per-runner .env enables ccache depend mode + a conservative
+        # sloppiness set — the one build-speed lever validated as worth
+        # it (the other proposed optimizations were no-ops on review).
+        body = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("CCACHE_DEPEND=true", body)
+        self.assertIn("CCACHE_SLOPPINESS=time_macros,pch_defines", body)
+
 
 class BrewfileTests(unittest.TestCase):
     """The Brewfile the bootstrap consumes."""
