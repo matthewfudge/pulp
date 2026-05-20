@@ -5,7 +5,42 @@ description: Import designs from Figma, Stitch, v0, Pencil, React Native, or Cla
 
 # Import Design
 
-Import a design from an external tool (Figma, Stitch, v0, Pencil, React Native, Claude Design) into this Pulp project.
+Import a design from an external tool (Figma, Stitch, v0, Pencil, React Native, Claude Design, or the experimental JSX runtime lane) into this Pulp project.
+
+## CRITICAL: pulp-design-tool requires the GPU host (PULP_HAS_SKIA)
+
+Before debugging *any* runtime-import resize / sizing / layout issue in `pulp-design-tool` or `/tmp/<App>.app`, verify the binary is using `MacGpuWindowHost`, not the CPU `MacWindowHost`. The design viewport pin, aspect-lock, and uniform paint-scale all live in `MacGpuWindowHost` (gated by `#ifdef PULP_HAS_SKIA` in `core/view/platform/mac/window_host_mac.mm`). When Skia isn't linked, `WindowHost::create()` returns `MacWindowHost`, where `set_design_viewport()` and `set_fixed_aspect_ratio()` are base-class no-ops — the example still builds and runs, but resize behaves as if every fix you've shipped is missing.
+
+**One-shot verification:**
+
+```bash
+# In the worktree
+nm build/examples/design-tool/pulp-design-tool 2>/dev/null | grep -q MacGpuWindowHost \
+  && echo "OK: GPU host present" || echo "FAIL: CPU-only build"
+
+# In a packaged .app
+strings /tmp/MyApp.app/Contents/MacOS/MyApp-Bin | grep -F "[gpu-host]" \
+  && echo "OK: GPU host present" || echo "FAIL: CPU-only build"
+```
+
+**Recovery when Skia is missing** (e.g. fresh worktree with `external/skia-build/` containing only headers):
+
+1. Reuse the primary checkout's populated cache:
+   ```bash
+   rm -rf external/skia-build
+   ln -s /Users/<you>/Code/pulp/external/skia-build external/skia-build
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # should print "Skia: found at ..."
+   ```
+2. Or run `tools/build-skia.sh` to rebuild Skia binaries from scratch (~30 min).
+3. Or pass `-DSKIA_DIR=/abs/path/to/external/skia-builder/build/<plat>-gpu`.
+
+**Defenses already shipped** (don't bypass without reading the comments):
+
+- `examples/design-tool/CMakeLists.txt` issues `FATAL_ERROR` at configure if `PULP_HAS_SKIA` is FALSE — design-tool is intentionally a GPU-only example.
+- `examples/design-tool/main.cpp` checks `#ifndef PULP_HAS_SKIA` at startup and exits with EX_CONFIG (78) + a loud stderr message.
+- `tools/cmake/PulpDependencies.cmake` already prints a screaming WARNING banner when `PULP_ENABLE_GPU=ON` but Skia isn't found; the release lane (`PULP_REQUIRE_GPU_FOR_SDK=ON` in `release-cli.yml`) escalates to FATAL_ERROR.
+
+**If your runtime-import test produces a window where content doesn't scale, the dark fill is visible past the design surface, or aspect-lock doesn't engage during drag, the FIRST thing to check is `nm | grep MacGpuWindowHost`.** Don't tune `set_design_viewport` / `windowWillResize:` / `setContentAspectRatio:` until you've confirmed the GPU host is actually linked.
 
 Detect which design source the user wants by checking:
 1. If a Figma MCP server is available (com.figma.mcp), offer to read the current file/selection
@@ -73,9 +108,9 @@ Ask the user or detect from context:
 **JSX-instrument runtime-import (experiment slice, 2026-05-17, planning/2026-05-17-jsx-instrument-import.md)**:
 - Unlike v0/figma/stitch, the `jsx` source is NOT a synthetic shape-counter — it executes the user's real React tree. `parse_jsx_react(bundle_js, component_name)` wraps a pre-compiled IIFE bundle (esbuild output of React + ReactDOM + user JSX + nav/document sandbox shims) as a synthetic `ClaudeBundle`, then the existing `parse_claude_html_with_runtime` harness materializes it into a `DesignIR` via the live React reconciler + web-compat DOM shim. **Per Codex/RepoPrompt review:** custom inline-defined components (knobs, faders, etc.) materialize as their underlying SVG primitives — DO NOT widget-promote them to native `<Knob>`/`<Fader>`, which would lose visual parity with the source JSX.
 - The JSX→JS compile happens in Node, not in the C++ runtime. Run `tools/import-design/jsx-runtime/jsx-transform.mjs --in <file>.jsx --out <out>.js` to produce the IIFE bundle. The script ships its own `node_modules` (React 18.3.1 + ReactDOM 18.3.1 + esbuild 0.24.0) at `tools/import-design/jsx-runtime/node_modules/`. First-run `npm install` is required.
-- Supported input today: single-file `.jsx`, default-exported React function component, hooks from `react` only, inline `style={{...}}` objects, SVG primitives (`svg/path/circle/line`), `<input>`/`<button>` form elements (text-input editing is degraded — plain text inputs fall back to a non-editable View per Codex review), `setInterval`/`requestAnimationFrame`/`getBoundingClientRect`. Reject `.tsx` with a clean diagnostic (TypeScript stripping is a follow-up).
+- Supported input today: single-file `.jsx` or `.tsx`, default-exported React function component, hooks from `react` only, inline `style={{...}}` objects, SVG primitives (`svg/path/circle/line`), `<input>`/`<button>` form elements (text-input editing is degraded — plain text inputs fall back to a non-editable View per Codex review), `setInterval`/`requestAnimationFrame`/`getBoundingClientRect`. The TypeScript path strips TSX through the Node/esbuild transform before the C++ runtime parser sees the bundle.
 - Out of scope until follow-up PRs: window-level `mousemove`/`mouseup` global fan-out (the canonical 2-week gotcha; static render works, interactive drag does not), viewport resize signaling (`window.innerWidth/innerHeight` hard-coded), screenshot-similarity acceptance gate (timers/random would need freezing for determinism), Babel-standalone embedding (replaces the Node shell-out).
-- End-to-end harness: `tools/import-validation/jsx-roundtrip.sh` runs the transform + builds + runs the smoke test (`pulp-test-design-import-jsx-runtime` — asserts >9 IR nodes + Chainer-shaped text materializes) + optionally renders a `pulp-screenshot` PNG. Primary fixture: `planning/fixtures/jsx/chainer-instrument.jsx` (762-line Chainer instrument with 9 inline custom components, SVG, drag, setInterval).
+- End-to-end harness: `tools/import-validation/jsx-roundtrip.sh` runs the transform + builds + runs the smoke test (`pulp-test-design-import-jsx-runtime` — asserts >9 IR nodes + Chainer-shaped text materializes) + optionally renders a `pulp-screenshot` PNG. Primary fixtures: `planning/fixtures/jsx/chainer-instrument.jsx` (762-line Chainer instrument with 9 inline custom components, SVG, drag, setInterval) and `planning/fixtures/jsx/typed-control.tsx` for TSX stripping.
 - The bundle's banner-installed shim is critical: ES module imports get hoisted to the top of esbuild's IIFE body, so the navigator/document/HTML*Element ctor shims MUST be emitted as an esbuild `banner` (which is literally prepended outside the IIFE) — not inline in the entry source. Without that, React-DOM's DevTools UA sniff (`navigator.userAgent.indexOf("Chrome")`) crashes during module init. Mirrors the pre-payload shim block in `run_claude_bundle_payload_pipeline` (`design_import.cpp:1494`).
 
 **React Native runtime-import parser (Phase 6.6.5)**:
@@ -132,6 +167,12 @@ python3 tools/import-validation/check-source-contracts.py
 python3 tools/import-validation/check-source-contracts.py --format markdown
 python3 -m pytest tools/import-validation/test_source_contracts.py -v
 ```
+
+The checker also enforces coverage symmetry between
+`parse_design_source()` labels and the registry. When adding a source label
+such as `jsx`, add a matching row to `source-contracts.json` and reference
+its roundtrip script there; otherwise pre-push will fail strict
+source-contract validation.
 
 Provider MCP lanes are input-acquisition lanes only unless the source contract
 explicitly says otherwise. Current runtime parsers reject raw Figma/Stitch/Pencil
@@ -301,7 +342,7 @@ identity. If you write a custom codegen path, preserve this pattern
 so the inspector can still trace identity.
 
 **Phase 0b — `setAnchor()` bridge wiring:** the web-compat codegen
-path *also* emits a functional `setAnchor('<var>', '<anchor>')` call
+path *also* emits a functional `setAnchor(<var>._id, '<anchor>')` call
 after each createElement, AND the call is emitted unconditionally —
 NOT gated on `opts.include_comments`. Rationale: the
 `// @pulp-anchor` trail is cosmetic (for grep / debugging), but
@@ -313,9 +354,55 @@ setAnchor call (unconditional) for the runtime. The bridge side
 (`WidgetBridge::setAnchor`) is a silent no-op on unknown widget IDs,
 matching the rest of the bridge's tolerance for unmounted ids.
 
+<!-- docs-noise-lint: skip — retained: pins guidance to the PR that introduced the _id contract -->
+**Codex P1 follow-up (#2303):** The first argument to `setAnchor` <!-- docs-noise-lint: skip — retained: pins guidance to the PR that introduced the _id contract -->
+MUST be the element's internal `_id` (the auto-generated `__el_N__`
+that `document.createElement` assigns in `core/view/js/web-compat.js`),
+NOT the generated JS variable name. The bridge keys `widget()` lookup
+on `_id`; passing the var name silently no-ops and breaks the entire
+anchor wiring chain for web-compat imports. Pre-fix codegen emitted
+`setAnchor('var', ...)` (broken); post-fix emits `setAnchor(var._id, ...)`
+(correct). If you write a new codegen variant or a non-web-compat
+shim, ensure whatever id you pass matches the bridge's widget()
+lookup key — not the JS-local variable name.
+
 Native-mode codegen does NOT yet emit `setAnchor` (small follow-up;
 the native codegen has many early-return branches that need each to
 be wired). Web-compat is the default mode for imports — covered.
+
+### Phase 1 — Tweaks persistence (`pulp-tweaks.json`)
+
+`TweakStore` (`inspect/include/pulp/inspect/tweak_store.hpp`) now reads
+and writes a sidecar `pulp-tweaks.json` so inspector edits survive
+process restart.
+
+- **File location** — resolved by `TweakStore::default_tweaks_path()`:
+  1. `$PULP_TWEAKS_FILE` env var if set (verbatim — useful for tests
+     and headless CI runs).
+  2. Otherwise walks up from `cwd` looking for a directory containing
+     `package.json`; if found uses `<project_root>/pulp-tweaks.json`.
+  3. Otherwise `<cwd>/pulp-tweaks.json`.
+- **Schema** — `{ "$schema": "pulp-tweaks://v1", "version": 1,
+  "tweaks": { anchor: { dottedPath: value } }, "bypassed": { anchor:
+  true | string[] }, "sources"?: { anchor: { dottedPath: source } } }`.
+  Mirrors `packages/pulp-import-ir/src/tweaks.ts` `TweaksFile` with
+  the sibling `bypassed` overlay and `sources` sidecar Phase 1 adds.
+  Files written by `@pulp/import-ir` (no integer `version`) load as
+  v1 for back-compat; an explicit unknown `version` is a hard error
+  so we never silently drop fields we don't understand.
+- **Atomic write** — `save_to_disk()` writes `<path>.tmp` and renames
+  over the target; no partial flush ever lands at the canonical path.
+- **Auto-save** — opt-in via `TweakStore::set_auto_save(true)` or
+  `Inspector.setAutoSave { enabled, path? }` over the protocol. OFF
+  by default so unit tests don't touch disk by accident.
+- **Protocol surface** — `Inspector.loadTweaks { path? }`,
+  `Inspector.saveTweaks { path? }`, `Inspector.setAutoSave { enabled,
+  path? }`. All three default `path` to `default_tweaks_path()`.
+
+When wiring a new inspector client (web UI, CLI, MCP tool), prefer the
+protocol methods over reaching into the C++ store directly — the
+defaults + error reporting are the same and you get the resolved path
+echoed back in the response for logging.
 
 Spec + design:
 [`planning/2026-05-18-inspector-direct-manipulation-roadmap.md`](../../../planning/2026-05-18-inspector-direct-manipulation-roadmap.md)

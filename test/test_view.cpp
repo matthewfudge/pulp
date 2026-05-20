@@ -1279,6 +1279,10 @@ TEST_CASE("LiveConstantRegistry registers reuses clamps and resets constants",
     registry.reset("phase3.live.gain");
     REQUIRE(registry.get("phase3.live.gain") == Catch::Approx(0.25f));
 
+    registry.set("phase3.live.gain", 0.75f);
+    registry.reset_all();
+    REQUIRE(registry.get("phase3.live.gain") == Catch::Approx(0.25f));
+
     registry.reset("phase3.live.missing");
     registry.set("phase3.live.missing", 0.5f);
     REQUIRE(registry.get("phase3.live.missing") == Catch::Approx(0.0f));
@@ -1393,4 +1397,32 @@ TEST_CASE("View::last_paint_*_ns updates on every paint cycle",
     // is not asserted because steady_clock jitter on fast hardware can
     // produce different values frame-to-frame.
     REQUIRE(v->last_paint_self_ns() > 0u);
+}
+
+// Codex P2 follow-up on #2338: paint timing must cover framework-owned
+// drawing (background fills, borders, gradients, layer setup) — not
+// just the paint(canvas) override. A styled View with no paint()
+// override should still report non-zero last_paint_self_ns because
+// background_color painting + layer setup runs inside paint_all().
+TEST_CASE("View::last_paint_self_ns covers framework drawing on no-override views "
+          "(codex P2 #2338 regression)",
+          "[view][paint-timing][phase3d][regression]") {
+    // Use the BASE pulp::view::View (no paint() override) but set a
+    // background color so the framework's background fill runs in
+    // paint_all() between save() and the (no-op) paint() call. The
+    // pre-fix implementation timed only the paint() override and
+    // reported ~0ns; the post-fix implementation times the whole
+    // paint_all body, so we should see > 0ns even for a no-override
+    // styled View.
+    auto v = std::make_unique<pulp::view::View>();
+    v->set_bounds({0, 0, 200, 200});
+    v->set_background_color(pulp::canvas::Color::rgba(0.5f, 0.3f, 0.7f, 1.0f));
+
+    pulp::canvas::RecordingCanvas canvas;
+    v->paint_all(canvas);
+
+    // The whole paint_all body has run on the way out — self_ns must
+    // be > 0 even though paint() was a no-op. Pre-fix this was ~0.
+    REQUIRE(v->last_paint_self_ns() > 0u);
+    REQUIRE(v->last_paint_with_children_ns() >= v->last_paint_self_ns());
 }

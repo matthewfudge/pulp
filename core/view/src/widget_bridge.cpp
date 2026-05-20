@@ -823,7 +823,6 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
         std::lock_guard<std::recursive_mutex> lock(all_bridges_mutex());
         all_bridges_set().insert(this);
     }
-
     if (widget_bridge_gpu_info(gpu_surface_).native_bridge) {
         native_gpu_bridge_state_ = std::make_unique<NativeGpuBridgeState>();
     }
@@ -903,11 +902,6 @@ WidgetBridge::WidgetBridge(ScriptEngine& engine, View& root, state::StateStore& 
     // `var window = {...}` reassignment performed by the preludes above
     // (notably web-compat-document.js). See kWindowListenerShim comment.
     eval_or_throw(engine_, "kWindowListenerShim", kWindowListenerShim);
-
-    {
-        std::lock_guard<std::recursive_mutex> lock(all_bridges_mutex());
-        all_bridges_set().insert(this);
-    }
 }
 
 WidgetBridge::~WidgetBridge() {
@@ -1335,14 +1329,16 @@ void WidgetBridge::install_runtime_import_handlers() {
                                 + src_label + "')");
                         return choc::value::Value();
                     }
-                } else if (source_lc == "rn" || source_lc == "react-native") {
+                } else if (source_lc == "rn" || source_lc == "react-native" ||
+                           source_lc == "reactnative") {
                     bundle = parse_react_native_export(html);
                     if (!bundle) {
                         set_err("__pulpRuntimeImport__: unsupported React Native export (got '"
                                 + src_label + "')");
                         return choc::value::Value();
                     }
-                } else if (source_lc == "pencil" || source_lc == "open-pencil") {
+                } else if (source_lc == "pencil" || source_lc == "open-pencil" ||
+                           source_lc == "openpencil") {
                     bundle = parse_pencil_react(html);
                     if (!bundle) {
                         set_err("__pulpRuntimeImport__: unsupported Pencil React export (got '"
@@ -2422,6 +2418,18 @@ void WidgetBridge::register_api() {
         if (!v) return choc::value::Value();
         auto& f = v->flex();
         auto val = args.get<double>(2, 0);
+        // pulp-internal #70 — slider/drag jitter diagnostic. When
+        // PULP_DEBUG_FLEX_THRASH=1, log every setFlex call so the
+        // per-frame style update rate during a slider drag becomes
+        // visible. Reading getenv every call is cheap and only fires
+        // when the env var is set, so production paths stay quiet.
+        static const bool flex_thrash_log = std::getenv("PULP_DEBUG_FLEX_THRASH") != nullptr;
+        if (flex_thrash_log) {
+            const char* svalcstr = "";
+            try { svalcstr = args.get<std::string>(2, "").c_str(); } catch (...) {}
+            std::fprintf(stderr, "[flex-thrash] id=%s key=%s num=%.3f str='%s'\n",
+                         id.c_str(), key.c_str(), val, svalcstr);
+        }
         // pulp #1434 (rn batch B) — accept all five flexDirection
         // spellings: 'row' / 'column' (CSS / RN canonical), 'col' (legacy
         // pulp shorthand emitted by web-compat-style-decl.js's
@@ -5220,7 +5228,18 @@ void WidgetBridge::register_api() {
     });
 
     // setPosition(id, "static"/"relative"/"absolute"/"fixed") — CSS position
+    // pulp-internal #70 — instrument under PULP_DEBUG_FLEX_THRASH so we
+    // can see whether the JSX's `position: "absolute"` actually reaches
+    // the bridge (it has been observed missing for runtime-React
+    // imports, which makes inline absolute children render at the
+    // wrong place).
     engine_.register_function("setPosition", [this](choc::javascript::ArgumentList args) {
+        static const bool flex_thrash_log = std::getenv("PULP_DEBUG_FLEX_THRASH") != nullptr;
+        if (flex_thrash_log) {
+            std::fprintf(stderr, "[flex-thrash] setPosition id=%s pos=%s\n",
+                         args.get<std::string>(0, "").c_str(),
+                         args.get<std::string>(1, "").c_str());
+        }
         auto id = args.get<std::string>(0, "");
         auto pos = args.get<std::string>(1, "static");
         auto* v = id.empty() ? &root_ : widget(id);
