@@ -105,11 +105,17 @@ tune_ccache() {
     note "migrating warm cache: $olddir -> $newdir"
     do_ rsync -a "$olddir/" "$newdir/" || warn "cache migration incomplete (non-fatal — it rewarms)"
   fi
+  # Set the global default cache_dir (for ccache invocations with no
+  # CCACHE_DIR env). The tuned knobs must additionally be written INTO
+  # $CCACHE_DIR/ccache.conf — that is the config a runner job reads,
+  # because the runner .env exports CCACHE_DIR. Writing only the global
+  # config was the bug fixed here: jobs were silently capped at ccache's
+  # 5 GB default.
   do_ ccache --set-config "cache_dir=$newdir"
-  do_ ccache --set-config "max_size=$CCACHE_MAX_SIZE"
-  do_ ccache --set-config "compression=true"
-  do_ ccache --set-config "inode_cache=true"
-  ok "ccache: cache_dir=$newdir, max_size=$CCACHE_MAX_SIZE, compression on"
+  for kv in "max_size=$CCACHE_MAX_SIZE" "compression=true" "inode_cache=true"; do
+    do_ env CCACHE_DIR="$newdir" ccache --set-config "$kv"
+  done
+  ok "ccache: cache_dir=$newdir, max_size=$CCACHE_MAX_SIZE (in \$CCACHE_DIR/ccache.conf)"
   note "cross-worktree path normalization (CCACHE_BASEDIR + CCACHE_NOHASHDIR)"
   note "is applied per runner workspace by the --with-runners phase"
 }
@@ -117,20 +123,32 @@ tune_ccache() {
 # ── Skia ─────────────────────────────────────────────────────────────────────
 verify_skia() {
   step "Skia prebuilt binaries"
-  local repo_skia="$REPO_ROOT/external/skia-build"
-  local cache_skia="$CI_ROOT/cache/skia-build"
-  if [ -d "$repo_skia" ] && [ -n "$(ls -A "$repo_skia" 2>/dev/null || true)" ]; then
-    ok "external/skia-build present"
-    if [ -z "$(ls -A "$cache_skia" 2>/dev/null || true)" ]; then
-      do_ rsync -a "$repo_skia/" "$cache_skia/" \
-        && note "retained a copy in $cache_skia for fast re-provisioning"
+  # FindSkia.cmake needs the real static lib here; the LFS-declared Skia
+  # binaries are not committed, so a fresh checkout has only an LFS
+  # pointer. An LFS pointer file begins with "version https://git-lfs".
+  local lib="$REPO_ROOT/external/skia-build/build/mac-gpu/lib/Release/libskia.a"
+  local have=0
+  if [ -f "$lib" ] && ! head -c 64 "$lib" 2>/dev/null | grep -qa "git-lfs"; then
+    have=1
+    ok "real Skia present ($lib)"
+  fi
+  if [ "$have" = 0 ]; then
+    note "Skia missing or LFS-pointer-only — fetching the pinned release asset"
+    if [ "$CHECK_ONLY" = 1 ]; then
+      note "would run: python3 tools/scripts/fetch_skia_for_release.py darwin-arm64"
+      return
     fi
-  elif [ -n "$(ls -A "$cache_skia" 2>/dev/null || true)" ]; then
-    note "seeding external/skia-build from retained cache copy"
-    do_ rsync -a "$cache_skia/" "$repo_skia/"
-  else
-    warn "external/skia-build missing — GPU build will be disabled."
-    warn "Seed it: 'git lfs pull' in the repo, or copy from another host."
+    ( cd "$REPO_ROOT" && python3 tools/scripts/fetch_skia_for_release.py darwin-arm64 ) \
+      || die "fetch_skia_for_release.py failed — cannot provision Skia for a GPU-capable host"
+    if [ -f "$lib" ] && ! head -c 64 "$lib" 2>/dev/null | grep -qa "git-lfs"; then
+      ok "Skia fetched + validated"
+    else
+      die "Skia fetch ran but $lib is still missing/pointer — a GPU build would fail"
+    fi
+  fi
+  # Retain a real copy in the shared cache for fast re-provisioning.
+  if [ -z "$(ls -A "$CI_ROOT/cache/skia-build" 2>/dev/null || true)" ]; then
+    do_ rsync -a "$REPO_ROOT/external/skia-build/" "$CI_ROOT/cache/skia-build/"
   fi
 }
 
@@ -186,6 +204,7 @@ register_runners() {
     # Per-runner service environment: ccache + parallelism + FetchContent.
     do_ bash -c "cat > '$rdir/.env' <<ENV
 CCACHE_DIR=$CI_ROOT/cache/ccache
+CCACHE_MAXSIZE=$CCACHE_MAX_SIZE
 CCACHE_BASEDIR=$work
 CCACHE_NOHASHDIR=true
 CMAKE_BUILD_PARALLEL_LEVEL=$per
