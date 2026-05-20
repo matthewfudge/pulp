@@ -99,7 +99,7 @@ jobs:
             echo "status=fail" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run test suite
+      - name: Run test suite (informational — does not gate the run)
         id: test
         shell: bash
         run: |
@@ -109,6 +109,22 @@ jobs:
           else
             echo "status=fail" >> "$GITHUB_OUTPUT"
           fi
+          # ctest is INFORMATIONAL on the nightly. This job runs on
+          # GitHub-hosted macos-15, which lacks the self-hosted M1's GPU,
+          # installed fonts, and registered AU components — so a chunk of
+          # golden / GPU / auval / platform-harness tests fail here even
+          # though they pass on the M1 in PR CI. The run's pass/fail is
+          # gated on the BUILD step only (see "Compute result" — that is
+          # #2462's actual concern: test targets that do not COMPILE).
+          # ctest results are surfaced in the run summary for eyeballing.
+          {
+            echo "## Nightly ctest (informational — does not gate the run)"
+            grep -E 'tests passed|tests failed out of' ctest-nightly.log || true
+            echo
+            echo '```'
+            grep -E '\*\*\*Failed|\*\*\*Timeout' ctest-nightly.log || echo '(no test failures)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build + test logs
         if: always()
@@ -129,13 +145,19 @@ jobs:
           set -euo pipefail
           build='${{ steps.build.outputs.status }}'
           test='${{ steps.test.outputs.status }}'
-          if [ "$build" = "pass" ] && [ "$test" = "pass" ]; then
+          # Gate on the BUILD only. #2462's concern is test targets that
+          # do not COMPILE — caught by the build step. ctest runs on
+          # GitHub-hosted macos-15, whose environment differs from the
+          # M1 (no GPU / fonts / AU components), so its runtime failures
+          # are not reliable signal and must not fail the run. ctest
+          # results are still surfaced in the run summary.
+          if [ "$build" = "pass" ]; then
             result="success"
           else
             result="failure"
           fi
           echo "result=${result}"          >> "$GITHUB_OUTPUT"
-          echo "Build=${build:-skipped} Test=${test:-skipped} -> ${result}"
+          echo "Build=${build:-skipped} Test=${test:-skipped} (informational) -> ${result}"
 
       - name: Maintain tracking issue
         if: always()

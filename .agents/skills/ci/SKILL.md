@@ -708,10 +708,18 @@ What it does:
   self-hosted M1 runners: a nightly must not compete with PR CI for the
   M1's 2 runners, and overnight latency is irrelevant for a sweep.
 - Configures the **full tree** (`examples ON`, tests ON — no
-  `-DPULP_BUILD_EXAMPLES=OFF`) and builds **everything** with
-  `cmake --build --keep-going`, so one broken target does not mask the
-  rest. The whole `--keep-going` log is uploaded as an artifact.
-- On build/test failure, opens or updates a single de-duplicated
+  `-DPULP_BUILD_EXAMPLES=OFF`) with `-G Ninja`, and builds **everything**
+  with `cmake --build … -- -k 0` (Ninja keep-going — `cmake` itself has
+  no `--keep-going` flag), so one broken target does not mask the rest.
+  The full build log is uploaded as an artifact.
+- **The run is gated on the BUILD step only.** ctest still runs but is
+  *informational*: the nightly runs on GitHub-hosted `macos-15`, which
+  lacks the M1's GPU, installed fonts, and registered AU components, so
+  ~15 golden / GPU / `auval` / platform-harness tests fail there though
+  they pass on the M1 in PR CI. Gating on ctest would make the nightly
+  red every night; instead ctest results land in the run's step summary
+  for eyeballing.
+- On a **build** failure, opens or updates a single de-duplicated
   tracking issue and auto-closes it on the next green run — the same
   watchdog pattern as `auto-release-watchdog.yml` and
   `release-cadence-check.yml` (`permissions: issues: write`).
@@ -719,6 +727,24 @@ What it does:
 If you see the "Nightly full build is broken" tracker, a refactor broke
 a test target PR CI never compiles. Download the `nightly-full-build-logs`
 artifact for the full failure list.
+
+### Linting workflow files locally
+
+`actionlint` is **slow on Pulp's large workflows** — it shells out to
+`shellcheck` for every `run:` block, and `build.yml` has many big ones,
+so a local `actionlint .github/workflows/build.yml` can spin for many
+minutes (observed at 338% CPU / 8+ min with no result). Do not wait it
+out:
+
+- Run `actionlint -shellcheck=` — the empty value disables the
+  `shellcheck` integration. It still validates workflow YAML, action
+  refs, and `${{ }}` expression syntax; it just skips the slow
+  per-`run`-block shell linting.
+- Or skip local `actionlint` entirely: `yamllint -d relaxed` locally is
+  enough, and the CI **`Workflow lint`** job runs `actionlint`
+  authoritatively on a fast Linux runner.
+
+Never leave a runaway `actionlint` process behind.
 
 ## Stale run reaper (`stale-run-reaper.yml`)
 
