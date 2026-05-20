@@ -8,7 +8,7 @@ add_executable(pulp-import-design
     import_detect.cpp
     widget_promotion.cpp)
 target_include_directories(pulp-import-design PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(pulp-import-design PRIVATE pulp::view pulp::state)
+target_link_libraries(pulp-import-design PRIVATE pulp::view pulp::state pulp::platform)
 
 # Link-order fix for libskia.a → fontconfig on Linux+GNU ld (#1986
 # follow-up): re-mention fontconfig AFTER pulp::view's transitive

@@ -626,6 +626,13 @@ pulp import-design --from claude --file design.html --classnames editor/classnam
 pulp import-design --from claude --file design.html --no-emit-classnames
 ```
 
+Import artifact flag vocabulary:
+- `--output <path>` is the destination for the primary artifact; today that artifact is JS and defaults to `ui.js`.
+- `--emit js` is implemented today. `--emit ir-json` and `--emit cpp` are recognized reserved values for future implementations and fail cleanly. Legacy `--emit classnames` remains accepted for the Claude classnames sidecar.
+- `--mode live` is implemented today. `--mode baked` is recognized and reserved for a future import mode.
+- `--snapshot-semantics fail|warn|accept` is parsed now for future JSX baked imports.
+- URL imports fetch through argv-safe `curl` into a unique temporary file; shell metacharacters in `--file` and `--url` are rejected before parsing or fetching.
+
 Use `--dry-run` to preview without writing files.
 
 Detect-only directory inputs (`pulp import-design --detect-only --directory <dir>`) prefer

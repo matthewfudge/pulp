@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -73,6 +74,47 @@ std::string read_text(const fs::path& path) {
     return ss.str();
 }
 
+std::optional<std::string> read_env_var(const char* name) {
+    if (const char* value = std::getenv(name); value) return std::string(value);
+    return std::nullopt;
+}
+
+void set_env_var(const char* name, const std::string& value) {
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
+
+void unset_env_var(const char* name) {
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+
+class ScopedEnvVar {
+public:
+    ScopedEnvVar(const char* name, const std::string& value)
+        : name_(name), old_(read_env_var(name)) {
+        set_env_var(name_.c_str(), value);
+    }
+
+    ~ScopedEnvVar() {
+        if (old_) set_env_var(name_.c_str(), *old_);
+        else unset_env_var(name_.c_str());
+    }
+
+    ScopedEnvVar(const ScopedEnvVar&) = delete;
+    ScopedEnvVar& operator=(const ScopedEnvVar&) = delete;
+
+private:
+    std::string name_;
+    std::optional<std::string> old_;
+};
+
 } // namespace
 
 TEST_CASE("pulp-import-design reports help and argument diagnostics",
@@ -85,6 +127,10 @@ TEST_CASE("pulp-import-design reports help and argument diagnostics",
         REQUIRE(r.exit_code == 0);
         REQUIRE(r.stdout_output.find("pulp import-design") != std::string::npos);
         REQUIRE(r.stdout_output.find("--from <source>") != std::string::npos);
+        REQUIRE(r.stdout_output.find("--output <path>   Destination file for the primary artifact") != std::string::npos);
+        REQUIRE(r.stdout_output.find("--emit {js|ir-json|cpp}") != std::string::npos);
+        REQUIRE(r.stdout_output.find("--mode {live|baked}") != std::string::npos);
+        REQUIRE(r.stdout_output.find("--snapshot-semantics {fail|warn|accept}") != std::string::npos);
     }
 
     SECTION("missing source is a usage error") {
@@ -101,6 +147,82 @@ TEST_CASE("pulp-import-design reports help and argument diagnostics",
         REQUIRE(r.exit_code != 0);
         REQUIRE(r.stderr_output.find("unknown source 'not-a-source'") != std::string::npos);
         REQUIRE(r.stderr_output.find("Valid sources") != std::string::npos);
+    }
+}
+
+TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
+          "[cli][import-design][tool][issue-493]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
+
+    TempDir tmp("pulp-import-design-tool-flags");
+    const auto input = tmp.path / "screen.html";
+    write_text(input, "<!DOCTYPE html><html><body><main>Gain</main></body></html>");
+
+    SECTION("missing and unknown emit values are clean usage errors") {
+        auto missing = run_import_design({"--emit"});
+        REQUIRE_FALSE(missing.timed_out);
+        REQUIRE(missing.exit_code == 2);
+        REQUIRE(missing.stderr_output.find("--emit requires a value") != std::string::npos);
+
+        auto unknown = run_import_design({"--emit", "tokens",
+                                          "--from", "stitch",
+                                          "--file", input.string()});
+        REQUIRE_FALSE(unknown.timed_out);
+        REQUIRE(unknown.exit_code == 2);
+        REQUIRE(unknown.stderr_output.find("unsupported --emit value") != std::string::npos);
+    }
+
+    SECTION("reserved emit targets are accepted vocabulary but not implemented") {
+        auto ir = run_import_design({"--from", "stitch",
+                                     "--file", input.string(),
+                                     "--emit", "ir-json"});
+        REQUIRE_FALSE(ir.timed_out);
+        REQUIRE(ir.exit_code == 2);
+        REQUIRE(ir.stderr_output.find("--emit ir-json is reserved") != std::string::npos);
+
+        auto cpp = run_import_design({"--from", "stitch",
+                                      "--file", input.string(),
+                                      "--emit", "cpp"});
+        REQUIRE_FALSE(cpp.timed_out);
+        REQUIRE(cpp.exit_code == 2);
+        REQUIRE(cpp.stderr_output.find("--emit cpp is reserved") != std::string::npos);
+    }
+
+    SECTION("mode and snapshot vocabulary reject unsupported values") {
+        auto mode = run_import_design({"--from", "stitch",
+                                       "--file", input.string(),
+                                       "--mode", "preview"});
+        REQUIRE_FALSE(mode.timed_out);
+        REQUIRE(mode.exit_code == 2);
+        REQUIRE(mode.stderr_output.find("unsupported --mode value") != std::string::npos);
+
+        auto snapshot = run_import_design({"--from", "stitch",
+                                           "--file", input.string(),
+                                           "--snapshot-semantics", "maybe"});
+        REQUIRE_FALSE(snapshot.timed_out);
+        REQUIRE(snapshot.exit_code == 2);
+        REQUIRE(snapshot.stderr_output.find("unsupported --snapshot-semantics value") != std::string::npos);
+
+        auto baked = run_import_design({"--from", "stitch",
+                                        "--file", input.string(),
+                                        "--mode", "baked",
+                                        "--snapshot-semantics", "warn"});
+        REQUIRE_FALSE(baked.timed_out);
+        REQUIRE(baked.exit_code == 2);
+        REQUIRE(baked.stderr_output.find("--mode baked is reserved") != std::string::npos);
+    }
+
+    SECTION("legacy classnames emit vocabulary remains accepted") {
+        const auto output = tmp.path / "generated" / "legacy.js";
+        auto r = run_import_design({"--from", "stitch",
+                                    "--file", input.string(),
+                                    "--output", output.string(),
+                                    "--emit", "classnames",
+                                    "--no-comments",
+                                    "--no-tokens"});
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 0);
+        REQUIRE(fs::exists(output));
     }
 }
 
@@ -126,31 +248,124 @@ TEST_CASE("pulp-import-design writes a web-compat Stitch import to nested output
     const auto input = tmp.path / "screen.html";
     const auto output = tmp.path / "generated" / "ui.js";
     const auto tokens = tmp.path / "generated" / "tokens.json";
+    const auto shortcuts = tmp.path / "generated" / "shortcuts.json";
 
     write_text(input,
                "<!DOCTYPE html><html><body>"
                "<main class=\"panel\"><h1>Gain</h1><button>Bypass</button></main>"
+               "<script>window.addEventListener('keydown', function(e) {"
+               "if ((e.metaKey || e.ctrlKey) && e.key === 's') save();"
+               "});</script>"
                "</body></html>");
 
     auto r = run_import_design({"--from", "stitch",
                                 "--file", input.string(),
                                 "--output", output.string(),
+                                "--emit", "js",
+                                "--mode", "live",
+                                "--snapshot-semantics", "warn",
                                 "--tokens", tokens.string(),
                                 "--web-compat",
+                                "--no-default-shortcuts",
                                 "--no-comments",
                                 "--no-tokens"});
 
     REQUIRE_FALSE(r.timed_out);
     REQUIRE(r.exit_code == 0);
     REQUIRE(fs::exists(output));
+    REQUIRE(fs::exists(shortcuts));
     REQUIRE_FALSE(fs::exists(tokens));
 
     const auto js = read_text(output);
+    const auto shortcuts_json = read_text(shortcuts);
     REQUIRE(js.find("setTheme('dark')") != std::string::npos);
     REQUIRE(js.find("document.createElement") != std::string::npos);
     REQUIRE(js.find("document.body.appendChild") != std::string::npos);
+    REQUIRE(shortcuts_json.find("\"key\": \"s\"") != std::string::npos);
     REQUIRE(r.stdout_output.find(output.string()) != std::string::npos);
 }
+
+TEST_CASE("pulp-import-design rejects shell-metacharacter file and URL inputs",
+          "[cli][import-design][tool][issue-493]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
+
+    TempDir tmp("pulp-import-design-tool-shell-meta");
+    const auto sentinel = tmp.path / "sentinel";
+
+    SECTION("--file is rejected before any shell-like text can be interpreted") {
+        const std::vector<std::string> metas = {
+            ";", "&", "|", "<", ">", "$", "`", "'", "\"", "(", ")",
+            "*", "?", "[", "]", "{", "}", "!"
+        };
+        for (const auto& meta : metas) {
+            INFO("file metacharacter: " << meta);
+            const auto hostile = (tmp.path / "missing.html").string() + meta + "touch " + sentinel.string();
+            auto r = run_import_design({"--from", "stitch", "--file", hostile});
+            REQUIRE_FALSE(r.timed_out);
+            REQUIRE(r.exit_code == 2);
+            REQUIRE(r.stderr_output.find("--file contains shell metacharacters") != std::string::npos);
+            REQUIRE_FALSE(fs::exists(sentinel));
+        }
+    }
+
+    SECTION("--url is rejected before curl is launched") {
+        const std::vector<std::string> metas = {
+            ";", "|", "<", ">", "$", "`", "'", "\"", "\\", "(", ")",
+            "*", "[", "]", "{", "}", "!"
+        };
+        for (const auto& meta : metas) {
+            INFO("url metacharacter: " << meta);
+            const auto hostile = std::string("https://example.invalid/screen") + meta + "touch";
+            auto r = run_import_design({"--from", "stitch", "--url", hostile});
+            REQUIRE_FALSE(r.timed_out);
+            REQUIRE(r.exit_code == 2);
+            REQUIRE(r.stderr_output.find("--url contains shell metacharacters") != std::string::npos);
+            REQUIRE_FALSE(fs::exists(sentinel));
+        }
+    }
+}
+
+#ifndef _WIN32
+TEST_CASE("pulp-import-design URL fetch uses a unique temp file and argv-safe curl",
+          "[cli][import-design][tool][issue-493]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
+
+    TempDir tmp("pulp-import-design-tool-url-fetch");
+    const auto bin = tmp.path / "bin";
+    const auto curl = bin / "curl";
+    const auto output = tmp.path / "generated" / "ui.js";
+    fs::create_directories(bin);
+    write_text(curl,
+               "#!/bin/sh\n"
+               "out=''\n"
+               "while [ \"$#\" -gt 0 ]; do\n"
+               "  case \"$1\" in\n"
+               "    --output) shift; out=\"$1\" ;;\n"
+               "  esac\n"
+               "  shift\n"
+               "done\n"
+               "[ -n \"$out\" ] || exit 9\n"
+               "printf '%s' '<!DOCTYPE html><html><body><main>Fetched Gain</main></body></html>' > \"$out\"\n");
+    fs::permissions(curl,
+                    fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write,
+                    fs::perm_options::add);
+
+    auto old_path = read_env_var("PATH").value_or("");
+    ScopedEnvVar path_override("PATH", bin.string() + ":" + old_path);
+    auto r = run_import_design({"--from", "stitch",
+                                "--url", "https://example.test/screen.html?node-id=1&mode=dev",
+                                "--output", output.string(),
+                                "--no-comments",
+                                "--no-tokens"});
+
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code == 0);
+    REQUIRE(fs::exists(output));
+    REQUIRE(r.stdout_output.find("Fetched https://example.test/screen.html?node-id=1&mode=dev") != std::string::npos);
+    REQUIRE(r.stdout_output.find("pulp-import-design-") != std::string::npos);
+    REQUIRE(r.stdout_output.find("pulp-import-fetched.tmp") == std::string::npos);
+}
+#endif
 
 TEST_CASE("pulp-import-design debug report names the default bridge-native mode",
           "[cli][import-design][tool][issue-2439]") {

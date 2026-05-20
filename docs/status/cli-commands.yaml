@@ -586,20 +586,20 @@ commands:
   - name: import-design
     status: partial
     summary: >
-      Import designs from Figma, Stitch, v0, Pencil, Claude Design, or Google
-      DESIGN.md into Pulp web-compat JS. The designmd source is tokens-only
-      as tokens-only (no ui.js); other sources emit a full ui.js + tokens.json.
+      Import designs from Figma, Stitch, v0, Pencil, Claude Design, React JSX,
+      or Google DESIGN.md into Pulp web-compat JS. The designmd source is
+      tokens-only (no ui.js); other sources emit a full ui.js + tokens.json.
     args:
       - name: --from
         kind: option
         required: true
-        description: "Design source: figma, stitch, v0, pencil, claude, designmd"
+        description: "Design source: figma, stitch, v0, pencil, claude, designmd, jsx"
       - name: --file
         kind: option
         description: Input file path (required if --url not given)
       - name: --url
         kind: option
-        description: Design URL (Figma file URL or v0 share link)
+        description: Design URL (Figma file URL or v0 share link); fetched with argv-safe curl into a unique temporary file when --file is not given
       - name: --frame
         kind: option
         description: Frame/artboard name to import (Figma)
@@ -608,7 +608,16 @@ commands:
         description: Screen name to import (Stitch)
       - name: --output
         kind: option
-        description: "Output JS file (default: ui.js)"
+        description: "Destination file for the primary artifact (default: ui.js)"
+      - name: --emit
+        kind: option
+        description: "Primary artifact kind: js (implemented), ir-json or cpp (recognized reserved values that fail cleanly), or legacy classnames sidecar"
+      - name: --mode
+        kind: option
+        description: "Runtime model: live (implemented) or baked (recognized reserved value that fails cleanly)"
+      - name: --snapshot-semantics
+        kind: option
+        description: "Future JSX baked snapshot policy: fail, warn, or accept"
       - name: --tokens
         kind: option
         description: "Output W3C token file (default: tokens.json)"
