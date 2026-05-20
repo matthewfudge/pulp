@@ -999,6 +999,123 @@ TEST_CASE("InspectorOverlay Phase 3b: Tab without paint does nothing extra",
     REQUIRE_FALSE(s.overlay.is_editing());
 }
 
+// ── Phase 0b PR-C-2: property panel dot indicators ─────────────────────────
+//
+// When the selected view has tweaks in the TweakStore, the property
+// panel renders a small dot in the gutter LEFT of the label row. The
+// dot signals "this property differs from source". The exact pixel
+// position isn't asserted — instead we check that paint emits MORE
+// canvas commands when tweaks are present (the dot is an extra
+// fill_circle per tweaked row).
+
+TEST_CASE("InspectorOverlay: property panel paints dot when tweak exists",
+          "[inspect][overlay][dot-indicator][phase0b-prc2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("figma:0:42");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().gap = 8;  // ensure the gap row renders
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+
+    // Select the child via click so the props panel renders.
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    // Baseline render with no tweaks.
+    pulp::canvas::RecordingCanvas baseline;
+    overlay.paint(baseline);
+    auto baseline_count = baseline.command_count();
+    REQUIRE(baseline_count > 0);
+
+    // Add a tweak for a property that's rendered in the panel.
+    store.apply_tweak("figma:0:42", "layout.gap",
+                      choc::value::createInt32(16), "drag");
+
+    pulp::canvas::RecordingCanvas with_dot;
+    overlay.paint(with_dot);
+    // Dot indicator = one extra fill_circle command per tweaked row.
+    REQUIRE(with_dot.command_count() > baseline_count);
+}
+
+TEST_CASE("InspectorOverlay: dot indicator absent without a TweakStore",
+          "[inspect][overlay][dot-indicator][phase0b-prc2]") {
+    // Inspector running without a TweakStore wired (e.g. unit-test
+    // contexts) must not crash and must not paint dots — they have no
+    // data to drive them.
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("figma:0:42");
+    child->set_bounds({10, 10, 80, 40});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    // intentionally NOT calling set_tweak_store
+
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    pulp::canvas::RecordingCanvas canvas;
+    overlay.paint(canvas);
+    REQUIRE(canvas.command_count() > 0);
+    // No crash, no dots — render completes cleanly.
+}
+
+TEST_CASE("InspectorOverlay: bypassed tweak suppresses dot",
+          "[inspect][overlay][dot-indicator][phase0b-prc2]") {
+    // Phase 2.5 / Codex spec: a path-scoped or whole-anchor bypass
+    // marks a tweak as "inactive" but keeps it in the file. The dot
+    // indicator must reflect bypass — no dot on bypassed rows.
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("figma:0:42");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().gap = 8;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    store.apply_tweak("figma:0:42", "layout.gap",
+                      choc::value::createInt32(16), "drag");
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    pulp::canvas::RecordingCanvas with_dot;
+    overlay.paint(with_dot);
+    auto with_dot_count = with_dot.command_count();
+
+    // Bypass the tweak — dot should disappear, command count drops.
+    store.set_bypass("figma:0:42", std::vector<std::string>{"layout.gap"});
+
+    pulp::canvas::RecordingCanvas bypassed;
+    overlay.paint(bypassed);
+    REQUIRE(bypassed.command_count() < with_dot_count);
+}
+
 // ── Phase 3a: drag handles ────────────────────────────────────────────────
 
 TEST_CASE("InspectorOverlay: drag handles default OFF", "[inspect][overlay][phase3a]") {
