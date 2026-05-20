@@ -148,6 +148,11 @@ signed/notarized `.dmg`, so the version and asset metadata must move together.
   the self-hosted macOS runner may not have the pinned Skia archive, and this
   workflow only needs the PulpEffect AU/VST3/CLAP bundles, not GPU examples
   such as `pulp-design-tool`.
+- **Build-and-Test workflow_dispatch is Shipyard PR validation.** Preserve
+  `-DPULP_ENABLE_GPU=OFF` on the workflow_dispatch configure path in
+  `.github/workflows/build.yml`: the local self-hosted macOS runner may not
+  have the pinned Skia archive, while pull_request validation already disables
+  example bundles and release workflows own GPU/SDK coverage.
 - **Heartbeat line during long validation** (Shipyard v0.29.0). A
   20-minute lane now prints periodic progress instead of leaving a
   silent terminal. Helpful when watching `shipyard ship` interactively.

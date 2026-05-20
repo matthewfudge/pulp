@@ -614,10 +614,11 @@ jobs:
         # AraPitchTracker × VST3/AU/CLAP format variants — the heavy
         # build targets). Tests still build + run; just not the
         # example-plugin product bundles. Trades ~10-20 min per PR
-        # for a deferred validation that examples still compile —
-        # which runs in full on push to main / schedule.
-        # On workflow_dispatch, the full build runs
-        # (PULP_BUILD_EXAMPLES default = ON).
+        # for a deferred validation that examples still compile.
+        # On workflow_dispatch, Shipyard PR validation keeps examples
+        # enabled but disables GPU-only targets: the self-hosted macOS
+        # runner does not carry the pinned Skia archive, and GPU release
+        # coverage lives in the release workflow.
         run: |
           set -euo pipefail
           # macOS builds with Ninja — it schedules parallelism more
@@ -642,7 +643,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             cmake -S . -B "$PULP_BUILD_DIR" $gen -DCMAKE_BUILD_TYPE=Release -DPULP_BUILD_EXAMPLES=OFF
           else
-            cmake -S . -B "$PULP_BUILD_DIR" $gen -DCMAKE_BUILD_TYPE=Release
+            cmake -S . -B "$PULP_BUILD_DIR" $gen -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF
           fi
         shell: bash
 
