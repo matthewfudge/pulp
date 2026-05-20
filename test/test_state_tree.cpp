@@ -985,18 +985,19 @@ TEST_CASE("StateTreeSynchroniser records property and child deltas", "[state][sy
     auto deltas = sync.take_deltas();
     REQUIRE(deltas.size() == 3);
 
+    // Root-level deltas record an empty index-path (the root node itself).
     REQUIRE(deltas[0].type == SyncDeltaType::PropertySet);
-    REQUIRE(deltas[0].path == "root");
+    REQUIRE(deltas[0].path == "");
     REQUIRE(deltas[0].key == "name");
     REQUIRE(std::get<std::string>(deltas[0].value) == "Lead");
 
     REQUIRE(deltas[1].type == SyncDeltaType::ChildAdd);
-    REQUIRE(deltas[1].path == "root");
+    REQUIRE(deltas[1].path == "");
     REQUIRE(deltas[1].key == "osc");
     REQUIRE(deltas[1].child_index == 0);
 
     REQUIRE(deltas[2].type == SyncDeltaType::ChildRemove);
-    REQUIRE(deltas[2].path == "root");
+    REQUIRE(deltas[2].path == "");
     REQUIRE(deltas[2].child_index == 0);
 
     REQUIRE(sync.take_deltas().empty());
@@ -1016,7 +1017,7 @@ TEST_CASE("StateTreeSynchroniser attach replaces the previous tree",
 
     auto deltas = sync.take_deltas();
     REQUIRE(deltas.size() == 1);
-    REQUIRE(deltas[0].path == "second");
+    REQUIRE(deltas[0].path == "");
     REQUIRE(deltas[0].key == "name");
     REQUIRE(std::get<std::string>(deltas[0].value) == "recorded");
 }
@@ -1034,7 +1035,7 @@ TEST_CASE("StateTreeSynchroniser records property removals", "[state][sync][code
     auto deltas = sync.take_deltas();
     REQUIRE(deltas.size() == 1);
     REQUIRE(deltas[0].type == SyncDeltaType::PropertyRemove);
-    REQUIRE(deltas[0].path == "root");
+    REQUIRE(deltas[0].path == "");
     REQUIRE(deltas[0].key == "name");
     REQUIRE(std::holds_alternative<std::monostate>(deltas[0].value));
 }
@@ -1228,14 +1229,15 @@ TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state
     tree->set("remove_me", std::string("bye"));
     tree->add_child(StateTree::create("existing"));
 
+    // Empty path targets the root node.
     std::vector<SyncDelta> deltas = {
-        {SyncDeltaType::PropertySet, "root", "name", std::string("Lead"), -1},
-        {SyncDeltaType::PropertySet, "root", "count", int64_t(5), -1},
-        {SyncDeltaType::PropertyRemove, "root", "remove_me", {}, -1},
-        {SyncDeltaType::ChildAdd, "root", "inserted", {}, 0},
-        {SyncDeltaType::ChildAdd, "root", "appended", {}, 99},
-        {SyncDeltaType::ChildRemove, "root", "", {}, 1},
-        {SyncDeltaType::ChildRemove, "root", "", {}, 99},
+        {SyncDeltaType::PropertySet, "", "name", std::string("Lead"), -1},
+        {SyncDeltaType::PropertySet, "", "count", int64_t(5), -1},
+        {SyncDeltaType::PropertyRemove, "", "remove_me", {}, -1},
+        {SyncDeltaType::ChildAdd, "", "inserted", {}, 0},
+        {SyncDeltaType::ChildAdd, "", "appended", {}, 99},
+        {SyncDeltaType::ChildRemove, "", "", {}, 1},
+        {SyncDeltaType::ChildRemove, "", "", {}, 99},
     };
 
     StateTreeSynchroniser::apply(*tree, deltas);
@@ -1247,4 +1249,115 @@ TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state
     REQUIRE(tree->child_count() == 2);
     REQUIRE(tree->child(0)->type_name() == "inserted");
     REQUIRE(tree->child(1)->type_name() == "appended");
+}
+
+// ── StateTreeSynchroniser nested-node routing (P7-3) ────────────────────
+//
+// Regression tests for two defects: deltas captured on a nested node must
+// (1) record a path that identifies that node, not a bare type name, and
+// (2) be routed back to that node by apply() rather than landing on root.
+
+TEST_CASE("StateTreeSynchroniser routes nested property sync to the child node",
+          "[state][sync][issue-p7-3]") {
+    // Source tree: root → osc → env
+    auto src_root = StateTree::create("root");
+    auto src_osc = StateTree::create("osc");
+    auto src_env = StateTree::create("env");
+    src_root->add_child(src_osc);
+    src_osc->add_child(src_env);
+
+    StateTreeSynchroniser sync;
+    sync.attach(src_root);
+
+    // Change a property on a deeply nested node.
+    src_env->set("attack", 0.125);
+
+    auto deltas = sync.take_deltas();
+    REQUIRE(deltas.size() == 1);
+    REQUIRE(deltas[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(deltas[0].key == "attack");
+    // The path must identify the env node, not be a bare type name.
+    REQUIRE(deltas[0].path != "env");
+
+    // Apply onto a structurally identical mirror tree.
+    auto dst_root = StateTree::create("root");
+    auto dst_osc = StateTree::create("osc");
+    auto dst_env = StateTree::create("env");
+    dst_root->add_child(dst_osc);
+    dst_osc->add_child(dst_env);
+
+    StateTreeSynchroniser::apply(*dst_root, deltas);
+
+    // The nested node — not the root — must have changed.
+    REQUIRE_THAT(dst_env->get_double("attack"), WithinAbs(0.125, 1e-9));
+    REQUIRE_FALSE(dst_root->has("attack"));
+    REQUIRE_FALSE(dst_osc->has("attack"));
+}
+
+TEST_CASE("StateTreeSynchroniser routes nested property removal to the child node",
+          "[state][sync][issue-p7-3]") {
+    auto src_root = StateTree::create("root");
+    auto src_child = StateTree::create("child");
+    src_root->add_child(src_child);
+    src_child->set("doomed", std::string("value"));
+
+    StateTreeSynchroniser sync;
+    sync.attach(src_root);
+    src_child->remove("doomed");
+
+    auto deltas = sync.take_deltas();
+    REQUIRE(deltas.size() == 1);
+    REQUIRE(deltas[0].type == SyncDeltaType::PropertyRemove);
+    REQUIRE(deltas[0].key == "doomed");
+
+    auto dst_root = StateTree::create("root");
+    auto dst_child = StateTree::create("child");
+    dst_root->add_child(dst_child);
+    dst_child->set("doomed", std::string("value"));
+
+    StateTreeSynchroniser::apply(*dst_root, deltas);
+
+    REQUIRE_FALSE(dst_child->has("doomed"));
+}
+
+TEST_CASE("StateTreeSynchroniser routes nested child add/remove to the parent node",
+          "[state][sync][issue-p7-3]") {
+    // Source tree: root → bank (the node we mutate children on)
+    auto src_root = StateTree::create("root");
+    auto src_bank = StateTree::create("bank");
+    src_root->add_child(src_bank);
+
+    StateTreeSynchroniser sync;
+    sync.attach(src_root);
+
+    // Add then remove a child on the nested node.
+    src_bank->add_child(StateTree::create("voice"));
+
+    auto add_deltas = sync.take_deltas();
+    REQUIRE(add_deltas.size() == 1);
+    REQUIRE(add_deltas[0].type == SyncDeltaType::ChildAdd);
+    REQUIRE(add_deltas[0].key == "voice");
+    REQUIRE(add_deltas[0].child_index == 0);
+
+    auto dst_root = StateTree::create("root");
+    auto dst_bank = StateTree::create("bank");
+    dst_root->add_child(dst_bank);
+
+    StateTreeSynchroniser::apply(*dst_root, add_deltas);
+
+    // The nested node gained the child — root did not.
+    REQUIRE(dst_bank->child_count() == 1);
+    REQUIRE(dst_bank->child(0)->type_name() == "voice");
+    REQUIRE(dst_root->child_count() == 1);  // still just "bank"
+
+    // Now remove the nested child and confirm the removal also routes.
+    src_bank->remove_child(0);
+    auto rm_deltas = sync.take_deltas();
+    REQUIRE(rm_deltas.size() == 1);
+    REQUIRE(rm_deltas[0].type == SyncDeltaType::ChildRemove);
+    REQUIRE(rm_deltas[0].child_index == 0);
+
+    StateTreeSynchroniser::apply(*dst_root, rm_deltas);
+    REQUIRE(dst_bank->child_count() == 0);
+    REQUIRE(dst_root->child_count() == 1);  // "bank" untouched
 }
