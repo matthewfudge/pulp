@@ -5,6 +5,7 @@
 #ifdef PULP_HAS_SKIA
 #include <cstring>
 
+#include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImage.h"
@@ -209,6 +210,23 @@ sk_sp<SkPicture> record_vector_scene() {
     return recorder.finishRecordingAsPicture();
 }
 
+// Replay a picture into a fresh raster surface (pre-cleared to black) and
+// read back the top-left pixel. cullRect equality only proves the picture
+// *structure* survived serialization; replaying and sampling a pixel is
+// what proves an embedded image's payload actually round-tripped.
+SkColor replay_top_left(const sk_sp<SkPicture>& picture,
+                        const SkImageInfo& info) {
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(info);
+    REQUIRE(surface != nullptr);
+    surface->getCanvas()->clear(SK_ColorBLACK);
+    surface->getCanvas()->drawPicture(picture.get());
+
+    SkBitmap bm;
+    REQUIRE(bm.tryAllocPixels(info));
+    REQUIRE(surface->readPixels(bm, 0, 0));
+    return bm.getColor(0, 0);
+}
+
 }  // namespace
 
 TEST_CASE("SkPicture round-trips through serialize/MakeFromData", "[render][skia][skp]") {
@@ -303,6 +321,12 @@ TEST_CASE("SkPicture with embedded image needs fImageProc to round-trip pixels",
         sk_sp<SkPicture> restored = SkPicture::MakeFromData(blob.get());
         REQUIRE(restored != nullptr);
         REQUIRE(restored->cullRect() == picture->cullRect());
+
+        // The image payload did NOT survive: replaying the restored
+        // picture draws nothing where the image was, so the surface
+        // keeps its black clear color. This is the contrast that makes
+        // the (b) pixel assertion below meaningful.
+        REQUIRE(replay_top_left(restored, info) == SK_ColorBLACK);
     }
 
     // (b) With matching SkSerialProcs/SkDeserialProcs fImageProc set, the
@@ -324,6 +348,13 @@ TEST_CASE("SkPicture with embedded image needs fImageProc to round-trip pixels",
         sk_sp<SkPicture> restored = SkPicture::MakeFromData(blob.get(), &dprocs);
         REQUIRE(restored != nullptr);
         REQUIRE(restored->cullRect() == picture->cullRect());
+
+        // The image payload survived: replaying the restored picture
+        // reproduces the original green image. cullRect equality alone
+        // would still pass if SkPngEncoder::Encode had returned null and
+        // the image deserialized to nothing — this pixel check is what
+        // actually proves fImageProc preserved the pixels.
+        REQUIRE(replay_top_left(restored, info) == SK_ColorGREEN);
     }
 }
 
