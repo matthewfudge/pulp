@@ -8,33 +8,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v0172a"></a>
-## [0.172.10] - 2026-05-19
-
-- refactor(test): P5-1 extract animation API cluster from test_widget_bridge (3,862 → 3,032, -830)
-
-<a id="v01728"></a>
-## [0.172.8] - 2026-05-19
-
-- refactor(test): P5-1 extract Canvas2D bridge-fns + Yoga borderWidth (4,444 → 3,862, -582)
-
-<a id="v01727"></a>
-## [0.172.7] - 2026-05-19
-
-- refactor(test): P5-4 extract loop + scan/projects from test_cli_shellout (3,439 → 2,646)
-
-<a id="v01726"></a>
-## [0.172.6] - 2026-05-19
-
-- refactor(test): P5-2 extract CG-paths cluster from test_canvas (2,026 → 1,254)
-- refactor(test): P5-3 extract W3C Design Tokens cluster from test_design_import (2,491 → 2,182)
-- fix(test): drop Label tests duplicated in test_widgets.cpp + test_widgets_label.cpp (-569)
-- refactor(test): P5-3 extract sanitize + shadow clusters from test_canvas_widget (2,215 → 1,876)
-
 <a id="v01722"></a>
 ## [0.172.2] - 2026-05-19
 
-- refactor(test): P5-1 bundled — pulp #1434 per-edge margin/padding (-538) + pulp #1737 RN-OOS-fixup catalog tail (-501) from test_widget_bridge.cpp (5,483 → 4,444, -1,039 total)
+- refactor(test): P5-1 bundled — pulp #1434 per-edge + pulp #1737 RN-OOS-fixup (5,483 → 4,444) ([#2415](https://github.com/danielraffel/pulp/pull/2415))
 
 <a id="v01720"></a>
 ## [0.172.0] - 2026-05-19
@@ -2230,6 +2207,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.172.2]: https://github.com/danielraffel/pulp/releases/tag/v0.172.2
 [0.172.0]: https://github.com/danielraffel/pulp/releases/tag/v0.172.0
 [0.171.0]: https://github.com/danielraffel/pulp/releases/tag/v0.171.0
 [0.169.0]: https://github.com/danielraffel/pulp/releases/tag/v0.169.0
