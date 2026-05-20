@@ -47,9 +47,11 @@ jobs:
           if command -v auval >/dev/null 2>&1; then have_auval=1; fi
           if command -v pluginval >/dev/null 2>&1; then have_pluginval=1; fi
           if command -v clap-validator >/dev/null 2>&1; then have_clap_validator=1; fi
-          echo "auval=$have_auval" >> "$GITHUB_OUTPUT"
-          echo "pluginval=$have_pluginval" >> "$GITHUB_OUTPUT"
-          echo "clap_validator=$have_clap_validator" >> "$GITHUB_OUTPUT"
+          {
+            echo "auval=$have_auval"
+            echo "pluginval=$have_pluginval"
+            echo "clap_validator=$have_clap_validator"
+          } >> "$GITHUB_OUTPUT"
           echo "Validator availability: auval=$have_auval pluginval=$have_pluginval clap-validator=$have_clap_validator"
 
       - name: Fetch external SDKs required for AU / VST3
@@ -75,7 +77,7 @@ jobs:
         # (FORMATS VST3 AU CLAP per examples/pulp-effect/CMakeLists.txt)
         # so the gate exercises every validator.
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF
           # pulp_add_plugin() emits per-format targets:
           # PulpEffect_AU, PulpEffect_VST3, PulpEffect_CLAP. If a
           # target is missing because its SDK couldn't be fetched

@@ -143,6 +143,11 @@ signed/notarized `.dmg`, so the version and asset metadata must move together.
   macOS 26.3+ XProtect skips the deep scan for notarized binaries,
   cutting `shipyard pr` cold-start ~4-5x (from ~5-6s to ~1-1.5s).
   No pulp-side action; transparent.
+- **Format baseline diff is a plugin-only gate.** Preserve
+  `-DPULP_ENABLE_GPU=OFF` in `.github/workflows/format-baseline-diff.yml`:
+  the self-hosted macOS runner may not have the pinned Skia archive, and this
+  workflow only needs the PulpEffect AU/VST3/CLAP bundles, not GPU examples
+  such as `pulp-design-tool`.
 - **Heartbeat line during long validation** (Shipyard v0.29.0). A
   20-minute lane now prints periodic progress instead of leaving a
   silent terminal. Helpful when watching `shipyard ship` interactively.

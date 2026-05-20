@@ -1,4 +1,4 @@
-if(APPLE AND NOT PULP_IOS)
+if(APPLE AND NOT PULP_IOS AND PULP_ENABLE_GPU)
     # pulp-internal #70 — pulp-design-tool requires the GPU host. The
     # design viewport pin + aspect-locked uniform scale used to fit
     # runtime-imported JSX into a window are implemented ONLY in
