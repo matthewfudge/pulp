@@ -474,6 +474,26 @@ TEST_CASE("MemoryMappedFile self move assignment preserves mapping",
     REQUIRE(std::string(reinterpret_cast<const char*>(mmap.data()), mmap.size()) == "self-move");
 }
 
+#ifndef _WIN32
+TEST_CASE("MemoryMappedFile rejects directory paths after opening",
+          "[runtime][mmap][coverage][phase3]") {
+    TemporaryFile marker(".dir");
+    const auto dir = marker.path();
+    marker.release();
+    std::filesystem::remove(dir);
+    std::filesystem::create_directory(dir);
+    auto cleanup = make_scope_guard([&] {
+        std::filesystem::remove_all(dir);
+    });
+
+    MemoryMappedFile mmap;
+    REQUIRE_FALSE(mmap.open(dir.string()));
+    REQUIRE_FALSE(mmap.is_open());
+    REQUIRE(mmap.data() == nullptr);
+    REQUIRE(mmap.size() == 0);
+}
+#endif
+
 // ── DynamicLibrary ──────────────────────────────────────────────────────
 
 TEST_CASE("DynamicLibrary loads system library", "[runtime][dynlib]") {
