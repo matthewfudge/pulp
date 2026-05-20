@@ -93,14 +93,53 @@ void StateTreeSynchroniser::attach_node(StateTree& node) {
     child_added_listener_ids_.push_back({&node, added_id});
 
     int removed_id = node.add_child_removed_listener(
-        [this](StateTree& parent, StateTree&, int index) {
+        [this](StateTree& parent, StateTree& child, int index) {
             SyncDelta delta;
             delta.type = SyncDeltaType::ChildRemove;
             delta.path = compute_path(tree_.get(), &parent);
             delta.child_index = index;
             pending_.push_back(std::move(delta));
+            // The removed subtree's nodes may be destroyed once this
+            // callback returns. Drop their listeners now so a later
+            // detach() never dereferences a freed StateTree*, and a
+            // re-add of a surviving child does not stack duplicates.
+            detach_subtree(child);
         });
     child_removed_listener_ids_.push_back({&node, removed_id});
+}
+
+void StateTreeSynchroniser::detach_subtree(StateTree& node) {
+    // Clear descendants first so the whole removed subtree is purged.
+    for (int i = 0; i < node.child_count(); ++i) {
+        if (auto child = node.child(i)) detach_subtree(*child);
+    }
+    // Remove this node's listeners and erase its id-table entries, so
+    // detach() does not later call remove_*listener() through a pointer
+    // to a freed StateTree.
+    for (auto it = property_listener_ids_.begin(); it != property_listener_ids_.end();) {
+        if (it->first == &node) {
+            node.remove_listener(it->second);
+            it = property_listener_ids_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = child_added_listener_ids_.begin(); it != child_added_listener_ids_.end();) {
+        if (it->first == &node) {
+            node.remove_child_added_listener(it->second);
+            it = child_added_listener_ids_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = child_removed_listener_ids_.begin(); it != child_removed_listener_ids_.end();) {
+        if (it->first == &node) {
+            node.remove_child_removed_listener(it->second);
+            it = child_removed_listener_ids_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void StateTreeSynchroniser::attach_subtree(StateTree& node) {

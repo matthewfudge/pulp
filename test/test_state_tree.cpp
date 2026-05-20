@@ -1361,3 +1361,58 @@ TEST_CASE("StateTreeSynchroniser routes nested child add/remove to the parent no
     REQUIRE(dst_bank->child_count() == 0);
     REQUIRE(dst_root->child_count() == 1);  // "bank" untouched
 }
+
+TEST_CASE("StateTreeSynchroniser re-adding a removed child does not duplicate deltas",
+          "[state][sync][issue-p7-3]") {
+    // attach_subtree() installs listeners on every descendant; removing
+    // a child must unregister them, otherwise re-adding a surviving
+    // child stacks a second listener set and every later mutation emits
+    // duplicate deltas.
+    auto root = StateTree::create("root");
+    auto bank = StateTree::create("bank");
+    root->add_child(bank);
+    auto voice = StateTree::create("voice");  // kept alive across remove
+    bank->add_child(voice);
+
+    StateTreeSynchroniser sync;
+    sync.attach(root);
+
+    bank->remove_child(0);   // remove "voice" — its subtree is still held
+    bank->add_child(voice);  // re-add the same subtree
+    sync.take_deltas();      // drain the ChildRemove + ChildAdd
+
+    voice->set("gain", 1.0);
+    auto deltas = sync.take_deltas();
+    // Exactly one PropertySet — a stale listener left by the remove
+    // would have produced a second, duplicate delta.
+    REQUIRE(deltas.size() == 1);
+    REQUIRE(deltas[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(deltas[0].key == "gain");
+}
+
+TEST_CASE("StateTreeSynchroniser detach after a removed subtree is destroyed is safe",
+          "[state][sync][issue-p7-3]") {
+    // A removed child with no surviving owner is destroyed; its raw
+    // StateTree* must not linger in the synchroniser's id tables, or
+    // detach() dereferences freed memory.
+    auto root = StateTree::create("root");
+    auto bank = StateTree::create("bank");
+    root->add_child(bank);
+    auto voice = StateTree::create("voice");
+    bank->add_child(voice);
+    voice->add_child(StateTree::create("osc"));  // nested grandchild
+
+    StateTreeSynchroniser sync;
+    sync.attach(root);
+
+    bank->remove_child(0);  // remove "voice"
+    voice.reset();          // drop the last owner — voice + osc destroyed
+
+    sync.detach();          // must not touch the freed subtree's nodes
+
+    // The synchroniser is still usable after detach.
+    auto fresh = StateTree::create("root");
+    sync.attach(fresh);
+    fresh->set("ok", true);
+    REQUIRE(sync.take_deltas().size() == 1);
+}

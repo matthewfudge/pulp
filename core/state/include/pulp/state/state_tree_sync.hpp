@@ -59,6 +59,12 @@ private:
     /// Recursively install change listeners on a node and its descendants.
     void attach_subtree(StateTree& node);
 
+    /// Recursively remove change listeners from a node and its
+    /// descendants, erasing their id-table entries. Called when a child
+    /// subtree is removed so a later detach() never dereferences a freed
+    /// StateTree* and a re-add cannot stack duplicate listeners.
+    void detach_subtree(StateTree& node);
+
     StateTree::Ptr tree_;
     std::vector<SyncDelta> pending_;
 
