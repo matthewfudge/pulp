@@ -35,10 +35,13 @@ public:
 };
 ```
 
-When `supports_mpe` is `true`, a Pulp format adapter that recognises MPE
-(currently: CLAP) runs the inbound `MidiBuffer` through an
-`MpeVoiceTracker` each block, populates an `MpeBuffer`, and attaches it
-via `Processor::set_mpe_input()` before calling `process()`.
+When `supports_mpe` is `true`, or when
+`node_capabilities.supports_mpe` is true, a Pulp format adapter that
+recognises MPE (currently: CLAP) runs the inbound `MidiBuffer` through
+an `MpeVoiceTracker` each block, populates an `MpeBuffer`, and attaches
+it via `Processor::set_mpe_input()` before calling `process()`. Adapters
+read `PluginDescriptor::effective_capabilities()`, which ORs the legacy
+flags with the node ABI capability field.
 
 ## Components
 
@@ -123,10 +126,12 @@ void process(...) override {
 ```
 
 `supports_mpe` and `supports_ump` are independent and can both be set.
-The CLAP adapter populates the UMP sidecar by converting the inbound
-MIDI 1.0 stream with `midi1_to_ump()`; when CLAP ships
-`CLAP_EVENT_MIDI2` the adapter will feed the host's native packets
-directly with no code change on the plugin side.
+New code may also set `node_capabilities.supports_mpe` and
+`node_capabilities.supports_ump`; `effective_capabilities()` makes the
+two declaration styles equivalent. The CLAP adapter populates the UMP
+sidecar by converting the inbound MIDI 1.0 stream with `midi1_to_ump()`
+and by appending native `CLAP_EVENT_MIDI2` packets when the host sends
+them.
 
 `MpeVoiceTracker::process(UmpPacket)` accepts UMP input in addition to
 `MidiEvent`, routing MIDI 2.0 per-note pitch bend (status `0x60`) and

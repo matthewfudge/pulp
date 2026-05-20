@@ -71,7 +71,9 @@ struct. It owns:
   automation point with `header.time` before the StateStore dual-write
   lands the last value for ordinary parameter reads.
 - `mpe_tracker` + `mpe_buffer` + `mpe_enabled` — MPE sidecar populated
-  only if `PluginDescriptor::supports_mpe` is true.
+  only if `PluginDescriptor::effective_capabilities().supports_mpe`
+  is true. The effective value ORs the legacy descriptor flag with the
+  node ABI capability field.
 - `ump_buffer` + `ump_enabled` — UMP sidecar. Cleared at the top of
   every block, then filled from BOTH sources every block: native
   `CLAP_EVENT_MIDI2` packets append directly during the event loop,

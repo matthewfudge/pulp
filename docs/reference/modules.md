@@ -611,6 +611,11 @@ This single class automatically works as VST3, AU, CLAP, LV2, AAX, Standalone, W
 | Settings Panel | `settings_panel.hpp` | Audio/MIDI device selector with test signal and meters |
 | ViewBridge | `view_bridge.hpp` | Editor-view lifecycle: `create_view()`, `on_view_{opened,closed,resized}`, multi-view attach (editor + inspector + remote). See `docs/guides/view-bridge.md`. |
 
+The SDK-facing `Processor` and host-side `PluginSlot` surfaces share the
+[node ABI policy](./node-abi.md): virtual methods are append-only within a node
+ABI generation, and new optional behavior should prefer additive descriptor
+capabilities over new virtual methods.
+
 ---
 
 ## host

@@ -243,6 +243,18 @@ TEST_CASE("DescriptorValidation: MPE and UMP sidecars share one warning on audio
     REQUIRE(descriptor_is_valid(issues));
 }
 
+TEST_CASE("DescriptorValidation: node capabilities use sidecar MIDI warning contract",
+          "[format][descriptor-validation][node-abi]") {
+    auto d = well_formed_effect();
+    d.node_capabilities.supports_mpe = true;
+    d.node_capabilities.supports_ump = true;
+    d.accepts_midi = false;
+
+    auto issues = validate_descriptor(d);
+    REQUIRE(warning_count_on(issues, "accepts_midi") == 1);
+    REQUIRE(descriptor_is_valid(issues));
+}
+
 TEST_CASE("DescriptorValidation: supports_ump follows the accepts_midi sidecar warning contract",
           "[format][descriptor-validation][coverage][issue-493]") {
     SECTION("UMP without MIDI input warns") {

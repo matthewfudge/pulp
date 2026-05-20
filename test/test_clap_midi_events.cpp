@@ -155,6 +155,8 @@ public:
 
     bool opts_mpe = false;
     bool opts_ump = false;
+    bool opts_node_mpe = false;
+    bool opts_node_ump = false;
 
     // Mutable state captured each time process() runs.
     mutable midi::MidiBuffer captured_midi;
@@ -173,6 +175,8 @@ public:
         d.accepts_midi = true;
         d.supports_mpe = opts_mpe;
         d.supports_ump = opts_ump;
+        d.node_capabilities.supports_mpe = opts_node_mpe;
+        d.node_capabilities.supports_ump = opts_node_ump;
         return d;
     }
     void define_parameters(state::StateStore& store) override {
@@ -244,6 +248,8 @@ CapturingProcessor* g_capturing = nullptr;
 EmittingProcessor*  g_emitting  = nullptr;
 bool g_pending_opts_mpe = false;
 bool g_pending_opts_ump = false;
+bool g_pending_opts_node_mpe = false;
+bool g_pending_opts_node_ump = false;
 std::vector<midi::MidiEvent> g_pending_emit;
 std::vector<midi::MidiBuffer::SysexEvent> g_pending_sysex;
 
@@ -252,6 +258,12 @@ std::unique_ptr<Processor> make_capturing() {
     g_capturing = up.get();
     if (g_pending_opts_mpe) up->opts_mpe = true;
     if (g_pending_opts_ump) up->opts_ump = true;
+    if (g_pending_opts_node_mpe) up->opts_node_mpe = true;
+    if (g_pending_opts_node_ump) up->opts_node_ump = true;
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    g_pending_opts_node_mpe = false;
+    g_pending_opts_node_ump = false;
     return up;
 }
 
@@ -812,6 +824,40 @@ TEST_CASE("CLAP_EVENT_MIDI_SYSEX with empty payload is dropped",
 // ── Inbound: CLAP_EVENT_MIDI2 ───────────────────────────────────────────
 
 #if defined(CLAP_VERSION_GE) && CLAP_VERSION_GE(1, 1, 0)
+TEST_CASE("CLAP enables sidecars from node capabilities",
+          "[clap][midi][node-abi]") {
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    g_pending_opts_node_mpe = true;
+    g_pending_opts_node_ump = true;
+    Harness h(make_capturing);
+
+    InputEventList events;
+    auto packet = midi::UmpPacket::note_on_2(/*group*/0, /*channel*/1,
+                                              /*note*/61, /*vel16*/0x8000);
+    clap_event_midi2_t midi2{};
+    midi2.header = make_header(sizeof(midi2), CLAP_EVENT_MIDI2, 7);
+    midi2.port_index = 0;
+    midi2.data[0] = packet.words[0];
+    midi2.data[1] = packet.words[1];
+    events.push(midi2);
+
+    clap_event_note_expression_t expr{};
+    expr.header = make_header(sizeof(expr), CLAP_EVENT_NOTE_EXPRESSION, 9);
+    expr.expression_id = CLAP_NOTE_EXPRESSION_PRESSURE;
+    expr.note_id = -1;
+    expr.port_index = 0;
+    expr.channel = 2;
+    expr.key = 72;
+    expr.value = 0.75;
+    events.push(expr);
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+    REQUIRE(g_capturing->had_mpe_input);
+    REQUIRE(g_capturing->had_ump_input);
+    REQUIRE_FALSE(g_capturing->captured_ump.empty());
+}
+
 TEST_CASE("CLAP_EVENT_MIDI2 routed straight to UMP sidecar when opted in",
           "[clap][midi][issue-pending]") {
     g_pending_opts_mpe = false;

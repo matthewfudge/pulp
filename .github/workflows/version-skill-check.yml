@@ -115,6 +115,12 @@ jobs:
               --base "${{ steps.base.outputs.ref }}" \
               --mode=report --enforce
 
+      - name: Node ABI virtual-order check
+        run: |
+          python3 tools/scripts/node_abi_gate.py \
+              --base "${{ steps.base.outputs.ref }}" \
+              --mode=report
+
       - name: Source-contract registry check
         # Lightweight import-provider contract gate. The registry linter is
         # intentionally no-build and treats optional planning-submodule paths
@@ -137,6 +143,7 @@ jobs:
       - name: Gate-script fixture tests
         run: |
           python3 tools/scripts/test_gates.py
+          python3 tools/scripts/test_node_abi_gate.py
           python3 tools/scripts/test_docs_sync_check.py
           python3 tools/scripts/test_compat_sync_check.py
           python3 tools/scripts/test_check_cli_mcp_parity.py

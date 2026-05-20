@@ -334,6 +334,11 @@ docs:
     kind: reference
     summary: All subsystems with status and key headers
 
+  - slug: node-abi
+    path: reference/node-abi.md
+    kind: reference
+    summary: Source-ABI policy for Processor and PluginSlot node interfaces
+
   # Policies
   - slug: code-style
     path: policies/code-style.md

@@ -23,6 +23,12 @@ times to be worth remembering.
 | Hand the built view to an external container (TabPanel, WindowHost) | Yes — call `ViewBridge::release_view()` |
 | Ship a paint-only overlay (inspector) | No — but `attach_secondary_view(…, ViewRole::Inspector)` is the primitive you'll eventually use |
 
+`Processor`'s editor hooks (`create_view`, `view_size`, `on_view_*`) are
+part of the node ABI surface. When adding a new view lifecycle hook, append
+the virtual at the tail of `Processor`; never insert, remove, reorder, or
+re-signature existing virtuals. `tools/scripts/node_abi_gate.py --mode=report`
+is the fast check before pushing.
+
 ## Lifecycle protocol — adapter author side
 
 ```

@@ -26,7 +26,7 @@ If you only need monophonic aftertouch or a global mod wheel, plain
 | You're writing... | Use |
 |--|--|
 | An MPE synth voice | Subclass `midi::MpeSynthVoice`, render your oscillator using `state().pitch_bend_semitones`, `state().pressure`, `state().timbre` |
-| An MPE synth plugin | `MpeVoiceAllocator<YourVoice>` inside the processor, dispatch `MpeBuffer` in `process()`, set `supports_mpe = true` in the descriptor |
+| An MPE synth plugin | `MpeVoiceAllocator<YourVoice>` inside the processor, dispatch `MpeBuffer` in `process()`, set `supports_mpe = true` or `node_capabilities.supports_mpe = true` in the descriptor |
 | A host that loads MPE plugins | Build an `MpeBuffer` from inbound MIDI (zone-aware) and hand it to `Processor::mpe_input()` — the CLAP adapter already does this |
 | Pure MIDI 2.0 UMP work | Out of scope — Phase 4 is deferred, see `planning/next-features-plan.md` |
 
@@ -39,7 +39,7 @@ If you only need monophonic aftertouch or a global mod wheel, plain
 ```
 
 The CLI post-processes the generated descriptor to add
-`.supports_mpe = true` and includes `<pulp/midi/mpe_buffer.hpp>`. No
+`.supports_mpe = true` or `.node_capabilities.supports_mpe = true` and includes `<pulp/midi/mpe_buffer.hpp>`. No
 manual wiring required.
 
 ### 2. Declare the voice

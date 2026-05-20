@@ -45,8 +45,10 @@ bool clap_init(const clap_plugin_t* plugin) {
     self->preset_manager = std::make_unique<state::PresetManager>(
         self->store, desc.manufacturer, desc.name);
 
+    const auto caps = desc.effective_capabilities();
+
     // Wire MPE sidecar when the plugin opts in.
-    self->mpe_enabled = desc.supports_mpe;
+    self->mpe_enabled = caps.supports_mpe;
     if (self->mpe_enabled) {
         midi::bind_tracker_to_buffer(
             self->mpe_tracker, self->mpe_buffer, self->mpe_current_sample_offset);
@@ -54,7 +56,7 @@ bool clap_init(const clap_plugin_t* plugin) {
     }
 
     // Wire UMP sidecar when the plugin opts in.
-    self->ump_enabled = desc.supports_ump;
+    self->ump_enabled = caps.supports_ump;
     if (self->ump_enabled) {
         runtime::log_info("CLAP: UMP sidecar enabled for '{}'", desc.name);
     }

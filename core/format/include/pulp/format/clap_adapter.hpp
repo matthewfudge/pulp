@@ -44,15 +44,15 @@ struct PulpClapPlugin {
     state::ParameterEventQueue param_events;
 
     // MPE sidecar — populated from midi_in before each process() call when
-    // the Processor declares supports_mpe in its PluginDescriptor.
+    // the Processor declares MPE in its effective PluginDescriptor capabilities.
     midi::MpeVoiceTracker mpe_tracker;
     midi::MpeBuffer mpe_buffer;
     int32_t mpe_current_sample_offset = 0;
     bool mpe_enabled = false;
 
     // UMP sidecar — populated by converting midi_in to MIDI 2.0 UMP packets
-    // when the Processor declares supports_ump. In the future, CLAP hosts
-    // that deliver CLAP_EVENT_MIDI2 can populate this buffer directly.
+    // when the Processor declares UMP in its effective PluginDescriptor
+    // capabilities. Native CLAP_EVENT_MIDI2 packets also append directly.
     midi::UmpBuffer ump_buffer;
     bool ump_enabled = false;
 

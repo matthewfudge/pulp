@@ -11,7 +11,7 @@
 #   git config core.hooksPath .githooks
 #
 # Bypass knobs (use sparingly — CI runs the same gates):
-#   PULP_DISABLE_PREPUSH_GATES=1   # demote ALL gates to advisory (skill/version/compat/docs-noise/source-contract/deps)
+#   PULP_DISABLE_PREPUSH_GATES=1   # demote ALL gates to advisory (skill/version/compat/node-ABI/docs-noise/source-contract/deps)
 #   PULP_DISABLE_PREPUSH_DIFF_COVER=1  # demote diff-cover gate only
 #   PULP_SKIP_PREPUSH=1            # skip ALL gates entirely (true emergencies)
 #
@@ -84,6 +84,7 @@ VBC="$ROOT/tools/scripts/version_bump_check.py"
 SSC="$ROOT/tools/scripts/skill_sync_check.py"
 CSC="$ROOT/tools/scripts/compat_sync_check.py"
 DNL="$ROOT/tools/scripts/docs_noise_lint.py"
+NAG="$ROOT/tools/scripts/node_abi_gate.py"
 SCC="$ROOT/tools/import-validation/check-source-contracts.py"
 SCT="$ROOT/tools/import-validation/test_source_contracts.py"
 CFG="$ROOT/tools/scripts/versioning.json"
@@ -156,6 +157,17 @@ if [ -f "$DNL" ]; then
         0) ;;
         1) fail=1 ;;
         *) echo "[pre-push] docs_noise_lint: internal error" >&2 ;;
+    esac
+fi
+
+# Node ABI virtual-order gate. Processor and PluginSlot are public
+# polymorphic surfaces; virtual methods may only be appended within ABI v1.
+if [ -f "$NAG" ]; then
+    "$PYTHON" "$NAG" --base "$BASE" --mode=report
+    case $? in
+        0) ;;
+        1) fail=1 ;;
+        *) echo "[pre-push] node_abi_gate: internal error" >&2 ;;
     esac
 fi
 
@@ -272,7 +284,7 @@ if [ "$compat_flip_failed" = "1" ] && [ "$disable_main" = "1" ]; then
 fi
 
 if [ "$fail" = "1" ] && [ "$disable_main" = "1" ]; then
-    echo "[pre-push] PULP_DISABLE_PREPUSH_GATES=1 — skill/version/compat/docs-noise/deps gate failures DEMOTED to advisory." >&2
+    echo "[pre-push] PULP_DISABLE_PREPUSH_GATES=1 — skill/version/compat/node-ABI/docs-noise/deps gate failures DEMOTED to advisory." >&2
     fail=0
 fi
 
@@ -283,7 +295,7 @@ fi
 
 echo "[pre-push] gate failure(s) above; blocking push." >&2
 echo "[pre-push] To bypass (use sparingly; CI still runs the same gates):" >&2
-echo "[pre-push]   PULP_DISABLE_PREPUSH_GATES=1 git push          # demote skill/version/compat/docs-noise/deps/flip" >&2
+echo "[pre-push]   PULP_DISABLE_PREPUSH_GATES=1 git push          # demote skill/version/compat/node-ABI/docs-noise/deps/flip" >&2
 echo "[pre-push]   PULP_DISABLE_PREPUSH_DIFF_COVER=1 git push     # demote diff-cover only" >&2
 echo "[pre-push]   PULP_SKIP_PREPUSH=1 git push                   # skip ALL gates (emergencies)" >&2
 exit 1
