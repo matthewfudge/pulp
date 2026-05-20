@@ -2067,6 +2067,13 @@ pulp_add_test_suite(pulp-test-widget-bridge-css-animations LIBRARIES pulp::view)
 # fr-unit + auto sizing tokens round-trip through the bridge.
 pulp_add_test_suite(pulp-test-widget-bridge-css-grid LIBRARIES pulp::view)
 
+# Widget bridge — animation API cluster (P5-1 follow-up). Bridge ↔
+# MotionEngine plumbing for setMotionToken, animate(), the Web
+# Animations API surface (Element.animate / KeyframeEffect), motion
+# provenance, and pulp-motion-bench harness output. Self-contained
+# ~800-line cluster from test_widget_bridge.cpp.
+pulp_add_test_suite(pulp-test-widget-bridge-animation LIBRARIES pulp::view)
+
 # Widget bridge — pulp #1434 (cross-surface mega-batch) per-edge margin
 # / padding (P5-1 follow-up). marginTop / marginRight / marginBottom /
 # marginLeft (and padding counterparts) each route to their own Yoga
