@@ -80,3 +80,19 @@ TEST_CASE("CLI create targets skip malformed targets when class_name is empty ac
         "", "instrument", "VST3 CLAP AU Standalone");
     CHECK(targets == std::vector<std::string>{});
 }
+
+TEST_CASE("CLI create targets match complete format tokens only",
+          "[cli][create][coverage]") {
+    const auto auv3_only =
+        create_default_build_targets("PulpPlugin", "instrument", "AUv3");
+    CHECK(auv3_only == std::vector<std::string>{
+        "PulpPlugin-test",
+        "PulpPlugin_AUv3",
+    });
+
+    const auto standalone_prefix =
+        create_default_build_targets("PulpPlugin", "instrument", "StandaloneKit");
+    CHECK(standalone_prefix == std::vector<std::string>{
+        "PulpPlugin-test",
+    });
+}

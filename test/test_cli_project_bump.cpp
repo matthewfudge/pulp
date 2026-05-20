@@ -212,6 +212,24 @@ TEST_CASE("refuse_dynamic_pin rejects branch names and SHAs",
     REQUIRE_FALSE(pb::refuse_dynamic_pin(site));
 }
 
+TEST_CASE("pin normalization accepts uppercase v but preserves lowercase style only",
+          "[project-bump][coverage][issue-643]") {
+    REQUIRE(pb::pin_has_v_prefix("V1.2.3"));
+    REQUIRE(pb::normalize_pin("V1.2.3") == "1.2.3");
+    REQUIRE(pb::parse_semver_strict("V2.3.4").ok);
+
+    pb::PinSite site;
+    site.kind = pb::PinKind::FetchContentGitTag;
+    site.current_pin = "V1.2.3";
+    site.start = 8;
+    site.end = 14;
+
+    auto rewritten = pb::rewrite_pin("GIT_TAG V1.2.3\n", site, "1.2.4",
+                                     pb::pin_has_v_prefix(site.current_pin));
+    REQUIRE(rewritten);
+    REQUIRE(*rewritten == "GIT_TAG v1.2.4\n");
+}
+
 // ── Rewrite ─────────────────────────────────────────────────────────────────
 
 TEST_CASE("rewrite_pin preserves leading 'v' prefix",
@@ -264,6 +282,25 @@ TEST_CASE("rewrite_pin returns nullopt on Unknown site",
     REQUIRE_FALSE(pb::rewrite_pin("anything", s, "0.32.0", false).has_value());
 }
 
+TEST_CASE("rewrite_pin rejects stale and invalid captured spans",
+          "[project-bump][coverage][issue-643]") {
+    std::string src = "project(App VERSION 0.23.0)\n";
+    auto site = pb::find_pin_site(src);
+    REQUIRE(site.kind == pb::PinKind::ProjectVersion);
+
+    auto stale = site;
+    stale.current_pin = "0.22.0";
+    REQUIRE_FALSE(pb::rewrite_pin(src, stale, "0.24.0", false).has_value());
+
+    auto inverted = site;
+    inverted.end = inverted.start;
+    REQUIRE_FALSE(pb::rewrite_pin(src, inverted, "0.24.0", false).has_value());
+
+    auto out_of_range = site;
+    out_of_range.end = src.size() + 100;
+    REQUIRE_FALSE(pb::rewrite_pin(src, out_of_range, "0.24.0", false).has_value());
+}
+
 // ── Semver + downgrade ─────────────────────────────────────────────────────
 
 TEST_CASE("parse_semver_strict rejects pre-release suffixes",
@@ -283,6 +320,14 @@ TEST_CASE("is_downgrade compares semver strictly",
     REQUIRE_FALSE(pb::is_downgrade("0.31.0", "0.32.0"));
     REQUIRE_FALSE(pb::is_downgrade("0.31.0", "0.31.0"));  // equal is not a downgrade
     REQUIRE_FALSE(pb::is_downgrade("main", "0.32.0"));    // bad input → false
+}
+
+TEST_CASE("compare_semver returns zero when either input is invalid",
+          "[project-bump][coverage][issue-643]") {
+    auto ok = pb::parse_semver_strict("1.2.3");
+    auto bad = pb::parse_semver_strict("1.2");
+    REQUIRE(pb::compare_semver(ok, bad) == 0);
+    REQUIRE(pb::compare_semver(bad, ok) == 0);
 }
 
 // ── Undo batch I/O ─────────────────────────────────────────────────────────
@@ -358,6 +403,13 @@ TEST_CASE("legacy undo batch synthesizes a CMake edit",
     REQUIRE(parsed->entries[0].edits[0].new_value == "0.32.0");
 }
 
+TEST_CASE("parse_undo_batch rejects non-object roots and missing separators",
+          "[project-bump][coverage][issue-643]") {
+    REQUIRE_FALSE(pb::parse_undo_batch("").has_value());
+    REQUIRE_FALSE(pb::parse_undo_batch("[]").has_value());
+    REQUIRE_FALSE(pb::parse_undo_batch(R"({"timestamp" "missing-colon"})").has_value());
+}
+
 TEST_CASE("write_undo_batch / read_undo_batch round-trip on disk",
           "[project-bump][issue-564]") {
     TempDir tmp;
@@ -405,6 +457,22 @@ TEST_CASE("list_undo_batches returns newest-first",
     REQUIRE(list[1] == p1);
 }
 
+TEST_CASE("list_undo_batches ignores non-files and non-undo names",
+          "[project-bump][coverage][issue-643]") {
+    TempDir tmp;
+    fs::create_directories(tmp.path / "bump-undo-directory.json");
+    std::ofstream(tmp.path / "not-an-undo.json") << "{}";
+    std::ofstream(tmp.path / "bump-undo-2026-01-01T00-00-00Z.txt") << "{}";
+    std::ofstream(tmp.path / "bump-undo-2026-01-01T00-00-00Z.json") << "{}";
+
+    auto list = pb::list_undo_batches(tmp.path);
+    REQUIRE(list.size() == 1);
+    REQUIRE(list[0].filename() == "bump-undo-2026-01-01T00-00-00Z.json");
+
+    REQUIRE(pb::list_undo_batches({}).empty());
+    REQUIRE(pb::list_undo_batches(tmp.path / "missing").empty());
+}
+
 TEST_CASE("undo_batch_path replaces colons for Windows safety",
           "[project-bump][issue-564]") {
     fs::path home = "/tmp/fake-home";
@@ -413,6 +481,11 @@ TEST_CASE("undo_batch_path replaces colons for Windows safety",
     auto fn = p.filename().string();
     REQUIRE(fn.find(':') == std::string::npos);
     REQUIRE(fn.find("2026-04-21T14-30-00Z") != std::string::npos);
+}
+
+TEST_CASE("undo_batch_path returns empty for empty home",
+          "[project-bump][coverage][issue-643]") {
+    REQUIRE(pb::undo_batch_path({}, "2026-04-21T14:30:00Z").empty());
 }
 
 // ── JSON parser hardening — skip unknown ARRAY / OBJECT fields ──

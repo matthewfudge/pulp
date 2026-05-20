@@ -117,6 +117,10 @@ TEST_CASE("applies_if - malformed expressions fail closed",
     REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < garbage", ctx));
     REQUIRE_FALSE(mig::evaluate_applies_if("&&", ctx));
     REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < 0.1.0 &&", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("(cli_version_from < 0.27.0", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < 0.27.0)", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from ! 0.27.0", ctx));
+    REQUIRE_FALSE(mig::evaluate_applies_if("cli_version_from < 0.27.0 & cli_version_to > 0.1.0", ctx));
 }
 
 TEST_CASE("applies_if - non-parseable context fails closed",
@@ -154,6 +158,21 @@ TEST_CASE("render_notes_text - includes version, summary, body, breaking tag",
     REQUIRE(out.find("v27 body") != std::string::npos);
 }
 
+TEST_CASE("render_notes_text - body without trailing newline is terminated",
+          "[cli][migration][coverage]") {
+    mig::MigrationEntry entry{
+        "1.2.3",
+        false,
+        "",
+        "Trailing newline fixture.",
+        "body without newline",
+    };
+    std::vector<const mig::MigrationEntry*> entries{&entry};
+
+    auto out = mig::render_notes_text(entries, "1.2.2", "1.2.3");
+    REQUIRE(out.find("body without newline\n") != std::string::npos);
+}
+
 TEST_CASE("render_notes_json - stable-shape keys present for agent consumers",
           "[cli][migration][issue-548]") {
     auto fixture = make_fixture();
@@ -186,6 +205,36 @@ TEST_CASE("render_notes_json - empty entries emits valid JSON with empty array",
     REQUIRE(out.find("\"entries\": []") != std::string::npos);
     REQUIRE(out.find("\"from\": \"0.29.0\"") != std::string::npos);
     REQUIRE(out.find("\"to\": \"0.29.0\"")   != std::string::npos);
+}
+
+TEST_CASE("render_notes_json - escapes strings and control characters",
+          "[cli][migration][coverage]") {
+    std::string summary = "quote \" slash \\ tab\t";
+    std::string body = std::string("line\ncarriage\rcontrol ") + char(0x01);
+    mig::MigrationEntry entry{
+        "1.2.3",
+        true,
+        "cli_version_to == 1.2.3",
+        summary,
+        body,
+    };
+    std::vector<const mig::MigrationEntry*> entries{&entry};
+
+    auto out = mig::render_notes_json(entries, "1.0.0", "1.2.3");
+    REQUIRE(out.find("quote \\\" slash \\\\ tab\\t") != std::string::npos);
+    REQUIRE(out.find("line\\ncarriage\\rcontrol \\u0001") != std::string::npos);
+}
+
+TEST_CASE("render_notes_json escapes hop version strings",
+          "[cli][migration][coverage]") {
+    std::vector<const mig::MigrationEntry*> empty;
+    auto out = mig::render_notes_json(empty,
+                                      "1.0.0\"from",
+                                      std::string("1.1.0\nto"));
+
+    REQUIRE(out.find("\"from\": \"1.0.0\\\"from\"") != std::string::npos);
+    REQUIRE(out.find("\"to\": \"1.1.0\\nto\"") != std::string::npos);
+    REQUIRE(out.find("\"entries\": []") != std::string::npos);
 }
 
 // ── Generated-code round-trip via the Python script ────────────────────────

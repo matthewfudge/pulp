@@ -63,6 +63,29 @@ TEST_CASE("json parser: unicode escapes advance and use placeholder text",
     CHECK(value.get("after")->as_string() == "ok");
 }
 
+TEST_CASE("json parser: short unicode escapes still advance safely",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json(R"({"symbol":"A\u12"})");
+    auto* symbol = value.get("symbol");
+    REQUIRE(symbol != nullptr);
+    CHECK(symbol->as_string() == "A?");
+}
+
+TEST_CASE("json parser: unknown escapes preserve the escaped character",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json(R"({"s":"prefix\q\/suffix"})");
+    auto* s = value.get("s");
+    REQUIRE(s != nullptr);
+    CHECK(s->as_string() == "prefixq/suffix");
+}
+
+TEST_CASE("json parser: unterminated strings return accumulated text",
+          "[cli][json-parser][coverage][phase3-large]") {
+    json::JsonParser parser{"\"partial\\ntext", 0};
+    CHECK(parser.parse_string() == "partial\ntext");
+    CHECK(parser.pos == std::string{"\"partial\\ntext"}.size());
+}
+
 TEST_CASE("json parser: arrays preserve order across mixed values",
           "[cli][json-parser][coverage][phase3-large]") {
     auto value = parse_json(R"(["first",2,false,null,{"k":"v"}])");
@@ -86,6 +109,17 @@ TEST_CASE("json parser: empty object and array keep empty accessors stable",
     CHECK(array.arr().empty());
 }
 
+TEST_CASE("json parser: const accessors return stable empty containers",
+          "[cli][json-parser][coverage][phase3-large]") {
+    const auto scalar = parse_json("true");
+    CHECK(scalar.arr().empty());
+    CHECK(scalar.obj().empty());
+
+    const auto object = parse_json(R"({"k":"v"})");
+    REQUIRE(object.obj().size() == 1);
+    CHECK(object.obj()[0].first == "k");
+}
+
 TEST_CASE("json parser: numeric forms feed integer and floating accessors",
           "[cli][json-parser][coverage][phase3-large]") {
     auto value = parse_json(R"({"neg":-42,"frac":3.5,"exp":1.25e2})");
@@ -97,10 +131,25 @@ TEST_CASE("json parser: numeric forms feed integer and floating accessors",
     CHECK(value.get("exp")->as_int() == 125);
 }
 
+TEST_CASE("json parser: signed exponents and leading plus are parsed as numbers",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json(R"({"small":-1.5e-2,"plus":+7})");
+    REQUIRE(value.get("small") != nullptr);
+    REQUIRE(value.get("plus") != nullptr);
+    CHECK(std::fabs(value.get("small")->num_val - -0.015) < 0.0001);
+    CHECK(value.get("plus")->as_int() == 7);
+}
+
 TEST_CASE("json parser: string array accessor filters non-string entries",
           "[cli][json-parser][coverage][phase3-large]") {
     auto value = parse_json(R"(["alpha",1,"beta",true,{"ignored":"yes"},"gamma"])");
     CHECK(value.as_string_array() == std::vector<std::string>{"alpha", "beta", "gamma"});
+}
+
+TEST_CASE("json parser: string array accessor defaults for non-arrays",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json(R"({"items":["ignored"]})");
+    CHECK(value.as_string_array().empty());
 }
 
 TEST_CASE("json parser: scalar accessors return defaults for mismatched types",
@@ -111,6 +160,14 @@ TEST_CASE("json parser: scalar accessors return defaults for mismatched types",
     CHECK(value.get("b")->as_bool());
     CHECK_FALSE(value.get("f")->as_bool());
     CHECK(value.get("nil")->as_int() == 0);
+}
+
+TEST_CASE("json parser: duplicate object keys return the first inserted value",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json(R"({"dup":"first","dup":"second"})");
+    REQUIRE(value.get("dup") != nullptr);
+    CHECK(value.get("dup")->as_string() == "first");
+    REQUIRE(value.obj().size() == 2);
 }
 
 TEST_CASE("json parser: nested object paths remain readable through get",
@@ -167,4 +224,71 @@ TEST_CASE("json parser: invalid number tokens become zero-valued numbers",
     auto value = parse_json("-");
     CHECK(value.type == json::JsonValue::Number);
     CHECK(value.as_int() == 0);
+}
+
+TEST_CASE("json parser: empty input becomes a zero-valued number",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto value = parse_json("");
+    CHECK(value.type == json::JsonValue::Number);
+    CHECK(value.as_int() == 0);
+}
+
+TEST_CASE("json parser: lenient object and array delimiter recovery is stable",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto object = parse_json(R"({"a":1 "b":2})");
+    REQUIRE(object.type == json::JsonValue::Object);
+    REQUIRE(object.get("a") != nullptr);
+    REQUIRE(object.get("b") != nullptr);
+    CHECK(object.get("a")->as_int() == 1);
+    CHECK(object.get("b")->as_int() == 2);
+
+    auto array = parse_json(R"([1 2 true])");
+    REQUIRE(array.type == json::JsonValue::Array);
+    REQUIRE(array.arr().size() == 3);
+    CHECK(array.arr()[0].as_int() == 1);
+    CHECK(array.arr()[1].as_int() == 2);
+    CHECK(array.arr()[2].as_bool());
+}
+
+TEST_CASE("json parser: delimiter recovery accepts adjacent object keys",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto object = parse_json(R"({"a":1 "b":2 "c":3})");
+    REQUIRE(object.type == json::JsonValue::Object);
+    REQUIRE(object.obj().size() == 3);
+    CHECK(object.get("a")->as_int() == 1);
+    CHECK(object.get("b")->as_int() == 2);
+    CHECK(object.get("c")->as_int() == 3);
+}
+
+TEST_CASE("json parser: delimiter recovery accepts adjacent array values",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto array = parse_json(R"([1 "two" {"three":3} true false null -4 +5 .6])");
+    REQUIRE(array.type == json::JsonValue::Array);
+    REQUIRE(array.arr().size() == 9);
+    CHECK(array.arr()[0].as_int() == 1);
+    CHECK(array.arr()[1].as_string() == "two");
+    REQUIRE(array.arr()[2].get("three") != nullptr);
+    CHECK(array.arr()[2].get("three")->as_int() == 3);
+    CHECK(array.arr()[3].as_bool());
+    CHECK_FALSE(array.arr()[4].as_bool());
+    CHECK(array.arr()[5].type == json::JsonValue::Null);
+    CHECK(array.arr()[6].as_int() == -4);
+    CHECK(array.arr()[7].as_int() == 5);
+    CHECK(std::fabs(array.arr()[8].num_val - 0.6) < 0.0001);
+}
+
+TEST_CASE("json parser: EOF terminates lenient object and array recovery",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto object = parse_json(R"({"a":1 "b":2)");
+    REQUIRE(object.type == json::JsonValue::Object);
+    REQUIRE(object.obj().size() == 2);
+    CHECK(object.get("a")->as_int() == 1);
+    CHECK(object.get("b")->as_int() == 2);
+
+    auto array = parse_json(R"([1 2 true)");
+    REQUIRE(array.type == json::JsonValue::Array);
+    REQUIRE(array.arr().size() == 3);
+    CHECK(array.arr()[0].as_int() == 1);
+    CHECK(array.arr()[1].as_int() == 2);
+    CHECK(array.arr()[2].as_bool());
 }

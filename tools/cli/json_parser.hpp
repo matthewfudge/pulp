@@ -114,7 +114,7 @@ struct JsonParser {
         if (c == 'n') { pos += 4; return {}; }
         size_t start = pos;
         skip_ws(); start = pos;
-        while (pos < src.size() && (src[pos] >= '0' && src[pos] <= '9' ||
+        while (pos < src.size() && ((src[pos] >= '0' && src[pos] <= '9') ||
                src[pos] == '-' || src[pos] == '+' || src[pos] == '.' ||
                src[pos] == 'e' || src[pos] == 'E'))
             ++pos;
@@ -133,6 +133,9 @@ struct JsonParser {
             auto val = parse_value();
             r.obj().push_back({std::move(key), std::move(val)});
             if (peek() == '}') { next(); return r; }
+            if (peek() == ',') { next(); continue; }
+            if (peek() == '"') continue;
+            if (peek() == '\0') return r;
             next();
         }
     }
@@ -142,8 +145,13 @@ struct JsonParser {
         next();
         if (peek() == ']') { next(); return r; }
         while (true) {
-            r.arr().push_back(std::move(parse_value()));
+            r.arr().push_back(parse_value());
             if (peek() == ']') { next(); return r; }
+            if (peek() == ',') { next(); continue; }
+            if (peek() == '"' || peek() == '{' || peek() == '[' || peek() == 't' ||
+                peek() == 'f' || peek() == 'n' || peek() == '-' || peek() == '+' ||
+                peek() == '.' || (peek() >= '0' && peek() <= '9')) continue;
+            if (peek() == '\0') return r;
             next();
         }
     }

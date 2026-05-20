@@ -337,6 +337,42 @@ TEST_CASE("first-existing priority path wins even when a healthy copy is further
     REQUIRE(pv.path == fs::path("/usr/local/bin/pluginval"));
 }
 
+TEST_CASE("discovery uses PATH-resolved validator when known paths are absent",
+          "[doctor][validators][coverage]") {
+    StubEnv env;
+    env.path_resolve["pluginval"] = "/opt/local/bin/pluginval";
+    env.existing.insert("/opt/local/bin/pluginval");
+    env.owners["/opt/local/bin/pluginval"] = env.current_uid;
+    env.verdicts["/opt/local/bin/pluginval"] = true;
+    env.verdict_text["/opt/local/bin/pluginval"] = "accepted\nsource=MacPorts";
+
+    auto reports = vd::discover_validators(env.build());
+    const auto& pv = find_report(reports, "pluginval");
+    REQUIRE(pv.status == vd::ValidatorStatus::Healthy);
+    REQUIRE(pv.path == fs::path("/opt/local/bin/pluginval"));
+    REQUIRE(pv.reason.find("source=MacPorts") != std::string::npos);
+}
+
+TEST_CASE("broken validator with unknown ownership requires manual sudo path",
+          "[doctor][validators][coverage]") {
+    StubEnv env;
+    env.existing.insert("/usr/local/bin/pluginval");
+    // Deliberately omit owners entry: classify_ownership returns Unknown.
+    env.verdicts["/usr/local/bin/pluginval"] = false;
+    env.verdict_text["/usr/local/bin/pluginval"] = "rejected: invalid resource directory";
+
+    auto reports = vd::discover_validators(env.build());
+    const auto& pv = find_report(reports, "pluginval");
+    REQUIRE(pv.status == vd::ValidatorStatus::Broken);
+    REQUIRE(pv.ownership == vd::PathOwnership::Unknown);
+    REQUIRE_FALSE(pv.fixable_without_sudo);
+    REQUIRE(pv.remediation == "sudo rm /usr/local/bin/pluginval");
+
+    auto outcome = vd::apply_fixes(reports, /*dry_run=*/true);
+    REQUIRE(outcome.needs_sudo == 1);
+    REQUIRE(outcome.auto_fixed == 0);
+}
+
 TEST_CASE("apply_fixes preserves Broken status when fs::remove fails",
           "[doctor][validators][issue-743][codex-p1]") {
     // P1 from Codex review on PR #749. If fs::remove fails (permission
@@ -458,6 +494,53 @@ TEST_CASE("apply_fixes is a no-op on a fully healthy environment",
     REQUIRE(outcome.still_missing == 0);
     REQUIRE(outcome.healthy == 3);
     REQUIRE(vd::compute_exit_code(reports) == 0);
+}
+
+TEST_CASE("apply_fixes counts mixed healthy missing and root-owned reports",
+          "[doctor][validators][coverage]") {
+    std::vector<vd::ValidatorReport> reports;
+
+    vd::ValidatorReport healthy;
+    healthy.name = "auval";
+    healthy.status = vd::ValidatorStatus::Healthy;
+    reports.push_back(healthy);
+
+    vd::ValidatorReport missing;
+    missing.name = "clap-validator";
+    missing.status = vd::ValidatorStatus::Missing;
+    reports.push_back(missing);
+
+    vd::ValidatorReport root_broken;
+    root_broken.name = "pluginval";
+    root_broken.status = vd::ValidatorStatus::Broken;
+    root_broken.path = "/usr/local/bin/pluginval";
+    root_broken.fixable_without_sudo = false;
+    reports.push_back(root_broken);
+
+    auto outcome = vd::apply_fixes(reports, /*dry_run=*/false);
+    REQUIRE(outcome.healthy == 1);
+    REQUIRE(outcome.still_missing == 1);
+    REQUIRE(outcome.needs_sudo == 1);
+    REQUIRE(outcome.auto_fixed == 0);
+}
+
+TEST_CASE("render_report can emit ANSI color wrappers",
+          "[doctor][validators][coverage]") {
+    vd::ValidatorReport healthy;
+    healthy.name = "auval";
+    healthy.status = vd::ValidatorStatus::Healthy;
+    healthy.path = "/usr/bin/auval";
+    healthy.reason = "accepted";
+
+    vd::ValidatorReport missing;
+    missing.name = "clap-validator";
+    missing.status = vd::ValidatorStatus::Missing;
+    missing.remediation = "cargo install clap-validator";
+
+    auto text = vd::render_report({healthy, missing}, /*use_color=*/true);
+    REQUIRE(text.find("\033[32m") != std::string::npos);
+    REQUIRE(text.find("\033[33m") != std::string::npos);
+    REQUIRE(text.find("\033[0m") != std::string::npos);
 }
 
 #else  // _WIN32

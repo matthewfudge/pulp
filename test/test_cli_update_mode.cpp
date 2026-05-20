@@ -165,6 +165,19 @@ TEST_CASE("write_snooze rejects non-positive hour values",
     fs::remove_all(dir);
 }
 
+TEST_CASE("write_snooze creates missing parent directories",
+          "[cli][update-mode][coverage]") {
+    auto dir = make_tmpdir("snooze-parent");
+    auto snooze = dir / "nested" / "state" / "update-snooze";
+
+    REQUIRE(um::write_snooze(snooze, 10, 2));
+    REQUIRE(fs::exists(snooze));
+    REQUIRE(um::is_snooze_active(snooze, 10 + 3600));
+    REQUIRE_FALSE(um::is_snooze_active(snooze, 10 + 2 * 3600));
+
+    fs::remove_all(dir);
+}
+
 // ── Pending upgrade ─────────────────────────────────────────────────────────
 
 TEST_CASE("pending-upgrade JSON round-trips through serialize/parse",
@@ -182,6 +195,26 @@ TEST_CASE("pending-upgrade JSON round-trips through serialize/parse",
     REQUIRE(parsed->staged_binary_path == "/tmp/pulp-upgrade-0.31.0/pulp");
 }
 
+TEST_CASE("pending-upgrade JSON escapes string fields",
+          "[cli][update-mode][coverage]") {
+    um::PendingUpgrade p;
+    p.version = "0.31.0-rc\"1\nbuild\rmeta\t";
+    p.staged_at_epoch_sec = 7;
+    p.staged_binary_path = "C:\\Temp\\pulp \"candidate\"\\pulp.exe\nnext\tline\r";
+
+    auto serialized = um::serialize_pending_upgrade(p);
+    REQUIRE(serialized.find("\\\"") != std::string::npos);
+    REQUIRE(serialized.find("\\\\") != std::string::npos);
+    REQUIRE(serialized.find("\\n") != std::string::npos);
+    REQUIRE(serialized.find("\\r") != std::string::npos);
+    REQUIRE(serialized.find("\\t") != std::string::npos);
+
+    auto parsed = um::parse_pending_upgrade(serialized);
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->version == p.version);
+    REQUIRE(parsed->staged_binary_path == p.staged_binary_path);
+}
+
 TEST_CASE("parse_pending_upgrade rejects markers without a version",
           "[cli][update-mode][issue-550]") {
     // Version-less markers are junk — if we accepted them we'd loop
@@ -190,6 +223,22 @@ TEST_CASE("parse_pending_upgrade rejects markers without a version",
     REQUIRE_FALSE(um::parse_pending_upgrade("").has_value());
     REQUIRE_FALSE(
         um::parse_pending_upgrade("{\"staged_at\":1}").has_value());
+}
+
+TEST_CASE("parse_pending_upgrade tolerates optional fields and bad timestamps",
+          "[cli][update-mode][coverage]") {
+    auto missing_optional = um::parse_pending_upgrade(
+        "{\"version\":\"0.31.0\",\"extra\":\"ignored\"}");
+    REQUIRE(missing_optional.has_value());
+    REQUIRE(missing_optional->version == "0.31.0");
+    REQUIRE(missing_optional->staged_at_epoch_sec == 0);
+    REQUIRE(missing_optional->staged_binary_path.empty());
+
+    auto overflow_timestamp = um::parse_pending_upgrade(
+        "{\"version\":\"0.31.0\",\"staged_at\":999999999999999999999999,\"binary\":\"/tmp/pulp\"}");
+    REQUIRE(overflow_timestamp.has_value());
+    REQUIRE(overflow_timestamp->staged_at_epoch_sec == 0);
+    REQUIRE(overflow_timestamp->staged_binary_path == "/tmp/pulp");
 }
 
 TEST_CASE("pending-upgrade file round-trips through write/read/clear",
@@ -354,12 +403,14 @@ TEST_CASE("decide_prompt_banner shows once per new version",
     auto d = um::decide_prompt_banner(
         um::Mode::Prompt, "0.30.0", "0.31.0", false, false);
     REQUIRE(d.show_banner);
+    REQUIRE_FALSE(d.write_snooze);
 
     // Second invocation with banner_already_shown_this_cycle=true →
     // silent. This preserves Slice 2's banner-suppression bookkeeping.
     auto d2 = um::decide_prompt_banner(
         um::Mode::Prompt, "0.30.0", "0.31.0", true, false);
     REQUIRE_FALSE(d2.show_banner);
+    REQUIRE_FALSE(d2.write_snooze);
 }
 
 TEST_CASE("decide_prompt_banner stays silent while snooze is active",

@@ -99,6 +99,51 @@ TEST_CASE("parse_compat_json rejects malformed input", "[cli][import-detect][iss
     CHECK_FALSE(det::parse_compat_json("{\"compat-schema-version\":\"0.2\"}").has_value());
 }
 
+TEST_CASE("parse_compat_json keeps optional format metadata and skips bad shapes",
+          "[cli][import-detect][coverage]") {
+    auto manifest = det::parse_compat_json(R"({
+  "compat-schema-version": "0.9",
+  "imports": {
+    "bad-source": [],
+    "demo": {
+      "parser-version": "3.1",
+      "detected-formats": [
+        [],
+        {
+          "format-version": "2026.05",
+          "introduced": "2026-05-01",
+          "deprecated": "2026-12-31",
+          "notes": "fixture notes",
+          "match": "all-of",
+          "min-confidence-pct": 80,
+          "fingerprint": [
+            [],
+            {"kind": "filename", "regex": "(?i)^design\\.md$"}
+          ]
+        }
+      ]
+    }
+  }
+})");
+
+    REQUIRE(manifest.has_value());
+    REQUIRE(manifest->sources.size() == 1);
+    const auto& source = manifest->sources.front();
+    REQUIRE(source.source == "demo");
+    REQUIRE(source.formats.size() == 1);
+    const auto& fmt = source.formats.front();
+    CHECK(fmt.parser_version == "3.1");
+    CHECK(fmt.format_version == "2026.05");
+    CHECK(fmt.introduced == "2026-05-01");
+    CHECK(fmt.deprecated == "2026-12-31");
+    CHECK(fmt.notes == "fixture notes");
+    CHECK(fmt.match == "all-of");
+    CHECK(fmt.min_confidence_pct == 80);
+    REQUIRE(fmt.fingerprint.size() == 2);
+    CHECK(fmt.fingerprint[0].kind == det::FingerprintClause::Kind::unknown);
+    CHECK(fmt.fingerprint[1].kind == det::FingerprintClause::Kind::filename);
+}
+
 TEST_CASE("clause matcher honors the fingerprint vocabulary", "[cli][import-detect][issue-1031]") {
     det::InputSnapshot snap;
     snap.is_directory = true;
@@ -367,6 +412,32 @@ TEST_CASE("snapshot_input extracts Markdown frontmatter only from markdown files
     auto html_snap = det::snapshot_input(html);
     CHECK_FALSE(html_snap.has_frontmatter_fence);
     cleanup();
+}
+
+TEST_CASE("snapshot_input prefers index html when code html is absent",
+          "[cli][import-detect][coverage]") {
+    auto dir = fs::temp_directory_path() / "pulp-import-detect-index-html";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    {
+        std::ofstream f(dir / "z-last.html");
+        f << "<script src=\"https://example.invalid/last.js\"></script>";
+    }
+    {
+        std::ofstream f(dir / "index.html");
+        f << "<script src=https://example.invalid/index.js></script>"
+          << "<script type=module></script>";
+    }
+
+    auto snap = det::snapshot_input(dir);
+    CHECK(snap.is_directory);
+    REQUIRE(snap.script_srcs.size() == 1);
+    CHECK(snap.script_srcs[0].find("index.js") != std::string::npos);
+    REQUIRE(snap.script_types.size() == 1);
+    CHECK(snap.script_types[0] == "module");
+
+    fs::remove_all(dir);
 }
 
 TEST_CASE("detect picks the highest-confidence format", "[cli][import-detect][issue-1031]") {

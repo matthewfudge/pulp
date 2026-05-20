@@ -226,6 +226,28 @@ TEST_CASE("add_project falls back to directory basename when no name hint",
     REQUIRE(disk[0].name == "some-project");
 }
 
+TEST_CASE("add_project canonicalises relative paths from current directory",
+          "[projects-registry][coverage]") {
+    TempDir tmp;
+    auto reg = tmp.path / "projects.json";
+    auto repo = tmp.path / "repo";
+    auto proj = repo / "relative-project";
+    fs::create_directories(proj);
+
+    ScopedCwd cwd(repo);
+    bool wrote_ok = false;
+    auto after = add_project(reg, "relative-project", "", &wrote_ok);
+    REQUIRE(wrote_ok);
+    REQUIRE(after.size() == 1);
+    REQUIRE(after[0].path == proj);
+    REQUIRE(after[0].name == "relative-project");
+
+    auto refreshed = add_project(reg, fs::path(".") / "relative-project", "Renamed");
+    REQUIRE(refreshed.size() == 1);
+    REQUIRE(refreshed[0].path == proj);
+    REQUIRE(refreshed[0].name == "Renamed");
+}
+
 TEST_CASE("remove_project drops matching entries and is idempotent",
           "[projects-registry][issue-552]") {
     TempDir tmp;
@@ -246,6 +268,22 @@ TEST_CASE("remove_project drops matching entries and is idempotent",
 
     // Removing the same path again reports "not found".
     REQUIRE_FALSE(remove_project(reg, a));
+}
+
+TEST_CASE("remove_project matches canonical relative paths",
+          "[projects-registry][coverage]") {
+    TempDir tmp;
+    auto reg = tmp.path / "projects.json";
+    auto repo = tmp.path / "repo";
+    auto proj = repo / "nested";
+    fs::create_directories(proj);
+
+    add_project(reg, proj, "Nested");
+    REQUIRE(read_registry(reg).size() == 1);
+
+    ScopedCwd cwd(repo);
+    REQUIRE(remove_project(reg, "nested"));
+    REQUIRE(read_registry(reg).empty());
 }
 
 TEST_CASE("scan_parent_pulp_projects finds ancestor CMakeLists.txt with pulp_add_*",
