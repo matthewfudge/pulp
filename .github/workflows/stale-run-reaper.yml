@@ -1,0 +1,213 @@
+name: Stale run reaper
+
+# Scheduled janitor that cancels stuck GitHub Actions runs.
+#
+# Motivating incident: GitHub Actions has no automatic cleanup of stuck
+# workflow runs, and Pulp's CI queue clogged badly because of two
+# distinct failure modes:
+#
+#   - Hung runs: Coverage runs sat `in_progress` for 2-7 hours when a
+#     healthy Coverage run takes ~1h. A hung job squats on a runner
+#     slot until GitHub's 6h default job timeout finally reaps it.
+#   - Orphaned queued runs: runs sat `queued` for 5+ days, waiting on a
+#     runner label or branch that no longer exists. A queued job that
+#     never starts never hits any timeout — it waits effectively
+#     forever.
+#
+# Both modes occupy the limited macOS-runner concurrency slots, and
+# everything behind them stalls. Nothing else in the repo detects or
+# cancels them. This workflow does.
+#
+# Logic:
+#   - Pages through `actions/runs?status=in_progress` and
+#     `?status=queued` via `gh api --paginate`.
+#   - For each run, computes age from `created_at`. `in_progress` runs
+#     older than IN_PROGRESS_MAX_MINUTES and `queued` runs older than
+#     QUEUED_MAX_MINUTES are cancelled via the runs/<id>/cancel API.
+#   - Thresholds are deliberately conservative: Pulp's slowest legit
+#     workflow runs ~90 min, so 5h / 8h cannot catch a healthy run.
+#   - Never cancels its own run (skips `${{ github.run_id }}`).
+#   - A failed cancel on one run (e.g. it just completed) never aborts
+#     the rest of the sweep.
+#   - Writes a step summary: runs scanned plus a table of every run
+#     cancelled. If the reaper keeps reaping the same workflow, that
+#     workflow has a hang bug worth investigating — the summary history
+#     makes that visible.
+
+on:
+  schedule:
+    # Every 30 minutes — a stuck run should not squat a slot for long.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      in_progress_max_minutes:
+        description: 'Cancel in_progress runs older than this many minutes'
+        required: false
+        default: '300'
+      queued_max_minutes:
+        description: 'Cancel queued runs older than this many minutes'
+        required: false
+        default: '480'
+
+permissions:
+  actions: write   # required to cancel workflow runs
+  contents: read
+
+concurrency:
+  group: stale-run-reaper
+  cancel-in-progress: false
+
+jobs:
+  reap:
+    runs-on: ubuntu-latest
+    name: Cancel stuck workflow runs
+
+    env:
+      # Defaults, overridable by workflow_dispatch inputs. in_progress
+      # runs older than 5h are hung; queued runs older than 8h are
+      # orphaned. Conservative on purpose (slowest legit run ~90 min).
+      IN_PROGRESS_MAX_MINUTES: ${{ github.event.inputs.in_progress_max_minutes || '300' }}
+      QUEUED_MAX_MINUTES: ${{ github.event.inputs.queued_max_minutes || '480' }}
+      REPO: ${{ github.repository }}
+      SELF_RUN_ID: ${{ github.run_id }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Reap stale runs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          repo="${REPO}"
+          self_id="${SELF_RUN_ID}"
+          in_progress_max="${IN_PROGRESS_MAX_MINUTES}"
+          queued_max="${QUEUED_MAX_MINUTES}"
+          now_epoch=$(date -u +%s)
+
+          echo "Repo:                $repo"
+          echo "Self run id:         $self_id (never cancelled)"
+          echo "in_progress cutoff:  ${in_progress_max} min"
+          echo "queued cutoff:       ${queued_max} min"
+
+          scanned=0
+          cancelled=0
+          # JSON-Lines accumulator for the summary table.
+          : > cancelled.jsonl
+
+          # Scan one run status with one age threshold. Pages through
+          # every run via `gh api --paginate`, emitting one TSV row per
+          # run (id, status, created_at, workflow name, branch).
+          scan_status() {
+              local status="$1"
+              local max_minutes="$2"
+
+              echo ""
+              echo "=== Scanning status=${status} (cutoff ${max_minutes} min) ==="
+
+              local rows
+              rows=$(
+                  gh api --paginate \
+                      -H "Accept: application/vnd.github+json" \
+                      "/repos/${repo}/actions/runs?status=${status}&per_page=100" \
+                      --jq '.workflow_runs[] | [(.id|tostring), .status, .created_at, .name, .head_branch] | @tsv' \
+                      2>/dev/null || true
+              )
+
+              if [ -z "$rows" ]; then
+                  echo "  no ${status} runs"
+                  return 0
+              fi
+
+              while IFS=$'\t' read -r run_id run_status created name branch; do
+                  [ -z "$run_id" ] && continue
+                  scanned=$((scanned + 1))
+
+                  if [ "$run_id" = "$self_id" ]; then
+                      echo "  skip ${run_id} (this reaper run)"
+                      continue
+                  fi
+
+                  # created_at -> epoch. GNU date first, Python fallback.
+                  local created_epoch
+                  created_epoch=$(date -u -d "${created}" +%s 2>/dev/null \
+                      || python3 -c "import datetime,sys; print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "${created}" \
+                      2>/dev/null || echo '')
+
+                  if [ -z "$created_epoch" ]; then
+                      echo "  skip ${run_id} (unparseable created_at '${created}')"
+                      continue
+                  fi
+
+                  local age_min=$(( (now_epoch - created_epoch) / 60 ))
+
+                  if [ "$age_min" -le "$max_minutes" ]; then
+                      echo "  ok   ${run_id} '${name}' (${age_min} min, status ${run_status})"
+                      continue
+                  fi
+
+                  echo "  STUCK ${run_id} '${name}' branch '${branch}' (${age_min} min ${status}) — cancelling"
+
+                  # A failed cancel (run may have just completed) must
+                  # not abort the sweep. `|| true` keeps us going.
+                  if gh api --method POST \
+                          -H "Accept: application/vnd.github+json" \
+                          "/repos/${repo}/actions/runs/${run_id}/cancel" \
+                          >/dev/null 2>&1; then
+                      cancelled=$((cancelled + 1))
+                      python3 -c "import json,sys; print(json.dumps({'id': sys.argv[1], 'name': sys.argv[2], 'branch': sys.argv[3] or '(none)', 'status': sys.argv[4], 'age_min': int(sys.argv[5])}))" \
+                          "${run_id}" "${name}" "${branch}" "${status}" "${age_min}" >> cancelled.jsonl
+                      echo "    cancelled ${run_id}"
+                  else
+                      echo "    cancel failed for ${run_id} (likely already completed) — continuing"
+                  fi
+              done <<< "$rows"
+          }
+
+          scan_status "in_progress" "$in_progress_max"
+          scan_status "queued" "$queued_max"
+
+          echo ""
+          echo "Scanned ${scanned} run(s); cancelled ${cancelled}."
+          echo "SCANNED=${scanned}" >> "$GITHUB_ENV"
+          echo "CANCELLED=${cancelled}" >> "$GITHUB_ENV"
+
+      - name: Write step summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scanned="${SCANNED:-0}"
+          cancelled="${CANCELLED:-0}"
+
+          # Build the whole summary into one buffer, then append it to
+          # $GITHUB_STEP_SUMMARY in a single redirect.
+          {
+              echo "## Stale run reaper"
+              echo ""
+              echo "- Thresholds: \`in_progress\` > **${IN_PROGRESS_MAX_MINUTES} min**, \`queued\` > **${QUEUED_MAX_MINUTES} min**"
+              echo "- Runs scanned: **${scanned}**"
+              echo "- Runs cancelled: **${cancelled}**"
+              echo ""
+
+              if [ -s cancelled.jsonl ]; then
+                  echo "### Cancelled runs"
+                  echo ""
+                  echo "| Run ID | Workflow | Branch | Stuck status | Age |"
+                  echo "|--------|----------|--------|--------------|-----|"
+                  python3 - <<'PY'
+          import json
+          with open('cancelled.jsonl') as fh:
+              for line in fh:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  r = json.loads(line)
+                  print(f"| {r['id']} | {r['name']} | `{r['branch']}` | {r['status']} | {r['age_min']} min |")
+          PY
+                  echo ""
+                  echo "_If the same workflow is reaped repeatedly, it has a hang bug worth investigating._"
+              else
+                  echo "No stuck runs detected — CI queue is clean."
+              fi
+          } >> "$GITHUB_STEP_SUMMARY"
