@@ -518,7 +518,7 @@ int main(int argc, char* argv[]) {
 
     // Generate Pulp JS
     CodeGenOptions opts;
-    opts.mode = use_web_compat ? CodeGenMode::web_compat : CodeGenMode::native;
+    opts.mode = use_web_compat ? CodeGenMode::web_compat : CodeGenMode::bridge_native_js;
     opts.include_tokens = include_tokens;
     opts.include_comments = include_comments;
     opts.preview_mode = preview_mode;
