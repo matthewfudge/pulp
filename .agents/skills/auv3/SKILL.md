@@ -79,6 +79,10 @@ The bridge struct `pulp::format::au::AUBridge` owns:
 - `sidechain_storage` — a `std::vector<float>` backing buffer for the
   sidechain pull so the adapter can stay allocation-free on the audio
   thread after `allocateRenderResources`.
+- `param_events` (`state::ParameterEventQueue`) — cleared each render
+  block and filled from inbound AU parameter/ramp render events with
+  their sample offsets while the StateStore dual-write keeps normal
+  block-level parameter reads current.
 
 ### Entry point: `PulpAUFactory` + `AUAudioUnitFactory`
 
@@ -157,8 +161,10 @@ not apply — `_bridge` is a C++ struct). The block:
    `pullInputBlock(…, 1, &sidechain_abl)` into the separate backing
    storage; publishes to `processor->set_sidechain(&view)` only on
    success, nulls out the slot on failure.
-5. Walks the realtime event list — short MIDI via `AURenderEventMIDI`,
-   long / sysex via `AURenderEventMIDIEventList`. See gotchas below.
+5. Walks the realtime event list — parameter/ramp events append to
+   `param_events` and call `store.set_value_rt`, short MIDI arrives via
+   `AURenderEventMIDI`, and long / sysex arrives via
+   `AURenderEventMIDIEventList`. See gotchas below.
 6. Calls `processor->process(output_view, input_view, midi_in,
    midi_out, ctx)`.
 7. Forwards any `midi_out` events back to the host via

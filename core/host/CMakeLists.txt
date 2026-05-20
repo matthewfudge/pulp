@@ -17,7 +17,7 @@ target_sources(pulp-host PRIVATE
     src/background_scanner.cpp
 )
 
-target_link_libraries(pulp-host PUBLIC pulp::audio pulp::midi pulp::runtime)
+target_link_libraries(pulp-host PUBLIC pulp::audio pulp::midi pulp::runtime pulp::state)
 
 # CLAP plugin loader + scanner (requires CLAP SDK)
 if(PULP_HAS_CLAP)

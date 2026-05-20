@@ -151,6 +151,8 @@ public:
 // Captures midi_in so the test can assert what the CLAP adapter handed up.
 class CapturingProcessor : public Processor {
 public:
+    static constexpr state::ParamID kParamId = 9001;
+
     bool opts_mpe = false;
     bool opts_ump = false;
 
@@ -171,7 +173,13 @@ public:
         d.supports_ump = opts_ump;
         return d;
     }
-    void define_parameters(state::StateStore&) override {}
+    void define_parameters(state::StateStore& store) override {
+        store.add_parameter({
+            .id = kParamId,
+            .name = "Capture Gain",
+            .range = {0.0f, 1.0f, 0.0f, 0.0f},
+        });
+    }
     void prepare(const PrepareContext&) override {}
     void process(audio::BufferView<float>&,
                  const audio::BufferView<const float>&,
@@ -315,6 +323,46 @@ clap_event_header_t make_header(uint32_t size, uint16_t type, uint32_t time) {
 } // namespace
 
 // ── Inbound: CLAP_EVENT_MIDI ────────────────────────────────────────────
+
+TEST_CASE("CLAP param automation preserves all sample offsets while dual-writing StateStore",
+          "[clap][params][rate-model]") {
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    Harness h(make_capturing);
+    REQUIRE(g_capturing != nullptr);
+
+    InputEventList events;
+    clap_event_param_value_t p0{};
+    p0.header = make_header(sizeof(p0), CLAP_EVENT_PARAM_VALUE, 0);
+    p0.param_id = CapturingProcessor::kParamId;
+    p0.value = 0.25;
+    events.push(p0);
+
+    clap_event_param_value_t p1{};
+    p1.header = make_header(sizeof(p1), CLAP_EVENT_PARAM_VALUE, 16);
+    p1.param_id = CapturingProcessor::kParamId;
+    p1.value = 0.50;
+    events.push(p1);
+
+    clap_event_param_value_t p2{};
+    p2.header = make_header(sizeof(p2), CLAP_EVENT_PARAM_VALUE, 48);
+    p2.param_id = CapturingProcessor::kParamId;
+    p2.value = 0.75;
+    events.push(p2);
+
+    REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
+
+    const auto& param_events = h.plugin.param_events.events();
+    REQUIRE(param_events.size() == 3);
+    REQUIRE(param_events[0].param_id == CapturingProcessor::kParamId);
+    REQUIRE(param_events[0].sample_offset == 0);
+    REQUIRE(param_events[0].value == 0.25f);
+    REQUIRE(param_events[1].sample_offset == 16);
+    REQUIRE(param_events[1].value == 0.50f);
+    REQUIRE(param_events[2].sample_offset == 48);
+    REQUIRE(param_events[2].value == 0.75f);
+    REQUIRE(g_capturing->state().get_value(CapturingProcessor::kParamId) == 0.75f);
+}
 
 TEST_CASE("CLAP_EVENT_MIDI decodes CC into MidiBuffer",
           "[clap][midi][issue-pending]") {

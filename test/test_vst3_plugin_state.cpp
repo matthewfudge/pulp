@@ -364,6 +364,7 @@ TEST_CASE("VST3 adapter process path maps host events, buses, and outputs",
     REQUIRE(gain_queue != nullptr);
     Steinberg::int32 point_index = 0;
     REQUIRE(gain_queue->addPoint(0, 0.0, point_index) == Steinberg::kResultTrue);
+    REQUIRE(gain_queue->addPoint(2, 0.5, point_index) == Steinberg::kResultTrue);
     REQUIRE(gain_queue->addPoint(4, 1.0, point_index) == Steinberg::kResultTrue);
 
     Steinberg::Vst::ParameterChanges output_params(2);
@@ -460,6 +461,16 @@ TEST_CASE("VST3 adapter process path maps host events, buses, and outputs",
     REQUIRE(test_processor->last_context.position_samples == 12345);
     REQUIRE(test_processor->last_context.time_sig_numerator == 7);
     REQUIRE(test_processor->last_context.time_sig_denominator == 8);
+
+    const auto& param_events = processor.last_input_param_events().events();
+    REQUIRE(param_events.size() == 3);
+    REQUIRE(param_events[0].param_id == kGainParamId);
+    REQUIRE(param_events[0].sample_offset == 0);
+    REQUIRE_THAT(param_events[0].value, WithinAbs(-60.0f, 1e-5f));
+    REQUIRE(param_events[1].sample_offset == 2);
+    REQUIRE_THAT(param_events[1].value, WithinAbs(-18.0f, 1e-5f));
+    REQUIRE(param_events[2].sample_offset == 4);
+    REQUIRE_THAT(param_events[2].value, WithinAbs(24.0f, 1e-5f));
 
     for (int i = 0; i < kFrames; ++i) {
         REQUIRE_THAT(out_l[i], WithinAbs(in_l[i], 1e-6f));

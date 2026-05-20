@@ -247,6 +247,8 @@ uint32 PLUGIN_API PulpVst3Processor::getTailSamples() {
 tresult PLUGIN_API PulpVst3Processor::process(ProcessData& data) {
     if (!processor_) return kInternalError;
 
+    param_events_.clear();
+
     // Read parameter changes from host and sync to Pulp StateStore
     if (data.inputParameterChanges) {
         int32 count = data.inputParameterChanges->getParameterCount();
@@ -256,19 +258,33 @@ tresult PLUGIN_API PulpVst3Processor::process(ProcessData& data) {
                 ParamID id = queue->getParameterId();
                 int32 point_count = queue->getPointCount();
                 if (point_count > 0) {
-                    ParamValue value;
-                    int32 offset;
-                    queue->getPoint(point_count - 1, offset, value);
-                    // VST3 uses normalized 0-1 values — sync to Pulp store
-                    // via the RT-safe path so any Main listeners are
-                    // deferred to pump_listeners() instead of allocating
-                    // a dispatch lambda on the audio thread.
-                    store_.set_normalized_rt(static_cast<state::ParamID>(id),
-                                             static_cast<float>(value));
+                    for (int32 point = 0; point < point_count; ++point) {
+                        ParamValue value;
+                        int32 offset;
+                        if (queue->getPoint(point, offset, value) != kResultTrue) {
+                            continue;
+                        }
+                        const auto param_id = static_cast<state::ParamID>(id);
+                        float plain_value = static_cast<float>(value);
+                        if (const auto* info = store_.info(param_id)) {
+                            plain_value = info->range.denormalize(plain_value);
+                        }
+                        param_events_.push({
+                            param_id,
+                            static_cast<int32_t>(offset),
+                            plain_value,
+                        });
+                        // VST3 uses normalized 0-1 values — sync to Pulp store
+                        // via the RT-safe path so any Main listeners are
+                        // deferred to pump_listeners() instead of allocating
+                        // a dispatch lambda on the audio thread.
+                        store_.set_normalized_rt(param_id, static_cast<float>(value));
+                    }
                 }
             }
         }
     }
+    param_events_.sort();
 
     // Build buffer views
     int32 num_samples = data.numSamples;

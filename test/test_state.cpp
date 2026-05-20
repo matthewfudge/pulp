@@ -84,6 +84,49 @@ TEST_CASE("ParamRange normalization", "[state][range]") {
     REQUIRE_THAT(range.denormalize(1.0f), WithinAbs(100.0, 0.001));
 }
 
+TEST_CASE("ParamInfo defaults to control rate and preserves audio-rate metadata",
+          "[state][params][rate]") {
+    ParamInfo default_info;
+    REQUIRE(default_info.rate == ParamRate::ControlRate);
+
+    StateStore source;
+    ParamInfo audio_info = make_param_info(
+        42, "Cutoff CV", "Hz", {20.0f, 20000.0f, 440.0f, 1.0f});
+    audio_info.rate = ParamRate::AudioRate;
+    source.add_parameter(audio_info);
+    source.set_value(42, 880.0f);
+
+    REQUIRE(source.info(42) != nullptr);
+    REQUIRE(source.info(42)->rate == ParamRate::AudioRate);
+
+    auto blob = source.serialize();
+
+    StateStore restored;
+    restored.add_parameter(audio_info);
+    REQUIRE(restored.deserialize(blob));
+    REQUIRE(restored.info(42) != nullptr);
+    REQUIRE(restored.info(42)->rate == ParamRate::AudioRate);
+    REQUIRE_THAT(restored.get_value(42), WithinAbs(880.0f, 1e-6f));
+}
+
+TEST_CASE("ParameterEventQueue is available from state",
+          "[state][params][events]") {
+    ParameterEventQueue queue;
+    queue.push({3, 64, 0.75f});
+    queue.push(ParameterEvent{1, 0, 0.25f});
+    queue.push({2, 32, 0.5f});
+
+    queue.sort();
+
+    REQUIRE(queue.size() == 3);
+    REQUIRE(queue.events()[0].param_id == 1);
+    REQUIRE(queue.events()[0].sample_offset == 0);
+    REQUIRE(queue.events()[1].param_id == 2);
+    REQUIRE(queue.events()[1].sample_offset == 32);
+    REQUIRE(queue.events()[2].param_id == 3);
+    REQUIRE(queue.events()[2].sample_offset == 64);
+}
+
 TEST_CASE("ParamRange with step", "[state][range]") {
     ParamRange range{0.0f, 10.0f, 5.0f, 1.0f}; // step = 1
 

@@ -12,6 +12,7 @@
 
 #include <pulp/host/scanner.hpp>
 #include <pulp/host/parameter_event_queue.hpp>
+#include <pulp/state/parameter.hpp>
 #include <pulp/audio/buffer.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <memory>
@@ -49,7 +50,10 @@ struct HostParamInfo {
     float max_value = 1.0f;
     float default_value = 0.0f;
     ParamFlags flags;
+    state::ParamRate rate = state::ParamRate::ControlRate;
 };
+
+using ParamRate = state::ParamRate;
 
 // ── Plugin Slot ─────────────────────────────────────────────────────────
 

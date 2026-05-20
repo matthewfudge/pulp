@@ -37,6 +37,15 @@ TEST_CASE("PluginScanner default paths", "[host][scanner]") {
     }
 }
 
+TEST_CASE("HostParamInfo defaults to control rate and can mark audio-rate params",
+          "[host][params][rate]") {
+    HostParamInfo info;
+    REQUIRE(info.rate == ParamRate::ControlRate);
+
+    info.rate = ParamRate::AudioRate;
+    REQUIRE(info.rate == pulp::state::ParamRate::AudioRate);
+}
+
 TEST_CASE("PluginScanner bundle detection", "[host][scanner]") {
     REQUIRE(PluginScanner::is_plugin_bundle("MyPlugin.vst3", PluginFormat::VST3));
     REQUIRE(PluginScanner::is_plugin_bundle("MyPlugin.clap", PluginFormat::CLAP));

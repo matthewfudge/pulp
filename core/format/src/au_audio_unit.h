@@ -6,4 +6,10 @@
 // Defined in au_adapter.mm, used by au_entry.mm
 
 @interface PulpAudioUnit : AUAudioUnit
+
+- (NSUInteger)pulpLastParameterEventCount;
+- (uint32_t)pulpLastParameterEventParamIDAtIndex:(NSUInteger)index;
+- (int32_t)pulpLastParameterEventSampleOffsetAtIndex:(NSUInteger)index;
+- (float)pulpLastParameterEventValueAtIndex:(NSUInteger)index;
+
 @end
