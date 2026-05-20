@@ -206,8 +206,39 @@ jobs:
             echo "android_kotlin_runs_on=${android_kotlin}"
           } >>"${GITHUB_OUTPUT}"
 
+  # ── Change classifier ──────────────────────────────────────────────────
+  # Decides whether this PR needs the native coverage matrix at all. A PR
+  # that touches only docs / planning markdown / git-hooks / Shipyard config
+  # cannot move the C++/Swift coverage number — so the 3-OS coverage matrix
+  # (150 min/leg) and the Android Kotlin lane are skipped at the job level
+  # (no runner is ever allocated). The REQUIRED `coverage-diff-gate` still
+  # runs and reports a fast green from Ubuntu for those skip-safe PRs.
+  #
+  # Mirrors the `classify` job in build.yml so the two stay in lockstep.
+  # Fail-closed: tools/scripts/classify_changes.py treats any uncertainty
+  # as "native build required". See that script's module docstring +
+  # tools/scripts/test_classify_changes.py.
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      native_build_required: ${{ steps.classify.outputs.native_build_required }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          lfs: false
+      - id: classify
+        run: |
+          python3 tools/scripts/classify_changes.py \
+            --mode=diff \
+            --base "${{ github.event.pull_request.base.sha || 'origin/main' }}"
+
   coverage:
-    needs: [resolve-runners, changed-files]
+    needs: [resolve-runners, changed-files, classify]
+    # Skip the entire native coverage matrix (no runner allocated) when the
+    # PR touches no C++/Swift build input. The required `coverage-diff-gate`
+    # job below still runs and reports a skip-safe green.
+    if: needs.classify.outputs.native_build_required == 'true'
     name: Coverage report (${{ matrix.label }}, Clang)
     # Hard backstop against a wedged matrix leg. A healthy coverage build
     # runs ~1h; 150 min leaves generous headroom for a slow self-hosted
@@ -633,7 +664,12 @@ jobs:
     # This lane measures Kotlin unit-testable source only; APK build and
     # emulator/device smoke remain in android.yml.
     name: Coverage report (Android, Kotlin)
-    needs: resolve-runners
+    needs: [resolve-runners, classify]
+    # Skip-safe (docs/planning-only) PRs can't move the Kotlin coverage
+    # number either, so gate this lane on the same classifier output as the
+    # native coverage matrix.
+    # follow-up: a finer android-path gate would skip this on C++-only PRs too
+    if: needs.classify.outputs.native_build_required == 'true'
     runs-on: ${{ fromJSON(needs.resolve-runners.outputs.android_kotlin_runs_on) }}
     timeout-minutes: 30
     steps:
@@ -779,17 +815,56 @@ jobs:
     # minutes; 30 min absorbs slow artifact downloads and pip installs
     # while still capping a wedged step well short of GitHub's 6h limit.
     timeout-minutes: 30
-    needs: coverage
+    needs: [classify, coverage]
     # `always()` keeps the required gate reaching a conclusion even when
-    # an upstream `coverage` matrix leg fails or is cancelled — the gate
-    # then renders the graceful "no Cobertura XML" fallback below and
-    # reports skip/fail promptly rather than staying eligible-but-stuck.
+    # an upstream `coverage` matrix leg fails, is cancelled, or is SKIPPED
+    # entirely (skip-safe PR — `classify` said no native build). The
+    # "Evaluate coverage gate preconditions" step below distinguishes the
+    # three cases explicitly so the required check always reports a real
+    # conclusion instead of staying eligible-but-stuck.
     if: always() && github.event_name == 'pull_request'
     permissions:
       contents: read
       pull-requests: write
     steps:
+      - name: Evaluate coverage gate preconditions
+        id: gate_preconditions
+        # The REQUIRED diff-coverage gate has exactly three terminal cases
+        # (Codex-validated). This step decides which one applies and sets
+        # `native_required` for the step-level `if:` on every diff-cover
+        # step below. The real diff-cover work runs ONLY when
+        # native_required == 'true'.
+        #
+        #   1. classify did not succeed       → fail RED (untrusted output;
+        #                                        fail the required gate closed)
+        #   2. native build NOT required      → pass GREEN (classifier-approved
+        #                                        skip-safe PR; no coverage owed)
+        #   3. native required, coverage ≠ ok → fail RED (the coverage matrix
+        #                                        was supposed to run and didn't
+        #                                        succeed)
+        #
+        # When native_required == true AND coverage succeeded, this step
+        # falls through and the diff-cover steps below run for real.
+        shell: bash
+        run: |
+          classify_result="${{ needs.classify.result }}"
+          native_required="${{ needs.classify.outputs.native_build_required }}"
+          coverage_result="${{ needs.coverage.result }}"
+          echo "native_required=${native_required}" >> "$GITHUB_OUTPUT"
+          if [ "$classify_result" != "success" ]; then
+            echo "::error::classify failed; failing required coverage gate closed"; exit 1
+          fi
+          if [ "$native_required" != "true" ]; then
+            echo "Skip-safe PR; no native coverage required."; exit 0
+          fi
+          if [ "$coverage_result" != "success" ]; then
+            echo "::error::coverage job result was $coverage_result; failing required coverage gate"; exit 1
+          fi
+          # native_required==true AND coverage succeeded: run the real diff-cover steps.
+          echo "Native coverage required and coverage job succeeded — running diff-cover."
+
       - uses: actions/checkout@v5
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         with:
           # diff-cover compares HEAD against --compare-branch using real
           # git history, so we need enough depth to include the merge
@@ -801,6 +876,7 @@ jobs:
           lfs: false
 
       - name: Ensure base branch is fetched
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         # actions/checkout fetches the PR head and the merge-ref but not
         # the full base branch history. diff-cover needs origin/<base>
         # to resolve --compare-branch, so fetch it explicitly.
@@ -811,10 +887,13 @@ jobs:
         # Linux artifact uses the historical name
         # `coverage-cobertura-${sha}`. macOS and Windows use OS-suffixed
         # names (see the matrix `coverage` job's upload step). All three
-        # are downloaded; missing artifacts are tolerated — the merge
-        # step skips them and writes a partial XML, and if every input
-        # is missing the merge refuses to write and the next step
-        # renders the graceful "no XML" fallback.
+        # are downloaded; an individually missing artifact is tolerated —
+        # the merge step skips it and writes a partial XML. But this gate
+        # only reaches this step when the classifier said native coverage
+        # IS required, so if EVERY input is missing the merge step now
+        # fails RED (see "Merge per-OS Cobertura XMLs" below) rather than
+        # silently passing the required gate.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         uses: actions/download-artifact@v6
         with:
           name: coverage-cobertura-${{ github.sha }}
@@ -822,6 +901,7 @@ jobs:
         continue-on-error: true
 
       - name: Download Cobertura XML from coverage job (macOS)
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         uses: actions/download-artifact@v6
         with:
           name: coverage-cobertura-macos-${{ github.sha }}
@@ -829,6 +909,7 @@ jobs:
         continue-on-error: true
 
       - name: Download Cobertura XML from coverage job (Windows)
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         uses: actions/download-artifact@v6
         with:
           name: coverage-cobertura-windows-${{ github.sha }}
@@ -838,6 +919,7 @@ jobs:
       - name: Install diff-cover
         # Pinned to >=9 for the --markdown-report flag; earlier
         # releases only supported --html-report.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         run: python3 -m pip install --user 'diff-cover>=9'
         shell: bash
 
@@ -846,6 +928,7 @@ jobs:
         # `coverage` job guards scripts/run_coverage.sh — run the
         # unit tests before we depend on the script in a live step
         # so a regression fails fast without waiting on diff-cover.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         run: python3 tools/scripts/test_coverage_diff_comment.py
         shell: bash
 
@@ -855,6 +938,7 @@ jobs:
         # regression in merge_cobertura would otherwise show up as
         # a confusing diff-cover number drift before anyone realised
         # the merge was the cause.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         run: python3 tools/scripts/test_merge_cobertura.py
         shell: bash
 
@@ -868,16 +952,20 @@ jobs:
         #
         # Exit-code policy (Codex P1 reviews on PR #654 + PR #660):
         # The script uses a DEDICATED exit code (2) for the
-        # intentionally-tolerated "every input XML missing/empty" case;
-        # the diff-cover step then renders the "no XML" fallback.
-        # Exit 1 is the conventional Python "real error" code (uncaught
-        # exception, ParseError on a malformed Cobertura artifact, etc.)
-        # and MUST fail the gate — otherwise a corrupted upload silently
-        # bypasses the required 75% coverage check.
-        # Earlier the workflow tolerated any rc==1 which collapsed both
-        # cases into one bypass surface; PR #660's Codex review caught
-        # that. Don't merge the cases back together; if you change the
-        # script's exit codes, update both ends in lockstep.
+        # "every input XML missing/empty" case; exit 1 is the
+        # conventional Python "real error" code (uncaught exception,
+        # ParseError on a malformed Cobertura artifact, etc.).
+        # Both MUST fail this gate. This step only runs once the
+        # classifier confirmed the PR needs native coverage
+        # (`native_required == true`), so a missing/empty XML here is a
+        # real failure of the coverage matrix — NOT a skip-safe PR.
+        # Letting the all-missing case pass GREEN would silently bypass
+        # the required 75% coverage check (the old "all XML missing →
+        # pass" fallback). Only the classifier-approved skip-safe path
+        # (handled by the "Evaluate coverage gate preconditions" step)
+        # gets a no-coverage green; everything that reaches this step
+        # owes a real coverage report.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         shell: bash
         run: |
           set +e
@@ -890,9 +978,8 @@ jobs:
           if [ "$rc" -eq 0 ]; then
             exit 0
           elif [ "$rc" -eq 2 ]; then
-            echo "::warning::merge_cobertura: every input missing — diff-cover step will render the fallback report."
-            mkdir -p coverage-artifact
-            exit 0
+            echo "::error::merge_cobertura: every per-OS coverage XML is missing/empty, but the classifier says this PR needs native coverage. The coverage matrix failed to produce a report. Failing the required diff-coverage gate; investigate the 'coverage' matrix legs above."
+            exit 1
           else
             echo "::error::merge_cobertura failed with exit ${rc} (corrupt artifact, parse error, or script bug — NOT the all-missing sentinel which is exit 2). Failing the required diff-coverage gate; investigate the per-OS coverage artifacts."
             exit "$rc"
@@ -910,15 +997,21 @@ jobs:
         # local pre-push hook + tools/scripts/local_diff_cover.sh stay
         # in lockstep with this gate. Edit there, not here, when raising
         # or lowering the floor.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         shell: bash
         run: |
           set +e
           xml="coverage-artifact/coverage.cobertura.xml"
           if [ ! -f "$xml" ]; then
-            echo "No Cobertura XML from upstream jobs — writing empty diff report."
+            # This step only runs when the classifier said native
+            # coverage IS required and the merge step succeeded — so a
+            # missing merged XML here is a real failure, not a skip-safe
+            # PR. Fail RED rather than silently passing the required
+            # gate (the old "no XML → exit 0" path bypassed the gate).
+            echo "::error::No merged Cobertura XML for a PR that needs native coverage — the coverage matrix produced no report. Failing the required diff-coverage gate."
             : > coverage-diff.md
-            echo "exit_code=skip" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "exit_code=missing-xml" >> "$GITHUB_OUTPUT"
+            exit 1
           fi
           THRESHOLD=$(jq -r '.diff_coverage_fail_under' tools/scripts/coverage_config.json)
           if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]]; then
@@ -967,6 +1060,7 @@ jobs:
         # test_coverage_tier_check.py exercises ctc.load_targets() which
         # imports yaml (issue #900). Also required by the per-tier gate
         # step below.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         run: python3 -m pip install --user 'pyyaml>=6'
         shell: bash
 
@@ -975,6 +1069,7 @@ jobs:
         # coverage_diff_comment.py — unit tests run before the live
         # invocation so a regression in classify_file / aggregate /
         # render fails fast without requiring a full coverage run.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         run: python3 tools/scripts/test_coverage_tier_check.py
         shell: bash
 
@@ -991,6 +1086,7 @@ jobs:
         # until we've observed a couple of cycles and confirmed the
         # tier definitions classify files correctly. Phase 2 flip
         # to required is a one-line removal of this continue-on-error.
+        if: steps.gate_preconditions.outputs.native_required == 'true'
         continue-on-error: true
         shell: bash
         run: |
@@ -1015,7 +1111,11 @@ jobs:
         # Threshold is read from tools/scripts/coverage_config.json — the
         # same source diff-cover uses one step up — so the rendered
         # banner can never drift from the actual gate.
-        if: always()
+        #
+        # `always() && native_required` — render on diff-cover failure
+        # (Codex #611 P2) but skip entirely on classifier-approved
+        # skip-safe PRs, where there is no coverage report to comment on.
+        if: always() && steps.gate_preconditions.outputs.native_required == 'true'
         run: |
           # Phase 3 landed: gate is required. --no-advisory flips the
           # banner to the required-gate form; the --flip-date argument
@@ -1039,7 +1139,7 @@ jobs:
         shell: bash
 
       - name: Upload diff-cover report artifact
-        if: always()
+        if: always() && steps.gate_preconditions.outputs.native_required == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: coverage-diff-${{ github.sha }}
@@ -1060,7 +1160,9 @@ jobs:
         # hard-fail with a 403 even though this whole job is advisory.
         # `always() && …` so required-gate failures still upsert the
         # explanatory comment (Codex #611 P2); the fork guard stays.
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        # Also gated on native_required — skip-safe PRs have no coverage
+        # comment to post.
+        if: always() && steps.gate_preconditions.outputs.native_required == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
