@@ -408,6 +408,23 @@ TEST_CASE("i18n .po load failure leaves translations intact",
     REQUIRE(strings.translate("existing") == "kept");
 }
 
+TEST_CASE("i18n .po parser ignores orphan msgstr lines",
+          "[runtime][i18n][coverage][phase3]") {
+    TemporaryFile tmp(".po");
+    {
+        std::ofstream f(tmp.path());
+        f << "msgstr \"orphan\"\n";
+        f << "msgid \"valid\"\n";
+        f << "msgstr \"kept\"\n";
+    }
+
+    LocalisedStrings strings;
+    REQUIRE(strings.load_po_file(tmp.path_string()));
+    REQUIRE(strings.count() == 1);
+    REQUIRE_FALSE(strings.has(""));
+    REQUIRE(strings.translate("valid") == "kept");
+}
+
 // ── JSON file format ────────────────────────────────────────────────────
 
 TEST_CASE("i18n load JSON file", "[runtime][i18n]") {
@@ -502,6 +519,22 @@ TEST_CASE("i18n JSON load failure preserves existing translations",
     strings.add("existing", "kept");
 
     REQUIRE_FALSE(strings.load_json_file(tmp.path_string()));
+    REQUIRE(strings.count() == 1);
+    REQUIRE(strings.translate("existing") == "kept");
+}
+
+TEST_CASE("i18n JSON parser accepts empty objects",
+          "[runtime][i18n][coverage][phase3]") {
+    TemporaryFile tmp(".json");
+    {
+        std::ofstream f(tmp.path());
+        f << "{\n}\n";
+    }
+
+    LocalisedStrings strings;
+    strings.add("existing", "kept");
+
+    REQUIRE(strings.load_json_file(tmp.path_string()));
     REQUIRE(strings.count() == 1);
     REQUIRE(strings.translate("existing") == "kept");
 }

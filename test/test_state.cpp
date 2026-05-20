@@ -854,6 +854,23 @@ TEST_CASE("StateStore deserialize keeps complete prefix on short declared count"
     REQUIRE_THAT(target.get_value(1), WithinAbs(0.75, 0.001));
 }
 
+TEST_CASE("StateStore empty serialization round-trips as a minimum frame",
+          "[state][serialize][coverage][phase3]") {
+    StateStore source;
+
+    auto data = source.serialize();
+
+    REQUIRE(data.size() == 16);
+    REQUIRE(std::memcmp(data.data(), "PULP", 4) == 0);
+    REQUIRE(read_u32_le(data, 8) == 0);
+
+    StateStore target;
+    REQUIRE(target.deserialize(data));
+    REQUIRE(target.param_count() == 0);
+    REQUIRE_FALSE(target.deserialize(std::span<const uint8_t>{data.data(),
+                                                              data.size() - 1}));
+}
+
 // ─── ListenerToken / thread routing (Slice 1) ───────────────────────────────
 
 TEST_CASE("ListenerToken removes its listener on destruction",
@@ -929,6 +946,26 @@ TEST_CASE("ListenerToken is move-only and transfers ownership",
     // Only token2's listener fires; token1 was moved-from earlier and
     // its subscription was transferred and then overwritten by token2.
     REQUIRE(call_count == 2);
+}
+
+TEST_CASE("ListenerToken self move-assignment keeps the subscription",
+          "[state][listener][token][coverage][phase3]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "X", "", {0.0f, 1.0f, 0.0f}));
+
+    int call_count = 0;
+    auto token = store.add_audio_listener(
+        [&](ParamID, float) { ++call_count; });
+    const auto original_id = token.id();
+
+    auto& same_token = token;
+    token = std::move(same_token);
+
+    REQUIRE(static_cast<bool>(token));
+    REQUIRE(token.id() == original_id);
+
+    store.set_value(1, 0.5f);
+    REQUIRE(call_count == 1);
 }
 
 TEST_CASE("remove_listener clears the token without firing the callback",

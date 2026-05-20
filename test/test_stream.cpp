@@ -69,6 +69,20 @@ TEST_CASE("StreamResult closed failure has no transferred bytes",
     REQUIRE(result.bytes == 0);
 }
 
+TEST_CASE("StreamResult closed predicate only matches closed errors",
+          "[stream][coverage][phase3]") {
+    auto closed = StreamResult::fail(StreamError::Closed);
+    REQUIRE_FALSE(closed.ok());
+    REQUIRE_FALSE(closed.would_block());
+    REQUIRE(closed.closed());
+    REQUIRE(closed.bytes == 0);
+
+    auto io_error = StreamResult::fail(StreamError::IoError);
+    REQUIRE_FALSE(io_error.ok());
+    REQUIRE_FALSE(io_error.would_block());
+    REQUIRE_FALSE(io_error.closed());
+}
+
 TEST_CASE("MemoryStream round-trip", "[stream]") {
     MemoryStream s;
     const std::uint8_t msg[] = {1, 2, 3, 4, 5};

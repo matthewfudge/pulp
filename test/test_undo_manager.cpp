@@ -142,6 +142,26 @@ TEST_CASE("UndoManager max_history trims oldest", "[state][undo]") {
     REQUIRE(um.undo_count() == 3); // only last 3 kept
 }
 
+TEST_CASE("UndoManager zero max history performs without retaining undo",
+          "[state][undo][coverage][phase3]") {
+    UndoManager um;
+    um.set_max_history(0);
+    int state_changes = 0;
+    int value = 0;
+    um.on_state_changed = [&] { ++state_changes; };
+
+    um.perform(UndoAction::create("Transient",
+        [&] { value = 0; },
+        [&] { value = 5; }));
+
+    REQUIRE(value == 5);
+    REQUIRE(um.max_history() == 0);
+    REQUIRE(um.undo_count() == 0);
+    REQUIRE_FALSE(um.can_undo());
+    REQUIRE_FALSE(um.undo());
+    REQUIRE(state_changes == 1);
+}
+
 TEST_CASE("UndoManager clear removes all history", "[state][undo]") {
     UndoManager um;
     int v = 0;
@@ -234,18 +254,20 @@ TEST_CASE("UndoManager add_without_executing participates in transactions",
     UndoManager um;
     int x = 10;
     int y = 20;
+    int redo_count = 0;
 
     um.begin_transaction("Already moved");
-    um.add_without_executing(UndoAction::create("Set X",
+    um.add_without_executing(UndoAction::create("X",
         [&] { x = 0; },
-        [&] { x = 10; }));
-    um.add_without_executing(UndoAction::create("Set Y",
+        [&] { x = 10; ++redo_count; }));
+    um.add_without_executing(UndoAction::create("Y",
         [&] { y = 0; },
-        [&] { y = 20; }));
+        [&] { y = 20; ++redo_count; }));
     um.end_transaction();
 
     REQUIRE(x == 10);
     REQUIRE(y == 20);
+    REQUIRE(redo_count == 0);
     REQUIRE(um.undo_count() == 1);
     REQUIRE(um.undo_name() == "Already moved");
 
@@ -258,6 +280,7 @@ TEST_CASE("UndoManager add_without_executing participates in transactions",
     REQUIRE(um.redo());
     REQUIRE(x == 10);
     REQUIRE(y == 20);
+    REQUIRE(redo_count == 2);
 }
 
 TEST_CASE("UndoManager add_without_executing mixes with performed transaction actions",

@@ -237,6 +237,46 @@ TEST_CASE("PresetManager load skips malformed parameter values", "[state][preset
     REQUIRE(load_callbacks == 1);
 }
 
+TEST_CASE("PresetManager load skips parameter keys with missing value separators",
+          "[state][preset][coverage][phase3]") {
+    pulp::test::PresetTestSandbox sandbox("pulp-preset-load-missing-separator");
+    StateStore store;
+    setup_test_store(store);
+    PresetManager pm(store, "TestCo", "TestPlugin");
+
+    store.set_value(1, -12.0f);
+    store.set_value(2, 40.0f);
+
+    const auto preset_path = sandbox.root / "MissingSeparator.json";
+    write_text_file(preset_path, R"json({"parameters":{"Gain" "bad"}})json");
+
+    REQUIRE(pm.load(preset_path));
+    REQUIRE(store.get_value(1) == Catch::Approx(-12.0f));
+    REQUIRE(store.get_value(2) == Catch::Approx(40.0f));
+    REQUIRE(pm.current_preset_name() == "MissingSeparator");
+    REQUIRE_FALSE(pm.has_unsaved_changes());
+}
+
+TEST_CASE("PresetManager load accepts parameter values that end at EOF",
+          "[state][preset][coverage][phase3]") {
+    pulp::test::PresetTestSandbox sandbox("pulp-preset-load-terminal-value");
+    StateStore store;
+    setup_test_store(store);
+    PresetManager pm(store, "TestCo", "TestPlugin");
+
+    store.set_value(1, 0.0f);
+    store.set_value(2, 40.0f);
+
+    const auto preset_path = sandbox.root / "TerminalValue.json";
+    write_text_file(preset_path, R"json({"parameters":{"Gain":-6)json");
+
+    REQUIRE(pm.load(preset_path));
+    REQUIRE(store.get_value(1) == Catch::Approx(-6.0f));
+    REQUIRE(store.get_value(2) == Catch::Approx(40.0f));
+    REQUIRE(pm.current_preset_name() == "TerminalValue");
+    REQUIRE_FALSE(pm.has_unsaved_changes());
+}
+
 TEST_CASE("PresetManager load clamps out-of-range parameter values",
           "[state][preset][coverage][issue-647]") {
     pulp::test::PresetTestSandbox sandbox("pulp-preset-load-clamp");
@@ -554,6 +594,34 @@ TEST_CASE("PresetManager import creates the user preset directory",
     REQUIRE(fs::exists(imported->path));
     REQUIRE(list_changes == 1);
     REQUIRE(pm.user_presets().size() == 1);
+}
+
+TEST_CASE("PresetManager import of duplicate destination preserves existing preset",
+          "[state][preset][coverage][phase3]") {
+    pulp::test::PresetTestSandbox sandbox("pulp-preset-import-duplicate");
+    StateStore store;
+    setup_test_store(store);
+    PresetManager pm(store, "TestCo", "TestPlugin");
+
+    REQUIRE(pm.save("Imported"));
+
+    const auto external = sandbox.root / "external" / "Imported.json";
+    write_text_file(external, R"json({"parameters":{"Gain":-9}})json");
+
+    int list_changes = 0;
+    pm.on_list_changed = [&] { ++list_changes; };
+
+    auto imported = pm.import_file(external);
+
+    REQUIRE(imported.has_value());
+    REQUIRE(imported->name == "Imported");
+    REQUIRE(list_changes == 1);
+    REQUIRE(pm.user_presets().size() == 1);
+
+    store.set_value(1, 0.0f);
+    auto listed = require_user_preset(pm, "Imported");
+    REQUIRE(pm.load(listed));
+    REQUIRE(store.get_value(1) == Catch::Approx(0.0f));
 }
 
 TEST_CASE("PresetManager rename failure leaves current preset unchanged",

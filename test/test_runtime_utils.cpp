@@ -420,6 +420,28 @@ TEST_CASE("MemoryMappedFile read-write maps persist and move assignment closes o
     REQUIRE(saved == "w!yz");
 }
 
+TEST_CASE("MemoryMappedFile self move assignment preserves the active map",
+          "[runtime][mmap][coverage][phase3]") {
+    TemporaryFile tmp(".bin");
+    {
+        std::ofstream f(tmp.path(), std::ios::binary);
+        f << "stable";
+    }
+
+    MemoryMappedFile mmap;
+    REQUIRE(mmap.open(tmp.path_string()));
+    auto* original_data = mmap.data();
+    const auto original_size = mmap.size();
+
+    auto& same_map = mmap;
+    mmap = std::move(same_map);
+
+    REQUIRE(mmap.is_open());
+    REQUIRE(mmap.data() == original_data);
+    REQUIRE(mmap.size() == original_size);
+    REQUIRE(std::string(reinterpret_cast<const char*>(mmap.data()), mmap.size()) == "stable");
+}
+
 TEST_CASE("MemoryMappedFile rejects empty files and close is idempotent",
           "[runtime][mmap][coverage][issue-656]") {
     TemporaryFile tmp(".bin");
@@ -521,6 +543,20 @@ TEST_CASE("DynamicLibrary move assignment closes target and transfers source",
     REQUIRE(target.is_open());
     REQUIRE_FALSE(source.is_open());
     REQUIRE(target.find_symbol(system_library_symbol()) != nullptr);
+}
+
+TEST_CASE("DynamicLibrary self move assignment preserves open handle",
+          "[runtime][dynlib][coverage][phase3]") {
+    DynamicLibrary lib;
+    REQUIRE(lib.open(system_library_path()));
+    REQUIRE(lib.is_open());
+
+    auto& same_lib = lib;
+    lib = std::move(same_lib);
+
+    REQUIRE(lib.is_open());
+    REQUIRE(lib.find_symbol(system_library_symbol()) != nullptr);
+    REQUIRE(lib.error().empty());
 }
 
 TEST_CASE("DynamicLibrary failed reopen clears a previously loaded handle",
@@ -676,8 +712,10 @@ TEST_CASE("launch_process reports failed starts and missing pids",
           "[runtime][child_process][coverage][phase3]") {
 #ifdef _WIN32
     REQUIRE(launch_process("C:\\nonexistent_binary_12345.exe") == -1);
-#else
+#elif !defined(__ANDROID__)
     REQUIRE(launch_process("/tmp/nonexistent_binary_12345") == -1);
+#else
+    SUCCEED("Android reports exec failures via child exit status, not launch failure");
 #endif
     REQUIRE_FALSE(is_process_running(99999999));
 }
