@@ -2242,6 +2242,18 @@ target_compile_definitions(pulp-test-design-import-w3c-tokens PRIVATE PULP_REPO_
 catch_discover_tests(pulp-test-design-import-w3c-tokens
     PROPERTIES LABELS "parser-import")
 
+# P5-3 follow-up — React-runtime parser cluster extracted from
+# test_design_import.cpp. Covers TSX/runtime React parsers for every
+# supported design-tool source: parse_v0_tsx / parse_v0_dev_react,
+# parse_figma_make_react, parse_stitch_react, parse_react_native_export,
+# parse_pencil_react. Shared contract: parse fixture, materialize via
+# host React shim, accept sanitized TSX, reject out-of-matrix surfaces.
+add_executable(pulp-test-design-import-react-runtime test_design_import_react_runtime.cpp)
+target_link_libraries(pulp-test-design-import-react-runtime PRIVATE pulp::view Catch2::Catch2WithMain)
+target_compile_definitions(pulp-test-design-import-react-runtime PRIVATE PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(pulp-test-design-import-react-runtime
+    PROPERTIES LABELS "parser-import")
+
 # Phase 0a: stable_anchor_id assignment per
 # planning/2026-05-18-inspector-direct-manipulation-roadmap.md
 add_executable(pulp-test-design-import-anchors test_design_import_anchors.cpp)
