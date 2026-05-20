@@ -1,10 +1,6 @@
 # Coverage Compliance Status
 
-<<<<<<< HEAD
-Last reviewed: 2026-05-20 04:26 PDT
-=======
 Last reviewed: 2026-05-20 09:30 PDT
->>>>>>> bf51ae1a (docs: refresh phase 3 coverage ledger)
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
