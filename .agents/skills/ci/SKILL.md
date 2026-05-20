@@ -613,13 +613,12 @@ GitHub UI on slow CI runs.
 
 ## PR test selection
 
-`build.yml` excludes CTest labels matching `slow` on `pull_request`
-events, while keeping those tests in full validation lanes such as
-`workflow_dispatch`, push, and scheduled runs. Preserve that split:
-slow configure smokes like `cmake-ios-auv3-configure` can legitimately
-take many minutes on a self-hosted Mac and should not block the cheap
-PR matrix after the classify gate has already decided a native build is
-needed.
+`build.yml` excludes CTest labels matching `slow` on both `pull_request`
+events and `workflow_dispatch` because Shipyard PR validation dispatches
+the Build-and-Test workflow manually. Preserve that split: slow configure
+smokes like `cmake-ios-auv3-configure` can legitimately take many minutes
+on the single self-hosted Mac and should not block PR validation after the
+classify gate has already decided a native build is needed.
 
 ## Recovery + maintenance toolkit (>= v0.56.2)
 

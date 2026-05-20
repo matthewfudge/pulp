@@ -676,8 +676,9 @@ jobs:
         shell: bash
         # Keep one hung ctest entry from burning the full workflow timeout.
         # Long-running tests that need more time set their own CTest TIMEOUT.
-        # PR validation excludes `slow` tests; full validation lanes
-        # (workflow_dispatch, push, schedule) still run them.
+        # PR validation excludes `slow` tests. Shipyard PR validation arrives
+        # via workflow_dispatch, so it uses the same filter; otherwise slow
+        # configure smokes can monopolize the single local macOS runner.
         # `-j8` (was `-j4`) — local self-hosted runner is M1 Max with 8 P-cores;
         # GH-hosted ubuntu/macos-15 runners also have ≥4 cores so this
         # doesn't regress their previous behavior. Higher parallelism
@@ -685,7 +686,7 @@ jobs:
         run: |
           set -euo pipefail
           label_exclude="validation"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             label_exclude="validation|slow"
           fi
           exclude='STFT|VisualizationBridge|Clipboard|Toolbar add items'
@@ -726,6 +727,7 @@ jobs:
           chcp 65001
           set "PULP_CTEST_LABEL_EXCLUDE=validation"
           if "%GITHUB_EVENT_NAME%"=="pull_request" set "PULP_CTEST_LABEL_EXCLUDE=validation|slow"
+          if "%GITHUB_EVENT_NAME%"=="workflow_dispatch" set "PULP_CTEST_LABEL_EXCLUDE=validation|slow"
           ctest --test-dir "%PULP_BUILD_DIR%" --output-on-failure -C Release -LE "%PULP_CTEST_LABEL_EXCLUDE%" -j8 --timeout 120 --exclude-regex "STFT|VisualizationBridge|Clipboard|Toolbar add items"
 
       # Plugin bundle uploads only run on push/schedule events — pull_request
