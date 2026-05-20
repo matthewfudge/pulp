@@ -720,6 +720,48 @@ If you see the "Nightly full build is broken" tracker, a refactor broke
 a test target PR CI never compiles. Download the `nightly-full-build-logs`
 artifact for the full failure list.
 
+## Stale run reaper (`stale-run-reaper.yml`)
+
+`.github/workflows/stale-run-reaper.yml` is a scheduled janitor that
+cancels stuck GitHub Actions runs. GitHub has no automatic cleanup of
+runs that wedge, and that gap clogged Pulp's CI queue badly:
+
+- **Hung runs** — Coverage runs sat `in_progress` for 2-7 hours when a
+  healthy Coverage run takes ~1h. A hung job squats on a runner slot
+  until GitHub's 6h default job timeout finally reaps it.
+- **Orphaned queued runs** — runs sat `queued` for **5+ days**, waiting
+  on a runner label or branch that no longer exists. A queued job that
+  never starts never hits any timeout, so it waits effectively forever.
+
+Both modes occupy the limited macOS-runner concurrency slots, and
+everything queued behind them stalls.
+
+What it does:
+
+- Triggers every 30 minutes (`schedule:` cron `*/30 * * * *`) plus
+  `workflow_dispatch:` with `in_progress_max_minutes` /
+  `queued_max_minutes` inputs to override the thresholds for manual runs.
+- Runs on `ubuntu-latest` — it only calls the GitHub API, no build.
+  `permissions: actions: write` (required to cancel runs) + `contents: read`.
+- Pages through `actions/runs?status=in_progress` and `?status=queued`
+  via `gh api --paginate`, computes each run's age from `created_at`,
+  and cancels anything past the threshold via the `runs/<id>/cancel` API.
+- **Default thresholds: `in_progress` > 300 min (5h), `queued` > 480 min
+  (8h).** Deliberately conservative — Pulp's slowest legit workflow runs
+  ~90 min, so 5h/8h cannot catch a healthy run.
+- Never cancels its own run (skips `${{ github.run_id }}`); a failed
+  cancel on one run never aborts the rest of the sweep; a `concurrency`
+  group prevents two reaper runs from overlapping.
+- Writes a step summary: runs scanned plus a table of every run
+  cancelled (id, workflow, branch, age). If the reaper keeps reaping the
+  same workflow, that workflow has a hang bug worth investigating — the
+  summary history makes that visible.
+
+If a stuck PR run vanishes unexpectedly, check the reaper's recent runs:
+it cancels by age regardless of why a run wedged, so a genuinely slow
+(>5h) job would be cancelled too. Bump the threshold via
+`workflow_dispatch` if a one-off legitimately needs longer.
+
 ## Prerequisites Check
 
 Before running any CI command, verify the required tooling AND provider config exists:
