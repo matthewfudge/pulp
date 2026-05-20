@@ -34,6 +34,18 @@ class VerifyCoberturaXmlTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("missing or empty", r.stderr)
 
+    def test_missing_file_failure_includes_hint_when_provided(self) -> None:
+        r = run(
+            "/nonexistent/coverage.xml",
+            "--label",
+            "native.xml",
+            "--hint",
+            "check coverage build",
+        )
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("native.xml is missing or empty", r.stderr)
+        self.assertIn("check coverage build", r.stderr)
+
     def test_empty_file_is_failure(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".xml") as f:
             r = run(f.name)
