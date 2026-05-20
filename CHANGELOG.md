@@ -12,6 +12,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 ## [0.173.13] - 2026-05-20
 
 - fix(canvas): match_registered_typeface must miss on off-style requests ([#2471](https://github.com/danielraffel/pulp/pull/2471))
+- test(signal): cover delay and ladder edges ([#2475](https://github.com/danielraffel/pulp/pull/2475))
+- ci(build): default workflow dispatch to hosted runners ([#2453](https://github.com/danielraffel/pulp/pull/2453))
+- feat(inspect): add Phase 6.1 per-pass GPU/render attribution viewer ([#2469](https://github.com/danielraffel/pulp/pull/2469))
+- ci: bound iOS AUv3 configure smoke ([#2483](https://github.com/danielraffel/pulp/pull/2483))
+- test(runtime): cover ScopedNoAlloc and restore Shipyard mac routing ([#2473](https://github.com/danielraffel/pulp/pull/2473))
 
 <a id="v017312"></a>
 ## [0.173.12] - 2026-05-20
@@ -2274,6 +2279,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.173.13]: https://github.com/danielraffel/pulp/releases/tag/v0.173.13
 [0.173.12]: https://github.com/danielraffel/pulp/releases/tag/v0.173.12
 [0.173.11]: https://github.com/danielraffel/pulp/releases/tag/v0.173.11
 [0.173.8]: https://github.com/danielraffel/pulp/releases/tag/v0.173.8
