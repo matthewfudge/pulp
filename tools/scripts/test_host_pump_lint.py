@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 import io
 import pathlib
+import runpy
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,29 @@ void tick() {
                 encoding="utf-8",
             )
             self.assertEqual(hpl.scan_file(source), [])
+
+    def test_scan_file_accepts_paired_calls_on_same_line(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            source = pathlib.Path(td) / "main.cpp"
+            source.write_text(
+                "bridge->poll_async_results(); bridge->service_frame_callbacks();\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(hpl.scan_file(source), [])
+
+    def test_scan_file_requires_service_after_poll(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            source = pathlib.Path(td) / "main.cpp"
+            source.write_text(
+                """
+void tick() {
+    bridge->service_frame_callbacks();
+    bridge->poll_async_results();
+}
+""",
+                encoding="utf-8",
+            )
+            self.assertEqual(len(hpl.scan_file(source)), 1)
 
     def test_scan_file_flags_unpaired_poll_before_block_close(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -91,6 +115,31 @@ void tick() {{
             )
             self.assertEqual(len(hpl.scan_file(source)), 1)
 
+    def test_scan_file_reports_absolute_path_outside_repo_root(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            source = pathlib.Path(td) / "main.cpp"
+            source.write_text("bridge->poll_async_results();\n", encoding="utf-8")
+            with mock.patch.object(hpl, "REPO_ROOT", pathlib.Path(td) / "other-root"):
+                violations = hpl.scan_file(source)
+            self.assertEqual(len(violations), 1)
+            self.assertIn(str(source), violations[0])
+
+    def test_scan_file_allows_service_before_window_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            source = pathlib.Path(td) / "main.cpp"
+            gap = "\n".join("    do_work();" for _ in range(hpl.WINDOW_LINES - 2))
+            source.write_text(
+                f"""
+void tick() {{
+    bridge->poll_async_results();
+{gap}
+    bridge->service_frame_callbacks();
+}}
+""",
+                encoding="utf-8",
+            )
+            self.assertEqual(hpl.scan_file(source), [])
+
     def test_main_reports_violations_and_read_errors(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
@@ -109,6 +158,18 @@ void tick() {{
                  contextlib.redirect_stderr(err := io.StringIO()):
                 self.assertEqual(hpl.main(), 2)
             self.assertIn("failed to read", err.getvalue())
+
+    def test_main_clean_hosts_return_zero(self) -> None:
+        with mock.patch.object(hpl, "HOST_FILES", ["host.cpp"]), \
+             mock.patch.object(hpl, "scan_file", return_value=[]):
+            self.assertEqual(hpl.main(), 0)
+
+    def test_script_entrypoint_returns_main_status(self) -> None:
+        with mock.patch.object(hpl, "HOST_FILES", ["host.cpp"]), \
+             mock.patch.object(hpl, "scan_file", return_value=[]):
+            with self.assertRaises(SystemExit) as cm:
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+        self.assertEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":

@@ -151,6 +151,16 @@ class SourceTreePollutionTests(unittest.TestCase):
         self.assertIn("path contains", result.stderr)
         self.assertIn("/private/var/folders/", result.stderr)
 
+    def test_warns_on_pulp_shellout_path_hint(self) -> None:
+        result = self._run("logs/pulp-shellout-123/output.txt")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("pulp-shellout-", result.stderr)
+
+    def test_files_mode_clean_path_is_quiet(self) -> None:
+        result = self._run("docs/guide.md")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
     def test_blocks_both_files_in_one_invocation(self) -> None:
         """When both bad files are present, both errors are reported."""
         Path("CMakeLists.txt").write_text(
@@ -327,6 +337,59 @@ class HelperCoverageTests(unittest.TestCase):
 
         with mock.patch.object(stpc.subprocess, "run", return_value=completed):
             self.assertEqual(stpc._read_blob("HEAD", "missing.txt"), "")
+
+    def test_read_blob_reads_working_tree_file(self) -> None:
+        stpc = load_module()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "CMakeLists.txt"
+            path.write_text("project(Pulp VERSION 1.0.0)\n", encoding="utf-8")
+            self.assertEqual(
+                stpc._read_blob(None, str(path)),
+                "project(Pulp VERSION 1.0.0)\n",
+            )
+
+    def test_read_blob_returns_empty_for_missing_working_tree_file(self) -> None:
+        stpc = load_module()
+        self.assertEqual(stpc._read_blob(None, "missing.txt"), "")
+
+    def test_read_blob_returns_empty_on_working_tree_read_error(self) -> None:
+        stpc = load_module()
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "CMakeLists.txt"
+            path.write_text("project(Pulp VERSION 1.0.0)\n", encoding="utf-8")
+            with mock.patch.object(stpc.Path, "read_text", side_effect=OSError):
+                self.assertEqual(stpc._read_blob(None, str(path)), "")
+
+    def test_check_root_allowlist_reports_multiple_strays(self) -> None:
+        stpc = load_module()
+        completed = subprocess.CompletedProcess(
+            ["git"], 0, stdout="README.md\nstray.txt\nweird_dir\n", stderr="",
+        )
+        with mock.patch.object(stpc.subprocess, "run", return_value=completed):
+            errors = stpc.check_root_allowlist("HEAD")
+        self.assertEqual(len(errors), 2)
+        self.assertIn("stray.txt", errors[0])
+        self.assertIn("weird_dir", errors[1])
+
+    def test_main_stage_dispatches_cached_diff(self) -> None:
+        stpc = load_module()
+        with mock.patch.object(stpc, "_git_diff_files", return_value=["docs/guide.md"]) as diff_files, \
+             mock.patch.object(stpc, "check", return_value=([], [])) as check, \
+             mock.patch.object(sys, "stderr"):
+            self.assertEqual(stpc.main(["--mode=stage"]), 0)
+
+        diff_files.assert_called_once_with(None, "stage")
+        check.assert_called_once_with(["docs/guide.md"], None)
+
+    def test_main_push_dispatches_head_revision(self) -> None:
+        stpc = load_module()
+        with mock.patch.object(stpc, "_git_diff_files", return_value=["CMakeLists.txt"]) as diff_files, \
+             mock.patch.object(stpc, "check", return_value=([], [])) as check, \
+             mock.patch.object(sys, "stderr"):
+            self.assertEqual(stpc.main(["--mode=push", "--base", "main"]), 0)
+
+        diff_files.assert_called_once_with("main...HEAD", "push")
+        check.assert_called_once_with(["CMakeLists.txt"], "HEAD")
 
 
 if __name__ == "__main__":

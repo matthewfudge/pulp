@@ -73,6 +73,21 @@ class GlobToRegexTests(unittest.TestCase):
         win_path = "tools\\scripts\\gate_common.py"
         self.assertTrue(gc.matches_any(win_path, ["tools/scripts/*.py"]))
 
+    def test_double_star_middle_after_literal_without_slash(self) -> None:
+        # Defensive coverage for odd but supported consecutive-slash inputs.
+        self.assertTrue(gc.glob_match("a/b.cpp", "a//**/*.cpp"))
+
+    def test_double_star_trailing_after_empty_segment(self) -> None:
+        self.assertTrue(gc.glob_match("a", "a//**"))
+        self.assertTrue(gc.glob_match("a/b", "a//**"))
+
+    def test_literal_regex_characters_are_escaped(self) -> None:
+        self.assertTrue(gc.glob_match("a/file[1].cpp", "a/file[1].cpp"))
+        self.assertFalse(gc.glob_match("a/file1.cpp", "a/file[1].cpp"))
+
+    def test_matches_any_empty_patterns_is_false(self) -> None:
+        self.assertFalse(gc.matches_any("a/b.cpp", []))
+
 
 class StripMetaTests(unittest.TestCase):
     def test_strips_underscore_and_schema_keys(self) -> None:
@@ -108,6 +123,11 @@ class GitHelperTests(unittest.TestCase):
                 gc.git_diff_names("main", "HEAD"),
                 ["a.txt", "b.txt", "c.txt"],
             )
+
+    def test_git_diff_names_preserves_unstripped_nonblank_lines(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, stdout=" a.txt \n")
+        with mock.patch.object(gc.subprocess, "run", return_value=completed):
+            self.assertEqual(gc.git_diff_names("main", "HEAD"), [" a.txt "])
 
     def test_parse_trailer_block_ignores_non_trailer_output(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -197,6 +217,18 @@ class TrailerParseTests(unittest.TestCase):
 
         with mock.patch.object(gc.subprocess, "run", side_effect=boom):
             self.assertEqual(gc.git_commit_trailers("missing"), {})
+
+    def test_range_trailers_skips_empty_chunks(self) -> None:
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:2] == ["git", "log"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="\x00\n\x00")
+            if cmd[:2] == ["git", "interpret-trailers"]:
+                raise AssertionError("empty chunks should not be parsed")
+            raise AssertionError(f"unexpected git call: {cmd}")
+
+        with mock.patch.object(gc.subprocess, "run", side_effect=fake_run):
+            self.assertEqual(gc.git_range_trailers("main", "HEAD"), {})
+
 
 
 if __name__ == "__main__":

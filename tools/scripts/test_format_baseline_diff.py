@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 import io
 import pathlib
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -151,6 +152,114 @@ class FormatBaselineDiffTests(unittest.TestCase):
         self.assertIn("--- baseline/pluginval.txt", stderr)
         self.assertIn("... ", stderr)
         self.assertIn("BLOCKED: 1 diff(s)", stderr)
+
+    def test_diff_under_limit_is_not_truncated(self) -> None:
+        with self._root() as td:
+            root = pathlib.Path(td)
+            baseline = self._prepare_root(root)
+            (baseline / "auval.txt").write_text("old\n", encoding="utf-8")
+
+            rc, stderr = self._run(
+                root,
+                captured={"auval.txt": "new\n"},
+                extra_args=["--max-diff-lines", "99"],
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertNotIn("more diff lines truncated", stderr)
+
+    def test_multiple_diffs_are_counted(self) -> None:
+        with self._root() as td:
+            root = pathlib.Path(td)
+            baseline = self._prepare_root(root)
+            (baseline / "auval.txt").write_text("old\n", encoding="utf-8")
+            (baseline / "clap.txt").write_text("old\n", encoding="utf-8")
+
+            rc, stderr = self._run(
+                root,
+                captured={"auval.txt": "new\n", "clap.txt": "new\n"},
+            )
+
+        self.assertEqual(rc, 1)
+        self.assertIn("BLOCKED: 2 diff(s)", stderr)
+
+    def test_mixed_match_and_missing_baseline_bootstraps(self) -> None:
+        with self._root() as td:
+            root = pathlib.Path(td)
+            baseline = self._prepare_root(root)
+            (baseline / "auval.txt").write_text("same\n", encoding="utf-8")
+
+            rc, stderr = self._run(
+                root,
+                captured={"auval.txt": "same\n", "new-validator.txt": "fresh\n"},
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertIn("No committed baseline for new-validator.txt", stderr)
+        self.assertIn("OK (bootstrap): 1 validator output", stderr)
+
+    def test_custom_plugin_and_baseline_dir_are_forwarded(self) -> None:
+        with self._root() as td:
+            root = pathlib.Path(td)
+            baseline = root / "custom" / "baselines"
+            baseline.mkdir(parents=True)
+            (baseline / "validator.txt").write_text("same\n", encoding="utf-8")
+            capture = root / "tools" / "scripts" / "format_baseline_capture.sh"
+            capture.parent.mkdir(parents=True, exist_ok=True)
+            capture.write_text("#!/bin/sh\n", encoding="utf-8")
+            seen_cmd: list[str] = []
+
+            def fake_check_output(cmd: list[str]) -> bytes:
+                return f"{root}\n".encode()
+
+            def fake_run(cmd: list[str], cwd: pathlib.Path):
+                seen_cmd[:] = cmd
+                output_dir = pathlib.Path(cmd[cmd.index("--output") + 1])
+                (output_dir / "validator.txt").write_text("same\n", encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with mock.patch.object(fbd.subprocess, "check_output", side_effect=fake_check_output), \
+                 mock.patch.object(fbd.subprocess, "run", side_effect=fake_run), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                rc = fbd.main([
+                    "--plugin", "PulpSynth",
+                    "--baseline-dir", "custom/baselines",
+                ])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("PulpSynth", seen_cmd)
+
+    def test_git_root_failure_propagates(self) -> None:
+        with mock.patch.object(
+            fbd.subprocess,
+            "check_output",
+            side_effect=subprocess.CalledProcessError(128, ["git"]),
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                fbd.main([])
+
+    def test_script_entrypoint_success(self) -> None:
+        with self._root() as td:
+            root = pathlib.Path(td)
+            baseline = self._prepare_root(root)
+            (baseline / "auval.txt").write_text("same\n", encoding="utf-8")
+
+            def fake_check_output(cmd: list[str]) -> bytes:
+                return f"{root}\n".encode()
+
+            def fake_run(cmd: list[str], cwd: pathlib.Path):
+                output_dir = pathlib.Path(cmd[cmd.index("--output") + 1])
+                (output_dir / "auval.txt").write_text("same\n", encoding="utf-8")
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with mock.patch.object(sys, "argv", [str(SCRIPT)]), \
+                 mock.patch.object(fbd.subprocess, "check_output", side_effect=fake_check_output), \
+                 mock.patch.object(fbd.subprocess, "run", side_effect=fake_run), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as cm:
+                    runpy.run_path(str(SCRIPT), run_name="__main__")
+
+        self.assertEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":
