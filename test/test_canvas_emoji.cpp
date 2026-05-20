@@ -571,11 +571,11 @@ TEST_CASE("text_align center and right reflect cluster-aware width",
     h.canvas->set_font("Inter", 28.0f);
     h.canvas->set_fill_color(pulp::canvas::Color{0.0f, 0.0f, 0.0f, 1.0f});
     h.canvas->set_text_align(pulp::canvas::TextAlign::center);
-    h.canvas->fill_text(
+    const std::string text =
         "AA \xF0\x9F\x91\xA8\xE2\x80\x8D"
         "\xF0\x9F\x91\xA9\xE2\x80\x8D"
-        "\xF0\x9F\x91\xA7 BB",
-        128.0f, 44.0f);
+        "\xF0\x9F\x91\xA7 BB";
+    h.canvas->fill_text(text, 128.0f, 44.0f);
     write_surface_png(*h.surface, "fill_text_align_center");
     // Center alignment with an emoji cluster should paint pixels in
     // BOTH left and right halves — if cluster width is wrong the
@@ -624,6 +624,23 @@ TEST_CASE("letter_spacing tracks between graphemes, not within emoji cluster",
         "\xF0\x9F\x91\xA7",
         16.0f, 64.0f);
     write_surface_png(*h.surface, "fill_text_letter_spacing_8");
+}
+
+TEST_CASE("measure_text includes trailing spaces on SkParagraph emoji path",
+          "[canvas][emoji][skia][measure][issue-2163]") {
+    if (!pulp::canvas::TextFontContext::shared()->has_emoji_typeface()) {
+        SUCCEED("Skipped: no emoji typeface registered.");
+        return;
+    }
+    SurfaceHarness h(256, 64);
+    h.canvas->set_font("Inter", 32.0f);
+
+    const float tight = h.canvas->measure_text("\xF0\x9F\x98\x80");
+    const float padded = h.canvas->measure_text("\xF0\x9F\x98\x80   ");
+
+    INFO("tight=" << tight << " padded=" << padded);
+    REQUIRE(tight > 0.0f);
+    REQUIRE(padded > tight);
 }
 
 TEST_CASE("register_emoji_fallback re-registration invalidates cached typefaces",
