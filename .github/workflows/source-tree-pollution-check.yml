@@ -22,6 +22,12 @@ on:
 permissions:
   contents: read
 
+# Cancel a superseded run when a new commit lands on the same PR. The
+# check is cheap (~5s) but there's no value in finishing a stale run.
+concurrency:
+  group: source-tree-pollution-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pollution-check:
     runs-on: ubuntu-latest

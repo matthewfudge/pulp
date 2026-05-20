@@ -25,6 +25,16 @@ on:
 permissions:
   contents: read
 
+# Cancel a superseded run when a new commit lands on the same PR. This
+# job runs on the self-hosted macOS runner and installs plugin bundles
+# into the runner's ~/Library/Audio/Plug-Ins; cancelling a stale run
+# frees that runner sooner. The "Clean up installed plugin bundles"
+# step below (if: always()) removes any bundles a cancelled run left
+# behind on the next run.
+concurrency:
+  group: format-baseline-diff-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   baseline-diff:
     # Self-hosted macOS runner — required because auval is macOS-only
@@ -169,3 +179,18 @@ jobs:
       - name: Run baseline diff
         run: |
           python3 tools/scripts/format_baseline_diff.py --plugin PulpEffect
+
+      - name: Clean up installed plugin bundles
+        # The "Install plugin bundles to system folders" step above copies
+        # PulpEffect.{component,vst3,clap} into the self-hosted macOS
+        # runner's ~/Library/Audio/Plug-Ins. Remove them so a stale bundle
+        # from this run (or a run cancelled by the concurrency group before
+        # this step) can't poison a later format-baseline-diff or any other
+        # job that scans those folders. `if: always()` so the cleanup runs
+        # even when the baseline diff fails.
+        if: always()
+        run: |
+          rm -rf ~/Library/Audio/Plug-Ins/Components/PulpEffect.component \
+                 ~/Library/Audio/Plug-Ins/VST3/PulpEffect.vst3 \
+                 ~/Library/Audio/Plug-Ins/CLAP/PulpEffect.clap
+          echo "Removed PulpEffect plugin bundles from ~/Library/Audio/Plug-Ins/"

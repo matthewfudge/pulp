@@ -43,6 +43,13 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs when a new commit lands on the same PR. The
+# sandbox-e2e matrix is a ~30 min build + pytest pass per OS — no value
+# in finishing a stale run when a fixup commit supersedes it.
+concurrency:
+  group: sandbox-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   resolve-runners:
     runs-on: ubuntu-latest

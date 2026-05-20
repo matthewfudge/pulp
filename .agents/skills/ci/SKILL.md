@@ -827,6 +827,46 @@ keeps `false` for Codecov's `after_n_builds` upload completeness,
 pulp#1884). Per-job `timeout-minutes` is the correct fix; it bounds runs
 regardless of `cancel-in-progress`.
 
+### Gotcha: `coverage.yml` is gated on `classify` — touch the gate carefully
+
+`coverage.yml` mirrors `build.yml`'s `classify` job (runs
+`tools/scripts/classify_changes.py --mode=diff`, outputs
+`native_build_required`). Skip-safe PRs (docs / planning `*.md` only —
+classifier fails *closed*, any uncertainty → `true`) skip the 3-OS
+`coverage` matrix (150 min/leg) and `android-kotlin-coverage` entirely:
+both have `needs: [..., classify]` + `if:
+needs.classify.outputs.native_build_required == 'true'`. No runner is
+allocated on a docs PR.
+
+`coverage-diff-gate` is a **REQUIRED branch-protection check** — break it
+and docs PRs get blocked OR coverage silently passes when it shouldn't.
+It has `needs: [classify, coverage]` + `if: always() && github.event_name
+== 'pull_request'`, and its first step ("Evaluate coverage gate
+preconditions", id `gate_preconditions`) implements **exactly three
+terminal cases**:
+
+1. `classify.result != success` → `exit 1` (fail RED — the
+   `native_build_required` output is untrusted; fail the required gate
+   closed rather than guessing).
+2. `native_build_required != 'true'` → `exit 0` (pass GREEN — the
+   classifier approved a skip-safe PR; no coverage is owed).
+3. `native_build_required == 'true'` AND `coverage.result != success`
+   → `exit 1` (fail RED — the matrix was supposed to run and didn't).
+
+Only when case 3's preconditions are met (native required + coverage
+succeeded) does the step fall through; it sets a step output
+`native_required` and every real diff-cover step below carries
+`if: steps.gate_preconditions.outputs.native_required == 'true'`.
+
+Critical: once coverage is gated, the OLD "all coverage XML missing →
+pass GREEN" fallback is **unsafe** and was removed. For
+`native_required == 'true'`, a missing/empty merged Cobertura XML now
+hard-fails (`exit 1`) in both the merge step (`merge_cobertura` exit-2
+all-missing sentinel → `exit 1`, not `exit 0`) and the `Run diff-cover`
+step. Only the classifier-approved skip-safe path (case 2) gets an
+exit-0 green with no coverage report. If you ever loosen this, you
+re-open a silent bypass of the required 75% diff-coverage floor.
+
 ## Prerequisites Check
 
 Before running any CI command, verify the required tooling AND provider config exists:
