@@ -100,14 +100,14 @@ class VerifyCoberturaXmlTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, msg=r.stderr)
         self.assertIn("coverage.xml has lines-valid=8", r.stdout)
 
-    def test_negative_lines_valid_is_non_empty_by_current_contract(self) -> None:
+    def test_negative_lines_valid_is_rejected(self) -> None:
         path = self._write('<coverage lines-valid="-1"></coverage>')
         try:
             r = run(str(path), "--label", "coverage.xml")
         finally:
             path.unlink()
-        self.assertEqual(r.returncode, 0, msg=r.stderr)
-        self.assertIn("lines-valid=-1", r.stdout)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("lines-valid=-1", r.stderr)
 
     def test_label_appears_in_messages(self) -> None:
         path = self._write('<coverage lines-valid="0"></coverage>')
