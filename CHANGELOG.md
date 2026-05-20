@@ -8,12 +8,24 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
-<a id="v01731"></a>
-## [0.173.1] - 2026-05-19
+<a id="v01730"></a>
+## [0.173.0] - 2026-05-19
 
-- refactor(test): P5-4 final cut — extract lifecycle-command shell-out tests; test_cli_shellout.cpp 2,314 → 1,919 under 2k target
+- feat(design-tool): auto-measure design viewport via 4-layer resolver ([#2409](https://github.com/danielraffel/pulp/pull/2409))
+- fix(inspect+view): codex P1+P2 review fixes on Phase 0b ([#2374](https://github.com/danielraffel/pulp/pull/2374))
+- feat(inspect): Phase 3a — drag handles on selected node ([#2378](https://github.com/danielraffel/pulp/pull/2378))
+- fix(harness): wire react-runtime target into roundtrip scripts (Codex P2 on #2422) ([#2425](https://github.com/danielraffel/pulp/pull/2425))
+- refactor(test): P5-4 extract pulp pr shell-out tests (2,646 → 2,314) ([#2424](https://github.com/danielraffel/pulp/pull/2424))
+- refactor(test): P5-1 widget_bridge under 3k milestone (3,056 → 2,815) ([#2423](https://github.com/danielraffel/pulp/pull/2423))
+- refactor(test): P5-3 extract React-runtime parsers (2,182 → 1,356) ([#2422](https://github.com/danielraffel/pulp/pull/2422))
+- refactor(test): P5-1 extract animation API cluster (3,862 → 3,032) ([#2421](https://github.com/danielraffel/pulp/pull/2421))
+- refactor(test): P5-1 extract Canvas2D bridge-fns + Yoga borderWidth (4,444 → 3,862) ([#2420](https://github.com/danielraffel/pulp/pull/2420))
+- refactor(test): P5-4 split test_cli_shellout — loop + scan/projects (3,439 → 2,646) ([#2416](https://github.com/danielraffel/pulp/pull/2416))
 
-- refactor(test): P5-4 extract pulp pr shell-out tests (2,646 → 2,314, -332)
+<a id="v01726"></a>
+## [0.172.6] - 2026-05-19
+
+- refactor(test): P5-2 + P5-3 bundled cuts (-2,190 lines across 4 parents) ([#2418](https://github.com/danielraffel/pulp/pull/2418))
 
 <a id="v01722"></a>
 ## [0.172.2] - 2026-05-19
@@ -2214,6 +2226,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.173.0]: https://github.com/danielraffel/pulp/releases/tag/v0.173.0
+[0.172.6]: https://github.com/danielraffel/pulp/releases/tag/v0.172.6
 [0.172.2]: https://github.com/danielraffel/pulp/releases/tag/v0.172.2
 [0.172.0]: https://github.com/danielraffel/pulp/releases/tag/v0.172.0
 [0.171.0]: https://github.com/danielraffel/pulp/releases/tag/v0.171.0
