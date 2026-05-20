@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -156,6 +157,33 @@ class IoUtilsTests(unittest.TestCase):
         self.assertTrue(changed["changed"])
         self.assertEqual(changed["method"], "file-hash")
         self.assertFalse(diff_path.exists())
+
+    def test_tail_lines_replaces_invalid_bytes_and_trim_exact_boundary(self):
+        log_path = self.state_dir / "logs" / "invalid.log"
+        log_path.parent.mkdir(parents=True)
+        log_path.write_bytes(b"good\nbad:\xff\n")
+
+        self.assertEqual(self.mod.tail_lines(log_path), ["good\n", "bad:\ufffd\n"])
+        self.assertEqual(self.mod.trim_line(" abc ", max_len=3), "abc")
+        self.assertEqual(self.mod.trim_line("abcdef", max_len=2), "…f")
+
+    def test_file_lock_raises_busy_when_nonblocking_flock_fails(self):
+        lock_path = self.state_dir / "queue.lock"
+        io_utils_mod = sys.modules["io_utils"]
+
+        with mock.patch.object(io_utils_mod.fcntl, "flock", side_effect=BlockingIOError("busy")):
+            with self.assertRaises(self.mod.LockBusyError):
+                with self.mod.file_lock(lock_path, blocking=False):
+                    pass
+
+    def test_file_lock_yields_handle_and_releases(self):
+        lock_path = self.state_dir / "queue.lock"
+
+        with self.mod.file_lock(lock_path, blocking=True) as handle:
+            self.assertFalse(handle.closed)
+            handle.write("held")
+
+        self.assertTrue(handle.closed)
 
 
 

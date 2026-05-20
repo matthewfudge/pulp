@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -124,6 +125,52 @@ class StatePathsTests(unittest.TestCase):
     def test_target_log_path_uses_machine_global_logs_dir(self):
         path = self.mod.target_log_path("job123", "windows")
         self.assertEqual(path, self.state_dir / "logs" / "job123" / "windows.log")
+
+    def test_config_path_prefers_explicit_env_override(self):
+        override = self.state_dir / "override.json"
+        with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_CONFIG": str(override)}, clear=True):
+            self.assertEqual(self.mod.config_path(), override)
+
+    def test_config_path_prefers_shared_state_then_worktree_fallback(self):
+        script_dir = Path(self.tmpdir.name) / "script"
+        shared = self.state_dir / "config.json"
+        worktree = script_dir / "config.json"
+        script_dir.mkdir()
+        shared.parent.mkdir(parents=True)
+        shared.write_text("{}\n")
+        state_paths_mod = sys.modules["state_paths"]
+
+        with mock.patch.object(state_paths_mod, "SCRIPT_DIR", script_dir):
+            with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_HOME": str(self.state_dir)}, clear=True):
+                self.assertEqual(self.mod.config_path(), shared)
+                shared.unlink()
+                self.assertEqual(self.mod.config_path(), worktree)
+                self.assertEqual(self.mod.worktree_config_path(), worktree)
+                self.assertEqual(self.mod.shared_config_path(), shared)
+
+    def test_state_paths_all_use_the_state_root(self):
+        with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_HOME": str(self.state_dir)}, clear=True):
+            self.assertEqual(self.mod.queue_path(), self.state_dir / "queue.json")
+            self.assertEqual(self.mod.evidence_path(), self.state_dir / "evidence.json")
+            self.assertEqual(self.mod.queue_lock_path(), self.state_dir / "queue.lock")
+            self.assertEqual(self.mod.evidence_lock_path(), self.state_dir / "evidence.lock")
+            self.assertEqual(self.mod.runner_info_path(), self.state_dir / "runner.json")
+            self.assertEqual(self.mod.desktop_state_dir(), self.state_dir / "desktop-automation")
+            self.assertEqual(
+                self.mod.desktop_receipts_dir(),
+                self.state_dir / "desktop-automation" / "receipts",
+            )
+
+    def test_prepare_target_log_creates_parent_and_truncates_existing_log(self):
+        with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_HOME": str(self.state_dir)}, clear=True):
+            path = self.mod.target_log_path("job456", "mac")
+            path.parent.mkdir(parents=True)
+            path.write_text("old output")
+
+            prepared = self.mod.prepare_target_log("job456", "mac")
+
+            self.assertEqual(prepared, path)
+            self.assertEqual(prepared.read_text(), "")
 
 
 

@@ -126,6 +126,9 @@ class FootprintTests(unittest.TestCase):
         self.assertEqual(self.mod.format_size_bytes(""), "")
         self.assertEqual(self.mod.format_size_bytes(512), "512 B")
         self.assertEqual(self.mod.format_size_bytes(1536), "1.5 KB")
+        self.assertEqual(self.mod.format_size_bytes(1024 * 1024), "1.0 MB")
+        self.assertEqual(self.mod.format_size_bytes(1024 * 1024 * 1024), "1.0 GB")
+        self.assertEqual(self.mod.format_size_bytes(1024 * 1024 * 1024 * 1024), "1.0 TB")
         self.assertEqual(self.mod.path_size_bytes(self.state_dir / "missing"), 0)
 
         bundle_dir = self.state_dir / "bundles"
@@ -141,6 +144,38 @@ class FootprintTests(unittest.TestCase):
         self.assertEqual(footprint["total_bytes"], 7)
         self.assertEqual(self.mod.describe_path_for_cleanup(bundle_dir), "bundles")
         outside = Path(self.tmpdir.name) / "outside"
+        self.assertEqual(self.mod.describe_path_for_cleanup(outside), str(outside))
+
+    def test_path_size_handles_files_and_stat_errors(self):
+        file_path = self.state_dir / "payload.bin"
+        file_path.parent.mkdir(parents=True)
+        file_path.write_bytes(b"abcd")
+        self.assertEqual(self.mod.path_size_bytes(file_path), 4)
+
+        with mock.patch.object(Path, "exists", side_effect=OSError("boom")):
+            self.assertEqual(self.mod.path_size_bytes(file_path), 0)
+
+        walk_root = self.state_dir / "walk"
+        walk_root.mkdir()
+        good = walk_root / "good.bin"
+        bad = walk_root / "bad.bin"
+        good.write_bytes(b"123")
+        bad.write_bytes(b"4567")
+        original_stat = Path.stat
+
+        def flaky_stat(path, *args, **kwargs):
+            if path == bad:
+                raise OSError("stat failed")
+            return original_stat(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "stat", flaky_stat):
+            self.assertEqual(self.mod.path_size_bytes(walk_root), 3)
+
+    def test_describe_path_for_cleanup_relativizes_nested_state_paths(self):
+        inside = self.state_dir / "logs" / "job" / "mac.log"
+        outside = Path(self.tmpdir.name) / "elsewhere.log"
+
+        self.assertEqual(self.mod.describe_path_for_cleanup(inside), "logs/job/mac.log")
         self.assertEqual(self.mod.describe_path_for_cleanup(outside), str(outside))
 
 

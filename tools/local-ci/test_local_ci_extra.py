@@ -7,6 +7,7 @@ import importlib.util
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -647,7 +648,8 @@ class LocalCiPureHelperTests(unittest.TestCase):
         shared_config = state_dir / "config.json"
         shared_config.parent.mkdir(parents=True)
         shared_config.write_text("{}\n")
-        with mock.patch.object(self.mod, "SCRIPT_DIR", script_dir):
+        state_paths_mod = sys.modules["state_paths"]
+        with mock.patch.object(state_paths_mod, "SCRIPT_DIR", script_dir):
             with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_HOME": str(state_dir)}, clear=True):
                 self.assertEqual(self.mod.config_path(), shared_config)
                 shared_config.unlink()
@@ -716,7 +718,8 @@ class LocalCiPureHelperTests(unittest.TestCase):
     def test_config_workflow_and_target_resolution_edge_paths(self) -> None:
         with self.assertRaisesRegex(FileNotFoundError, "Local CI config not found"):
             self.mod.load_config_file(self.root / "missing.json")
-        with mock.patch.object(self.mod, "SCRIPT_DIR", self.root):
+        state_paths_mod = sys.modules["state_paths"]
+        with mock.patch.object(state_paths_mod, "SCRIPT_DIR", self.root):
             with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_HOME": str(self.root / "state")}, clear=True):
                 self.assertIsNone(self.mod.load_optional_config())
 
