@@ -225,6 +225,20 @@ TEST_CASE("TemporaryFile normalizes extensions without leading dots",
     REQUIRE(std::filesystem::exists(tmp.path()));
 }
 
+TEST_CASE("TemporaryFile supports extensionless paths",
+          "[runtime][temp_file][coverage][phase3]") {
+    std::filesystem::path path;
+    {
+        TemporaryFile tmp;
+        path = tmp.path();
+        REQUIRE(path.extension().empty());
+        REQUIRE(tmp.path_string() == path.string());
+        REQUIRE(std::filesystem::exists(path));
+    }
+
+    REQUIRE_FALSE(std::filesystem::exists(path));
+}
+
 TEST_CASE("TemporaryFile move assignment removes the previous active file",
           "[runtime][temp_file][issue-641]") {
     std::filesystem::path old_path;
@@ -1302,6 +1316,48 @@ TEST_CASE("HTTP helpers report POST transport failures",
                                     1);
     REQUIRE(response.status_code == 0);
     REQUIRE(response.error.find("Connection failed:") == 0);
+}
+
+TEST_CASE("HTTP helpers expose error responses without downloading bodies",
+          "[runtime][http][url][coverage][phase3]") {
+    httplib::Server server;
+    server.Get("/missing", [](const httplib::Request&, httplib::Response& response) {
+        response.status = 404;
+        response.set_content("missing", "text/plain");
+    });
+
+    const int port = server.bind_to_any_port("127.0.0.1");
+    REQUIRE(port > 0);
+
+    std::thread thread([&] { server.listen_after_bind(); });
+    auto stop_server = make_scope_guard([&] {
+        server.stop();
+        if (thread.joinable())
+            thread.join();
+    });
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!server.is_running() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(server.is_running());
+
+    const auto base = std::string("http://127.0.0.1:") + std::to_string(port);
+    const auto response = http_get(base + "/missing", 2);
+    REQUIRE(response.status_code == 404);
+    REQUIRE_FALSE(response.ok());
+    REQUIRE(response.body == "missing");
+
+    TemporaryFile output(".bin");
+    {
+        std::ofstream file(output.path(), std::ios::binary);
+        file << "untouched";
+    }
+
+    REQUIRE_FALSE(http_download(base + "/missing", output.path_string(), 2));
+    std::ifstream file(output.path(), std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    REQUIRE(bytes == "untouched");
 }
 
 TEST_CASE("HTTP helpers round-trip against a loopback server",
