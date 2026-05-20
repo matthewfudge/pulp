@@ -12,8 +12,8 @@
 // Skia-enabled build. This header is the single shared definition.
 //
 // Skia-gated: the body only exists when PULP_HAS_SKIA is defined, so a
-// no-Skia build sees an empty header (the call sites are themselves
-// inside `#ifdef PULP_HAS_SKIA`).
+// no-Skia build sees an empty header. The call sites are themselves
+// inside `#ifdef PULP_HAS_SKIA`.
 
 #pragma once
 
