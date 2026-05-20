@@ -1,6 +1,10 @@
 # Coverage Compliance Status
 
+<<<<<<< HEAD
 Last reviewed: 2026-05-20 04:26 PDT
+=======
+Last reviewed: 2026-05-20 09:30 PDT
+>>>>>>> bf51ae1a (docs: refresh phase 3 coverage ledger)
 
 This is the durable tracker for the repo-wide coverage compliance
 program under `#641`.
@@ -119,6 +123,15 @@ prepare non-overlapping coverage tranches in separate worktrees.
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-05-20 | `feature/phase3-codecov-batch-756` | `35c20f5e0` | Signal helper edges: DelayLine fractional wraparound; LadderFilter reset equivalence and nonpositive buffer no-ops; SVF, WaveShaper, and NoiseGate nonpositive buffer no-ops; Panner equal-power sign/energy invariant. | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF`; `cmake --build build --target pulp-test-signal -j$(sysctl -n hw.ncpu)`; `./build/test/pulp-test-signal "[coverage][phase3-batch756]"`; skill-sync report; version-bump report; `git diff --check`. | Local commit pending PR. | Ship after rebase validation. |
 | 2026-05-20 | `feature/phase3-codecov-batch-755` | `d035c202` merge | Runtime `ScopedNoAlloc` nested-depth and thread-local guard coverage in `pulp-test-runtime-utils`; Shipyard mac target restored to local validation after the Namespace cutover. | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF`; `cmake --build build --target pulp-test-runtime-utils -j$(sysctl -n hw.ncpu)`; `./build/test/pulp-test-runtime-utils "[runtime][scoped_no_alloc]"`; skill-sync report; version-bump report; `git diff --check`. | PR #2473 merged. | None. |
+
+## Active Tranche Ledger
+
+Keep only active, concrete tranche state here; post queue snapshots to
+the tracker issues instead of preserving stale lists.
+
+| Date | Branch | Head | Scope | Local validation | PR state | Next action |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-05-20 | `feature/phase3-midi-tools-batch-757` | `fe3ef738` | `#643` tools: cover `tools/scripts/format_baseline_diff.py` success, failure, bootstrap, diff, and truncation paths. | `python3 tools/scripts/test_format_baseline_diff.py`; `/tmp/pulp-pycoverage-venv/bin/python tools/scripts/run_python_coverage.py --pattern 'tools/scripts/test_format_baseline_diff.py'` (`format_baseline_diff.py` 97%); `git diff --check origin/main...HEAD`. | Local only, not pushed. | Continue adding non-overlapping tools coverage commits until the batch is large enough for one PR. |
 
 ## Phase 3 Finish Line
 
