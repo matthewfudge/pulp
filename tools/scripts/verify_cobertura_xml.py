@@ -85,9 +85,9 @@ def main(argv: list[str]) -> int:
     except ValueError:
         lines_valid = 0
 
-    if lines_valid == 0:
+    if lines_valid <= 0:
         print(
-            f"::error::{label} is structurally empty (lines-valid=0).",
+            f"::error::{label} is structurally empty (lines-valid={lines_valid}).",
             file=sys.stderr,
         )
         if args.hint:

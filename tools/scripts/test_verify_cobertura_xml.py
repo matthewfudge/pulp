@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import pathlib
+import runpy
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO_ROOT / "tools" / "scripts" / "verify_cobertura_xml.py"
@@ -61,6 +63,15 @@ class VerifyCoberturaXmlTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("failed to parse", r.stderr)
 
+    def test_unparseable_failure_uses_custom_label(self) -> None:
+        path = self._write("not-xml at all")
+        try:
+            r = run(str(path), "--label", "merged.xml")
+        finally:
+            path.unlink()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("merged.xml failed to parse", r.stderr)
+
     def test_lines_valid_zero_is_failure_with_hint(self) -> None:
         path = self._write('<coverage lines-valid="0"></coverage>')
         try:
@@ -79,6 +90,24 @@ class VerifyCoberturaXmlTests(unittest.TestCase):
             path.unlink()
         self.assertEqual(r.returncode, 0, msg=r.stderr)
         self.assertIn("lines-valid=42", r.stdout)
+
+    def test_lines_valid_with_whitespace_passes(self) -> None:
+        path = self._write('<coverage lines-valid=" 8 "></coverage>')
+        try:
+            r = run(str(path), "--label", "coverage.xml")
+        finally:
+            path.unlink()
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertIn("coverage.xml has lines-valid=8", r.stdout)
+
+    def test_negative_lines_valid_is_rejected(self) -> None:
+        path = self._write('<coverage lines-valid="-1"></coverage>')
+        try:
+            r = run(str(path), "--label", "coverage.xml")
+        finally:
+            path.unlink()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("lines-valid=-1", r.stderr)
 
     def test_label_appears_in_messages(self) -> None:
         path = self._write('<coverage lines-valid="0"></coverage>')
@@ -120,6 +149,27 @@ class VerifyCoberturaXmlTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, msg=r.stderr)
         self.assertIn("python.xml size:", r.stdout)
         self.assertIn("python.xml has lines-valid=7", r.stdout)
+
+    def test_success_default_label_uses_basename_for_size_and_lines(self) -> None:
+        path = self._write('<coverage lines-valid="5"></coverage>')
+        try:
+            r = run(str(path))
+        finally:
+            path.unlink()
+
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertIn(f"{path.name} size:", r.stdout)
+        self.assertIn(f"{path.name} has lines-valid=5", r.stdout)
+
+    def test_script_entrypoint_exits_zero(self) -> None:
+        path = self._write('<coverage lines-valid="3"></coverage>')
+        try:
+            with mock.patch.object(sys, "argv", [str(SCRIPT), str(path)]):
+                with self.assertRaises(SystemExit) as cm:
+                    runpy.run_path(str(SCRIPT), run_name="__main__")
+        finally:
+            path.unlink()
+        self.assertEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":
