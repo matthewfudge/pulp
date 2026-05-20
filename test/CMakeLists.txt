@@ -2099,6 +2099,12 @@ pulp_add_test_suite(pulp-test-widget-bridge-canvas2d-bridge-fns LIBRARIES pulp::
 # setBoxSizing is wired.
 pulp_add_test_suite(pulp-test-widget-bridge-yoga-border LIBRARIES pulp::view)
 
+# Widget bridge — CSS-misc cluster (P5-1 follow-up). pulp #1434 batch 3
+# text-decoration longhands + pulp #1552 line-clamp + background-repeat.
+# Two coherent small CSS clusters that together push test_widget_bridge.cpp
+# under the 3,000-line P5-1 target.
+pulp_add_test_suite(pulp-test-widget-bridge-css-misc LIBRARIES pulp::view)
+
 # Autonomous Spectr regression suite (pulp-internal task #63, follow-up to
 # pulp #1792). Composes the six [contract] invariants from
 # test_widget_bridge.cpp into a Spectr-shaped mini-scenario so a future
