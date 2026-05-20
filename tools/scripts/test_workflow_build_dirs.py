@@ -32,8 +32,24 @@ class WorkflowBuildDirTests(unittest.TestCase):
         self.assertIn('cmake --build "$PULP_BUILD_DIR" --config Release', text)
         self.assertIn('ctest --test-dir "$PULP_BUILD_DIR"', text)
         self.assertIn('ctest --test-dir "%PULP_BUILD_DIR%"', text)
+        self.assertIn('label_exclude="validation|slow"', text)
+        self.assertIn('set "PULP_CTEST_LABEL_EXCLUDE=validation|slow"', text)
 
         self.assertNotIn("working-directory: build", text)
+
+    def test_build_workflow_shipyard_dispatch_excludes_slow_ctests(self) -> None:
+        text = BUILD_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            """if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            label_exclude="validation|slow"
+          fi""",
+            text,
+        )
+        self.assertIn(
+            'if "%GITHUB_EVENT_NAME%"=="workflow_dispatch" set "PULP_CTEST_LABEL_EXCLUDE=validation|slow"',
+            text,
+        )
 
     def test_sanitizer_jobs_use_distinct_build_dirs(self) -> None:
         text = SANITIZERS_WORKFLOW.read_text(encoding="utf-8")

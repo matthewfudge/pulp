@@ -127,9 +127,11 @@ after a successful `setupProcessing` + `setActive(true)` sequence.
 Parameters flow both ways:
 
 - **Host → plugin**: every block, `process()` walks
-  `data.inputParameterChanges`, takes the **last** point from each
-  `IParamValueQueue`, and calls `store_.set_normalized_rt(id, value)`.
-  VST3 values are always normalised 0..1 — `set_normalized_rt`
+  `data.inputParameterChanges`, preserves **every** point from each
+  `IParamValueQueue` in `param_events_`, and calls
+  `store_.set_normalized_rt(id, value)` for each point. VST3 values are
+  always normalised 0..1 — the event queue stores plain-domain values
+  after denormalising through `ParamInfo::range`, while `set_normalized_rt`
   denormalises through the ParamInfo range, writes the atomic, and
   pushes an SPSC event for `ListenerThread::Main` listeners. The editor
   drains via `store.pump_listeners()` on its UI tick. The generic

@@ -101,6 +101,7 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
 
     // Reset per-buffer modulation offsets before applying new events
     self->store.reset_all_mod();
+    self->param_events.clear();
 
     // Handle parameter, modulation, and gesture events from host
     auto* in_events = process->in_events;
@@ -115,6 +116,11 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
             if (hdr->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
             if (hdr->type == CLAP_EVENT_PARAM_VALUE) {
                 const auto ev = load_event<clap_event_param_value_t>(hdr);
+                self->param_events.push({
+                    static_cast<state::ParamID>(ev.param_id),
+                    static_cast<int32_t>(hdr->time),
+                    static_cast<float>(ev.value),
+                });
                 // RT-safe write: atomic store + non-allocating SPSC push
                 // for Main listeners. The editor calls store.pump_listeners()
                 // from its UI tick to deliver the queued notifications;
@@ -138,6 +144,7 @@ clap_process_status clap_process(const clap_plugin_t* plugin, const clap_process
             }
         }
     }
+    self->param_events.sort();
 
     // Build audio buffer views (no allocation — uses pre-allocated arrays).
     // Bus 0 routes to the main input/output; bus 1 (when present) routes to

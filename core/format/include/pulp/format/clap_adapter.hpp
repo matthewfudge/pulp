@@ -6,6 +6,7 @@
 
 #include <pulp/format/processor.hpp>
 #include <pulp/format/ara.hpp>
+#include <pulp/state/parameter_event_queue.hpp>
 #include <pulp/state/preset_manager.hpp>
 #include <clap/clap.h>
 
@@ -40,6 +41,7 @@ struct PulpClapPlugin {
 
     // Parameter snapshot for detecting plugin-side changes during process
     std::vector<float> param_snapshot;
+    state::ParameterEventQueue param_events;
 
     // MPE sidecar — populated from midi_in before each process() call when
     // the Processor declares supports_mpe in its PluginDescriptor.

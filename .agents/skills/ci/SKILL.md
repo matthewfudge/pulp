@@ -143,6 +143,16 @@ signed/notarized `.dmg`, so the version and asset metadata must move together.
   macOS 26.3+ XProtect skips the deep scan for notarized binaries,
   cutting `shipyard pr` cold-start ~4-5x (from ~5-6s to ~1-1.5s).
   No pulp-side action; transparent.
+- **Format baseline diff is a plugin-only gate.** Preserve
+  `-DPULP_ENABLE_GPU=OFF` in `.github/workflows/format-baseline-diff.yml`:
+  the self-hosted macOS runner may not have the pinned Skia archive, and this
+  workflow only needs the PulpEffect AU/VST3/CLAP bundles, not GPU examples
+  such as `pulp-design-tool`.
+- **Build-and-Test workflow_dispatch is Shipyard PR validation.** Preserve
+  `-DPULP_ENABLE_GPU=OFF` on the workflow_dispatch configure path in
+  `.github/workflows/build.yml`: the local self-hosted macOS runner may not
+  have the pinned Skia archive, while pull_request validation already disables
+  example bundles and release workflows own GPU/SDK coverage.
 - **Heartbeat line during long validation** (Shipyard v0.29.0). A
   20-minute lane now prints periodic progress instead of leaving a
   silent terminal. Helpful when watching `shipyard ship` interactively.
@@ -601,6 +611,15 @@ JSON modes carry the diagnostics. Lets you chain
 `shipyard pr && shipyard watch --pr <N>` and stop babysitting the
 GitHub UI on slow CI runs.
 
+## PR test selection
+
+`build.yml` excludes CTest labels matching `slow` on both `pull_request`
+events and `workflow_dispatch` because Shipyard PR validation dispatches
+the Build-and-Test workflow manually. Preserve that split: slow configure
+smokes like `cmake-ios-auv3-configure` can legitimately take many minutes
+on the single self-hosted Mac and should not block PR validation after the
+classify gate has already decided a native build is needed.
+
 ## Recovery + maintenance toolkit (>= v0.56.2)
 
 Three operational commands cover the prevention → recovery → maintenance
@@ -929,6 +948,14 @@ delegation to helper binaries must resolve from the active build directory
 (`build-${{ matrix.key }}` or the running CLI's sibling build tree), not a
 hard-coded `build/` path; otherwise Linux catches missing helpers while warm
 self-hosted macOS workspaces can mask the bug.
+
+**PR validation excludes slow CTest labels.** The `build.yml` matrix always
+excludes `validation` tests; on `pull_request` and `workflow_dispatch`
+events it also excludes CTest tests labelled `slow`. Keep that conditional:
+Shipyard PR validation arrives via `workflow_dispatch`, and slow configure
+smokes can monopolize the self-hosted macOS runner. `tools/scripts/
+test_workflow_build_dirs.py` asserts the label-exclude contract alongside
+the build-directory invariant.
 
 **macOS builds with the Ninja generator.** `build.yml`'s Configure step
 passes `-G Ninja` on macOS only (Linux/Windows keep their default

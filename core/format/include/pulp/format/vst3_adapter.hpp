@@ -24,6 +24,7 @@
 #include <pluginterfaces/base/ibstream.h>
 
 #include <pulp/format/processor.hpp>
+#include <pulp/state/parameter_event_queue.hpp>
 
 #include <pluginterfaces/gui/iplugview.h>
 
@@ -58,6 +59,10 @@ public:
     Steinberg::tresult PLUGIN_API process(
         Steinberg::Vst::ProcessData& data) override;
 
+    const state::ParameterEventQueue& last_input_param_events() const {
+        return param_events_;
+    }
+
     // IComponent (state)
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) override;
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) override;
@@ -79,6 +84,7 @@ private:
 
     // Parameter output: snapshot values before process to detect plugin-side changes
     std::vector<float> param_snapshot_;
+    state::ParameterEventQueue param_events_;
 };
 
 } // namespace pulp::format::vst3

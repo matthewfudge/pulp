@@ -9,6 +9,7 @@
 #include <pulp/format/registry.hpp>
 #include <pulp/format/ara.hpp>
 #include <pulp/runtime/log.hpp>
+#include <pulp/state/parameter_event_queue.hpp>
 #include <memory>
 #include <array>
 #include <limits>
@@ -49,7 +50,36 @@ struct AUBridge {
     // into this on each process call. Keeps the audio thread allocation-free
     // (sized at init to match max_frames * kMaxChannels).
     std::vector<float> sidechain_storage;
+    state::ParameterEventQueue param_events;
 };
+
+static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
+                                            const AudioTimeStamp* timestamp,
+                                            AUAudioFrameCount frame_count) {
+    int64_t offset = 0;
+    constexpr auto kImmediate = static_cast<int64_t>(AUEventSampleTimeImmediate);
+    constexpr int64_t kImmediateWindow = 4096;
+
+    if (event_sample_time >= kImmediate &&
+        event_sample_time < kImmediate + kImmediateWindow) {
+        offset = static_cast<int64_t>(event_sample_time) - kImmediate;
+    } else if (timestamp &&
+               (timestamp->mFlags & kAudioTimeStampSampleTimeValid) != 0) {
+        offset = static_cast<int64_t>(event_sample_time) -
+                 static_cast<int64_t>(timestamp->mSampleTime);
+    } else {
+        offset = static_cast<int64_t>(event_sample_time);
+    }
+
+    if (offset < 0) return 0;
+    if (frame_count > 0 && offset >= static_cast<int64_t>(frame_count)) {
+        return static_cast<int32_t>(frame_count - 1);
+    }
+    if (offset > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
+        return std::numeric_limits<int32_t>::max();
+    }
+    return static_cast<int32_t>(offset);
+}
 
 } // namespace pulp::format::au
 
@@ -77,6 +107,12 @@ struct AUBridge {
 /// plug-in's Processor overrode create_ara_document_controller();
 /// otherwise NULL. Issue #252.
 @property (nonatomic, readonly, nullable) void *audioUnitARAFactory;
+
+- (NSUInteger)pulpLastParameterEventCount;
+- (uint32_t)pulpLastParameterEventParamIDAtIndex:(NSUInteger)index;
+- (int32_t)pulpLastParameterEventSampleOffsetAtIndex:(NSUInteger)index;
+- (int32_t)pulpLastParameterEventRampDurationAtIndex:(NSUInteger)index;
+- (float)pulpLastParameterEventValueAtIndex:(NSUInteger)index;
 
 @end
 
@@ -308,6 +344,7 @@ struct AUBridge {
                 memset(outputData->mBuffers[i].mData, 0, outputData->mBuffers[i].mDataByteSize);
             return noErr;
         }
+        bridge->param_events.clear();
 
         UInt32 outChans = std::min(outputData->mNumberBuffers,
             static_cast<UInt32>(pulp::format::au::kMaxChannels));
@@ -392,7 +429,24 @@ struct AUBridge {
         pulp::midi::MidiBuffer midi_in, midi_out;
         const AURenderEvent* event = realtimeEventListHead;
         while (event) {
-            if (event->head.eventType == AURenderEventMIDI) {
+            if (event->head.eventType == AURenderEventParameter ||
+                event->head.eventType == AURenderEventParameterRamp) {
+                const AUParameterEvent& p = event->parameter;
+                const auto param_id =
+                    static_cast<pulp::state::ParamID>(p.parameterAddress);
+                const auto sample_offset =
+                    pulp::format::au::block_relative_sample_offset(
+                        p.eventSampleTime, timestamp, frameCount);
+                bridge->param_events.push({
+                    param_id,
+                    sample_offset,
+                    static_cast<float>(p.value),
+                    event->head.eventType == AURenderEventParameterRamp
+                        ? static_cast<int32_t>(p.rampDurationSampleFrames)
+                        : 0,
+                });
+                bridge->store.set_value_rt(param_id, static_cast<float>(p.value));
+            } else if (event->head.eventType == AURenderEventMIDI) {
                 const AUMIDIEvent& m = event->MIDI;
                 // A well-formed short MIDI message has a status byte
                 // (MSB set) and total length 1..3. Skip anything else.
@@ -523,6 +577,7 @@ struct AUBridge {
             }
             event = event->head.next;
         }
+        bridge->param_events.sort();
 
         // Process
         pulp::format::ProcessContext ctx;
@@ -555,7 +610,11 @@ struct AUBridge {
 
         return noErr;
     };
-    return renderBlock;
+#if __has_feature(objc_arc)
+    return [renderBlock copy];
+#else
+    return [[renderBlock copy] autorelease];
+#endif
 }
 
 // ── State persistence ──────────────────────────────────────────────────────
@@ -588,6 +647,34 @@ struct AUBridge {
 
 - (pulp::state::StateStore *)pulpStore {
     return &_bridge.store;
+}
+
+- (NSUInteger)pulpLastParameterEventCount {
+    return static_cast<NSUInteger>(_bridge.param_events.size());
+}
+
+- (uint32_t)pulpLastParameterEventParamIDAtIndex:(NSUInteger)index {
+    const auto& events = _bridge.param_events.events();
+    if (index >= events.size()) return 0;
+    return events[index].param_id;
+}
+
+- (int32_t)pulpLastParameterEventSampleOffsetAtIndex:(NSUInteger)index {
+    const auto& events = _bridge.param_events.events();
+    if (index >= events.size()) return 0;
+    return events[index].sample_offset;
+}
+
+- (int32_t)pulpLastParameterEventRampDurationAtIndex:(NSUInteger)index {
+    const auto& events = _bridge.param_events.events();
+    if (index >= events.size()) return 0;
+    return events[index].ramp_duration_sample_frames;
+}
+
+- (float)pulpLastParameterEventValueAtIndex:(NSUInteger)index {
+    const auto& events = _bridge.param_events.events();
+    if (index >= events.size()) return 0.0f;
+    return events[index].value;
 }
 
 // ARA-aware AU hosts (Logic Pro 11+, etc.) read this property via KVO

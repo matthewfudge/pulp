@@ -66,6 +66,10 @@ struct. It owns:
   `process()`. After `processor->process()`, the adapter compares each
   param to its snapshot and emits `CLAP_EVENT_PARAM_VALUE` out-events
   so the host can record automation.
+- `param_events` (`state::ParameterEventQueue`) for the current block's
+  inbound `CLAP_EVENT_PARAM_VALUE` events. It preserves every host
+  automation point with `header.time` before the StateStore dual-write
+  lands the last value for ordinary parameter reads.
 - `mpe_tracker` + `mpe_buffer` + `mpe_enabled` — MPE sidecar populated
   only if `PluginDescriptor::supports_mpe` is true.
 - `ump_buffer` + `ump_enabled` — UMP sidecar. Cleared at the top of
@@ -116,6 +120,12 @@ atomic + pushes an event on a non-allocating SPSC queue; the editor's
 UI tick drains via `store.pump_listeners()`. Audio listeners still fire
 inline (caller asserts RT-safety). See Slice 2 in
 `planning/2026-05-18-rt-safety-and-debug-dx.md`.
+
+Do not collapse inbound CLAP parameter automation to a single last point.
+`clap_process` appends every `CLAP_EVENT_PARAM_VALUE` to
+`PulpClapPlugin::param_events`, sorts by sample offset, and still calls
+`store.set_value_rt(...)` for the same events so legacy block-level reads
+observe the final value.
 
 The **modulation offset is per-buffer**: `store.reset_all_mod()` runs
 at the top of every `process()` before applying new `PARAM_MOD` events.

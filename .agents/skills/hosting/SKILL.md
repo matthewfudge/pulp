@@ -171,9 +171,11 @@ rules:
   before writing. Automation routing (Phase 1E) refuses
   non-automatable edges.
 - **ParameterEventQueue.** `PluginSlot::process()` takes a
-  `const ParameterEventQueue&`. Phase 1 loaders consume it;
-  Phase 0 loaders accept and ignore. Use it — not `set_parameter` —
-  for per-block automation.
+  `const ParameterEventQueue&`. The queue type now lives in
+  `pulp::state` and `pulp::host` re-exports it for compatibility, so
+  format and graph code can share the event ABI without depending on
+  `core/host`. Phase 1 loaders consume it; Phase 0 loaders accept and
+  ignore. Use it — not `set_parameter` — for per-block automation.
 - **Thread rules doc.** `docs/reference/host-thread-rules.md` is the
   canonical reference.
 

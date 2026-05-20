@@ -342,13 +342,16 @@ set(PULP_HAS_HIGHWAY TRUE)
 message(STATUS "Pulp: Highway SIMD library enabled")
 
 # Mbed TLS (Apache 2.0) — cryptographic primitives (SHA-256, RSA, AES)
+# Pinned to the exact SHA for v3.6.2. CMake's shallow FetchContent clone can
+# intermittently fail to resolve annotated tag names during fresh coverage
+# configures; the commit pin keeps the release fixed while avoiding tag lookup.
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     mbedtls
     GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
-    GIT_TAG v3.6.2
+    GIT_TAG 107ea89daaefb9867ea9121002fbbdf926780e98
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(mbedtls)
@@ -423,4 +426,3 @@ else()
     set(PULP_HAS_AUSDK FALSE)
     message(STATUS "Pulp: AudioUnitSDK not found — AU v2 format disabled")
 endif()
-
