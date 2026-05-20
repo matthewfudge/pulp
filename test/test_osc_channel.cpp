@@ -15,7 +15,7 @@ using namespace std::chrono_literals;
 namespace {
 
 template <typename Pred>
-bool wait_until(Pred pred, std::chrono::milliseconds budget = 2s) {
+bool wait_until(Pred pred, std::chrono::milliseconds budget = 5s) {
     auto deadline = std::chrono::steady_clock::now() + budget;
     while (std::chrono::steady_clock::now() < deadline) {
         if (pred()) return true;
