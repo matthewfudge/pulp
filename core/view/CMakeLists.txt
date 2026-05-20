@@ -245,6 +245,7 @@ target_sources(pulp-view PRIVATE
     src/anchor_strategy.cpp
     src/design_export.cpp
     src/design_import.cpp
+    src/design_tokens.cpp
     src/design_import_shortcuts.cpp
     src/design_import_designmd.cpp
     src/screenshot_compare.cpp
