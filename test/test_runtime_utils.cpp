@@ -12,6 +12,7 @@
 #include <pulp/runtime/primes.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/scope_guard.hpp>
+#include <pulp/runtime/scoped_no_alloc.hpp>
 #include <pulp/runtime/text_diff.hpp>
 #include "../external/cpp-httplib/httplib.h"
 #include <catch2/catch_approx.hpp>
@@ -108,6 +109,79 @@ TEST_CASE("PULP_ON_SCOPE_EXIT macro captures local state",
         value = 3;
     }
     REQUIRE(value == 10);
+}
+
+// ── ScopedNoAlloc ───────────────────────────────────────────────────────
+
+TEST_CASE("ScopedNoAlloc tracks nested scope depth on the current thread",
+          "[runtime][scoped_no_alloc][coverage][phase3]") {
+    REQUIRE(no_alloc_scope_depth() == 0);
+    REQUIRE_FALSE(is_in_no_alloc_scope());
+
+    {
+        ScopedNoAlloc outer;
+#ifndef NDEBUG
+        REQUIRE(no_alloc_scope_depth() == 1);
+        REQUIRE(is_in_no_alloc_scope());
+#else
+        REQUIRE(no_alloc_scope_depth() == 0);
+        REQUIRE_FALSE(is_in_no_alloc_scope());
+#endif
+
+        {
+            ScopedNoAlloc inner;
+#ifndef NDEBUG
+            REQUIRE(no_alloc_scope_depth() == 2);
+            REQUIRE(is_in_no_alloc_scope());
+#else
+            REQUIRE(no_alloc_scope_depth() == 0);
+            REQUIRE_FALSE(is_in_no_alloc_scope());
+#endif
+        }
+
+#ifndef NDEBUG
+        REQUIRE(no_alloc_scope_depth() == 1);
+        REQUIRE(is_in_no_alloc_scope());
+#else
+        REQUIRE(no_alloc_scope_depth() == 0);
+        REQUIRE_FALSE(is_in_no_alloc_scope());
+#endif
+    }
+
+    REQUIRE(no_alloc_scope_depth() == 0);
+    REQUIRE_FALSE(is_in_no_alloc_scope());
+}
+
+TEST_CASE("ScopedNoAlloc state is thread-local",
+          "[runtime][scoped_no_alloc][coverage][phase3]") {
+    ScopedNoAlloc main_scope;
+
+    int worker_initial_depth = -1;
+    bool worker_initial_in_scope = true;
+    int worker_nested_depth = -1;
+    bool worker_nested_in_scope = false;
+    std::thread worker([&] {
+        worker_initial_depth = no_alloc_scope_depth();
+        worker_initial_in_scope = is_in_no_alloc_scope();
+        ScopedNoAlloc worker_scope;
+        worker_nested_depth = no_alloc_scope_depth();
+        worker_nested_in_scope = is_in_no_alloc_scope();
+    });
+    worker.join();
+
+    REQUIRE(worker_initial_depth == 0);
+    REQUIRE_FALSE(worker_initial_in_scope);
+#ifndef NDEBUG
+    REQUIRE(no_alloc_scope_depth() == 1);
+    REQUIRE(is_in_no_alloc_scope());
+    REQUIRE(worker_nested_depth == 1);
+    REQUIRE(worker_nested_in_scope);
+#else
+    REQUIRE(no_alloc_scope_depth() == 0);
+    REQUIRE_FALSE(is_in_no_alloc_scope());
+    REQUIRE(worker_nested_depth == 0);
+    REQUIRE_FALSE(worker_nested_in_scope);
+#endif
 }
 
 // ── TemporaryFile ───────────────────────────────────────────────────────
