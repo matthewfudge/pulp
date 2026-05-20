@@ -249,3 +249,46 @@ TEST_CASE("json parser: lenient object and array delimiter recovery is stable",
     CHECK(array.arr()[1].as_int() == 2);
     CHECK(array.arr()[2].as_bool());
 }
+
+TEST_CASE("json parser: delimiter recovery accepts adjacent object keys",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto object = parse_json(R"({"a":1 "b":2 "c":3})");
+    REQUIRE(object.type == json::JsonValue::Object);
+    REQUIRE(object.obj().size() == 3);
+    CHECK(object.get("a")->as_int() == 1);
+    CHECK(object.get("b")->as_int() == 2);
+    CHECK(object.get("c")->as_int() == 3);
+}
+
+TEST_CASE("json parser: delimiter recovery accepts adjacent array values",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto array = parse_json(R"([1 "two" {"three":3} true false null -4 +5 .6])");
+    REQUIRE(array.type == json::JsonValue::Array);
+    REQUIRE(array.arr().size() == 9);
+    CHECK(array.arr()[0].as_int() == 1);
+    CHECK(array.arr()[1].as_string() == "two");
+    REQUIRE(array.arr()[2].get("three") != nullptr);
+    CHECK(array.arr()[2].get("three")->as_int() == 3);
+    CHECK(array.arr()[3].as_bool());
+    CHECK_FALSE(array.arr()[4].as_bool());
+    CHECK(array.arr()[5].type == json::JsonValue::Null);
+    CHECK(array.arr()[6].as_int() == -4);
+    CHECK(array.arr()[7].as_int() == 5);
+    CHECK(std::fabs(array.arr()[8].num_val - 0.6) < 0.0001);
+}
+
+TEST_CASE("json parser: EOF terminates lenient object and array recovery",
+          "[cli][json-parser][coverage][phase3-large]") {
+    auto object = parse_json(R"({"a":1 "b":2)");
+    REQUIRE(object.type == json::JsonValue::Object);
+    REQUIRE(object.obj().size() == 2);
+    CHECK(object.get("a")->as_int() == 1);
+    CHECK(object.get("b")->as_int() == 2);
+
+    auto array = parse_json(R"([1 2 true)");
+    REQUIRE(array.type == json::JsonValue::Array);
+    REQUIRE(array.arr().size() == 3);
+    CHECK(array.arr()[0].as_int() == 1);
+    CHECK(array.arr()[1].as_int() == 2);
+    CHECK(array.arr()[2].as_bool());
+}

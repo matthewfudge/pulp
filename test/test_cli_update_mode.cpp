@@ -198,13 +198,16 @@ TEST_CASE("pending-upgrade JSON round-trips through serialize/parse",
 TEST_CASE("pending-upgrade JSON escapes string fields",
           "[cli][update-mode][coverage]") {
     um::PendingUpgrade p;
-    p.version = "0.31.0-rc\"1";
+    p.version = "0.31.0-rc\"1\nbuild\rmeta\t";
     p.staged_at_epoch_sec = 7;
-    p.staged_binary_path = R"(C:\Temp\pulp "candidate"\pulp.exe)";
+    p.staged_binary_path = "C:\\Temp\\pulp \"candidate\"\\pulp.exe\nnext\tline\r";
 
     auto serialized = um::serialize_pending_upgrade(p);
     REQUIRE(serialized.find("\\\"") != std::string::npos);
     REQUIRE(serialized.find("\\\\") != std::string::npos);
+    REQUIRE(serialized.find("\\n") != std::string::npos);
+    REQUIRE(serialized.find("\\r") != std::string::npos);
+    REQUIRE(serialized.find("\\t") != std::string::npos);
 
     auto parsed = um::parse_pending_upgrade(serialized);
     REQUIRE(parsed.has_value());
