@@ -301,6 +301,18 @@ if(TARGET pulp-cli)
 endif()
 catch_discover_tests(pulp-test-cli-shellout-pr)
 
+# P5-4 follow-up — CLI lifecycle-command shell-out tests, extracted
+# from test_cli_shellout.cpp. Covers pulp doctor / pulp dev /
+# pulp design / pulp sdk / pulp upgrade — the lifecycle / diagnostics
+# surface of the CLI. Brings the parent TU under the < 2,000-line
+# P5-4 target.
+add_executable(pulp-test-cli-shellout-lifecycle test_cli_shellout_lifecycle.cpp)
+target_link_libraries(pulp-test-cli-shellout-lifecycle PRIVATE pulp::platform Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-shellout-lifecycle pulp-cli)
+endif()
+catch_discover_tests(pulp-test-cli-shellout-lifecycle)
+
 # pulp #776 — pin shell_quote's per-platform contract so it can't
 # silently regress to the pre-fix shape that broke `git fetch origin`
 # on Windows by writing doubled backslashes into clone URLs.
