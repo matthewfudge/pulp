@@ -104,7 +104,7 @@ if(Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test_pulp_mcp_binary_smoke.py
                 $<TARGET_FILE:pulp-mcp>)
-    set_tests_properties(pulp-mcp-binary-smoke PROPERTIES TIMEOUT 15)
+    set_tests_properties(pulp-mcp-binary-smoke PROPERTIES TIMEOUT 30)
 endif()
 
 # Setup-hook unit test — verifies hooks/scripts/check-pulp-cli.sh

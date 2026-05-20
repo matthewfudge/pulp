@@ -2,8 +2,9 @@
 #
 # Unit test for tools/mcp/pulp-mcp-launcher. Verifies the fix in pulp #1821:
 # the launcher (referenced from .mcp.json so Claude Code can resolve the
-# pulp-mcp binary regardless of cwd) finds the source-tree build, falls
-# back to $PATH, and emits a useful diagnostic when neither is available.
+# pulp-mcp binary regardless of cwd) finds the source-tree build, finds the
+# canonical ~/.pulp/bin install, falls back to $PATH, and emits a useful
+# diagnostic when neither is available.
 #
 # Run directly:
 #   bash test/test_pulp_mcp_launcher.sh
@@ -121,30 +122,67 @@ fi
 pass "case3: \$PATH fallback runs when source-tree build is absent"
 
 # ---------------------------------------------------------------------------
-# Case 4: argv is forwarded — launcher must exec, not interpret args.
+# Case 4: installed binary present under ~/.pulp/bin → installed stub runs,
+# and it wins over a PATH stub when both are present.
 # ---------------------------------------------------------------------------
 case4="$TMPDIR_T/case4"
 stage_fake_repo "$case4"
-mkdir -p "$case4/build/tools/mcp"
-cat > "$case4/build/tools/mcp/pulp-mcp" <<'STUB'
+homedir="$TMPDIR_T/case4-home"
+installed_bin="$homedir/.pulp/bin"
+pathdir="$TMPDIR_T/case4-path"
+mkdir -p "$installed_bin" "$pathdir"
+cat > "$installed_bin/pulp-mcp" <<'STUB'
 #!/usr/bin/env bash
-echo "ARGS:$*"
+echo "PULP_MCP_INSTALLED_CANARY"
 exit 0
 STUB
-chmod +x "$case4/build/tools/mcp/pulp-mcp"
+chmod +x "$installed_bin/pulp-mcp"
+cat > "$pathdir/pulp-mcp" <<'STUB'
+#!/usr/bin/env bash
+echo "PULP_MCP_PATH_SHOULD_NOT_WIN"
+exit 0
+STUB
+chmod +x "$pathdir/pulp-mcp"
 
 set +e
-output=$(HOME="$TMPDIR_T/case4-home" PATH=/usr/bin:/bin \
-    "$case4/tools/mcp/pulp-mcp-launcher" --foo bar baz 2>&1)
+output=$(HOME="$homedir" PATH="$pathdir:/usr/bin:/bin" \
+    "$case4/tools/mcp/pulp-mcp-launcher" 2>&1)
 rc=$?
 set -e
 
 if [ "$rc" -ne 0 ]; then
-    fail "case4: expected exit 0, got $rc (output: $output)"
+    fail "case4: expected exit 0 when installed binary runs cleanly, got $rc (output: $output)"
+fi
+if [ "$output" != "PULP_MCP_INSTALLED_CANARY" ]; then
+    fail "case4: expected installed-binary canary to win before PATH, got: $output"
+fi
+pass "case4: ~/.pulp/bin install runs before \$PATH fallback"
+
+# ---------------------------------------------------------------------------
+# Case 5: argv is forwarded — launcher must exec, not interpret args.
+# ---------------------------------------------------------------------------
+case5="$TMPDIR_T/case5"
+stage_fake_repo "$case5"
+mkdir -p "$case5/build/tools/mcp"
+cat > "$case5/build/tools/mcp/pulp-mcp" <<'STUB'
+#!/usr/bin/env bash
+echo "ARGS:$*"
+exit 0
+STUB
+chmod +x "$case5/build/tools/mcp/pulp-mcp"
+
+set +e
+output=$(HOME="$TMPDIR_T/case5-home" PATH=/usr/bin:/bin \
+    "$case5/tools/mcp/pulp-mcp-launcher" --foo bar baz 2>&1)
+rc=$?
+set -e
+
+if [ "$rc" -ne 0 ]; then
+    fail "case5: expected exit 0, got $rc (output: $output)"
 fi
 if [ "$output" != "ARGS:--foo bar baz" ]; then
-    fail "case4: launcher did not forward argv as-is (output: $output)"
+    fail "case5: launcher did not forward argv as-is (output: $output)"
 fi
-pass "case4: argv forwarded verbatim"
+pass "case5: argv forwarded verbatim"
 
-echo "OK — all 4 cases passed."
+echo "OK — all 5 cases passed."
