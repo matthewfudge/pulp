@@ -356,11 +356,11 @@ bool icontains(const std::string& haystack, const std::string& needle) {
 }
 
 std::string yaml_value(const std::string& line, const std::string& key) {
-    auto pos = line.find(key + ":");
-    if (pos == std::string::npos) return {};
-    auto val_start = pos + key.size() + 1;
-    if (val_start >= line.size()) return {};
-    return trim(line.substr(val_start));
+    auto stripped = trim(line);
+    const auto prefix = key + ":";
+    if (stripped.rfind(prefix, 0) != 0) return {};
+    if (prefix.size() >= stripped.size()) return {};
+    return trim(stripped.substr(prefix.size()));
 }
 
 std::string sanitize_process_output(std::string output) {

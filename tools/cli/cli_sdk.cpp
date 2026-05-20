@@ -379,13 +379,22 @@ std::string read_pulp_toml_value(const fs::path& project_root, const std::string
     std::ifstream f(toml_path);
     std::string line;
     while (std::getline(f, line)) {
-        auto pos = line.find(key);
-        if (pos != std::string::npos) {
-            auto q1 = line.find('"', pos);
-            auto q2 = line.find('"', q1 + 1);
-            if (q1 != std::string::npos && q2 != std::string::npos) {
-                return line.substr(q1 + 1, q2 - q1 - 1);
-            }
+        auto stripped = trim(line);
+        if (stripped.empty() || stripped.front() == '#') continue;
+
+        auto pos = stripped.find(key);
+        if (pos != 0) continue;
+
+        auto eq = stripped.find('=', key.size());
+        if (eq == std::string::npos) continue;
+
+        auto between_key_and_eq = stripped.substr(key.size(), eq - key.size());
+        if (!trim(between_key_and_eq).empty()) continue;
+
+        auto q1 = stripped.find('"', eq + 1);
+        auto q2 = stripped.find('"', q1 + 1);
+        if (q1 != std::string::npos && q2 != std::string::npos) {
+            return stripped.substr(q1 + 1, q2 - q1 - 1);
         }
     }
     return {};
@@ -799,4 +808,3 @@ std::string read_project_cmake_version(const fs::path& project_root) {
     }
     return {};
 }
-
