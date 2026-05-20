@@ -195,6 +195,27 @@ TEST_CASE("pulp tweaks diff with a malformed design file exits 2",
     fs::remove_all(dir, ec);
 }
 
+TEST_CASE("pulp tweaks diff rejects a non-array property manifest entry",
+          "[cli][shellout][tweaks][phase2][regression]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+    auto dir = unique_temp_dir("pulp-tweaks-diff-bad-props");
+    fs::create_directories(dir);
+    auto tweaks = dir / "pulp-tweaks.json";
+    auto design = dir / "design.json";
+    write_text(tweaks, kTweaksFixture);
+    write_text(design, R"({"anchors":{"anchor-live":{"layout.padding":true}}})");
+
+    auto r = run_pulp({"tweaks", "diff",
+                       "--tweaks", tweaks.string(),
+                       "--design", design.string()});
+    REQUIRE(r.exit_code == 2);
+    REQUIRE(r.stderr_output.find("property-path arrays") != std::string::npos);
+    REQUIRE(r.stdout_output.find("property-not-found") == std::string::npos);
+
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 TEST_CASE("pulp tweaks diff rejects an unknown flag with exit 2",
           "[cli][shellout][tweaks][phase2]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }

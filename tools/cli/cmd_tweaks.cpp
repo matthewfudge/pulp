@@ -105,8 +105,11 @@ bool load_design_snapshot(const std::string& path,
     if (anchors.isArray()) {
         // Flat anchor list — anchor-only matching.
         for (uint32_t i = 0; i < anchors.size(); ++i) {
-            if (anchors[i].isString())
-                snap.anchors.insert(std::string(anchors[i].getString()));
+            if (!anchors[i].isString()) {
+                err = "`anchors` array entries must be strings";
+                return false;
+            }
+            snap.anchors.insert(std::string(anchors[i].getString()));
         }
     } else if (anchors.isObject()) {
         // Map of anchor → property-path array. Enables property-level
@@ -115,13 +118,17 @@ bool load_design_snapshot(const std::string& path,
             auto member = anchors.getObjectMemberAt(i);
             std::string anchor(member.name);
             snap.anchors.insert(anchor);
+            if (!member.value.isArray()) {
+                err = "`anchors` object values must be property-path arrays";
+                return false;
+            }
             auto& props = snap.properties[anchor];
-            if (member.value.isArray()) {
-                for (uint32_t j = 0; j < member.value.size(); ++j) {
-                    if (member.value[j].isString())
-                        props.insert(
-                            std::string(member.value[j].getString()));
+            for (uint32_t j = 0; j < member.value.size(); ++j) {
+                if (!member.value[j].isString()) {
+                    err = "`anchors` property-path entries must be strings";
+                    return false;
                 }
+                props.insert(std::string(member.value[j].getString()));
             }
         }
     } else {
