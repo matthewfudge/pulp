@@ -105,7 +105,7 @@ class WorkflowLintWorkflowTests(unittest.TestCase):
         self.assertIn("structural parse OK", step)
 
     def test_release_regression_tests_remain_in_lint_gate(self) -> None:
-        step = _find_step(self.text, "Release-pipeline regression tests (#720)")
+        step = _find_step(self.text, "Release-pipeline regression tests (#720, #1962)")
         self.assertIn("set -euo pipefail", step)
         self.assertIn(
             "python3 tools/scripts/test_release_workflow_test_step.py",
@@ -113,6 +113,10 @@ class WorkflowLintWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             "python3 tools/scripts/test_workflow_build_dirs.py",
+            step,
+        )
+        self.assertIn(
+            "python3 tools/scripts/test_fetch_skia_for_release.py",
             step,
         )
 

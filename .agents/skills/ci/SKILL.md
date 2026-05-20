@@ -949,6 +949,14 @@ delegation to helper binaries must resolve from the active build directory
 hard-coded `build/` path; otherwise Linux catches missing helpers while warm
 self-hosted macOS workspaces can mask the bug.
 
+**PR validation excludes slow CTest labels.** The `build.yml` matrix always
+excludes `validation` tests; on `pull_request` and `workflow_dispatch`
+events it also excludes CTest tests labelled `slow`. Keep that conditional:
+Shipyard PR validation arrives via `workflow_dispatch`, and slow configure
+smokes can monopolize the self-hosted macOS runner. `tools/scripts/
+test_workflow_build_dirs.py` asserts the label-exclude contract alongside
+the build-directory invariant.
+
 **macOS builds with the Ninja generator.** `build.yml`'s Configure step
 passes `-G Ninja` on macOS only (Linux/Windows keep their default
 generator). Ninja schedules parallelism better and is faster on the

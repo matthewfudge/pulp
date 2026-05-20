@@ -32,6 +32,8 @@ class WorkflowBuildDirTests(unittest.TestCase):
         self.assertIn('cmake --build "$PULP_BUILD_DIR" --config Release', text)
         self.assertIn('ctest --test-dir "$PULP_BUILD_DIR"', text)
         self.assertIn('ctest --test-dir "%PULP_BUILD_DIR%"', text)
+        self.assertIn('label_exclude="validation|slow"', text)
+        self.assertIn('set "PULP_CTEST_LABEL_EXCLUDE=validation|slow"', text)
 
         self.assertNotIn("working-directory: build", text)
 
