@@ -653,6 +653,27 @@ TEST_CASE("InterProcessLock competing instance waits for release",
     REQUIRE(second.is_locked());
 }
 
+TEST_CASE("InterProcessLock reports open failure for missing parent paths",
+          "[runtime][ipc_lock][coverage][phase3]") {
+    TemporaryFile marker(".lock-parent");
+    const auto unique = marker.path().filename().string();
+    marker.release();
+    std::filesystem::remove(marker.path());
+
+    const auto lock_parent =
+        std::filesystem::temp_directory_path() / ("pulp_lock_" + unique);
+    std::filesystem::remove_all(lock_parent);
+    auto cleanup = make_scope_guard([&] {
+        std::filesystem::remove_all(lock_parent);
+    });
+
+    InterProcessLock lock(unique + "/sublock");
+    REQUIRE_FALSE(lock.try_lock());
+    REQUIRE_FALSE(lock.is_locked());
+    lock.unlock();
+    REQUIRE_FALSE(lock.is_locked());
+}
+
 // ── ChildProcess ────────────────────────────────────────────────────────
 
 TEST_CASE("run_process captures stdout", "[runtime][child_process]") {
@@ -1273,9 +1294,22 @@ TEST_CASE("HTTP helpers accept case-insensitive URL schemes during parsing",
     REQUIRE(response.error != "Invalid URL");
 }
 
+TEST_CASE("HTTP helpers report POST transport failures",
+          "[runtime][http][url][coverage][phase3]") {
+    const auto response = http_post("http://127.0.0.1:1/closed",
+                                    "body",
+                                    "text/plain",
+                                    1);
+    REQUIRE(response.status_code == 0);
+    REQUIRE(response.error.find("Connection failed:") == 0);
+}
+
 TEST_CASE("HTTP helpers round-trip against a loopback server",
           "[runtime][http][url][coverage][phase3]") {
     httplib::Server server;
+    server.Get("/", [](const httplib::Request&, httplib::Response& response) {
+        response.set_content("root", "text/plain");
+    });
     server.Get("/hello", [](const httplib::Request& request, httplib::Response& response) {
         response.set_header("X-Pulp-Test",
                             request.has_param("name") ? request.get_param_value("name") : "missing");
@@ -1317,6 +1351,10 @@ TEST_CASE("HTTP helpers round-trip against a loopback server",
     REQUIRE(get_response.body == "hello");
     REQUIRE(get_response.headers.at("X-Pulp-Test") == "agent");
 
+    const auto root_response = http_get(base, 2);
+    REQUIRE(root_response.ok());
+    REQUIRE(root_response.body == "root");
+
     const auto post_response = http_post(base + "/echo", "body=42", "text/custom", 2);
     REQUIRE(post_response.ok());
     REQUIRE(post_response.body == "body=42");
@@ -1327,6 +1365,16 @@ TEST_CASE("HTTP helpers round-trip against a loopback server",
     std::ifstream file(downloaded.path(), std::ios::binary);
     std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     REQUIRE(bytes == std::string("payload\0bytes", 13));
+
+    TemporaryFile blocked_output(".download-dir");
+    const auto blocked_path = blocked_output.path();
+    blocked_output.release();
+    std::filesystem::remove(blocked_path);
+    std::filesystem::create_directory(blocked_path);
+    auto cleanup_blocked_output = make_scope_guard([&] {
+        std::filesystem::remove_all(blocked_path);
+    });
+    REQUIRE_FALSE(http_download(base + "/download", blocked_path.string(), 2));
 }
 
 TEST_CASE("local IPv4 helpers return usable fallback values",
