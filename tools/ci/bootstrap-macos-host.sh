@@ -148,7 +148,7 @@ verify_build() {
   if ( cd "$REPO_ROOT" && ./setup.sh --ci --deps-only ); then
     ok "setup.sh --ci --deps-only succeeded"
   else
-    warn "setup.sh deps step reported issues — review the output above"
+    die "setup.sh --ci --deps-only FAILED — host is NOT provisioned. Fix the dependency errors above and re-run; do not register runners on this host until this passes."
   fi
 }
 
