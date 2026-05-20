@@ -8,6 +8,21 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01781"></a>
+## [0.178.1] - 2026-05-20
+
+- fix(view): defuse deferred mouseUp click after host teardown ([#2523](https://github.com/danielraffel/pulp/pull/2523))
+- test(view): cover phase3 widget and asset edges ([#2522](https://github.com/danielraffel/pulp/pull/2522))
+- ci: backstop Coverage workflow against multi-hour hangs ([#2521](https://github.com/danielraffel/pulp/pull/2521))
+- refactor(view): split legacy web-compat.js into selector + runtime-api siblings ([#2512](https://github.com/danielraffel/pulp/pull/2512))
+- test(tools): batch phase 3 coverage hardening ([#2507](https://github.com/danielraffel/pulp/pull/2507))
+- test(render): prove SkPicture .skp serialization round-trips on Graphite ([#2506](https://github.com/danielraffel/pulp/pull/2506))
+- refactor(pulp-react): split prop-applier switch by domain (P5-NEW-A) ([#2505](https://github.com/danielraffel/pulp/pull/2505))
+- fix(state): route StateTree sync deltas by node path (P7-3) ([#2492](https://github.com/danielraffel/pulp/pull/2492))
+- test(runtime): batch phase 3 coverage hardening ([#2318](https://github.com/danielraffel/pulp/pull/2318))
+- fix(cli): bound json parser recovery ([#2272](https://github.com/danielraffel/pulp/pull/2272))
+- test(host): cover VST3 unusable moduleinfo classes ([#2310](https://github.com/danielraffel/pulp/pull/2310))
+
 <a id="v01780"></a>
 ## [0.178.0] - 2026-05-20
 
@@ -2323,6 +2338,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.178.1]: https://github.com/danielraffel/pulp/releases/tag/v0.178.1
 [0.178.0]: https://github.com/danielraffel/pulp/releases/tag/v0.178.0
 [0.177.1]: https://github.com/danielraffel/pulp/releases/tag/v0.177.1
 [0.177.0]: https://github.com/danielraffel/pulp/releases/tag/v0.177.0
