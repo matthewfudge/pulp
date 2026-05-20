@@ -11,7 +11,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 <a id="v017312"></a>
 ## [0.173.12] - 2026-05-20
 
-- fix(test): #2462 — shared canvas_pixel_probe.hpp; repair test_canvas_widget_shadow.cpp Skia-build compile
+- ci: add scheduled nightly full-build workflow ([#2468](https://github.com/danielraffel/pulp/pull/2468))
+- fix(test): #2462 — shared canvas_pixel_probe.hpp, repair shadow test compile ([#2463](https://github.com/danielraffel/pulp/pull/2463))
+- ci(build): build macOS with the Ninja generator ([#2466](https://github.com/danielraffel/pulp/pull/2466))
+- fix(mcp): restore test_mcp_server linkage to extracted mcp_compat version helpers ([#2454](https://github.com/danielraffel/pulp/pull/2454))
+- ci(build): default runner_provider to github-hosted (Namespace drained) ([#2460](https://github.com/danielraffel/pulp/pull/2460))
+- ci(skia): make fetch_skia_for_release.py idempotency manifest-aware ([#2459](https://github.com/danielraffel/pulp/pull/2459))
+- ci(build): fetch prebuilt Skia before Configure on the macOS leg ([#2458](https://github.com/danielraffel/pulp/pull/2458))
+- ci: parameterize bootstrap runner naming for multi-runner hosts ([#2457](https://github.com/danielraffel/pulp/pull/2457))
+- ci: add macOS CI host bootstrap script + Brewfile ([#2456](https://github.com/danielraffel/pulp/pull/2456))
+- ci(build): make the macOS overflow disable switch work (Codex P2) ([#2452](https://github.com/danielraffel/pulp/pull/2452))
+- ci(build): route macOS overflow to free GitHub-hosted macos-15 ([#2451](https://github.com/danielraffel/pulp/pull/2451))
+- ci(build): classify gate — skip native build for non-code PRs ([#2446](https://github.com/danielraffel/pulp/pull/2446))
 
 <a id="v017311"></a>
 ## [0.173.11] - 2026-05-19
@@ -2258,6 +2269,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.173.12]: https://github.com/danielraffel/pulp/releases/tag/v0.173.12
 [0.173.11]: https://github.com/danielraffel/pulp/releases/tag/v0.173.11
 [0.173.8]: https://github.com/danielraffel/pulp/releases/tag/v0.173.8
 [0.173.7]: https://github.com/danielraffel/pulp/releases/tag/v0.173.7
