@@ -8,12 +8,14 @@
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/expression.hpp>
 #include <pulp/runtime/http.hpp>
+#include <pulp/runtime/identity.hpp>
 #include <pulp/runtime/ip_address.hpp>
 #include <pulp/runtime/primes.hpp>
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/scope_guard.hpp>
 #include <pulp/runtime/scoped_no_alloc.hpp>
 #include <pulp/runtime/socket.hpp>
+#include <pulp/runtime/stream.hpp>
 #include <pulp/runtime/text_diff.hpp>
 #include "../external/cpp-httplib/httplib.h"
 #include <catch2/catch_approx.hpp>
@@ -146,6 +148,31 @@ bool wait_until_http_ready(int port, std::chrono::milliseconds timeout = std::ch
 }
 
 }  // namespace
+
+// ── Identity ────────────────────────────────────────────────────────────
+
+TEST_CASE("Uuid parses canonical and compact forms",
+          "[runtime][identity][coverage][phase3]") {
+    const auto canonical = std::string("12345678-90ab-4def-8123-456789abcdef");
+    const auto compact = std::string("1234567890ab4def8123456789abcdef");
+
+    auto from_canonical = Uuid::from_string(canonical);
+    auto from_compact = Uuid::from_string(compact);
+
+    REQUIRE_FALSE(from_canonical.is_nil());
+    REQUIRE(from_canonical == from_compact);
+    REQUIRE(from_canonical.to_string() == canonical);
+    REQUIRE(from_canonical.to_hex() == compact);
+}
+
+TEST_CASE("Uuid parser rejects malformed hex and dash placement",
+          "[runtime][identity][coverage][phase3]") {
+    REQUIRE(Uuid::from_string("").is_nil());
+    REQUIRE(Uuid::from_string("1234567890ab4def8123456789abcdez").is_nil());
+    REQUIRE(Uuid::from_string("12345678-90ab-4def-8123-456789abcdez").is_nil());
+    REQUIRE(Uuid::from_string("1234567890ab-4def-8123-456789abcdef").is_nil());
+    REQUIRE(Uuid::from_string("12345678-90ab-4def-8123-456789abcdef-").is_nil());
+}
 
 // ── ScopeGuard ─────────────────────────────────────────────────────────
 
@@ -345,6 +372,16 @@ TEST_CASE("TemporaryFile supports extensionless paths",
     }
 
     REQUIRE_FALSE(std::filesystem::exists(path));
+}
+
+TEST_CASE("TemporaryFile treats separator characters as extension text",
+          "[runtime][temp_file][coverage][phase3]") {
+    TemporaryFile tmp("nested/name\\raw");
+
+    REQUIRE(tmp.path().filename().string().find('/') == std::string::npos);
+    REQUIRE(tmp.path().filename().string().find('\\') == std::string::npos);
+    REQUIRE(tmp.path().filename().string().ends_with(".nested_name_raw"));
+    REQUIRE(std::filesystem::exists(tmp.path()));
 }
 
 TEST_CASE("TemporaryFile move assignment removes the previous active file",
@@ -979,6 +1016,46 @@ TEST_CASE("is_process_running recognizes the current process",
 #endif
     REQUIRE(pid > 0);
     REQUIRE(is_process_running(pid));
+}
+
+// ── Stream ──────────────────────────────────────────────────────────────
+
+TEST_CASE("MemoryStream rejects nonzero null buffers",
+          "[runtime][stream][coverage][phase3]") {
+    MemoryStream stream({1, 2, 3});
+
+    auto read_result = stream.read(nullptr, 1);
+    REQUIRE_FALSE(read_result.ok());
+    REQUIRE(read_result.error == StreamError::Invalid);
+    REQUIRE(stream.read_position() == 0);
+
+    auto write_result = stream.write(nullptr, 1);
+    REQUIRE_FALSE(write_result.ok());
+    REQUIRE(write_result.error == StreamError::Invalid);
+    REQUIRE(stream.size() == 3);
+
+    REQUIRE(stream.read(nullptr, 0).ok());
+    REQUIRE(stream.write(nullptr, 0).ok());
+}
+
+TEST_CASE("FileStream rejects nonzero null buffers",
+          "[runtime][stream][coverage][phase3]") {
+    TemporaryFile tmp(".bin");
+
+    FileStream writer(tmp.path_string(), FileStream::Mode::Write);
+    REQUIRE(writer.is_open());
+    auto write_result = writer.write(nullptr, 1);
+    REQUIRE_FALSE(write_result.ok());
+    REQUIRE(write_result.error == StreamError::Invalid);
+    REQUIRE(writer.write(nullptr, 0).ok());
+    writer.close();
+
+    FileStream reader(tmp.path_string(), FileStream::Mode::Read);
+    REQUIRE(reader.is_open());
+    auto read_result = reader.read(nullptr, 1);
+    REQUIRE_FALSE(read_result.ok());
+    REQUIRE(read_result.error == StreamError::Invalid);
+    REQUIRE(reader.read(nullptr, 0).ok());
 }
 
 // ── Base64 ──────────────────────────────────────────────────────────────
@@ -1920,6 +1997,52 @@ TEST_CASE("format_diff handles manually constructed operation order",
             "  context\n"
             "+ added\n"
             "- removed\n");
+}
+
+TEST_CASE("text_diff tie-breaks replacements as delete before insert",
+          "[runtime][text-diff][coverage][phase3-large]") {
+    auto diff = text_diff("left\nmiddle\nright",
+                          "left\ncenter\nright");
+
+    REQUIRE(diff.size() == 4);
+    REQUIRE(diff[0].op == DiffOp::Equal);
+    REQUIRE(diff[0].text == "left");
+    REQUIRE(diff[1].op == DiffOp::Delete);
+    REQUIRE(diff[1].text == "middle");
+    REQUIRE(diff[2].op == DiffOp::Insert);
+    REQUIRE(diff[2].text == "center");
+    REQUIRE(diff[3].op == DiffOp::Equal);
+    REQUIRE(diff[3].text == "right");
+}
+
+TEST_CASE("text_diff preserves blank lines as diff entries",
+          "[runtime][text-diff][coverage][phase3-large]") {
+    auto diff = text_diff("alpha\n\nomega",
+                          "alpha\ninserted\n\nomega");
+
+    REQUIRE(diff.size() == 4);
+    REQUIRE(diff[0].op == DiffOp::Equal);
+    REQUIRE(diff[0].text == "alpha");
+    REQUIRE(diff[1].op == DiffOp::Insert);
+    REQUIRE(diff[1].text == "inserted");
+    REQUIRE(diff[2].op == DiffOp::Equal);
+    REQUIRE(diff[2].text.empty());
+    REQUIRE(diff[3].op == DiffOp::Equal);
+    REQUIRE(diff[3].text == "omega");
+}
+
+TEST_CASE("format_diff keeps empty inserted and deleted lines visible",
+          "[runtime][text-diff][coverage][phase3-large]") {
+    const std::vector<DiffEntry> diff{
+        {DiffOp::Equal, "context"},
+        {DiffOp::Delete, ""},
+        {DiffOp::Insert, ""},
+    };
+
+    REQUIRE(format_diff(diff) ==
+            "  context\n"
+            "- \n"
+            "+ \n");
 }
 
 TEST_CASE("text_diff treats trailing newline as no synthetic blank line",

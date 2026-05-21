@@ -148,7 +148,7 @@ public:
     }
 
     bool supports_extension(std::string_view ext) const override {
-        return ext == ".aifc";
+        return ext == ".probe";
     }
 
     std::string format_name() const override { return "Probe"; }
@@ -170,7 +170,7 @@ public:
     }
 
     bool supports_extension(std::string_view ext) const override {
-        return ext == ".aifc";
+        return ext == ".probe";
     }
 
     std::string format_name() const override { return "Probe"; }
@@ -580,6 +580,11 @@ TEST_CASE("AudioFileData shape helpers and WAV writer reject first-channel empti
     REQUIRE_FALSE(data.empty());
     REQUIRE_FALSE(write_wav_file(path.string(), data));
     REQUIRE_FALSE(std::filesystem::exists(path));
+
+    auto ragged_path = unique_temp_audio_path("_ragged_channels.wav");
+    std::filesystem::remove(ragged_path);
+    REQUIRE_FALSE(write_wav_file(ragged_path.string(), data));
+    REQUIRE_FALSE(std::filesystem::exists(ragged_path));
 }
 
 TEST_CASE("WAV writer rejects zero sample-rate data without creating a file",
@@ -823,6 +828,8 @@ TEST_CASE("MemoryMappedAudioReader rejects invalid destinations before decoding"
 
     REQUIRE(reader.read_frames(nullptr, 0, 0, 1));
     REQUIRE(reader.read_frames(missing_channels, 2, 0, 0));
+    float** no_channels = nullptr;
+    REQUIRE(reader.read_frames(no_channels, 0, 0, 1));
 
     reader.close();
     std::filesystem::remove(path);
@@ -841,6 +848,17 @@ TEST_CASE("offline processing handles guards, block tails, and file dispatch",
     REQUIRE_FALSE(offline_process(input, {}, 2).has_value());
     REQUIRE_FALSE(offline_process(input, [](const float*, float*, int, int, double) {}, 0).has_value());
     REQUIRE_FALSE(offline_process(input, [](const float*, float*, int, int, double) {}, -8).has_value());
+
+    auto ragged = input;
+    ragged.channels[1].pop_back();
+    bool called = false;
+    REQUIRE_FALSE(offline_process(
+        ragged,
+        [&](const float*, float*, int, int, double) {
+            called = true;
+        },
+        2).has_value());
+    REQUIRE_FALSE(called);
 
     std::vector<int> block_frames;
     auto output = offline_process(
@@ -928,6 +946,8 @@ TEST_CASE("StreamingWriter rejects invalid opens and closed writes",
         path.string(), 44100, static_cast<uint32_t>(std::numeric_limits<uint16_t>::max()) + 1, 16));
     REQUIRE_FALSE(writer.open(
         path.string(), std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint16_t>::max(), 32));
+    REQUIRE_FALSE(writer.open(path.string(), 44100, std::numeric_limits<uint32_t>::max(), 16));
+    REQUIRE_FALSE(writer.open(path.string(), std::numeric_limits<uint32_t>::max(), 2, 16));
     REQUIRE_FALSE(writer.is_open());
 
     REQUIRE(writer.open(path.string(), 44100, 2, 16));
@@ -941,6 +961,7 @@ TEST_CASE("StreamingWriter rejects invalid opens and closed writes",
     REQUIRE(writer.write_frames(invalid_channels, 2, 1) == 0);
     REQUIRE(writer.write_frames(invalid_channels, 2, 0) == 0);
     REQUIRE(writer.write_frames(invalid_channels, 2, -1) == 0);
+
     const float* valid_channels[] = {&sample, &sample};
     REQUIRE(writer.write_frames(valid_channels, 2, std::numeric_limits<int>::max()) == 0);
     REQUIRE(writer.frames_written() == 0);
@@ -1071,8 +1092,10 @@ TEST_CASE("FormatRegistry exposes built-in audio codecs", "[audio][file][registr
     REQUIRE(registry.find_reader(".oga") != nullptr);
     REQUIRE(registry.find_reader(".aiff") != nullptr);
     REQUIRE(registry.find_reader(".AIF") != nullptr);
+    REQUIRE(registry.find_reader(".aifc") != nullptr);
     REQUIRE(registry.find_writer(".aiff") != nullptr);
     REQUIRE(registry.find_writer("AIF") != nullptr);
+    REQUIRE(registry.find_writer(".aifc") == nullptr);
     REQUIRE(registry.find_reader(".not-a-format") == nullptr);
     REQUIRE(registry.find_writer(".not-a-format") == nullptr);
     REQUIRE_FALSE(registry.read_info("pulp_test_audio.not-a-format").has_value());
@@ -1087,12 +1110,14 @@ TEST_CASE("FormatRegistry exposes built-in audio codecs", "[audio][file][registr
     REQUIRE(contains_extension(read_extensions, ".oga"));
     REQUIRE(contains_extension(read_extensions, ".aiff"));
     REQUIRE(contains_extension(read_extensions, ".aif"));
+    REQUIRE(contains_extension(read_extensions, ".aifc"));
 
     auto write_extensions = registry.supported_write_extensions();
     REQUIRE(contains_extension(write_extensions, ".wav"));
     REQUIRE(contains_extension(write_extensions, ".wave"));
     REQUIRE(contains_extension(write_extensions, ".aiff"));
     REQUIRE(contains_extension(write_extensions, ".aif"));
+    REQUIRE_FALSE(contains_extension(write_extensions, ".aifc"));
 }
 
 TEST_CASE("FormatRegistry ignores null custom handlers",
@@ -1252,10 +1277,10 @@ TEST_CASE("FormatRegistry dispatches custom readers and writers through normaliz
     registry.register_reader(std::make_unique<RegistryProbeReader>(state));
     registry.register_writer(std::make_unique<RegistryProbeWriter>(state));
 
-    REQUIRE(registry.find_reader("AIFC") != nullptr);
-    REQUIRE(registry.find_writer(".AIFC") != nullptr);
+    REQUIRE(registry.find_reader("PROBE") != nullptr);
+    REQUIRE(registry.find_writer(".PROBE") != nullptr);
 
-    auto info_path = (std::filesystem::temp_directory_path() / "pulp_probe_info.AIFC").string();
+    auto info_path = (std::filesystem::temp_directory_path() / "pulp_probe_info.PROBE").string();
     auto info = registry.read_info(info_path);
     REQUIRE(info.has_value());
     REQUIRE(info->format == "Probe");
@@ -1266,7 +1291,7 @@ TEST_CASE("FormatRegistry dispatches custom readers and writers through normaliz
     REQUIRE(state->info_calls == 1);
     REQUIRE(state->last_info_path == info_path);
 
-    auto read_path = (std::filesystem::temp_directory_path() / "pulp_probe_read.aifc").string();
+    auto read_path = (std::filesystem::temp_directory_path() / "pulp_probe_read.probe").string();
     auto data = registry.read(read_path);
     REQUIRE(data.has_value());
     REQUIRE(data->sample_rate == 22050);
@@ -1279,18 +1304,13 @@ TEST_CASE("FormatRegistry dispatches custom readers and writers through normaliz
     AudioFileData out;
     out.sample_rate = 48000;
     out.channels = {{0.0f, 0.5f}};
-    auto write_path = (std::filesystem::temp_directory_path() / "pulp_probe_write.AIFC").string();
+    auto write_path = (std::filesystem::temp_directory_path() / "pulp_probe_write.PROBE").string();
     REQUIRE(registry.write(write_path, out));
     REQUIRE(state->write_calls == 1);
     REQUIRE(state->last_write_path == write_path);
     REQUIRE(state->last_written_channels == 1);
     REQUIRE_FALSE(registry.write(write_path, AudioFileData{}));
     REQUIRE(state->write_calls == 2);
-
-    auto read_extensions = registry.supported_read_extensions();
-    REQUIRE(contains_extension(read_extensions, ".aifc"));
-    auto write_extensions = registry.supported_write_extensions();
-    REQUIRE(contains_extension(write_extensions, ".aifc"));
 }
 
 TEST_CASE("FormatRegistry writes and reads AIFF files", "[audio][file][registry][aiff]") {
@@ -1333,6 +1353,13 @@ TEST_CASE("FormatRegistry writes and reads AIFF files", "[audio][file][registry]
         (std::filesystem::temp_directory_path() / "pulp_test_audio_registry.unsupported").string(),
         data));
     REQUIRE_FALSE(registry.write(tmp_path.string(), AudioFileData{}));
+
+    auto ragged = data;
+    ragged.channels[1].pop_back();
+    auto ragged_path = unique_temp_audio_path("_aiff_ragged.aiff");
+    std::filesystem::remove(ragged_path);
+    REQUIRE_FALSE(registry.write(ragged_path.string(), ragged));
+    REQUIRE_FALSE(std::filesystem::exists(ragged_path));
 
     std::filesystem::remove(tmp_path);
 }
@@ -1387,7 +1414,7 @@ TEST_CASE("AIFF reader rejects malformed files", "[audio][file][registry][aiff]"
 }
 
 TEST_CASE("AIFF reader handles AIFC metadata and odd chunk padding", "[audio][file][registry][aiff]") {
-    auto tmp_path = std::filesystem::temp_directory_path() / "pulp_test_audio_aifc_8bit.aif";
+    auto tmp_path = std::filesystem::temp_directory_path() / "pulp_test_audio_aifc_8bit.aifc";
     std::filesystem::remove(tmp_path);
 
     write_aiff_fixture(tmp_path,
@@ -1414,6 +1441,31 @@ TEST_CASE("AIFF reader handles AIFC metadata and odd chunk padding", "[audio][fi
     REQUIRE(data->num_frames() == 2);
     REQUIRE_THAT(data->channels[0][0], WithinAbs(-1.0f, 0.001f));
     REQUIRE_THAT(data->channels[0][1], WithinAbs(0.5f, 0.001f));
+
+    std::filesystem::remove(tmp_path);
+}
+
+TEST_CASE("AIFF reader rejects unsupported AIFC compression types",
+          "[audio][file][registry][aiff]") {
+    auto tmp_path = unique_temp_audio_path("_aiff_ulaw.aifc");
+    auto comm = make_comm_chunk(1, 2, 8, true);
+    comm[18] = 'u';
+    comm[19] = 'l';
+    comm[20] = 'a';
+    comm[21] = 'w';
+
+    write_aiff_fixture(tmp_path,
+                       "AIFC",
+                       {
+                           {"COMM", comm},
+                           {"SSND", make_ssnd_chunk({0x80, 0x40})},
+                       });
+
+    auto& registry = FormatRegistry::instance();
+    auto info = registry.read_info(tmp_path.string());
+    REQUIRE(info.has_value());
+    REQUIRE(info->format == "AIFF-C");
+    REQUIRE_FALSE(registry.read(tmp_path.string()).has_value());
 
     std::filesystem::remove(tmp_path);
 }

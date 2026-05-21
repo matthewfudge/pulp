@@ -430,6 +430,23 @@ TEST_CASE("StateStore serialization", "[state][serialize]") {
     SECTION("Too-short data rejected") {
         REQUIRE_FALSE(store.deserialize(std::span<const uint8_t>{}));
     }
+
+    SECTION("CRC-valid truncated parameter payload rejected") {
+        auto truncated = data;
+        truncated.erase(truncated.begin() + 20, truncated.begin() + 28);
+        const auto payload_size = truncated.size() - 4;
+        write_u32_le(truncated, payload_size, crc32_simple_for_test(truncated, payload_size));
+
+        StateStore store4;
+        store4.add_parameter(p1);
+        store4.add_parameter(p2);
+        store4.set_value(1, 0.25f);
+        store4.set_value(2, 0.25f);
+
+        REQUIRE_FALSE(store4.deserialize(truncated));
+        REQUIRE_THAT(store4.get_value(1), WithinAbs(0.25, 0.001));
+        REQUIRE_THAT(store4.get_value(2), WithinAbs(0.25, 0.001));
+    }
 }
 
 TEST_CASE("StateStore serialization records header fields and rejects future versions",
@@ -924,7 +941,7 @@ TEST_CASE("StateStore unknown modulation and reset calls are inert",
     REQUIRE_THAT(store.get_value(3), WithinAbs(0.25f, 1e-6f));
 }
 
-TEST_CASE("StateStore deserialize keeps complete prefix on short declared count",
+TEST_CASE("StateStore deserialize rejects short declared count payloads",
           "[state][serialize][coverage][phase3-large]") {
     StateStore source;
     auto p1 = make_param_info(1, "One", "", {0.0f, 1.0f, 0.0f});
@@ -938,9 +955,10 @@ TEST_CASE("StateStore deserialize keeps complete prefix on short declared count"
 
     StateStore target;
     target.add_parameter(p1);
+    target.set_value(1, 0.25f);
 
-    REQUIRE(target.deserialize(data));
-    REQUIRE_THAT(target.get_value(1), WithinAbs(0.75, 0.001));
+    REQUIRE_FALSE(target.deserialize(data));
+    REQUIRE_THAT(target.get_value(1), WithinAbs(0.25, 0.001));
 }
 
 TEST_CASE("StateStore empty serialization round-trips as a minimum frame",
@@ -960,7 +978,7 @@ TEST_CASE("StateStore empty serialization round-trips as a minimum frame",
                                                               data.size() - 1}));
 }
 
-TEST_CASE("StateStore deserialize ignores valid trailing payload extensions",
+TEST_CASE("StateStore deserialize rejects trailing payload extensions",
           "[state][serialize][coverage][phase3-large]") {
     StateStore source;
     auto p1 = make_param_info(1, "One", "", {0.0f, 1.0f, 0.0f});
@@ -978,8 +996,8 @@ TEST_CASE("StateStore deserialize ignores valid trailing payload extensions",
     target.add_parameter(p1);
     target.set_value(1, 0.25f);
 
-    REQUIRE(target.deserialize(data));
-    REQUIRE_THAT(target.get_value(1), WithinAbs(0.5, 0.001));
+    REQUIRE_FALSE(target.deserialize(data));
+    REQUIRE_THAT(target.get_value(1), WithinAbs(0.25, 0.001));
 }
 
 // ─── ListenerToken / thread routing (Slice 1) ───────────────────────────────

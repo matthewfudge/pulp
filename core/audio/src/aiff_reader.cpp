@@ -150,11 +150,13 @@ public:
         file.read(reinterpret_cast<char*>(header), 12);
         if (file.gcount() != 12) return std::nullopt;
         if (std::memcmp(header, "FORM", 4) != 0) return std::nullopt;
-        if (std::memcmp(header + 8, "AIFF", 4) != 0 &&
-            std::memcmp(header + 8, "AIFC", 4) != 0) return std::nullopt;
+        bool is_aifc = std::memcmp(header + 8, "AIFC", 4) == 0;
+        if (std::memcmp(header + 8, "AIFF", 4) != 0 && !is_aifc)
+            return std::nullopt;
 
         uint32_t num_channels = 0, num_frames = 0, bits_per_sample = 0;
         double sample_rate = 0;
+        bool unsupported_aifc_compression = false;
         std::vector<uint8_t> ssnd_data;
 
         while (file.good()) {
@@ -176,6 +178,8 @@ public:
                 num_frames = read_be32(comm + 2);
                 bits_per_sample = read_be16(comm + 6);
                 sample_rate = extended_to_double(comm + 8);
+                if (is_aifc && (chunk_size < 22 || std::memcmp(comm + 18, "NONE", 4) != 0))
+                    unsupported_aifc_compression = true;
                 // Skip remaining bytes in chunk (common in AIFC with compression type)
                 uint32_t remaining = chunk_size - bytes_to_read;
                 if (remaining > 0)
@@ -206,7 +210,8 @@ public:
             }
         }
 
-        if (num_channels == 0 || num_frames == 0 || sample_rate <= 0.0 || ssnd_data.empty())
+        if (num_channels == 0 || num_frames == 0 || sample_rate <= 0.0 ||
+            unsupported_aifc_compression || ssnd_data.empty())
             return std::nullopt;
 
         AudioFileData data;
@@ -256,7 +261,7 @@ public:
     }
 
     bool supports_extension(std::string_view ext) const override {
-        return ext == ".aiff" || ext == ".aif";
+        return ext == ".aiff" || ext == ".aif" || ext == ".aifc";
     }
     std::string format_name() const override { return "AIFF"; }
 };
@@ -268,18 +273,33 @@ public:
     bool write(const std::string& path, const AudioFileData& data) override {
         if (!can_write_aiff_pcm16(data)) return false;
 
-        std::ofstream file(path, std::ios::binary);
-        if (!file) return false;
-
         uint32_t num_channels = data.num_channels();
-        uint32_t num_frames = static_cast<uint32_t>(data.num_frames());
+        uint64_t frames = data.num_frames();
+        if (num_channels > std::numeric_limits<uint16_t>::max()
+            || frames > std::numeric_limits<uint32_t>::max()) {
+            return false;
+        }
+        for (const auto& channel : data.channels)
+            if (channel.size() != static_cast<size_t>(frames))
+                return false;
+
+        uint32_t num_frames = static_cast<uint32_t>(frames);
         uint16_t bits = 16;
         int bytes_per_sample = 2;
 
-        uint32_t ssnd_data_size = num_frames * num_channels * bytes_per_sample;
+        uint64_t ssnd_data_bytes = static_cast<uint64_t>(num_frames)
+                                 * static_cast<uint64_t>(num_channels)
+                                 * static_cast<uint64_t>(bytes_per_sample);
+        if (ssnd_data_bytes > std::numeric_limits<uint32_t>::max() - 8u)
+            return false;
+
+        uint32_t ssnd_data_size = static_cast<uint32_t>(ssnd_data_bytes);
         uint32_t ssnd_chunk_size = ssnd_data_size + 8;  // +8 for offset and blockSize
         uint32_t comm_chunk_size = 18;
         uint32_t form_size = 4 + 8 + comm_chunk_size + 8 + ssnd_chunk_size;
+
+        std::ofstream file(path, std::ios::binary);
+        if (!file) return false;
 
         // FORM header
         uint8_t form[12];

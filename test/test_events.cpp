@@ -130,6 +130,25 @@ TEST_CASE("EventLoop reports thread identity and stop state",
     REQUIRE_FALSE(loop.running());
 }
 
+TEST_CASE("EventLoop can be stopped from its own thread",
+          "[events][event_loop][codecov]") {
+    EventLoop loop;
+    std::atomic<bool> ran_on_loop{false};
+    std::atomic<bool> stop_returned{false};
+
+    loop.dispatch([&] {
+        ran_on_loop.store(loop.is_current_thread());
+        loop.stop();
+        stop_returned.store(true);
+    });
+
+    REQUIRE(wait_until([&] { return stop_returned.load(); }, 2000ms));
+    REQUIRE(ran_on_loop.load());
+    REQUIRE_FALSE(loop.running());
+    loop.stop();
+    REQUIRE_FALSE(loop.running());
+}
+
 TEST_CASE("EventLoop stop drops future delayed work",
           "[events][event_loop][issue-642]") {
     std::atomic<int> calls{0};
@@ -615,7 +634,7 @@ TEST_CASE("ActionBroadcaster skips empty callbacks",
     REQUIRE(seen.size() == 1);
 }
 
-TEST_CASE("ActionBroadcaster snapshots callbacks during dispatch",
+TEST_CASE("ActionBroadcaster skips callbacks removed during dispatch",
           "[events][async_updater][action_broadcaster][codecov]") {
     ActionBroadcaster broadcaster;
     std::vector<std::string> seen;
@@ -637,11 +656,11 @@ TEST_CASE("ActionBroadcaster snapshots callbacks during dispatch",
     });
 
     broadcaster.send_action("refresh");
-    REQUIRE(seen == std::vector<std::string>{"first:refresh", "second:refresh"});
+    REQUIRE(seen == std::vector<std::string>{"first:refresh"});
 
     broadcaster.send_action("again");
     REQUIRE(seen == std::vector<std::string>{
-        "first:refresh", "second:refresh", "added:again"});
+        "first:refresh", "added:again"});
 
     broadcaster.remove_listener(added_id);
 }
