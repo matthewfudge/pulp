@@ -22,9 +22,13 @@ pulp import-design --from <source> [options]
 | `--frame <name>` | Frame/artboard to import (Figma) | first frame |
 | `--screen <name>` | Screen to import (Stitch) | first screen |
 | `--output <path>` | Destination file for the primary artifact | `ui.js` |
-| `--emit {js\|ir-json\|cpp}` | Primary artifact kind. `js` is implemented; `ir-json` and `cpp` are reserved and fail cleanly until future implementations land. | `js` |
+| `--emit {js\|ir-json\|cpp}` | Primary artifact kind. `js` and `ir-json` are implemented; `cpp` is reserved for the baked C++ exporter. | `js` |
 | `--mode {live\|baked}` | Runtime model. `live` is implemented; `baked` is reserved and fails cleanly until the baked import mode lands. | `live` |
 | `--snapshot-semantics {fail\|warn\|accept}` | Future JSX baked snapshot policy, parsed now for stable scripting vocabulary. | `fail` |
+| `--allow-network-fetch` | Allow DesignIR asset-manifest HTTP(S) fetches at import time. | off |
+| `--asset-cache <path>` | Asset cache directory for HTTP(S) imports. | `PULP_IMPORT_ASSET_CACHE` or user cache |
+| `--asset-timeout-ms <ms>` | Per-request network asset timeout. | `30000` |
+| `--asset-hash <uri=sha256>` | Expected content hash for an asset URI; may be repeated. | — |
 | `--tokens <path>` | Output W3C token file | `tokens.json` |
 | `--dry-run` | Show generated code without writing | — |
 | `--no-tokens` | Skip token extraction | — |
@@ -42,7 +46,14 @@ pulp import-design --from <source> [options]
 | `--compat <path>` | Override `compat.json` discovery | walk up from input |
 | `--report-new-format` | Emit a fingerprint-diff JSON for a new format-version. Implies `--detect-only` | — |
 
-Either `--file` or `--url` is required (or `--directory` for `--detect-only`). When `--url` is provided without `--file`, the URL is fetched through an argv-safe `curl` invocation into a unique temporary file. Shell metacharacters in `--file` and `--url` are rejected with a usage diagnostic before parsing or fetching.
+Either `--file` or `--url` is required (or `--directory` for `--detect-only`). When `--url` is provided without `--file`, the URL is fetched through an argv-safe `curl` invocation into a unique temporary file. Literal `--file` paths are read directly and may contain normal filesystem punctuation; `--url` still rejects shell metacharacters before fetching.
+
+`--emit ir-json` writes a canonical [DesignIR v1](design-ir-v1.md) envelope.
+Asset collection runs before serialization. Local files and data URIs are
+recorded by default; HTTP(S) asset fetches require explicit
+`--allow-network-fetch` consent and are cached by content hash. For `--url`
+imports, relative asset references resolve against the source URL while the
+authored relative value remains in the manifest as `original_uri`.
 
 ### export-tokens
 
@@ -60,7 +71,7 @@ pulp export-tokens [options]
 
 ## Intermediate Representation (IR)
 
-All source adapters produce a normalized JSON IR before code generation. You can also write IR by hand.
+All source adapters produce a normalized JSON IR before code generation. You can also write IR by hand. The canonical schema is [DesignIR v1](design-ir-v1.md); the summary below covers the common node fields.
 
 ### IRNode
 

@@ -52,6 +52,23 @@ Detect which design source the user wants by checking:
 
 ## Workflow
 
+### DesignIR v1 asset manifest lane
+
+When a user asks for canonical IR or an import pipeline handoff, prefer
+`pulp import-design --emit ir-json`. The output is a versioned DesignIR v1
+envelope with a deterministic `assetManifest` sidecar. Local images, SVGs,
+font URLs, CSS `url(...)` values, and data URIs are recorded by default.
+HTTP(S) assets are resolve-only unless the user explicitly passes
+`--allow-network-fetch`; fetched assets use `--asset-cache`, honor
+`--asset-timeout-ms`, and can be pinned with repeated
+`--asset-hash <uri=sha256>` flags.
+
+For `--url` imports, relative asset references resolve against the original
+source URL, not the temporary downloaded file. The manifest keeps the authored
+value in `original_uri`, stores the resolved fetch target in `source_url`, and
+nodes keep their raw URI attributes plus a stable companion such as
+`srcAssetId` or `backgroundImageAssetId`.
+
 ### Step 1: Identify source and input
 
 Ask the user or detect from context:
@@ -725,10 +742,10 @@ pulp import-design --from claude --file design.html --no-emit-classnames
 
 Import artifact flag vocabulary:
 - `--output <path>` is the destination for the primary artifact; today that artifact is JS and defaults to `ui.js`.
-- `--emit js` is implemented today. `--emit ir-json` and `--emit cpp` are recognized reserved values for future implementations and fail cleanly. Legacy `--emit classnames` remains accepted for the Claude classnames sidecar.
+- `--emit js` and `--emit ir-json` are implemented today. `--emit cpp` is recognized as a reserved value for the baked C++ exporter and fails cleanly. Legacy `--emit classnames` remains accepted for the Claude classnames sidecar.
 - `--mode live` is implemented today. `--mode baked` is recognized and reserved for a future import mode.
 - `--snapshot-semantics fail|warn|accept` is parsed now for future JSX baked imports.
-- URL imports fetch through argv-safe `curl` into a unique temporary file; shell metacharacters in `--file` and `--url` are rejected before parsing or fetching.
+- URL imports fetch through argv-safe `curl` into a unique temporary file; literal `--file` paths are read directly and may contain normal filesystem punctuation, while `--url` rejects shell metacharacters before fetching.
 
 Use `--dry-run` to preview without writing files.
 

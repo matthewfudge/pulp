@@ -5,13 +5,17 @@
 #include <pulp/view/widget_bridge.hpp>
 
 #include <cstdlib>
+#include <chrono>
+#include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
 
 using namespace pulp::view;
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -50,6 +54,78 @@ std::string read_fixture(const std::string& rel_path) {
 
 std::string asset_text(const ClaudeBundleAsset& asset) {
     return std::string(asset.data.begin(), asset.data.end());
+}
+
+class TempDir {
+public:
+    explicit TempDir(const std::string& prefix) {
+        const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+        path = fs::temp_directory_path() / (prefix + "-" + std::to_string(tick));
+        fs::create_directories(path);
+    }
+
+    ~TempDir() {
+        std::error_code ec;
+        fs::remove_all(path, ec);
+    }
+
+    fs::path path;
+};
+
+void write_text(const fs::path& path, const std::string& text) {
+    fs::create_directories(path.parent_path());
+    std::ofstream f(path, std::ios::binary);
+    REQUIRE(f.is_open());
+    f << text;
+    REQUIRE(f.good());
+}
+
+std::optional<std::string> read_env_var(const char* name) {
+    if (const char* value = std::getenv(name); value) return std::string(value);
+    return std::nullopt;
+}
+
+void set_env_var(const char* name, const std::string& value) {
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
+
+void unset_env_var(const char* name) {
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+
+class ScopedEnvVar {
+public:
+    ScopedEnvVar(const char* name, const std::string& value)
+        : name_(name), old_(read_env_var(name)) {
+        set_env_var(name_.c_str(), value);
+    }
+
+    ~ScopedEnvVar() {
+        if (old_) set_env_var(name_.c_str(), *old_);
+        else unset_env_var(name_.c_str());
+    }
+
+    ScopedEnvVar(const ScopedEnvVar&) = delete;
+    ScopedEnvVar& operator=(const ScopedEnvVar&) = delete;
+
+private:
+    std::string name_;
+    std::optional<std::string> old_;
+};
+
+bool has_diagnostic(const IRAssetRef& asset, const std::string& code) {
+    for (const auto& diagnostic : asset.diagnostics) {
+        if (diagnostic.code == code) return true;
+    }
+    return false;
 }
 
 const char* minimal_host_react_dom_shim() {
@@ -197,6 +273,8 @@ TEST_CASE("parse_design_source recognizes valid sources", "[view][import]") {
     REQUIRE(parse_design_source("v0") == DesignSource::v0);
     REQUIRE(parse_design_source("pencil") == DesignSource::pencil);
     REQUIRE(parse_design_source("claude") == DesignSource::claude);
+    REQUIRE(parse_design_source("designmd") == DesignSource::designmd);
+    REQUIRE(parse_design_source("jsx") == DesignSource::jsx);
     REQUIRE_FALSE(parse_design_source("unknown").has_value());
 }
 
@@ -204,7 +282,612 @@ TEST_CASE("design_source_name returns display names", "[view][import]") {
     REQUIRE(std::string(design_source_name(DesignSource::figma)) == "Figma");
     REQUIRE(std::string(design_source_name(DesignSource::v0)) == "v0");
     REQUIRE(std::string(design_source_name(DesignSource::claude)) == "Claude Design");
+    REQUIRE(std::string(design_source_name(DesignSource::designmd)) == "DESIGN.md");
+    REQUIRE(std::string(design_source_name(DesignSource::jsx)) == "JSX instrument");
 }
+
+TEST_CASE("DesignIR v1 canonical JSON round-trips source metadata and assets",
+          "[view][import][ir-v1][assets]") {
+    DesignIR ir;
+    ir.source = DesignSource::stitch;
+    ir.source_file = "https://example.test/design.html";
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+    ir.root.layout.display = "flex";
+    ir.root.layout.direction = LayoutDirection::row;
+    ir.root.layout.gap = 8.0f;
+    ir.root.layout.row_gap = 4.0f;
+    ir.root.layout.column_gap = 6.0f;
+    ir.root.layout.margin_top = 1.0f;
+    ir.root.layout.margin_right = 2.0f;
+    ir.root.layout.margin_bottom = 3.0f;
+    ir.root.layout.margin_left = 4.0f;
+    ir.root.layout.justify = LayoutAlign::space_between;
+    ir.root.layout.align = LayoutAlign::center;
+    ir.root.layout.align_self = "stretch";
+    ir.root.layout.align_content = "space-between";
+    ir.root.layout.flex_grow = 1.0f;
+    ir.root.layout.flex_shrink = 0.0f;
+    ir.root.layout.flex_basis = "auto";
+    ir.root.layout.order = 2;
+    ir.root.layout.aspect_ratio = 1.5f;
+    ir.root.layout.overflow_x = "hidden";
+    ir.root.layout.overflow_y = "auto";
+    ir.root.layout.width_mode = SizingMode::fill;
+    ir.root.layout.height_mode = SizingMode::hug;
+    ir.root.style.background_color = "#101010";
+    ir.root.style.background_image = "url(data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'/%3E)";
+    ir.root.style.background_repeat = "no-repeat";
+    ir.root.style.border_color = "#ffffff";
+    ir.root.style.border_width = 2.0f;
+    ir.root.style.border_style = "solid";
+    ir.root.style.border_top_left_radius = 3.0f;
+    ir.root.style.border_top_right_radius = 4.0f;
+    ir.root.style.border_bottom_right_radius = 5.0f;
+    ir.root.style.border_bottom_left_radius = 6.0f;
+    ir.root.style.backdrop_filter = "blur(4px)";
+    ir.root.style.text_decoration = "underline";
+    ir.root.style.white_space = "nowrap";
+    ir.root.style.text_overflow = "ellipsis";
+    ir.root.stable_anchor_id = "stitch:panel";
+    ir.root.anchor_strategy = "adapter";
+    ir.root.source_node_id = "node-1";
+    ir.root.source_adapter = "stitch";
+    ir.root.source_version = "1";
+    ir.root.attributes["zeta"] = "last";
+    ir.root.attributes["alpha"] = "first";
+
+    IRNode label;
+    label.type = "text";
+    label.name = "Title";
+    label.text_content = "Gain";
+    ir.root.children.push_back(label);
+
+    ir.tokens.colors["accent"] = "#ff00ff";
+    ir.tokens.dimensions["spacing.md"] = 8.0f;
+    ir.tokens.strings["copy.title"] = "Gain";
+    ir.tokens.source_identity["colors.accent"] = IRTokenIdentity{
+        "var-1", "palette", "dark", "stitch"
+    };
+
+    refresh_design_ir_asset_manifest(ir);
+
+    const auto canonical = serialize_design_ir(ir);
+    const auto parsed = parse_design_ir_json(canonical);
+    const auto canonical_again = serialize_design_ir(parsed);
+
+    REQUIRE(canonical_again == canonical);
+    REQUIRE(parsed.version == 1);
+    REQUIRE(parsed.source == DesignSource::stitch);
+    REQUIRE(parsed.source_file == "https://example.test/design.html");
+    REQUIRE(parsed.root.layout.display == "flex");
+    REQUIRE(parsed.root.layout.flex_grow == 1.0f);
+    REQUIRE(parsed.root.layout.overflow_y == "auto");
+    REQUIRE(parsed.root.style.background_repeat == "no-repeat");
+    REQUIRE(parsed.root.style.border_top_left_radius == 3.0f);
+    REQUIRE(parsed.root.style.text_overflow == "ellipsis");
+    REQUIRE(parsed.root.stable_anchor_id == "stitch:panel");
+    REQUIRE(parsed.root.anchor_strategy == "adapter");
+    REQUIRE(parsed.root.source_adapter == "stitch");
+    REQUIRE(parsed.root.attributes.at("alpha") == "first");
+    REQUIRE(parsed.tokens.source_identity.at("colors.accent").source_mode == "dark");
+    REQUIRE(parsed.asset_manifest.version == 1);
+    REQUIRE(parsed.asset_manifest.assets.size() == 1);
+    REQUIRE(parsed.asset_manifest.assets[0].mime == "image/svg+xml");
+    REQUIRE_FALSE(parsed.asset_manifest.assets[0].content_hash.empty());
+}
+
+TEST_CASE("DesignIR serialization preserves parsed envelope version by default",
+          "[view][import][ir-v1]") {
+    auto parsed = parse_design_ir_json(R"json({
+        "version": 2,
+        "source": "jsx",
+        "root": { "type": "frame", "name": "Future IR" }
+    })json");
+
+    REQUIRE(parsed.version == 2);
+
+    const auto canonical = serialize_design_ir(parsed);
+    REQUIRE(canonical.find("\"version\":2") != std::string::npos);
+    REQUIRE(parse_design_ir_json(canonical).version == 2);
+
+    DesignIrJsonOptions force_v1;
+    force_v1.version = 1;
+    REQUIRE(serialize_design_ir(parsed, force_v1).find("\"version\":1") != std::string::npos);
+}
+
+TEST_CASE("parse_design_ir_json accepts legacy bare-node IR JSON",
+          "[view][import][ir-v1]") {
+    const auto legacy = std::string{R"json({
+        "type": "frame",
+        "name": "Legacy",
+        "layout": { "direction": "column", "gap": 12 },
+        "style": { "backgroundColor": "#202020" },
+        "tokens": {
+            "colors": { "bg": "#202020" }
+        }
+    })json"};
+
+    const auto parsed = parse_design_ir_json(legacy);
+    REQUIRE(parsed.version == 1);
+    REQUIRE(parsed.root.type == "frame");
+    REQUIRE(parsed.root.name == "Legacy");
+    REQUIRE(parsed.root.layout.direction == LayoutDirection::column);
+    REQUIRE(parsed.root.layout.gap == 12.0f);
+    REQUIRE(parsed.root.style.background_color == "#202020");
+    REQUIRE(parsed.tokens.colors.at("bg") == "#202020");
+}
+
+TEST_CASE("DesignIR v1 canonical equivalence covers static source adapters",
+          "[view][import][ir-v1]") {
+    auto assert_canonical_round_trip = [](DesignIR ir) {
+        refresh_design_ir_asset_manifest(ir);
+        const auto canonical = serialize_design_ir(ir);
+        const auto parsed = parse_design_ir_json(canonical);
+        REQUIRE(serialize_design_ir(parsed) == canonical);
+        REQUIRE(parsed.version == 1);
+        REQUIRE(parsed.asset_manifest.version == 1);
+    };
+
+    SECTION("figma JSON") {
+        auto ir = parse_figma_json(R"json({
+            "type": "frame",
+            "name": "Figma Panel",
+            "id": "figma-node-1",
+            "style": { "backgroundColor": "#18191c" },
+            "tokens": {
+                "colors": { "accent": "#57a6ff" },
+                "sourceIdentity": {
+                    "colors.accent": {
+                        "sourceId": "var-accent",
+                        "sourceCollection": "palette",
+                        "sourceMode": "dark",
+                        "sourceAdapter": "figma"
+                    }
+                }
+            },
+            "children": [
+                { "type": "text", "name": "Title", "content": "Gain" }
+            ]
+        })json");
+        REQUIRE(ir.tokens.source_identity.at("colors.accent").source_adapter == "figma");
+        assert_canonical_round_trip(std::move(ir));
+    }
+
+    SECTION("stitch HTML") {
+        assert_canonical_round_trip(parse_stitch_html(
+            "<!doctype html><main><label>Frequency</label><span>8473 Hz</span></main>"));
+    }
+
+    SECTION("v0 TSX") {
+        assert_canonical_round_trip(parse_v0_tsx(
+            "export default function App(){ return <div className=\"flex flex-row gap-2 bg-slate-900\" />; }"));
+    }
+
+    SECTION("pencil JSON") {
+        assert_canonical_round_trip(parse_pencil_json(R"json({
+            "type": "frame",
+            "name": "Pencil Card",
+            "nodeId": "pencil-node-1",
+            "style": { "backgroundImage": "url(data:image/svg+xml,%3Csvg%2F%3E)" },
+            "children": [
+                { "type": "text", "name": "Label", "content": "Mix" }
+            ]
+        })json"));
+    }
+
+    SECTION("claude HTML") {
+        assert_canonical_round_trip(parse_claude_html(
+            "<!doctype html><html><body><section><h1>Parameters</h1></section></body></html>"));
+    }
+}
+
+TEST_CASE("DesignIR asset manifest records data URI local image and font assets",
+          "[view][import][assets]") {
+    TempDir tmp("pulp-design-ir-assets");
+    const auto image_path = tmp.path / "meter.png";
+    const auto font_path = tmp.path / "Inter.woff2";
+    write_text(image_path, "\x89PNG\r\n\x1a\nnot-a-real-png-but-sniffable");
+    write_text(font_path, "wOF2font-bytes");
+
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Assets";
+    ir.root.style.background_image = "url(data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'/%3E)";
+    ir.root.attributes["src"] = "meter.png";
+    ir.root.attributes["fontUrl"] = "Inter.woff2";
+
+    DesignIrAssetOptions options;
+    options.base_directory = tmp.path;
+    refresh_design_ir_asset_manifest(ir, options);
+
+    REQUIRE(ir.asset_manifest.assets.size() == 3);
+
+    bool saw_data = false;
+    bool saw_image = false;
+    bool saw_font = false;
+    for (const auto& asset : ir.asset_manifest.assets) {
+        REQUIRE_FALSE(asset.asset_id.empty());
+        REQUIRE_FALSE(asset.content_hash.empty());
+        REQUIRE(asset.diagnostics.empty());
+        if (asset.original_uri.rfind("data:", 0) == 0) {
+            saw_data = true;
+            REQUIRE(asset.mime == "image/svg+xml");
+        } else if (asset.original_uri == "meter.png") {
+            saw_image = true;
+            REQUIRE(asset.mime == "image/png");
+            REQUIRE(asset.local_path);
+        } else if (asset.original_uri == "Inter.woff2") {
+            saw_font = true;
+            REQUIRE(asset.mime == "font/woff2");
+            REQUIRE(asset.local_path);
+        }
+    }
+    REQUIRE(saw_data);
+    REQUIRE(saw_image);
+    REQUIRE(saw_font);
+
+    const auto round_trip = parse_design_ir_json(serialize_design_ir(ir));
+    REQUIRE(round_trip.asset_manifest.assets.size() == 3);
+    REQUIRE(serialize_design_ir(round_trip) == serialize_design_ir(ir));
+}
+
+TEST_CASE("DesignIR parses camelCase source metadata and static HTML CSS assets",
+          "[view][import][ir-v1][assets]") {
+    SECTION("sourceNodeId is accepted as source metadata") {
+        auto ir = parse_design_ir_json(R"json({
+            "type": "frame",
+            "name": "Screen",
+            "sourceNodeId": "node-camel-1"
+        })json");
+
+        REQUIRE(ir.root.source_node_id);
+        REQUIRE(*ir.root.source_node_id == "node-camel-1");
+        REQUIRE(serialize_design_ir(ir).find("\"source_node_id\":\"node-camel-1\"")
+                != std::string::npos);
+    }
+
+    SECTION("static Claude HTML CSS urls and fonts enter the asset manifest") {
+        TempDir tmp("pulp-design-ir-static-html-assets");
+        write_text(tmp.path / "hero.svg",
+                   "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"1\" height=\"1\"/></svg>");
+        write_text(tmp.path / "Inter.woff2", "wOF2font-bytes");
+
+        auto ir = parse_claude_html(R"html(
+            <!doctype html>
+            <html>
+            <head>
+            <style>
+            @font-face { font-family: "Inter"; src: url("Inter.woff2") format("woff2"); }
+            .hero { background-image: url("hero.svg"); }
+            </style>
+            </head>
+            <body><section class="hero"><h1>Parameters</h1></section></body>
+            </html>
+        )html");
+
+        DesignIrAssetOptions options;
+        options.base_directory = tmp.path;
+        refresh_design_ir_asset_manifest(ir, options);
+
+        bool saw_svg = false;
+        bool saw_font = false;
+        for (const auto& asset : ir.asset_manifest.assets) {
+            REQUIRE(asset.diagnostics.empty());
+            if (asset.original_uri == "hero.svg") {
+                saw_svg = true;
+                REQUIRE(asset.mime == "image/svg+xml");
+                REQUIRE_FALSE(asset.content_hash.empty());
+            } else if (asset.original_uri == "Inter.woff2") {
+                saw_font = true;
+                REQUIRE(asset.mime == "font/woff2");
+                REQUIRE(asset.font_family);
+                REQUIRE(*asset.font_family == "Inter");
+                REQUIRE_FALSE(asset.content_hash.empty());
+            }
+        }
+        REQUIRE(saw_svg);
+        REQUIRE(saw_font);
+    }
+}
+
+TEST_CASE("DesignIR asset manifest preserves top-level asset refs and writes asset ids",
+          "[view][import][assets]") {
+    TempDir tmp("pulp-design-ir-top-level-assets");
+    const auto image_path = tmp.path / "hero.png";
+    write_text(image_path, "\x89PNG\r\n\x1a\nhero-bytes");
+
+    auto ir = parse_design_ir_json(R"json({
+        "type": "frame",
+        "name": "Screen",
+        "children": [
+            { "type": "image", "name": "Hero", "src": "hero.png" }
+        ]
+    })json");
+
+    DesignIrAssetOptions options;
+    options.base_directory = tmp.path;
+    refresh_design_ir_asset_manifest(ir, options);
+
+    REQUIRE(ir.asset_manifest.assets.size() == 1);
+    const auto& asset = ir.asset_manifest.assets[0];
+    REQUIRE(asset.original_uri == "hero.png");
+    REQUIRE(asset.mime == "image/png");
+    REQUIRE(asset.local_path);
+    REQUIRE_FALSE(asset.content_hash.empty());
+
+    REQUIRE(ir.root.children.size() == 1);
+    const auto& image = ir.root.children[0];
+    REQUIRE(image.attributes.at("src") == "hero.png");
+    REQUIRE(image.attributes.at("srcAssetId") == asset.asset_id);
+
+    const auto round_trip = parse_design_ir_json(serialize_design_ir(ir));
+    REQUIRE(round_trip.root.children[0].attributes.at("src") == "hero.png");
+    REQUIRE(round_trip.root.children[0].attributes.at("srcAssetId") == asset.asset_id);
+}
+
+TEST_CASE("DesignIR asset manifest keeps URI aliases for deduped refs",
+          "[view][import][assets]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Aliases";
+
+    IRNode first;
+    first.type = "image";
+    first.name = "Plain";
+    first.attributes["src"] = "hero.png";
+    IRNode second;
+    second.type = "image";
+    second.name = "DotSlash";
+    second.attributes["src"] = "./hero.png";
+    ir.root.children.push_back(std::move(first));
+    ir.root.children.push_back(std::move(second));
+
+    DesignIrAssetOptions options;
+    options.base_url = "https://cdn.example.test/screens/index.html";
+    refresh_design_ir_asset_manifest(ir, options);
+
+    REQUIRE(ir.asset_manifest.assets.size() == 1);
+    const auto& asset = ir.asset_manifest.assets[0];
+    REQUIRE(asset.original_uri == "hero.png");
+    REQUIRE(asset.source_url);
+    REQUIRE(*asset.source_url == "https://cdn.example.test/screens/hero.png");
+    REQUIRE(std::find(asset.original_uri_aliases.begin(),
+                      asset.original_uri_aliases.end(),
+                      "./hero.png") != asset.original_uri_aliases.end());
+    REQUIRE(ir.root.children[0].attributes.at("srcAssetId") == asset.asset_id);
+    REQUIRE(ir.root.children[1].attributes.at("srcAssetId") == asset.asset_id);
+
+    const auto round_trip = parse_design_ir_json(serialize_design_ir(ir));
+    REQUIRE(round_trip.asset_manifest.assets.size() == 1);
+    REQUIRE(round_trip.asset_manifest.assets[0].original_uri_aliases == asset.original_uri_aliases);
+    REQUIRE(round_trip.root.children[1].attributes.at("srcAssetId") == asset.asset_id);
+}
+
+TEST_CASE("DesignIR asset manifest refresh rewrites stale asset ids",
+          "[view][import][assets]") {
+    TempDir tmp("pulp-design-ir-refresh-asset-ids");
+    const auto asset_dir = tmp.path / "assets";
+    fs::create_directories(asset_dir);
+    write_text(asset_dir / "hero.png", "\x89PNG\r\n\x1a\nhero-bytes");
+
+    auto ir = parse_design_ir_json(R"json({
+        "type": "frame",
+        "name": "Screen",
+        "children": [
+            { "type": "image", "name": "Hero", "src": "assets/hero.png" }
+        ]
+    })json");
+
+    DesignIrAssetOptions unresolved_options;
+    refresh_design_ir_asset_manifest(ir, unresolved_options);
+    REQUIRE(ir.asset_manifest.assets.size() == 1);
+    const auto stale_id = ir.root.children[0].attributes.at("srcAssetId");
+    REQUIRE(has_diagnostic(ir.asset_manifest.assets[0], "asset-unresolved"));
+
+    DesignIrAssetOptions resolved_options;
+    resolved_options.base_directory = tmp.path;
+    refresh_design_ir_asset_manifest(ir, resolved_options);
+
+    REQUIRE(ir.asset_manifest.assets.size() == 1);
+    const auto& resolved = ir.asset_manifest.assets[0];
+    REQUIRE(resolved.local_path);
+    REQUIRE(resolved.asset_id != stale_id);
+    REQUIRE(ir.root.children[0].attributes.at("srcAssetId") == resolved.asset_id);
+}
+
+TEST_CASE("DesignIR asset manifest keeps distinct external assets with identical bytes",
+          "[view][import][assets]") {
+    TempDir tmp("pulp-design-ir-distinct-assets");
+    write_text(tmp.path / "a.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
+    write_text(tmp.path / "b.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>");
+
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Distinct";
+    IRNode first;
+    first.type = "image";
+    first.name = "A";
+    first.attributes["src"] = "a.svg";
+    IRNode second;
+    second.type = "image";
+    second.name = "B";
+    second.attributes["src"] = "b.svg";
+    ir.root.children.push_back(std::move(first));
+    ir.root.children.push_back(std::move(second));
+
+    DesignIrAssetOptions options;
+    options.base_directory = tmp.path;
+    refresh_design_ir_asset_manifest(ir, options);
+
+    REQUIRE(ir.asset_manifest.assets.size() == 2);
+    const IRAssetRef* a = nullptr;
+    const IRAssetRef* b = nullptr;
+    for (const auto& asset : ir.asset_manifest.assets) {
+        if (asset.original_uri == "a.svg") a = &asset;
+        if (asset.original_uri == "b.svg") b = &asset;
+    }
+    REQUIRE(a != nullptr);
+    REQUIRE(b != nullptr);
+    REQUIRE(a->content_hash == b->content_hash);
+    REQUIRE(a->asset_id != b->asset_id);
+    REQUIRE(ir.root.children[0].attributes.at("srcAssetId") == a->asset_id);
+    REQUIRE(ir.root.children[1].attributes.at("srcAssetId") == b->asset_id);
+}
+
+TEST_CASE("DesignIR asset manifest records unresolved and network-gated diagnostics",
+          "[view][import][assets]") {
+    TempDir tmp("pulp-design-ir-asset-diagnostics");
+
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Diagnostics";
+    ir.root.style.background_image = "url(https://example.test/hero.png)";
+    ir.root.attributes["src"] = "missing.png";
+
+    DesignIrAssetOptions options;
+    options.base_directory = tmp.path;
+    auto manifest = collect_design_ir_assets(ir, options);
+
+    REQUIRE(manifest.assets.size() == 2);
+    bool saw_missing = false;
+    bool saw_network = false;
+    for (const auto& asset : manifest.assets) {
+        if (asset.original_uri == "missing.png") {
+            saw_missing = true;
+            REQUIRE(has_diagnostic(asset, "asset-unresolved"));
+            REQUIRE(asset.content_hash.empty());
+        } else if (asset.original_uri == "https://example.test/hero.png") {
+            saw_network = true;
+            REQUIRE(has_diagnostic(asset, "asset-network-fetch-disabled"));
+            REQUIRE(asset.content_hash.empty());
+        }
+    }
+    REQUIRE(saw_missing);
+    REQUIRE(saw_network);
+}
+
+#ifndef _WIN32
+TEST_CASE("DesignIR asset manifest fetches network assets through cache and verifies hashes",
+          "[view][import][assets][network]") {
+    TempDir tmp("pulp-design-ir-network-assets");
+    const auto bin = tmp.path / "bin";
+    const auto curl = bin / "curl";
+    fs::create_directories(bin);
+    write_text(curl,
+               "#!/bin/sh\n"
+               "out=''\n"
+               "while [ \"$#\" -gt 0 ]; do\n"
+               "  case \"$1\" in\n"
+               "    --output) shift; out=\"$1\" ;;\n"
+               "  esac\n"
+               "  shift\n"
+               "done\n"
+               "[ -n \"$out\" ] || exit 9\n"
+               "printf '%s' '<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"1\" height=\"1\"/></svg>' > \"$out\"\n");
+    fs::permissions(curl,
+                    fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write,
+                    fs::perm_options::add);
+
+    const auto url = std::string("https://example.test/icon.svg");
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Network";
+    ir.root.style.background_image = "url(" + url + ")";
+
+    auto old_path = read_env_var("PATH").value_or("");
+    ScopedEnvVar path_override("PATH", bin.string() + ":" + old_path);
+
+    DesignIrAssetOptions options;
+    options.allow_network_fetch = true;
+    options.network_timeout_ms = 5000;
+    options.cache_directory = tmp.path / "asset-cache";
+    options.expected_hash_by_uri[url] = "not-the-actual-hash";
+
+    auto manifest = collect_design_ir_assets(ir, options);
+    REQUIRE(manifest.assets.size() == 1);
+    const auto& fetched = manifest.assets[0];
+    REQUIRE(fetched.original_uri == url);
+    REQUIRE(fetched.source_url == url);
+    REQUIRE(fetched.mime == "image/svg+xml");
+    REQUIRE_FALSE(fetched.local_path);
+    REQUIRE_FALSE(fetched.content_hash.empty());
+    REQUIRE(has_diagnostic(fetched, "asset-hash-mismatch"));
+    REQUIRE_FALSE(fs::exists(options.cache_directory / "by-hash"));
+    REQUIRE_FALSE(fs::exists(options.cache_directory / "by-url"));
+
+    const auto actual_hash = fetched.content_hash;
+    options.expected_hash_by_uri[url] = actual_hash;
+    auto verified = collect_design_ir_assets(ir, options);
+    REQUIRE(verified.assets.size() == 1);
+    REQUIRE(verified.assets[0].content_hash == actual_hash);
+    REQUIRE(verified.assets[0].diagnostics.empty());
+    REQUIRE(verified.assets[0].local_path);
+    REQUIRE(fs::exists(*verified.assets[0].local_path));
+
+    fs::remove(curl);
+    options.expected_hash_by_uri.clear();
+    auto cached = collect_design_ir_assets(ir, options);
+    REQUIRE(cached.assets.size() == 1);
+    REQUIRE(cached.assets[0].content_hash == actual_hash);
+    REQUIRE(cached.assets[0].diagnostics.empty());
+
+    options.expected_hash_by_uri[url] = "definitely-not-the-cached-hash";
+    auto cached_mismatch = collect_design_ir_assets(ir, options);
+    REQUIRE(cached_mismatch.assets.size() == 1);
+    REQUIRE(cached_mismatch.assets[0].content_hash == actual_hash);
+    REQUIRE(has_diagnostic(cached_mismatch.assets[0], "asset-hash-mismatch"));
+}
+
+TEST_CASE("DesignIR asset manifest reports network fetch failures and timeouts",
+          "[view][import][assets][network]") {
+    TempDir tmp("pulp-design-ir-network-diagnostics");
+    const auto bin = tmp.path / "bin";
+    const auto curl = bin / "curl";
+    fs::create_directories(bin);
+    write_text(curl,
+               "#!/bin/sh\n"
+               "url=''\n"
+               "while [ \"$#\" -gt 0 ]; do\n"
+               "  case \"$1\" in\n"
+               "    http://*|https://*) url=\"$1\" ;;\n"
+               "  esac\n"
+               "  shift\n"
+               "done\n"
+               "case \"$url\" in\n"
+               "  *slow*) sleep 5 ;;\n"
+               "  *) printf 'fetch failed for %s\\n' \"$url\" >&2; exit 28 ;;\n"
+               "esac\n");
+    fs::permissions(curl,
+                    fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write,
+                    fs::perm_options::add);
+
+    auto old_path = read_env_var("PATH").value_or("");
+    ScopedEnvVar path_override("PATH", bin.string() + ":" + old_path);
+
+    DesignIrAssetOptions options;
+    options.allow_network_fetch = true;
+    options.cache_directory = tmp.path / "asset-cache";
+    options.network_timeout_ms = 5000;
+
+    DesignIR failed_ir;
+    failed_ir.root.type = "frame";
+    failed_ir.root.name = "FetchFail";
+    failed_ir.root.style.background_image = "url(https://example.test/fail.svg)";
+    auto failed = collect_design_ir_assets(failed_ir, options);
+    REQUIRE(failed.assets.size() == 1);
+    REQUIRE(has_diagnostic(failed.assets[0], "asset-fetch-failed"));
+
+    options.network_timeout_ms = 100;
+    DesignIR timeout_ir;
+    timeout_ir.root.type = "frame";
+    timeout_ir.root.name = "FetchTimeout";
+    timeout_ir.root.style.background_image = "url(https://example.test/slow.svg)";
+    auto timed_out = collect_design_ir_assets(timeout_ir, options);
+    REQUIRE(timed_out.assets.size() == 1);
+    REQUIRE(has_diagnostic(timed_out.assets[0], "asset-fetch-timeout"));
+}
+#endif
 
 // pulp #709 / #468 — Claude Design imports are manually-exported HTML
 // parsed via the Stitch HTML pipeline and re-tagged as Claude.
