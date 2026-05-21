@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01782"></a>
+## [0.178.2] - 2026-05-20
+
+- feat(view): token lock-to-source via DESIGN.md rewrite (Phase 4c) ([#2508](https://github.com/danielraffel/pulp/pull/2508))
+- feat(inspect): add Phase 5.2 reconciliation tab to the inspector overlay ([#2524](https://github.com/danielraffel/pulp/pull/2524))
+
 <a id="v01781"></a>
 ## [0.178.1] - 2026-05-20
 
@@ -2338,6 +2344,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.178.2]: https://github.com/danielraffel/pulp/releases/tag/v0.178.2
 [0.178.1]: https://github.com/danielraffel/pulp/releases/tag/v0.178.1
 [0.178.0]: https://github.com/danielraffel/pulp/releases/tag/v0.178.0
 [0.177.1]: https://github.com/danielraffel/pulp/releases/tag/v0.177.1
