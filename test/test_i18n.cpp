@@ -468,6 +468,25 @@ TEST_CASE("i18n JSON parser handles escapes and keyless entries", "[runtime][i18
     REQUIRE(strings.translate("slash") == "path\\file");
 }
 
+TEST_CASE("i18n JSON parser handles standard control escapes",
+          "[runtime][i18n][coverage][phase3]") {
+    TemporaryFile tmp(".json");
+    {
+        std::ofstream f(tmp.path());
+        f << "{";
+        f << "\"carriage\":\"left\\rright\",";
+        f << "\"backspace\":\"ab\\bc\",";
+        f << "\"formfeed\":\"page\\fbreak\"";
+        f << "}";
+    }
+
+    LocalisedStrings strings;
+    REQUIRE(strings.load_json_file(tmp.path_string()));
+    REQUIRE(strings.translate("carriage") == "left\rright");
+    REQUIRE(strings.translate("backspace") == "ab\bc");
+    REQUIRE(strings.translate("formfeed") == "page\fbreak");
+}
+
 TEST_CASE("i18n JSON parser accepts commas and duplicate keys", "[runtime][i18n][coverage][issue-656]") {
     TemporaryFile tmp(".json");
     {
