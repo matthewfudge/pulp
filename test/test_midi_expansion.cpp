@@ -130,6 +130,153 @@ TEST_CASE("RpnParser ignores incomplete selections and unrelated CCs",
     REQUIRE(calls == 0);
 }
 
+TEST_CASE("RpnParser accepts selector bytes in either order",
+          "[midi][rpn][issue-645]") {
+    RpnParser rpn;
+    std::vector<uint16_t> params;
+    std::vector<uint16_t> values;
+
+    rpn.on_rpn = [&](uint8_t, uint16_t param, uint16_t value) {
+        params.push_back(param);
+        values.push_back(value);
+    };
+
+    rpn.process(MidiEvent::cc(0, 100, 5));  // RPN LSB first
+    rpn.process(MidiEvent::cc(0, 6, 9));
+    rpn.process(MidiEvent::cc(0, 38, 1));
+    REQUIRE(params.empty());
+
+    rpn.process(MidiEvent::cc(0, 101, 2));  // RPN MSB completes selection
+    rpn.process(MidiEvent::cc(0, 38, 3));
+
+    REQUIRE(params == std::vector<uint16_t>{static_cast<uint16_t>((2 << 7) | 5)});
+    REQUIRE(values == std::vector<uint16_t>{static_cast<uint16_t>((9 << 7) | 3)});
+}
+
+TEST_CASE("RpnParser accepts NRPN selector bytes in either order",
+          "[midi][rpn][issue-645]") {
+    RpnParser rpn;
+    uint16_t received_param = 0;
+    uint16_t received_value = 0;
+
+    rpn.on_nrpn = [&](uint8_t, uint16_t param, uint16_t value) {
+        received_param = param;
+        received_value = value;
+    };
+
+    rpn.process(MidiEvent::cc(1, 98, 12));  // NRPN LSB first
+    rpn.process(MidiEvent::cc(1, 6, 7));
+    rpn.process(MidiEvent::cc(1, 38, 4));
+    REQUIRE(received_param == 0);
+
+    rpn.process(MidiEvent::cc(1, 99, 3));   // NRPN MSB completes selection
+    rpn.process(MidiEvent::cc(1, 38, 5));
+
+    REQUIRE(received_param == static_cast<uint16_t>((3 << 7) | 12));
+    REQUIRE(received_value == static_cast<uint16_t>((7 << 7) | 5));
+}
+
+TEST_CASE("RpnParser does not mix RPN and NRPN selector halves",
+          "[midi][rpn][issue-645]") {
+    RpnParser rpn;
+    int rpn_calls = 0;
+    int nrpn_calls = 0;
+    rpn.on_rpn = [&](uint8_t, uint16_t, uint16_t) { ++rpn_calls; };
+    rpn.on_nrpn = [&](uint8_t, uint16_t, uint16_t) { ++nrpn_calls; };
+
+    rpn.process(MidiEvent::cc(0, 101, 4));  // RPN MSB
+    rpn.process(MidiEvent::cc(0, 98, 9));   // NRPN LSB should start a fresh selector
+    rpn.process(MidiEvent::cc(0, 6, 1));
+    rpn.process(MidiEvent::cc(0, 38, 2));
+    REQUIRE(rpn_calls == 0);
+    REQUIRE(nrpn_calls == 0);
+
+    rpn.process(MidiEvent::cc(0, 99, 1));   // Complete the NRPN selector
+    rpn.process(MidiEvent::cc(0, 38, 3));
+    REQUIRE(rpn_calls == 0);
+    REQUIRE(nrpn_calls == 1);
+}
+
+TEST_CASE("RpnParser does not reuse stale LSB after a new RPN MSB",
+          "[midi][rpn][issue-645]") {
+    RpnParser rpn;
+    std::vector<uint16_t> params;
+    rpn.on_rpn = [&](uint8_t, uint16_t param, uint16_t) {
+        params.push_back(param);
+    };
+
+    rpn.process(MidiEvent::cc(0, 101, 1));
+    rpn.process(MidiEvent::cc(0, 100, 2));
+    rpn.process(MidiEvent::cc(0, 6, 3));
+    rpn.process(MidiEvent::cc(0, 38, 4));
+    REQUIRE(params == std::vector<uint16_t>{static_cast<uint16_t>((1 << 7) | 2)});
+
+    rpn.process(MidiEvent::cc(0, 101, 5));
+    rpn.process(MidiEvent::cc(0, 38, 6));
+    REQUIRE(params.size() == 1);
+
+    rpn.process(MidiEvent::cc(0, 100, 7));
+    rpn.process(MidiEvent::cc(0, 38, 8));
+    REQUIRE(params == std::vector<uint16_t>{
+        static_cast<uint16_t>((1 << 7) | 2),
+        static_cast<uint16_t>((5 << 7) | 7),
+    });
+}
+
+TEST_CASE("RpnParser RPN null selector disables data and step callbacks",
+          "[midi][rpn][issue-645]") {
+    RpnParser rpn;
+    int value_calls = 0;
+    int increment_calls = 0;
+    int decrement_calls = 0;
+
+    rpn.on_rpn = [&](uint8_t, uint16_t, uint16_t) { ++value_calls; };
+    rpn.on_increment = [&](uint8_t, uint16_t, bool) { ++increment_calls; };
+    rpn.on_decrement = [&](uint8_t, uint16_t, bool) { ++decrement_calls; };
+
+    rpn.process(MidiEvent::cc(0, 101, 0));
+    rpn.process(MidiEvent::cc(0, 100, 0));
+    rpn.process(MidiEvent::cc(0, 6, 2));
+    rpn.process(MidiEvent::cc(0, 38, 0));
+    REQUIRE(value_calls == 1);
+
+    rpn.process(MidiEvent::cc(0, 101, 0x7F));
+    rpn.process(MidiEvent::cc(0, 100, 0x7F));
+    rpn.process(MidiEvent::cc(0, 6, 3));
+    rpn.process(MidiEvent::cc(0, 38, 4));
+    rpn.process(MidiEvent::cc(0, 96, 0));
+    rpn.process(MidiEvent::cc(0, 97, 0));
+
+    REQUIRE(value_calls == 1);
+    REQUIRE(increment_calls == 0);
+    REQUIRE(decrement_calls == 0);
+}
+
+TEST_CASE("RpnParser NRPN null selector disables only that channel",
+          "[midi][rpn][issue-645]") {
+    RpnParser rpn;
+    std::vector<uint8_t> channels;
+
+    rpn.on_nrpn = [&](uint8_t ch, uint16_t, uint16_t) {
+        channels.push_back(ch);
+    };
+
+    rpn.process(MidiEvent::cc(2, 99, 1));
+    rpn.process(MidiEvent::cc(2, 98, 2));
+    rpn.process(MidiEvent::cc(3, 99, 3));
+    rpn.process(MidiEvent::cc(3, 98, 4));
+
+    rpn.process(MidiEvent::cc(2, 99, 0x7F));
+    rpn.process(MidiEvent::cc(2, 98, 0x7F));
+
+    rpn.process(MidiEvent::cc(2, 6, 8));
+    rpn.process(MidiEvent::cc(2, 38, 9));
+    rpn.process(MidiEvent::cc(3, 6, 10));
+    rpn.process(MidiEvent::cc(3, 38, 11));
+
+    REQUIRE(channels == std::vector<uint8_t>{3});
+}
+
 TEST_CASE("RpnParser tolerates omitted callbacks",
           "[midi][rpn][issue-645]") {
     RpnParser rpn;
@@ -176,7 +323,7 @@ TEST_CASE("RpnParser reports NRPN increment and decrement metadata",
     REQUIRE(is_rpn_flags == std::vector<bool>{false, false});
 }
 
-TEST_CASE("RpnParser reports maximum 14-bit RPN parameter and value",
+TEST_CASE("RpnParser reports highest non-null RPN parameter and maximum value",
           "[midi][rpn][coverage]") {
     RpnParser rpn;
     uint8_t received_ch = 255;
@@ -189,13 +336,13 @@ TEST_CASE("RpnParser reports maximum 14-bit RPN parameter and value",
         received_value = value;
     };
 
-    rpn.process(MidiEvent::cc(15, 101, 127));
+    rpn.process(MidiEvent::cc(15, 101, 126));
     rpn.process(MidiEvent::cc(15, 100, 127));
     rpn.process(MidiEvent::cc(15, 6, 127));
     rpn.process(MidiEvent::cc(15, 38, 127));
 
     REQUIRE(received_ch == 15);
-    REQUIRE(received_param == 0x3fff);
+    REQUIRE(received_param == 0x3f7f);
     REQUIRE(received_value == 0x3fff);
 }
 

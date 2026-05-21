@@ -42,6 +42,11 @@ inline constexpr std::size_t kRawMidiSysexLimit = 64 * 1024;
 struct RawMidiParserState {
     std::vector<uint8_t> sysex_buffer;
     bool sysex_in_progress = false;
+    uint8_t running_status = 0;
+    uint8_t pending_status = 0;
+    uint8_t pending_data[2] = {};
+    std::size_t pending_count = 0;
+    std::size_t pending_expected = 0;
 };
 
 // Short message = status byte + 0..2 data bytes (channel voice /
@@ -63,6 +68,69 @@ inline void parse_raw_midi_bytes(const uint8_t* buf,
                                  RawMidiParserState& state,
                                  const RawMidiShortCallback& on_short,
                                  const RawMidiSysexCallback& on_sysex) {
+    auto clear_pending = [&state] {
+        state.pending_status = 0;
+        state.pending_data[0] = 0;
+        state.pending_data[1] = 0;
+        state.pending_count = 0;
+        state.pending_expected = 0;
+    };
+
+    auto short_data_len = [](uint8_t status) -> std::size_t {
+        if ((status & 0xF0) >= 0x80 && (status & 0xF0) <= 0xE0) {
+            return ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0) ? 1u : 2u;
+        }
+        if (status == 0xF1 || status == 0xF3) return 1;
+        if (status == 0xF2) return 2;
+        if (status == 0xF6 || status == 0xF7) return 0;
+        return static_cast<std::size_t>(-1);
+    };
+
+    auto is_channel_status = [](uint8_t status) {
+        return (status & 0xF0) >= 0x80 && (status & 0xF0) <= 0xE0;
+    };
+
+    auto emit_pending = [&] {
+        if (on_short) {
+            on_short(state.pending_status,
+                     state.pending_expected > 0 ? state.pending_data[0] : 0,
+                     state.pending_expected > 1 ? state.pending_data[1] : 0);
+        }
+        const uint8_t completed_status = state.pending_status;
+        clear_pending();
+        if (is_channel_status(completed_status)) state.running_status = completed_status;
+    };
+
+    auto start_pending = [&](uint8_t status) {
+        clear_pending();
+        const auto data_len = short_data_len(status);
+        if (data_len == static_cast<std::size_t>(-1)) {
+            state.running_status = 0;
+            return;
+        }
+        if (is_channel_status(status)) {
+            state.running_status = status;
+        } else {
+            state.running_status = 0;
+        }
+        if (data_len == 0) {
+            if (on_short) on_short(status, 0, 0);
+            return;
+        }
+        state.pending_status = status;
+        state.pending_expected = data_len;
+    };
+
+    auto consume_data = [&](uint8_t data) {
+        if (state.pending_status == 0) {
+            if (state.running_status == 0) return;
+            start_pending(state.running_status);
+        }
+        if (state.pending_status == 0 || state.pending_count >= 2) return;
+        state.pending_data[state.pending_count++] = data;
+        if (state.pending_count >= state.pending_expected) emit_pending();
+    };
+
     for (std::size_t i = 0; i < n; ++i) {
         const uint8_t b = buf[i];
 
@@ -102,40 +170,17 @@ inline void parse_raw_midi_bytes(const uint8_t* buf,
             state.sysex_buffer.clear();
             state.sysex_buffer.push_back(b);
             state.sysex_in_progress = true;
+            state.running_status = 0;
+            clear_pending();
             continue;
         }
 
-        if ((b & 0x80) == 0) continue; // stray data byte
-
-        std::size_t msg_len = 3;
-        if ((b & 0xF0) == 0xC0 || (b & 0xF0) == 0xD0) {
-            msg_len = 2; // Program Change, Channel Pressure
-        } else if (b == 0xF1 || b == 0xF3) {
-            msg_len = 2; // MTC Quarter Frame, Song Select
-        } else if (b == 0xF2) {
-            msg_len = 3; // Song Position Pointer
-        } else if (b == 0xF6 || b == 0xF7) {
-            msg_len = 1; // Tune Request, stray End-of-Exclusive
+        if ((b & 0x80) != 0) {
+            start_pending(b);
+            continue;
         }
 
-        if (i + msg_len <= n) {
-            bool has_valid_data = true;
-            for (std::size_t data_index = 1; data_index < msg_len; ++data_index) {
-                if ((buf[i + data_index] & 0x80) != 0) {
-                    has_valid_data = false;
-                    break;
-                }
-            }
-
-            if (!has_valid_data) continue;
-
-            if (on_short) {
-                on_short(b,
-                         msg_len > 1 ? buf[i + 1] : 0,
-                         msg_len > 2 ? buf[i + 2] : 0);
-            }
-            i += msg_len - 1; // outer ++i advances past the last byte
-        }
+        consume_data(b);
     }
 }
 
