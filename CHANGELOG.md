@@ -8,6 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01820"></a>
+## [0.182.0] - 2026-05-20
+
+- feat(host): preserve custom graph node identities ([#2566](https://github.com/danielraffel/pulp/pull/2566))
+- fix(render): survive GPU-backed images + write .skp atomically ([#2560](https://github.com/danielraffel/pulp/pull/2560))
+- test(tools): cover coverage helper edges ([#2553](https://github.com/danielraffel/pulp/pull/2553))
+- ci: document leftover CI-watch Monitor cleanup in the ci skill ([#2564](https://github.com/danielraffel/pulp/pull/2564))
+
+<a id="v01810"></a>
+## [0.181.0] - 2026-05-20
+
+- feat(runtime): add node ABI capability gate ([#2558](https://github.com/danielraffel/pulp/pull/2558))
+- feat(host): deliver audio-rate modulation edges ([#2551](https://github.com/danielraffel/pulp/pull/2551))
+
 <a id="v01804"></a>
 ## [0.180.4] - 2026-05-20
 
@@ -2381,6 +2395,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.182.0]: https://github.com/danielraffel/pulp/releases/tag/v0.182.0
+[0.181.0]: https://github.com/danielraffel/pulp/releases/tag/v0.181.0
 [0.180.4]: https://github.com/danielraffel/pulp/releases/tag/v0.180.4
 [0.180.0]: https://github.com/danielraffel/pulp/releases/tag/v0.180.0
 [0.179.0]: https://github.com/danielraffel/pulp/releases/tag/v0.179.0
