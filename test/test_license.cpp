@@ -3,12 +3,44 @@
 #include <pulp/runtime/big_integer.hpp>
 #include <pulp/runtime/base64.hpp>
 #include <pulp/runtime/temporary_file.hpp>
+#include "../external/cpp-httplib/httplib.h"
 
+#include <chrono>
 #include <fstream>
 #include <limits>
+#include <thread>
 #include <utility>
 
 using namespace pulp::runtime;
+using namespace std::chrono_literals;
+
+namespace {
+
+struct LicenseHttpServerRunner {
+    explicit LicenseHttpServerRunner(httplib::Server& s)
+        : server(s)
+        , thread([this] { server.listen_after_bind(); }) {}
+
+    ~LicenseHttpServerRunner() {
+        server.stop();
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+
+    bool wait_until_running(std::chrono::milliseconds timeout = 2s) const {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (!server.is_running() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(5ms);
+        }
+        return server.is_running();
+    }
+
+    httplib::Server& server;
+    std::thread thread;
+};
+
+}  // namespace
 
 // ── BigInteger ──────────────────────────────────────────────────────────
 
@@ -556,4 +588,41 @@ TEST_CASE("OnlineActivation rejects malformed server URLs without network", "[cr
     REQUIRE_FALSE(OnlineActivation::activate("not-a-url", "serial", "product").has_value());
     REQUIRE_FALSE(OnlineActivation::deactivate("not-a-url", "license"));
     REQUIRE(OnlineActivation::check_status("not-a-url", "license") == LicenseStatus::NotFound);
+}
+
+TEST_CASE("OnlineActivation handles successful loopback activation flows",
+          "[crypto][license][coverage][phase3]") {
+    httplib::Server server;
+    server.Post("/activate", [](const httplib::Request&, httplib::Response& response) {
+        response.set_content("license-key", "text/plain");
+    });
+    server.Post("/deactivate", [](const httplib::Request&, httplib::Response& response) {
+        response.status = 204;
+    });
+    server.Get("/status", [](const httplib::Request& request, httplib::Response& response) {
+        const auto key = request.has_param("key") ? request.get_param_value("key") : "";
+        if (key == "license-key") {
+            response.set_content(R"({"valid":true})", "application/json");
+        } else if (key == "expired-key") {
+            response.set_content(R"({"expired":true})", "application/json");
+        } else {
+            response.set_content(R"({"status":"denied"})", "application/json");
+        }
+    });
+
+    const int port = server.bind_to_any_port("127.0.0.1");
+    REQUIRE(port > 0);
+    LicenseHttpServerRunner runner(server);
+    REQUIRE(runner.wait_until_running());
+
+    const std::string base_url = "http://127.0.0.1:" + std::to_string(port);
+    auto license = OnlineActivation::activate(base_url, "serial-1", "PulpSynth");
+    REQUIRE(license.has_value());
+    REQUIRE(*license == "license-key");
+
+    REQUIRE(OnlineActivation::deactivate(base_url, *license));
+    REQUIRE(OnlineActivation::check_status(base_url, *license) == LicenseStatus::Valid);
+    REQUIRE(OnlineActivation::check_status(base_url, "expired-key") == LicenseStatus::Expired);
+    REQUIRE(OnlineActivation::check_status(base_url, "unknown-key") ==
+            LicenseStatus::InvalidSignature);
 }
