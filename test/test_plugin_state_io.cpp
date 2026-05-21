@@ -375,6 +375,24 @@ TEST_CASE("plugin_state_io migrates old envelopes before parsing payloads",
     REQUIRE(migration_calls == 1);
 }
 
+TEST_CASE("plugin_state_io rejects invalid envelope migration registrations",
+          "[format][plugin-state][coverage][phase3]") {
+    using pulp::format::plugin_state_io::current_envelope_version;
+    using pulp::format::plugin_state_io::register_envelope_migration;
+
+    const auto current = current_envelope_version();
+    auto migration = [](std::span<const uint8_t> source,
+                        std::vector<uint8_t>& migrated) {
+        migrated.assign(source.begin(), source.end());
+        return true;
+    };
+
+    REQUIRE_FALSE(register_envelope_migration(current, current, migration));
+    REQUIRE_FALSE(register_envelope_migration(current, 0, migration));
+    REQUIRE_FALSE(register_envelope_migration(0, current + 1, migration));
+    REQUIRE_FALSE(register_envelope_migration(0, current, {}));
+}
+
 TEST_CASE("plugin_state_io serialize falls back to raw StateStore blobs when plugin payload is empty",
           "[format][plugin-state]") {
     TestRig source;
