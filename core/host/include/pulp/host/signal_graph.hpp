@@ -58,8 +58,10 @@ struct Connection {
                               // audio samples. Ports are ignored.
     bool automation = false;  // automation-edge: source audio drives a param on
                               // the dest plugin.
+    bool audio_rate_modulation = false; // dense CV edge into an AudioRate param.
 
-    // Automation fields (valid only when automation == true).
+    // Parameter-modulation fields (valid when automation or
+    // audio_rate_modulation is true).
     uint32_t automation_param_id  = 0;
     float automation_range_lo     = 0.0f;  // plain param domain
     float automation_range_hi     = 1.0f;  // plain param domain
@@ -70,7 +72,9 @@ struct Connection {
         return source_node == o.source_node && source_port == o.source_port
             && dest_node == o.dest_node && dest_port == o.dest_port
             && automation == o.automation
-            && (automation ? automation_param_id == o.automation_param_id : true);
+            && audio_rate_modulation == o.audio_rate_modulation
+            && ((automation || audio_rate_modulation)
+                ? automation_param_id == o.automation_param_id : true);
     }
 };
 
@@ -162,6 +166,16 @@ public:
                             float smoothing_ms = 0.0f,
                             AutomationMix mix = AutomationMix::Replace);
 
+    // Audio-rate modulation connection: source audio samples drive every
+    // sample of an AudioRate destination parameter. This edge is distinct
+    // from sparse automation above; it is accepted only for continuous
+    // automatable parameters whose HostParamInfo::rate is AudioRate.
+    bool connect_audio_rate_modulation(NodeId src, PortIndex src_audio_port,
+                                       NodeId dest, uint32_t dest_param_id,
+                                       float range_lo, float range_hi,
+                                       float smoothing_ms = 0.0f,
+                                       AutomationMix mix = AutomationMix::Replace);
+
     // Inject a MIDI buffer into a MidiInput source node. Call before
     // process(); the events become that node's MIDI output this block.
     bool inject_midi(NodeId midi_input_node, const midi::MidiBuffer& events);
@@ -246,6 +260,12 @@ private:
         // and must survive the process() entry-clear.
         midi::MidiBuffer midi_in;
         midi::MidiBuffer midi_out;
+
+        // Audio-rate modulation scratch. Each listed param gets one
+        // max-block-sized slice in audio_rate_param_data, filled immediately
+        // before the destination plugin processes.
+        std::vector<uint32_t> audio_rate_param_ids;
+        std::vector<float> audio_rate_param_data;
     };
 
     // One delay line per graph connection, parallel to connections_. Used to

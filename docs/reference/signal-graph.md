@@ -24,7 +24,7 @@ owns the nodes; removing a node invalidates its id.
 false if it would create a cycle (`would_create_cycle()` exposes the same
 check without mutating). Disconnect by `NodeId`, port, or by full edge.
 
-Three connection variants cover the non-audio-passthrough cases:
+Four connection variants cover the non-audio-passthrough cases:
 
 - `connect_midi(from, to)` routes `MidiBuffer` events between node-scoped
   MIDI in/out buffers (ports are ignored). Participates in cycle
@@ -35,6 +35,13 @@ Three connection variants cover the non-audio-passthrough cases:
   explicit one-block delay — the destination reads the source's previous
   block's output. Invisible to the topological sort and PDC so the
   runtime stays DAG-ordered.
+- `connect_automation(from, port, plugin, param, lo, hi)` samples a source
+  audio port at the start and end of the block and delivers sparse
+  `ParameterEvent`s into `PluginSlot::process()`.
+- `connect_audio_rate_modulation(from, port, plugin, param, lo, hi)` declares
+  a dense per-sample modulation edge. It is accepted only for continuous,
+  automatable `HostParamInfo::rate == AudioRate` parameters, emits one
+  `ParameterEvent` per sample, and participates in latency alignment.
 - Sidechain is *not* a separate API: connect a secondary source to the
   plugin node's sidechain audio-port indices (e.g. `connect(side, 0, p,
   2)` when the plugin exposes ports 2/3 as its sidechain bus).
@@ -62,14 +69,18 @@ aligned. Query results with `SignalGraph::latency_samples()` (graph-wide
 total) and `node_latency_samples(id)` (alignment at a specific node).
 Feedback edges (`connect_feedback`) don't contribute to PDC — the
 one-block delay absorbs their alignment.
+Audio-rate modulation edges do contribute to PDC: when a parameter is driven
+from a lower-latency branch than the destination plugin's audio input, the
+graph delays the dense parameter-event stream by the same amount as an audio
+connection.
 
 ## Parameters
 
 `set_node_parameter(node, id, value)` forwards a normalized value to the
 plugin via `PluginSlot::set_parameter()`; `get_node_parameter(node, id)`
-reads back. Full automation-curve routing (one node's output driving
-another node's parameter over a block) is not yet available — track via
-the plan.
+reads back. `connect_automation()` delivers two sparse control points per
+block for control-rate movement. `connect_audio_rate_modulation()` delivers
+sample-by-sample events for parameters explicitly marked audio-rate.
 
 ## Persistence
 

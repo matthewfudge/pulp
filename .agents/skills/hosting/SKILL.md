@@ -138,6 +138,10 @@ predictable output, no MIDI.
   path. Bump the graph format version, add a deterministic migrator for older
   fixtures, and keep future-version loads fail-closed instead of silently
   accepting fields the current reader does not understand.
+- Use `connect_automation()` for sparse two-point-per-block control events.
+  Use `connect_audio_rate_modulation()` only for continuous, automatable
+  `HostParamInfo::rate == AudioRate` params; do not route dense CV into
+  stepped/read-only/control-rate parameters.
 
 ## Common tripwires
 

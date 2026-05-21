@@ -1277,6 +1277,10 @@ class MockAutomatable final : public PluginSlot {
 public:
     static constexpr uint32_t kParamId = 42;
 
+    explicit MockAutomatable(ParamRate rate = ParamRate::ControlRate,
+                             bool stepped = false)
+        : rate_(rate), stepped_(stepped) {}
+
     const PluginInfo& info() const override { return info_; }
     bool is_loaded() const override { return true; }
     bool prepare(double, int) override { return true; }
@@ -1301,6 +1305,8 @@ public:
         p.max_value = 1.0f;
         p.default_value = 0.0f;
         p.flags.automatable = true;
+        p.flags.stepped = stepped_;
+        p.rate = rate_;
         return {p};
     }
     float get_parameter(uint32_t) const override { return 0.f; }
@@ -1319,6 +1325,8 @@ public:
 
 private:
     PluginInfo info_{"MockAuto", "", "", "", "", PluginFormat::CLAP};
+    ParamRate rate_ = ParamRate::ControlRate;
+    bool stepped_ = false;
     std::vector<pulp::host::ParameterEvent> received_;
 };
 } // namespace
@@ -1435,6 +1443,134 @@ TEST_CASE("SignalGraph automation clamps add-mode and stored smoothing",
     REQUIRE(events[0].value == 1.0f);
     REQUIRE(events[1].sample_offset == 3);
     REQUIRE(events[1].value == 1.0f);
+}
+
+TEST_CASE("SignalGraph connect_audio_rate_modulation gates on audio-rate params",
+          "[host][graph][automation][audio-rate]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto control = graph.add_plugin_node(std::make_unique<MockAutomatable>(),
+                                         0, 1, "control");
+    auto stepped = graph.add_plugin_node(
+        std::make_unique<MockAutomatable>(ParamRate::AudioRate, true),
+        0, 1, "stepped");
+    auto audio = graph.add_plugin_node(
+        std::make_unique<MockAutomatable>(ParamRate::AudioRate),
+        0, 1, "audio-rate");
+
+    REQUIRE_FALSE(graph.connect_audio_rate_modulation(
+        in_node, 0, control, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_audio_rate_modulation(
+        in_node, 0, stepped, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_audio_rate_modulation(
+        in_node, 4, audio, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.connect_audio_rate_modulation(
+        in_node, 0, audio, MockAutomatable::kParamId + 1, 0.0f, 1.0f));
+
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, audio, MockAutomatable::kParamId, -1.0f, 1.0f,
+        -2.0f, AutomationMix::Replace));
+    REQUIRE(graph.connections().size() == 1);
+
+    const auto& edge = graph.connections().front();
+    REQUIRE(edge.audio_rate_modulation);
+    REQUIRE_FALSE(edge.automation);
+    REQUIRE(edge.automation_param_id == MockAutomatable::kParamId);
+    REQUIRE(edge.automation_range_lo == -1.0f);
+    REQUIRE(edge.automation_range_hi == 1.0f);
+    REQUIRE(edge.automation_smoothing_ms == 0.0f);
+    REQUIRE(edge.automation_mix == AutomationMix::Replace);
+
+    REQUIRE_FALSE(graph.connect_audio_rate_modulation(
+        in_node, 0, audio, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, audio, MockAutomatable::kParamId, 0.0f, 1.0f,
+        0.0f, AutomationMix::Add));
+}
+
+TEST_CASE("SignalGraph audio-rate modulation delivers one event per sample",
+          "[host][graph][automation][audio-rate]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto slot = std::make_unique<MockAutomatable>(ParamRate::AudioRate);
+    auto* slot_ptr = slot.get();
+    auto plug = graph.add_plugin_node(std::move(slot), 0, 1, "audio-rate");
+
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, plug, MockAutomatable::kParamId, -1.0f, 1.0f));
+    REQUIRE(graph.prepare(48000.0, 4));
+
+    std::vector<float> input_samples{0.0f, 0.25f, 0.5f, 1.0f};
+    std::vector<float> output_samples(4, 0.0f);
+    const float* in_ptrs[1] = {input_samples.data()};
+    float* out_ptrs[1] = {output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 4);
+    pulp::audio::BufferView<float> out_view(out_ptrs, 1, 4);
+
+    graph.process(out_view, in_view, 4);
+
+    const auto& events = slot_ptr->received();
+    REQUIRE(events.size() == 4);
+    const float expected[] = {-1.0f, -0.5f, 0.0f, 1.0f};
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE(events[static_cast<size_t>(i)].param_id == MockAutomatable::kParamId);
+        REQUIRE(events[static_cast<size_t>(i)].sample_offset == i);
+        REQUIRE(std::abs(events[static_cast<size_t>(i)].value - expected[i]) < 1e-6f);
+    }
+}
+
+TEST_CASE("SignalGraph audio-rate modulation composes with PDC",
+          "[host][graph][automation][audio-rate][pdc]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto latency = graph.add_plugin_node(
+        std::make_unique<MockLatencyPlugin>(2, 1), 1, 1, "latency");
+    auto target_slot = std::make_unique<MockAutomatable>(ParamRate::AudioRate);
+    auto* target_ptr = target_slot.get();
+    auto target = graph.add_plugin_node(std::move(target_slot), 1, 1, "target");
+    auto out_node = graph.add_output_node(1, "out");
+
+    REQUIRE(graph.connect(in_node, 0, latency, 0));
+    REQUIRE(graph.connect(latency, 0, target, 0));
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, target, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE(graph.connect(target, 0, out_node, 0));
+
+    REQUIRE(graph.prepare(48000.0, 4));
+    REQUIRE(graph.node_latency_samples(target) == 2);
+    REQUIRE(graph.latency_samples() == 2);
+
+    std::vector<float> input_samples{1.0f, 0.0f, 0.0f, 0.0f};
+    std::vector<float> output_samples(4, 0.0f);
+    const float* in_ptrs[1] = {input_samples.data()};
+    float* out_ptrs[1] = {output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 4);
+    pulp::audio::BufferView<float> out_view(out_ptrs, 1, 4);
+
+    graph.process(out_view, in_view, 4);
+
+    const auto& events = target_ptr->received();
+    REQUIRE(events.size() == 4);
+    const float expected[] = {0.0f, 0.0f, 1.0f, 0.0f};
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE(events[static_cast<size_t>(i)].param_id == MockAutomatable::kParamId);
+        REQUIRE(events[static_cast<size_t>(i)].sample_offset == i);
+        REQUIRE(std::abs(events[static_cast<size_t>(i)].value - expected[i]) < 1e-6f);
+    }
+}
+
+TEST_CASE("SignalGraph audio-rate modulation fails closed when event capacity is exceeded",
+          "[host][graph][automation][audio-rate]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto plug = graph.add_plugin_node(
+        std::make_unique<MockAutomatable>(ParamRate::AudioRate),
+        0, 1, "audio-rate");
+
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f));
+    REQUIRE_FALSE(graph.prepare(48000.0,
+                                static_cast<int>(ParameterEventQueue::kCapacity + 1)));
 }
 
 // ── Phase 3 GraphSerializer round-trip ──────────────────────────────────
