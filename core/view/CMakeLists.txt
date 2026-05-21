@@ -512,4 +512,9 @@ endif()
 # NOT need to link pulp::render when PULP_BENCHMARK is enabled.
 if(TARGET pulp-render)
     target_link_libraries(pulp-view PRIVATE pulp::render)
+    # Slice 16 — when pulp-render is linked, WindowHost::mark_dirty() can
+    # route dirty marks through a vblank-paced RenderLoop. GPU-off builds
+    # (sanitizer matrix) have no pulp-render target, so mark_dirty() there
+    # degrades to a direct repaint(); the define gates that cleanly.
+    target_compile_definitions(pulp-view PRIVATE PULP_VIEW_HAS_RENDER_LOOP=1)
 endif()

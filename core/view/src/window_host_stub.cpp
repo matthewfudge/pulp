@@ -10,6 +10,10 @@
 
 #include <pulp/view/window_host.hpp>
 
+#if defined(PULP_VIEW_HAS_RENDER_LOOP)
+#include <pulp/render/render_loop.hpp>
+#endif
+
 #include <mutex>
 
 namespace pulp::view {
@@ -43,6 +47,24 @@ WindowHost::ContentSize WindowHost::get_content_size() const {
 
 void WindowHost::set_resize_callback(ResizeCallback cb) {
     (void) cb;
+}
+
+// Slice 16 — VBlank-locked safe-repaint. When a RenderLoop is attached,
+// route the dirty mark through request_frame() so every call between two
+// vblanks coalesces into a single vsync-paced repaint. Otherwise fall
+// through to the platform repaint() — existing behavior, no regression.
+//
+// In GPU-off builds (no pulp-render target) RenderLoop is incomplete, so
+// render_loop_ can never be non-null there and mark_dirty() is always a
+// plain repaint(); the PULP_VIEW_HAS_RENDER_LOOP guard keeps it buildable.
+void WindowHost::mark_dirty() {
+#if defined(PULP_VIEW_HAS_RENDER_LOOP)
+    if (render_loop_) {
+        render_loop_->request_frame();
+        return;
+    }
+#endif
+    repaint();
 }
 
 #if !defined(__APPLE__)

@@ -117,6 +117,12 @@ attach_combo(state::StateStore& store, state::ParamID id,
 }
 
 /// Poll all bindings in a vector to sync with host automation.
+///
+/// @note Soft-deprecated (Slice 16) alongside `Binding::poll()`. Prefer the
+///       VBlank-locked dirty-flag pattern: have parameter changes call
+///       `WindowHost::mark_dirty()` so the UI repaints once on the next
+///       vsync instead of polling every binding on a timer. This helper
+///       remains for hosts without a vblank-driven `RenderLoop`.
 inline void poll_bindings(std::vector<state::Binding>& bindings) {
     for (auto& b : bindings) b.poll();
 }
