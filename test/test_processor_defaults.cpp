@@ -648,3 +648,36 @@ TEST_CASE("ControlRateParamSmoother is bit-exact off and ramps when opted in",
     REQUIRE_FALSE(smoother.is_smoothing());
     REQUIRE(smoother.next() == 1.00f);
 }
+
+TEST_CASE("ControlRateParamSmoother handles invalid rates reset and skip",
+          "[format][params][smoothing][coverage][phase3]") {
+    pulp::state::ParamInfo info;
+    info.smoothing_ramp_seconds = 0.004f;
+
+    pulp::format::ControlRateParamSmoother smoother;
+    smoother.prepare(info, 0.0, 0.25f);
+    REQUIRE_FALSE(smoother.smoothing_enabled());
+    REQUIRE(smoother.ramp_seconds() == 0.004f);
+    smoother.set_target(0.75f);
+    smoother.skip(8);
+    REQUIRE(smoother.current() == 0.75f);
+    REQUIRE(smoother.next() == 0.75f);
+
+    smoother.prepare(info, 1000.0, 0.0f);
+    REQUIRE(smoother.smoothing_enabled());
+    smoother.set_target(1.0f);
+    smoother.skip(2);
+    REQUIRE(smoother.current() == 0.5f);
+    REQUIRE(smoother.target() == 1.0f);
+    REQUIRE(smoother.is_smoothing());
+
+    smoother.reset(0.25f);
+    REQUIRE_FALSE(smoother.is_smoothing());
+    REQUIRE(smoother.current() == 0.25f);
+    REQUIRE(smoother.target() == 0.25f);
+
+    smoother.set_target(1.0f);
+    smoother.skip(99);
+    REQUIRE(smoother.current() == 1.0f);
+    REQUIRE_FALSE(smoother.is_smoothing());
+}
