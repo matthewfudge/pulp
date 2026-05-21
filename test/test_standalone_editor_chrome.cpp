@@ -400,6 +400,19 @@ TEST_CASE("SettingsPanel refreshes hotplug lists and test tone callbacks",
     combos[4]->set_selected(2);
     REQUIRE(signal_calls == 2);
     REQUIRE(last_signal.sine_frequency_hz == 880.0f);
+
+    toggles[0]->on_mouse_down({0, 0});
+    REQUIRE(signal_calls == 3);
+    REQUIRE(last_signal.type == TestSignalType::none);
+
+    combos[4]->set_selected(0);
+    REQUIRE(signal_calls == 3);
+
+    toggles[0]->on_mouse_down({0, 0});
+    REQUIRE(signal_calls == 4);
+    REQUIRE(last_signal.type == TestSignalType::sine);
+    REQUIRE(last_signal.sine_frequency_hz == 220.0f);
+    REQUIRE(last_signal.sine_amplitude == 0.5f);
 }
 
 TEST_CASE("SettingsPanel uses fallback rate and buffer choices without output devices",
