@@ -2052,6 +2052,31 @@ if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
     catch_discover_tests(pulp-test-inspector
         PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
 
+    # Inspector test split (Phase-5 oversized-test-file refactor): four
+    # concern-scoped sibling TUs carved verbatim out of test_inspector.cpp
+    # — GPU pass attribution, source-jump, drift/reconcile, atlas viewer.
+    # Each mirrors pulp-test-inspector's exact registration (own executable
+    # + catch_discover_tests, same libraries, same NO_LAUNCH env guard).
+    add_executable(pulp-test-inspector-gpu-passes test_inspector_gpu_passes.cpp)
+    target_link_libraries(pulp-test-inspector-gpu-passes PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-inspector-gpu-passes
+        PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
+
+    add_executable(pulp-test-inspector-source-jump test_inspector_source_jump.cpp)
+    target_link_libraries(pulp-test-inspector-source-jump PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-inspector-source-jump
+        PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
+
+    add_executable(pulp-test-inspector-drift-reconcile test_inspector_drift_reconcile.cpp)
+    target_link_libraries(pulp-test-inspector-drift-reconcile PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-inspector-drift-reconcile
+        PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
+
+    add_executable(pulp-test-inspector-atlas-viewer test_inspector_atlas_viewer.cpp)
+    target_link_libraries(pulp-test-inspector-atlas-viewer PRIVATE pulp::view pulp::inspect pulp::state Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-inspector-atlas-viewer
+        PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
+
     # Phase 0b PR-A: TweakStore + Inspector.applyTweak protocol surface.
     # planning/2026-05-18-inspector-direct-manipulation-roadmap.md
     add_executable(pulp-test-tweak-store test_tweak_store.cpp)
