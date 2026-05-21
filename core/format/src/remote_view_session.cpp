@@ -18,6 +18,10 @@ std::string encode_param_payload(uint32_t id, float normalized) {
     return os.str();
 }
 
+std::string quoted_json(std::string_view value) {
+    return choc::json::getEscapedQuotedString(std::string(value));
+}
+
 // Extract an integer field from a flat JSON object.
 std::optional<uint32_t> parse_u32(std::string_view json, std::string_view key) {
     try {
@@ -110,7 +114,7 @@ bool RemoteViewSession::handshake_(Processor& processor) {
 
     // Send view.metadata describing the Processor's parameter list.
     std::ostringstream meta;
-    meta << R"({"title":")" << processor.descriptor().name << R"(",)";
+    meta << R"({"title":)" << quoted_json(processor.descriptor().name) << ",";
     auto hints = processor.view_size();
     meta << R"("size_hints":{"preferred_width":)" << hints.preferred_width
          << R"(,"preferred_height":)" << hints.preferred_height
@@ -123,7 +127,7 @@ bool RemoteViewSession::handshake_(Processor& processor) {
     for (size_t i = 0; i < params.size(); ++i) {
         if (i) meta << ",";
         meta << R"({"id":)" << params[i].id
-             << R"(,"name":")" << params[i].name << R"("})";
+             << R"(,"name":)" << quoted_json(params[i].name) << "}";
     }
     meta << "]}";
     peer_->notify("view.metadata", meta.str());

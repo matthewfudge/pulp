@@ -7,6 +7,8 @@
 #include <pulp/runtime/json_rpc.hpp>
 #include <pulp/state/store.hpp>
 
+#include <choc/text/choc_JSON.h>
+
 #include <atomic>
 #include <chrono>
 #include <string>
@@ -35,6 +37,33 @@ public:
     format::ViewSize view_size() const override {
         return {640, 480, 320, 240, 1280, 960};
     }
+};
+
+class EscapedMetadataProcessor : public format::Processor {
+public:
+    format::PluginDescriptor descriptor() const override {
+        return {
+            .name = "Remote \"Quoted\"\nStub",
+            .manufacturer = "Acme",
+            .bundle_id = "com.acme.rv.escaped",
+            .version = "1.0.0",
+            .category = format::PluginCategory::Effect,
+        };
+    }
+
+    void define_parameters(state::StateStore& s) override {
+        s.add_parameter({
+            .id = 7,
+            .name = "Gain \"A\"\nLine",
+            .unit = "dB",
+            .range = {-60.0f, 12.0f, 0.0f},
+        });
+    }
+
+    void prepare(const format::PrepareContext&) override {}
+    void process(audio::BufferView<float>&, const audio::BufferView<const float>&,
+                 midi::MidiBuffer&, midi::MidiBuffer&,
+                 const format::ProcessContext&) override {}
 };
 
 template <typename Pred>
@@ -79,6 +108,41 @@ TEST_CASE("RemoteViewSession - handshake sends view.hello + view.metadata", "[re
     INFO("metadata payload: " << metadata_payload);
     REQUIRE(metadata_payload.find("RemoteViewStub") != std::string::npos);
     REQUIRE(metadata_payload.find("640") != std::string::npos);
+
+    bridge.detach_remote(session);
+}
+
+TEST_CASE("RemoteViewSession - metadata escapes names as valid JSON",
+          "[remote_view][coverage][phase3]") {
+    EscapedMetadataProcessor p;
+    state::StateStore store;
+    p.set_state_store(&store);
+    p.define_parameters(store);
+
+    format::ViewBridge bridge(p, store);
+    REQUIRE(bridge.open());
+
+    auto [host_chan, remote_chan] = runtime::MemoryMessageChannel::make_pair();
+    runtime::JsonRpcPeer remote_peer(*remote_chan);
+
+    std::string metadata_payload;
+    remote_peer.on_notification("view.metadata",
+        [&](std::string_view params) {
+            metadata_payload = std::string{params};
+        });
+
+    auto* session = bridge.attach_remote_channel(std::move(host_chan), "loopback");
+    REQUIRE(session != nullptr);
+
+    REQUIRE(wait_for([&]{ return !metadata_payload.empty(); }));
+    auto root = choc::json::parse(metadata_payload);
+    REQUIRE(root.isObject());
+    REQUIRE(root["title"].getString() == std::string("Remote \"Quoted\"\nStub"));
+    REQUIRE(root["params"].isArray());
+    REQUIRE(root["params"].size() == 1);
+    REQUIRE(root["params"][0]["id"].getInt64() == 7);
+    REQUIRE(root["params"][0]["name"].getString()
+            == std::string("Gain \"A\"\nLine"));
 
     bridge.detach_remote(session);
 }
