@@ -249,6 +249,7 @@ target_sources(pulp-view PRIVATE
     src/design_codegen.cpp
     src/lock_to_source.cpp
     src/claude_bundle.cpp
+    src/claude_bundle_sources.cpp
     src/design_import_shortcuts.cpp
     src/design_import_designmd.cpp
     src/token_lock.cpp
@@ -261,6 +262,7 @@ target_sources(pulp-view PRIVATE
     src/visualization_bridge.cpp
     src/frame_clock.cpp
     src/motion.cpp
+    src/motion_geometry.cpp
     src/motion_cost.cpp
     src/window_manager.cpp
     src/eq_curve_view.cpp
