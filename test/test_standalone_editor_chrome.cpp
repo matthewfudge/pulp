@@ -104,6 +104,13 @@ struct StubBridge {
     }
 };
 
+int counted_null_processor_factory_calls = 0;
+
+std::unique_ptr<Processor> counted_null_processor_factory() {
+    ++counted_null_processor_factory_calls;
+    return nullptr;
+}
+
 class StubAudioSystem final : public pulp::audio::AudioSystem {
 public:
     std::vector<pulp::audio::DeviceInfo> devices;
@@ -247,6 +254,47 @@ TEST_CASE("Standalone settings callbacks skip rebind when apply fails",
 
     callbacks.on_config_apply(StandaloneConfig{});
     REQUIRE_FALSE(rebind_called);
+}
+
+TEST_CASE("StandaloneApp apply_config updates idle configuration without starting audio",
+          "[standalone][coverage][phase3]") {
+    counted_null_processor_factory_calls = 0;
+    StandaloneApp app(counted_null_processor_factory);
+
+    StandaloneConfig cfg;
+    cfg.audio_device_id = "BuiltInOut";
+    cfg.midi_input_id = "Keyboard";
+    cfg.sample_rate = 96000.0;
+    cfg.buffer_size = 128;
+    cfg.input_channels = 1;
+    cfg.output_channels = 2;
+    cfg.show_settings_tab = false;
+
+    REQUIRE(app.apply_config(cfg));
+    REQUIRE_FALSE(app.is_running());
+    REQUIRE(counted_null_processor_factory_calls == 0);
+    REQUIRE(app.config().audio_device_id == "BuiltInOut");
+    REQUIRE(app.config().midi_input_id == "Keyboard");
+    REQUIRE(app.config().sample_rate == 96000.0);
+    REQUIRE(app.config().buffer_size == 128);
+    REQUIRE(app.config().input_channels == 1);
+    REQUIRE(app.config().output_channels == 2);
+    REQUIRE_FALSE(app.config().show_settings_tab);
+}
+
+TEST_CASE("StandaloneApp rejects headless editor runs without screenshot before startup",
+          "[standalone][coverage][phase3]") {
+    counted_null_processor_factory_calls = 0;
+    StandaloneApp app(counted_null_processor_factory);
+
+    StandaloneConfig cfg;
+    cfg.headless = true;
+    cfg.screenshot_path.clear();
+    app.set_config(cfg);
+
+    REQUIRE_FALSE(app.run_with_editor(false));
+    REQUIRE_FALSE(app.is_running());
+    REQUIRE(counted_null_processor_factory_calls == 0);
 }
 
 TEST_CASE("SettingsPanel applies audio and MIDI selections",
