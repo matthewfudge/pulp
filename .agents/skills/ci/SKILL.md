@@ -1649,13 +1649,13 @@ use `CMAKE_CURRENT_LIST_DIR`. The two existing helpers paths
 
 `pulp pr` orchestrates the full shipping flow. CI enforces three gates on every PR to `main`:
 
-- `.github/workflows/version-skill-check.yml` — runs `tools/scripts/version_bump_check.py`, `tools/scripts/skill_sync_check.py`, and (since #1029) `tools/scripts/compat_sync_check.py` in `--mode=report`. Failure blocks merge. No bypass except the commit trailers documented in `docs/guides/versioning.md` and `docs/guides/compat-sync.md`.
+- `.github/workflows/version-skill-check.yml` — runs `tools/scripts/version_bump_check.py`, `tools/scripts/skill_sync_check.py`, `tools/scripts/compat_sync_check.py`, and `tools/scripts/node_abi_gate.py` in `--mode=report`. Failure blocks merge. No bypass except the commit trailers documented in `docs/guides/versioning.md` and `docs/guides/compat-sync.md`; the node ABI gate is fixed by preserving existing virtual declarations or appending new virtuals at the tail.
 - `.shipyard/config.toml` → `[validation.gates]` pipeline — same scripts via `shipyard run --pipeline gates`. Runs with `PULP_ENFORCE_PREPUSH=1` so warnings become errors.
 
 Locally:
 
-- `.githooks/pre-push` (install via `tools/scripts/install-githooks.sh`) runs all three scripts advisory-by-default. `PULP_ENFORCE_PREPUSH=1` upgrades to hard fail; `PULP_SKIP_PREPUSH=1` is the single-push emergency bypass.
-- `tools/scripts/gates.sh` — on-demand runner for JUST the cheap gates (skill-sync + version-bump + compat-sync + deps-audit). Runs in ~1 second, exits non-zero on any failure with a one-liner pointing at the right surgical bypass. Use it before `git push` when you've made changes that might touch mapped paths but you don't want to wait for the pre-push hook OR the 20-minute CI roundtrip. Independent of the git hook (no install step needed). Named to align with Shipyard's planned `shipyard gates` subcommand (see `planning/2026-05-19-shipyard-preflight-upstream-proposal.md`); avoids collision with Shipyard's existing `preflight` namespace (SSH backend reachability probes).
+- `.githooks/pre-push` (install via `tools/scripts/install-githooks.sh`) runs the same fast scripts, including the node ABI gate, advisory-by-default. `PULP_ENFORCE_PREPUSH=1` upgrades to hard fail; `PULP_SKIP_PREPUSH=1` is the single-push emergency bypass.
+- `tools/scripts/gates.sh` — on-demand runner for JUST the cheap gates (skill-sync + version-bump + compat-sync + node-ABI + deps-audit). Runs in ~1 second, exits non-zero on any failure with a one-liner pointing at the right surgical bypass. Use it before `git push` when you've made changes that might touch mapped paths but you don't want to wait for the pre-push hook OR the 20-minute CI roundtrip. Independent of the git hook (no install step needed). Named to align with Shipyard's planned `shipyard gates` subcommand (see `planning/2026-05-19-shipyard-preflight-upstream-proposal.md`); avoids collision with Shipyard's existing `preflight` namespace (SSH backend reachability probes).
 
 **Bypass-priority cheat sheet** — reach for the surgical knob first; the nuclear one masks fast checks too:
 

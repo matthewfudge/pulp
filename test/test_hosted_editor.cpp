@@ -87,6 +87,12 @@ public:
 
 } // namespace
 
+TEST_CASE("Node ABI version is visible through PluginSlot surface",
+          "[host][hosted-editor][node-abi]") {
+    REQUIRE(pulp::PULP_NODE_ABI_VERSION == 1);
+    REQUIRE(pulp::pulp_node_abi_version() == pulp::PULP_NODE_ABI_VERSION);
+}
+
 TEST_CASE("no-editor slot returns nullptr from create_hosted_editor",
           "[host][hosted-editor]") {
     NoEditorSlot s;

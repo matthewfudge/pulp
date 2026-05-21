@@ -4,6 +4,7 @@
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/mpe_buffer.hpp>
 #include <pulp/midi/ump_buffer.hpp>
+#include <pulp/runtime/node_abi.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/view.hpp>
@@ -49,6 +50,14 @@ struct BusInfo {
     std::string name;
     int default_channels = 2;
     bool optional = false;  ///< true for sidechain buses that can be deactivated
+};
+
+/// Capability sidecar for the node ABI. New capability bits should be
+/// appended here with false defaults so descriptor aggregate initializers
+/// remain source-compatible.
+struct NodeCapabilities {
+    bool supports_mpe = false;
+    bool supports_ump = false;
 };
 
 /// Plugin metadata — declared once, immutable.
@@ -121,6 +130,18 @@ struct PluginDescriptor {
     /// AU kAudioUnitProperty_URL. Leave empty to skip.
     std::string vendor_url;
     std::string vendor_email;
+
+    /// Node ABI capability bits. This is the forward-compatible capability
+    /// model; legacy supports_mpe/supports_ump remain accepted and are OR'd
+    /// into effective_capabilities().
+    NodeCapabilities node_capabilities;
+
+    NodeCapabilities effective_capabilities() const {
+        return {
+            .supports_mpe = supports_mpe || node_capabilities.supports_mpe,
+            .supports_ump = supports_ump || node_capabilities.supports_ump,
+        };
+    }
 
     /// Channel count of the first (main) input bus.
     int default_input_channels() const {
@@ -387,13 +408,13 @@ public:
     const audio::BufferView<const float>* sidechain_input() const { return sidechain_; }
 
     /// Access the per-note MPE expression buffer for this block. Returns
-    /// nullptr unless the plugin declared PluginDescriptor::supports_mpe = true
-    /// and the host/format adapter populated it.
+    /// nullptr unless the plugin declared MPE via PluginDescriptor legacy
+    /// flags or node capabilities and the host/format adapter populated it.
     const midi::MpeBuffer* mpe_input() const { return mpe_input_; }
 
     /// Access the MIDI 2.0 UMP buffer for this block. Returns nullptr
-    /// unless the plugin declared PluginDescriptor::supports_ump = true
-    /// and the host/format adapter populated it.
+    /// unless the plugin declared UMP via PluginDescriptor legacy flags or
+    /// node capabilities and the host/format adapter populated it.
     const midi::UmpBuffer* ump_input() const { return ump_input_; }
 
     /// Access sample-accurate parameter automation for this block. Returns

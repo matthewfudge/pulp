@@ -87,8 +87,18 @@ TEST_CASE("PluginDescriptor defaults to conservative stereo effect metadata",
     REQUIRE_FALSE(d.produces_midi);
     REQUIRE_FALSE(d.supports_mpe);
     REQUIRE_FALSE(d.supports_ump);
+    REQUIRE_FALSE(d.node_capabilities.supports_mpe);
+    REQUIRE_FALSE(d.node_capabilities.supports_ump);
+    REQUIRE_FALSE(d.effective_capabilities().supports_mpe);
+    REQUIRE_FALSE(d.effective_capabilities().supports_ump);
     REQUIRE_FALSE(d.ios_requires_background_audio);
     REQUIRE(d.tail_samples == 0);
+}
+
+TEST_CASE("Node ABI version is visible through Processor surface",
+          "[format][processor-defaults][node-abi]") {
+    REQUIRE(pulp::PULP_NODE_ABI_VERSION == 1);
+    REQUIRE(pulp::pulp_node_abi_version() == pulp::PULP_NODE_ABI_VERSION);
 }
 
 TEST_CASE("PluginDescriptor bus helpers return zero when main buses are absent",
@@ -138,6 +148,29 @@ TEST_CASE("PluginDescriptor carries MIDI, MPE, UMP, and mobile flags independent
     REQUIRE(d.supports_ump);
     REQUIRE(d.ios_requires_background_audio);
     REQUIRE(d.tail_samples == -1);
+}
+
+TEST_CASE("PluginDescriptor effective_capabilities ORs legacy and node fields",
+          "[format][processor-defaults][node-abi]") {
+    PluginDescriptor d;
+
+    SECTION("legacy MPE plus node UMP") {
+        d.supports_mpe = true;
+        d.node_capabilities.supports_ump = true;
+
+        const auto caps = d.effective_capabilities();
+        REQUIRE(caps.supports_mpe);
+        REQUIRE(caps.supports_ump);
+    }
+
+    SECTION("node MPE plus legacy UMP") {
+        d.node_capabilities.supports_mpe = true;
+        d.supports_ump = true;
+
+        const auto caps = d.effective_capabilities();
+        REQUIRE(caps.supports_mpe);
+        REQUIRE(caps.supports_ump);
+    }
 }
 
 TEST_CASE("PluginDescriptor preserves optional vendor contact metadata",

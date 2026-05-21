@@ -184,6 +184,12 @@ rules:
   format and graph code can share the event ABI without depending on
   `core/host`. Phase 1 loaders consume it; Phase 0 loaders accept and
   ignore. Use it — not `set_parameter` — for per-block automation.
+- **Node ABI surface.** `PluginSlot` includes
+  `pulp/runtime/node_abi.hpp` and participates in the node ABI
+  virtual-order gate. Existing virtual methods may not be inserted,
+  removed, or reordered; add new virtual methods only after the current
+  tail and let `tools/scripts/node_abi_gate.py --mode=report` verify
+  the diff against the PR base.
 - **Thread rules doc.** `docs/reference/host-thread-rules.md` is the
   canonical reference.
 

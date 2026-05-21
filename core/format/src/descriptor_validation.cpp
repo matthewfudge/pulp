@@ -90,7 +90,8 @@ std::vector<DescriptorIssue> validate_descriptor(const PluginDescriptor& d) {
                           "— the plugin will receive no MIDI input"});
     }
 
-    if ((d.supports_mpe || d.supports_ump) && !d.accepts_midi) {
+    const auto caps = d.effective_capabilities();
+    if ((caps.supports_mpe || caps.supports_ump) && !d.accepts_midi) {
         issues.push_back({DescriptorIssueSeverity::Warning,
                           "accepts_midi",
                           "supports_mpe / supports_ump are set but "

@@ -11,6 +11,7 @@
 #   - skill-sync (catches missing SKILL.md updates for mapped paths)
 #   - version-bump (catches feat:/fix: PRs without a chore: bump versions commit)
 #   - compat-sync (when compat.json is touched, requires matching test coverage)
+#   - node-ABI (Processor/PluginSlot virtual methods are append-only)
 #   - deps-audit (catches DEPENDENCIES.md / NOTICE.md drift)
 #
 # Does NOT run:
@@ -54,6 +55,7 @@ BASE="${1:-${PULP_GATES_BASE:-origin/main}}"
 VBC="$ROOT/tools/scripts/version_bump_check.py"
 SSC="$ROOT/tools/scripts/skill_sync_check.py"
 CSC="$ROOT/tools/scripts/compat_sync_check.py"
+NAG="$ROOT/tools/scripts/node_abi_gate.py"
 CFG="$ROOT/tools/scripts/versioning.json"
 DEPS_AUDIT="$ROOT/tools/deps/audit.py"
 
@@ -110,7 +112,16 @@ if [ -f "$CSC" ] && [ -f "$COMPAT_MAP" ]; then
     fi
 fi
 
-# ── 4. deps-audit ──────────────────────────────────────────────────────────
+# ── 4. node ABI virtual-order gate ─────────────────────────────────────────
+if [ -f "$NAG" ]; then
+    echo "" >&2
+    echo "▸ node-ABI virtual-order check" >&2
+    if ! "$PYTHON" "$NAG" --base "$BASE" --mode=report; then
+        fail=1
+    fi
+fi
+
+# ── 5. deps-audit ──────────────────────────────────────────────────────────
 if [ -f "$DEPS_AUDIT" ]; then
     echo "" >&2
     echo "▸ deps-audit (attribution drift)" >&2

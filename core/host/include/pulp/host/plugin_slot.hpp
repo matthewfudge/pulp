@@ -12,6 +12,7 @@
 
 #include <pulp/host/scanner.hpp>
 #include <pulp/host/parameter_event_queue.hpp>
+#include <pulp/runtime/node_abi.hpp>
 #include <pulp/state/parameter.hpp>
 #include <pulp/audio/buffer.hpp>
 #include <pulp/midi/buffer.hpp>
