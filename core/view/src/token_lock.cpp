@@ -119,7 +119,11 @@ std::string render_scalar(const std::string& value, char quote) {
     std::string out;
     out += quote;
     for (char c : value) {
-        if (c == quote || c == '\\') out += '\\';
+        if (quote == '\'' && c == '\'') {
+            out += "''";
+            continue;
+        }
+        if (quote == '"' && (c == '"' || c == '\\')) out += '\\';
         out += c;
     }
     out += quote;
@@ -196,6 +200,7 @@ struct TokenLocation {
     std::string error;
     int value_line = -1;     // 0-based, within the YAML text
     std::string leaf_key;    // the YAML key whose value gets rewritten
+    std::string previous_value;
 };
 
 TokenLocation locate_token(const YAML::Node& root, const TokenTarget& target) {
@@ -241,6 +246,7 @@ TokenLocation locate_token(const YAML::Node& root, const TokenTarget& target) {
         }
         loc.value_line = field.Mark().line;
         loc.leaf_key = target.field;
+        loc.previous_value = field.as<std::string>();
     } else {
         // Flat scalar groups: colors / spacing / rounded.
         if (!token.IsScalar()) {
@@ -252,6 +258,7 @@ TokenLocation locate_token(const YAML::Node& root, const TokenTarget& target) {
         }
         loc.value_line = token.Mark().line;
         loc.leaf_key = target.name;
+        loc.previous_value = token.as<std::string>();
     }
 
     if (loc.value_line < 0) {
@@ -405,13 +412,6 @@ TokenLockResult lock_token_in_designmd(const std::string& markdown,
     std::string old_value_raw = line.substr(value_start, value_end - value_start);
     const char quote = source_value_quote(old_value_raw);
 
-    // Record the previous value with surrounding quotes stripped so the
-    // caller sees the semantic value, not the YAML spelling.
-    std::string previous = old_value_raw;
-    if (quote != '\0' && previous.size() >= 2) {
-        previous = previous.substr(1, previous.size() - 2);
-    }
-
     std::string rendered = render_scalar(new_value, quote);
 
     // Splice the new value into the line, then the line back into the
@@ -423,7 +423,7 @@ TokenLockResult lock_token_in_designmd(const std::string& markdown,
     result.updated_markdown = markdown.substr(0, line_start) + new_line +
                               markdown.substr(line_end);
     result.ok = true;
-    result.previous_value = previous;
+    result.previous_value = loc.previous_value;
     result.line = abs_line;
     return result;
 }
