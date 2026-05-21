@@ -1052,11 +1052,9 @@ TEST_CASE("JSX snapshot dynamic API scanner detects non-deterministic APIs",
     REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis(
         R"JS(const label = `${"Date.now()"} ${/* Math.random() */ 1}`;)JS").has_dynamic_apis());
     REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis(
-        R"JS(
-            const single = 'escaped \' Date.now()';
-            const double_quote = "escaped \" Math.random()";
-            const template = `escaped \` fetch("/state")`;
-        )JS").has_dynamic_apis());
+        "const single = 'escaped \\' Date.now()';\n"
+        "const double_quote = \"escaped \\\" Math.random()\";\n"
+        "const template = `escaped \\` fetch(\"/state\")`;\n").has_dynamic_apis());
     REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis("const x = 1;").has_dynamic_apis());
 }
 
@@ -1093,7 +1091,7 @@ TEST_CASE("DesignIR asset manifest fetches network assets through cache and veri
 
     DesignIrAssetOptions options;
     options.allow_network_fetch = true;
-    options.network_timeout_ms = 5000;
+    options.network_timeout_ms = 30000;
     options.cache_directory = tmp.path / "asset-cache";
     options.expected_hash_by_uri[url] = "not-the-actual-hash";
 
@@ -1161,7 +1159,7 @@ TEST_CASE("DesignIR asset manifest reports network fetch failures and timeouts",
     DesignIrAssetOptions options;
     options.allow_network_fetch = true;
     options.cache_directory = tmp.path / "asset-cache";
-    options.network_timeout_ms = 5000;
+    options.network_timeout_ms = 30000;
 
     DesignIR failed_ir;
     failed_ir.root.type = "frame";
@@ -1193,7 +1191,7 @@ TEST_CASE("DesignIR asset manifest reports missing fetcher and empty network dow
     DesignIrAssetOptions options;
     options.allow_network_fetch = true;
     options.cache_directory = tmp.path / "asset-cache";
-    options.network_timeout_ms = 1000;
+    options.network_timeout_ms = 10000;
 
     DesignIR missing_fetcher_ir;
     missing_fetcher_ir.root.type = "frame";

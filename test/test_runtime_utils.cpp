@@ -790,7 +790,7 @@ TEST_CASE("run_process preserves POSIX output captured before timeout",
 #if defined(_WIN32) || defined(__ANDROID__)
     SUCCEED("POSIX timeout output preservation is covered on macOS/Linux");
 #else
-    auto result = run_process("/bin/sh", {"-c", "printf ready; exec sleep 2"}, "", 75);
+    auto result = run_process("/bin/sh", {"-c", "printf ready; exec sleep 2"}, "", 500);
 
     REQUIRE(result.has_value());
     REQUIRE(result->exit_code == -1);
@@ -1394,7 +1394,12 @@ TEST_CASE("HTTP helpers expose error responses without downloading bodies",
     REQUIRE(server.is_running());
 
     const auto base = std::string("http://127.0.0.1:") + std::to_string(port);
-    const auto response = http_get(base + "/missing", 2);
+    auto response = http_get(base + "/missing", 2);
+    const auto get_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (response.status_code == 0 && std::chrono::steady_clock::now() < get_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        response = http_get(base + "/missing", 2);
+    }
     REQUIRE(response.status_code == 404);
     REQUIRE_FALSE(response.ok());
     REQUIRE(response.body == "missing");

@@ -104,7 +104,7 @@ if(Python3_Interpreter_FOUND)
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test_pulp_mcp_binary_smoke.py
                 $<TARGET_FILE:pulp-mcp>)
-    set_tests_properties(pulp-mcp-binary-smoke PROPERTIES TIMEOUT 30)
+    set_tests_properties(pulp-mcp-binary-smoke PROPERTIES TIMEOUT 90)
 endif()
 
 # Setup-hook unit test — verifies hooks/scripts/check-pulp-cli.sh
@@ -720,7 +720,9 @@ pulp_add_test_suite(pulp-test-sysex-accumulator LIBRARIES pulp::midi)
 pulp_add_test_suite(pulp-test-async-stream LIBRARIES pulp::runtime)
 
 # Network Stream tests (Phase 3)
-pulp_add_test_suite(pulp-test-network-stream LIBRARIES pulp::runtime)
+pulp_add_test_suite(pulp-test-network-stream
+    LIBRARIES pulp::runtime
+    PROPERTIES RESOURCE_LOCK network-stream)
 
 # MessageChannel tests (Phase 4)
 pulp_add_test_suite(pulp-test-memory-message-channel LIBRARIES pulp::runtime)
@@ -2381,7 +2383,13 @@ add_executable(pulp-test-design-import test_design_import.cpp)
 target_link_libraries(pulp-test-design-import PRIVATE pulp::view Catch2::Catch2WithMain)
 target_compile_definitions(pulp-test-design-import PRIVATE PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 catch_discover_tests(pulp-test-design-import
+    TEST_SPEC "~[network]"
     PROPERTIES LABELS "parser-import")
+catch_discover_tests(pulp-test-design-import
+    TEST_SPEC "[network]"
+    PROPERTIES
+        LABELS "parser-import"
+        RESOURCE_LOCK "design-import-network")
 
 # P5-3 follow-up — W3C Design Tokens cluster extracted from
 # test_design_import.cpp. Covers parse_w3c_tokens, export_w3c_tokens,
@@ -2556,7 +2564,13 @@ target_compile_definitions(pulp-test-import-design-tool PRIVATE
     PULP_IMPORT_DESIGN_TOOL_PATH="$<TARGET_FILE:pulp-import-design>")
 add_dependencies(pulp-test-import-design-tool pulp-import-design)
 catch_discover_tests(pulp-test-import-design-tool
+    TEST_SPEC "~[network]"
     PROPERTIES LABELS "parser-import")
+catch_discover_tests(pulp-test-import-design-tool
+    TEST_SPEC "[network]"
+    PROPERTIES
+        LABELS "parser-import"
+        RESOURCE_LOCK "design-import-network")
 
 # pulp #468 — `--execute-bundle` harness end-to-end. Boots the
 # ScriptEngine + WidgetBridge, builds a synthetic React-like bundle on

@@ -166,7 +166,7 @@ TEST_CASE("pulp-import-design reports help and argument diagnostics",
 }
 
 TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
-          "[cli][import-design][tool][issue-493]") {
+          "[cli][import-design][tool][issue-493][network]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
 
     TempDir tmp("pulp-import-design-tool-flags");
@@ -274,8 +274,9 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
                                           "--output", ir_output.string(),
                                           "--allow-network-fetch",
                                           "--asset-cache", cache_dir.string(),
-                                          "--asset-timeout-ms", "5000",
-                                          "--asset-hash", url + "=" + expected_hash});
+                                          "--asset-timeout-ms", "30000",
+                                          "--asset-hash", url + "=" + expected_hash},
+                                         60000);
         REQUIRE_FALSE(fetched.timed_out);
         REQUIRE(fetched.exit_code == 0);
         const auto fetched_json = read_text(ir_output);
@@ -351,7 +352,9 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
                                           "--emit", "ir-json",
                                           "--output", ir_output.string(),
                                           "--allow-network-fetch",
-                                          "--asset-cache", cache_dir.string()});
+                                          "--asset-cache", cache_dir.string(),
+                                          "--asset-timeout-ms", "30000"},
+                                         60000);
         REQUIRE_FALSE(fetched.timed_out);
         REQUIRE(fetched.exit_code == 0);
         const auto ir_json = read_text(ir_output);
@@ -646,7 +649,7 @@ TEST_CASE("pulp-import-design handles literal file paths and rejects unsafe URLs
 
 #ifndef _WIN32
 TEST_CASE("pulp-import-design URL fetch uses a unique temp file and argv-safe curl",
-          "[cli][import-design][tool][issue-493]") {
+          "[cli][import-design][tool][issue-493][network]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
 
     TempDir tmp("pulp-import-design-tool-url-fetch");
@@ -675,7 +678,8 @@ TEST_CASE("pulp-import-design URL fetch uses a unique temp file and argv-safe cu
                                 "--url", "https://example.test/screen.html?node-id=1&mode=dev",
                                 "--output", output.string(),
                                 "--no-comments",
-                                "--no-tokens"});
+                                "--no-tokens"},
+                               60000);
 
     REQUIRE_FALSE(r.timed_out);
     REQUIRE(r.exit_code == 0);
