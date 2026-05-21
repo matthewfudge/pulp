@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Unit tests for pulp::import_design::promote_interactive_frames — the
+// Unit tests for pulp::view::promote_interactive_frames — the
 // post-parse pass that re-types interactive frames (<div onClick>, ARIA
 // role="button", cursor:pointer) to "button" so the importer doesn't
 // drop the user's interactive intent on the floor.
@@ -9,15 +9,13 @@
 // promotion paths plus the non-promotion guardrails: explicit
 // role="presentation", non-frame node types, and already-typed widgets.
 
-#include "../tools/import-design/widget_promotion.hpp"
-
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/view/design_import.hpp>
 
 using pulp::view::IRNode;
-using pulp::import_design::WidgetPromotionSignal;
-using pulp::import_design::classify_interactive_signal;
-using pulp::import_design::promote_interactive_frames;
+using pulp::view::WidgetPromotionSignal;
+using pulp::view::classify_interactive_signal;
+using pulp::view::promote_interactive_frames;
 
 namespace {
 

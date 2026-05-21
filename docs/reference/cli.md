@@ -984,8 +984,8 @@ exit codes, diagnostics, and the staged rollout split).
 |------|-------------|
 | `--output <path>` | Destination for the primary generated artifact. Today the default primary artifact is JS at `ui.js`; sidecars remain anchored beside this path when not explicitly overridden. |
 | `--emit {js\|ir-json\|cpp}` | Select the primary artifact kind. `js` and `ir-json` are implemented today; `cpp` is reserved for the baked C++ exporter. |
-| `--mode {live\|baked}` | Select the import runtime model. `live` is implemented today; `baked` is recognized and reserved for a future import mode. |
-| `--snapshot-semantics {fail\|warn\|accept}` | Records the future JSX baked snapshot policy. The flag is parsed today so scripts can adopt the vocabulary before baked import lands. |
+| `--mode {live\|baked}` | Select the import runtime model. `live` is the default. `baked` is implemented for `--from jsx --emit ir-json`; other baked combinations fail cleanly until their phases land. |
+| `--snapshot-semantics {fail\|warn\|accept}` | JSX baked snapshot policy. `fail` rejects dynamic APIs by default, `warn` proceeds with diagnostics, and `accept` proceeds silently. |
 | `--allow-network-fetch` | Allow DesignIR asset-manifest HTTP(S) fetches at import time. |
 | `--asset-cache <path>` | Asset cache directory for HTTP(S) imports. Defaults to `PULP_IMPORT_ASSET_CACHE` or the user cache. |
 | `--asset-timeout-ms <ms>` | Per-request network asset timeout. |
@@ -997,6 +997,14 @@ exit codes, diagnostics, and the staged rollout split).
 With `--emit ir-json`, relative asset references from a `--url` import resolve
 against the source URL. The manifest keeps the authored relative URI and also
 records the resolved `source_url` used for HTTP(S) fetching.
+
+With `--from jsx --mode baked --emit ir-json`, the CLI captures a runtime
+snapshot into DesignIR and records snapshot provenance. Dynamic APIs such as
+`setInterval`, `setTimeout`, `requestAnimationFrame`, `Date.now`, `new Date`,
+`performance.now`, `Math.random`, and `fetch` fail by default under
+`--snapshot-semantics fail`; comments and string literals are ignored. Use
+`warn` to continue with a structured diagnostic, or `accept` to continue
+without that diagnostic.
 
 ### export-tokens
 

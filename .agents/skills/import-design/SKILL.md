@@ -69,6 +69,12 @@ value in `original_uri`, stores the resolved fetch target in `source_url`, and
 nodes keep their raw URI attributes plus a stable companion such as
 `srcAssetId` or `backgroundImageAssetId`.
 
+DesignIR v1.5 also carries document-level provenance (`capture_method`,
+`settle_rounds`, `fallback_reason`, `source_adapter`, `source_version`,
+`imported_at`) and structured top-level diagnostics. Parse APIs return the
+shared normalized form, including interactive-frame promotion from the Pulp
+view library.
+
 ### Step 1: Identify source and input
 
 Ask the user or detect from context:
@@ -743,8 +749,8 @@ pulp import-design --from claude --file design.html --no-emit-classnames
 Import artifact flag vocabulary:
 - `--output <path>` is the destination for the primary artifact; today that artifact is JS and defaults to `ui.js`.
 - `--emit js` and `--emit ir-json` are implemented today. `--emit cpp` is recognized as a reserved value for the baked C++ exporter and fails cleanly. Legacy `--emit classnames` remains accepted for the Claude classnames sidecar.
-- `--mode live` is implemented today. `--mode baked` is recognized and reserved for a future import mode.
-- `--snapshot-semantics fail|warn|accept` is parsed now for future JSX baked imports.
+- `--mode live` is the default. `--mode baked` is implemented for `--from jsx --emit ir-json`; other baked combinations fail cleanly until later phases land.
+- `--snapshot-semantics fail|warn|accept` is honored for JSX baked IR snapshots. `fail` rejects dynamic APIs by default, `warn` proceeds with a structured diagnostic, and `accept` proceeds silently. The scan covers timers, animation frames, clock/random APIs, and fetch while ignoring comments and string literals.
 - URL imports fetch through argv-safe `curl` into a unique temporary file; literal `--file` paths are read directly and may contain normal filesystem punctuation, while `--url` rejects shell metacharacters before fetching.
 
 Use `--dry-run` to preview without writing files.
@@ -933,17 +939,29 @@ if (typeof globalThis.registerPointer === 'function') globalThis.registerPointer
 
 The cleaner long-term fix is for `@pulp/react`'s prop-applier to call `registerPointer` automatically when it sees any pointer-event prop (parallel to its existing `registerHover` wiring) — track that as a follow-up Pulp issue rather than an importer-side workaround if you encounter it on a fresh import.
 
-### 9. Post-parse widget promotion — `<div onClick>` → button
+### 9. Shared widget promotion — `<div onClick>` → button
 
-`pulp::import_design::promote_interactive_frames` (in `tools/import-design/widget_promotion.{hpp,cpp}`) walks the IR once after parse + before codegen and re-types any `type == "frame"` carrying an interactive signal to `type == "button"`. Signal priority (highest → lowest):
+`pulp::view::promote_interactive_frames` walks the IR once during shared parse
+normalization and re-types any `type == "frame"` carrying an interactive signal
+to `type == "button"`. The CLI no longer owns a separate tool-local promotion
+pass; `parse_design_ir_json()` and source adapters return the normalized form
+for both library and CLI consumers. Adapters promote before assigning stable
+anchors so content-hash anchors reflect the normalized type. Signal priority
+(highest -> lowest):
 
 1. `attributes["onclick"]` / `attributes["onClick"]` — strongest.
 2. `attributes["role"] == "button"` — explicit ARIA semantic.
 3. `style.cursor == "pointer"` — weakest; opt-out via `role="presentation"`.
 
-Conservative on purpose: only frames are promoted; already-typed widgets (`input`, `image`, `button`) are left alone, so a designer who wrote `<input onClick={...}>` keeps the input.
+Conservative on purpose: only frames are promoted; already-typed widgets
+(`input`, `image`, `button`) are left alone, so a designer who wrote
+`<input onClick={...}>` keeps the input.
 
-**Gotcha**: the post-pass is source-agnostic, but **only the runtime-import path (`parse_claude_html_with_runtime`) actually populates `IRNode::attributes` with HTML attrs** (it walks the live DOM after React mount). The non-runtime parsers — `parse_stitch_html`, `parse_v0_tsx`, `parse_pencil_json`, `parse_figma_json`'s JSON-attrs path — currently strip `onclick` / `role` before the IR gets handed to the promoter, so promotion silently no-ops on those sources. Tracked as pulp #1823.
+**Gotcha**: the pass is source-agnostic, but it can only promote signals that
+the adapter preserves in `IRNode::attributes` or `IRStyle::cursor`. Runtime
+imports populate HTML attributes from the live DOM after React mount. Static
+adapters that do not preserve `onclick` / `role` still cannot promote those
+signals until their parser surfaces them.
 
 When you re-import Spectr's `editor.html` via Claude Design + the runtime path, expect:
 
