@@ -299,6 +299,51 @@ View* find_by_id(View& root, std::string_view id) {
     return nullptr;
 }
 
+void configure_absolute(View& view,
+                        std::string id,
+                        float left,
+                        float top,
+                        float width,
+                        float height) {
+    view.set_id(id);
+    view.set_anchor_id(std::move(id));
+    view.set_position(View::Position::absolute);
+    view.set_left(left);
+    view.set_top(top);
+    auto& flex = view.flex();
+    flex.preferred_width = width;
+    flex.dim_width = {width, DimensionUnit::px};
+    flex.preferred_height = height;
+    flex.dim_height = {height, DimensionUnit::px};
+}
+
+std::unique_ptr<Label> make_bench_label(std::string id,
+                                        std::string text,
+                                        float left,
+                                        float top,
+                                        float width,
+                                        float height) {
+    auto label = std::make_unique<Label>(std::move(text));
+    configure_absolute(*label, std::move(id), left, top, width, height);
+    label->set_font_size(15.0f);
+    label->set_text_color(Color::rgba8(232, 232, 240, 255));
+    return label;
+}
+
+template <typename Widget>
+Widget* add_bench_widget(View& parent,
+                         std::unique_ptr<Widget> widget,
+                         std::string id,
+                         float left,
+                         float top,
+                         float width,
+                         float height) {
+    auto* ptr = widget.get();
+    configure_absolute(*widget, std::move(id), left, top, width, height);
+    parent.add_child(std::move(widget));
+    return ptr;
+}
+
 class BakedNativeFixture final : public BenchmarkFixture {
 public:
     BakedNativeFixture() {
@@ -354,6 +399,120 @@ private:
     }
 
     std::unique_ptr<View> root_;
+};
+
+class BakedCppFixture final : public BenchmarkFixture {
+public:
+    BakedCppFixture() {
+        root_ = build_imported_ui();
+        root_->set_bounds({0, 0, static_cast<float>(kFixtureWidth), static_cast<float>(kFixtureHeight)});
+        root_->layout_children();
+    }
+
+    View& root() override { return *root_; }
+
+    void step(int frame) override {
+        const float t = static_cast<float>(frame) / 60.0f;
+        drive_->set_value(0.5f + 0.45f * std::sin(t * 1.7f));
+        tone_->set_value(0.5f + 0.35f * std::cos(t * 1.1f));
+        mix_->set_value(0.5f + 0.45f * std::sin(t * 0.9f));
+
+        const float value = 0.55f + 0.35f * std::sin(t * 1.3f);
+        output_->set_level(value, std::max(0.0f, value - 0.18f));
+        shape_->set_x(0.5f + 0.45f * std::sin(t * 0.7f));
+        shape_->set_y(0.5f + 0.45f * std::cos(t * 0.8f));
+        preset_content_->set_top(-static_cast<float>((frame * 3) % 180));
+        root_->layout_children();
+    }
+
+    int js_evaluation_count() const override { return 0; }
+
+private:
+    std::unique_ptr<View> build_imported_ui() {
+        auto root = std::make_unique<View>();
+        root->set_id("bench-root");
+        root->set_anchor_id("bench-root");
+        auto& root_flex = root->flex();
+        root_flex.direction = FlexDirection::column;
+        root_flex.preferred_width = static_cast<float>(kFixtureWidth);
+        root_flex.dim_width = {static_cast<float>(kFixtureWidth), DimensionUnit::px};
+        root_flex.preferred_height = static_cast<float>(kFixtureHeight);
+        root_flex.dim_height = {static_cast<float>(kFixtureHeight), DimensionUnit::px};
+
+        auto panel = std::make_unique<View>();
+        configure_absolute(*panel, "bench-panel", 0, 0,
+                           static_cast<float>(kFixtureWidth),
+                           static_cast<float>(kFixtureHeight));
+        panel->flex().direction = FlexDirection::column;
+        panel->set_background_color(Color::rgba8(31, 32, 48, 255));
+        panel->set_inheritable_text_color(Color::rgba8(232, 232, 240, 255));
+        panel->set_inheritable_font_size(15.0f);
+        panel->set_overflow(View::Overflow::hidden);
+
+        panel->add_child(make_bench_label("title", "Design Import Benchmark", 24, 18, 260, 28));
+        panel->add_child(make_bench_label("subtitle", "Live bridge vs baked native", 24, 45, 260, 20));
+
+        auto drive = std::make_unique<Knob>();
+        drive->set_label("Drive");
+        drive->set_value(0.64f);
+        drive->set_default_value(0.64f);
+        drive_ = add_bench_widget(*panel, std::move(drive), "drive", 28, 84, 96, 96);
+
+        auto tone = std::make_unique<Knob>();
+        tone->set_label("Tone");
+        tone->set_value(0.38f);
+        tone->set_default_value(0.38f);
+        tone_ = add_bench_widget(*panel, std::move(tone), "tone", 152, 84, 96, 96);
+
+        auto mix = std::make_unique<Fader>();
+        mix->set_label("Mix");
+        mix->set_value(0.42f);
+        mix_ = add_bench_widget(*panel, std::move(mix), "mix", 290, 72, 54, 160);
+
+        auto output = std::make_unique<Meter>();
+        output->set_level(0.55f, 0.38f);
+        output_ = add_bench_widget(*panel, std::move(output), "output", 380, 72, 42, 160);
+
+        auto shape = std::make_unique<XYPad>();
+        shape->set_x(0.35f);
+        shape->set_y(0.65f);
+        shape_ = add_bench_widget(*panel, std::move(shape), "shape", 456, 78, 130, 130);
+
+        auto viewport = std::make_unique<View>();
+        configure_absolute(*viewport, "preset-viewport", 28, 260, 560, 126);
+        viewport->set_background_color(Color::rgba8(31, 32, 48, 255));
+        viewport->set_overflow(View::Overflow::scroll);
+
+        auto content = std::make_unique<View>();
+        preset_content_ = content.get();
+        configure_absolute(*content, "preset-content", 0, 0, 540, 420);
+        content->set_background_color(Color::rgba8(31, 32, 48, 255));
+        content->set_overflow(View::Overflow::visible);
+        for (int i = 0; i < 14; ++i) {
+            std::ostringstream label;
+            label << "Preset " << std::setw(2) << std::setfill('0') << (i + 1)
+                  << " - imported control row";
+            content->add_child(make_bench_label("preset-" + std::to_string(i),
+                                                label.str(),
+                                                12,
+                                                static_cast<float>(10 + i * 28),
+                                                360,
+                                                22));
+        }
+
+        viewport->add_child(std::move(content));
+        panel->add_child(std::move(viewport));
+        root->add_child(std::move(panel));
+        return root;
+    }
+
+    std::unique_ptr<View> root_;
+    Knob* drive_ = nullptr;
+    Knob* tone_ = nullptr;
+    Fader* mix_ = nullptr;
+    Meter* output_ = nullptr;
+    XYPad* shape_ = nullptr;
+    View* preset_content_ = nullptr;
 };
 
 class LiveFixture final : public BenchmarkFixture {
@@ -467,6 +626,7 @@ layout();
 std::unique_ptr<BenchmarkFixture> make_fixture(const std::string& lane) {
     if (lane == "live") return std::make_unique<LiveFixture>();
     if (lane == "baked-native") return std::make_unique<BakedNativeFixture>();
+    if (lane == "baked-cpp") return std::make_unique<BakedCppFixture>();
     return nullptr;
 }
 
@@ -584,7 +744,7 @@ std::string make_json(const Config& config,
     out << "    \"first_frame_paint_commands\": " << startup.first_frame_paint_commands << ",\n";
     out << "    \"rss_after_first_frame_bytes\": " << startup.rss_after_first_frame_bytes << "\n";
     out << "  },\n";
-    out << "  \"interaction_model\": \"value drag plus overflow-panel scroll offset; live lane mutates through JS bridge, baked-native lane mutates native widgets directly\",\n";
+    out << "  \"interaction_model\": \"value drag plus overflow-panel scroll offset; live lane mutates through JS bridge, baked-native materializes IR, baked-cpp mutates generated-style native widgets directly\",\n";
     append_phase_json(out, "idle", idle, true);
     append_phase_json(out, "interactive", interactive, false);
     out << "}\n";
@@ -592,7 +752,7 @@ std::string make_json(const Config& config,
 }
 
 void print_usage(std::ostream& out) {
-    out << "usage: pulp-design-import-bench [--lane=live|baked-native] "
+    out << "usage: pulp-design-import-bench [--lane=live|baked-native|baked-cpp] "
            "[--idle-ms=N] [--interactive-ms=N] [--target-fps=N] [--output=PATH]\n";
 }
 
@@ -644,7 +804,9 @@ std::optional<Config> parse_args(int argc, char** argv) {
             return std::nullopt;
         }
     }
-    if (config.lane != "live" && config.lane != "baked-native") return std::nullopt;
+    if (config.lane != "live" &&
+        config.lane != "baked-native" &&
+        config.lane != "baked-cpp") return std::nullopt;
     config.idle_ms = std::max(0, config.idle_ms);
     config.interactive_ms = std::max(0, config.interactive_ms);
     config.target_fps = std::max(1, config.target_fps);

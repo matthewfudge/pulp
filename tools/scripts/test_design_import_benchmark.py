@@ -296,6 +296,34 @@ class ReportTests(unittest.TestCase):
                 "js_evaluations_total": 0,
             },
         }
+        baked_cpp = {
+            "fixture": "fixture",
+            "target_fps": 60,
+            "startup": {"first_frame_ms": 55.0, "build_ms": 8.0, "first_frame_render_ms": 2.0},
+            "idle": {
+                "samples": 10,
+                "cpu_ms": 8.0,
+                "cpu_frame_ms_median": 0.04,
+                "cpu_frame_ms_p99": 0.08,
+                "frame_ms_median": 0.4,
+                "frame_ms_p99": 0.8,
+                "rss_median_bytes": 400,
+                "rss_p99_bytes": 500,
+                "rss_peak_bytes": 500,
+            },
+            "interactive": {
+                "samples": 10,
+                "cpu_ms": 12.0,
+                "cpu_frame_ms_median": 0.08,
+                "cpu_frame_ms_p99": 0.16,
+                "frame_ms_median": 0.8,
+                "frame_ms_p99": 1.6,
+                "rss_median_bytes": 800,
+                "rss_p99_bytes": 1000,
+                "rss_peak_bytes": 1000,
+                "js_evaluations_total": 0,
+            },
+        }
         binary = {
             "pulp_view_archive_bytes": 10_000,
             "pulp_view_archive_linked_bytes": 10_000,
@@ -312,7 +340,9 @@ class ReportTests(unittest.TestCase):
             "objects": [{"path": "obj.o", "linked_bytes": 4_000, "file_bytes": 5_000, "present": True}],
         }
 
-        report = dib.build_report(live, baked, binary, pathlib.Path("/tmp/build"))
+        report = dib.build_report(live, baked, binary, pathlib.Path("/tmp/build"), baked_cpp)
+        self.assertIn("baked-cpp", report["lanes"])
+        self.assertAlmostEqual(report["comparisons"]["baked-cpp"]["interactive_cpu_delta_ratio"], -0.7)
         self.assertAlmostEqual(report["comparison"]["interactive_cpu_delta_ratio"], -0.625)
         self.assertAlmostEqual(report["comparison"]["interactive_cpu_frame_p99_delta_ratio"], -0.5)
         self.assertAlmostEqual(report["comparison"]["interactive_rss_p99_delta_ratio"], -0.5)
@@ -324,7 +354,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("RSS p99", markdown)
         self.assertIn("Estimated live-runtime linked footprint", markdown)
         self.assertIn("pulp-view linked text+data", markdown)
+        self.assertIn("baked-cpp", markdown)
         self.assertIn("live interactive evaluations=10", markdown)
+        self.assertIn("baked-cpp interactive evaluations=0", markdown)
 
     def test_formatters_are_ascii_and_stable(self) -> None:
         self.assertEqual(dib.format_bytes(512), "512 B")
