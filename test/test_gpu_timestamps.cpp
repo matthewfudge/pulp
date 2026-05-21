@@ -321,6 +321,30 @@ TEST_CASE("set_pass_gpu_time rejects a negative duration",
     REQUIRE_FALSE(rpm.passes()[0].gpu_time_valid);
 }
 
+TEST_CASE("RenderPassManager begin_frame clears stale frame state",
+          "[render][gpu-timestamps][coverage][phase3]") {
+    RenderPassManager rpm;
+    rpm.set_budget(1.0f);
+    rpm.begin_frame();
+    rpm.begin_pass(RenderPassType::overlay);
+    rpm.end_pass(2.0f, 3);
+    rpm.set_pass_gpu_time(0, 0.5f);
+    rpm.end_frame();
+
+    REQUIRE(rpm.over_budget());
+    REQUIRE(rpm.has_gpu_timing());
+    REQUIRE(rpm.current_pass() == RenderPassType::overlay);
+    REQUIRE(rpm.total_time_ms() == Catch::Approx(2.0f));
+
+    rpm.begin_frame();
+    REQUIRE(rpm.frame_count() == 2);
+    REQUIRE(rpm.passes().empty());
+    REQUIRE_FALSE(rpm.over_budget());
+    REQUIRE_FALSE(rpm.has_gpu_timing());
+    REQUIRE(rpm.current_pass() == RenderPassType::background);
+    REQUIRE(rpm.total_time_ms() == Catch::Approx(0.0f));
+}
+
 // ── GpuTimestampSupport — feature-availability state machine ─────────────────
 
 TEST_CASE("GpuTimestampSupport describe/is_usable cover every state",
