@@ -2410,6 +2410,13 @@ add_dependencies(pulp-test-design-import-benchmark pulp-design-import-bench)
 catch_discover_tests(pulp-test-design-import-benchmark
     PROPERTIES LABELS "parser-import")
 
+add_executable(pulp-test-design-import-screenshot-parity
+    test_design_import_screenshot_parity.cpp)
+target_link_libraries(pulp-test-design-import-screenshot-parity
+    PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-design-import-screenshot-parity
+    PROPERTIES LABELS "parser-import")
+
 # P5-3 follow-up — W3C Design Tokens cluster extracted from
 # test_design_import.cpp. Covers parse_w3c_tokens, export_w3c_tokens,
 # composite typography/shadow shapes, alias resolution, math
