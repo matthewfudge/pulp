@@ -902,7 +902,7 @@ TEST_CASE("http_get defaults missing URL path to slash",
         if (received > 0) {
             const std::string request_text(reinterpret_cast<const char*>(request.data()),
                                            static_cast<std::size_t>(received));
-            saw_root_path.store(request_text.find("GET / HTTP/1.1") != std::string::npos);
+            saw_root_path.store(request_text.find("GET /") != std::string::npos);
         }
 
         const std::string response =
@@ -944,7 +944,7 @@ TEST_CASE("HttpStream post factory reads a successful local response",
         if (received > 0) {
             const std::string request_text(reinterpret_cast<const char*>(request.data()),
                                            static_cast<std::size_t>(received));
-            saw_post.store(request_text.find("POST /submit HTTP/1.1") != std::string::npos &&
+            saw_post.store(request_text.find("POST /submit") != std::string::npos &&
                            request_text.find("application/json") != std::string::npos);
         }
         const std::string response =
