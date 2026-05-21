@@ -471,6 +471,18 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
         return true;
     }
 
+    // Phase 3 — M toggles the selection mode between follows_focus
+    // (click-to-select; the default) and follows_mouse (selection
+    // tracks the pointer). No modifier; inspector-active only, and
+    // guarded behind not-editing so typing an 'm' into a field-edit
+    // buffer can't flip the mode. D/E/T/J/P/Z/R/A are already claimed,
+    // so M ("mode") is the natural free letter.
+    if (active_ && editing_field_.empty() && event.key == KeyCode::m &&
+        event.is_down && event.modifiers == 0) {
+        toggle_selection_mode();
+        return true;
+    }
+
     return false;
 }
 
@@ -753,6 +765,25 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
     auto* hit = root_.hit_test(pos);
     if (hit) {
         hovered_ = hit;
+
+        // Phase 3 — selection-mode toggle. In follows_mouse mode the
+        // selection chases the pointer: every pointer-move re-selects
+        // the hovered View (Figma-style "select on hover"). In the
+        // default follows_focus mode the selection stays pinned and is
+        // only changed by an explicit click (handled below). The Alt
+        // modifier is excluded so Alt-hover sibling-distance and
+        // Alt+click distance-anchor modes keep their pinned selection.
+        //
+        // A field edit in progress also pins the selection: begin_field_edit()
+        // snapshots the edit target, but write_field_value() /
+        // commit_field_edit() still operate on the *current* selected_. If a
+        // mid-edit hover were allowed to move selected_, the edit would commit
+        // to the wrong node (or a no-longer-valid target). follows_focus mode
+        // is already safe here because it never chases the pointer.
+        if (selection_mode_ == SelectionMode::follows_mouse &&
+            !event.is_down && !event.isAltDown() && !is_editing()) {
+            selected_ = hit;
+        }
     }
 
     // Phase 3f — Alt-hover sibling distance (Figma-style). Tracks the
