@@ -9,9 +9,16 @@ versioned envelope:
   "version": 1,
   "source": "figma",
   "sourceFile": "design.json",
+  "capture_method": "adapter_parse",
+  "settle_rounds": 0,
+  "fallback_reason": "",
+  "source_adapter": "figma",
+  "source_version": "1",
+  "imported_at": "2026-05-21T09:07:34Z",
   "root": {},
   "tokens": {},
-  "assetManifest": { "version": 1, "assets": [] }
+  "assetManifest": { "version": 1, "assets": [] },
+  "diagnostics": []
 }
 ```
 
@@ -26,6 +33,21 @@ Round-trip compatibility is canonical equivalence, not byte identity:
 The permissive reader accepts both camelCase and snake_case for source
 metadata fields where older adapters already emitted one form. The canonical
 writer uses the names listed below.
+
+## Document Metadata
+
+The v1 envelope carries import provenance at the document level so later
+normalizers, resolvers, and materializers can reason about how the tree was
+captured:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `capture_method` | string | `adapter_parse` for static adapters or `runtime_snapshot` for runtime materialization. |
+| `settle_rounds` | integer | Runtime pump rounds completed before snapshot capture. |
+| `fallback_reason` | string | Why a runtime capture fell back to a static adapter, if it did. |
+| `source_adapter` | string | Adapter/runtime that produced the document. |
+| `source_version` | string | Adapter/runtime schema version. |
+| `imported_at` | string | Import timestamp when produced by the CLI. |
 
 ## Node Metadata
 
@@ -148,6 +170,38 @@ assets can be deduplicated by later baked outputs. Nodes preserve their raw
 URI attributes and may receive a parallel `*AssetId` attribute such as
 `srcAssetId` or `backgroundImageAssetId` for stable manifest references.
 
+## Diagnostics
+
+Import diagnostics are structured and serializable. The top-level
+`diagnostics` array carries document-level warnings/errors; asset entries may
+also carry diagnostics scoped to that asset.
+
+```json
+{
+  "severity": "warning",
+  "kind": "snapshot_semantics_warning",
+  "code": "snapshot-dynamic-api",
+  "path": "$.root",
+  "message": "JSX baked snapshot references dynamic APIs: setInterval",
+  "anchor_id": "root",
+  "property": "snapshotSemantics"
+}
+```
+
+Known `kind` values are `unsupported_property`, `unresolved_asset`,
+`snapshot_semantics_warning`, `legacy_field_shortcut`, `capture_partial`,
+`fallback_used`, and `unknown`. Legacy diagnostics that only include `code`
+are accepted; the reader infers known kinds from established diagnostic codes.
+
+## Normalization
+
+`parse_design_ir_json()` and the source adapters run shared normalization before
+returning a `DesignIR`. In v1.5 that includes interactive-frame promotion:
+`frame` nodes with `onclick`/`onClick`, `role="button"`, or `cursor: pointer`
+are promoted to `button` unless `role="presentation"` explicitly opts out of
+the cursor heuristic. Adapters that assign stable anchors promote before anchor
+assignment so content-hash anchors reflect the normalized node type.
+
 ## C++ API
 
 ```cpp
@@ -155,4 +209,7 @@ std::string serialize_design_ir(const DesignIR&, const DesignIrJsonOptions& = {}
 DesignIR parse_design_ir_json(const std::string& json);
 IRAssetManifest collect_design_ir_assets(const DesignIR&, const DesignIrAssetOptions& = {});
 void refresh_design_ir_asset_manifest(DesignIR&, const DesignIrAssetOptions& = {});
+WidgetPromotionSignal classify_interactive_signal(const IRNode&);
+std::size_t promote_interactive_frames(IRNode&);
+SnapshotDynamicApiScan detect_jsx_snapshot_dynamic_apis(std::string_view source);
 ```

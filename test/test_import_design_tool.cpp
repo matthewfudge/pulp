@@ -8,6 +8,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace pulp::platform;
@@ -74,6 +75,16 @@ std::string read_text(const fs::path& path) {
     return ss.str();
 }
 
+size_t count_occurrences(std::string_view haystack, std::string_view needle) {
+    size_t count = 0;
+    size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string_view::npos) {
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
+
 std::optional<std::string> read_env_var(const char* name) {
     if (const char* value = std::getenv(name); value) return std::string(value);
     return std::nullopt;
@@ -131,6 +142,10 @@ TEST_CASE("pulp-import-design reports help and argument diagnostics",
         REQUIRE(r.stdout_output.find("--emit {js|ir-json|cpp}") != std::string::npos);
         REQUIRE(r.stdout_output.find("--mode {live|baked}") != std::string::npos);
         REQUIRE(r.stdout_output.find("--snapshot-semantics {fail|warn|accept}") != std::string::npos);
+        REQUIRE(r.stdout_output.find("Precompiled React JSX runtime bundle") != std::string::npos);
+        REQUIRE(r.stdout_output.find("baked supports --from jsx --emit ir-json") != std::string::npos);
+        REQUIRE(r.stdout_output.find("CLI dispatch reserved") == std::string::npos);
+        REQUIRE(r.stdout_output.find("baked reserved for future imports") == std::string::npos);
     }
 
     SECTION("missing source is a usage error") {
@@ -392,6 +407,105 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         REQUIRE_FALSE(baked.timed_out);
         REQUIRE(baked.exit_code == 2);
         REQUIRE(baked.stderr_output.find("--mode baked is reserved") != std::string::npos);
+    }
+
+    SECTION("jsx baked snapshots fail by default on dynamic APIs and can warn or accept") {
+        const auto jsx = tmp.path / "dynamic.bundle.js";
+        const auto fail_output = tmp.path / "dynamic-fail.ir.json";
+        const auto warn_output = tmp.path / "dynamic-warn.ir.json";
+        const auto accept_output = tmp.path / "dynamic-accept.ir.json";
+        write_text(jsx,
+                   "(function(){\n"
+                   "  var root = document.getElementById('root') || document.body;\n"
+                   "  root.setAttribute('data-stamp', String(Date.now()));\n"
+                   "  for (var i = 0; i < 12; ++i) {\n"
+                   "    var el = document.createElement('div');\n"
+                   "    el.textContent = 'Phase 15 snapshot ' + i;\n"
+                   "    root.appendChild(el);\n"
+                   "  }\n"
+                   "})();\n");
+
+        auto fail = run_import_design({"--from", "jsx",
+                                       "--file", jsx.string(),
+                                       "--mode", "baked",
+                                       "--emit", "ir-json",
+                                       "--output", fail_output.string()});
+        REQUIRE_FALSE(fail.timed_out);
+        REQUIRE(fail.exit_code == 2);
+        REQUIRE(fail.stderr_output.find("JSX baked snapshot uses dynamic APIs") != std::string::npos);
+        REQUIRE_FALSE(fs::exists(fail_output));
+
+        auto warn = run_import_design({"--from", "jsx",
+                                       "--file", jsx.string(),
+                                       "--mode", "baked",
+                                       "--emit", "ir-json",
+                                       "--snapshot-semantics", "warn",
+                                       "--output", warn_output.string()});
+        REQUIRE_FALSE(warn.timed_out);
+        REQUIRE(warn.exit_code == 0);
+        const auto warn_json = read_text(warn_output);
+        REQUIRE(warn_json.find("\"source\":\"jsx\"") != std::string::npos);
+        REQUIRE(warn_json.find("\"capture_method\":\"runtime_snapshot\"") != std::string::npos);
+        REQUIRE(warn_json.find("\"source_adapter\":\"jsx-runtime\"") != std::string::npos);
+        REQUIRE(warn_json.find("\"snapshot-dynamic-api\"") != std::string::npos);
+        REQUIRE(warn_json.find("\"snapshotSemantics\":\"warn\"") != std::string::npos);
+        REQUIRE(warn_json.find("Phase 15 snapshot") != std::string::npos);
+        REQUIRE(warn_json.find("\"imported_at\"") != std::string::npos);
+
+        auto accept = run_import_design({"--from", "jsx",
+                                         "--file", jsx.string(),
+                                         "--mode", "baked",
+                                         "--emit", "ir-json",
+                                         "--snapshot-semantics", "accept",
+                                         "--output", accept_output.string()});
+        REQUIRE_FALSE(accept.timed_out);
+        REQUIRE(accept.exit_code == 0);
+        const auto accept_json = read_text(accept_output);
+        REQUIRE(accept_json.find("\"source\":\"jsx\"") != std::string::npos);
+        REQUIRE(accept_json.find("\"capture_method\":\"runtime_snapshot\"") != std::string::npos);
+        REQUIRE(accept_json.find("\"snapshotSemantics\":\"accept\"") != std::string::npos);
+        REQUIRE(accept_json.find("Phase 15 snapshot") != std::string::npos);
+        REQUIRE(accept_json.find("\"snapshot-dynamic-api\"") == std::string::npos);
+    }
+
+    SECTION("jsx baked snapshots fail instead of serializing fallback shells") {
+        const auto jsx = tmp.path / "fallback.bundle.js";
+        const auto output = tmp.path / "fallback.ir.json";
+        write_text(jsx,
+                   "(function(){ globalThis.__pulpPhase15NoMount = true; })();\n"
+                   "// padding so parse_jsx_react treats this as a runtime bundle "
+                   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n");
+
+        auto result = run_import_design({"--from", "jsx",
+                                         "--file", jsx.string(),
+                                         "--mode", "baked",
+                                         "--emit", "ir-json",
+                                         "--snapshot-semantics", "accept",
+                                         "--output", output.string()});
+        REQUIRE_FALSE(result.timed_out);
+        REQUIRE(result.exit_code == 1);
+        REQUIRE(result.stderr_output.find("JSX baked runtime snapshot failed") != std::string::npos);
+        REQUIRE_FALSE(fs::exists(output));
+    }
+
+    SECTION("designmd warning diagnostics are printed once") {
+        const auto designmd = tmp.path / "DESIGN.md";
+        const auto output = tmp.path / "designmd.ir.json";
+        write_text(designmd,
+                   "---\n"
+                   "name: Synthetic\n"
+                   "colors:\n"
+                   "  bad: \"not-a-color\"\n"
+                   "---\n");
+
+        auto result = run_import_design({"--from", "designmd",
+                                         "--file", designmd.string(),
+                                         "--emit", "ir-json",
+                                         "--output", output.string()});
+        REQUIRE_FALSE(result.timed_out);
+        REQUIRE(result.exit_code == 0);
+        REQUIRE(fs::exists(output));
+        REQUIRE(count_occurrences(result.stderr_output, "color-shape") == 1);
     }
 
     SECTION("legacy classnames emit vocabulary remains accepted") {

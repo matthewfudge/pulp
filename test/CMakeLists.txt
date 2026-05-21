@@ -2451,13 +2451,12 @@ target_link_libraries(pulp-test-jsx-lock PRIVATE pulp::view Catch2::Catch2WithMa
 catch_discover_tests(pulp-test-jsx-lock
     PROPERTIES LABELS "parser-import")
 
-# Post-parse widget promotion: <div onClick> / role=button / cursor:pointer
-# → button. Closure of pulp-internal task #84 / follow-up on #1814.
-# Links the importer-side .cpp directly (it's not in pulp::view) so the
-# test exercises the same code path the CLI uses.
+# Library-backed post-parse widget promotion: <div onClick> / role=button /
+# cursor:pointer → button. Closure of pulp-internal task #84 / follow-up on
+# #1814. The pass now lives in pulp::view so parser API users and the CLI share
+# one normalization path.
 add_executable(pulp-test-widget-promotion
-    test_widget_promotion.cpp
-    ${CMAKE_SOURCE_DIR}/tools/import-design/widget_promotion.cpp)
+    test_widget_promotion.cpp)
 target_include_directories(pulp-test-widget-promotion PRIVATE
     ${CMAKE_SOURCE_DIR})
 target_link_libraries(pulp-test-widget-promotion PRIVATE

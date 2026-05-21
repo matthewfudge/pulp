@@ -1,9 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/state/store.hpp>
+#include <pulp/view/anchor_strategy.hpp>
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <chrono>
 #include <filesystem>
@@ -123,6 +125,14 @@ private:
 
 bool has_diagnostic(const IRAssetRef& asset, const std::string& code) {
     for (const auto& diagnostic : asset.diagnostics) {
+        if (diagnostic.code == code) return true;
+    }
+    return false;
+}
+
+bool has_import_diagnostic(const std::vector<ImportDiagnostic>& diagnostics,
+                           const std::string& code) {
+    for (const auto& diagnostic : diagnostics) {
         if (diagnostic.code == code) return true;
     }
     return false;
@@ -756,15 +766,145 @@ TEST_CASE("DesignIR asset manifest records unresolved and network-gated diagnost
         if (asset.original_uri == "missing.png") {
             saw_missing = true;
             REQUIRE(has_diagnostic(asset, "asset-unresolved"));
+            REQUIRE(asset.diagnostics[0].kind == ImportDiagnosticKind::unresolved_asset);
             REQUIRE(asset.content_hash.empty());
         } else if (asset.original_uri == "https://example.test/hero.png") {
             saw_network = true;
             REQUIRE(has_diagnostic(asset, "asset-network-fetch-disabled"));
+            REQUIRE(asset.diagnostics[0].kind == ImportDiagnosticKind::unresolved_asset);
             REQUIRE(asset.content_hash.empty());
         }
     }
     REQUIRE(saw_missing);
     REQUIRE(saw_network);
+}
+
+TEST_CASE("DesignIR parser normalization promotes interactive frames from library APIs",
+          "[view][import][diagnostics]") {
+    const auto json = R"json({
+        "version": 1,
+        "source": "stitch",
+        "root": {
+            "type": "frame",
+            "name": "Root",
+            "children": [
+                {
+                    "type": "frame",
+                    "name": "Click Me",
+                    "attributes": { "role": "button" },
+                    "children": []
+                }
+            ]
+        }
+    })json";
+
+    auto ir = parse_design_ir_json(json);
+    REQUIRE(ir.root.children.size() == 1);
+    REQUIRE(ir.root.children[0].type == "button");
+}
+
+TEST_CASE("Interactive promotion runs before content-hash anchors",
+          "[view][import][diagnostics]") {
+    const std::string json = R"json({
+        "type": "frame",
+        "name": "Root",
+        "children": [
+            {
+                "type": "frame",
+                "name": "Click Me",
+                "attributes": { "role": "button" },
+                "children": []
+            }
+        ]
+    })json";
+
+    auto ir = parse_stitch_html(json);
+    REQUIRE(ir.root.children.size() == 1);
+    const auto& promoted = ir.root.children[0];
+    REQUIRE(promoted.type == "button");
+
+    const auto promoted_anchor = compute_anchor_id(
+        promoted, /*parent_anchor=*/"", /*sibling_tag_index_for_path=*/0,
+        /*depth=*/1, /*sig_index_for_content_hash=*/0,
+        AnchorStrategy::content_hash);
+    auto stale_frame = promoted;
+    stale_frame.type = "frame";
+    const auto stale_anchor = compute_anchor_id(
+        stale_frame, /*parent_anchor=*/"", /*sibling_tag_index_for_path=*/0,
+        /*depth=*/1, /*sig_index_for_content_hash=*/0,
+        AnchorStrategy::content_hash);
+
+    REQUIRE(promoted.stable_anchor_id == promoted_anchor);
+    REQUIRE(promoted.stable_anchor_id != stale_anchor);
+}
+
+TEST_CASE("DesignIR diagnostics and provenance round trip canonical JSON",
+          "[view][import][diagnostics]") {
+    DesignIR ir;
+    ir.version = 2;
+    ir.source = DesignSource::jsx;
+    ir.source_file = "panel.bundle.js";
+    ir.capture_method = "runtime_snapshot";
+    ir.settle_rounds = 4;
+    ir.fallback_reason = "none";
+    ir.source_adapter = "jsx-runtime";
+    ir.source_version = "1";
+    ir.imported_at = "2026-05-21T08:00:00Z";
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    ImportDiagnostic diagnostic;
+    diagnostic.severity = ImportDiagnosticSeverity::warning;
+    diagnostic.kind = ImportDiagnosticKind::snapshot_semantics_warning;
+    diagnostic.code = "snapshot-dynamic-api";
+    diagnostic.path = "<source>";
+    diagnostic.message = "setInterval";
+    diagnostic.anchor_id = "anchor-1";
+    diagnostic.property = "onTick";
+    ir.diagnostics.push_back(diagnostic);
+
+    auto json = serialize_design_ir(ir);
+    REQUIRE(json.find("\"capture_method\":\"runtime_snapshot\"") != std::string::npos);
+    REQUIRE(json.find("\"kind\":\"snapshot_semantics_warning\"") != std::string::npos);
+    REQUIRE(json.find("\"anchor_id\":\"anchor-1\"") != std::string::npos);
+    REQUIRE(json.find("\"property\":\"onTick\"") != std::string::npos);
+
+    auto reparsed = parse_design_ir_json(json);
+    REQUIRE(reparsed.version == 2);
+    REQUIRE(reparsed.capture_method == "runtime_snapshot");
+    REQUIRE(reparsed.settle_rounds == 4);
+    REQUIRE(reparsed.source_adapter == "jsx-runtime");
+    REQUIRE(reparsed.imported_at == "2026-05-21T08:00:00Z");
+    REQUIRE(reparsed.diagnostics.size() == 1);
+    REQUIRE(reparsed.diagnostics[0].kind == ImportDiagnosticKind::snapshot_semantics_warning);
+    REQUIRE(reparsed.diagnostics[0].anchor_id == "anchor-1");
+    REQUIRE(reparsed.diagnostics[0].property == "onTick");
+}
+
+TEST_CASE("JSX snapshot dynamic API scanner detects non-deterministic APIs",
+          "[view][import][diagnostics]") {
+    auto scan = detect_jsx_snapshot_dynamic_apis(
+        "setInterval(function(){}, 16); setTimeout(function(){}, 16);"
+        "requestAnimationFrame(function(){}); Date.now(); new Date();"
+        "performance.now(); Math.random(); fetch('/state');");
+    REQUIRE(scan.has_dynamic_apis());
+    REQUIRE(scan.tokens.size() == 8);
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "setInterval") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "setTimeout") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "requestAnimationFrame") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "Date.now") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "new Date") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "performance.now") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "Math.random") != scan.tokens.end());
+    REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "fetch") != scan.tokens.end());
+
+    REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis(
+        "// setInterval Date.now Math.random fetch(\n"
+        "/* setTimeout requestAnimationFrame new Date performance.now */\n"
+        "const literal = \"setInterval Date.now Math.random fetch(\";\n"
+        "const single = 'setTimeout requestAnimationFrame new Date performance.now';\n"
+        "const template = `setInterval Date.now Math.random fetch(`;").has_dynamic_apis());
+    REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis("const x = 1;").has_dynamic_apis());
 }
 
 #ifndef _WIN32

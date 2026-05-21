@@ -614,10 +614,10 @@ commands:
         description: "Primary artifact kind: js or ir-json (implemented), cpp (reserved), or legacy classnames sidecar"
       - name: --mode
         kind: option
-        description: "Runtime model: live (implemented) or baked (recognized reserved value that fails cleanly)"
+        description: "Runtime model: live (default) or baked for JSX IR snapshots; unsupported baked combinations fail cleanly"
       - name: --snapshot-semantics
         kind: option
-        description: "Future JSX baked snapshot policy: fail, warn, or accept"
+        description: "JSX baked snapshot policy: fail rejects dynamic APIs, warn proceeds with diagnostics, accept proceeds silently"
       - name: --allow-network-fetch
         kind: flag
         description: "Allow DesignIR asset-manifest HTTP(S) fetches at import time"

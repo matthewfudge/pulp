@@ -7,7 +7,6 @@
 #include <pulp/platform/child_process.hpp>
 #include <pulp/state/store.hpp>
 #include "import_detect.hpp"
-#include "widget_promotion.hpp"
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -20,10 +19,13 @@
 #include <cstring>
 #include <filesystem>
 #include <chrono>
+#include <ctime>
+#include <iomanip>
 #include <limits>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace pulp::view;
@@ -228,6 +230,52 @@ bool parse_asset_hash_arg(const std::string& value,
     return true;
 }
 
+const char* snapshot_semantics_name(SnapshotSemantics semantics) {
+    switch (semantics) {
+        case SnapshotSemantics::fail:   return "fail";
+        case SnapshotSemantics::warn:   return "warn";
+        case SnapshotSemantics::accept: return "accept";
+    }
+    return "fail";
+}
+
+std::string join_tokens(const std::vector<std::string>& tokens) {
+    std::ostringstream out;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (i) out << ", ";
+        out << tokens[i];
+    }
+    return out.str();
+}
+
+std::string current_utc_timestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &t);
+#else
+    gmtime_r(&t, &tm);
+#endif
+    std::ostringstream out;
+    out << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return out.str();
+}
+
+ImportDiagnostic make_cli_diagnostic(ImportDiagnosticSeverity severity,
+                                     ImportDiagnosticKind kind,
+                                     std::string code,
+                                     std::string path,
+                                     std::string message) {
+    ImportDiagnostic diagnostic;
+    diagnostic.severity = severity;
+    diagnostic.kind = kind;
+    diagnostic.code = std::move(code);
+    diagnostic.path = std::move(path);
+    diagnostic.message = std::move(message);
+    return diagnostic;
+}
+
 void print_asset_manifest_diagnostics(const IRAssetManifest& manifest) {
     for (const auto& asset : manifest.assets) {
         for (const auto& diagnostic : asset.diagnostics) {
@@ -236,6 +284,27 @@ void print_asset_manifest_diagnostics(const IRAssetManifest& manifest) {
                       << (diagnostic.path.empty() ? asset.original_uri : diagnostic.path)
                       << ": " << diagnostic.message << "\n";
         }
+    }
+}
+
+void print_import_diagnostics(const std::vector<ImportDiagnostic>& diagnostics) {
+    for (const auto& diagnostic : diagnostics) {
+        if (diagnostic.severity == ImportDiagnosticSeverity::info) continue;
+        std::cerr << "[" << diagnostic_severity_name(diagnostic.severity)
+                  << "] " << diagnostic.code << " at "
+                  << (diagnostic.path.empty() ? "<root>" : diagnostic.path)
+                  << ": " << diagnostic.message << "\n";
+    }
+}
+
+void print_designmd_diagnostics(const std::vector<DesignMdDiagnostic>& diagnostics) {
+    for (const auto& d : diagnostics) {
+        const char* sev = (d.severity == DesignMdSeverity::error)   ? "error" :
+                          (d.severity == DesignMdSeverity::warning) ? "warning" : "info";
+        std::cerr << "[" << sev << "] " << d.code
+                  << " at " << (d.path.empty() ? "<root>" : d.path);
+        if (d.line > 0) std::cerr << " (line " << d.line << ":" << d.column << ")";
+        std::cerr << ": " << d.message << "\n";
     }
 }
 
@@ -264,7 +333,7 @@ static void print_usage() {
     std::cout << "  pencil   Pencil/OpenPencil node JSON or .pen export\n";
     std::cout << "  claude   Anthropic Claude Design — manually-exported standalone HTML\n";
     std::cout << "  designmd Google DESIGN.md design-system spec (tokens only)\n";
-    std::cout << "  jsx      React JSX instrument bundle (CLI dispatch reserved)\n\n";
+    std::cout << "  jsx      Precompiled React JSX runtime bundle for baked IR snapshots\n\n";
     std::cout << "Options:\n";
     std::cout << "  --from <source>   Design source (required)\n";
     std::cout << "  --file <path>     Input file path\n";
@@ -275,7 +344,7 @@ static void print_usage() {
     std::cout << "  --emit {js|ir-json|cpp}\n";
     std::cout << "                    Primary artifact kind (default: js; cpp reserved)\n";
     std::cout << "  --mode {live|baked}\n";
-    std::cout << "                    Runtime model (default: live; baked reserved for future imports)\n";
+    std::cout << "                    Runtime model (default: live; baked supports --from jsx --emit ir-json)\n";
     std::cout << "  --snapshot-semantics {fail|warn|accept}\n";
     std::cout << "                    JSX baked snapshot policy (default: fail)\n";
     std::cout << "  --allow-network-fetch\n";
@@ -730,12 +799,11 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     if (runtime_mode == RuntimeMode::baked) {
-        if (*source == DesignSource::jsx && snapshot_semantics == SnapshotSemantics::fail) {
-            std::cerr << "Error: --mode baked for JSX requires --snapshot-semantics warn or accept\n";
+        if (!(*source == DesignSource::jsx && artifact_emit == ArtifactEmit::ir_json)) {
+            std::cerr << "Error: --mode baked is reserved for JSX DesignIR snapshot import in this phase"
+                         " (use --from jsx --mode baked --emit ir-json)\n";
             return 2;
         }
-        std::cerr << "Error: --mode baked is reserved for a future design-import mode and is not implemented yet\n";
-        return 2;
     }
 
     // --url without --file: fetch the URL content via argv-safe curl.
@@ -789,39 +857,78 @@ int main(int argc, char* argv[]) {
                 // suppresses the ui.js write for this source.
                 auto pr = parse_designmd(content);
                 ir = std::move(pr.ir);
-                // Surface diagnostics as one line per finding on stderr.
-                // Phase 2's `pulp design lint` will provide a richer JSON
-                // shape; this is the minimum for Phase 1.
-                for (const auto& d : pr.diagnostics) {
-                    const char* sev = (d.severity == DesignMdSeverity::error)   ? "error" :
-                                      (d.severity == DesignMdSeverity::warning) ? "warning" : "info";
-                    std::cerr << "[" << sev << "] " << d.code
-                              << " at " << (d.path.empty() ? "<root>" : d.path);
-                    if (d.line > 0) std::cerr << " (line " << d.line << ":" << d.column << ")";
-                    std::cerr << ": " << d.message << "\n";
-                }
                 // Hard fail on any error-severity diagnostic (e.g. duplicate
                 // section heading, malformed YAML). Exit code 3 reserved
                 // for parse errors per the integration plan.
                 for (const auto& d : pr.diagnostics) {
-                    if (d.severity == DesignMdSeverity::error) return 3;
+                    if (d.severity == DesignMdSeverity::error) {
+                        print_designmd_diagnostics(pr.diagnostics);
+                        return 3;
+                    }
                 }
                 break;
             }
             case DesignSource::jsx:
-                // The `jsx` source is reachable via the C++ API
-                // (`parse_jsx_react(bundle_js, component_name)` +
-                // `synthesize_runtime_envelope(bundle)`) but the CLI
-                // dispatch lane is intentionally deferred to a follow-up
-                // PR — the smoke harness at
-                // `tools/import-validation/jsx-roundtrip.sh` shells out
-                // to `jsx-transform.mjs` + `pulp-screenshot` directly.
-                // Surface a clear error here rather than silently
-                // producing an empty DesignIR. Codex P1 on PR #2163.
-                std::cerr << "Error: --from jsx is not yet wired into the CLI.\n"
-                             "       Use tools/import-validation/jsx-roundtrip.sh for the\n"
-                             "       smoke harness, or wait for the CLI-dispatch follow-up PR.\n";
-                return 2;
+                if (runtime_mode != RuntimeMode::baked || artifact_emit != ArtifactEmit::ir_json) {
+                    std::cerr << "Error: --from jsx is currently wired only for"
+                                 " --mode baked --emit ir-json\n";
+                    return 2;
+                } else {
+                    const auto dynamic_scan = detect_jsx_snapshot_dynamic_apis(content);
+                    if (dynamic_scan.has_dynamic_apis()
+                        && snapshot_semantics == SnapshotSemantics::fail) {
+                        std::cerr << "Error: JSX baked snapshot uses dynamic APIs ("
+                                  << join_tokens(dynamic_scan.tokens) << "). "
+                                  << "Rerun with --snapshot-semantics warn or accept to proceed.\n";
+                        return 2;
+                    }
+
+                    auto bundle = parse_jsx_react(content, fs::path(input_file).stem().string());
+                    if (!bundle) {
+                        std::cerr << "Error: --from jsx expected a precompiled JSX runtime bundle\n";
+                        return 1;
+                    }
+                    auto envelope = synthesize_runtime_envelope(*bundle);
+                    ClaudeRuntimeOptions ropts;
+                    ropts.error_out = &runtime_error;
+                    ropts.max_total_js_bytes = 16 * 1024 * 1024;
+                    ir = parse_claude_html_with_runtime(envelope, ropts);
+                    const auto fallback_reason = !runtime_error.empty()
+                        ? runtime_error
+                        : ir.fallback_reason;
+                    if (!fallback_reason.empty() || ir.capture_method != "runtime_snapshot") {
+                        std::cerr << "Error: JSX baked runtime snapshot failed";
+                        if (!fallback_reason.empty()) std::cerr << ": " << fallback_reason;
+                        std::cerr << "\n";
+                        return 1;
+                    }
+                    ir.source = DesignSource::jsx;
+                    ir.capture_method = "runtime_snapshot";
+                    if (ir.settle_rounds <= 0) ir.settle_rounds = 4;
+                    ir.source_adapter = "jsx-runtime";
+                    ir.source_version = "1";
+                    if (ir.root.provenance) {
+                        ir.root.provenance->adapter = "jsx-runtime";
+                        ir.root.provenance->version = "1";
+                    } else {
+                        ir.root.provenance = IRProvenance{"jsx-runtime", "1", {}};
+                    }
+                    ir.root.confidence = IRConfidence::pass;
+                    ir.root.source_adapter = "jsx-runtime";
+                    ir.root.source_version = "1";
+                    ir.root.attributes["snapshotSemantics"] = snapshot_semantics_name(snapshot_semantics);
+                    if (dynamic_scan.has_dynamic_apis()
+                        && snapshot_semantics == SnapshotSemantics::warn) {
+                        ir.diagnostics.push_back(make_cli_diagnostic(
+                            ImportDiagnosticSeverity::warning,
+                            ImportDiagnosticKind::snapshot_semantics_warning,
+                            "snapshot-dynamic-api",
+                            "<source>",
+                            "JSX baked snapshot uses dynamic APIs: "
+                                + join_tokens(dynamic_scan.tokens)));
+                    }
+                }
+                break;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error parsing " << design_source_name(*source) << " input: " << e.what() << "\n";
@@ -838,6 +945,11 @@ int main(int argc, char* argv[]) {
 
     ir.source = *source;
     ir.source_file = input_url.empty() ? input_file : input_url;
+    if (ir.imported_at.empty()) ir.imported_at = current_utc_timestamp();
+    if (ir.capture_method.empty()) ir.capture_method = "adapter_parse";
+    if (ir.source_adapter.empty()) ir.source_adapter = source_str;
+    if (ir.source_version.empty()) ir.source_version = "1";
+    print_import_diagnostics(ir.diagnostics);
 
     // Clean up temp file from URL fetch
     if (!fetched_tmp.empty()) fs::remove(fetched_tmp);
@@ -875,20 +987,6 @@ int main(int argc, char* argv[]) {
                   << (ir.asset_manifest.assets.size() == 1 ? "" : "s")
                   << ")\n";
         return 0;
-    }
-
-    // Promote interactive frames to buttons (post-parse, pre-codegen).
-    // Figma / Stitch / v0 / Pencil / Claude Design exporters almost
-    // never emit <button> directly — they emit <div onClick={...}> or
-    // <div role="button"> or cursor:pointer divs. Without this pass
-    // those land as static frames and the user's interactive intent
-    // is dropped. Source-agnostic so every importer benefits. See
-    // task #84 / pulp-internal #1814 follow-up.
-    const std::size_t promoted_widgets =
-        pulp::import_design::promote_interactive_frames(ir.root);
-    if (promoted_widgets > 0) {
-        std::cout << "Promoted " << promoted_widgets
-                  << " interactive frame(s) to button widgets.\n";
     }
 
     // Generate Pulp JS
