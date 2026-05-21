@@ -90,6 +90,164 @@ TEST_CASE("raw_midi_parser drops stray data and incomplete short messages",
     REQUIRE(c.sysex.empty());
 }
 
+TEST_CASE("raw_midi_parser completes short messages split across calls",
+          "[midi][raw_midi_parser][issue-645]") {
+    RawMidiParserState state;
+    Captured c;
+    auto on_short = [&c](uint8_t s, uint8_t d1, uint8_t d2) {
+        c.shorts.push_back({s, d1, d2});
+    };
+    auto on_sysex = [&c](const std::vector<uint8_t>& sx) {
+        c.sysex.push_back(sx);
+    };
+
+    uint8_t chunk1[] = {0x90, 0x40};
+    uint8_t chunk2[] = {0x7F};
+    parse_raw_midi_bytes(chunk1, sizeof(chunk1), state, on_short, on_sysex);
+    REQUIRE(c.shorts.empty());
+
+    parse_raw_midi_bytes(chunk2, sizeof(chunk2), state, on_short, on_sysex);
+    REQUIRE(c.shorts.size() == 1);
+    REQUIRE(c.shorts[0].status == 0x90);
+    REQUIRE(c.shorts[0].d1 == 0x40);
+    REQUIRE(c.shorts[0].d2 == 0x7F);
+}
+
+TEST_CASE("raw_midi_parser preserves running status across chunks",
+          "[midi][raw_midi_parser][issue-645]") {
+    RawMidiParserState state;
+    Captured c;
+    auto on_short = [&c](uint8_t s, uint8_t d1, uint8_t d2) {
+        c.shorts.push_back({s, d1, d2});
+    };
+
+    uint8_t first[] = {0x90, 0x3C, 0x64, 0x3D};
+    uint8_t second[] = {0x65, 0x3E, 0x66};
+    parse_raw_midi_bytes(first, sizeof(first), state, on_short, {});
+    REQUIRE(c.shorts.size() == 1);
+
+    parse_raw_midi_bytes(second, sizeof(second), state, on_short, {});
+    REQUIRE(c.shorts.size() == 3);
+    REQUIRE(c.shorts[1].status == 0x90);
+    REQUIRE(c.shorts[1].d1 == 0x3D);
+    REQUIRE(c.shorts[1].d2 == 0x65);
+    REQUIRE(c.shorts[2].d1 == 0x3E);
+    REQUIRE(c.shorts[2].d2 == 0x66);
+}
+
+TEST_CASE("raw_midi_parser handles one-byte running status messages",
+          "[midi][raw_midi_parser][issue-645]") {
+    RawMidiParserState state;
+    Captured c;
+    auto on_short = [&c](uint8_t s, uint8_t d1, uint8_t d2) {
+        c.shorts.push_back({s, d1, d2});
+    };
+
+    uint8_t bytes[] = {0xC2, 0x05, 0x06, 0xD3, 0x40, 0x41};
+    parse_raw_midi_bytes(bytes, sizeof(bytes), state, on_short, {});
+
+    REQUIRE(c.shorts.size() == 4);
+    REQUIRE(c.shorts[0].status == 0xC2);
+    REQUIRE(c.shorts[0].d1 == 0x05);
+    REQUIRE(c.shorts[1].status == 0xC2);
+    REQUIRE(c.shorts[1].d1 == 0x06);
+    REQUIRE(c.shorts[2].status == 0xD3);
+    REQUIRE(c.shorts[2].d1 == 0x40);
+    REQUIRE(c.shorts[3].status == 0xD3);
+    REQUIRE(c.shorts[3].d1 == 0x41);
+}
+
+TEST_CASE("raw_midi_parser realtime bytes do not disturb pending data",
+          "[midi][raw_midi_parser][issue-645]") {
+    auto c = parse({0x90, 0x40, 0xF8, 0x7F,
+                    0x41, 0xF9, 0x70});
+
+    REQUIRE(c.shorts.size() == 4);
+    REQUIRE(c.shorts[0].status == 0xF8);
+    REQUIRE(c.shorts[1].status == 0x90);
+    REQUIRE(c.shorts[1].d1 == 0x40);
+    REQUIRE(c.shorts[1].d2 == 0x7F);
+    REQUIRE(c.shorts[2].status == 0xF9);
+    REQUIRE(c.shorts[3].status == 0x90);
+    REQUIRE(c.shorts[3].d1 == 0x41);
+    REQUIRE(c.shorts[3].d2 == 0x70);
+}
+
+TEST_CASE("raw_midi_parser reprocesses status that interrupts pending data",
+          "[midi][raw_midi_parser][issue-645]") {
+    auto c = parse({0x90, 0x40,       // partial note-on
+                    0xF1, 0x55,       // system-common status interrupts it
+                    0x90, 0x41, 0x7F});
+
+    REQUIRE(c.shorts.size() == 2);
+    REQUIRE(c.shorts[0].status == 0xF1);
+    REQUIRE(c.shorts[0].d1 == 0x55);
+    REQUIRE(c.shorts[1].status == 0x90);
+    REQUIRE(c.shorts[1].d1 == 0x41);
+    REQUIRE(c.shorts[1].d2 == 0x7F);
+}
+
+TEST_CASE("raw_midi_parser splits system-common messages across calls",
+          "[midi][raw_midi_parser][issue-645]") {
+    RawMidiParserState state;
+    Captured c;
+    auto on_short = [&c](uint8_t s, uint8_t d1, uint8_t d2) {
+        c.shorts.push_back({s, d1, d2});
+    };
+
+    uint8_t first[] = {0xF2, 0x10};
+    uint8_t second[] = {0x20, 0x90, 0x40};
+    uint8_t third[] = {0x7F};
+    parse_raw_midi_bytes(first, sizeof(first), state, on_short, {});
+    REQUIRE(c.shorts.empty());
+    parse_raw_midi_bytes(second, sizeof(second), state, on_short, {});
+    REQUIRE(c.shorts.size() == 1);
+    parse_raw_midi_bytes(third, sizeof(third), state, on_short, {});
+
+    REQUIRE(c.shorts.size() == 2);
+    REQUIRE(c.shorts[0].status == 0xF2);
+    REQUIRE(c.shorts[0].d1 == 0x10);
+    REQUIRE(c.shorts[0].d2 == 0x20);
+    REQUIRE(c.shorts[1].status == 0x90);
+    REQUIRE(c.shorts[1].d1 == 0x40);
+    REQUIRE(c.shorts[1].d2 == 0x7F);
+}
+
+TEST_CASE("raw_midi_parser sysex start clears pending short state",
+          "[midi][raw_midi_parser][issue-645]") {
+    RawMidiParserState state;
+    Captured c;
+    auto on_short = [&c](uint8_t s, uint8_t d1, uint8_t d2) {
+        c.shorts.push_back({s, d1, d2});
+    };
+    auto on_sysex = [&c](const std::vector<uint8_t>& sx) {
+        c.sysex.push_back(sx);
+    };
+
+    uint8_t bytes[] = {0x90, 0x40, 0xF0, 0x7D, 0xF7, 0x41, 0x7F,
+                       0x90, 0x42, 0x7F};
+    parse_raw_midi_bytes(bytes, sizeof(bytes), state, on_short, on_sysex);
+
+    REQUIRE(c.sysex.size() == 1);
+    REQUIRE(c.sysex[0] == std::vector<uint8_t>{0xF0, 0x7D, 0xF7});
+    REQUIRE(c.shorts.size() == 1);
+    REQUIRE(c.shorts[0].status == 0x90);
+    REQUIRE(c.shorts[0].d1 == 0x42);
+    REQUIRE(c.shorts[0].d2 == 0x7F);
+}
+
+TEST_CASE("raw_midi_parser undefined system statuses clear running state",
+          "[midi][raw_midi_parser][issue-645]") {
+    auto c = parse({0x90, 0x3C, 0x7F,
+                    0xF4,              // undefined status cancels running status
+                    0x3D, 0x7F,        // must be ignored
+                    0x90, 0x40, 0x7F});
+
+    REQUIRE(c.shorts.size() == 2);
+    REQUIRE(c.shorts[0].d1 == 0x3C);
+    REQUIRE(c.shorts[1].d1 == 0x40);
+}
+
 TEST_CASE("raw_midi_parser recovers when short-message data is another status",
           "[midi][raw_midi_parser][codecov]") {
     auto c = parse({0x90, 0x40,       // malformed Note On: next byte is status
@@ -110,22 +268,25 @@ TEST_CASE("raw_midi_parser recovers when short-message data is another status",
 TEST_CASE("raw_midi_parser recovers after status interrupts short data",
           "[midi][raw_midi_parser][coverage][phase3-large]") {
     auto c = parse({
-        0x90, 0x40, 0xF8,  // realtime byte interrupts incomplete Note On
-        0x41, 0x7F,        // stray data bytes must not finish stale 0x90
+        0x90, 0x40, 0xF8,  // realtime byte does not interrupt pending Note On
+        0x41, 0x7F,        // first byte completes the Note On; second starts running status
         0x80, 0x40, 0x00,  // fresh Note Off still parses normally
         0xF2, 0x10, 0xF6,  // Tune Request interrupts incomplete Song Position
         0x20,              // stray data must not finish stale 0xF2
         0xF3, 0x05,        // Song Select still parses normally
     });
 
-    REQUIRE(c.shorts.size() == 4);
+    REQUIRE(c.shorts.size() == 5);
     REQUIRE(c.shorts[0].status == 0xF8);
-    REQUIRE(c.shorts[1].status == 0x80);
+    REQUIRE(c.shorts[1].status == 0x90);
     REQUIRE(c.shorts[1].d1 == 0x40);
-    REQUIRE(c.shorts[1].d2 == 0x00);
-    REQUIRE(c.shorts[2].status == 0xF6);
-    REQUIRE(c.shorts[3].status == 0xF3);
-    REQUIRE(c.shorts[3].d1 == 0x05);
+    REQUIRE(c.shorts[1].d2 == 0x41);
+    REQUIRE(c.shorts[2].status == 0x80);
+    REQUIRE(c.shorts[2].d1 == 0x40);
+    REQUIRE(c.shorts[2].d2 == 0x00);
+    REQUIRE(c.shorts[3].status == 0xF6);
+    REQUIRE(c.shorts[4].status == 0xF3);
+    REQUIRE(c.shorts[4].d1 == 0x05);
     REQUIRE(c.sysex.empty());
 }
 
@@ -154,7 +315,7 @@ TEST_CASE("raw_midi_parser accumulates sysex across calls",
     REQUIRE_FALSE(state.sysex_in_progress);
 }
 
-TEST_CASE("raw_midi_parser does not carry partial short messages across calls",
+TEST_CASE("raw_midi_parser carries partial short messages across calls",
           "[midi][raw_midi_parser][coverage]") {
     RawMidiParserState state;
     Captured c;
@@ -170,10 +331,13 @@ TEST_CASE("raw_midi_parser does not carry partial short messages across calls",
     parse_raw_midi_bytes(chunk1, sizeof(chunk1), state, on_short, on_sysex);
     parse_raw_midi_bytes(chunk2, sizeof(chunk2), state, on_short, on_sysex);
 
-    REQUIRE(c.shorts.size() == 1);
-    REQUIRE(c.shorts[0].status == 0x80);
+    REQUIRE(c.shorts.size() == 2);
+    REQUIRE(c.shorts[0].status == 0x90);
     REQUIRE(c.shorts[0].d1 == 0x40);
-    REQUIRE(c.shorts[0].d2 == 0x00);
+    REQUIRE(c.shorts[0].d2 == 0x7F);
+    REQUIRE(c.shorts[1].status == 0x80);
+    REQUIRE(c.shorts[1].d1 == 0x40);
+    REQUIRE(c.shorts[1].d2 == 0x00);
     REQUIRE(c.sysex.empty());
     REQUIRE_FALSE(state.sysex_in_progress);
 }

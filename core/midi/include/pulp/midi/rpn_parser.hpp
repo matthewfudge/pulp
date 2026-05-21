@@ -59,27 +59,19 @@ public:
 
         switch (cc) {
             case 101: // RPN MSB
-                state.param_msb = val;
-                state.is_rpn = true;
-                state.param_set = false;
+                set_parameter_byte(state, true, true, val);
                 break;
 
             case 100: // RPN LSB
-                state.param_lsb = val;
-                state.is_rpn = true;
-                state.param_set = true;
+                set_parameter_byte(state, true, false, val);
                 break;
 
             case 99: // NRPN MSB
-                state.param_msb = val;
-                state.is_rpn = false;
-                state.param_set = false;
+                set_parameter_byte(state, false, true, val);
                 break;
 
             case 98: // NRPN LSB
-                state.param_lsb = val;
-                state.is_rpn = false;
-                state.param_set = true;
+                set_parameter_byte(state, false, false, val);
                 break;
 
             case 6: // Data Entry MSB
@@ -128,6 +120,8 @@ private:
         uint8_t param_lsb = 0;
         uint8_t value_msb = 0;
         bool is_rpn = true;
+        bool param_msb_set = false;
+        bool param_lsb_set = false;
         bool param_set = false;
     };
 
@@ -135,6 +129,37 @@ private:
 
     static uint16_t combine(uint8_t msb, uint8_t lsb) {
         return static_cast<uint16_t>((msb << 7) | lsb);
+    }
+
+    static void update_parameter_state(ChannelState& state) {
+        state.param_set = state.param_msb_set && state.param_lsb_set
+                       && !(state.param_msb == 0x7F && state.param_lsb == 0x7F);
+    }
+
+    static void set_parameter_byte(ChannelState& state,
+                                   bool is_rpn,
+                                   bool is_msb,
+                                   uint8_t value) {
+        if (state.is_rpn != is_rpn) {
+            state.param_msb = 0;
+            state.param_lsb = 0;
+            state.param_msb_set = false;
+            state.param_lsb_set = false;
+            state.param_set = false;
+        } else if (is_msb && state.param_set) {
+            state.param_lsb_set = false;
+            state.param_set = false;
+        }
+
+        state.is_rpn = is_rpn;
+        if (is_msb) {
+            state.param_msb = value;
+            state.param_msb_set = true;
+        } else {
+            state.param_lsb = value;
+            state.param_lsb_set = true;
+        }
+        update_parameter_state(state);
     }
 };
 
