@@ -312,6 +312,47 @@ TEST_CASE("HeadlessHost forwards explicit parameter-event queues",
     REQUIRE_FALSE(processor->had_param_events);
 }
 
+TEST_CASE("HeadlessHost forwards MIDI, parameter events, and explicit context together",
+          "[headless][params][coverage][phase3]") {
+    pulp::format::HeadlessHost host(create_test_gain);
+    host.prepare(48000.0, 256);
+    REQUIRE(last_processor != nullptr);
+    auto* processor = last_processor;
+
+    pulp::audio::Buffer<float> in(1, 8), out(1, 8);
+    const float* in_ptrs[1] = {in.channel(0).data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs, 1, 8);
+    auto out_view = out.view();
+
+    pulp::midi::MidiBuffer midi_in;
+    pulp::midi::MidiBuffer midi_out;
+    midi_in.add(pulp::midi::MidiEvent::note_on(0, 60, 100));
+
+    pulp::state::ParameterEventQueue events;
+    events.push({1, 6, -9.0f});
+
+    pulp::format::ProcessContext ctx;
+    ctx.sample_rate = 32000.0;
+    ctx.num_samples = 6;
+    ctx.is_playing = true;
+    ctx.position_samples = 128;
+
+    last_context = {};
+    host.process(out_view, in_view, midi_in, midi_out, events, ctx);
+
+    REQUIRE(processor->process_calls == 1);
+    REQUIRE(processor->midi_in_events == 1);
+    REQUIRE(processor->midi_note_ons == 1);
+    REQUIRE(processor->had_param_events);
+    REQUIRE(processor->last_param_events.size() == 1);
+    REQUIRE(processor->last_param_events[0].sample_offset == 6);
+    REQUIRE(processor->last_param_events[0].value == -9.0f);
+    REQUIRE_THAT(last_context.sample_rate, WithinAbs(32000.0, 0.001));
+    REQUIRE(last_context.num_samples == 6);
+    REQUIRE(last_context.is_playing);
+    REQUIRE(last_context.position_samples == 128);
+}
+
 TEST_CASE("HeadlessHost null processor process and release are no-ops",
           "[headless][coverage][issue-647]") {
     pulp::format::HeadlessHost host(create_null_processor);
