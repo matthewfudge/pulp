@@ -320,6 +320,56 @@ bool has_blocking_asset_diagnostic(const IRAssetManifest& manifest) {
     return false;
 }
 
+DesignIrAssetOptions make_asset_options(const std::string& input_file,
+                                        const std::string& input_url,
+                                        bool allow_network_fetch,
+                                        int asset_timeout_ms,
+                                        const std::string& asset_cache_dir,
+                                        const std::unordered_map<std::string, std::string>& expected_asset_hashes) {
+    DesignIrAssetOptions asset_options;
+    asset_options.allow_network_fetch = allow_network_fetch;
+    asset_options.network_timeout_ms = asset_timeout_ms;
+    if (!asset_cache_dir.empty()) asset_options.cache_directory = asset_cache_dir;
+    if (!input_url.empty()) asset_options.base_url = input_url;
+    if (!input_file.empty()) {
+        std::error_code ec;
+        auto input_path = fs::weakly_canonical(fs::path(input_file), ec);
+        if (ec) input_path = fs::absolute(fs::path(input_file), ec);
+        asset_options.base_directory = ec ? fs::path(input_file).parent_path()
+                                          : input_path.parent_path();
+    }
+    asset_options.expected_hash_by_uri = expected_asset_hashes;
+    return asset_options;
+}
+
+struct CppOutputPaths {
+    fs::path source;
+    fs::path header;
+    std::string include_name;
+};
+
+CppOutputPaths resolve_cpp_output_paths(const std::string& output_file) {
+    fs::path requested(output_file.empty() ? "imported_ui.cpp" : output_file);
+    std::error_code ec;
+    const bool existing_dir = fs::is_directory(requested, ec);
+    const auto ext = requested.extension().string();
+    CppOutputPaths paths;
+    if (existing_dir || ext.empty()) {
+        paths.source = requested / "imported_ui.cpp";
+        paths.header = requested / "imported_ui.hpp";
+    } else if (ext == ".hpp" || ext == ".hh" || ext == ".h") {
+        paths.header = requested;
+        paths.source = requested;
+        paths.source.replace_extension(".cpp");
+    } else {
+        paths.source = requested;
+        paths.header = requested;
+        paths.header.replace_extension(".hpp");
+    }
+    paths.include_name = paths.header.filename().string();
+    return paths;
+}
+
 } // namespace
 
 static void print_usage() {
@@ -342,9 +392,9 @@ static void print_usage() {
     std::cout << "  --screen <name>   Screen to import (Stitch)\n";
     std::cout << "  --output <path>   Destination file for the primary artifact (default: ui.js)\n";
     std::cout << "  --emit {js|ir-json|cpp}\n";
-    std::cout << "                    Primary artifact kind (default: js; cpp reserved)\n";
+    std::cout << "                    Primary artifact kind (default: js)\n";
     std::cout << "  --mode {live|baked}\n";
-    std::cout << "                    Runtime model (default: live; baked supports --from jsx --emit ir-json)\n";
+    std::cout << "                    Runtime model (default: live; baked emits IR or C++ artifacts)\n";
     std::cout << "  --snapshot-semantics {fail|warn|accept}\n";
     std::cout << "                    JSX baked snapshot policy (default: fail)\n";
     std::cout << "  --allow-network-fetch\n";
@@ -395,6 +445,7 @@ static void print_usage() {
     std::cout << "  pulp import-design --from pencil --file design.json --dry-run\n";
     std::cout << "  pulp import-design --from pencil --file design.json --validate --reference source.png\n";
     std::cout << "  pulp import-design --from claude --file design.html\n";
+    std::cout << "  pulp import-design --from stitch --file screen.json --mode baked --emit cpp --output imported_ui.cpp\n";
 }
 
 // Bridge-handler scaffold body lives in core/view/src/design_import.cpp
@@ -636,6 +687,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    if (artifact_emit == ArtifactEmit::cpp && !output_explicit)
+        output_file = "imported_ui.cpp";
+
     // pulp friction-fix #4 — when the user passes --output <dir>/ui.js,
     // anchor the sidecar files (bridge_handlers.cpp, classnames.json,
     // tokens.json) to the same directory so they don't scatter to cwd.
@@ -794,14 +848,18 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
-    if (artifact_emit == ArtifactEmit::cpp) {
-        std::cerr << "Error: --emit cpp is reserved for the baked C++ design-import implementation and is not implemented yet\n";
+    if (runtime_mode == RuntimeMode::baked) {
+        if (artifact_emit == ArtifactEmit::js) {
+            std::cerr << "Error: --mode baked requires --emit ir-json or --emit cpp\n";
+            return 2;
+        }
+    } else if (artifact_emit == ArtifactEmit::cpp) {
+        std::cerr << "Error: --emit cpp requires --mode baked\n";
         return 2;
     }
     if (runtime_mode == RuntimeMode::baked) {
-        if (!(*source == DesignSource::jsx && artifact_emit == ArtifactEmit::ir_json)) {
-            std::cerr << "Error: --mode baked is reserved for JSX DesignIR snapshot import in this phase"
-                         " (use --from jsx --mode baked --emit ir-json)\n";
+        if (*source == DesignSource::designmd && artifact_emit == ArtifactEmit::cpp) {
+            std::cerr << "Error: DESIGN.md is a token spec and cannot emit a baked C++ view\n";
             return 2;
         }
     }
@@ -869,9 +927,10 @@ int main(int argc, char* argv[]) {
                 break;
             }
             case DesignSource::jsx:
-                if (runtime_mode != RuntimeMode::baked || artifact_emit != ArtifactEmit::ir_json) {
+                if (runtime_mode != RuntimeMode::baked ||
+                    (artifact_emit != ArtifactEmit::ir_json && artifact_emit != ArtifactEmit::cpp)) {
                     std::cerr << "Error: --from jsx is currently wired only for"
-                                 " --mode baked --emit ir-json\n";
+                                 " --mode baked --emit ir-json or --emit cpp\n";
                     return 2;
                 } else {
                     const auto dynamic_scan = detect_jsx_snapshot_dynamic_apis(content);
@@ -959,19 +1018,12 @@ int main(int argc, char* argv[]) {
     if (!screen_name.empty()) ir.root.attributes["screen"] = screen_name;
 
     if (artifact_emit == ArtifactEmit::ir_json) {
-        DesignIrAssetOptions asset_options;
-        asset_options.allow_network_fetch = allow_network_fetch;
-        asset_options.network_timeout_ms = asset_timeout_ms;
-        if (!asset_cache_dir.empty()) asset_options.cache_directory = asset_cache_dir;
-        if (!input_url.empty()) asset_options.base_url = input_url;
-        if (!input_file.empty()) {
-            std::error_code ec;
-            auto input_path = fs::weakly_canonical(fs::path(input_file), ec);
-            if (ec) input_path = fs::absolute(fs::path(input_file), ec);
-            asset_options.base_directory = ec ? fs::path(input_file).parent_path()
-                                              : input_path.parent_path();
-        }
-        asset_options.expected_hash_by_uri = expected_asset_hashes;
+        const auto asset_options = make_asset_options(input_file,
+                                                      input_url,
+                                                      allow_network_fetch,
+                                                      asset_timeout_ms,
+                                                      asset_cache_dir,
+                                                      expected_asset_hashes);
         refresh_design_ir_asset_manifest(ir, asset_options);
         print_asset_manifest_diagnostics(ir.asset_manifest);
         if (has_blocking_asset_diagnostic(ir.asset_manifest)) return 1;
@@ -986,6 +1038,54 @@ int main(int argc, char* argv[]) {
                   << ir.asset_manifest.assets.size() << " asset"
                   << (ir.asset_manifest.assets.size() == 1 ? "" : "s")
                   << ")\n";
+        return 0;
+    }
+
+    if (artifact_emit == ArtifactEmit::cpp) {
+        const auto asset_options = make_asset_options(input_file,
+                                                      input_url,
+                                                      allow_network_fetch,
+                                                      asset_timeout_ms,
+                                                      asset_cache_dir,
+                                                      expected_asset_hashes);
+        refresh_design_ir_asset_manifest(ir, asset_options);
+        print_asset_manifest_diagnostics(ir.asset_manifest);
+        if (has_blocking_asset_diagnostic(ir.asset_manifest)) return 1;
+
+        const auto paths = resolve_cpp_output_paths(output_file);
+        CppExportOptions cpp_opts;
+        cpp_opts.header_filename = paths.include_name;
+        cpp_opts.include_comments = include_comments;
+        cpp_opts.emit_named_tokens = include_tokens;
+        cpp_opts.emit_asset_constants = true;
+
+        const auto cpp = generate_pulp_cpp(ir, ir.asset_manifest, cpp_opts);
+        if (dry_run) {
+            std::cout << "=== Generated Pulp C++ header (" << paths.header.string() << ") ===\n\n";
+            std::cout << cpp.header;
+            std::cout << "\n=== Generated Pulp C++ source (" << paths.source.string() << ") ===\n\n";
+            std::cout << cpp.source;
+            return 0;
+        }
+
+        if (!write_file(paths.header.string(), cpp.header)) return 1;
+        if (!write_file(paths.source.string(), cpp.source)) return 1;
+
+        size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
+        std::function<void(const IRNode&)> count_nodes = [&](const IRNode& n) {
+            node_count++;
+            if (n.audio_widget != AudioWidgetType::none) widget_count++;
+            else if (n.type == "text" || n.type == "label") text_count++;
+            else if (!n.children.empty() || n.type == "frame") container_count++;
+            for (auto& c : n.children) count_nodes(c);
+        };
+        count_nodes(ir.root);
+
+        std::cout << "Wrote " << paths.source.string() << " and "
+                  << paths.header.string() << " (" << node_count << " elements: "
+                  << container_count << " containers, " << widget_count << " widgets, "
+                  << text_count << " labels, " << ir.asset_manifest.assets.size() << " asset"
+                  << (ir.asset_manifest.assets.size() == 1 ? "" : "s") << ")\n";
         return 0;
     }
 

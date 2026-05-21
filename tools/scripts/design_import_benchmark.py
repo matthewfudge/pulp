@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run the design-import live-vs-baked benchmark and compute the Phase 9 gate.
 
-The C++ harness emits one JSON file per lane. This script drives both lanes,
-aggregates the three Phase 5 metric groups, and estimates the removable
-live-runtime linked footprint by summing the object files Phase 9 would move
-behind a target split.
+The C++ harness emits one JSON file per lane. This script drives the live,
+baked-native, and baked-cpp lanes, aggregates the three Phase 5 metric groups,
+and estimates the removable live-runtime linked footprint by summing the object
+files Phase 9 would move behind a target split.
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ DEFAULT_LIVE_RUNTIME_OBJECTS = [
     "core/view/CMakeFiles/pulp-view.dir/src/widget_bridge.cpp.o",
     "core/view/CMakeFiles/pulp-view.dir/src/widget_bridge_input.cpp.o",
 ]
+
+BAKED_LANES = ("baked-native", "baked-cpp")
 
 
 def now_utc() -> str:
@@ -307,28 +309,39 @@ def compute_comparison(live: dict[str, Any], baked: dict[str, Any]) -> dict[str,
 
 def build_report(
     live: dict[str, Any],
-    baked: dict[str, Any],
+    baked_native: dict[str, Any],
     binary_size: dict[str, Any],
     build_dir: Path,
+    baked_cpp: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    lanes = {
+        "live": live,
+        "baked-native": baked_native,
+    }
+    comparisons = {
+        "baked-native": compute_comparison(live, baked_native),
+    }
+    if baked_cpp is not None:
+        lanes["baked-cpp"] = baked_cpp
+        comparisons["baked-cpp"] = compute_comparison(live, baked_cpp)
+
     return {
         "schema": "pulp-design-import-benchmark-summary-v1",
         "generated_at": now_utc(),
         "build_dir": str(build_dir.resolve()),
-        "lanes": {
-            "live": live,
-            "baked-native": baked,
-        },
-        "comparison": compute_comparison(live, baked),
+        "lanes": lanes,
+        "comparison": comparisons["baked-native"],
+        "comparisons": comparisons,
         "binary_size": binary_size,
     }
 
 
 def render_markdown(report: dict[str, Any]) -> str:
-    live = report["lanes"]["live"]
-    baked = report["lanes"]["baked-native"]
+    lanes = report["lanes"]
+    live = lanes["live"]
     binary = report["binary_size"]
-    comparison = report["comparison"]
+    comparisons = report.get("comparisons", {"baked-native": report["comparison"]})
+    lane_order = ["live"] + [name for name in BAKED_LANES if name in lanes]
 
     lines = [
         "# Design-Import Benchmark Results",
@@ -342,27 +355,27 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         "| Lane | First frame | Build | First render | Paint commands |",
         "|---|---:|---:|---:|---:|",
-        (
-            f"| live | {format_ms(live.get('startup', {}).get('first_frame_ms'))} | "
-            f"{format_ms(live.get('startup', {}).get('build_ms'))} | "
-            f"{format_ms(live.get('startup', {}).get('first_frame_render_ms'))} | "
-            f"{live.get('startup', {}).get('first_frame_paint_commands', 0)} |"
-        ),
-        (
-            f"| baked-native | {format_ms(baked.get('startup', {}).get('first_frame_ms'))} | "
-            f"{format_ms(baked.get('startup', {}).get('build_ms'))} | "
-            f"{format_ms(baked.get('startup', {}).get('first_frame_render_ms'))} | "
-            f"{baked.get('startup', {}).get('first_frame_paint_commands', 0)} |"
-        ),
+    ]
+    for name in lane_order:
+        lane = lanes[name]
+        lines.append(
+            f"| {name} | {format_ms(lane.get('startup', {}).get('first_frame_ms'))} | "
+            f"{format_ms(lane.get('startup', {}).get('build_ms'))} | "
+            f"{format_ms(lane.get('startup', {}).get('first_frame_render_ms'))} | "
+            f"{lane.get('startup', {}).get('first_frame_paint_commands', 0)} |"
+        )
+
+    lines.extend([
         "",
         "## Steady State",
         "",
         "| Phase | Lane | Samples | CPU total | CPU frame median | CPU frame p99 | Wall frame median | Wall frame p99 | RSS median | RSS p99 | RSS peak | JS evals |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+    ])
 
     for phase in ("idle", "interactive"):
-        for name, lane in (("live", live), ("baked-native", baked)):
+        for name in lane_order:
+            lane = lanes[name]
             data = lane.get(phase, {})
             lines.append(
                 f"| {phase} | {name} | {data.get('samples', 0)} | "
@@ -422,20 +435,24 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         "## Comparison",
         "",
-        f"- Startup first-frame delta (baked vs live): {format_pct(comparison['startup_first_frame_delta_ratio'])}",
-        f"- Idle CPU delta (baked vs live): {format_pct(comparison['idle_cpu_delta_ratio'])}",
-        f"- Interactive CPU delta (baked vs live): {format_pct(comparison['interactive_cpu_delta_ratio'])}",
-        f"- Interactive CPU-frame p99 delta (baked vs live): {format_pct(comparison['interactive_cpu_frame_p99_delta_ratio'])}",
-        f"- Interactive p99 frame delta (baked vs live): {format_pct(comparison['interactive_frame_p99_delta_ratio'])}",
-        f"- Idle RSS p99 delta (baked vs live): {format_pct(comparison['idle_rss_p99_delta_ratio'])}",
-        f"- Interactive RSS p99 delta (baked vs live): {format_pct(comparison['interactive_rss_p99_delta_ratio'])}",
-        (
-            "- JS execution churn: "
-            f"live interactive evaluations={comparison['live_interactive_js_evaluations']}, "
-            f"baked-native interactive evaluations={comparison['baked_interactive_js_evaluations']}"
-        ),
-        "",
     ])
+    for target in (name for name in BAKED_LANES if name in comparisons):
+        comparison = comparisons[target]
+        lines.extend([
+            f"- Startup first-frame delta ({target} vs live): {format_pct(comparison['startup_first_frame_delta_ratio'])}",
+            f"- Idle CPU delta ({target} vs live): {format_pct(comparison['idle_cpu_delta_ratio'])}",
+            f"- Interactive CPU delta ({target} vs live): {format_pct(comparison['interactive_cpu_delta_ratio'])}",
+            f"- Interactive CPU-frame p99 delta ({target} vs live): {format_pct(comparison['interactive_cpu_frame_p99_delta_ratio'])}",
+            f"- Interactive p99 frame delta ({target} vs live): {format_pct(comparison['interactive_frame_p99_delta_ratio'])}",
+            f"- Idle RSS p99 delta ({target} vs live): {format_pct(comparison['idle_rss_p99_delta_ratio'])}",
+            f"- Interactive RSS p99 delta ({target} vs live): {format_pct(comparison['interactive_rss_p99_delta_ratio'])}",
+            (
+                f"- JS execution churn ({target} vs live): "
+                f"live interactive evaluations={comparison['live_interactive_js_evaluations']}, "
+                f"{target} interactive evaluations={comparison['baked_interactive_js_evaluations']}"
+            ),
+        ])
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -471,6 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.skip_run:
         live = {"lane": "live", "fixture": "not-run", "target_fps": args.target_fps}
         baked = {"lane": "baked-native", "fixture": "not-run", "target_fps": args.target_fps}
+        baked_cpp = {"lane": "baked-cpp", "fixture": "not-run", "target_fps": args.target_fps}
     else:
         if not bench_exe.exists():
             print(f"error: benchmark executable not found: {bench_exe}", file=sys.stderr)
@@ -479,8 +497,9 @@ def main(argv: list[str] | None = None) -> int:
             temp_dir = Path(td)
             live = run_lane(bench_exe, "live", args.idle_ms, args.interactive_ms, args.target_fps, temp_dir)
             baked = run_lane(bench_exe, "baked-native", args.idle_ms, args.interactive_ms, args.target_fps, temp_dir)
+            baked_cpp = run_lane(bench_exe, "baked-cpp", args.idle_ms, args.interactive_ms, args.target_fps, temp_dir)
 
-    report = build_report(live, baked, binary_size, build_dir)
+    report = build_report(live, baked, binary_size, build_dir, baked_cpp)
     markdown = render_markdown(report)
 
     if args.output_json:

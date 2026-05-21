@@ -120,13 +120,13 @@ void require_lane_schema(const std::string& json, const std::string& lane) {
 
 }  // namespace
 
-TEST_CASE("design-import benchmark emits live and baked-native lane JSON",
+TEST_CASE("design-import benchmark emits live, baked-native, and baked-cpp lane JSON",
           "[design-import][benchmark]") {
     set_no_launch_env();
     const auto bin = bench_binary();
     REQUIRE(fs::exists(bin));
 
-    for (const auto& lane : {"live", "baked-native"}) {
+    for (const auto& lane : {"live", "baked-native", "baked-cpp"}) {
         const auto out = unique_output_path(lane);
         fs::remove(out);
         std::vector<std::string> args = {

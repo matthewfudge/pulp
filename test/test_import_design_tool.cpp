@@ -143,7 +143,7 @@ TEST_CASE("pulp-import-design reports help and argument diagnostics",
         REQUIRE(r.stdout_output.find("--mode {live|baked}") != std::string::npos);
         REQUIRE(r.stdout_output.find("--snapshot-semantics {fail|warn|accept}") != std::string::npos);
         REQUIRE(r.stdout_output.find("Precompiled React JSX runtime bundle") != std::string::npos);
-        REQUIRE(r.stdout_output.find("baked supports --from jsx --emit ir-json") != std::string::npos);
+        REQUIRE(r.stdout_output.find("baked emits IR or C++ artifacts") != std::string::npos);
         REQUIRE(r.stdout_output.find("CLI dispatch reserved") == std::string::npos);
         REQUIRE(r.stdout_output.find("baked reserved for future imports") == std::string::npos);
     }
@@ -379,13 +379,58 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         REQUIRE(bad_hash.stderr_output.find("--asset-hash requires") != std::string::npos);
     }
 
-    SECTION("cpp emit target is accepted vocabulary but not implemented") {
+    SECTION("cpp emit writes a baked C++ source and header pair") {
+        const auto cpp_input = tmp.path / "cpp-screen.json";
+        const auto cpp_output = tmp.path / "generated" / "imported_ui.cpp";
+        const auto header_output = tmp.path / "generated" / "imported_ui.hpp";
+        write_text(cpp_input, R"json({
+            "type": "frame",
+            "name": "Panel",
+            "stableAnchorId": "panel-root",
+            "style": { "width": 240, "height": 120, "backgroundColor": "#112233" },
+            "tokens": {
+                "colors": { "bg.primary": "#112233" },
+                "dimensions": { "panel.width": 240 }
+            },
+            "children": [
+                {
+                    "type": "frame",
+                    "name": "Header",
+                    "stableAnchorId": "header",
+                    "style": { "width": 240, "height": 32 },
+                    "children": [
+                        { "type": "text", "name": "Title", "stableAnchorId": "title", "content": "Gain" }
+                    ]
+                }
+            ]
+        })json");
+
         auto cpp = run_import_design({"--from", "stitch",
-                                      "--file", input.string(),
-                                      "--emit", "cpp"});
+                                      "--file", cpp_input.string(),
+                                      "--mode", "baked",
+                                      "--emit", "cpp",
+                                      "--output", cpp_output.string()});
         REQUIRE_FALSE(cpp.timed_out);
-        REQUIRE(cpp.exit_code == 2);
-        REQUIRE(cpp.stderr_output.find("--emit cpp is reserved") != std::string::npos);
+        REQUIRE(cpp.exit_code == 0);
+        REQUIRE(fs::exists(cpp_output));
+        REQUIRE(fs::exists(header_output));
+        const auto source = read_text(cpp_output);
+        const auto header = read_text(header_output);
+        REQUIRE(source.find("#include \"imported_ui.hpp\"") != std::string::npos);
+        REQUIRE(source.find("namespace tokens") != std::string::npos);
+        REQUIRE(source.find("build_header") != std::string::npos);
+        REQUIRE(source.find("build_native_view_tree") == std::string::npos);
+        REQUIRE(header.find("build_imported_ui") != std::string::npos);
+        REQUIRE(header.find("bake_asset_manifest") != std::string::npos);
+        REQUIRE(cpp.stdout_output.find(cpp_output.string()) != std::string::npos);
+
+        auto missing_mode = run_import_design({"--from", "stitch",
+                                               "--file", cpp_input.string(),
+                                               "--emit", "cpp",
+                                               "--output", (tmp.path / "missing-mode.cpp").string()});
+        REQUIRE_FALSE(missing_mode.timed_out);
+        REQUIRE(missing_mode.exit_code == 2);
+        REQUIRE(missing_mode.stderr_output.find("--emit cpp requires --mode baked") != std::string::npos);
     }
 
     SECTION("mode and snapshot vocabulary reject unsupported values") {
@@ -409,7 +454,7 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
                                         "--snapshot-semantics", "warn"});
         REQUIRE_FALSE(baked.timed_out);
         REQUIRE(baked.exit_code == 2);
-        REQUIRE(baked.stderr_output.find("--mode baked is reserved") != std::string::npos);
+        REQUIRE(baked.stderr_output.find("--mode baked requires --emit ir-json or --emit cpp") != std::string::npos);
     }
 
     SECTION("jsx baked snapshots fail by default on dynamic APIs and can warn or accept") {
