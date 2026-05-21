@@ -66,6 +66,9 @@ COVERAGE_SURFACES = (
             "tools/harness/tests/test_html_adapter_element_events_union.py",
             "tools/harness/tests/test_status.py",
             "tools/harness/tests/test_validate_test_ref.py",
+            "tools/harness/visual/tests/test_check_skia_pin.py",
+            "tools/harness/visual/tests/test_differ.py",
+            "tools/harness/visual/tests/test_runner.py",
         ),
         (
             "tools/harness/tests/test_*.py",

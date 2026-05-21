@@ -127,6 +127,36 @@ class RunnerTests(unittest.TestCase):
             ["visual:canvas2d/paint"],
         )
 
+    def test_validation_refs_preserve_all_valid_kinds_and_ignore_invalid_values(self) -> None:
+        refs = spec.validation_refs(
+            [
+                "semantic:yoga/a",
+                "visual:canvas2d/paint",
+                "dom:html/button",
+                "behavior:rn/tap",
+                "unit:test_widget_bridge.cpp",
+                "cannot-validate:platform-only",
+                "unknown:thing",
+                42,
+            ]
+        )
+
+        self.assertEqual(
+            [ref.kind for ref in refs],
+            ["semantic", "visual", "dom", "behavior", "unit", "cannot-validate"],
+        )
+        self.assertEqual(
+            [ref.raw for ref in spec.runtime_fixture_refs(ref.raw for ref in refs)],
+            [
+                "semantic:yoga/a",
+                "visual:canvas2d/paint",
+                "dom:html/button",
+                "behavior:rn/tap",
+            ],
+        )
+        self.assertFalse(refs[4].is_runtime_fixture)
+        self.assertTrue(refs[5].excludes_from_visual_denominator)
+
     def test_fixture_specs_handles_missing_roots_and_non_object_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
