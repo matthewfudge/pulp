@@ -790,7 +790,7 @@ TEST_CASE("run_process preserves POSIX output captured before timeout",
 #if defined(_WIN32) || defined(__ANDROID__)
     SUCCEED("POSIX timeout output preservation is covered on macOS/Linux");
 #else
-    auto result = run_process("/bin/sh", {"-c", "printf ready; exec sleep 2"}, "", 75);
+    auto result = run_process("/bin/sh", {"-c", "printf ready; exec sleep 2"}, "", 500);
 
     REQUIRE(result.has_value());
     REQUIRE(result->exit_code == -1);

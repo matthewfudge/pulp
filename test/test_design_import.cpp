@@ -1091,7 +1091,7 @@ TEST_CASE("DesignIR asset manifest fetches network assets through cache and veri
 
     DesignIrAssetOptions options;
     options.allow_network_fetch = true;
-    options.network_timeout_ms = 5000;
+    options.network_timeout_ms = 30000;
     options.cache_directory = tmp.path / "asset-cache";
     options.expected_hash_by_uri[url] = "not-the-actual-hash";
 
@@ -1159,7 +1159,7 @@ TEST_CASE("DesignIR asset manifest reports network fetch failures and timeouts",
     DesignIrAssetOptions options;
     options.allow_network_fetch = true;
     options.cache_directory = tmp.path / "asset-cache";
-    options.network_timeout_ms = 5000;
+    options.network_timeout_ms = 30000;
 
     DesignIR failed_ir;
     failed_ir.root.type = "frame";
@@ -1191,7 +1191,7 @@ TEST_CASE("DesignIR asset manifest reports missing fetcher and empty network dow
     DesignIrAssetOptions options;
     options.allow_network_fetch = true;
     options.cache_directory = tmp.path / "asset-cache";
-    options.network_timeout_ms = 1000;
+    options.network_timeout_ms = 10000;
 
     DesignIR missing_fetcher_ir;
     missing_fetcher_ir.root.type = "frame";

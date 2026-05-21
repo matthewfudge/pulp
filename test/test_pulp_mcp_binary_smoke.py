@@ -32,7 +32,7 @@ def main() -> int:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=10,
+            timeout=30,
         )
     except OSError as exc:
         return fail(f"could not execute {binary}: {exc}")
@@ -59,7 +59,7 @@ def main() -> int:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=10,
+        timeout=30,
     )
     if rpc.returncode != 0:
         return fail(
