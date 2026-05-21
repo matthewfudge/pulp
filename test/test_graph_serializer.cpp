@@ -45,8 +45,10 @@ class SerializerSlot final : public PluginSlot {
 public:
     static constexpr uint32_t kParamId = 42;
 
-    explicit SerializerSlot(PluginInfo info, std::vector<uint8_t> state = {})
-        : info_(std::move(info)), state_(std::move(state)) {}
+    explicit SerializerSlot(PluginInfo info,
+                            std::vector<uint8_t> state = {},
+                            ParamRate rate = ParamRate::ControlRate)
+        : info_(std::move(info)), state_(std::move(state)), rate_(rate) {}
 
     const PluginInfo& info() const override { return info_; }
     bool is_loaded() const override { return true; }
@@ -67,6 +69,7 @@ public:
         p.min_value = -1.0f;
         p.max_value = 1.0f;
         p.flags.automatable = true;
+        p.rate = rate_;
         return {p};
     }
 
@@ -88,6 +91,7 @@ public:
 private:
     PluginInfo info_;
     std::vector<uint8_t> state_;
+    ParamRate rate_ = ParamRate::ControlRate;
 };
 
 bool missing_plugins_contain(const GraphSerializer::LoadResult& result,
@@ -248,6 +252,47 @@ TEST_CASE("GraphSerializer rejects non-object roots and malformed field types",
 
 TEST_CASE("GraphSerializer fails closed before loading missing or future graph versions",
           "[host][serializer][migration]") {
+    SignalGraph current_src;
+    const auto current_json = GraphSerializer::to_json(current_src);
+    REQUIRE(current_json.find("\"format_version\": 2") != std::string::npos);
+
+    SignalGraph v1_graph;
+    auto v1_result = GraphSerializer::from_json(v1_graph, R"({
+  "format_version": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "audio_in",
+      "name": "Input",
+      "num_input_ports": 0,
+      "num_output_ports": 1,
+      "gain": 1
+    },
+    {
+      "id": 2,
+      "type": "audio_out",
+      "name": "Output",
+      "num_input_ports": 1,
+      "num_output_ports": 0,
+      "gain": 1
+    }
+  ],
+  "connections": [
+    {
+      "source_node": 1,
+      "source_port": 0,
+      "dest_node": 2,
+      "dest_port": 0,
+      "feedback": false,
+      "midi": false,
+      "automation": false
+    }
+  ]
+})");
+    REQUIRE(v1_result.ok);
+    REQUIRE(v1_graph.nodes().size() == 2);
+    REQUIRE(v1_graph.connections().size() == 1);
+
     SignalGraph missing_version;
     auto missing_result = GraphSerializer::from_json(missing_version, R"({
   "nodes": [
@@ -268,7 +313,7 @@ TEST_CASE("GraphSerializer fails closed before loading missing or future graph v
 
     SignalGraph future_version;
     auto future_result = GraphSerializer::from_json(future_version, R"({
-  "format_version": 2,
+  "format_version": 3,
   "nodes": [
     {
       "id": 1,
@@ -281,7 +326,7 @@ TEST_CASE("GraphSerializer fails closed before loading missing or future graph v
   "connections": []
 })");
     REQUIRE_FALSE(future_result.ok);
-    REQUIRE(future_result.error.find("unsupported graph format_version 2")
+    REQUIRE(future_result.error.find("unsupported graph format_version 3")
             != std::string::npos);
     REQUIRE(future_version.nodes().empty());
 }
@@ -317,7 +362,7 @@ TEST_CASE("GraphSerializer dispatches graph format migrations before materializi
             const auto pos = migrated_json.find("\"format_version\": 0");
             if (pos == std::string::npos) return false;
             migrated_json.replace(pos, std::string("\"format_version\": 0").size(),
-                                  "\"format_version\": 1");
+                                  "\"format_version\": 2");
             return true;
         }));
 
@@ -863,6 +908,37 @@ TEST_CASE("GraphSerializer serializes and decodes automation connection fields",
     auto result = GraphSerializer::from_json(dst, json);
     REQUIRE(result.ok);
     REQUIRE(missing_plugins_contain(result, "clap:pulp.test.auto"));
+    REQUIRE(dst.nodes().size() == 2);
+    REQUIRE(dst.connections().empty());
+}
+
+TEST_CASE("GraphSerializer serializes audio-rate modulation connection fields",
+          "[host][serializer][audio-rate]") {
+    SignalGraph src;
+    auto input = src.add_input_node(1, "Input");
+    auto info = make_fake_plugin_info("AudioRateTarget", "pulp.test.audio-rate",
+                                      PluginFormat::CLAP, 1, 1);
+    auto plugin = src.add_plugin_node(
+        std::make_unique<SerializerSlot>(
+            info, std::vector<uint8_t>{}, ParamRate::AudioRate),
+        1, 1, "AudioRateTarget");
+    REQUIRE(src.connect_audio_rate_modulation(
+        input, 0, plugin, SerializerSlot::kParamId,
+        -2.0f, 2.0f, 5.0f, AutomationMix::Add));
+
+    const auto json = GraphSerializer::to_json(src);
+    REQUIRE(json.find("\"automation\": false") != std::string::npos);
+    REQUIRE(json.find("\"audio_rate_modulation\": true") != std::string::npos);
+    REQUIRE(json.find("\"auto_param_id\": 42") != std::string::npos);
+    REQUIRE(json.find("\"auto_range_lo\": -2") != std::string::npos);
+    REQUIRE(json.find("\"auto_range_hi\": 2") != std::string::npos);
+    REQUIRE(json.find("\"auto_smoothing\": 5") != std::string::npos);
+    REQUIRE(json.find("\"auto_mix\": 1") != std::string::npos);
+
+    SignalGraph dst;
+    auto result = GraphSerializer::from_json(dst, json);
+    REQUIRE(result.ok);
+    REQUIRE(missing_plugins_contain(result, "clap:pulp.test.audio-rate"));
     REQUIRE(dst.nodes().size() == 2);
     REQUIRE(dst.connections().empty());
 }

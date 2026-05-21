@@ -26,7 +26,7 @@ inline double get_double(const V& v) {
     return 0.0;
 }
 
-constexpr int kFormatVersion = 1;
+constexpr int kFormatVersion = 2;
 
 struct GraphMigrationEntry {
     int from_version = 0;
@@ -34,8 +34,13 @@ struct GraphMigrationEntry {
     GraphSerializer::MigrationFn migration;
 };
 
+bool migrate_graph_v1_to_v2(const std::string& source_json,
+                            std::string& migrated_json);
+
 std::vector<GraphMigrationEntry>& graph_migrations() {
-    static std::vector<GraphMigrationEntry> migrations;
+    static std::vector<GraphMigrationEntry> migrations = {
+        {1, 2, migrate_graph_v1_to_v2},
+    };
     return migrations;
 }
 
@@ -51,6 +56,61 @@ std::optional<int> graph_format_version(const choc::value::Value& root) {
     }
 
     return std::nullopt;
+}
+
+bool replace_format_version(std::string& json,
+                            int expected_version,
+                            int replacement_version) {
+    const auto key_pos = json.find("\"format_version\"");
+    if (key_pos == std::string::npos) return false;
+    const auto colon_pos = json.find(':', key_pos);
+    if (colon_pos == std::string::npos) return false;
+
+    auto value_begin = colon_pos + 1;
+    while (value_begin < json.size()
+           && (json[value_begin] == ' '
+               || json[value_begin] == '\t'
+               || json[value_begin] == '\r'
+               || json[value_begin] == '\n')) {
+        ++value_begin;
+    }
+
+    auto value_end = value_begin;
+    if (value_end < json.size() && json[value_end] == '-') ++value_end;
+    while (value_end < json.size()
+           && json[value_end] >= '0'
+           && json[value_end] <= '9') {
+        ++value_end;
+    }
+    if (value_end == value_begin) return false;
+
+    int parsed = 0;
+    try {
+        parsed = std::stoi(json.substr(value_begin, value_end - value_begin));
+    } catch (...) {
+        return false;
+    }
+    if (parsed != expected_version) return false;
+
+    json.replace(value_begin, value_end - value_begin,
+                 std::to_string(replacement_version));
+    return true;
+}
+
+bool migrate_graph_v1_to_v2(const std::string& source_json,
+                            std::string& migrated_json) {
+    choc::value::Value root;
+    try {
+        root = choc::json::parse(source_json);
+    } catch (...) {
+        return false;
+    }
+    if (!root.isObject()) return false;
+    auto version = graph_format_version(root);
+    if (!version.has_value() || *version != 1) return false;
+
+    migrated_json = source_json;
+    return replace_format_version(migrated_json, 1, 2);
 }
 
 const GraphMigrationEntry* find_graph_migration(int from_version) {
@@ -310,7 +370,8 @@ std::string GraphSerializer::to_json(
         co.addMember("feedback",    c.feedback);
         co.addMember("midi",        c.midi);
         co.addMember("automation",  c.automation);
-        if (c.automation) {
+        co.addMember("audio_rate_modulation", c.audio_rate_modulation);
+        if (c.automation || c.audio_rate_modulation) {
             co.addMember("auto_param_id",  (int64_t)c.automation_param_id);
             co.addMember("auto_range_lo",  (double)c.automation_range_lo);
             co.addMember("auto_range_hi",  (double)c.automation_range_hi);
@@ -436,7 +497,18 @@ GraphSerializer::LoadResult GraphSerializer::from_json(SignalGraph& graph, const
             const bool fb   = cv["feedback"].getBool();
             const bool md   = cv["midi"].getBool();
             const bool au   = cv["automation"].getBool();
-            if (au) {
+            const bool ar   = cv.hasObjectMember("audio_rate_modulation")
+                ? cv["audio_rate_modulation"].getBool()
+                : false;
+            if (ar) {
+                graph.connect_audio_rate_modulation(
+                    src, sp, dst,
+                    (uint32_t)cv["auto_param_id"].getInt64(),
+                    (float)get_double(cv["auto_range_lo"]),
+                    (float)get_double(cv["auto_range_hi"]),
+                    (float)get_double(cv["auto_smoothing"]),
+                    (AutomationMix)(uint8_t)cv["auto_mix"].getInt64());
+            } else if (au) {
                 graph.connect_automation(
                     src, sp, dst,
                     (uint32_t)cv["auto_param_id"].getInt64(),

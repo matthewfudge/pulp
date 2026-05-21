@@ -14,8 +14,40 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <cstring>
+#include <utility>
 
 namespace pulp::host {
+namespace {
+
+bool parameter_allows_modulation(const HostParamInfo& p,
+                                 uint32_t param_id,
+                                 state::ParamRate required_rate) {
+    return p.id == param_id
+        && p.rate == required_rate
+        && p.flags.automatable
+        && !p.flags.read_only
+        && !p.flags.stepped;
+}
+
+float map_modulation_sample(const Connection& c, float sample) {
+    const float normalized = std::clamp(sample, 0.0f, 1.0f);
+    return c.automation_range_lo
+        + normalized * (c.automation_range_hi - c.automation_range_lo);
+}
+
+bool push_parameter_event(ParameterEventQueue& queue,
+                          uint32_t param_id,
+                          int sample_offset,
+                          float value) {
+    return queue.push({
+        param_id,
+        sample_offset,
+        value,
+        0,
+    });
+}
+
+} // namespace
 
 NodeId SignalGraph::add_input_node(int channels, const std::string& name) {
     GraphNode node;
@@ -207,6 +239,55 @@ bool SignalGraph::connect_automation(NodeId src, PortIndex src_audio_port,
     conn.dest_node                = dest;
     conn.dest_port                = 0;
     conn.automation               = true;
+    conn.automation_param_id      = dest_param_id;
+    conn.automation_range_lo      = range_lo;
+    conn.automation_range_hi      = range_hi;
+    conn.automation_smoothing_ms  = std::max(0.0f, smoothing_ms);
+    conn.automation_mix           = mix;
+    connections_.push_back(conn);
+    invalidate_live_();
+    return true;
+}
+
+bool SignalGraph::connect_audio_rate_modulation(NodeId src, PortIndex src_audio_port,
+                                                NodeId dest, uint32_t dest_param_id,
+                                                float range_lo, float range_hi,
+                                                float smoothing_ms,
+                                                AutomationMix mix) {
+    const GraphNode* src_n = node(src);
+    const GraphNode* dst_n = node(dest);
+    if (!src_n || !dst_n) return false;
+    if (dst_n->type != NodeType::Plugin || !dst_n->plugin) return false;
+    if ((int)src_audio_port >= src_n->num_output_ports) return false;
+    if (would_create_cycle(src, dest)) return false;
+
+    bool ok_param = false;
+    for (const auto& pi : dst_n->plugin->parameters()) {
+        if (pi.id != dest_param_id) continue;
+        if (!parameter_allows_modulation(pi, dest_param_id, state::ParamRate::AudioRate)) {
+            return false;
+        }
+        ok_param = true;
+        break;
+    }
+    if (!ok_param) return false;
+
+    if (mix == AutomationMix::Replace) {
+        for (const auto& c : connections_) {
+            if (c.audio_rate_modulation && c.dest_node == dest
+                && c.automation_param_id == dest_param_id
+                && c.automation_mix == AutomationMix::Replace) {
+                return false;
+            }
+        }
+    }
+
+    Connection conn{};
+    conn.source_node              = src;
+    conn.source_port              = src_audio_port;
+    conn.dest_node                = dest;
+    conn.dest_port                = 0;
+    conn.audio_rate_modulation    = true;
     conn.automation_param_id      = dest_param_id;
     conn.automation_range_lo      = range_lo;
     conn.automation_range_hi      = range_hi;
@@ -419,6 +500,15 @@ SignalGraph::compile_(double /*sample_rate*/, int max_block_size) {
         for (int c = 0; c < in_ch; ++c)
             rt.input_ptrs[c] = rt.input_data.data() + static_cast<size_t>(c) * max_block_size;
         rt.gain = n.gain;  // copy UI-thread scalar into per-snapshot runtime
+        if (n.plugin) {
+            for (const auto& p : n.plugin->parameters()) {
+                rt.param_bounds.push_back({
+                    p.id,
+                    p.min_value,
+                    p.max_value,
+                });
+            }
+        }
         cg->runtime[n.id] = std::move(rt);
 
         CompiledGraph::NodeShape shape{n.type, n.num_input_ports, n.num_output_ports};
@@ -427,12 +517,57 @@ SignalGraph::compile_(double /*sample_rate*/, int max_block_size) {
         if (n.plugin) cg->plugins[n.id] = n.plugin;
     }
 
+    for (const auto& c : cg->connections) {
+        if (!c.audio_rate_modulation) continue;
+        auto rt_it = cg->runtime.find(c.dest_node);
+        if (rt_it == cg->runtime.end()) continue;
+        auto& ids = rt_it->second.audio_rate_param_ids;
+        if (std::find(ids.begin(), ids.end(), c.automation_param_id) == ids.end()) {
+            ids.push_back(c.automation_param_id);
+            rt_it->second.audio_rate_param_data.resize(
+                ids.size() * static_cast<size_t>(max_block_size), 0.0f);
+        }
+    }
+
     compute_latencies_for_(*cg, connections_);
     return cg;
 }
 
 bool SignalGraph::prepare(double sample_rate, int max_block_size) {
     if (max_block_size <= 0) return false;
+
+    std::unordered_map<NodeId, std::vector<uint32_t>> sparse_params_by_node;
+    std::unordered_map<NodeId, std::vector<uint32_t>> audio_rate_params_by_node;
+    auto add_unique_param = [](std::vector<uint32_t>& params, uint32_t param_id) {
+        if (std::find(params.begin(), params.end(), param_id) == params.end()) {
+            params.push_back(param_id);
+        }
+    };
+    for (const auto& c : connections_) {
+        if (c.automation) {
+            add_unique_param(sparse_params_by_node[c.dest_node], c.automation_param_id);
+        }
+        if (c.audio_rate_modulation) {
+            add_unique_param(audio_rate_params_by_node[c.dest_node], c.automation_param_id);
+        }
+    }
+    for (const auto& [node_id, audio_rate_params] : audio_rate_params_by_node) {
+        const auto sparse_it = sparse_params_by_node.find(node_id);
+        const size_t sparse_count = sparse_it == sparse_params_by_node.end()
+            ? 0
+            : sparse_it->second.size();
+        const size_t required_events =
+            audio_rate_params.size() * static_cast<size_t>(max_block_size)
+            + sparse_count * 2;
+        if (required_events > ParameterEventQueue::kCapacity) {
+            runtime::log_error(
+                "SignalGraph: audio-rate modulation for node {} requires {} parameter events (capacity {})",
+                node_id,
+                required_events,
+                ParameterEventQueue::kCapacity);
+            return false;
+        }
+    }
 
     // Prepare each plugin slot first (pre-compile step).
     for (auto& n : nodes_) {
@@ -504,6 +639,7 @@ void SignalGraph::process(audio::BufferView<float>& output,
             if (c.dest_node != id) continue;
             if (c.midi) continue;
             if (c.automation) continue;  // dispatched in the Plugin branch
+            if (c.audio_rate_modulation) continue;  // dense path is built separately
             const int dport = static_cast<int>(c.dest_port);
             if (dport < 0 || dport >= static_cast<int>(rt.input_ptrs.size())) continue;
             if (c.source_node == 0) continue;
@@ -590,8 +726,27 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 // (param_id) target, collect values from every automation
                 // edge and mix per edges' MixMode. Two control points per
                 // block (sample 0 and N-1) so the plugin can interpolate.
+                // Audio-rate modulation edges append one event per sample
+                // after applying the same PDC delay-line alignment used by
+                // normal audio connections.
                 ParameterEventQueue param_events;
                 {
+                    auto bounds_for_param = [&rt](uint32_t param_id,
+                                                  float fallback_lo,
+                                                  float fallback_hi) {
+                        for (const auto& bounds : rt.param_bounds) {
+                            if (bounds.id != param_id) continue;
+                            return std::pair<float, float>{
+                                std::min(bounds.min_value, bounds.max_value),
+                                std::max(bounds.min_value, bounds.max_value),
+                            };
+                        }
+                        return std::pair<float, float>{
+                            std::min(fallback_lo, fallback_hi),
+                            std::max(fallback_lo, fallback_hi),
+                        };
+                    };
+
                     struct Accum {
                         float v0 = 0.f, vN = 0.f;
                         float lo = 0.f, hi = 1.f;
@@ -613,8 +768,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
                         const float mN = c.automation_range_lo
                             + sN * (c.automation_range_hi - c.automation_range_lo);
                         auto& a = acc[c.automation_param_id];
-                        a.lo = c.automation_range_lo;
-                        a.hi = c.automation_range_hi;
+                        const auto bounds = bounds_for_param(c.automation_param_id,
+                                                             c.automation_range_lo,
+                                                             c.automation_range_hi);
+                        a.lo = bounds.first;
+                        a.hi = bounds.second;
                         if (c.automation_mix == AutomationMix::Replace) {
                             a.v0 = m0;
                             a.vN = mN;
@@ -632,8 +790,112 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             v0 = std::clamp(v0, lo, hi);
                             vN = std::clamp(vN, lo, hi);
                         }
-                        param_events.push({pid, 0, v0});
-                        if (last > 0) param_events.push({pid, last, vN});
+                        if (!push_parameter_event(param_events, pid, 0, v0)) break;
+                        if (last > 0
+                            && !push_parameter_event(param_events, pid, last, vN)) {
+                            break;
+                        }
+                    }
+
+                    if (!rt.audio_rate_param_ids.empty()) {
+                        const size_t block = static_cast<size_t>(cg->max_block_size);
+                        std::fill(rt.audio_rate_param_data.begin(),
+                                  rt.audio_rate_param_data.end(),
+                                  0.0f);
+
+                        struct DenseAccum {
+                            float* values = nullptr;
+                            float lo = 0.0f;
+                            float hi = 1.0f;
+                            bool has_replace = false;
+                            bool has_add = false;
+                        };
+                        std::vector<DenseAccum> dense;
+                        dense.reserve(rt.audio_rate_param_ids.size());
+                        for (size_t pi = 0; pi < rt.audio_rate_param_ids.size(); ++pi) {
+                            dense.push_back({
+                                rt.audio_rate_param_data.data() + pi * block,
+                                0.0f,
+                                1.0f,
+                                false,
+                                false,
+                            });
+                        }
+
+                        for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+                            const auto& c = cg->connections[ci];
+                            if (!c.audio_rate_modulation || c.dest_node != id) continue;
+                            auto src_it = cg->runtime.find(c.source_node);
+                            if (src_it == cg->runtime.end()) continue;
+                            const int sport = static_cast<int>(c.source_port);
+                            if (sport < 0
+                                || sport >= (int)src_it->second.output_ptrs.size()) {
+                                continue;
+                            }
+
+                            auto param_it = std::find(rt.audio_rate_param_ids.begin(),
+                                                      rt.audio_rate_param_ids.end(),
+                                                      c.automation_param_id);
+                            if (param_it == rt.audio_rate_param_ids.end()) continue;
+                            auto& dst = dense[static_cast<size_t>(
+                                std::distance(rt.audio_rate_param_ids.begin(), param_it))];
+                            const auto bounds = bounds_for_param(c.automation_param_id,
+                                                                 c.automation_range_lo,
+                                                                 c.automation_range_hi);
+                            dst.lo = bounds.first;
+                            dst.hi = bounds.second;
+
+                            const float* src = src_it->second.output_ptrs[sport];
+                            auto& dl = cg->connection_delays[ci];
+                            if (dl.delay_samples <= 0 || dl.ring.empty()) {
+                                for (int i = 0; i < num_samples; ++i) {
+                                    const float value = map_modulation_sample(c, src[i]);
+                                    if (c.automation_mix == AutomationMix::Replace) {
+                                        dst.values[static_cast<size_t>(i)] = value;
+                                        dst.has_replace = true;
+                                    } else {
+                                        dst.values[static_cast<size_t>(i)] += value;
+                                        dst.has_add = true;
+                                    }
+                                }
+                            } else {
+                                const int ring_size = (int)dl.ring.size();
+                                const int D = dl.delay_samples;
+                                int wp = dl.write_pos;
+                                int rp = wp - D;
+                                if (rp < 0) rp += ring_size;
+                                for (int i = 0; i < num_samples; ++i) {
+                                    dl.ring[static_cast<size_t>(wp)] = src[i];
+                                    const float value = map_modulation_sample(
+                                        c, dl.ring[static_cast<size_t>(rp)]);
+                                    if (c.automation_mix == AutomationMix::Replace) {
+                                        dst.values[static_cast<size_t>(i)] = value;
+                                        dst.has_replace = true;
+                                    } else {
+                                        dst.values[static_cast<size_t>(i)] += value;
+                                        dst.has_add = true;
+                                    }
+                                    if (++wp == ring_size) wp = 0;
+                                    if (++rp == ring_size) rp = 0;
+                                }
+                                dl.write_pos = wp;
+                            }
+                        }
+
+                        for (size_t pi = 0; pi < dense.size(); ++pi) {
+                            const auto& d = dense[pi];
+                            if (!d.has_replace && !d.has_add) continue;
+                            const uint32_t param_id = rt.audio_rate_param_ids[pi];
+                            const float lo = std::min(d.lo, d.hi);
+                            const float hi = std::max(d.lo, d.hi);
+                            for (int i = 0; i < num_samples; ++i) {
+                                float value = d.values[static_cast<size_t>(i)];
+                                if (d.has_add) value = std::clamp(value, lo, hi);
+                                if (!push_parameter_event(param_events, param_id, i, value)) {
+                                    break;
+                                }
+                            }
+                        }
                     }
                     param_events.sort();
                 }
