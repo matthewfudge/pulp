@@ -222,6 +222,31 @@ public:
     View* selected_view() const { return selected_; }
     View* hovered_view() const { return hovered_; }
 
+    // ── Phase 3 — selection-mode toggle ─────────────────────────────
+    /// How the selected node is chosen as the pointer moves.
+    ///   - follows_focus: selection stays pinned to the focused element
+    ///     and does NOT chase the pointer — only an explicit click (or
+    ///     panel-tree pick) changes it. This is the inspector's
+    ///     historical behavior and the default, so the toggle is opt-in.
+    ///   - follows_mouse: selection tracks whatever View the pointer is
+    ///     over — every hover / pointer-move re-selects the hovered node,
+    ///     a Figma-style "select on hover" mode for fast scrubbing.
+    enum class SelectionMode : std::uint8_t { follows_focus, follows_mouse };
+
+    /// Current selection mode. Defaults to `follows_focus` (click-to-
+    /// select), so existing hosts and tests are unaffected until the
+    /// user opts in via the `M` hotkey.
+    SelectionMode selection_mode() const { return selection_mode_; }
+    void set_selection_mode(SelectionMode mode) { selection_mode_ = mode; }
+    /// Flip between follows_focus and follows_mouse. Bound to the `M`
+    /// ("mode") hotkey in handle_key_event() — D/E/P/T/J/Z/R/A are all
+    /// taken, so M is the natural free letter for "selection mode".
+    void toggle_selection_mode() {
+        selection_mode_ = (selection_mode_ == SelectionMode::follows_focus)
+                              ? SelectionMode::follows_mouse
+                              : SelectionMode::follows_focus;
+    }
+
     // ── Phase 5.1 — source-jump ─────────────────────────────────────
     /// The editor-URL config used to format source-jump URLs. The host
     /// sets this once (mirroring the DomainHandler's config); the `J`
@@ -501,6 +526,11 @@ private:
 
     // Distance measurement mode
     View* distance_anchor_ = nullptr;
+
+    // Phase 3 — selection-mode toggle. follows_focus (default) keeps the
+    // selection pinned until an explicit click; follows_mouse re-selects
+    // the hovered View on every pointer-move. Toggled via the `M` hotkey.
+    SelectionMode selection_mode_ = SelectionMode::follows_focus;
 
     // Phase 3f — Alt-hover sibling distance (Figma-style spacing reveal).
     // Tracks the View under the cursor while Alt is held; cleared as soon

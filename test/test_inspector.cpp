@@ -516,6 +516,147 @@ TEST_CASE("InspectorOverlay: Alt-hover does nothing without a selection",
     REQUIRE(after_alt_hover.command_count() == baseline_count);
 }
 
+// Phase 3 — selection-mode toggle. The `M` hotkey flips between
+// follows_focus (click-to-select; the default) and follows_mouse
+// (selection chases the pointer). The default must be follows_focus so
+// the inspector's historical behavior is unchanged until the user opts
+// in.
+TEST_CASE("InspectorOverlay: M hotkey toggles selection mode",
+          "[inspect][overlay][phase3]") {
+    View root;
+    root.set_bounds({0, 0, 200, 200});
+    InspectorOverlay overlay(root);
+
+    // Default is follows_focus — historical click-to-select behavior.
+    REQUIRE(overlay.selection_mode() ==
+            InspectorOverlay::SelectionMode::follows_focus);
+
+    overlay.set_active(true);
+
+    KeyEvent m;
+    m.key = KeyCode::m;
+    m.is_down = true;
+    m.modifiers = 0;
+
+    // First M press → follows_mouse.
+    REQUIRE(overlay.handle_key_event(m));
+    REQUIRE(overlay.selection_mode() ==
+            InspectorOverlay::SelectionMode::follows_mouse);
+
+    // Second M press → back to follows_focus.
+    REQUIRE(overlay.handle_key_event(m));
+    REQUIRE(overlay.selection_mode() ==
+            InspectorOverlay::SelectionMode::follows_focus);
+
+    // The M hotkey only fires while the inspector is active — a press
+    // with the overlay closed must not flip the mode.
+    overlay.set_active(false);
+    REQUIRE_FALSE(overlay.handle_key_event(m));
+    REQUIRE(overlay.selection_mode() ==
+            InspectorOverlay::SelectionMode::follows_focus);
+}
+
+// In follows_focus mode a pointer-move must NOT change the selection —
+// only an explicit click does. This is the conservative default that
+// preserves the inspector's historical behavior.
+TEST_CASE("InspectorOverlay: follows_focus keeps selection pinned on hover",
+          "[inspect][overlay][phase3]") {
+    View root;
+    root.set_id("root");
+    root.set_bounds({0, 0, 500, 300});
+
+    auto a = std::make_unique<View>();
+    a->set_id("a");
+    a->set_bounds({10, 10, 60, 60});
+    auto* a_ptr = a.get();
+    root.add_child(std::move(a));
+
+    auto b = std::make_unique<View>();
+    b->set_id("b");
+    b->set_bounds({100, 10, 60, 60});
+    auto* b_ptr = b.get();
+    root.add_child(std::move(b));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    REQUIRE(overlay.selection_mode() ==
+            InspectorOverlay::SelectionMode::follows_focus);
+
+    // Click to select a.
+    MouseEvent click_a;
+    click_a.position = {20, 20};
+    click_a.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click_a));
+    REQUIRE(overlay.selected_view() == a_ptr);
+
+    // Hover over b (pointer-move, no button) — hovered_ tracks b but the
+    // selection stays pinned to a.
+    MouseEvent hover_b;
+    hover_b.position = {130, 30};
+    hover_b.is_down = false;
+    REQUIRE_FALSE(overlay.handle_mouse_event(hover_b));
+    REQUIRE(overlay.hovered_view() == b_ptr);
+    REQUIRE(overlay.selected_view() == a_ptr);  // unchanged by hover
+}
+
+// In follows_mouse mode a pointer-move DOES re-select the hovered View
+// (Figma-style "select on hover"). An explicit click still works the
+// same way.
+TEST_CASE("InspectorOverlay: follows_mouse re-selects the hovered view",
+          "[inspect][overlay][phase3]") {
+    View root;
+    root.set_id("root");
+    root.set_bounds({0, 0, 500, 300});
+
+    auto a = std::make_unique<View>();
+    a->set_id("a");
+    a->set_bounds({10, 10, 60, 60});
+    auto* a_ptr = a.get();
+    root.add_child(std::move(a));
+
+    auto b = std::make_unique<View>();
+    b->set_id("b");
+    b->set_bounds({100, 10, 60, 60});
+    auto* b_ptr = b.get();
+    root.add_child(std::move(b));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_selection_mode(InspectorOverlay::SelectionMode::follows_mouse);
+
+    // Click to select a.
+    MouseEvent click_a;
+    click_a.position = {20, 20};
+    click_a.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click_a));
+    REQUIRE(overlay.selected_view() == a_ptr);
+
+    // Hover over b (pointer-move, no button) — selection follows the
+    // pointer onto b.
+    MouseEvent hover_b;
+    hover_b.position = {130, 30};
+    hover_b.is_down = false;
+    REQUIRE_FALSE(overlay.handle_mouse_event(hover_b));
+    REQUIRE(overlay.hovered_view() == b_ptr);
+    REQUIRE(overlay.selected_view() == b_ptr);  // selection chased pointer
+
+    // Hover back over a — selection follows again.
+    MouseEvent hover_a;
+    hover_a.position = {30, 30};
+    hover_a.is_down = false;
+    REQUIRE_FALSE(overlay.handle_mouse_event(hover_a));
+    REQUIRE(overlay.selected_view() == a_ptr);
+
+    // Alt-hover must NOT chase the pointer — Alt-hover sibling-distance
+    // mode relies on a pinned selection.
+    MouseEvent alt_hover_b;
+    alt_hover_b.position = {130, 30};
+    alt_hover_b.modifiers = kModAlt;
+    alt_hover_b.is_down = false;
+    REQUIRE_FALSE(overlay.handle_mouse_event(alt_hover_b));
+    REQUIRE(overlay.selected_view() == a_ptr);  // pinned despite follows_mouse
+}
+
 // Codex P2 follow-up on #2328: Alt-hover state must clear when the
 // cursor enters the inspector panel. Otherwise the live distance line
 // keeps drawing from selected_ to a view that's no longer under the
