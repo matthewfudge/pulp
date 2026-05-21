@@ -2,6 +2,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/format/editor_ui.hpp>
 #include <pulp/format/headless.hpp>
+#include <pulp/format/registry.hpp>
 #include <cmath>
 
 // Simple test processor for headless testing
@@ -99,6 +100,21 @@ std::unique_ptr<pulp::format::Processor> create_null_processor() {
     return {};
 }
 
+class ScopedFactoryRegistration {
+public:
+    explicit ScopedFactoryRegistration(pulp::format::ProcessorFactory factory)
+        : previous_(pulp::format::registered_factory()) {
+        pulp::format::register_plugin(factory);
+    }
+
+    ~ScopedFactoryRegistration() {
+        pulp::format::register_plugin(previous_);
+    }
+
+private:
+    pulp::format::ProcessorFactory previous_ = nullptr;
+};
+
 } // anonymous namespace
 
 using Catch::Matchers::WithinAbs;
@@ -107,6 +123,19 @@ TEST_CASE("HeadlessHost creates processor", "[headless]") {
     pulp::format::HeadlessHost host(create_test_gain);
     REQUIRE(host.descriptor().name == "TestGain");
     REQUIRE(host.state().param_count() == 1);
+}
+
+TEST_CASE("format registry stores and replaces the processor factory",
+          "[format][registry][coverage][phase3]") {
+    const auto previous = pulp::format::registered_factory();
+    {
+        ScopedFactoryRegistration scoped(create_test_gain);
+        REQUIRE(pulp::format::registered_factory() == create_test_gain);
+
+        pulp::format::register_plugin(create_null_processor);
+        REQUIRE(pulp::format::registered_factory() == create_null_processor);
+    }
+    REQUIRE(pulp::format::registered_factory() == previous);
 }
 
 TEST_CASE("build_editor_ui falls back to AutoUi when no script path is configured",
