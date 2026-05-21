@@ -128,6 +128,16 @@ public:
     /// Call this periodically from the UI thread. Fires change callbacks if the
     /// value differs from the last polled value.
     /// @return True if the value changed since the last poll.
+    ///
+    /// @note Soft-deprecated (Slice 16, RT-Safety + Debug DX roadmap). The
+    ///       canonical pattern is no longer periodic polling: a parameter
+    ///       change should *set a dirty flag* and the UI should *repaint on
+    ///       the next vblank* via `WindowHost::mark_dirty()` —
+    ///       see `pulp::render::RenderLoop` and `WindowHost::mark_dirty()`.
+    ///       `poll()` stays supported for existing callers and for hosts
+    ///       without a vblank-driven loop, but new code should prefer the
+    ///       dirty-flag / next-frame path. It is intentionally NOT marked
+    ///       `[[deprecated]]` to avoid breaking `-Werror` builds.
     bool poll() {
         if (!store_) return false;
         float current = store_->get_value(param_id_);

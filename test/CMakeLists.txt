@@ -1998,6 +1998,14 @@ if(PULP_ENABLE_GPU)
     target_link_libraries(pulp-test-rendering-integration PRIVATE pulp::view pulp::render pulp::state Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-rendering-integration)
 
+    # Slice 16 — WindowHost::mark_dirty() VBlank-locked safe-repaint routing.
+    # Needs both pulp::view (mark_dirty / attach_render_loop) and
+    # pulp::render (RenderLoop factory), so it gates on PULP_ENABLE_GPU.
+    add_executable(pulp-test-window-host-repaint test_window_host_repaint.cpp)
+    target_link_libraries(pulp-test-window-host-repaint PRIVATE
+        pulp::view pulp::render Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-window-host-repaint)
+
 endif()
 
 # Texture atlas helpers compile cleanly without GPU deps; keep this pure
