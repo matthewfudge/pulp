@@ -26,6 +26,7 @@
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace pulp::view {
 namespace fs = std::filesystem;
@@ -1601,12 +1602,24 @@ DesignIR parse_design_ir_json(const std::string& json) {
 }
 
 static std::string strip_js_comments_and_literals(std::string_view source) {
-    enum class State { normal, line_comment, block_comment, single_quote, double_quote, template_literal };
+    enum class State {
+        normal,
+        line_comment,
+        block_comment,
+        single_quote,
+        double_quote,
+        template_literal
+    };
+
+    struct TemplateExpression {
+        int brace_depth = 0;
+    };
 
     std::string out;
     out.reserve(source.size());
     State state = State::normal;
     bool escaped = false;
+    std::vector<TemplateExpression> template_expressions;
 
     for (size_t i = 0; i < source.size(); ++i) {
         const char c = source[i];
@@ -1614,7 +1627,19 @@ static std::string strip_js_comments_and_literals(std::string_view source) {
 
         switch (state) {
             case State::normal:
-                if (c == '/' && next == '/') {
+                if (!template_expressions.empty() && c == '}') {
+                    out.push_back(' ');
+                    auto& expr = template_expressions.back();
+                    --expr.brace_depth;
+                    if (expr.brace_depth == 0) {
+                        template_expressions.pop_back();
+                        state = State::template_literal;
+                        escaped = false;
+                    }
+                } else if (!template_expressions.empty() && c == '{') {
+                    out.push_back(c);
+                    ++template_expressions.back().brace_depth;
+                } else if (c == '/' && next == '/') {
                     out.push_back(' ');
                     out.push_back(' ');
                     ++i;
@@ -1684,13 +1709,23 @@ static std::string strip_js_comments_and_literals(std::string_view source) {
                 break;
 
             case State::template_literal:
-                out.push_back((c == '\n' || c == '\r') ? c : ' ');
                 if (escaped) {
+                    out.push_back((c == '\n' || c == '\r') ? c : ' ');
                     escaped = false;
+                } else if (c == '$' && next == '{') {
+                    out.push_back(' ');
+                    out.push_back(' ');
+                    ++i;
+                    template_expressions.push_back({1});
+                    state = State::normal;
                 } else if (c == '\\') {
+                    out.push_back(' ');
                     escaped = true;
                 } else if (c == '`') {
+                    out.push_back(' ');
                     state = State::normal;
+                } else {
+                    out.push_back((c == '\n' || c == '\r') ? c : ' ');
                 }
                 break;
         }

@@ -898,12 +898,36 @@ TEST_CASE("JSX snapshot dynamic API scanner detects non-deterministic APIs",
     REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "Math.random") != scan.tokens.end());
     REQUIRE(std::find(scan.tokens.begin(), scan.tokens.end(), "fetch") != scan.tokens.end());
 
+    auto interpolation_scan = detect_jsx_snapshot_dynamic_apis(
+        R"(const label = `literal setInterval Date.now ${Date.now()} ${Math.random()} ${fetch("/state")}`;)");
+    REQUIRE(interpolation_scan.has_dynamic_apis());
+    REQUIRE(interpolation_scan.tokens.size() == 3);
+    REQUIRE(std::find(interpolation_scan.tokens.begin(), interpolation_scan.tokens.end(), "Date.now") != interpolation_scan.tokens.end());
+    REQUIRE(std::find(interpolation_scan.tokens.begin(), interpolation_scan.tokens.end(), "Math.random") != interpolation_scan.tokens.end());
+    REQUIRE(std::find(interpolation_scan.tokens.begin(), interpolation_scan.tokens.end(), "fetch") != interpolation_scan.tokens.end());
+    REQUIRE(std::find(interpolation_scan.tokens.begin(), interpolation_scan.tokens.end(), "setInterval") == interpolation_scan.tokens.end());
+
+    auto nested_template_scan = detect_jsx_snapshot_dynamic_apis(
+        R"(const label = `outer ${`inner ${performance.now()}`} ${new Date()}`;)");
+    REQUIRE(nested_template_scan.has_dynamic_apis());
+    REQUIRE(nested_template_scan.tokens.size() == 2);
+    REQUIRE(std::find(nested_template_scan.tokens.begin(), nested_template_scan.tokens.end(), "performance.now") != nested_template_scan.tokens.end());
+    REQUIRE(std::find(nested_template_scan.tokens.begin(), nested_template_scan.tokens.end(), "new Date") != nested_template_scan.tokens.end());
+
+    auto braced_expression_scan = detect_jsx_snapshot_dynamic_apis(
+        R"(const label = `${ { value: Date.now() } } ${format("}")}`;)");
+    REQUIRE(braced_expression_scan.has_dynamic_apis());
+    REQUIRE(braced_expression_scan.tokens.size() == 1);
+    REQUIRE(std::find(braced_expression_scan.tokens.begin(), braced_expression_scan.tokens.end(), "Date.now") != braced_expression_scan.tokens.end());
+
     REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis(
         "// setInterval Date.now Math.random fetch(\n"
         "/* setTimeout requestAnimationFrame new Date performance.now */\n"
         "const literal = \"setInterval Date.now Math.random fetch(\";\n"
         "const single = 'setTimeout requestAnimationFrame new Date performance.now';\n"
         "const template = `setInterval Date.now Math.random fetch(`;").has_dynamic_apis());
+    REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis(
+        R"JS(const label = `${"Date.now()"} ${/* Math.random() */ 1}`;)JS").has_dynamic_apis());
     REQUIRE_FALSE(detect_jsx_snapshot_dynamic_apis("const x = 1;").has_dynamic_apis());
 }
 
