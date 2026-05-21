@@ -104,6 +104,13 @@ struct StubBridge {
     }
 };
 
+int counted_null_processor_factory_calls = 0;
+
+std::unique_ptr<Processor> counted_null_processor_factory() {
+    ++counted_null_processor_factory_calls;
+    return nullptr;
+}
+
 class StubAudioSystem final : public pulp::audio::AudioSystem {
 public:
     std::vector<pulp::audio::DeviceInfo> devices;
@@ -249,6 +256,47 @@ TEST_CASE("Standalone settings callbacks skip rebind when apply fails",
     REQUIRE_FALSE(rebind_called);
 }
 
+TEST_CASE("StandaloneApp apply_config updates idle configuration without starting audio",
+          "[standalone][coverage][phase3]") {
+    counted_null_processor_factory_calls = 0;
+    StandaloneApp app(counted_null_processor_factory);
+
+    StandaloneConfig cfg;
+    cfg.audio_device_id = "BuiltInOut";
+    cfg.midi_input_id = "Keyboard";
+    cfg.sample_rate = 96000.0;
+    cfg.buffer_size = 128;
+    cfg.input_channels = 1;
+    cfg.output_channels = 2;
+    cfg.show_settings_tab = false;
+
+    REQUIRE(app.apply_config(cfg));
+    REQUIRE_FALSE(app.is_running());
+    REQUIRE(counted_null_processor_factory_calls == 0);
+    REQUIRE(app.config().audio_device_id == "BuiltInOut");
+    REQUIRE(app.config().midi_input_id == "Keyboard");
+    REQUIRE(app.config().sample_rate == 96000.0);
+    REQUIRE(app.config().buffer_size == 128);
+    REQUIRE(app.config().input_channels == 1);
+    REQUIRE(app.config().output_channels == 2);
+    REQUIRE_FALSE(app.config().show_settings_tab);
+}
+
+TEST_CASE("StandaloneApp rejects headless editor runs without screenshot before startup",
+          "[standalone][coverage][phase3]") {
+    counted_null_processor_factory_calls = 0;
+    StandaloneApp app(counted_null_processor_factory);
+
+    StandaloneConfig cfg;
+    cfg.headless = true;
+    cfg.screenshot_path.clear();
+    app.set_config(cfg);
+
+    REQUIRE_FALSE(app.run_with_editor(false));
+    REQUIRE_FALSE(app.is_running());
+    REQUIRE(counted_null_processor_factory_calls == 0);
+}
+
 TEST_CASE("SettingsPanel applies audio and MIDI selections",
           "[standalone][settings][issue-493]") {
     StubAudioSystem audio;
@@ -330,6 +378,45 @@ TEST_CASE("SettingsPanel applies audio and MIDI selections",
     REQUIRE(apply_calls >= 5);
 }
 
+TEST_CASE("SettingsPanel set_current_config prefers explicit output over default",
+          "[standalone][settings][coverage][phase3]") {
+    StubAudioSystem audio;
+    audio.devices = {
+        {.id = "builtin-out",
+         .name = "Built-in Output",
+         .max_output_channels = 2,
+         .sample_rates = {44100.0},
+         .buffer_sizes = {64},
+         .is_default_output = true},
+        {.id = "usb-out",
+         .name = "USB Output",
+         .max_output_channels = 2,
+         .sample_rates = {48000.0, 96000.0},
+         .buffer_sizes = {128, 256}},
+    };
+
+    SettingsPanel panel;
+    panel.bind_systems(&audio, nullptr);
+
+    StandaloneConfig cfg;
+    cfg.audio_device_id = "usb-out";
+    cfg.sample_rate = 96000.0;
+    cfg.buffer_size = 256;
+    panel.set_current_config(cfg);
+
+    auto& tabs = settings_tabs(panel);
+    auto* audio_tab = tabs.child_at(0);
+    REQUIRE(audio_tab != nullptr);
+
+    auto combos = descendants<ComboBox>(*audio_tab);
+    REQUIRE(combos.size() >= 4);
+    REQUIRE(combos[0]->selected() == 1);
+    REQUIRE(combos[2]->items().size() == 2);
+    REQUIRE(combos[2]->selected() == 1);
+    REQUIRE(combos[3]->items().size() == 2);
+    REQUIRE(combos[3]->selected() == 1);
+}
+
 TEST_CASE("SettingsPanel refreshes hotplug lists and test tone callbacks",
           "[standalone][settings][issue-493]") {
     StubAudioSystem audio;
@@ -400,6 +487,19 @@ TEST_CASE("SettingsPanel refreshes hotplug lists and test tone callbacks",
     combos[4]->set_selected(2);
     REQUIRE(signal_calls == 2);
     REQUIRE(last_signal.sine_frequency_hz == 880.0f);
+
+    toggles[0]->on_mouse_down({0, 0});
+    REQUIRE(signal_calls == 3);
+    REQUIRE(last_signal.type == TestSignalType::none);
+
+    combos[4]->set_selected(0);
+    REQUIRE(signal_calls == 3);
+
+    toggles[0]->on_mouse_down({0, 0});
+    REQUIRE(signal_calls == 4);
+    REQUIRE(last_signal.type == TestSignalType::sine);
+    REQUIRE(last_signal.sine_frequency_hz == 220.0f);
+    REQUIRE(last_signal.sine_amplitude == 0.5f);
 }
 
 TEST_CASE("SettingsPanel uses fallback rate and buffer choices without output devices",

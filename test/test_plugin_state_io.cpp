@@ -191,6 +191,41 @@ TEST_CASE("plugin_state_io round-trips parameter and plugin-owned state",
     REQUIRE(restored.processor.plugin_state == "bands=48;view=60-12000");
 }
 
+TEST_CASE("plugin_state_io envelope encodes payload sizes and CRC",
+          "[format][plugin-state][coverage][phase3]") {
+    TestRig source;
+    source.store.set_value(1, -2.5f);
+    source.processor.plugin_state = "layout=full";
+
+    const auto store_blob = source.store.serialize();
+    const auto plugin_blob = source.processor.serialize_plugin_state();
+    const auto blob = pulp::format::plugin_state_io::serialize(source.store,
+                                                               source.processor);
+
+    REQUIRE(blob.size() == 16 + store_blob.size() + plugin_blob.size() + 4);
+    REQUIRE(blob[0] == 'P');
+    REQUIRE(blob[1] == 'L');
+    REQUIRE(blob[2] == 'S');
+    REQUIRE(blob[3] == 'T');
+    REQUIRE(choc::memory::readLittleEndian<uint32_t>(blob.data() + 4)
+            == pulp::format::plugin_state_io::current_envelope_version());
+    REQUIRE(choc::memory::readLittleEndian<uint32_t>(blob.data() + 8)
+            == static_cast<uint32_t>(store_blob.size()));
+    REQUIRE(choc::memory::readLittleEndian<uint32_t>(blob.data() + 12)
+            == static_cast<uint32_t>(plugin_blob.size()));
+
+    const std::vector<uint8_t> encoded_store(blob.begin() + 16,
+                                             blob.begin() + 16 + store_blob.size());
+    const std::vector<uint8_t> encoded_plugin(blob.begin() + 16 + store_blob.size(),
+                                              blob.end() - 4);
+    REQUIRE(encoded_store == store_blob);
+    REQUIRE(encoded_plugin == plugin_blob);
+
+    const auto crc_offset = blob.size() - 4;
+    REQUIRE(choc::memory::readLittleEndian<uint32_t>(blob.data() + crc_offset)
+            == crc32_simple(blob.data(), crc_offset));
+}
+
 TEST_CASE("plugin_state_io preserves binary plugin-owned payload bytes",
           "[format][plugin-state][coverage][phase3]") {
     TestRig source;
@@ -338,6 +373,24 @@ TEST_CASE("plugin_state_io migrates old envelopes before parsing payloads",
     REQUIRE_THAT(untouched.store.get_value(1), WithinAbs(4.0, 0.01));
     REQUIRE(untouched.processor.plugin_state == "keep");
     REQUIRE(migration_calls == 1);
+}
+
+TEST_CASE("plugin_state_io rejects invalid envelope migration registrations",
+          "[format][plugin-state][coverage][phase3]") {
+    using pulp::format::plugin_state_io::current_envelope_version;
+    using pulp::format::plugin_state_io::register_envelope_migration;
+
+    const auto current = current_envelope_version();
+    auto migration = [](std::span<const uint8_t> source,
+                        std::vector<uint8_t>& migrated) {
+        migrated.assign(source.begin(), source.end());
+        return true;
+    };
+
+    REQUIRE_FALSE(register_envelope_migration(current, current, migration));
+    REQUIRE_FALSE(register_envelope_migration(current, 0, migration));
+    REQUIRE_FALSE(register_envelope_migration(0, current + 1, migration));
+    REQUIRE_FALSE(register_envelope_migration(0, current, {}));
 }
 
 TEST_CASE("plugin_state_io serialize falls back to raw StateStore blobs when plugin payload is empty",
