@@ -60,6 +60,19 @@ COVERAGE_SURFACES = (
     CoverageSurface(("tools/deps",), ("tools/deps/test_*.py",)),
     CoverageSurface(("tools/local-ci",), ("tools/local-ci/test_*.py",)),
     CoverageSurface(
+        ("tools/harness",),
+        (
+            "tools/harness/tests/test_canvas2d_adapter_shim_files.py",
+            "tools/harness/tests/test_html_adapter_element_events_union.py",
+            "tools/harness/tests/test_status.py",
+            "tools/harness/tests/test_validate_test_ref.py",
+        ),
+        (
+            "tools/harness/tests/test_*.py",
+            "tools/harness/visual/tests/test_*.py",
+        ),
+    ),
+    CoverageSurface(
         ("tools/import-validation",),
         ("tools/import-validation/test_source_contracts.py",),
     ),
