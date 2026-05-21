@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01900"></a>
+## [0.190.0] - 2026-05-21
+
+- feat(view): add design import native resolver ([#2630](https://github.com/danielraffel/pulp/pull/2630))
+- test(tools): harden harness coverage adapters ([#2633](https://github.com/danielraffel/pulp/pull/2633))
+- ci: harden pages and release watchdog ([#2629](https://github.com/danielraffel/pulp/pull/2629))
+- test(tools): expand phase3 coverage adapters ([#2626](https://github.com/danielraffel/pulp/pull/2626))
+
 <a id="v01890"></a>
 ## [0.189.0] - 2026-05-21
 
@@ -2468,6 +2476,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.190.0]: https://github.com/danielraffel/pulp/releases/tag/v0.190.0
 [0.189.0]: https://github.com/danielraffel/pulp/releases/tag/v0.189.0
 [0.188.0]: https://github.com/danielraffel/pulp/releases/tag/v0.188.0
 [0.187.0]: https://github.com/danielraffel/pulp/releases/tag/v0.187.0
