@@ -2,8 +2,10 @@
 
 #include <pulp/runtime/log.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <memory>
 #include <thread>
 
 // Phase 6.5 — Dawn GPU timestamp queries.
@@ -45,6 +47,11 @@ struct GpuTimestamps::Impl {
 
     /// Last successfully map-read frame of ticks.
     std::vector<std::uint64_t> last_resolved;
+};
+
+struct MapReadbackState {
+    std::atomic_bool mapped{false};
+    std::atomic_bool ok{false};
 };
 
 GpuTimestamps::GpuTimestamps() = default;
@@ -168,27 +175,33 @@ bool GpuTimestamps::resolve(void* dawn_instance_handle) {
     // pump `ProcessEvents` until the callback fires or a deadline trips.
     // The deadline mirrors `gpu_compute.cpp`'s readback path so a wedged
     // GPU degrades to "no sample this frame" instead of hanging.
-    bool mapped = false;
-    bool ok = false;
+    auto map_state = std::make_shared<MapReadbackState>();
     impl_->readback_buffer.MapAsync(
         wgpu::MapMode::Read, 0, static_cast<std::size_t>(bytes),
         wgpu::CallbackMode::AllowProcessEvents,
-        [&mapped, &ok](wgpu::MapAsyncStatus status, wgpu::StringView) {
-            mapped = true;
-            ok = (status == wgpu::MapAsyncStatus::Success);
+        [map_state](wgpu::MapAsyncStatus status, wgpu::StringView) {
+            map_state->ok.store(status == wgpu::MapAsyncStatus::Success);
+            map_state->mapped.store(true);
         });
 
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (!mapped && std::chrono::steady_clock::now() < deadline) {
+    while (!map_state->mapped.load() &&
+           std::chrono::steady_clock::now() < deadline) {
         instance->ProcessEvents();
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    if (!mapped || !ok) {
-        // On timeout the buffer may still be mid-map; leave it and keep
-        // the previous `last_resolved` so the inspector shows stale-but-
-        // honest numbers rather than flickering to empty.
+    if (!map_state->mapped.load()) {
+        // Cancel the pending map so the same readback buffer can be used
+        // by a later frame. The callback may still arrive after return,
+        // so it only touches the shared state above.
+        impl_->readback_buffer.Unmap();
+        runtime::log_info("GpuTimestamps: timestamp readback did not map");
+        return false;
+    }
+
+    if (!map_state->ok.load()) {
         runtime::log_info("GpuTimestamps: timestamp readback did not map");
         return false;
     }
