@@ -193,13 +193,23 @@ void SettingsPanel::bind_systems(audio::AudioSystem* audio_sys, midi::MidiSystem
 void SettingsPanel::set_current_config(const StandaloneConfig& cfg) {
     current_config_ = cfg;
 
+    int output_index = -1;
     for (size_t i = 0; i < output_devices_.size(); ++i) {
-        if (output_devices_[i].id == cfg.audio_device_id ||
-            output_devices_[i].is_default_output) {
-            if (output_device_combo_) output_device_combo_->set_selected_silent(static_cast<int>(i));
+        if (output_devices_[i].id == cfg.audio_device_id) {
+            output_index = static_cast<int>(i);
             break;
         }
     }
+    if (output_index < 0) {
+        for (size_t i = 0; i < output_devices_.size(); ++i) {
+            if (output_devices_[i].is_default_output) {
+                output_index = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    if (output_index >= 0 && output_device_combo_)
+        output_device_combo_->set_selected_silent(output_index);
 
     rebuild_rate_and_buffer_lists();
 

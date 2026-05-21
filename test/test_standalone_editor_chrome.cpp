@@ -378,6 +378,45 @@ TEST_CASE("SettingsPanel applies audio and MIDI selections",
     REQUIRE(apply_calls >= 5);
 }
 
+TEST_CASE("SettingsPanel set_current_config prefers explicit output over default",
+          "[standalone][settings][coverage][phase3]") {
+    StubAudioSystem audio;
+    audio.devices = {
+        {.id = "builtin-out",
+         .name = "Built-in Output",
+         .max_output_channels = 2,
+         .sample_rates = {44100.0},
+         .buffer_sizes = {64},
+         .is_default_output = true},
+        {.id = "usb-out",
+         .name = "USB Output",
+         .max_output_channels = 2,
+         .sample_rates = {48000.0, 96000.0},
+         .buffer_sizes = {128, 256}},
+    };
+
+    SettingsPanel panel;
+    panel.bind_systems(&audio, nullptr);
+
+    StandaloneConfig cfg;
+    cfg.audio_device_id = "usb-out";
+    cfg.sample_rate = 96000.0;
+    cfg.buffer_size = 256;
+    panel.set_current_config(cfg);
+
+    auto& tabs = settings_tabs(panel);
+    auto* audio_tab = tabs.child_at(0);
+    REQUIRE(audio_tab != nullptr);
+
+    auto combos = descendants<ComboBox>(*audio_tab);
+    REQUIRE(combos.size() >= 4);
+    REQUIRE(combos[0]->selected() == 1);
+    REQUIRE(combos[2]->items().size() == 2);
+    REQUIRE(combos[2]->selected() == 1);
+    REQUIRE(combos[3]->items().size() == 2);
+    REQUIRE(combos[3]->selected() == 1);
+}
+
 TEST_CASE("SettingsPanel refreshes hotplug lists and test tone callbacks",
           "[standalone][settings][issue-493]") {
     StubAudioSystem audio;
