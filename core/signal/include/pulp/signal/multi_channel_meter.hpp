@@ -149,6 +149,14 @@ public:
     /// channels: array of channel pointers. num_samples: samples per channel.
     void process(const float* const* channels, int num_channels, int num_samples) {
         num_channels = std::clamp(num_channels, 0, num_channels_);
+        if (channels == nullptr || num_samples <= 0) return;
+
+        for (int ch = 0; ch < num_channels; ++ch) {
+            if (channels[ch] == nullptr) {
+                num_channels = ch;
+                break;
+            }
+        }
 
         for (int i = 0; i < num_samples; ++i) {
             for (int ch = 0; ch < num_channels; ++ch) {

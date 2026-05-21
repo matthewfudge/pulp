@@ -53,6 +53,38 @@ TEST_CASE("MultiChannelMeter empty process leaves current snapshot untouched", "
     REQUIRE(std::isinf(snap.channels[0].lufs_momentary));
 }
 
+TEST_CASE("MultiChannelMeter ignores null channel arrays without changing snapshot",
+          "[signal][meter][issue-645]") {
+    MultiChannelMeter meter;
+    meter.prepare(100.0f, 2);
+
+    meter.process(nullptr, 2, 1);
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 2);
+    REQUIRE_THAT(snap.channels[0].peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(snap.channels[1].peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_FALSE(snap.channels[0].clipped);
+    REQUIRE_FALSE(snap.channels[1].clipped);
+}
+
+TEST_CASE("MultiChannelMeter truncates processing at the first null channel",
+          "[signal][meter][issue-645]") {
+    MultiChannelMeter meter;
+    meter.prepare(100.0f, 2);
+
+    float left[] = {0.75f};
+    const float* channels[] = {left, nullptr};
+    meter.process(channels, 2, 1);
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 1);
+    REQUIRE_THAT(snap.channels[0].peak, WithinAbs(0.75f, 1e-6f));
+    REQUIRE_THAT(snap.channels[0].rms, WithinAbs(0.75f, 1e-6f));
+    REQUIRE_THAT(snap.channels[1].peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(snap.correlation, WithinAbs(0.0f, 1e-6f));
+}
+
 TEST_CASE("MultiChannelMeter correlation window can replace previous sign", "[signal][meter][issue-645]") {
     MultiChannelMeter meter;
     meter.prepare(10.0f, 2);
