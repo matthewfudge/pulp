@@ -4,6 +4,7 @@
 #include <pulp/state/binding.hpp>
 #include <pulp/state/state.hpp>
 #include <pulp/state/state_migration.hpp>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -130,6 +132,88 @@ TEST_CASE("ParameterEventQueue is available from state",
     REQUIRE(queue.events()[1].sample_offset == 32);
     REQUIRE(queue.events()[2].param_id == 3);
     REQUIRE(queue.events()[2].sample_offset == 64);
+}
+
+TEST_CASE("ParameterEventQueue enforces capacity and preserves stable sort order",
+          "[state][params][events][coverage][phase3]") {
+    ParameterEventQueue queue;
+
+    REQUIRE(queue.capacity() == ParameterEventQueue::kCapacity);
+    for (std::size_t i = 0; i < queue.capacity(); ++i) {
+        REQUIRE(queue.push(ParameterEvent{
+            .param_id = static_cast<ParamID>(i + 1),
+            .sample_offset = static_cast<int32_t>(queue.capacity() - i),
+            .value = static_cast<float>(i),
+        }));
+    }
+
+    REQUIRE_FALSE(queue.push(ParameterEvent{.param_id = 9999, .sample_offset = 0, .value = 1.0f}));
+    REQUIRE(queue.size() == queue.capacity());
+
+    queue.clear();
+    REQUIRE(queue.empty());
+    REQUIRE(queue.push(ParameterEvent{.param_id = 1, .sample_offset = 8, .value = 1.0f}));
+    REQUIRE(queue.push(ParameterEvent{.param_id = 2, .sample_offset = 8, .value = 2.0f}));
+    REQUIRE(queue.push(ParameterEvent{.param_id = 3, .sample_offset = 4, .value = 3.0f}));
+
+    queue.sort();
+    REQUIRE(queue.events()[0].param_id == 3);
+    REQUIRE(queue.events()[1].param_id == 1);
+    REQUIRE(queue.events()[2].param_id == 2);
+}
+
+TEST_CASE("ParamCursor ignores unregistered events but honors explicit snapshots",
+          "[state][params][cursor][coverage][phase3]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {0.0f, 1.0f, 0.25f}));
+    store.set_value(1, 0.5f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 99, .sample_offset = 0, .value = 9.0f}));
+    REQUIRE(events.push(ParameterEvent{.param_id = 1, .sample_offset = 4, .value = 2.0f}));
+    events.sort();
+
+    std::array<ParamSnapshotEntry, 1> snapshots{{{99, 7.0f}}};
+    ParamCursor cursor(store, &events, snapshots);
+
+    REQUIRE(cursor.is_tracked(99));
+    REQUIRE(cursor.value(99) == 7.0f);
+    REQUIRE(cursor.is_tracked(1));
+    REQUIRE(cursor.value(1) == 0.5f);
+
+    cursor.advance_to(0);
+    REQUIRE(cursor.value(99) == 7.0f);
+    REQUIRE(cursor.value(1) == 0.5f);
+
+    cursor.advance_to(4);
+    REQUIRE(cursor.value(1) == 1.0f);
+    REQUIRE(store.get_value(1) == 0.5f);
+}
+
+TEST_CASE("ParamCursor is monotonic and null event queues fall back to StateStore",
+          "[state][params][cursor][coverage][phase3]") {
+    StateStore store;
+    store.add_parameter(make_param_info(7, "Mix", "", {-1.0f, 1.0f, 0.0f}));
+    store.set_value(7, 0.25f);
+
+    ParamCursor no_events(store, nullptr);
+    REQUIRE(no_events.tracked_param_count() == 0);
+    REQUIRE(no_events.value(7) == 0.25f);
+    REQUIRE(no_events.value(1234) == 0.0f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 7, .sample_offset = 2, .value = -0.5f}));
+    REQUIRE(events.push(ParameterEvent{.param_id = 7, .sample_offset = 5, .value = 0.75f}));
+    events.sort();
+
+    ParamCursor cursor(store, &events);
+    cursor.advance_to(5);
+    REQUIRE(cursor.position() == 5);
+    REQUIRE(cursor.value(7) == 0.75f);
+
+    cursor.advance_to(2);
+    REQUIRE(cursor.position() == 5);
+    REQUIRE(cursor.value(7) == 0.75f);
 }
 
 TEST_CASE("ParamRange with step", "[state][range]") {
@@ -1311,6 +1395,138 @@ TEST_CASE("StateStore rejects corrupt source blobs before migration callbacks",
     REQUIRE_FALSE(target.deserialize(data));
     REQUIRE_FALSE(migration_called);
     REQUIRE_THAT(target.get_value(42), WithinAbs(10.0, 0.001));
+}
+
+TEST_CASE("StateMigrationRegistry rejects invalid and duplicate registrations",
+          "[state][serialize][migration][coverage][phase3]") {
+    StateMigrationRegistry registry;
+    auto migration = [](std::span<const uint8_t>, std::vector<uint8_t>&) {
+        return true;
+    };
+
+    REQUIRE_FALSE(registry.register_migration(2, 2, migration));
+    REQUIRE_FALSE(registry.register_migration(3, 2, migration));
+    REQUIRE_FALSE(registry.register_migration(1, 2, {}));
+    REQUIRE(registry.register_migration(1, 2, migration));
+    REQUIRE_FALSE(registry.register_migration(1, 3, migration));
+    REQUIRE(registry.has_migration_from(1));
+    REQUIRE_FALSE(registry.has_migration_from(2));
+}
+
+TEST_CASE("StateMigrationRegistry copies current-version blobs and rejects bad sources",
+          "[state][serialize][migration][coverage][phase3]") {
+    StateStore source;
+    source.set_state_version(4);
+    source.add_parameter(make_param_info(42, "Answer", "", {0.0f, 100.0f, 10.0f}));
+    source.set_value(42, 64.0f);
+    auto data = source.serialize();
+
+    StateMigrationRegistry registry;
+    auto same = registry.migrate(data, 4);
+    REQUIRE(same.has_value());
+    REQUIRE(*same == data);
+
+    REQUIRE_FALSE(registry.migrate(data, 3).has_value());
+    REQUIRE_FALSE(serialized_state_version({}).has_value());
+
+    auto corrupt = data;
+    corrupt[0] = 'X';
+    REQUIRE_FALSE(serialized_state_version(corrupt).has_value());
+    REQUIRE_FALSE(registry.migrate(corrupt, 4).has_value());
+
+    auto bad_crc = data;
+    bad_crc.back() ^= 0x5au;
+    REQUIRE(serialized_state_version(bad_crc) == std::optional<uint32_t>{4});
+    REQUIRE_FALSE(registry.migrate(bad_crc, 4).has_value());
+}
+
+TEST_CASE("StateMigrationRegistry applies multi-hop migrations in order",
+          "[state][serialize][migration][coverage][phase3]") {
+    StateStore source;
+    source.set_state_version(1);
+    source.add_parameter(make_param_info(7, "Mix", "", {0.0f, 1.0f, 0.25f}));
+    source.set_value(7, 0.75f);
+    auto data = source.serialize();
+
+    std::vector<uint32_t> calls;
+    auto rewrite_version = [&calls](uint32_t to_version) {
+        return [&calls, to_version](std::span<const uint8_t> source_blob,
+                                    std::vector<uint8_t>& migrated) {
+            calls.push_back(to_version);
+            migrated.assign(source_blob.begin(), source_blob.end());
+            write_u32_le(migrated, 4, to_version);
+            const auto crc_offset = migrated.size() - 4;
+            write_u32_le(migrated, crc_offset,
+                         crc32_simple_for_test(migrated, crc_offset));
+            return true;
+        };
+    };
+
+    StateMigrationRegistry registry;
+    REQUIRE(registry.register_migration(1, 2, rewrite_version(2)));
+    REQUIRE(registry.register_migration(2, 4, rewrite_version(4)));
+
+    auto migrated = registry.migrate(data, 4);
+    REQUIRE(migrated.has_value());
+    REQUIRE(calls == std::vector<uint32_t>{2, 4});
+    REQUIRE(serialized_state_version(*migrated) == std::optional<uint32_t>{4});
+
+    StateStore target;
+    target.set_state_version(4);
+    target.add_parameter(make_param_info(7, "Mix", "", {0.0f, 1.0f, 0.25f}));
+    REQUIRE(target.deserialize(*migrated));
+    REQUIRE_THAT(target.get_value(7), WithinAbs(0.75f, 0.001f));
+}
+
+TEST_CASE("StateMigrationRegistry rejects broken migration callbacks",
+          "[state][serialize][migration][coverage][phase3]") {
+    StateStore source;
+    source.set_state_version(1);
+    source.add_parameter(make_param_info(3, "Drive", "", {0.0f, 1.0f, 0.5f}));
+    auto data = source.serialize();
+
+    StateMigrationRegistry missing_hop;
+    REQUIRE(missing_hop.register_migration(
+        1, 3,
+        [](std::span<const uint8_t> source_blob, std::vector<uint8_t>& migrated) {
+            migrated.assign(source_blob.begin(), source_blob.end());
+            write_u32_le(migrated, 4, 3);
+            const auto crc_offset = migrated.size() - 4;
+            write_u32_le(migrated, crc_offset,
+                         crc32_simple_for_test(migrated, crc_offset));
+            return true;
+        }));
+    REQUIRE_FALSE(missing_hop.migrate(data, 2).has_value());
+
+    StateMigrationRegistry returns_false;
+    REQUIRE(returns_false.register_migration(
+        1, 2,
+        [](std::span<const uint8_t>, std::vector<uint8_t>&) {
+            return false;
+        }));
+    REQUIRE_FALSE(returns_false.migrate(data, 2).has_value());
+
+    StateMigrationRegistry empty_output;
+    REQUIRE(empty_output.register_migration(
+        1, 2,
+        [](std::span<const uint8_t>, std::vector<uint8_t>& migrated) {
+            migrated.clear();
+            return true;
+        }));
+    REQUIRE_FALSE(empty_output.migrate(data, 2).has_value());
+
+    StateMigrationRegistry wrong_version;
+    REQUIRE(wrong_version.register_migration(
+        1, 2,
+        [](std::span<const uint8_t> source_blob, std::vector<uint8_t>& migrated) {
+            migrated.assign(source_blob.begin(), source_blob.end());
+            write_u32_le(migrated, 4, 99);
+            const auto crc_offset = migrated.size() - 4;
+            write_u32_le(migrated, crc_offset,
+                         crc32_simple_for_test(migrated, crc_offset));
+            return true;
+        }));
+    REQUIRE_FALSE(wrong_version.migrate(data, 2).has_value());
 }
 
 TEST_CASE("StateStore reset_all_to_defaults notifies in registration order",
