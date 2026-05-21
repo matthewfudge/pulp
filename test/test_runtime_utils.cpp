@@ -17,6 +17,7 @@
 #include "../external/cpp-httplib/httplib.h"
 #include <catch2/catch_approx.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <filesystem>
@@ -761,6 +762,21 @@ TEST_CASE("run_process fails on nonexistent", "[runtime][child_process]") {
     auto result = run_process("/tmp/nonexistent_binary_12345");
 #endif
     REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("run_process terminates POSIX children on timeout",
+          "[runtime][child_process][coverage][phase3]") {
+#if defined(_WIN32) || defined(__ANDROID__)
+    SUCCEED("POSIX timeout termination is covered on macOS/Linux");
+#else
+    const auto start = std::chrono::steady_clock::now();
+    auto result = run_process("/bin/sh", {"-c", "sleep 2"}, "", 50);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->exit_code == -1);
+    REQUIRE(elapsed < std::chrono::milliseconds(1500));
+#endif
 }
 
 TEST_CASE("launch_process reports failed starts and missing pids",
