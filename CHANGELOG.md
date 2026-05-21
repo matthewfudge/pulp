@@ -8,6 +8,15 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01834"></a>
+## [0.183.4] - 2026-05-20
+
+- refactor(render): split gpu_surface_android.cpp JNI bridge into sibling TU (P8-1) ([#2554](https://github.com/danielraffel/pulp/pull/2554))
+- refactor: Phase 7 large-file splits (skia_canvas_filter + motion_geometry + claude_bundle_sources) ([#2474](https://github.com/danielraffel/pulp/pull/2474))
+- docs: clarify experimental node ABI direction ([#2583](https://github.com/danielraffel/pulp/pull/2583))
+- refactor(design-tool): wrap top-level imperative build code in ordered functions ([#2573](https://github.com/danielraffel/pulp/pull/2573))
+- ci: centralize react codecov uploads on main ([#2568](https://github.com/danielraffel/pulp/pull/2568))
+
 <a id="v01831"></a>
 ## [0.183.1] - 2026-05-20
 
@@ -2405,6 +2414,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.183.4]: https://github.com/danielraffel/pulp/releases/tag/v0.183.4
 [0.183.1]: https://github.com/danielraffel/pulp/releases/tag/v0.183.1
 [0.183.0]: https://github.com/danielraffel/pulp/releases/tag/v0.183.0
 [0.182.0]: https://github.com/danielraffel/pulp/releases/tag/v0.182.0
