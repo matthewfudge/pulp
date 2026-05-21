@@ -160,6 +160,21 @@ TEST_CASE("PropertiesFile bool getter accepts true and numeric-one strings",
     REQUIRE_FALSE(props.get_bool("other_text").value_or(true));
 }
 
+TEST_CASE("PropertiesFile bool getter requires exact true tokens",
+          "[state][properties][coverage][phase3-large]") {
+    PropertiesFile props;
+    props.set_string("upper_true", "TRUE");
+    props.set_string("title_true", "True");
+    props.set_string("spaced_true", " true");
+    props.set_string("spaced_one", "1 ");
+
+    REQUIRE(props.get_bool("upper_true").has_value());
+    REQUIRE_FALSE(props.get_bool("upper_true").value_or(true));
+    REQUIRE_FALSE(props.get_bool("title_true").value_or(true));
+    REQUIRE_FALSE(props.get_bool("spaced_true").value_or(true));
+    REQUIRE_FALSE(props.get_bool("spaced_one").value_or(true));
+}
+
 TEST_CASE("PropertiesFile remove", "[state][properties]") {
     PropertiesFile props;
     props.set_string("key", "value");

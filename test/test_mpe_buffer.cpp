@@ -146,6 +146,23 @@ TEST_CASE("MpeConfig identifies lower and upper zone member boundaries",
     REQUIRE(cfg.zone_for_channel(12) == nullptr);
 }
 
+TEST_CASE("MpeZone rejects disabled and non-standard manager layouts",
+          "[midi][mpe][codecov]") {
+    MpeZone disabled_lower{0, 0};
+    REQUIRE(disabled_lower.is_lower());
+    REQUIRE_FALSE(disabled_lower.contains_channel(1));
+
+    MpeZone disabled_upper{15, 0};
+    REQUIRE(disabled_upper.is_upper());
+    REQUIRE_FALSE(disabled_upper.contains_channel(14));
+
+    MpeZone custom_manager{7, 4};
+    REQUIRE_FALSE(custom_manager.is_lower());
+    REQUIRE_FALSE(custom_manager.is_upper());
+    REQUIRE_FALSE(custom_manager.contains_channel(7));
+    REQUIRE_FALSE(custom_manager.contains_channel(8));
+}
+
 TEST_CASE("MpeVoiceTracker seeds new notes from cached member expression",
           "[midi][mpe][issue-645]") {
     MpeVoiceTracker tracker{MpeConfig::standard_lower(15)};

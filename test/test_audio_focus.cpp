@@ -17,6 +17,14 @@
 using pulp::audio::AudioFocusRegistry;
 using pulp::audio::AudioFocusState;
 
+namespace {
+
+AudioFocusRegistry::Token&& token_rvalue(AudioFocusRegistry::Token& token) {
+    return static_cast<AudioFocusRegistry::Token&&>(token);
+}
+
+} // namespace
+
 TEST_CASE("AudioFocusRegistry: default state is gained",
           "[audio][focus][issue-334]") {
     AudioFocusRegistry::instance().reset_for_test();
@@ -128,11 +136,14 @@ TEST_CASE("AudioFocusRegistry: token self move assignment preserves subscription
         [&](AudioFocusState) { ++count; });
     const int id = token.id();
 
-    auto& ref = token;
-    token = std::move(ref);
+    token = token_rvalue(token);
     REQUIRE(token.id() == id);
 
     AudioFocusRegistry::instance().publish(AudioFocusState::duck);
+    REQUIRE(count == 1);
+
+    token.reset();
+    AudioFocusRegistry::instance().publish(AudioFocusState::gained);
     REQUIRE(count == 1);
 }
 

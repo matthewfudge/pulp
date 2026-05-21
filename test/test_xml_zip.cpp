@@ -347,7 +347,9 @@ TEST_CASE("deflate compression levels round-trip edge settings",
 TEST_CASE("zip helpers reject malformed deflate and zlib input",
           "[runtime][zip][coverage][phase3-large]") {
     const uint8_t malformed[] = {0xde, 0xad, 0xbe, 0xef};
+    const std::vector<uint8_t> malformed_raw = {0xff, 0x00, 0x7a, 0x13, 0x42};
     REQUIRE_FALSE(deflate_decompress(malformed, sizeof(malformed)).has_value());
+    REQUIRE_FALSE(deflate_decompress(malformed_raw.data(), malformed_raw.size()).has_value());
     REQUIRE_FALSE(gzip_decompress(malformed, sizeof(malformed)).has_value());
 }
 

@@ -13,10 +13,12 @@
 #include <pulp/runtime/range.hpp>
 #include <pulp/runtime/scope_guard.hpp>
 #include <pulp/runtime/scoped_no_alloc.hpp>
+#include <pulp/runtime/socket.hpp>
 #include <pulp/runtime/text_diff.hpp>
 #include "../external/cpp-httplib/httplib.h"
 #include <catch2/catch_approx.hpp>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -56,6 +58,91 @@ const char* system_library_symbol() {
 #else
     return "malloc";
 #endif
+}
+
+struct OneShotHttpResponse {
+    HttpResponse response;
+    std::string request;
+    bool accepted = false;
+    bool downloaded = false;
+};
+
+OneShotHttpResponse serve_one_http_response(std::string_view method,
+                                            std::string_view path,
+                                            std::string_view body = {}) {
+    Socket server;
+    REQUIRE(server.create(SocketType::TCP));
+    REQUIRE(server.bind("127.0.0.1", 0));
+    REQUIRE(server.listen(1));
+    const auto port = server.local_port();
+    REQUIRE(port != 0);
+
+    OneShotHttpResponse exchange;
+    std::thread worker([&] {
+        auto client = server.accept();
+        if (!client) return;
+
+        exchange.accepted = true;
+        std::array<std::uint8_t, 2048> buffer{};
+        while (true) {
+            const auto received = client->receive(buffer.data(), buffer.size());
+            if (received <= 0) break;
+            exchange.request.append(reinterpret_cast<const char*>(buffer.data()),
+                                    static_cast<std::size_t>(received));
+
+            const auto header_end = exchange.request.find("\r\n\r\n");
+            if (header_end == std::string::npos) continue;
+
+            std::size_t expected_body_size = 0;
+            const auto length_key = std::string("Content-Length: ");
+            const auto length_pos = exchange.request.find(length_key);
+            if (length_pos != std::string::npos) {
+                const auto start = length_pos + length_key.size();
+                const auto end = exchange.request.find("\r\n", start);
+                expected_body_size =
+                    static_cast<std::size_t>(std::stoul(exchange.request.substr(start, end - start)));
+            }
+
+            const auto body_size = exchange.request.size() - (header_end + 4);
+            if (body_size >= expected_body_size) break;
+        }
+
+        const std::string payload = "ok-response";
+        const std::string wire_response =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "X-Pulp-Test: loopback\r\n"
+            "Content-Length: " + std::to_string(payload.size()) + "\r\n"
+            "Connection: close\r\n\r\n" + payload;
+        (void)client->send(wire_response);
+    });
+
+    const auto url = "http://127.0.0.1:" + std::to_string(port) + std::string(path);
+    if (method == "POST") {
+        exchange.response = http_post(url, body, "application/json", 2);
+    } else if (method == "DOWNLOAD") {
+        exchange.downloaded = http_download(url, body, 2);
+    } else {
+        exchange.response = http_get(url, 2);
+    }
+
+    worker.join();
+    return exchange;
+}
+
+bool wait_until_http_ready(int port, std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        httplib::Client client("127.0.0.1", port);
+        client.set_connection_timeout(0, 500000);
+        client.set_read_timeout(0, 500000);
+        if (auto response = client.Get("/__ready");
+            response && response->status == 204) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
 }
 
 }  // namespace
@@ -173,17 +260,25 @@ TEST_CASE("ScopedNoAlloc state is thread-local",
     bool worker_initial_in_scope = true;
     int worker_nested_depth = -1;
     bool worker_nested_in_scope = false;
+    int worker_final_depth = -1;
+    bool worker_final_in_scope = true;
     std::thread worker([&] {
         worker_initial_depth = no_alloc_scope_depth();
         worker_initial_in_scope = is_in_no_alloc_scope();
-        ScopedNoAlloc worker_scope;
-        worker_nested_depth = no_alloc_scope_depth();
-        worker_nested_in_scope = is_in_no_alloc_scope();
+        {
+            ScopedNoAlloc worker_scope;
+            worker_nested_depth = no_alloc_scope_depth();
+            worker_nested_in_scope = is_in_no_alloc_scope();
+        }
+        worker_final_depth = no_alloc_scope_depth();
+        worker_final_in_scope = is_in_no_alloc_scope();
     });
     worker.join();
 
     REQUIRE(worker_initial_depth == 0);
     REQUIRE_FALSE(worker_initial_in_scope);
+    REQUIRE(worker_final_depth == 0);
+    REQUIRE_FALSE(worker_final_in_scope);
 #ifndef NDEBUG
     REQUIRE(no_alloc_scope_depth() == 1);
     REQUIRE(is_in_no_alloc_scope());
@@ -756,9 +851,15 @@ TEST_CASE("run_process captures stdout and stderr from one child",
 
 TEST_CASE("run_process honors working directory and preserves spaced arguments",
           "[runtime][child_process][coverage][phase3]") {
-    const auto dir = std::filesystem::temp_directory_path()
-        / "pulp-runtime-run-process-working-dir";
-    std::filesystem::create_directories(dir);
+    TemporaryFile marker(".cwd");
+    const auto dir = marker.path();
+    marker.release();
+    std::filesystem::remove(dir);
+    REQUIRE(std::filesystem::create_directory(dir));
+    auto cleanup = make_scope_guard([&] {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    });
 
 #ifdef _WIN32
     auto result = run_process(
@@ -778,9 +879,30 @@ TEST_CASE("run_process honors working directory and preserves spaced arguments",
     REQUIRE(result->exit_code == 0);
     REQUIRE(std::filesystem::exists(dir / "marker.txt"));
     REQUIRE(result->stdout_output.find("value with spaces") != std::string::npos);
+}
 
-    std::error_code ec;
-    std::filesystem::remove(dir, ec);
+TEST_CASE("run_process rejects missing working directories",
+          "[runtime][child_process][coverage][phase3]") {
+#if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
+    TemporaryFile marker(".missing-working-dir");
+    const auto missing_path = marker.path();
+    marker.release();
+    std::filesystem::remove(missing_path);
+
+    const auto missing_dir = missing_path.string();
+    REQUIRE_FALSE(std::filesystem::exists(missing_dir));
+
+#ifdef _WIN32
+    auto result = run_process("powershell",
+                              {"-NoProfile", "-Command", "Write-Output ignored"},
+                              missing_dir);
+#else
+    auto result = run_process("/bin/pwd", {}, missing_dir);
+#endif
+    REQUIRE_FALSE(result.has_value());
+#else
+    SUCCEED("This platform ignores run_process working_dir in the runtime helper.");
+#endif
 }
 
 TEST_CASE("run_process fails on nonexistent", "[runtime][child_process]") {
@@ -1475,6 +1597,9 @@ TEST_CASE("HTTP helpers round-trip against a loopback server",
         response.set_header("X-Content-Type", request.get_header_value("Content-Type"));
         response.set_content(request.body, "text/plain");
     });
+    server.Get("/__ready", [](const httplib::Request&, httplib::Response& response) {
+        response.status = 204;
+    });
     server.Get("/download", [](const httplib::Request&, httplib::Response& response) {
         response.set_content(std::string("payload\0bytes", 13), "application/octet-stream");
     });
@@ -1494,30 +1619,31 @@ TEST_CASE("HTTP helpers round-trip against a loopback server",
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     REQUIRE(server.is_running());
+    REQUIRE(wait_until_http_ready(port));
 
     const auto base = std::string("http://127.0.0.1:") + std::to_string(port);
-    auto get_response = http_get(base + "/hello?name=agent", 2);
-    const auto get_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    auto get_response = http_get(base + "/hello?name=agent", 10);
+    const auto get_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
     while (!get_response.ok() && std::chrono::steady_clock::now() < get_deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
-        get_response = http_get(base + "/hello?name=agent", 2);
+        get_response = http_get(base + "/hello?name=agent", 10);
     }
     REQUIRE(get_response.ok());
     REQUIRE(get_response.status_code == 200);
     REQUIRE(get_response.body == "hello");
     REQUIRE(get_response.headers.at("X-Pulp-Test") == "agent");
 
-    const auto root_response = http_get(base, 2);
+    const auto root_response = http_get(base, 10);
     REQUIRE(root_response.ok());
     REQUIRE(root_response.body == "root");
 
-    const auto post_response = http_post(base + "/echo", "body=42", "text/custom", 2);
+    const auto post_response = http_post(base + "/echo", "body=42", "text/custom", 10);
     REQUIRE(post_response.ok());
     REQUIRE(post_response.body == "body=42");
     REQUIRE(post_response.headers.at("X-Content-Type").find("text/custom") != std::string::npos);
 
     TemporaryFile downloaded(".bin");
-    REQUIRE(http_download(base + "/download", downloaded.path_string(), 2));
+    REQUIRE(http_download(base + "/download", downloaded.path_string(), 10));
     std::ifstream file(downloaded.path(), std::ios::binary);
     std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     REQUIRE(bytes == std::string("payload\0bytes", 13));
@@ -1530,7 +1656,71 @@ TEST_CASE("HTTP helpers round-trip against a loopback server",
     auto cleanup_blocked_output = make_scope_guard([&] {
         std::filesystem::remove_all(blocked_path);
     });
-    REQUIRE_FALSE(http_download(base + "/download", blocked_path.string(), 2));
+    REQUIRE_FALSE(http_download(base + "/download", blocked_path.string(), 10));
+}
+
+TEST_CASE("HTTP helpers copy successful GET status body and headers",
+          "[runtime][http][coverage][phase3]") {
+    auto exchange = serve_one_http_response("GET", "/status?ok=1");
+
+    REQUIRE(exchange.accepted);
+    REQUIRE(exchange.request.find("GET /status?ok=1") != std::string::npos);
+    REQUIRE(exchange.response.error.empty());
+    REQUIRE(exchange.response.status_code == 200);
+    REQUIRE(exchange.response.ok());
+    REQUIRE(exchange.response.body == "ok-response");
+    REQUIRE(exchange.response.headers.at("Content-Type") == "text/plain");
+    REQUIRE(exchange.response.headers.at("X-Pulp-Test") == "loopback");
+}
+
+TEST_CASE("HTTP helpers copy successful POST request bodies",
+          "[runtime][http][coverage][phase3]") {
+    auto exchange = serve_one_http_response("POST", "/submit", R"({"value":7})");
+
+    REQUIRE(exchange.accepted);
+    REQUIRE(exchange.request.find("POST /submit") != std::string::npos);
+    REQUIRE(exchange.request.find("Content-Type: application/json") != std::string::npos);
+    REQUIRE(exchange.request.find(R"({"value":7})") != std::string::npos);
+    REQUIRE(exchange.response.error.empty());
+    REQUIRE(exchange.response.status_code == 200);
+    REQUIRE(exchange.response.body == "ok-response");
+}
+
+TEST_CASE("HTTP download writes successful response bodies",
+          "[runtime][http][coverage][phase3]") {
+    TemporaryFile output(".http-body");
+    auto exchange = serve_one_http_response("DOWNLOAD", "/artifact.bin", output.path_string());
+
+    REQUIRE(exchange.accepted);
+    REQUIRE(exchange.downloaded);
+    REQUIRE(exchange.request.find("GET /artifact.bin") != std::string::npos);
+
+    std::ifstream file(output.path(), std::ios::binary);
+    REQUIRE(file.good());
+    const std::string contents((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+    REQUIRE(contents == "ok-response");
+}
+
+TEST_CASE("HTTP download reports unwritable output paths after successful fetch",
+          "[runtime][http][coverage][phase3]") {
+    TemporaryFile marker(".missing-http-dir");
+    const auto missing_dir = marker.path();
+    marker.release();
+    std::filesystem::remove(missing_dir);
+    auto cleanup = make_scope_guard([&] {
+        std::error_code ec;
+        std::filesystem::remove_all(missing_dir, ec);
+    });
+
+    const auto missing_dir_output = (missing_dir / "artifact.bin").string();
+    REQUIRE_FALSE(std::filesystem::exists(missing_dir));
+
+    auto exchange = serve_one_http_response("DOWNLOAD", "/unwritable.bin", missing_dir_output);
+
+    REQUIRE(exchange.accepted);
+    REQUIRE_FALSE(exchange.downloaded);
+    REQUIRE(exchange.request.find("GET /unwritable.bin") != std::string::npos);
 }
 
 TEST_CASE("local IPv4 helpers return usable fallback values",

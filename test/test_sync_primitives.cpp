@@ -112,6 +112,25 @@ TEST_CASE("SeqLock concurrent stress test", "[runtime][seqlock]") {
     REQUIRE(torn_reads.load() == 0);
 }
 
+TEST_CASE("SpscQueue failed push preserves queued item",
+          "[runtime][spsc][coverage][phase3]") {
+    SpscQueue<int, 1> q;
+
+    REQUIRE(q.empty());
+    REQUIRE(q.try_push(42));
+    REQUIRE_FALSE(q.empty());
+    REQUIRE(q.size_approx() == 1);
+
+    REQUIRE_FALSE(q.try_push(99));
+    REQUIRE(q.size_approx() == 1);
+
+    auto value = q.try_pop();
+    REQUIRE(value.has_value());
+    REQUIRE(*value == 42);
+    REQUIRE(q.empty());
+    REQUIRE_FALSE(q.try_pop().has_value());
+}
+
 // ── TripleBuffer tests ────────────────────────────────────────────────────
 
 TEST_CASE("TripleBuffer default constructor exposes value-initialized front buffer",
