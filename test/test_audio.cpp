@@ -373,6 +373,37 @@ TEST_CASE("BufferView clear only zeros sliced sample range",
     REQUIRE(buffer.channel(1)[5] == 15.0f);
 }
 
+TEST_CASE("BufferView slice clamps starts past the end to empty views",
+          "[audio][buffer][slice][codecov]") {
+    Buffer<float> buffer(2, 4);
+    for (std::size_t i = 0; i < 4; ++i) {
+        buffer.channel(0)[i] = static_cast<float>(i + 1);
+        buffer.channel(1)[i] = static_cast<float>(10 + i);
+    }
+
+    auto view = buffer.view();
+    auto end = view.slice(4, 2);
+    REQUIRE(end.num_channels() == 2);
+    REQUIRE(end.num_samples() == 0);
+    REQUIRE(end.empty());
+    REQUIRE(end.channel_ptr(0) == buffer.channel(0).data() + 4);
+    REQUIRE(end.channel_ptr(1) == buffer.channel(1).data() + 4);
+    end.clear();
+
+    auto past_end = view.slice(99, 8);
+    REQUIRE(past_end.num_channels() == 2);
+    REQUIRE(past_end.num_samples() == 0);
+    REQUIRE(past_end.empty());
+    REQUIRE(past_end.channel_ptr(0) == buffer.channel(0).data() + 4);
+    REQUIRE(past_end.channel_ptr(1) == buffer.channel(1).data() + 4);
+    past_end.clear();
+
+    REQUIRE(buffer.channel(0)[0] == 1.0f);
+    REQUIRE(buffer.channel(0)[3] == 4.0f);
+    REQUIRE(buffer.channel(1)[0] == 10.0f);
+    REQUIRE(buffer.channel(1)[3] == 13.0f);
+}
+
 TEST_CASE("Buffer self assignment preserves storage and channel pointers",
           "[audio][buffer][coverage][phase3]") {
     Buffer<float> buffer(2, 3);
