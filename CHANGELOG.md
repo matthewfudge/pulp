@@ -8,6 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01790"></a>
+## [0.179.0] - 2026-05-20
+
+- ci: add nightly cross-platform check with auto-filed tracking issues ([#2536](https://github.com/danielraffel/pulp/pull/2536))
+- feat(inspect): add Phase 6.2 texture atlas viewer to the inspector overlay ([#2535](https://github.com/danielraffel/pulp/pull/2535))
+- test(tools): cover CI gate helper edges ([#2534](https://github.com/danielraffel/pulp/pull/2534))
+- test(ci): cover runner and classify helper edges ([#2533](https://github.com/danielraffel/pulp/pull/2533))
+- refactor(compat): split compat.json into per-surface parts (P5-NEW-B) ([#2531](https://github.com/danielraffel/pulp/pull/2531))
+- fix(inspect): guard source jumps in headless runs ([#2520](https://github.com/danielraffel/pulp/pull/2520))
+- feat(params): expose sample-accurate processor events ([#2494](https://github.com/danielraffel/pulp/pull/2494))
+- ci: gate coverage.yml on classify + add missing concurrency blocks ([#2532](https://github.com/danielraffel/pulp/pull/2532))
+- test(tools): cover local ci path and version checks ([#2528](https://github.com/danielraffel/pulp/pull/2528))
+- test(view): cover lock source and visual edge paths ([#2526](https://github.com/danielraffel/pulp/pull/2526))
+
 <a id="v01782"></a>
 ## [0.178.2] - 2026-05-20
 
@@ -2344,6 +2358,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.179.0]: https://github.com/danielraffel/pulp/releases/tag/v0.179.0
 [0.178.2]: https://github.com/danielraffel/pulp/releases/tag/v0.178.2
 [0.178.1]: https://github.com/danielraffel/pulp/releases/tag/v0.178.1
 [0.178.0]: https://github.com/danielraffel/pulp/releases/tag/v0.178.0
