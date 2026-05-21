@@ -562,6 +562,8 @@ TEST_CASE("DesignIR parses camelCase source metadata and static HTML CSS assets"
             } else if (asset.original_uri == "Inter.woff2") {
                 saw_font = true;
                 REQUIRE(asset.mime == "font/woff2");
+                REQUIRE(asset.font_family);
+                REQUIRE(*asset.font_family == "Inter");
                 REQUIRE_FALSE(asset.content_hash.empty());
             }
         }
@@ -730,6 +732,12 @@ TEST_CASE("DesignIR asset manifest fetches network assets through cache and veri
     REQUIRE(cached.assets.size() == 1);
     REQUIRE(cached.assets[0].content_hash == fetched.content_hash);
     REQUIRE(cached.assets[0].diagnostics.empty());
+
+    options.expected_hash_by_uri[url] = "definitely-not-the-cached-hash";
+    auto cached_mismatch = collect_design_ir_assets(ir, options);
+    REQUIRE(cached_mismatch.assets.size() == 1);
+    REQUIRE(cached_mismatch.assets[0].content_hash == fetched.content_hash);
+    REQUIRE(has_diagnostic(cached_mismatch.assets[0], "asset-hash-mismatch"));
 }
 #endif
 

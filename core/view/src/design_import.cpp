@@ -1805,24 +1805,94 @@ static void collect_url_tokens(std::string_view value, std::vector<std::string>&
     }
 }
 
-static std::vector<std::string> collect_html_asset_uris(const std::string& html) {
-    std::vector<std::string> uris;
+struct HtmlAssetCandidate {
+    std::string uri;
+    std::optional<std::string> font_family;
+};
+
+static std::string strip_matching_css_quotes(std::string value) {
+    value = trim_ascii_ws(value);
+    if (value.size() >= 2
+        && ((value.front() == '"' && value.back() == '"')
+         || (value.front() == '\'' && value.back() == '\''))) {
+        value = value.substr(1, value.size() - 2);
+    }
+    return value;
+}
+
+static void append_html_asset_candidate(std::vector<HtmlAssetCandidate>& out,
+                                        std::string uri,
+                                        std::optional<std::string> font_family = std::nullopt) {
+    if (uri.empty()) return;
+    for (auto& candidate : out) {
+        if (candidate.uri == uri) {
+            if (!candidate.font_family && font_family)
+                candidate.font_family = std::move(font_family);
+            return;
+        }
+    }
+    out.push_back({std::move(uri), std::move(font_family)});
+}
+
+static void collect_font_face_asset_candidates(const std::string& css,
+                                               std::vector<HtmlAssetCandidate>& out) {
+    static const std::regex font_face_re(
+        R"RX(@font-face\s*\{([\s\S]*?)\})RX",
+        std::regex::icase);
+    static const std::regex font_family_re(
+        R"RX(font-family\s*:\s*([^;]+))RX",
+        std::regex::icase);
+    static const std::regex src_re(
+        R"RX(src\s*:\s*([^;]+))RX",
+        std::regex::icase);
+
+    auto begin = std::sregex_iterator(css.begin(), css.end(), font_face_re);
+    auto end = std::sregex_iterator();
+    for (auto it = begin; it != end; ++it) {
+        const auto body = (*it)[1].str();
+        std::smatch family_match;
+        std::optional<std::string> font_family;
+        if (std::regex_search(body, family_match, font_family_re))
+            font_family = strip_matching_css_quotes(family_match[1].str());
+
+        std::smatch src_match;
+        if (!std::regex_search(body, src_match, src_re)) continue;
+
+        std::vector<std::string> tokens;
+        collect_url_tokens(src_match[1].str(), tokens);
+        for (auto& token : tokens)
+            append_html_asset_candidate(out, std::move(token), font_family);
+    }
+}
+
+static std::vector<HtmlAssetCandidate> collect_html_asset_uris(const std::string& html) {
+    std::vector<HtmlAssetCandidate> assets;
 
     static const std::regex style_block_re(
         R"RX(<style\b[^>]*>([\s\S]*?)</style>)RX",
         std::regex::icase);
     auto style_begin = std::sregex_iterator(html.begin(), html.end(), style_block_re);
     auto style_end = std::sregex_iterator();
-    for (auto it = style_begin; it != style_end; ++it)
-        collect_url_tokens((*it)[1].str(), uris);
+    for (auto it = style_begin; it != style_end; ++it) {
+        const auto css = (*it)[1].str();
+        collect_font_face_asset_candidates(css, assets);
+        std::vector<std::string> tokens;
+        collect_url_tokens(css, tokens);
+        for (auto& token : tokens)
+            append_html_asset_candidate(assets, std::move(token));
+    }
 
     static const std::regex style_attr_re(
         R"RX(\bstyle\s*=\s*(['"])([\s\S]*?)\1)RX",
         std::regex::icase);
     auto attr_begin = std::sregex_iterator(html.begin(), html.end(), style_attr_re);
     auto attr_end = std::sregex_iterator();
-    for (auto it = attr_begin; it != attr_end; ++it)
-        collect_url_tokens((*it)[2].str(), uris);
+    for (auto it = attr_begin; it != attr_end; ++it) {
+        std::vector<std::string> tokens;
+        collect_url_tokens((*it)[2].str(), tokens);
+        for (auto& token : tokens)
+            append_html_asset_candidate(assets, std::move(token));
+    }
 
     static const std::regex direct_asset_attr_re(
         R"RX(\b(?:src|href)\s*=\s*(['"])([^'"]+)\1)RX",
@@ -1836,10 +1906,10 @@ static std::vector<std::string> collect_html_asset_uris(const std::string& html)
         std::transform(lower.begin(), lower.end(), lower.begin(),
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (has_prefix(lower, "javascript:") || has_prefix(lower, "mailto:")) continue;
-        uris.push_back(std::move(uri));
+        append_html_asset_candidate(assets, std::move(uri));
     }
 
-    return uris;
+    return assets;
 }
 
 static void collect_asset_uris_from_node(const IRNode& node, std::vector<std::string>& uris) {
@@ -1865,11 +1935,29 @@ static void collect_asset_uris_from_node(const IRNode& node, std::vector<std::st
         collect_asset_uris_from_node(child, uris);
 }
 
+static void collect_font_family_metadata_from_node(
+    const IRNode& node,
+    std::unordered_map<std::string, std::string>& font_family_by_uri) {
+    for (const auto& [key, value] : node.attributes) {
+        static constexpr std::string_view kPrefix = "htmlFontFamily";
+        if (key.rfind(kPrefix, 0) != 0) continue;
+        const auto suffix = key.substr(kPrefix.size());
+        const auto asset_key = std::string("htmlAsset") + suffix;
+        auto asset = node.attributes.find(asset_key);
+        if (asset != node.attributes.end() && !asset->second.empty() && !value.empty())
+            font_family_by_uri[asset->second] = value;
+    }
+    for (const auto& child : node.children)
+        collect_font_family_metadata_from_node(child, font_family_by_uri);
+}
+
 IRAssetManifest collect_design_ir_assets(const DesignIR& ir,
                                          const DesignIrAssetOptions& options) {
     IRAssetManifest manifest;
     std::vector<std::string> uris;
     collect_asset_uris_from_node(ir.root, uris);
+    std::unordered_map<std::string, std::string> font_family_by_uri;
+    collect_font_family_metadata_from_node(ir.root, font_family_by_uri);
 
     std::set<std::string> seen_keys;
     const auto cache_dir = options.cache_directory.empty()
@@ -1886,6 +1974,11 @@ IRAssetManifest collect_design_ir_assets(const DesignIR& ir,
         asset.source_url = is_network_url(resolved_uri)
             ? std::optional<std::string>(resolved_uri)
             : std::nullopt;
+        if (auto family = font_family_by_uri.find(uri); family != font_family_by_uri.end())
+            asset.font_family = family->second;
+        else if (auto resolved_family = font_family_by_uri.find(resolved_uri);
+                 resolved_family != font_family_by_uri.end())
+            asset.font_family = resolved_family->second;
         std::optional<std::vector<uint8_t>> bytes;
 
         if (is_data_uri(resolved_uri)) {
@@ -2072,7 +2165,10 @@ DesignIR parse_stitch_html(const std::string& html) {
 
     auto asset_uris = collect_html_asset_uris(html);
     for (size_t i = 0; i < asset_uris.size(); ++i) {
-        ir.root.attributes["htmlAsset" + std::to_string(i)] = std::move(asset_uris[i]);
+        auto index = std::to_string(i);
+        if (asset_uris[i].font_family)
+            ir.root.attributes["htmlFontFamily" + index] = *asset_uris[i].font_family;
+        ir.root.attributes["htmlAsset" + index] = std::move(asset_uris[i].uri);
     }
 
     // Phase 0a: assign anchors to the regex-extracted tree.

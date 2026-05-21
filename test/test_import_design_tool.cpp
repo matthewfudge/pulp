@@ -279,6 +279,17 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         REQUIRE(cached.exit_code == 0);
         REQUIRE(read_text(cached_output).find(expected_hash) != std::string::npos);
         REQUIRE(cached.stderr_output.find("asset-fetcher-missing") == std::string::npos);
+
+        const auto cached_mismatch_output = tmp.path / "network-ir-cached-mismatch.out.json";
+        auto cached_mismatch = run_import_design({"--from", "stitch",
+                                                  "--file", network_input.string(),
+                                                  "--emit", "ir-json",
+                                                  "--output", cached_mismatch_output.string(),
+                                                  "--asset-cache", cache_dir.string(),
+                                                  "--asset-hash", url + "=bad"});
+        REQUIRE_FALSE(cached_mismatch.timed_out);
+        REQUIRE(cached_mismatch.exit_code == 1);
+        REQUIRE(cached_mismatch.stderr_output.find("asset-hash-mismatch") != std::string::npos);
     }
 
     SECTION("ir-json emit resolves relative assets from the source URL") {
