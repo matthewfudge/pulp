@@ -226,6 +226,7 @@ struct ImportDiagnostic {
 struct IRAssetRef {
     std::string asset_id;       // stable handle used by nodes
     std::string original_uri;   // as authored
+    std::vector<std::string> original_uri_aliases; // equivalent authored refs
     std::optional<std::string> local_path;
     std::string content_hash;   // sha256 of resolved bytes; empty if unresolved
     std::string mime;
@@ -269,7 +270,7 @@ struct DesignIR {
 };
 
 struct DesignIrJsonOptions {
-    int version = 1;
+    int version = 0; // 0 preserves DesignIR::version
     bool include_tokens = true;
     bool include_source_metadata = true;
     bool include_asset_manifest = true;

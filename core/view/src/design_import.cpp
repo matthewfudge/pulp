@@ -24,7 +24,6 @@
 #include <regex>
 #include <cmath>
 #include <map>
-#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1279,6 +1278,15 @@ static void write_asset_manifest_json(std::ostringstream& out, const IRAssetMani
         bool afirst = true;
         write_string_member(out, afirst, "asset_id", asset.asset_id);
         write_string_member(out, afirst, "original_uri", asset.original_uri);
+        if (!asset.original_uri_aliases.empty()) {
+            write_key(out, afirst, "original_uri_aliases");
+            out << '[';
+            for (size_t j = 0; j < asset.original_uri_aliases.size(); ++j) {
+                if (j) out << ',';
+                out << '"' << json_escape(asset.original_uri_aliases[j]) << '"';
+            }
+            out << ']';
+        }
         write_string_member(out, afirst, "local_path", asset.local_path);
         write_string_member(out, afirst, "content_hash", asset.content_hash);
         write_string_member(out, afirst, "mime", asset.mime);
@@ -1325,6 +1333,23 @@ static IRAssetManifest parse_asset_manifest(const choc::value::ValueView& obj) {
         if (asset.asset_id.empty()) asset.asset_id = get_string(entry, "assetId");
         asset.original_uri = get_string(entry, "original_uri");
         if (asset.original_uri.empty()) asset.original_uri = get_string(entry, "originalUri");
+        auto parse_uri_aliases = [&](const char* key) {
+            if (!entry.hasObjectMember(key) || !entry[key].isArray()) return;
+            auto aliases = entry[key];
+            for (uint32_t j = 0; j < aliases.size(); ++j) {
+                auto alias = aliases[static_cast<int>(j)];
+                if (!alias.isString()) continue;
+                auto text = std::string(alias.toString());
+                if (text.empty() || text == asset.original_uri) continue;
+                if (std::find(asset.original_uri_aliases.begin(),
+                              asset.original_uri_aliases.end(),
+                              text) == asset.original_uri_aliases.end()) {
+                    asset.original_uri_aliases.push_back(std::move(text));
+                }
+            }
+        };
+        parse_uri_aliases("original_uri_aliases");
+        parse_uri_aliases("originalUriAliases");
         auto local = get_string(entry, "local_path");
         if (local.empty()) local = get_string(entry, "localPath");
         if (!local.empty()) asset.local_path = local;
@@ -1358,7 +1383,7 @@ std::string serialize_design_ir(const DesignIR& ir,
     std::ostringstream out;
     out << '{';
     bool first = true;
-    write_int_member(out, first, "version", options.version);
+    write_int_member(out, first, "version", options.version > 0 ? options.version : ir.version);
     write_string_member(out, first, "source", design_source_id(ir.source));
     if (!ir.source_file.empty()) write_string_member(out, first, "sourceFile", ir.source_file);
     write_key(out, first, "root");
@@ -1644,6 +1669,16 @@ static fs::path default_asset_cache_directory() {
 static std::string asset_id_for(const std::string& stable_key) {
     auto hash = pulp::runtime::sha256_hex(stable_key);
     return "asset-" + hash.substr(0, 16);
+}
+
+static void append_unique_asset_alias(IRAssetRef& asset, const std::string& alias) {
+    if (alias.empty() || alias == asset.original_uri) return;
+    if (std::find(asset.original_uri_aliases.begin(),
+                  asset.original_uri_aliases.end(),
+                  alias) != asset.original_uri_aliases.end()) {
+        return;
+    }
+    asset.original_uri_aliases.push_back(alias);
 }
 
 static std::string url_index_key(const std::string& url) {
@@ -1968,7 +2003,7 @@ IRAssetManifest collect_design_ir_assets(const DesignIR& ir,
     std::unordered_map<std::string, std::string> font_family_by_uri;
     collect_font_family_metadata_from_node(ir.root, font_family_by_uri);
 
-    std::set<std::string> seen_keys;
+    std::unordered_map<std::string, size_t> asset_index_by_key;
     const auto cache_dir = options.cache_directory.empty()
         ? default_asset_cache_directory()
         : options.cache_directory;
@@ -2037,7 +2072,14 @@ IRAssetManifest collect_design_ir_assets(const DesignIR& ir,
         const auto dedupe_key = is_data_uri(uri) && !asset.content_hash.empty()
             ? std::string("data:") + asset.content_hash
             : asset.source_url.value_or(asset.local_path.value_or(asset.original_uri));
-        if (!seen_keys.insert(dedupe_key).second) continue;
+        auto [known, inserted] = asset_index_by_key.emplace(dedupe_key, manifest.assets.size());
+        if (!inserted) {
+            auto& existing = manifest.assets[known->second];
+            append_unique_asset_alias(existing, asset.original_uri);
+            if (!existing.font_family && asset.font_family)
+                existing.font_family = asset.font_family;
+            continue;
+        }
         asset.asset_id = asset_id_for(dedupe_key);
         manifest.assets.push_back(std::move(asset));
     }
@@ -2116,6 +2158,8 @@ void refresh_design_ir_asset_manifest(DesignIR& ir,
     for (const auto& asset : ir.asset_manifest.assets) {
         if (!asset.original_uri.empty())
             asset_id_by_uri.emplace(asset.original_uri, asset.asset_id);
+        for (const auto& alias : asset.original_uri_aliases)
+            asset_id_by_uri.emplace(alias, asset.asset_id);
         if (asset.source_url)
             asset_id_by_uri.emplace(*asset.source_url, asset.asset_id);
         if (asset.local_path)

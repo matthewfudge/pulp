@@ -377,6 +377,25 @@ TEST_CASE("DesignIR v1 canonical JSON round-trips source metadata and assets",
     REQUIRE_FALSE(parsed.asset_manifest.assets[0].content_hash.empty());
 }
 
+TEST_CASE("DesignIR serialization preserves parsed envelope version by default",
+          "[view][import][ir-v1]") {
+    auto parsed = parse_design_ir_json(R"json({
+        "version": 2,
+        "source": "jsx",
+        "root": { "type": "frame", "name": "Future IR" }
+    })json");
+
+    REQUIRE(parsed.version == 2);
+
+    const auto canonical = serialize_design_ir(parsed);
+    REQUIRE(canonical.find("\"version\":2") != std::string::npos);
+    REQUIRE(parse_design_ir_json(canonical).version == 2);
+
+    DesignIrJsonOptions force_v1;
+    force_v1.version = 1;
+    REQUIRE(serialize_design_ir(parsed, force_v1).find("\"version\":1") != std::string::npos);
+}
+
 TEST_CASE("parse_design_ir_json accepts legacy bare-node IR JSON",
           "[view][import][ir-v1]") {
     const auto legacy = std::string{R"json({
@@ -605,6 +624,44 @@ TEST_CASE("DesignIR asset manifest preserves top-level asset refs and writes ass
     const auto round_trip = parse_design_ir_json(serialize_design_ir(ir));
     REQUIRE(round_trip.root.children[0].attributes.at("src") == "hero.png");
     REQUIRE(round_trip.root.children[0].attributes.at("srcAssetId") == asset.asset_id);
+}
+
+TEST_CASE("DesignIR asset manifest keeps URI aliases for deduped refs",
+          "[view][import][assets]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Aliases";
+
+    IRNode first;
+    first.type = "image";
+    first.name = "Plain";
+    first.attributes["src"] = "hero.png";
+    IRNode second;
+    second.type = "image";
+    second.name = "DotSlash";
+    second.attributes["src"] = "./hero.png";
+    ir.root.children.push_back(std::move(first));
+    ir.root.children.push_back(std::move(second));
+
+    DesignIrAssetOptions options;
+    options.base_url = "https://cdn.example.test/screens/index.html";
+    refresh_design_ir_asset_manifest(ir, options);
+
+    REQUIRE(ir.asset_manifest.assets.size() == 1);
+    const auto& asset = ir.asset_manifest.assets[0];
+    REQUIRE(asset.original_uri == "hero.png");
+    REQUIRE(asset.source_url);
+    REQUIRE(*asset.source_url == "https://cdn.example.test/screens/hero.png");
+    REQUIRE(std::find(asset.original_uri_aliases.begin(),
+                      asset.original_uri_aliases.end(),
+                      "./hero.png") != asset.original_uri_aliases.end());
+    REQUIRE(ir.root.children[0].attributes.at("srcAssetId") == asset.asset_id);
+    REQUIRE(ir.root.children[1].attributes.at("srcAssetId") == asset.asset_id);
+
+    const auto round_trip = parse_design_ir_json(serialize_design_ir(ir));
+    REQUIRE(round_trip.asset_manifest.assets.size() == 1);
+    REQUIRE(round_trip.asset_manifest.assets[0].original_uri_aliases == asset.original_uri_aliases);
+    REQUIRE(round_trip.root.children[1].attributes.at("srcAssetId") == asset.asset_id);
 }
 
 TEST_CASE("DesignIR asset manifest refresh rewrites stale asset ids",
