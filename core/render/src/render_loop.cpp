@@ -134,6 +134,7 @@ public:
                 // (DWM disabled / unavailable) falls back to a timed
                 // sleep so the loop still makes forward progress.
                 const HRESULT hr = DwmFlush();
+                backend_tracker_.note_wait_result(hr == S_OK);
                 if (hr != S_OK && state_.is_running()) {
                     std::this_thread::sleep_for(fallback_interval);
                 }
@@ -155,14 +156,17 @@ public:
 
     bool is_running() const override { return state_.is_running(); }
 
+    // Reports timer once DwmFlush() has failed, so callers using
+    // render_loop_backend_is_vsync() can detect the fallback (Codex P2 #2580).
     RenderLoopBackend backend() const override {
-        return RenderLoopBackend::dwm_flush;
+        return backend_tracker_.effective_backend();
     }
 
 private:
     std::thread thread_;
     FrameCallback callback_;
     RenderLoopState state_;
+    DwmBackendTracker backend_tracker_;
 };
 
 #endif // Windows

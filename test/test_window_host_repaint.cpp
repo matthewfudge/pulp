@@ -104,6 +104,40 @@ TEST_CASE("WindowHost::mark_dirty routes through an attached RenderLoop",
     host.attach_render_loop(nullptr);
 }
 
+TEST_CASE("WindowHost::mark_dirty falls through to repaint when the attached loop is not running",
+          "[view][window-host][vblank][slice-16][issue-2580]") {
+    // Codex P1 #2580: a loop attached but not running has a no-op
+    // request_frame(), so routing through it would silently drop the dirty
+    // update and freeze the UI. mark_dirty() must guard on is_running().
+    CountingWindowHost host;
+    auto loop = pulp::render::RenderLoop::create_timer_loop();
+    REQUIRE(loop != nullptr);
+    REQUIRE_FALSE(loop->is_running());     // attached below, never started
+
+    host.attach_render_loop(loop.get());
+    REQUIRE(host.render_loop() == loop.get());
+
+    // Attached but NOT running → must fall through to direct repaint().
+    host.mark_dirty();
+    host.mark_dirty();
+    CHECK(host.repaint_count() == 2);
+
+    // Once started, routing switches to the loop — no new direct repaints.
+    std::atomic<int> frames{0};
+    loop->start([&]() { frames.fetch_add(1, std::memory_order_relaxed); });
+    REQUIRE(wait_for(frames, 1));          // initial start() frame
+    host.mark_dirty();
+    REQUIRE(wait_for(frames, 2));
+    CHECK(host.repaint_count() == 2);      // still 2 — went through the loop
+
+    // Stopping the loop while still attached reverts to direct repaint().
+    loop->stop();
+    host.mark_dirty();
+    CHECK(host.repaint_count() == 3);
+
+    host.attach_render_loop(nullptr);
+}
+
 TEST_CASE("WindowHost::mark_dirty reverts to repaint after the loop detaches",
           "[view][window-host][vblank][slice-16]") {
     CountingWindowHost host;

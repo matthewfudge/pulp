@@ -195,6 +195,32 @@ TEST_CASE("render_loop_backend_name covers every backend",
           == "timer");
 }
 
+TEST_CASE("DwmBackendTracker latches to the timer fallback once a vblank wait fails",
+          "[render][loop][vblank][slice-16][issue-2580]") {
+    // Codex P2 #2580: the Windows loop sleeps on a ~60 Hz timer when
+    // DwmFlush() fails, but backend() must then stop claiming dwm_flush so
+    // render_loop_backend_is_vsync() callers can detect the fallback.
+    DwmBackendTracker tracker;
+
+    // Fresh tracker is optimistic: the real vblank backend.
+    REQUIRE(tracker.effective_backend() == RenderLoopBackend::dwm_flush);
+    REQUIRE(render_loop_backend_is_vsync(tracker.effective_backend()));
+
+    // Successful waits keep it on the vblank backend.
+    tracker.note_wait_result(true);
+    tracker.note_wait_result(true);
+    REQUIRE(tracker.effective_backend() == RenderLoopBackend::dwm_flush);
+
+    // A single failure latches the timer fallback.
+    tracker.note_wait_result(false);
+    REQUIRE(tracker.effective_backend() == RenderLoopBackend::timer);
+    REQUIRE_FALSE(render_loop_backend_is_vsync(tracker.effective_backend()));
+
+    // The latch is sticky: a later successful wait does not flip it back.
+    tracker.note_wait_result(true);
+    REQUIRE(tracker.effective_backend() == RenderLoopBackend::timer);
+}
+
 TEST_CASE("RenderLoop coalesces a burst of frame requests into one callback",
           "[render][loop][vblank][slice-16]") {
     // The canonical safe-repaint contract: any number of request_frame()
