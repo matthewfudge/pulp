@@ -12,23 +12,24 @@
 # Phase 2 adds ci/coverage-targets.yaml alongside this for the diff-cover
 # gate; Phase 4 introduces doc_path_map.json to prevent drift.
 
-# Notification gating - wait for all 4 platform coverage uploads before
-# the bot computes + posts the patch coverage report. Without this,
-# Codecov posts as soon as it sees ANY upload (often Linux first, since
-# its build is fastest), which means Apple-only or Windows-only tested
-# paths get reported as 0% covered against partial data. PR #1873 was a
+# Notification gating - wait for N coverage uploads before the bot
+# computes + posts the patch coverage report. Without this, Codecov
+# posts as soon as it sees ANY upload, which means an OS-specific tested
+# path gets reported as 0% covered against partial data. PR #1873 was a
 # textbook example: a CLAP-fixture test that ran only on macOS was
 # reported as "0% patch coverage" by the bot because the macOS upload
 # hadn't arrived (and never did - see follow-up issue on the coverage
 # workflow's `cancel-in-progress: true` concurrency policy that wipes
 # in-flight runs on force-push).
 #
-# Expected uploaders today (matches .github/workflows/coverage.yml jobs
-# + flag tags in the Codecov upload step):
-#   1. Linux Clang  (Cobertura XML)
-#   2. macOS Clang  (Cobertura XML)
-#   3. Windows Clang (Cobertura XML)
-#   4. Android Kotlin (jacoco)
+# `after_n_builds: 2` because per-PR coverage is now macOS-only (PR
+# #2540): a PR uploads roughly 2 coverage legs - macOS native (Cobertura
+# XML) + Android Kotlin (jacoco) - not 4. With `after_n_builds: 4` from
+# the old Linux/macOS/Windows/Android matrix, Codecov would wait forever
+# for two uploads that never arrive and never post its PR comment.
+# `2` posts correctly for PRs and does not harm push-to-main: on main
+# Codecov posts after the first 2 legs and updates the report as the
+# remaining legs arrive.
 #
 # If you add or remove a coverage uploader, bump this number to match
 # or Codecov will silently wait forever for the missing one and never
@@ -36,7 +37,7 @@
 # PR has long since merged with a stale report.
 codecov:
   notify:
-    after_n_builds: 4
+    after_n_builds: 2
 
 coverage:
   status:

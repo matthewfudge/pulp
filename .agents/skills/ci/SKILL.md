@@ -834,6 +834,19 @@ Fix pattern (applies to any GH-Actions job, not just coverage):
   `queued_at`, and `created_at` is when every leg — including the queued
   one — was created. The watchdog must exclude its own job name from the
   scan or it will reap itself.
+  - **Tune the grace window from measured queue-wait data, not a
+    guess.** `coverage-queue-watchdog`'s `QUEUED_GRACE_MINUTES` is
+    **150** (was 25). Measured coverage-leg queue waits: median ~30 min,
+    p90 ~52 min, max ~83 min under deep-queue load — and 89% of legs
+    waited >= 25 min then ran and SUCCEEDED. A 25-min grace therefore
+    false-cancelled the large majority of healthy coverage runs. 150 min
+    sits comfortably above the ~83-min observed legitimate max, so the
+    watchdog fires only on a leg genuinely orphaned by a dead/saturated
+    pool. The poll window (`POLL_SECONDS` 60 × `MAX_POLLS` 160 = 160
+    min) must exceed the grace, and the job's `timeout-minutes` (165)
+    must exceed the poll window. A long grace is cheap: the watchdog
+    still exits EARLY (the `queued_legs == 0` branch) the moment the leg
+    starts, so in the common case it never runs the full window.
 - **Pin a pure gate/aggregation job to a GitHub-hosted runner**
   (`ubuntu-latest` / `ubuntu-24.04`). A job that only downloads
   artifacts and runs a check must never queue behind a saturated
