@@ -214,7 +214,7 @@ bool parse_positive_int_arg(const char* flag, const std::string& value, int& out
 
 bool parse_asset_hash_arg(const std::string& value,
                           std::unordered_map<std::string, std::string>& expected_hash_by_uri) {
-    const auto sep = value.find('=');
+    const auto sep = value.rfind('=');
     if (sep == std::string::npos || sep == 0 || sep + 1 >= value.size()) {
         std::cerr << "Error: --asset-hash requires <uri=sha256-hex>\n";
         return false;

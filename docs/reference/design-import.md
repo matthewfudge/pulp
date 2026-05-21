@@ -46,7 +46,7 @@ pulp import-design --from <source> [options]
 | `--compat <path>` | Override `compat.json` discovery | walk up from input |
 | `--report-new-format` | Emit a fingerprint-diff JSON for a new format-version. Implies `--detect-only` | — |
 
-Either `--file` or `--url` is required (or `--directory` for `--detect-only`). When `--url` is provided without `--file`, the URL is fetched through an argv-safe `curl` invocation into a unique temporary file. Shell metacharacters in `--file` and `--url` are rejected with a usage diagnostic before parsing or fetching.
+Either `--file` or `--url` is required (or `--directory` for `--detect-only`). When `--url` is provided without `--file`, the URL is fetched through an argv-safe `curl` invocation into a unique temporary file. Literal `--file` paths are read directly and may contain normal filesystem punctuation; `--url` still rejects shell metacharacters before fetching.
 
 `--emit ir-json` writes a canonical [DesignIR v1](design-ir-v1.md) envelope.
 Asset collection runs before serialization. Local files and data URIs are

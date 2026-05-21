@@ -513,6 +513,63 @@ TEST_CASE("DesignIR asset manifest records data URI local image and font assets"
     REQUIRE(serialize_design_ir(round_trip) == serialize_design_ir(ir));
 }
 
+TEST_CASE("DesignIR parses camelCase source metadata and static HTML CSS assets",
+          "[view][import][ir-v1][assets]") {
+    SECTION("sourceNodeId is accepted as source metadata") {
+        auto ir = parse_design_ir_json(R"json({
+            "type": "frame",
+            "name": "Screen",
+            "sourceNodeId": "node-camel-1"
+        })json");
+
+        REQUIRE(ir.root.source_node_id);
+        REQUIRE(*ir.root.source_node_id == "node-camel-1");
+        REQUIRE(serialize_design_ir(ir).find("\"source_node_id\":\"node-camel-1\"")
+                != std::string::npos);
+    }
+
+    SECTION("static Claude HTML CSS urls and fonts enter the asset manifest") {
+        TempDir tmp("pulp-design-ir-static-html-assets");
+        write_text(tmp.path / "hero.svg",
+                   "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"1\" height=\"1\"/></svg>");
+        write_text(tmp.path / "Inter.woff2", "wOF2font-bytes");
+
+        auto ir = parse_claude_html(R"html(
+            <!doctype html>
+            <html>
+            <head>
+            <style>
+            @font-face { font-family: "Inter"; src: url("Inter.woff2") format("woff2"); }
+            .hero { background-image: url("hero.svg"); }
+            </style>
+            </head>
+            <body><section class="hero"><h1>Parameters</h1></section></body>
+            </html>
+        )html");
+
+        DesignIrAssetOptions options;
+        options.base_directory = tmp.path;
+        refresh_design_ir_asset_manifest(ir, options);
+
+        bool saw_svg = false;
+        bool saw_font = false;
+        for (const auto& asset : ir.asset_manifest.assets) {
+            REQUIRE(asset.diagnostics.empty());
+            if (asset.original_uri == "hero.svg") {
+                saw_svg = true;
+                REQUIRE(asset.mime == "image/svg+xml");
+                REQUIRE_FALSE(asset.content_hash.empty());
+            } else if (asset.original_uri == "Inter.woff2") {
+                saw_font = true;
+                REQUIRE(asset.mime == "font/woff2");
+                REQUIRE_FALSE(asset.content_hash.empty());
+            }
+        }
+        REQUIRE(saw_svg);
+        REQUIRE(saw_font);
+    }
+}
+
 TEST_CASE("DesignIR asset manifest preserves top-level asset refs and writes asset ids",
           "[view][import][assets]") {
     TempDir tmp("pulp-design-ir-top-level-assets");

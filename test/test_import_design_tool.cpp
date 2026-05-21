@@ -237,7 +237,7 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
                         fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write,
                         fs::perm_options::add);
 
-        const auto url = std::string("https://example.test/icon.svg");
+        const auto url = std::string("https://example.test/icon.svg?v=1");
         const auto expected_hash =
             std::string("b131556c36b0323b4981999443b5b22f7e35032e604d152b2d6698fc072e88c1");
         const auto network_input = tmp.path / "network-ir-allowed.json";
@@ -247,7 +247,7 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         write_text(network_input, R"json({
             "type": "frame",
             "name": "Screen",
-            "style": { "backgroundImage": "url(https://example.test/icon.svg)" }
+            "style": { "backgroundImage": "url(https://example.test/icon.svg?v=1)" }
         })json");
 
         auto old_path = read_env_var("PATH").value_or("");
@@ -274,7 +274,6 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
                                          "--file", network_input.string(),
                                          "--emit", "ir-json",
                                          "--output", cached_output.string(),
-                                         "--allow-network-fetch",
                                          "--asset-cache", cache_dir.string()});
         REQUIRE_FALSE(cached.timed_out);
         REQUIRE(cached.exit_code == 0);
@@ -457,7 +456,7 @@ TEST_CASE("pulp-import-design writes a web-compat Stitch import to nested output
     REQUIRE(r.stdout_output.find(output.string()) != std::string::npos);
 }
 
-TEST_CASE("pulp-import-design accepts literal file paths and rejects unsafe URLs",
+TEST_CASE("pulp-import-design handles literal file paths and rejects unsafe URLs",
           "[cli][import-design][tool][issue-493]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp-import-design not built"); return; }
 
@@ -474,6 +473,22 @@ TEST_CASE("pulp-import-design accepts literal file paths and rejects unsafe URLs
 
         REQUIRE_FALSE(r.timed_out);
         REQUIRE(r.exit_code == 0);
+        REQUIRE_FALSE(fs::exists(sentinel));
+    }
+
+    SECTION("--file accepts literal filesystem punctuation without shell interpretation") {
+        const auto input = tmp.path / "design (1) [final]! $&;'*.html";
+        const auto output = tmp.path / "literal.js";
+        write_text(input, "<!doctype html><h1>Literal path</h1>");
+
+        auto r = run_import_design({"--from", "stitch",
+                                    "--file", input.string(),
+                                    "--output", output.string(),
+                                    "--no-comments",
+                                    "--no-tokens"});
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 0);
+        REQUIRE(fs::exists(output));
         REQUIRE_FALSE(fs::exists(sentinel));
     }
 

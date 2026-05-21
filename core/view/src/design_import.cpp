@@ -570,6 +570,7 @@ static bool is_asset_reference_key(std::string_view key) {
     for (const char* asset_key : kAssetKeys) {
         if (key == asset_key) return true;
     }
+    if (key.rfind("htmlAsset", 0) == 0) return true;
     return false;
 }
 
@@ -585,7 +586,7 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
     // ID under one of these field names; first non-empty wins. Sources
     // without native IDs (Stitch HTML, v0 TSX, Claude HTML) leave this
     // empty and fall through to the content-hash strategy.
-    for (const char* k : {"id", "nodeId", "node_id", "source_node_id"}) {
+    for (const char* k : {"id", "nodeId", "node_id", "source_node_id", "sourceNodeId"}) {
         if (!obj.hasObjectMember(k)) continue;
         auto v = obj[k];
         if (!v.isString()) continue;
@@ -1653,6 +1654,7 @@ static std::optional<std::vector<uint8_t>> fetch_network_asset(
     const std::string& url,
     const fs::path& cache_dir,
     int timeout_ms,
+    bool allow_fetch,
     IRAssetRef& asset) {
     const auto url_index = cache_dir / "by-url" / (url_index_key(url) + ".txt");
     std::ifstream index_file(url_index);
@@ -1664,6 +1666,16 @@ static std::optional<std::vector<uint8_t>> fetch_network_asset(
             asset.local_path = cached_path.string();
             return read_binary_file(cached_path);
         }
+    }
+
+    if (!allow_fetch) {
+        asset.diagnostics.push_back({
+            ImportDiagnosticSeverity::warning,
+            "asset-network-fetch-disabled",
+            url,
+            "network asset requires --allow-network-fetch"
+        });
+        return std::nullopt;
     }
 
     auto curl = pulp::platform::find_on_path("curl");
@@ -1793,6 +1805,43 @@ static void collect_url_tokens(std::string_view value, std::vector<std::string>&
     }
 }
 
+static std::vector<std::string> collect_html_asset_uris(const std::string& html) {
+    std::vector<std::string> uris;
+
+    static const std::regex style_block_re(
+        R"RX(<style\b[^>]*>([\s\S]*?)</style>)RX",
+        std::regex::icase);
+    auto style_begin = std::sregex_iterator(html.begin(), html.end(), style_block_re);
+    auto style_end = std::sregex_iterator();
+    for (auto it = style_begin; it != style_end; ++it)
+        collect_url_tokens((*it)[1].str(), uris);
+
+    static const std::regex style_attr_re(
+        R"RX(\bstyle\s*=\s*(['"])([\s\S]*?)\1)RX",
+        std::regex::icase);
+    auto attr_begin = std::sregex_iterator(html.begin(), html.end(), style_attr_re);
+    auto attr_end = std::sregex_iterator();
+    for (auto it = attr_begin; it != attr_end; ++it)
+        collect_url_tokens((*it)[2].str(), uris);
+
+    static const std::regex direct_asset_attr_re(
+        R"RX(\b(?:src|href)\s*=\s*(['"])([^'"]+)\1)RX",
+        std::regex::icase);
+    auto direct_begin = std::sregex_iterator(html.begin(), html.end(), direct_asset_attr_re);
+    auto direct_end = std::sregex_iterator();
+    for (auto it = direct_begin; it != direct_end; ++it) {
+        std::string uri = (*it)[2].str();
+        if (uri.empty() || uri.front() == '#') continue;
+        std::string lower = uri;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (has_prefix(lower, "javascript:") || has_prefix(lower, "mailto:")) continue;
+        uris.push_back(std::move(uri));
+    }
+
+    return uris;
+}
+
 static void collect_asset_uris_from_node(const IRNode& node, std::vector<std::string>& uris) {
     auto collect = [&](const std::optional<std::string>& value) {
         if (value) collect_url_tokens(*value, uris);
@@ -1853,16 +1902,8 @@ IRAssetManifest collect_design_ir_assets(const DesignIR& ir,
                 });
             }
         } else if (is_network_url(resolved_uri)) {
-            if (!options.allow_network_fetch) {
-                asset.diagnostics.push_back({
-                    ImportDiagnosticSeverity::warning,
-                    "asset-network-fetch-disabled",
-                    resolved_uri,
-                    "network asset requires --allow-network-fetch"
-                });
-            } else {
-                bytes = fetch_network_asset(resolved_uri, cache_dir, options.network_timeout_ms, asset);
-            }
+            bytes = fetch_network_asset(resolved_uri, cache_dir, options.network_timeout_ms,
+                                        options.allow_network_fetch, asset);
         } else {
             bytes = resolve_local_asset(resolved_uri, options.base_directory, asset);
         }
@@ -2027,6 +2068,11 @@ DesignIR parse_stitch_html(const std::string& html) {
         child.name = tag;
         child.text_content = content;
         ir.root.children.push_back(std::move(child));
+    }
+
+    auto asset_uris = collect_html_asset_uris(html);
+    for (size_t i = 0; i < asset_uris.size(); ++i) {
+        ir.root.attributes["htmlAsset" + std::to_string(i)] = std::move(asset_uris[i]);
     }
 
     // Phase 0a: assign anchors to the regex-extracted tree.

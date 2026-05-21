@@ -745,7 +745,7 @@ Import artifact flag vocabulary:
 - `--emit js` is implemented today. `--emit ir-json` and `--emit cpp` are recognized reserved values for future implementations and fail cleanly. Legacy `--emit classnames` remains accepted for the Claude classnames sidecar.
 - `--mode live` is implemented today. `--mode baked` is recognized and reserved for a future import mode.
 - `--snapshot-semantics fail|warn|accept` is parsed now for future JSX baked imports.
-- URL imports fetch through argv-safe `curl` into a unique temporary file; shell metacharacters in `--file` and `--url` are rejected before parsing or fetching.
+- URL imports fetch through argv-safe `curl` into a unique temporary file; literal `--file` paths are read directly and may contain normal filesystem punctuation, while `--url` rejects shell metacharacters before fetching.
 
 Use `--dry-run` to preview without writing files.
 

@@ -619,7 +619,7 @@ commands:
         kind: option
         description: "Future JSX baked snapshot policy: fail, warn, or accept"
       - name: --allow-network-fetch
-        kind: option
+        kind: flag
         description: "Allow DesignIR asset-manifest HTTP(S) fetches at import time"
       - name: --asset-cache
         kind: option
