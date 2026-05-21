@@ -324,6 +324,24 @@ TEST_CASE("jsx_lock escapes double quotes in double-quoted values",
             std::string::npos);
 }
 
+TEST_CASE("jsx_lock escapes JS control characters in string values",
+          "[jsx-lock][issue-1308][issue-2470]") {
+    const std::string src =
+        "<Frame data-pulp-anchor=\"a\" style={{ fontFamily: 'Inter' }}/>\n";
+    std::string value = "Line\nTab\tCarriage\r";
+    value.push_back(static_cast<char>(0x1F));
+    value += "Slash\\Quote'";
+
+    JsxLockResult r = jsx_lock_tweak_into_source(
+        src, {"a", "paint.fontFamily", value});
+
+    REQUIRE(r.status == JsxLockStatus::patched);
+    REQUIRE(r.source.find(
+        "fontFamily: 'Line\\nTab\\tCarriage\\r\\x1FSlash\\\\Quote\\''") !=
+        std::string::npos);
+    REQUIRE(r.source.find("Line\nTab") == std::string::npos);
+}
+
 TEST_CASE("jsx_lock converts a numeric prop to a quoted string when needed",
           "[jsx-lock][issue-1308]") {
     // width={80} (bare number) tweaked to a unit-bearing CSS value must

@@ -103,13 +103,39 @@ bool looks_numeric(const std::string& value) {
     return saw_digit;
 }
 
-// Escape a value for emission inside a JS/JSX string literal body.
+void append_hex_escape(std::string& out, unsigned char c) {
+    constexpr char kHex[] = "0123456789ABCDEF";
+    out += "\\x";
+    out += kHex[(c >> 4) & 0x0F];
+    out += kHex[c & 0x0F];
+}
+
+// Escape a value for emission inside a JS/JSX string literal body. Control
+// bytes must not be emitted raw; line terminators would break the source.
 std::string escape_js_string_body(const std::string& s, char quote) {
     std::string out;
     out.reserve(s.size() + 2);
     for (char c : s) {
-        if (c == '\\' || c == quote) out += '\\';
-        out += c;
+        if (c == '\\') {
+            out += "\\\\";
+        } else if (c == quote) {
+            out += '\\';
+            out += c;
+        } else {
+            switch (c) {
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                case '\b': out += "\\b"; break;
+                case '\f': out += "\\f"; break;
+                default: {
+                    const auto uc = static_cast<unsigned char>(c);
+                    if (uc < 0x20) append_hex_escape(out, uc);
+                    else out += c;
+                    break;
+                }
+            }
+        }
     }
     return out;
 }
