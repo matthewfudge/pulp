@@ -373,6 +373,14 @@ TEST_CASE("deflate_decompress rejects truncated raw streams",
     REQUIRE_FALSE(deflate_decompress(compressed->data(), compressed->size()).has_value());
 }
 
+TEST_CASE("deflate_decompress rejects empty raw streams without growth",
+          "[runtime][zip][coverage][phase3]") {
+    REQUIRE_FALSE(deflate_decompress(nullptr, 0).has_value());
+
+    const uint8_t unused = 0;
+    REQUIRE_FALSE(deflate_decompress(&unused, 0).has_value());
+}
+
 // ── RFC 1952 gzip wire-format compliance (issue-468 follow-up) ──────────
 //
 // gzip_compress() must emit a real RFC 1952 stream — magic bytes, deflate
@@ -545,6 +553,28 @@ TEST_CASE("gzip_decompress rejects gzip input with corrupt trailer ISIZE", "[run
     (*compressed)[compressed->size() - 1] ^= 0x01;
     auto out = gzip_decompress(compressed->data(), compressed->size());
     REQUIRE_FALSE(out.has_value());
+}
+
+TEST_CASE("gzip_decompress rejects truncated member trailers and empty members",
+          "[runtime][zip][coverage][phase3]") {
+    const std::string original = "truncated gzip trailer payload";
+    auto compressed = gzip_compress(original);
+    REQUIRE(compressed.has_value());
+    REQUIRE(compressed->size() > 18);
+
+    auto missing_isize = *compressed;
+    missing_isize.resize(missing_isize.size() - 4);
+    REQUIRE_FALSE(gzip_decompress(missing_isize.data(), missing_isize.size()).has_value());
+
+    const std::vector<uint8_t> header_and_trailer_only = {
+        0x1f, 0x8b, 0x08, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0xff,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    };
+    REQUIRE_FALSE(gzip_decompress(header_and_trailer_only.data(),
+                                  header_and_trailer_only.size()).has_value());
 }
 
 // Codex P2 on PR #747: RFC 1952 §2.2 permits multiple gzip members
