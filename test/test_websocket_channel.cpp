@@ -69,6 +69,16 @@ std::string receive_http_headers(Socket& socket) {
     return out;
 }
 
+bool receive_exact(Socket& socket, std::uint8_t* data, std::size_t bytes) {
+    std::size_t off = 0;
+    while (off < bytes) {
+        auto n = socket.receive(data + off, bytes - off);
+        if (n <= 0) return false;
+        off += static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
 bool send_masked_client_frame(Socket& socket,
                               bool fin,
                               std::uint8_t opcode,
@@ -92,25 +102,23 @@ bool send_masked_client_frame(Socket& socket,
 std::optional<std::vector<std::uint8_t>> receive_unmasked_server_frame(Socket& socket,
                                                                        std::uint8_t& opcode) {
     std::uint8_t hdr[2]{};
-    if (socket.receive(hdr, 2) != 2) return std::nullopt;
+    if (!receive_exact(socket, hdr, 2)) return std::nullopt;
     opcode = hdr[0] & 0x0f;
     if ((hdr[1] & 0x80) != 0) return std::nullopt;
 
     std::uint64_t len = hdr[1] & 0x7f;
     if (len == 126) {
         std::uint8_t ext[2]{};
-        if (socket.receive(ext, 2) != 2) return std::nullopt;
+        if (!receive_exact(socket, ext, 2)) return std::nullopt;
         len = (std::uint64_t(ext[0]) << 8) | ext[1];
     } else if (len == 127) {
         return std::nullopt;
     }
 
     std::vector<std::uint8_t> payload(static_cast<std::size_t>(len));
-    std::size_t off = 0;
-    while (off < payload.size()) {
-        auto n = socket.receive(payload.data() + off, payload.size() - off);
-        if (n <= 0) return std::nullopt;
-        off += static_cast<std::size_t>(n);
+    if (!payload.empty() &&
+        !receive_exact(socket, payload.data(), payload.size())) {
+        return std::nullopt;
     }
     return payload;
 }

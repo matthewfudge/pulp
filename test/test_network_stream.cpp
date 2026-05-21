@@ -106,6 +106,19 @@ std::optional<std::uint16_t> try_bind_udp(Socket& socket,
     return std::nullopt;
 }
 
+std::string receive_http_headers(Socket& socket) {
+    std::string request;
+    std::array<std::uint8_t, 256> buffer{};
+    while (request.size() < 16 * 1024) {
+        const int received = socket.receive(buffer.data(), buffer.size());
+        if (received <= 0) break;
+        request.append(reinterpret_cast<const char*>(buffer.data()),
+                       static_cast<std::size_t>(received));
+        if (request.find("\r\n\r\n") != std::string::npos) break;
+    }
+    return request;
+}
+
 }  // namespace
 
 // ── IP address helpers ──────────────────────────────────────────────────
@@ -897,13 +910,8 @@ TEST_CASE("http_get defaults missing URL path to slash",
         auto accepted = listener.accept();
         if (!accepted) return;
 
-        std::array<std::uint8_t, 512> request{};
-        const int received = accepted->receive(request.data(), request.size());
-        if (received > 0) {
-            const std::string request_text(reinterpret_cast<const char*>(request.data()),
-                                           static_cast<std::size_t>(received));
-            saw_root_path.store(request_text.find("GET /") != std::string::npos);
-        }
+        const auto request_text = receive_http_headers(*accepted);
+        saw_root_path.store(request_text.find("GET /") != std::string::npos);
 
         const std::string response =
             "HTTP/1.1 200 OK\r\n"
@@ -939,14 +947,9 @@ TEST_CASE("HttpStream post factory reads a successful local response",
         auto accepted = listener.accept();
         if (!accepted) return;
 
-        std::array<std::uint8_t, 1024> request{};
-        const int received = accepted->receive(request.data(), request.size());
-        if (received > 0) {
-            const std::string request_text(reinterpret_cast<const char*>(request.data()),
-                                           static_cast<std::size_t>(received));
-            saw_post.store(request_text.find("POST /submit") != std::string::npos &&
-                           request_text.find("application/json") != std::string::npos);
-        }
+        const auto request_text = receive_http_headers(*accepted);
+        saw_post.store(request_text.find("POST /submit") != std::string::npos &&
+                       request_text.find("application/json") != std::string::npos);
         const std::string response =
             "HTTP/1.1 201 Created\r\n"
             "Content-Length: 6\r\n"
