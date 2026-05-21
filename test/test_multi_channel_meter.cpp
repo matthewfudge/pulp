@@ -85,6 +85,39 @@ TEST_CASE("MultiChannelMeter truncates processing at the first null channel",
     REQUIRE_THAT(snap.correlation, WithinAbs(0.0f, 1e-6f));
 }
 
+TEST_CASE("MultiChannelMeter clears dropped-channel accumulators before reuse",
+          "[signal][meter][issue-645]") {
+    MultiChannelMeter meter;
+    meter.prepare(1000.0f, 2);
+
+    std::array<float, 5> warm_left{};
+    std::array<float, 5> warm_right{};
+    warm_left.fill(0.1f);
+    warm_right.fill(1.0f);
+    const float* warm_channels[] = {warm_left.data(), warm_right.data()};
+    meter.process(warm_channels, 2, static_cast<int>(warm_left.size()));
+    REQUIRE_THAT(meter.snapshot().channels[1].peak, WithinAbs(0.0f, 1e-6f));
+
+    std::array<float, 5> left_only{};
+    left_only.fill(0.1f);
+    const float* dropped_channels[] = {left_only.data(), nullptr};
+    meter.process(dropped_channels, 2, static_cast<int>(left_only.size()));
+    REQUIRE(meter.snapshot().num_channels == 1);
+
+    std::array<float, 10> fresh_left{};
+    std::array<float, 10> fresh_right{};
+    fresh_left.fill(0.1f);
+    fresh_right.fill(0.25f);
+    const float* fresh_channels[] = {fresh_left.data(), fresh_right.data()};
+    meter.process(fresh_channels, 2, static_cast<int>(fresh_left.size()));
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 2);
+    REQUIRE_THAT(snap.channels[1].peak, WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(snap.channels[1].rms, WithinAbs(0.25f, 1e-6f));
+    REQUIRE_FALSE(snap.channels[1].clipped);
+}
+
 TEST_CASE("MultiChannelMeter correlation window can replace previous sign", "[signal][meter][issue-645]") {
     MultiChannelMeter meter;
     meter.prepare(10.0f, 2);
