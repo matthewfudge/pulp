@@ -17,11 +17,18 @@
 #include "../external/cpp-httplib/httplib.h"
 #include <catch2/catch_approx.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <filesystem>
 #include <iterator>
 #include <thread>
+
+#if !defined(_WIN32)
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 using namespace pulp::runtime;
 
@@ -761,6 +768,50 @@ TEST_CASE("run_process fails on nonexistent", "[runtime][child_process]") {
     auto result = run_process("/tmp/nonexistent_binary_12345");
 #endif
     REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("run_process terminates POSIX children on timeout",
+          "[runtime][child_process][coverage][phase3]") {
+#if defined(_WIN32) || defined(__ANDROID__)
+    SUCCEED("POSIX timeout termination is covered on macOS/Linux");
+#else
+    const auto start = std::chrono::steady_clock::now();
+    auto result = run_process("/bin/sh", {"-c", "exec sleep 2"}, "", 50);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->exit_code == -1);
+    REQUIRE(elapsed < std::chrono::milliseconds(1500));
+#endif
+}
+
+TEST_CASE("run_process preserves POSIX output captured before timeout",
+          "[runtime][child_process][coverage][phase3]") {
+#if defined(_WIN32) || defined(__ANDROID__)
+    SUCCEED("POSIX timeout output preservation is covered on macOS/Linux");
+#else
+    auto result = run_process("/bin/sh", {"-c", "printf ready; exec sleep 2"}, "", 75);
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->exit_code == -1);
+    REQUIRE(result->stdout_output == "ready");
+#endif
+}
+
+TEST_CASE("launch_process starts a POSIX child visible to is_process_running",
+          "[runtime][child_process][coverage][phase3]") {
+#if defined(_WIN32) || defined(__ANDROID__)
+    SUCCEED("POSIX process lifecycle is covered on macOS/Linux");
+#else
+    const int pid = launch_process("/bin/sleep", {"2"});
+    REQUIRE(pid > 0);
+    REQUIRE(is_process_running(pid));
+
+    REQUIRE(kill(static_cast<pid_t>(pid), SIGTERM) == 0);
+    int status = 0;
+    REQUIRE(waitpid(static_cast<pid_t>(pid), &status, 0) == pid);
+    REQUIRE_FALSE(is_process_running(pid));
+#endif
 }
 
 TEST_CASE("launch_process reports failed starts and missing pids",

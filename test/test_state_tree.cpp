@@ -1370,6 +1370,21 @@ TEST_CASE("StateTreeSynchroniser decode rejects malformed delta framing",
     REQUIRE(decoded[0].value.index() == 0);
 }
 
+TEST_CASE("StateTreeSynchroniser decode keeps available deltas when count is too large",
+          "[state][sync][coverage][phase3]") {
+    SyncDelta delta{SyncDeltaType::PropertySet, "0", "gain", 0.75, -1};
+    auto encoded = StateTreeSynchroniser::encode({delta});
+    encoded[0] = 3;
+    encoded[1] = 0;
+
+    auto decoded = StateTreeSynchroniser::decode(encoded.data(), encoded.size());
+    REQUIRE(decoded.size() == 1);
+    REQUIRE(decoded[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(decoded[0].path == "0");
+    REQUIRE(decoded[0].key == "gain");
+    REQUIRE_THAT(std::get<double>(decoded[0].value), WithinAbs(0.75, 1e-9));
+}
+
 TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state][sync]") {
     auto tree = StateTree::create("root");
     tree->set("remove_me", std::string("bye"));
@@ -1395,6 +1410,84 @@ TEST_CASE("StateTreeSynchroniser apply mutates properties and children", "[state
     REQUIRE(tree->child_count() == 2);
     REQUIRE(tree->child(0)->type_name() == "inserted");
     REQUIRE(tree->child(1)->type_name() == "appended");
+}
+
+TEST_CASE("StateTreeSynchroniser apply skips malformed and unreachable paths",
+          "[state][sync][coverage][phase3]") {
+    auto root = StateTree::create("root");
+    auto child = StateTree::create("child");
+    root->add_child(child);
+
+    std::vector<SyncDelta> deltas = {
+        {SyncDeltaType::PropertySet, ".0", "bad_empty_prefix", std::string("x"), -1},
+        {SyncDeltaType::PropertySet, "0.", "bad_empty_suffix", std::string("x"), -1},
+        {SyncDeltaType::PropertySet, "x", "bad_alpha", std::string("x"), -1},
+        {SyncDeltaType::PropertySet, "2", "bad_index", std::string("x"), -1},
+        {SyncDeltaType::PropertySet, "0.1", "bad_nested_index", std::string("x"), -1},
+        {SyncDeltaType::PropertySet, "0", "valid", std::string("ok"), -1},
+    };
+
+    StateTreeSynchroniser::apply(*root, deltas);
+
+    REQUIRE_FALSE(root->has("bad_empty_prefix"));
+    REQUIRE_FALSE(root->has("bad_empty_suffix"));
+    REQUIRE_FALSE(root->has("bad_alpha"));
+    REQUIRE_FALSE(root->has("bad_index"));
+    REQUIRE_FALSE(root->has("bad_nested_index"));
+    REQUIRE_FALSE(child->has("bad_empty_prefix"));
+    REQUIRE_FALSE(child->has("bad_empty_suffix"));
+    REQUIRE_FALSE(child->has("bad_alpha"));
+    REQUIRE_FALSE(child->has("bad_index"));
+    REQUIRE_FALSE(child->has("bad_nested_index"));
+    REQUIRE(child->get_string("valid") == "ok");
+}
+
+TEST_CASE("StateTreeSynchroniser observes descendants of newly added subtrees",
+          "[state][sync][coverage][phase3]") {
+    auto root = StateTree::create("root");
+    auto bank = StateTree::create("bank");
+    auto voice = StateTree::create("voice");
+    bank->add_child(voice);
+
+    StateTreeSynchroniser sync;
+    sync.attach(root);
+    root->add_child(bank);
+
+    auto add_deltas = sync.take_deltas();
+    REQUIRE(add_deltas.size() == 1);
+    REQUIRE(add_deltas[0].type == SyncDeltaType::ChildAdd);
+    REQUIRE(add_deltas[0].path.empty());
+    REQUIRE(add_deltas[0].key == "bank");
+
+    voice->set("gain", 0.5);
+    auto nested_deltas = sync.take_deltas();
+    REQUIRE(nested_deltas.size() == 1);
+    REQUIRE(nested_deltas[0].type == SyncDeltaType::PropertySet);
+    REQUIRE(nested_deltas[0].path == "0.0");
+    REQUIRE(nested_deltas[0].key == "gain");
+    REQUIRE_THAT(std::get<double>(nested_deltas[0].value), WithinAbs(0.5, 1e-9));
+}
+
+TEST_CASE("StateTreeSynchroniser detaches removed subtrees before later mutations",
+          "[state][sync][coverage][phase3]") {
+    auto root = StateTree::create("root");
+    auto child = StateTree::create("child");
+    auto grandchild = StateTree::create("grandchild");
+    child->add_child(grandchild);
+    root->add_child(child);
+
+    StateTreeSynchroniser sync;
+    sync.attach(root);
+    root->remove_child(0);
+
+    auto remove_deltas = sync.take_deltas();
+    REQUIRE(remove_deltas.size() == 1);
+    REQUIRE(remove_deltas[0].type == SyncDeltaType::ChildRemove);
+    REQUIRE(remove_deltas[0].child_index == 0);
+
+    child->set("detached", true);
+    grandchild->set("detached", true);
+    REQUIRE(sync.take_deltas().empty());
 }
 
 // ── StateTreeSynchroniser nested-node routing (P7-3) ────────────────────
