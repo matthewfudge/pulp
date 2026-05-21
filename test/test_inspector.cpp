@@ -657,6 +657,81 @@ TEST_CASE("InspectorOverlay: follows_mouse re-selects the hovered view",
     REQUIRE(overlay.selected_view() == a_ptr);  // pinned despite follows_mouse
 }
 
+// Codex P1 follow-up on #2556: in follows_mouse mode a hover must NOT
+// chase the pointer while a numeric field edit is in progress.
+// begin_field_edit() snapshots the edit target, but write_field_value()
+// / commit_field_edit() operate on the *current* selected_. If a
+// mid-edit hover were allowed to move selected_, the edit would commit
+// to the wrong (or no-longer-valid) node. follows_focus mode is already
+// safe because it never chases the pointer; this guards follows_mouse.
+TEST_CASE("InspectorOverlay: follows_mouse hover does not move selection "
+          "during a field edit (codex P1 #2556 regression)",
+          "[inspect][overlay][phase3][regression]") {
+    View root;
+    root.set_id("root");
+    root.set_bounds({0, 0, 500, 300});
+
+    auto a = std::make_unique<View>();
+    a->set_id("a");
+    a->set_anchor_id("figma:edit-target");
+    a->set_bounds({10, 10, 60, 60});
+    a->flex().padding = 8;
+    auto* a_ptr = a.get();
+    root.add_child(std::move(a));
+
+    auto b = std::make_unique<View>();
+    b->set_id("b");
+    b->set_bounds({100, 10, 60, 60});
+    b->flex().padding = 99;
+    auto* b_ptr = b.get();
+    root.add_child(std::move(b));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_selection_mode(InspectorOverlay::SelectionMode::follows_mouse);
+
+    // Click to select a, then start a numeric field edit on it.
+    MouseEvent click_a;
+    click_a.position = {20, 20};
+    click_a.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click_a));
+    REQUIRE(overlay.selected_view() == a_ptr);
+
+    REQUIRE(overlay.begin_field_edit("layout.padding", 8.0f));
+    REQUIRE(overlay.is_editing());
+
+    // Move the mouse over b mid-edit. In follows_mouse mode this would
+    // normally re-select b — but a field edit is in progress, so the
+    // selection must stay pinned to the edit target a.
+    MouseEvent hover_b;
+    hover_b.position = {130, 30};
+    hover_b.is_down = false;
+    REQUIRE_FALSE(overlay.handle_mouse_event(hover_b));
+    REQUIRE(overlay.hovered_view() == b_ptr);    // hover tracking still works
+    REQUIRE(overlay.selected_view() == a_ptr);   // selection NOT chased
+
+    // Type a new value and commit — the edit must land on a, not b.
+    KeyEvent num5;
+    num5.key = KeyCode::num5;
+    num5.is_down = true;
+    REQUIRE(overlay.handle_key_event(num5));  // "8" → "85"
+    REQUIRE(overlay.commit_field_edit());
+    REQUIRE_FALSE(overlay.is_editing());
+
+    REQUIRE(a_ptr->flex().padding == 85.0f);  // edit committed to a
+    REQUIRE(b_ptr->flex().padding == 99.0f);  // b untouched
+    REQUIRE(store.count() == 1);              // exactly one tweak emitted
+
+    // After the edit ends, follows_mouse resumes chasing the pointer.
+    MouseEvent hover_b2;
+    hover_b2.position = {130, 30};
+    hover_b2.is_down = false;
+    REQUIRE_FALSE(overlay.handle_mouse_event(hover_b2));
+    REQUIRE(overlay.selected_view() == b_ptr);  // chasing resumes post-edit
+}
+
 // Codex P2 follow-up on #2328: Alt-hover state must clear when the
 // cursor enters the inspector panel. Otherwise the live distance line
 // keeps drawing from selected_ to a view that's no longer under the

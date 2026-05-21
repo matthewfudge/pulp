@@ -803,8 +803,15 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
         // only changed by an explicit click (handled below). The Alt
         // modifier is excluded so Alt-hover sibling-distance and
         // Alt+click distance-anchor modes keep their pinned selection.
+        //
+        // A field edit in progress also pins the selection: begin_field_edit()
+        // snapshots the edit target, but write_field_value() /
+        // commit_field_edit() still operate on the *current* selected_. If a
+        // mid-edit hover were allowed to move selected_, the edit would commit
+        // to the wrong node (or a no-longer-valid target). follows_focus mode
+        // is already safe here because it never chases the pointer.
         if (selection_mode_ == SelectionMode::follows_mouse &&
-            !event.is_down && !event.isAltDown()) {
+            !event.is_down && !event.isAltDown() && !is_editing()) {
             selected_ = hit;
         }
     }
