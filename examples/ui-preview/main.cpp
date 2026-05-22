@@ -1485,12 +1485,20 @@ int main(int argc, char* argv[]) {
     //
     // Activation: Cmd+I toggles BOTH the floating window and the in-canvas
     // manipulate overlay — no PULP_INSPECTOR env var required.
+    // Re-entry guard: select_view() fires InspectorWindow::on_view_selected,
+    // which calls back into sync_selection — without this flag that loops
+    // infinitely (select_view → on_view_selected → sync_selection → …) and
+    // overflows the stack. The guard makes the mirror one-way per call.
+    bool syncing_selection = false;
     auto sync_selection = [&](View* v) {
+        if (syncing_selection) return;
+        syncing_selection = true;
         inspector_selected = v;
         inspector.set_selected_view(v);
         if (inspector_window) inspector_view_ptr->select_view(v);
         if (inspector_window) inspector_window->repaint();
         if (window) window->repaint();
+        syncing_selection = false;
     };
 
     View::set_inspector_key_hook([&](const KeyEvent& e) -> bool {
