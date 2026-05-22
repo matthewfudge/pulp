@@ -709,9 +709,22 @@ public:
     static void set_inspector_paint_hook(
         std::function<void(canvas::Canvas&, View* painting_root)> hook);
     static void set_inspector_key_hook(std::function<bool(const KeyEvent&)> hook);
-    static void set_inspector_mouse_hook(std::function<bool(const MouseEvent&)> hook);
     static bool call_inspector_key_hook(const KeyEvent& e);
-    static bool call_inspector_mouse_hook(const MouseEvent& e);
+
+    /// Inspector mouse hook. Like the paint hook, the call carries the event's
+    /// root View (`event_root`) so the installed hook can gate to the inspected
+    /// canvas root (WYSIWYG P4 FIX 1). Without the gate a secondary window's
+    /// events (the floating InspectorWindow) leak into the canvas overlay:
+    /// hovering/clicking/scrolling inside the inspector window would
+    /// highlight/affect the canvas. The platform host passes the window's own
+    /// root (the same source the paint hook uses for that host); the installed
+    /// hook does `if (event_root && event_root != &inspector.inspected_root())
+    /// return false;`. nullptr means "root unknown" (legacy/headless callers)
+    /// and the hook runs unconditionally.
+    static void set_inspector_mouse_hook(
+        std::function<bool(const MouseEvent&, View* event_root)> hook);
+    static bool call_inspector_mouse_hook(const MouseEvent& e,
+                                          View* event_root = nullptr);
 
     /// Inspector text-input hook (WYSIWYG P3 — inline Text-tool editing).
     /// The platform host routes UTF-8 character input here BEFORE the
@@ -719,8 +732,13 @@ public:
     /// while the Text tool is active. Returns true when the inspector
     /// consumed the text (an inline edit is in progress); false otherwise,
     /// so normal text-input delivery to the focused widget proceeds.
-    static void set_inspector_text_hook(std::function<bool(const TextInputEvent&)> hook);
-    static bool call_inspector_text_hook(const TextInputEvent& e);
+    ///
+    /// WYSIWYG P4 FIX 1 — carries the event's root View so the installed hook
+    /// gates to the inspected canvas root, matching the mouse + paint hooks.
+    static void set_inspector_text_hook(
+        std::function<bool(const TextInputEvent&, View* event_root)> hook);
+    static bool call_inspector_text_hook(const TextInputEvent& e,
+                                         View* event_root = nullptr);
 
     /// Inspector cursor-affordance hook (WYSIWYG P2d). The inspector overlay
     /// intercepts mouse-move before normal hit-testing, so the platform host
@@ -732,8 +750,15 @@ public:
     /// to the normal hit-view `cursor()` path. The platform window host calls
     /// `call_inspector_cursor_hook` in its mouse-move handler and applies the
     /// returned style when it is >= 0. No-op (returns -1) when no hook is set.
-    static void set_inspector_cursor_hook(std::function<int(const MouseEvent&)> hook);
-    static int call_inspector_cursor_hook(const MouseEvent& e);
+    ///
+    /// WYSIWYG P4 FIX 1 — carries the event's root View so the installed hook
+    /// gates to the inspected canvas root, matching the mouse + paint hooks.
+    /// Without the gate a mouse-move inside the floating InspectorWindow would
+    /// drive the canvas overlay's cursor affordance.
+    static void set_inspector_cursor_hook(
+        std::function<int(const MouseEvent&, View* event_root)> hook);
+    static int call_inspector_cursor_hook(const MouseEvent& e,
+                                          View* event_root = nullptr);
 
     // ── Generalized overlay-click routing (pulp #1148) ───────────────────
     //

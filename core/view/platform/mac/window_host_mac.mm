@@ -339,7 +339,10 @@ static void install_app_menu(NSString* appName) {
             me.modifiers = mods;
             me.is_down = true;
             me.phase = pulp::view::MousePhase::press;
-            if (pulp::view::View::call_inspector_mouse_hook(me)) {
+            // WYSIWYG P4 FIX 1 — pass this window's root so the installed hook
+            // gates to the inspected canvas root; events in a secondary window
+            // (the floating InspectorWindow) must not touch the canvas overlay.
+            if (pulp::view::View::call_inspector_mouse_hook(me, self.rootView)) {
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -531,7 +534,8 @@ static void install_app_menu(NSString* appName) {
                 // inferred drag-vs-release from is_down) ended the gesture on
                 // the first mac drag tick and fell through to re-selection.
                 me.phase = pulp::view::MousePhase::drag;
-                if (pulp::view::View::call_inspector_mouse_hook(me)) {
+                // WYSIWYG P4 FIX 1 — gate to this window's root (see press).
+                if (pulp::view::View::call_inspector_mouse_hook(me, self.rootView)) {
                     [self setNeedsDisplay:YES];
                     return;
                 }
@@ -592,7 +596,8 @@ static void install_app_menu(NSString* appName) {
                 me.modifiers = mods;
                 me.is_down = false;  // release
                 me.phase = pulp::view::MousePhase::release;  // WYSIWYG P2h
-                if (pulp::view::View::call_inspector_mouse_hook(me)) {
+                // WYSIWYG P4 FIX 1 — gate to this window's root (see press).
+                if (pulp::view::View::call_inspector_mouse_hook(me, self.rootView)) {
                     [self setNeedsDisplay:YES];
                     return;
                 }
@@ -942,7 +947,9 @@ static void install_app_menu(NSString* appName) {
     {
         pulp::view::TextInputEvent ite;
         ite.text = [in_str UTF8String];
-        if (pulp::view::View::call_inspector_text_hook(ite)) {
+        // WYSIWYG P4 FIX 1 — gate to this window's root so text typed into a
+        // secondary window doesn't drive the canvas overlay's inline edit.
+        if (pulp::view::View::call_inspector_text_hook(ite, self.rootView)) {
             [self setNeedsDisplay:YES];
             return;
         }
@@ -1066,7 +1073,9 @@ static void install_app_menu(NSString* appName) {
                 me.position = {pt.x, pt.y};
                 me.is_down = false;
                 me.phase = pulp::view::MousePhase::hover;  // WYSIWYG P2h
-                pulp::view::View::call_inspector_mouse_hook(me);
+                // WYSIWYG P4 FIX 1 — gate to this window's root so hovering the
+                // floating InspectorWindow does not highlight the canvas.
+                pulp::view::View::call_inspector_mouse_hook(me, self.rootView);
                 // Don't consume — let normal hover handling continue for cursor changes
             }
 
@@ -1093,7 +1102,11 @@ static void install_app_menu(NSString* appName) {
                 pulp::view::MouseEvent cme;
                 cme.position = {pt.x, pt.y};
                 cme.is_down = false;
-                inspector_cursor = pulp::view::View::call_inspector_cursor_hook(cme);
+                // WYSIWYG P4 FIX 1 — gate to this window's root so the canvas
+                // overlay's cursor affordance is not driven by moves inside a
+                // secondary window.
+                inspector_cursor =
+                    pulp::view::View::call_inspector_cursor_hook(cme, self.rootView);
             }
             if (target || inspector_cursor >= 0) {
                 auto style = inspector_cursor >= 0
@@ -1466,6 +1479,13 @@ static void install_app_menu(NSString* appName) {
 /// design aspect regardless of drag handle or zoom path. When 0, no
 /// constraint is applied.
 @property (nonatomic, assign) CGFloat aspectRatio;
+/// WYSIWYG P4 FIX 4 — explicit window role for the close policy. A SECONDARY
+/// window (the floating inspector) only orders itself out on close and never
+/// stops the app; a PRIMARY window (the main canvas, the default) stops the
+/// app on close regardless of whatever secondary windows remain visible. This
+/// replaces the previous visible-window-count heuristic, which left the app
+/// running with only the inspector after the main window closed.
+@property (nonatomic, assign) BOOL isSecondaryWindow;
 @end
 
 @implementation PulpWindowDelegate
@@ -1473,16 +1493,12 @@ static void install_app_menu(NSString* appName) {
 - (BOOL)windowShouldClose:(NSWindow*)sender {
     if (self.onClose) self.onClose();
     [sender orderOut:nil];
-    // Only stop the app's run loop when the LAST visible window is closing.
-    // A secondary window (e.g. the floating inspector) closing must leave the
-    // main window + app running — matching the Cmd+I toggle's close path.
-    // Previously this called [NSApp stop:nil] unconditionally, so closing the
-    // inspector quit the whole app.
-    NSUInteger otherVisible = 0;
-    for (NSWindow* w in [NSApp windows]) {
-        if (w != sender && [w isVisible]) otherVisible++;
-    }
-    if (otherVisible == 0) [NSApp stop:nil];
+    // WYSIWYG P4 FIX 4 — role-based close policy (replaces the visible-count
+    // heuristic). A secondary window (e.g. the floating inspector) closing only
+    // orders itself out and leaves the main window + app running. A primary
+    // window (the main canvas) closing stops the app regardless of any
+    // secondary windows still visible.
+    if (!self.isSecondaryWindow) [NSApp stop:nil];
     return YES;
 }
 
@@ -1610,6 +1626,10 @@ public:
             [window_ setContentView:view_];
 
             delegate_ = [[PulpWindowDelegate alloc] init];
+            // WYSIWYG P4 FIX 4 — role drives the close policy (see
+            // windowShouldClose:). Default primary; secondary windows (the
+            // floating inspector) opt in via WindowOptions::secondary_window.
+            delegate_.isSecondaryWindow = options.secondary_window ? YES : NO;
             delegate_.onResize = ^(float w, float h) {
                 // pulp #1321: belt-and-suspenders relayout — PulpView's
                 // setFrameSize: already pushes new bounds + relayouts when
@@ -1825,6 +1845,11 @@ public:
             [window_ setContentView:metal_view_];
 
             delegate_ = [[PulpWindowDelegate alloc] init];
+            // WYSIWYG P4 FIX 4 — role drives the close policy (see
+            // windowShouldClose:). The GPU host is normally the primary main
+            // canvas window; secondary windows opt in via
+            // WindowOptions::secondary_window.
+            delegate_.isSecondaryWindow = options.secondary_window ? YES : NO;
             delegate_.onResize = ^(float w, float h) {
                 handle_resize(w, h);
             };
@@ -1836,6 +1861,21 @@ public:
     }
 
     ~MacGpuWindowHost() override {
+        // WYSIWYG P4 FIX 2 — detach the NSWindow + delegate FIRST, mirroring
+        // ~MacWindowHost. The GPU host is the MAIN canvas window; if it is
+        // destroyed while still visible (e.g. app teardown, host swap) AppKit
+        // can otherwise keep the window alive holding a delegate whose onClose
+        // block closes over this now-freed host (`close_callback_`), so a later
+        // close: invokes a dangling callback (UAF / pointer-auth crash). Clear
+        // the callback + delegate before close so windowShouldClose:/onClose
+        // can't re-enter during teardown; releasedWhenClosed=NO so our ARC
+        // strong ref controls the final dealloc.
+        delegate_.onClose = nil;
+        delegate_.onResize = nil;
+        [window_ setDelegate:nil];
+        [window_ setReleasedWhenClosed:NO];
+        [window_ close];
+
         stop_display_link();
         skia_surface_.reset();
         gpu_surface_.reset();

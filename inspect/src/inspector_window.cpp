@@ -37,6 +37,20 @@ static std::string format_rect(const Rect& r) {
 
 static std::string bool_str(bool v) { return v ? "true" : "false"; }
 
+// WYSIWYG P4 FIX 3 — reachability check used to validate that a saved raw
+// `View*` selection is still part of the live tree before any deref. The live
+// React tree can rebuild (e.g. Chainer's meters), destroying the previously
+// selected view; without this guard `show_properties_for(selected_view_)`
+// would deref freed memory. Walks `root`'s subtree for `needle`.
+static bool view_is_in_tree(const View* root, const View* needle) {
+    if (!root || !needle) return false;
+    if (root == needle) return true;
+    for (size_t i = 0; i < root->child_count(); ++i) {
+        if (view_is_in_tree(root->child_at(i), needle)) return true;
+    }
+    return false;
+}
+
 static std::string direction_str(FlexDirection d) {
     return d == FlexDirection::row ? "row" : "column";
 }
@@ -630,6 +644,12 @@ void InspectorWindow::refresh_elements() {
         if (saved_selection) {
             auto* restored = tree_view_->find_node_by_user_data(saved_selection);
             tree_view_->set_selected_node(restored);
+            // WYSIWYG P4 FIX 3 — if the previously selected view is gone from
+            // the rebuilt tree (no node carries it as user_data — e.g. the live
+            // React tree was rebuilt and the view destroyed), drop the stale
+            // raw pointer so the show_properties_for() deref below can't touch
+            // freed memory. Without this `selected_view_` lingered dangling.
+            if (!restored) selected_view_ = nullptr;
         } else {
             tree_view_->set_selected_node(nullptr);
         }
@@ -672,9 +692,17 @@ void InspectorWindow::refresh_elements() {
         }
     }
 
-    // If we still have a selected view, update its properties
+    // If we still have a selected view, update its properties — but only after
+    // confirming it is still reachable from the inspected root (WYSIWYG P4
+    // FIX 3). A signature-stable tick (no rebuild above) can still race a view
+    // destruction the structure hash didn't catch, so validate before the
+    // deref and drop the pointer if it's stale.
     if (selected_view_) {
-        show_properties_for(selected_view_);
+        if (view_is_in_tree(inspected_root_, selected_view_)) {
+            show_properties_for(selected_view_);
+        } else {
+            selected_view_ = nullptr;
+        }
     }
 }
 

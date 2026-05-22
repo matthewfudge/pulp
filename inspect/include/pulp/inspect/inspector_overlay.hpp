@@ -131,6 +131,28 @@ public:
     void set_edit_history(pulp::state::EditHistory* h) { edit_history_ = h; }
     pulp::state::EditHistory* edit_history() const { return edit_history_; }
 
+    /// WYSIWYG P4 FIX 5 (minimal) — clear the attached EditHistory.
+    ///
+    /// The undo/redo closures recorded for each gesture capture the live
+    /// `View*` they mutate (e.g. `View* tgt = selected_;`). If the inspected
+    /// view tree is rebuilt or re-imported (the design re-imported, a live
+    /// React subtree rebuilt) BEFORE the user hits undo, those captured
+    /// pointers dangle and undo would deref freed memory. The minimal,
+    /// guaranteed-safe mitigation is to drop the entire history whenever the
+    /// inspected root is replaced: nothing recorded against the OLD tree can be
+    /// undone against the NEW tree anyway. Hosts that own the EditHistory must
+    /// call this at their root-replacement seam (e.g. right after re-import,
+    /// before the new tree is wired up).
+    ///
+    /// TODO(wysiwyg-p4-followup): the full fix resolves each undo target by
+    /// stable anchor-id at undo time (re-finding the live view in the current
+    /// tree) instead of capturing a raw `View*`, so legitimate cross-import
+    /// undo can survive. That is a larger change tracked as a follow-up; this
+    /// clear is the conservative interim guard.
+    void clear_edit_history() {
+        if (edit_history_) edit_history_->clear();
+    }
+
     /// Emit a tweak for the currently-selected view's anchor. Returns
     /// false if there's no selection, the selection has no anchor_id,
     /// or no TweakStore is attached. Used by gesture-detection code in

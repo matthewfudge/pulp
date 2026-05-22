@@ -879,8 +879,11 @@ std::vector<View::OverlayRequest>& View::overlay_queue() {
 // to avoid circular dependency (view → inspect).
 static std::function<void(canvas::Canvas&, View*)> s_inspector_paint_hook;
 static std::function<bool(const KeyEvent&)> s_inspector_key_hook;
-static std::function<bool(const MouseEvent&)> s_inspector_mouse_hook;
-static std::function<bool(const TextInputEvent&)> s_inspector_text_hook;
+// WYSIWYG P4 FIX 1 — mouse/text/cursor hooks now carry the event's root View
+// (mirroring the paint hook's painting_root) so the installed hook can gate to
+// the inspected canvas root and ignore a secondary window's events.
+static std::function<bool(const MouseEvent&, View*)> s_inspector_mouse_hook;
+static std::function<bool(const TextInputEvent&, View*)> s_inspector_text_hook;
 
 void View::set_inspector_paint_hook(
     std::function<void(canvas::Canvas&, View*)> hook) {
@@ -889,29 +892,33 @@ void View::set_inspector_paint_hook(
 void View::set_inspector_key_hook(std::function<bool(const KeyEvent&)> hook) {
     s_inspector_key_hook = std::move(hook);
 }
-void View::set_inspector_mouse_hook(std::function<bool(const MouseEvent&)> hook) {
+void View::set_inspector_mouse_hook(
+    std::function<bool(const MouseEvent&, View*)> hook) {
     s_inspector_mouse_hook = std::move(hook);
 }
 bool View::call_inspector_key_hook(const KeyEvent& e) {
     return s_inspector_key_hook ? s_inspector_key_hook(e) : false;
 }
-bool View::call_inspector_mouse_hook(const MouseEvent& e) {
-    return s_inspector_mouse_hook ? s_inspector_mouse_hook(e) : false;
+bool View::call_inspector_mouse_hook(const MouseEvent& e, View* event_root) {
+    return s_inspector_mouse_hook ? s_inspector_mouse_hook(e, event_root)
+                                  : false;
 }
 void View::set_inspector_text_hook(
-    std::function<bool(const TextInputEvent&)> hook) {
+    std::function<bool(const TextInputEvent&, View*)> hook) {
     s_inspector_text_hook = std::move(hook);
 }
-bool View::call_inspector_text_hook(const TextInputEvent& e) {
-    return s_inspector_text_hook ? s_inspector_text_hook(e) : false;
+bool View::call_inspector_text_hook(const TextInputEvent& e, View* event_root) {
+    return s_inspector_text_hook ? s_inspector_text_hook(e, event_root) : false;
 }
 
-static std::function<int(const MouseEvent&)> s_inspector_cursor_hook;
-void View::set_inspector_cursor_hook(std::function<int(const MouseEvent&)> hook) {
+static std::function<int(const MouseEvent&, View*)> s_inspector_cursor_hook;
+void View::set_inspector_cursor_hook(
+    std::function<int(const MouseEvent&, View*)> hook) {
     s_inspector_cursor_hook = std::move(hook);
 }
-int View::call_inspector_cursor_hook(const MouseEvent& e) {
-    return s_inspector_cursor_hook ? s_inspector_cursor_hook(e) : -1;
+int View::call_inspector_cursor_hook(const MouseEvent& e, View* event_root) {
+    return s_inspector_cursor_hook ? s_inspector_cursor_hook(e, event_root)
+                                   : -1;
 }
 
 // pulp #1148 — generalized overlay-click routing.

@@ -109,9 +109,18 @@ void install_inspector_hooks(InspectorOverlay& inspector) {
     View::set_inspector_key_hook([&inspector](const KeyEvent& e) -> bool {
         return inspector.handle_key_event(e);
     });
-    View::set_inspector_mouse_hook([&inspector](const MouseEvent& e) -> bool {
-        return inspector.handle_mouse_event(e);
-    });
+    // WYSIWYG P4 FIX 1 — window-gate the mouse hook, mirroring the paint-hook
+    // gate above. A secondary window (the floating InspectorWindow) routes its
+    // own root as `event_root`; only events whose root is the inspected canvas
+    // root may drive the overlay, otherwise hovering/clicking/dragging inside
+    // the inspector window would highlight/affect the canvas. nullptr (root
+    // unknown, legacy/headless caller) runs unconditionally.
+    View::set_inspector_mouse_hook(
+        [&inspector](const MouseEvent& e, View* event_root) -> bool {
+            if (event_root && event_root != &inspector.inspected_root())
+                return false;
+            return inspector.handle_mouse_event(e);
+        });
 }
 
 void InspectorOverlay::set_active(bool active) {

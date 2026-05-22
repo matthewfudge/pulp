@@ -1812,6 +1812,118 @@ TEST_CASE("InspectorWindow builds tabs and updates element properties", "[inspec
     REQUIRE(tree->find_node_by_user_data(knob_ptr) != nullptr);
 }
 
+// WYSIWYG P4 FIX 3 — a structural rebuild that drops the selected view must
+// clear the stale raw `selected_view_` pointer; a subsequent refresh()
+// (which would otherwise call show_properties_for(selected_view_)) must not
+// deref freed memory. The live React tree can rebuild and destroy the
+// previously selected view; this proves the rebuilt-tree path drops the
+// dangling selection instead of dereferencing it.
+TEST_CASE("InspectorWindow drops stale selection across a tree rebuild",
+          "[inspect][window][wysiwyg][p4]") {
+    View inspected_root;
+    inspected_root.set_id("root");
+    inspected_root.set_bounds({0, 0, 480, 320});
+
+    auto knob = std::make_unique<Knob>();
+    knob->set_id("gain");
+    auto* knob_ptr = knob.get();
+    inspected_root.add_child(std::move(knob));
+
+    InspectorWindow window(inspected_root);
+    auto* tabs = first_view_of_type<TabPanel>(window);
+    REQUIRE(tabs != nullptr);
+    auto* tree = first_view_of_type<TreeView>(*tabs->child_at(0));
+    REQUIRE(tree != nullptr);
+    REQUIRE(tree->find_node_by_user_data(knob_ptr) != nullptr);
+
+    // Select the knob, then verify its properties are shown.
+    window.select_view(knob_ptr);
+    REQUIRE(has_label_containing(window, "ID: gain"));
+
+    // Destroy the selected view (live tree rebuild — e.g. a meter rebuild).
+    // remove_child destroys the unique_ptr, so knob_ptr now dangles. Add a
+    // DIFFERENT child so the structure signature changes and refresh()
+    // takes the rebuild path.
+    auto removed = inspected_root.remove_child(knob_ptr);
+    removed.reset();  // free the previously selected view
+    auto label = std::make_unique<Label>("fresh");
+    label->set_id("fresh");
+    inspected_root.add_child(std::move(label));
+
+    // refresh() rebuilds the tree; the saved selection (knob_ptr) is no longer
+    // found, so selected_view_ must be cleared and the deref skipped. With the
+    // bug this dereferenced the freed knob (UAF — caught by ASan / crash).
+    REQUIRE_NOTHROW(window.refresh());
+
+    // The stale node is gone and the new child is present.
+    REQUIRE(tree->find_node_by_user_data(knob_ptr) == nullptr);
+
+    // A further refresh with no selection is still safe (no re-deref).
+    REQUIRE_NOTHROW(window.refresh());
+}
+
+// WYSIWYG P4 FIX 5 — clear_edit_history() drops every recorded undo/redo
+// entry. The undo closures capture raw View* that dangle if the tree is
+// rebuilt/re-imported before undo; clearing at the root-replacement seam is
+// the conservative guard. This proves the clear empties both stacks.
+TEST_CASE("InspectorOverlay clear_edit_history empties the undo history",
+          "[inspect][overlay][wysiwyg][p4]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("figma:0:42");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_dragging_enabled(true);
+
+    // No history attached is a safe no-op.
+    {
+        InspectorOverlay bare(root);
+        REQUIRE_NOTHROW(bare.clear_edit_history());
+    }
+
+    // Record one undoable resize gesture (press SE handle, drag, release).
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    MouseEvent press;
+    press.position = {90, 50};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+    MouseEvent drag;
+    drag.position = {110, 65};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+    MouseEvent release;
+    release.position = {300, 300};
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.can_undo());
+
+    // Simulate a root replacement / re-import: clear the history so the
+    // captured (about-to-dangle) View* closures can never be replayed.
+    overlay.clear_edit_history();
+    REQUIRE_FALSE(history.can_undo());
+    REQUIRE_FALSE(history.can_redo());
+    REQUIRE(history.undo_count() == 0);
+}
+
 TEST_CASE("InspectorWindow refreshes console performance and state tabs", "[inspect][window][issue-641]") {
     View inspected_root;
     inspected_root.set_id("root");

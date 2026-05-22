@@ -1072,6 +1072,17 @@ int main(int argc, char* argv[]) {
     pulp::state::EditHistory inspector_history;
     inspector_history.set_coalesce(false);
     inspector.set_edit_history(&inspector_history);
+    // WYSIWYG P4 FIX 5 — the EditHistory's undo closures capture raw View*
+    // pointers that would dangle if the inspected tree were rebuilt/re-imported
+    // before undo. The host MUST call inspector.clear_edit_history() at any
+    // root-replacement seam (right after a re-import, before re-wiring the new
+    // tree). ui-preview builds a single static `root` once and has NO re-import
+    // path, so there is no such seam here and nothing to wire — the static tree
+    // is never swapped, so captured pointers stay valid for the process
+    // lifetime. A host with hot-reload / runtime-import (e.g. design-tool) is
+    // responsible for calling clear_edit_history() on its reload callback.
+    // TODO(wysiwyg-p4-followup): replace the capture-and-clear approach with
+    // anchor-id resolution at undo time (see InspectorOverlay::clear_edit_history).
     if (pulp::runtime::get_env("PULP_INSPECTOR")) {
         inspector.set_active(true);
     }
@@ -1511,6 +1522,12 @@ int main(int argc, char* argv[]) {
         iopts.height = static_cast<float>(opts.height);
         iopts.resizable = true;
         iopts.use_gpu = false;
+        // WYSIWYG P4 FIX 4 — the inspector is a SECONDARY window: closing it
+        // (window-button or Cmd+I) leaves the main canvas + app running; only
+        // closing the primary main window stops the app. The deferred teardown
+        // below (inspector_close_pending) still runs off the close stack so
+        // there's no UAF.
+        iopts.secondary_window = true;
         inspector_window = WindowHost::create(*inspector_view_ptr, iopts);
         if (inspector_window) {
             // P2d (A): a window-button close must tear down the SAME state the
@@ -1618,8 +1635,14 @@ int main(int argc, char* argv[]) {
         return false;
     });
 
-    View::set_inspector_mouse_hook([&](const MouseEvent& e) -> bool {
+    View::set_inspector_mouse_hook([&](const MouseEvent& e, View* event_root) -> bool {
         if (!inspector.is_active()) return false;
+        // WYSIWYG P4 FIX 1 — window-gate. The platform host passes the event's
+        // own window root; ignore events from any window other than the main
+        // canvas root so hovering/clicking/dragging inside the floating
+        // InspectorWindow never highlights/affects the canvas. nullptr (root
+        // unknown, legacy/headless caller) runs unconditionally.
+        if (event_root && event_root != &root) return false;
         // Overlay first: it handles drag-handle resize + body-drag move and
         // canvas selection. If it consumes the event, mirror the (possibly
         // changed) selection to the floating window and stop.
@@ -1638,8 +1661,12 @@ int main(int argc, char* argv[]) {
     // edit BEFORE the focused widget. Consumes only while an inline text
     // edit is in progress; otherwise returns false so normal text-input
     // delivery proceeds.
-    View::set_inspector_text_hook([&](const pulp::view::TextInputEvent& e) -> bool {
+    View::set_inspector_text_hook([&](const pulp::view::TextInputEvent& e,
+                                      View* event_root) -> bool {
         if (!inspector.is_active()) return false;
+        // WYSIWYG P4 FIX 1 — window-gate: text typed into a secondary window
+        // must not drive the canvas overlay's inline Text-tool edit.
+        if (event_root && event_root != &root) return false;
         bool consumed = inspector.handle_text_input(e);
         if (consumed) {
             if (window) window->repaint();
@@ -1672,8 +1699,11 @@ int main(int argc, char* argv[]) {
     // host can't rely on the hit view's own cursor() here — this hook lets the
     // overlay drive the NSCursor for its selection. Returns -1 (defer to the
     // normal cursor) when inactive or the pointer is off the selection.
-    View::set_inspector_cursor_hook([&](const MouseEvent& e) -> int {
+    View::set_inspector_cursor_hook([&](const MouseEvent& e, View* event_root) -> int {
         if (!inspector.is_active()) return -1;
+        // WYSIWYG P4 FIX 1 — window-gate: a mouse-move inside a secondary
+        // window must not drive the canvas overlay's cursor affordance.
+        if (event_root && event_root != &root) return -1;
         return inspector.cursor_style_for(e.position);
     });
 

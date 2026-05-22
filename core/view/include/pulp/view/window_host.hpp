@@ -35,6 +35,17 @@ struct WindowOptions {
     /// flag fall back to normal behaviour.
     bool initially_hidden = false;
 
+    /// WYSIWYG P4 FIX 4 — explicit window role for the close policy. A PRIMARY
+    /// window (default) is the app's main window: closing it stops/tears down
+    /// the app. A SECONDARY window (e.g. the floating InspectorWindow) only
+    /// orders itself out on close and never stops the app, so closing the
+    /// inspector while the main canvas is open leaves the app running, and
+    /// closing the main canvas while the inspector is open still quits.
+    /// Replaces the previous "stop the app when no other visible window
+    /// remains" heuristic, which left the app alive with only the inspector
+    /// after the main window closed.
+    bool secondary_window = false;
+
     // ── Multi-window hints (Phase 6) ────────────────────────────────────
     // These are used by WindowManager to configure platform-specific
     // window behavior. Callers creating standalone windows can ignore them.
