@@ -107,9 +107,10 @@ DesignIR build_codegen_fixture_ir() {
     auto drive = frame_node("drive", "Drive", 72.0f, 72.0f, LayoutDirection::column);
     drive.audio_widget = AudioWidgetType::knob;
     drive.audio_label = "Drive";
-    drive.audio_min = 0.0f;
-    drive.audio_max = 1.0f;
-    drive.audio_default = 0.5f;
+    drive.audio_min = -60.0f;
+    drive.audio_max = 0.0f;
+    drive.audio_default = -15.0f;
+    drive.attributes["value"] = "0.2";
     ir.root.children.push_back(std::move(drive));
 
     IRAssetRef asset;
@@ -211,6 +212,8 @@ TEST_CASE("baked C++ exporter emits ownable C++ source artifacts",
     REQUIRE(result.source.find("// auto-extracted: structural name \"Header\"") != std::string::npos);
     REQUIRE(result.source.find("std::unique_ptr<pulp::view::View> build_header()") != std::string::npos);
     REQUIRE(result.source.find("/* TODO: bind to param */") != std::string::npos);
+    REQUIRE(result.source.find("->set_value(/* TODO: bind to param */ 0.2f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_default_value(0.75f);") != std::string::npos);
     REQUIRE(result.source.find("std::make_unique<pulp::view::Knob>()") != std::string::npos);
     REQUIRE(result.source.find("build_native_view_tree") == std::string::npos);
     REQUIRE(result.source.find("serialize_design_ir") == std::string::npos);

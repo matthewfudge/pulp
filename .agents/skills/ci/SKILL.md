@@ -71,6 +71,35 @@ Do not push empty commits just to churn queued macOS checks. Cancel
 superseded SHAs, rebase or push only when a PR needs current `main`, and
 wait unless a check has actually failed.
 
+## PR Review Thread Hygiene
+
+Before opening a follow-up PR or declaring a phase complete, sweep review
+threads for the PRs touched by that phase:
+
+```bash
+gh api graphql -f query='
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100) {
+        nodes {
+          isResolved
+          isOutdated
+          comments(first:20) {
+            nodes { url body author { login } }
+          }
+        }
+      }
+    }
+  }
+}' -F owner=danielraffel -F repo=pulp -F number=<PR>
+```
+
+For every unresolved thread, either fix it in the follow-up branch or verify
+that current `main` already fixed it. Leave a reply on the original thread with
+the fixing commit/PR and the validation that proved it, so future sweeps can
+distinguish addressed-but-unresolved GitHub state from actual pending work.
+
 ## Shipping a PR: route through `shipyard pr`
 
 When the user says any of: **"push to main"**, **"ship this"**, **"ship it"**,

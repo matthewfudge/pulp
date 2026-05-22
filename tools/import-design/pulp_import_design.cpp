@@ -383,7 +383,7 @@ static void print_usage() {
     std::cout << "  pencil   Pencil/OpenPencil node JSON or .pen export\n";
     std::cout << "  claude   Anthropic Claude Design — manually-exported standalone HTML\n";
     std::cout << "  designmd Google DESIGN.md design-system spec (tokens only)\n";
-    std::cout << "  jsx      Precompiled React JSX runtime bundle for baked IR snapshots\n\n";
+    std::cout << "  jsx      Precompiled React JSX runtime bundle for live pass-through or baked snapshots\n\n";
     std::cout << "Options:\n";
     std::cout << "  --from <source>   Design source (required)\n";
     std::cout << "  --file <path>     Input file path\n";
@@ -445,7 +445,8 @@ static void print_usage() {
     std::cout << "  pulp import-design --from pencil --file design.json --dry-run\n";
     std::cout << "  pulp import-design --from pencil --file design.json --validate --reference source.png\n";
     std::cout << "  pulp import-design --from claude --file design.html\n";
-    std::cout << "  pulp import-design --from stitch --file screen.json --mode baked --emit cpp --output imported_ui.cpp\n";
+    std::cout << "  pulp import-design --from jsx --file bundle.js --mode live --emit js --output live-ui.js\n";
+    std::cout << "  pulp import-design --from jsx --file bundle.js --mode baked --emit cpp --output imported_ui.cpp\n";
 }
 
 // Bridge-handler scaffold body lives in core/view/src/design_import.cpp
@@ -889,6 +890,12 @@ int main(int argc, char* argv[]) {
     if (*source == DesignSource::jsx
         && runtime_mode == RuntimeMode::live
         && artifact_emit == ArtifactEmit::js) {
+        if (validate || debug_json || !diff_output.empty()) {
+            std::cerr << "Error: --from jsx --mode live --emit js writes the precompiled bundle verbatim "
+                         "and does not support --validate, --reference, --diff, or --debug; use "
+                         "--mode baked --emit ir-json|cpp for import validation or debug reports\n";
+            return 2;
+        }
         if (dry_run) {
             std::cout << content;
             return 0;
@@ -967,14 +974,18 @@ int main(int argc, char* argv[]) {
                     const auto fallback_reason = !runtime_error.empty()
                         ? runtime_error
                         : ir.fallback_reason;
-                    if (!fallback_reason.empty() || ir.capture_method != "runtime_snapshot") {
+                    const bool captured_runtime =
+                        ir.capture_method == "runtime_snapshot" ||
+                        ir.capture_method == "runtime_native_snapshot";
+                    if (!fallback_reason.empty() || !captured_runtime) {
                         std::cerr << "Error: JSX baked runtime snapshot failed";
                         if (!fallback_reason.empty()) std::cerr << ": " << fallback_reason;
                         std::cerr << "\n";
                         return 1;
                     }
+                    const bool native_snapshot = ir.capture_method == "runtime_native_snapshot";
                     ir.source = DesignSource::jsx;
-                    ir.capture_method = "runtime_snapshot";
+                    ir.capture_method = native_snapshot ? "runtime_native_snapshot" : "runtime_snapshot";
                     if (ir.settle_rounds <= 0) ir.settle_rounds = 4;
                     ir.source_adapter = "jsx-runtime";
                     ir.source_version = "1";
@@ -987,6 +998,8 @@ int main(int argc, char* argv[]) {
                     ir.root.confidence = IRConfidence::pass;
                     ir.root.source_adapter = "jsx-runtime";
                     ir.root.source_version = "1";
+                    if (native_snapshot)
+                        ir.root.attributes["snapshotSource"] = "native-view";
                     ir.root.attributes["snapshotSemantics"] = snapshot_semantics_name(snapshot_semantics);
                     if (dynamic_scan.has_dynamic_apis()
                         && snapshot_semantics == SnapshotSemantics::warn) {

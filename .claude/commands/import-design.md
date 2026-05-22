@@ -51,8 +51,8 @@ Ask the user or detect from context:
 
 **React JSX runtime bundle**:
 - Compile the JSX/TSX first with `tools/import-design/jsx-runtime/jsx-transform.mjs`.
-- `--mode live --emit js` writes the precompiled bundle verbatim.
-- `--mode baked --emit ir-json|cpp` captures a runtime snapshot; use `--snapshot-semantics accept` only when accepting dynamic APIs is intentional.
+- `--mode live --emit js` writes the precompiled bundle verbatim for runtime import and rejects `--validate`, `--reference`, `--diff`, and `--debug`.
+- `--mode baked --emit ir-json|cpp` captures a runtime snapshot. DOM bundles are walked as DOM; live/native bundles that render through `@pulp/react` freeze the native `WidgetBridge` tree and record `snapshotSource: native-view`. Use `--snapshot-semantics accept` only when accepting dynamic APIs is intentional.
 
 **File-based fallback**:
 - Read the file and parse based on --from source type
@@ -171,7 +171,7 @@ pulp import-design --from v0 --file component.tsx
 pulp import-design --from pencil --file design.json
 pulp import-design --from claude --file design.html   # writes ui.js + tokens.json + classnames.json + bridge_handlers.cpp
 pulp import-design --from designmd --file DESIGN.md --tokens tokens.json
-pulp import-design --from jsx --file bundle.js --mode live --emit js
+pulp import-design --from jsx --file bundle.js --mode live --emit js --output live-ui.js
 pulp import-design --from jsx --file bundle.js --mode baked --emit cpp --snapshot-semantics accept --output imported_ui.cpp
 
 # With validation

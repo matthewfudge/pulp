@@ -472,6 +472,25 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         REQUIRE(live.exit_code == 0);
         REQUIRE(read_text(output) == bundle);
         REQUIRE(live.stdout_output.find("JSX live bundle") != std::string::npos);
+
+        auto validate = run_import_design({"--from", "jsx",
+                                           "--file", jsx.string(),
+                                           "--output", (tmp.path / "validate-live-ui.js").string(),
+                                           "--validate"});
+        REQUIRE_FALSE(validate.timed_out);
+        REQUIRE(validate.exit_code == 2);
+        REQUIRE(validate.stderr_output.find("writes the precompiled bundle verbatim") != std::string::npos);
+        REQUIRE(validate.stderr_output.find("--mode baked --emit ir-json|cpp") != std::string::npos);
+
+        const auto debug_output = tmp.path / "live-debug.json";
+        auto debug = run_import_design({"--from", "jsx",
+                                        "--file", jsx.string(),
+                                        "--output", (tmp.path / "debug-live-ui.js").string(),
+                                        "--debug-output", debug_output.string()});
+        REQUIRE_FALSE(debug.timed_out);
+        REQUIRE(debug.exit_code == 2);
+        REQUIRE_FALSE(fs::exists(debug_output));
+        REQUIRE(debug.stderr_output.find("does not support --validate, --reference, --diff, or --debug") != std::string::npos);
     }
 
     SECTION("jsx baked snapshots fail by default on dynamic APIs and can warn or accept") {
