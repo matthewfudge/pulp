@@ -713,6 +713,15 @@ public:
     static bool call_inspector_key_hook(const KeyEvent& e);
     static bool call_inspector_mouse_hook(const MouseEvent& e);
 
+    /// Inspector text-input hook (WYSIWYG P3 — inline Text-tool editing).
+    /// The platform host routes UTF-8 character input here BEFORE the
+    /// focused view so the inspector's inline text edit can consume it
+    /// while the Text tool is active. Returns true when the inspector
+    /// consumed the text (an inline edit is in progress); false otherwise,
+    /// so normal text-input delivery to the focused widget proceeds.
+    static void set_inspector_text_hook(std::function<bool(const TextInputEvent&)> hook);
+    static bool call_inspector_text_hook(const TextInputEvent& e);
+
     /// Inspector cursor-affordance hook (WYSIWYG P2d). The inspector overlay
     /// intercepts mouse-move before normal hit-testing, so the platform host
     /// cannot rely on the hit view's own `cursor()` to show move/resize

@@ -932,6 +932,22 @@ static void install_app_menu(NSString* appName) {
 
 - (void)insertText:(id)string replacementRange:(NSRange)range {
     (void)range;
+    NSString* in_str = [string isKindOfClass:[NSAttributedString class]]
+        ? [(NSAttributedString*)string string] : (NSString*)string;
+
+    // WYSIWYG P3 — inspector inline Text-tool edit intercepts character
+    // input BEFORE the focused widget. When the inspector consumes it (an
+    // inline text edit is in progress), the keystroke must NOT also reach
+    // a focused widget. Checked before the focused-view delivery below.
+    {
+        pulp::view::TextInputEvent ite;
+        ite.text = [in_str UTF8String];
+        if (pulp::view::View::call_inspector_text_hook(ite)) {
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
     // pulp #1708 — read from View::focused_input_ rather than the raw
     // _focusedView ivar. The static is auto-cleared by ~View() when the
     // focused widget is destroyed (e.g., React unmount of an open modal),

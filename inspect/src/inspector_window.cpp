@@ -14,6 +14,7 @@ static const Color kBgSection    = Color::rgba8(36, 36, 50);
 static const Color kTextPrimary  = Color::rgba8(220, 220, 230);
 static const Color kTextMuted    = Color::rgba8(140, 140, 160);
 static const Color kBorder       = Color::rgba8(60, 60, 80);
+static const Color kAccent       = Color::rgba8(80, 160, 255);  // active tool
 
 static const Color kLogColor     = Color::rgba8(180, 180, 200);
 static const Color kWarnColor    = Color::rgba8(255, 200, 60);
@@ -169,6 +170,79 @@ InspectorWindow::~InspectorWindow() {
     inspected_root_ = nullptr;
 }
 
+// ── P3 — Figma-style tool strip ─────────────────────────────────────────────
+//
+// A compact horizontal header strip with two tool buttons (pointer =
+// Select, "T" = Text). The active tool is highlighted. The strip reads
+// its active-tool index from the owning window (a pointer back to the
+// int it mirrors) so a keyboard V/T flip is reflected on the next paint;
+// a click on a button fires the window's on_tool_picked callback so the
+// host drives InspectorOverlay::set_tool(). Self-contained custom paint +
+// hit-test, mirroring CollapsableSection's lightweight widget pattern.
+class InspectorWindow::ToolStrip : public View {
+public:
+    ToolStrip(const int* active_tool, std::function<void(int)>* on_picked)
+        : active_tool_(active_tool), on_picked_(on_picked) {
+        flex().direction = FlexDirection::row;
+        flex().preferred_height = kStripHeight;
+        flex().flex_shrink = 0;
+        set_background_color(kBgSection);
+    }
+
+    void paint(canvas::Canvas& canvas) override {
+        auto b = bounds();
+        const int active = active_tool_ ? *active_tool_ : 0;
+        // Two buttons laid out left-to-right.
+        for (int i = 0; i < 2; ++i) {
+            Rect r = button_rect(i);
+            const bool on = (i == active);
+            canvas.set_fill_color(on ? kAccent : kBgPanel);
+            canvas.fill_rect(r.x, r.y, r.width, r.height);
+            canvas.set_fill_color(on ? Color::rgba8(20, 20, 28) : kTextMuted);
+            canvas.set_font("system", 12);
+            // Glyph: arrow for Select, "T" for Text. The arrow uses a
+            // simple unicode pointer so the strip needs no icon assets.
+            const char* glyph = (i == 0) ? "\xe2\x86\x96" /* ↖ */ : "T";
+            canvas.fill_text(glyph, r.x + r.width * 0.5f - 4,
+                             r.y + r.height * 0.5f + 4);
+        }
+        // Bottom border.
+        canvas.set_fill_color(kBorder);
+        canvas.fill_rect(b.x, b.bottom() - 1, b.width, 1);
+    }
+
+    void on_mouse_event(const MouseEvent& event) override {
+        if (!event.is_down) return;
+        for (int i = 0; i < 2; ++i) {
+            Rect r = button_rect(i);
+            // event.position is local to this View.
+            if (event.position.x >= (r.x - bounds().x) &&
+                event.position.x <= (r.x - bounds().x) + r.width &&
+                event.position.y >= 0 && event.position.y <= r.height) {
+                if (on_picked_ && *on_picked_) (*on_picked_)(i);
+                return;
+            }
+        }
+    }
+
+private:
+    static constexpr float kStripHeight = 28.0f;
+    static constexpr float kButtonWidth = 40.0f;
+
+    Rect button_rect(int i) const {
+        auto b = bounds();
+        return Rect{b.x + 6 + static_cast<float>(i) * (kButtonWidth + 4),
+                    b.y + 4, kButtonWidth, b.height - 8};
+    }
+
+    const int* active_tool_ = nullptr;
+    std::function<void(int)>* on_picked_ = nullptr;
+};
+
+void InspectorWindow::set_active_tool(int tool_index) {
+    active_tool_ = (tool_index == 1) ? 1 : 0;
+}
+
 InspectorWindow::InspectorWindow(View& root) : InspectorWindow() {
     set_inspected_root(&root);
 }
@@ -177,6 +251,13 @@ InspectorWindow::InspectorWindow() {
     flex().direction = FlexDirection::column;
     flex().flex_grow = 1;
     set_background_color(kBgDark);
+
+    // P3 — tool strip header (above the tabs). Reads active_tool_ + fires
+    // on_tool_picked, both members of this window, so the strip stays in
+    // sync with keyboard tool flips and drives the overlay on a click.
+    auto strip = std::make_unique<ToolStrip>(&active_tool_, &on_tool_picked);
+    tool_strip_ = strip.get();
+    add_child(std::move(strip));
 
     auto tab_panel = std::make_unique<TabPanel>();
     tabs_ = tab_panel.get();

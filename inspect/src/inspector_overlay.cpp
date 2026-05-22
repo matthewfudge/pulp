@@ -12,6 +12,8 @@
 #include <pulp/inspect/inspector_overlay.hpp>
 #include <pulp/inspect/tweak_store.hpp>
 #include <pulp/view/inspector.hpp>
+#include <pulp/view/widgets.hpp>
+#include <pulp/view/text_editor.hpp>
 #include <pulp/render/render_pass.hpp>
 #include <pulp/render/atlas_inventory.hpp>
 #include <pulp/runtime/log.hpp>
@@ -124,6 +126,10 @@ void InspectorOverlay::set_active(bool active) {
         // edit_target_view_ — cancel first so the buffer state is
         // cleared before we null out the target.
         if (!editing_field_.empty()) cancel_field_edit();
+        // P3 — drop any in-progress inline text edit so deactivating the
+        // inspector (incl. the Esc-deselect set_active(false)/(true)
+        // cycle) never leaves a dangling text_edit_target_.
+        if (text_editing()) cancel_text_edit();
         selected_ = nullptr;
         hovered_ = nullptr;
         alt_hover_target_ = nullptr;
@@ -246,6 +252,133 @@ bool InspectorOverlay::emit_tweak_for_selection(std::string_view property_path,
     if (anchor.empty()) return false;
     if (!tweak_store_) return false;
     tweak_store_->apply_tweak(anchor, property_path, std::move(value), source);
+    return true;
+}
+
+// ── P3 — Figma-style tool palette + inline text editing ─────────────────────
+//
+// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+// § "Future idea — Figma-style tool palette + inline text editing".
+
+void InspectorOverlay::set_tool(Tool t) {
+    if (tool_ == t) return;
+    // Leaving the Text tool with an edit open commits it (the user
+    // deliberately switched tools — treat it like click-away-to-commit
+    // rather than silently dropping the edit).
+    if (tool_ == Tool::text && t != Tool::text && text_editing())
+        commit_text_edit();
+    tool_ = t;
+}
+
+bool InspectorOverlay::view_has_editable_text(const View* v) {
+    if (!v) return false;
+    return dynamic_cast<const Label*>(v) != nullptr ||
+           dynamic_cast<const TextEditor*>(v) != nullptr;
+}
+
+std::string InspectorOverlay::editable_text_of(const View* v) {
+    if (!v) return {};
+    if (auto* lbl = dynamic_cast<const Label*>(v)) return lbl->text();
+    if (auto* ed = dynamic_cast<const TextEditor*>(v)) return ed->text();
+    return {};
+}
+
+void InspectorOverlay::set_editable_text_of(View* v, const std::string& text) {
+    if (!v) return;
+    if (auto* lbl = dynamic_cast<Label*>(v)) {
+        lbl->set_text(text);
+        // Text length changes intrinsic size — reflow up to the root so
+        // the new copy lays out + repaints on the next pass.
+        for (View* p = v; p; p = p->parent()) p->invalidate_layout();
+        return;
+    }
+    if (auto* ed = dynamic_cast<TextEditor*>(v)) {
+        ed->set_text(text);
+        for (View* p = v; p; p = p->parent()) p->invalidate_layout();
+    }
+}
+
+bool InspectorOverlay::begin_text_edit(View* v) {
+    if (!view_has_editable_text(v)) return false;
+    // Selecting the edit target keeps the selection box + props panel on
+    // it (and lets emit_tweak_for_selection() resolve its anchor).
+    selected_ = v;
+    text_edit_target_ = v;
+    text_edit_original_ = editable_text_of(v);
+    text_edit_buffer_ = text_edit_original_;
+    return true;
+}
+
+bool InspectorOverlay::commit_text_edit() {
+    if (!text_editing()) return false;
+    View* tgt = text_edit_target_;
+    const std::string new_text = text_edit_buffer_;
+    const std::string old_text = text_edit_original_;
+
+    // Keep the live View text at the committed value.
+    set_editable_text_of(tgt, new_text);
+
+    bool emitted = false;
+    const std::string anchor = tgt->anchor_id();
+    if (tweak_store_ && !anchor.empty()) {
+        // One undoable unit: do_fn re-applies the new text (live View +
+        // tweak); undo_fn restores the prior text and removes-or-restores
+        // the tweak so Cmd+Z fully reverts. Falls back to a plain
+        // tweak+apply when no EditHistory is wired.
+        const std::string path = text_tweak_path_;
+        auto prior = tweak_store_->lookup(anchor, path);
+        if (edit_history_) {
+            auto* self = this;
+            std::optional<choc::value::Value> prior_val =
+                prior.has_value() ? std::optional<choc::value::Value>(*prior)
+                                  : std::nullopt;
+            edit_history_->perform(
+                [self, tgt, anchor, path, new_text]() {
+                    set_editable_text_of(tgt, new_text);
+                    if (self->tweak_store_)
+                        self->tweak_store_->apply_tweak(
+                            anchor, path,
+                            choc::value::createString(new_text),
+                            "inspector-text-edit");
+                },
+                [self, tgt, anchor, path, old_text, prior_val]() {
+                    set_editable_text_of(tgt, old_text);
+                    if (!self->tweak_store_) return;
+                    if (prior_val.has_value())
+                        self->tweak_store_->apply_tweak(
+                            anchor, path, *prior_val, "inspector-undo");
+                    else
+                        self->tweak_store_->remove_tweak(anchor, path);
+                },
+                "edit-text");
+        } else {
+            tweak_store_->apply_tweak(anchor, path,
+                                      choc::value::createString(new_text),
+                                      "inspector-text-edit");
+        }
+        emitted = true;
+    }
+
+    text_edit_target_ = nullptr;
+    text_edit_buffer_.clear();
+    text_edit_original_.clear();
+    return emitted;
+}
+
+void InspectorOverlay::cancel_text_edit() {
+    if (!text_editing()) return;
+    // Revert the live View to the original copy (live preview mutated it).
+    set_editable_text_of(text_edit_target_, text_edit_original_);
+    text_edit_target_ = nullptr;
+    text_edit_buffer_.clear();
+    text_edit_original_.clear();
+}
+
+bool InspectorOverlay::handle_text_input(const TextInputEvent& event) {
+    if (!active_ || !text_editing()) return false;
+    if (event.text.empty()) return true;  // consume, nothing to append
+    text_edit_buffer_ += event.text;
+    set_editable_text_of(text_edit_target_, text_edit_buffer_);
     return true;
 }
 
@@ -912,6 +1045,45 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
         }
     }
 
+    // P3 — inline text editing (Text tool) owns the keyboard while a
+    // text element's copy is being edited. Enter commits (live text +
+    // a `text` tweak, one undoable unit), Esc cancels (restores the
+    // original copy), Backspace trims the last UTF-8 codepoint. The
+    // actual character input arrives via handle_text_input() (KeyEvent
+    // carries no character payload); this branch handles only the
+    // control keys. Checked BEFORE the numeric field-edit + Esc paths
+    // below so the Text tool's edit owns those keys exclusively.
+    if (active_ && text_editing() && event.is_down) {
+        if (event.key == KeyCode::enter) {
+            commit_text_edit();
+            return true;
+        }
+        if (event.key == KeyCode::escape) {
+            cancel_text_edit();
+            return true;
+        }
+        if (event.key == KeyCode::backspace) {
+            if (!text_edit_buffer_.empty()) {
+                // Trim one UTF-8 codepoint (drop continuation bytes 0x80–
+                // 0xBF then the lead byte) so multi-byte glyphs delete
+                // whole, not byte-by-byte.
+                std::size_t n = text_edit_buffer_.size();
+                do {
+                    --n;
+                } while (n > 0 &&
+                         (static_cast<unsigned char>(text_edit_buffer_[n]) &
+                          0xC0) == 0x80);
+                text_edit_buffer_.erase(n);
+                set_editable_text_of(text_edit_target_, text_edit_buffer_);
+            }
+            return true;
+        }
+        // Swallow all other key-downs while editing text so they neither
+        // flip a tool/toggle nor leak to a widget. Character input is
+        // delivered separately through handle_text_input().
+        return true;
+    }
+
     // Phase 3b — field-edit mode owns the keyboard while a numeric
     // value is being edited. Esc cancels, Enter commits, Tab walks
     // to the next field; arrows nudge; digits/sign/decimal extend
@@ -978,11 +1150,31 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
         return true;
     }
 
-    // Phase 2.5 — T toggles the tweak management panel (no modifier;
-    // only while the inspector is active). Guarded behind not-editing
-    // so typing a 't' into a field-edit buffer doesn't flip the panel.
-    if (active_ && editing_field_.empty() && event.key == KeyCode::t &&
+    // P3 — Figma-style tool palette. V selects the Select tool, T the
+    // Text tool (Figma convention). Both no-modifier, inspector-active,
+    // and gated behind not-mid-edit (numeric field edit OR inline text
+    // edit) so a V/T typed into an edit buffer never flips the tool.
+    // Bound BEFORE the Shift+T tweak-panel toggle below so the bare keys
+    // land here first.
+    if (active_ && editing_field_.empty() && !text_editing() &&
         event.is_down && event.modifiers == 0) {
+        if (event.key == KeyCode::v) {
+            set_tool(Tool::select);
+            return true;
+        }
+        if (event.key == KeyCode::t) {
+            set_tool(Tool::text);
+            return true;
+        }
+    }
+
+    // Phase 2.5 — Shift+T toggles the tweak management panel. The bare
+    // `T` key now selects the Text tool (P3), so the tweak-management
+    // panel moved to Shift+T (a free, non-conflicting trigger). Guarded
+    // behind not-editing so a Shift+T while editing doesn't flip it.
+    if (active_ && editing_field_.empty() && !text_editing() &&
+        event.key == KeyCode::t && event.is_down &&
+        event.modifiers == kModShift) {
         toggle_tweaks_panel();
         return true;
     }
@@ -1103,6 +1295,33 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
         is_press = event.is_down;
         is_drag_tick = false;
         is_release = false;
+    }
+
+    // ── P3: Text tool — click a text element to edit its copy ──────
+    //
+    // In Text-tool mode a canvas press on a text-bearing View (Label /
+    // TextEditor) begins an inline copy edit of THAT element instead of
+    // selecting / moving / resizing it. Runs BEFORE the move/resize
+    // gesture machines and the selection hit-test so the press never
+    // starts a drag. Panel clicks (tree / props / tweak rows) still fall
+    // through to the panel path so the user keeps inspector navigation.
+    // A press that misses any text element is consumed as a no-op so it
+    // doesn't accidentally move/select while the Text tool is active —
+    // matching Figma, where the Text tool never drag-moves shapes.
+    if (tool_ == Tool::text && is_press && !point_in_panel(pos)) {
+        // Commit any in-progress text edit first (click-away-to-commit),
+        // unless the press lands back on the same element being edited.
+        const View* hit = root_.hit_test(pos);
+        const View* text_host = hit;
+        while (text_host && !view_has_editable_text(text_host))
+            text_host = text_host->parent();
+        if (text_editing() && text_host != text_edit_target_) {
+            commit_text_edit();
+        }
+        if (text_host) {
+            begin_text_edit(const_cast<View*>(text_host));
+        }
+        return true;  // Text tool owns canvas presses (no drag/select)
     }
 
     // Phase 3e — the loupe re-centers on the cursor for EVERY mouse

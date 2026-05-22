@@ -281,6 +281,7 @@ TEST_CASE("Protocol: decode invalid JSON") {
 // ── InspectorOverlay ────────────────────────────────────────────────────────
 
 #include <pulp/inspect/inspector_overlay.hpp>
+#include <pulp/view/text_editor.hpp>
 #include <pulp/render/render_pass.hpp>
 
 TEST_CASE("InspectorOverlay: toggle") {
@@ -1221,8 +1222,9 @@ struct TweakPanelScene {
 
 }  // namespace
 
-TEST_CASE("InspectorOverlay Phase 2.5: T toggles the tweak management panel",
-          "[inspect][overlay][phase2.5]") {
+TEST_CASE("InspectorOverlay Phase 2.5: Shift+T toggles the tweak management "
+          "panel (bare T moved to the Text tool, P3)",
+          "[inspect][overlay][phase2.5][phase3]") {
     View root;
     root.set_bounds({0, 0, 600, 600});
     InspectorOverlay overlay(root);
@@ -1230,13 +1232,23 @@ TEST_CASE("InspectorOverlay Phase 2.5: T toggles the tweak management panel",
 
     REQUIRE_FALSE(overlay.tweaks_panel_visible());
 
+    // P3 reconcile: bare T now selects the Text tool, NOT the tweak panel.
     KeyEvent t;
     t.key = KeyCode::t;
     t.is_down = true;
     REQUIRE(overlay.handle_key_event(t));
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+    REQUIRE_FALSE(overlay.tweaks_panel_visible());  // panel NOT flipped by T
+
+    // Shift+T is the new tweak-panel toggle.
+    KeyEvent shift_t;
+    shift_t.key = KeyCode::t;
+    shift_t.modifiers = kModShift;
+    shift_t.is_down = true;
+    REQUIRE(overlay.handle_key_event(shift_t));
     REQUIRE(overlay.tweaks_panel_visible());
 
-    REQUIRE(overlay.handle_key_event(t));
+    REQUIRE(overlay.handle_key_event(shift_t));
     REQUIRE_FALSE(overlay.tweaks_panel_visible());
 }
 
@@ -1740,9 +1752,10 @@ TEST_CASE("InspectorWindow builds tabs and updates element properties", "[inspec
     inspected_root.add_child(std::move(knob));
 
     InspectorWindow window(inspected_root);
-    REQUIRE(window.child_count() == 1);
+    // P3 — the window now has a tool-strip header child + the tab panel.
+    REQUIRE(window.child_count() == 2);
 
-    auto* tabs = dynamic_cast<TabPanel*>(window.child_at(0));
+    auto* tabs = first_view_of_type<TabPanel>(window);
     REQUIRE(tabs != nullptr);
     REQUIRE(tabs->tab_count() == 4);
     REQUIRE(tabs->active_tab() == 0);
@@ -1805,7 +1818,7 @@ TEST_CASE("InspectorWindow refreshes console performance and state tabs", "[insp
     inspected_root.add_child(std::make_unique<Label>("child"));
 
     InspectorWindow window(inspected_root);
-    auto* tabs = dynamic_cast<TabPanel*>(window.child_at(0));
+    auto* tabs = first_view_of_type<TabPanel>(window);
     REQUIRE(tabs != nullptr);
 
     ConsoleCapture capture;
@@ -1839,7 +1852,7 @@ TEST_CASE("InspectorWindow refreshes console performance and state tabs", "[insp
     REQUIRE(has_label_containing(*tabs->child_at(2), "overlay: 1.75 ms, 7 draws"));
 
     InspectorWindow missing_perf_window(inspected_root);
-    auto* missing_perf_tabs = dynamic_cast<TabPanel*>(missing_perf_window.child_at(0));
+    auto* missing_perf_tabs = first_view_of_type<TabPanel>(missing_perf_window);
     REQUIRE(missing_perf_tabs != nullptr);
     missing_perf_tabs->set_active_tab(2);
     missing_perf_window.refresh();
@@ -3650,7 +3663,7 @@ TEST_CASE("InspectorWindow P2e: read-only mode opt-out suppresses the select "
     window.on_view_selected = [&](View*) { callback_fired = true; };
 
     // Find the tree and the child's node.
-    auto* tabs = dynamic_cast<TabPanel*>(window.child_at(0));
+    auto* tabs = first_view_of_type<TabPanel>(window);
     REQUIRE(tabs != nullptr);
     auto* tree = first_view_of_type<TreeView>(*tabs->child_at(0));
     REQUIRE(tree != nullptr);
@@ -3862,7 +3875,7 @@ TEST_CASE("InspectorWindow P2e: reflect_selection highlights the matching tree r
 
     InspectorWindow window(inspected_root);
 
-    auto* tabs = dynamic_cast<TabPanel*>(window.child_at(0));
+    auto* tabs = first_view_of_type<TabPanel>(window);
     REQUIRE(tabs != nullptr);
     auto* tree = first_view_of_type<TreeView>(*tabs->child_at(0));
     REQUIRE(tree != nullptr);
@@ -3955,7 +3968,7 @@ TEST_CASE("InspectorWindow P2e: two-way selection (canvas <-> tree row)",
     // Default (NOT read-only) — two-way selection is the P2e default.
     REQUIRE_FALSE(window.selection_readonly());
 
-    auto* tabs = dynamic_cast<TabPanel*>(window.child_at(0));
+    auto* tabs = first_view_of_type<TabPanel>(window);
     REQUIRE(tabs != nullptr);
     auto* tree = first_view_of_type<TreeView>(*tabs->child_at(0));
     REQUIRE(tree != nullptr);
@@ -4590,4 +4603,313 @@ TEST_CASE("InspectorOverlay P2i: Shift-resize keeps scaled content inside the "
     REQUIRE(box_ptr->transform_origin_x() == Catch::Approx(0.5f));
     REQUIRE(box_ptr->transform_origin_y() == Catch::Approx(0.5f));
     REQUIRE(box_ptr->overflow() == View::Overflow::visible);
+}
+
+// ── P3: Figma-style tool palette + inline text editing ──────────────────────
+//
+// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+// § "Future idea — Figma-style tool palette + inline text editing".
+// V = Select tool (default), T = Text tool. The Text tool clicks a
+// text-bearing element to edit its copy in place: Enter commits (live
+// View text + a `text` content tweak, ONE undoable EditHistory unit),
+// Esc cancels. The bare T tweak-panel toggle moved to Shift+T.
+
+TEST_CASE("InspectorOverlay P3: set_tool / V / T switch tools",
+          "[inspect][overlay][phase3][tools]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+
+    // Default is Select.
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::select);
+
+    // T → Text tool.
+    KeyEvent t;
+    t.key = KeyCode::t;
+    t.is_down = true;
+    REQUIRE(overlay.handle_key_event(t));
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+
+    // V → back to Select tool.
+    KeyEvent v;
+    v.key = KeyCode::v;
+    v.is_down = true;
+    REQUIRE(overlay.handle_key_event(v));
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::select);
+
+    // set_tool API mirrors the keyboard.
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+    overlay.toggle_tool();
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::select);
+}
+
+TEST_CASE("InspectorOverlay P3: Text tool click begins inline edit, not "
+          "select-for-drag",
+          "[inspect][overlay][phase3][text-tool]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Hello");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    // Drag handles ON to prove the Text tool click does NOT start a
+    // resize/move even when those gestures are available.
+    overlay.set_dragging_enabled(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    REQUIRE(InspectorOverlay::view_has_editable_text(label_ptr));
+
+    // Click the label in Text-tool mode → begins editing, no move active.
+    MouseEvent click;
+    click.position = {40, 35};
+    click.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click));
+    REQUIRE(overlay.text_editing());
+    REQUIRE(overlay.text_edit_target() == label_ptr);
+    REQUIRE(overlay.text_edit_buffer() == "Hello");
+    // Selection points at the edit target (so props panel tracks it),
+    // and the click did NOT start a move (no tweak emitted yet).
+    REQUIRE(overlay.selected_view() == label_ptr);
+    REQUIRE(store.count() == 0);
+}
+
+TEST_CASE("InspectorOverlay P3: typing + Enter commits text, emits `text` "
+          "tweak, undoable",
+          "[inspect][overlay][phase3][text-tool][undo]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Old");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    // Begin an inline edit, clear the buffer, type a new copy.
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+
+    // Backspace the whole "Old" buffer (3 chars), then type "New".
+    KeyEvent bs;
+    bs.key = KeyCode::backspace;
+    bs.is_down = true;
+    for (int i = 0; i < 3; ++i) REQUIRE(overlay.handle_key_event(bs));
+    REQUIRE(overlay.text_edit_buffer().empty());
+    REQUIRE(label_ptr->text().empty());  // live preview tracks the buffer
+
+    TextInputEvent ti;
+    ti.text = "New";
+    REQUIRE(overlay.handle_text_input(ti));
+    REQUIRE(overlay.text_edit_buffer() == "New");
+    REQUIRE(label_ptr->text() == "New");  // live preview
+
+    // Enter commits.
+    KeyEvent enter;
+    enter.key = KeyCode::enter;
+    enter.is_down = true;
+    REQUIRE(overlay.handle_key_event(enter));
+    REQUIRE_FALSE(overlay.text_editing());
+
+    // Live View keeps the new text; a `text` tweak was emitted; one undo.
+    REQUIRE(label_ptr->text() == "New");
+    auto tw = store.lookup("figma:label-1", "text");
+    REQUIRE(tw.has_value());
+    REQUIRE(tw->getString() == "New");
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "edit-text");
+
+    // Undo restores the original copy on BOTH the View and the store.
+    REQUIRE(history.undo());
+    REQUIRE(label_ptr->text() == "Old");
+    REQUIRE_FALSE(store.lookup("figma:label-1", "text").has_value());
+
+    // Redo re-applies.
+    REQUIRE(history.redo());
+    REQUIRE(label_ptr->text() == "New");
+    REQUIRE(store.lookup("figma:label-1", "text")->getString() == "New");
+}
+
+TEST_CASE("InspectorOverlay P3: Esc cancels inline text edit, reverts copy",
+          "[inspect][overlay][phase3][text-tool]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Keep");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    TextInputEvent ti;
+    ti.text = "X";
+    overlay.handle_text_input(ti);
+    REQUIRE(label_ptr->text() == "KeepX");  // live preview mutated it
+
+    KeyEvent esc;
+    esc.key = KeyCode::escape;
+    esc.is_down = true;
+    REQUIRE(overlay.handle_key_event(esc));
+    REQUIRE_FALSE(overlay.text_editing());
+
+    // Original copy restored, no tweak emitted.
+    REQUIRE(label_ptr->text() == "Keep");
+    REQUIRE(store.count() == 0);
+}
+
+TEST_CASE("InspectorOverlay P3: Select tool clicks still select (unchanged)",
+          "[inspect][overlay][phase3][text-tool][regression]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Click me");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    // Default tool is Select.
+
+    MouseEvent click;
+    click.position = {40, 35};
+    click.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click));
+    // Select tool selects (does NOT begin a text edit).
+    REQUIRE(overlay.selected_view() == label_ptr);
+    REQUIRE_FALSE(overlay.text_editing());
+}
+
+TEST_CASE("InspectorOverlay P3: Text tool only edits text-bearing views",
+          "[inspect][overlay][phase3][text-tool]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    // A plain (non-text) View.
+    auto box = std::make_unique<View>();
+    box->set_anchor_id("figma:box-1");
+    box->set_bounds({20, 20, 120, 60});
+    auto* box_ptr = box.get();
+    root.add_child(std::move(box));
+
+    REQUIRE_FALSE(InspectorOverlay::view_has_editable_text(box_ptr));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    // begin_text_edit refuses a non-text view.
+    REQUIRE_FALSE(overlay.begin_text_edit(box_ptr));
+    REQUIRE_FALSE(overlay.text_editing());
+
+    // A Text-tool click on a non-text element is a consumed no-op (no edit).
+    MouseEvent click;
+    click.position = {40, 40};
+    click.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click));
+    REQUIRE_FALSE(overlay.text_editing());
+}
+
+TEST_CASE("InspectorOverlay P3: TextEditor is also editable via the Text tool",
+          "[inspect][overlay][phase3][text-tool]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto editor = std::make_unique<pulp::view::TextEditor>();
+    editor->set_text("seed");
+    editor->set_anchor_id("figma:editor-1");
+    editor->set_bounds({20, 20, 120, 30});
+    auto* editor_ptr = editor.get();
+    root.add_child(std::move(editor));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    REQUIRE(overlay.begin_text_edit(editor_ptr));
+    REQUIRE(overlay.text_edit_buffer() == "seed");
+
+    TextInputEvent ti;
+    ti.text = "!";
+    overlay.handle_text_input(ti);
+    REQUIRE(editor_ptr->text() == "seed!");
+
+    REQUIRE(overlay.commit_text_edit());
+    REQUIRE(store.lookup("figma:editor-1", "text")->getString() == "seed!");
+}
+
+// ── P3: InspectorWindow tool strip ──────────────────────────────────────────
+//
+// The window header carries a Figma-style tool strip wired to the overlay
+// tool BOTH ways via the host: a strip-button click fires on_tool_picked
+// (host → overlay.set_tool); a keyboard V/T flip is mirrored back by the
+// host calling set_active_tool so the strip highlights the active tool.
+
+TEST_CASE("InspectorWindow P3: tool strip is present and active-tool "
+          "round-trips",
+          "[inspect][window][phase3][tools]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    InspectorWindow window(root);
+
+    // Strip header + tab panel.
+    REQUIRE(window.child_count() == 2);
+    REQUIRE(window.active_tool() == 0);  // Select default
+
+    // set_active_tool mirrors the overlay tool (host → strip).
+    window.set_active_tool(1);
+    REQUIRE(window.active_tool() == 1);
+    window.set_active_tool(0);
+    REQUIRE(window.active_tool() == 0);
+
+    // on_tool_picked fires the host callback (strip click → overlay).
+    int picked = -1;
+    window.on_tool_picked = [&](int idx) { picked = idx; };
+    // Drive a click into the strip's first child (the ToolStrip header).
+    // The strip is child 0; clicking the second button (Text) should fire
+    // on_tool_picked(1). Lay out first so the strip + button rects are valid.
+    window.set_bounds({0, 0, 400, 600});
+    window.layout_children();
+
+    View* strip = window.child_at(0);
+    REQUIRE(strip != nullptr);
+    const float strip_mid_y = strip->bounds().height * 0.5f;
+    MouseEvent click_text;
+    // Second button center: strip x=6 + 1*(40+4) + 40/2 = 70, y mid (local).
+    click_text.position = {70, strip_mid_y};
+    click_text.is_down = true;
+    strip->on_mouse_event(click_text);
+    REQUIRE(picked == 1);
+
+    MouseEvent click_select;
+    click_select.position = {26, strip_mid_y};  // first button center
+    click_select.is_down = true;
+    strip->on_mouse_event(click_select);
+    REQUIRE(picked == 0);
+
+    // The strip paints without crashing for both active states.
+    window.set_active_tool(1);
+    pulp::canvas::RecordingCanvas canvas;
+    window.paint_all(canvas);
+    REQUIRE(canvas.command_count() > 0);
 }

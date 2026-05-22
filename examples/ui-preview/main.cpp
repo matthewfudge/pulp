@@ -1580,6 +1580,18 @@ int main(int argc, char* argv[]) {
         sync_selection(v);
     };
 
+    // P3 — Figma-style tool strip ⇄ overlay tool, wired BOTH ways.
+    // Click a strip button → drive the overlay's tool; keyboard V/T flips
+    // the overlay tool → the idle loop mirrors it back into the strip.
+    inspector_view_ptr->on_tool_picked = [&](int tool_index) {
+        inspector.set_tool(tool_index == 1
+                               ? pulp::inspect::InspectorOverlay::Tool::text
+                               : pulp::inspect::InspectorOverlay::Tool::select);
+        inspector_view_ptr->set_active_tool(tool_index);
+        if (inspector_window) inspector_window->repaint();
+        if (window) window->repaint();
+    };
+
     View::set_inspector_key_hook([&](const KeyEvent& e) -> bool {
         // Cmd+I toggles inspect mode: float window + in-canvas overlay.
         if (e.is_down && e.key == KeyCode::i && e.isMainModifier()) {
@@ -1620,6 +1632,20 @@ int main(int argc, char* argv[]) {
             return true;
         }
         return false;
+    });
+
+    // P3 — route UTF-8 character input to the overlay's inline Text-tool
+    // edit BEFORE the focused widget. Consumes only while an inline text
+    // edit is in progress; otherwise returns false so normal text-input
+    // delivery proceeds.
+    View::set_inspector_text_hook([&](const pulp::view::TextInputEvent& e) -> bool {
+        if (!inspector.is_active()) return false;
+        bool consumed = inspector.handle_text_input(e);
+        if (consumed) {
+            if (window) window->repaint();
+            if (inspector_window) inspector_window->repaint();
+        }
+        return consumed;
     });
 
     // P2e: on_view_selected is wired above (two-way selection). A tree pick in
@@ -1669,6 +1695,12 @@ int main(int argc, char* argv[]) {
             inspector_rpm.set_gpu_render_time_ms(
                 static_cast<float>(window->gpu_render_time_ms()),
                 window->gpu_render_timing_available());
+            // P3 — mirror the overlay's tool into the header strip so a
+            // keyboard V/T flip is reflected (the strip reads active_tool_).
+            inspector_view_ptr->set_active_tool(
+                inspector.tool() == pulp::inspect::InspectorOverlay::Tool::text
+                    ? 1
+                    : 0);
             // Only refresh the active tab's data (refresh() already does this).
             // The NSTimer fires at 30 Hz regardless of window focus.
             inspector_view_ptr->refresh();

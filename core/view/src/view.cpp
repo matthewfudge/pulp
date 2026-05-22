@@ -880,6 +880,7 @@ std::vector<View::OverlayRequest>& View::overlay_queue() {
 static std::function<void(canvas::Canvas&, View*)> s_inspector_paint_hook;
 static std::function<bool(const KeyEvent&)> s_inspector_key_hook;
 static std::function<bool(const MouseEvent&)> s_inspector_mouse_hook;
+static std::function<bool(const TextInputEvent&)> s_inspector_text_hook;
 
 void View::set_inspector_paint_hook(
     std::function<void(canvas::Canvas&, View*)> hook) {
@@ -896,6 +897,13 @@ bool View::call_inspector_key_hook(const KeyEvent& e) {
 }
 bool View::call_inspector_mouse_hook(const MouseEvent& e) {
     return s_inspector_mouse_hook ? s_inspector_mouse_hook(e) : false;
+}
+void View::set_inspector_text_hook(
+    std::function<bool(const TextInputEvent&)> hook) {
+    s_inspector_text_hook = std::move(hook);
+}
+bool View::call_inspector_text_hook(const TextInputEvent& e) {
+    return s_inspector_text_hook ? s_inspector_text_hook(e) : false;
 }
 
 static std::function<int(const MouseEvent&)> s_inspector_cursor_hook;

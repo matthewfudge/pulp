@@ -131,6 +131,28 @@ public:
     }
     bool selection_readonly() const { return selection_readonly_; }
 
+    // ── P3 — Figma-style tool strip (Select / Text) ─────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+    // § "Future idea — Figma-style tool palette + inline text editing".)
+    // A compact horizontal strip in the window header showing the two
+    // tools (pointer = Select, "T" = Text) with the active one
+    // highlighted. The strip is wired BOTH WAYS to the overlay's tool
+    // mode via the host:
+    //   * Click a tool button → on_tool_picked(0=Select, 1=Text) fires;
+    //     the host calls InspectorOverlay::set_tool().
+    //   * Keyboard V/T flips the overlay tool → the host calls
+    //     set_active_tool() so the strip's highlight reflects it.
+    /// Index of the active tool the strip highlights (0 = Select,
+    /// 1 = Text). The host mirrors the overlay's tool here each tick.
+    void set_active_tool(int tool_index);
+    int active_tool() const { return active_tool_; }
+
+    /// Fired when the user clicks a tool button in the strip. The
+    /// argument is the tool index (0 = Select, 1 = Text). The host wires
+    /// this to InspectorOverlay::set_tool().
+    std::function<void(int tool_index)> on_tool_picked;
+
 private:
     // ── Tab construction ────────────────────────────────────────────
     std::unique_ptr<View> build_elements_tab();
@@ -155,6 +177,15 @@ private:
 
     // ── Widgets (non-owning, owned as children) ─────────────────────
     TabPanel* tabs_ = nullptr;
+
+    // ── P3 — tool strip ─────────────────────────────────────────────
+    // The strip View (custom paint + click handling) lives as the first
+    // child of the window, above the tab panel. active_tool_ is the index
+    // it highlights (0 = Select, 1 = Text). The strip reads active_tool_
+    // each paint and calls on_tool_picked on a button click.
+    class ToolStrip;
+    ToolStrip* tool_strip_ = nullptr;
+    int active_tool_ = 0;
 
     // Elements tab
     TreeView* tree_view_ = nullptr;

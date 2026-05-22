@@ -46,11 +46,41 @@ public:
     void set_active(bool active);
     void toggle() { set_active(!active_); }
 
+    // ── P3 — Figma-style tool palette ───────────────────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+    // § "Future idea — Figma-style tool palette + inline text editing".)
+    // The active tool gates what a canvas click DOES, making the
+    // select-vs-manipulate-vs-edit modality explicit (Figma convention):
+    //   - Select (V): the existing overlay behavior — click selects,
+    //     body-drag moves (reflow), handle-drag resizes, Shift scales.
+    //     UNCHANGED.
+    //   - Text (T): click a text-bearing element (Label / TextEditor) to
+    //     edit its copy in place. Enter commits (live View text + a `text`
+    //     content tweak, one undoable EditHistory unit), Esc cancels.
+    // Default Select so every existing host + test is unaffected until the
+    // user opts into the Text tool. V/T are bound in handle_key_event(),
+    // gated to active_ && editing_field_.empty() && text edit not in
+    // progress so they never fire mid-edit.
+    enum class Tool : std::uint8_t { select, text };
+    Tool tool() const { return tool_; }
+    void set_tool(Tool t);
+    void toggle_tool() {
+        set_tool(tool_ == Tool::select ? Tool::text : Tool::select);
+    }
+
     // ── Input interception ──────────────────────────────────────────
     // Call from host BEFORE dispatching to view tree.
     // Returns true if the inspector consumed the event.
     bool handle_key_event(const KeyEvent& event);
     bool handle_mouse_event(const MouseEvent& event);
+    // Text-tool inline editing consumes UTF-8 character input (separate
+    // from KeyEvent, which carries no character payload). The host routes
+    // TextInputEvents here BEFORE the view tree while the overlay is
+    // active; returns true when an inline text edit is in progress and
+    // the text was appended to the edit buffer. A no-op (returns false)
+    // otherwise, so non-text-tool input falls through to widgets.
+    bool handle_text_input(const TextInputEvent& event);
 
     // ── Painting ────────────────────────────────────────────────────
     // Call AFTER View::paint_overlays() to paint on top of everything.
@@ -409,12 +439,67 @@ public:
     /// optimistically (none yet — Phase 3b commits only on Enter).
     void cancel_field_edit();
 
+    // ── P3 — inline text editing (Text tool) ────────────────────────
+    //
+    // Distinct from the Phase 3b numeric field edit above: this edits a
+    // text-bearing View's COPY (Label / TextEditor) in place. The Text
+    // tool (set_tool(Tool::text)) routes a canvas click on a text element
+    // here; typing live-updates the View's text for an immediate preview,
+    // Enter commits, Esc cancels. On commit the live text stays AND a
+    // `text` content tweak is emitted via TweakStore as ONE undoable
+    // EditHistory unit (Cmd+Z restores the prior text).
+    //
+    // `text_editing()` is true while an inline text edit is in progress;
+    // `text_edit_buffer()` is the live edited copy; `text_edit_target()`
+    // is the View being edited (or null). These are visible for tests +
+    // host cursor hints.
+    bool text_editing() const { return text_edit_target_ != nullptr; }
+    const std::string& text_edit_buffer() const { return text_edit_buffer_; }
+    View* text_edit_target() const { return text_edit_target_; }
+
+    /// True if `v` exposes editable text the Text tool can edit (today a
+    /// Label or a TextEditor). Used by the Text-tool click path + tests.
+    static bool view_has_editable_text(const View* v);
+    /// Read the current text of a text-bearing View (empty if `v` is null
+    /// or carries no editable text).
+    static std::string editable_text_of(const View* v);
+    /// Write `text` to a text-bearing View's copy, marking layout dirty so
+    /// the new text reflows + repaints. No-op for non-text views.
+    static void set_editable_text_of(View* v, const std::string& text);
+
+    /// Begin an inline text edit of `v`'s copy, seeding the buffer with the
+    /// current text. Returns false when `v` is null or exposes no editable
+    /// text. Visible for tests; production enters via the Text-tool click
+    /// path in handle_mouse_event(). Selects `v` so the selection box +
+    /// the props panel track the edit target.
+    bool begin_text_edit(View* v);
+
+    /// Commit the inline text edit: keep the live View text, emit a `text`
+    /// content tweak (path == text_tweak_path()), and — when an EditHistory
+    /// is wired — push ONE undoable unit whose undo restores the prior
+    /// text on BOTH the live View and the TweakStore. Returns true if a
+    /// tweak was emitted (target has an anchor + a store is wired). Exits
+    /// edit mode regardless.
+    bool commit_text_edit();
+
+    /// Cancel the inline text edit, restoring the View's original text.
+    void cancel_text_edit();
+
+    /// Dotted property path the Text tool writes the edited copy to.
+    /// Defaults to "text" (the JSX text-node content). A host could
+    /// retarget it; the setter ignores empty strings.
+    const std::string& text_tweak_path() const { return text_tweak_path_; }
+    void set_text_tweak_path(std::string path) {
+        if (!path.empty()) text_tweak_path_ = std::move(path);
+    }
+
     // ── Phase 2.5 — tweak management panel (Photoshop-layers style) ─
     //
     // A scrollable panel listing every tweak in the attached
     // TweakStore, grouped by anchor. Each tweak row carries three
     // per-tweak controls: bypass (eye), lock, and delete. Toggled with
-    // the `T` key while the inspector is active. Default OFF so the
+    // `Shift+T` while the inspector is active (the bare `T` key now
+    // selects the Figma-style Text tool — P3). Default OFF so the
     // pre-2.5 inspector layout is unchanged until the user opts in.
     void set_tweaks_panel_visible(bool visible) { tweaks_panel_visible_ = visible; }
     bool tweaks_panel_visible() const { return tweaks_panel_visible_; }
@@ -663,6 +748,20 @@ private:
     std::size_t edit_caret_pos_ = 0;
     float edit_original_value_ = 0.0f;
     View* edit_target_view_ = nullptr;  ///< Owner of the editing field.
+
+    // ── P3 — tool palette + inline text edit state ──────────────────
+    //
+    // tool_ is the active canvas tool (Select default, Text). The Text
+    // tool drives the inline-text-edit state below: text_edit_target_ is
+    // the View whose copy is being edited (null = not editing),
+    // text_edit_buffer_ is the live edited string, text_edit_original_ is
+    // the copy at edit start (for Esc-cancel + undo). text_tweak_path_ is
+    // the dotted path the committed copy is persisted under ("text").
+    Tool tool_ = Tool::select;
+    View* text_edit_target_ = nullptr;
+    std::string text_edit_buffer_;
+    std::string text_edit_original_;
+    std::string text_tweak_path_ = "text";
 
     // Ordered list of editable fields populated during paint_props_section()
     // — used (a) for Tab to walk forward, and (b) for click hit-testing.
