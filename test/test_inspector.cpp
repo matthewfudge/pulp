@@ -5168,6 +5168,50 @@ TEST_CASE("InspectorOverlay QA BUG2: Delete removes only the SELECTION, not all"
     REQUIRE(overlay.text_edit_buffer() == "ave");
 }
 
+TEST_CASE("InspectorOverlay QA BUG3: committed text edit is one undoable unit",
+          "[inspect][overlay][wysiwyg][qa][bug3][undo]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    Label* label = nullptr;
+    root.add_child(t2_make_label("polywave", &label));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label));
+
+    // Edit: caret at 4, insert 't' -> "polytwave".
+    overlay.text_move_home(false);
+    overlay.text_move_caret(4, /*extend=*/false);
+    TextInputEvent ti; ti.text = "t";
+    REQUIRE(overlay.handle_text_input(ti));
+    REQUIRE(label->text() == "polytwave");
+
+    // Commit (Enter) — exactly ONE EditHistory entry restores the prior text.
+    KeyEvent enter; enter.key = KeyCode::enter; enter.is_down = true;
+    REQUIRE(overlay.handle_key_event(enter));
+    REQUIRE_FALSE(overlay.text_editing());
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "edit-text");
+    REQUIRE(store.lookup("figma:t2", "text")->getString() == "polytwave");
+
+    // Undo restores the ORIGINAL text on both the View and the store (the
+    // reported bug: Cmd+Z undid moves but not text edits).
+    REQUIRE(history.undo());
+    REQUIRE(label->text() == "polywave");
+    REQUIRE_FALSE(store.lookup("figma:t2", "text").has_value());
+
+    // Redo re-applies the edit.
+    REQUIRE(history.redo());
+    REQUIRE(label->text() == "polytwave");
+    REQUIRE(store.lookup("figma:t2", "text")->getString() == "polytwave");
+}
+
 TEST_CASE("InspectorOverlay P3: Select tool clicks still select (unchanged)",
           "[inspect][overlay][phase3][text-tool][regression]") {
     View root;
