@@ -239,6 +239,84 @@ bool InspectorOverlay::emit_tweak_for_selection(std::string_view property_path,
     return true;
 }
 
+// ── P2a — undo safety net helpers ───────────────────────────────────────────
+//
+// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md § R2.2.
+// These capture the pre-gesture state at gesture START and restore it at
+// undo time. A gesture's EditHistory entry pairs:
+//   do_fn   = re-apply the after-state (idempotent — the drag already
+//             mutated the live view, so EditHistory::perform calling do_fn
+//             once more just re-sets the same final values).
+//   undo_fn = restore the captured before-state (View inputs + tweaks).
+
+InspectorOverlay::LayoutSnapshot
+InspectorOverlay::snapshot_layout(const View* v) const {
+    LayoutSnapshot s;
+    if (!v) return s;
+    const auto& f = v->flex();
+    s.preferred_width = f.preferred_width;
+    s.preferred_height = f.preferred_height;
+    s.dim_width = f.dim_width;
+    s.dim_height = f.dim_height;
+    s.position = v->position();
+    s.left = v->left();
+    s.top = v->top();
+    s.left_unit = v->left_unit();
+    s.top_unit = v->top_unit();
+    s.has_left = v->has_left();
+    s.has_top = v->has_top();
+    s.bounds = v->bounds();
+    return s;
+}
+
+void InspectorOverlay::restore_layout(View* v, const LayoutSnapshot& s) const {
+    if (!v) return;
+    auto& f = v->flex();
+    f.preferred_width = s.preferred_width;
+    f.preferred_height = s.preferred_height;
+    f.dim_width = s.dim_width;
+    f.dim_height = s.dim_height;
+    // Position + insets. There is no public API to clear has_left_ /
+    // has_top_ back to false, so we restore the captured raw value + unit
+    // unconditionally. For a node whose pre-move position was static_ /
+    // relative, Yoga ignores absolute insets for static and applies the
+    // restored (typically 0) inset for relative — visually identical to
+    // the no-inset original. The position enum is restored exactly.
+    v->set_position(s.position);
+    v->set_left(s.left, s.left_unit);
+    v->set_top(s.top, s.top_unit);
+    v->set_bounds(s.bounds);
+    v->invalidate_layout();
+}
+
+std::vector<InspectorOverlay::PriorTweak>
+InspectorOverlay::snapshot_tweaks(
+    std::string_view anchor,
+    const std::vector<std::string>& paths) const {
+    std::vector<PriorTweak> out;
+    out.reserve(paths.size());
+    for (const auto& p : paths) {
+        PriorTweak pt;
+        pt.path = p;
+        if (tweak_store_)
+            pt.value = tweak_store_->lookup(anchor, p);
+        out.push_back(std::move(pt));
+    }
+    return out;
+}
+
+void InspectorOverlay::restore_tweaks(std::string_view anchor,
+                                      const std::vector<PriorTweak>& prior,
+                                      std::string_view source) const {
+    if (!tweak_store_) return;
+    for (const auto& pt : prior) {
+        if (pt.value.has_value())
+            tweak_store_->apply_tweak(anchor, pt.path, *pt.value, source);
+        else
+            tweak_store_->remove_tweak(anchor, pt.path);
+    }
+}
+
 // ── Phase 2 — drift detection ───────────────────────────────────────────────
 //
 // Walks the live view tree collecting every non-empty anchor_id, then
@@ -497,6 +575,29 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
         return true;
     }
 
+    // P2a (undo safety net) — Cmd+Z undo / Cmd+Shift+Z (or Cmd+Y) redo,
+    // bound only while the inspector is active and an EditHistory is wired.
+    // Checked BEFORE the field-edit / toggle paths below so a manipulation
+    // gesture is always reversible regardless of what other mode is on.
+    // The actual restore mutates View inputs (invalidate_layout) and the
+    // TweakStore; the host's continuous paint loop reflects it next frame.
+    // Esc-to-ascend and the letter toggles still work because we only
+    // consume the Z / Y combos here. Consume even a no-op (empty history)
+    // so the keystroke never falls through to the view tree.
+    if (active_ && edit_history_ && event.isMainModifier() && event.is_down) {
+        if (event.key == KeyCode::z) {
+            if (event.isShiftDown())
+                edit_history_->redo();   // Cmd+Shift+Z = redo
+            else
+                edit_history_->undo();   // Cmd+Z = undo
+            return true;
+        }
+        if (event.key == KeyCode::y) {
+            edit_history_->redo();       // Cmd+Y = redo (Windows-style)
+            return true;
+        }
+    }
+
     // Phase 3b — field-edit mode owns the keyboard while a numeric
     // value is being edited. Esc cancels, Enter commits, Tab walks
     // to the next field; arrows nudge; digits/sign/decimal extend
@@ -716,6 +817,34 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             // fall through to normal selection logic so the user can
             // immediately re-target without a wasted click.
             active_drag_ = DragCorner::none;
+
+            // P2a: commit the completed resize as ONE undoable unit. The
+            // drag already mutated the live view + overwrote the tweaks on
+            // each move tick, so the AFTER-state is whatever is live right
+            // now — snapshot it for an idempotent do_fn, pair it with the
+            // BEFORE-state captured at gesture start for the undo_fn.
+            if (edit_history_ && selected_) {
+                View* tgt = selected_;
+                const std::string anchor = resize_anchor_;
+                LayoutSnapshot before = resize_before_layout_;
+                std::vector<PriorTweak> before_tweaks = resize_before_tweaks_;
+                LayoutSnapshot after = snapshot_layout(tgt);
+                std::vector<PriorTweak> after_tweaks =
+                    snapshot_tweaks(anchor, {"layout.width", "layout.height"});
+                auto* self = this;
+                edit_history_->perform(
+                    [self, tgt, anchor, after, after_tweaks]() {
+                        self->restore_layout(tgt, after);
+                        self->restore_tweaks(anchor, after_tweaks,
+                                             "inspector-drag-handle");
+                    },
+                    [self, tgt, anchor, before, before_tweaks]() {
+                        self->restore_layout(tgt, before);
+                        self->restore_tweaks(anchor, before_tweaks,
+                                             "inspector-undo");
+                    },
+                    "resize");
+            }
             // fall through to the normal handlers below
         } else {
             // Move: live-resize + overwrite the tweak.
@@ -778,6 +907,15 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             drag_start_bounds_ = view_bounds_in_root(selected_);
             drag_start_pref_w_ = selected_->flex().preferred_width;
             drag_start_pref_h_ = selected_->flex().preferred_height;
+            // P2a: capture the pre-resize View inputs + prior tweak values
+            // so the commit (release) can push ONE undoable EditHistory
+            // entry. No-op cost when edit_history_ is null — the captures
+            // are cheap and the commit simply skips the perform() call.
+            resize_anchor_ = selected_->anchor_id();
+            resize_before_layout_ = snapshot_layout(selected_);
+            resize_before_tweaks_ =
+                snapshot_tweaks(resize_anchor_, {"layout.width",
+                                                 "layout.height"});
             return true;  // consume the press; subsequent moves are ours
         }
     }
@@ -793,6 +931,36 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             // Release: end the move. Don't consume — let the click fall
             // through to normal selection so the user can re-target.
             move_active_ = false;
+
+            // P2a: commit the completed move as ONE undoable unit. Like
+            // the resize commit, the live view + the three move tweaks are
+            // already at their final state, so snapshot the AFTER-state for
+            // an idempotent do_fn and pair it with the BEFORE-state from
+            // gesture start. One undo reverts all three move tweaks
+            // atomically (restore_tweaks restores/removes each in turn).
+            if (edit_history_ && selected_) {
+                View* tgt = selected_;
+                const std::string anchor = move_anchor_;
+                LayoutSnapshot before = move_before_layout_;
+                std::vector<PriorTweak> before_tweaks = move_before_tweaks_;
+                LayoutSnapshot after = snapshot_layout(tgt);
+                std::vector<PriorTweak> after_tweaks = snapshot_tweaks(
+                    anchor,
+                    {"layout.position", "layout.left", "layout.top"});
+                auto* self = this;
+                edit_history_->perform(
+                    [self, tgt, anchor, after, after_tweaks]() {
+                        self->restore_layout(tgt, after);
+                        self->restore_tweaks(anchor, after_tweaks,
+                                             "inspector-drag-move");
+                    },
+                    [self, tgt, anchor, before, before_tweaks]() {
+                        self->restore_layout(tgt, before);
+                        self->restore_tweaks(anchor, before_tweaks,
+                                             "inspector-undo");
+                    },
+                    "move");
+            }
             // fall through to the normal handlers below
         } else {
             float dx = pos.x - move_start_pos_.x;
@@ -860,6 +1028,15 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
         move_refused_grid_ = false;
         move_active_ = true;
         move_start_pos_ = pos;
+        // P2a: capture pre-move View inputs (position + insets + bounds)
+        // and prior values of the three move tweaks BEFORE seed_move_origin
+        // / the first move tick converts the node to absolute, so undo can
+        // restore the original layout + tweak state exactly.
+        move_anchor_ = selected_->anchor_id();
+        move_before_layout_ = snapshot_layout(selected_);
+        move_before_tweaks_ = snapshot_tweaks(
+            move_anchor_,
+            {"layout.position", "layout.left", "layout.top"});
         seed_move_origin(selected_);
         return true;  // consume the press; subsequent moves are ours
     }
@@ -903,10 +1080,37 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                             tweak_store_->set_locked(row.anchor_id, !now);
                             break;
                         }
-                        case TweakAction::remove:
-                            tweak_store_->remove_tweak(row.anchor_id,
-                                                       row.property_path);
+                        case TweakAction::remove: {
+                            // P2a: capture the value being deleted FIRST so
+                            // the undo can re-apply it, then make the delete
+                            // ONE undoable unit. Falls back to a plain
+                            // remove when no EditHistory is wired.
+                            const std::string del_anchor = row.anchor_id;
+                            const std::string del_path = row.property_path;
+                            auto prior =
+                                tweak_store_->lookup(del_anchor, del_path);
+                            if (edit_history_ && prior.has_value()) {
+                                auto* self = this;
+                                choc::value::Value prior_val = *prior;
+                                edit_history_->perform(
+                                    [self, del_anchor, del_path]() {
+                                        if (self->tweak_store_)
+                                            self->tweak_store_->remove_tweak(
+                                                del_anchor, del_path);
+                                    },
+                                    [self, del_anchor, del_path, prior_val]() {
+                                        if (self->tweak_store_)
+                                            self->tweak_store_->apply_tweak(
+                                                del_anchor, del_path,
+                                                prior_val, "inspector-undo");
+                                    },
+                                    "delete-tweak");
+                            } else {
+                                tweak_store_->remove_tweak(del_anchor,
+                                                           del_path);
+                            }
                             break;
+                        }
                         case TweakAction::none:
                             break;
                     }

@@ -1065,6 +1065,13 @@ int main(int argc, char* argv[]) {
     inspector_tweaks.load_from_disk();          // best-effort; ok if absent
     inspector_tweaks.set_auto_save(true);
     inspector.set_tweak_store(&inspector_tweaks);
+    // P2a (undo safety net) — give each manipulation gesture (move /
+    // resize / tweak-panel delete) its own undoable EditHistory entry,
+    // reachable via Cmd+Z / Cmd+Shift+Z in the overlay. Coalescing is OFF
+    // so two consecutive moves are two distinct undo steps, not one.
+    pulp::state::EditHistory inspector_history;
+    inspector_history.set_coalesce(false);
+    inspector.set_edit_history(&inspector_history);
     if (pulp::runtime::get_env("PULP_INSPECTOR")) {
         inspector.set_active(true);
     }

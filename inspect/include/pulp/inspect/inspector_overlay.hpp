@@ -9,6 +9,7 @@
 #include <pulp/inspect/editor_url.hpp>
 #include <pulp/inspect/source_jump.hpp>
 #include <pulp/inspect/tweak_store.hpp>
+#include <pulp/state/edit_history.hpp>
 
 #include <choc/containers/choc_Value.h>
 
@@ -16,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -74,6 +76,24 @@ public:
     /// TweakStore is wired into the host).
     void set_tweak_store(TweakStore* store) { tweak_store_ = store; }
     TweakStore* tweak_store() const { return tweak_store_; }
+
+    /// P2a (undo safety net) —
+    /// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md § R2.2.
+    /// Attach an EditHistory so every committed manipulation gesture
+    /// (drag-to-move, corner-resize, tweak-panel delete) becomes ONE
+    /// undoable unit. Each gesture's commit pushes a single entry whose
+    /// undo restores BOTH the live View layout inputs AND the TweakStore
+    /// to the exact pre-gesture state — nothing is ever lost. Cmd+Z /
+    /// Cmd+Shift+Z (or Cmd+Y) in handle_key_event() drive undo / redo and
+    /// repaint. When null (the default), gestures behave exactly as before
+    /// (no undo) — the EditHistory is a strictly additive safety net.
+    ///
+    /// NOTE: EditHistory coalesces by default (merges consecutive entries
+    /// with the same description), which would fuse two separate moves
+    /// into one undo step. Callers that want one-undo-per-gesture should
+    /// `set_coalesce(false)` on the history before wiring it here.
+    void set_edit_history(pulp::state::EditHistory* h) { edit_history_ = h; }
+    pulp::state::EditHistory* edit_history() const { return edit_history_; }
 
     /// Emit a tweak for the currently-selected view's anchor. Returns
     /// false if there's no selection, the selection has no anchor_id,
@@ -653,6 +673,69 @@ private:
     // Phase 0b PR-C-1: optional in-process gesture-tweak persistence.
     // When null, emit_tweak_for_selection() is a no-op.
     TweakStore* tweak_store_ = nullptr;
+
+    // P2a (undo safety net): optional EditHistory. When null, gestures
+    // apply exactly as before with no undo entry pushed. See
+    // set_edit_history().
+    pulp::state::EditHistory* edit_history_ = nullptr;
+
+    // ── P2a — gesture undo helpers ──────────────────────────────────
+    //
+    // A snapshot of every live View layout input a gesture mutates, plus
+    // the prior TweakStore value for each path the gesture writes (so undo
+    // can apply-or-remove). Captured at gesture START, consumed at COMMIT
+    // when building the EditHistory entry's undo lambda.
+    struct LayoutSnapshot {
+        // Resize inputs.
+        float preferred_width = 0.0f;
+        float preferred_height = 0.0f;
+        Dimension dim_width{};
+        Dimension dim_height{};
+        // Move inputs.
+        View::Position position = View::Position::static_;
+        float left = 0.0f;
+        float top = 0.0f;
+        DimensionUnit left_unit = DimensionUnit::px;
+        DimensionUnit top_unit = DimensionUnit::px;
+        bool has_left = false;
+        bool has_top = false;
+        // Resolved bounds at capture (so undo restores the local paint box
+        // before Yoga's next layout pass overwrites it).
+        Rect bounds{};
+    };
+
+    // Per-path prior-value capture: nullopt means "no tweak existed, so
+    // undo must remove_tweak"; a value means "restore via apply_tweak".
+    struct PriorTweak {
+        std::string path;
+        std::optional<choc::value::Value> value;
+    };
+
+    // Capture the resize-relevant View inputs of the selected view.
+    LayoutSnapshot snapshot_layout(const View* v) const;
+    // Restore a previously-captured snapshot onto `v` (resize fields only
+    // for resize undo, plus position/insets for move undo). Re-applies the
+    // captured bounds and invalidates layout.
+    void restore_layout(View* v, const LayoutSnapshot& s) const;
+    // Capture the current TweakStore values for `paths` under `anchor`.
+    std::vector<PriorTweak> snapshot_tweaks(
+        std::string_view anchor,
+        const std::vector<std::string>& paths) const;
+    // Apply a previously-captured prior-tweak list: restore-or-remove each.
+    void restore_tweaks(std::string_view anchor,
+                        const std::vector<PriorTweak>& prior,
+                        std::string_view source) const;
+
+    // Resize gesture-start captures (consumed at resize commit to build the
+    // EditHistory entry). Populated alongside drag_start_pref_w_/h_.
+    LayoutSnapshot resize_before_layout_{};
+    std::vector<PriorTweak> resize_before_tweaks_;
+    std::string resize_anchor_;
+
+    // Move gesture-start captures (consumed at move commit).
+    LayoutSnapshot move_before_layout_{};
+    std::vector<PriorTweak> move_before_tweaks_;
+    std::string move_anchor_;
 
     // Phase 5.1: editor-URL config for the `J` source-jump hotkey.
     // Defaults to the built-in VS Code template; the env override

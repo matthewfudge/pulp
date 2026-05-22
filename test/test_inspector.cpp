@@ -2970,3 +2970,376 @@ TEST_CASE("InspectorOverlay P2: move tweaks reconstruct absolute view on re-appl
     REQUIRE(fresh.left() == 120.0f);
     REQUIRE(fresh.top() == 75.0f);
 }
+
+// ── P2a: undo safety net ────────────────────────────────────────────────────
+//
+// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md § R2.2.
+// Every committed manipulation gesture becomes ONE undoable EditHistory
+// entry whose undo restores BOTH the live View layout inputs AND the
+// TweakStore. These drive the real handle_mouse_event() gesture path
+// (press → move → release) with an EditHistory attached, then assert
+// undo/redo behavior.
+
+TEST_CASE("InspectorOverlay P2a: resize gesture is one undoable unit",
+          "[inspect][overlay][p2a][undo][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("figma:0:42");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_dragging_enabled(true);
+
+    // Select.
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    // Pre-gesture: no width/height tweaks, EditHistory empty.
+    REQUIRE_FALSE(store.lookup("figma:0:42", "layout.width").has_value());
+    REQUIRE_FALSE(history.can_undo());
+
+    // Press SE handle (corner at 90,50), drag +20/+15, release.
+    MouseEvent press;
+    press.position = {90, 50};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    MouseEvent drag;
+    drag.position = {110, 65};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    MouseEvent release;  // is_down=true ends the gesture (acts as release)
+    release.position = {300, 300};
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+
+    // After commit: the resize landed live + as tweaks, and exactly ONE
+    // undo entry exists.
+    REQUIRE(child_ptr->flex().preferred_width == 100.0f);
+    REQUIRE(child_ptr->flex().preferred_height == 55.0f);
+    REQUIRE(store.lookup("figma:0:42", "layout.width")->getFloat32() == 100.0f);
+    REQUIRE(store.lookup("figma:0:42", "layout.height")->getFloat32() == 55.0f);
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "resize");
+
+    // Undo: View inputs restored AND the tweaks reverted (removed, since
+    // none existed before the gesture).
+    REQUIRE(history.undo());
+    REQUIRE(child_ptr->flex().preferred_width == 80.0f);
+    REQUIRE(child_ptr->flex().preferred_height == 40.0f);
+    REQUIRE_FALSE(store.lookup("figma:0:42", "layout.width").has_value());
+    REQUIRE_FALSE(store.lookup("figma:0:42", "layout.height").has_value());
+    REQUIRE(child_ptr->bounds().width == 80.0f);
+    REQUIRE(child_ptr->bounds().height == 40.0f);
+
+    // Redo: re-applies the resize (View inputs + tweaks back).
+    REQUIRE(history.redo());
+    REQUIRE(child_ptr->flex().preferred_width == 100.0f);
+    REQUIRE(child_ptr->flex().preferred_height == 55.0f);
+    REQUIRE(store.lookup("figma:0:42", "layout.width")->getFloat32() == 100.0f);
+    REQUIRE(store.lookup("figma:0:42", "layout.height")->getFloat32() == 55.0f);
+}
+
+TEST_CASE("InspectorOverlay P2a: resize undo restores a PRIOR tweak value",
+          "[inspect][overlay][p2a][undo][issue-wysiwyg-p2]") {
+    // When a width tweak already exists, undo must RESTORE it (not remove
+    // it) — proving the prior-value capture path, not just the remove path.
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    store.apply_tweak("a", "layout.width", choc::value::createFloat32(80.0f),
+                      "seed");
+    store.apply_tweak("a", "layout.height", choc::value::createFloat32(40.0f),
+                      "seed");
+
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_dragging_enabled(true);
+
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+
+    MouseEvent press;
+    press.position = {90, 50};
+    press.is_down = true;
+    overlay.handle_mouse_event(press);
+    MouseEvent drag;
+    drag.position = {110, 65};
+    drag.is_down = false;
+    overlay.handle_mouse_event(drag);
+    MouseEvent release;
+    release.position = {300, 300};
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+
+    REQUIRE(store.lookup("a", "layout.width")->getFloat32() == 100.0f);
+
+    // Undo: the prior tweak value (80) is restored, NOT removed.
+    REQUIRE(history.undo());
+    auto w = store.lookup("a", "layout.width");
+    auto h = store.lookup("a", "layout.height");
+    REQUIRE(w.has_value());
+    REQUIRE(h.has_value());
+    REQUIRE(w->getFloat32() == 80.0f);
+    REQUIRE(h->getFloat32() == 40.0f);
+}
+
+TEST_CASE("InspectorOverlay P2a: move gesture undo reverts all 3 tweaks atomically",
+          "[inspect][overlay][p2a][undo][move][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    root.flex().direction = FlexDirection::row;
+
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-move");
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    const Rect before = child_ptr->bounds();
+    const auto before_pos = child_ptr->position();
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_dragging_enabled(true);
+
+    MouseEvent click;
+    click.position = {before.x + 10, before.y + 10};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    MouseEvent press;
+    press.position = {before.x + 20, before.y + 20};
+    press.is_down = true;
+    overlay.handle_mouse_event(press);
+
+    MouseEvent drag;
+    drag.position = {press.position.x + 50, press.position.y + 30};
+    drag.is_down = false;
+    overlay.handle_mouse_event(drag);
+
+    MouseEvent release;
+    release.position = {500, 350};
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+
+    // After commit: converted to absolute, 3 tweaks, one undo entry.
+    REQUIRE(child_ptr->position() == View::Position::absolute);
+    REQUIRE(store.count() == 3);
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "move");
+
+    // ONE undo reverts ALL THREE move tweaks atomically AND restores the
+    // pre-move View position.
+    REQUIRE(history.undo());
+    REQUIRE(child_ptr->position() == before_pos);
+    REQUIRE_FALSE(store.lookup("anchor-move", "layout.position").has_value());
+    REQUIRE_FALSE(store.lookup("anchor-move", "layout.left").has_value());
+    REQUIRE_FALSE(store.lookup("anchor-move", "layout.top").has_value());
+    REQUIRE(store.count() == 0);
+
+    // Re-layout: the element returns to its in-flow position.
+    root.layout_children();
+    REQUIRE(child_ptr->bounds().x == Catch::Approx(before.x).margin(0.5));
+    REQUIRE(child_ptr->bounds().y == Catch::Approx(before.y).margin(0.5));
+
+    // Redo: the move comes back atomically.
+    REQUIRE(history.redo());
+    REQUIRE(child_ptr->position() == View::Position::absolute);
+    REQUIRE(store.count() == 3);
+    REQUIRE(store.lookup("anchor-move", "layout.left").has_value());
+}
+
+TEST_CASE("InspectorOverlay P2a: gestures behave normally when no EditHistory",
+          "[inspect][overlay][p2a][undo][issue-wysiwyg-p2]") {
+    // Guard: without an EditHistory wired, the resize gesture still applies
+    // live + emits tweaks exactly as before (the safety net is additive).
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    // No set_edit_history() — edit_history_ stays null.
+
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    MouseEvent press;
+    press.position = {90, 50};
+    press.is_down = true;
+    overlay.handle_mouse_event(press);
+    MouseEvent drag;
+    drag.position = {110, 65};
+    drag.is_down = false;
+    overlay.handle_mouse_event(drag);
+    MouseEvent release;
+    release.position = {300, 300};
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+
+    REQUIRE(child_ptr->flex().preferred_width == 100.0f);
+    REQUIRE(store.lookup("a", "layout.width")->getFloat32() == 100.0f);
+}
+
+TEST_CASE("InspectorOverlay P2a: Cmd+Z / Cmd+Shift+Z drive undo and redo",
+          "[inspect][overlay][p2a][undo][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({10, 10, 80, 40});
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_dragging_enabled(true);
+
+    // Drive a resize gesture so there is something to undo.
+    MouseEvent click;
+    click.position = {30, 30};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    MouseEvent press;
+    press.position = {90, 50};
+    press.is_down = true;
+    overlay.handle_mouse_event(press);
+    MouseEvent drag;
+    drag.position = {110, 65};
+    drag.is_down = false;
+    overlay.handle_mouse_event(drag);
+    MouseEvent release;
+    release.position = {300, 300};
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+    REQUIRE(child_ptr->flex().preferred_width == 100.0f);
+
+    // Cmd+Z (primary modifier) undoes.
+    KeyEvent undo_key;
+    undo_key.key = KeyCode::z;
+    undo_key.is_down = true;
+    undo_key.modifiers = pulp::view::is_main_modifier(kModCmd)
+                             ? kModCmd
+                             : kModCtrl;
+    REQUIRE(overlay.handle_key_event(undo_key));
+    REQUIRE(child_ptr->flex().preferred_width == 80.0f);
+
+    // Cmd+Shift+Z redoes.
+    KeyEvent redo_key;
+    redo_key.key = KeyCode::z;
+    redo_key.is_down = true;
+    redo_key.modifiers = (pulp::view::is_main_modifier(kModCmd)
+                              ? kModCmd
+                              : kModCtrl) |
+                         kModShift;
+    REQUIRE(overlay.handle_key_event(redo_key));
+    REQUIRE(child_ptr->flex().preferred_width == 100.0f);
+}
+
+TEST_CASE("InspectorOverlay P2a: tweak-panel delete is undoable",
+          "[inspect][overlay][p2a][undo][delete][issue-wysiwyg-p2]") {
+    // Drive the REAL panel delete-icon click path through
+    // handle_mouse_event() (the TweakAction::remove branch that builds the
+    // EditHistory entry), then undo to restore the deleted tweak. The icon
+    // hit-rects are private, so we sweep the known delete-icon column the
+    // same way the Phase 2.5 panel tests do.
+    View root;
+    root.set_bounds({0, 0, 600, 600});
+    TweakStore store;
+    store.apply_tweak("figma:0:a", "layout.padding",
+                      choc::value::createInt32(12), "seed");
+
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.toggle_tweaks_panel();
+    REQUIRE(overlay.tweaks_panel_visible());
+    REQUIRE(store.count() == 1);
+
+    // Sweep the delete-icon (index 2) column to land the real click.
+    constexpr float kIconSize = 14.0f, kIconGap = 4.0f;
+    const float x = (600.0f - 300.0f) + 8.0f;
+    const float w = 300.0f - 16.0f;
+    const float icons_w = 3.0f * kIconSize + 2.0f * kIconGap;
+    const float icons_x = x + w - icons_w;
+    const float icon_cx = icons_x + 2 * (kIconSize + kIconGap) + kIconSize / 2.0f;
+
+    bool deleted = false;
+    for (float y = 600.0f * 0.55f; y < 600.0f - 24.0f && !deleted; y += 2.0f) {
+        pulp::canvas::RecordingCanvas c;
+        overlay.paint(c);  // refresh row hit-rects
+        MouseEvent click;
+        click.position = {icon_cx, y};
+        click.is_down = true;
+        overlay.handle_mouse_event(click);
+        deleted = (store.count() == 0);
+    }
+    REQUIRE(deleted);
+
+    // The committed delete pushed ONE undoable entry.
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo_description() == "delete-tweak");
+
+    // Undo: the deleted tweak is restored with its original value.
+    REQUIRE(history.undo());
+    auto restored = store.lookup("figma:0:a", "layout.padding");
+    REQUIRE(restored.has_value());
+    REQUIRE(restored->getInt32() == 12);
+}
