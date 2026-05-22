@@ -96,6 +96,39 @@ public:
     bool dragging_enabled() const { return dragging_enabled_; }
     void toggle_dragging() { dragging_enabled_ = !dragging_enabled_; }
 
+    // ── P1/P2 — minimal in-canvas "manipulate" layer ────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md, P1.)
+    // The full inspector HUD (tree / props / stats side panel) belongs
+    // in the FLOATING InspectorWindow. When the in-canvas overlay is used
+    // purely for direct manipulation (move / resize handles), it should
+    // paint ONLY the selection box + handles, NOT its dev side-panel —
+    // otherwise the panel duplicates the floating window and clutters the
+    // canvas. `manipulate_only_` flips paint() into that bare mode and
+    // makes point_in_panel() always return false so the whole canvas is
+    // live for selection + drag. Default OFF so the standalone dev HUD is
+    // unchanged. When this mode is on, dragging is implicitly enabled so
+    // handles paint without a separate D-key toggle.
+    void set_manipulate_only(bool on) {
+        manipulate_only_ = on;
+        if (on) dragging_enabled_ = true;
+    }
+    bool manipulate_only() const { return manipulate_only_; }
+
+    /// Set the selected view directly (used by the floating Inspector
+    /// window so the two surfaces share one selection). Safe to pass
+    /// nullptr to clear. Does not require the overlay to be active.
+    void set_selected_view(View* v) { selected_ = v; }
+
+    // ── P1 — drill-down / nested selection ──────────────────────────
+    //
+    // Selection resolves to the DEEPEST hittable element at the click
+    // point (View::hit_test already returns deepest). Esc-to-ascend
+    // walks the selection up to its parent so a user can reach a
+    // container after landing on a nested child. select_parent() is a
+    // no-op (returns false) at the root or with no selection.
+    bool select_parent();
+
     // ── Phase 6.1 — per-pass GPU/render attribution viewer ──────────
     //
     // Spike reference: planning/2026-05-19-inspector-phase6-gpu-perf-spike.md
@@ -684,6 +717,51 @@ private:
     // DragCorner::none if no handle is hit or no view selected.
     DragCorner hit_test_drag_handle(Point pos) const;
 
+    // ── P1 — minimal manipulate layer ───────────────────────────────
+    // When true, paint() draws only the selection box + handles (no dev
+    // side-panel) and point_in_panel() reports false everywhere. See
+    // set_manipulate_only().
+    bool manipulate_only_ = false;
+
+    // ── P2 — drag-to-move gesture state ─────────────────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md, P2.)
+    // A body-drag (mouse-down on the selected view's body, NOT a resize
+    // handle) repositions the view via position:absolute + left/top.
+    // Mirrors the Phase 3a resize state machine: press starts, every
+    // is_down=false event live-updates and overwrites the tweaks, the
+    // next is_down=true ends the gesture. The three move tweaks
+    // (layout.position / layout.left / layout.top) land in a single
+    // atomic TweakStore batch each tick.
+    bool move_active_ = false;            // a move gesture is in progress
+    bool move_refused_grid_ = false;      // last body-press was refused (grid parent)
+    Point move_start_pos_{};              // mouse pos when move began (root coords)
+    float move_seed_left_ = 0.0f;         // seeded left at conversion (no delta)
+    float move_seed_top_ = 0.0f;          // seeded top at conversion (no delta)
+
+    // True if `pos` (root coords) is inside the selected view's body but
+    // NOT on a resize handle — the body-drag trigger for a move.
+    bool hit_test_body(Point pos) const;
+
+    // Resolve the containing block Yoga uses for the selected view's
+    // absolute insets: the nearest ancestor View whose position is NOT
+    // static_/relative-mapped-as-static (i.e. relative/absolute/fixed),
+    // else the root. Returns the ancestor and its origin in root coords.
+    // Because Pulp maps static_ -> Yoga Relative, in practice the
+    // immediate parent is almost always the containing block.
+    const View* containing_block_of(const View* v, Rect& block_root_out) const;
+
+    // Seed left/top so converting `v` to absolute does not visually jump,
+    // using the border-edge formula from the plan:
+    //   left = childRootX - blockRootX - blockBorderLeft - childMarginLeft
+    //   top  = childRootY - blockRootY - blockBorderTop  - childMarginTop
+    // Writes the seed into move_seed_left_ / move_seed_top_.
+    void seed_move_origin(const View* v);
+
+    // Whether the selected view's PARENT is a grid container — a move is
+    // refused for grid children (grid ignores position/top/left today).
+    bool selected_parent_is_grid() const;
+
     // ── Phase 3c — color eyedropper state ───────────────────────────
     // Off by default so the inspector behaves identically to the
     // pre-3c build until the user opts in (E-key toggle).
@@ -821,6 +899,32 @@ private:
     static constexpr float kZoomReadoutH    = 36.0f;
     static constexpr float kZoomPanelMargin = 12.0f;
 };
+
+/// P2 two-IR-worlds shim
+/// (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md).
+///
+/// The move gesture emits `layout.position` / `layout.left` / `layout.top`
+/// tweaks — the same `layout.*` namespace the existing resize tweaks and
+/// the TS import-IR use, so the TS/React runtime path (applyTweaks ->
+/// setByDottedPath -> layout section -> setPosition/setTop/setLeft bridge
+/// calls) and lock-to-source Path A (lock_property_to_style_name strips
+/// `layout.` and finds position/top/left in its allow-list) consume them
+/// directly. The C++ JSON-import + codegen path, however, reads position
+/// from `IRStyle.{position,top,left}` (the `style.*` world), so a project
+/// that drives the *native* runtime apply path needs a tiny mapping from
+/// the `layout.*` tweak namespace onto the live View setters.
+///
+/// `apply_move_tweak_to_view` is that mapping: given a dotted move-tweak
+/// property path and its value, it writes the corresponding View input
+/// (set_position / set_left / set_top), so a move tweak round-trips on
+/// the C++/native path the same way it does in the TS world. Returns true
+/// if the path was a recognized move property and was applied. Accepts
+/// either the `layout.*` namespace (the move gesture's emission) or the
+/// bare leaf (`position` / `left` / `top`). Unknown paths return false
+/// without touching the view.
+bool apply_move_tweak_to_view(View& view,
+                              std::string_view property_path,
+                              const choc::value::Value& value);
 
 /// Global inspector instance for the current window.
 /// Set by the host when creating the inspector. The platform WindowHost

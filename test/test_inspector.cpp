@@ -5,6 +5,7 @@
 #include <pulp/render/atlas_inventory.hpp>
 #include <pulp/view/inspector.hpp>
 #include <pulp/view/widgets.hpp>
+#include <pulp/view/window_host.hpp>  // P2 scale test: compute_design_viewport_transform
 
 #include <cstddef>
 #include <cstdint>
@@ -1857,3 +1858,1115 @@ TEST_CASE("InspectorWindow refreshes console performance and state tabs", "[insp
     REQUIRE(has_label_containing(*tabs->child_at(3), "Range: [-60.00, 12.00] step=0.500  Unit: dB"));
 }
 
+// ── ConsoleCapture ──────────────────────────────────────────────────────────
+
+#include <pulp/inspect/console_capture.hpp>
+
+TEST_CASE("ConsoleCapture: captures log entries") {
+    ConsoleCapture capture;
+    auto cb = capture.callback();
+    cb("log", "hello");
+    cb("warn", "caution");
+    cb("error", "fail");
+    auto entries = capture.entries();
+    REQUIRE(entries.size() == 3);
+    REQUIRE(entries[0].level == "log");
+    REQUIRE(entries[0].message == "hello");
+    REQUIRE(entries[2].level == "error");
+}
+
+TEST_CASE("ConsoleCapture: chains previous callback") {
+    std::string captured;
+    auto previous = [&](std::string_view level, std::string_view msg) {
+        captured = std::string(level) + ":" + std::string(msg);
+    };
+    ConsoleCapture capture;
+    auto cb = capture.callback(previous);
+    cb("log", "test");
+    REQUIRE(captured == "log:test");
+    REQUIRE(capture.entries().size() == 1);
+}
+
+TEST_CASE("ConsoleCapture: clear") {
+    ConsoleCapture capture;
+    auto cb = capture.callback();
+    cb("log", "a");
+    cb("log", "b");
+    capture.clear();
+    REQUIRE(capture.entries().empty());
+}
+
+TEST_CASE("ConsoleCapture: retains the newest ring buffer entries", "[inspect][console][issue-641]") {
+    ConsoleCapture capture;
+    auto cb = capture.callback();
+
+    for (int i = 0; i < 205; ++i)
+        cb("log", "entry-" + std::to_string(i));
+
+    auto entries = capture.entries();
+    REQUIRE(entries.size() == 200);
+    REQUIRE(entries.front().message == "entry-5");
+    REQUIRE(entries.back().message == "entry-204");
+
+    capture.clear();
+    REQUIRE(capture.entries().empty());
+}
+
+// ── AudioInspector ──────────────────────────────────────────────────────────
+
+#include <pulp/inspect/audio_inspector.hpp>
+
+TEST_CASE("AudioInspector: config roundtrip") {
+    AudioInspector audio;
+    AudioConfig cfg;
+    cfg.sample_rate = 48000;
+    cfg.buffer_size = 256;
+    cfg.output_channels = 2;
+    audio.set_config(cfg);
+    auto read = audio.config();
+    REQUIRE(read.sample_rate == 48000);
+    REQUIRE(read.buffer_size == 256);
+}
+
+TEST_CASE("AudioInspector: MIDI logging") {
+    AudioInspector audio;
+    audio.log_midi(0x90, 60, 100, "Note On C4");
+    audio.log_midi(0x80, 60, 0, "Note Off C4");
+    auto events = audio.recent_midi();
+    REQUIRE(events.size() == 2);
+    REQUIRE(events[0].status == 0x90);
+    REQUIRE(events[0].description == "Note On C4");
+}
+
+TEST_CASE("AudioInspector: metering gates level snapshots") {
+    AudioInspector audio;
+
+    audio.report_levels({{0.5f, 0.25f}});
+    REQUIRE(audio.latest_levels().empty());
+
+    audio.set_metering_enabled(true);
+    audio.report_levels({{0.8f, 0.4f}, {0.25f, 0.1f}});
+
+    auto levels = audio.latest_levels();
+    REQUIRE(levels.size() == 2);
+    REQUIRE(levels[0].peak == 0.8f);
+    REQUIRE(levels[1].rms == 0.1f);
+}
+
+// ── DomainHandler ───────────────────────────────────────────────────────────
+
+#include <pulp/inspect/domain_handler.hpp>
+#include <pulp/inspect/state_inspector.hpp>
+#include <pulp/state/store.hpp>
+
+TEST_CASE("DomainHandler: unknown domain") {
+    DomainHandler handler;
+    auto resp = handler.handle(make_request(1, "Bogus.method"));
+    REQUIRE(resp.is_error);
+}
+
+TEST_CASE("DomainHandler: rejects malformed dispatch and missing inspect roots", "[inspect][domain][issue-641]") {
+    DomainHandler handler;
+
+    auto invalid = handler.handle(make_request(1, "DOMGetDocument"));
+    REQUIRE(invalid.is_error);
+    REQUIRE(invalid.params_json == "Invalid method: DOMGetDocument");
+
+    auto unknown = handler.handle(make_request(2, "Bogus.method"));
+    REQUIRE(unknown.is_error);
+    REQUIRE(unknown.params_json == "Unknown domain: Bogus");
+
+    auto dom_missing_root = handler.handle(make_request(3, methods::kDOMGetDocument));
+    REQUIRE(dom_missing_root.is_error);
+    REQUIRE(dom_missing_root.params_json == "No root view attached");
+
+    auto css_missing_root = handler.handle(make_request(4, methods::kCSSGetComputedStyle, R"({"id":"root"})"));
+    REQUIRE(css_missing_root.is_error);
+    REQUIRE(css_missing_root.params_json == "No root view attached");
+}
+
+TEST_CASE("DomainHandler: Inspector.getInfo") {
+    View root;
+    DomainHandler handler;
+    handler.set_root_view(&root);
+    auto resp = handler.handle(make_request(1, "Inspector.getInfo"));
+    REQUIRE_FALSE(resp.is_error);
+    REQUIRE(resp.params_json.find("Pulp") != std::string::npos);
+}
+
+TEST_CASE("DomainHandler: DOM.getDocument") {
+    View root;
+    auto child = std::make_unique<View>();
+    child->set_id("child1");
+    root.add_child(std::move(child));
+    DomainHandler handler;
+    handler.set_root_view(&root);
+    auto resp = handler.handle(make_request(1, "DOM.getDocument"));
+    REQUIRE_FALSE(resp.is_error);
+    REQUIRE(resp.params_json.find("child1") != std::string::npos);
+}
+
+TEST_CASE("DomainHandler: DOM and CSS reject malformed params", "[inspect][domain][issue-641]") {
+    View root;
+    root.set_id("root");
+
+    DomainHandler handler;
+    handler.set_root_view(&root);
+
+    auto dom_bad_json = handler.handle(make_request(1, methods::kDOMGetNodeById, "{"));
+    REQUIRE(dom_bad_json.is_error);
+    REQUIRE(dom_bad_json.params_json == "Invalid params for DOM.getNodeById");
+
+    auto dom_missing_id = handler.handle(make_request(2, methods::kDOMGetNodeById, R"({"nodeId":"root"})"));
+    REQUIRE(dom_missing_id.is_error);
+    REQUIRE(dom_missing_id.params_json == "Invalid params for DOM.getNodeById");
+
+    auto search_bad_json = handler.handle(make_request(3, methods::kDOMSearch, "{"));
+    REQUIRE(search_bad_json.is_error);
+    REQUIRE(search_bad_json.params_json == "Invalid params for DOM.search");
+
+    auto css_bad_json = handler.handle(make_request(4, methods::kCSSGetComputedStyle, "{"));
+    REQUIRE(css_bad_json.is_error);
+    REQUIRE(css_bad_json.params_json == "Invalid params for CSS.getComputedStyle");
+
+    auto css_missing_id = handler.handle(make_request(5, methods::kCSSGetComputedStyle, R"({"nodeId":"root"})"));
+    REQUIRE(css_missing_id.is_error);
+    REQUIRE(css_missing_id.params_json == "Invalid params for CSS.getComputedStyle");
+}
+
+TEST_CASE("DomainHandler: State.getParameters") {
+    StateStore store;
+    store.add_parameter({0, "Volume", "dB", {-60.0f, 6.0f, -12.0f}});
+    store.set_value(0, -6.0f);
+    StateInspector state_inspector(store);
+    DomainHandler handler;
+    handler.set_state_inspector(&state_inspector);
+    auto resp = handler.handle(make_request(1, "State.getParameters"));
+    REQUIRE_FALSE(resp.is_error);
+    REQUIRE(resp.params_json.find("Volume") != std::string::npos);
+}
+
+TEST_CASE("DomainHandler: Audio domain exposes config and MIDI log") {
+    AudioInspector audio;
+    AudioConfig cfg;
+    cfg.sample_rate = 48000;
+    cfg.buffer_size = 128;
+    cfg.input_channels = 1;
+    cfg.output_channels = 2;
+    cfg.latency_samples = 64;
+    audio.set_config(cfg);
+    audio.log_midi(0x90, 60, 100, "Note On C4");
+
+    DomainHandler handler;
+    handler.set_audio_inspector(&audio);
+
+    auto config = handler.handle(make_request(1, methods::kAudioGetConfig));
+    REQUIRE_FALSE(config.is_error);
+    REQUIRE(config.params_json.find("\"sample_rate\"") != std::string::npos);
+    REQUIRE(config.params_json.find("48000") != std::string::npos);
+    REQUIRE(config.params_json.find("\"buffer_size\"") != std::string::npos);
+    REQUIRE(config.params_json.find("128") != std::string::npos);
+    REQUIRE(config.params_json.find("\"latency_samples\"") != std::string::npos);
+    REQUIRE(config.params_json.find("64") != std::string::npos);
+
+    REQUIRE_FALSE(audio.metering_enabled());
+    auto metering = handler.handle(make_request(2, methods::kAudioEnableMetering));
+    REQUIRE_FALSE(metering.is_error);
+    REQUIRE(audio.metering_enabled());
+    REQUIRE(metering.params_json.find("\"metering\":true") != std::string::npos);
+
+    auto midi = handler.handle(make_request(3, methods::kAudioGetMidiLog));
+    REQUIRE_FALSE(midi.is_error);
+    REQUIRE(midi.params_json.find("\"status\"") != std::string::npos);
+    REQUIRE(midi.params_json.find("144") != std::string::npos);
+    REQUIRE(midi.params_json.find("\"data1\"") != std::string::npos);
+    REQUIRE(midi.params_json.find("60") != std::string::npos);
+    REQUIRE(midi.params_json.find("\"description\"") != std::string::npos);
+    REQUIRE(midi.params_json.find("Note On C4") != std::string::npos);
+
+    auto unknown = handler.handle(make_request(4, "Audio.unknown"));
+    REQUIRE(unknown.is_error);
+
+    DomainHandler missing_audio;
+    auto missing = missing_audio.handle(make_request(5, methods::kAudioGetConfig));
+    REQUIRE(missing.is_error);
+}
+
+TEST_CASE("DomainHandler: dispatches inspector domain edge paths", "[inspect][domain][issue-641]") {
+    View root;
+    root.set_id("root");
+    root.set_bounds({0, 0, 320, 200});
+    Theme theme;
+    theme.colors["accent.primary"] = Color::rgba8(12, 34, 56);
+    root.set_theme(theme);
+
+    auto child = std::make_unique<Label>("Child");
+    child->set_id("child");
+    child->set_bounds({5, 6, 70, 20});
+    child->set_opacity(0.5f);
+    child->set_visible(false);
+    child->flex().direction = FlexDirection::row;
+    child->flex().gap = 8;
+    child->flex().padding = 3;
+    child->flex().margin = 2;
+    root.add_child(std::move(child));
+
+    InspectorOverlay overlay(root);
+    ConsoleCapture capture;
+    auto console = capture.callback();
+    console("info", "hello");
+
+    StateStore store;
+    ParamInfo gain;
+    gain.id = 9;
+    gain.name = "Gain";
+    gain.unit = "dB";
+    gain.range = {-60.0f, 12.0f, 0.0f, 0.5f};
+    store.add_parameter(gain);
+    StateInspector state(store);
+
+    AudioInspector audio;
+    AudioConfig cfg;
+    cfg.sample_rate = 44100;
+    cfg.buffer_size = 256;
+    audio.set_config(cfg);
+
+    pulp::render::RenderPassManager rpm;
+    rpm.begin_frame();
+    rpm.begin_pass(pulp::render::RenderPassType::content);
+    rpm.end_pass(4.0f, 11);
+    rpm.end_frame();
+
+    DomainHandler handler;
+    handler.set_root_view(&root);
+    handler.set_overlay(&overlay);
+    handler.set_console_capture(&capture);
+    handler.set_state_inspector(&state);
+    handler.set_audio_inspector(&audio);
+    handler.set_render_pass_manager(&rpm);
+
+    auto invalid = handler.handle(make_request(1, "InvalidMethod"));
+    REQUIRE(invalid.is_error);
+    REQUIRE(invalid.params_json.find("Invalid method") != std::string::npos);
+
+    auto enabled = handler.handle(make_request(2, methods::kInspectorEnable));
+    REQUIRE_FALSE(enabled.is_error);
+    REQUIRE(overlay.is_active());
+
+    auto disabled = handler.handle(make_request(3, methods::kInspectorDisable));
+    REQUIRE_FALSE(disabled.is_error);
+    REQUIRE_FALSE(overlay.is_active());
+
+    auto unknown_inspector = handler.handle(make_request(4, "Inspector.nope"));
+    REQUIRE(unknown_inspector.is_error);
+
+    auto node = handler.handle(make_request(5, methods::kDOMGetNodeById, R"({"id":"child"})"));
+    REQUIRE_FALSE(node.is_error);
+    REQUIRE(node.params_json.find("\"id\"") != std::string::npos);
+    REQUIRE(node.params_json.find("child") != std::string::npos);
+    REQUIRE(node.params_json.find("child_count") != std::string::npos);
+
+    auto missing_node = handler.handle(make_request(6, methods::kDOMGetNodeById, R"({"id":"missing"})"));
+    REQUIRE(missing_node.is_error);
+
+    auto bad_node_params = handler.handle(make_request(7, methods::kDOMGetNodeById, "not json"));
+    REQUIRE(bad_node_params.is_error);
+
+    auto highlight = handler.handle(make_request(8, methods::kDOMHighlightNode));
+    REQUIRE_FALSE(highlight.is_error);
+    auto clear = handler.handle(make_request(9, methods::kDOMClearHighlight));
+    REQUIRE_FALSE(clear.is_error);
+
+    auto search = handler.handle(make_request(10, methods::kDOMSearch, R"({"query":"child"})"));
+    REQUIRE_FALSE(search.is_error);
+    REQUIRE(search.params_json.find("child") != std::string::npos);
+
+    auto bad_search = handler.handle(make_request(11, methods::kDOMSearch, "not json"));
+    REQUIRE(bad_search.is_error);
+
+    auto unknown_dom = handler.handle(make_request(12, "DOM.nope"));
+    REQUIRE(unknown_dom.is_error);
+
+    auto style = handler.handle(make_request(13, methods::kCSSGetComputedStyle, R"({"id":"child"})"));
+    REQUIRE_FALSE(style.is_error);
+    REQUIRE(style.params_json.find("direction") != std::string::npos);
+    REQUIRE(style.params_json.find("row") != std::string::npos);
+    REQUIRE(style.params_json.find("visible") != std::string::npos);
+    REQUIRE(style.params_json.find("false") != std::string::npos);
+
+    auto missing_style = handler.handle(make_request(14, methods::kCSSGetComputedStyle, R"({"id":"missing"})"));
+    REQUIRE(missing_style.is_error);
+
+    auto bad_style = handler.handle(make_request(15, methods::kCSSGetComputedStyle, "not json"));
+    REQUIRE(bad_style.is_error);
+
+    auto theme_resp = handler.handle(make_request(16, methods::kCSSGetTheme));
+    REQUIRE_FALSE(theme_resp.is_error);
+    REQUIRE(theme_resp.params_json.find("accent.primary") != std::string::npos);
+
+    auto unknown_css = handler.handle(make_request(17, "CSS.nope"));
+    REQUIRE(unknown_css.is_error);
+
+    auto perf = handler.handle(make_request(18, methods::kPerfGetMetrics));
+    REQUIRE_FALSE(perf.is_error);
+    REQUIRE(perf.params_json.find("total_time_ms") != std::string::npos);
+    REQUIRE(perf.params_json.find("draw_calls") != std::string::npos);
+    REQUIRE(perf.params_json.find("11") != std::string::npos);
+
+    auto tracking = handler.handle(make_request(19, methods::kPerfEnableTracking));
+    REQUIRE_FALSE(tracking.is_error);
+
+    auto unknown_perf = handler.handle(make_request(20, "Performance.nope"));
+    REQUIRE(unknown_perf.is_error);
+
+    auto set_param = handler.handle(make_request(21, methods::kStateSetParameter, R"({"id":9,"value":-12.5})"));
+    REQUIRE_FALSE(set_param.is_error);
+    REQUIRE(store.get_value(9) == -12.5f);
+
+    auto bad_set_param = handler.handle(make_request(22, methods::kStateSetParameter, "not json"));
+    REQUIRE(bad_set_param.is_error);
+
+    auto unknown_state = handler.handle(make_request(23, "State.nope"));
+    REQUIRE(unknown_state.is_error);
+
+    auto console_entries = handler.handle(make_request(24, methods::kConsoleEnable));
+    REQUIRE_FALSE(console_entries.is_error);
+    REQUIRE(console_entries.params_json.find("hello") != std::string::npos);
+
+    auto unknown_console = handler.handle(make_request(25, "Console.nope"));
+    REQUIRE(unknown_console.is_error);
+
+    auto runtime_eval = handler.handle(make_request(26, methods::kRuntimeEvaluate));
+    REQUIRE(runtime_eval.is_error);
+
+    auto hot_reload = handler.handle(make_request(27, methods::kRuntimeGetHotReloadStatus));
+    REQUIRE_FALSE(hot_reload.is_error);
+    REQUIRE(hot_reload.params_json.find("available") != std::string::npos);
+    REQUIRE(hot_reload.params_json.find("false") != std::string::npos);
+
+    auto unknown_runtime = handler.handle(make_request(28, "Runtime.nope"));
+    REQUIRE(unknown_runtime.is_error);
+
+    auto screenshot = handler.handle(make_request(29, methods::kCaptureScreenshot));
+    REQUIRE(screenshot.is_error);
+    auto screenshot_node = handler.handle(make_request(30, methods::kCaptureScreenshotNode));
+    REQUIRE(screenshot_node.is_error);
+    auto unknown_capture = handler.handle(make_request(31, "Capture.nope"));
+    REQUIRE(unknown_capture.is_error);
+
+    DomainHandler missing_sources;
+    REQUIRE(missing_sources.handle(make_request(32, methods::kDOMGetDocument)).is_error);
+    REQUIRE(missing_sources.handle(make_request(33, methods::kCSSGetTheme)).is_error);
+    REQUIRE(missing_sources.handle(make_request(34, methods::kStateGetParameters)).is_error);
+    REQUIRE(missing_sources.handle(make_request(35, methods::kAudioGetConfig)).is_error);
+
+    auto no_console = missing_sources.handle(make_request(36, methods::kConsoleEnable));
+    REQUIRE_FALSE(no_console.is_error);
+    REQUIRE(no_console.params_json == "[]");
+
+    auto no_perf = missing_sources.handle(make_request(37, methods::kPerfGetMetrics));
+    REQUIRE_FALSE(no_perf.is_error);
+    REQUIRE(no_perf.params_json.find("available") != std::string::npos);
+    REQUIRE(no_perf.params_json.find("false") != std::string::npos);
+}
+
+// ─── StateInspector ListenerToken migration (Slice 3) ───────────────────────
+
+TEST_CASE("StateInspector records parameter changes after subscribing",
+          "[inspect][state][listener]") {
+    StateStore store;
+    ParamInfo info;
+    info.id = 42;
+    info.name = "Cutoff";
+    info.unit = "Hz";
+    info.range = {20.0f, 20000.0f, 1000.0f};
+    store.add_parameter(info);
+
+    StateInspector inspector(store);
+
+    REQUIRE(inspector.recent_changes().empty());
+
+    store.set_value(42, 2400.0f);
+    store.set_value(42, 4800.0f);
+
+    auto changes = inspector.recent_changes();
+    REQUIRE(changes.size() == 2);
+    REQUIRE(changes[0].id == 42);
+    REQUIRE(changes[1].value > changes[0].value);
+}
+
+TEST_CASE("Destroying StateInspector removes its listener (no alive-guard)",
+          "[inspect][state][listener]") {
+    StateStore store;
+    ParamInfo info;
+    info.id = 1;
+    info.name = "Gain";
+    info.range = {0.0f, 1.0f, 0.5f};
+    store.add_parameter(info);
+
+    {
+        StateInspector inspector(store);
+        store.set_value(1, 0.25f);
+        REQUIRE(inspector.recent_changes().size() == 1);
+    } // ~StateInspector() — ListenerToken dtor unregisters
+
+    // The store no longer has a live listener pointing at the
+    // destroyed inspector. With the legacy alive-guard pattern, an
+    // entry was still in the listener list (just no-op-checking
+    // alive). With ListenerToken it's actually removed, so this
+    // set_value is a pure atomic store + a notify() that iterates
+    // an empty snapshot. No use-after-free, no leak.
+    store.set_value(1, 0.75f);
+    REQUIRE_THAT(store.get_value(1), Catch::Matchers::WithinAbs(0.75, 0.001));
+}
+
+// ─── Performance.setRepaintFlash (Tier A Slice 6) ───────────────────────────
+
+#include <pulp/render/dirty_tracker.hpp>
+
+TEST_CASE("Performance.setRepaintFlash toggles DirtyTracker::debug_overlay",
+          "[inspect][perf][repaint-flash]") {
+    pulp::render::DirtyTracker dirty;
+    REQUIRE_FALSE(dirty.debug_overlay());
+
+    DomainHandler handler;
+    handler.set_dirty_tracker(&dirty);
+
+    auto enable_req = make_request(1, methods::kPerfSetRepaintFlash,
+                                   R"({"enabled":true})");
+    auto enable_resp = handler.handle(enable_req);
+    REQUIRE_FALSE(enable_resp.is_error);
+    REQUIRE(dirty.debug_overlay());
+
+    auto get_req = make_request(2, methods::kPerfGetRepaintFlash);
+    auto get_resp = handler.handle(get_req);
+    REQUIRE_FALSE(get_resp.is_error);
+    REQUIRE(get_resp.params_json.find("\"enabled\": true")
+            != std::string::npos);
+    REQUIRE(get_resp.params_json.find("\"available\": true")
+            != std::string::npos);
+
+    auto disable_req = make_request(3, methods::kPerfSetRepaintFlash,
+                                    R"({"enabled":false})");
+    auto disable_resp = handler.handle(disable_req);
+    REQUIRE_FALSE(disable_resp.is_error);
+    REQUIRE_FALSE(dirty.debug_overlay());
+}
+
+TEST_CASE("Performance.setRepaintFlash without a tracker reports unavailable",
+          "[inspect][perf][repaint-flash]") {
+    DomainHandler handler;
+    // Deliberately not calling set_dirty_tracker — the inspector
+    // grew the toggle, but the host process may not have wired one
+    // yet. Behavior: get reports available=false; set returns an
+    // error so the UI can grey out the toggle.
+    auto get_resp = handler.handle(
+        make_request(1, methods::kPerfGetRepaintFlash));
+    REQUIRE_FALSE(get_resp.is_error);
+    REQUIRE(get_resp.params_json.find("\"available\": false")
+            != std::string::npos);
+
+    auto set_resp = handler.handle(
+        make_request(2, methods::kPerfSetRepaintFlash,
+                     R"({"enabled":true})"));
+    REQUIRE(set_resp.is_error);
+}
+
+// ─── LiveConstant RPC (Tier A Slice 13) ─────────────────────────────────────
+
+#include <pulp/view/live_constant_editor.hpp>
+
+TEST_CASE("LiveConstant.list returns the registry contents",
+          "[inspect][live-constant]") {
+    auto& registry = pulp::view::LiveConstantRegistry::instance();
+
+    // Seed the registry. PULP_LIVE_CONSTANT macros do this implicitly,
+    // but we call register_constant directly so the test doesn't have
+    // to compile in a TU that already has them.
+    [[maybe_unused]] auto& cutoff =
+        registry.register_constant("test_cutoff", __FILE__, __LINE__,
+                                   /*default*/ 440.0f,
+                                   /*min*/ 20.0f, /*max*/ 20000.0f);
+    [[maybe_unused]] auto& gain =
+        registry.register_constant("test_gain", __FILE__, __LINE__,
+                                   0.0f, -60.0f, 12.0f);
+
+    DomainHandler handler;
+    auto resp = handler.handle(make_request(1, methods::kLiveConstList));
+    REQUIRE_FALSE(resp.is_error);
+    REQUIRE(resp.params_json.find("test_cutoff") != std::string::npos);
+    REQUIRE(resp.params_json.find("test_gain") != std::string::npos);
+    REQUIRE(resp.params_json.find("\"constants\"") != std::string::npos);
+}
+
+TEST_CASE("LiveConstant.set mutates the registry value",
+          "[inspect][live-constant]") {
+    auto& registry = pulp::view::LiveConstantRegistry::instance();
+    [[maybe_unused]] auto& v =
+        registry.register_constant("test_setter", __FILE__, __LINE__,
+                                   1.0f, 0.0f, 10.0f);
+    registry.reset("test_setter");
+
+    DomainHandler handler;
+    auto resp = handler.handle(make_request(
+        1, methods::kLiveConstSet,
+        R"({"name":"test_setter","value":4.5})"));
+    REQUIRE_FALSE(resp.is_error);
+    REQUIRE_THAT(registry.get("test_setter"),
+                 Catch::Matchers::WithinAbs(4.5, 0.001));
+}
+
+TEST_CASE("LiveConstant.set without a name returns an error",
+          "[inspect][live-constant]") {
+    DomainHandler handler;
+    auto resp = handler.handle(make_request(
+        1, methods::kLiveConstSet, R"({"value":1.0})"));
+    REQUIRE(resp.is_error);
+}
+
+TEST_CASE("LiveConstant.reset rolls a value back to its default",
+          "[inspect][live-constant]") {
+    auto& registry = pulp::view::LiveConstantRegistry::instance();
+    [[maybe_unused]] auto& v =
+        registry.register_constant("test_reset", __FILE__, __LINE__,
+                                   2.0f, 0.0f, 10.0f);
+    registry.set("test_reset", 7.5f);
+    REQUIRE_THAT(registry.get("test_reset"),
+                 Catch::Matchers::WithinAbs(7.5, 0.001));
+
+    DomainHandler handler;
+    auto resp = handler.handle(make_request(
+        1, methods::kLiveConstReset, R"({"name":"test_reset"})"));
+    REQUIRE_FALSE(resp.is_error);
+    REQUIRE_THAT(registry.get("test_reset"),
+                 Catch::Matchers::WithinAbs(2.0, 0.001));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// P1 — overlay reachability / drill-down / minimal manipulate layer
+// P2 — drag-to-move via absolute + layout.position/left/top tweaks
+//
+// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+// ════════════════════════════════════════════════════════════════════════════
+
+// P1 acceptance: the overlay actually receives a press-on-handle → move →
+// release sequence and lands a layout.width tweak. Proves the gesture
+// pipeline works on the input path (the ui-preview composing hooks route
+// here). Mirrors the prerequisite's stated acceptance criterion.
+TEST_CASE("InspectorOverlay P1: handle drag lands a layout.width tweak "
+          "(overlay receives mouse)",
+          "[inspect][overlay][p1][issue-wysiwyg-p1]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-handle");
+    child->set_bounds({10, 10, 80, 40});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+
+    MouseEvent click; click.position = {30, 30}; click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    MouseEvent press; press.position = {90, 50}; press.is_down = true;  // SE handle
+    REQUIRE(overlay.handle_mouse_event(press));
+    MouseEvent drag; drag.position = {110, 65}; drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    auto w = store.lookup("anchor-handle", "layout.width");
+    REQUIRE(w.has_value());
+    REQUIRE(w->getFloat32() == 100.0f);
+}
+
+// P1 drill-down: a click resolves to the DEEPEST hittable element, not the
+// container. Esc-to-ascend then walks the selection up to the parent.
+TEST_CASE("InspectorOverlay P1: click selects deepest nested element, "
+          "Esc ascends to parent",
+          "[inspect][overlay][p1][drill-down][issue-wysiwyg-p1]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+
+    auto container = std::make_unique<View>();
+    container->set_id("container");
+    container->set_anchor_id("anchor-container");
+    container->set_bounds({20, 20, 200, 120});
+    auto* container_ptr = container.get();
+
+    auto nested = std::make_unique<View>();
+    nested->set_id("nested-label");
+    nested->set_anchor_id("anchor-nested");
+    // bounds are in the PARENT's coord space.
+    nested->set_bounds({10, 10, 80, 24});
+    auto* nested_ptr = nested.get();
+    container->add_child(std::move(nested));
+    root.add_child(std::move(container));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+
+    // Click over the nested label (root coords: container 20,20 + nested
+    // 10,10 = 30,30 .. 110,54). Pick a point inside the nested element.
+    MouseEvent click; click.position = {40, 35}; click.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(click));
+    // DEEPEST element selected, NOT the container.
+    REQUIRE(overlay.selected_view() == nested_ptr);
+
+    // Esc ascends to the parent container.
+    KeyEvent esc; esc.key = KeyCode::escape; esc.is_down = true;
+    REQUIRE(overlay.handle_key_event(esc));
+    REQUIRE(overlay.selected_view() == container_ptr);
+    REQUIRE(overlay.is_active());  // still active — ascend, don't exit
+
+    // Esc again ascends to root.
+    REQUIRE(overlay.handle_key_event(esc));
+    REQUIRE(overlay.selected_view() == &root);
+
+    // Esc at root (no parent) exits the inspector.
+    REQUIRE(overlay.handle_key_event(esc));
+    REQUIRE_FALSE(overlay.is_active());
+}
+
+// P1 minimal manipulate layer: in manipulate-only mode point_in_panel is
+// false everywhere (whole canvas is live) and paint draws only the
+// selection box + handles (no dev side-panel rows).
+TEST_CASE("InspectorOverlay P1: manipulate-only mode suppresses the dev panel",
+          "[inspect][overlay][p1][manipulate][issue-wysiwyg-p1]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-x");
+    child->set_bounds({10, 10, 80, 40});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_manipulate_only(true);
+    REQUIRE(overlay.manipulate_only());
+    REQUIRE(overlay.dragging_enabled());  // implicitly enabled
+
+    // The far-right region (default dev panel x-range) is NOT a panel now —
+    // a click there selects the canvas, not a tree row. Select via the
+    // child first, then assert a click that would have hit the panel still
+    // routes to canvas selection logic (returns consumed, not a tree pick).
+    MouseEvent click; click.position = {30, 30}; click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    // The tweak-management panel rows are only populated by paint_panel,
+    // which manipulate-only mode skips entirely. Paint into a recording
+    // canvas and confirm no tree/props rows were laid out.
+    overlay.set_tweaks_panel_visible(true);
+    pulp::canvas::RecordingCanvas canvas;
+    overlay.paint(canvas);
+    REQUIRE(overlay.tweak_row_count() == 0);   // panel never laid out
+}
+
+// ── P2: drag-to-move ────────────────────────────────────────────────────────
+
+// Core acceptance: body-drag converts to absolute and writes
+// position+left+top atomically (one batch).
+TEST_CASE("InspectorOverlay P2: body-drag moves via absolute + 3 atomic tweaks",
+          "[inspect][overlay][p2][move][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    root.flex().direction = FlexDirection::row;
+
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-move");
+    child->flex().preferred_width = 80;
+    child->flex().preferred_height = 40;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();  // resolve initial flex position
+
+    // Snapshot the resolved bounds before the move (it's a flex child).
+    const Rect before = child_ptr->bounds();
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+
+    // Select the child (first is_down — no move yet because selected_ was
+    // null when the press arrived).
+    MouseEvent click;
+    click.position = {before.x + 10, before.y + 10};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    // Press on the BODY (not a handle) to start the move.
+    MouseEvent press;
+    press.position = {before.x + 20, before.y + 20};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    // Drag +50 / +30.
+    MouseEvent drag;
+    drag.position = {press.position.x + 50, press.position.y + 30};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    // Converted to absolute.
+    REQUIRE(child_ptr->position() == View::Position::absolute);
+
+    // Three tweaks present, in one batch.
+    REQUIRE(store.count() == 3);
+    auto pos = store.lookup("anchor-move", "layout.position");
+    auto left = store.lookup("anchor-move", "layout.left");
+    auto top = store.lookup("anchor-move", "layout.top");
+    REQUIRE(pos.has_value());
+    REQUIRE(left.has_value());
+    REQUIRE(top.has_value());
+    REQUIRE(pos->getString() == "absolute");
+
+    // left/top ≈ seeded origin + delta. Seed for a child of a row flex
+    // root with no border/margin is its resolved (x,y); delta is +50/+30.
+    REQUIRE(left->getFloat32() == Catch::Approx(before.x + 50.0f).margin(0.5));
+    REQUIRE(top->getFloat32() == Catch::Approx(before.y + 30.0f).margin(0.5));
+
+    // Re-layout: the moved element relocates (resolved bounds change).
+    root.layout_children();
+    REQUIRE(child_ptr->bounds().x == Catch::Approx(before.x + 50.0f).margin(0.5));
+    REQUIRE(child_ptr->bounds().y == Catch::Approx(before.y + 30.0f).margin(0.5));
+}
+
+// No-visual-jump on conversion: the seeded left/top reproduce the pre-move
+// resolved position within ~1px when the drag delta is zero.
+TEST_CASE("InspectorOverlay P2: conversion seeds origin so there is no jump",
+          "[inspect][overlay][p2][move][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    root.flex().direction = FlexDirection::column;
+    root.flex().padding = 0;
+
+    auto spacer = std::make_unique<View>();
+    spacer->flex().preferred_height = 25;
+    root.add_child(std::move(spacer));
+
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-seed");
+    child->flex().preferred_width = 60;
+    child->flex().preferred_height = 30;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+
+    const Rect before = child_ptr->bounds();  // y should be ~25 (after spacer)
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+
+    MouseEvent click;
+    click.position = {before.x + 5, before.y + 5};
+    click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == child_ptr);
+
+    // Start a move and immediately "drag" by zero (move event at the press
+    // position) — this exercises the seed without any delta.
+    MouseEvent press;
+    press.position = {before.x + 5, before.y + 5};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+    MouseEvent zero_drag = press;
+    zero_drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(zero_drag));
+
+    root.layout_children();
+    // Within 1px of the pre-move resolved position — no jump.
+    REQUIRE(child_ptr->bounds().x == Catch::Approx(before.x).margin(1.0));
+    REQUIRE(child_ptr->bounds().y == Catch::Approx(before.y).margin(1.0));
+}
+
+// Sibling reflow: after the moved child leaves flow (absolute), an in-flow
+// sibling shifts to fill the freed space.
+TEST_CASE("InspectorOverlay P2: moving a child reflows its in-flow sibling",
+          "[inspect][overlay][p2][move][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 200});
+    root.flex().direction = FlexDirection::row;
+
+    auto a = std::make_unique<View>();
+    a->set_anchor_id("anchor-a");
+    a->flex().preferred_width = 100;
+    a->flex().preferred_height = 50;
+    auto* a_ptr = a.get();
+    root.add_child(std::move(a));
+
+    auto b = std::make_unique<View>();
+    b->flex().preferred_width = 100;
+    b->flex().preferred_height = 50;
+    auto* b_ptr = b.get();
+    root.add_child(std::move(b));
+    root.layout_children();
+
+    const float b_x_before = b_ptr->bounds().x;  // ~100 (after a)
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(a_ptr);
+
+    MouseEvent press;
+    press.position = {a_ptr->bounds().x + 10, a_ptr->bounds().y + 10};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+    MouseEvent drag;
+    drag.position = {press.position.x + 200, press.position.y + 60};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    root.layout_children();
+    // a is now absolute (out of flow); b slides to the row's start.
+    REQUIRE(a_ptr->position() == View::Position::absolute);
+    REQUIRE(b_ptr->bounds().x < b_x_before);
+    REQUIRE(b_ptr->bounds().x == Catch::Approx(0.0).margin(0.5));
+}
+
+// Grid guard: a move on a grid child is refused (no tweaks, no conversion).
+TEST_CASE("InspectorOverlay P2: move is refused for a grid child",
+          "[inspect][overlay][p2][move][grid-guard][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+
+    auto grid = std::make_unique<View>();
+    grid->set_layout_mode(LayoutMode::grid);
+    grid->set_bounds({0, 0, 600, 400});
+
+    auto cell = std::make_unique<View>();
+    cell->set_anchor_id("anchor-grid-child");
+    cell->set_bounds({20, 20, 80, 40});
+    auto* cell_ptr = cell.get();
+    grid->add_child(std::move(cell));
+    root.add_child(std::move(grid));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(cell_ptr);
+
+    // Body-press on the grid child: refused.
+    MouseEvent press;
+    press.position = {40, 40};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));  // consumed (so not a select)
+
+    // A subsequent move event must NOT reposition or emit tweaks.
+    MouseEvent drag;
+    drag.position = {200, 200};
+    drag.is_down = false;
+    overlay.handle_mouse_event(drag);
+
+    REQUIRE(cell_ptr->position() != View::Position::absolute);
+    REQUIRE(store.count() == 0);
+}
+
+// Resize still works alongside move (no regression): a handle press starts
+// a resize, not a move, and emits width/height tweaks.
+TEST_CASE("InspectorOverlay P2: resize handle still wins over body-move "
+          "(no regression)",
+          "[inspect][overlay][p2][move][regression][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-resize");
+    child->set_bounds({10, 10, 80, 40});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(child_ptr);
+
+    // Press exactly on the SE handle (90,50).
+    MouseEvent press; press.position = {90, 50}; press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+    MouseEvent drag; drag.position = {110, 65}; drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    // Resized, NOT moved.
+    REQUIRE(child_ptr->position() != View::Position::absolute);
+    REQUIRE(child_ptr->bounds().width == 100.0f);
+    REQUIRE(store.lookup("anchor-resize", "layout.width").has_value());
+    REQUIRE_FALSE(store.lookup("anchor-resize", "layout.left").has_value());
+}
+
+// Nested element is movable (not just containers).
+TEST_CASE("InspectorOverlay P2: a nested element can be moved",
+          "[inspect][overlay][p2][move][issue-wysiwyg-p2]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+
+    auto container = std::make_unique<View>();
+    container->set_bounds({20, 20, 200, 120});
+    auto nested = std::make_unique<View>();
+    nested->set_anchor_id("anchor-nested-move");
+    nested->set_bounds({10, 10, 80, 24});
+    auto* nested_ptr = nested.get();
+    container->add_child(std::move(nested));
+    root.add_child(std::move(container));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+
+    // Click resolves to the nested element.
+    MouseEvent click; click.position = {40, 35}; click.is_down = true;
+    overlay.handle_mouse_event(click);
+    REQUIRE(overlay.selected_view() == nested_ptr);
+
+    MouseEvent press; press.position = {45, 38}; press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+    MouseEvent drag; drag.position = {65, 58}; drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    REQUIRE(nested_ptr->position() == View::Position::absolute);
+    REQUIRE(store.lookup("anchor-nested-move", "layout.left").has_value());
+    REQUIRE(store.lookup("anchor-nested-move", "layout.top").has_value());
+}
+
+// Hit-test under scale: a drag of N SCREEN px at non-1.0 design-viewport
+// scale produces ~N/scale LOGICAL px of movement. The overlay paints + does
+// gesture math in logical (post-inverse) space, so the host inverse-maps
+// before dispatch. This test reproduces that wiring with
+// compute_design_viewport_transform and asserts the logical delta.
+TEST_CASE("InspectorOverlay P2: drag delta is in logical space under viewport scale",
+          "[inspect][overlay][p2][move][scale][issue-wysiwyg-p2]") {
+    // Design surface 300×200 shown in a 600×400 window → scale 2.0.
+    const float design_w = 300, design_h = 200;
+    const float window_w = 600, window_h = 400;
+    float sx, sy, tx, ty;
+    REQUIRE(pulp::view::WindowHost::compute_design_viewport_transform(
+        window_w, window_h, design_w, design_h, sx, sy, tx, ty));
+    REQUIRE(sx == Catch::Approx(2.0));
+
+    auto to_logical = [&](float px, float py) {
+        return Point{(px - tx) / sx, (py - ty) / sy};
+    };
+
+    View root;
+    root.set_bounds({0, 0, design_w, design_h});  // root thinks it's design-size
+    root.flex().direction = FlexDirection::row;
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("anchor-scale");
+    child->flex().preferred_width = 60;
+    child->flex().preferred_height = 30;
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+    root.layout_children();
+    const Rect before = child_ptr->bounds();
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(child_ptr);
+
+    // Press at a screen point inside the child (inverse-mapped to logical).
+    Point press_screen{(before.x + 10) * sx + tx, (before.y + 10) * sy + ty};
+    MouseEvent press;
+    press.position = to_logical(press_screen.x, press_screen.y);
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    // Drag +100 SCREEN px in x, +60 SCREEN px in y → at scale 2.0 that is
+    // +50 / +30 LOGICAL px.
+    Point drag_screen{press_screen.x + 100, press_screen.y + 60};
+    MouseEvent drag;
+    drag.position = to_logical(drag_screen.x, drag_screen.y);
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    auto left = store.lookup("anchor-scale", "layout.left");
+    auto top = store.lookup("anchor-scale", "layout.top");
+    REQUIRE(left.has_value());
+    REQUIRE(top.has_value());
+    // Logical movement = screen / scale = 100/2 and 60/2.
+    REQUIRE(left->getFloat32() == Catch::Approx(before.x + 50.0f).margin(0.5));
+    REQUIRE(top->getFloat32() == Catch::Approx(before.y + 30.0f).margin(0.5));
+}
+
+// Two-IR-worlds shim: a move tweak (layout.* namespace) is consumable by the
+// C++/native apply path via apply_move_tweak_to_view.
+TEST_CASE("InspectorOverlay P2: move tweak round-trips on the C++ apply path",
+          "[inspect][overlay][p2][move][round-trip][issue-wysiwyg-p2]") {
+    View v;
+    // Apply the three move-tweak property paths the gesture emits.
+    REQUIRE(apply_move_tweak_to_view(v, "layout.position",
+                                     choc::value::createString("absolute")));
+    REQUIRE(apply_move_tweak_to_view(v, "layout.left",
+                                     choc::value::createFloat32(42.0f)));
+    REQUIRE(apply_move_tweak_to_view(v, "layout.top",
+                                     choc::value::createFloat32(99.0f)));
+
+    REQUIRE(v.position() == View::Position::absolute);
+    REQUIRE(v.has_left());
+    REQUIRE(v.left() == 42.0f);
+    REQUIRE(v.has_top());
+    REQUIRE(v.top() == 99.0f);
+
+    // Bare-leaf paths and the style.* namespace also resolve.
+    View v2;
+    REQUIRE(apply_move_tweak_to_view(v2, "left",
+                                     choc::value::createFloat32(7.0f)));
+    REQUIRE(v2.left() == 7.0f);
+    REQUIRE(apply_move_tweak_to_view(v2, "style.top",
+                                     choc::value::createFloat32(8.0f)));
+    REQUIRE(v2.top() == 8.0f);
+
+    // Unknown paths are rejected without mutating the view.
+    REQUIRE_FALSE(apply_move_tweak_to_view(v2, "paint.color",
+                                           choc::value::createString("#fff")));
+}
+
+// Re-import round-trip: a moved element's tweaks survive an apply pass — the
+// TweakStore values reconstruct an absolute view at the moved left/top.
+TEST_CASE("InspectorOverlay P2: move tweaks reconstruct absolute view on re-apply",
+          "[inspect][overlay][p2][move][round-trip][issue-wysiwyg-p2]") {
+    // Simulate: gesture wrote tweaks; a fresh import re-creates the view and
+    // re-applies the stored tweaks by anchor.
+    TweakStore store;
+    std::vector<TweakStore::BatchEntry> batch;
+    batch.push_back({"layout.position", choc::value::createString("absolute")});
+    batch.push_back({"layout.left", choc::value::createFloat32(120.0f)});
+    batch.push_back({"layout.top", choc::value::createFloat32(75.0f)});
+    store.apply_tweaks_batch("anchor-reimport", std::move(batch),
+                             "inspector-drag-move");
+
+    // Fresh view (as if re-lowered from a re-import) with the same anchor.
+    View fresh;
+    fresh.set_anchor_id("anchor-reimport");
+    REQUIRE(fresh.position() != View::Position::absolute);  // pre-apply
+
+    // Apply each stored tweak through the C++ apply path.
+    for (const auto& rec : store.list_tweaks()) {
+        if (rec.anchor_id != "anchor-reimport") continue;
+        REQUIRE(apply_move_tweak_to_view(fresh, rec.property_path, rec.value));
+    }
+
+    REQUIRE(fresh.position() == View::Position::absolute);
+    REQUIRE(fresh.left() == 120.0f);
+    REQUIRE(fresh.top() == 75.0f);
+}

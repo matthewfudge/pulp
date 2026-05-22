@@ -388,18 +388,27 @@ TEST_CASE("InspectorOverlay Phase 3b: deactivating inspector cancels active edit
 
 TEST_CASE("InspectorOverlay Phase 3b: Esc while editing does NOT exit inspector",
           "[inspect][overlay][phase3b]") {
-    // Spec: Esc inside an edit cancels the edit; Esc with no edit
-    // exits the inspector. The two semantics share a key, the order
-    // matters.
+    // Spec: Esc inside an edit cancels the edit. After the edit is
+    // cancelled, the P1 drill-down semantics take over: Esc with a
+    // non-root selection ASCENDS to the parent (so the user can reach a
+    // container after click landed deep), and only Esc with no further
+    // parent exits the inspector.
     Phase3bScene s;
     s.overlay.begin_field_edit("layout.padding", 8.0f);
     REQUIRE(s.overlay.is_active());
+    // The scene selected `child` (a direct child of root).
+    REQUIRE(s.overlay.selected_view() == s.child);
 
     s.overlay.handle_key_event(make_key(KeyCode::escape));
     REQUIRE_FALSE(s.overlay.is_editing());
-    REQUIRE(s.overlay.is_active());  // still active
+    REQUIRE(s.overlay.is_active());  // still active — edit cancelled, not exit
 
-    // Second Esc with no edit → exits the inspector.
+    // Second Esc with no edit + a child selection → ascend to root.
+    s.overlay.handle_key_event(make_key(KeyCode::escape));
+    REQUIRE(s.overlay.is_active());
+    REQUIRE(s.overlay.selected_view() == &s.root);
+
+    // Third Esc at root (no parent) → exits the inspector.
     s.overlay.handle_key_event(make_key(KeyCode::escape));
     REQUIRE_FALSE(s.overlay.is_active());
 }

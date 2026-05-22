@@ -14,6 +14,7 @@
 #include <pulp/view/inspector.hpp>
 #include <pulp/render/render_pass.hpp>
 #include <pulp/render/atlas_inventory.hpp>
+#include <pulp/runtime/log.hpp>
 
 #include <choc/text/choc_JSON.h>
 
@@ -42,6 +43,50 @@ static std::string color_to_hex(const Color& c) {
 // ── Constructor ─────────────────────────────────────────────────────────────
 
 InspectorOverlay::InspectorOverlay(View& root) : root_(root) {}
+
+// P2 two-IR-worlds shim: map a `layout.{position,left,top}` move tweak
+// (or the bare leaf) onto live View setters so the move round-trips on
+// the C++/native runtime apply path, not just the TS/React path.
+bool apply_move_tweak_to_view(View& view,
+                              std::string_view property_path,
+                              const choc::value::Value& value) {
+    // Strip a recognized leading namespace ("layout." / "style.") to
+    // the bare leaf; the TS world emits under `layout.*`.
+    std::string_view leaf = property_path;
+    if (auto dot = property_path.find('.'); dot != std::string_view::npos) {
+        std::string_view head = property_path.substr(0, dot);
+        if (head == "layout" || head == "style" || head == "paint") {
+            leaf = property_path.substr(dot + 1);
+        }
+    }
+
+    auto to_float = [&](float fallback) -> float {
+        if (value.isString()) {
+            try { return std::stof(std::string(value.getString())); }
+            catch (...) { return fallback; }
+        }
+        // Numeric: getWithDefault coerces int/float values to double.
+        return static_cast<float>(value.getWithDefault<double>(
+            static_cast<double>(fallback)));
+    };
+
+    if (leaf == "position") {
+        std::string s = value.isString() ? std::string(value.getString()) : "";
+        if (s == "absolute") view.set_position(View::Position::absolute);
+        else if (s == "fixed") view.set_position(View::Position::fixed);
+        else if (s == "relative") view.set_position(View::Position::relative);
+        else if (s == "static" || s == "static_")
+            view.set_position(View::Position::static_);
+        else if (s == "sticky") view.set_position(View::Position::sticky);
+        else return false;
+        return true;
+    }
+    if (leaf == "left")  { view.set_left(to_float(view.left()));   return true; }
+    if (leaf == "top")   { view.set_top(to_float(view.top()));     return true; }
+    if (leaf == "right") { view.set_right(to_float(view.right())); return true; }
+    if (leaf == "bottom"){ view.set_bottom(to_float(view.bottom()));return true; }
+    return false;
+}
 
 void install_inspector_hooks(InspectorOverlay& inspector) {
     g_active_inspector = &inspector;
@@ -340,6 +385,84 @@ InspectorOverlay::hit_test_drag_handle(Point pos) const {
     return DragCorner::none;
 }
 
+// ── P2 — drag-to-move helpers ───────────────────────────────────────────────
+
+bool InspectorOverlay::hit_test_body(Point pos) const {
+    if (!selected_) return false;
+    if (!dragging_enabled_) return false;
+    // A handle press always wins over a body press, so a point on a
+    // handle is NOT a body hit.
+    if (hit_test_drag_handle(pos) != DragCorner::none) return false;
+    auto r = view_bounds_in_root(selected_);
+    return pos.x >= r.x && pos.x <= r.x + r.width &&
+           pos.y >= r.y && pos.y <= r.y + r.height;
+}
+
+bool InspectorOverlay::selected_parent_is_grid() const {
+    if (!selected_ || !selected_->parent()) return false;
+    return selected_->parent()->layout_mode() == LayoutMode::grid;
+}
+
+const View* InspectorOverlay::containing_block_of(const View* v,
+                                                  Rect& block_root_out) const {
+    // Walk up to the nearest ancestor Yoga treats as a containing block:
+    // any View whose position is relative / absolute / fixed / sticky.
+    // (Pulp maps static_ -> Yoga Relative, so a static_ ancestor also
+    // forms a containing block in practice — but we prefer an explicitly
+    // non-static ancestor and otherwise fall back to the root, which
+    // always forms one.)
+    const View* cur = v ? v->parent() : nullptr;
+    while (cur && cur != &root_) {
+        if (cur->position() != View::Position::static_) {
+            block_root_out = view_bounds_in_root(cur);
+            return cur;
+        }
+        cur = cur->parent();
+    }
+    block_root_out = view_bounds_in_root(&root_);
+    return &root_;
+}
+
+void InspectorOverlay::seed_move_origin(const View* v) {
+    if (!v) { move_seed_left_ = move_seed_top_ = 0.0f; return; }
+    Rect block_root{};
+    const View* block = containing_block_of(v, block_root);
+    (void)block;
+    const Rect child_root = view_bounds_in_root(v);
+
+    // Resolved per-edge border of the containing block (Yoga subtracts
+    // border + inset + child-margin to position a defined inset; see
+    // AbsoluteLayout.cpp:209-224 and the plan's border-edge formula).
+    float block_border_left = 0.0f;
+    float block_border_top = 0.0f;
+    if (block) {
+        if (block->has_border_left_set())
+            block_border_left = std::max(0.0f, block->border_left_width());
+        else if (block->has_border())
+            block_border_left = std::max(0.0f, block->border_width());
+        if (block->has_border_top_set())
+            block_border_top = std::max(0.0f, block->border_top_width());
+        else if (block->has_border())
+            block_border_top = std::max(0.0f, block->border_width());
+    }
+    const float child_margin_left = v->flex().margin_l();
+    const float child_margin_top = v->flex().margin_t();
+
+    // left = childRootX - blockRootX - blockBorderLeft - childMarginLeft
+    move_seed_left_ = child_root.x - block_root.x - block_border_left
+                    - child_margin_left;
+    move_seed_top_ = child_root.y - block_root.y - block_border_top
+                   - child_margin_top;
+}
+
+bool InspectorOverlay::select_parent() {
+    if (!selected_) return false;
+    View* p = selected_->parent();
+    if (!p) return false;
+    selected_ = p;
+    return true;
+}
+
 // ── Flat tree ───────────────────────────────────────────────────────────────
 
 void InspectorOverlay::rebuild_flat_tree() {
@@ -384,9 +507,21 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
         if (handle_edit_key(event)) return true;
     }
 
-    // Escape exits inspector mode (only when not editing — edit mode
-    // already consumed the Esc above to cancel the edit).
+    // Escape: P1 drill-down "ascend to parent". When a non-root view is
+    // selected, Esc walks the selection UP to its parent so the user can
+    // reach a container after click landed on a deeply-nested child
+    // (click resolves to the deepest hittable element). Only when there
+    // is nothing left to ascend to (no selection, or selection is a
+    // direct child of root with no further useful parent) does Esc fall
+    // through to exit the inspector. Edit mode already consumed Esc above
+    // to cancel the edit, so this never fires mid-edit.
     if (active_ && event.key == KeyCode::escape && event.is_down) {
+        // Ascend while there is a parent to climb to (stops at root,
+        // which has no parent). Once at root / unselected, Esc exits.
+        if (selected_ && selected_->parent()) {
+            select_parent();
+            return true;  // ascended one level
+        }
         set_active(false);
         return true;
     }
@@ -634,7 +769,8 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
     // Phase 3a: hand-off from selection to drag — if drag-handles
     // mode is enabled, a view is selected, and the press lands on a
     // drag handle, START the drag and consume.
-    if (event.is_down && active_drag_ == DragCorner::none && selected_) {
+    if (event.is_down && active_drag_ == DragCorner::none && !move_active_ &&
+        selected_) {
         auto handle = hit_test_drag_handle(pos);
         if (handle != DragCorner::none) {
             active_drag_ = handle;
@@ -645,6 +781,89 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             return true;  // consume the press; subsequent moves are ours
         }
     }
+
+    // ── P2: drag-to-move gesture state machine ─────────────────────
+    // Same press/move/release convention as the resize machine: while a
+    // move is active, is_down=false events live-update + overwrite the
+    // tweak batch, the next is_down=true ends the gesture. Runs BEFORE
+    // the panel-area test so a move started on the canvas stays owned by
+    // this branch even if the cursor briefly enters the panel.
+    if (move_active_ && selected_) {
+        if (event.is_down) {
+            // Release: end the move. Don't consume — let the click fall
+            // through to normal selection so the user can re-target.
+            move_active_ = false;
+            // fall through to the normal handlers below
+        } else {
+            float dx = pos.x - move_start_pos_.x;
+            float dy = pos.y - move_start_pos_.y;
+            float new_left = move_seed_left_ + dx;
+            float new_top = move_seed_top_ + dy;
+
+            // Mutate Yoga INPUTS (NOT set_bounds — Yoga overwrites
+            // resolved bounds next layout pass). Convert to absolute on
+            // the first tick (idempotent thereafter).
+            selected_->set_position(View::Position::absolute);
+            selected_->set_left(new_left);
+            selected_->set_top(new_top);
+            // Update bounds locally so paint_highlight + hit-test see the
+            // new origin before the next layout pass. bounds() is in the
+            // parent's coordinate space, so offset by the containing
+            // block's origin within the parent is unnecessary here for a
+            // first-cut visual nudge; the authoritative position comes
+            // from Yoga next layout pass.
+            auto b = selected_->bounds();
+            b.x = new_left;
+            b.y = new_top;
+            selected_->set_bounds(b);
+            selected_->invalidate_layout();
+
+            // Emit the three move tweaks as ONE atomic batch (Risk 6):
+            // a partial "left/top without position" state shifts a still-
+            // relative node, so all three must persist together.
+            if (tweak_store_ && !selected_->anchor_id().empty()) {
+                std::vector<TweakStore::BatchEntry> batch;
+                batch.push_back({"layout.position",
+                                 choc::value::createString("absolute")});
+                batch.push_back({"layout.left",
+                                 choc::value::createFloat32(new_left)});
+                batch.push_back({"layout.top",
+                                 choc::value::createFloat32(new_top)});
+                tweak_store_->apply_tweaks_batch(selected_->anchor_id(),
+                                                 std::move(batch),
+                                                 "inspector-drag-move");
+            }
+            return true;  // consume the move event
+        }
+    }
+
+    // P2: hand-off from selection to MOVE — if dragging mode is enabled,
+    // a view is selected, and the press lands on the view's BODY (not a
+    // handle), START a move. Guard grid children: a direct child of a
+    // grid container ignores position/top/left, so refuse with a clear
+    // affordance instead of a silently-broken drag.
+    if (event.is_down && active_drag_ == DragCorner::none && !move_active_ &&
+        selected_ && hit_test_body(pos)) {
+        if (selected_parent_is_grid()) {
+            // Grid guard: refuse the move. Record the refusal so paint()
+            // can surface a clear "can't move grid child" affordance, and
+            // log once so a dev sees why the drag did nothing.
+            if (!move_refused_grid_) {
+                pulp::runtime::log_warn(
+                    "inspector: move refused - selected view's parent is a "
+                    "grid container; grid children ignore position/top/left "
+                    "(move a flex child or reposition the grid cell instead)");
+            }
+            move_refused_grid_ = true;
+            return true;  // consume so the press isn't misread as a select
+        }
+        move_refused_grid_ = false;
+        move_active_ = true;
+        move_start_pos_ = pos;
+        seed_move_origin(selected_);
+        return true;  // consume the press; subsequent moves are ours
+    }
+    move_refused_grid_ = false;
 
     // Check if mouse is in the panel area
     if (point_in_panel(pos)) {
@@ -820,6 +1039,10 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
 }
 
 bool InspectorOverlay::point_in_panel(Point p) const {
+    // P1: in the minimal manipulate layer there is NO dev side-panel, so
+    // the whole canvas is live for selection + drag. Reporting "not in
+    // panel" everywhere keeps the move/resize gestures owning the canvas.
+    if (manipulate_only_) return false;
     float panel_x = root_.bounds().width - panel_width_;
     return p.x >= panel_x;
 }
@@ -843,6 +1066,16 @@ void InspectorOverlay::paint(Canvas& canvas) {
     capture_pass_frame();
 
     rebuild_flat_tree();
+
+    // P1 — minimal manipulate layer: paint ONLY the selection box +
+    // handles (no dev side-panel, no box-model bands, no distance lines).
+    // The floating InspectorWindow is the inspect/tree/props surface; the
+    // in-canvas overlay here is the bare manipulation layer.
+    if (manipulate_only_) {
+        paint_highlight(canvas);
+        return;
+    }
+
     // Phase 2 — populate the drift list on the first paint after the
     // inspector goes active so the drawer is never empty just because
     // the host forgot to call refresh_drift() explicitly.
@@ -985,6 +1218,20 @@ void InspectorOverlay::paint_highlight(Canvas& canvas) {
             paint_handle(r.x + r.width,   r.y,              DragCorner::ne);
             paint_handle(r.x,             r.y + r.height,   DragCorner::sw);
             paint_handle(r.x + r.width,   r.y + r.height,   DragCorner::se);
+        }
+
+        // P2 grid guard affordance: when a body-drag was refused because
+        // the selected view's parent is a grid container, surface a clear
+        // "can't move grid child" badge near the top-left of the box so
+        // the no-op isn't mysterious.
+        if (move_refused_grid_) {
+            const std::string msg = "grid child - move disabled";
+            canvas.set_font("monospace", kFontSize);
+            float tw = canvas.measure_text(msg);
+            canvas.set_fill_color(Color::rgba(0.8f, 0.1f, 0.1f, 0.92f));
+            canvas.fill_rounded_rect(r.x, r.y - 20, tw + 10, 16, 3);
+            canvas.set_fill_color(Color::rgba(1, 1, 1, 1));
+            canvas.fill_text(msg, r.x + 5, r.y - 7);
         }
     }
 }
