@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01960"></a>
+## [0.196.0] - 2026-05-21
+
+- fix(import-design): close review followups ([#2685](https://github.com/danielraffel/pulp/pull/2685))
+- test(format): cover CLAP entry extensions ([#2683](https://github.com/danielraffel/pulp/pull/2683))
+- test(host): cover graph serializer edge cases ([#2680](https://github.com/danielraffel/pulp/pull/2680))
+- test(audio): cover core helper edge cases ([#2669](https://github.com/danielraffel/pulp/pull/2669))
+
 <a id="v01953"></a>
 ## [0.195.3] - 2026-05-21
 
@@ -2542,6 +2550,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.196.0]: https://github.com/danielraffel/pulp/releases/tag/v0.196.0
 [0.195.3]: https://github.com/danielraffel/pulp/releases/tag/v0.195.3
 [0.195.2]: https://github.com/danielraffel/pulp/releases/tag/v0.195.2
 [0.195.1]: https://github.com/danielraffel/pulp/releases/tag/v0.195.1
