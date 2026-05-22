@@ -131,6 +131,34 @@ public:
     void set_edit_history(pulp::state::EditHistory* h) { edit_history_ = h; }
     pulp::state::EditHistory* edit_history() const { return edit_history_; }
 
+    /// WYSIWYG T5 — structural reparent → lock-to-source.
+    ///
+    /// A reflow-aware drop that lands a view INSIDE a different container is a
+    /// STRUCTURAL tree edit, not a style tweak. The live View tree reparents +
+    /// undoes via EditHistory (handled below), but the *generated source* must
+    /// also be rewritten so the change persists across a fresh re-import. The
+    /// source rewrite itself lives in the host (it owns the generated artifact
+    /// text + the read/confirm/write loop and the `@generated` guard), so the
+    /// overlay emits the edit through this sink rather than touching files.
+    ///
+    /// Carries the dragged view's stable anchor id (`child_anchor`) and the new
+    /// parent's stable anchor id (`new_parent_anchor`). The host should call
+    /// `pulp::view::reparent_in_source()` against its held generated source.
+    /// Both anchors are guaranteed non-empty when the sink fires (the overlay
+    /// only emits for anchored views). Undo re-emits the edit with the ORIGINAL
+    /// parent, so the host re-derives the inverse rewrite — the engine's
+    /// idempotent `already_current` path keeps repeated emits safe.
+    struct ReparentSourceEdit {
+        std::string child_anchor;
+        std::string new_parent_anchor;
+    };
+    void set_reparent_source_sink(std::function<void(const ReparentSourceEdit&)> sink) {
+        reparent_source_sink_ = std::move(sink);
+    }
+    bool has_reparent_source_sink() const {
+        return static_cast<bool>(reparent_source_sink_);
+    }
+
     /// WYSIWYG P4 FIX 5 (minimal) — clear the attached EditHistory.
     ///
     /// The undo/redo closures recorded for each gesture capture the live
@@ -933,6 +961,12 @@ private:
     // apply exactly as before with no undo entry pushed. See
     // set_edit_history().
     pulp::state::EditHistory* edit_history_ = nullptr;
+
+    // WYSIWYG T5: optional sink for promoting a live structural reparent into
+    // the generated source. When null (the default), a reparent affects only
+    // the live tree + EditHistory; the structural edit is not locked to source.
+    // See set_reparent_source_sink().
+    std::function<void(const ReparentSourceEdit&)> reparent_source_sink_ = nullptr;
 
     // ── P2a — gesture undo helpers ──────────────────────────────────
     //

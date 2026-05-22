@@ -585,17 +585,42 @@ add it to the `kKnown` allow-list in `lock_property_to_style_name()` too
   mirror `lock_tweak_into_source` (`rewritten` / `already_current` /
   `anchor_not_found`). The shared block helpers `find_anchor_block()` +
   `block_var_name()` back both engines.
-  - **Flagged / remaining (T5 is the scaffold, not the full feature):**
-    1. The receiver rewrite is sufficient to reparent the LIVE DOM (createElement
-       + appendChild are order-independent once the receiver is correct), but the
-       element block's TEXT is NOT physically relocated inside the new parent's
-       block. A re-import re-runs codegen from the IR and would lay it out by IR
-       order; the in-place block move is a follow-up.
-    2. `InspectorOverlay`'s reparent gesture (`reparent_view` /
-       `commit_reflow_drop`) still persists only to live + `EditHistory`; it does
-       NOT yet emit a structural-edit record to a store, so nothing calls
-       `reparent_in_source` from the live drop path yet. Wiring the gesture →
-       store → lock action is the remaining integration.
+  - **Now physically relocates the block (gap closed).** `reparent_in_source`
+    moves the element's FULL source subtree — the block PLUS every DFS-contiguous
+    descendant block — to sit physically under the new parent, then re-indents it
+    one 2-space step in. The receiver rewrite alone is enough for the live DOM
+    (createElement + appendChild are order-independent), but a generated artifact
+    must also read correctly and round-trip a fresh re-import, so the block moves
+    too. **Subtree boundary gotcha:** `find_subtree_range()` detects the end of a
+    subtree purely from `// @pulp-anchor` comments + indentation — codegen is
+    depth-first, so a subtree is the run of lines until the next anchor at
+    `indent <= base` (a sibling/ancestor) or a non-anchor line indented `< base`
+    (the enclosing tail, e.g. `document.body.appendChild(root)`). Do NOT reuse
+    `find_anchor_block()` for relocation — it stops at the first blank line, which
+    is just ONE element block, not the whole subtree.
+  - **Unsafe-reparent guard (don't corrupt source).** If the new parent's anchor
+    lies INSIDE the child's subtree (dropping a node under its own descendant) or
+    the subtree span can't be resolved, the engine SKIPS the physical move but
+    still rewrites the receiver, and records the skip reason in `result.message`
+    (`"... NOT relocated (...)"`). The live gesture's `is_self_or_ancestor`
+    already prevents this, but the source engine must defend independently — never
+    emit a half-moved tree.
+  - **Live gesture → source wiring (gap closed).** `InspectorOverlay` exposes
+    `set_reparent_source_sink(std::function<void(ReparentSourceEdit{child_anchor,
+    new_parent_anchor})>)`. At the `commit_reflow_drop` undo-entry site, a genuine
+    cross-parent reparent of an anchored view emits through the sink: the `do_fn`
+    locks under the NEW parent, the `undo_fn` re-emits with the ORIGINAL parent so
+    the host re-derives the inverse rewrite. **Gotcha:** `EditHistory::perform()`
+    runs `do_fn` immediately (it calls `redo()`), so the sink fires once on the
+    initial commit — don't ALSO call the sink inline before `perform()` or you
+    double-rewrite. The overlay is filesystem-free by design; the HOST owns the
+    source text + read/confirm/write loop. `examples/ui-preview` wires the sink to
+    its `--script` file behind the `is_generated_source()` `@generated`-boundary
+    guard, so a hand-authored script is never rewritten. Coverage:
+    `pulp-test-lock-to-source [wysiwyg][t5]` (engine: relocation + idempotency +
+    guard) and `pulp-test-inspector [wysiwyg][t5]` (gesture round-trip: live →
+    source → undo reverts both → redo → idempotent; plus the live-only no-sink
+    path).
 
 ### Phase 4b — Lock-to-source, Path B (hand-authored JSX/TSX patch)
 

@@ -116,6 +116,59 @@ std::string two_child_source() {
     return generate_pulp_js(make_two_child_ir(), opts);
 }
 
+// WYSIWYG T5 (gap #2) — Root has two children: Card (with a nested Inner child)
+// and Panel. Dropping Card inside Panel must move the WHOLE Card subtree
+// (Card + Inner) physically under Panel in source.
+DesignIR make_nested_reparent_ir() {
+    IRNode root;
+    root.type = "frame";
+    root.name = "Root";
+    root.style.background_color = "#222222";
+    root.style.width = 320.0f;
+    root.style.height = 200.0f;
+
+    IRNode card;
+    card.type = "frame";
+    card.name = "Card";
+    card.style.background_color = "#888888";
+    card.style.width = 80.0f;
+    IRNode inner;
+    inner.type = "frame";
+    inner.name = "Inner";
+    inner.style.background_color = "#aaaaaa";
+    inner.style.width = 40.0f;
+    card.children.push_back(inner);
+    root.children.push_back(card);
+
+    IRNode panel;
+    panel.type = "frame";
+    panel.name = "Panel";
+    panel.style.background_color = "#444444";
+    panel.style.width = 120.0f;
+    root.children.push_back(panel);
+
+    DesignIR ir;
+    ir.root = std::move(root);
+    ir.source = DesignSource::v0;
+    ir.source_file = "nested.tsx";
+    assign_anchors(ir.root, AnchorStrategy::content_hash);
+    return ir;
+}
+
+std::string nested_reparent_source() {
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::web_compat;
+    opts.include_comments = true;
+    return generate_pulp_js(make_nested_reparent_ir(), opts);
+}
+
+// Index (line ordinal) of the first `// @pulp-anchor <id>` comment in `src`,
+// or std::string::npos when absent. Used to assert physical ordering: a block
+// that moved "under" another sits at a LATER source position.
+std::size_t anchor_pos(const std::string& src, const std::string& id) {
+    return src.find("// @pulp-anchor " + id);
+}
+
 }  // namespace
 
 // ── Property-path mapping ───────────────────────────────────────────────
@@ -370,6 +423,134 @@ TEST_CASE("reparent_in_source is idempotent + graceful on bad anchors",
     }
 }
 
+// WYSIWYG T5 gap #2 — physical block relocation. The receiver rewrite alone
+// changes the live DOM parent, but a full reparent must also move the element's
+// source block (and its whole subtree) to sit physically under the new parent so
+// the generated artifact reads correctly and round-trips a fresh re-import.
+TEST_CASE("reparent_in_source physically relocates the child subtree",
+          "[lock-to-source][wysiwyg][t5]") {
+    const std::string gen = nested_reparent_source();
+    auto ir = make_nested_reparent_ir();
+    REQUIRE(ir.root.children.size() == 2);
+    const std::string card_anchor = *ir.root.children[0].stable_anchor_id;
+    const std::string inner_anchor =
+        *ir.root.children[0].children[0].stable_anchor_id;
+    const std::string panel_anchor = *ir.root.children[1].stable_anchor_id;
+
+    // Before: source order is Card, Inner (under Card), Panel — Card precedes
+    // Panel. The Inner block sits inside the Card subtree.
+    REQUIRE(anchor_pos(gen, card_anchor) < anchor_pos(gen, panel_anchor));
+
+    LockResult r = reparent_in_source(gen, {card_anchor, panel_anchor});
+    REQUIRE(r.status == LockStatus::rewritten);
+    REQUIRE(r.mutated());
+    REQUIRE(r.message.find("relocated") != std::string::npos);
+
+    // After: the WHOLE Card subtree (Card + Inner) now sits AFTER the Panel
+    // anchor in source order — physically relocated under the new parent.
+    const std::size_t panel_p = anchor_pos(r.source, panel_anchor);
+    const std::size_t card_p = anchor_pos(r.source, card_anchor);
+    const std::size_t inner_p = anchor_pos(r.source, inner_anchor);
+    REQUIRE(panel_p != std::string::npos);
+    REQUIRE(card_p != std::string::npos);
+    REQUIRE(inner_p != std::string::npos);
+    REQUIRE(panel_p < card_p);   // Card moved below Panel's header
+    REQUIRE(card_p < inner_p);   // Inner still nested under Card (subtree intact)
+
+    // The Card block's appendChild receiver now targets the Panel var.
+    const auto panel_const = r.source.find("const ", panel_p);
+    REQUIRE(panel_const != std::string::npos);
+    const auto panel_eq = r.source.find(" =", panel_const);
+    const std::string panel_var =
+        r.source.substr(panel_const + 6, panel_eq - (panel_const + 6));
+    REQUIRE(r.source.find(panel_var + ".appendChild(") != std::string::npos);
+
+    // Inner still appends to Card (the subtree's internal wiring is untouched).
+    const auto card_const = r.source.find("const ", card_p);
+    const auto card_eq = r.source.find(" =", card_const);
+    const std::string card_var =
+        r.source.substr(card_const + 6, card_eq - (card_const + 6));
+    REQUIRE(r.source.find(card_var + ".appendChild(") != std::string::npos);
+}
+
+TEST_CASE("reparent_in_source relocation is idempotent",
+          "[lock-to-source][wysiwyg][t5]") {
+    const std::string gen = nested_reparent_source();
+    auto ir = make_nested_reparent_ir();
+    const std::string card_anchor = *ir.root.children[0].stable_anchor_id;
+    const std::string panel_anchor = *ir.root.children[1].stable_anchor_id;
+
+    LockResult first = reparent_in_source(gen, {card_anchor, panel_anchor});
+    REQUIRE(first.status == LockStatus::rewritten);
+
+    // Re-applying the same reparent to the already-rewritten source is a no-op:
+    // the receiver already points at the parent, so the block is not moved again.
+    LockResult again =
+        reparent_in_source(first.source, {card_anchor, panel_anchor});
+    REQUIRE(again.status == LockStatus::already_current);
+    REQUIRE(again.source == first.source);  // byte-identical — no drift
+}
+
+// WYSIWYG T5 gap #2 — guard: a reparent that cannot be safely relocated must
+// skip the physical block move WITHOUT corrupting source. Dropping a parent
+// INSIDE its own descendant (Panel under Card, when Card is Panel's ancestor)
+// is the canonical unsafe case; the engine rewrites the receiver but leaves the
+// block in place, and the source stays well-formed (every anchor still present).
+TEST_CASE("reparent_in_source skips relocation when parent is inside the subtree",
+          "[lock-to-source][wysiwyg][t5]") {
+    // Build Root → Outer → Inner. Try to reparent Outer UNDER Inner (its own
+    // descendant). The live gesture would never allow this (is_self_or_ancestor),
+    // but the source engine must defend too.
+    IRNode root;
+    root.type = "frame";
+    root.name = "Root";
+    root.style.background_color = "#222222";
+    root.style.width = 320.0f;
+    root.style.height = 200.0f;
+    IRNode outer;
+    outer.type = "frame";
+    outer.name = "Outer";
+    outer.style.background_color = "#888888";
+    outer.style.width = 200.0f;
+    IRNode inner;
+    inner.type = "frame";
+    inner.name = "Inner";
+    inner.style.background_color = "#aaaaaa";
+    inner.style.width = 40.0f;
+    outer.children.push_back(inner);
+    root.children.push_back(outer);
+    DesignIR ir;
+    ir.root = std::move(root);
+    ir.source = DesignSource::v0;
+    ir.source_file = "deep.tsx";
+    assign_anchors(ir.root, AnchorStrategy::content_hash);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::web_compat;
+    opts.include_comments = true;
+    const std::string gen = generate_pulp_js(ir, opts);
+
+    const std::string outer_anchor = *ir.root.children[0].stable_anchor_id;
+    const std::string inner_anchor =
+        *ir.root.children[0].children[0].stable_anchor_id;
+
+    LockResult r = reparent_in_source(gen, {outer_anchor, inner_anchor});
+    // The receiver is still rewritten (live tree already reparented), but the
+    // block is NOT physically moved — the message records the skip reason.
+    REQUIRE(r.status == LockStatus::rewritten);
+    REQUIRE(r.message.find("NOT relocated") != std::string::npos);
+    REQUIRE(r.message.find("inside the moved subtree") != std::string::npos);
+
+    // Source is not corrupted: both anchors still present, Outer still precedes
+    // Inner physically (no move happened), and the source still parses as a
+    // generated artifact.
+    REQUIRE(anchor_pos(r.source, outer_anchor) != std::string::npos);
+    REQUIRE(anchor_pos(r.source, inner_anchor) != std::string::npos);
+    REQUIRE(anchor_pos(r.source, outer_anchor) <
+            anchor_pos(r.source, inner_anchor));
+    REQUIRE(is_generated_source(r.source));
+}
+
 // ── Idempotent re-lock ──────────────────────────────────────────────────
 
 TEST_CASE("lock_tweak_into_source is idempotent when value already current", "[lock-to-source][issue-1307]") {
@@ -621,3 +802,4 @@ TEST_CASE("lock-to-source round-trips a style-color tweak against re-codegen", "
 
     REQUIRE(locked.source == regen);
 }
+

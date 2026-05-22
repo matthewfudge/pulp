@@ -2026,6 +2026,14 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                             break;
                         }
                 }
+                // WYSIWYG T5 — capture the structural anchors BEFORE the commit
+                // so the source-rewrite sink can lock the reparent into the
+                // generated artifact (and undo can re-derive the inverse). Empty
+                // when a view carries no design provenance — the sink only fires
+                // for fully-anchored reparents.
+                const std::string child_anchor = tgt->anchor_id();
+                const std::string old_parent_anchor =
+                    before_parent ? before_parent->anchor_id() : std::string{};
                 bool changed = commit_reflow_drop(tgt);
                 if (changed && edit_history_ && before_parent) {
                     View* after_parent = tgt->parent();
@@ -2038,23 +2046,47 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                                 break;
                             }
                     }
+                    const std::string new_parent_anchor =
+                        after_parent ? after_parent->anchor_id() : std::string{};
+                    // WYSIWYG T5 — emit a structural source rewrite ONLY for a
+                    // genuine cross-parent reparent (a same-parent reorder is a
+                    // flex().order tweak, persisted elsewhere) where every
+                    // anchor resolves and a sink is wired. The do_fn locks the
+                    // child under the NEW parent; the undo_fn re-emits the edit
+                    // with the OLD parent so the host re-derives the inverse
+                    // source rewrite. The engine's idempotent `already_current`
+                    // path keeps repeated emits byte-stable.
+                    const bool emit_source_reparent =
+                        has_reparent_source_sink() &&
+                        after_parent != before_parent &&
+                        !child_anchor.empty() &&
+                        !new_parent_anchor.empty() &&
+                        !old_parent_anchor.empty();
                     auto* self = this;
                     // do_fn re-applies the AFTER tree state; undo_fn restores
                     // BEFORE. reparent_to is the structural primitive (no-op
                     // when parent unchanged), order is rewritten directly.
                     edit_history_->perform(
-                        [self, tgt, after_parent, after_index, after_order]() {
+                        [self, tgt, after_parent, after_index, after_order,
+                         emit_source_reparent, child_anchor, new_parent_anchor]() {
                             self->reparent_view(tgt, after_parent, after_index);
                             tgt->flex().order = after_order;
                             if (after_parent) after_parent->invalidate_layout();
                             tgt->invalidate_layout();
+                            if (emit_source_reparent && self->reparent_source_sink_)
+                                self->reparent_source_sink_(
+                                    {child_anchor, new_parent_anchor});
                         },
-                        [self, tgt, before_parent, before_index, before_order]() {
+                        [self, tgt, before_parent, before_index, before_order,
+                         emit_source_reparent, child_anchor, old_parent_anchor]() {
                             self->reparent_view(tgt, before_parent,
                                                 before_index);
                             tgt->flex().order = before_order;
                             if (before_parent) before_parent->invalidate_layout();
                             tgt->invalidate_layout();
+                            if (emit_source_reparent && self->reparent_source_sink_)
+                                self->reparent_source_sink_(
+                                    {child_anchor, old_parent_anchor});
                         },
                         "move-reflow");
                 }

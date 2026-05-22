@@ -10,6 +10,7 @@
 #include <pulp/view/inspector.hpp>
 #include <pulp/inspect/inspector_overlay.hpp>
 #include <pulp/inspect/inspector_window.hpp>
+#include <pulp/view/lock_to_source.hpp>  // WYSIWYG T5 — reparent → source rewrite
 #include <pulp/render/render_pass.hpp>
 #include <pulp/runtime/system.hpp>
 #include <pulp/view/screenshot.hpp>
@@ -1073,6 +1074,35 @@ int main(int argc, char* argv[]) {
     pulp::state::EditHistory inspector_history;
     inspector_history.set_coalesce(false);
     inspector.set_edit_history(&inspector_history);
+    // WYSIWYG T5 — lock a live structural reparent into the generated source.
+    // When a --script generated artifact backs this preview, dropping a view
+    // inside another container must persist as a source rewrite (not just a
+    // live + EditHistory edit), so it survives a fresh re-import. The overlay
+    // emits the edit through this sink; the host owns the read/confirm/write
+    // loop and the `@generated`-boundary guard (only Pulp-generated artifacts
+    // are rewritten — a hand-authored script is left untouched). Undo re-emits
+    // with the original parent so the inverse rewrite is re-derived.
+    if (!script_path.empty()) {
+        const std::string sink_script_path = script_path;
+        inspector.set_reparent_source_sink(
+            [sink_script_path](
+                const pulp::inspect::InspectorOverlay::ReparentSourceEdit& e) {
+                std::ifstream in(sink_script_path, std::ios::binary);
+                if (!in) return;  // best-effort; source unavailable
+                std::string src((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+                in.close();
+                // @generated-boundary guard: never rewrite a hand-authored file.
+                if (!pulp::view::is_generated_source(src)) return;
+                pulp::view::ReparentToSourceEdit edit{e.child_anchor,
+                                                      e.new_parent_anchor};
+                auto r = pulp::view::reparent_in_source(src, edit);
+                if (!r.mutated()) return;  // no-op / already-current / not found
+                std::ofstream out(sink_script_path,
+                                  std::ios::binary | std::ios::trunc);
+                if (out) out << r.source;
+            });
+    }
     // WYSIWYG P4 FIX 5 — the EditHistory's undo closures capture raw View*
     // pointers that would dangle if the inspected tree were rebuilt/re-imported
     // before undo. The host MUST call inspector.clear_edit_history() at any

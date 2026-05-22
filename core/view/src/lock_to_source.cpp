@@ -187,6 +187,56 @@ std::string block_var_name(const std::vector<std::string>& lines,
     return {};
 }
 
+// WYSIWYG T5 — width of a line's leading-whitespace prefix (tabs count as one
+// column each; the importer emits spaces, so this is just the space count).
+std::size_t indent_width(const std::string& line) {
+    std::size_t i = 0;
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+    return i;
+}
+
+// WYSIWYG T5 — find the FULL source subtree of the element anchored at
+// `anchor_line`. The web-compat codegen (design_codegen.cpp generate_node) is
+// depth-first: a parent's block is emitted, then each child's block recursively,
+// each child more-indented than its parent. An element's complete subtree is
+// therefore the contiguous run of lines from its `// @pulp-anchor` comment up to
+// (but not including) the first subsequent `// @pulp-anchor` comment whose
+// indentation is <= the subject's indentation (a sibling, or an ancestor's next
+// child). The first non-comment, non-blank line indented LESS than the subject
+// (e.g. the closing `document.body.appendChild(root);`) also ends the subtree.
+//
+// We use anchor comments + indentation as the only structural signal — these are
+// exactly what `generate_node()` emits, so this matches the importer's output
+// without parsing JS. `sub_begin` is the anchor-comment line index; `sub_end` is
+// one-past the last line of the subtree (a single trailing blank line is folded
+// in so a relocated subtree keeps its block separator). Returns false if
+// `anchor_line` is out of range or does not name an anchor comment.
+bool find_subtree_range(const std::vector<std::string>& lines,
+                        std::size_t anchor_line,
+                        std::size_t& sub_begin,
+                        std::size_t& sub_end) {
+    if (anchor_line >= lines.size()) return false;
+    if (anchor_comment_id(lines[anchor_line]).empty()) return false;
+    sub_begin = anchor_line;
+    const std::size_t base_indent = indent_width(lines[anchor_line]);
+    std::size_t last_content = anchor_line;  // last non-blank subtree line
+    for (std::size_t i = anchor_line + 1; i < lines.size(); ++i) {
+        const std::string t = trim(lines[i]);
+        if (t.empty()) continue;  // interior blank separator — defer the cut
+        const std::size_t ind = indent_width(lines[i]);
+        const bool is_anchor = !anchor_comment_id(lines[i]).empty();
+        // A sibling/ancestor anchor (same or lesser indent) ends the subtree.
+        if (is_anchor && ind <= base_indent) break;
+        // A non-anchor content line indented less than the subject is the
+        // enclosing scope's tail (e.g. `document.body.appendChild(root);`).
+        if (!is_anchor && ind < base_indent) break;
+        last_content = i;
+    }
+    sub_end = last_content + 1;
+    if (sub_end < lines.size() && trim(lines[sub_end]).empty()) ++sub_end;
+    return true;
+}
+
 // WYSIWYG T4 — turn an InspectorOverlay tweak value into the literal text
 // that should appear inside the generated `el.style.<name> = '<text>'`. Most
 // paths emit their value verbatim (a color, a "120px" dimension, "absolute").
@@ -490,41 +540,172 @@ LockResult reparent_in_source(const std::string& source,
     }
 
     // Find the child block's `<oldParent>.appendChild(<childVar>);` line and
-    // rewrite the receiver. The argument must be exactly the child var so we
-    // don't accidentally retarget an appendChild of a nested grandchild.
+    // its receiver. The argument must be exactly the child var so we don't
+    // accidentally retarget an appendChild of a nested grandchild.
     const std::string append_call = ".appendChild(" + child_var + ")";
+    int receiver_line = -1;
+    std::string old_receiver;
     for (std::size_t i = child_begin; i < child_end; ++i) {
         const std::string t = trim(lines[i]);
         const auto call_pos = t.find(append_call);
         if (call_pos == std::string::npos) continue;
-        // The receiver is everything before ".appendChild(".
-        const std::string old_receiver = t.substr(0, call_pos);
-        if (old_receiver == new_parent_var) {
-            result.status = LockStatus::already_current;
-            result.message = "child '" + edit.child_anchor_id +
-                             "' already appends to parent '" +
-                             edit.new_parent_anchor_id + "'";
-            result.line = static_cast<int>(i) + 1;
-            result.source = source;
-            return result;
+        receiver_line = static_cast<int>(i);
+        old_receiver = t.substr(0, call_pos);  // everything before ".appendChild("
+        break;
+    }
+    if (receiver_line < 0) {
+        // No appendChild line for the child — e.g. it was the root, or codegen
+        // emitted it without a parent. Graceful failure; leave source untouched.
+        result.status = LockStatus::anchor_not_found;
+        result.message = "no '" + child_var +
+                         "' appendChild line found in child block for anchor '" +
+                         edit.child_anchor_id + "'";
+        return result;
+    }
+    if (old_receiver == new_parent_var) {
+        result.status = LockStatus::already_current;
+        result.message = "child '" + edit.child_anchor_id +
+                         "' already appends to parent '" +
+                         edit.new_parent_anchor_id + "'";
+        result.line = receiver_line + 1;
+        result.source = source;
+        return result;
+    }
+
+    // ── WYSIWYG T5 (gap #2): physically relocate the child's source block ────
+    // The appendChild receiver rewrite alone changes the LIVE DOM parent
+    // (createElement + appendChild are order-independent once the receiver is
+    // correct). But to produce well-formed source that round-trips through a
+    // fresh re-import — and reads correctly to a human — the element's block
+    // (and its whole subtree) must also sit physically under the new parent.
+    //
+    // Resolve the full subtree ranges for both the child and the new parent.
+    std::size_t child_sub_begin = 0, child_sub_end = 0;
+    std::size_t parent_sub_begin = 0, parent_sub_end = 0;
+    const bool have_child_sub =
+        find_subtree_range(lines, static_cast<std::size_t>(child_anchor_line),
+                           child_sub_begin, child_sub_end);
+    const bool have_parent_sub =
+        find_subtree_range(lines, static_cast<std::size_t>(parent_anchor_line),
+                           parent_sub_begin, parent_sub_end);
+
+    // Safety: refuse to relocate when the new parent's anchor lies inside the
+    // child's subtree — that would move a node under its own descendant and
+    // corrupt the tree. The live reparent gesture already guards against this
+    // (is_self_or_ancestor); this is the source-side defense. We also bail on a
+    // degenerate subtree span. In every "can't safely relocate" case we STILL
+    // rewrite the appendChild receiver (the live tree is already reparented and
+    // the receiver edit alone keeps the generated DOM correct) but skip the
+    // physical block move — never producing corrupt source.
+    bool can_relocate = have_child_sub && have_parent_sub;
+    std::string skip_reason;
+    if (can_relocate) {
+        const auto pa = static_cast<std::size_t>(parent_anchor_line);
+        if (pa >= child_sub_begin && pa < child_sub_end) {
+            can_relocate = false;
+            skip_reason = "new parent is inside the moved subtree";
         }
-        const std::string ind = indent_of(lines[i]);
-        lines[i] = ind + new_parent_var + ".appendChild(" + child_var + ");";
+    } else {
+        skip_reason = "could not resolve a contiguous subtree range";
+    }
+
+    // Rewrite the appendChild receiver in place (used by both the relocate and
+    // the receiver-only fallback path; the line index shifts after a move, so
+    // we capture the rewritten text and re-find it post-move if needed).
+    const std::string receiver_indent = indent_of(lines[receiver_line]);
+    const std::string rewritten_append =
+        receiver_indent + new_parent_var + ".appendChild(" + child_var + ");";
+
+    if (!can_relocate) {
+        // Receiver-only rewrite (no physical move). Still a valid reparent for
+        // the live DOM; the source block stays where it is.
+        lines[static_cast<std::size_t>(receiver_line)] = rewritten_append;
         result.status = LockStatus::rewritten;
-        result.line = static_cast<int>(i) + 1;
+        result.line = receiver_line + 1;
         result.message = "reparented '" + edit.child_anchor_id + "' under '" +
                          edit.new_parent_anchor_id + "' (" + old_receiver +
-                         " -> " + new_parent_var + ")";
+                         " -> " + new_parent_var +
+                         "); receiver rewritten, block NOT relocated (" +
+                         skip_reason + ")";
         result.source = join_lines(lines, trailing_nl);
         return result;
     }
 
-    // No appendChild line for the child — e.g. it was the root, or codegen
-    // emitted it without a parent. Graceful failure; leave source untouched.
-    result.status = LockStatus::anchor_not_found;
-    result.message = "no '" + child_var +
-                     "' appendChild line found in child block for anchor '" +
-                     edit.child_anchor_id + "'";
+    // Apply the receiver rewrite first so the moved block carries it.
+    lines[static_cast<std::size_t>(receiver_line)] = rewritten_append;
+
+    // Extract the child subtree lines, then re-indent them to sit one step
+    // (importer default = 2 spaces) deeper than the new parent's block.
+    std::vector<std::string> moved(lines.begin() + static_cast<std::ptrdiff_t>(child_sub_begin),
+                                   lines.begin() + static_cast<std::ptrdiff_t>(child_sub_end));
+    const std::size_t parent_indent = indent_width(lines[parent_sub_begin]);
+    const std::size_t child_indent = indent_width(lines[child_sub_begin]);
+    const std::size_t target_indent = parent_indent + 2;  // one 2-space step in
+    for (auto& ml : moved) {
+        if (trim(ml).empty()) continue;  // leave blank separators blank
+        const std::size_t cur = indent_width(ml);
+        // Preserve the subtree's internal nesting: shift every line by the same
+        // delta between the child's old base indent and its new base indent.
+        const std::ptrdiff_t delta =
+            static_cast<std::ptrdiff_t>(target_indent) -
+            static_cast<std::ptrdiff_t>(child_indent);
+        const std::string body = ml.substr(cur);
+        std::ptrdiff_t new_ind = static_cast<std::ptrdiff_t>(cur) + delta;
+        if (new_ind < 0) new_ind = 0;
+        ml = std::string(static_cast<std::size_t>(new_ind), ' ') + body;
+    }
+
+    // Remove the child subtree from its old position.
+    lines.erase(lines.begin() + static_cast<std::ptrdiff_t>(child_sub_begin),
+                lines.begin() + static_cast<std::ptrdiff_t>(child_sub_end));
+
+    // Recompute the parent subtree's INSERTION point. Removing the child shifts
+    // every index after child_sub_begin down by the removed span. The new
+    // parent's block always precedes the child block in DFS source order when
+    // the child was a sibling-or-later node (Card before Panel here means the
+    // child is BEFORE the parent) — so handle both directions by re-locating the
+    // parent's block header after the erase and inserting right after it.
+    const std::size_t removed = child_sub_end - child_sub_begin;
+    std::size_t insert_at;
+    {
+        // Re-find the parent's anchor line in the post-erase buffer, then walk
+        // its OWN block (header lines: anchor comment → name? → const → styles →
+        // appendChild → setAnchor → blank) so the child lands as the parent's
+        // FIRST child in source order, immediately after the parent's setAnchor.
+        std::size_t pa = 0;
+        bool found = false;
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            if (anchor_comment_id(lines[i]) == edit.new_parent_anchor_id) {
+                pa = i;
+                found = true;
+                break;
+            }
+        }
+        (void)removed;
+        if (!found) {
+            // Should not happen (the parent anchor was present pre-erase and is
+            // not inside the moved subtree), but stay graceful: append at EOF.
+            insert_at = lines.size();
+        } else {
+            // Walk to the end of the parent's OWN element block: the first blank
+            // line after the parent anchor, or the next anchor comment.
+            std::size_t j = pa + 1;
+            for (; j < lines.size(); ++j) {
+                if (trim(lines[j]).empty()) { ++j; break; }       // past the blank
+                if (!anchor_comment_id(lines[j]).empty()) break;  // next element
+            }
+            insert_at = j;
+        }
+    }
+    lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(insert_at),
+                 moved.begin(), moved.end());
+
+    result.status = LockStatus::rewritten;
+    result.line = static_cast<int>(insert_at) + 1;
+    result.message = "reparented '" + edit.child_anchor_id + "' under '" +
+                     edit.new_parent_anchor_id + "' (" + old_receiver +
+                     " -> " + new_parent_var + "); block relocated";
+    result.source = join_lines(lines, trailing_nl);
     return result;
 }
 
