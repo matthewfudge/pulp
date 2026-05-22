@@ -146,6 +146,25 @@ std::string escape_js_single(const std::string& s) {
     return out;
 }
 
+// WYSIWYG T4 — turn an InspectorOverlay tweak value into the literal text
+// that should appear inside the generated `el.style.<name> = '<text>'`. Most
+// paths emit their value verbatim (a color, a "120px" dimension, "absolute").
+// The exception is `transform.scale`, whose tweak value is a bare scale
+// factor (e.g. "1.5") that must become a CSS `transform` function form,
+// `scale(1.5)`. A value already wrapped in a transform function (the user
+// hand-edited the source, or a future multi-component transform) passes
+// through unchanged so we never double-wrap.
+std::string format_lock_value(const std::string& property_path,
+                              const std::string& value) {
+    if (lower(property_path).rfind("transform.scale", 0) != 0) return value;
+    const std::string t = trim(value);
+    if (t.empty()) return value;
+    // Already a CSS transform function (contains '(') → emit as-is.
+    if (t.find('(') != std::string::npos) return t;
+    // Bare numeric factor → wrap as scale(<n>).
+    return "scale(" + t + ")";
+}
+
 }  // namespace
 
 std::optional<std::string>
@@ -153,10 +172,21 @@ lock_property_to_style_name(const std::string& property_path) {
     // Strip a recognized leading namespace segment. paint / style /
     // layout all collapse onto the web-compat `el.style.<name>` surface.
     std::string leaf = property_path;
+    bool transform_ns = false;
     const auto dot = property_path.find('.');
     if (dot != std::string::npos) {
         const std::string head = lower(property_path.substr(0, dot));
         if (head == "paint" || head == "style" || head == "layout") {
+            leaf = property_path.substr(dot + 1);
+        } else if (head == "transform") {
+            // WYSIWYG T4 — the proportional-resize gesture persists its
+            // content scale under `transform.scale` (an InspectorOverlay
+            // tweak, see inspector_overlay.cpp). It maps onto the CSS
+            // `el.style.transform` surface (the value wrapper in
+            // lock_tweak_into_source turns the bare factor into
+            // `scale(<n>)`). Mark the namespace so the resolver collapses
+            // any `transform.<sub>` onto the single `transform` style line.
+            transform_ns = true;
             leaf = property_path.substr(dot + 1);
         } else {
             // Unknown namespace — not a generated-style path.
@@ -168,6 +198,11 @@ lock_property_to_style_name(const std::string& property_path) {
     // A nested path like `layout.padding.top` is out of scope for Path A's
     // flat `el.style.<name>` rewrite.
     if (leaf.find('.') != std::string::npos) return std::nullopt;
+
+    // WYSIWYG T4 — `transform.*` collapses onto the single `transform`
+    // style property regardless of the sub-name (scale / rotate / …); the
+    // value wrapper in lock_tweak_into_source builds the CSS function form.
+    if (transform_ns) return std::string("transform");
 
     const std::string camel = to_camel(leaf);
     const std::string style_name =
@@ -189,6 +224,10 @@ lock_property_to_style_name(const std::string& property_path) {
         "padding", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
         "margin", "marginTop", "marginRight", "marginBottom", "marginLeft",
         "justifyContent", "alignItems", "flexWrap", "flexGrow",
+        // WYSIWYG T4 — `order` (CSS flex reorder). The reflow-aware
+        // drag-to-reorder gesture rewrites flex().order; locking it to
+        // source persists the new sibling order as `el.style.order`.
+        "order",
         "position", "top", "left", "right", "bottom", "zIndex",
         "width", "height",
         "minWidth", "minHeight", "maxWidth", "maxHeight",
@@ -306,7 +345,11 @@ LockResult lock_tweak_into_source(const std::string& source,
         }
     }
 
-    const std::string escaped = escape_js_single(tweak.value);
+    // WYSIWYG T4 — wrap a bare transform.scale factor into scale(<n>) before
+    // escaping; all other paths emit their value verbatim.
+    const std::string formatted =
+        format_lock_value(tweak.property_path, tweak.value);
+    const std::string escaped = escape_js_single(formatted);
 
     if (existing_prop_line >= 0) {
         // Rewrite the value inside the existing assignment's literal.

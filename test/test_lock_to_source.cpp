@@ -118,6 +118,13 @@ TEST_CASE("lock_property_to_style_name maps dotted paths", "[lock-to-source][iss
     SECTION("nested layout path is out of Path A scope") {
         REQUIRE_FALSE(lock_property_to_style_name("layout.padding.top").has_value());
     }
+    // WYSIWYG T4 — reorder + proportional-resize edits round-trip to source.
+    SECTION("layout.order maps to the order style property") {
+        REQUIRE(lock_property_to_style_name("layout.order") == "order");
+    }
+    SECTION("transform.scale collapses onto the transform style property") {
+        REQUIRE(lock_property_to_style_name("transform.scale") == "transform");
+    }
 }
 
 // ── Generated-source detection (the @generated boundary guard) ──────────
@@ -209,6 +216,53 @@ TEST_CASE("lock_tweak_into_source inserts a missing property", "[lock-to-source]
     REQUIRE(anchor_pos != std::string::npos);
     REQUIRE(opacity_pos != std::string::npos);
     REQUIRE(opacity_pos > anchor_pos);
+}
+
+// ── WYSIWYG T4 — reorder + proportional-resize round-trip ───────────────
+
+TEST_CASE("lock_tweak_into_source persists a layout.order reorder",
+          "[lock-to-source][wysiwyg][t4]") {
+    const std::string gen = make_generated_source();
+    const std::string anchor = first_child_anchor();
+
+    // The child has no order assignment in the generated source.
+    REQUIRE(gen.find(".style.order") == std::string::npos);
+
+    // A drag-to-reorder gesture rewrote flex().order to 2; locking it should
+    // insert `el.style.order = '2'` so the new sibling order survives a
+    // re-import.
+    LockToSourceTweak tweak{anchor, "layout.order", "2"};
+    LockResult r = lock_tweak_into_source(gen, tweak);
+
+    REQUIRE(r.ok());
+    REQUIRE(r.mutated());
+    REQUIRE(r.style_property == "order");
+    REQUIRE(r.source.find(".style.order = '2'") != std::string::npos);
+}
+
+TEST_CASE("lock_tweak_into_source persists a transform.scale proportional resize",
+          "[lock-to-source][wysiwyg][t4]") {
+    const std::string gen = make_generated_source();
+    const std::string anchor = first_child_anchor();
+
+    REQUIRE(gen.find(".style.transform") == std::string::npos);
+
+    // The proportional Shift-resize gesture persists a bare scale factor under
+    // `transform.scale`. Locking it must wrap the factor into the CSS function
+    // form `scale(1.5)` on the single `transform` style line.
+    LockToSourceTweak tweak{anchor, "transform.scale", "1.5"};
+    LockResult r = lock_tweak_into_source(gen, tweak);
+
+    REQUIRE(r.ok());
+    REQUIRE(r.mutated());
+    REQUIRE(r.style_property == "transform");
+    REQUIRE(r.source.find(".style.transform = 'scale(1.5)'") != std::string::npos);
+
+    // Re-locking the same value is idempotent (the wrapped form already
+    // matches), proving the round-trip is stable.
+    LockResult again = lock_tweak_into_source(r.source, tweak);
+    REQUIRE(again.status == LockStatus::already_current);
+    REQUIRE(again.source == r.source);
 }
 
 // ── Idempotent re-lock ──────────────────────────────────────────────────

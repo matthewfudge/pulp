@@ -538,11 +538,24 @@ token export) are separate phases and are NOT in this engine.
   `// @pulp-anchor` comment or the first blank line (codegen emits
   exactly one blank line between elements).
 - **Property-path mapping** — `lock_property_to_style_name()` collapses
-  the dotted tweak paths (`paint.*`, `style.*`, `layout.*`, or a bare
-  name) onto the camelCase `el.style.<name>` surface. Hyphen/snake
+  the dotted tweak paths (`paint.*`, `style.*`, `layout.*`, `transform.*`,
+  or a bare name) onto the camelCase `el.style.<name>` surface. Hyphen/snake
   fragments camelCase. The allow-list is exactly the set of properties
   `generate_node()` emits — an unknown / mistyped path reports
   `unsupported_property` instead of writing a bogus assignment.
+- **WYSIWYG T4 — reorder + proportional-resize round-trip.** Two inspector
+  direct-manipulation gestures persist tweaks under non-`paint/style/layout`
+  paths and need explicit handling here:
+  - `layout.order` — the reflow-aware drag-to-reorder rewrites `flex().order`;
+    it maps to the `order` style property (added to the `kKnown` allow-list).
+  - `transform.scale` — the proportional Shift-resize persists a bare scale
+    factor under the `transform` namespace. The namespace collapses onto the
+    single `transform` style line, and `format_lock_value()` wraps the bare
+    factor into the CSS function form (`1.5` → `transform = 'scale(1.5)'`). A
+    value already containing `(` passes through so we never double-wrap.
+  When you add a NEW transform sub-component (rotate/translate) or a new flex
+  reorder property, extend both the `kKnown` allow-list AND `format_lock_value()`
+  if the tweak value needs a CSS-function wrapper.
 - **Status semantics** — `rewritten` / `inserted` mutate the text;
   `already_current` is the idempotent re-lock no-op; `anchor_not_found`
   and `unsupported_property` are graceful failures that leave the
