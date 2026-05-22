@@ -180,7 +180,12 @@ struct ReparentToSourceEdit {
 /// lock_tweak_into_source: `rewritten` on success, `already_current` when the
 /// child already appends to the new parent, `anchor_not_found` when either
 /// anchor (or the appendChild line, or the parent's var) cannot be located.
-/// `unsupported_property` is never returned. Pure function; never throws.
+/// `anchor_not_found` is ALSO returned — with the source left byte-identical —
+/// when the new parent's anchor lies inside the moved child's subtree (a cyclic
+/// reparent) or the subtree span cannot be resolved: rewriting the receiver
+/// alone would emit `<descendant>.appendChild(<ancestor>);`, so the engine
+/// refuses and mutates nothing. `unsupported_property` is never returned. Pure
+/// function; never throws.
 LockResult reparent_in_source(const std::string& source,
                               const ReparentToSourceEdit& edit);
 

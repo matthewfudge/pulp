@@ -589,14 +589,17 @@ LockResult reparent_in_source(const std::string& source,
         find_subtree_range(lines, static_cast<std::size_t>(parent_anchor_line),
                            parent_sub_begin, parent_sub_end);
 
-    // Safety: refuse to relocate when the new parent's anchor lies inside the
-    // child's subtree — that would move a node under its own descendant and
-    // corrupt the tree. The live reparent gesture already guards against this
-    // (is_self_or_ancestor); this is the source-side defense. We also bail on a
-    // degenerate subtree span. In every "can't safely relocate" case we STILL
-    // rewrite the appendChild receiver (the live tree is already reparented and
-    // the receiver edit alone keeps the generated DOM correct) but skip the
-    // physical block move — never producing corrupt source.
+    // Safety: refuse the reparent entirely when the new parent's anchor lies
+    // inside the child's subtree — that would wire a node under its own
+    // descendant, producing cyclic/invalid source (e.g. `inner.appendChild(
+    // outer);` where inner is outer's child). The live reparent gesture already
+    // guards against this (is_self_or_ancestor); this is the source-side
+    // defense. We ALSO bail on a degenerate / unresolvable subtree span: without
+    // a resolved subtree we cannot prove the parent is not a descendant, so
+    // rewriting the receiver could still produce a cycle. In every such case we
+    // mutate NOTHING — rewriting the appendChild receiver alone would already
+    // corrupt the generated DOM, since the engine re-runs the source in order to
+    // rebuild the tree. Return a non-mutating failure with source unchanged.
     bool can_relocate = have_child_sub && have_parent_sub;
     std::string skip_reason;
     if (can_relocate) {
@@ -609,27 +612,24 @@ LockResult reparent_in_source(const std::string& source,
         skip_reason = "could not resolve a contiguous subtree range";
     }
 
-    // Rewrite the appendChild receiver in place (used by both the relocate and
-    // the receiver-only fallback path; the line index shifts after a move, so
-    // we capture the rewritten text and re-find it post-move if needed).
+    if (!can_relocate) {
+        // Unsafe reparent — rewrite NOTHING. result.source is already the
+        // verbatim input (set at the top), so this is byte-identical to `source`.
+        result.status = LockStatus::anchor_not_found;
+        result.line = receiver_line + 1;
+        result.message = "refused reparent of '" + edit.child_anchor_id +
+                         "' under '" + edit.new_parent_anchor_id +
+                         "': would produce cyclic/invalid source (" +
+                         skip_reason + "); source left unchanged";
+        result.source = source;
+        return result;
+    }
+
+    // Rewrite the appendChild receiver in place. The line index shifts after a
+    // move, so we capture the rewritten text and re-apply it post-move.
     const std::string receiver_indent = indent_of(lines[receiver_line]);
     const std::string rewritten_append =
         receiver_indent + new_parent_var + ".appendChild(" + child_var + ");";
-
-    if (!can_relocate) {
-        // Receiver-only rewrite (no physical move). Still a valid reparent for
-        // the live DOM; the source block stays where it is.
-        lines[static_cast<std::size_t>(receiver_line)] = rewritten_append;
-        result.status = LockStatus::rewritten;
-        result.line = receiver_line + 1;
-        result.message = "reparented '" + edit.child_anchor_id + "' under '" +
-                         edit.new_parent_anchor_id + "' (" + old_receiver +
-                         " -> " + new_parent_var +
-                         "); receiver rewritten, block NOT relocated (" +
-                         skip_reason + ")";
-        result.source = join_lines(lines, trailing_nl);
-        return result;
-    }
 
     // Apply the receiver rewrite first so the moved block carries it.
     lines[static_cast<std::size_t>(receiver_line)] = rewritten_append;

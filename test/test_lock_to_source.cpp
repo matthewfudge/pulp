@@ -496,11 +496,14 @@ TEST_CASE("reparent_in_source relocation is idempotent",
 // INSIDE its own descendant (Panel under Card, when Card is Panel's ancestor)
 // is the canonical unsafe case; the engine rewrites the receiver but leaves the
 // block in place, and the source stays well-formed (every anchor still present).
-TEST_CASE("reparent_in_source skips relocation when parent is inside the subtree",
+TEST_CASE("reparent_in_source refuses cyclic reparent (parent inside subtree)",
           "[lock-to-source][wysiwyg][t5]") {
     // Build Root → Outer → Inner. Try to reparent Outer UNDER Inner (its own
     // descendant). The live gesture would never allow this (is_self_or_ancestor),
-    // but the source engine must defend too.
+    // but the source engine must defend too. WYSIWYG sweep P2 fix: rewriting the
+    // receiver alone would emit `inner.appendChild(outer);` — appending a node
+    // into its own descendant, which is cyclic/invalid source. The engine must
+    // rewrite NOTHING and return a non-mutating failure with source UNCHANGED.
     IRNode root;
     root.type = "frame";
     root.name = "Root";
@@ -535,15 +538,16 @@ TEST_CASE("reparent_in_source skips relocation when parent is inside the subtree
         *ir.root.children[0].children[0].stable_anchor_id;
 
     LockResult r = reparent_in_source(gen, {outer_anchor, inner_anchor});
-    // The receiver is still rewritten (live tree already reparented), but the
-    // block is NOT physically moved — the message records the skip reason.
-    REQUIRE(r.status == LockStatus::rewritten);
-    REQUIRE(r.message.find("NOT relocated") != std::string::npos);
+    // Non-mutating failure: nothing rewritten, message records the skip reason.
+    REQUIRE(r.status == LockStatus::anchor_not_found);
+    REQUIRE_FALSE(r.mutated());
     REQUIRE(r.message.find("inside the moved subtree") != std::string::npos);
 
-    // Source is not corrupted: both anchors still present, Outer still precedes
-    // Inner physically (no move happened), and the source still parses as a
-    // generated artifact.
+    // Source is BYTE-IDENTICAL to the input — the engine touched nothing, so it
+    // can never have produced the cyclic `inner.appendChild(outer);` line.
+    REQUIRE(r.source == gen);
+
+    // Both anchors still present; original Outer-before-Inner order is intact.
     REQUIRE(anchor_pos(r.source, outer_anchor) != std::string::npos);
     REQUIRE(anchor_pos(r.source, inner_anchor) != std::string::npos);
     REQUIRE(anchor_pos(r.source, outer_anchor) <
