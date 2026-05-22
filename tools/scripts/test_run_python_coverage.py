@@ -115,6 +115,10 @@ class CoveragercTests(unittest.TestCase):
             "tools/import-validation/test_source_contracts.py",
             rpc.DEFAULT_TEST_GLOBS,
         )
+        self.assertIn(
+            "tools/harness/tests/test_verifier.py",
+            rpc.DEFAULT_TEST_GLOBS,
+        )
         self.assertNotIn("tools/test_*.py", rpc.DEFAULT_TEST_GLOBS)
 
     def test_normalized_source_roots_drop_nested_tools_paths(self) -> None:
