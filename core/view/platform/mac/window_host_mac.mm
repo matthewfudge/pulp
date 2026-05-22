@@ -71,13 +71,15 @@ static NSCursor* pulp_diagonal_resize_cursor(BOOL nwse) {
 }
 
 - (void)quit:(id)sender {
-    NSWindow* target = [NSApp keyWindow];
-    if (target == nil) target = [NSApp mainWindow];
-    if (target != nil) {
-        [target performClose:sender];
-    } else {
-        [NSApp stop:nil];
-    }
+    (void)sender;
+    // cmd+Q / Quit terminates the WHOLE app in one press. Previously this did
+    // performClose on only the KEY window, so with the floating inspector
+    // focused cmd+Q closed just the inspector and a second cmd+Q was needed.
+    // [NSApp stop:nil] returns from the [NSApp run] in run_event_loop, main()
+    // unwinds, and every WindowHost destructor closes its window (canvas +
+    // inspector + any others) — a single, clean quit. (cmd+W still closes one
+    // window via the standard responder chain.)
+    [NSApp stop:nil];
 }
 
 @end
