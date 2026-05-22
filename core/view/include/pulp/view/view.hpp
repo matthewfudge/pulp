@@ -699,6 +699,19 @@ public:
     static bool call_inspector_key_hook(const KeyEvent& e);
     static bool call_inspector_mouse_hook(const MouseEvent& e);
 
+    /// Inspector cursor-affordance hook (WYSIWYG P2d). The inspector overlay
+    /// intercepts mouse-move before normal hit-testing, so the platform host
+    /// cannot rely on the hit view's own `cursor()` to show move/resize
+    /// affordances over a selected element. This hook lets the overlay
+    /// override the cursor for the current pointer position: it returns the
+    /// chosen `CursorStyle` cast to int when the overlay wants to drive the
+    /// cursor (e.g. resize over a handle, move over the body), or -1 to defer
+    /// to the normal hit-view `cursor()` path. The platform window host calls
+    /// `call_inspector_cursor_hook` in its mouse-move handler and applies the
+    /// returned style when it is >= 0. No-op (returns -1) when no hook is set.
+    static void set_inspector_cursor_hook(std::function<int(const MouseEvent&)> hook);
+    static int call_inspector_cursor_hook(const MouseEvent& e);
+
     // ── Generalized overlay-click routing (pulp #1148) ───────────────────
     //
     // ComboBox already uses a `static ComboBox* active_popup_` pointer so

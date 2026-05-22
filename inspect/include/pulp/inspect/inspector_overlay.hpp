@@ -149,6 +149,38 @@ public:
     // no-op (returns false) at the root or with no selection.
     bool select_parent();
 
+    // ── P2d — cursor affordances over the selected element ──────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md, P2d B.)
+    // While dragging mode is on and a view is selected, hovering the
+    // selection should reveal whether a press will MOVE vs RESIZE before the
+    // user commits: a resize cursor (NW/NE/SW/SE diagonal) over a corner
+    // handle, a move cursor (4-way) over the element body, and the default
+    // cursor anywhere else. `cursor_affordance_at` is the pure hit-test that
+    // resolves a root-coord point to the right CursorStyle; the host wires it
+    // through View::set_inspector_cursor_hook so the platform layer applies
+    // the NSCursor continuously on hover. Returns `default_` when there is no
+    // selection, dragging is off, or the point is outside the selection (so
+    // the host falls back to the normal hit-view cursor). Visible for tests.
+    enum class CursorAffordance : std::uint8_t { none, move, resize_nw_se,
+                                                 resize_ne_sw };
+    CursorAffordance cursor_affordance_at(Point pos) const;
+
+    /// P2d (D) — whether a drop indicator (the blue insertion line /
+    /// container highlight) would paint right now. True ONLY during an
+    /// active reflow (non-float) move with a resolved drop target — it is
+    /// always false at rest (no drag), so a selected-but-idle element shows
+    /// exactly one (orange) selection affordance, never a drop indicator.
+    /// Visible for tests so they can assert "no drop indicator when idle"
+    /// without scraping pixels.
+    bool drop_indicator_active() const {
+        return move_active_ && !move_float_ && drop_target_ != nullptr &&
+               (drop_indicator_.width > 0 || drop_indicator_.height > 0);
+    }
+    /// Map a CursorAffordance to a View::CursorStyle; returns the int cast
+    /// the cursor hook reports to the host (or -1 for `none`/no override).
+    int cursor_style_for(Point pos) const;
+
     // ── Phase 6.1 — per-pass GPU/render attribution viewer ──────────
     //
     // Spike reference: planning/2026-05-19-inspector-phase6-gpu-perf-spike.md
@@ -836,6 +868,24 @@ private:
     float move_seed_left_ = 0.0f;         // seeded left at conversion (no delta)
     float move_seed_top_ = 0.0f;          // seeded top at conversion (no delta)
 
+    // ── P2d (C) — drag ghost for smooth reflow-move tracking ─────────
+    //
+    // A reflow (non-float) move does NOT mutate the live layout while
+    // dragging — the dragged element stays in flow and only the drop
+    // indicator moves. Without a follower, the element appears to do
+    // nothing and then teleport to the drop slot on release (the "jumpy"
+    // feel the maintainer reported). To make the drag track the cursor
+    // fluidly we paint a translucent GHOST of the dragged element that
+    // follows the pointer with a STABLE grab offset (the delta between the
+    // press point and the element's top-left), so there is no teleport on
+    // grab and no per-tick jitter — the ghost is pure paint, no relayout.
+    // move_grab_offset_ is (press - element-origin) captured once at press;
+    // move_ghost_ is the element's size, also captured at press so the
+    // ghost keeps a constant size even though no relayout runs.
+    Point move_grab_offset_{};            // press point minus element origin
+    Rect move_ghost_{};                   // element bounds snapshot at press
+    Point move_cursor_{};                 // latest cursor pos during the drag
+
     // ── P2c — reflow-aware move (Figma feel) ────────────────────────
     //
     // (planning/2026-05-21 § Refinement 2.) The DEFAULT body-drag is now
@@ -970,6 +1020,11 @@ private:
     // (drop-inside). No-op when no reflow move is in progress / no drop
     // target resolved.
     void paint_drop_indicator(Canvas& canvas);
+    // P2d (C) — paint the translucent drag ghost that follows the cursor
+    // during a reflow (non-float) move, giving the move smooth cursor
+    // tracking without any per-tick relayout. No-op when no reflow move is
+    // active.
+    void paint_drag_ghost(Canvas& canvas);
     void paint_distance_lines(Canvas& canvas);
     void paint_box_model(Canvas& canvas, const View* v);
     void paint_panel(Canvas& canvas);

@@ -3654,3 +3654,224 @@ TEST_CASE("InspectorOverlay P2c: tree click in read-only window does not drive "
     window.reflect_selection(child_ptr);
     REQUIRE_FALSE(callback_fired);
 }
+
+// ── WYSIWYG P2d polish ──────────────────────────────────────────────────────
+//
+// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md (P2d):
+//   B. cursor affordances over the selected element (move vs resize vs none)
+//   D. drop-indicator clarity — never shown at rest, only during an active drag
+//   A. reflect-state-only — a canvas reflection must NOT highlight a tree row
+
+// P2d (D): a selected-but-idle element shows no drop indicator. The blue
+// insertion line / container highlight is reserved for an ACTIVE reflow drag.
+TEST_CASE("InspectorOverlay P2d: drop indicator is NOT shown when idle",
+          "[inspect][overlay][p2d][drop-indicator][issue-wysiwyg-p2d]") {
+    View root;
+    root.set_bounds({0, 0, 600, 200});
+    root.flex().direction = FlexDirection::row;
+
+    auto a = std::make_unique<View>();
+    a->set_anchor_id("anchor-a");
+    a->flex().preferred_width = 100;
+    a->flex().preferred_height = 50;
+    auto* a_ptr = a.get();
+    root.add_child(std::move(a));
+
+    auto b = std::make_unique<View>();
+    b->set_anchor_id("anchor-b");
+    b->flex().preferred_width = 100;
+    b->flex().preferred_height = 50;
+    auto* b_ptr = b.get();
+    root.add_child(std::move(b));
+
+    auto c = std::make_unique<View>();
+    c->set_anchor_id("anchor-c");
+    c->flex().preferred_width = 100;
+    c->flex().preferred_height = 50;
+    root.add_child(std::move(c));
+    root.layout_children();
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(a_ptr);
+
+    // At rest: a is selected, dragging mode on, but no drag in progress.
+    // There must be NO drop indicator.
+    REQUIRE_FALSE(overlay.drop_indicator_active());
+
+    // Hovering the selected element (still no press) must not raise it either.
+    MouseEvent hover;
+    hover.position = {a_ptr->bounds().x + 10, a_ptr->bounds().y + 10};
+    hover.is_down = false;
+    overlay.handle_mouse_event(hover);
+    REQUIRE_FALSE(overlay.drop_indicator_active());
+
+    // Begin a plain (reflow) body-drag and move past b's midpoint — NOW the
+    // drop indicator appears (we're actively dragging with a resolved target).
+    MouseEvent press;
+    press.position = {a_ptr->bounds().x + 10, a_ptr->bounds().y + 10};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    MouseEvent drag;
+    drag.position = {b_ptr->bounds().x + b_ptr->bounds().width - 5,
+                     b_ptr->bounds().y + 10};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+    REQUIRE(overlay.drop_indicator_active());  // shown DURING the drag
+
+    // Release commits and clears the drop indicator — back to a single
+    // selection affordance, no drop indicator.
+    MouseEvent release;
+    release.position = drag.position;
+    release.is_down = true;
+    overlay.handle_mouse_event(release);
+    REQUIRE_FALSE(overlay.drop_indicator_active());
+}
+
+// P2d (D) regression: an ABSOLUTE-float (⌘-drag) move must also never raise
+// the reflow drop indicator (the float path moves the live element directly
+// and uses a ghost, not the insertion line).
+TEST_CASE("InspectorOverlay P2d: float (Cmd) move shows no reflow drop indicator",
+          "[inspect][overlay][p2d][drop-indicator][issue-wysiwyg-p2d]") {
+    View root;
+    root.set_bounds({0, 0, 600, 200});
+
+    auto a = std::make_unique<View>();
+    a->set_anchor_id("anchor-a");
+    a->flex().preferred_width = 100;
+    a->flex().preferred_height = 50;
+    a->set_bounds({20, 20, 100, 50});
+    auto* a_ptr = a.get();
+    root.add_child(std::move(a));
+    root.layout_children();
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(a_ptr);
+
+    // ⌘-drag = absolute float.
+    MouseEvent press;
+    press.position = {a_ptr->bounds().x + 10, a_ptr->bounds().y + 10};
+    press.is_down = true;
+    press.modifiers = kModCmd;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    MouseEvent drag;
+    drag.position = {200, 120};
+    drag.is_down = false;
+    drag.modifiers = kModCmd;
+    REQUIRE(overlay.handle_mouse_event(drag));
+    // Float move: live element repositioned, but the reflow drop indicator
+    // (insertion line) is NOT used.
+    REQUIRE_FALSE(overlay.drop_indicator_active());
+}
+
+// P2d (B): the cursor-affordance hit-test returns resize over a corner
+// handle, move over the body, and none outside / when dragging mode is off.
+TEST_CASE("InspectorOverlay P2d: cursor affordance is move on body, resize on "
+          "corner, none outside",
+          "[inspect][overlay][p2d][cursor][issue-wysiwyg-p2d]") {
+    using CA = InspectorOverlay::CursorAffordance;
+
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+
+    auto box = std::make_unique<View>();
+    box->set_anchor_id("anchor-box");
+    box->set_bounds({100, 80, 120, 60});  // root coords: x 100..220, y 80..140
+    auto* box_ptr = box.get();
+    root.add_child(std::move(box));
+    // NOTE: no layout_children() — the cursor hit-test reads bounds() directly
+    // via view_bounds_in_root(); we want the explicit box bounds preserved.
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+
+    // Dragging mode OFF → no affordance even over the body.
+    overlay.set_selected_view(box_ptr);
+    REQUIRE(overlay.cursor_affordance_at({160, 110}) == CA::none);
+    REQUIRE(overlay.cursor_style_for({160, 110}) == -1);
+
+    overlay.set_dragging_enabled(true);
+
+    // Over the body interior → MOVE.
+    REQUIRE(overlay.cursor_affordance_at({160, 110}) == CA::move);
+    REQUIRE(overlay.cursor_style_for({160, 110}) ==
+            static_cast<int>(View::CursorStyle::multi_directional_resize));
+
+    // Over the NW corner handle (top-left = 100,80) → diagonal NW-SE resize.
+    REQUIRE(overlay.cursor_affordance_at({100, 80}) == CA::resize_nw_se);
+    REQUIRE(overlay.cursor_style_for({100, 80}) ==
+            static_cast<int>(View::CursorStyle::top_left_resize));
+    // SE corner (220,140) is the same NW-SE diagonal.
+    REQUIRE(overlay.cursor_affordance_at({220, 140}) == CA::resize_nw_se);
+
+    // NE corner (220,80) and SW corner (100,140) → the other diagonal.
+    REQUIRE(overlay.cursor_affordance_at({220, 80}) == CA::resize_ne_sw);
+    REQUIRE(overlay.cursor_affordance_at({100, 140}) == CA::resize_ne_sw);
+    REQUIRE(overlay.cursor_style_for({220, 80}) ==
+            static_cast<int>(View::CursorStyle::top_right_resize));
+
+    // Well outside the selection → no override.
+    REQUIRE(overlay.cursor_affordance_at({350, 280}) == CA::none);
+    REQUIRE(overlay.cursor_style_for({350, 280}) == -1);
+
+    // No selection → no affordance.
+    overlay.set_selected_view(nullptr);
+    REQUIRE(overlay.cursor_affordance_at({160, 110}) == CA::none);
+}
+
+// P2d (A): reflect_selection (a canvas-driven mirror) shows the node's
+// properties but must NOT highlight a tree row in the floating inspector.
+// (Maintainer: "the inspector should reflect state and never have boxes
+// highlight/selecting things in it when I select things in the canvas.")
+TEST_CASE("InspectorWindow P2d: reflect_selection does not highlight a tree row",
+          "[inspect][window][p2d][reflect][issue-wysiwyg-p2d]") {
+    View inspected_root;
+    inspected_root.set_id("root");
+
+    auto child = std::make_unique<View>();
+    child->set_id("child");
+    auto* child_ptr = child.get();
+    inspected_root.add_child(std::move(child));
+
+    InspectorWindow window(inspected_root);
+    window.set_selection_readonly(true);
+
+    auto* tabs = dynamic_cast<TabPanel*>(window.child_at(0));
+    REQUIRE(tabs != nullptr);
+    auto* tree = first_view_of_type<TreeView>(*tabs->child_at(0));
+    REQUIRE(tree != nullptr);
+
+    // Build the tree once.
+    window.refresh();
+    auto* node = tree->find_node_by_user_data(child_ptr);
+    REQUIRE(node != nullptr);
+
+    // A canvas reflection: must show properties but leave the tree row
+    // un-highlighted (selected_node == nullptr).
+    window.reflect_selection(child_ptr);
+    REQUIRE(tree->selected_node() == nullptr);
+
+    // A subsequent refresh (idle tick) keeps the row cleared — the reflection
+    // must not "resurrect" a tree highlight on the next 30 Hz refresh.
+    window.refresh();
+    REQUIRE(tree->selected_node() == nullptr);
+
+    // But a DELIBERATE tree click (window-originated navigation) still shows
+    // its own row highlighted — only canvas reflections suppress it.
+    REQUIRE(tree->on_select);
+    tree->set_selected_node(node);   // TreeView selects on click before on_select
+    tree->on_select(*node);
+    REQUIRE(tree->selected_node() == node);
+    // And it survives the next refresh (structure unchanged, not a reflection).
+    window.refresh();
+    REQUIRE(tree->selected_node() == node);
+}

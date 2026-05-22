@@ -213,9 +213,15 @@ std::unique_ptr<View> InspectorWindow::build_elements_tab() {
             // stays the single selection source (maintainer: "we don't
             // want to select items in the inspector ever").
             if (selection_readonly_) {
+                // A deliberate tree click is window-originated navigation,
+                // not a canvas reflection — clear reflect_only_ so this row
+                // stays highlighted (its own properties on display). It still
+                // does NOT drive the shared canvas selection.
+                reflect_only_ = false;
                 show_properties_for(picked);
                 return;
             }
+            reflect_only_ = false;
             selected_view_ = picked;
             show_properties_for(selected_view_);
             if (on_view_selected) on_view_selected(selected_view_);
@@ -497,32 +503,70 @@ void InspectorWindow::refresh() {
 
 // ── Elements refresh ────────────────────────────────────────────────────────
 
+std::size_t InspectorWindow::compute_tree_signature(const View* view) const {
+    // Structural hash: node type + id, recursed. Stable across idle ticks
+    // unless the tree's shape actually changes (e.g. a re-import or a reflow
+    // reparent), so refresh_elements() can skip the rebuild and avoid the
+    // empty-content flash. Cheap walk, no allocation beyond the type string.
+    if (!view) return 0;
+    std::size_t h = std::hash<std::string>{}(ViewInspector::type_name(*view));
+    h ^= std::hash<std::string>{}(view->id()) + 0x9e3779b97f4a7c15ULL +
+         (h << 6) + (h >> 2);
+    for (size_t i = 0; i < view->child_count(); ++i) {
+        std::size_t ch = compute_tree_signature(view->child_at(i));
+        h ^= ch + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    }
+    return h;
+}
+
 void InspectorWindow::refresh_elements() {
     if (!tree_view_ || !inspected_root_) return;
 
-    // Save the selected view's identity before rebuilding the tree.
-    // The old TreeNode pointers become invalid after clear().
-    void* saved_selection = nullptr;
-    if (tree_view_->selected_node()) {
-        saved_selection = tree_view_->selected_node()->user_data;
-    }
+    // P2d (A) — anti-flicker. refresh_elements() runs on every idle tick
+    // (~30 Hz). Rebuilding the whole TreeView each tick clears then
+    // repopulates it, which flashes empty (the maintainer's "empty-content
+    // flicker"). Only rebuild when the tree's STRUCTURE actually changed;
+    // otherwise just refresh the property labels for the current selection.
+    std::size_t sig = compute_tree_signature(inspected_root_);
+    bool structure_changed = (sig != tree_signature_) || tree_signature_ == 0;
 
-    // Rebuild tree from inspected root
-    auto& root_node = tree_view_->root();
-    root_node.children.clear();
-    populate_tree_from_view(root_node, inspected_root_);
-    root_node.expanded = true;
+    if (structure_changed) {
+        // Save the selected view's identity before rebuilding the tree.
+        // The old TreeNode pointers become invalid after clear().
+        void* saved_selection = nullptr;
+        if (tree_view_->selected_node()) {
+            saved_selection = tree_view_->selected_node()->user_data;
+        }
 
-    // Restore selection: find the new node matching the previously selected view
-    if (saved_selection) {
-        auto* restored = tree_view_->find_node_by_user_data(saved_selection);
-        tree_view_->set_selected_node(restored);
-    } else {
+        // Rebuild tree from inspected root
+        auto& root_node = tree_view_->root();
+        root_node.children.clear();
+        populate_tree_from_view(root_node, inspected_root_);
+        root_node.expanded = true;
+
+        // Restore selection: find the new node matching the previously
+        // selected view — but NOT when the current selection is a canvas
+        // reflection (reflect_only_): the floating window must reflect
+        // properties without highlighting a tree row.
+        if (saved_selection && !reflect_only_) {
+            auto* restored = tree_view_->find_node_by_user_data(saved_selection);
+            tree_view_->set_selected_node(restored);
+        } else {
+            tree_view_->set_selected_node(nullptr);
+        }
+        tree_signature_ = sig;
+    } else if (reflect_only_ && tree_view_->selected_node()) {
+        // Structure unchanged, but a canvas reflection arrived after the last
+        // rebuild — keep the tree row cleared so no box highlights in the
+        // inspector for a canvas-driven selection.
         tree_view_->set_selected_node(nullptr);
     }
 
-    // Refresh theme colors section
-    if (theme_section_ && inspected_root_) {
+    // Refresh theme colors section. Only rebuilt when the tree structure
+    // changed (P2d anti-flicker) — theme tokens are effectively static across
+    // idle ticks, so clearing + repopulating the swatch rows every tick just
+    // adds churn. The first refresh (tree_signature_ was 0) always builds it.
+    if (structure_changed && theme_section_ && inspected_root_) {
         auto* content = theme_section_->content();
         // Clear existing children: remove all by rebuilding
         while (content->child_count() > 0) {
@@ -584,7 +628,15 @@ void InspectorWindow::select_view(View* view) {
 void InspectorWindow::reflect_selection(View* view) {
     // One-way mirror from the canvas: track + display the node read-only,
     // never fire on_view_selected (no feedback loop into the canvas).
+    // P2d (A): this is a REFLECTION, not a window pick — the floating window
+    // must show the node's properties but must NOT highlight a tree row (the
+    // maintainer: "the inspector should reflect state and never have boxes
+    // highlight/selecting things in it when I select things in the canvas").
+    // So we set reflect_only_ and clear the tree's selected node; the next
+    // refresh_elements() keeps it cleared.
     selected_view_ = view;
+    reflect_only_ = true;
+    if (tree_view_) tree_view_->set_selected_node(nullptr);
     show_properties_for(view);
 }
 

@@ -1012,8 +1012,21 @@ static void install_app_menu(NSString* appName) {
             self.rootView->simulate_hover(pt);
 
             auto* target = self.rootView->hit_test(pt);
-            if (target) {
-                auto style = target->cursor();
+            // WYSIWYG P2d — the inspector overlay may override the cursor for
+            // its move/resize affordances (it owns mouse-move before normal
+            // hit-testing). A returned style >= 0 wins over the hit view's
+            // own cursor(); -1 defers to the normal path below.
+            int inspector_cursor = -1;
+            {
+                pulp::view::MouseEvent cme;
+                cme.position = {pt.x, pt.y};
+                cme.is_down = false;
+                inspector_cursor = pulp::view::View::call_inspector_cursor_hook(cme);
+            }
+            if (target || inspector_cursor >= 0) {
+                auto style = inspector_cursor >= 0
+                    ? static_cast<pulp::view::View::CursorStyle>(inspector_cursor)
+                    : target->cursor();
                 // Unhide cursor before switching to any non-invisible style
                 if (style != pulp::view::View::CursorStyle::invisible && s_cursor_hidden) {
                     [NSCursor unhide];

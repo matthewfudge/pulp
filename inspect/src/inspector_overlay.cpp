@@ -479,6 +479,59 @@ bool InspectorOverlay::hit_test_body(Point pos) const {
            pos.y >= r.y && pos.y <= r.y + r.height;
 }
 
+// ── P2d — cursor affordances over the selected element ─────────────────────
+// Continuous hover feedback so the user SEES move-vs-resize before pressing.
+// Mirrors the gesture hit-test order: a corner handle wins (diagonal resize
+// cursor), then the body (move cursor), else no override. During an ACTIVE
+// gesture the cursor is pinned to that gesture (resize while resizing, move
+// while moving) so it doesn't flicker as the pointer drifts off the original
+// target mid-drag.
+InspectorOverlay::CursorAffordance
+InspectorOverlay::cursor_affordance_at(Point pos) const {
+    if (!selected_ || !dragging_enabled_) return CursorAffordance::none;
+
+    // Active resize: pin to the dragged corner's diagonal.
+    if (active_drag_ != DragCorner::none) {
+        switch (active_drag_) {
+            case DragCorner::nw:
+            case DragCorner::se: return CursorAffordance::resize_nw_se;
+            case DragCorner::ne:
+            case DragCorner::sw: return CursorAffordance::resize_ne_sw;
+            case DragCorner::none: break;
+        }
+    }
+    // Active move: pin to the move cursor regardless of pointer drift.
+    if (move_active_) return CursorAffordance::move;
+
+    // Idle hover: corner handle → resize; body → move; outside → none.
+    auto handle = hit_test_drag_handle(pos);
+    switch (handle) {
+        case DragCorner::nw:
+        case DragCorner::se: return CursorAffordance::resize_nw_se;
+        case DragCorner::ne:
+        case DragCorner::sw: return CursorAffordance::resize_ne_sw;
+        case DragCorner::none: break;
+    }
+    if (hit_test_body(pos)) return CursorAffordance::move;
+    return CursorAffordance::none;
+}
+
+int InspectorOverlay::cursor_style_for(Point pos) const {
+    switch (cursor_affordance_at(pos)) {
+        case CursorAffordance::move:
+            // 4-way move cursor; macOS maps multi_directional_resize to a
+            // hand, which reads as "grab to move".
+            return static_cast<int>(View::CursorStyle::multi_directional_resize);
+        case CursorAffordance::resize_nw_se:
+            return static_cast<int>(View::CursorStyle::top_left_resize);
+        case CursorAffordance::resize_ne_sw:
+            return static_cast<int>(View::CursorStyle::top_right_resize);
+        case CursorAffordance::none:
+            return -1;  // defer to the normal hit-view cursor
+    }
+    return -1;
+}
+
 bool InspectorOverlay::selected_parent_is_grid() const {
     if (!selected_ || !selected_->parent()) return false;
     return selected_->parent()->layout_mode() == LayoutMode::grid;
@@ -1258,9 +1311,10 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                         "move-reflow");
                 }
             }
-            // Clear drop affordance after a completed gesture.
+            // Clear drop affordance + drag ghost after a completed gesture.
             drop_target_ = nullptr;
             drop_indicator_ = {};
+            move_ghost_ = {};
             // fall through to the normal handlers below
         } else if (move_float_) {
             // ── ⌘-drag move tick: absolute float ──────────────────────
@@ -1304,6 +1358,10 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             // container highlight). The actual reorder/reparent happens on
             // release (commit_reflow_drop). This keeps the dragged element
             // visually in place and the rest of the tree stable until commit.
+            // P2d (C): track the cursor for the follow-ghost so the drag reads
+            // as smooth motion (the ghost is pure paint — no relayout here, so
+            // the drop preview never flickers from re-layout churn).
+            move_cursor_ = pos;
             resolve_drop_target(pos);
             return true;  // consume the move event
         }
@@ -1345,6 +1403,15 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
         move_start_pos_ = pos;
         drop_target_ = nullptr;
         drop_indicator_ = {};
+        // P2d (C): capture a STABLE grab offset + the element's size at press
+        // so the reflow-move ghost can follow the cursor smoothly (no teleport
+        // on grab, constant ghost size, no per-tick relayout).
+        {
+            Rect sb = view_bounds_in_root(selected_);
+            move_grab_offset_ = {pos.x - sb.x, pos.y - sb.y};
+            move_ghost_ = sb;
+            move_cursor_ = pos;
+        }
         // P2a: capture pre-move View inputs (position + insets + bounds)
         // and prior values of the three move tweaks BEFORE seed_move_origin
         // / the first move tick converts the node to absolute, so undo can
@@ -1597,6 +1664,7 @@ void InspectorOverlay::paint(Canvas& canvas) {
     if (manipulate_only_) {
         paint_highlight(canvas);
         paint_drop_indicator(canvas);
+        paint_drag_ghost(canvas);
         return;
     }
 
@@ -1606,6 +1674,7 @@ void InspectorOverlay::paint(Canvas& canvas) {
     if (!drift_refreshed_once_) refresh_drift();
     paint_highlight(canvas);
     paint_drop_indicator(canvas);
+    paint_drag_ghost(canvas);
     paint_distance_lines(canvas);
     if (selected_) paint_box_model(canvas, selected_);
     paint_panel(canvas);
@@ -1690,8 +1759,29 @@ void InspectorOverlay::paint_eyedropper_cursor(Canvas& canvas) {
 }
 
 void InspectorOverlay::paint_highlight(Canvas& canvas) {
-    // Hovered view highlight (blue)
-    if (hovered_ && hovered_ != selected_) {
+    // P2d (D) — drop-indicator clarity. A selected-but-idle element must show
+    // exactly ONE selection affordance (the orange outline + handles), not the
+    // orange selection PLUS a blue hover box. The blue hover highlight is a
+    // distinct "what would I select" affordance; while a view is selected we
+    // suppress it for the selected view AND any view in its subtree/ancestry,
+    // so hovering over a child of the selection doesn't paint a second (blue)
+    // box on top of the (orange) selection. The blue is reserved for (a)
+    // hovering a DIFFERENT element to select it, and (b) the drop-target
+    // insertion line, which only appears during an active drag.
+    auto in_selection_chain = [&](const View* v) {
+        if (!selected_ || !v) return false;
+        for (const View* c = v; c; c = c->parent())
+            if (c == selected_) return true;       // v is selected_ or below it
+        for (const View* c = selected_; c; c = c->parent())
+            if (c == v) return true;               // v is an ancestor of selected_
+        return false;
+    };
+
+    // Hovered view highlight (blue) — suppressed for the selected element and
+    // its subtree/ancestry, and entirely while a gesture is in progress (the
+    // ghost + drop indicator own the visuals then).
+    if (hovered_ && hovered_ != selected_ && !in_selection_chain(hovered_) &&
+        !move_active_ && active_drag_ == DragCorner::none) {
         auto r = view_bounds_in_root(hovered_);
         canvas.set_fill_color(kHighlightFill);
         canvas.fill_rect(r.x, r.y, r.width, r.height);
@@ -1780,6 +1870,28 @@ void InspectorOverlay::paint_drop_indicator(Canvas& canvas) {
         canvas.set_line_width(2.0f);
         canvas.stroke_rect(d.x, d.y, d.width, d.height);
     }
+}
+
+void InspectorOverlay::paint_drag_ghost(Canvas& canvas) {
+    // Only during a reflow (non-float) move with a captured ghost. The
+    // absolute-float path moves the live element directly, so it needs no
+    // ghost. The ghost follows the cursor with the stable grab offset so the
+    // motion reads as smooth (no teleport, no jitter) even though the live
+    // layout doesn't change until release.
+    if (!move_active_ || move_float_) return;
+    if (move_ghost_.width <= 0 && move_ghost_.height <= 0) return;
+
+    float gx = move_cursor_.x - move_grab_offset_.x;
+    float gy = move_cursor_.y - move_grab_offset_.y;
+
+    // Translucent fill + dashed-look outline in the selection hue so the
+    // ghost reads as "this element, in flight". Kept subtle so the drop
+    // indicator (blue) remains the primary "where it lands" signal.
+    canvas.set_fill_color(Color::rgba(1.0f, 0.5f, 0.0f, 0.16f));
+    canvas.fill_rect(gx, gy, move_ghost_.width, move_ghost_.height);
+    canvas.set_stroke_color(Color::rgba(1.0f, 0.5f, 0.0f, 0.85f));
+    canvas.set_line_width(1.5f);
+    canvas.stroke_rect(gx, gy, move_ghost_.width, move_ghost_.height);
 }
 
 void InspectorOverlay::paint_distance_lines(Canvas& canvas) {

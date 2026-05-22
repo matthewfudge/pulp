@@ -184,6 +184,26 @@ private:
     // set_selection_readonly().
     bool selection_readonly_ = false;
 
+    // P2d (A) — reflect-state-only. When the current selection arrived via
+    // reflect_selection() (a canvas-driven mirror) rather than a tree click,
+    // the tree must NOT highlight a row: the maintainer wants the floating
+    // window to REFLECT properties without "boxes highlighting/selecting
+    // things in it" when the user picks in the canvas. While this is true,
+    // refresh_elements() leaves the tree's selected node cleared. A real tree
+    // click clears the flag (so the user's own tree navigation still shows a
+    // selected row's properties, just without driving the canvas).
+    bool reflect_only_ = false;
+
+    // P2d (A) — tree-structure signature, to suppress the empty-content
+    // flicker. refresh_elements() runs on every idle tick (~30 Hz); rebuilding
+    // the whole TreeView each tick clears then repopulates it, which flashes
+    // empty. We hash the inspected tree's structure (type + id per node) and
+    // only rebuild when it actually changed; otherwise we just refresh the
+    // property labels for the current selection. Zero means "never built".
+    std::size_t tree_signature_ = 0;
+    // Compute the structural signature of the inspected tree.
+    std::size_t compute_tree_signature(const View* view) const;
+
     // Property labels (Elements tab, Identity section)
     Label* prop_type_label_ = nullptr;
     Label* prop_id_label_ = nullptr;

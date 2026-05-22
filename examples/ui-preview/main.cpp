@@ -1505,10 +1505,24 @@ int main(int argc, char* argv[]) {
         iopts.use_gpu = false;
         inspector_window = WindowHost::create(*inspector_view_ptr, iopts);
         if (inspector_window) {
-            inspector_window->set_close_callback([&] { inspector_window.reset(); });
-            inspector_window->show();
-            inspector_window->position_beside(window.get());
+            // P2d (A): a window-button close must tear down the SAME state the
+            // Cmd+I close path does, so there's exactly one inspector and a
+            // re-open rebuilds clean (no stale active overlay / stale selection
+            // that would otherwise reopen with no fresh reflect).
+            inspector_window->set_close_callback([&] {
+                inspector_window.reset();
+                inspector_selected = nullptr;
+                inspector.set_active(false);
+                inspector.set_selected_view(nullptr);
+                if (window) window->repaint();
+            });
+            // P2d (A): populate the tree + props BEFORE showing so the window
+            // never flashes empty for a frame on open. The signature-guarded
+            // refresh_elements() then keeps it stable across idle ticks
+            // (no per-tick rebuild churn).
             inspector_view_ptr->refresh();
+            inspector_window->position_beside(window.get());
+            inspector_window->show();
         }
     };
 
@@ -1595,6 +1609,18 @@ int main(int argc, char* argv[]) {
         // The overlay paints the selection box + handles (manipulate-only
         // mode suppresses its dev side-panel). It only paints while active.
         inspector.paint(canvas);
+    });
+
+    // P2d (B) — cursor affordances. While the overlay is active and a view is
+    // selected, hovering a corner handle shows a resize cursor and hovering
+    // the body shows a move cursor, so the user SEES move-vs-resize before
+    // pressing. The overlay owns mouse-move before normal hit-testing, so the
+    // host can't rely on the hit view's own cursor() here — this hook lets the
+    // overlay drive the NSCursor for its selection. Returns -1 (defer to the
+    // normal cursor) when inactive or the pointer is off the selection.
+    View::set_inspector_cursor_hook([&](const MouseEvent& e) -> int {
+        if (!inspector.is_active()) return -1;
+        return inspector.cursor_style_for(e.position);
     });
 
     window->set_idle_callback([&] {

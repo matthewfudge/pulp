@@ -897,6 +897,14 @@ bool View::call_inspector_mouse_hook(const MouseEvent& e) {
     return s_inspector_mouse_hook ? s_inspector_mouse_hook(e) : false;
 }
 
+static std::function<int(const MouseEvent&)> s_inspector_cursor_hook;
+void View::set_inspector_cursor_hook(std::function<int(const MouseEvent&)> hook) {
+    s_inspector_cursor_hook = std::move(hook);
+}
+int View::call_inspector_cursor_hook(const MouseEvent& e) {
+    return s_inspector_cursor_hook ? s_inspector_cursor_hook(e) : -1;
+}
+
 // pulp #1148 — generalized overlay-click routing.
 View* View::active_overlay_ = nullptr;
 
