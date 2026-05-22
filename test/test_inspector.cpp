@@ -134,6 +134,41 @@ private:
     int read_count_ = 0;
 };
 
+// WYSIWYG caret-x — a deterministic canvas that MODELS letter-spacing in its
+// text metrics (the real RecordingCanvas ignores it: 7px/char flat). This lets
+// a headless test prove that Label::text_edit_metrics actually pushes the
+// resolved (possibly INHERITED) letter-spacing into the canvas font state, and
+// that text_x_for_byte advances by it. Each glyph is `kCharW` wide and adjacent
+// glyphs are separated by `letter_spacing` — exactly the model SkParagraph
+// uses for letter-spacing, so caret_x_by_byte[end] == shaped width.
+class SpacingCanvas : public pulp::canvas::RecordingCanvas {
+public:
+    static constexpr float kCharW = 10.0f;
+
+    void set_font_full(const std::string& family, float size, int weight,
+                       int slant, float letter_spacing) override {
+        pulp::canvas::RecordingCanvas::set_font_full(family, size, weight,
+                                                     slant, letter_spacing);
+        active_letter_spacing_ = letter_spacing;
+    }
+
+    float measure_text(const std::string& text) override {
+        const std::size_t n = text.size();
+        if (n == 0) return 0.0f;
+        return static_cast<float>(n) * kCharW
+             + static_cast<float>(n - 1) * active_letter_spacing_;
+    }
+
+    // text_x_for_byte uses the base default (= measure_text(prefix)), which is
+    // exact for this fixed-advance model — the point of the test is the
+    // letter-spacing + alignment plumbing, not kerning (that's covered by the
+    // Skia canvas test).
+    float active_letter_spacing() const { return active_letter_spacing_; }
+
+private:
+    float active_letter_spacing_ = 0.0f;
+};
+
 } // namespace
 
 TEST_CASE("ViewInspector type_name", "[view][inspector]") {
@@ -5724,5 +5759,119 @@ TEST_CASE("InspectorWindow T1: hover over a tool button shows its tooltip",
     }
     SECTION("Text button → 'Text (T)'") {
         helper(1, "Text (T)", "Select (V)");
+    }
+}
+
+// ── WYSIWYG caret-x — T2 regression ─────────────────────────────────────────
+//
+// The inspector text-edit overlay must draw the caret + selection band on the
+// EXACT glyphs the Label paints. The painter resolves INHERITED letter-spacing
+// (a parent's value when the Label sets none) and shifts the draw origin for
+// center / right alignment. A pre-fix overlay re-measured with the Label's OWN
+// fields (spacing 0) and anchored at the box's left edge, so a letter-spaced,
+// center/right-aligned label drew the caret a glyph early and the band offset
+// from the text. Label::text_edit_metrics now factors the same resolver, so:
+//
+//   - inherited letter-spacing widens caret_x_by_byte (end ≈ shaped width),
+//   - caret_x_by_byte is monotonic non-decreasing,
+//   - center / right alignment shifts local_text_left so the band tracks the
+//     glyphs, and
+//   - the overlay paints the selection band at the shifted origin.
+TEST_CASE("WYSIWYG caret: inherited letter-spacing + alignment shift the band",
+          "[inspect][overlay][wysiwyg][caret][issue-wysiwyg-caret-x]") {
+    constexpr float kCharW = SpacingCanvas::kCharW;
+    const std::string kText = "ENVELOPE";  // 8 ASCII glyphs
+    const float kSpacing = 4.0f;
+
+    // root → parent (sets INHERITABLE letter-spacing) → label (own spacing 0).
+    auto make_tree = [&](LabelAlign align, Label*& out_label) {
+        auto root = std::make_unique<View>();
+        root->set_bounds({0, 0, 600, 200});
+        auto parent = std::make_unique<View>();
+        parent->set_bounds({0, 0, 600, 200});
+        parent->set_inheritable_letter_spacing(kSpacing);
+        auto label = std::make_unique<Label>(kText);
+        label->set_bounds({0, 0, 400, 40});   // box wider than the shaped text
+        label->set_text_align(align);
+        out_label = label.get();
+        parent->add_child(std::move(label));
+        root->add_child(std::move(parent));
+        return root;
+    };
+
+    // Expected shaped width under the inherited 4px tracking:
+    //   8 glyphs × 10px + 7 gaps × 4px = 80 + 28 = 108.
+    const float expected_w =
+        static_cast<float>(kText.size()) * kCharW
+        + static_cast<float>(kText.size() - 1) * kSpacing;
+
+    SECTION("metrics: inherited spacing + monotonic + left origin") {
+        Label* label = nullptr;
+        auto root = make_tree(LabelAlign::left, label);
+        SpacingCanvas canvas;
+        const auto m = label->text_edit_metrics(canvas, kText);
+
+        // The canvas saw the INHERITED spacing (not the Label's own 0).
+        REQUIRE(canvas.active_letter_spacing() == Catch::Approx(kSpacing));
+        REQUIRE(m.caret_x_by_byte.size() == kText.size() + 1);
+        // Monotonic non-decreasing.
+        for (std::size_t i = 1; i < m.caret_x_by_byte.size(); ++i)
+            REQUIRE(m.caret_x_by_byte[i] >= m.caret_x_by_byte[i - 1]);
+        // End caret == shaped width (would be 8×7=56 if spacing were dropped,
+        // or 80 if only glyph advances counted — both wrong).
+        REQUIRE(m.caret_x_by_byte.back() == Catch::Approx(expected_w));
+        REQUIRE(m.caret_x_by_byte.front() == Catch::Approx(0.0f));
+        // Left-aligned → text starts at the box's left edge.
+        REQUIRE(m.local_text_left == Catch::Approx(0.0f));
+    }
+
+    SECTION("metrics: center alignment shifts the origin") {
+        Label* label = nullptr;
+        auto root = make_tree(LabelAlign::center, label);
+        SpacingCanvas canvas;
+        const auto m = label->text_edit_metrics(canvas, kText);
+        // (box_w - shaped_w) / 2 = (400 - 108) / 2 = 146.
+        REQUIRE(m.local_text_left == Catch::Approx((400.0f - expected_w) * 0.5f));
+        REQUIRE(m.caret_x_by_byte.back() == Catch::Approx(expected_w));
+    }
+
+    SECTION("metrics: right alignment shifts the origin") {
+        Label* label = nullptr;
+        auto root = make_tree(LabelAlign::right, label);
+        SpacingCanvas canvas;
+        const auto m = label->text_edit_metrics(canvas, kText);
+        // box_w - shaped_w = 400 - 108 = 292.
+        REQUIRE(m.local_text_left == Catch::Approx(400.0f - expected_w));
+    }
+
+    SECTION("overlay: paints the selection band at the shifted (center) origin") {
+        Label* label = nullptr;
+        auto root = make_tree(LabelAlign::center, label);
+
+        InspectorOverlay overlay(*root);
+        overlay.set_active(true);
+        REQUIRE(overlay.begin_text_edit(label));
+        REQUIRE(overlay.text_editing());
+        overlay.text_select_all();        // select the whole buffer
+        REQUIRE(overlay.text_has_selection());
+
+        SpacingCanvas canvas;
+        overlay.paint(canvas);
+
+        // The selection band is the translucent-accent fill_rect. Its x must be
+        // the label's root x + the center-shifted text origin (146 here, since
+        // the label sits at root x=0). A left-anchored (pre-fix) overlay would
+        // draw it at x≈0.
+        const float expected_left = (400.0f - expected_w) * 0.5f;
+        bool found_band = false;
+        for (const auto& c : canvas.commands()) {
+            if (c.type != pulp::canvas::DrawCommand::Type::fill_rect) continue;
+            // The selection band spans the full text (≈ shaped width wide).
+            if (c.f[2] >= expected_w - 1.0f && c.f[2] <= expected_w + 2.0f) {
+                REQUIRE(c.f[0] == Catch::Approx(expected_left).margin(1.0f));
+                found_band = true;
+            }
+        }
+        REQUIRE(found_band);
     }
 }

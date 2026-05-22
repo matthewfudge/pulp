@@ -2522,28 +2522,62 @@ void InspectorOverlay::paint_eyedropper_cursor(Canvas& canvas) {
 void InspectorOverlay::paint_text_edit_overlay(Canvas& canvas) {
     if (!text_editing() || !text_edit_target_reachable()) return;
 
-    // Resolve the target's font so caret math matches the rendered glyphs.
+    const Rect r = view_bounds_in_root(text_edit_target_);
+    canvas.save();
+
+    // ── Label branch — WYSIWYG caret/selection ────────────────────────────
+    // The Label painter resolves INHERITED size/weight/letter-spacing, a
+    // family fallback ("Inter"), slant, text-transform, and an alignment-
+    // dependent draw origin. Re-measuring here with the Label's OWN fields
+    // drifts whenever any of those differ (a PARENT setting letter-spacing,
+    // a center/right-aligned label, kerned runs). Label::text_edit_metrics
+    // factors the SAME resolver paint() uses, so the caret + selection band
+    // land exactly on the rendered glyphs.
+    if (auto* lbl = dynamic_cast<const Label*>(text_edit_target_)) {
+        const auto m = lbl->text_edit_metrics(canvas, text_edit_buffer_);
+        const float lbl_text_x = r.x + m.local_text_left;
+        const float lbl_band_y = r.y + m.local_band_y;
+        const float lbl_band_h = m.band_height;
+        auto caret_at = [&](std::size_t bytes) -> float {
+            if (m.caret_x_by_byte.empty()) return 0.0f;
+            std::size_t i = std::min(bytes, m.caret_x_by_byte.size() - 1);
+            return m.caret_x_by_byte[i];
+        };
+
+        if (text_has_selection()) {
+            auto [lo, hi] = text_selection();
+            const float x0 = lbl_text_x + caret_at(lo);
+            const float x1 = lbl_text_x + caret_at(hi);
+            canvas.set_fill_color(Color::rgba(0.31f, 0.63f, 1.0f, 0.35f));
+            canvas.fill_rect(x0, lbl_band_y, std::max(1.0f, x1 - x0), lbl_band_h);
+        }
+
+        constexpr std::uint32_t kBlinkPeriodLbl = 30;
+        const bool caret_on_lbl = ((text_blink_ticks_ / kBlinkPeriodLbl) % 2) == 0;
+        ++text_blink_ticks_;
+        if (caret_on_lbl) {
+            const float cx = lbl_text_x + caret_at(text_caret_);
+            canvas.set_fill_color(Color::rgba(0.95f, 0.95f, 0.98f, 0.95f));
+            canvas.fill_rect(cx, lbl_band_y, 1.5f, lbl_band_h);
+        }
+
+        canvas.restore();
+        return;
+    }
+
+    // ── Non-Label fallback (TextEditor / other) ───────────────────────────
+    // Keep the legacy re-measure path for targets without the factored
+    // resolver. TextEditor is single-font and top-aligned so prefix
+    // measurement is adequate here.
     float font_size = 13.0f;
     std::string font_family;
     int font_weight = 400;
     float letter_spacing = 0.0f;
-    if (auto* lbl = dynamic_cast<const Label*>(text_edit_target_)) {
-        font_size = lbl->font_size();
-        font_family = lbl->font_family();
-        font_weight = lbl->font_weight();
-        letter_spacing = lbl->letter_spacing();
-    } else if (auto* ed = dynamic_cast<const TextEditor*>(text_edit_target_)) {
+    if (auto* ed = dynamic_cast<const TextEditor*>(text_edit_target_)) {
         font_size = ed->font_size();
     }
     if (font_family.empty()) font_family = "system";
 
-    const Rect r = view_bounds_in_root(text_edit_target_);
-    canvas.save();
-    // Use the label's FULL font config (esp. letter-spacing + weight) so
-    // measure_text matches the rendered glyph advances. With the 2-arg
-    // set_font, letter-spacing stayed 0, so prefix widths were short and the
-    // caret landed a glyph early on a letter-spaced label like "ENVELOPE"
-    // (maintainer QA). measure_text applies the canvas letter_spacing_.
     canvas.set_font_full(font_family, font_size, font_weight, /*slant=*/0,
                          letter_spacing);
 
