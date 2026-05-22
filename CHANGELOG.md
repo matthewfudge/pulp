@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01970"></a>
+## [0.197.0] - 2026-05-22
+
+- fix(import-design): add default preference overrides ([#2696](https://github.com/danielraffel/pulp/pull/2696))
+- test(canvas): cover color conversion edge cases ([#2689](https://github.com/danielraffel/pulp/pull/2689))
+- test(format): cover CLAP adapter edge cases ([#2684](https://github.com/danielraffel/pulp/pull/2684))
+- test(host): cover signal graph edge cases ([#2688](https://github.com/danielraffel/pulp/pull/2688))
+
 <a id="v01960"></a>
 ## [0.196.0] - 2026-05-21
 
@@ -2550,6 +2558,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.197.0]: https://github.com/danielraffel/pulp/releases/tag/v0.197.0
 [0.196.0]: https://github.com/danielraffel/pulp/releases/tag/v0.196.0
 [0.195.3]: https://github.com/danielraffel/pulp/releases/tag/v0.195.3
 [0.195.2]: https://github.com/danielraffel/pulp/releases/tag/v0.195.2
