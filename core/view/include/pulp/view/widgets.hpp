@@ -43,7 +43,20 @@ public:
         set_access_label(text_);
     }
 
-    void set_text(std::string text) { text_ = std::move(text); }
+    void set_text(std::string text) {
+        if (text == text_) return;
+        text_ = std::move(text);
+        // WYSIWYG P5 FIX 4 — the Yoga measure callback (yoga_measure ->
+        // Label::intrinsic_width / measured_height) re-runs TextShaper::prepare
+        // keyed on the CURRENT text_, so a text change re-shapes correctly —
+        // but only if a re-layout is actually triggered. Mark this Label's
+        // layout dirty here so the new copy re-measures + reflows; without it
+        // the laid-out width stays stale at the old text's advance. The
+        // PreText-style shaper cache is keyed by (text, family, size), so the
+        // new text simply hits a different cache entry — no algorithm change,
+        // just cache-correct re-measurement.
+        invalidate_layout();
+    }
     const std::string& text() const { return text_; }
 
     // issue-969: each setter marks the corresponding has_own_* flag so

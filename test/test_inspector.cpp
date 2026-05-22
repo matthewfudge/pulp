@@ -4970,6 +4970,259 @@ TEST_CASE("InspectorOverlay P3: TextEditor is also editable via the Text tool",
     REQUIRE(store.lookup("figma:editor-1", "text")->getString() == "seed!");
 }
 
+// ── WYSIWYG P5 FIX 1 — text_edit_target_ raw-pointer UAF guard ───────────────
+//
+// text_edit_target_ is a raw View*. If the edited Label/TextEditor is destroyed
+// mid-edit (e.g. a live React tree rebuild), the rebuild-validation must clear
+// the WHOLE text-edit state without touching the freed view, and every text op
+// (handle_text_input / Backspace / commit / cancel) must no-op when the target
+// is no longer reachable from the root — never deref freed memory.
+TEST_CASE("InspectorOverlay P5: text edit survives target destroyed mid-edit",
+          "[inspect][overlay][p5][text-tool][uaf][issue-wysiwyg-p5]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Editing");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    REQUIRE(overlay.text_editing());
+    REQUIRE(overlay.text_edit_target() == label_ptr);
+
+    // Simulate a live React tree rebuild that destroys the edited Label:
+    // remove + free it, then run the inspector's rebuild-validation. The
+    // rebuild must drop the dangling text_edit_target_ without dereferencing
+    // the freed view.
+    auto removed = root.remove_child(label_ptr);  // owns + frees on scope exit
+    removed.reset();                               // free now
+    // paint() runs rebuild_flat_tree(), which contains the P5 FIX 1 guard.
+    pulp::canvas::RecordingCanvas rebuild_canvas;
+    REQUIRE_NOTHROW(overlay.paint(rebuild_canvas));
+
+    // Edit state fully cleared — no deref of the freed Label.
+    REQUIRE_FALSE(overlay.text_editing());
+    REQUIRE(overlay.text_edit_target() == nullptr);
+    REQUIRE(overlay.text_edit_buffer().empty());
+
+    // Subsequent text ops are safe no-ops (would have deref'd the freed view).
+    TextInputEvent ti;
+    ti.text = "x";
+    REQUIRE_FALSE(overlay.handle_text_input(ti));
+
+    KeyEvent bs;
+    bs.key = KeyCode::backspace;
+    bs.is_down = true;
+    // Backspace is consumed (text tool owns it) but must not deref.
+    // (Not editing now, so the text-tool branch is skipped — just assert no crash.)
+    (void)overlay.handle_key_event(bs);
+
+    REQUIRE_FALSE(overlay.commit_text_edit());
+    overlay.cancel_text_edit();  // no-op, no deref
+    REQUIRE_FALSE(overlay.text_editing());
+}
+
+// Same UAF guard, exercised on the commit/cancel paths directly: if the target
+// is removed but the rebuild-validation has NOT yet run (e.g. a click-away
+// commit races a tree mutation), commit/cancel must detect the unreachable
+// target and clear state instead of writing to freed memory.
+TEST_CASE("InspectorOverlay P5: commit/cancel no-op when target left the tree",
+          "[inspect][overlay][p5][text-tool][uaf][issue-wysiwyg-p5]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Bye");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    auto removed = root.remove_child(label_ptr);
+    removed.reset();  // free; overlay.text_edit_target_ now dangles
+
+    // commit must NOT deref the freed target; it clears state + emits nothing.
+    REQUIRE_FALSE(overlay.commit_text_edit());
+    REQUIRE_FALSE(overlay.text_editing());
+    REQUIRE(store.count() == 0);
+}
+
+// ── WYSIWYG P5 FIX 2 — install_inspector_hooks installs the text hook ────────
+//
+// install_inspector_hooks() must install the inline-text-edit hook (and the
+// cursor hook) so the STANDALONE host can deliver typed characters into a
+// Text-tool edit. The hook is root-gated like the mouse/cursor hooks: text
+// from a secondary window's root is rejected; nullptr (legacy/headless) runs.
+TEST_CASE("InspectorOverlay P5: install_inspector_hooks installs a root-gated "
+          "text hook",
+          "[inspect][overlay][p5][text-tool][hooks][issue-wysiwyg-p5]") {
+    View inspected_root;
+    inspected_root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Type here");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    inspected_root.add_child(std::move(label));
+
+    // A separate root standing in for the floating InspectorWindow.
+    View other_root;
+    other_root.set_bounds({0, 0, 340, 300});
+
+    InspectorOverlay overlay(inspected_root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+
+    install_inspector_hooks(overlay);
+
+    // Text routed for the INSPECTED root is consumed + appended to the buffer.
+    TextInputEvent ti;
+    ti.text = "A";
+    REQUIRE(View::call_inspector_text_hook(ti, &inspected_root));
+    REQUIRE(overlay.text_edit_buffer() == "Type hereA");
+
+    // Text routed for a DIFFERENT window's root is rejected (not consumed),
+    // and does NOT mutate the canvas overlay's edit buffer.
+    TextInputEvent ti2;
+    ti2.text = "Z";
+    REQUIRE_FALSE(View::call_inspector_text_hook(ti2, &other_root));
+    REQUIRE(overlay.text_edit_buffer() == "Type hereA");
+
+    // nullptr root (legacy/headless caller) runs unconditionally.
+    TextInputEvent ti3;
+    ti3.text = "B";
+    REQUIRE(View::call_inspector_text_hook(ti3, nullptr));
+    REQUIRE(overlay.text_edit_buffer() == "Type hereAB");
+
+    // The cursor hook is installed too (parity): returns -1 (defer) off the
+    // selection rather than the no-hook sentinel; here it simply must not crash
+    // and respects the root gate.
+    MouseEvent mv;
+    mv.position = {200, 200};
+    (void)View::call_inspector_cursor_hook(mv, &inspected_root);
+    REQUIRE(View::call_inspector_cursor_hook(mv, &other_root) == -1);
+
+    // Clean up the global hooks so later tests aren't affected.
+    g_active_inspector = nullptr;
+    View::set_inspector_paint_hook({});
+    View::set_inspector_key_hook({});
+    View::set_inspector_mouse_hook({});
+    View::set_inspector_text_hook({});
+    View::set_inspector_cursor_hook({});
+}
+
+// ── WYSIWYG P5 regression — typing V/T mid-edit must NOT flip the tool ────────
+//
+// While an inline text edit is in progress, the V/T tool shortcuts are gated
+// off (the Text tool owns the keyboard). The JUST-fixed key-hook also returns
+// false for non-control keys so insertText delivers the character — assert both:
+// the tool stays Text, and Esc cancels the edit and re-enables the V/T flip.
+TEST_CASE("InspectorOverlay P5: V/T do not flip tool mid-edit; Esc re-enables",
+          "[inspect][overlay][p5][text-tool][regression][issue-wysiwyg-p5]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Hi");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+
+    // A 'v' key-down mid-edit must NOT flip to Select — it is character input,
+    // so the key-hook returns false (lets insertText through) and the tool
+    // stays Text. (The control keys Enter/Esc/Backspace are handled above the
+    // tool shortcuts; everything else falls through as character input.)
+    KeyEvent v;
+    v.key = KeyCode::v;
+    v.is_down = true;
+    REQUIRE_FALSE(overlay.handle_key_event(v));
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+    REQUIRE(overlay.text_editing());
+
+    // A 't' key-down mid-edit likewise does not toggle the tweak panel / tool.
+    KeyEvent t;
+    t.key = KeyCode::t;
+    t.is_down = true;
+    REQUIRE_FALSE(overlay.handle_key_event(t));
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+    REQUIRE(overlay.text_editing());
+
+    // Esc cancels the edit; afterwards the bare V/T shortcuts flip the tool.
+    KeyEvent esc;
+    esc.key = KeyCode::escape;
+    esc.is_down = true;
+    REQUIRE(overlay.handle_key_event(esc));
+    REQUIRE_FALSE(overlay.text_editing());
+
+    REQUIRE(overlay.handle_key_event(v));  // now consumed → Select
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::select);
+    REQUIRE(overlay.handle_key_event(t));  // now consumed → Text
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+}
+
+// ── WYSIWYG P5 FIX 4 — committed text re-shapes (laid-out width updates) ──────
+//
+// Editing a Label's text must re-run the PreText-style TextShaper measurement
+// so the laid-out width tracks the new copy (not stale at the old advance).
+// Label::set_text marks layout dirty; the Yoga measure callback re-runs
+// TextShaper::prepare keyed on the current text, so a relayout produces a
+// different width for a clearly-different-length string.
+TEST_CASE("InspectorOverlay P5: editing text re-shapes — laid-out width updates",
+          "[inspect][overlay][p5][text-tool][reshape][issue-wysiwyg-p5]") {
+    View root;
+    root.set_bounds({0, 0, 600, 200});
+    root.flex().direction = FlexDirection::row;
+
+    // No fixed width on the Label so its laid-out width is the shaped intrinsic
+    // width (intrinsic_width() → TextShaper::prepare(text_, ...)).
+    auto label = std::make_unique<Label>("Hi");
+    label->set_anchor_id("figma:label-1");
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    root.layout_children();
+    const float narrow_w = label_ptr->bounds().width;
+    REQUIRE(narrow_w > 0.0f);
+
+    // Edit the copy to a much longer string via the inspector's commit path.
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    overlay.set_editable_text_of(
+        label_ptr, "This is a much longer label string that must re-shape");
+
+    // set_text marked layout dirty; re-run layout. The new shaped width must be
+    // strictly wider — proving the shaper re-measured the new copy, not a stale
+    // cached width for "Hi".
+    root.layout_children();
+    const float wide_w = label_ptr->bounds().width;
+    REQUIRE(wide_w > narrow_w);
+
+    // And shrinking back re-shapes narrower again (cache is per-text, not
+    // monotonic).
+    overlay.set_editable_text_of(label_ptr, "Hi");
+    root.layout_children();
+    REQUIRE(label_ptr->bounds().width == Catch::Approx(narrow_w).margin(0.5f));
+
+    overlay.cancel_text_edit();
+}
+
 // ── P3: InspectorWindow tool strip ──────────────────────────────────────────
 //
 // The window header carries a Figma-style tool strip wired to the overlay

@@ -1172,6 +1172,18 @@ private:
     std::vector<TreeItem> flat_tree_;
     void rebuild_flat_tree();
 
+    // WYSIWYG P5 FIX 1 — text_edit_target_ is a raw View*. If the edited
+    // Label/TextEditor is destroyed mid-edit (e.g. a live React tree
+    // rebuild), every subsequent text op (handle_text_input, Backspace,
+    // commit/cancel) would deref freed memory. These guards keep the
+    // text-edit state coherent with the live tree:
+    //   - text_edit_target_reachable() walks from root_ to confirm the
+    //     target is still attached (does NOT deref the target itself).
+    //   - clear_text_edit_state() drops the target + buffers WITHOUT
+    //     touching the (possibly freed) view.
+    bool text_edit_target_reachable() const;
+    void clear_text_edit_state();
+
     // ── Coordinate helpers ──────────────────────────────────────────
     Rect view_bounds_in_root(const View* v) const;
 

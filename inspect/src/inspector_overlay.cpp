@@ -121,6 +121,31 @@ void install_inspector_hooks(InspectorOverlay& inspector) {
                 return false;
             return inspector.handle_mouse_event(e);
         });
+    // WYSIWYG P5 FIX 2 — install the inline-text-edit hook here so the
+    // STANDALONE host (and any other install_inspector_hooks() caller) can
+    // actually deliver typed characters into a Text-tool edit. Without this
+    // the standalone path could enter edit state but never receive insertText
+    // characters — only ui-preview worked because it installs its own text
+    // hook lambda. Root-gated like the mouse/cursor hooks: text typed into a
+    // secondary window (the floating InspectorWindow) must not drive the
+    // canvas overlay's inline edit. nullptr (root unknown, legacy/headless
+    // caller) runs unconditionally.
+    View::set_inspector_text_hook(
+        [&inspector](const TextInputEvent& e, View* event_root) -> bool {
+            if (event_root && event_root != &inspector.inspected_root())
+                return false;
+            return inspector.handle_text_input(e);
+        });
+    // WYSIWYG P5 FIX 2 — cursor-affordance hook for parity (move/resize cursor
+    // over a selected element). Same root gate; returns -1 to defer to the
+    // normal hit-view cursor() path when off the selection or in another
+    // window.
+    View::set_inspector_cursor_hook(
+        [&inspector](const MouseEvent& e, View* event_root) -> int {
+            if (event_root && event_root != &inspector.inspected_root())
+                return -1;
+            return inspector.cursor_style_for(e.position);
+        });
 }
 
 void InspectorOverlay::set_active(bool active) {
@@ -307,6 +332,31 @@ void InspectorOverlay::set_editable_text_of(View* v, const std::string& text) {
     }
 }
 
+// WYSIWYG P5 FIX 1 — confirm text_edit_target_ is still attached to the live
+// tree by walking from the root and comparing pointers. This NEVER
+// dereferences text_edit_target_ itself, so it is safe even if the target was
+// freed: a freed pointer simply won't be found among the live nodes. Returns
+// false when not editing.
+bool InspectorOverlay::text_edit_target_reachable() const {
+    if (!text_edit_target_) return false;
+    const View* target = text_edit_target_;
+    std::function<bool(const View*)> contains = [&](const View* v) -> bool {
+        if (v == target) return true;
+        for (std::size_t i = 0; i < v->child_count(); ++i)
+            if (contains(v->child_at(i))) return true;
+        return false;
+    };
+    return contains(&root_);
+}
+
+// WYSIWYG P5 FIX 1 — drop the inline-text-edit state without touching the
+// (possibly freed) target view. Used when the target leaves the tree.
+void InspectorOverlay::clear_text_edit_state() {
+    text_edit_target_ = nullptr;
+    text_edit_buffer_.clear();
+    text_edit_original_.clear();
+}
+
 bool InspectorOverlay::begin_text_edit(View* v) {
     if (!view_has_editable_text(v)) return false;
     // Selecting the edit target keeps the selection box + props panel on
@@ -320,6 +370,12 @@ bool InspectorOverlay::begin_text_edit(View* v) {
 
 bool InspectorOverlay::commit_text_edit() {
     if (!text_editing()) return false;
+    // WYSIWYG P5 FIX 1 — if the edit target was destroyed mid-edit (e.g. a
+    // live React tree rebuild), do not deref it. Drop the edit state and bail.
+    if (!text_edit_target_reachable()) {
+        clear_text_edit_state();
+        return false;
+    }
     View* tgt = text_edit_target_;
     const std::string new_text = text_edit_buffer_;
     const std::string old_text = text_edit_original_;
@@ -376,6 +432,12 @@ bool InspectorOverlay::commit_text_edit() {
 
 void InspectorOverlay::cancel_text_edit() {
     if (!text_editing()) return;
+    // WYSIWYG P5 FIX 1 — if the target was destroyed mid-edit, drop the edit
+    // state without touching freed memory (no revert to restore).
+    if (!text_edit_target_reachable()) {
+        clear_text_edit_state();
+        return;
+    }
     // Revert the live View to the original copy (live preview mutated it).
     set_editable_text_of(text_edit_target_, text_edit_original_);
     text_edit_target_ = nullptr;
@@ -385,6 +447,12 @@ void InspectorOverlay::cancel_text_edit() {
 
 bool InspectorOverlay::handle_text_input(const TextInputEvent& event) {
     if (!active_ || !text_editing()) return false;
+    // WYSIWYG P5 FIX 1 — never write to a freed target. If the edited view
+    // left the tree, drop the edit state and stop consuming text.
+    if (!text_edit_target_reachable()) {
+        clear_text_edit_state();
+        return false;
+    }
     if (event.text.empty()) return true;  // consume, nothing to append
     text_edit_buffer_ += event.text;
     set_editable_text_of(text_edit_target_, text_edit_buffer_);
@@ -1020,6 +1088,14 @@ void InspectorOverlay::rebuild_flat_tree() {
     if (!in_tree(hovered_)) hovered_ = nullptr;
     if (!in_tree(distance_anchor_)) distance_anchor_ = nullptr;
     if (!in_tree(alt_hover_target_)) alt_hover_target_ = nullptr;
+    // WYSIWYG P5 FIX 1 — text_edit_target_ is a raw View* set during an inline
+    // edit. If the edited Label/TextEditor was destroyed during this rebuild
+    // (e.g. a live React tree rebuild), clear the WHOLE text-edit state without
+    // touching the freed view, so the next handle_text_input / Backspace /
+    // commit / cancel does not deref freed memory. Pointer-compare only —
+    // in_tree() never dereferences the target.
+    if (text_edit_target_ && !in_tree(text_edit_target_))
+        clear_text_edit_state();
 }
 
 // ── Input handling ──────────────────────────────────────────────────────────
@@ -1072,6 +1148,11 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
             return true;
         }
         if (event.key == KeyCode::backspace) {
+            // WYSIWYG P5 FIX 1 — guard against a target freed mid-edit.
+            if (!text_edit_target_reachable()) {
+                clear_text_edit_state();
+                return true;
+            }
             if (!text_edit_buffer_.empty()) {
                 // Trim one UTF-8 codepoint (drop continuation bytes 0x80–
                 // 0xBF then the lead byte) so multi-byte glyphs delete

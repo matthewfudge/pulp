@@ -223,21 +223,59 @@ public:
         // Bottom border.
         canvas.set_fill_color(kBorder);
         canvas.fill_rect(b.x, b.bottom() - 1, b.width, 1);
+
+        // WYSIWYG P5 FIX 3 — hover tooltip. The two tool buttons are
+        // custom-painted into this single View (no per-button child to attach
+        // a Tooltip widget to), so paint the tooltip inline near the hovered
+        // button. "Select (V)" / "Text (T)" surfaces the keyboard shortcut the
+        // overlay binds (bare V / T → InspectorOverlay::set_tool).
+        if (hovered_button_ >= 0 && hovered_button_ < 2) {
+            const char* tip = tooltip_for_button(hovered_button_);
+            Rect r = button_rect(hovered_button_);
+            const float tw = static_cast<float>(std::string(tip).size()) * 6.5f + 12.0f;
+            float tx = r.x;
+            // Clamp so the tip stays inside the strip horizontally.
+            if (tx + tw > b.right()) tx = b.right() - tw;
+            if (tx < b.x) tx = b.x;
+            const float th = 16.0f;
+            const float ty = r.bottom() + 2.0f;
+            canvas.set_fill_color(Color::rgba8(20, 20, 28, 235));
+            canvas.fill_rect(tx, ty, tw, th);
+            canvas.set_fill_color(kTextPrimary);
+            canvas.set_font("system", 11);
+            canvas.fill_text(tip, tx + 6.0f, ty + th * 0.5f + 4.0f);
+        }
+    }
+
+    // Tooltip text per button index (0 = Select, 1 = Text). Static so tests
+    // can assert the shortcut hints without a window/paint pass.
+    static const char* tooltip_for_button(int i) {
+        return (i == 0) ? "Select (V)" : "Text (T)";
     }
 
     void on_mouse_event(const MouseEvent& event) override {
-        if (!event.is_down) return;
+        // Track the hovered button for the inline tooltip (FIX 3). A press
+        // also picks the tool. event.position is local to this View.
+        int hit = -1;
         for (int i = 0; i < 2; ++i) {
             Rect r = button_rect(i);
-            // event.position is local to this View.
             if (event.position.x >= (r.x - bounds().x) &&
                 event.position.x <= (r.x - bounds().x) + r.width &&
                 event.position.y >= 0 && event.position.y <= r.height) {
-                if (on_picked_ && *on_picked_) (*on_picked_)(i);
-                return;
+                hit = i;
+                break;
             }
         }
+        hovered_button_ = hit;
+        if (event.is_down && hit >= 0) {
+            if (on_picked_ && *on_picked_) (*on_picked_)(hit);
+        }
     }
+
+    void on_mouse_leave() override { hovered_button_ = -1; }
+
+    // Visible for tests: which button index is currently hovered (-1 = none).
+    int hovered_button() const { return hovered_button_; }
 
 private:
     static constexpr float kStripHeight = 28.0f;
@@ -251,6 +289,7 @@ private:
 
     const int* active_tool_ = nullptr;
     std::function<void(int)>* on_picked_ = nullptr;
+    int hovered_button_ = -1;
 };
 
 void InspectorWindow::set_active_tool(int tool_index) {
