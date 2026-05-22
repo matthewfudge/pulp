@@ -186,13 +186,18 @@ static void install_app_menu(NSString* appName) {
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent*)e {
     (void)e;
-    // AppKit queries this for the click that would activate an inactive
-    // window. Record it so the next -mouseDown: knows it is the
-    // window-foregrounding click and can suppress inspector selection for
-    // that one press (WYSIWYG P2h REGRESSION 4). We still return YES so the
-    // click is delivered (mouseDown handles widget interaction normally).
-    _pendingFirstMouse = YES;
-    return YES;
+    // The click that activates an inactive window foregrounds it ONLY — it is
+    // NOT delivered as a mouseDown, so it cannot select a view in the inspector
+    // overlay ("the foregrounding click shouldn't select"). Returning NO (the
+    // AppKit default) also means that once the window IS key, hover (mouseMoved)
+    // and clicks behave normally. The prior YES + _pendingFirstMouse approach
+    // left a NON-key window (e.g. when the floating inspector held key focus)
+    // with dead hover AND every click eaten — the cause of "after Esc I can't
+    // hover/click until I cycle Cmd+I". One click now refocuses the canvas and
+    // hover+click resume. Trade-off: a first click on a widget while the window
+    // is inactive foregrounds rather than interacts — correct for an inspect
+    // surface.
+    return NO;
 }
 
 // pulp #2088 — the Obj-C `_focusedView` ivar is a parallel pointer to
@@ -327,9 +332,7 @@ static void install_app_menu(NSString* appName) {
         // mouse-down to the inspector hook (and clear the flag). Hover
         // (mouseMoved) still highlights regardless — only this single
         // activating press is suppressed, and only for the inspector path.
-        if (_pendingFirstMouse) {
-            _pendingFirstMouse = NO;
-        } else {
+        {
             auto mods = modifiers_from_ns_flags(event.modifierFlags);
             pulp::view::MouseEvent me;
             me.position = {pt.x, pt.y};
