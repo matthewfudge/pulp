@@ -780,6 +780,25 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_AUSDK)
     # std::expected). Match it here so the adapter header parses.
     set_target_properties(pulp-test-au-v2-effect PROPERTIES CXX_STANDARD 23)
     catch_discover_tests(pulp-test-au-v2-effect)
+
+    # AU v2 Cocoa editor-view advertisement (kAudioUnitProperty_CocoaUI). Compiles
+    # the Cocoa view module with PULP_AU_GUI + a test-unique factory class name and
+    # asserts the cross-TU filler registers + advertises the right, resolvable class.
+    add_executable(pulp-test-au-v2-cocoa-ui
+        test_au_v2_cocoa_ui.mm
+        ${CMAKE_SOURCE_DIR}/core/format/src/au_v2_cocoa_view.mm)
+    target_link_libraries(pulp-test-au-v2-cocoa-ui PRIVATE
+        pulp::format pulp::view Catch2::Catch2WithMain
+        "-framework AppKit" "-framework AudioToolbox" "-framework QuartzCore")
+    target_compile_definitions(pulp-test-au-v2-cocoa-ui PRIVATE
+        PULP_AU_GUI=1 PULP_AU_COCOA_VIEW_CLASS=PulpAUCocoaViewFactory_Test)
+    set_target_properties(pulp-test-au-v2-cocoa-ui PROPERTIES CXX_STANDARD 23)
+    # AudioUnitSDK 1.4 headers use std::expected (C++23). The root sets
+    # CMAKE_CXX_STANDARD=20 which wins for ObjC++ over the target CXX_STANDARD,
+    # so force C++23 explicitly on the OBJCXX sources (both .mm here).
+    target_compile_options(pulp-test-au-v2-cocoa-ui PRIVATE
+        $<$<COMPILE_LANGUAGE:OBJCXX>:-std=gnu++23>)
+    catch_discover_tests(pulp-test-au-v2-cocoa-ui)
 endif()
 
 # iOS AVAudioSession bridge (workstream 05 slice 5.2)

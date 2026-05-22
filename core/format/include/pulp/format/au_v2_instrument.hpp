@@ -21,6 +21,17 @@ public:
                               AudioUnitParameterID inParameterID,
                               AudioUnitParameterInfo& outParameterInfo) override;
 
+    // Serve the Pulp editor-context property (so the Cocoa view factory can
+    // reach this instance's Processor + StateStore) and advertise the Cocoa
+    // view to the host (kAudioUnitProperty_CocoaUI). Without these the host
+    // never loads the Pulp editor and shows its own generic param view —
+    // the AU-instrument editor gap ChainerSynth surfaced.
+    OSStatus GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope,
+                             AudioUnitElement inElement, UInt32& outDataSize,
+                             bool& outWritable) override;
+    OSStatus GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope,
+                         AudioUnitElement inElement, void* outData) override;
+
     OSStatus Initialize() override;
     void Cleanup() override;
 

@@ -24,6 +24,30 @@ struct PulpEditorContext {
     pulp::state::StateStore* store;
 };
 
+/// Cross-TU Cocoa-view hook. The AU adapter classes (`PulpAUEffect`,
+/// `PulpAUInstrument`) are compiled into the shared `pulp-format` library
+/// WITHOUT `PULP_AU_GUI`, while the Cocoa view factory + its
+/// `AudioUnitCocoaViewInfo` filler live in `au_v2_cocoa_view.mm`, added
+/// per-plugin to the `*_AU` target WITH `PULP_AU_GUI`. A compile-time
+/// `#ifdef` in the adapters would therefore always be off. Instead, the GUI
+/// module registers its filler here at static-init, and the adapters read it
+/// (ungated) from `GetProperty(kAudioUnitProperty_CocoaUI)`.
+///
+/// Null when no GUI module is linked (CLAP / Standalone / headless tests) —
+/// the adapters then report no Cocoa view and the host uses its generic view.
+/// Without this hook the host is NEVER told the plugin has a custom editor —
+/// the bug ChainerSynth surfaced (the editor never showed in Logic regardless
+/// of the GPU-host wiring; only AU effects had ANY editor-context property and
+/// none advertised the Cocoa view at all).
+using CocoaViewInfoFiller = bool (*)(void*);
+extern CocoaViewInfoFiller g_cocoa_view_info_filler;
+
+/// Fills an `AudioUnitCocoaViewInfo` with the Pulp Cocoa view factory's bundle
+/// URL + class name. Defined in `au_v2_cocoa_view.mm` (PULP_AU_GUI); installed
+/// into `g_cocoa_view_info_filler` at static-init. Returns false if the factory
+/// class isn't available. `outData` must point to an `AudioUnitCocoaViewInfo`.
+bool fill_cocoa_view_info(void* outData);
+
 /// Decode a short MIDI status byte and two data bytes into a
 /// ``midi::MidiEvent``. Exposed at namespace scope so the AU-MIDI routing
 /// can be unit tested without constructing a real ``AudioComponentInstance``.

@@ -20,6 +20,19 @@
 #include <pulp/view/plugin_view_host.hpp>
 #include <pulp/runtime/log.hpp>
 
+// Per-plugin-unique Cocoa view factory class name. ObjC class names are
+// process-global, so a fixed name would collide when two Pulp AU components
+// load into one host. PulpPluginFormats.cmake injects PULP_AU_COCOA_VIEW_CLASS
+// = PulpAUCocoaViewFactory_<MFR>_<CODE> per *_AU target; the @interface, the
+// @implementation, and the name returned in AudioUnitCocoaViewInfo all derive
+// from it so the registered class and the advertised name always match.
+#ifndef PULP_AU_COCOA_VIEW_CLASS
+#define PULP_AU_COCOA_VIEW_CLASS PulpAUCocoaViewFactory
+#endif
+#define PULP_STRINGIFY_IMPL(x) #x
+#define PULP_STRINGIFY(x) PULP_STRINGIFY_IMPL(x)
+static const char* const kPulpAUCocoaViewClassName = PULP_STRINGIFY(PULP_AU_COCOA_VIEW_CLASS);
+
 // ── Ownership wrapper ──────────────────────────────────────────────────
 // Wraps C++ ownership objects in an ObjC class so they share the NSView's
 // lifetime via an associated object.
@@ -80,10 +93,10 @@ static const char kOwnershipKey = 0;
 
 // ── Cocoa View Factory ─────────────────────────────────────────────────
 
-@interface PulpAUCocoaViewFactory : NSObject <AUCocoaUIBase>
+@interface PULP_AU_COCOA_VIEW_CLASS : NSObject <AUCocoaUIBase>
 @end
 
-@implementation PulpAUCocoaViewFactory
+@implementation PULP_AU_COCOA_VIEW_CLASS
 
 - (unsigned)interfaceVersion {
     return 0;
@@ -187,32 +200,57 @@ bool fill_cocoa_view_info(void* outData) {
         if (!outData) return false;
         auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
-        // Get the bundle containing the PulpAUCocoaViewFactory class
-        Class factoryClass = NSClassFromString(@"PulpAUCocoaViewFactory");
+        // Get the bundle containing the (per-plugin-unique) factory class.
+        Class factoryClass = [PULP_AU_COCOA_VIEW_CLASS class];
         if (!factoryClass) return false;
 
         NSBundle* classBundle = [NSBundle bundleForClass:factoryClass];
         if (!classBundle) return false;
 
-        // Defensive: CFBundleCopyBundleURL can crash in sandboxed XPC hosts
-        // (Logic Pro's AUHostingServiceXPC) due to PAC signature validation.
-        // Wrap in @try to prevent taking down the host process.
+        // Get the bundle URL via NSBundle's ObjC accessor, NOT
+        // CFBundleCopyBundleURL. The raw CFBundle path runs
+        // __CFCheckCFInfoPACSignature, which raises a PAC_EXCEPTION /
+        // SIGKILL in pointer-authentication-hardened, sandboxed hosts
+        // (Logic Pro's AUHostingServiceXPC, and auval). That SIGKILL is a
+        // hardware trap, NOT an NSException, so a @try can't catch it — it
+        // takes down the whole host process. `-[NSBundle bundleURL]` returns
+        // the same URL without the PAC-sensitive CFBundle access. This was
+        // the actual crash that kept the Pulp AU editor from ever loading.
         @try {
-            CFBundleRef bundle = (__bridge CFBundleRef)classBundle;
-            if (!bundle) return false;
+            NSURL* bundleURL = [classBundle bundleURL];
+            if (!bundleURL) return false;
 
-            CFURLRef url = CFBundleCopyBundleURL(bundle);
-            if (!url) return false;
+            // The class name advertised here MUST equal the @implementation's
+            // class (both derive from PULP_AU_COCOA_VIEW_CLASS) or the host
+            // can't NSClassFromString() it. Ownership: AU CF view-info
+            // properties are returned to the host, which releases them — so
+            // hand over +1-retained CF objects.
+            CFStringRef className = CFStringCreateWithCString(
+                kCFAllocatorDefault, kPulpAUCocoaViewClassName, kCFStringEncodingUTF8);
+            if (!className) return false;
 
-            info->mCocoaAUViewBundleLocation = url;
-            info->mCocoaAUViewClass[0] = CFStringCreateCopy(kCFAllocatorDefault,
-                CFSTR("PulpAUCocoaViewFactory"));
+            info->mCocoaAUViewBundleLocation = (CFURLRef)CFBridgingRetain(bundleURL);
+            info->mCocoaAUViewClass[0] = className;
             return true;
         } @catch (NSException*) {
             return false;
         }
     }
 }
+
+// Install the filler into the shared adapter hook at image load. Only *_AU
+// targets compile this TU (PULP_AU_GUI), so non-GUI builds of pulp-format
+// leave g_cocoa_view_info_filler null and report no Cocoa view.
+namespace {
+struct CocoaViewInfoFillerRegistration {
+    CocoaViewInfoFillerRegistration() { g_cocoa_view_info_filler = &fill_cocoa_view_info; }
+    ~CocoaViewInfoFillerRegistration() {
+        if (g_cocoa_view_info_filler == &fill_cocoa_view_info)
+            g_cocoa_view_info_filler = nullptr;
+    }
+};
+CocoaViewInfoFillerRegistration g_register_cocoa_view_info_filler;
+} // namespace
 
 } // namespace pulp::format::au
 
