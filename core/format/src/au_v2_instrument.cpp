@@ -4,8 +4,10 @@
 
 #include <AudioUnitSDK/AUPlugInDispatch.h>
 #include <AudioUnitSDK/AUOutputElement.h>
+#include <AudioToolbox/AudioToolbox.h>  // kAudioUnitProperty_CocoaUI, AudioUnitCocoaViewInfo
 
 #include <pulp/format/au_v2_instrument.hpp>
+#include <pulp/format/au_v2_adapter.hpp>  // kPulpEditorContextProperty, PulpEditorContext, fill_cocoa_view_info
 #include <pulp/format/plugin_state_io.hpp>
 #include <pulp/format/registry.hpp>
 #include <pulp/runtime/log.hpp>
@@ -82,6 +84,46 @@ OSStatus PulpAUInstrument::GetParameterInfo(AudioUnitScope inScope,
         outParameterInfo.unit = kAudioUnitParameterUnit_Generic;
 
     return noErr;
+}
+
+OSStatus PulpAUInstrument::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope,
+                                           AudioUnitElement inElement, UInt32& outDataSize,
+                                           bool& outWritable)
+{
+    if (inID == kPulpEditorContextProperty) {
+        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        if (inElement != 0) return kAudioUnitErr_InvalidElement;
+        outDataSize = sizeof(PulpEditorContext);
+        outWritable = false;
+        return noErr;
+    }
+    if (inID == kAudioUnitProperty_CocoaUI && g_cocoa_view_info_filler) {
+        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        outDataSize = sizeof(AudioUnitCocoaViewInfo);
+        outWritable = false;
+        return noErr;
+    }
+    return MusicDeviceBase::GetPropertyInfo(inID, inScope, inElement, outDataSize, outWritable);
+}
+
+OSStatus PulpAUInstrument::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope,
+                                       AudioUnitElement inElement, void* outData)
+{
+    if (inID == kPulpEditorContextProperty) {
+        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        if (inElement != 0) return kAudioUnitErr_InvalidElement;
+        if (!outData) return kAudioUnitErr_InvalidProperty;
+        auto* ctx = static_cast<PulpEditorContext*>(outData);
+        ctx->processor = processor_.get();
+        ctx->store = &store_;
+        return noErr;
+    }
+    if (inID == kAudioUnitProperty_CocoaUI && g_cocoa_view_info_filler) {
+        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        if (!outData) return kAudioUnitErr_InvalidProperty;
+        return g_cocoa_view_info_filler(outData) ? noErr : kAudioUnitErr_InvalidProperty;
+    }
+    return MusicDeviceBase::GetProperty(inID, inScope, inElement, outData);
 }
 
 OSStatus PulpAUInstrument::Initialize()

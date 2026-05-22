@@ -4,6 +4,7 @@
 
 #include <AudioUnitSDK/AUPlugInDispatch.h>
 #include <AudioToolbox/AudioUnitUtilities.h>
+#include <AudioToolbox/AudioToolbox.h>  // kAudioUnitProperty_CocoaUI, AudioUnitCocoaViewInfo
 
 #include <pulp/format/au_v2_adapter.hpp>
 #include <pulp/format/plugin_state_io.hpp>
@@ -14,6 +15,15 @@
 #include <limits>
 
 namespace pulp::format::au {
+
+// Cross-TU Cocoa-view hook (see au_v2_adapter.hpp). Hidden visibility keeps it
+// per-loaded-image so two Pulp AU components in one host don't share state.
+// Installed by au_v2_cocoa_view.mm's static-init when a *_AU target links it
+// (PULP_AU_GUI); null for CLAP / Standalone / headless builds of pulp-format.
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+CocoaViewInfoFiller g_cocoa_view_info_filler = nullptr;
 
 // Parameter IDs for the AU system map 1:1 from Pulp ParamIDs
 // AU uses AudioUnitParameterID (UInt32) which matches our state::ParamID
@@ -192,6 +202,12 @@ OSStatus PulpAUEffect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope 
         outWritable = false;
         return noErr;
     }
+    if (inID == kAudioUnitProperty_CocoaUI && g_cocoa_view_info_filler) {
+        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        outDataSize = sizeof(AudioUnitCocoaViewInfo);
+        outWritable = false;
+        return noErr;
+    }
     return AUMIDIEffectBase::GetPropertyInfo(inID, inScope, inElement, outDataSize, outWritable);
 }
 
@@ -206,6 +222,11 @@ OSStatus PulpAUEffect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSc
         ctx->processor = processor_.get();
         ctx->store = &store_;
         return noErr;
+    }
+    if (inID == kAudioUnitProperty_CocoaUI && g_cocoa_view_info_filler) {
+        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        if (!outData) return kAudioUnitErr_InvalidProperty;
+        return g_cocoa_view_info_filler(outData) ? noErr : kAudioUnitErr_InvalidProperty;
     }
     return AUMIDIEffectBase::GetProperty(inID, inScope, inElement, outData);
 }
