@@ -109,6 +109,9 @@ Same as above, focus on steps 2, 4, 5, 6, 7. Key risks:
 - Changed args not reflected in `cli-commands.yaml`
 - Changed behavior not reflected in slash command `.md`
 - Skills calling the old invocation syntax
+- Output path flags should accept both nested paths and bare filenames; guard
+  empty `std::filesystem::path::parent_path()` before creating directories and
+  add shellout coverage for the bare-filename case.
 
 ### Rust CLI cutover path convention
 
@@ -172,13 +175,25 @@ asset reference points at HTTP(S).
 
 `--mode baked` is implemented for `--emit ir-json` and `--emit cpp`; `cpp`
 requires baked mode. `--mode live` remains the default and `--from jsx --mode
-live --emit js` writes the precompiled bundle verbatim. When changing this
-lane, keep the CLI help, `docs/status/cli-commands.yaml`,
+live --emit js` writes the precompiled bundle verbatim. Because that path does
+not parse or render the bundle, it must reject `--validate`, `--reference`,
+`--diff`, and `--debug` with a clear usage error rather than silently bypassing
+shared post-processing. When changing this lane, keep the CLI help,
+`docs/status/cli-commands.yaml`,
 `docs/reference/cli.md`, `docs/reference/design-import.md`, and the
 import-design skill aligned. The JSX baked snapshot policy is
 `--snapshot-semantics {fail|warn|accept}`: `fail` rejects dynamic APIs by
 default, `warn` proceeds with a structured diagnostic, and `accept` proceeds
 silently.
+
+The shipped import-design default is `--mode live --emit js`. User preference
+overrides belong in the existing config surface as
+`import_design.default_mode` (`live|baked`) and `import_design.default_emit`
+(`js|ir-json|cpp`), with `PULP_IMPORT_DESIGN_DEFAULT_MODE` /
+`PULP_IMPORT_DESIGN_DEFAULT_EMIT` as one-environment overrides. Keep C++ and
+Rust `pulp config`, `pulp status`, the import-design helper, docs, slash
+commands, and the MCP status output aligned whenever these keys change. If
+only `default_mode=baked` is configured, `ir-json` is implied.
 
 **Sidecar output anchoring:** when a CLI command takes `--output
 <path>/main.ext` and also emits sidecar artifacts (e.g.

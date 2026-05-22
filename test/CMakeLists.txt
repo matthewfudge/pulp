@@ -780,6 +780,25 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_AUSDK)
     # std::expected). Match it here so the adapter header parses.
     set_target_properties(pulp-test-au-v2-effect PROPERTIES CXX_STANDARD 23)
     catch_discover_tests(pulp-test-au-v2-effect)
+
+    # AU v2 Cocoa editor-view advertisement (kAudioUnitProperty_CocoaUI). Compiles
+    # the Cocoa view module with PULP_AU_GUI + a test-unique factory class name and
+    # asserts the cross-TU filler registers + advertises the right, resolvable class.
+    add_executable(pulp-test-au-v2-cocoa-ui
+        test_au_v2_cocoa_ui.mm
+        ${CMAKE_SOURCE_DIR}/core/format/src/au_v2_cocoa_view.mm)
+    target_link_libraries(pulp-test-au-v2-cocoa-ui PRIVATE
+        pulp::format pulp::view Catch2::Catch2WithMain
+        "-framework AppKit" "-framework AudioToolbox" "-framework QuartzCore")
+    target_compile_definitions(pulp-test-au-v2-cocoa-ui PRIVATE
+        PULP_AU_GUI=1 PULP_AU_COCOA_VIEW_CLASS=PulpAUCocoaViewFactory_Test)
+    set_target_properties(pulp-test-au-v2-cocoa-ui PROPERTIES CXX_STANDARD 23)
+    # AudioUnitSDK 1.4 headers use std::expected (C++23). The root sets
+    # CMAKE_CXX_STANDARD=20 which wins for ObjC++ over the target CXX_STANDARD,
+    # so force C++23 explicitly on the OBJCXX sources (both .mm here).
+    target_compile_options(pulp-test-au-v2-cocoa-ui PRIVATE
+        $<$<COMPILE_LANGUAGE:OBJCXX>:-std=gnu++23>)
+    catch_discover_tests(pulp-test-au-v2-cocoa-ui)
 endif()
 
 # iOS AVAudioSession bridge (workstream 05 slice 5.2)
@@ -1088,6 +1107,39 @@ if(PULP_HAS_SKIA AND APPLE AND PULP_ENABLE_GPU)
     # APPLE-gated, so the Windows webgpu DL_PATHS dance from the
     # PULP_GPU_TEST_DISCOVERY_ARGS block below isn't needed here.
     catch_discover_tests(pulp-test-font-rendering-goldens-gpu)
+
+    # GPU view-host-in-plugins (P1) — proves a Processor::create_view() editor
+    # that sets requires_gpu_host() auto-selects the GPU host, mounts a real
+    # (non-AutoUi) tree, and paints a nonblank offscreen Dawn/Skia frame.
+    # Soft-skips on Dawn-init failure.
+    add_executable(pulp-test-plugin-editor-headless-gpu
+        test_plugin_editor_headless_gpu.cpp)
+    target_link_libraries(pulp-test-plugin-editor-headless-gpu PRIVATE
+        pulp::format pulp::view pulp::state pulp::canvas pulp::render
+        Catch2::Catch2WithMain skia::skia)
+    target_compile_definitions(pulp-test-plugin-editor-headless-gpu PRIVATE
+        PULP_HAS_SKIA=1)
+    target_include_directories(pulp-test-plugin-editor-headless-gpu PRIVATE
+        ${SKIA_INCLUDE_DIRS})
+    catch_discover_tests(pulp-test-plugin-editor-headless-gpu)
+
+    # Embedded-host smoke (mac GPU lane): attaches the GPU host to a hidden
+    # NSWindow and proves a nonblank first-frame capture, plus drives the CLAP
+    # gui_create/set_parent adapter path. Needs CLAP for the PULP_CLAP_PLUGIN
+    # entry. Soft-skips without a Dawn adapter / window server.
+    if(PULP_HAS_CLAP)
+        add_executable(pulp-test-plugin-editor-host-smoke-mac
+            test_plugin_editor_host_smoke_mac.mm
+            ${CMAKE_SOURCE_DIR}/core/format/src/clap_adapter.cpp)
+        target_link_libraries(pulp-test-plugin-editor-host-smoke-mac PRIVATE
+            pulp::format pulp::view pulp::state pulp::canvas pulp::render
+            clap Catch2::Catch2WithMain skia::skia "-framework AppKit")
+        target_compile_definitions(pulp-test-plugin-editor-host-smoke-mac PRIVATE
+            PULP_HAS_SKIA=1 PULP_CLAP_GUI=1)
+        target_include_directories(pulp-test-plugin-editor-host-smoke-mac PRIVATE
+            ${SKIA_INCLUDE_DIRS})
+        catch_discover_tests(pulp-test-plugin-editor-host-smoke-mac)
+    endif()
 endif()
 
 # Font v2 Slice 3.4 — Skia GPU Vulkan lane (SCAFFOLD).
@@ -1255,6 +1307,7 @@ pulp_add_test_suite(pulp-test-test-signal LIBRARIES pulp::standalone)
 
 # Standalone editor chrome helpers
 pulp_add_test_suite(pulp-test-standalone-editor-chrome LIBRARIES pulp::standalone)
+pulp_add_test_suite(pulp-test-standalone-apply-config LIBRARIES pulp::standalone)
 
 # Headless screenshot capture state machine (pulp #468)
 pulp_add_test_suite(pulp-test-screenshot-capture LIBRARIES pulp::standalone)
@@ -1758,6 +1811,8 @@ if(APPLE)
 endif()
 
 # Canvas tests
+pulp_add_test_suite(pulp-test-canvas-color LIBRARIES pulp::canvas)
+
 add_executable(pulp-test-canvas test_canvas.cpp)
 target_link_libraries(pulp-test-canvas PRIVATE pulp::canvas Catch2::Catch2WithMain)
 if(APPLE)
@@ -2429,6 +2484,23 @@ target_link_libraries(pulp-test-design-import-native-materializer PRIVATE pulp::
 catch_discover_tests(pulp-test-design-import-native-materializer
     PROPERTIES LABELS "parser-import")
 
+add_executable(pulp-test-view-core-link test_view_core_link.cpp)
+target_link_libraries(pulp-test-view-core-link PRIVATE pulp::view-core Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-view-core-link
+    PROPERTIES LABELS "parser-import")
+
+if(APPLE AND NOT PULP_IOS)
+    add_executable(pulp-test-view-core-window-host-link
+        test_view_core_window_host_link.mm)
+    target_link_libraries(pulp-test-view-core-window-host-link
+        PRIVATE pulp::view-core Catch2::Catch2WithMain)
+    target_link_options(pulp-test-view-core-window-host-link PRIVATE
+        "LINKER:-force_load,${CMAKE_BINARY_DIR}/core/view/CMakeFiles/pulp-view-core.dir/platform/mac/window_host_mac.mm.o"
+    )
+    catch_discover_tests(pulp-test-view-core-window-host-link
+        PROPERTIES LABELS "parser-import")
+endif()
+
 add_executable(pulp-test-design-import-cpp-codegen
     test_design_import_cpp_codegen.cpp
     fixtures/design_import_generated_cpp_fixture.cpp)
@@ -2871,6 +2943,13 @@ if(TARGET PulpGain_CLAP)
 endif()
 catch_discover_tests(pulp-test-host)
 
+# P11-5 (#2647): SignalGraph tests carved out of test_host.cpp to bring the
+# 2,190-line parent under 2,000 (now 852). No CLAP fixture needed — these
+# exercise pure graph routing/topology, not plugin loading.
+add_executable(pulp-test-host-signal-graph test_host_signal_graph.cpp)
+target_link_libraries(pulp-test-host-signal-graph PRIVATE pulp::host Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-host-signal-graph)
+
 # Host regression coverage (#52) — end-to-end scan / load / process /
 # unload lifecycle, scanner failure modes (moduleinfo.json + manifest.ttl),
 # state round-trip, and hot-reload race-cleanliness. Separate binary so a
@@ -3091,7 +3170,7 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_SKIA)
     # object to register the class without dragging in every other .mm
     # (which would duplicate-symbol on PulpAccessibilityElement).
     target_link_options(pulp-test-mac-perform-key-equivalent PRIVATE
-        "LINKER:-force_load,${CMAKE_BINARY_DIR}/core/view/CMakeFiles/pulp-view.dir/platform/mac/window_host_mac.mm.o"
+        "LINKER:-force_load,${CMAKE_BINARY_DIR}/core/view/CMakeFiles/pulp-view-core.dir/platform/mac/window_host_mac.mm.o"
     )
     catch_discover_tests(pulp-test-mac-perform-key-equivalent)
 endif()

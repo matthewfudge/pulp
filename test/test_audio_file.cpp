@@ -179,6 +179,79 @@ private:
     std::shared_ptr<RegistryProbeState> state_;
 };
 
+class RegistryNamedProbeReader : public FormatReader {
+public:
+    RegistryNamedProbeReader(std::shared_ptr<RegistryProbeState> state,
+                             std::string extension,
+                             std::string name)
+        : state_(std::move(state))
+        , extension_(std::move(extension))
+        , name_(std::move(name)) {}
+
+    std::optional<AudioFileInfo> read_info(const std::string& path) override {
+        state_->info_calls++;
+        state_->last_info_path = path;
+
+        AudioFileInfo info;
+        info.sample_rate = 16000;
+        info.num_channels = 1;
+        info.num_frames = 2;
+        info.bits_per_sample = 16;
+        info.duration_seconds = 2.0 / 16000.0;
+        info.format = name_;
+        return info;
+    }
+
+    std::optional<AudioFileData> read(const std::string& path) override {
+        state_->read_calls++;
+        state_->last_read_path = path;
+
+        AudioFileData data;
+        data.sample_rate = 16000;
+        data.channels = {{0.125f, -0.125f}};
+        return data;
+    }
+
+    bool supports_extension(std::string_view ext) const override {
+        return ext == extension_;
+    }
+
+    std::string format_name() const override { return name_; }
+
+private:
+    std::shared_ptr<RegistryProbeState> state_;
+    std::string extension_;
+    std::string name_;
+};
+
+class RegistryNamedProbeWriter : public FormatWriter {
+public:
+    RegistryNamedProbeWriter(std::shared_ptr<RegistryProbeState> state,
+                             std::string extension,
+                             std::string name)
+        : state_(std::move(state))
+        , extension_(std::move(extension))
+        , name_(std::move(name)) {}
+
+    bool write(const std::string& path, const AudioFileData& data) override {
+        state_->write_calls++;
+        state_->last_write_path = path;
+        state_->last_written_channels = data.num_channels();
+        return data.sample_rate != 0 && !data.empty();
+    }
+
+    bool supports_extension(std::string_view ext) const override {
+        return ext == extension_;
+    }
+
+    std::string format_name() const override { return name_; }
+
+private:
+    std::shared_ptr<RegistryProbeState> state_;
+    std::string extension_;
+    std::string name_;
+};
+
 }  // namespace
 
 static void append_be16(std::vector<unsigned char>& bytes, uint16_t value) {
@@ -835,6 +908,65 @@ TEST_CASE("MemoryMappedAudioReader rejects invalid destinations before decoding"
     std::filesystem::remove(path);
 }
 
+TEST_CASE("MemoryMappedAudioReader reopens files and clamps destination channels",
+          "[audio][file][mmap][codecov]") {
+    auto stereo_path = unique_temp_audio_path("_mmap_reopen_stereo.wav");
+    auto mono_path = unique_temp_audio_path("_mmap_reopen_mono.wav");
+    std::filesystem::remove(stereo_path);
+    std::filesystem::remove(mono_path);
+
+    AudioFileData stereo;
+    stereo.sample_rate = 48000;
+    stereo.channels = {
+        {0.0f, 0.25f, 0.5f},
+        {-0.5f, -0.25f, 0.0f},
+    };
+    AudioFileData mono;
+    mono.sample_rate = 22050;
+    mono.channels = {{1.0f, -1.0f}};
+
+    REQUIRE(write_wav_file(stereo_path.string(), stereo));
+    REQUIRE(write_wav_file(mono_path.string(), mono));
+
+    MemoryMappedAudioReader reader;
+    REQUIRE(reader.open(stereo_path.string()));
+    REQUIRE(reader.info().sample_rate == 48000);
+    REQUIRE(reader.info().num_channels == 2);
+
+    float left[2] = {-9.0f, -9.0f};
+    float right[2] = {-8.0f, -8.0f};
+    float extra[2] = {-7.0f, -7.0f};
+    float* channels[] = {left, right, extra};
+    REQUIRE(reader.read_frames(channels, 3, 1, 2));
+    REQUIRE_THAT(left[0], WithinAbs(0.25f, 0.001f));
+    REQUIRE_THAT(left[1], WithinAbs(0.5f, 0.001f));
+    REQUIRE_THAT(right[0], WithinAbs(-0.25f, 0.001f));
+    REQUIRE_THAT(right[1], WithinAbs(0.0f, 0.001f));
+    REQUIRE(extra[0] == -7.0f);
+    REQUIRE(extra[1] == -7.0f);
+
+    REQUIRE(reader.open(mono_path.string()));
+    REQUIRE(reader.info().sample_rate == 22050);
+    REQUIRE(reader.info().num_channels == 1);
+    REQUIRE(reader.info().num_frames == 2);
+    REQUIRE(reader.size() > 44);
+    REQUIRE(reader.data() != nullptr);
+
+    auto all = reader.read_all();
+    REQUIRE(all.has_value());
+    REQUIRE(all->sample_rate == 22050);
+    REQUIRE(all->num_channels() == 1);
+    REQUIRE(all->num_frames() == 2);
+    REQUIRE_THAT(all->channels[0][0], WithinAbs(1.0f, 0.001f));
+    REQUIRE_THAT(all->channels[0][1], WithinAbs(-1.0f, 0.001f));
+
+    reader.close();
+    REQUIRE_FALSE(reader.is_open());
+
+    std::filesystem::remove(stereo_path);
+    std::filesystem::remove(mono_path);
+}
+
 TEST_CASE("offline processing handles guards, block tails, and file dispatch",
           "[audio][file][offline][issue-640]") {
     AudioFileData input;
@@ -1311,6 +1443,51 @@ TEST_CASE("FormatRegistry dispatches custom readers and writers through normaliz
     REQUIRE(state->last_written_channels == 1);
     REQUIRE_FALSE(registry.write(write_path, AudioFileData{}));
     REQUIRE(state->write_calls == 2);
+}
+
+TEST_CASE("FormatRegistry keeps the first custom handler for duplicate extensions",
+          "[audio][file][registry][codecov]") {
+    auto& registry = FormatRegistry::instance();
+    auto first = std::make_shared<RegistryProbeState>();
+    auto second = std::make_shared<RegistryProbeState>();
+    auto writer_state = std::make_shared<RegistryProbeState>();
+
+    registry.register_reader(std::make_unique<RegistryNamedProbeReader>(
+        first, ".dupeaudio", "FirstDupe"));
+    registry.register_reader(std::make_unique<RegistryNamedProbeReader>(
+        second, ".dupeaudio", "SecondDupe"));
+    registry.register_writer(std::make_unique<RegistryNamedProbeWriter>(
+        writer_state, ".dupeaudio", "DupeWriter"));
+
+    auto* reader = registry.find_reader("DUPEAUDIO");
+    REQUIRE(reader != nullptr);
+    REQUIRE(reader->format_name() == "FirstDupe");
+
+    auto read_path = (std::filesystem::temp_directory_path()
+        / "pulp_probe.multi.part.DUPEAUDIO").string();
+    auto info = registry.read_info(read_path);
+    REQUIRE(info.has_value());
+    REQUIRE(info->format == "FirstDupe");
+    REQUIRE(first->info_calls == 1);
+    REQUIRE(second->info_calls == 0);
+    REQUIRE(first->last_info_path == read_path);
+
+    auto data = registry.read(read_path);
+    REQUIRE(data.has_value());
+    REQUIRE(data->num_channels() == 1);
+    REQUIRE(data->num_frames() == 2);
+    REQUIRE(first->read_calls == 1);
+    REQUIRE(second->read_calls == 0);
+
+    AudioFileData out;
+    out.sample_rate = 32000;
+    out.channels = {{0.0f, 0.25f}};
+    auto write_path = (std::filesystem::temp_directory_path()
+        / "pulp_probe_write.DUPEAUDIO").string();
+    REQUIRE(registry.write(write_path, out));
+    REQUIRE(writer_state->write_calls == 1);
+    REQUIRE(writer_state->last_write_path == write_path);
+    REQUIRE(writer_state->last_written_channels == 1);
 }
 
 TEST_CASE("FormatRegistry writes and reads AIFF files", "[audio][file][registry][aiff]") {

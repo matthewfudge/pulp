@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import os
 import pathlib
 import subprocess
@@ -11,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from argparse import Namespace
+from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -29,6 +32,8 @@ def load_module():
 class LocalCiPureHelperTests(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_module()
+        # R2-1 (#2645): cloud helpers moved to cloud.py — patch the cloud module.
+        self.cloud = importlib.import_module("cloud")
         self.tmpdir = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.tmpdir.name)
 
@@ -352,7 +357,7 @@ class LocalCiPureHelperTests(unittest.TestCase):
                 }
             }
         }
-        billing = self.mod.resolve_billing_settings(config)
+        billing = self.cloud.resolve_billing_settings(config)
         self.assertEqual(billing["currency"], "EUR")
         self.assertEqual(billing["billing_period_start_day"], 15)
         self.assertTrue(billing["enable_provider_reported_totals"])
@@ -361,22 +366,22 @@ class LocalCiPureHelperTests(unittest.TestCase):
         self.assertEqual(billing["namespace_machine_shape_rates_per_hour"][0]["virtual_cpu"], 4)
 
         with self.assertRaisesRegex(ValueError, "between 1 and 28"):
-            self.mod.resolve_billing_settings({"telemetry": {"billing": {"billing_period_start_day": 29}}})
+            self.cloud.resolve_billing_settings({"telemetry": {"billing": {"billing_period_start_day": 29}}})
         with self.assertRaisesRegex(ValueError, "must be true or false"):
-            self.mod.resolve_billing_settings({"telemetry": {"billing": {"enable_provider_reported_totals": "yes"}}})
+            self.cloud.resolve_billing_settings({"telemetry": {"billing": {"enable_provider_reported_totals": "yes"}}})
 
-        start, end = self.mod.billing_period_window(
+        start, end = self.cloud.billing_period_window(
             15,
             now_dt=datetime(2026, 1, 10, tzinfo=timezone.utc),
         )
         self.assertEqual((start.year, start.month, start.day), (2025, 12, 15))
         self.assertEqual((end.year, end.month, end.day), (2026, 1, 15))
-        self.assertEqual(self.mod.iter_year_months(start, datetime(2026, 2, 15, tzinfo=timezone.utc)), [(2025, 12), (2026, 1), (2026, 2)])
-        self.assertEqual(self.mod.parse_iso_date("2026-04-30").isoformat(), "2026-04-30")
-        self.assertIsNone(self.mod.parse_iso_date("bad"))
-        self.assertEqual(self.mod.infer_job_os("docs-check", "lint"), "linux")
-        self.assertEqual(self.mod.infer_job_os("build", "mac (arm64)"), "macos")
-        self.assertEqual(self.mod.infer_job_os("build", "unknown"), "")
+        self.assertEqual(self.cloud.iter_year_months(start, datetime(2026, 2, 15, tzinfo=timezone.utc)), [(2025, 12), (2026, 1), (2026, 2)])
+        self.assertEqual(self.cloud.parse_iso_date("2026-04-30").isoformat(), "2026-04-30")
+        self.assertIsNone(self.cloud.parse_iso_date("bad"))
+        self.assertEqual(self.cloud.infer_job_os("docs-check", "lint"), "linux")
+        self.assertEqual(self.cloud.infer_job_os("build", "mac (arm64)"), "macos")
+        self.assertEqual(self.cloud.infer_job_os("build", "unknown"), "")
 
         namespace_record = {
             "provider_resolved": "namespace",
@@ -388,12 +393,12 @@ class LocalCiPureHelperTests(unittest.TestCase):
                 ]
             },
         }
-        namespace_cost = self.mod.estimate_cloud_record_cost(namespace_record, config)
+        namespace_cost = self.cloud.estimate_cloud_record_cost(namespace_record, config)
         self.assertEqual(namespace_cost["status"], "estimated")
         self.assertEqual(namespace_cost["currency"], "EUR")
         self.assertEqual(namespace_cost["estimated_total"], 3.0)
         self.assertEqual(
-            self.mod.estimate_namespace_cost({"provider_metadata": {}, "usage_summary": {}}, billing)["status"],
+            self.cloud.estimate_namespace_cost({"provider_metadata": {}, "usage_summary": {}}, billing)["status"],
             "unavailable",
         )
 
@@ -406,16 +411,16 @@ class LocalCiPureHelperTests(unittest.TestCase):
                 {"name": "Unknown", "started_at": "bad", "completed_at": "2026-04-30T00:02:30Z"},
             ],
         }
-        github_cost = self.mod.estimate_cloud_record_cost(github_record, config)
+        github_cost = self.cloud.estimate_cloud_record_cost(github_record, config)
         self.assertEqual(github_cost["status"], "estimated")
         self.assertEqual(github_cost["estimated_total"], 0.05)
         self.assertEqual(
-            self.mod.estimate_cloud_record_cost({"provider_resolved": "other"}, config)["reason"],
+            self.cloud.estimate_cloud_record_cost({"provider_resolved": "other"}, config)["reason"],
             "no estimator for provider 'other'",
         )
 
     def test_cloud_record_formatting_timing_and_namespace_usage_edges(self) -> None:
-        normalized = self.mod.normalize_cloud_record(
+        normalized = self.cloud.normalize_cloud_record(
             {
                 "dispatch_id": "abc123",
                 "dispatch_fields": "bad",
@@ -434,36 +439,36 @@ class LocalCiPureHelperTests(unittest.TestCase):
             {"dispatch_id": "abc222", "run_id": 42, "updated_at": "2026-04-30T01:00:00+00:00"},
             {"dispatch_id": "xyz999", "run_id": 99, "matched_at": "2026-04-30T02:00:00+00:00"},
         ]
-        self.assertEqual(self.mod.find_cloud_record(records, "latest")["dispatch_id"], "abc111")
+        self.assertEqual(self.cloud.find_cloud_record(records, "latest")["dispatch_id"], "abc111")
         with self.assertRaisesRegex(ValueError, "ambiguous"):
-            self.mod.find_cloud_record(records, "abc")
+            self.cloud.find_cloud_record(records, "abc")
         with self.assertRaisesRegex(ValueError, "matched multiple"):
-            self.mod.find_cloud_record(records, "42")
-        self.assertEqual(self.mod.cloud_record_sort_key(records[1])[0], "2026-04-30T01:00:00+00:00")
+            self.cloud.find_cloud_record(records, "42")
+        self.assertEqual(self.cloud.cloud_record_sort_key(records[1])[0], "2026-04-30T01:00:00+00:00")
 
-        self.assertEqual(self.mod.summarize_runner_selector('"macos-large"'), "macos-large")
-        self.assertEqual(self.mod.summarize_runner_selector('["linux", "arm64"]'), "linux,arm64")
-        self.assertEqual(self.mod.summarize_runner_selector('{"bad": true}'), '{"bad": true}')
-        self.assertEqual(self.mod.summarize_runner_selector("{bad"), "{bad")
-        self.assertEqual(self.mod.normalize_github_timestamp("0001-01-01T00:00:00Z"), "")
-        self.assertEqual(self.mod.duration_between("2026-04-30T00:00:03Z", "2026-04-30T00:00:01Z"), 0.0)
-        self.assertIsNone(self.mod.duration_between("bad", "2026-04-30T00:00:01Z"))
-        self.assertEqual(self.mod.format_duration_secs(3661), "1h01m01s")
-        self.assertEqual(self.mod.format_duration_secs(61), "1m01s")
-        self.assertEqual(self.mod.format_duration_secs(1.25), "1.2s")
-        self.assertEqual(self.mod.format_duration_secs(-1), "")
-        self.assertEqual(self.mod.format_duration_secs("bad"), "")
-        self.assertEqual(self.mod.format_memory_megabytes(2048), "2 GB")
-        self.assertEqual(self.mod.format_memory_megabytes("bad"), "")
-        self.assertEqual(self.mod.render_selector_value('"runner"'), "runner")
-        self.assertEqual(self.mod.parse_rate_value("1.25"), 1.25)
-        self.assertIsNone(self.mod.parse_rate_value(-1))
-        self.assertIsNone(self.mod.parse_optional_bool("", "flag"))
-        self.assertTrue(self.mod.parse_optional_bool(True, "flag"))
+        self.assertEqual(self.cloud.summarize_runner_selector('"macos-large"'), "macos-large")
+        self.assertEqual(self.cloud.summarize_runner_selector('["linux", "arm64"]'), "linux,arm64")
+        self.assertEqual(self.cloud.summarize_runner_selector('{"bad": true}'), '{"bad": true}')
+        self.assertEqual(self.cloud.summarize_runner_selector("{bad"), "{bad")
+        self.assertEqual(self.cloud.normalize_github_timestamp("0001-01-01T00:00:00Z"), "")
+        self.assertEqual(self.cloud.duration_between("2026-04-30T00:00:03Z", "2026-04-30T00:00:01Z"), 0.0)
+        self.assertIsNone(self.cloud.duration_between("bad", "2026-04-30T00:00:01Z"))
+        self.assertEqual(self.cloud.format_duration_secs(3661), "1h01m01s")
+        self.assertEqual(self.cloud.format_duration_secs(61), "1m01s")
+        self.assertEqual(self.cloud.format_duration_secs(1.25), "1.2s")
+        self.assertEqual(self.cloud.format_duration_secs(-1), "")
+        self.assertEqual(self.cloud.format_duration_secs("bad"), "")
+        self.assertEqual(self.cloud.format_memory_megabytes(2048), "2 GB")
+        self.assertEqual(self.cloud.format_memory_megabytes("bad"), "")
+        self.assertEqual(self.cloud.render_selector_value('"runner"'), "runner")
+        self.assertEqual(self.cloud.parse_rate_value("1.25"), 1.25)
+        self.assertIsNone(self.cloud.parse_rate_value(-1))
+        self.assertIsNone(self.cloud.parse_optional_bool("", "flag"))
+        self.assertTrue(self.cloud.parse_optional_bool(True, "flag"))
         with self.assertRaisesRegex(ValueError, "must be true or false"):
-            self.mod.parse_optional_bool("true", "flag")
+            self.cloud.parse_optional_bool("true", "flag")
 
-        timing = self.mod.summarize_cloud_timing(
+        timing = self.cloud.summarize_cloud_timing(
             {
                 "createdAt": "2026-04-30T00:00:00Z",
                 "updatedAt": "2026-04-30T00:02:00Z",
@@ -480,7 +485,7 @@ class LocalCiPureHelperTests(unittest.TestCase):
         self.assertEqual(timing["queue_delay_secs"], 60.0)
         self.assertEqual(timing["duration_secs"], 120.0)
 
-        instance = self.mod.normalize_namespace_instance(
+        instance = self.cloud.normalize_namespace_instance(
             {
                 "cluster_id": "cluster",
                 "created": "2026-04-30T00:00:00Z",
@@ -491,14 +496,14 @@ class LocalCiPureHelperTests(unittest.TestCase):
             }
         )
         self.assertEqual(instance["duration_secs"], 3600.0)
-        usage = self.mod.summarize_namespace_usage([instance, dict(instance, duration_secs=1800.0)])
+        usage = self.cloud.summarize_namespace_usage([instance, dict(instance, duration_secs=1800.0)])
         self.assertEqual(usage["instances_count"], 2)
         self.assertEqual(usage["provider_runtime_secs"], 5400.0)
         self.assertEqual(usage["machine_shapes"][0]["count"], 2)
 
         with mock.patch.object(self.mod, "nsc_logged_in", return_value=False):
             self.assertEqual(
-                self.mod.enrich_cloud_record_provider_metadata({"provider_resolved": "github-hosted", "run_id": 123})["usage_summary"],
+                self.cloud.enrich_cloud_record_provider_metadata({"provider_resolved": "github-hosted", "run_id": 123})["usage_summary"],
                 {},
             )
 
@@ -572,7 +577,10 @@ class LocalCiPureHelperTests(unittest.TestCase):
             ],
         }
         nodes = list(self.mod.iter_view_tree_nodes(view_tree))
+        self.assertEqual(list(self.mod.iter_view_tree_nodes("not-a-node")), [])
         self.assertEqual(nodes[-1][1], {"x": 22.0, "y": 34.0, "width": 30.0, "height": 10.0})
+        self.assertEqual(nodes[0][1]["x"], 10.0)
+        self.assertEqual(nodes[0][1]["height"], 100.0)
         self.assertEqual(
             self.mod.resolve_view_tree_click_point(
                 view_tree,
@@ -580,6 +588,16 @@ class LocalCiPureHelperTests(unittest.TestCase):
                 view_type="button",
                 view_text="OK",
                 view_label="Confirm",
+            ),
+            (37.0, 39.0),
+        )
+        self.assertEqual(
+            self.mod.resolve_view_tree_click_point(
+                view_tree,
+                view_id=None,
+                view_type="button",
+                view_text="OK",
+                view_label=None,
             ),
             (37.0, 39.0),
         )
@@ -599,6 +617,14 @@ class LocalCiPureHelperTests(unittest.TestCase):
             ),
             (210.0, 190.0),
         )
+        self.assertEqual(
+            self.mod.screen_point_for_content_point(
+                {"bounds": {"x": 5, "y": 6, "width": 20, "height": 10}},
+                (40, 30),
+                (3, 4),
+            ),
+            (8.0, 10.0),
+        )
 
         running = mock.Mock()
         running.poll.return_value = None
@@ -611,6 +637,59 @@ class LocalCiPureHelperTests(unittest.TestCase):
         complete.poll.return_value = 0
         self.mod.terminate_process(complete)
         complete.terminate.assert_not_called()
+
+    def test_macos_capture_and_local_worktree_helpers_cover_retry_edges(self) -> None:
+        output_path = self.root / "captures" / "window.png"
+
+        def successful_capture(*_args, **_kwargs):
+            output_path.write_bytes(b"png")
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+        with mock.patch.object(self.mod.subprocess, "run", side_effect=successful_capture) as run:
+            self.mod.capture_macos_window(42, output_path)
+        self.assertEqual(output_path.read_bytes(), b"png")
+        self.assertTrue(output_path.parent.is_dir())
+        self.assertEqual(run.call_args.args[0][0], "screencapture")
+        self.assertIn("-l", run.call_args.args[0])
+        self.assertIn("42", run.call_args.args[0])
+
+        failed_output = self.root / "captures" / "missing.png"
+        with mock.patch.object(
+            self.mod.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 1, stdout="stdout detail", stderr=""),
+        ), mock.patch.object(self.mod.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "stdout detail"):
+                self.mod.capture_macos_window(99, failed_output)
+        self.assertEqual(sleep.call_count, 4)
+        self.assertFalse(failed_output.exists())
+        self.assertEqual(sleep.call_args.args[0], 0.2)
+
+        missing = self.root / "missing-worktree"
+        self.assertFalse(self.mod._local_worktree_matches(missing, "abc123"))
+        worktree = self.root / "worktree"
+        worktree.mkdir()
+        (worktree / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+        with mock.patch.object(
+            self.mod.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, stdout="abc123\n", stderr=""),
+        ) as run:
+            self.assertTrue(self.mod._local_worktree_matches(worktree, "abc123"))
+        self.assertEqual(run.call_args.args[0][2], str(worktree))
+        self.assertEqual(run.call_args.kwargs["text"], True)
+        with mock.patch.object(
+            self.mod.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 0, stdout="other\n", stderr=""),
+        ):
+            self.assertFalse(self.mod._local_worktree_matches(worktree, "abc123"))
+        with mock.patch.object(
+            self.mod.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess([], 128, stdout="", stderr="bad git"),
+        ):
+            self.assertFalse(self.mod._local_worktree_matches(worktree, "abc123"))
 
     def test_filesystem_helpers_cover_tails_atomic_writes_and_image_hashes(self) -> None:
         self.assertEqual(self.mod.tail_lines(self.root / "missing.log"), [])
@@ -1012,6 +1091,416 @@ class LocalCiPureHelperTests(unittest.TestCase):
         self.assertEqual(config["targets"]["windows"]["repo_path"], r"C:\Pulp")
         self.assertEqual(config["desktop_automation"]["targets"]["windows"]["repo_path"], r"C:\Pulp")
 
+    def test_desktop_doctor_macos_local_optional_edges(self) -> None:
+        config = {
+            "desktop_automation": {
+                "artifact_root": str(self.root / "artifacts"),
+                "targets": {
+                    "mac": {
+                        "adapter": "macos-local",
+                        "target_type": "local",
+                        "optional": {
+                            "webview_driver": True,
+                            "debug_attach": True,
+                            "video_capture": True,
+                            "frame_stats": True,
+                        },
+                    }
+                },
+            }
+        }
+        which_values = {"screencapture": None, "osascript": "/usr/bin/osascript", "lldb": "/usr/bin/lldb", "ffmpeg": None}
+
+        with mock.patch.object(self.mod.sys, "platform", "linux"):
+            with mock.patch.object(self.mod, "desktop_receipt_for", return_value=None):
+                with mock.patch.object(self.mod.shutil, "which", side_effect=lambda name: which_values.get(name)):
+                    with mock.patch.object(self.mod, "macos_accessibility_trusted", side_effect=json.JSONDecodeError("bad", "", 0)):
+                        checks = {check["name"]: check for check in self.mod.desktop_doctor_checks(config, "mac")}
+
+        self.assertTrue(checks["artifact_root"]["ok"])
+        self.assertFalse(checks["receipt"]["ok"])
+        self.assertIn("desktop install mac", checks["receipt"]["detail"])
+        self.assertFalse(checks["platform"]["ok"])
+        self.assertEqual(checks["platform"]["detail"], "running on linux")
+        self.assertFalse(checks["screencapture"]["ok"])
+        self.assertEqual(checks["screencapture"]["detail"], "missing")
+        self.assertTrue(checks["osascript"]["ok"])
+        self.assertFalse(checks["accessibility"]["ok"])
+        self.assertFalse(checks["accessibility"]["required"])
+        self.assertFalse(checks["webview_driver"]["ok"])
+        self.assertIn("webdriver_url is not set", checks["webview_driver"]["detail"])
+        self.assertTrue(checks["debug_attach"]["ok"])
+        self.assertEqual(checks["debug_attach"]["detail"], "/usr/bin/lldb")
+        self.assertFalse(checks["video_capture"]["ok"])
+        self.assertIn("ffmpeg not found", checks["video_capture"]["detail"])
+        self.assertTrue(checks["frame_stats"]["ok"])
+
+    def test_desktop_doctor_remote_linux_and_windows_edges(self) -> None:
+        config = {
+            "desktop_automation": {
+                "artifact_root": str(self.root / "artifacts"),
+                "targets": {
+                    "ubuntu": {
+                        "adapter": "linux-xvfb",
+                        "target_type": "ssh",
+                        "host": "ubuntu.example",
+                        "bootstrap": "xvfb-run",
+                    },
+                    "windows": {
+                        "adapter": "windows-session-agent",
+                        "target_type": "ssh",
+                        "host": "win.example",
+                        "repo_path": r"C:\Users\dev",
+                        "bootstrap": "scheduled-task",
+                    },
+                },
+            }
+        }
+        linux_tooling = {
+            "git_found": True,
+            "git_path": "/usr/bin/git",
+            "git_lfs_found": False,
+            "xvfb_run_found": True,
+            "xvfb_run_path": "/usr/bin/xvfb-run",
+            "xauth_found": True,
+            "xdotool_found": True,
+            "xwininfo_found": True,
+            "import_found": True,
+            "wmctrl_found": False,
+        }
+        windows_probe = {
+            "task_present": True,
+            "task_name": "PulpDesktopAutomationAgent-windows",
+            "task_state": "Ready",
+            "logged_on_user": " DEV\\alice ",
+            "session_state": " Active ",
+            "agent_root_exists": True,
+            "remote_root": r"C:\agent",
+            "jobs_dir_exists": False,
+            "jobs_dir": r"C:\agent\jobs",
+            "results_dir_exists": True,
+            "results_dir": r"C:\agent\results",
+            "script_exists": True,
+            "script_path": r"C:\agent\agent.ps1",
+        }
+        windows_tooling = {
+            "git_found": True,
+            "git_path": r"C:\Program Files\Git\cmd\git.exe",
+            "winget_found": False,
+            "gh_found": True,
+            "gh_path": r"C:\Program Files\GitHub CLI\gh.exe",
+            "gh_auth_ready": False,
+            "gh_auth_detail": "not logged in",
+        }
+        repo_probe = {
+            "repo_path": r"C:\Users\dev",
+            "repo_path_unsafe": True,
+            "repo_exists": True,
+            "git_dir_exists": True,
+            "head_exists": True,
+            "setup_exists": True,
+        }
+
+        with mock.patch.object(self.mod, "desktop_receipt_for", side_effect=[None, {"remote_bootstrap_ready": True}]):
+            with mock.patch.object(self.mod, "ssh_reachable", return_value=True):
+                with mock.patch.object(self.mod, "ssh_failure_detail", return_value="unused"):
+                    with mock.patch.object(self.mod, "probe_linux_launch_backend", return_value={"mode": "display", "display": ":99"}):
+                        with mock.patch.object(self.mod, "probe_linux_remote_tooling", return_value=linux_tooling):
+                            linux_checks = {
+                                check["name"]: check for check in self.mod.desktop_doctor_checks(config, "ubuntu")
+                            }
+                    with mock.patch.object(self.mod, "probe_windows_session_agent", return_value=windows_probe):
+                        with mock.patch.object(self.mod, "probe_windows_remote_tooling", return_value=windows_tooling):
+                            with mock.patch.object(self.mod, "probe_windows_repo_checkout", return_value=repo_probe):
+                                windows_checks = {
+                                    check["name"]: check for check in self.mod.desktop_doctor_checks(config, "windows")
+                                }
+
+        self.assertTrue(linux_checks["host"]["ok"])
+        self.assertEqual(linux_checks["host"]["detail"], "ubuntu.example")
+        self.assertTrue(linux_checks["ssh"]["ok"])
+        self.assertTrue(linux_checks["launch_backend"]["ok"])
+        self.assertIn("existing display :99", linux_checks["launch_backend"]["detail"])
+        self.assertTrue(linux_checks["git"]["ok"])
+        self.assertFalse(linux_checks["git-lfs"]["ok"])
+        self.assertIn("sudo apt-get install -y git-lfs", linux_checks["git-lfs"]["detail"])
+        self.assertFalse(linux_checks["wmctrl"]["required"])
+        self.assertTrue(linux_checks["bootstrap"]["ok"])
+        self.assertEqual(linux_checks["bootstrap"]["detail"], "xvfb-run")
+
+        self.assertTrue(windows_checks["scheduled_task"]["ok"])
+        self.assertTrue(windows_checks["scheduled_task"]["required"])
+        self.assertEqual(windows_checks["interactive_user"]["detail"], r"DEV\alice (Active)")
+        self.assertTrue(windows_checks["agent_root"]["ok"])
+        self.assertFalse(windows_checks["jobs_dir"]["ok"])
+        self.assertTrue(windows_checks["results_dir"]["ok"])
+        self.assertTrue(windows_checks["script_path"]["ok"])
+        self.assertTrue(windows_checks["git"]["ok"])
+        self.assertFalse(windows_checks["winget"]["ok"])
+        self.assertFalse(windows_checks["winget"]["required"])
+        self.assertTrue(windows_checks["gh"]["ok"])
+        self.assertFalse(windows_checks["gh_auth"]["ok"])
+        self.assertEqual(windows_checks["gh_auth"]["detail"], "not logged in")
+        self.assertFalse(windows_checks["repo_checkout"]["ok"])
+        self.assertIn("unsafe repo root", windows_checks["repo_checkout"]["detail"])
+        self.assertEqual(windows_checks["bootstrap"]["detail"], "scheduled-task")
+
+    def test_desktop_source_request_manifest_and_command_edges(self) -> None:
+        args = Namespace(
+            source_mode="exact_sha",
+            branch="feature/source",
+            sha="abc123",
+            prepare_command="  ./setup.sh --desktop  ",
+            prepare_timeout=12,
+        )
+        request = self.mod.make_desktop_source_request(args)
+
+        self.assertEqual(request["mode"], "exact-sha")
+        self.assertEqual(request["prepare_command"], "./setup.sh --desktop")
+        self.assertEqual(request["prepare_timeout_secs"], 12.0)
+        self.assertEqual(
+            self.mod.desktop_source_cache_key(request),
+            self.mod.desktop_source_cache_key({**request, "mode": "live", "branch": "main"}),
+        )
+        self.assertNotEqual(
+            self.mod.desktop_source_cache_key(request),
+            self.mod.desktop_source_cache_key({**request, "prepare_command": "cmake --build build"}),
+        )
+
+        with mock.patch.dict(os.environ, {"PULP_LOCAL_CI_HOME": str(self.root / "state")}, clear=True):
+            source_root = self.mod.desktop_source_root("windows", request)
+        self.assertEqual(source_root.parent, self.root / "state" / "desktop-source" / "windows")
+
+        self.assertIsNone(self.mod._command_path_rewrite_candidate("/tmp/outside-tool"))
+        self.assertIsNone(self.mod._command_path_rewrite_candidate("pulp-ui-preview"))
+        self.assertEqual(
+            self.mod._command_path_rewrite_candidate("./tools/local-ci/local_ci.py"),
+            self.mod.ROOT / "tools" / "local-ci" / "local_ci.py",
+        )
+        self.assertIsNone(self.mod.rewrite_launch_command_for_source_root(None, self.root / "prepared"))
+        self.assertEqual(
+            self.mod.rewrite_launch_command_for_source_root('"unterminated', self.root / "prepared"),
+            '"unterminated',
+        )
+        self.assertEqual(
+            self.mod.rewrite_launch_command_for_posix_root("pulp-ui-preview --flag", "$HOME/source"),
+            "pulp-ui-preview --flag",
+        )
+
+        local_command = f"'{self.mod.ROOT / 'tools' / 'local-ci' / 'local_ci.py'}' --json"
+        rewritten_local = self.mod.rewrite_launch_command_for_source_root(local_command, self.root / "prepared source")
+        rewritten_posix = self.mod.rewrite_launch_command_for_posix_root(local_command, "$HOME/prepared source")
+        rewritten_windows = self.mod.rewrite_launch_command_for_windows_root(
+            r".\tools\local-ci\local_ci.py --json",
+            r"C:\Prepared Source",
+        )
+        self.assertIn(str(self.root / "prepared source" / "tools" / "local-ci" / "local_ci.py"), rewritten_local)
+        self.assertIn("'$HOME/prepared source/tools/local-ci/local_ci.py'", rewritten_posix)
+        self.assertIn(r'"C:\Prepared Source\tools\local-ci\local_ci.py" --json', rewritten_windows)
+
+        commands = self.mod.split_windows_prepare_commands('echo "one;two"; cmake --build build\nctest -C Debug')
+        self.assertEqual(commands, ['echo "one;two"', "cmake --build build", "ctest -C Debug"])
+        self.mod.validate_windows_prepare_commands(['cmake -G "Visual Studio 17 2022"'])
+        with self.assertRaisesRegex(ValueError, "single-quoted tokens"):
+            self.mod.validate_windows_prepare_commands(["cmake -G 'Visual Studio 17 2022'"])
+
+        manifest: dict = {}
+        self.mod.attach_desktop_source_to_manifest(manifest, None)
+        self.assertEqual(manifest, {})
+        self.mod.attach_desktop_source_to_manifest(
+            manifest,
+            {
+                "mode": "prepared",
+                "branch": "feature/source",
+                "sha": "abc123",
+                "prepare_command": "./setup.sh",
+                "prepare_timeout_secs": 12.0,
+                "prepared_root": "/real/root",
+                "prepared_root_display": "$STATE/root",
+                "launch_cwd": "/real/root/examples",
+                "launch_cwd_display": "$STATE/root/examples",
+                "prepare_log": "prepare.log",
+            },
+        )
+        self.assertEqual(manifest["source"]["mode"], "prepared")
+        self.assertEqual(manifest["source"]["sha"], "abc123")
+        self.assertEqual(manifest["source"]["prepared_root"], "$STATE/root")
+        self.assertEqual(manifest["source"]["launch_cwd"], "$STATE/root/examples")
+        self.assertEqual(manifest["artifacts"]["prepare_log"], "prepare.log")
+        self.assertEqual(self.mod.slugify_token(" UI Preview / Smoke! "), "ui-preview-smoke")
+        self.assertEqual(self.mod.slugify_token("!!!"), "run")
+        self.assertEqual(len(self.mod.slugify_token("x" * 80, max_len=12)), 12)
+
+    def test_exact_sha_prepare_and_remote_artifact_helpers_cover_edges(self) -> None:
+        bundle_dir = self.root / "bundle"
+        bundle_dir.mkdir()
+        source_request = {
+            "mode": "exact-sha",
+            "branch": "feature/source",
+            "sha": "abc123",
+            "prepare_command": "echo prepare",
+            "prepare_timeout_secs": 10,
+        }
+
+        with mock.patch.object(self.mod, "desktop_source_root", return_value=self.root / "prepared"), \
+             mock.patch.object(self.mod, "_local_worktree_matches", return_value=False), \
+             mock.patch.object(self.mod, "_reset_local_worktree") as reset_worktree, \
+             mock.patch.object(self.mod, "run_logged_command", return_value={"timed_out": False, "returncode": 0}), \
+             mock.patch.object(self.mod, "rewrite_launch_command_for_source_root", return_value="prepared-command"), \
+             mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")) as run:
+            prepared = self.mod.prepare_macos_exact_sha_source(bundle_dir, "mac", "./tool --flag", source_request)
+        self.assertEqual(prepared["prepared_state"], "clean")
+        self.assertEqual(prepared["launch_command"], "prepared-command")
+        self.assertEqual(prepared["launch_cwd"], str(self.root / "prepared"))
+        self.assertEqual(prepared["prepare_log"], None)
+        self.assertEqual(run.call_args.args[0][:3], ["git", "worktree", "add"])
+        self.assertEqual(run.call_args.kwargs["cwd"], self.mod.ROOT)
+        reset_worktree.assert_called_once_with(self.root / "prepared")
+
+        with mock.patch.object(self.mod, "desktop_source_root", return_value=self.root / "prepared"), \
+             mock.patch.object(self.mod, "_local_worktree_matches", return_value=True), \
+             mock.patch.object(self.mod, "_reset_local_worktree") as reset_worktree, \
+             mock.patch.object(self.mod, "run_logged_command") as logged_command, \
+             mock.patch.object(self.mod, "rewrite_launch_command_for_source_root", return_value="reused-command"):
+            reused = self.mod.prepare_macos_exact_sha_source(bundle_dir, "mac", "./tool", source_request)
+        self.assertEqual(reused["prepared_state"], "reused")
+        self.assertEqual(reused["launch_command"], "reused-command")
+        self.assertEqual(reused["prepared_root"], str(self.root / "prepared"))
+        self.assertEqual(reused["prepare_log"], None)
+        reset_worktree.assert_not_called()
+        logged_command.assert_not_called()
+
+        with mock.patch.object(self.mod, "desktop_source_root", return_value=self.root / "prepared"), \
+             mock.patch.object(self.mod, "_local_worktree_matches", return_value=False), \
+             mock.patch.object(self.mod, "_reset_local_worktree"), \
+             mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")), \
+             mock.patch.object(self.mod, "run_logged_command", return_value={"timed_out": True, "returncode": 0}):
+            with self.assertRaisesRegex(RuntimeError, "Timed out preparing"):
+                self.mod.prepare_macos_exact_sha_source(bundle_dir, "mac", "./tool", source_request)
+
+        with mock.patch.object(self.mod, "sync_job_bundle_to_ssh_host", return_value=("source.bundle", "refs/bundle")), \
+             mock.patch.object(self.mod, "git_origin_clone_url", return_value="https://example/pulp.git"), \
+             mock.patch.object(self.mod, "desktop_source_cache_key", return_value="cache-key"), \
+             mock.patch.object(self.mod, "rewrite_launch_command_for_posix_root", return_value="remote-command"), \
+             mock.patch.object(self.mod, "fetch_ssh_artifact", return_value=True) as fetch_artifact, \
+             mock.patch.object(self.mod.subprocess, "run", side_effect=[
+                 subprocess.CompletedProcess([], 0, stdout="/home/dev\n", stderr=""),
+                 subprocess.CompletedProcess([], 0, stdout="__PULP_PREPARED__:reused\n", stderr=""),
+             ]) as run:
+            linux = self.mod.prepare_linux_exact_sha_source(bundle_dir, "ubuntu", "host", "./tool", source_request)
+        self.assertEqual(linux["prepared_state"], "reused")
+        self.assertEqual(linux["prepared_root"], "/home/dev/.local/state/pulp/desktop-source/ubuntu/cache-key")
+        self.assertEqual(linux["prepared_root_display"], "~/.local/state/pulp/desktop-source/ubuntu/cache-key")
+        self.assertEqual(linux["launch_command"], "remote-command")
+        self.assertEqual(linux["prepare_log"], None)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[0][:2], ["ssh", "host"])
+        self.assertIn("PULP_REQUIRE_PREPARE_STAMP", run.call_args_list[1].args[0][-1])
+        fetch_artifact.assert_called_once()
+
+        with mock.patch.object(self.mod, "sync_job_bundle_to_ssh_host", return_value=("source.bundle", "refs/bundle")), \
+             mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="", stderr="no home")):
+            with self.assertRaisesRegex(RuntimeError, "no home"):
+                self.mod.prepare_linux_exact_sha_source(bundle_dir, "ubuntu", "host", "./tool", source_request)
+
+        with mock.patch.object(self.mod, "sync_job_bundle_to_ssh_host", return_value=("source.bundle", "refs/bundle")), \
+             mock.patch.object(self.mod, "git_origin_clone_url", return_value=""), \
+             mock.patch.object(self.mod, "desktop_source_cache_key", return_value="cache-key"), \
+             mock.patch.object(self.mod, "split_windows_prepare_commands", return_value=["echo prepare"]), \
+             mock.patch.object(self.mod, "validate_windows_prepare_commands") as validate_commands, \
+             mock.patch.object(self.mod, "rewrite_launch_command_for_windows_root", return_value="win-command"), \
+             mock.patch.object(self.mod, "windows_ssh_fetch_file", return_value=True) as fetch_file, \
+             mock.patch.object(self.mod, "run_windows_ssh_powershell", return_value=subprocess.CompletedProcess([], 0, stdout="__PULP_PREPARED__:clean\n", stderr="")) as run_ps:
+            windows = self.mod.prepare_windows_exact_sha_source(bundle_dir, "windows", "win", r".\tool.exe", source_request)
+        self.assertEqual(windows["prepared_state"], "clean")
+        self.assertEqual(windows["prepared_root"], r"%LOCALAPPDATA%\Pulp\desktop-source\windows\cache-key")
+        self.assertEqual(windows["launch_command"], "win-command")
+        self.assertEqual(windows["prepare_log"], None)
+        self.assertIn("PULP_REQUIRE_PREPARE_STAMP", run_ps.call_args.args[1])
+        self.assertIn("@echo off", run_ps.call_args.args[1])
+        self.assertEqual(run_ps.call_args.args[0], "win")
+        validate_commands.assert_called_once_with(["echo prepare"])
+        fetch_file.assert_called_once()
+
+        copied = self.root / "artifacts" / "remote.txt"
+        with mock.patch.object(
+            self.mod.subprocess,
+            "run",
+            side_effect=lambda *_args, **_kwargs: (copied.write_text("payload"), subprocess.CompletedProcess([], 0, stdout="", stderr=""))[1],
+        ):
+            self.assertTrue(self.mod.fetch_ssh_artifact("host", "/tmp/remote.txt", copied))
+        self.assertEqual(copied.read_text(), "payload")
+        self.assertTrue(copied.parent.is_dir())
+
+        with mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="", stderr="missing")):
+            self.assertFalse(self.mod.fetch_ssh_artifact("host", "/tmp/missing.txt", self.root / "optional.txt", optional=True))
+            self.assertFalse((self.root / "optional.txt").exists())
+            with self.assertRaisesRegex(RuntimeError, "missing"):
+                self.mod.fetch_ssh_artifact("host", "/tmp/missing.txt", self.root / "required.txt")
+
+    def test_desktop_publish_report_rollup_edges(self) -> None:
+        config = {
+            "desktop_automation": {
+                "artifact_root": str(self.root / "desktop-artifacts"),
+                "publish_mode": "local",
+                "publish_branch": "dev-artifacts",
+            }
+        }
+        with self.assertRaisesRegex(ValueError, "at least one run manifest"):
+            self.mod.stage_desktop_publish_report(config, [])
+
+        bundle = self.root / "bundle"
+        bundle.mkdir()
+        (bundle / "manifest.json").write_text('{"label":"bundle-copy"}\n')
+        stdout_log = bundle / "stdout.log"
+        stdout_log.write_text("hello\n")
+        manifest = {
+            "target": "mac<>",
+            "action": "inspect",
+            "label": "UI & Smoke",
+            "completed_at": "2026-05-22T12:00:00+00:00",
+            "artifacts": {
+                "bundle_dir": str(bundle),
+                "stdout": str(stdout_log),
+                "screenshot": str(bundle / "missing.png"),
+                "image_change": {"changed": False},
+            },
+            "interaction": {"mode": "dom"},
+        }
+
+        output_dir = self.root / "desktop-artifacts" / "_published" / "20260522-gallery"
+        report = self.mod.stage_desktop_publish_report(config, [manifest], output_dir=output_dir, label="Gallery <One>")
+
+        self.assertEqual(report["label"], "Gallery <One>")
+        self.assertEqual(report["run_count"], 1)
+        self.assertTrue((output_dir / "index.html").is_file())
+        self.assertTrue((output_dir / "index.json").is_file())
+        payload = json.loads((output_dir / "index.json").read_text())
+        published_run = payload["runs"][0]
+        self.assertEqual(payload["publish_mode"], "local")
+        self.assertEqual(payload["publish_branch"], "dev-artifacts")
+        self.assertEqual(published_run["target"], "mac<>")
+        self.assertEqual(published_run["interaction_mode"], "dom")
+        self.assertIn("stdout", published_run["artifacts"])
+        self.assertIn("manifest", published_run["artifacts"])
+        self.assertNotIn("screenshot", published_run["artifacts"])
+        self.assertEqual(published_run["artifacts"]["image_change"], {"changed": False})
+        self.assertTrue((output_dir / published_run["artifacts"]["stdout"]).is_file())
+        self.assertTrue((output_dir / published_run["artifacts"]["manifest"]).is_file())
+        html_text = (output_dir / "index.html").read_text()
+        self.assertIn("Gallery &lt;One&gt;", html_text)
+        self.assertIn("mac&lt;&gt;/inspect", html_text)
+
+        invalid = output_dir.parent / "zz-invalid"
+        invalid.mkdir()
+        (invalid / "index.json").write_text("{not json")
+        reports = self.mod.desktop_publish_reports(config, limit=1)
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]["label"], "Gallery <One>")
+        self.assertEqual(reports[0]["output_dir"], str(output_dir))
+        self.assertTrue((output_dir.parent / "latest-report.json").is_file())
+        self.assertTrue((output_dir.parent / "reports.jsonl").is_file())
+
     def test_remote_probe_wrappers_parse_mocked_outputs(self) -> None:
         win_success = subprocess.CompletedProcess(
             [],
@@ -1088,6 +1577,916 @@ class LocalCiPureHelperTests(unittest.TestCase):
         self.assertIn("export DISPLAY=:2", command)
         self.assertIn("xdotool click 1", command)
         self.assertIn("sleep 0.250", command)
+
+    def test_webdriver_probe_parses_status_shapes_and_errors(self) -> None:
+        self.assertEqual(self.mod.webdriver_status_url("http://127.0.0.1:4444"), "http://127.0.0.1:4444/status")
+        self.assertEqual(self.mod.webdriver_status_url("http://host/wd/hub"), "http://host/wd/hub/status")
+        self.assertEqual(self.mod.webdriver_status_url("http://host/status?old=1#frag"), "http://host/status")
+        with self.assertRaisesRegex(ValueError, "scheme and host"):
+            self.mod.webdriver_status_url("localhost:4444")
+
+        class FakeResponse:
+            def __init__(self, payload: str) -> None:
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                return False
+
+            def read(self) -> bytes:
+                return self.payload.encode("utf-8")
+
+        with mock.patch.object(
+            self.mod.urllib.request,
+            "urlopen",
+            return_value=FakeResponse('{"value":{"ready":true,"message":" ok "}}'),
+        ) as urlopen:
+            probe = self.mod.probe_webdriver_endpoint("http://driver")
+            self.assertEqual(probe["status_url"], "http://driver/status")
+            self.assertTrue(probe["ready"])
+            self.assertEqual(probe["message"], "ok")
+            self.assertEqual(urlopen.call_args.kwargs["timeout"], 5.0)
+
+        with mock.patch.object(
+            self.mod.urllib.request,
+            "urlopen",
+            return_value=FakeResponse('{"ready":false,"message":"not ready"}'),
+        ):
+            probe = self.mod.probe_webdriver_endpoint("http://driver/status", timeout=1.5)
+            self.assertFalse(probe["ready"])
+            self.assertEqual(probe["message"], "not ready")
+
+        http_error = self.mod.urllib.error.HTTPError(
+            "http://driver/status",
+            500,
+            "boom",
+            {},
+            mock.Mock(read=lambda: b"server body"),
+        )
+        with mock.patch.object(self.mod.urllib.request, "urlopen", side_effect=http_error):
+            with self.assertRaisesRegex(RuntimeError, "HTTP 500: server body"):
+                self.mod.probe_webdriver_endpoint("http://driver")
+        with mock.patch.object(self.mod.urllib.request, "urlopen", return_value=FakeResponse("{bad")):
+            with self.assertRaisesRegex(RuntimeError, "invalid JSON response"):
+                self.mod.probe_webdriver_endpoint("http://driver")
+        with mock.patch.object(
+            self.mod.urllib.request,
+            "urlopen",
+            side_effect=self.mod.urllib.error.URLError("connection refused"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "connection refused"):
+                self.mod.probe_webdriver_endpoint("http://driver")
+        with mock.patch.object(self.mod.urllib.request, "urlopen", return_value=FakeResponse("[]")):
+            probe = self.mod.probe_webdriver_endpoint("http://driver")
+        self.assertIsNone(probe["ready"])
+        self.assertEqual(probe["message"], "")
+        self.assertEqual(probe["payload"], [])
+
+    def test_remote_detail_helpers_cover_missing_and_partial_states(self) -> None:
+        self.assertEqual(self.mod.windows_desktop_session_user(None), "")
+        self.assertEqual(self.mod.windows_desktop_session_user({"logged_on_user": " alice "}), "alice")
+        self.assertEqual(self.mod.windows_desktop_session_state({"session_state": " Active "}), "Active")
+        self.assertEqual(self.mod.windows_tooling_detail({"git_found": True, "git_path": "C:/Git/bin/git.exe"}, "git"), "C:/Git/bin/git.exe")
+        self.assertEqual(self.mod.windows_tooling_detail({}, "git", missing_hint="install git"), "install git")
+        self.assertTrue(self.mod.windows_remote_tooling_ready({"git_found": True}))
+        self.assertFalse(self.mod.windows_remote_tooling_ready({}))
+
+        self.assertEqual(self.mod.windows_repo_checkout_detail(None, fallback_path=r"C:\\Pulp"), r"C:\\Pulp")
+        self.assertIn("not a git checkout", self.mod.windows_repo_checkout_detail({"repo_path": r"C:\\Pulp", "repo_exists": True}))
+        self.assertIn("empty git repo", self.mod.windows_repo_checkout_detail({"git_dir_exists": True, "repo_path": r"C:\\Pulp"}))
+        self.assertIn(
+            "checkout incomplete",
+            self.mod.windows_repo_checkout_detail({"git_dir_exists": True, "head_exists": True, "repo_path": r"C:\\Pulp"}),
+        )
+        self.assertEqual(
+            self.mod.windows_repo_checkout_detail({"repo_path": r"C:\\Pulp", "origin_url": "https://example/repo.git"}),
+            r"C:\\Pulp (https://example/repo.git)",
+        )
+
+        self.assertEqual(
+            self.mod.linux_tooling_detail({"git_lfs_found": False, "git_lfs_hint": "PATH missing"}, "git_lfs"),
+            "PATH missing",
+        )
+        self.assertEqual(self.mod.linux_tooling_detail({}, "xauth", missing_hint="install xauth"), "install xauth")
+        self.assertEqual(self.mod.linux_tooling_detail({"xvfb_run_found": True, "xvfb_run_path": "/usr/bin/xvfb-run"}, "xvfb_run"), "/usr/bin/xvfb-run")
+        self.assertFalse(self.mod.linux_remote_tooling_ready({"git_found": True, "git_lfs_found": True}))
+
+    def test_linux_launch_backend_and_windows_tool_install_edges(self) -> None:
+        linux_probe = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="mode=display\ndisplay=:7\nignored-line\nxdg_runtime_dir=/run/user/501\n",
+            stderr="",
+        )
+        with mock.patch.object(self.mod, "ssh_command_result", return_value=linux_probe) as ssh_result:
+            backend = self.mod.probe_linux_launch_backend("ubuntu")
+        self.assertEqual(backend["mode"], "display")
+        self.assertEqual(backend["display"], ":7")
+        self.assertEqual(backend["xdg_runtime_dir"], "/run/user/501")
+        self.assertEqual(ssh_result.call_args.kwargs["timeout"], 30)
+        self.assertEqual(ssh_result.call_args.args[0], "ubuntu")
+        self.assertIn("xvfb-run", ssh_result.call_args.args[1])
+
+        empty_probe = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(self.mod, "ssh_command_result", return_value=empty_probe):
+            self.assertEqual(self.mod.probe_linux_launch_backend("ubuntu"), {"mode": "missing"})
+
+        failed_probe = subprocess.CompletedProcess([], 7, stdout="", stderr="ssh denied")
+        with mock.patch.object(self.mod, "ssh_command_result", return_value=failed_probe):
+            with self.assertRaisesRegex(RuntimeError, "ssh denied"):
+                self.mod.probe_linux_launch_backend("ubuntu")
+
+        probes = [
+            {"git_found": False, "winget_found": True},
+            {"git_found": True, "winget_found": True, "gh_found": False},
+            {"git_found": True, "winget_found": True, "gh_found": True},
+        ]
+        with mock.patch.object(self.mod, "probe_windows_remote_tooling", side_effect=probes), \
+             mock.patch.object(self.mod, "install_windows_remote_tool", side_effect=[None, RuntimeError("optional failed")]) as install:
+            ensured = self.mod.ensure_windows_remote_tooling("win", install_optional=True)
+        self.assertEqual(ensured["installed"], ["git"])
+        self.assertTrue(ensured["probe"]["git_found"])
+        self.assertTrue(ensured["probe"]["winget_found"])
+        self.assertEqual(install.call_count, 2)
+        self.assertEqual(install.call_args_list[0].args[0], "win")
+        self.assertEqual(install.call_args_list[0].args[1], self.mod.WINDOWS_REQUIRED_REMOTE_TOOLS["git"]["winget_id"])
+
+        with mock.patch.object(self.mod, "probe_windows_remote_tooling", return_value={"git_found": False, "winget_found": False}), \
+             mock.patch.object(self.mod, "install_windows_remote_tool") as install:
+            with self.assertRaisesRegex(RuntimeError, "winget"):
+                self.mod.ensure_windows_remote_tooling("win")
+        install.assert_not_called()
+
+    def test_desktop_bundle_and_prune_helpers_cover_edge_filters(self) -> None:
+        config = {"desktop_automation": {"artifact_root": str(self.root / "artifacts")}}
+        run_bundle = self.mod.create_desktop_run_bundle(config, "mac", "smoke")
+        publish_bundle = self.mod.create_desktop_publish_bundle(config)
+        self.assertTrue((run_bundle / "screenshots").is_dir())
+        self.assertEqual(run_bundle.parents[1].name, "mac")
+        self.assertTrue((publish_bundle / "assets").is_dir())
+        self.assertEqual(publish_bundle.parent, self.root / "artifacts" / "_published")
+
+        bundle_a = self.root / "bundle-a"
+        bundle_b = self.root / "bundle-b"
+        bundle_a.mkdir()
+        bundle_b.mkdir()
+        manifests = [
+            {"completed_at": "bad-date", "artifacts": {"bundle_dir": str(bundle_a)}},
+            {"completed_at": "2000-01-01T00:00:00Z", "artifacts": {"bundle_dir": str(bundle_a)}},
+            {"started_at": "2000-01-02T00:00:00Z", "artifacts": {"bundle_dir": str(bundle_b)}},
+            {"completed_at": "2999-01-01T00:00:00Z", "artifacts": {"bundle_dir": str(self.root / "missing")}},
+        ]
+        with mock.patch.object(self.mod, "desktop_run_manifests", return_value=manifests):
+            self.assertEqual(self.mod.prune_desktop_run_manifests(config, older_than_days=1), [bundle_a, bundle_b])
+            self.assertEqual(self.mod.prune_desktop_run_manifests(config, keep_last=2), [bundle_b])
+
+    def test_filesystem_and_git_wrappers_cover_fallbacks(self) -> None:
+        src = self.root / "src"
+        dest = self.root / "dest"
+        src.mkdir()
+        (src / "nested").mkdir()
+        (src / "nested" / "file.txt").write_text("nested")
+        (src / "top.txt").write_text("top")
+        self.mod._copy_directory_contents(src, dest)
+        self.assertEqual((dest / "nested" / "file.txt").read_text(), "nested")
+        self.assertEqual((dest / "top.txt").read_text(), "top")
+
+        keep_git = dest / ".git"
+        keep_git.mkdir()
+        self.mod._clear_directory_contents(dest)
+        self.assertTrue(keep_git.exists())
+        self.assertFalse((dest / "nested").exists())
+        self.assertFalse((dest / "top.txt").exists())
+
+        ok = subprocess.CompletedProcess(["git"], 0, stdout="ok", stderr="")
+        fail = subprocess.CompletedProcess(["git"], 2, stdout="", stderr="bad ref")
+        with mock.patch.object(self.mod.subprocess, "run", return_value=ok) as run:
+            self.assertIs(self.mod._run_git(["status"], cwd=self.root), ok)
+            self.assertEqual(run.call_args.args[0], ["git", "status"])
+        with mock.patch.object(self.mod.subprocess, "run", return_value=fail):
+            self.assertIs(self.mod._run_git(["status"], cwd=self.root, check=False), fail)
+            with self.assertRaisesRegex(RuntimeError, "bad ref"):
+                self.mod._run_git(["status"], cwd=self.root)
+
+        with mock.patch.object(
+            self.mod.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(["git"], 1, stdout="", stderr="no remote"),
+        ):
+            self.assertIsNone(self.mod.git_origin_http_url(self.root))
+            self.assertIsNone(self.mod.git_origin_clone_url(self.root))
+
+    def test_scheduler_submission_and_target_resolution_edges(self) -> None:
+        config = {"targets": {}, "defaults": {}}
+        self.assertIs(self.mod.config_for_job_execution({"submission": {}}, config), config)
+
+        missing_config = self.root / "missing.json"
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertIs(
+                self.mod.config_for_job_execution({"submission": {"config_path": str(missing_config)}}, config),
+                config,
+            )
+        self.assertIn("failed to load submission config", buf.getvalue())
+
+        submitted_config = self.root / "submitted.json"
+        submitted_config.write_text(json.dumps({"targets": {"mac": {"enabled": True}}, "defaults": {"targets": "mac"}}))
+        loaded = self.mod.config_for_job_execution({"submission": {"config_path": str(submitted_config)}}, config)
+        self.assertEqual(loaded["defaults"]["targets"], "mac")
+        self.assertEqual(loaded["targets"]["mac"]["enabled"], True)
+
+        self.assertEqual(self.mod.submission_target_state({"submission": {"target_hosts": {"mac": "bad"}}}, "mac"), {})
+        self.assertEqual(
+            self.mod.submission_target_state({"submission": {"target_hosts": {"mac": {"status": "primary-up"}}}}, "mac"),
+            {"status": "primary-up"},
+        )
+
+        with mock.patch.object(self.mod, "ensure_host_reachable", return_value="live-host") as ensure:
+            self.assertEqual(
+                self.mod.resolve_ssh_target_execution(
+                    {"submission": {"target_hosts": {"ubuntu": {"status": "primary-up", "resolved_host": "u1"}}}},
+                    "ubuntu",
+                    {"host": "u0", "repo_path": "/repo"},
+                    {},
+                ),
+                ("u1", "/repo"),
+            )
+            self.assertEqual(
+                self.mod.resolve_ssh_target_execution(
+                    {"submission": {"target_hosts": {"ubuntu": {"status": "unreachable", "repo_path": "/submitted"}}}},
+                    "ubuntu",
+                    {"host": "u0", "repo_path": "/repo"},
+                    {},
+                ),
+                (None, "/submitted"),
+            )
+            self.assertEqual(
+                self.mod.resolve_ssh_target_execution(
+                    {"submission": {"target_hosts": {"ubuntu": {"status": "utm-fallback-pending", "configured_host": "fallback"}}}},
+                    "ubuntu",
+                    {"host": "u0", "repo_path": "/repo"},
+                    {"ssh_timeout": 3},
+                ),
+                ("live-host", "/repo"),
+            )
+            self.assertEqual(ensure.call_args.args[1]["host"], "fallback")
+            self.assertEqual(
+                self.mod.resolve_ssh_target_execution({}, "ubuntu", {"host": "u0", "repo_path": "/repo"}, {}),
+                ("live-host", "/repo"),
+            )
+
+    def test_scheduler_builds_unreachable_and_no_target_results(self) -> None:
+        config = {
+            "targets": {
+                "mac": {"enabled": False},
+                "ubuntu": {"enabled": True, "host": "ubuntu", "repo_path": "/repo"},
+                "windows": {"enabled": True, "host": "win", "repo_path": r"C:\Repo"},
+            },
+            "defaults": {},
+        }
+        job = self.mod.make_job("feature/offline", "d" * 40, "normal", ["mac", "ubuntu", "windows"], "run", "full")
+
+        reporters: dict[str, object] = {}
+        with mock.patch.object(self.mod, "resolve_ssh_target_execution", return_value=(None, "/repo")):
+            tasks = self.mod._build_target_tasks(job, config, progress_factory=lambda name: reporters.setdefault(name, name))
+
+        self.assertEqual([name for name, _fn in tasks], ["ubuntu", "windows"])
+        ubuntu_result = tasks[0][1]()
+        windows_result = tasks[1][1]()
+        self.assertEqual(ubuntu_result["status"], "unreachable")
+        self.assertEqual(ubuntu_result["stderr_tail"], "Host unreachable")
+        self.assertEqual(windows_result["target"], "windows")
+        self.assertEqual(windows_result["exit_code"], -1)
+        self.assertEqual(reporters, {})
+
+        no_targets_job = self.mod.make_job("feature/none", "e" * 40, "low", ["mac"], "run", "smoke")
+        result = self.mod.process_job(no_targets_job, {"targets": {"mac": {"enabled": False}}, "defaults": {}})
+        self.assertEqual(result["overall"], "pass")
+        self.assertEqual(result["results"], [])
+        self.assertNotIn("validation", result)
+        self.assertEqual(result["targets"], ["mac"])
+        self.assertIsInstance(result["provenance"], dict)
+
+    def test_scheduler_process_job_and_drain_failure_edges(self) -> None:
+        job = self.mod.make_job("feature/error", "f" * 40, "normal", ["mac"], "run", "full")
+        failing_task = [("mac", lambda: (_ for _ in ()).throw(RuntimeError("boom")))]
+        progress_snapshots = []
+
+        with mock.patch.object(self.mod, "_build_target_tasks", return_value=failing_task), \
+             mock.patch.object(self.mod, "update_runner_active_targets", side_effect=lambda _job_id, state: progress_snapshots.append(state)), \
+             mock.patch.object(self.mod, "update_job_active_targets"):
+            result = self.mod.process_job(job, {"targets": {"mac": {"enabled": True}}, "defaults": {}})
+
+        self.assertEqual(result["overall"], "fail")
+        self.assertEqual(result["results"][0]["target"], "mac")
+        self.assertEqual(result["results"][0]["status"], "error")
+        self.assertIn("boom", result["results"][0]["stderr_tail"])
+        self.assertEqual(progress_snapshots[0]["mac"]["phase"], "starting")
+        self.assertEqual(progress_snapshots[-1]["mac"]["status"], "error")
+
+        with mock.patch.object(self.mod, "file_lock", side_effect=self.mod.LockBusyError("busy")):
+            self.assertEqual(self.mod.drain_pending_jobs({"targets": {}}, blocking=False), (False, False))
+
+        queue = [self.mod.make_job("feature/boom", "a" * 40, "normal", ["mac"], "run", "full")]
+        queue[0]["id"] = "job-boom"
+        saved_results = []
+        with mock.patch.object(self.mod, "claim_next_job", side_effect=[queue[0], None]), \
+             mock.patch.object(self.mod, "process_job", side_effect=RuntimeError("explode")), \
+             mock.patch.object(self.mod, "save_result", side_effect=lambda result: saved_results.append(result) or (self.root / "result.json")), \
+             mock.patch.object(self.mod, "finalize_job") as finalize, \
+             mock.patch.object(self.mod, "write_runner_info"), \
+             mock.patch.object(self.mod, "clear_runner_info"), \
+             mock.patch.object(self.mod, "reclaim_stale_remote_validators"), \
+             mock.patch.object(self.mod, "print_result"):
+            self.assertEqual(self.mod.drain_pending_jobs({"targets": {}}, blocking=True), (True, True))
+
+        self.assertEqual(saved_results[0]["overall"], "fail")
+        self.assertEqual(saved_results[0]["results"][0]["target"], "scheduler")
+        self.assertIn("explode", saved_results[0]["results"][0]["stderr_tail"])
+        self.assertEqual(finalize.call_args.args[0], "job-boom")
+
+    def test_scheduler_cli_error_paths_report_context(self) -> None:
+        with mock.patch.object(self.mod, "load_config", side_effect=FileNotFoundError("missing config")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_drain(Namespace()), 1)
+        self.assertIn("missing config", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"targets": {}}), \
+             mock.patch.object(self.mod, "drain_pending_jobs", return_value=(False, False)), \
+             mock.patch.object(self.mod, "current_runner_info", return_value={"active_job_id": "abc123", "active_branch": "feature/live"}):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_drain(Namespace()), 0)
+        self.assertIn("[abc123] feature/live", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", side_effect=ValueError("bad targets")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_enqueue(Namespace(branch=None, sha=None, targets=None, priority=None, smoke=False)), 1)
+        self.assertIn("bad targets", buf.getvalue())
+
+    def test_command_run_handles_failover_local_and_error_paths(self) -> None:
+        args = Namespace(branch="feature/run", sha=None, targets=None, priority=None, smoke=False)
+        config = {"github_actions": {"repository": "owner/repo"}}
+        submission = {"namespace_failover_targets": ["windows"]}
+        job = {"id": "job-run", "branch": "feature/run", "sha": "a" * 40, "priority": "normal", "targets": ["mac"]}
+        result = {"job_id": "job-run", "branch": "feature/run", "results": [], "overall": "pass"}
+
+        with mock.patch.object(
+            self.mod,
+            "resolve_submission_options",
+            return_value=(config, "feature/run", "a" * 40, ["mac", "windows"], "normal", "full", submission),
+        ), mock.patch.object(self.mod, "print_submission_metadata") as print_meta, \
+             mock.patch.object(self.mod, "gh_workflow_dispatch") as dispatch, \
+             mock.patch.object(self.mod, "enqueue_job", return_value=(job, True)) as enqueue, \
+             mock.patch.object(self.mod, "wait_for_job", return_value=(result, 0)), \
+             mock.patch.object(self.mod, "load_job", return_value={"result_file": str(self.root / "result.json")}), \
+             mock.patch.object(self.mod, "print_result") as print_result, \
+             mock.patch.object(self.mod, "notify") as notify:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_run(args), 0)
+
+        self.assertIn("Namespace failover", buf.getvalue())
+        self.assertEqual(dispatch.call_args.args, ("owner/repo", "build.yml", "feature/run", {"runner_provider": "namespace"}))
+        self.assertEqual(enqueue.call_args.args[3], ["mac"])
+        self.assertEqual(print_meta.call_count, 1)
+        self.assertEqual(print_result.call_args.args[0], result)
+        self.assertIn("PASSED", notify.call_args.args[0])
+
+        with mock.patch.object(
+            self.mod,
+            "resolve_submission_options",
+            return_value=(config, "feature/run", "a" * 40, ["windows"], "normal", "full", submission),
+        ), mock.patch.object(self.mod, "print_submission_metadata"), \
+             mock.patch.object(self.mod, "gh_workflow_dispatch", side_effect=RuntimeError("no quota")), \
+             mock.patch.object(self.mod, "enqueue_job") as enqueue, \
+             mock.patch.object(self.mod, "notify") as notify:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_run(args), 0)
+
+        self.assertIn("Namespace dispatch failed", buf.getvalue())
+        self.assertIn("no local work", buf.getvalue())
+        enqueue.assert_not_called()
+        self.assertIn("PASSED", notify.call_args.args[0])
+
+        with mock.patch.object(self.mod, "resolve_submission_options", side_effect=ValueError("bad run")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_run(args), 1)
+        self.assertIn("bad run", buf.getvalue())
+
+    def test_command_ship_covers_guards_and_result_outcomes(self) -> None:
+        args = Namespace(base="main")
+        config = {"targets": {}}
+        submission = {
+            "branch": "feature/ship",
+            "sha": "b" * 40,
+            "priority": "normal",
+            "targets": ["mac"],
+            "validation": "full",
+            "target_hosts": {},
+            "submitted_root": str(self.root),
+            "cwd": str(self.root),
+            "config_path": str(self.root / "local-ci.json"),
+            "config_source": "test",
+        }
+        resolved = (config, "feature/ship", "b" * 40, ["mac"], "normal", "full", submission)
+
+        with mock.patch.object(
+            self.mod,
+            "resolve_submission_options",
+            return_value=(config, "feature/ship", "b" * 40, ["mac"], "normal", "smoke", submission),
+        ):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_ship(args), 1)
+        self.assertIn("ship only supports full validation", buf.getvalue())
+
+        with mock.patch.object(
+            self.mod,
+            "resolve_submission_options",
+            return_value=(config, "main", "b" * 40, ["mac"], "normal", "full", submission),
+        ):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_ship(args), 1)
+        self.assertIn("cannot ship main to itself", buf.getvalue())
+
+        with mock.patch.object(self.mod, "resolve_submission_options", return_value=resolved), \
+             mock.patch.object(self.mod, "gh_available", return_value=False):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_ship(args), 1)
+        self.assertIn("gh CLI not available", buf.getvalue())
+
+        with mock.patch.object(self.mod, "resolve_submission_options", return_value=resolved), \
+             mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stderr="denied")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_ship(args), 1)
+        self.assertIn("Push failed: denied", buf.getvalue())
+
+        pass_result = {"overall": "pass", "results": [{"target": "mac", "status": "pass"}]}
+        fail_result = {"overall": "fail", "results": [{"target": "mac", "status": "fail"}]}
+        job = {"id": "job-ship", "branch": "feature/ship", "sha": "b" * 40, "priority": "normal", "targets": ["mac"]}
+        with mock.patch.object(self.mod, "resolve_submission_options", return_value=resolved), \
+             mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stderr="")), \
+             mock.patch.object(self.mod, "gh_pr_create", return_value=123), \
+             mock.patch.object(self.mod, "enqueue_job", return_value=(job, True)), \
+             mock.patch.object(self.mod, "wait_for_job", return_value=(pass_result, 0)), \
+             mock.patch.object(self.mod, "gh_pr_comment") as comment, \
+             mock.patch.object(self.mod, "gh_pr_merge", return_value=True) as merge, \
+             mock.patch.object(self.mod, "notify") as notify:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_ship(args), 0)
+        self.assertEqual(comment.call_args.args[0], 123)
+        self.assertEqual(merge.call_args.args[0], 123)
+        self.assertIn("shipped to main", notify.call_args.args[0])
+
+        with mock.patch.object(self.mod, "resolve_submission_options", return_value=resolved), \
+             mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stderr="")), \
+             mock.patch.object(self.mod, "gh_pr_create", return_value=124), \
+             mock.patch.object(self.mod, "enqueue_job", return_value=(job, True)), \
+             mock.patch.object(self.mod, "wait_for_job", return_value=(fail_result, 7)), \
+             mock.patch.object(self.mod, "gh_pr_comment"), \
+             mock.patch.object(self.mod, "notify") as notify:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_ship(args), 7)
+        self.assertIn("CI failed", buf.getvalue())
+        self.assertIn("CI failed", notify.call_args.args[0])
+
+    def test_command_check_and_list_cover_github_cli_edges(self) -> None:
+        check_args = Namespace(pr=42, targets=None, priority=None, smoke=True, allow_root_mismatch=True, allow_unreachable_targets=False)
+        with mock.patch.object(self.mod, "gh_available", return_value=False):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_check(check_args), 1)
+        self.assertIn("gh CLI not available", buf.getvalue())
+
+        with mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod, "gh_pr_head", return_value=None):
+            self.assertEqual(self.mod.cmd_check(check_args), 1)
+
+        config = {"targets": {"mac": {"enabled": True}}, "defaults": {}}
+        result = {"overall": "fail", "results": [{"target": "mac", "status": "fail"}]}
+        with mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod, "gh_pr_head", return_value=(42, "feature/check", "c" * 40)), \
+             mock.patch.object(self.mod, "load_config", return_value=config), \
+             mock.patch.object(self.mod, "resolve_targets", return_value=["mac"]), \
+             mock.patch.object(self.mod, "default_priority_for", return_value="low"), \
+             mock.patch.object(self.mod, "build_submission_metadata", return_value={"target_hosts": {}}), \
+             mock.patch.object(self.mod, "print_submission_metadata") as print_meta, \
+             mock.patch.object(
+                 self.mod,
+                 "enqueue_job",
+                 return_value=({"id": "job-check", "branch": "feature/check", "sha": "c" * 40, "priority": "low", "targets": ["mac"]}, True),
+             ), \
+             mock.patch.object(self.mod, "wait_for_job", return_value=(result, 5)), \
+             mock.patch.object(self.mod, "gh_pr_comment") as comment, \
+             mock.patch.object(self.mod, "notify") as notify:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_check(check_args), 5)
+
+        self.assertIn("PR #42 -> branch: feature/check", buf.getvalue())
+        self.assertEqual(print_meta.call_count, 1)
+        self.assertEqual(comment.call_args.args[0], 42)
+        self.assertIn("FAILED", notify.call_args.args[0])
+
+        with mock.patch.object(self.mod, "gh_available", return_value=False):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_list(Namespace()), 1)
+        self.assertIn("gh CLI not available", buf.getvalue())
+
+        with mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod, "gh_pr_list_open", return_value=[]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_list(Namespace()), 0)
+        self.assertIn("No open PRs", buf.getvalue())
+
+        prs = [{"number": 7, "title": "T", "headRefName": "feature/t", "author": {"login": "dev"}, "labels": [{"name": "ci"}]}]
+        with mock.patch.object(self.mod, "gh_available", return_value=True), \
+             mock.patch.object(self.mod, "gh_pr_list_open", return_value=prs):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_list(Namespace()), 0)
+        self.assertIn("Open PRs (1)", buf.getvalue())
+        self.assertIn("#   7  T", buf.getvalue())
+        self.assertIn("feature/t by dev [ci]", buf.getvalue())
+
+    def test_command_bump_and_cancel_cover_queue_edges(self) -> None:
+        pending = {"id": "job1", "branch": "feature/pending", "sha": "a" * 40, "priority": "normal", "targets": ["mac"], "status": "pending"}
+        running = {"id": "job2", "branch": "feature/running", "sha": "b" * 40, "priority": "normal", "targets": ["mac"], "status": "running"}
+
+        with mock.patch.object(self.mod, "file_lock", return_value=nullcontext()), \
+             mock.patch.object(self.mod, "queue_lock_path", return_value=self.root / "queue.lock"), \
+             mock.patch.object(self.mod, "load_queue_unlocked", return_value=[pending]), \
+             mock.patch.object(self.mod, "save_queue_unlocked") as save_queue:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_bump(Namespace(job="job1", priority="high")), 0)
+
+        self.assertEqual(pending["priority"], "high")
+        self.assertIn("bumped_at", pending)
+        self.assertEqual(save_queue.call_args.args[0][0]["id"], "job1")
+        self.assertIn("Updated priority", buf.getvalue())
+
+        with mock.patch.object(self.mod, "normalize_priority", side_effect=ValueError("bad priority")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_bump(Namespace(job="job1", priority="urgent")), 1)
+        self.assertIn("bad priority", buf.getvalue())
+
+        with mock.patch.object(self.mod, "file_lock", return_value=nullcontext()), \
+             mock.patch.object(self.mod, "load_queue_unlocked", return_value=[]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_bump(Namespace(job="missing", priority="low")), 1)
+        self.assertIn("No active job matches", buf.getvalue())
+
+        with mock.patch.object(self.mod, "file_lock", return_value=nullcontext()), \
+             mock.patch.object(self.mod, "load_queue_unlocked", return_value=[running]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_bump(Namespace(job="job2", priority="low")), 1)
+        self.assertIn("already running", buf.getvalue())
+
+        with mock.patch.object(self.mod, "file_lock", return_value=nullcontext()), \
+             mock.patch.object(self.mod, "load_queue_unlocked", return_value=[dict(running)]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_cancel(Namespace(job="job2")), 1)
+        self.assertIn("only pending jobs can be canceled safely", buf.getvalue())
+
+        cancel_job = dict(pending, status="pending")
+        with mock.patch.object(self.mod, "file_lock", return_value=nullcontext()), \
+             mock.patch.object(self.mod, "load_queue_unlocked", return_value=[cancel_job]), \
+             mock.patch.object(self.mod, "cancel_job_unlocked") as cancel, \
+             mock.patch.object(self.mod, "trim_completed_jobs", side_effect=lambda queue: queue), \
+             mock.patch.object(self.mod, "save_queue_unlocked") as save_queue:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_cancel(Namespace(job="job1")), 0)
+
+        self.assertEqual(cancel.call_args.args[0]["id"], "job1")
+        self.assertEqual(save_queue.call_args.args[0][0]["id"], "job1")
+        self.assertIn("Canceled:", buf.getvalue())
+
+    def test_command_logs_resolves_jobs_and_prints_outputs(self) -> None:
+        completed = {"id": "done1", "branch": "feature/done", "sha": "c" * 40, "status": "completed"}
+        running = {"id": "run1", "branch": "feature/run", "sha": "d" * 40, "status": "running"}
+
+        with mock.patch.object(self.mod, "load_queue", return_value=[completed]), \
+             mock.patch.object(self.mod, "current_runner_info", return_value=None):
+            self.assertEqual(self.mod.resolve_job_for_logs(None), completed)
+            self.assertEqual(self.mod.resolve_job_for_logs("done1"), completed)
+
+        with mock.patch.object(self.mod, "load_queue", return_value=[completed, running]), \
+             mock.patch.object(self.mod, "current_runner_info", return_value={"active_job_id": "run1"}):
+            self.assertEqual(self.mod.resolve_job_for_logs(None), running)
+
+        with mock.patch.object(self.mod, "load_queue", return_value=[]), \
+             mock.patch.object(self.mod, "current_runner_info", return_value=None):
+            self.assertIsNone(self.mod.resolve_job_for_logs(None))
+
+        with mock.patch.object(self.mod, "resolve_job_for_logs", return_value=None):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_logs(Namespace(job=None, target=None, lines=10)), 1)
+        self.assertIn("No matching job logs found", buf.getvalue())
+
+        log_file = self.root / "mac.log"
+        log_file.write_text("one\ntwo\n")
+        with mock.patch.object(self.mod, "resolve_job_for_logs", return_value=completed), \
+             mock.patch.object(self.mod, "target_log_path", return_value=log_file):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_logs(Namespace(job="done1", target="mac", lines=1)), 0)
+        self.assertIn("Logs for [done1]", buf.getvalue())
+        self.assertIn("== mac ==", buf.getvalue())
+        self.assertIn("two", buf.getvalue())
+
+        empty_dir = self.root / "logs-empty"
+        empty_dir.mkdir()
+        with mock.patch.object(self.mod, "resolve_job_for_logs", return_value=completed), \
+             mock.patch.object(self.mod, "job_logs_dir", return_value=empty_dir):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_logs(Namespace(job="done1", target=None, lines=10)), 1)
+        self.assertIn("No logs found", buf.getvalue())
+
+    def test_command_evidence_headers_and_empty_results(self) -> None:
+        with mock.patch.object(self.mod, "print_evidence_summary", return_value=True) as evidence:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_evidence(Namespace(branch="feature/evidence", sha=None, limit=3)), 0)
+        self.assertEqual(evidence.call_args.kwargs, {"branch": "feature/evidence", "sha": None, "limit": 3})
+        self.assertIn("Evidence for branch `feature/evidence`", buf.getvalue())
+
+        with mock.patch.object(self.mod, "current_branch", return_value=""), \
+             mock.patch.object(self.mod, "print_evidence_summary", return_value=False):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_evidence(Namespace(branch=None, sha="f" * 40, limit=1)), 1)
+        self.assertIn("Evidence for sha `ffffffffffff`", buf.getvalue())
+        self.assertIn("(none)", buf.getvalue())
+
+        with mock.patch.object(self.mod, "current_branch", return_value=""), \
+             mock.patch.object(self.mod, "print_evidence_summary", return_value=False):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_evidence(Namespace(branch=None, sha=None, limit=1)), 1)
+        self.assertIn("No local CI evidence recorded", buf.getvalue())
+
+    def test_command_status_prints_live_target_submission_and_cloud_edges(self) -> None:
+        result_path = self.root / "result.json"
+        result_path.write_text(json.dumps({
+            "overall": "pass",
+            "results": [{"target": "mac", "status": "pass"}],
+            "provenance": {"submitted_root": str(self.root)},
+        }))
+        running = {
+            "id": "run123",
+            "branch": "feature/run",
+            "sha": "a" * 40,
+            "status": "running",
+            "targets": ["mac"],
+            "started_at": "2026-01-01T00:00:00Z",
+            "submission": {
+                "submitted_root": str(self.root),
+                "config_path": "local-ci.json",
+                "config_source": "repo",
+                "provenance": {"submitted_root": str(self.root)},
+            },
+        }
+        pending = {
+            "id": "pend456",
+            "branch": "feature/pending",
+            "sha": "b" * 40,
+            "status": "pending",
+            "priority": "low",
+            "targets": ["ubuntu"],
+            "queued_at": "2026-01-01T00:01:00Z",
+            "last_progress_at": "2026-01-01T00:02:00Z",
+            "active_targets": {
+                "ubuntu": {
+                    "phase": "bootstrap",
+                    "validation_mode": "smoke",
+                    "transport_mode": "ssh",
+                    "test_policy": "smoke",
+                    "prepared_state": "ready",
+                    "wait_reason": "queue",
+                    "cleanup_status": "done",
+                    "last_output_at": "out",
+                    "last_heartbeat_at": "beat",
+                    "quiet_for_secs": 3,
+                    "liveness": "alive",
+                    "log_path": str(self.root / "ubuntu.log"),
+                    "last_line": "building",
+                    "cleanup_result": "removed",
+                }
+            },
+            "submission": {"provenance": {"submitted_root": str(self.root)}},
+        }
+        completed = {
+            "id": "done789",
+            "branch": "feature/done",
+            "sha": "c" * 40,
+            "status": "completed",
+            "targets": ["mac"],
+            "result_file": str(result_path),
+        }
+        runner = {
+            "pid": 1234,
+            "active_job_id": "run123",
+            "active_branch": "feature/run",
+            "active_targets": {
+                "mac": {
+                    "phase": "test",
+                    "validation_mode": "full",
+                    "transport_mode": "local",
+                    "last_line": "ok",
+                }
+            },
+        }
+        config = {"targets": {"ubuntu": {"type": "ssh", "host": "ubuntu.example"}}, "defaults": {}}
+        cloud_settings = {"workflow": "build", "provider": "namespace"}
+        with mock.patch.object(self.mod, "load_config", return_value=config), \
+             mock.patch.object(self.mod, "state_dir", return_value=self.root / "state"), \
+             mock.patch.object(self.mod, "config_path", return_value=self.root / "local-ci.json"), \
+             mock.patch.object(self.mod, "load_queue", return_value=[running, pending, completed]), \
+             mock.patch.object(self.mod, "current_runner_info", return_value=runner), \
+             mock.patch.object(self.mod, "current_branch", return_value="feature/run"), \
+             mock.patch.object(self.mod, "print_evidence_summary", return_value=False) as evidence, \
+             mock.patch.object(self.mod, "list_cloud_records", side_effect=[[{"id": "cloud1"}], [{"id": "cloud1"}]]), \
+             mock.patch.object(self.mod, "load_optional_config", return_value={"github_actions": {}}), \
+             mock.patch.object(self.mod, "github_actions_settings_for_display", return_value=cloud_settings), \
+             mock.patch.object(self.mod, "resolve_github_actions_settings", side_effect=ValueError("cloud config bad")), \
+             mock.patch.object(self.mod, "resolve_default_provider_for_workflow", return_value=("namespace", "config")), \
+             mock.patch.object(self.mod, "print_billing_period_summary") as billing, \
+             mock.patch.object(self.mod, "cloud_record_summary", return_value="cloud row"), \
+             mock.patch.object(self.mod, "print_local_ci_state_footprint") as footprint, \
+             mock.patch.object(self.mod, "utmctl_vm_status", return_value="stopped"), \
+             mock.patch.object(self.mod, "ssh_reachable", return_value=True):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_status(Namespace()), 0)
+
+        output = buf.getvalue()
+        self.assertIn("Runner: pid=1234 active=[run123] feature/run", output)
+        self.assertIn("submission: root=", output)
+        self.assertIn("mac: phase=test, mode=full, transport=local", output)
+        self.assertIn("ubuntu: phase=bootstrap, mode=smoke, transport=ssh, tests=smoke", output)
+        self.assertIn("log=ubuntu.log", output)
+        self.assertIn("cleanup: removed", output)
+        self.assertIn("Cloud defaults: workflow=build provider=namespace", output)
+        evidence.assert_called_once_with(branch="feature/run", limit=2, indent="  ")
+        self.assertEqual(billing.call_count, 1)
+        self.assertEqual(footprint.call_count, 1)
+
+    def test_desktop_config_dispatch_and_error_paths_report_context(self) -> None:
+        with mock.patch.object(self.mod, "load_config", side_effect=FileNotFoundError("missing config")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_config_show(Namespace(json=False)), 1)
+        self.assertIn("missing config", buf.getvalue())
+
+        desktop_config = {
+            "desktop_automation": {
+                "artifact_root": "runs",
+                "publish_mode": "local",
+                "publish_branch": "desktop-artifacts",
+                "retention_days": 7,
+            }
+        }
+        with mock.patch.object(self.mod, "load_config", return_value=desktop_config):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_config_show(Namespace(json=False)), 0)
+        self.assertIn("Desktop automation config:", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_config_set(Namespace(key="retention_days", value="-1", json=False)), 1)
+        self.assertIn("retention_days must be >= 0", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_config_set(Namespace(key="target.mac.bad.field", value="1", json=False)), 1)
+        self.assertIn("Target desktop config keys must look like", buf.getvalue())
+
+        with mock.patch.object(self.mod, "cmd_desktop_config_show", return_value=7) as show:
+            self.assertEqual(self.mod.cmd_desktop_config(Namespace(desktop_config_command="show")), 7)
+        show.assert_called_once()
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(self.mod.cmd_desktop_config(Namespace(desktop_config_command=None)), 1)
+        self.assertIn("desktop config subcommand required", buf.getvalue())
+
+    def test_desktop_listing_publish_cleanup_empty_and_error_paths(self) -> None:
+        with mock.patch.object(self.mod, "load_config", side_effect=FileNotFoundError("missing desktop config")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_recent(Namespace(target=None, action=None, limit=5, json=False)), 1)
+        self.assertIn("missing desktop config", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}), \
+             mock.patch.object(self.mod, "desktop_run_manifests", return_value=[]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_recent(Namespace(target=None, action=None, limit=5, json=True)), 0)
+        self.assertIn("No desktop automation runs found.", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}), \
+             mock.patch.object(self.mod, "desktop_proof_summaries", side_effect=ValueError("bad source")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_proof(Namespace(target=None, action=None, source_mode="bad", sha=None, branch=None, limit=5, json=False)), 1)
+        self.assertIn("bad source", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}), \
+             mock.patch.object(self.mod, "desktop_proof_summaries", return_value=[]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_proof(Namespace(target="mac", action="smoke", source_mode="live", sha="a" * 40, branch="feature/a", limit=5, json=False)), 0)
+        self.assertIn("No desktop proofs found", buf.getvalue())
+        self.assertIn("sha=aaaaaaaaaaaa", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}), \
+             mock.patch.object(self.mod, "desktop_run_manifests", return_value=[]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_publish(Namespace(target=None, action=None, limit=5, output=None, label=None, json=False)), 0)
+        self.assertIn("No desktop automation runs found.", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {}}), \
+             mock.patch.object(self.mod, "desktop_run_manifests", return_value=[{"target": "mac"}]), \
+             mock.patch.object(self.mod, "stage_desktop_publish_report", side_effect=RuntimeError("publish failed")):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_publish(Namespace(target=None, action=None, limit=5, output=None, label=None, json=False)), 1)
+        self.assertIn("publish failed", buf.getvalue())
+
+        with mock.patch.object(self.mod, "load_config", return_value={"desktop_automation": {"retention_days": 30}}), \
+             mock.patch.object(self.mod, "prune_desktop_run_manifests", return_value=[]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_cleanup(Namespace(target=None, older_than_days=None, keep_last=1, json=False)), 0)
+        self.assertIn("Desktop cleanup: nothing to remove.", buf.getvalue())
+
+    def test_desktop_action_validation_errors_and_dispatch_guards(self) -> None:
+        config = {
+            "desktop_automation": {
+                "targets": {
+                    "mac": {"adapter": "macos-local", "target_type": "local"},
+                    "linux": {"adapter": "linux-xvfb", "target_type": "ssh"},
+                    "windows": {"adapter": "windows-session-agent", "target_type": "ssh"},
+                    "other": {"adapter": "remote-session-agent", "target_type": "ssh"},
+                }
+            }
+        }
+        with mock.patch.object(self.mod, "load_config", return_value=config), \
+             mock.patch.object(self.mod, "resolve_desktop_target", side_effect=lambda _config, name: config["desktop_automation"]["targets"][name]), \
+             mock.patch.object(self.mod, "make_desktop_source_request", return_value={}):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_smoke(Namespace(target="linux", launch_command=None, bundle_id=None, label=None, output=None, capture_ui_snapshot=False, click=None, click_view_id=None, click_view_type=None, click_view_text=None, click_view_label=None, capture_before=False, settle_secs=0.0, timeout=1.0, pulp_app_automation=False)), 1)
+            self.assertIn("requires --command for linux-xvfb", buf.getvalue())
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_smoke(Namespace(target="windows", launch_command="app", bundle_id=None, label=None, output=None, capture_ui_snapshot=True, click=None, click_view_id=None, click_view_type=None, click_view_text=None, click_view_label=None, capture_before=False, settle_secs=0.0, timeout=1.0, pulp_app_automation=False)), 1)
+            self.assertIn("supports --capture-ui-snapshot only with --pulp-app-automation", buf.getvalue())
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_click(Namespace(target="windows", launch_command="app", bundle_id=None, label=None, output=None, capture_ui_snapshot=False, click=None, click_view_id="root", click_view_type=None, click_view_text=None, click_view_label=None, settle_secs=0.0, timeout=1.0, pulp_app_automation=False)), 1)
+            self.assertIn("supports view-target selectors only with --pulp-app-automation", buf.getvalue())
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop_inspect(Namespace(target="other", launch_command="app", bundle_id=None, label=None, output=None, timeout=1.0, pulp_app_automation=False)), 1)
+            self.assertIn("desktop inspect is not implemented", buf.getvalue())
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                self.assertEqual(self.mod.cmd_desktop(Namespace(desktop_command=None)), 1)
+            self.assertIn("desktop subcommand required", buf.getvalue())
 
 
 if __name__ == "__main__":

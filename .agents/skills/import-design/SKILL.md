@@ -95,7 +95,9 @@ diagnostics instead of throwing. Keep image assets routed through
 `IRAssetManifest::resolve(asset_id)`; never interpolate raw filesystem paths
 from IR attributes. The materialization call site itself should not run JS, but
 do not market this as "no JS engine" globally because live React/parity lanes
-still use the JS runtime.
+still use the JS runtime. Baked/native consumers can link `pulp::view-core`;
+live import, `ScriptEngine`, `WidgetBridge`, and scripted UI consumers should
+link `pulp::view-script` or the full compatibility target, `pulp::view`.
 
 The `baked-cpp` exporter emits native C++ source from the same resolved tree via
 `generate_pulp_cpp(const DesignIR&, const IRAssetManifest&,
@@ -103,21 +105,25 @@ const CppExportOptions&)`. CLI usage is `pulp import-design --mode baked --emit
 cpp --output imported_ui.cpp`; the tool writes the sibling `.hpp` by default.
 Generated code should contain direct widget construction, stable anchor IDs,
 token/asset constants, `bake_asset_manifest()`, and TODO comments for unresolved
-audio parameter or meter bindings. Preserve duplicate token names even when
-their values alias, and emit non-hex semantic color tokens as strings rather
-than trying to parse them as colors.
+audio parameter or meter bindings. Knob current value and reset default are
+distinct: emitted `set_value(...)` may come from the normalized `value`
+attribute, while `set_default_value(...)` must come from normalized
+`audio_default`. Preserve duplicate token names even when their values alias,
+and emit non-hex semantic color tokens as strings rather than trying to parse
+them as colors.
 
-The Phase 5/7 benchmark harness lives at `pulp-design-import-bench` and is driven
+The Phase 5/7/9 benchmark harness lives at `pulp-design-import-bench` and is driven
 by `tools/scripts/design_import_benchmark.py`. Run it under no-launch env
 (`PULP_DISABLE_PLUGIN_EDITOR=1 PULP_HEADLESS=1 PULP_TEST_MODE=1
 PULP_INSPECTOR_NO_LAUNCH=1`). It compares `live`, `baked-native`, and
 `baked-cpp` lanes, emits startup/idle/interactive metrics, and computes the
-Phase 9 gate from linked text+data section size using `size`/`llvm-size`; do not
-use Debug object-file byte counts as the gate input. A valid report must record
-the explicit binary-size delta and whether JS evaluation churn is actually the
-dominant bottleneck for the measured fixture. Keep the legacy top-level
-`comparison` entry pointed at `baked-native`, and add per-lane results under
-`comparisons` for both baked lanes.
+Phase 9 gate from linked text+data section size using `size`/`llvm-size`; after
+the target split it tracks live-runtime objects under `pulp-view-script`. Do
+not use Debug object-file byte counts as the gate input. A valid report must
+record the explicit binary-size delta and whether JS evaluation churn is
+actually the dominant bottleneck for the measured fixture. Keep the legacy
+top-level `comparison` entry pointed at `baked-native`, and add per-lane
+results under `comparisons` for both baked lanes.
 
 ### Step 1: Identify source and input
 
@@ -173,8 +179,9 @@ Ask the user or detect from context:
 - Representative fixtures live under `planning/fixtures/stitch/`; the primary one is `transport-bar.tsx` (transport controls + range sliders + canvas VU meter). Run `tools/import-validation/stitch-roundtrip.sh --parser-only` for the parser/dispatch gate.
 
 **JSX-instrument runtime-import (experiment slice, 2026-05-17, planning/2026-05-17-jsx-instrument-import.md)**:
-- Unlike v0/figma/stitch, the `jsx` source is NOT a synthetic shape-counter — it executes the user's real React tree. `parse_jsx_react(bundle_js, component_name)` wraps a pre-compiled IIFE bundle (esbuild output of React + ReactDOM + user JSX + nav/document sandbox shims) as a synthetic `ClaudeBundle`, then the existing `parse_claude_html_with_runtime` harness materializes it into a `DesignIR` via the live React reconciler + web-compat DOM shim. **Per Codex/RepoPrompt review:** custom inline-defined components (knobs, faders, etc.) materialize as their underlying SVG primitives — DO NOT widget-promote them to native `<Knob>`/`<Fader>`, which would lose visual parity with the source JSX.
-- The JSX→JS compile happens in Node, not in the C++ runtime. Run `tools/import-design/jsx-runtime/jsx-transform.mjs --in <file>.jsx --out <out>.js` to produce the IIFE bundle. The script ships its own `node_modules` (React 18.3.1 + ReactDOM 18.3.1 + esbuild 0.24.0) at `tools/import-design/jsx-runtime/node_modules/`. First-run `npm install` is required.
+- Unlike v0/figma/stitch, the `jsx` source is NOT a synthetic shape-counter — it executes the user's real React tree. `parse_jsx_react(bundle_js, component_name)` wraps a pre-compiled IIFE bundle (esbuild output of React plus either ReactDOM or the @pulp/react native bridge + user JSX + nav/document sandbox shims) as a synthetic `ClaudeBundle`, then the existing `parse_claude_html_with_runtime` harness materializes it into a `DesignIR` via DOM walking or the native `WidgetBridge` snapshot fallback. **Per Codex/RepoPrompt review:** custom inline-defined components (knobs, faders, etc.) materialize as their underlying SVG primitives — DO NOT widget-promote them to native `<Knob>`/`<Fader>`, which would lose visual parity with the source JSX.
+- The JSX→JS compile happens in Node, not in the C++ runtime. Run `tools/import-design/jsx-runtime/jsx-transform.mjs --in <file>.jsx --out <out>.js` to produce the IIFE bundle. The script ships its own `node_modules` (React 18.3.1 + ReactDOM 18.3.1 + react-reconciler 0.29.2 + scheduler 0.23.2 + esbuild 0.24.0) at `tools/import-design/jsx-runtime/node_modules/`. First-run `npm install` is required.
+- Current Chainer/native bundles route `react-dom` through `pulp-react-dom-shim.mjs` and `@pulp/react`. The live lane writes that bundle verbatim. The baked lane first tries the DOM walker; when the bundle renders native views instead of DOM nodes, it freezes the `WidgetBridge` tree into DesignIR with `capture_method = runtime_native_snapshot` and `snapshotSource = native-view`, then can emit baked C++ from that IR.
 - Supported input today: single-file `.jsx` or `.tsx`, default-exported React function component, hooks from `react` only, inline `style={{...}}` objects, SVG primitives (`svg/path/circle/line`), `<input>`/`<button>` form elements (text-input editing is degraded — plain text inputs fall back to a non-editable View per Codex review), `setInterval`/`requestAnimationFrame`/`getBoundingClientRect`. The TypeScript path strips TSX through the Node/esbuild transform before the C++ runtime parser sees the bundle.
 - Out of scope until follow-up PRs: window-level `mousemove`/`mouseup` global fan-out (the canonical 2-week gotcha; static render works, interactive drag does not), viewport resize signaling (`window.innerWidth/innerHeight` hard-coded), screenshot-similarity acceptance gate (timers/random would need freezing for determinism), Babel-standalone embedding (replaces the Node shell-out).
 - End-to-end harness: `tools/import-validation/jsx-roundtrip.sh` runs the transform + builds + runs the smoke test (`pulp-test-design-import-jsx-runtime` — asserts >9 IR nodes + Chainer-shaped text materializes) + optionally renders a `pulp-screenshot` PNG. Primary fixtures: `planning/fixtures/jsx/chainer-instrument.jsx` (762-line Chainer instrument with 9 inline custom components, SVG, drag, setInterval) and `planning/fixtures/jsx/typed-control.tsx` for TSX stripping.
@@ -882,7 +889,11 @@ pulp import-design --from claude --file design.html --no-emit-classnames
 Import artifact flag vocabulary:
 - `--output <path>` is the destination for the primary artifact. JS defaults to `ui.js`; `--emit cpp` defaults to `imported_ui.cpp` and writes the sibling header.
 - `--emit js`, `--emit ir-json`, and `--emit cpp` are implemented. `cpp` requires `--mode baked`. Legacy `--emit classnames` remains accepted for the Claude classnames sidecar.
-- `--mode live` is the default. Static sources emit generated JS in live mode; `--from jsx --mode live --emit js` writes the precompiled JSX bundle verbatim. `--mode baked` emits canonical IR or baked C++ via `--emit ir-json|cpp`.
+- Built-in default is live runtime import: `--mode live --emit js`. Static sources emit generated JS in live mode; `--from jsx --mode live --emit js` writes the precompiled JSX bundle verbatim for runtime import and rejects `--validate`, `--reference`, `--diff`, and `--debug`. `--mode baked` emits canonical IR or baked C++ via `--emit ir-json|cpp`.
+- Persistent defaults live in `~/.pulp/config.toml` as `import_design.default_mode = "live|baked"` and `import_design.default_emit = "js|ir-json|cpp"`, set through `pulp config set import_design.default_mode ...` and `pulp config set import_design.default_emit ...`. `PULP_IMPORT_DESIGN_DEFAULT_MODE` and `PULP_IMPORT_DESIGN_DEFAULT_EMIT` override config for one environment/session, and direct CLI flags override the matching preference. If only `default_mode=baked` is set, `ir-json` is implied.
+- The standalone import helper and MCP status helper each have a small config reader for these defaults; keep them compatible with TOML single-quoted and double-quoted strings, matching the main CLI config reader.
+- Mental model: live/runtime import means "run the original app"; baked DesignIR means "save the materialized UI tree"; baked C++ means "compile that saved tree into native code". You can move live iteration -> baked IR -> baked C++; you cannot reconstruct live React from baked IR because hooks, closures, loops, and arbitrary JS logic were not preserved.
+- JSX baked snapshots accept both DOM-walked bundles and live/native bundles. Native bundles freeze through the `WidgetBridge` tree and record `snapshotSource=native-view`; generated baked C++ still constructs direct `View`/`Label` trees and should only require `pulp::view-core`.
 - `--snapshot-semantics fail|warn|accept` is honored for JSX baked IR snapshots. `fail` rejects dynamic APIs by default, `warn` proceeds with a structured diagnostic, and `accept` proceeds silently. The scan covers timers, animation frames, clock/random APIs, and fetch while ignoring comments and string literals.
 - URL imports fetch through argv-safe `curl` into a unique temporary file; literal `--file` paths are read directly and may contain normal filesystem punctuation, while `--url` rejects shell metacharacters before fetching.
 

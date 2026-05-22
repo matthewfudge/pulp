@@ -295,7 +295,13 @@ Builds the `.appex` only. The App Store container host-app target is authored se
 
 ### `PulpAUViewController::dealloc` — never call `_bridge->close()` explicitly
 
-Touched here because `core/format/src/au_view_controller_ios.mm` is dual-owned by `ios` + `auv3` + `view-bridge`. The view controller's ivars `_bridge`, `_viewHost`, `_fallbackView` are destroyed in REVERSE declaration order by the runtime; the resulting sequence (host destroyed before bridge) is what makes the `root_.set_plugin_view_host(nullptr)` call in `~PluginViewHost` safe. Calling `_bridge->close()` explicitly in `dealloc` reverses that order, frees the View first, and the host's destructor then dereferences a dangling reference — crashes AUv3 editor close. Codex P1 review on PR #653. Full rationale lives in the `auv3` skill under "PulpAUViewController::dealloc — never call `_bridge->close()` explicitly".
+Touched here because `core/format/src/au_view_controller_ios.mm` is dual-owned by `ios` + `auv3` + `view-bridge`. The view controller's ivars are declared `_bridge`, `_fallbackView`, `_viewHost` (the GPU-plugin-view-host work reordered them — see below) and destroyed in REVERSE declaration order, so `_viewHost` is destroyed FIRST. That makes `root_.set_plugin_view_host(nullptr)` / `set_frame_clock(nullptr)` in `~PluginViewHost` safe on BOTH paths (the bridge's view and the `_fallbackView` are still alive). Calling `_bridge->close()` explicitly in `dealloc` reverses that order, frees the View first, and the host's destructor then dereferences a dangling reference — crashes AUv3 editor close. Full rationale lives in the `auv3` skill under "PulpAUViewController::dealloc — never call `_bridge->close()` explicitly".
+
+**Ivar order is load-bearing (2026-05 fallback-UAF fix):** the old order
+`_bridge, _viewHost, _fallbackView` destroyed `_fallbackView` BEFORE `_viewHost`.
+On the no-`audioUnit` preview path `_fallbackView` *is* the View `_viewHost->root_`
+references, so the host then cleared a back-pointer into a freed View. Declaring
+`_viewHost` LAST (so it destroys first) fixes both paths. Don't reorder back.
 
 ### AUv3 headless guard must not create a fallback host
 
@@ -314,6 +320,26 @@ The fix is two pieces:
 2. In `tick()`, run `idle_callback_()` first; the callback can `request_repaint`, which arms `needs_repaint_` and triggers `render_frame()` in the same tick.
 
 CPU iOS host (`IOSWindowHost`) has the same gap but no display link; `repaint()` just calls `[root_view_ setNeedsDisplay]` and UIKit drives `drawRect:` only on user interaction. A separate CADisplayLink-on-CPU-path fix is owed; not blocking AUv3 use cases since AUv3 host apps go through the GPU path.
+
+### Embeddable iOS GPU *plugin* host (`IOSGpuPluginViewHost`) — distinct from the window host
+
+`core/view/platform/ios/plugin_view_host_ios.mm` is the AUv3 plugin embed
+host (vs `IOSGpuWindowHost` for standalone). Two things to know (2026-05
+GPU-plugin-view-host work):
+
+- **It was dead code on a stale render API.** The prior version did
+  `std::make_unique<render::GpuSurface>()` (abstract!) and
+  `SkiaSurface::initialize` with `dawn_device`/`dawn_queue` Config fields that
+  no longer exist. It compiled never because **no `ios-gpu` Skia libs are
+  fetched**, so `PULP_HAS_SKIA` is OFF for iOS and the block is `#ifdef`'d out.
+  It now uses the current API (`GpuSurface::create_dawn()` + `SkiaSurface::create()`).
+  **This whole path is CI-unvalidated** until iOS Skia is fetched/built — verify
+  on a device/simulator.
+- **Embeddability matches mac:** display link starts on `-didMoveToWindow`
+  (not `attach_to_parent`); `-layoutSubviews` re-syncs size/scale; `tick()`
+  pumps `idle_callback_` first (the idle-pump-in-tick contract — keep it), then frame clock
+  + CSS animations; liveness token; GpuSurface resized PHYSICAL, SkiaSurface
+  LOGICAL+scale; CPU fallback in the factory when `is_gpu_backed()` is false.
 
 ## See Also
 

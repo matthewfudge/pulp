@@ -111,6 +111,14 @@ bool missing_custom_types_contain(const GraphSerializer::LoadResult& result,
     return false;
 }
 
+const GraphNode* find_node_named(const SignalGraph& graph,
+                                 const std::string& name) {
+    for (const auto& node : graph.nodes()) {
+        if (node.name == name) return &node;
+    }
+    return nullptr;
+}
+
 CustomNodeType make_custom_node_type(std::string type_id,
                                      int version,
                                      int inputs,
@@ -417,6 +425,117 @@ TEST_CASE("GraphSerializer rejects graph migrations that do not advance versions
     REQUIRE(result.error.find("expected format_version") != std::string::npos);
 }
 
+TEST_CASE("GraphSerializer rejects invalid graph migration registrations",
+          "[host][serializer][migration][coverage][phase3]") {
+    REQUIRE(GraphSerializer::current_format_version() == 2);
+    REQUIRE_FALSE(GraphSerializer::register_migration(
+        2, 2,
+        [](const std::string& source_json, std::string& migrated_json) {
+            migrated_json = source_json;
+            return true;
+        }));
+    REQUIRE_FALSE(GraphSerializer::register_migration(
+        0, GraphSerializer::current_format_version() + 1,
+        [](const std::string& source_json, std::string& migrated_json) {
+            migrated_json = source_json;
+            return true;
+        }));
+    REQUIRE_FALSE(GraphSerializer::register_migration(
+        -10, GraphSerializer::current_format_version(), {}));
+    REQUIRE_FALSE(GraphSerializer::register_migration(
+        1, GraphSerializer::current_format_version(),
+        [](const std::string& source_json, std::string& migrated_json) {
+            migrated_json = source_json;
+            return true;
+        }));
+}
+
+TEST_CASE("GraphSerializer rejects non-integer and out-of-range graph versions",
+          "[host][serializer][migration][coverage][phase3]") {
+    SignalGraph string_version;
+    auto string_result = GraphSerializer::from_json(string_version, R"({
+  "format_version": "2",
+  "nodes": [],
+  "connections": []
+})");
+    REQUIRE_FALSE(string_result.ok);
+    REQUIRE(string_result.error == "format_version is not an integer");
+    REQUIRE(string_version.nodes().empty());
+
+    SignalGraph overflow_version;
+    auto overflow_result = GraphSerializer::from_json(overflow_version, R"({
+  "format_version": 2147483648,
+  "nodes": [],
+  "connections": []
+})");
+    REQUIRE_FALSE(overflow_result.ok);
+    REQUIRE(overflow_result.error == "format_version is not an integer");
+    REQUIRE(overflow_version.nodes().empty());
+}
+
+TEST_CASE("GraphSerializer reports broken graph migration outputs",
+          "[host][serializer][migration][coverage][phase3]") {
+    REQUIRE(GraphSerializer::register_migration(
+        -20, GraphSerializer::current_format_version(),
+        [](const std::string&, std::string&) {
+            return true;
+        }));
+    SignalGraph empty_output;
+    auto empty_result = GraphSerializer::from_json(empty_output, R"({
+  "format_version": -20,
+  "nodes": [],
+  "connections": []
+})");
+    REQUIRE_FALSE(empty_result.ok);
+    REQUIRE(empty_result.error == "graph migration failed");
+
+    REQUIRE(GraphSerializer::register_migration(
+        -21, GraphSerializer::current_format_version(),
+        [](const std::string&, std::string& migrated_json) {
+            migrated_json = "{ not json }";
+            return true;
+        }));
+    SignalGraph invalid_json;
+    auto invalid_result = GraphSerializer::from_json(invalid_json, R"({
+  "format_version": -21,
+  "nodes": [],
+  "connections": []
+})");
+    REQUIRE_FALSE(invalid_result.ok);
+    REQUIRE(invalid_result.error.find("graph migration produced invalid JSON")
+            != std::string::npos);
+
+    REQUIRE(GraphSerializer::register_migration(
+        -22, GraphSerializer::current_format_version(),
+        [](const std::string&, std::string& migrated_json) {
+            migrated_json = "[]";
+            return true;
+        }));
+    SignalGraph array_output;
+    auto array_result = GraphSerializer::from_json(array_output, R"({
+  "format_version": -22,
+  "nodes": [],
+  "connections": []
+})");
+    REQUIRE_FALSE(array_result.ok);
+    REQUIRE(array_result.error == "graph migration did not produce expected format_version");
+
+    REQUIRE(GraphSerializer::register_migration(
+        -23, GraphSerializer::current_format_version(),
+        [](const std::string&, std::string& migrated_json) {
+            migrated_json = R"({"format_version": 1, "nodes": [], "connections": []})";
+            return true;
+        }));
+    SignalGraph wrong_version;
+    auto wrong_result = GraphSerializer::from_json(wrong_version, R"({
+  "format_version": -23,
+  "nodes": [],
+  "connections": []
+})");
+    REQUIRE_FALSE(wrong_result.ok);
+    REQUIRE(wrong_result.error == "graph migration did not produce expected format_version");
+}
+
 TEST_CASE("GraphSerializer clears partially loaded graphs after connection field errors",
           "[host][serializer][issue-493]") {
     SignalGraph dst;
@@ -696,6 +815,33 @@ TEST_CASE("GraphSerializer resolves custom nodes by exact registry version",
     REQUIRE(dst.nodes().front().num_output_ports == 1);
 }
 
+TEST_CASE("GraphSerializer preserves unresolved custom nodes when registered ABI mismatches",
+          "[host][serializer][node-abi][coverage][phase3]") {
+    SignalGraph src;
+    REQUIRE(src.register_custom_node_type(make_custom_node_type(
+        "pulp.test.mismatched-node", 7, 2, 1, "Wide Node")));
+    auto custom = src.add_custom_node("pulp.test.mismatched-node", 7, "Wide Node");
+    REQUIRE(custom != 0);
+
+    const auto json = GraphSerializer::to_json(src);
+
+    SignalGraph dst;
+    REQUIRE(dst.register_custom_node_type(make_custom_node_type(
+        "pulp.test.mismatched-node", 7, 1, 1, "Narrow Node")));
+    auto result = GraphSerializer::from_json(dst, json);
+    REQUIRE(result.ok);
+    REQUIRE(missing_custom_types_contain(result, "pulp.test.mismatched-node@7"));
+    REQUIRE(dst.nodes().size() == 1);
+
+    const auto* node = find_node_named(dst, "Wide Node");
+    REQUIRE(node != nullptr);
+    REQUIRE(node->type == NodeType::Custom);
+    REQUIRE(node->custom_type_id == "pulp.test.mismatched-node");
+    REQUIRE(node->custom_type_version == 7);
+    REQUIRE(node->num_input_ports == 2);
+    REQUIRE(node->num_output_ports == 1);
+}
+
 TEST_CASE("GraphSerializer serializes plugin formats and state blobs",
           "[host][serializer][issue-643]") {
     struct ExpectedFormat {
@@ -733,6 +879,31 @@ TEST_CASE("GraphSerializer serializes plugin formats and state blobs",
         REQUIRE(missing_plugins_contain(
             result, std::string(expected.wire) + ":" + expected.uid));
     }
+}
+
+TEST_CASE("GraphSerializer serializes short plugin state blobs with stable padding",
+          "[host][serializer][coverage][phase3]") {
+    SignalGraph src;
+    auto one_byte = make_fake_plugin_info("OneByteState", "pulp.test.state.one",
+                                          PluginFormat::CLAP, 1, 1);
+    auto two_bytes = make_fake_plugin_info("TwoByteState", "pulp.test.state.two",
+                                           PluginFormat::CLAP, 1, 1);
+    src.add_plugin_node(
+        std::make_unique<SerializerSlot>(
+            one_byte, std::vector<uint8_t>{0x00}),
+        1, 1, "OneByteState");
+    src.add_plugin_node(
+        std::make_unique<SerializerSlot>(
+            two_bytes, std::vector<uint8_t>{0x00, 0x01}),
+        1, 1, "TwoByteState");
+
+    const auto json = GraphSerializer::to_json(src);
+    REQUIRE(json.find("\"unique_id\": \"pulp.test.state.one\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"state_b64\": \"AA==\"") != std::string::npos);
+    REQUIRE(json.find("\"unique_id\": \"pulp.test.state.two\"") !=
+            std::string::npos);
+    REQUIRE(json.find("\"state_b64\": \"AAE=\"") != std::string::npos);
 }
 
 TEST_CASE("GraphSerializer preserves unresolved plugin identity when reserializing",
@@ -915,6 +1086,55 @@ TEST_CASE("GraphSerializer reports plugin nodes missing plugin payload",
     REQUIRE_FALSE(dst.connections().front().feedback);
     REQUIRE_FALSE(dst.connections().front().midi);
     REQUIRE_FALSE(dst.connections().front().automation);
+}
+
+TEST_CASE("GraphSerializer defaults missing gain and coerces non-numeric layout to zero",
+          "[host][serializer][coverage][phase3]") {
+    SignalGraph dst;
+    auto result = GraphSerializer::from_json(dst, R"({
+  "format_version": 2,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "gain",
+      "name": "Default Gain",
+      "num_input_ports": 2,
+      "num_output_ports": 2,
+      "layout": {"x": "left", "y": false}
+    },
+    {
+      "id": 2,
+      "type": "audio_out",
+      "name": "Output",
+      "num_input_ports": 2,
+      "num_output_ports": 0,
+      "gain": "loud",
+      "layout": {"x": 16, "y": "bottom"}
+    }
+  ],
+  "connections": []
+})");
+
+    REQUIRE(result.ok);
+    REQUIRE(dst.nodes().size() == 2);
+    REQUIRE(result.editor_layout.size() == 2);
+
+    const auto* gain = find_node_named(dst, "Default Gain");
+    REQUIRE(gain != nullptr);
+    REQUIRE(gain->gain == 1.0f);
+
+    const auto* output = find_node_named(dst, "Output");
+    REQUIRE(output != nullptr);
+    REQUIRE(output->gain == 0.0f);
+
+    bool saw_zero_layout = false;
+    bool saw_mixed_layout = false;
+    for (const auto& [id, pos] : result.editor_layout) {
+        if (pos.first == 0.0f && pos.second == 0.0f) saw_zero_layout = true;
+        if (pos.first == 16.0f && pos.second == 0.0f) saw_mixed_layout = true;
+    }
+    REQUIRE(saw_zero_layout);
+    REQUIRE(saw_mixed_layout);
 }
 
 TEST_CASE("GraphSerializer round-trips MIDI routing", "[host][serializer]") {

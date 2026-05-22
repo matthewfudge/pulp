@@ -9,9 +9,10 @@
 //   auto plugins = scanner.scan();
 //   for (auto& p : plugins) { ... p.name, p.path, p.format ... }
 
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
-#include <functional>
 
 namespace pulp::host {
 
@@ -124,5 +125,10 @@ private:
     std::vector<PluginInfo> scan_audio_units();
 #endif
 };
+
+// Clamp an untrusted CLAP plugin count — a malformed bundle's factory can
+// return an absurd value that would make reserve()/iteration throw and abort
+// the whole scan (#2703). Exposed for testing.
+uint32_t cap_clap_plugin_count(uint32_t count) noexcept;
 
 } // namespace pulp::host

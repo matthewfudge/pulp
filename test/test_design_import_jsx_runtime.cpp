@@ -3,9 +3,9 @@
 // pulp jsx-instrument-import experiment slice (2026-05-17).
 //
 // Validates that a pre-compiled JSX bundle (esbuild IIFE wrapping
-// React + ReactDOM + the user's JSX) can be wrapped as a Claude-style
-// envelope and executed through the existing runtime-import harness
-// (`parse_claude_html_with_runtime`). If the materialized DesignIR
+// React + either ReactDOM or the @pulp/react native bridge + the user's JSX)
+// can be wrapped as a Claude-style envelope and executed through the existing
+// runtime-import harness (`parse_claude_html_with_runtime`). If the materialized DesignIR
 // contains the named control panels Chainer ships (e.g. "generator",
 // "envelope"), the renderer-integration path is validated and the
 // follow-up work — `--from jsx` CLI wiring, drag, animation, parity
@@ -183,6 +183,35 @@ TEST_CASE("[jsx-experiment] Chainer JSX bundle materializes through Claude runti
         ir_contains_text(ir.root, "polywave");
     INFO("Chainer-shaped text found in IR: " << (found_chainer_text ? "yes" : "no"));
     REQUIRE(found_chainer_text);
+}
+
+TEST_CASE("[jsx-experiment] native live bundle can freeze through baked snapshot fallback",
+          "[view][import][jsx]") {
+    std::string native_bundle =
+        "(function(){\n"
+        "  createCol('native-panel', '');\n"
+        "  for (var i = 0; i < 12; ++i) {\n"
+        "    createLabel('native-label-' + i, i === 0 ? 'CHAINER native snapshot' : ('native row ' + i), 'native-panel');\n"
+        "  }\n"
+        "})();\n";
+    native_bundle.append(256, ' ');
+
+    auto bundle = parse_jsx_react(native_bundle, "NativeBridgeSmoke");
+    REQUIRE(bundle.has_value());
+
+    std::string err;
+    ClaudeRuntimeOptions opts;
+    opts.error_out = &err;
+    auto ir = parse_claude_html_with_runtime(synthesize_runtime_envelope(*bundle), opts);
+
+    INFO("runtime error_out: " << err);
+    INFO("capture_method: " << ir.capture_method);
+    INFO("materialized native IR node count: " << count_ir_nodes(ir.root));
+    REQUIRE(err.empty());
+    REQUIRE(ir.capture_method == "runtime_native_snapshot");
+    REQUIRE(ir.source_adapter == "claude-native-view");
+    REQUIRE(count_ir_nodes(ir.root) > 9);
+    REQUIRE(ir_contains_text(ir.root, "CHAINER native snapshot"));
 }
 
 TEST_CASE("[jsx-experiment] TypeScript .tsx bundle materializes through Claude runtime harness",

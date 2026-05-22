@@ -51,8 +51,8 @@ Ask the user or detect from context:
 
 **React JSX runtime bundle**:
 - Compile the JSX/TSX first with `tools/import-design/jsx-runtime/jsx-transform.mjs`.
-- `--mode live --emit js` writes the precompiled bundle verbatim.
-- `--mode baked --emit ir-json|cpp` captures a runtime snapshot; use `--snapshot-semantics accept` only when accepting dynamic APIs is intentional.
+- `--mode live --emit js` writes the precompiled bundle verbatim for runtime import and rejects `--validate`, `--reference`, `--diff`, and `--debug`.
+- `--mode baked --emit ir-json|cpp` captures a runtime snapshot. DOM bundles are walked as DOM; live/native bundles that render through `@pulp/react` freeze the native `WidgetBridge` tree and record `snapshotSource: native-view`. Use `--snapshot-semantics accept` only when accepting dynamic APIs is intentional.
 
 **File-based fallback**:
 - Read the file and parse based on --from source type
@@ -171,7 +171,7 @@ pulp import-design --from v0 --file component.tsx
 pulp import-design --from pencil --file design.json
 pulp import-design --from claude --file design.html   # writes ui.js + tokens.json + classnames.json + bridge_handlers.cpp
 pulp import-design --from designmd --file DESIGN.md --tokens tokens.json
-pulp import-design --from jsx --file bundle.js --mode live --emit js
+pulp import-design --from jsx --file bundle.js --mode live --emit js --output live-ui.js
 pulp import-design --from jsx --file bundle.js --mode baked --emit cpp --snapshot-semantics accept --output imported_ui.cpp
 
 # With validation
@@ -183,9 +183,17 @@ pulp import-design --from claude --file design.html --no-bridge-scaffold
 
 Artifact flags:
 - `--output <path>` selects the primary artifact destination.
+- Built-in default is live runtime import: `--mode live --emit js`.
 - `--emit {js|ir-json|cpp}` selects the artifact kind; `cpp` requires `--mode baked`.
 - `--mode {live|baked}` selects the runtime model.
 - `--snapshot-semantics {fail|warn|accept}` gates JSX baked snapshots with dynamic APIs.
+- Persistent defaults live in `~/.pulp/config.toml`: `pulp config set import_design.default_mode live|baked` and `pulp config set import_design.default_emit js|ir-json|cpp`. If only `default_mode=baked` is set, `ir-json` is implied. `PULP_IMPORT_DESIGN_DEFAULT_MODE` and `PULP_IMPORT_DESIGN_DEFAULT_EMIT` override config for one environment/session. Direct CLI flags override the matching preference.
+
+Artifact mental model:
+- Live/runtime import: run the original app at launch.
+- Baked DesignIR: save the materialized UI tree as an inspectable snapshot.
+- Baked C++: compile that saved tree into native view-construction code.
+- You can go live iteration -> baked IR -> baked C++; you cannot reconstruct live React from baked IR because program logic is gone.
 
 Use `--dry-run` to preview without writing files.
 

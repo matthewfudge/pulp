@@ -307,7 +307,18 @@ function(_pulp_add_au target name bundle_id version manufacturer category plugin
         "-framework CoreAudio"
         "-framework Cocoa"
     )
-    target_compile_definitions(${target}_AU PRIVATE PULP_AU_GUI=1)
+    # Per-plugin-unique Cocoa view factory class name. ObjC class names are
+    # process-global, so two Pulp AU components in one host would otherwise
+    # collide on a fixed `PulpAUCocoaViewFactory`. Derive a unique name from
+    # the manufacturer + plugin 4ccs (sanitized to a valid identifier). The
+    # @interface/@implementation in au_v2_cocoa_view.mm and the class name
+    # returned in AudioUnitCocoaViewInfo both use this define.
+    set(_pulp_au_cocoa_class_suffix "${manufacturer_code}_${plugin_code}")
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" _pulp_au_cocoa_class_suffix
+        "${_pulp_au_cocoa_class_suffix}")
+    target_compile_definitions(${target}_AU PRIVATE
+        PULP_AU_GUI=1
+        PULP_AU_COCOA_VIEW_CLASS=PulpAUCocoaViewFactory_${_pulp_au_cocoa_class_suffix})
     # AudioUnitSDK 1.4 headers use std::expected (C++23). CMAKE_CXX_STANDARD=20
     # at the repo root is authoritative under CMake 3.24's policy — target
     # compile_features are ignored when a lower CXX_STANDARD is already set.

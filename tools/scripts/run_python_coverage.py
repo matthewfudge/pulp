@@ -69,9 +69,12 @@ COVERAGE_SURFACES = (
             "tools/harness/tests/test_evidence_check.py",
             "tools/harness/tests/test_html_adapter.py",
             "tools/harness/tests/test_html_adapter_element_events_union.py",
+            "tools/harness/tests/test_rn_adapter.py",
             "tools/harness/tests/test_status.py",
             "tools/harness/tests/test_validate_test_ref.py",
+            "tools/harness/tests/test_verifier.py",
             "tools/harness/tests/test_verify_report.py",
+            "tools/harness/tests/test_yoga_adapter.py",
             "tools/harness/visual/tests/test_check_skia_pin.py",
             "tools/harness/visual/tests/test_differ.py",
             "tools/harness/visual/tests/test_runner.py",
@@ -83,7 +86,11 @@ COVERAGE_SURFACES = (
     ),
     CoverageSurface(
         ("tools/import-validation",),
-        ("tools/import-validation/test_source_contracts.py",),
+        (
+            "tools/import-validation/test_diff_against_reference.py",
+            "tools/import-validation/test_diff_against_reference_regions.py",
+            "tools/import-validation/test_source_contracts.py",
+        ),
     ),
     # Keep the broader first-party tooling roots represented while the
     # executed test set stays on the established tooling roots plus
@@ -94,12 +101,15 @@ COVERAGE_SURFACES = (
             "tools/test_check_format_validation.py",
             "tools/test_check_status_ladder.py",
             "tools/test_list_limitations.py",
+            "tools/test_motion_visual_capture_sim_frames.py",
+            "tools/test_motion_visual_analyze_sequence.py",
         ),
         (
             "tools/test_*.py",
             "tools/scripts/test_*.py",
             "tools/deps/test_*.py",
             "tools/local-ci/test_*.py",
+            "tools/ci/test_*.py",
             "tools/import-validation/test_*.py",
             "tools/packages/test_*.py",
             "tools/scripts/_*.py",
@@ -118,6 +128,7 @@ COVERAGE_SURFACES = (
             # the measured source set and aligned with codecov.yml ignore.
             "tools/harness/visual/tests/*.py",
             "tools/harness/visual/tests/**/*.py",
+            "tools/motion/visual/test_*.py",
         ),
         always_include=True,
     ),

@@ -172,6 +172,14 @@ parsing the item instead of throwing out of `Appcast::from_xml`. Keep this
 behavior covered in `test/test_appcast.cpp` when changing
 `ship/src/appcast.cpp`.
 
+### Appcast output paths
+
+`pulp ship appcast --output appcast.xml` must work from a project root. When
+creating the output directory, guard empty `parent_path()` values before calling
+`std::filesystem::create_directories`; otherwise a bare filename can throw
+instead of writing the feed. Keep this covered in
+`test/test_cli_ship_shellout.cpp`.
+
 ### Android package tests fail only on Windows
 
 Pulp executes Android package helpers through `cmd.exe /c` on Windows. Android
@@ -289,14 +297,14 @@ or `pulp::view::make_webview_embedded_resource_fetcher`.
 
 Root cause: `core/view/CMakeLists.txt` defaults `PULP_BUILD_WEBVIEW=OFF`,
 so any release SDK build that forgets to opt in will ship a
-`libpulp-view` / `pulp-view.lib` without the native WebView objects.
+`libpulp-view-core` / `pulp-view-core.lib` without the native WebView objects.
 
 Fix (active since pulp #695): keep the release SDK path aligned with the
 GitHub release workflow:
 1. Configure release SDK builds with `-DPULP_BUILD_WEBVIEW=ON`.
 2. On Linux, install `libgtk-3-dev` and `libwebkit2gtk-4.1-dev` before
    configuring.
-3. Before packaging, verify the staged SDK archive still contains
+3. Before packaging, verify the staged SDK view-core archive still contains
    `WebViewPanel` and `make_webview_embedded_resource_fetcher`.
 
 This applies to both `.github/workflows/release-cli.yml` and the local

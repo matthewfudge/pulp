@@ -133,6 +133,9 @@ In source-tree mode it also reports the effective PR workflow (`shipyard`,
 `github`, or `manual`) and whether the selected workflow's local tool is
 available. Public Pulp installs do not install Shipyard or GitHub CLI; those
 are contributor/source-checkout tools checked when the PR workflow needs them.
+It also reports the effective `pulp import-design` defaults, including whether
+they came from the built-in `live/js` default, `~/.pulp/config.toml`, or
+`PULP_IMPORT_DESIGN_DEFAULT_*` environment overrides.
 On macOS and Windows it also reports whether an optional AAX SDK is detected. On
 Linux and Ubuntu it reports AAX as unsupported.
 
@@ -966,6 +969,7 @@ pulp import-design --from pencil --file ui.json --output ui.js --tokens tokens.j
 pulp import-design --from v0 --file card.tsx --dry-run
 pulp import-design --from claude --file design.html --classnames classnames.json
 pulp import-design --from designmd --file DESIGN.md --tokens out.json
+pulp import-design --from jsx --file bundle.js --mode live --emit js --output live-ui.js
 pulp import-design --from jsx --file bundle.js --mode baked --emit cpp --output imported_ui.cpp
 ```
 
@@ -983,9 +987,9 @@ exit codes, diagnostics, and the staged rollout split).
 
 | Flag | Description |
 |------|-------------|
-| `--output <path>` | Destination for the primary generated artifact. Today the default primary artifact is JS at `ui.js`; sidecars remain anchored beside this path when not explicitly overridden. |
-| `--emit {js\|ir-json\|cpp}` | Select the primary artifact kind. `js`, `ir-json`, and `cpp` are implemented; `cpp` requires `--mode baked`. |
-| `--mode {live\|baked}` | Select the import runtime model. `live` is the default. `baked` emits canonical IR or baked C++ via `--emit ir-json\|cpp`. |
+| `--output <path>` | Destination for the primary generated artifact. The built-in default primary artifact is live JS at `ui.js`; sidecars remain anchored beside this path when not explicitly overridden. |
+| `--emit {js\|ir-json\|cpp}` | Select the primary artifact kind. `js`, `ir-json`, and `cpp` are implemented; `cpp` requires `--mode baked`. Built-in default: `js`; persistent default: `import_design.default_emit`. |
+| `--mode {live\|baked}` | Select the import runtime model. Built-in default: `live`; persistent default: `import_design.default_mode`. `baked` emits canonical IR or baked C++ via `--emit ir-json\|cpp`. |
 | `--snapshot-semantics {fail\|warn\|accept}` | JSX baked snapshot policy. `fail` rejects dynamic APIs by default, `warn` proceeds with diagnostics, and `accept` proceeds silently. |
 | `--allow-network-fetch` | Allow DesignIR asset-manifest HTTP(S) fetches at import time. |
 | `--asset-cache <path>` | Asset cache directory for HTTP(S) imports. Defaults to `PULP_IMPORT_ASSET_CACHE` or the user cache. |
@@ -999,9 +1003,28 @@ With `--emit ir-json`, relative asset references from a `--url` import resolve
 against the source URL. The manifest keeps the authored relative URI and also
 records the resolved `source_url` used for HTTP(S) fetching.
 
+The shipped default remains live runtime import: `--mode live --emit js`.
+Persist different defaults with:
+
+```bash
+pulp config set import_design.default_mode baked
+pulp config set import_design.default_emit ir-json
+```
+
+Set `import_design.default_emit cpp` for baked C++ by default. If only
+`import_design.default_mode baked` is set, `ir-json` is implied. For temporary
+session overrides, use `PULP_IMPORT_DESIGN_DEFAULT_MODE` and
+`PULP_IMPORT_DESIGN_DEFAULT_EMIT`; direct CLI flags override the matching
+config and environment value. `pulp status` shows the effective defaults.
+
 With `--from jsx --mode live --emit js`, the CLI writes the precompiled JSX
-runtime bundle verbatim. With `--from jsx --mode baked --emit ir-json|cpp`, the
-CLI captures a runtime snapshot into DesignIR and records snapshot provenance.
+runtime bundle verbatim for runtime import. That pass-through path rejects
+`--validate`, `--reference`, `--diff`, and `--debug` because it does not parse or
+render the bundle. With `--from jsx --mode baked --emit ir-json|cpp`, the CLI
+captures a runtime snapshot into DesignIR and records snapshot provenance. DOM
+bundles are captured through the DOM walker; live/native bundles that render
+through `@pulp/react` are frozen from the native `WidgetBridge` tree and record
+`runtime_native_snapshot` plus `snapshotSource: native-view`.
 Dynamic APIs such as `setInterval`, `setTimeout`, `requestAnimationFrame`,
 `Date.now`, `new Date`, `performance.now`, `Math.random`, and `fetch` fail by
 default under `--snapshot-semantics fail`; comments and string literals are
@@ -1235,6 +1258,8 @@ pulp config set pr.workflow github
 pulp config get update.mode
 pulp config set update.mode manual
 pulp config set update.check_interval_hours 12
+pulp config set import_design.default_mode baked
+pulp config set import_design.default_emit ir-json
 pulp config list
 ```
 
@@ -1257,6 +1282,18 @@ Supported update keys:
 - `update.check_interval_hours` — integer hours between background checks (default `24`). The 24h default stays under the 60/hour anonymous GitHub API rate limit by a wide margin.
 - `update.channel` — `stable | beta` (default `stable`). Reserved for future release-channel support; ignored today.
 - `update.bump_projects` — `prompt | auto | off` (default `prompt`). Controls whether a successful `pulp upgrade` nudges the user toward `pulp project bump --all`.
+
+Supported import-design keys:
+
+- `import_design.default_mode` — `live | baked` (default `live`). Controls the
+  default import runtime model when `pulp import-design` is run without
+  `--mode`. `PULP_IMPORT_DESIGN_DEFAULT_MODE` overrides this value for one
+  environment/session.
+- `import_design.default_emit` — `js | ir-json | cpp` (default `js`). Controls
+  the default primary artifact when `pulp import-design` is run without
+  `--emit`. `PULP_IMPORT_DESIGN_DEFAULT_EMIT` overrides this value for one
+  environment/session. If the default mode is `baked` and this key is unset,
+  Pulp implies `ir-json`.
 
 ### clean
 

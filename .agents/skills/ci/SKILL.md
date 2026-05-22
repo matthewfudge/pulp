@@ -42,6 +42,27 @@ Slice 6 (#551).
 
 ## GitHub workflow gotchas
 
+- `.github/workflows/release-dry-run.yml` (P9-2, #2576) exercises the release
+  build → `package_cli.py` → `pulp ship appcast` chain on a synthetic version
+  (`0.0.0-dryrun`) WITHOUT publishing — no GitHub release, no signing/notarize,
+  no appcast upload; artifacts are throwaway. It's additive (does not touch
+  `release-cli.yml` / `sign-and-release.yml`) and runs weekly + on demand, so a
+  build/packaging/appcast-generation regression surfaces BEFORE a real tag.
+  Keep it credential-free (notarize/sign stay in the real path) so it can run
+  on a schedule without secrets.
+- `.github/workflows/header-self-contained.yml` (pulp #2576) is a BLOCKING gate
+  for the "compiles on Apple Clang, breaks on Linux" transitive-include class
+  (e.g. `uint32_t` without `#include <cstdint>` — broke the v0.197.4 release).
+  It compiles each PR-changed public header standalone with Linux Clang via
+  `tools/scripts/check_headers_selfcontained.py`. Unlike the advisory IWYU gate
+  it only fails on a header that genuinely won't compile alone (no "unused
+  include" false positives), so it is safe to block on. Headers whose module
+  isn't in the GPU-off compile DB are skipped, not failed.
+- `.github/workflows/watchdog-reaper.yml` (pulp #2576) sweeps ALL open release
+  watchdog trackers daily and closes any whose version is released or superseded
+  — the existing watchdogs only auto-close inside a recent window, so historical
+  per-version trackers orphaned (334 had accumulated). It only matches the exact
+  auto-generated tracker titles and only closes objectively-resolved ones.
 - Keep watchdog/issue-maintenance workflows on REST `gh api` calls. Avoid
   `gh issue list` / `gh pr *` helpers in those paths because they can use the
   shared GraphQL quota; a watchdog must not fail while reporting that the
@@ -70,6 +91,35 @@ use GitHub-hosted runners by default. macOS routes through the self-hosted
 Do not push empty commits just to churn queued macOS checks. Cancel
 superseded SHAs, rebase or push only when a PR needs current `main`, and
 wait unless a check has actually failed.
+
+## PR Review Thread Hygiene
+
+Before opening a follow-up PR or declaring a phase complete, sweep review
+threads for the PRs touched by that phase:
+
+```bash
+gh api graphql -f query='
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100) {
+        nodes {
+          isResolved
+          isOutdated
+          comments(first:20) {
+            nodes { url body author { login } }
+          }
+        }
+      }
+    }
+  }
+}' -F owner=danielraffel -F repo=pulp -F number=<PR>
+```
+
+For every unresolved thread, either fix it in the follow-up branch or verify
+that current `main` already fixed it. Leave a reply on the original thread with
+the fixing commit/PR and the validation that proved it, so future sweeps can
+distinguish addressed-but-unresolved GitHub state from actual pending work.
 
 ## Shipping a PR: route through `shipyard pr`
 
@@ -140,7 +190,7 @@ signed/notarized `.dmg`, so the version and asset metadata must move together.
   (pulp #695). `.github/workflows/release-cli.yml` now configures the
   release build with `-DPULP_BUILD_WEBVIEW=ON`, installs Linux's
   `libgtk-3-dev` + `libwebkit2gtk-4.1-dev`, and verifies the staged
-  `pulp-view` archive still contains `WebViewPanel` and
+  `pulp-view-core` archive still contains `WebViewPanel` and
   `make_webview_embedded_resource_fetcher`. If you touch the release
   workflow or `tools/scripts/release-cli-local.sh`, preserve that
   contract or WebView-using downstream SDK consumers will link-fail.

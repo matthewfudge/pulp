@@ -423,6 +423,7 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     knob_node.audio_min = -60.0f;
     knob_node.audio_max = 0.0f;
     knob_node.audio_default = -15.0f;
+    knob_node.attributes["value"] = "0.2";
 
     auto fader_node = frame("mix", 96.0f, 32.0f, LayoutDirection::column);
     fader_node.audio_widget = AudioWidgetType::fader;
@@ -452,7 +453,8 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     auto* knob = dynamic_cast<Knob*>(root->child_at(0));
     REQUIRE(knob != nullptr);
     REQUIRE(knob->label() == "Drive");
-    REQUIRE(knob->value() == 0.75f);
+    REQUIRE(knob->value() == 0.2f);
+    REQUIRE(knob->default_value() == 0.75f);
     REQUIRE(knob->render_style() == WidgetRenderStyle::minimal);
 
     auto* fader = dynamic_cast<Fader*>(root->child_at(1));
