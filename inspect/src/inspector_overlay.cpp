@@ -910,6 +910,20 @@ Rect InspectorOverlay::view_bounds_in_root(const View* v) const {
     return {x, y, v->bounds().width, v->bounds().height};
 }
 
+// WYSIWYG caret RESIZE — product of this view's scale and all ancestor scales
+// up to root_ (exclusive). Mirrors the cumulative `scale(s,s)` View::paint_all
+// applies down the subtree, so the inline-text-edit overlay can map unscaled
+// element-local caret offsets onto the rendered (scaled) glyphs.
+float InspectorOverlay::effective_scale_in_root(const View* v) const {
+    float s = 1.0f;
+    const View* cur = v;
+    while (cur && cur != &root_) {
+        s *= cur->scale();
+        cur = cur->parent();
+    }
+    return s;
+}
+
 // ── Phase 3a — drag handle hit-test ────────────────────────────────────────
 // Each handle is an 8×8 box centered on a corner of the selected view's
 // bounds (root coords). We test against a slightly-larger 12×12 grab
@@ -2535,13 +2549,30 @@ void InspectorOverlay::paint_text_edit_overlay(Canvas& canvas) {
     // land exactly on the rendered glyphs.
     if (auto* lbl = dynamic_cast<const Label*>(text_edit_target_)) {
         const auto m = lbl->text_edit_metrics(canvas, text_edit_buffer_);
-        const float lbl_text_x = r.x + m.local_text_left;
-        const float lbl_band_y = r.y + m.local_band_y;
-        const float lbl_band_h = m.band_height;
+
+        // WYSIWYG caret RESIZE — text_edit_metrics is computed at the UNSCALED
+        // font in element-local space, but View::paint_all renders this
+        // subtree under the cumulative `scale(s,s)` of the target + ancestors
+        // (a proportional / Shift resize sets View::set_scale() rather than
+        // growing bounds). Map element-local x/y onto the rendered glyphs with
+        // the same `screen = origin + s*(local - origin)` transform paint_all
+        // uses about the transform-origin. With the default-or-top-left origin
+        // this collapses to s*local; a non-zero origin pins that point.
+        // Without this, an enlarged field drew the caret short by the scale
+        // factor (maintainer QA: caret a glyph or two before the text end).
+        const float s = effective_scale_in_root(lbl);
+        const float ox_px = lbl->bounds().width  * lbl->transform_origin_x();
+        const float oy_px = lbl->bounds().height * lbl->transform_origin_y();
+        const float lbl_text_x = r.x + ox_px + s * (m.local_text_left - ox_px);
+        const float lbl_band_y = r.y + oy_px + s * (m.local_band_y  - oy_px);
+        const float lbl_band_h = s * m.band_height;
         auto caret_at = [&](std::size_t bytes) -> float {
             if (m.caret_x_by_byte.empty()) return 0.0f;
             std::size_t i = std::min(bytes, m.caret_x_by_byte.size() - 1);
-            return m.caret_x_by_byte[i];
+            // Scale the local glyph advance so the caret tracks the rendered
+            // (scaled) run. lbl_text_x already carries the origin-anchored
+            // start, so the per-glyph offset is a pure s*advance.
+            return s * m.caret_x_by_byte[i];
         };
 
         if (text_has_selection()) {

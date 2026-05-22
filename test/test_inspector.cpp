@@ -5875,3 +5875,163 @@ TEST_CASE("WYSIWYG caret: inherited letter-spacing + alignment shift the band",
         REQUIRE(found_band);
     }
 }
+
+// WYSIWYG caret RESIZE/SCALE — once a text field has been RESIZED or SCALED
+// via the Select-tool corner drag, re-entering text edit must still land the
+// caret/selection on the RENDERED glyphs. There are two resize modes:
+//
+//   (a) CONTAINER resize — the box's bounds grow (preferred_/dim_ + set_bounds),
+//       scale stays 1.0. A left-aligned label still renders its text at the
+//       box's left edge, so the caret origin is unchanged; the band height/y
+//       must track the box top. This section pins that growing the box does
+//       NOT drift the caret.
+//
+//   (b) PROPORTIONAL resize (Shift drag) — View::set_scale(s) +
+//       transform-origin (0,0). View::paint_all renders the subtree under
+//       `scale(s,s)` about the top-left origin, so a glyph at element-local x
+//       renders on screen at s*x (origin 0,0 → screen_local = s*local). The
+//       overlay computes caret_x_by_byte / local_text_left at the UNSCALED
+//       font and view_bounds_in_root returns UNSCALED bounds, so a pre-fix
+//       overlay drew the caret short by the scale factor — the maintainer's
+//       "caret lands a glyph or two short after enlarging the field" bug.
+//
+// The overlay must apply the target's effective scale (and transform-origin)
+// to the caret x, selection band x/width, and band y/height so both modes
+// track the rendered text.
+TEST_CASE("WYSIWYG caret: tracks rendered text after resize and scale",
+          "[inspect][overlay][wysiwyg][caret][resize][issue-wysiwyg-caret-resize]") {
+    constexpr float kCharW = SpacingCanvas::kCharW;
+    // Chainer-like multi-token label; left-aligned (the default the running
+    // design uses for these field labels).
+    const std::string kText = "MULTIBAAND / M-S";  // 16 ASCII glyphs
+
+    // root → label (left-aligned, no inherited spacing). Box starts wider than
+    // the shaped text so the caret end is comfortably inside the original box.
+    auto make_tree = [&](Label*& out_label) {
+        auto root = std::make_unique<View>();
+        root->set_bounds({0, 0, 600, 400});
+        auto label = std::make_unique<Label>(kText);
+        label->set_bounds({0, 0, 200, 40});
+        label->set_text_align(LabelAlign::left);
+        out_label = label.get();
+        root->add_child(std::move(label));
+        return root;
+    };
+
+    // No letter-spacing here → shaped width is purely glyph advances.
+    const float shaped_w = static_cast<float>(kText.size()) * kCharW;
+
+    // Helper: scan the recorded fill_rects for the selection band (the full-
+    // width translucent fill) and the caret line (1.5px wide). Returns the
+    // band's left x, the band's full width, and the caret line's left x.
+    struct Bands { float band_x; float band_w; float caret_x; bool found_band; bool found_caret; };
+    auto scan = [&](const SpacingCanvas& canvas, float want_w) -> Bands {
+        Bands b{0, 0, 0, false, false};
+        for (const auto& c : canvas.commands()) {
+            if (c.type != pulp::canvas::DrawCommand::Type::fill_rect) continue;
+            const float w = c.f[2];
+            if (w >= want_w - 1.0f && w <= want_w + 2.0f) {
+                b.band_x = c.f[0]; b.band_w = w; b.found_band = true;
+            } else if (w >= 1.0f && w <= 2.0f) {  // 1.5px caret line
+                b.caret_x = c.f[0]; b.found_caret = true;
+            }
+        }
+        return b;
+    };
+
+    SECTION("container resize: box grows, left-aligned caret stays at text end") {
+        Label* label = nullptr;
+        auto root = make_tree(label);
+
+        // Grow the box well past the text (the maintainer "resize much larger").
+        auto b = label->bounds();
+        b.width = 500.0f;
+        b.height = 120.0f;
+        label->set_bounds(b);
+
+        InspectorOverlay overlay(*root);
+        overlay.set_active(true);
+        REQUIRE(overlay.begin_text_edit(label));
+        overlay.text_select_all();
+        REQUIRE(overlay.text_has_selection());
+
+        SpacingCanvas canvas;
+        overlay.paint(canvas);
+
+        // Left-aligned: text renders at the box's left edge regardless of how
+        // wide the box grew, so the band spans [0, shaped_w] and the caret
+        // (whole buffer selected → caret at end) sits at shaped_w.
+        auto bands = scan(canvas, shaped_w);
+        REQUIRE(bands.found_band);
+        REQUIRE(bands.band_x == Catch::Approx(0.0f).margin(1.0f));
+        REQUIRE(bands.found_caret);
+        REQUIRE(bands.caret_x == Catch::Approx(shaped_w).margin(1.5f));
+    }
+
+    SECTION("proportional scale: caret + band track scaled glyphs") {
+        Label* label = nullptr;
+        auto root = make_tree(label);
+
+        // Proportional resize applies set_scale + top-left transform-origin
+        // (see InspectorOverlay handle-drag: transform-origin (0,0)). Mirror
+        // exactly what the gesture does so the test exercises the real shape.
+        constexpr float kScale = 2.0f;
+        label->set_transform_origin(0.0f, 0.0f);
+        label->set_scale(kScale);
+
+        InspectorOverlay overlay(*root);
+        overlay.set_active(true);
+        REQUIRE(overlay.begin_text_edit(label));
+        overlay.text_select_all();
+        REQUIRE(overlay.text_has_selection());
+
+        SpacingCanvas canvas;
+        overlay.paint(canvas);
+
+        // With origin (0,0), View::paint_all renders glyph-local x at kScale*x.
+        // So the full-string selection band must span [0, kScale*shaped_w] and
+        // the end caret must sit at kScale*shaped_w — NOT the unscaled
+        // shaped_w (the pre-fix short-caret bug).
+        const float scaled_w = kScale * shaped_w;
+        auto bands = scan(canvas, scaled_w);
+        REQUIRE(bands.found_band);
+        REQUIRE(bands.band_x == Catch::Approx(0.0f).margin(1.0f));
+        REQUIRE(bands.band_w == Catch::Approx(scaled_w).margin(2.0f));
+        REQUIRE(bands.found_caret);
+        REQUIRE(bands.caret_x == Catch::Approx(scaled_w).margin(2.0f));
+    }
+
+    SECTION("scaled band height/y also scale") {
+        Label* label = nullptr;
+        auto root = make_tree(label);
+        constexpr float kScale = 2.0f;
+        label->set_transform_origin(0.0f, 0.0f);
+        label->set_scale(kScale);
+
+        // Unscaled band metrics for reference.
+        SpacingCanvas mcanvas;
+        const auto m = label->text_edit_metrics(mcanvas, kText);
+
+        InspectorOverlay overlay(*root);
+        overlay.set_active(true);
+        REQUIRE(overlay.begin_text_edit(label));
+        overlay.text_select_all();
+
+        SpacingCanvas canvas;
+        overlay.paint(canvas);
+
+        // Find the selection band and assert its height == kScale * band_height
+        // and its y == root_y + kScale * local_band_y (origin 0,0).
+        const float scaled_w = kScale * shaped_w;
+        bool found = false;
+        for (const auto& c : canvas.commands()) {
+            if (c.type != pulp::canvas::DrawCommand::Type::fill_rect) continue;
+            if (c.f[2] >= scaled_w - 1.0f && c.f[2] <= scaled_w + 2.0f) {
+                REQUIRE(c.f[1] == Catch::Approx(kScale * m.local_band_y).margin(1.5f));
+                REQUIRE(c.f[3] == Catch::Approx(kScale * m.band_height).margin(1.5f));
+                found = true;
+            }
+        }
+        REQUIRE(found);
+    }
+}

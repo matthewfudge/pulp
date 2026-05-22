@@ -1267,6 +1267,17 @@ private:
     // ── Coordinate helpers ──────────────────────────────────────────
     Rect view_bounds_in_root(const View* v) const;
 
+    // WYSIWYG caret RESIZE — effective on-screen scale of `v`, the product of
+    // its own View::scale() and every ancestor's scale up to (but excluding)
+    // root_. View::paint_all renders a subtree under each ancestor's
+    // `scale(s,s)`, so a glyph at element-local distance d renders d*eff_scale
+    // wide on screen. The inline-text-edit caret/selection overlay multiplies
+    // the unscaled Label::text_edit_metrics by this factor so the caret tracks
+    // the rendered glyphs after a proportional (Shift) resize, which sets
+    // View::set_scale() rather than growing bounds. Returns 1.0 for an
+    // untransformed chain.
+    float effective_scale_in_root(const View* v) const;
+
     // ── Paint helpers ───────────────────────────────────────────────
     void paint_highlight(Canvas& canvas);
     // P2c — paint the reflow-move drop affordance: a blue insertion line
