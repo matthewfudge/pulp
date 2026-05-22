@@ -126,6 +126,25 @@ public:
     virtual void* dawn_queue_handle() const { return nullptr; }
     virtual void* dawn_instance_handle() const { return nullptr; }
     virtual render::GpuSurface* gpu_surface() const { return nullptr; }
+
+    /// Most recent whole-recording GPU *render* time in milliseconds for the
+    /// last presented frame, or 0 when GPU timing is unavailable (CPU host,
+    /// adapter without `timestamp-query`, or no sample landed yet).
+    ///
+    /// This is render-recording time (Skia Graphite's whole-recording
+    /// GpuStats elapsed time as exposed by `SkiaSurface::gpu_render_time_ms()`),
+    /// NOT total frame time and NOT a per-pass number. See
+    /// `planning/2026-05-21-gpu-timestamp-readback-proposal.md`. GPU-backed
+    /// platform hosts forward this from their `SkiaSurface`; the base and
+    /// CPU/non-GPU hosts return 0.
+    virtual double gpu_render_time_ms() const { return 0.0; }
+
+    /// Whether whole-recording GPU render timing is available this run — the
+    /// host owns a `SkiaSurface` whose
+    /// `SkiaSurface::gpu_render_timing_available()` is true. When false the
+    /// inspector should show the honest "GPU timing unavailable" rather than 0.
+    virtual bool gpu_render_timing_available() const { return false; }
+
     virtual ContentSize get_content_size() const;
 
     // Attach/detach a platform-native child view inside this host. Coordinates

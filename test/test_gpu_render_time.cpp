@@ -10,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <pulp/render/gpu_render_time.hpp>
+#include <pulp/render/render_pass.hpp>
 
 using namespace pulp::render;
 
@@ -69,4 +70,84 @@ TEST_CASE("GpuRenderTimeTracker retains the last good sample across no-sample fr
     // A new valid sample updates it.
     t.store(5'000'000, true);            // 5 ms
     REQUIRE(t.last_ms() == 5.0);
+}
+
+// ── RenderPassManager frame-level (whole-recording) GPU render time ──────────
+// Follow-up #2611 plumbing: a FRAME-level GPU render time on the manager,
+// distinct from the per-pass set_pass_gpu_time(). This is the value the
+// WindowHost forwards from SkiaSurface::gpu_render_time_ms() and that the
+// inspector surfaces as `gpu_render_time_ms`.
+
+TEST_CASE("RenderPassManager frame GPU render time starts unavailable",
+          "[render][gpu-render-time][render-pass][issue-2611]") {
+    RenderPassManager rpm;
+    REQUIRE_FALSE(rpm.gpu_render_timing_available());
+    REQUIRE(rpm.gpu_render_time_ms() == 0.0f);
+}
+
+TEST_CASE("RenderPassManager stores a valid frame GPU render time",
+          "[render][gpu-render-time][render-pass][issue-2611]") {
+    RenderPassManager rpm;
+    rpm.set_gpu_render_time_ms(4.5f, /*valid=*/true);
+    REQUIRE(rpm.gpu_render_timing_available());
+    REQUIRE(rpm.gpu_render_time_ms() == 4.5f);
+}
+
+TEST_CASE("RenderPassManager rejects an invalid or negative frame GPU sample",
+          "[render][gpu-render-time][render-pass][issue-2611]") {
+    RenderPassManager rpm;
+
+    // valid=false never marks the sample available, regardless of ms.
+    rpm.set_gpu_render_time_ms(7.0f, /*valid=*/false);
+    REQUIRE_FALSE(rpm.gpu_render_timing_available());
+
+    // A negative duration is treated as "no sample" even when valid=true.
+    rpm.set_gpu_render_time_ms(-1.0f, /*valid=*/true);
+    REQUIRE_FALSE(rpm.gpu_render_timing_available());
+}
+
+TEST_CASE("RenderPassManager frame GPU validity resets on begin_frame",
+          "[render][gpu-render-time][render-pass][issue-2611]") {
+    RenderPassManager rpm;
+    rpm.set_gpu_render_time_ms(3.0f, /*valid=*/true);
+    REQUIRE(rpm.gpu_render_timing_available());
+    REQUIRE(rpm.gpu_render_time_ms() == 3.0f);
+
+    // A fresh frame invalidates last frame's sample so a stale read between
+    // begin_frame() and the next set is reported as unavailable...
+    rpm.begin_frame();
+    REQUIRE_FALSE(rpm.gpu_render_timing_available());
+    // ...but the prior value is retained until a new sample lands, so the
+    // inspector can keep showing the most-recent real number with a stale flag.
+    REQUIRE(rpm.gpu_render_time_ms() == 3.0f);
+
+    // Feeding this frame's sample restores availability.
+    rpm.set_gpu_render_time_ms(6.0f, /*valid=*/true);
+    REQUIRE(rpm.gpu_render_timing_available());
+    REQUIRE(rpm.gpu_render_time_ms() == 6.0f);
+}
+
+TEST_CASE("RenderPassManager frame GPU time is independent of per-pass GPU time",
+          "[render][gpu-render-time][render-pass][issue-2611]") {
+    RenderPassManager rpm;
+    rpm.begin_frame();
+    rpm.begin_pass(RenderPassType::content);
+    rpm.end_pass(5.0f, 10);
+    rpm.end_frame();
+
+    // Per-pass GPU timing and frame-level GPU render time are separate seams.
+    REQUIRE_FALSE(rpm.has_gpu_timing());
+    REQUIRE_FALSE(rpm.gpu_render_timing_available());
+
+    // Set only the per-pass clock: frame-level stays unavailable.
+    rpm.set_pass_gpu_time(0, 2.0f);
+    REQUIRE(rpm.has_gpu_timing());
+    REQUIRE_FALSE(rpm.gpu_render_timing_available());
+
+    // Set only the frame-level clock on a fresh frame: per-pass stays empty.
+    rpm.begin_frame();
+    rpm.set_gpu_render_time_ms(8.0f, true);
+    REQUIRE(rpm.gpu_render_timing_available());
+    REQUIRE(rpm.gpu_render_time_ms() == 8.0f);
+    REQUIRE_FALSE(rpm.has_gpu_timing());
 }

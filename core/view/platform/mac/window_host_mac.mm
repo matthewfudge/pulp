@@ -1748,6 +1748,17 @@ public:
         return gpu_surface_ ? gpu_surface_->dawn_instance_handle() : nullptr;
     }
     render::GpuSurface* gpu_surface() const override { return gpu_surface_.get(); }
+
+    // Whole-recording GPU render time for the last presented frame, forwarded
+    // from the owning SkiaSurface (Graphite GpuStats elapsed time). Guards null
+    // so a host whose surface failed to create reports the honest no-op.
+    double gpu_render_time_ms() const override {
+        return skia_surface_ ? skia_surface_->gpu_render_time_ms() : 0.0;
+    }
+    bool gpu_render_timing_available() const override {
+        return skia_surface_ ? skia_surface_->gpu_render_timing_available() : false;
+    }
+
     bool attach_native_child_view(void* child_view,
                                   float x,
                                   float y,
