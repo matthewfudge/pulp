@@ -9,6 +9,7 @@
 #include <pulp/inspect/editor_url.hpp>
 #include <pulp/inspect/source_jump.hpp>
 #include <pulp/inspect/tweak_store.hpp>
+#include <pulp/state/edit_history.hpp>
 
 #include <choc/containers/choc_Value.h>
 
@@ -16,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -33,16 +35,52 @@ class InspectorOverlay {
 public:
     explicit InspectorOverlay(View& root);
 
+    // The root View this overlay inspects and paints into. Used by the
+    // installed paint hook to gate (WYSIWYG P2e): the overlay's selection box /
+    // handles / drop indicators paint only when this exact root is the one being
+    // painted, so they never leak into the floating inspector window's surface.
+    View& inspected_root() const { return root_; }
+
     // ── Toggle ──────────────────────────────────────────────────────
     bool is_active() const { return active_; }
     void set_active(bool active);
     void toggle() { set_active(!active_); }
+
+    // ── P3 — Figma-style tool palette ───────────────────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+    // § "Future idea — Figma-style tool palette + inline text editing".)
+    // The active tool gates what a canvas click DOES, making the
+    // select-vs-manipulate-vs-edit modality explicit (Figma convention):
+    //   - Select (V): the existing overlay behavior — click selects,
+    //     body-drag moves (reflow), handle-drag resizes, Shift scales.
+    //     UNCHANGED.
+    //   - Text (T): click a text-bearing element (Label / TextEditor) to
+    //     edit its copy in place. Enter commits (live View text + a `text`
+    //     content tweak, one undoable EditHistory unit), Esc cancels.
+    // Default Select so every existing host + test is unaffected until the
+    // user opts into the Text tool. V/T are bound in handle_key_event(),
+    // gated to active_ && editing_field_.empty() && text edit not in
+    // progress so they never fire mid-edit.
+    enum class Tool : std::uint8_t { select, text };
+    Tool tool() const { return tool_; }
+    void set_tool(Tool t);
+    void toggle_tool() {
+        set_tool(tool_ == Tool::select ? Tool::text : Tool::select);
+    }
 
     // ── Input interception ──────────────────────────────────────────
     // Call from host BEFORE dispatching to view tree.
     // Returns true if the inspector consumed the event.
     bool handle_key_event(const KeyEvent& event);
     bool handle_mouse_event(const MouseEvent& event);
+    // Text-tool inline editing consumes UTF-8 character input (separate
+    // from KeyEvent, which carries no character payload). The host routes
+    // TextInputEvents here BEFORE the view tree while the overlay is
+    // active; returns true when an inline text edit is in progress and
+    // the text was appended to the edit buffer. A no-op (returns false)
+    // otherwise, so non-text-tool input falls through to widgets.
+    bool handle_text_input(const TextInputEvent& event);
 
     // ── Painting ────────────────────────────────────────────────────
     // Call AFTER View::paint_overlays() to paint on top of everything.
@@ -75,6 +113,82 @@ public:
     void set_tweak_store(TweakStore* store) { tweak_store_ = store; }
     TweakStore* tweak_store() const { return tweak_store_; }
 
+    /// P2a (undo safety net) —
+    /// planning/2026-05-21-wysiwyg-direct-manipulation-extension.md § R2.2.
+    /// Attach an EditHistory so every committed manipulation gesture
+    /// (drag-to-move, corner-resize, tweak-panel delete) becomes ONE
+    /// undoable unit. Each gesture's commit pushes a single entry whose
+    /// undo restores BOTH the live View layout inputs AND the TweakStore
+    /// to the exact pre-gesture state — nothing is ever lost. Cmd+Z /
+    /// Cmd+Shift+Z (or Cmd+Y) in handle_key_event() drive undo / redo and
+    /// repaint. When null (the default), gestures behave exactly as before
+    /// (no undo) — the EditHistory is a strictly additive safety net.
+    ///
+    /// NOTE: EditHistory coalesces by default (merges consecutive entries
+    /// with the same description), which would fuse two separate moves
+    /// into one undo step. Callers that want one-undo-per-gesture should
+    /// `set_coalesce(false)` on the history before wiring it here.
+    void set_edit_history(pulp::state::EditHistory* h) { edit_history_ = h; }
+    pulp::state::EditHistory* edit_history() const { return edit_history_; }
+
+    /// WYSIWYG T5 — structural reparent → lock-to-source.
+    ///
+    /// A reflow-aware drop that lands a view INSIDE a different container is a
+    /// STRUCTURAL tree edit, not a style tweak. The live View tree reparents +
+    /// undoes via EditHistory (handled below), but the *generated source* must
+    /// also be rewritten so the change persists across a fresh re-import. The
+    /// source rewrite itself lives in the host (it owns the generated artifact
+    /// text + the read/confirm/write loop and the `@generated` guard), so the
+    /// overlay emits the edit through this sink rather than touching files.
+    ///
+    /// Carries the dragged view's stable anchor id (`child_anchor`) and the new
+    /// parent's stable anchor id (`new_parent_anchor`). The host should call
+    /// `pulp::view::reparent_in_source()` against its held generated source.
+    /// Both anchors are guaranteed non-empty when the sink fires (the overlay
+    /// only emits for anchored views). Undo re-emits the edit with the ORIGINAL
+    /// parent, so the host re-derives the inverse rewrite — the engine's
+    /// idempotent `already_current` path keeps repeated emits safe.
+    ///
+    /// WYSIWYG sweep P1 — `insert_after_anchor` carries the requested insertion
+    /// SLOT: the anchor of the sibling the dragged node should follow under the
+    /// new parent, or EMPTY to land as the parent's first child. Without it the
+    /// source rewrite always dropped the node as the first child, losing the
+    /// drop position the user dragged to. Empty is the well-defined "first
+    /// child" sentinel (an empty anchor never resolves to a real sibling).
+    struct ReparentSourceEdit {
+        std::string child_anchor;
+        std::string new_parent_anchor;
+        std::string insert_after_anchor;  // preceding sibling, or "" = first child
+    };
+    void set_reparent_source_sink(std::function<void(const ReparentSourceEdit&)> sink) {
+        reparent_source_sink_ = std::move(sink);
+    }
+    bool has_reparent_source_sink() const {
+        return static_cast<bool>(reparent_source_sink_);
+    }
+
+    /// WYSIWYG P4 FIX 5 (minimal) — clear the attached EditHistory.
+    ///
+    /// The undo/redo closures recorded for each gesture capture the live
+    /// `View*` they mutate (e.g. `View* tgt = selected_;`). If the inspected
+    /// view tree is rebuilt or re-imported (the design re-imported, a live
+    /// React subtree rebuilt) BEFORE the user hits undo, those captured
+    /// pointers dangle and undo would deref freed memory. The minimal,
+    /// guaranteed-safe mitigation is to drop the entire history whenever the
+    /// inspected root is replaced: nothing recorded against the OLD tree can be
+    /// undone against the NEW tree anyway. Hosts that own the EditHistory must
+    /// call this at their root-replacement seam (e.g. right after re-import,
+    /// before the new tree is wired up).
+    ///
+    /// TODO(wysiwyg-p4-followup): the full fix resolves each undo target by
+    /// stable anchor-id at undo time (re-finding the live view in the current
+    /// tree) instead of capturing a raw `View*`, so legitimate cross-import
+    /// undo can survive. That is a larger change tracked as a follow-up; this
+    /// clear is the conservative interim guard.
+    void clear_edit_history() {
+        if (edit_history_) edit_history_->clear();
+    }
+
     /// Emit a tweak for the currently-selected view's anchor. Returns
     /// false if there's no selection, the selection has no anchor_id,
     /// or no TweakStore is attached. Used by gesture-detection code in
@@ -95,6 +209,87 @@ public:
     void set_dragging_enabled(bool enabled) { dragging_enabled_ = enabled; }
     bool dragging_enabled() const { return dragging_enabled_; }
     void toggle_dragging() { dragging_enabled_ = !dragging_enabled_; }
+
+    // ── P1/P2 — minimal in-canvas "manipulate" layer ────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md, P1.)
+    // The full inspector HUD (tree / props / stats side panel) belongs
+    // in the FLOATING InspectorWindow. When the in-canvas overlay is used
+    // purely for direct manipulation (move / resize handles), it should
+    // paint ONLY the selection box + handles, NOT its dev side-panel —
+    // otherwise the panel duplicates the floating window and clutters the
+    // canvas. `manipulate_only_` flips paint() into that bare mode and
+    // makes point_in_panel() always return false so the whole canvas is
+    // live for selection + drag. Default OFF so the standalone dev HUD is
+    // unchanged. When this mode is on, dragging is implicitly enabled so
+    // handles paint without a separate D-key toggle.
+    void set_manipulate_only(bool on) {
+        manipulate_only_ = on;
+        if (on) dragging_enabled_ = true;
+    }
+    bool manipulate_only() const { return manipulate_only_; }
+
+    /// Set the selected view directly (used by the floating Inspector
+    /// window so the two surfaces share one selection). Safe to pass
+    /// nullptr to clear. Does not require the overlay to be active.
+    void set_selected_view(View* v) { selected_ = v; }
+
+    // ── P1 — drill-down / nested selection ──────────────────────────
+    //
+    // Selection resolves to the DEEPEST hittable element at the click
+    // point (View::hit_test already returns deepest). Esc-to-ascend
+    // walks the selection up to its parent so a user can reach a
+    // container after landing on a nested child. select_parent() is a
+    // no-op (returns false) at the root or with no selection.
+    bool select_parent();
+
+    // ── P2d — cursor affordances over the selected element ──────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md, P2d B.)
+    // While dragging mode is on and a view is selected, hovering the
+    // selection should reveal whether a press will MOVE vs RESIZE before the
+    // user commits: a resize cursor (NW/NE/SW/SE diagonal) over a corner
+    // handle, a move cursor (4-way) over the element body, and the default
+    // cursor anywhere else. `cursor_affordance_at` is the pure hit-test that
+    // resolves a root-coord point to the right CursorStyle; the host wires it
+    // through View::set_inspector_cursor_hook so the platform layer applies
+    // the NSCursor continuously on hover. Returns `default_` when there is no
+    // selection, dragging is off, or the point is outside the selection (so
+    // the host falls back to the normal hit-view cursor). Visible for tests.
+    enum class CursorAffordance : std::uint8_t {
+        none, move,
+        resize_nw_se,   ///< TL/BR corner — diagonal ↖↘
+        resize_ne_sw,   ///< TR/BL corner — diagonal ↗↙
+        resize_ns,      ///< T/B edge — vertical ↕
+        resize_ew       ///< L/R edge — horizontal ↔
+    };
+    CursorAffordance cursor_affordance_at(Point pos) const;
+
+    /// P2d (D) — whether a drop indicator (the blue insertion line /
+    /// container highlight) would paint right now. True ONLY during an
+    /// active reflow (non-float) move with a resolved drop target — it is
+    /// always false at rest (no drag), so a selected-but-idle element shows
+    /// exactly one (orange) selection affordance, never a drop indicator.
+    /// Visible for tests so they can assert "no drop indicator when idle"
+    /// without scraping pixels.
+    bool drop_indicator_active() const {
+        return move_active_ && !move_float_ && drop_target_ != nullptr &&
+               (drop_indicator_.width > 0 || drop_indicator_.height > 0);
+    }
+    /// P2i (Refinement A) — test-visible accessors for the resolved reflow
+    /// drop. drop_index() is the insertion slot among the target container's
+    /// visible children (0 == before first, count == after last);
+    /// drop_indicator_is_line() distinguishes the Figma-style between-sibling
+    /// insertion LINE from the empty-container drop-inside HIGHLIGHT;
+    /// drop_indicator_rect() is the indicator geometry in root coords;
+    /// drop_target() is the container the cursor resolved into (or null).
+    int drop_index() const { return drop_index_; }
+    bool drop_indicator_is_line() const { return drop_indicator_is_line_; }
+    Rect drop_indicator_rect() const { return drop_indicator_; }
+    const View* drop_target() const { return drop_target_; }
+    /// Map a CursorAffordance to a View::CursorStyle; returns the int cast
+    /// the cursor hook reports to the host (or -1 for `none`/no override).
+    int cursor_style_for(Point pos) const;
 
     // ── Phase 6.1 — per-pass GPU/render attribution viewer ──────────
     //
@@ -302,12 +497,133 @@ public:
     /// optimistically (none yet — Phase 3b commits only on Enter).
     void cancel_field_edit();
 
+    // ── P3 — inline text editing (Text tool) ────────────────────────
+    //
+    // Distinct from the Phase 3b numeric field edit above: this edits a
+    // text-bearing View's COPY (Label / TextEditor) in place. The Text
+    // tool (set_tool(Tool::text)) routes a canvas click on a text element
+    // here; typing live-updates the View's text for an immediate preview,
+    // Enter commits, Esc cancels. On commit the live text stays AND a
+    // `text` content tweak is emitted via TweakStore as ONE undoable
+    // EditHistory unit (Cmd+Z restores the prior text).
+    //
+    // `text_editing()` is true while an inline text edit is in progress;
+    // `text_edit_buffer()` is the live edited copy; `text_edit_target()`
+    // is the View being edited (or null). These are visible for tests +
+    // host cursor hints.
+    bool text_editing() const { return text_edit_target_ != nullptr; }
+    const std::string& text_edit_buffer() const { return text_edit_buffer_; }
+    View* text_edit_target() const { return text_edit_target_; }
+
+    // WYSIWYG QA BUG 4 — selection chrome predicate. While an inline text edit
+    // is active the orange resize box + corner/edge handles would obstruct the
+    // text being edited (and resize is meaningless mid-edit), so the selection
+    // is drawn as a SUBTLE thin blue outline with NO handles. The Select tool
+    // (move/resize) keeps the orange box + handles. This predicate reports
+    // which chrome paint_highlight() draws for the selected element, so a
+    // headless test can assert "Text-edit mode → no handles / subtle" vs
+    // "Select mode → orange box + handles" without inspecting pixels.
+    bool selection_shows_resize_handles() const {
+        // Handles only ever paint in drag-handles mode AND never while a text
+        // edit is active (the subtle-outline path owns the visuals then).
+        return dragging_enabled_ && !text_editing();
+    }
+    /// True when the selected element should render the subtle thin-blue
+    /// text-edit outline instead of the orange Select-tool box. Gated purely
+    /// on "is a text edit active for the selected view".
+    bool selection_uses_subtle_edit_outline() const {
+        return text_editing() && selected_ != nullptr &&
+               selected_ == text_edit_target_;
+    }
+
+    /// True if `v` exposes editable text the Text tool can edit (today a
+    /// Label or a TextEditor). Used by the Text-tool click path + tests.
+    static bool view_has_editable_text(const View* v);
+    /// Read the current text of a text-bearing View (empty if `v` is null
+    /// or carries no editable text).
+    static std::string editable_text_of(const View* v);
+    /// Write `text` to a text-bearing View's copy, marking layout dirty so
+    /// the new text reflows + repaints. No-op for non-text views.
+    static void set_editable_text_of(View* v, const std::string& text);
+
+    /// Begin an inline text edit of `v`'s copy, seeding the buffer with the
+    /// current text. Returns false when `v` is null or exposes no editable
+    /// text. Visible for tests; production enters via the Text-tool click
+    /// path in handle_mouse_event(). Selects `v` so the selection box +
+    /// the props panel track the edit target.
+    bool begin_text_edit(View* v);
+
+    /// Commit the inline text edit: keep the live View text, emit a `text`
+    /// content tweak (path == text_tweak_path()), and — when an EditHistory
+    /// is wired — push ONE undoable unit whose undo restores the prior
+    /// text on BOTH the live View and the TweakStore. Returns true if a
+    /// tweak was emitted (target has an anchor + a store is wired). Exits
+    /// edit mode regardless.
+    bool commit_text_edit();
+
+    /// Cancel the inline text edit, restoring the View's original text.
+    void cancel_text_edit();
+
+    // ── WYSIWYG T2 — in-place text-edit caret + selection ────────────
+    //
+    // The inline Text-tool edit keeps the LIVE View text (real-UI look —
+    // no TextEditor widget chrome is swapped in). T2 layers TextEditor's
+    // text-manipulation LOGIC on top: a caret index into the buffer, a
+    // selection range, arrow / word / line caret movement, shift-select,
+    // and Cmd+A/C/V/X clipboard. The caret + selection are painted as a
+    // light overlay on the in-place text (see paint()), NOT as a styled
+    // input box. Esc=cancel and Enter/click-away=commit are unchanged.
+
+    /// Caret byte-offset into the edit buffer (UTF-8 boundary-aligned).
+    std::size_t text_caret() const { return text_caret_; }
+    /// Selection range as [start, end) byte offsets (start == end → none).
+    std::pair<std::size_t, std::size_t> text_selection() const;
+    bool text_has_selection() const { return text_caret_ != text_sel_anchor_; }
+
+    /// Move the caret by `delta` UTF-8 codepoints (negative = left). When
+    /// `extend` is true the selection anchor stays put (shift-select);
+    /// otherwise the selection collapses to the new caret.
+    void text_move_caret(int delta, bool extend);
+    /// Move the caret one word in `direction` (-1 left / +1 right), skipping
+    /// the run of non-word then word bytes (Option/Alt+Arrow). `extend` =
+    /// shift-select.
+    void text_move_word(int direction, bool extend);
+    /// Move the caret to the buffer start / end (Cmd+Left / Cmd+Right /
+    /// Home / End — single-line). `extend` = shift-select.
+    void text_move_home(bool extend);
+    void text_move_end(bool extend);
+    /// Select the entire buffer (Cmd+A).
+    void text_select_all();
+    /// Clipboard: copy / cut / paste the selection (Cmd+C / X / V). Copy
+    /// returns false when there is no selection; cut/paste mutate the
+    /// buffer + live View text. Paste replaces the selection (or inserts
+    /// at the caret when none).
+    bool text_copy();
+    bool text_cut();
+    bool text_paste();
+    /// Insert UTF-8 text at the caret, replacing any selection. The shared
+    /// insertion path for typed characters (handle_text_input) and paste.
+    void text_insert(const std::string& utf8);
+    /// Delete the selection if any; otherwise the codepoint before the
+    /// caret (Backspace) or after it (Delete / forward-delete).
+    void text_delete_backward();
+    void text_delete_forward();
+
+    /// Dotted property path the Text tool writes the edited copy to.
+    /// Defaults to "text" (the JSX text-node content). A host could
+    /// retarget it; the setter ignores empty strings.
+    const std::string& text_tweak_path() const { return text_tweak_path_; }
+    void set_text_tweak_path(std::string path) {
+        if (!path.empty()) text_tweak_path_ = std::move(path);
+    }
+
     // ── Phase 2.5 — tweak management panel (Photoshop-layers style) ─
     //
     // A scrollable panel listing every tweak in the attached
     // TweakStore, grouped by anchor. Each tweak row carries three
     // per-tweak controls: bypass (eye), lock, and delete. Toggled with
-    // the `T` key while the inspector is active. Default OFF so the
+    // `Shift+T` while the inspector is active (the bare `T` key now
+    // selects the Figma-style Text tool — P3). Default OFF so the
     // pre-2.5 inspector layout is unchanged until the user opts in.
     void set_tweaks_panel_visible(bool visible) { tweaks_panel_visible_ = visible; }
     bool tweaks_panel_visible() const { return tweaks_panel_visible_; }
@@ -557,6 +873,34 @@ private:
     float edit_original_value_ = 0.0f;
     View* edit_target_view_ = nullptr;  ///< Owner of the editing field.
 
+    // ── P3 — tool palette + inline text edit state ──────────────────
+    //
+    // tool_ is the active canvas tool (Select default, Text). The Text
+    // tool drives the inline-text-edit state below: text_edit_target_ is
+    // the View whose copy is being edited (null = not editing),
+    // text_edit_buffer_ is the live edited string, text_edit_original_ is
+    // the copy at edit start (for Esc-cancel + undo). text_tweak_path_ is
+    // the dotted path the committed copy is persisted under ("text").
+    Tool tool_ = Tool::select;
+    View* text_edit_target_ = nullptr;
+    std::string text_edit_buffer_;
+    std::string text_edit_original_;
+    std::string text_tweak_path_ = "text";
+
+    // WYSIWYG T2 — caret + selection over the live in-place edit buffer.
+    // text_caret_ is the active caret byte-offset; text_sel_anchor_ is the
+    // selection anchor (== caret when there is no selection). Both are kept
+    // on UTF-8 codepoint boundaries. text_blink_ticks_ is a free-running
+    // paint counter that drives the blink (no wall clock needed — works
+    // headless); the caret shows while (ticks / kBlinkPeriod) is even.
+    std::size_t text_caret_ = 0;
+    std::size_t text_sel_anchor_ = 0;
+    mutable std::uint32_t text_blink_ticks_ = 0;
+
+    // T2 paint helper — draw the caret + selection highlight as a light
+    // overlay on the live in-place edit (called from paint()).
+    void paint_text_edit_overlay(Canvas& canvas);
+
     // Ordered list of editable fields populated during paint_props_section()
     // — used (a) for Tab to walk forward, and (b) for click hit-testing.
     struct EditableField {
@@ -621,6 +965,83 @@ private:
     // When null, emit_tweak_for_selection() is a no-op.
     TweakStore* tweak_store_ = nullptr;
 
+    // P2a (undo safety net): optional EditHistory. When null, gestures
+    // apply exactly as before with no undo entry pushed. See
+    // set_edit_history().
+    pulp::state::EditHistory* edit_history_ = nullptr;
+
+    // WYSIWYG T5: optional sink for promoting a live structural reparent into
+    // the generated source. When null (the default), a reparent affects only
+    // the live tree + EditHistory; the structural edit is not locked to source.
+    // See set_reparent_source_sink().
+    std::function<void(const ReparentSourceEdit&)> reparent_source_sink_ = nullptr;
+
+    // ── P2a — gesture undo helpers ──────────────────────────────────
+    //
+    // A snapshot of every live View layout input a gesture mutates, plus
+    // the prior TweakStore value for each path the gesture writes (so undo
+    // can apply-or-remove). Captured at gesture START, consumed at COMMIT
+    // when building the EditHistory entry's undo lambda.
+    struct LayoutSnapshot {
+        // Resize inputs.
+        float preferred_width = 0.0f;
+        float preferred_height = 0.0f;
+        Dimension dim_width{};
+        Dimension dim_height{};
+        // Move inputs.
+        View::Position position = View::Position::static_;
+        float left = 0.0f;
+        float top = 0.0f;
+        DimensionUnit left_unit = DimensionUnit::px;
+        DimensionUnit top_unit = DimensionUnit::px;
+        bool has_left = false;
+        bool has_top = false;
+        // P2c — content scale (proportional resize via View::set_scale()).
+        float scale = 1.0f;
+        // P2i (Refinement B) — transform-origin + overflow captured so undo
+        // of a proportional resize also reverts the top-left scale anchor and
+        // the box-clip we apply to keep scaled content inside the box.
+        float origin_x = 0.5f;
+        float origin_y = 0.5f;
+        View::Overflow overflow = View::Overflow::visible;
+        // Resolved bounds at capture (so undo restores the local paint box
+        // before Yoga's next layout pass overwrites it).
+        Rect bounds{};
+    };
+
+    // Per-path prior-value capture: nullopt means "no tweak existed, so
+    // undo must remove_tweak"; a value means "restore via apply_tweak".
+    struct PriorTweak {
+        std::string path;
+        std::optional<choc::value::Value> value;
+    };
+
+    // Capture the resize-relevant View inputs of the selected view.
+    LayoutSnapshot snapshot_layout(const View* v) const;
+    // Restore a previously-captured snapshot onto `v` (resize fields only
+    // for resize undo, plus position/insets for move undo). Re-applies the
+    // captured bounds and invalidates layout.
+    void restore_layout(View* v, const LayoutSnapshot& s) const;
+    // Capture the current TweakStore values for `paths` under `anchor`.
+    std::vector<PriorTweak> snapshot_tweaks(
+        std::string_view anchor,
+        const std::vector<std::string>& paths) const;
+    // Apply a previously-captured prior-tweak list: restore-or-remove each.
+    void restore_tweaks(std::string_view anchor,
+                        const std::vector<PriorTweak>& prior,
+                        std::string_view source) const;
+
+    // Resize gesture-start captures (consumed at resize commit to build the
+    // EditHistory entry). Populated alongside drag_start_pref_w_/h_.
+    LayoutSnapshot resize_before_layout_{};
+    std::vector<PriorTweak> resize_before_tweaks_;
+    std::string resize_anchor_;
+
+    // Move gesture-start captures (consumed at move commit).
+    LayoutSnapshot move_before_layout_{};
+    std::vector<PriorTweak> move_before_tweaks_;
+    std::string move_anchor_;
+
     // Phase 5.1: editor-URL config for the `J` source-jump hotkey.
     // Defaults to the built-in VS Code template; the env override
     // (PULP_INSPECTOR_EDITOR_URL) still applies at jump time.
@@ -672,17 +1093,158 @@ private:
     // behaves identically to the pre-3a build until the user opts in
     // (D-key toggle in handle_key_event).
     bool dragging_enabled_ = false;
-    enum class DragCorner : std::uint8_t { none, nw, ne, sw, se };
+    // Resize handles: four corners + four edge midpoints. Edge handles
+    // resize a single axis (n/s → height, e/w → width); corner handles
+    // resize both. WYSIWYG P2h added the edges so the selection box can
+    // be resized from any side, not only the corners, and so each zone
+    // can drive a context-aware resize cursor (REGRESSION 2 / 5).
+    enum class DragCorner : std::uint8_t {
+        none, nw, ne, sw, se, n, s, e, w
+    };
     DragCorner active_drag_ = DragCorner::none;
     Point drag_start_pos_{};         // mouse pos when drag began (root coords)
     Rect drag_start_bounds_{};       // selected_->bounds() snapshot
     float drag_start_pref_w_ = 0.0f; // flex().preferred_width snapshot
     float drag_start_pref_h_ = 0.0f; // flex().preferred_height snapshot
 
+    // ── P2c — proportional (Shift) resize ───────────────────────────
+    //
+    // (planning/2026-05-21 § R2.3.) Plain corner-drag resizes the box
+    // (children reflow). Shift + corner-drag SCALES the container's
+    // CONTENT proportionally — a uniform View::set_scale() on the
+    // selected view tied to the box delta, so the panel keeps its
+    // internal proportions instead of just stretching the box. We track
+    // whether the active resize is proportional and the content scale at
+    // gesture start so undo restores it exactly.
+    bool resize_proportional_ = false;   // Shift held when this resize began
+    float drag_start_scale_ = 1.0f;      // selected_->scale() at gesture start
+
     // Returns the corner whose 8px handle hit-rectangle contains `pos`,
     // for the currently-selected view (root coords). Returns
     // DragCorner::none if no handle is hit or no view selected.
     DragCorner hit_test_drag_handle(Point pos) const;
+
+    // Map a resize-handle corner/edge to its cursor affordance. Pure
+    // helper shared by cursor_affordance_at's active-drag pin and
+    // idle-hover paths (WYSIWYG P2h). Declared after DragCorner so the
+    // return/parameter types are complete at the declaration point.
+    static CursorAffordance affordance_for_corner(DragCorner c);
+
+    // ── P1 — minimal manipulate layer ───────────────────────────────
+    // When true, paint() draws only the selection box + handles (no dev
+    // side-panel) and point_in_panel() reports false everywhere. See
+    // set_manipulate_only().
+    bool manipulate_only_ = false;
+
+    // ── P2 — drag-to-move gesture state ─────────────────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md, P2.)
+    // A body-drag (mouse-down on the selected view's body, NOT a resize
+    // handle) repositions the view via position:absolute + left/top.
+    // Mirrors the Phase 3a resize state machine: press starts, every
+    // is_down=false event live-updates and overwrites the tweaks, the
+    // next is_down=true ends the gesture. The three move tweaks
+    // (layout.position / layout.left / layout.top) land in a single
+    // atomic TweakStore batch each tick.
+    bool move_active_ = false;            // a move gesture is in progress
+    bool move_refused_grid_ = false;      // last body-press was refused (grid parent)
+    Point move_start_pos_{};              // mouse pos when move began (root coords)
+    float move_seed_left_ = 0.0f;         // seeded left at conversion (no delta)
+    float move_seed_top_ = 0.0f;          // seeded top at conversion (no delta)
+
+    // ── P2d (C) — drag ghost for smooth reflow-move tracking ─────────
+    //
+    // A reflow (non-float) move does NOT mutate the live layout while
+    // dragging — the dragged element stays in flow and only the drop
+    // indicator moves. Without a follower, the element appears to do
+    // nothing and then teleport to the drop slot on release (the "jumpy"
+    // feel the maintainer reported). To make the drag track the cursor
+    // fluidly we paint a translucent GHOST of the dragged element that
+    // follows the pointer with a STABLE grab offset (the delta between the
+    // press point and the element's top-left), so there is no teleport on
+    // grab and no per-tick jitter — the ghost is pure paint, no relayout.
+    // move_grab_offset_ is (press - element-origin) captured once at press;
+    // move_ghost_ is the element's size, also captured at press so the
+    // ghost keeps a constant size even though no relayout runs.
+    Point move_grab_offset_{};            // press point minus element origin
+    Rect move_ghost_{};                   // element bounds snapshot at press
+    Point move_cursor_{};                 // latest cursor pos during the drag
+
+    // ── P2c — reflow-aware move (Figma feel) ────────────────────────
+    //
+    // (planning/2026-05-21 § Refinement 2.) The DEFAULT body-drag is now
+    // REFLOW-AWARE, not free-absolute: during the drag we resolve a drop
+    // target (an insertion point between flex siblings, or a container to
+    // drop INTO) and on release we reorder via flex().order and/or
+    // reparent via remove_child/add_child, then the tree reflows. The
+    // free-absolute float (position:absolute + left/top) is the explicit
+    // ⌘-drag escape hatch.
+    //
+    // move_float_ is true for a ⌘-drag (absolute float). When false, the
+    // gesture is reflow-aware and the drop-target fields below describe
+    // where a release would land.
+    bool move_float_ = false;
+
+    // The container the cursor is currently over for a reflow drop, and
+    // the insertion index among that container's children (0..count).
+    // When drop_inside_ is true the element reparents INTO drop_target_
+    // (appended / inserted at drop_index_); when false it reorders among
+    // drop_target_'s existing children at drop_index_. null target = no
+    // valid drop resolved this tick (release is a no-op reflow).
+    View* drop_target_ = nullptr;
+    int drop_index_ = 0;
+    bool drop_inside_ = false;
+    // Geometry of the drop affordance in root coords, computed each move
+    // tick for paint(): an insertion LINE (zero-area rect along an edge)
+    // when reordering, or a container HIGHLIGHT rect when dropping inside.
+    Rect drop_indicator_{};
+    bool drop_indicator_is_line_ = false;
+
+    // Resolve the drop target for the current cursor position during a
+    // reflow move. Walks the tree for the deepest flex container under
+    // the cursor (excluding the dragged subtree), picks an insertion gap
+    // among its children by the cursor's main-axis position, and fills
+    // drop_target_ / drop_index_ / drop_inside_ / drop_indicator_*.
+    void resolve_drop_target(Point pos);
+    // Commit the resolved reflow drop: reorder (rewrite flex().order) or
+    // reparent (remove_child + add_child at drop_index_). Returns true if
+    // the tree actually changed. Normalizes sibling order on success.
+    bool commit_reflow_drop(View* dragged);
+    // True if `ancestor` is `v` or an ancestor of `v` — guards against
+    // dropping a node into its own subtree.
+    static bool is_self_or_ancestor(const View* ancestor, const View* v);
+
+    // Structural primitive: detach `v` from its current parent and insert
+    // it into `new_parent` at child index `index` (clamped). When the view
+    // is already a child of new_parent the index is honored (reorder by
+    // insertion position). No-op when v / new_parent is null. Used by the
+    // reflow commit and by undo/redo to round-trip a reparent. Updates
+    // selected_ to keep pointing at the moved view (its address is stable —
+    // ownership transfers via unique_ptr, the View itself is not copied).
+    void reparent_view(View* v, View* new_parent, int index);
+
+    // True if `pos` (root coords) is inside the selected view's body but
+    // NOT on a resize handle — the body-drag trigger for a move.
+    bool hit_test_body(Point pos) const;
+
+    // Resolve the containing block Yoga uses for the selected view's
+    // absolute insets: the nearest ancestor View whose position is NOT
+    // static_/relative-mapped-as-static (i.e. relative/absolute/fixed),
+    // else the root. Returns the ancestor and its origin in root coords.
+    // Because Pulp maps static_ -> Yoga Relative, in practice the
+    // immediate parent is almost always the containing block.
+    const View* containing_block_of(const View* v, Rect& block_root_out) const;
+
+    // Seed left/top so converting `v` to absolute does not visually jump,
+    // using the border-edge formula from the plan:
+    //   left = childRootX - blockRootX - blockBorderLeft - childMarginLeft
+    //   top  = childRootY - blockRootY - blockBorderTop  - childMarginTop
+    // Writes the seed into move_seed_left_ / move_seed_top_.
+    void seed_move_origin(const View* v);
+
+    // Whether the selected view's PARENT is a grid container — a move is
+    // refused for grid children (grid ignores position/top/left today).
+    bool selected_parent_is_grid() const;
 
     // ── Phase 3c — color eyedropper state ───────────────────────────
     // Off by default so the inspector behaves identically to the
@@ -732,11 +1294,72 @@ private:
     std::vector<TreeItem> flat_tree_;
     void rebuild_flat_tree();
 
+    // WYSIWYG P5 FIX 1 — text_edit_target_ is a raw View*. If the edited
+    // Label/TextEditor is destroyed mid-edit (e.g. a live React tree
+    // rebuild), every subsequent text op (handle_text_input, Backspace,
+    // commit/cancel) would deref freed memory. These guards keep the
+    // text-edit state coherent with the live tree:
+    //   - text_edit_target_reachable() walks from root_ to confirm the
+    //     target is still attached (does NOT deref the target itself).
+    //   - clear_text_edit_state() drops the target + buffers WITHOUT
+    //     touching the (possibly freed) view.
+    bool text_edit_target_reachable() const;
+    void clear_text_edit_state();
+
+    // WYSIWYG sweep P1 — resolve a live View by its stable anchor id at
+    // undo/redo time. The text-edit and reparent EditHistory closures used to
+    // capture raw `View*` (e.g. `View* tgt = selected_;`). When a live React
+    // SUBTREE rebuilds before the user hits Cmd+Z — which clear_edit_history()
+    // does NOT cover, since it only fires at ROOT replacement — those pointers
+    // dangle and undo derefs freed memory. Anchored captures now store the
+    // anchor id and re-find the live view here (nullptr → graceful no-op).
+    // Returns nullptr for an empty anchor or a view no longer in the tree.
+    View* resolve_anchor(const std::string& anchor) const;
+
+    // WYSIWYG sweep P1 — the anchor of the VISIBLE sibling immediately preceding
+    // `child` under `parent` in flex-order (or "" when `child` is the first
+    // child / parent is null / the preceding sibling is un-anchored). Used to
+    // carry the requested insertion SLOT in ReparentSourceEdit so the source
+    // rewrite drops the moved block at the dragged position, not first-child.
+    static std::string preceding_sibling_anchor(const View* parent,
+                                                 const View* child);
+
+    // WYSIWYG sweep P1 — un-anchored fallback. Some edited/reparented views
+    // carry NO anchor (e.g. a --script Chainer label), so they cannot be
+    // re-found by anchor. For those we keep the raw-pointer capture but RECORD
+    // the pointer here; rebuild_flat_tree() clears the WHOLE EditHistory if any
+    // tracked raw view left the tree, before its closures can deref it. Anchored
+    // captures never go in this set (they self-heal via resolve_anchor).
+    std::vector<View*> raw_history_views_;
+    void track_raw_history_view(View* v);
+    bool any_raw_history_view_dangling() const;
+
     // ── Coordinate helpers ──────────────────────────────────────────
     Rect view_bounds_in_root(const View* v) const;
 
+    // WYSIWYG caret RESIZE — effective on-screen scale of `v`, the product of
+    // its own View::scale() and every ancestor's scale up to (but excluding)
+    // root_. View::paint_all renders a subtree under each ancestor's
+    // `scale(s,s)`, so a glyph at element-local distance d renders d*eff_scale
+    // wide on screen. The inline-text-edit caret/selection overlay multiplies
+    // the unscaled Label::text_edit_metrics by this factor so the caret tracks
+    // the rendered glyphs after a proportional (Shift) resize, which sets
+    // View::set_scale() rather than growing bounds. Returns 1.0 for an
+    // untransformed chain.
+    float effective_scale_in_root(const View* v) const;
+
     // ── Paint helpers ───────────────────────────────────────────────
     void paint_highlight(Canvas& canvas);
+    // P2c — paint the reflow-move drop affordance: a blue insertion line
+    // between siblings (reorder) or a translucent container highlight
+    // (drop-inside). No-op when no reflow move is in progress / no drop
+    // target resolved.
+    void paint_drop_indicator(Canvas& canvas);
+    // P2d (C) — paint the translucent drag ghost that follows the cursor
+    // during a reflow (non-float) move, giving the move smooth cursor
+    // tracking without any per-tick relayout. No-op when no reflow move is
+    // active.
+    void paint_drag_ghost(Canvas& canvas);
     void paint_distance_lines(Canvas& canvas);
     void paint_box_model(Canvas& canvas, const View* v);
     void paint_panel(Canvas& canvas);
@@ -821,6 +1444,56 @@ private:
     static constexpr float kZoomReadoutH    = 36.0f;
     static constexpr float kZoomPanelMargin = 12.0f;
 };
+
+/// P2 two-IR-worlds shim
+/// (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md).
+///
+/// The move gesture emits `layout.position` / `layout.left` / `layout.top`
+/// tweaks — the same `layout.*` namespace the existing resize tweaks and
+/// the TS import-IR use, so the TS/React runtime path (applyTweaks ->
+/// setByDottedPath -> layout section -> setPosition/setTop/setLeft bridge
+/// calls) and lock-to-source Path A (lock_property_to_style_name strips
+/// `layout.` and finds position/top/left in its allow-list) consume them
+/// directly. The C++ JSON-import + codegen path, however, reads position
+/// from `IRStyle.{position,top,left}` (the `style.*` world), so a project
+/// that drives the *native* runtime apply path needs a tiny mapping from
+/// the `layout.*` tweak namespace onto the live View setters.
+///
+/// `apply_move_tweak_to_view` is that mapping: given a dotted move-tweak
+/// property path and its value, it writes the corresponding View input
+/// (set_position / set_left / set_top), so a move tweak round-trips on
+/// the C++/native path the same way it does in the TS world. Returns true
+/// if the path was a recognized move property and was applied. Accepts
+/// either the `layout.*` namespace (the move gesture's emission) or the
+/// bare leaf (`position` / `left` / `top`). Unknown paths return false
+/// without touching the view.
+bool apply_move_tweak_to_view(View& view,
+                              std::string_view property_path,
+                              const choc::value::Value& value);
+
+/// Computed top-left placement for a selection badge (the `type W×H`
+/// hover tooltip and the grid-refuse "can't move" badge).
+struct BadgePlacement {
+    float x = 0.0f;
+    float y = 0.0f;
+    bool below = false;  ///< true when flipped below the selection
+};
+
+/// Place a badge of size (@p badge_w × @p badge_h) for a selection whose
+/// top-left is at (@p sel_x, @p sel_y) with height @p sel_h.
+///
+/// Default position is ABOVE the selection (sel_y - gap - badge_h). When
+/// that would clip under the window top (badge top < @p top_margin), the
+/// badge flips to BELOW the selection (sel_y + sel_h + gap). The x is
+/// clamped so the badge never runs off the left (< 0) or right
+/// (> root_w - badge_w) edge. @p root_w <= 0 disables the right clamp.
+///
+/// Pure arithmetic so it is unit-testable headlessly (WYSIWYG P6 FIX 2).
+BadgePlacement compute_badge_placement(float sel_x, float sel_y, float sel_h,
+                                       float badge_w, float badge_h,
+                                       float root_w,
+                                       float gap = 5.0f,
+                                       float top_margin = 0.0f);
 
 /// Global inspector instance for the current window.
 /// Set by the host when creating the inspector. The platform WindowHost

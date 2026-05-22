@@ -378,7 +378,7 @@ TEST_CASE("View pointer capture hover and inspector hooks cover edge paths",
         ++key_calls;
         return event.key == KeyCode::escape;
     });
-    View::set_inspector_mouse_hook([&](const MouseEvent& event) {
+    View::set_inspector_mouse_hook([&](const MouseEvent& event, View*) {
         ++mouse_calls;
         return event.is_down;
     });
@@ -398,10 +398,13 @@ TEST_CASE("View pointer capture hover and inspector hooks cover edge paths",
         }
     });
     View::overlay_queue().push_back(View::OverlayRequest{});
-    View::set_inspector_paint_hook([&](pulp::canvas::Canvas& canvas) {
-        ++paint_hook_calls;
-        canvas.fill_rect(1, 1, 1, 1);
-    });
+    View* last_painting_root = nullptr;
+    View::set_inspector_paint_hook(
+        [&](pulp::canvas::Canvas& canvas, View* painting_root) {
+            ++paint_hook_calls;
+            last_painting_root = painting_root;
+            canvas.fill_rect(1, 1, 1, 1);
+        });
 
     pulp::canvas::RecordingCanvas canvas;
     View::paint_overlays(canvas);
@@ -409,10 +412,104 @@ TEST_CASE("View pointer capture hover and inspector hooks cover edge paths",
     REQUIRE(overlay_calls == 1);
     REQUIRE(paint_hook_calls == 1);
     REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::fill_rect) == 2);
+    // No painting root supplied → hook receives nullptr (legacy/headless path).
+    REQUIRE(last_painting_root == nullptr);
+
+    // WYSIWYG P2e: paint_overlays forwards the painting root to the hook so it
+    // can gate which root the inspector overlay paints into.
+    View probe_root;
+    View::set_inspector_paint_hook(
+        [&](pulp::canvas::Canvas&, View* painting_root) {
+            last_painting_root = painting_root;
+        });
+    View::paint_overlays(canvas, &probe_root);
+    REQUIRE(last_painting_root == &probe_root);
 
     View::set_inspector_key_hook({});
     View::set_inspector_mouse_hook({});
     View::set_inspector_paint_hook({});
+}
+
+// WYSIWYG P4 FIX 1 — the mouse / cursor / text inspector hooks now carry the
+// event's root View so the installed hook can gate to the inspected canvas
+// root (mirroring the paint-hook root-gate above). This proves the call
+// forwards the root and that an installed gate dispatches only when the event
+// root matches, no-ops when it is a different root or nullptr is treated as
+// "root unknown" (legacy/headless path runs unconditionally).
+TEST_CASE("Inspector mouse/cursor/text hooks carry + gate on event root",
+          "[view][inspector][wysiwyg]") {
+    View inspected_root;
+    View other_root;
+
+    // ── mouse hook ──────────────────────────────────────────────────────
+    int mouse_calls = 0;
+    View* last_mouse_root = nullptr;
+    View::set_inspector_mouse_hook(
+        [&](const MouseEvent&, View* event_root) -> bool {
+            // Gate exactly like the installed inspector hook does.
+            if (event_root && event_root != &inspected_root) return false;
+            ++mouse_calls;
+            last_mouse_root = event_root;
+            return true;
+        });
+
+    // Matching root → dispatches.
+    REQUIRE(View::call_inspector_mouse_hook(MouseEvent{}, &inspected_root));
+    REQUIRE(mouse_calls == 1);
+    REQUIRE(last_mouse_root == &inspected_root);
+
+    // Different root (a secondary window) → no-op gate, returns false.
+    REQUIRE_FALSE(View::call_inspector_mouse_hook(MouseEvent{}, &other_root));
+    REQUIRE(mouse_calls == 1);  // unchanged — gate suppressed the dispatch
+
+    // nullptr root (legacy/headless) → runs unconditionally.
+    REQUIRE(View::call_inspector_mouse_hook(MouseEvent{}, nullptr));
+    REQUIRE(mouse_calls == 2);
+    REQUIRE(last_mouse_root == nullptr);
+
+    // ── cursor hook ─────────────────────────────────────────────────────
+    int cursor_calls = 0;
+    View::set_inspector_cursor_hook(
+        [&](const MouseEvent&, View* event_root) -> int {
+            if (event_root && event_root != &inspected_root) return -1;
+            ++cursor_calls;
+            return 7;  // arbitrary CursorStyle-as-int
+        });
+
+    REQUIRE(View::call_inspector_cursor_hook(MouseEvent{}, &inspected_root) == 7);
+    REQUIRE(cursor_calls == 1);
+    // Different root → gate defers to -1 (normal hit-view cursor path).
+    REQUIRE(View::call_inspector_cursor_hook(MouseEvent{}, &other_root) == -1);
+    REQUIRE(cursor_calls == 1);
+    // nullptr → runs.
+    REQUIRE(View::call_inspector_cursor_hook(MouseEvent{}, nullptr) == 7);
+    REQUIRE(cursor_calls == 2);
+
+    // ── text hook ───────────────────────────────────────────────────────
+    int text_calls = 0;
+    View::set_inspector_text_hook(
+        [&](const TextInputEvent&, View* event_root) -> bool {
+            if (event_root && event_root != &inspected_root) return false;
+            ++text_calls;
+            return true;
+        });
+
+    REQUIRE(View::call_inspector_text_hook(TextInputEvent{}, &inspected_root));
+    REQUIRE(text_calls == 1);
+    // Text typed into a secondary window → gate suppresses canvas inline edit.
+    REQUIRE_FALSE(View::call_inspector_text_hook(TextInputEvent{}, &other_root));
+    REQUIRE(text_calls == 1);
+    // nullptr → runs.
+    REQUIRE(View::call_inspector_text_hook(TextInputEvent{}, nullptr));
+    REQUIRE(text_calls == 2);
+
+    // ── no hook installed → safe defaults ───────────────────────────────
+    View::set_inspector_mouse_hook({});
+    View::set_inspector_cursor_hook({});
+    View::set_inspector_text_hook({});
+    REQUIRE_FALSE(View::call_inspector_mouse_hook(MouseEvent{}, &inspected_root));
+    REQUIRE(View::call_inspector_cursor_hook(MouseEvent{}, &inspected_root) == -1);
+    REQUIRE_FALSE(View::call_inspector_text_hook(TextInputEvent{}, &inspected_root));
 }
 
 TEST_CASE("View keyboard focus traversal", "[view][focus]") {

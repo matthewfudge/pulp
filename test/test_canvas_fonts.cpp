@@ -424,4 +424,66 @@ TEST_CASE("SkiaCanvas::fill_rect honors active linear gradient",
     REQUIRE(SkColorGetG(right) > SkColorGetR(right));  // right is green-dominant
 }
 
+// pulp WYSIWYG caret-x — SkiaCanvas::text_x_for_byte must query the FULL
+// shaped paragraph (the same make_paragraph() fill_text uses), not the
+// sum of isolated prefix advances. The acceptance criteria:
+//
+//   1. For a kerned pair like "AV", the caret at byte 1 differs from
+//      measure_text("A") in isolation — proving the boundary is read off
+//      the shaped run, where the 'A' advance is adjusted by the following
+//      'V' kern, rather than re-measured standalone.
+//   2. The end-of-text caret equals measure_text(full) for plain text.
+//   3. Caret offsets are monotonic non-decreasing across byte boundaries.
+TEST_CASE("SkiaCanvas::text_x_for_byte reads caret x off the shaped run",
+          "[canvas][skia][text][wysiwyg]") {
+    constexpr int kW = 256;
+    constexpr int kH = 32;
+    SkImageInfo info = SkImageInfo::Make(kW, kH, kN32_SkColorType,
+                                         kPremul_SkAlphaType,
+                                         SkColorSpace::MakeSRGB());
+    auto surface = SkSurfaces::Raster(info);
+    REQUIRE(surface != nullptr);
+    auto* sk_canvas = surface->getCanvas();
+    REQUIRE(sk_canvas != nullptr);
+
+    SkiaCanvas canvas(sk_canvas);
+    // A bundled family guarantees the same metrics on any host.
+    canvas.set_font_full("Inter", 18.0f, 400, /*slant=*/0,
+                         /*letter_spacing=*/0.0f);
+
+    // (3) monotonic, and the end caret matches the full advance.
+    const std::string plain = "Hello";
+    float prev = -1.0f;
+    for (std::size_t i = 0; i <= plain.size(); ++i) {
+        float x = canvas.text_x_for_byte(plain, i);
+        REQUIRE(x >= prev);   // non-decreasing
+        prev = x;
+    }
+    REQUIRE(canvas.text_x_for_byte(plain, 0) == Catch::Approx(0.0f).margin(0.01f));
+    // (2) end-of-text caret ≈ measure_text(full) for plain unkerned text.
+    const float full = canvas.measure_text(plain);
+    REQUIRE(canvas.text_x_for_byte(plain, plain.size())
+                == Catch::Approx(full).margin(0.5f));
+    // Past-the-end byte index clamps to end-of-text.
+    REQUIRE(canvas.text_x_for_byte(plain, plain.size() + 5)
+                == Catch::Approx(canvas.text_x_for_byte(plain, plain.size()))
+                       .margin(0.01f));
+
+    // (1) "AV" is a classic negative-kern pair. The caret at byte 1 (between
+    // A and V) should reflect the shaped 'A' advance within the "AV" run,
+    // which differs from measuring "A" standalone (no following V to kern
+    // against). If text_x_for_byte fell back to measuring the prefix
+    // substring, these would be identical.
+    const std::string av = "AV";
+    const float caret_after_A = canvas.text_x_for_byte(av, 1);
+    const float standalone_A  = canvas.measure_text("A");
+    REQUIRE(caret_after_A > 0.0f);
+    REQUIRE(caret_after_A != Catch::Approx(standalone_A).margin(0.05f));
+    // The caret at byte 1 must match the shaped 'A' advance: full "AV"
+    // width minus the 'V' contribution. Cross-check that the caret sits
+    // strictly inside the run.
+    const float av_full = canvas.text_x_for_byte(av, 2);
+    REQUIRE(caret_after_A < av_full);
+}
+
 #endif  // PULP_HAS_SKIA

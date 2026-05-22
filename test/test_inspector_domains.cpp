@@ -309,6 +309,9 @@ TEST_CASE("DomainHandler: dispatches inspector domain edge paths", "[inspect][do
     rpm.begin_pass(pulp::render::RenderPassType::content);
     rpm.end_pass(4.0f, 11);
     rpm.end_frame();
+    // Follow-up #2611: feed a frame-level whole-recording GPU render time so
+    // Performance.getMetrics surfaces it.
+    rpm.set_gpu_render_time_ms(7.25f, /*valid=*/true);
 
     DomainHandler handler;
     handler.set_root_view(&root);
@@ -385,6 +388,10 @@ TEST_CASE("DomainHandler: dispatches inspector domain edge paths", "[inspect][do
     REQUIRE(perf.params_json.find("total_time_ms") != std::string::npos);
     REQUIRE(perf.params_json.find("draw_calls") != std::string::npos);
     REQUIRE(perf.params_json.find("11") != std::string::npos);
+    // Frame-level whole-recording GPU render time (#2611) is surfaced and gated.
+    REQUIRE(perf.params_json.find("gpu_render_time_ms") != std::string::npos);
+    REQUIRE(perf.params_json.find("gpu_render_timing_available") != std::string::npos);
+    REQUIRE(perf.params_json.find("7.25") != std::string::npos);
 
     auto tracking = handler.handle(make_request(19, methods::kPerfEnableTracking));
     REQUIRE_FALSE(tracking.is_error);

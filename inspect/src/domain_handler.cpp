@@ -630,6 +630,19 @@ InspectorMessage DomainHandler::handle_performance(const InspectorMessage& req) 
             obj.addMember("passes", passes);
             obj.addMember("gpu_timing_available",
                           choc::value::createBool(rpm_->has_gpu_timing()));
+
+            // Follow-up #2611: frame-level, whole-recording GPU *render* time
+            // (Skia Graphite GpuStats elapsed time), distinct from the
+            // per-pass `gpu_time_ms` above. The per-pass numbers are
+            // Dawn-timestamp-query per-pass durations; this is the GPU clock
+            // for the entire render recording, which is the only granularity
+            // the Graphite path exposes. `gpu_render_timing_available` gates
+            // it just like the per-pass `gpu_timing_available`. See
+            // planning/2026-05-21-gpu-timestamp-readback-proposal.md.
+            obj.addMember("gpu_render_time_ms",
+                          choc::value::createFloat64(rpm_->gpu_render_time_ms()));
+            obj.addMember("gpu_render_timing_available",
+                          choc::value::createBool(rpm_->gpu_render_timing_available()));
         } else {
             obj.addMember("available", choc::value::createBool(false));
         }

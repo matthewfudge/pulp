@@ -607,7 +607,7 @@ private:
                           static_cast<float>(size_.width),
                           static_cast<float>(size_.height));
             root_.paint_all(*cv);
-            View::paint_overlays(*cv);
+            View::paint_overlays(*cv, &root_);
         }
 
         skia_surface_->end_frame();

@@ -545,11 +545,24 @@ token export) are separate phases and are NOT in this engine.
   `// @pulp-anchor` comment or the first blank line (codegen emits
   exactly one blank line between elements).
 - **Property-path mapping** — `lock_property_to_style_name()` collapses
-  the dotted tweak paths (`paint.*`, `style.*`, `layout.*`, or a bare
-  name) onto the camelCase `el.style.<name>` surface. Hyphen/snake
+  the dotted tweak paths (`paint.*`, `style.*`, `layout.*`, `transform.*`,
+  or a bare name) onto the camelCase `el.style.<name>` surface. Hyphen/snake
   fragments camelCase. The allow-list is exactly the set of properties
   `generate_node()` emits — an unknown / mistyped path reports
   `unsupported_property` instead of writing a bogus assignment.
+- **WYSIWYG T4 — reorder + proportional-resize round-trip.** Two inspector
+  direct-manipulation gestures persist tweaks under non-`paint/style/layout`
+  paths and need explicit handling here:
+  - `layout.order` — the reflow-aware drag-to-reorder rewrites `flex().order`;
+    it maps to the `order` style property (added to the `kKnown` allow-list).
+  - `transform.scale` — the proportional Shift-resize persists a bare scale
+    factor under the `transform` namespace. The namespace collapses onto the
+    single `transform` style line, and `format_lock_value()` wraps the bare
+    factor into the CSS function form (`1.5` → `transform = 'scale(1.5)'`). A
+    value already containing `(` passes through so we never double-wrap.
+  When you add a NEW transform sub-component (rotate/translate) or a new flex
+  reorder property, extend both the `kKnown` allow-list AND `format_lock_value()`
+  if the tweak value needs a CSS-function wrapper.
 - **Status semantics** — `rewritten` / `inserted` mutate the text;
   `already_current` is the idempotent re-lock no-op; `anchor_not_found`
   and `unsupported_property` are graceful failures that leave the
@@ -568,6 +581,82 @@ token export) are separate phases and are NOT in this engine.
 If you add a codegen property to `design_codegen.cpp`'s `generate_node`,
 add it to the `kKnown` allow-list in `lock_property_to_style_name()` too
 — otherwise that property can never be locked to source.
+
+- **WYSIWYG T5 — structural reparent (`reparent_in_source`).** A reflow-aware
+  drop ("drop element A inside container B") is a TREE edit, not a style tweak.
+  In the generated artifact every element block ends with
+  `<parentVar>.appendChild(<var>);`. `reparent_in_source(source, {child_anchor,
+  new_parent_anchor})` locates the child block by anchor, finds its
+  `<oldParent>.appendChild(<childVar>);` line, resolves the new parent block's
+  `const <var> =` name, and rewrites the receiver to that var. Status semantics
+  mirror `lock_tweak_into_source` (`rewritten` / `already_current` /
+  `anchor_not_found`). The shared block helpers `find_anchor_block()` +
+  `block_var_name()` back both engines.
+  - **Now physically relocates the block (gap closed).** `reparent_in_source`
+    moves the element's FULL source subtree — the block PLUS every DFS-contiguous
+    descendant block — to sit physically under the new parent, then re-indents it
+    one 2-space step in. The receiver rewrite alone is enough for the live DOM
+    (createElement + appendChild are order-independent), but a generated artifact
+    must also read correctly and round-trip a fresh re-import, so the block moves
+    too. **Subtree boundary gotcha:** `find_subtree_range()` detects the end of a
+    subtree purely from `// @pulp-anchor` comments + indentation — codegen is
+    depth-first, so a subtree is the run of lines until the next anchor at
+    `indent <= base` (a sibling/ancestor) or a non-anchor line indented `< base`
+    (the enclosing tail, e.g. `document.body.appendChild(root)`). Do NOT reuse
+    `find_anchor_block()` for relocation — it stops at the first blank line, which
+    is just ONE element block, not the whole subtree.
+  - **Unsafe-reparent guard — REFUSE, don't rewrite (WYSIWYG sweep P2 fix).** If
+    the new parent's anchor lies INSIDE the child's subtree (dropping a node under
+    its own descendant) or the subtree span can't be resolved, the engine now
+    rewrites NOTHING and returns `anchor_not_found` with `result.source` LEFT
+    BYTE-IDENTICAL to the input (plus a `"refused reparent ... cyclic/invalid
+    source"` message). **Gotcha — this is a behavior change:** the prior code
+    skipped only the physical block move but STILL rewrote the `appendChild`
+    receiver, which emitted `<descendant>.appendChild(<ancestor>);` — cyclic,
+    invalid source the re-import engine chokes on. Receiver-rewrite-without-move is
+    NOT a safe fallback for the cyclic case; the only safe outcome is to mutate
+    nothing. The live gesture's `is_self_or_ancestor` already prevents this, but
+    the source engine must defend independently. Test asserts `r.source == gen`.
+  - **Live gesture → source wiring (gap closed).** `InspectorOverlay` exposes
+    `set_reparent_source_sink(std::function<void(ReparentSourceEdit{child_anchor,
+    new_parent_anchor})>)`. At the `commit_reflow_drop` undo-entry site, a genuine
+    cross-parent reparent of an anchored view emits through the sink: the `do_fn`
+    locks under the NEW parent, the `undo_fn` re-emits with the ORIGINAL parent so
+    the host re-derives the inverse rewrite. **Gotcha:** `EditHistory::perform()`
+    runs `do_fn` immediately (it calls `redo()`), so the sink fires once on the
+    initial commit — don't ALSO call the sink inline before `perform()` or you
+    double-rewrite. The overlay is filesystem-free by design; the HOST owns the
+    source text + read/confirm/write loop. `examples/ui-preview` wires the sink to
+    its `--script` file behind the `is_generated_source()` `@generated`-boundary
+    guard, so a hand-authored script is never rewritten. Coverage:
+    `pulp-test-lock-to-source [wysiwyg][t5]` (engine: relocation + idempotency +
+    guard) and `pulp-test-inspector [wysiwyg][t5]` (gesture round-trip: live →
+    source → undo reverts both → redo → idempotent; plus the live-only no-sink
+    path).
+  - **Insertion SLOT (WYSIWYG sweep P1 fix).** `ReparentToSourceEdit` /
+    `ReparentSourceEdit` carry a third field `insert_after_anchor[_id]`: the
+    anchor of the sibling the moved block should physically FOLLOW under the new
+    parent, or `""` = first child. **Gotcha:** without it the relocation always
+    dropped the block as the parent's FIRST child, silently discarding the drop
+    position the user dragged to. The overlay computes the preceding visible
+    sibling in flex-order (`preceding_sibling_anchor`) for BOTH the new-parent
+    (do_fn) and old-parent (undo_fn) sides. Empty / unresolved slot → first-child
+    fallback (prior behavior preserved). `insert_after_anchor` must resolve in the
+    POST-erase buffer (after the moved subtree is removed), so the engine re-finds
+    it then.
+  - **Same-parent reorder IS persisted (WYSIWYG sweep P1 fix).** A same-parent
+    reflow reorder rewrites `flex().order` live; `commit_reflow_drop` now ALSO
+    emits a `layout.order` tweak (keyed by each view's OWN anchor) for the dragged
+    child AND every sibling whose order was normalized. **Gotcha:** an old comment
+    claimed the reorder was "persisted elsewhere" — it wasn't, so the new order
+    vanished on a fresh re-import. `layout.order` was already in the lock
+    allow-list (T4), so it round-trips as `el.style.order`. Un-anchored children
+    are skipped (nothing to lock). The cross-parent source sink only fires for a
+    genuine PARENT change; a pure reorder relies on the `layout.order` tweak path.
+    Coverage: `pulp-test-lock-to-source [issue-wysiwyg-reflow-slot]` (slot
+    after-sibling / first-child / unresolved-fallback) and
+    `pulp-test-inspector [issue-wysiwyg-reflow-slot]` (reorder tweak round-trip;
+    cross-parent slot carried to the sink).
 
 ### Phase 4b — Lock-to-source, Path B (hand-authored JSX/TSX patch)
 

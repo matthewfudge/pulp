@@ -1,19 +1,28 @@
 // InspectorOverlay paint methods, split out of inspector_overlay.cpp (P11-5,
-// #2647) to bring the 2,102-line parent under the 2,000-line target. Follows
-// the #2555 internal-header pattern: shared palette + color_to_hex live in
+// #2647) to bring the parent under the 2,000-line target. Follows the #2555
+// internal-header pattern: shared palette + color_to_hex live in
 // inspector_overlay_internal.hpp. Includes the parent's own helper anon-namespace
 // (preview_value/abbreviate_anchor) used only by these paint routines.
+//
+// WYSIWYG (feature/wysiwyg-and-gpu-render-time) adds the in-canvas text-edit
+// overlay (paint_text_edit_overlay), the move/resize drop indicator and drag
+// ghost (paint_drop_indicator / paint_drag_ghost), and caret/selection shaping
+// that re-measures via Label::text_edit_metrics — hence the widgets.hpp /
+// text_editor.hpp includes below.
 #include "inspector_overlay_internal.hpp"
 
 #include <pulp/inspect/inspector_overlay.hpp>
 #include <pulp/inspect/tweak_store.hpp>
 #include <pulp/view/inspector.hpp>
+#include <pulp/view/widgets.hpp>
+#include <pulp/view/text_editor.hpp>
 #include <pulp/render/render_pass.hpp>
 #include <pulp/render/atlas_inventory.hpp>
 
 #include <choc/text/choc_JSON.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
@@ -31,13 +40,29 @@ void InspectorOverlay::paint(Canvas& canvas) {
     capture_pass_frame();
 
     rebuild_flat_tree();
+
+    // P1 — minimal manipulate layer: paint ONLY the selection box +
+    // handles (no dev side-panel, no box-model bands, no distance lines).
+    // The floating InspectorWindow is the inspect/tree/props surface; the
+    // in-canvas overlay here is the bare manipulation layer.
+    if (manipulate_only_) {
+        paint_highlight(canvas);
+        paint_drop_indicator(canvas);
+        paint_drag_ghost(canvas);
+        paint_text_edit_overlay(canvas);  // WYSIWYG T2 — caret/selection
+        return;
+    }
+
     // Phase 2 — populate the drift list on the first paint after the
     // inspector goes active so the drawer is never empty just because
     // the host forgot to call refresh_drift() explicitly.
     if (!drift_refreshed_once_) refresh_drift();
     paint_highlight(canvas);
+    paint_drop_indicator(canvas);
+    paint_drag_ghost(canvas);
     paint_distance_lines(canvas);
     if (selected_) paint_box_model(canvas, selected_);
+    paint_text_edit_overlay(canvas);  // WYSIWYG T2 — caret/selection overlay
     paint_panel(canvas);
     // Phase 3c — eyedropper swatch paints above the panel and
     // highlights so the sampled color is never occluded.
@@ -119,9 +144,152 @@ void InspectorOverlay::paint_eyedropper_cursor(Canvas& canvas) {
     canvas.restore();
 }
 
+// WYSIWYG T2 — paint the caret + selection as a LIGHT overlay on the live
+// in-place edit. Deliberately NOT a styled input box: the live View text keeps
+// its real-UI look; we only layer a blinking caret line + a translucent
+// selection band on top, positioned by measuring the buffer prefix in the
+// target's own font. Single-line model (the in-place edit is one logical run).
+void InspectorOverlay::paint_text_edit_overlay(Canvas& canvas) {
+    if (!text_editing() || !text_edit_target_reachable()) return;
+
+    const Rect r = view_bounds_in_root(text_edit_target_);
+    canvas.save();
+
+    // ── Label branch — WYSIWYG caret/selection ────────────────────────────
+    // The Label painter resolves INHERITED size/weight/letter-spacing, a
+    // family fallback ("Inter"), slant, text-transform, and an alignment-
+    // dependent draw origin. Re-measuring here with the Label's OWN fields
+    // drifts whenever any of those differ (a PARENT setting letter-spacing,
+    // a center/right-aligned label, kerned runs). Label::text_edit_metrics
+    // factors the SAME resolver paint() uses, so the caret + selection band
+    // land exactly on the rendered glyphs.
+    if (auto* lbl = dynamic_cast<const Label*>(text_edit_target_)) {
+        const auto m = lbl->text_edit_metrics(canvas, text_edit_buffer_);
+
+        // WYSIWYG caret RESIZE — text_edit_metrics is computed at the UNSCALED
+        // font in element-local space, but View::paint_all renders this
+        // subtree under the cumulative `scale(s,s)` of the target + ancestors
+        // (a proportional / Shift resize sets View::set_scale() rather than
+        // growing bounds). Map element-local x/y onto the rendered glyphs with
+        // the same `screen = origin + s*(local - origin)` transform paint_all
+        // uses about the transform-origin. With the default-or-top-left origin
+        // this collapses to s*local; a non-zero origin pins that point.
+        // Without this, an enlarged field drew the caret short by the scale
+        // factor (maintainer QA: caret a glyph or two before the text end).
+        const float s = effective_scale_in_root(lbl);
+        const float ox_px = lbl->bounds().width  * lbl->transform_origin_x();
+        const float oy_px = lbl->bounds().height * lbl->transform_origin_y();
+        const float lbl_text_x = r.x + ox_px + s * (m.local_text_left - ox_px);
+        const float lbl_band_y = r.y + oy_px + s * (m.local_band_y  - oy_px);
+        const float lbl_band_h = s * m.band_height;
+        auto caret_at = [&](std::size_t bytes) -> float {
+            if (m.caret_x_by_byte.empty()) return 0.0f;
+            std::size_t i = std::min(bytes, m.caret_x_by_byte.size() - 1);
+            // Scale the local glyph advance so the caret tracks the rendered
+            // (scaled) run. lbl_text_x already carries the origin-anchored
+            // start, so the per-glyph offset is a pure s*advance.
+            return s * m.caret_x_by_byte[i];
+        };
+
+        if (text_has_selection()) {
+            auto [lo, hi] = text_selection();
+            const float x0 = lbl_text_x + caret_at(lo);
+            const float x1 = lbl_text_x + caret_at(hi);
+            canvas.set_fill_color(Color::rgba(0.31f, 0.63f, 1.0f, 0.35f));
+            canvas.fill_rect(x0, lbl_band_y, std::max(1.0f, x1 - x0), lbl_band_h);
+        }
+
+        constexpr std::uint32_t kBlinkPeriodLbl = 30;
+        const bool caret_on_lbl = ((text_blink_ticks_ / kBlinkPeriodLbl) % 2) == 0;
+        ++text_blink_ticks_;
+        if (caret_on_lbl) {
+            const float cx = lbl_text_x + caret_at(text_caret_);
+            canvas.set_fill_color(Color::rgba(0.95f, 0.95f, 0.98f, 0.95f));
+            canvas.fill_rect(cx, lbl_band_y, 1.5f, lbl_band_h);
+        }
+
+        canvas.restore();
+        return;
+    }
+
+    // ── Non-Label fallback (TextEditor / other) ───────────────────────────
+    // Keep the legacy re-measure path for targets without the factored
+    // resolver. TextEditor is single-font and top-aligned so prefix
+    // measurement is adequate here.
+    float font_size = 13.0f;
+    std::string font_family;
+    int font_weight = 400;
+    float letter_spacing = 0.0f;
+    if (auto* ed = dynamic_cast<const TextEditor*>(text_edit_target_)) {
+        font_size = ed->font_size();
+    }
+    if (font_family.empty()) font_family = "system";
+
+    canvas.set_font_full(font_family, font_size, font_weight, /*slant=*/0,
+                         letter_spacing);
+
+    // Measure helper: width of the buffer's first `bytes` bytes.
+    auto prefix_w = [&](std::size_t bytes) -> float {
+        if (bytes == 0) return 0.0f;
+        return canvas.measure_text(text_edit_buffer_.substr(0, bytes));
+    };
+
+    // The text origin is the target's left edge; align the caret band to the
+    // TOP of the box (where top-aligned label text renders), NOT the box
+    // center — otherwise growing the box floats the caret far below the actual
+    // text (maintainer QA). (Was: r.y + (r.height - band_h) * 0.5f.)
+    const float text_x = r.x;
+    const float band_h = std::min(r.height, font_size * 1.3f);
+    const float band_y = r.y;
+
+    // Selection band (translucent accent) behind the caret.
+    if (text_has_selection()) {
+        auto [lo, hi] = text_selection();
+        const float x0 = text_x + prefix_w(lo);
+        const float x1 = text_x + prefix_w(hi);
+        canvas.set_fill_color(Color::rgba(0.31f, 0.63f, 1.0f, 0.35f));
+        canvas.fill_rect(x0, band_y, std::max(1.0f, x1 - x0), band_h);
+    }
+
+    // Blinking caret. text_blink_ticks_ free-runs on paint (reset to 0 on any
+    // edit so the caret is solid right after a keystroke); show it while the
+    // tick window is even. ~30 ticks ≈ 0.5s at 60fps.
+    constexpr std::uint32_t kBlinkPeriod = 30;
+    const bool caret_on = ((text_blink_ticks_ / kBlinkPeriod) % 2) == 0;
+    ++text_blink_ticks_;
+    if (caret_on) {
+        const float cx = text_x + prefix_w(text_caret_);
+        canvas.set_fill_color(Color::rgba(0.95f, 0.95f, 0.98f, 0.95f));
+        canvas.fill_rect(cx, band_y, 1.5f, band_h);
+    }
+
+    canvas.restore();
+}
+
 void InspectorOverlay::paint_highlight(Canvas& canvas) {
-    // Hovered view highlight (blue)
-    if (hovered_ && hovered_ != selected_) {
+    // P2d (D) — drop-indicator clarity. A selected-but-idle element must show
+    // exactly ONE selection affordance (the orange outline + handles), not the
+    // orange selection PLUS a blue hover box. The blue hover highlight is a
+    // distinct "what would I select" affordance; while a view is selected we
+    // suppress it for the selected view AND any view in its subtree/ancestry,
+    // so hovering over a child of the selection doesn't paint a second (blue)
+    // box on top of the (orange) selection. The blue is reserved for (a)
+    // hovering a DIFFERENT element to select it, and (b) the drop-target
+    // insertion line, which only appears during an active drag.
+    auto in_selection_chain = [&](const View* v) {
+        if (!selected_ || !v) return false;
+        for (const View* c = v; c; c = c->parent())
+            if (c == selected_) return true;       // v is selected_ or below it
+        for (const View* c = selected_; c; c = c->parent())
+            if (c == v) return true;               // v is an ancestor of selected_
+        return false;
+    };
+
+    // Hovered view highlight (blue) — suppressed for the selected element and
+    // its subtree/ancestry, and entirely while a gesture is in progress (the
+    // ghost + drop indicator own the visuals then).
+    if (hovered_ && hovered_ != selected_ && !in_selection_chain(hovered_) &&
+        !move_active_ && active_drag_ == DragCorner::none) {
         auto r = view_bounds_in_root(hovered_);
         canvas.set_fill_color(kHighlightFill);
         canvas.fill_rect(r.x, r.y, r.width, r.height);
@@ -129,16 +297,36 @@ void InspectorOverlay::paint_highlight(Canvas& canvas) {
         canvas.set_line_width(1.5f);
         canvas.stroke_rect(r.x, r.y, r.width, r.height);
 
-        // Tooltip
+        // Tooltip (type + W×H badge). WYSIWYG P6 FIX 2 — flip below the
+        // selection when there's no room above (the badge would slide under
+        // the window title bar and clip), and clamp x to the window edges.
         auto type = ViewInspector::type_name(*hovered_);
         auto label = type + " " + std::to_string(static_cast<int>(r.width))
                    + "×" + std::to_string(static_cast<int>(r.height));
         canvas.set_font("monospace", kFontSize);
-        canvas.set_fill_color(kPanelBg);
         float tw = canvas.measure_text(label);
-        canvas.fill_rounded_rect(r.x, r.y - 18, tw + 8, 16, 3);
+        constexpr float kBadgeH = 16.0f;
+        auto bp = compute_badge_placement(r.x, r.y, r.height, tw + 8, kBadgeH,
+                                          root_.bounds().width,
+                                          /*gap=*/2.0f, /*top_margin=*/kBadgeH);
+        canvas.set_fill_color(kPanelBg);
+        canvas.fill_rounded_rect(bp.x, bp.y, tw + 8, kBadgeH, 3);
         canvas.set_fill_color(kPanelText);
-        canvas.fill_text(label, r.x + 4, r.y - 5);
+        canvas.fill_text(label, bp.x + 4, bp.y + 13);
+    }
+
+    // WYSIWYG QA BUG 4 — while an inline text edit is active on the selected
+    // element, the orange resize box + handles obstruct the text and resize is
+    // meaningless mid-edit. Draw a SUBTLE thin blue outline (no fill, no
+    // handles) instead; the caret + blue selection band come from
+    // paint_text_edit_overlay(). Gated purely on text_editing() so selecting
+    // in Select mode is unchanged.
+    if (selected_ && selection_uses_subtle_edit_outline()) {
+        auto r = view_bounds_in_root(selected_);
+        canvas.set_stroke_color(kHighlightStroke);  // thin blue
+        canvas.set_line_width(1.0f);
+        canvas.stroke_rect(r.x, r.y, r.width, r.height);
+        return;  // no orange box, no handles, no grid badge while editing
     }
 
     // Selected view highlight (orange)
@@ -173,8 +361,79 @@ void InspectorOverlay::paint_highlight(Canvas& canvas) {
             paint_handle(r.x + r.width,   r.y,              DragCorner::ne);
             paint_handle(r.x,             r.y + r.height,   DragCorner::sw);
             paint_handle(r.x + r.width,   r.y + r.height,   DragCorner::se);
+            // WYSIWYG P2h — edge midpoint handles (single-axis resize).
+            const float mx = r.x + r.width * 0.5f;
+            const float my = r.y + r.height * 0.5f;
+            paint_handle(mx,              r.y,              DragCorner::n);
+            paint_handle(mx,              r.y + r.height,   DragCorner::s);
+            paint_handle(r.x + r.width,   my,               DragCorner::e);
+            paint_handle(r.x,             my,               DragCorner::w);
+        }
+
+        // P2 grid guard affordance: when a body-drag was refused because
+        // the selected view's parent is a grid container, surface a clear
+        // "can't move grid child" badge near the top-left of the box so
+        // the no-op isn't mysterious.
+        if (move_refused_grid_) {
+            const std::string msg = "grid child - move disabled";
+            canvas.set_font("monospace", kFontSize);
+            float tw = canvas.measure_text(msg);
+            // WYSIWYG P6 FIX 2 — flip below + edge-clamp like the hover badge
+            // so it doesn't clip under the window top.
+            constexpr float kBadgeH = 16.0f;
+            auto bp = compute_badge_placement(r.x, r.y, r.height, tw + 10,
+                                              kBadgeH, root_.bounds().width,
+                                              /*gap=*/4.0f,
+                                              /*top_margin=*/kBadgeH);
+            canvas.set_fill_color(Color::rgba(0.8f, 0.1f, 0.1f, 0.92f));
+            canvas.fill_rounded_rect(bp.x, bp.y, tw + 10, kBadgeH, 3);
+            canvas.set_fill_color(Color::rgba(1, 1, 1, 1));
+            canvas.fill_text(msg, bp.x + 5, bp.y + 13);
         }
     }
+}
+
+void InspectorOverlay::paint_drop_indicator(Canvas& canvas) {
+    // Only while a reflow (non-float) move is dragging with a resolved drop.
+    if (!move_active_ || move_float_ || !drop_target_) return;
+    if (drop_indicator_.width <= 0 && drop_indicator_.height <= 0) return;
+
+    const Rect& d = drop_indicator_;
+    if (drop_indicator_is_line_) {
+        // Blue insertion line between siblings (reorder).
+        canvas.set_fill_color(Color::rgba(0.16f, 0.5f, 1.0f, 1.0f));
+        canvas.fill_rect(d.x, d.y, std::max(2.0f, d.width),
+                         std::max(2.0f, d.height));
+    } else {
+        // Translucent blue container highlight (drop-inside).
+        canvas.set_fill_color(Color::rgba(0.16f, 0.5f, 1.0f, 0.18f));
+        canvas.fill_rect(d.x, d.y, d.width, d.height);
+        canvas.set_stroke_color(Color::rgba(0.16f, 0.5f, 1.0f, 0.95f));
+        canvas.set_line_width(2.0f);
+        canvas.stroke_rect(d.x, d.y, d.width, d.height);
+    }
+}
+
+void InspectorOverlay::paint_drag_ghost(Canvas& canvas) {
+    // Only during a reflow (non-float) move with a captured ghost. The
+    // absolute-float path moves the live element directly, so it needs no
+    // ghost. The ghost follows the cursor with the stable grab offset so the
+    // motion reads as smooth (no teleport, no jitter) even though the live
+    // layout doesn't change until release.
+    if (!move_active_ || move_float_) return;
+    if (move_ghost_.width <= 0 && move_ghost_.height <= 0) return;
+
+    float gx = move_cursor_.x - move_grab_offset_.x;
+    float gy = move_cursor_.y - move_grab_offset_.y;
+
+    // Translucent fill + dashed-look outline in the selection hue so the
+    // ghost reads as "this element, in flight". Kept subtle so the drop
+    // indicator (blue) remains the primary "where it lands" signal.
+    canvas.set_fill_color(Color::rgba(1.0f, 0.5f, 0.0f, 0.16f));
+    canvas.fill_rect(gx, gy, move_ghost_.width, move_ghost_.height);
+    canvas.set_stroke_color(Color::rgba(1.0f, 0.5f, 0.0f, 0.85f));
+    canvas.set_line_width(1.5f);
+    canvas.stroke_rect(gx, gy, move_ghost_.width, move_ghost_.height);
 }
 
 void InspectorOverlay::paint_distance_lines(Canvas& canvas) {

@@ -92,10 +92,66 @@ public:
     void refresh();
 
     /// Called when a view is selected in the tree.
+    ///
+    /// WYSIWYG P2e two-way selection (maintainer correction: "we DO want to
+    /// be able to tap and select an item in the inspector as it works
+    /// today"): by default (selection_readonly_ == false) a tree-row click
+    /// fires this callback so the host can drive the SHARED selection —
+    /// highlight the picked view in the canvas overlay. The tree row also
+    /// highlights and its properties show. The forbidden behavior — a stray
+    /// selection box drawn inside the inspector window — is prevented by the
+    /// paint-hook root gate, not by suppressing this callback.
+    ///
+    /// Read-only mode (set_selection_readonly(true)) is a supported opt-out:
+    /// a tree click then only shows properties and does NOT fire this
+    /// callback / drive the shared selection.
     std::function<void(View* view)> on_view_selected;
 
-    /// Select a view from external code (e.g., Cmd+click in plugin window)
+    /// Select a view from external code (e.g., Cmd+click in plugin
+    /// window). Fires on_view_selected — this is the WRITE path. Avoid
+    /// from a sync mirror; use reflect_selection() instead so a host-side
+    /// sync does not re-enter on_view_selected.
     void select_view(View* view);
+
+    /// Reflect the canvas-driven selection into this window WITHOUT firing
+    /// on_view_selected (no feedback loop into the canvas). P2e: this now
+    /// HIGHLIGHTS the matching tree row AND shows the node's properties —
+    /// two-way selection means a canvas pick highlights the corresponding row
+    /// in the inspector tree. It is the canvas → window mirror the host calls
+    /// from sync_selection; the no-feedback property (does not fire
+    /// on_view_selected) is what keeps the round-trip from recursing.
+    void reflect_selection(View* view);
+
+    /// When true, clicking a tree row only shows that node's properties
+    /// (read-only display) and never changes the shared selection (does
+    /// not fire on_view_selected). Default false (two-way pick — the P2e
+    /// behavior the maintainer wants).
+    void set_selection_readonly(bool readonly) {
+        selection_readonly_ = readonly;
+    }
+    bool selection_readonly() const { return selection_readonly_; }
+
+    // ── P3 — Figma-style tool strip (Select / Text) ─────────────────
+    //
+    // (planning/2026-05-21-wysiwyg-direct-manipulation-extension.md
+    // § "Future idea — Figma-style tool palette + inline text editing".)
+    // A compact horizontal strip in the window header showing the two
+    // tools (pointer = Select, "T" = Text) with the active one
+    // highlighted. The strip is wired BOTH WAYS to the overlay's tool
+    // mode via the host:
+    //   * Click a tool button → on_tool_picked(0=Select, 1=Text) fires;
+    //     the host calls InspectorOverlay::set_tool().
+    //   * Keyboard V/T flips the overlay tool → the host calls
+    //     set_active_tool() so the strip's highlight reflects it.
+    /// Index of the active tool the strip highlights (0 = Select,
+    /// 1 = Text). The host mirrors the overlay's tool here each tick.
+    void set_active_tool(int tool_index);
+    int active_tool() const { return active_tool_; }
+
+    /// Fired when the user clicks a tool button in the strip. The
+    /// argument is the tool index (0 = Select, 1 = Text). The host wires
+    /// this to InspectorOverlay::set_tool().
+    std::function<void(int tool_index)> on_tool_picked;
 
 private:
     // ── Tab construction ────────────────────────────────────────────
@@ -122,8 +178,18 @@ private:
     // ── Widgets (non-owning, owned as children) ─────────────────────
     TabPanel* tabs_ = nullptr;
 
+    // ── P3 — tool strip ─────────────────────────────────────────────
+    // The strip View (custom paint + click handling) lives as the first
+    // child of the window, above the tab panel. active_tool_ is the index
+    // it highlights (0 = Select, 1 = Text). The strip reads active_tool_
+    // each paint and calls on_tool_picked on a button click.
+    class ToolStrip;
+    ToolStrip* tool_strip_ = nullptr;
+    int active_tool_ = 0;
+
     // Elements tab
     TreeView* tree_view_ = nullptr;
+    ScrollView* tree_scroll_ = nullptr;  // viewport wrapping tree_view_
     CollapsableSection* identity_section_ = nullptr;
     CollapsableSection* layout_section_ = nullptr;
     CollapsableSection* visual_section_ = nullptr;
@@ -138,6 +204,7 @@ private:
     // Performance tab
     Label* fps_label_ = nullptr;
     Label* frame_time_label_ = nullptr;
+    Label* gpu_render_label_ = nullptr;
     Label* budget_label_ = nullptr;
     View* pass_list_ = nullptr;
     Label* view_count_label_ = nullptr;
@@ -148,6 +215,28 @@ private:
 
     // Currently selected view (Elements tab)
     View* selected_view_ = nullptr;
+
+    // WYSIWYG P2e: when true, tree-row clicks only display properties
+    // read-only and never drive the shared selection (opt-out). Default
+    // false — two-way selection, the maintainer's wanted behavior. See
+    // set_selection_readonly().
+    bool selection_readonly_ = false;
+
+    // P2e — reflect_selection() (the canvas → window mirror) now HIGHLIGHTS
+    // the matching tree row + shows props, the same as a tree-row pick. The
+    // P2d "reflect-state-only" suppression (which left the row un-highlighted)
+    // was reverted: two-way selection is wanted, and the only thing forbidden
+    // is the stray box inside the inspector window, fixed in the paint hook.
+
+    // P2d (A) — tree-structure signature, to suppress the empty-content
+    // flicker. refresh_elements() runs on every idle tick (~30 Hz); rebuilding
+    // the whole TreeView each tick clears then repopulates it, which flashes
+    // empty. We hash the inspected tree's structure (type + id per node) and
+    // only rebuild when it actually changed; otherwise we just refresh the
+    // property labels for the current selection. Zero means "never built".
+    std::size_t tree_signature_ = 0;
+    // Compute the structural signature of the inspected tree.
+    std::size_t compute_tree_signature(const View* view) const;
 
     // Property labels (Elements tab, Identity section)
     Label* prop_type_label_ = nullptr;

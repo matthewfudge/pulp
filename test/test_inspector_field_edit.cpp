@@ -388,20 +388,31 @@ TEST_CASE("InspectorOverlay Phase 3b: deactivating inspector cancels active edit
 
 TEST_CASE("InspectorOverlay Phase 3b: Esc while editing does NOT exit inspector",
           "[inspect][overlay][phase3b]") {
-    // Spec: Esc inside an edit cancels the edit; Esc with no edit
-    // exits the inspector. The two semantics share a key, the order
-    // matters.
+    // Spec (updated — maintainer's Figma-like Esc): Esc inside an edit cancels
+    // the edit (selection intact). After that, Esc with a selection DESELECTS
+    // (it no longer ascends to the parent), and Esc with nothing selected is a
+    // NO-OP — Esc never exits the inspector (Cmd+I / the window close button
+    // does that). The inspector stays active throughout so hover + click keep
+    // working without a Cmd+I cycle.
     Phase3bScene s;
     s.overlay.begin_field_edit("layout.padding", 8.0f);
     REQUIRE(s.overlay.is_active());
+    // The scene selected `child` (a direct child of root).
+    REQUIRE(s.overlay.selected_view() == s.child);
 
     s.overlay.handle_key_event(make_key(KeyCode::escape));
     REQUIRE_FALSE(s.overlay.is_editing());
-    REQUIRE(s.overlay.is_active());  // still active
+    REQUIRE(s.overlay.is_active());  // still active — edit cancelled, not exit
+    REQUIRE(s.overlay.selected_view() == s.child);  // selection intact
 
-    // Second Esc with no edit → exits the inspector.
+    // Second Esc with no edit + a selection → DESELECT, stays active.
     s.overlay.handle_key_event(make_key(KeyCode::escape));
-    REQUIRE_FALSE(s.overlay.is_active());
+    REQUIRE(s.overlay.is_active());
+    REQUIRE(s.overlay.selected_view() == nullptr);
+
+    // Third Esc with nothing selected → NO-OP, inspector still active.
+    s.overlay.handle_key_event(make_key(KeyCode::escape));
+    REQUIRE(s.overlay.is_active());
 }
 
 TEST_CASE("InspectorOverlay Phase 3b: Tab without paint does nothing extra",

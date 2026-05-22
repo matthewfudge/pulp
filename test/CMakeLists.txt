@@ -2568,6 +2568,14 @@ target_link_libraries(pulp-test-lock-to-source PRIVATE pulp::view Catch2::Catch2
 catch_discover_tests(pulp-test-lock-to-source
     PROPERTIES LABELS "parser-import")
 
+# WYSIWYG T3 — ui-preview settle-probe design-viewport sizing. The probe
+# algorithm lives in examples/ui-preview/design_viewport_probe.hpp (header-
+# only) so it can be tested headlessly without linking the ui-preview app.
+add_executable(pulp-test-ui-preview-viewport test_ui_preview_viewport.cpp)
+target_link_libraries(pulp-test-ui-preview-viewport PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-ui-preview-viewport
+    PROPERTIES LABELS "view")
+
 # DESIGN.md import (Google design.md, Apache-2.0 — pulp #1434 follow-up)
 # Compiles import_detect.cpp directly into the test target so the
 # detector tests do not require linking the whole pulp-import-design CLI.
