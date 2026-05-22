@@ -1645,6 +1645,19 @@ public:
             view_.frameClock = &frame_clock_;
             [window_ setContentView:view_];
 
+            // WYSIWYG QA BUG 5 — the CPU host backs the FLOATING inspector
+            // window. Its PulpView tracking area carries NSTrackingMouseMoved,
+            // but a tracking area only fans -mouseMoved: out to its owner when
+            // the window itself accepts mouse-moved events; NSWindow defaults
+            // that flag to NO. The main GPU canvas window happened to get moves
+            // anyway (primary key window, continuous run-loop pump), so the
+            // shared -mouseMoved: -> rootView->simulate_hover(pt) path that
+            // drives View::on_hover_move() (and thus the ToolStrip's per-button
+            // tooltip) never fired for the secondary inspector window. Opting
+            // the window into mouse-moved delivery makes hover reach the strip
+            // so the "Select (V)" / "Text (T)" tooltips paint live.
+            [window_ setAcceptsMouseMovedEvents:YES];
+
             delegate_ = [[PulpWindowDelegate alloc] init];
             // WYSIWYG P4 FIX 4 — role drives the close policy (see
             // windowShouldClose:). Default primary; secondary windows (the
