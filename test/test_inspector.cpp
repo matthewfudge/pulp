@@ -4203,7 +4203,8 @@ TEST_CASE("InspectorOverlay T5: reflow reparent locks the structural edit to "
         [&](const InspectorOverlay::ReparentSourceEdit& e) {
             ++sink_calls;
             pulp::view::ReparentToSourceEdit engine_edit{e.child_anchor,
-                                                         e.new_parent_anchor};
+                                                         e.new_parent_anchor,
+                                                         e.insert_after_anchor};
             auto r = pulp::view::reparent_in_source(source, engine_edit);
             source = r.source;  // mirror the host's read/confirm/write loop
         });

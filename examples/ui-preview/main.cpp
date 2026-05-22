@@ -1095,7 +1095,8 @@ int main(int argc, char* argv[]) {
                 // @generated-boundary guard: never rewrite a hand-authored file.
                 if (!pulp::view::is_generated_source(src)) return;
                 pulp::view::ReparentToSourceEdit edit{e.child_anchor,
-                                                      e.new_parent_anchor};
+                                                      e.new_parent_anchor,
+                                                      e.insert_after_anchor};
                 auto r = pulp::view::reparent_in_source(src, edit);
                 if (!r.mutated()) return;  // no-op / already-current / not found
                 std::ofstream out(sink_script_path,
