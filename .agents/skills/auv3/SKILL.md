@@ -356,25 +356,37 @@ class name fails silently.
 ### `PulpAUViewController::dealloc` — never call `_bridge->close()` explicitly
 
 The view controller declares its ivars `_bridge` (ViewBridge), then
-`_viewHost` (PluginViewHost), then `_fallbackView`. When `[super
+`_fallbackView` (View), then `_viewHost` (PluginViewHost). When `[super
 dealloc]` runs, the runtime destroys C++-typed ivars in REVERSE
-declaration order: `_fallbackView`, `_viewHost`, `_bridge`. That
+declaration order: `_viewHost`, `_fallbackView`, `_bridge`. That
 ordering is load-bearing:
 
-1. `~PluginViewHost` runs second. It calls
-   `root_.set_plugin_view_host(nullptr)` — the View `root_`
-   references is still alive (still owned by `_bridge->view_`), so
-   the call is safe and clears the back-pointer.
-2. `~ViewBridge` runs last. Its destructor calls `close()` →
-   `Processor::on_view_closed` → `view_.reset()` destroys the View.
-   The back-pointer was already cleared in step 1, so the View's
-   own teardown can't reach a dead host.
+1. `~PluginViewHost` runs FIRST. It calls
+   `root_.set_plugin_view_host(nullptr)` (and `set_frame_clock(nullptr)`
+   on the GPU host). `root_` references either `_bridge->view_` OR
+   `_fallbackView` — BOTH are still alive at this point, so clearing
+   the back-pointers is safe on either path.
+2. `~View` (`_fallbackView`) runs next — no-op on the bridge-success
+   path; on the fallback path the back-pointer was cleared in step 1.
+3. `~ViewBridge` runs last. Its destructor calls `close()` →
+   `Processor::on_view_closed` → `view_.reset()`. The back-pointer was
+   already cleared in step 1.
+
+**`_viewHost` MUST be declared last (destroy first).** The original order
+`_bridge, _viewHost, _fallbackView` destroyed `_fallbackView` before
+`_viewHost`; on the no-`audioUnit` preview path `_fallbackView` *is* the
+View `_viewHost->root_` references, so the host cleared a back-pointer into
+a freed View (GPU-plugin-view-host work, 2026-05; Codex P1).
 
 Calling `_bridge->close()` HERE explicitly (before `[super dealloc]`)
 reverses that order: the View dies first, then `~PluginViewHost`
 dereferences a dangling `root_` reference and crashes AUv3 editor
-close. Codex P1 review on PR #653 caught this — the fix is to remove
-the explicit close, NOT to add it.
+close. Codex P1 review on PR #653 caught the original variant — the fix
+is to remove the explicit close, NOT to add it.
+
+The AUv3 editor now also auto-selects the GPU host via the shared
+`decide_gpu_host()` helper (Options overload) — see the `view-bridge`
+skill's "GPU view host auto-selection" section.
 
 ### Headless automation must not create fallback AUv3 UI
 

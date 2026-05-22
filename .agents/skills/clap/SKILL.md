@@ -213,6 +213,15 @@ Window API negotiation is compile-time platform-switched to Cocoa /
 Win32 / X11. `gui_can_resize` returns false today — resize negotiation
 has not been wired.
 
+`gui_create` no longer hardcodes `Options::use_gpu`; it calls
+`pulp::format::decide_gpu_host(*bridge)` so a Skia/Dawn/scripted editor
+auto-selects the GPU `PluginViewHost`, wires the per-vsync scripted idle pump
+(`make_scripted_idle_pump`), and screams via `warn_if_unexpected_cpu_fallback`
+on a silent CPU fallback. CLAP's `gui_set_size` already resizes the bridge +
+host, so no extra resize seam is needed (unlike AU v2). Full contract: the
+`view-bridge` skill's "GPU view host auto-selection" section.
+(GPU-plugin-view-host work, 2026-05.)
+
 ### ARA companion factory
 
 `clap_get_extension(kClapAraFactoryExtension)` lazily creates the

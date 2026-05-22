@@ -586,9 +586,40 @@ AUv3 avoids constructing `PluginViewHost`. Do not replace this with
 post-hoc window cleanup; the contract is that no native editor host is
 created in the first place.
 
+## GPU view host auto-selection — never hardcode `use_gpu=false`
+
+The format adapters (AU v2 / VST3 / CLAP / iOS AUv3) must NOT hand-set
+`PluginViewHost::Options::use_gpu`. They call the shared decision helper
+`pulp::format::decide_gpu_host(bridge)` (`core/format/include/pulp/format/gpu_host_select.hpp`),
+which returns `use_gpu` = `bridge.uses_script_ui() || bridge.view()->requires_gpu_host()`,
+honoring the `PULP_DISABLE_PLUGIN_GPU` runtime opt-out. Hardcoding
+`use_gpu=false` is the exact trap that made a Skia/Dawn editor silently fall
+back to the AutoUi CPU path (the GPU-plugin-view-host work, 2026-05).
+
+Rules when touching an adapter's editor-attach path:
+- A custom `Processor::create_view()` that paints via the GPU (scripted React
+  UI, WebGPU/Three.js canvas) MUST call `view->set_requires_gpu_host(true)` on
+  its root, or `decide_gpu_host` returns `mode=autoui` and it gets CPU. The
+  framework scripted-UI root (`editor_ui.hpp`) already sets it.
+- After `PluginViewHost::create(...)`, call
+  `format::warn_if_unexpected_cpu_fallback(decision, host.get())` — it screams
+  (`runtime::log_error`) if GPU was requested but the host fell back to CPU.
+- Wire the per-vsync scripted pump: `host->set_idle_callback(make_scripted_idle_pump(bridge))`.
+  Without it a JS UI paints its first frame but `requestAnimationFrame` /
+  timers / async results never fire.
+- `make_scripted_idle_pump` captures the `ViewBridge` by raw pointer, so the
+  host MUST be destroyed before the bridge. In AU/VST3/CLAP the bridge is
+  declared before the host (reverse-destruction → host first); keep that order.
+- AU v2 has no host resize callback — use `host->set_resize_callback(...)` to
+  forward native-NSView frame changes to `bridge->resize()`. VST3/CLAP drive
+  resize through their own host size callbacks and don't need it.
+
+See `planning/2026-05-22-gpu-view-host-in-plugins.md` and its `qa/` doc.
+
 ## References
 
 - `core/format/include/pulp/format/view_bridge.hpp` — public API
+- `core/format/include/pulp/format/gpu_host_select.hpp` — GPU host auto-select helper
 - `core/format/src/view_bridge.cpp` — implementation
 - `core/format/include/pulp/format/processor.hpp` — `create_view`,
   `view_size`, `on_view_*`

@@ -155,6 +155,17 @@ The attribute is a static-analysis hint only — dropping it from derived-class 
 
 Calling `_ownership->bridge->close()` HERE explicitly (BEFORE `delete _ownership`) reverses that order: the View dies first, then `~PluginViewHost` dereferences a dangling `root_` reference and crashes the AU v2 editor close path. Codex P1 review on PR #653 caught this — the fix is to remove the explicit close, NOT to add it. Same rule applies to any future Cocoa-View ownership wrapper that mixes a `ViewBridge` and a `PluginViewHost` in the same C++ scope.
 
+### Editor GPU host is auto-selected — don't hardcode `use_gpu`
+
+`au_v2_cocoa_view.mm` no longer sets `Options::use_gpu` by hand; it calls
+`pulp::format::decide_gpu_host(*bridge)` so a Skia/Dawn/scripted editor gets the
+GPU `PluginViewHost` automatically (hardcoding `use_gpu=false` was the bug that
+made it fall back to AutoUi/CPU). It also wires `host->set_resize_callback(...)`
+because AU v2 has **no host size callback** — the DAW resizes the returned
+NSView directly, so native frame changes are forwarded to `bridge->resize()`
+through that seam. Full contract: the `view-bridge` skill's "GPU view host
+auto-selection" section. (GPU-plugin-view-host work, 2026-05.)
+
 ### `auval` automation must disable editor creation
 
 `auval` can instantiate AU editor surfaces during validation, which is
