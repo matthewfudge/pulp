@@ -1495,6 +1495,14 @@ int main(int argc, char* argv[]) {
     pulp::render::RenderPassManager inspector_rpm;
     inspector_view_ptr->set_render_pass_manager(&inspector_rpm);
 
+    // Deferred inspector teardown. The window's close button fires its
+    // close-callback from INSIDE -[PulpWindowDelegate windowShouldClose:];
+    // resetting the WindowHost there frees it while AppKit is mid-close →
+    // use-after-free SIGSEGV. So the callback only sets this flag and the
+    // idle callback performs the actual teardown next tick, off the close
+    // stack.
+    bool inspector_close_pending = false;
+
     auto open_inspector = [&]() {
         if (inspector_window) return;
         WindowOptions iopts;
@@ -1510,11 +1518,10 @@ int main(int argc, char* argv[]) {
             // re-open rebuilds clean (no stale active overlay / stale selection
             // that would otherwise reopen with no fresh reflect).
             inspector_window->set_close_callback([&] {
-                inspector_window.reset();
-                inspector_selected = nullptr;
-                inspector.set_active(false);
-                inspector.set_selected_view(nullptr);
-                if (window) window->repaint();
+                // DEFER: this runs inside windowShouldClose: — destroying the
+                // WindowHost here is a use-after-free. Hand off to the idle
+                // callback (next tick, off the close stack).
+                inspector_close_pending = true;
             });
             // P2d (A): populate the tree + props BEFORE showing so the window
             // never flashes empty for a frame on open. The signature-guarded
@@ -1645,6 +1652,17 @@ int main(int argc, char* argv[]) {
     });
 
     window->set_idle_callback([&] {
+        // Deferred inspector teardown (off the windowShouldClose stack — see
+        // inspector_close_pending). Closing the inspector only closes the
+        // inspector; the main window/app keep running.
+        if (inspector_close_pending) {
+            inspector_close_pending = false;
+            inspector_window.reset();
+            inspector_selected = nullptr;
+            inspector.set_active(false);
+            inspector.set_selected_view(nullptr);
+            if (window) window->repaint();
+        }
         if (inspector_window) {
             // #2611 — sample the main window's GPU render time and hand it to
             // the Performance tab's RenderPassManager before refreshing.
