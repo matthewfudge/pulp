@@ -21,10 +21,13 @@
 #include <choc/text/choc_JSON.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <sstream>
 #include <iomanip>
 #include <cmath>
+#include <utility>
 
 namespace pulp::inspect {
 
@@ -379,6 +382,8 @@ void InspectorOverlay::clear_text_edit_state() {
     text_edit_target_ = nullptr;
     text_edit_buffer_.clear();
     text_edit_original_.clear();
+    text_caret_ = 0;          // WYSIWYG T2 — drop caret/selection too
+    text_sel_anchor_ = 0;
 }
 
 bool InspectorOverlay::begin_text_edit(View* v) {
@@ -389,7 +394,204 @@ bool InspectorOverlay::begin_text_edit(View* v) {
     text_edit_target_ = v;
     text_edit_original_ = editable_text_of(v);
     text_edit_buffer_ = text_edit_original_;
+    // WYSIWYG T2 — caret to the end of the seeded text, no selection, blink
+    // phase reset so the caret is immediately visible on entry.
+    text_caret_ = text_edit_buffer_.size();
+    text_sel_anchor_ = text_caret_;
+    text_blink_ticks_ = 0;
     return true;
+}
+
+// ── WYSIWYG T2 — UTF-8 caret/selection helpers ──────────────────────────────
+//
+// The edit buffer is a UTF-8 std::string. Caret offsets are byte indices kept
+// on codepoint boundaries. These mirror TextEditor's manipulation logic
+// (caret index, selection range, word/line moves, clipboard) without swapping
+// in the TextEditor widget chrome — the live View text keeps the real-UI look.
+
+namespace {
+
+// True if byte `b` is a UTF-8 continuation byte (10xxxxxx).
+inline bool is_utf8_cont(unsigned char b) { return (b & 0xC0) == 0x80; }
+
+// Step one codepoint left of byte offset `i` in `s` (clamped at 0).
+std::size_t utf8_prev(const std::string& s, std::size_t i) {
+    if (i == 0) return 0;
+    --i;
+    while (i > 0 && is_utf8_cont(static_cast<unsigned char>(s[i]))) --i;
+    return i;
+}
+
+// Step one codepoint right of byte offset `i` in `s` (clamped at size()).
+std::size_t utf8_next(const std::string& s, std::size_t i) {
+    const std::size_t n = s.size();
+    if (i >= n) return n;
+    ++i;
+    while (i < n && is_utf8_cont(static_cast<unsigned char>(s[i]))) ++i;
+    return i;
+}
+
+bool is_word_byte(unsigned char c) {
+    return std::isalnum(c) || c == '_' || c >= 0x80;  // treat non-ASCII as word
+}
+
+}  // namespace
+
+std::pair<std::size_t, std::size_t> InspectorOverlay::text_selection() const {
+    return {std::min(text_caret_, text_sel_anchor_),
+            std::max(text_caret_, text_sel_anchor_)};
+}
+
+void InspectorOverlay::text_move_caret(int delta, bool extend) {
+    if (!text_editing()) return;
+    const std::string& s = text_edit_buffer_;
+    // With a selection and no extend, a left/right arrow collapses to the
+    // selection edge (the standard editor behavior) rather than moving past.
+    if (!extend && text_has_selection()) {
+        auto [lo, hi] = text_selection();
+        text_caret_ = (delta < 0) ? lo : hi;
+        text_sel_anchor_ = text_caret_;
+        // A single arrow after collapsing does not also move.
+        if ((delta < 0 && text_caret_ == lo) || (delta > 0 && text_caret_ == hi)) {
+            text_blink_ticks_ = 0;
+            return;
+        }
+    }
+    int steps = std::abs(delta);
+    for (int k = 0; k < steps; ++k) {
+        text_caret_ = (delta < 0) ? utf8_prev(s, text_caret_)
+                                  : utf8_next(s, text_caret_);
+    }
+    if (!extend) text_sel_anchor_ = text_caret_;
+    text_blink_ticks_ = 0;
+}
+
+void InspectorOverlay::text_move_word(int direction, bool extend) {
+    if (!text_editing()) return;
+    const std::string& s = text_edit_buffer_;
+    std::size_t i = text_caret_;
+    if (direction < 0) {
+        // Skip whitespace/punctuation left, then the word run left.
+        while (i > 0 && !is_word_byte(static_cast<unsigned char>(s[i - 1]))) --i;
+        while (i > 0 && is_word_byte(static_cast<unsigned char>(s[i - 1]))) --i;
+    } else {
+        const std::size_t n = s.size();
+        while (i < n && !is_word_byte(static_cast<unsigned char>(s[i]))) ++i;
+        while (i < n && is_word_byte(static_cast<unsigned char>(s[i]))) ++i;
+    }
+    text_caret_ = i;
+    if (!extend) text_sel_anchor_ = i;
+    text_blink_ticks_ = 0;
+}
+
+void InspectorOverlay::text_move_home(bool extend) {
+    if (!text_editing()) return;
+    text_caret_ = 0;
+    if (!extend) text_sel_anchor_ = 0;
+    text_blink_ticks_ = 0;
+}
+
+void InspectorOverlay::text_move_end(bool extend) {
+    if (!text_editing()) return;
+    text_caret_ = text_edit_buffer_.size();
+    if (!extend) text_sel_anchor_ = text_caret_;
+    text_blink_ticks_ = 0;
+}
+
+void InspectorOverlay::text_select_all() {
+    if (!text_editing()) return;
+    text_sel_anchor_ = 0;
+    text_caret_ = text_edit_buffer_.size();
+    text_blink_ticks_ = 0;
+}
+
+bool InspectorOverlay::text_copy() {
+    if (!text_editing() || !text_has_selection()) return false;
+    auto [lo, hi] = text_selection();
+    return pulp::platform::Clipboard::set_text(
+        text_edit_buffer_.substr(lo, hi - lo));
+}
+
+bool InspectorOverlay::text_cut() {
+    if (!text_editing() || !text_has_selection()) return false;
+    auto [lo, hi] = text_selection();
+    const bool ok = pulp::platform::Clipboard::set_text(
+        text_edit_buffer_.substr(lo, hi - lo));
+    // Cut removes the selection even if the system clipboard write failed
+    // (Linux without xclip/wl-copy) — matching TextEditor, the edit-local
+    // delete is the user-visible action.
+    text_edit_buffer_.erase(lo, hi - lo);
+    text_caret_ = lo;
+    text_sel_anchor_ = lo;
+    if (text_edit_target_reachable())
+        set_editable_text_of(text_edit_target_, text_edit_buffer_);
+    text_blink_ticks_ = 0;
+    return ok;
+}
+
+bool InspectorOverlay::text_paste() {
+    if (!text_editing()) return false;
+    auto clip = pulp::platform::Clipboard::get_text();
+    if (!clip || clip->empty()) return false;
+    text_insert(*clip);
+    return true;
+}
+
+void InspectorOverlay::text_insert(const std::string& utf8) {
+    if (!text_editing()) return;
+    if (!text_edit_target_reachable()) { clear_text_edit_state(); return; }
+    // Replace any selection first.
+    if (text_has_selection()) {
+        auto [lo, hi] = text_selection();
+        text_edit_buffer_.erase(lo, hi - lo);
+        text_caret_ = lo;
+        text_sel_anchor_ = lo;
+    }
+    if (text_caret_ > text_edit_buffer_.size())
+        text_caret_ = text_edit_buffer_.size();
+    text_edit_buffer_.insert(text_caret_, utf8);
+    text_caret_ += utf8.size();
+    text_sel_anchor_ = text_caret_;
+    set_editable_text_of(text_edit_target_, text_edit_buffer_);
+    text_blink_ticks_ = 0;
+}
+
+void InspectorOverlay::text_delete_backward() {
+    if (!text_editing()) return;
+    if (!text_edit_target_reachable()) { clear_text_edit_state(); return; }
+    if (text_has_selection()) {
+        auto [lo, hi] = text_selection();
+        text_edit_buffer_.erase(lo, hi - lo);
+        text_caret_ = lo;
+        text_sel_anchor_ = lo;
+    } else if (text_caret_ > 0) {
+        const std::size_t prev = utf8_prev(text_edit_buffer_, text_caret_);
+        text_edit_buffer_.erase(prev, text_caret_ - prev);
+        text_caret_ = prev;
+        text_sel_anchor_ = prev;
+    } else {
+        return;  // nothing to delete
+    }
+    set_editable_text_of(text_edit_target_, text_edit_buffer_);
+    text_blink_ticks_ = 0;
+}
+
+void InspectorOverlay::text_delete_forward() {
+    if (!text_editing()) return;
+    if (!text_edit_target_reachable()) { clear_text_edit_state(); return; }
+    if (text_has_selection()) {
+        auto [lo, hi] = text_selection();
+        text_edit_buffer_.erase(lo, hi - lo);
+        text_caret_ = lo;
+        text_sel_anchor_ = lo;
+    } else if (text_caret_ < text_edit_buffer_.size()) {
+        const std::size_t nxt = utf8_next(text_edit_buffer_, text_caret_);
+        text_edit_buffer_.erase(text_caret_, nxt - text_caret_);
+    } else {
+        return;
+    }
+    set_editable_text_of(text_edit_target_, text_edit_buffer_);
+    text_blink_ticks_ = 0;
 }
 
 bool InspectorOverlay::commit_text_edit() {
@@ -451,6 +653,8 @@ bool InspectorOverlay::commit_text_edit() {
     text_edit_target_ = nullptr;
     text_edit_buffer_.clear();
     text_edit_original_.clear();
+    text_caret_ = 0;          // WYSIWYG T2
+    text_sel_anchor_ = 0;
     return emitted;
 }
 
@@ -467,6 +671,8 @@ void InspectorOverlay::cancel_text_edit() {
     text_edit_target_ = nullptr;
     text_edit_buffer_.clear();
     text_edit_original_.clear();
+    text_caret_ = 0;          // WYSIWYG T2
+    text_sel_anchor_ = 0;
 }
 
 bool InspectorOverlay::handle_text_input(const TextInputEvent& event) {
@@ -478,8 +684,10 @@ bool InspectorOverlay::handle_text_input(const TextInputEvent& event) {
         return false;
     }
     if (event.text.empty()) return true;  // consume, nothing to append
-    text_edit_buffer_ += event.text;
-    set_editable_text_of(text_edit_target_, text_edit_buffer_);
+    // WYSIWYG T2 — insert at the caret (replacing any selection) rather than
+    // blindly appending, so typing in the middle / over a shift-selection
+    // behaves like a real text field.
+    text_insert(event.text);
     return true;
 }
 
@@ -1171,36 +1379,67 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
             cancel_text_edit();
             return true;
         }
+        // WYSIWYG P5 FIX 1 — guard against a target freed mid-edit for every
+        // mutating key path below.
         if (event.key == KeyCode::backspace) {
-            // WYSIWYG P5 FIX 1 — guard against a target freed mid-edit.
             if (!text_edit_target_reachable()) {
                 clear_text_edit_state();
                 return true;
             }
-            if (!text_edit_buffer_.empty()) {
-                // Trim one UTF-8 codepoint (drop continuation bytes 0x80–
-                // 0xBF then the lead byte) so multi-byte glyphs delete
-                // whole, not byte-by-byte.
-                std::size_t n = text_edit_buffer_.size();
-                do {
-                    --n;
-                } while (n > 0 &&
-                         (static_cast<unsigned char>(text_edit_buffer_[n]) &
-                          0xC0) == 0x80);
-                text_edit_buffer_.erase(n);
-                set_editable_text_of(text_edit_target_, text_edit_buffer_);
+            text_delete_backward();  // WYSIWYG T2 — selection-aware delete
+            return true;
+        }
+        if (event.key == KeyCode::delete_) {
+            if (!text_edit_target_reachable()) {
+                clear_text_edit_state();
+                return true;
             }
+            text_delete_forward();
+            return true;
+        }
+        // WYSIWYG T2 — Cmd/Ctrl clipboard + select-all. Bound BEFORE the
+        // return-false char passthrough so Cmd+A/C/V/X don't fall through to
+        // insertText (which would type a literal 'a'/'c'/…). isMainModifier()
+        // is Cmd on macOS, Ctrl elsewhere.
+        if (event.isMainModifier()) {
+            switch (event.key) {
+                case KeyCode::a: text_select_all(); return true;
+                case KeyCode::c: text_copy();       return true;
+                case KeyCode::x: text_cut();        return true;
+                case KeyCode::v: text_paste();      return true;
+                // Cmd+Left / Cmd+Right = line start / end (single-line).
+                case KeyCode::left:  text_move_home(event.isShiftDown()); return true;
+                case KeyCode::right: text_move_end(event.isShiftDown());  return true;
+                default: break;
+            }
+        }
+        // WYSIWYG T2 — caret movement. Shift extends the selection; the
+        // Option/Alt modifier jumps by word. Up/Down map to start/end in
+        // this single-line in-place edit.
+        if (event.key == KeyCode::left || event.key == KeyCode::right) {
+            const int dir = (event.key == KeyCode::left) ? -1 : 1;
+            if (event.isAltDown()) {
+                text_move_word(dir, event.isShiftDown());
+            } else {
+                text_move_caret(dir, event.isShiftDown());
+            }
+            return true;
+        }
+        if (event.key == KeyCode::home || event.key == KeyCode::up) {
+            text_move_home(event.isShiftDown());
+            return true;
+        }
+        if (event.key == KeyCode::end_ || event.key == KeyCode::down) {
+            text_move_end(event.isShiftDown());
             return true;
         }
         // Return FALSE for all other key-downs (do NOT swallow) so the mac
         // host proceeds to interpretKeyEvents: -> insertText: -> the text
         // hook -> handle_text_input(), which is the ONLY path that delivers
-        // the actual typed character. Swallowing here (return true) made the
-        // host return before insertText, so typing in the Text tool did
-        // nothing. The control keys (Enter/Esc/Backspace) were already
-        // consumed above; everything else is character input. A tool/toggle
-        // flip can't fire from here because this block returns before the
-        // V/T/D/P key handlers further down.
+        // the actual typed character. The control keys (Enter/Esc/Backspace/
+        // Delete), clipboard combos, and caret navigation were consumed above;
+        // everything else is character input. A tool/toggle flip can't fire
+        // from here because this block returns before the V/T/D/P handlers.
         return false;
     }
 
@@ -2172,6 +2411,7 @@ void InspectorOverlay::paint(Canvas& canvas) {
         paint_highlight(canvas);
         paint_drop_indicator(canvas);
         paint_drag_ghost(canvas);
+        paint_text_edit_overlay(canvas);  // WYSIWYG T2 — caret/selection
         return;
     }
 
@@ -2184,6 +2424,7 @@ void InspectorOverlay::paint(Canvas& canvas) {
     paint_drag_ghost(canvas);
     paint_distance_lines(canvas);
     if (selected_) paint_box_model(canvas, selected_);
+    paint_text_edit_overlay(canvas);  // WYSIWYG T2 — caret/selection overlay
     paint_panel(canvas);
     // Phase 3c — eyedropper swatch paints above the panel and
     // highlights so the sampled color is never occluded.
@@ -2261,6 +2502,66 @@ void InspectorOverlay::paint_eyedropper_cursor(Canvas& canvas) {
     canvas.set_fill_color(kEyedropText);
     canvas.fill_text(hex, sx + kSwatch + kPad,
                      by + box_h / 2.0f + 4.0f);
+
+    canvas.restore();
+}
+
+// WYSIWYG T2 — paint the caret + selection as a LIGHT overlay on the live
+// in-place edit. Deliberately NOT a styled input box: the live View text keeps
+// its real-UI look; we only layer a blinking caret line + a translucent
+// selection band on top, positioned by measuring the buffer prefix in the
+// target's own font. Single-line model (the in-place edit is one logical run).
+void InspectorOverlay::paint_text_edit_overlay(Canvas& canvas) {
+    if (!text_editing() || !text_edit_target_reachable()) return;
+
+    // Resolve the target's font so caret math matches the rendered glyphs.
+    float font_size = 13.0f;
+    std::string font_family;
+    if (auto* lbl = dynamic_cast<const Label*>(text_edit_target_)) {
+        font_size = lbl->font_size();
+        font_family = lbl->font_family();
+    } else if (auto* ed = dynamic_cast<const TextEditor*>(text_edit_target_)) {
+        font_size = ed->font_size();
+    }
+    if (font_family.empty()) font_family = "system";
+
+    const Rect r = view_bounds_in_root(text_edit_target_);
+    canvas.save();
+    canvas.set_font(font_family, font_size);
+
+    // Measure helper: width of the buffer's first `bytes` bytes.
+    auto prefix_w = [&](std::size_t bytes) -> float {
+        if (bytes == 0) return 0.0f;
+        return canvas.measure_text(text_edit_buffer_.substr(0, bytes));
+    };
+
+    // The text origin is the target's left edge; vertically center the caret
+    // band on the box. (Most imported text sits with a small left inset; we
+    // keep it flush-left which is correct for the common Label case.)
+    const float text_x = r.x;
+    const float band_h = std::min(r.height, font_size * 1.3f);
+    const float band_y = r.y + (r.height - band_h) * 0.5f;
+
+    // Selection band (translucent accent) behind the caret.
+    if (text_has_selection()) {
+        auto [lo, hi] = text_selection();
+        const float x0 = text_x + prefix_w(lo);
+        const float x1 = text_x + prefix_w(hi);
+        canvas.set_fill_color(Color::rgba(0.31f, 0.63f, 1.0f, 0.35f));
+        canvas.fill_rect(x0, band_y, std::max(1.0f, x1 - x0), band_h);
+    }
+
+    // Blinking caret. text_blink_ticks_ free-runs on paint (reset to 0 on any
+    // edit so the caret is solid right after a keystroke); show it while the
+    // tick window is even. ~30 ticks ≈ 0.5s at 60fps.
+    constexpr std::uint32_t kBlinkPeriod = 30;
+    const bool caret_on = ((text_blink_ticks_ / kBlinkPeriod) % 2) == 0;
+    ++text_blink_ticks_;
+    if (caret_on) {
+        const float cx = text_x + prefix_w(text_caret_);
+        canvas.set_fill_color(Color::rgba(0.95f, 0.95f, 0.98f, 0.95f));
+        canvas.fill_rect(cx, band_y, 1.5f, band_h);
+    }
 
     canvas.restore();
 }

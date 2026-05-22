@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/inspect/inspector_window.hpp>
+#include <pulp/platform/clipboard.hpp>  // WYSIWYG T2 — paste test
 #include <pulp/render/atlas_inventory.hpp>
 #include <pulp/view/inspector.hpp>
 #include <pulp/view/widgets.hpp>
@@ -4939,6 +4940,157 @@ TEST_CASE("InspectorOverlay P3: Esc cancels inline text edit, reverts copy",
     // Original copy restored, no tweak emitted.
     REQUIRE(label_ptr->text() == "Keep");
     REQUIRE(store.count() == 0);
+}
+
+// ── WYSIWYG T2 — in-place text-edit caret + selection ───────────────────────
+//
+// The inline edit keeps the LIVE View text but layers TextEditor-style caret /
+// selection / clipboard LOGIC on top. These tests cover the spec's required
+// surface: caret movement, select-all, and paste, plus shift-select + insert-
+// at-caret and the caret/selection paint overlay.
+
+namespace {
+// Build a Label-in-root + an active Text-tool overlay editing it. Returns the
+// label pointer via out-param; the overlay is constructed by the caller.
+std::unique_ptr<View> t2_make_label(const std::string& text, Label** out) {
+    auto label = std::make_unique<Label>(text);
+    label->set_anchor_id("figma:t2");
+    label->set_bounds({20, 20, 200, 30});
+    *out = label.get();
+    return label;
+}
+}  // namespace
+
+TEST_CASE("InspectorOverlay T2: caret moves with arrows and inserts mid-text",
+          "[inspect][overlay][wysiwyg][t2]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    Label* label = nullptr;
+    root.add_child(t2_make_label("abc", &label));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label));
+
+    // begin_text_edit seeds the caret at the end (after "abc").
+    REQUIRE(overlay.text_caret() == 3);
+    REQUIRE_FALSE(overlay.text_has_selection());
+
+    // Two LEFT arrows → caret between 'a' and 'b' (index 1).
+    KeyEvent left; left.key = KeyCode::left; left.is_down = true;
+    REQUIRE(overlay.handle_key_event(left));
+    REQUIRE(overlay.handle_key_event(left));
+    REQUIRE(overlay.text_caret() == 1);
+
+    // Type "X" → inserted at the caret, not appended.
+    TextInputEvent ti; ti.text = "X";
+    REQUIRE(overlay.handle_text_input(ti));
+    REQUIRE(overlay.text_edit_buffer() == "aXbc");
+    REQUIRE(label->text() == "aXbc");        // live preview
+    REQUIRE(overlay.text_caret() == 2);      // caret advanced past the insert
+
+    // RIGHT arrow to the end, type "!" → appended.
+    KeyEvent right; right.key = KeyCode::right; right.is_down = true;
+    REQUIRE(overlay.handle_key_event(right));
+    REQUIRE(overlay.handle_key_event(right));
+    ti.text = "!";
+    REQUIRE(overlay.handle_text_input(ti));
+    REQUIRE(overlay.text_edit_buffer() == "aXbc!");
+}
+
+TEST_CASE("InspectorOverlay T2: Cmd+A selects all, then paste replaces it",
+          "[inspect][overlay][wysiwyg][t2]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    Label* label = nullptr;
+    root.add_child(t2_make_label("hello", &label));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label));
+
+    // Cmd+A selects the whole buffer.
+    KeyEvent sel_all;
+    sel_all.key = KeyCode::a;
+    sel_all.is_down = true;
+    sel_all.modifiers = pulp::view::kModCmd;
+    REQUIRE(overlay.handle_key_event(sel_all));
+    REQUIRE(overlay.text_has_selection());
+    auto [lo, hi] = overlay.text_selection();
+    REQUIRE(lo == 0);
+    REQUIRE(hi == 5);
+
+    // Seed the clipboard, then paste — replaces the full selection.
+    REQUIRE(pulp::platform::Clipboard::set_text("WORLD"));
+    KeyEvent paste;
+    paste.key = KeyCode::v;
+    paste.is_down = true;
+    paste.modifiers = pulp::view::kModCmd;
+    REQUIRE(overlay.handle_key_event(paste));
+    REQUIRE(overlay.text_edit_buffer() == "WORLD");
+    REQUIRE(label->text() == "WORLD");
+    REQUIRE_FALSE(overlay.text_has_selection());  // selection collapsed
+    REQUIRE(overlay.text_caret() == 5);
+}
+
+TEST_CASE("InspectorOverlay T2: shift-arrow extends selection; typing replaces",
+          "[inspect][overlay][wysiwyg][t2]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    Label* label = nullptr;
+    root.add_child(t2_make_label("abcd", &label));
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label));  // caret at 4 (end)
+
+    // Shift+Left twice selects the last two chars ("cd").
+    KeyEvent shleft;
+    shleft.key = KeyCode::left;
+    shleft.is_down = true;
+    shleft.modifiers = pulp::view::kModShift;
+    REQUIRE(overlay.handle_key_event(shleft));
+    REQUIRE(overlay.handle_key_event(shleft));
+    REQUIRE(overlay.text_has_selection());
+    {
+        auto [lo, hi] = overlay.text_selection();
+        REQUIRE(lo == 2);
+        REQUIRE(hi == 4);
+    }
+
+    // Typing over the selection replaces it.
+    TextInputEvent ti; ti.text = "Z";
+    REQUIRE(overlay.handle_text_input(ti));
+    REQUIRE(overlay.text_edit_buffer() == "abZ");
+    REQUIRE_FALSE(overlay.text_has_selection());
+}
+
+TEST_CASE("InspectorOverlay T2: caret + selection paint as a light overlay",
+          "[inspect][overlay][wysiwyg][t2]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    Label* label = nullptr;
+    root.add_child(t2_make_label("abcd", &label));
+    root.layout_children();
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_manipulate_only(true);  // P1 manipulate layer (ui-preview path)
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label));
+    overlay.text_select_all();
+
+    // Painting must not crash and must emit fill_rect commands for the caret /
+    // selection band overlay (the light overlay, not an input box).
+    pulp::canvas::RecordingCanvas canvas;
+    overlay.paint(canvas);
+    std::size_t rects = 0;
+    for (const auto& c : canvas.commands())
+        if (c.type == pulp::canvas::DrawCommand::Type::fill_rect) ++rects;
+    REQUIRE(rects >= 1);  // selection band and/or caret line drawn
 }
 
 TEST_CASE("InspectorOverlay P3: Select tool clicks still select (unchanged)",

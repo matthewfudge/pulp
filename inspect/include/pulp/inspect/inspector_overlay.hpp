@@ -507,6 +507,51 @@ public:
     /// Cancel the inline text edit, restoring the View's original text.
     void cancel_text_edit();
 
+    // ── WYSIWYG T2 — in-place text-edit caret + selection ────────────
+    //
+    // The inline Text-tool edit keeps the LIVE View text (real-UI look —
+    // no TextEditor widget chrome is swapped in). T2 layers TextEditor's
+    // text-manipulation LOGIC on top: a caret index into the buffer, a
+    // selection range, arrow / word / line caret movement, shift-select,
+    // and Cmd+A/C/V/X clipboard. The caret + selection are painted as a
+    // light overlay on the in-place text (see paint()), NOT as a styled
+    // input box. Esc=cancel and Enter/click-away=commit are unchanged.
+
+    /// Caret byte-offset into the edit buffer (UTF-8 boundary-aligned).
+    std::size_t text_caret() const { return text_caret_; }
+    /// Selection range as [start, end) byte offsets (start == end → none).
+    std::pair<std::size_t, std::size_t> text_selection() const;
+    bool text_has_selection() const { return text_caret_ != text_sel_anchor_; }
+
+    /// Move the caret by `delta` UTF-8 codepoints (negative = left). When
+    /// `extend` is true the selection anchor stays put (shift-select);
+    /// otherwise the selection collapses to the new caret.
+    void text_move_caret(int delta, bool extend);
+    /// Move the caret one word in `direction` (-1 left / +1 right), skipping
+    /// the run of non-word then word bytes (Option/Alt+Arrow). `extend` =
+    /// shift-select.
+    void text_move_word(int direction, bool extend);
+    /// Move the caret to the buffer start / end (Cmd+Left / Cmd+Right /
+    /// Home / End — single-line). `extend` = shift-select.
+    void text_move_home(bool extend);
+    void text_move_end(bool extend);
+    /// Select the entire buffer (Cmd+A).
+    void text_select_all();
+    /// Clipboard: copy / cut / paste the selection (Cmd+C / X / V). Copy
+    /// returns false when there is no selection; cut/paste mutate the
+    /// buffer + live View text. Paste replaces the selection (or inserts
+    /// at the caret when none).
+    bool text_copy();
+    bool text_cut();
+    bool text_paste();
+    /// Insert UTF-8 text at the caret, replacing any selection. The shared
+    /// insertion path for typed characters (handle_text_input) and paste.
+    void text_insert(const std::string& utf8);
+    /// Delete the selection if any; otherwise the codepoint before the
+    /// caret (Backspace) or after it (Delete / forward-delete).
+    void text_delete_backward();
+    void text_delete_forward();
+
     /// Dotted property path the Text tool writes the edited copy to.
     /// Defaults to "text" (the JSX text-node content). A host could
     /// retarget it; the setter ignores empty strings.
@@ -784,6 +829,20 @@ private:
     std::string text_edit_buffer_;
     std::string text_edit_original_;
     std::string text_tweak_path_ = "text";
+
+    // WYSIWYG T2 — caret + selection over the live in-place edit buffer.
+    // text_caret_ is the active caret byte-offset; text_sel_anchor_ is the
+    // selection anchor (== caret when there is no selection). Both are kept
+    // on UTF-8 codepoint boundaries. text_blink_ticks_ is a free-running
+    // paint counter that drives the blink (no wall clock needed — works
+    // headless); the caret shows while (ticks / kBlinkPeriod) is even.
+    std::size_t text_caret_ = 0;
+    std::size_t text_sel_anchor_ = 0;
+    mutable std::uint32_t text_blink_ticks_ = 0;
+
+    // T2 paint helper — draw the caret + selection highlight as a light
+    // overlay on the live in-place edit (called from paint()).
+    void paint_text_edit_overlay(Canvas& canvas);
 
     // Ordered list of editable fields populated during paint_props_section()
     // — used (a) for Tab to walk forward, and (b) for click hit-testing.
