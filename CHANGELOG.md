@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v01953"></a>
+## [0.195.3] - 2026-05-21
+
+- refactor(inspect): split InspectorOverlay paint methods into a sibling TU (P11-5, #2647) ([#2679](https://github.com/danielraffel/pulp/pull/2679))
+- test(format): cover validation harness report edges ([#2678](https://github.com/danielraffel/pulp/pull/2678))
+
 <a id="v01952"></a>
 ## [0.195.2] - 2026-05-21
 
@@ -2536,6 +2542,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.195.3]: https://github.com/danielraffel/pulp/releases/tag/v0.195.3
 [0.195.2]: https://github.com/danielraffel/pulp/releases/tag/v0.195.2
 [0.195.1]: https://github.com/danielraffel/pulp/releases/tag/v0.195.1
 [0.194.1]: https://github.com/danielraffel/pulp/releases/tag/v0.194.1
