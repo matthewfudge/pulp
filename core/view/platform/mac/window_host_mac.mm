@@ -1392,8 +1392,17 @@ static void install_app_menu(NSString* appName) {
 
 - (BOOL)windowShouldClose:(NSWindow*)sender {
     if (self.onClose) self.onClose();
-    [NSApp stop:nil];
     [sender orderOut:nil];
+    // Only stop the app's run loop when the LAST visible window is closing.
+    // A secondary window (e.g. the floating inspector) closing must leave the
+    // main window + app running — matching the Cmd+I toggle's close path.
+    // Previously this called [NSApp stop:nil] unconditionally, so closing the
+    // inspector quit the whole app.
+    NSUInteger otherVisible = 0;
+    for (NSWindow* w in [NSApp windows]) {
+        if (w != sender && [w isVisible]) otherVisible++;
+    }
+    if (otherVisible == 0) [NSApp stop:nil];
     return YES;
 }
 

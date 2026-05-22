@@ -2485,9 +2485,10 @@ TEST_CASE("InspectorOverlay P1: handle drag lands a layout.width tweak "
 }
 
 // P1 drill-down: a click resolves to the DEEPEST hittable element, not the
-// container. Esc-to-ascend then walks the selection up to the parent.
+// container. Esc then DESELECTS (one press, stays active) — the maintainer's
+// requested behavior so hover + click keep working without a Cmd+I cycle.
 TEST_CASE("InspectorOverlay P1: click selects deepest nested element, "
-          "Esc ascends to parent",
+          "Esc deselects and stays active",
           "[inspect][overlay][p1][drill-down][issue-wysiwyg-p1]") {
     View root;
     root.set_bounds({0, 0, 400, 300});
@@ -2517,17 +2518,22 @@ TEST_CASE("InspectorOverlay P1: click selects deepest nested element, "
     // DEEPEST element selected, NOT the container.
     REQUIRE(overlay.selected_view() == nested_ptr);
 
-    // Esc ascends to the parent container.
+    // Esc DESELECTS in one press, and stays active so hover + click keep
+    // working without a Cmd+I cycle (maintainer's requested behavior — was
+    // ascend-to-parent, which needed multiple presses then deactivated).
     KeyEvent esc; esc.key = KeyCode::escape; esc.is_down = true;
     REQUIRE(overlay.handle_key_event(esc));
-    REQUIRE(overlay.selected_view() == container_ptr);
-    REQUIRE(overlay.is_active());  // still active — ascend, don't exit
+    REQUIRE(overlay.selected_view() == nullptr);
+    REQUIRE(overlay.is_active());  // still active — deselect, don't exit
 
-    // Esc again ascends to root.
+    // A second click re-selects the deepest element (no Cmd+I cycle needed).
+    REQUIRE(overlay.handle_mouse_event(click));
+    REQUIRE(overlay.selected_view() == nested_ptr);
+    REQUIRE(overlay.selected_view()->parent() == container_ptr);
+
+    // Esc deselects again; Esc with nothing selected then exits the inspector.
     REQUIRE(overlay.handle_key_event(esc));
-    REQUIRE(overlay.selected_view() == &root);
-
-    // Esc at root (no parent) exits the inspector.
+    REQUIRE(overlay.selected_view() == nullptr);
     REQUIRE(overlay.handle_key_event(esc));
     REQUIRE_FALSE(overlay.is_active());
 }

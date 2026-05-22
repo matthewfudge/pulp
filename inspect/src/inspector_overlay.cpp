@@ -877,11 +877,17 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
     // through to exit the inspector. Edit mode already consumed Esc above
     // to cancel the edit, so this never fires mid-edit.
     if (active_ && event.key == KeyCode::escape && event.is_down) {
-        // Ascend while there is a parent to climb to (stops at root,
-        // which has no parent). Once at root / unselected, Esc exits.
-        if (selected_ && selected_->parent()) {
-            select_parent();
-            return true;  // ascended one level
+        // Esc = DESELECT in one press, and STAY in inspect mode so hover +
+        // click keep working without a Cmd+I cycle. Only when nothing is
+        // selected does Esc exit the inspector. (Was: ascend-to-parent, which
+        // needed multiple Esc presses and then deactivated the overlay, so the
+        // user had to cycle Cmd+I to select again.)
+        if (selected_) {
+            selected_ = nullptr;
+            active_drag_ = DragCorner::none;  // cancel any in-progress gesture
+            move_active_ = false;
+            drop_target_ = nullptr;           // clear stale drop indicator
+            return true;
         }
         set_active(false);
         return true;
