@@ -1043,9 +1043,27 @@ int main(int argc, char* argv[]) {
         return true;
     };
 
-    // Set up inspector before screenshot so it renders in headless mode too
+    // Set up inspector before screenshot so it renders in headless mode too.
+    //
+    // The in-canvas overlay is the MINIMAL manipulate layer (P1): it paints
+    // only the selection box + drag handles and owns the canvas for
+    // move/resize gestures. The floating InspectorWindow (created later) is
+    // the inspect/tree/props surface. Both share one selected View*; the
+    // composing input hooks below dispatch to the overlay FIRST (it needs
+    // canvas-space coords), then to the floating-window logic.
     pulp::inspect::InspectorOverlay inspector(root);
-    pulp::inspect::install_inspector_hooks(inspector);
+    inspector.set_manipulate_only(true);
+    // NOTE: install_inspector_hooks(inspector) is intentionally NOT called
+    // here — it sets the three global hooks to the overlay only, and the
+    // floating-window block below would clobber them (the historical P1
+    // bug). Instead the composing hooks below own all three globals and
+    // route to BOTH surfaces. pulp-tweaks.json auto-save so move/resize
+    // edits persist across runs.
+    pulp::inspect::g_active_inspector = &inspector;
+    pulp::inspect::TweakStore inspector_tweaks;
+    inspector_tweaks.load_from_disk();          // best-effort; ok if absent
+    inspector_tweaks.set_auto_save(true);
+    inspector.set_tweak_store(&inspector_tweaks);
     if (pulp::runtime::get_env("PULP_INSPECTOR")) {
         inspector.set_active(true);
     }
@@ -1449,49 +1467,75 @@ int main(int argc, char* argv[]) {
         }
     };
 
+    // ── P1: composing inspector hooks ──────────────────────────────────
+    //
+    // ONE input owner per process, dispatching to BOTH surfaces. The
+    // in-canvas overlay is FIRST in the chain (it needs canvas-space mouse
+    // coords for move/resize); the floating window is the inspect surface.
+    // Selection is shared: a pick in either surface updates the other.
+    //
+    // Activation: Cmd+I toggles BOTH the floating window and the in-canvas
+    // manipulate overlay — no PULP_INSPECTOR env var required.
+    auto sync_selection = [&](View* v) {
+        inspector_selected = v;
+        inspector.set_selected_view(v);
+        if (inspector_window) inspector_view_ptr->select_view(v);
+        if (inspector_window) inspector_window->repaint();
+        if (window) window->repaint();
+    };
+
     View::set_inspector_key_hook([&](const KeyEvent& e) -> bool {
+        // Cmd+I toggles inspect mode: float window + in-canvas overlay.
         if (e.is_down && e.key == KeyCode::i && e.isMainModifier()) {
-            if (!inspector_window) open_inspector();
-            else { inspector_window.reset(); inspector_selected = nullptr; }
+            if (!inspector_window) {
+                open_inspector();
+                inspector.set_active(true);
+            } else {
+                inspector_window.reset();
+                inspector_selected = nullptr;
+                inspector.set_active(false);
+                inspector.set_selected_view(nullptr);
+            }
+            if (window) window->repaint();
+            return true;
+        }
+        // Overlay owns the rest of the keys while active (Esc-to-ascend,
+        // D drag toggle, etc.). It returns false for keys it doesn't use.
+        if (inspector.is_active() && inspector.handle_key_event(e)) {
+            // A key the overlay consumed (e.g. Esc-ascend) may have moved
+            // the shared selection — mirror it to the float window.
+            sync_selection(inspector.selected_view());
             return true;
         }
         return false;
     });
 
     View::set_inspector_mouse_hook([&](const MouseEvent& e) -> bool {
-        if (!inspector_window) return false;
-        if (e.is_down && e.isMainModifier()) {
-            auto* hit = root.hit_test(e.position);
-            if (hit) {
-                inspector_selected = hit;
-                inspector_view_ptr->select_view(hit);
-                if (inspector_window) inspector_window->repaint();
-                if (window) window->repaint();
-            }
+        if (!inspector.is_active()) return false;
+        // Overlay first: it handles drag-handle resize + body-drag move and
+        // canvas selection. If it consumes the event, mirror the (possibly
+        // changed) selection to the floating window and stop.
+        bool consumed = inspector.handle_mouse_event(e);
+        if (inspector.selected_view() != inspector_selected) {
+            sync_selection(inspector.selected_view());
+        }
+        if (consumed) {
+            if (window) window->repaint();
             return true;
         }
         return false;
     });
 
     inspector_view_ptr->on_view_selected = [&](View* view) {
-        inspector_selected = view;
-        if (window) window->repaint();
+        // A pick in the floating window's tree updates the shared selection
+        // (so the in-canvas overlay can immediately move/resize it).
+        sync_selection(view);
     };
 
     View::set_inspector_paint_hook([&](pulp::canvas::Canvas& canvas) {
-        // Always paint the highlight overlay when a view is selected and the
-        // inspector is open. No consumed-flag — this avoids flicker during
-        // fast repaints (e.g., dragging a knob).
-        if (!inspector_selected || !inspector_window) return;
-        float x = 0, y = 0;
-        const View* cur = inspector_selected;
-        while (cur && cur != &root) { x += cur->bounds().x; y += cur->bounds().y; cur = cur->parent(); }
-        float w = inspector_selected->bounds().width, h = inspector_selected->bounds().height;
-        canvas.set_fill_color(pulp::canvas::Color::rgba(0.25f, 0.5f, 1.0f, 0.15f));
-        canvas.fill_rect(x, y, w, h);
-        canvas.set_stroke_color(pulp::canvas::Color::rgba(0.25f, 0.5f, 1.0f, 0.8f));
-        canvas.set_line_width(2.0f);
-        canvas.stroke_rect(x, y, w, h);
+        // The overlay paints the selection box + handles (manipulate-only
+        // mode suppresses its dev side-panel). It only paints while active.
+        inspector.paint(canvas);
     });
 
     window->set_idle_callback([&] {
