@@ -64,6 +64,21 @@ class TestSchemaValidation(unittest.TestCase):
         p.write_text(json.dumps(data))
         return p
 
+    def _assert_load_regions_error(
+        self,
+        tmp: Path,
+        data: object,
+        *expected_fragments: str,
+    ) -> None:
+        regions = self._write_regions(tmp, data)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as cm:
+            regions_mod.load_regions(regions)
+        self.assertEqual(cm.exception.code, 2)
+        message = stderr.getvalue()
+        for fragment in expected_fragments:
+            self.assertIn(fragment, message)
+
     def test_non_dict_region_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tdir:
             tmp = Path(tdir)
@@ -131,6 +146,41 @@ class TestSchemaValidation(unittest.TestCase):
             result = _run([str(ref), str(cand), "--regions", str(regions)])
             self.assertEqual(result.returncode, 2)
             self.assertIn("threshold", result.stderr)
+
+    def test_load_regions_direct_errors_cover_schema_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as tdir:
+            tmp = Path(tdir)
+            self._assert_load_regions_error(tmp, {"r1": "bad"}, "r1", "object")
+            self._assert_load_regions_error(
+                tmp,
+                {"r1": {"x": 0.0, "y": 0.0, "w": 1.0}},
+                "r1",
+                "missing 'h'",
+            )
+            self._assert_load_regions_error(
+                tmp,
+                {"r1": {"x": "0.0", "y": 0.0, "w": 1.0, "h": 1.0}},
+                "r1",
+                "non-numeric x",
+            )
+            self._assert_load_regions_error(
+                tmp,
+                {"r1": {"x": False, "y": 0.0, "w": 1.0, "h": 1.0}},
+                "r1",
+                "non-numeric x=False",
+            )
+            self._assert_load_regions_error(
+                tmp,
+                {"r1": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "threshold": True}},
+                "r1",
+                "invalid threshold=True",
+            )
+            self._assert_load_regions_error(
+                tmp,
+                {"r1": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "threshold": 1.5}},
+                "r1",
+                "expected number in 0..1",
+            )
 
     def test_valid_regions_pass_schema_check(self) -> None:
         with tempfile.TemporaryDirectory() as tdir:
@@ -345,6 +395,38 @@ class TestRegionHelpers(unittest.TestCase):
         opened.convert.assert_called_once_with("RGB")
         opened.resize.assert_not_called()
 
+    def test_load_normalized_resizes_mismatched_image(self) -> None:
+        opened = mock.Mock()
+        opened.size = (8, 4)
+        opened.convert.return_value = opened
+        resized = mock.Mock()
+        fake_module = mock.Mock()
+        fake_module.open.return_value = opened
+        fake_module.Resampling.LANCZOS = object()
+        opened.resize.return_value = resized
+        with mock.patch.object(regions_mod, "_image_module", return_value=fake_module):
+            result = regions_mod.load_normalized(Path("candidate.png"), (16, 8))
+        self.assertIs(result, resized)
+        opened.convert.assert_called_once_with("RGB")
+        opened.resize.assert_called_once_with((16, 8), fake_module.Resampling.LANCZOS)
+
+    def test_main_reports_missing_reference_before_region_loading(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tdir:
+            tmp = Path(tdir)
+            cand_path = tmp / "cand.png"
+            cand_path.write_text("cand", encoding="utf-8")
+            with mock.patch.object(sys, "argv", [str(SCRIPT), str(tmp / "missing.png"), str(cand_path)]), \
+                 mock.patch.object(regions_mod, "load_regions") as load_regions, \
+                 contextlib.redirect_stdout(stdout), \
+                 contextlib.redirect_stderr(stderr):
+                rc = regions_mod.main()
+        self.assertEqual(rc, 2)
+        self.assertIn("file not found", stderr.getvalue())
+        self.assertEqual(stdout.getvalue(), "")
+        load_regions.assert_not_called()
+
     def test_main_rejects_malformed_size_before_image_loading(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -363,6 +445,28 @@ class TestRegionHelpers(unittest.TestCase):
         self.assertIn("malformed --size", stderr.getvalue())
         self.assertEqual(stdout.getvalue(), "")
         load_normalized.assert_not_called()
+
+    def test_main_reports_image_loading_failure(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tdir:
+            tmp = Path(tdir)
+            ref_path = tmp / "ref.png"
+            cand_path = tmp / "cand.png"
+            ref_path.write_text("ref", encoding="utf-8")
+            cand_path.write_text("cand", encoding="utf-8")
+            with mock.patch.object(sys, "argv", [str(SCRIPT), str(ref_path), str(cand_path)]), \
+                 mock.patch.object(regions_mod, "load_regions", return_value={
+                     "full": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
+                 }), \
+                 mock.patch.object(regions_mod, "load_normalized", side_effect=RuntimeError("decoder failed")), \
+                 contextlib.redirect_stdout(stdout), \
+                 contextlib.redirect_stderr(stderr):
+                rc = regions_mod.main()
+        self.assertEqual(rc, 2)
+        self.assertIn("failed to load images", stderr.getvalue())
+        self.assertIn("decoder failed", stderr.getvalue())
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_main_json_without_strict_reports_failures_but_exits_zero(self) -> None:
         stdout = io.StringIO()
@@ -394,6 +498,73 @@ class TestRegionHelpers(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
         self.assertIn("full", payload["regions"])
         self.assertTrue(payload["regions"]["full"]["blank_candidate"])
+
+    def test_main_text_output_reports_pass_details_and_strict_zero(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tdir:
+            tmp = Path(tdir)
+            ref_path = tmp / "ref.png"
+            cand_path = tmp / "cand.png"
+            ref_path.write_text("ref", encoding="utf-8")
+            cand_path.write_text("cand", encoding="utf-8")
+            with mock.patch.object(sys, "argv", [str(SCRIPT), str(ref_path), str(cand_path), "--strict"]), \
+                 mock.patch.object(regions_mod, "load_regions", return_value={
+                     "full": {
+                         "x": 0.0,
+                         "y": 0.0,
+                         "w": 1.0,
+                         "h": 1.0,
+                         "threshold": 0.99,
+                         "notes": "white full-frame fixture",
+                     }
+                 }), \
+                 mock.patch.object(regions_mod, "load_normalized", side_effect=[
+                     FakeImage([(255, 255, 255)] * 100),
+                     FakeImage([(255, 255, 255)] * 100),
+                 ]), \
+                 contextlib.redirect_stdout(stdout), \
+                 contextlib.redirect_stderr(stderr):
+                rc = regions_mod.main()
+        text = stdout.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("PASS", text)
+        self.assertIn("1/1 regions pass", text)
+        self.assertIn("full", text)
+        self.assertIn("score=1.000", text)
+        self.assertIn("threshold=0.990", text)
+        self.assertIn("white full-frame fixture", text)
+        self.assertNotIn("Failed regions", text)
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_main_text_output_reports_failed_regions_and_strict_one(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as tdir:
+            tmp = Path(tdir)
+            ref_path = tmp / "ref.png"
+            cand_path = tmp / "cand.png"
+            ref_path.write_text("ref", encoding="utf-8")
+            cand_path.write_text("cand", encoding="utf-8")
+            with mock.patch.object(sys, "argv", [str(SCRIPT), str(ref_path), str(cand_path), "--strict"]), \
+                 mock.patch.object(regions_mod, "load_regions", return_value={
+                     "dark": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0, "threshold": 0.99}
+                 }), \
+                 mock.patch.object(regions_mod, "load_normalized", side_effect=[
+                     FakeImage([(255, 255, 255)] * 100),
+                     FakeImage([(0, 0, 0)] * 100),
+                 ]), \
+                 contextlib.redirect_stdout(stdout), \
+                 contextlib.redirect_stderr(stderr):
+                rc = regions_mod.main()
+        text = stdout.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL", text)
+        self.assertIn("0/1 regions pass", text)
+        self.assertIn("dark", text)
+        self.assertIn("(BLANK)", text)
+        self.assertIn("Failed regions: dark", text)
+        self.assertEqual(stderr.getvalue(), "")
 
 
 if __name__ == "__main__":
