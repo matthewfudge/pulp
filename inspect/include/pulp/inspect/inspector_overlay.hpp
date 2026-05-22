@@ -168,8 +168,13 @@ public:
     // the NSCursor continuously on hover. Returns `default_` when there is no
     // selection, dragging is off, or the point is outside the selection (so
     // the host falls back to the normal hit-view cursor). Visible for tests.
-    enum class CursorAffordance : std::uint8_t { none, move, resize_nw_se,
-                                                 resize_ne_sw };
+    enum class CursorAffordance : std::uint8_t {
+        none, move,
+        resize_nw_se,   ///< TL/BR corner — diagonal ↖↘
+        resize_ne_sw,   ///< TR/BL corner — diagonal ↗↙
+        resize_ns,      ///< T/B edge — vertical ↕
+        resize_ew       ///< L/R edge — horizontal ↔
+    };
     CursorAffordance cursor_affordance_at(Point pos) const;
 
     /// P2d (D) — whether a drop indicator (the blue insertion line /
@@ -828,7 +833,14 @@ private:
     // behaves identically to the pre-3a build until the user opts in
     // (D-key toggle in handle_key_event).
     bool dragging_enabled_ = false;
-    enum class DragCorner : std::uint8_t { none, nw, ne, sw, se };
+    // Resize handles: four corners + four edge midpoints. Edge handles
+    // resize a single axis (n/s → height, e/w → width); corner handles
+    // resize both. WYSIWYG P2h added the edges so the selection box can
+    // be resized from any side, not only the corners, and so each zone
+    // can drive a context-aware resize cursor (REGRESSION 2 / 5).
+    enum class DragCorner : std::uint8_t {
+        none, nw, ne, sw, se, n, s, e, w
+    };
     DragCorner active_drag_ = DragCorner::none;
     Point drag_start_pos_{};         // mouse pos when drag began (root coords)
     Rect drag_start_bounds_{};       // selected_->bounds() snapshot
@@ -851,6 +863,12 @@ private:
     // for the currently-selected view (root coords). Returns
     // DragCorner::none if no handle is hit or no view selected.
     DragCorner hit_test_drag_handle(Point pos) const;
+
+    // Map a resize-handle corner/edge to its cursor affordance. Pure
+    // helper shared by cursor_affordance_at's active-drag pin and
+    // idle-hover paths (WYSIWYG P2h). Declared after DragCorner so the
+    // return/parameter types are complete at the declaration point.
+    static CursorAffordance affordance_for_corner(DragCorner c);
 
     // ── P1 — minimal manipulate layer ───────────────────────────────
     // When true, paint() draws only the selection box + handles (no dev

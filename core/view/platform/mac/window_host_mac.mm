@@ -34,6 +34,24 @@
 // our own hidden state and always unhide before setting a different cursor.
 static bool s_cursor_hidden = false;
 
+// ── Diagonal resize cursor (WYSIWYG P2h REGRESSION 5) ────────────────────────
+// AppKit exposes no PUBLIC diagonal corner-resize cursor, but NSCursor carries
+// the private `_windowResizeNorthWestSouthEastCursor` (↖↘) and
+// `_windowResizeNorthEastSouthWestCursor` (↗↙) selectors that NSWindow itself
+// uses for corner resizing. We reach them via respondsToSelector so a future
+// SDK that renames/removes them degrades to a crosshair instead of crashing.
+// `nwse == YES` → the ↖↘ (TL/BR) variant; NO → the ↗↙ (TR/BL) variant.
+static NSCursor* pulp_diagonal_resize_cursor(BOOL nwse) {
+    SEL sel = nwse
+        ? NSSelectorFromString(@"_windowResizeNorthWestSouthEastCursor")
+        : NSSelectorFromString(@"_windowResizeNorthEastSouthWestCursor");
+    if ([NSCursor respondsToSelector:sel]) {
+        id cur = [NSCursor performSelector:sel];
+        if ([cur isKindOfClass:[NSCursor class]]) return (NSCursor*)cur;
+    }
+    return [NSCursor crosshairCursor];
+}
+
 // ── App menu helper ──────────────────────────────────────────────────────────
 
 @interface PulpAppTerminationHandler : NSObject
@@ -122,6 +140,11 @@ static void install_app_menu(NSString* appName) {
     // `dispatch_block_create` blocks do not, and cancelling a non-dispatch
     // block aborts.
     std::shared_ptr<std::atomic<bool>> _deferredClickAlive;
+    // WYSIWYG P2h REGRESSION 4 — set in -acceptsFirstMouse: (the click that
+    // brings an inactive window forward), consumed + cleared in the next
+    // -mouseDown: so the window-foregrounding click does not also select a
+    // view in the inspector overlay.
+    BOOL _pendingFirstMouse;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -161,7 +184,16 @@ static void install_app_menu(NSString* appName) {
 // the dirty region with the window bg before invoking drawRect.
 - (BOOL)isOpaque { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
-- (BOOL)acceptsFirstMouse:(NSEvent*)e { (void)e; return YES; }
+- (BOOL)acceptsFirstMouse:(NSEvent*)e {
+    (void)e;
+    // AppKit queries this for the click that would activate an inactive
+    // window. Record it so the next -mouseDown: knows it is the
+    // window-foregrounding click and can suppress inspector selection for
+    // that one press (WYSIWYG P2h REGRESSION 4). We still return YES so the
+    // click is delivered (mouseDown handles widget interaction normally).
+    _pendingFirstMouse = YES;
+    return YES;
+}
 
 // pulp #2088 — the Obj-C `_focusedView` ivar is a parallel pointer to
 // `pulp::view::View::focused_input_`. The static is auto-cleared by ~View()
@@ -284,13 +316,26 @@ static void install_app_menu(NSString* appName) {
                 _focusedView = pulp::view::View::focused_input_;
             }
 
-        // Inspector intercept — consume clicks when inspector is active
-        {
+        // Inspector intercept — consume clicks when inspector is active.
+        //
+        // WYSIWYG P2h REGRESSION 4: when Cmd+I foregrounds the floating
+        // inspector window, clicking the MAIN window to bring it forward
+        // should ONLY foreground it — not also select a view under that
+        // activating click. `acceptsFirstMouse:` returns YES so the
+        // window-activating click IS delivered to mouseDown; we flag it in
+        // -acceptsFirstMouse: and, when set, skip forwarding this one
+        // mouse-down to the inspector hook (and clear the flag). Hover
+        // (mouseMoved) still highlights regardless — only this single
+        // activating press is suppressed, and only for the inspector path.
+        if (_pendingFirstMouse) {
+            _pendingFirstMouse = NO;
+        } else {
             auto mods = modifiers_from_ns_flags(event.modifierFlags);
             pulp::view::MouseEvent me;
             me.position = {pt.x, pt.y};
             me.modifiers = mods;
             me.is_down = true;
+            me.phase = pulp::view::MousePhase::press;
             if (pulp::view::View::call_inspector_mouse_hook(me)) {
                 [self setNeedsDisplay:YES];
                 return;
@@ -477,6 +522,12 @@ static void install_app_menu(NSString* appName) {
                 me.position = {pt_i.x, pt_i.y};
                 me.modifiers = mods;
                 me.is_down = true;  // button still held during drag
+                // WYSIWYG P2h: state the gesture phase explicitly so the
+                // overlay's move/resize machine treats this as a DRAG TICK,
+                // not a release. Without this the overlay (which historically
+                // inferred drag-vs-release from is_down) ended the gesture on
+                // the first mac drag tick and fell through to re-selection.
+                me.phase = pulp::view::MousePhase::drag;
                 if (pulp::view::View::call_inspector_mouse_hook(me)) {
                     [self setNeedsDisplay:YES];
                     return;
@@ -537,6 +588,7 @@ static void install_app_menu(NSString* appName) {
                 me.position = {pt_i.x, pt_i.y};
                 me.modifiers = mods;
                 me.is_down = false;  // release
+                me.phase = pulp::view::MousePhase::release;  // WYSIWYG P2h
                 if (pulp::view::View::call_inspector_mouse_hook(me)) {
                     [self setNeedsDisplay:YES];
                     return;
@@ -994,6 +1046,7 @@ static void install_app_menu(NSString* appName) {
                 pulp::view::MouseEvent me;
                 me.position = {pt.x, pt.y};
                 me.is_down = false;
+                me.phase = pulp::view::MousePhase::hover;  // WYSIWYG P2h
                 pulp::view::View::call_inspector_mouse_hook(me);
                 // Don't consume — let normal hover handling continue for cursor changes
             }
@@ -1057,12 +1110,20 @@ static void install_app_menu(NSString* appName) {
                         [[NSCursor resizeUpDownCursor] set]; break;
                     case pulp::view::View::CursorStyle::top_left_resize:
                     case pulp::view::View::CursorStyle::bottom_right_resize:
-                        // macOS doesn't have a diagonal NW-SE cursor — use crosshair
-                        [[NSCursor crosshairCursor] set]; break;
+                        // WYSIWYG P2h REGRESSION 5 — proper diagonal ↖↘
+                        // resize cursor. AppKit ships no PUBLIC diagonal
+                        // resize cursor, but the private
+                        // `_windowResizeNorthWestSouthEastCursor` selector
+                        // is the standard NSWindow corner-resize arrow.
+                        // Guard with respondsToSelector and fall back to
+                        // crosshair if the (undocumented) symbol is gone.
+                        [pulp_diagonal_resize_cursor(YES) set]; break;
                     case pulp::view::View::CursorStyle::top_right_resize:
                     case pulp::view::View::CursorStyle::bottom_left_resize:
-                        // macOS doesn't have a diagonal NE-SW cursor — use crosshair
-                        [[NSCursor crosshairCursor] set]; break;
+                        // WYSIWYG P2h REGRESSION 5 — proper diagonal ↗↙
+                        // resize cursor (private
+                        // `_windowResizeNorthEastSouthWestCursor`).
+                        [pulp_diagonal_resize_cursor(NO) set]; break;
                     case pulp::view::View::CursorStyle::multi_directional_resize:
                         [[NSCursor openHandCursor] set]; break;
                     // pulp #1550 Tier-4 macOS partial 2026-05-12 — 5

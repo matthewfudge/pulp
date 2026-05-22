@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -3973,4 +3974,348 @@ TEST_CASE("InspectorWindow P2e: two-way selection (canvas <-> tree row)",
     window.reflect_selection(child_ptr);
     REQUIRE(callback_count == 1);            // reflection did NOT re-fire
     REQUIRE(tree->selected_node() == node);  // row highlighted by the reflection
+}
+
+// ── WYSIWYG P2h — interactive manipulation regressions ──────────────────────
+//
+// These exercise the gesture state machine with the EXPLICIT MousePhase the
+// mac host now stamps (press / drag / release / hover), which is the OPPOSITE
+// is_down convention from the legacy headless tests above. The pre-P2h
+// machine inferred drag-vs-release from is_down alone, so a live mac drag
+// ended the gesture on the first drag tick and fell through to re-selection.
+
+namespace {
+// Build a two-child root used by the P2h move/resize cases. `a` is the
+// element under manipulation; `b` is a second, non-overlapping element the
+// drag must NOT accidentally re-select.
+struct TwoChild {
+    View root;
+    View* a = nullptr;
+    View* b = nullptr;
+};
+std::unique_ptr<TwoChild> make_two_child() {
+    auto tc = std::make_unique<TwoChild>();
+    tc->root.set_bounds({0, 0, 600, 400});
+    auto a = std::make_unique<View>();
+    a->set_anchor_id("a");
+    a->set_bounds({40, 40, 120, 80});      // body spans 40..160 / 40..120
+    a->set_position(View::Position::absolute);
+    a->set_left(40); a->set_top(40);
+    tc->a = a.get();
+    tc->root.add_child(std::move(a));
+    auto b = std::make_unique<View>();
+    b->set_anchor_id("b");
+    b->set_bounds({300, 200, 120, 80});    // far away, no overlap with a
+    tc->b = b.get();
+    tc->root.add_child(std::move(b));
+    return tc;
+}
+}  // namespace
+
+TEST_CASE("InspectorOverlay P2h: body-press of selected element begins a MOVE, "
+          "drag moves THAT element and never re-selects",
+          "[inspect][overlay][p2h][move][regression1]") {
+    auto tc = make_two_child();
+    TweakStore store;
+    InspectorOverlay overlay(tc->root);
+    overlay.set_manipulate_only(true);   // dragging implicitly enabled
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_selected_view(tc->a);    // a is already selected (orange)
+
+    const float left0 = tc->a->left();
+    const float top0 = tc->a->top();
+
+    // PRESS on a's BODY (centre) with explicit press phase — must begin a
+    // move of a, NOT re-run selection hit-testing.
+    MouseEvent press;
+    press.position = {100, 80};          // inside a (40..160 / 40..120)
+    press.is_down = true;
+    press.phase = MousePhase::press;
+    REQUIRE(overlay.handle_mouse_event(press));   // consumed → move started
+    REQUIRE(overlay.selected_view() == tc->a);    // still a, not b
+
+    // DRAG ticks (explicit drag phase, is_down still true on a real mac).
+    // ⌘ is NOT held here → reflow move; assert it does not re-select b even
+    // though the cursor passes over b's region.
+    MouseEvent drag1;
+    drag1.position = {320, 210};         // now over b's body
+    drag1.is_down = true;
+    drag1.phase = MousePhase::drag;
+    REQUIRE(overlay.handle_mouse_event(drag1));
+    REQUIRE(overlay.selected_view() == tc->a);    // selection NOT hijacked by b
+
+    MouseEvent drag2;
+    drag2.position = {340, 230};
+    drag2.is_down = true;
+    drag2.phase = MousePhase::drag;
+    REQUIRE(overlay.handle_mouse_event(drag2));
+    REQUIRE(overlay.selected_view() == tc->a);
+
+    // RELEASE — gesture commits; selection is still a.
+    MouseEvent release;
+    release.position = {340, 230};
+    release.is_down = false;
+    release.phase = MousePhase::release;
+    overlay.handle_mouse_event(release);
+    REQUIRE(overlay.selected_view() == tc->a);
+    (void)left0; (void)top0;
+}
+
+TEST_CASE("InspectorOverlay P2h: ⌘-drag float move repositions the selected "
+          "element (and only it)",
+          "[inspect][overlay][p2h][move][regression1]") {
+    auto tc = make_two_child();
+    TweakStore store;
+    InspectorOverlay overlay(tc->root);
+    overlay.set_manipulate_only(true);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_selected_view(tc->a);
+
+    const float left0 = tc->a->left();
+    const float top0 = tc->a->top();
+
+    // ⌘ held → absolute-float move path mutates left/top live.
+    MouseEvent press;
+    press.position = {100, 80};
+    press.is_down = true;
+    press.modifiers = kModCmd;
+    press.phase = MousePhase::press;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    MouseEvent drag;
+    drag.position = {130, 110};          // +30 / +30
+    drag.is_down = true;
+    drag.modifiers = kModCmd;
+    drag.phase = MousePhase::drag;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    // a moved by the drag delta; b untouched; selection unchanged.
+    REQUIRE(tc->a->left() == Catch::Approx(left0 + 30.0f));
+    REQUIRE(tc->a->top() == Catch::Approx(top0 + 30.0f));
+    REQUIRE(overlay.selected_view() == tc->a);
+
+    MouseEvent release;
+    release.position = {130, 110};
+    release.is_down = false;
+    release.phase = MousePhase::release;
+    overlay.handle_mouse_event(release);
+    REQUIRE(overlay.selected_view() == tc->a);
+}
+
+TEST_CASE("InspectorOverlay P2h: corner-handle press begins a RESIZE and the "
+          "drag changes size (explicit phase)",
+          "[inspect][overlay][p2h][resize][regression2]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({10, 10, 80, 40});     // SE corner at (90, 50)
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_manipulate_only(true);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_selected_view(child_ptr);
+
+    // PRESS on the SE handle (90, 50) — explicit press phase.
+    MouseEvent press;
+    press.position = {90, 50};
+    press.is_down = true;
+    press.phase = MousePhase::press;
+    REQUIRE(overlay.handle_mouse_event(press));     // resize started
+
+    // DRAG +20 / +15 (explicit drag phase, is_down still true).
+    MouseEvent drag;
+    drag.position = {110, 65};
+    drag.is_down = true;
+    drag.phase = MousePhase::drag;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    REQUIRE(child_ptr->bounds().width == 100.0f);   // 80 + 20
+    REQUIRE(child_ptr->bounds().height == 55.0f);    // 40 + 15
+    REQUIRE(store.lookup("a", "layout.width")->getFloat32() == 100.0f);
+    REQUIRE(store.lookup("a", "layout.height")->getFloat32() == 55.0f);
+
+    MouseEvent release;
+    release.position = {110, 65};
+    release.is_down = false;
+    release.phase = MousePhase::release;
+    overlay.handle_mouse_event(release);
+}
+
+TEST_CASE("InspectorOverlay P2h: edge-handle press resizes a single axis",
+          "[inspect][overlay][p2h][resize][regression2][regression5]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({100, 100, 80, 40});   // E edge mid at (180, 120)
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_manipulate_only(true);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_selected_view(child_ptr);
+
+    // Press on the EAST edge midpoint (right edge, vertical centre).
+    MouseEvent press;
+    press.position = {180, 120};
+    press.is_down = true;
+    press.phase = MousePhase::press;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    MouseEvent drag;
+    drag.position = {200, 130};              // +20 x, +10 y
+    drag.is_down = true;
+    drag.phase = MousePhase::drag;
+    REQUIRE(overlay.handle_mouse_event(drag));
+
+    // East edge resizes WIDTH only — height is unchanged.
+    REQUIRE(child_ptr->bounds().width == 100.0f);  // 80 + 20
+    REQUIRE(child_ptr->bounds().height == 40.0f);  // unchanged
+}
+
+TEST_CASE("InspectorOverlay P2h: Esc deselect leaves hover + click-to-select "
+          "working with no Cmd+I cycle",
+          "[inspect][overlay][p2h][regression3]") {
+    auto tc = make_two_child();
+    InspectorOverlay overlay(tc->root);
+    overlay.set_manipulate_only(true);
+    overlay.set_active(true);
+    overlay.set_selected_view(tc->a);
+
+    // Esc → deselect, stay active.
+    KeyEvent esc;
+    esc.key = KeyCode::escape;
+    esc.is_down = true;
+    REQUIRE(overlay.handle_key_event(esc));
+    REQUIRE(overlay.selected_view() == nullptr);
+    REQUIRE(overlay.is_active());              // still in inspect mode
+
+    // Hover over b (explicit hover phase) — highlight predicate is true:
+    // hovered_ tracks b again, NOT pinned dead.
+    MouseEvent hover;
+    hover.position = {340, 230};               // inside b
+    hover.is_down = false;
+    hover.phase = MousePhase::hover;
+    REQUIRE_FALSE(overlay.handle_mouse_event(hover));   // hover not consumed
+    REQUIRE(overlay.hovered_view() == tc->b);
+
+    // Click selects again — no Cmd+I cycle needed.
+    MouseEvent click;
+    click.position = {340, 230};
+    click.is_down = true;
+    click.phase = MousePhase::press;
+    REQUIRE(overlay.handle_mouse_event(click));
+    REQUIRE(overlay.selected_view() == tc->b);
+}
+
+TEST_CASE("InspectorOverlay P2h: a drag tick on empty canvas never mutates "
+          "selection (no rubber-band re-select)",
+          "[inspect][overlay][p2h][regression1]") {
+    auto tc = make_two_child();
+    InspectorOverlay overlay(tc->root);
+    overlay.set_manipulate_only(true);
+    overlay.set_active(true);
+    overlay.set_selected_view(tc->a);
+
+    // A bare DRAG tick (explicit phase) that did not begin a gesture — e.g.
+    // a drag started over empty space. It is consumed but must NOT re-run
+    // selection hit-testing, so the selection stays a.
+    MouseEvent drag;
+    drag.position = {340, 230};                // over b
+    drag.is_down = true;
+    drag.phase = MousePhase::drag;
+    REQUIRE(overlay.handle_mouse_event(drag));  // consumed
+    REQUIRE(overlay.selected_view() == tc->a);  // selection NOT hijacked
+}
+
+TEST_CASE("InspectorOverlay P2h: context-aware resize/move cursor per zone",
+          "[inspect][overlay][p2h][regression5][cursor]") {
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({100, 100, 80, 60});    // 100..180 / 100..160
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    InspectorOverlay overlay(root);
+    overlay.set_manipulate_only(true);
+    overlay.set_active(true);
+    overlay.set_selected_view(child_ptr);
+
+    using CA = InspectorOverlay::CursorAffordance;
+    const float l = 100, t = 100, r = 180, b = 160;
+    const float mx = 140, my = 130;
+
+    // Corners → diagonals.
+    REQUIRE(overlay.cursor_affordance_at({l, t}) == CA::resize_nw_se);  // NW
+    REQUIRE(overlay.cursor_affordance_at({r, b}) == CA::resize_nw_se);  // SE
+    REQUIRE(overlay.cursor_affordance_at({r, t}) == CA::resize_ne_sw);  // NE
+    REQUIRE(overlay.cursor_affordance_at({l, b}) == CA::resize_ne_sw);  // SW
+    // Edges → single-axis.
+    REQUIRE(overlay.cursor_affordance_at({mx, t}) == CA::resize_ns);    // N
+    REQUIRE(overlay.cursor_affordance_at({mx, b}) == CA::resize_ns);    // S
+    REQUIRE(overlay.cursor_affordance_at({r, my}) == CA::resize_ew);    // E
+    REQUIRE(overlay.cursor_affordance_at({l, my}) == CA::resize_ew);    // W
+    // Body → move.
+    REQUIRE(overlay.cursor_affordance_at({mx, my}) == CA::move);
+    // Outside → none.
+    REQUIRE(overlay.cursor_affordance_at({500, 300}) == CA::none);
+
+    // cursor_style_for maps each to the right View::CursorStyle int.
+    REQUIRE(overlay.cursor_style_for({l, t}) ==
+            static_cast<int>(View::CursorStyle::top_left_resize));
+    REQUIRE(overlay.cursor_style_for({r, t}) ==
+            static_cast<int>(View::CursorStyle::top_right_resize));
+    REQUIRE(overlay.cursor_style_for({mx, t}) ==
+            static_cast<int>(View::CursorStyle::vertical_resize));
+    REQUIRE(overlay.cursor_style_for({r, my}) ==
+            static_cast<int>(View::CursorStyle::horizontal_resize));
+    REQUIRE(overlay.cursor_style_for({mx, my}) ==
+            static_cast<int>(View::CursorStyle::multi_directional_resize));
+    REQUIRE(overlay.cursor_style_for({500, 300}) == -1);  // default
+}
+
+TEST_CASE("InspectorOverlay P2h: legacy is_down gesture convention still works "
+          "(no explicit phase)",
+          "[inspect][overlay][p2h][regression2]") {
+    // Guards the headless JUCE-style convention path: press=is_down,
+    // drag=!is_down, release=is_down, phase left automatic. This is the
+    // convention the pre-P2h tests use, and it must remain intact.
+    View root;
+    root.set_bounds({0, 0, 600, 400});
+    auto child = std::make_unique<View>();
+    child->set_anchor_id("a");
+    child->set_bounds({10, 10, 80, 40});
+    auto* child_ptr = child.get();
+    root.add_child(std::move(child));
+
+    TweakStore store;
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(child_ptr);
+
+    MouseEvent press;          // press (is_down, automatic phase)
+    press.position = {90, 50};
+    press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+
+    MouseEvent drag;           // legacy drag tick (is_down=false)
+    drag.position = {110, 65};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+    REQUIRE(child_ptr->bounds().width == 100.0f);
+    REQUIRE(child_ptr->bounds().height == 55.0f);
 }

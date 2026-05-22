@@ -469,10 +469,19 @@ InspectorOverlay::hit_test_drag_handle(Point pos) const {
         return pos.x >= cx - kGrab && pos.x <= cx + kGrab &&
                pos.y >= cy - kGrab && pos.y <= cy + kGrab;
     };
+    const float midx = r.x + r.width * 0.5f;
+    const float midy = r.y + r.height * 0.5f;
+    // Corners win over edges (they sit at the same coordinates as the
+    // ends of two edges; a corner press should resize both axes).
     if (in_box(r.x,             r.y))              return DragCorner::nw;
     if (in_box(r.x + r.width,   r.y))              return DragCorner::ne;
     if (in_box(r.x,             r.y + r.height))   return DragCorner::sw;
     if (in_box(r.x + r.width,   r.y + r.height))   return DragCorner::se;
+    // Edge midpoint handles (WYSIWYG P2h) — single-axis resize.
+    if (in_box(midx,            r.y))              return DragCorner::n;
+    if (in_box(midx,            r.y + r.height))   return DragCorner::s;
+    if (in_box(r.x + r.width,   midy))             return DragCorner::e;
+    if (in_box(r.x,             midy))             return DragCorner::w;
     return DragCorner::none;
 }
 
@@ -500,29 +509,32 @@ InspectorOverlay::CursorAffordance
 InspectorOverlay::cursor_affordance_at(Point pos) const {
     if (!selected_ || !dragging_enabled_) return CursorAffordance::none;
 
-    // Active resize: pin to the dragged corner's diagonal.
-    if (active_drag_ != DragCorner::none) {
-        switch (active_drag_) {
-            case DragCorner::nw:
-            case DragCorner::se: return CursorAffordance::resize_nw_se;
-            case DragCorner::ne:
-            case DragCorner::sw: return CursorAffordance::resize_ne_sw;
-            case DragCorner::none: break;
-        }
-    }
+    // Active resize: pin to the dragged handle's affordance.
+    if (active_drag_ != DragCorner::none)
+        return affordance_for_corner(active_drag_);
     // Active move: pin to the move cursor regardless of pointer drift.
     if (move_active_) return CursorAffordance::move;
 
-    // Idle hover: corner handle → resize; body → move; outside → none.
+    // Idle hover: handle → resize; body → move; outside → none.
     auto handle = hit_test_drag_handle(pos);
-    switch (handle) {
+    if (handle != DragCorner::none) return affordance_for_corner(handle);
+    if (hit_test_body(pos)) return CursorAffordance::move;
+    return CursorAffordance::none;
+}
+
+InspectorOverlay::CursorAffordance
+InspectorOverlay::affordance_for_corner(DragCorner c) {
+    switch (c) {
         case DragCorner::nw:
         case DragCorner::se: return CursorAffordance::resize_nw_se;
         case DragCorner::ne:
         case DragCorner::sw: return CursorAffordance::resize_ne_sw;
+        case DragCorner::n:
+        case DragCorner::s:  return CursorAffordance::resize_ns;
+        case DragCorner::e:
+        case DragCorner::w:  return CursorAffordance::resize_ew;
         case DragCorner::none: break;
     }
-    if (hit_test_body(pos)) return CursorAffordance::move;
     return CursorAffordance::none;
 }
 
@@ -536,6 +548,10 @@ int InspectorOverlay::cursor_style_for(Point pos) const {
             return static_cast<int>(View::CursorStyle::top_left_resize);
         case CursorAffordance::resize_ne_sw:
             return static_cast<int>(View::CursorStyle::top_right_resize);
+        case CursorAffordance::resize_ns:
+            return static_cast<int>(View::CursorStyle::vertical_resize);
+        case CursorAffordance::resize_ew:
+            return static_cast<int>(View::CursorStyle::horizontal_resize);
         case CursorAffordance::none:
             return -1;  // defer to the normal hit-view cursor
     }
@@ -883,10 +899,31 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
         // needed multiple Esc presses and then deactivated the overlay, so the
         // user had to cycle Cmd+I to select again.)
         if (selected_) {
+            // Cancel any in-progress field edit first so a stale
+            // editing_field_ doesn't keep swallowing the keyboard /
+            // pinning selection after the deselect.
+            if (!editing_field_.empty()) cancel_field_edit();
             selected_ = nullptr;
-            active_drag_ = DragCorner::none;  // cancel any in-progress gesture
+            // WYSIWYG P2h REGRESSION 3: clear EVERY transient gesture /
+            // hover flag the deselect could leave set. Previously Esc
+            // cleared only active_drag_ / move_active_ / drop_target_; a
+            // leftover move_float_, move_refused_grid_, distance_anchor_,
+            // or alt_hover_target_ could gate the hover highlight or the
+            // click-to-select path, so hover + select appeared dead until
+            // a Cmd+I active-cycle (which runs set_active(false) and wipes
+            // all of this). Esc now wipes the same transient set itself,
+            // so post-Esc hover highlights and a click re-selects with NO
+            // Cmd+I cycle. `active_` stays true and the panel/tab toggles
+            // persist — only the per-selection gesture state is reset.
+            active_drag_ = DragCorner::none;
             move_active_ = false;
-            drop_target_ = nullptr;           // clear stale drop indicator
+            move_float_ = false;
+            move_refused_grid_ = false;
+            drop_target_ = nullptr;
+            drop_indicator_ = {};
+            move_ghost_ = {};
+            distance_anchor_ = nullptr;
+            alt_hover_target_ = nullptr;
             return true;
         }
         set_active(false);
@@ -1002,6 +1039,41 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
 
     auto pos = event.position;
 
+    // ── Gesture-phase resolution (WYSIWYG P2h) ─────────────────────
+    // The move/resize gesture machines below need to distinguish a
+    // PRESS (begin), a DRAG TICK (live update), and a RELEASE (commit).
+    // Two callers feed events with OPPOSITE is_down conventions:
+    //   * headless tests + any JUCE-style host: press=is_down, drag=
+    //     !is_down, release=is_down (no explicit phase set).
+    //   * the mac platform host: press=down, drag=down, release=up,
+    //     and now also sets MouseEvent::phase explicitly.
+    // Inferring from is_down alone made a live mac drag end its gesture
+    // on the first drag tick and fall through to selection (REGRESSION
+    // 1/2). We branch once here: trust the explicit phase when present,
+    // else keep the legacy inference so existing tests are unchanged.
+    //
+    // `gesture_active` is whether a move OR resize is already in flight;
+    // it decides how the legacy is_down value is read for THIS event.
+    const bool gesture_active = (active_drag_ != DragCorner::none) ||
+                                move_active_;
+    bool is_press, is_drag_tick, is_release;
+    if (event.hasExplicitPhase()) {
+        is_press = event.isPress();
+        is_drag_tick = event.isDrag();
+        is_release = event.isRelease();
+    } else if (gesture_active) {
+        // Legacy convention DURING a gesture: is_down=false is a drag
+        // tick, is_down=true is the release.
+        is_press = false;
+        is_drag_tick = !event.is_down;
+        is_release = event.is_down;
+    } else {
+        // No gesture in flight: a button-down may BEGIN one.
+        is_press = event.is_down;
+        is_drag_tick = false;
+        is_release = false;
+    }
+
     // Phase 3e — the loupe re-centers on the cursor for EVERY mouse
     // event (move, press, release) while it's active. We only record
     // the position here; the actual pixel sample needs the live Canvas
@@ -1078,7 +1150,7 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
     // canvas is owned by this branch even if the cursor briefly
     // enters the panel mid-drag.
     if (active_drag_ != DragCorner::none && selected_) {
-        if (event.is_down) {
+        if (is_release) {
             // Release: end the drag. Don't consume — let this click
             // fall through to normal selection logic so the user can
             // immediately re-target without a wasted click.
@@ -1113,7 +1185,7 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                     "resize");
             }
             // fall through to the normal handlers below
-        } else {
+        } else if (is_drag_tick) {
             // Move: live-resize + overwrite the tweak.
             float dx = pos.x - drag_start_pos_.x;
             float dy = pos.y - drag_start_pos_.y;
@@ -1125,6 +1197,11 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                 case DragCorner::ne: new_w += dx; new_h -= dy; break;
                 case DragCorner::sw: new_w -= dx; new_h += dy; break;
                 case DragCorner::se: new_w += dx; new_h += dy; break;
+                // Edge handles resize a single axis.
+                case DragCorner::n:  new_h -= dy; break;
+                case DragCorner::s:  new_h += dy; break;
+                case DragCorner::e:  new_w += dx; break;
+                case DragCorner::w:  new_w -= dx; break;
                 case DragCorner::none: break;
             }
             // Floor at 4px so the view never collapses small enough
@@ -1209,8 +1286,11 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
 
     // Phase 3a: hand-off from selection to drag — if drag-handles
     // mode is enabled, a view is selected, and the press lands on a
-    // drag handle, START the drag and consume.
-    if (event.is_down && active_drag_ == DragCorner::none && !move_active_ &&
+    // drag handle, START the resize and consume. Handle-press wins over
+    // body-press (move) and over selection hit-testing (WYSIWYG P2h
+    // REGRESSION 2): the resize-start check is BEFORE the move-start
+    // check below, which is BEFORE the canvas select path.
+    if (is_press && active_drag_ == DragCorner::none && !move_active_ &&
         selected_) {
         auto handle = hit_test_drag_handle(pos);
         if (handle != DragCorner::none) {
@@ -1244,7 +1324,7 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
     // the panel-area test so a move started on the canvas stays owned by
     // this branch even if the cursor briefly enters the panel.
     if (move_active_ && selected_) {
-        if (event.is_down) {
+        if (is_release) {
             // Release: end the move.
             move_active_ = false;
 
@@ -1332,7 +1412,7 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
             drop_indicator_ = {};
             move_ghost_ = {};
             // fall through to the normal handlers below
-        } else if (move_float_) {
+        } else if (is_drag_tick && move_float_) {
             // ── ⌘-drag move tick: absolute float ──────────────────────
             float dx = pos.x - move_start_pos_.x;
             float dy = pos.y - move_start_pos_.y;
@@ -1367,7 +1447,7 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                                                  "inspector-drag-move");
             }
             return true;  // consume the move event
-        } else {
+        } else if (is_drag_tick) {
             // ── plain move tick: REFLOW-AWARE drop-target resolution ───
             // We don't mutate the layout while dragging — instead we resolve
             // a drop target and update the paint affordance (insertion line /
@@ -1385,10 +1465,18 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
 
     // P2: hand-off from selection to MOVE — if dragging mode is enabled,
     // a view is selected, and the press lands on the view's BODY (not a
-    // handle), START a move. Guard grid children: a direct child of a
-    // grid container ignores position/top/left, so refuse with a clear
-    // affordance instead of a silently-broken drag.
-    if (event.is_down && active_drag_ == DragCorner::none && !move_active_ &&
+    // handle), START a move of THAT element. Guard grid children: a
+    // direct child of a grid container ignores position/top/left, so
+    // refuse with a clear affordance instead of a silently-broken drag.
+    //
+    // WYSIWYG P2h REGRESSION 1: this body-press-of-selected → MOVE check
+    // MUST run before the canvas selection hit-test below. hit_test_body
+    // is scoped to the CURRENTLY-selected view's bounds, so a press on
+    // the selected element begins a move of it (capturing a stable grab
+    // offset) and consumes the event — it never re-runs selection
+    // hit-testing nor grows a selection rectangle. The drag ticks then
+    // route to the active-move branch above (move_active_), not here.
+    if (is_press && active_drag_ == DragCorner::none && !move_active_ &&
         selected_ && hit_test_body(pos)) {
         // P2c — the modifier picks the move MODE:
         //   plain drag  → REFLOW-AWARE (reorder among siblings / reparent)
@@ -1622,7 +1710,15 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
         alt_hover_target_ = nullptr;
     }
 
-    if (event.is_down) {
+    // WYSIWYG P2h: only a genuine PRESS selects. A drag tick that reaches
+    // here (an explicit-phase drag begun on empty canvas where no move /
+    // resize gesture engaged) carries is_down=true but is_press=false, so
+    // it must NOT re-run selection hit-testing every tick (that was the
+    // "selection jumps to another object mid-drag" REGRESSION 1). It is
+    // still consumed below so it never leaks to a widget. In the legacy
+    // is_down convention is_press == event.is_down for a fresh (no active
+    // gesture) event, so click-to-select is unchanged.
+    if (is_press) {
         // Click: select the hovered view (consume click to prevent widget interaction)
         if (hit) {
             if (event.modifiers & kModAlt) {
@@ -1639,6 +1735,10 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
         }
         return true;  // consume clicks when inspector is active
     }
+    // Consume explicit-phase drag/release events over the canvas so they
+    // never leak through to a widget, but without mutating selection.
+    if (event.hasExplicitPhase() && (is_drag_tick || is_release))
+        return true;
 
     // Hover events: don't consume — let normal hover effects work
     return false;
@@ -1849,6 +1949,13 @@ void InspectorOverlay::paint_highlight(Canvas& canvas) {
             paint_handle(r.x + r.width,   r.y,              DragCorner::ne);
             paint_handle(r.x,             r.y + r.height,   DragCorner::sw);
             paint_handle(r.x + r.width,   r.y + r.height,   DragCorner::se);
+            // WYSIWYG P2h — edge midpoint handles (single-axis resize).
+            const float mx = r.x + r.width * 0.5f;
+            const float my = r.y + r.height * 0.5f;
+            paint_handle(mx,              r.y,              DragCorner::n);
+            paint_handle(mx,              r.y + r.height,   DragCorner::s);
+            paint_handle(r.x + r.width,   my,               DragCorner::e);
+            paint_handle(r.x,             my,               DragCorner::w);
         }
 
         // P2 grid guard affordance: when a body-drag was refused because
