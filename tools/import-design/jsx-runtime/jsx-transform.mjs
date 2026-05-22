@@ -303,6 +303,7 @@ async function main() {
                 'react':                       resolve(__dirname, 'node_modules/react'),
                 'react/jsx-runtime':           resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
                 'react/jsx-dev-runtime':       resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js'),
+                '@pulp/react':                  resolve(__dirname, '..', '..', '..', 'packages', 'pulp-react', 'src', 'index.ts'),
                 'react-reconciler':            resolve(__dirname, 'node_modules/react-reconciler'),
                 'react-reconciler/constants.js': resolve(__dirname, 'node_modules/react-reconciler/constants.js'),
                 'scheduler':                   resolve(__dirname, 'node_modules/scheduler'),

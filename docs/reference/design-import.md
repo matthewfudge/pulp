@@ -63,7 +63,14 @@ shared normalized form: interactive `frame` nodes are promoted through the
 library normalization pass before code generation or IR serialization.
 
 For `--from jsx --mode live --emit js`, Pulp writes the precompiled bundle
-verbatim. For JSX baked IR/C++ snapshots, Pulp scans the precompiled bundle for
+verbatim for runtime import. That pass-through path does not parse or render
+the bundle, so `--validate`, `--reference`, `--diff`, and `--debug` are rejected;
+use baked IR or baked C++ when an import report or native snapshot validation is
+needed. For JSX baked IR/C++ snapshots, Pulp first runs the runtime harness and
+walks the materialized DOM; when a live/native bundle routes React through
+`@pulp/react` and leaves no expanded DOM, the harness freezes the native
+`WidgetBridge` tree instead (`capture_method: runtime_native_snapshot`,
+`snapshotSource: native-view`). Pulp scans the precompiled bundle for
 dynamic APIs that make a frozen snapshot non-deterministic (`setInterval`,
 `setTimeout`, `requestAnimationFrame`, `Date.now`, `new Date`,
 `performance.now`, `Math.random`, and `fetch`). Comments and string literals

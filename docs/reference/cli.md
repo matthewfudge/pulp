@@ -966,6 +966,7 @@ pulp import-design --from pencil --file ui.json --output ui.js --tokens tokens.j
 pulp import-design --from v0 --file card.tsx --dry-run
 pulp import-design --from claude --file design.html --classnames classnames.json
 pulp import-design --from designmd --file DESIGN.md --tokens out.json
+pulp import-design --from jsx --file bundle.js --mode live --emit js --output live-ui.js
 pulp import-design --from jsx --file bundle.js --mode baked --emit cpp --output imported_ui.cpp
 ```
 
@@ -1000,8 +1001,13 @@ against the source URL. The manifest keeps the authored relative URI and also
 records the resolved `source_url` used for HTTP(S) fetching.
 
 With `--from jsx --mode live --emit js`, the CLI writes the precompiled JSX
-runtime bundle verbatim. With `--from jsx --mode baked --emit ir-json|cpp`, the
-CLI captures a runtime snapshot into DesignIR and records snapshot provenance.
+runtime bundle verbatim for runtime import. That pass-through path rejects
+`--validate`, `--reference`, `--diff`, and `--debug` because it does not parse or
+render the bundle. With `--from jsx --mode baked --emit ir-json|cpp`, the CLI
+captures a runtime snapshot into DesignIR and records snapshot provenance. DOM
+bundles are captured through the DOM walker; live/native bundles that render
+through `@pulp/react` are frozen from the native `WidgetBridge` tree and record
+`runtime_native_snapshot` plus `snapshotSource: native-view`.
 Dynamic APIs such as `setInterval`, `setTimeout`, `requestAnimationFrame`,
 `Date.now`, `new Date`, `performance.now`, `Math.random`, and `fetch` fail by
 default under `--snapshot-semantics fail`; comments and string literals are

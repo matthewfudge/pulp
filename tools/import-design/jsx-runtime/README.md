@@ -13,9 +13,12 @@ cd tools/import-design/jsx-runtime
 npm install
 ```
 
-Pulls React 18.3.1, ReactDOM 18.3.1, and esbuild 0.24.0 into the local
-`node_modules/`. Not committed (see `.gitignore`); `package-lock.json` IS
-committed for reproducible installs.
+Pulls React 18.3.1, ReactDOM 18.3.1, react-reconciler 0.29.2, scheduler
+0.23.2, and esbuild 0.24.0 into the local `node_modules/`. Not committed (see
+`.gitignore`); `package-lock.json` IS committed for reproducible installs.
+The transform aliases `@pulp/react` to the repo's `packages/pulp-react/src`
+entrypoint so a fresh checkout can bundle the native React host without
+publishing or linking the package first.
 
 ## Usage
 
@@ -27,7 +30,7 @@ node jsx-transform.mjs \
 ```
 
 Produces:
-- `<out>` — the IIFE bundle (~1 MB, React + ReactDOM + user JSX + nav shims)
+- `<out>` — the IIFE bundle (~1 MB, React + @pulp/react native bridge + user JSX + nav shims)
 - `<out>.manifest.json` — `{ componentName, sourceFile, outputBytes, ... }`
 
 The bundle is then consumable by:
@@ -36,6 +39,12 @@ The bundle is then consumable by:
 - `pulp import-design --from jsx --file <out> --mode baked --emit cpp --snapshot-semantics accept`
 - `pulp-screenshot --script <out> --output render.png` (works today)
 - `parse_jsx_react()` in C++ via the test harness
+
+The default bundle routes `react-dom` through `pulp-react-dom-shim.mjs`, which
+renders through `@pulp/react` into the native bridge. Baked snapshots first try
+the DOM walker, then freeze the native `WidgetBridge` tree when the bundle has
+no expanded DOM; those IR envelopes record `runtime_native_snapshot` and
+`root.attributes.snapshotSource = "native-view"`.
 
 ## End-to-end smoke
 

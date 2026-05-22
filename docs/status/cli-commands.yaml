@@ -618,7 +618,7 @@ commands:
         description: "Runtime model: live (default) or baked for canonical IR / baked C++ artifacts"
       - name: --snapshot-semantics
         kind: option
-        description: "JSX baked snapshot policy: fail rejects dynamic APIs, warn proceeds with diagnostics, accept proceeds silently"
+        description: "JSX baked snapshot policy: fail rejects dynamic APIs, warn proceeds with diagnostics, accept proceeds silently; JSX live JS pass-through rejects validation/debug flags"
       - name: --allow-network-fetch
         kind: flag
         description: "Allow DesignIR asset-manifest HTTP(S) fetches at import time"

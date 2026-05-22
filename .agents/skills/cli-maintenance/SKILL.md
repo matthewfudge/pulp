@@ -172,8 +172,11 @@ asset reference points at HTTP(S).
 
 `--mode baked` is implemented for `--emit ir-json` and `--emit cpp`; `cpp`
 requires baked mode. `--mode live` remains the default and `--from jsx --mode
-live --emit js` writes the precompiled bundle verbatim. When changing this
-lane, keep the CLI help, `docs/status/cli-commands.yaml`,
+live --emit js` writes the precompiled bundle verbatim. Because that path does
+not parse or render the bundle, it must reject `--validate`, `--reference`,
+`--diff`, and `--debug` with a clear usage error rather than silently bypassing
+shared post-processing. When changing this lane, keep the CLI help,
+`docs/status/cli-commands.yaml`,
 `docs/reference/cli.md`, `docs/reference/design-import.md`, and the
 import-design skill aligned. The JSX baked snapshot policy is
 `--snapshot-semantics {fail|warn|accept}`: `fail` rejects dynamic APIs by
