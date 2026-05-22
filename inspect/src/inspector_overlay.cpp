@@ -1087,10 +1087,16 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
             }
             return true;
         }
-        // Swallow all other key-downs while editing text so they neither
-        // flip a tool/toggle nor leak to a widget. Character input is
-        // delivered separately through handle_text_input().
-        return true;
+        // Return FALSE for all other key-downs (do NOT swallow) so the mac
+        // host proceeds to interpretKeyEvents: -> insertText: -> the text
+        // hook -> handle_text_input(), which is the ONLY path that delivers
+        // the actual typed character. Swallowing here (return true) made the
+        // host return before insertText, so typing in the Text tool did
+        // nothing. The control keys (Enter/Esc/Backspace) were already
+        // consumed above; everything else is character input. A tool/toggle
+        // flip can't fire from here because this block returns before the
+        // V/T/D/P key handlers further down.
+        return false;
     }
 
     // Phase 3b — field-edit mode owns the keyboard while a numeric
