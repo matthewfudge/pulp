@@ -902,28 +902,17 @@ bool InspectorOverlay::handle_key_event(const KeyEvent& event) {
             // Cancel any in-progress field edit first so a stale
             // editing_field_ doesn't keep swallowing the keyboard /
             // pinning selection after the deselect.
-            if (!editing_field_.empty()) cancel_field_edit();
-            selected_ = nullptr;
-            // WYSIWYG P2h REGRESSION 3: clear EVERY transient gesture /
-            // hover flag the deselect could leave set. Previously Esc
-            // cleared only active_drag_ / move_active_ / drop_target_; a
-            // leftover move_float_, move_refused_grid_, distance_anchor_,
-            // or alt_hover_target_ could gate the hover highlight or the
-            // click-to-select path, so hover + select appeared dead until
-            // a Cmd+I active-cycle (which runs set_active(false) and wipes
-            // all of this). Esc now wipes the same transient set itself,
-            // so post-Esc hover highlights and a click re-selects with NO
-            // Cmd+I cycle. `active_` stays true and the panel/tab toggles
-            // persist — only the per-selection gesture state is reset.
-            active_drag_ = DragCorner::none;
-            move_active_ = false;
-            move_float_ = false;
-            move_refused_grid_ = false;
-            drop_target_ = nullptr;
-            drop_indicator_ = {};
-            move_ghost_ = {};
-            distance_anchor_ = nullptr;
-            alt_hover_target_ = nullptr;
+            // Deselect = the SAME clean reset the working Cmd+I cycle performs
+            // (set_active false→true). Manually clearing a subset of state left
+            // some gate set that the Cmd+I cycle clears via set_active(false)
+            // (editable_fields_, eyedropper_active_, zoom_active_, hovered_, …),
+            // so post-Esc hover + click stayed dead until the user cycled Cmd+I.
+            // Cycling the active flag here clears ALL transient state and
+            // re-enables, so hover highlights and a click re-selects immediately
+            // with no Cmd+I cycle. active_ ends true; the floating inspector
+            // window is unaffected (it's owned by the host, not set_active).
+            set_active(false);
+            set_active(true);
             return true;
         }
         set_active(false);
