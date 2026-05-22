@@ -17,6 +17,7 @@
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/window_host.hpp>
 #include <pulp/state/store.hpp>
+#include "design_viewport_probe.hpp"  // WYSIWYG T3 — settle-probe sizing
 #include <pulp/canvas/bundled_fonts.hpp>
 #include <pulp/canvas/text_shaper.hpp>
 #include <pulp/view/widgets.hpp>
@@ -1241,63 +1242,26 @@ int main(int argc, char* argv[]) {
             }
         } catch (...) { /* fall back to measured/--size */ }
 
-        // No self-declared viewport: measure the TRUE content extent in BOTH
-        // axes so an imported design opens at its real size — not a fixed
-        // portrait column. We recurse the whole laid-out tree accumulating
-        // parent offsets (captures absolutely-positioned overflow like a
-        // footer / export bar that sits below or right of its flex wrapper).
-        // Letterbox (set_design_viewport) is the backstop, so a slightly-off
-        // measure degrades to bars, never a clip.
-        //
-        // Robust-landscape fix (maintainer live testing 2026-05-21): the old
-        // path kept the hardcoded 360px request width and only measured
-        // height, so wide designs (e.g. the Chainer bundle, ~1280×509) opened
-        // as a 360px portrait column. Now we measure width too, clamp both
-        // axes to sane min/max, and fall back to a landscape default when the
-        // measure is unreliable (degenerate / absurd).
+        // WYSIWYG T3 — settle-probe responsive auto-sizing (mirrors the
+        // design-tool #70 resolver in examples/design-tool/main.cpp). The old
+        // path here laid the tree out ONCE at the requested render_w (default
+        // 360) and measured the content extent — so a fill-width design
+        // (flex-grow children with no intrinsic width, e.g. the Chainer
+        // bundle) collapsed into a 360px portrait column because that was the
+        // only width it ever saw. The settle-probe (probe_design_viewport)
+        // lays out at a GENEROUS width and binary-searches for the narrowest
+        // width at which the layout "settles" — the design's natural
+        // max-content width. Extracted to design_viewport_probe.hpp so the
+        // algorithm is unit-tested headlessly.
         if (!from_declaration) {
-            constexpr float kMinDim = 240.0f;
-            constexpr float kMaxDim = 4096.0f;
-            // Landscape fallback when measurement is unusable.
-            constexpr float kFallbackW = 1280.0f;
-            constexpr float kFallbackH = 720.0f;
-
-            float content_right = 0.0f;
-            float content_bottom = 0.0f;
-            std::function<void(const View*, float, float)> measure =
-                [&](const View* v, float parent_abs_x, float parent_abs_y) {
-                    if (!v) return;
-                    for (size_t i = 0; i < v->child_count(); ++i) {
-                        const View* c = v->child_at(i);
-                        if (!c) continue;
-                        const auto b = c->bounds();
-                        const float child_abs_x = parent_abs_x + b.x;
-                        const float child_abs_y = parent_abs_y + b.y;
-                        content_right = std::max(content_right, child_abs_x + b.width);
-                        content_bottom = std::max(content_bottom, child_abs_y + b.height);
-                        measure(c, child_abs_x, child_abs_y);
-                    }
-                };
-            measure(&root, 0.0f, 0.0f);
-
-            // A measure is "reliable" only if both axes report a sane,
-            // non-degenerate extent. Otherwise fall back to landscape.
-            const bool w_ok = content_right > 32.0f && content_right < kMaxDim;
-            const bool h_ok = content_bottom > 32.0f && content_bottom < kMaxDim;
-            if (w_ok && h_ok) {
-                design_w = std::clamp(std::ceil(content_right), kMinDim, kMaxDim);
-                design_h = std::clamp(std::ceil(content_bottom), kMinDim, kMaxDim);
-                std::cout << "[ui-preview] measured content (recursive): "
-                          << content_right << "x" << content_bottom
-                          << " -> design " << design_w << "x" << design_h << "\n";
-            } else {
-                design_w = kFallbackW;
-                design_h = kFallbackH;
-                std::cout << "[ui-preview] content measure unreliable ("
-                          << content_right << "x" << content_bottom
-                          << ") -> landscape fallback " << design_w << "x"
-                          << design_h << "\n";
-            }
+            const auto vp = pulp::ui_preview::probe_design_viewport(root);
+            design_w = vp.width;
+            design_h = vp.height;
+            std::cout << "[ui-preview] settle-probe: h_wide=" << vp.h_wide
+                      << " h_narrow=" << vp.h_narrow
+                      << (vp.responsive ? " responsive" : " fixed")
+                      << (vp.reliable ? "" : " (unreliable -> landscape fallback)")
+                      << " -> design " << design_w << "x" << design_h << "\n";
         }
 
         // The design canvas drives the window: fixed size, 50% min size, and
