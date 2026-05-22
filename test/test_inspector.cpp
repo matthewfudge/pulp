@@ -5212,6 +5212,69 @@ TEST_CASE("InspectorOverlay QA BUG3: committed text edit is one undoable unit",
     REQUIRE(store.lookup("figma:t2", "text")->getString() == "polytwave");
 }
 
+TEST_CASE("InspectorOverlay QA BUG4: text-edit shows subtle outline, no handles",
+          "[inspect][overlay][wysiwyg][qa][bug4]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    Label* label = nullptr;
+    root.add_child(t2_make_label("polywave", &label));
+    root.layout_children();
+
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+
+    // ── Select tool: selecting an element shows the orange box + handles ──
+    overlay.set_tool(InspectorOverlay::Tool::select);
+    overlay.set_dragging_enabled(true);          // handles opt-in (D)
+    overlay.set_selected_view(label);
+    REQUIRE_FALSE(overlay.text_editing());
+    REQUIRE(overlay.selection_shows_resize_handles());          // BUG 4 predicate
+    REQUIRE_FALSE(overlay.selection_uses_subtle_edit_outline());
+    {
+        pulp::canvas::RecordingCanvas canvas;
+        overlay.paint(canvas);
+        std::size_t handle_rects = 0;
+        bool saw_orange_stroke = false;
+        for (const auto& c : canvas.commands()) {
+            // Handles are 8×8 filled squares (half-side 4 -> w==h==8).
+            if (c.type == pulp::canvas::DrawCommand::Type::fill_rect &&
+                std::abs(c.f[2] - 8.0f) < 0.01f &&
+                std::abs(c.f[3] - 8.0f) < 0.01f)
+                ++handle_rects;
+            if (c.type == pulp::canvas::DrawCommand::Type::set_stroke_color &&
+                c.color.r > 0.9f && c.color.g > 0.4f && c.color.g < 0.6f &&
+                c.color.b < 0.1f)
+                saw_orange_stroke = true;  // kSelectedStroke (orange)
+        }
+        REQUIRE(handle_rects == 8);     // 4 corners + 4 edge midpoints
+        REQUIRE(saw_orange_stroke);
+    }
+
+    // ── Text tool / active edit: subtle thin-blue outline, NO handles ──
+    overlay.set_tool(InspectorOverlay::Tool::text);
+    REQUIRE(overlay.begin_text_edit(label));
+    REQUIRE(overlay.text_editing());
+    REQUIRE(overlay.selection_uses_subtle_edit_outline());      // BUG 4 predicate
+    REQUIRE_FALSE(overlay.selection_shows_resize_handles());    // handles suppressed
+    {
+        pulp::canvas::RecordingCanvas canvas;
+        overlay.paint(canvas);
+        std::size_t handle_rects = 0;
+        bool saw_blue_stroke = false;
+        for (const auto& c : canvas.commands()) {
+            if (c.type == pulp::canvas::DrawCommand::Type::fill_rect &&
+                std::abs(c.f[2] - 8.0f) < 0.01f &&
+                std::abs(c.f[3] - 8.0f) < 0.01f)
+                ++handle_rects;
+            if (c.type == pulp::canvas::DrawCommand::Type::set_stroke_color &&
+                c.color.b > 0.9f && c.color.r < 0.4f)
+                saw_blue_stroke = true;  // kHighlightStroke (blue) outline
+        }
+        REQUIRE(handle_rects == 0);     // no resize handles mid-edit
+        REQUIRE(saw_blue_stroke);       // thin blue outline drawn
+    }
+}
+
 TEST_CASE("InspectorOverlay P3: Select tool clicks still select (unchanged)",
           "[inspect][overlay][phase3][text-tool][regression]") {
     View root;

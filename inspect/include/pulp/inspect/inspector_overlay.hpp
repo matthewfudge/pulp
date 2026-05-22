@@ -479,6 +479,27 @@ public:
     const std::string& text_edit_buffer() const { return text_edit_buffer_; }
     View* text_edit_target() const { return text_edit_target_; }
 
+    // WYSIWYG QA BUG 4 — selection chrome predicate. While an inline text edit
+    // is active the orange resize box + corner/edge handles would obstruct the
+    // text being edited (and resize is meaningless mid-edit), so the selection
+    // is drawn as a SUBTLE thin blue outline with NO handles. The Select tool
+    // (move/resize) keeps the orange box + handles. This predicate reports
+    // which chrome paint_highlight() draws for the selected element, so a
+    // headless test can assert "Text-edit mode → no handles / subtle" vs
+    // "Select mode → orange box + handles" without inspecting pixels.
+    bool selection_shows_resize_handles() const {
+        // Handles only ever paint in drag-handles mode AND never while a text
+        // edit is active (the subtle-outline path owns the visuals then).
+        return dragging_enabled_ && !text_editing();
+    }
+    /// True when the selected element should render the subtle thin-blue
+    /// text-edit outline instead of the orange Select-tool box. Gated purely
+    /// on "is a text edit active for the selected view".
+    bool selection_uses_subtle_edit_outline() const {
+        return text_editing() && selected_ != nullptr &&
+               selected_ == text_edit_target_;
+    }
+
     /// True if `v` exposes editable text the Text tool can edit (today a
     /// Label or a TextEditor). Used by the Text-tool click path + tests.
     static bool view_has_editable_text(const View* v);

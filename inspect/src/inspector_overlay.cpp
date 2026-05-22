@@ -2615,6 +2615,20 @@ void InspectorOverlay::paint_highlight(Canvas& canvas) {
         canvas.fill_text(label, bp.x + 4, bp.y + 13);
     }
 
+    // WYSIWYG QA BUG 4 — while an inline text edit is active on the selected
+    // element, the orange resize box + handles obstruct the text and resize is
+    // meaningless mid-edit. Draw a SUBTLE thin blue outline (no fill, no
+    // handles) instead; the caret + blue selection band come from
+    // paint_text_edit_overlay(). Gated purely on text_editing() so selecting
+    // in Select mode is unchanged.
+    if (selected_ && selection_uses_subtle_edit_outline()) {
+        auto r = view_bounds_in_root(selected_);
+        canvas.set_stroke_color(kHighlightStroke);  // thin blue
+        canvas.set_line_width(1.0f);
+        canvas.stroke_rect(r.x, r.y, r.width, r.height);
+        return;  // no orange box, no handles, no grid badge while editing
+    }
+
     // Selected view highlight (orange)
     if (selected_) {
         auto r = view_bounds_in_root(selected_);
