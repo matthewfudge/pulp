@@ -7,8 +7,10 @@
 #include <pulp/format/processor.hpp>
 #include <pulp/format/clap_entry.hpp>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -32,13 +34,30 @@ public:
             .category = pulp::format::PluginCategory::Effect,
             .input_buses = {{"Audio In", 2}},
             .output_buses = {{"Audio Out", 2}},
+            .accepts_midi = true,
+            .produces_midi = true,
+            .tail_samples = -1,
         };
     }
     void define_parameters(pulp::state::StateStore& store) override {
         store.add_parameter({.id = 1, .name = "Gain", .unit = "dB",
                              .range = {-60.0f, 24.0f, 0.0f, 0.1f}});
+        store.add_parameter({.id = 2, .name = "Mode", .unit = "",
+                             .range = {0.0f, 2.0f, 0.0f, 1.0f}});
+        store.add_parameter({.id = 3, .name = "Mix", .unit = "%",
+                             .range = {0.0f, 100.0f, 50.0f, 0.5f}});
+
+        pulp::state::ParamInfo quality{.id = 4, .name = "Quality", .unit = "",
+                                       .range = {0.0f, 1.0f, 0.75f, 0.01f}};
+        quality.to_string = [](float value) {
+            char buffer[32];
+            std::snprintf(buffer, sizeof(buffer), "quality=%.2f", value);
+            return std::string(buffer);
+        };
+        store.add_parameter(quality);
     }
     void prepare(const pulp::format::PrepareContext&) override {}
+    int latency_samples() const override { return 128; }
     void process(pulp::audio::BufferView<float>& out,
                  const pulp::audio::BufferView<const float>& in,
                  pulp::midi::MidiBuffer&, pulp::midi::MidiBuffer&,
@@ -172,6 +191,8 @@ TEST_CASE("PULP_CLAP_PLUGIN generates valid entry", "[clap][entry]") {
     REQUIRE(clap_entry.init != nullptr);
     REQUIRE(clap_entry.get_factory != nullptr);
 
+    pulp::format::clap_generic::init_descriptor();
+
     // Initialize
     REQUIRE(clap_entry.init("test"));
 
@@ -186,7 +207,225 @@ TEST_CASE("PULP_CLAP_PLUGIN generates valid entry", "[clap][entry]") {
     REQUIRE(std::string(desc->name) == "TestClap");
     REQUIRE(std::string(desc->id) == "com.pulp.test.clap");
     REQUIRE(std::string(desc->vendor) == "PulpTest");
+    REQUIRE(factory->get_plugin_descriptor(factory, 1) == nullptr);
+    REQUIRE(factory->create_plugin(factory, nullptr, "com.pulp.test.missing") == nullptr);
+    REQUIRE(clap_entry.get_factory("not.a.clap.factory") == nullptr);
 
+    clap_entry.deinit();
+}
+
+TEST_CASE("CLAP entry exposes port, note, latency and tail extensions",
+          "[clap][entry][ports]") {
+    REQUIRE(clap_entry.init("test"));
+
+    auto* factory = static_cast<const clap_plugin_factory_t*>(
+        clap_entry.get_factory(CLAP_PLUGIN_FACTORY_ID));
+    REQUIRE(factory != nullptr);
+    auto* desc = factory->get_plugin_descriptor(factory, 0);
+    REQUIRE(desc != nullptr);
+
+    const clap_plugin_t* plugin = factory->create_plugin(factory, nullptr, desc->id);
+    REQUIRE(plugin != nullptr);
+    REQUIRE(plugin->init(plugin));
+
+    auto* audio_ports = static_cast<const clap_plugin_audio_ports_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS));
+    auto* note_ports = static_cast<const clap_plugin_note_ports_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS));
+    auto* latency = static_cast<const clap_plugin_latency_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_LATENCY));
+    auto* tail = static_cast<const clap_plugin_tail_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_TAIL));
+    REQUIRE(audio_ports != nullptr);
+    REQUIRE(note_ports != nullptr);
+    REQUIRE(latency != nullptr);
+    REQUIRE(tail != nullptr);
+    REQUIRE(plugin->get_extension(plugin, "pulp.unsupported") == nullptr);
+
+    REQUIRE(audio_ports->count(plugin, true) == 1);
+    REQUIRE(audio_ports->count(plugin, false) == 1);
+
+    clap_audio_port_info_t input{};
+    REQUIRE(audio_ports->get(plugin, 0, true, &input));
+    REQUIRE(input.id == 0);
+    REQUIRE(std::string(input.name) == "Audio In");
+    REQUIRE(input.channel_count == 2);
+    REQUIRE(input.flags == CLAP_AUDIO_PORT_IS_MAIN);
+    REQUIRE(std::string(input.port_type) == CLAP_PORT_STEREO);
+
+    clap_audio_port_info_t output{};
+    REQUIRE(audio_ports->get(plugin, 0, false, &output));
+    REQUIRE(output.id == 100);
+    REQUIRE(std::string(output.name) == "Audio Out");
+    REQUIRE_FALSE(audio_ports->get(plugin, 1, true, &input));
+
+    REQUIRE(note_ports->count(plugin, true) == 1);
+    REQUIRE(note_ports->count(plugin, false) == 1);
+    clap_note_port_info_t note_input{};
+    REQUIRE(note_ports->get(plugin, 0, true, &note_input));
+    REQUIRE((note_input.supported_dialects & CLAP_NOTE_DIALECT_MIDI) != 0);
+    REQUIRE(note_ports->get(plugin, 0, false, &note_input));
+
+    REQUIRE(latency->get(plugin) == 128);
+    REQUIRE(tail->get(plugin) == std::numeric_limits<uint32_t>::max());
+
+    plugin->destroy(plugin);
+    clap_entry.deinit();
+}
+
+TEST_CASE("CLAP entry fallback metadata handles missing processors",
+          "[clap][entry][fallback]") {
+    auto saved_desc = pulp::format::clap_generic::g_desc;
+
+    pulp::format::PluginDescriptor fallback{};
+    fallback.name = "FallbackClap";
+    fallback.manufacturer = "PulpTest";
+    fallback.bundle_id = "com.pulp.test.fallback";
+    fallback.version = "1.0.0";
+    fallback.category = pulp::format::PluginCategory::Effect;
+    fallback.input_buses = {{"Mono In", 1}, {"Sidechain", 1}};
+    fallback.output_buses = {{"Main Out", 2}, {"Aux Out", 1}};
+    fallback.accepts_midi = false;
+    fallback.produces_midi = false;
+    fallback.tail_samples = 64;
+    pulp::format::clap_generic::g_desc = fallback;
+
+    pulp::format::clap_adapter::PulpClapPlugin data;
+    clap_plugin_t plugin{};
+    plugin.plugin_data = &data;
+
+    REQUIRE(pulp::format::clap_generic::audio_ports_count(&plugin, true) == 2);
+    REQUIRE(pulp::format::clap_generic::audio_ports_count(&plugin, false) == 2);
+
+    clap_audio_port_info_t port{};
+    REQUIRE(pulp::format::clap_generic::audio_ports_get(&plugin, 1, true, &port));
+    REQUIRE(port.id == 1);
+    REQUIRE(std::string(port.name) == "Sidechain");
+    REQUIRE(port.channel_count == 1);
+    REQUIRE(port.flags == 0);
+    REQUIRE(std::string(port.port_type) == CLAP_PORT_MONO);
+
+    REQUIRE(pulp::format::clap_generic::audio_ports_get(&plugin, 1, false, &port));
+    REQUIRE(port.id == 101);
+    REQUIRE(std::string(port.name) == "Aux Out");
+    REQUIRE(port.flags == 0);
+    REQUIRE(std::string(port.port_type) == CLAP_PORT_MONO);
+
+    clap_note_port_info_t note{};
+    REQUIRE(pulp::format::clap_generic::note_ports_count(&plugin, true) == 0);
+    REQUIRE(pulp::format::clap_generic::note_ports_count(&plugin, false) == 0);
+    REQUIRE_FALSE(pulp::format::clap_generic::note_ports_get(&plugin, 1, true, &note));
+    REQUIRE_FALSE(pulp::format::clap_generic::note_ports_get(&plugin, 0, true, &note));
+    REQUIRE_FALSE(pulp::format::clap_generic::note_ports_get(&plugin, 0, false, &note));
+    REQUIRE(pulp::format::clap_generic::latency_get(&plugin) == 0);
+    REQUIRE(pulp::format::clap_generic::tail_get(&plugin) == 0);
+
+    MemoryStream sink;
+    clap_ostream_t out_stream{.ctx = &sink, .write = stream_write};
+    MemoryStream source;
+    clap_istream_t in_stream{.ctx = &source, .read = stream_read};
+    REQUIRE_FALSE(pulp::format::clap_generic::state_save(&plugin, &out_stream));
+    REQUIRE_FALSE(pulp::format::clap_generic::state_load(&plugin, &in_stream));
+
+    pulp::format::clap_generic::g_desc = saved_desc;
+}
+
+TEST_CASE("CLAP params extension reports metadata and text conversions",
+          "[clap][entry][params]") {
+    REQUIRE(clap_entry.init("test"));
+
+    auto* factory = static_cast<const clap_plugin_factory_t*>(
+        clap_entry.get_factory(CLAP_PLUGIN_FACTORY_ID));
+    REQUIRE(factory != nullptr);
+    auto* desc = factory->get_plugin_descriptor(factory, 0);
+    REQUIRE(desc != nullptr);
+
+    const clap_plugin_t* plugin = factory->create_plugin(factory, nullptr, desc->id);
+    REQUIRE(plugin != nullptr);
+    REQUIRE(plugin->init(plugin));
+
+    auto* params = static_cast<const clap_plugin_params_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+    REQUIRE(params != nullptr);
+    REQUIRE(params->count(plugin) == 4);
+
+    clap_param_info_t info{};
+    REQUIRE(params->get_info(plugin, 0, &info));
+    REQUIRE(info.id == 1);
+    REQUIRE(std::string(info.name) == "Gain");
+    REQUIRE_THAT(info.min_value, WithinAbs(-60.0, 0.01));
+    REQUIRE_THAT(info.max_value, WithinAbs(24.0, 0.01));
+    REQUIRE((info.flags & CLAP_PARAM_IS_AUTOMATABLE) != 0);
+
+    REQUIRE(params->get_info(plugin, 1, &info));
+    REQUIRE(info.id == 2);
+    REQUIRE((info.flags & CLAP_PARAM_IS_STEPPED) != 0);
+    REQUIRE_FALSE(params->get_info(plugin, 9, &info));
+
+    double value = 0.0;
+    REQUIRE(params->get_value(plugin, 4, &value));
+    REQUIRE_THAT(value, WithinAbs(0.75, 0.01));
+
+    char text[64]{};
+    REQUIRE(params->value_to_text(plugin, 4, value, text, sizeof(text)));
+    REQUIRE(std::string(text) == "quality=0.75");
+    REQUIRE(params->text_to_value(plugin, 1, "-3.25 dB", &value));
+    REQUIRE_THAT(value, WithinAbs(-3.25, 0.01));
+    REQUIRE_FALSE(params->text_to_value(plugin, 1, "dB", &value));
+
+    plugin->destroy(plugin);
+    clap_entry.deinit();
+}
+
+TEST_CASE("CLAP params extension formats fallbacks and flushes gestures",
+          "[clap][entry][params][flush]") {
+    REQUIRE(clap_entry.init("test"));
+
+    auto* factory = static_cast<const clap_plugin_factory_t*>(
+        clap_entry.get_factory(CLAP_PLUGIN_FACTORY_ID));
+    REQUIRE(factory != nullptr);
+    auto* desc = factory->get_plugin_descriptor(factory, 0);
+    REQUIRE(desc != nullptr);
+
+    const clap_plugin_t* plugin = factory->create_plugin(factory, nullptr, desc->id);
+    REQUIRE(plugin != nullptr);
+    REQUIRE(plugin->init(plugin));
+    auto* proc = test_clap::g_last_processor;
+    REQUIRE(proc != nullptr);
+
+    auto* params = static_cast<const clap_plugin_params_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PARAMS));
+    REQUIRE(params != nullptr);
+
+    char text[64]{};
+    REQUIRE(params->value_to_text(plugin, 1, -6.5, text, sizeof(text)));
+    REQUIRE(std::string(text) == "-6.50 dB");
+    REQUIRE(params->value_to_text(plugin, 2, 1.0, text, sizeof(text)));
+    REQUIRE(std::string(text) == "1.00");
+    REQUIRE_FALSE(params->value_to_text(plugin, 404, 0.0, text, sizeof(text)));
+
+    params->flush(plugin, nullptr, nullptr);
+
+    clap_event_param_gesture_t begin{};
+    begin.header.size = sizeof(begin);
+    begin.header.time = 0;
+    begin.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    begin.header.type = CLAP_EVENT_PARAM_GESTURE_BEGIN;
+    begin.param_id = 1;
+
+    clap_event_param_gesture_t end = begin;
+    end.header.type = CLAP_EVENT_PARAM_GESTURE_END;
+
+    EventList gestures{.events = {&begin.header, &end.header}};
+    clap_input_events_t in{.ctx = &gestures, .size = events_size, .get = events_get};
+    params->flush(plugin, &in, nullptr);
+
+    proc->state().set_value(1, -1.0f);
+    double value = 0.0;
+    REQUIRE(params->get_value(plugin, 1, &value));
+    REQUIRE_THAT(value, WithinAbs(-1.0, 0.01));
+
+    plugin->destroy(plugin);
     clap_entry.deinit();
 }
 
@@ -222,6 +461,44 @@ TEST_CASE("CLAP GUI extension is hidden under automation env",
     auto* gui = static_cast<const clap_plugin_gui_t*>(
         plugin->get_extension(plugin, CLAP_EXT_GUI));
     REQUIRE(gui != nullptr);
+
+    const char* preferred_api = nullptr;
+    bool is_floating = true;
+    REQUIRE(gui->get_preferred_api(plugin, &preferred_api, &is_floating));
+    REQUIRE_FALSE(is_floating);
+#if defined(__APPLE__)
+    REQUIRE(std::string(preferred_api) == CLAP_WINDOW_API_COCOA);
+    REQUIRE(gui->is_api_supported(plugin, CLAP_WINDOW_API_COCOA, false));
+    REQUIRE_FALSE(gui->is_api_supported(plugin, CLAP_WINDOW_API_COCOA, true));
+#elif defined(_WIN32)
+    REQUIRE(std::string(preferred_api) == CLAP_WINDOW_API_WIN32);
+    REQUIRE(gui->is_api_supported(plugin, CLAP_WINDOW_API_WIN32, false));
+    REQUIRE_FALSE(gui->is_api_supported(plugin, CLAP_WINDOW_API_WIN32, true));
+#elif defined(__linux__)
+    REQUIRE(std::string(preferred_api) == CLAP_WINDOW_API_X11);
+    REQUIRE(gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, false));
+    REQUIRE_FALSE(gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, true));
+#endif
+    REQUIRE_FALSE(gui->is_api_supported(plugin, "pulp.unsupported-window-api", false));
+
+    uint32_t width = 0;
+    uint32_t height = 0;
+    REQUIRE(gui->get_size(plugin, &width, &height));
+    REQUIRE(width == 400);
+    REQUIRE(height == 300);
+    REQUIRE_FALSE(gui->set_scale(plugin, 2.0));
+    REQUIRE_FALSE(gui->can_resize(plugin));
+    clap_gui_resize_hints_t hints{};
+    REQUIRE_FALSE(gui->get_resize_hints(plugin, &hints));
+    REQUIRE_FALSE(gui->adjust_size(plugin, &width, &height));
+    REQUIRE_FALSE(gui->set_size(plugin, 640, 480));
+    clap_window_t window{};
+    REQUIRE_FALSE(gui->set_parent(plugin, &window));
+    REQUIRE_FALSE(gui->set_transient(plugin, &window));
+    gui->suggest_title(plugin, "Pulp Test");
+    REQUIRE_FALSE(gui->show(plugin));
+    REQUIRE(gui->hide(plugin));
+    gui->destroy(plugin);
 
     disable_editor.set("1");
     REQUIRE(plugin->get_extension(plugin, CLAP_EXT_GUI) == nullptr);
