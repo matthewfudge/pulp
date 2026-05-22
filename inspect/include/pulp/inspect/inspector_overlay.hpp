@@ -1298,6 +1298,26 @@ private:
     bool text_edit_target_reachable() const;
     void clear_text_edit_state();
 
+    // WYSIWYG sweep P1 — resolve a live View by its stable anchor id at
+    // undo/redo time. The text-edit and reparent EditHistory closures used to
+    // capture raw `View*` (e.g. `View* tgt = selected_;`). When a live React
+    // SUBTREE rebuilds before the user hits Cmd+Z — which clear_edit_history()
+    // does NOT cover, since it only fires at ROOT replacement — those pointers
+    // dangle and undo derefs freed memory. Anchored captures now store the
+    // anchor id and re-find the live view here (nullptr → graceful no-op).
+    // Returns nullptr for an empty anchor or a view no longer in the tree.
+    View* resolve_anchor(const std::string& anchor) const;
+
+    // WYSIWYG sweep P1 — un-anchored fallback. Some edited/reparented views
+    // carry NO anchor (e.g. a --script Chainer label), so they cannot be
+    // re-found by anchor. For those we keep the raw-pointer capture but RECORD
+    // the pointer here; rebuild_flat_tree() clears the WHOLE EditHistory if any
+    // tracked raw view left the tree, before its closures can deref it. Anchored
+    // captures never go in this set (they self-heal via resolve_anchor).
+    std::vector<View*> raw_history_views_;
+    void track_raw_history_view(View* v);
+    bool any_raw_history_view_dangling() const;
+
     // ── Coordinate helpers ──────────────────────────────────────────
     Rect view_bounds_in_root(const View* v) const;
 

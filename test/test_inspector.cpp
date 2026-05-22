@@ -1961,6 +1961,193 @@ TEST_CASE("InspectorOverlay clear_edit_history empties the undo history",
     REQUIRE(history.undo_count() == 0);
 }
 
+// ── WYSIWYG sweep P1 — Cmd+Z UAF on live SUBTREE rebuild ─────────────────────
+//
+// clear_edit_history() only fires at ROOT replacement; a live React SUBTREE
+// rebuild (which frees the edited/reparented view but keeps the root) does NOT
+// trigger it. The pre-fix text-edit / reparent EditHistory closures captured
+// raw View*, so Cmd+Z after such a rebuild dereferenced freed memory. The fix
+// resolves anchored targets by stable anchor at replay time (re-finding the
+// CURRENT live view, or a graceful no-op if it's gone), and for un-anchored
+// targets clears the history when the tracked raw view leaves the tree.
+
+TEST_CASE("WYSIWYG sweep P1: anchored text-edit undo resolves by anchor after "
+          "a subtree rebuild",
+          "[inspect][overlay][wysiwyg][undo][uaf][issue-1737]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    auto label = std::make_unique<Label>("Old");
+    label->set_anchor_id("figma:label-1");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    // Edit "Old" → "New" and commit (one undoable entry).
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    KeyEvent bs; bs.key = KeyCode::backspace; bs.is_down = true;
+    for (int i = 0; i < 3; ++i) overlay.handle_key_event(bs);
+    TextInputEvent ti; ti.text = "New";
+    overlay.handle_text_input(ti);
+    KeyEvent enter; enter.key = KeyCode::enter; enter.is_down = true;
+    overlay.handle_key_event(enter);
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(label_ptr->text() == "New");
+
+    // ── Simulate a live SUBTREE rebuild: the old label is FREED and a NEW
+    // view with the SAME anchor is wired in. (clear_edit_history() is NOT
+    // called — this is the seam the minimal P4 guard never covered.)
+    {
+        auto removed = root.remove_child(label_ptr);  // frees old label here
+        (void)removed;
+    }
+    auto rebuilt = std::make_unique<Label>("New");
+    rebuilt->set_anchor_id("figma:label-1");
+    rebuilt->set_bounds({20, 20, 120, 30});
+    auto* rebuilt_ptr = rebuilt.get();
+    root.add_child(std::move(rebuilt));
+
+    // A paint runs rebuild_flat_tree() (the rebuild seam). The dangling-raw
+    // check is a no-op here: the target was ANCHORED, so it was never tracked.
+    pulp::canvas::RecordingCanvas canvas;
+    REQUIRE_NOTHROW(overlay.paint(canvas));
+    REQUIRE(history.can_undo());  // anchored history survives the rebuild
+
+    // Undo must NOT deref the freed old label — it re-finds the live view by
+    // anchor and reverts THAT view's text. No UAF, correct resolve.
+    REQUIRE_NOTHROW(history.undo());
+    REQUIRE(rebuilt_ptr->text() == "Old");
+
+    // Redo re-applies on the live (resolved) view.
+    REQUIRE_NOTHROW(history.redo());
+    REQUIRE(rebuilt_ptr->text() == "New");
+}
+
+TEST_CASE("WYSIWYG sweep P1: un-anchored text-edit undo no-ops after the view "
+          "is freed (history cleared on rebuild)",
+          "[inspect][overlay][wysiwyg][undo][uaf][issue-1737]") {
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    // No anchor — a --script Chainer-style label. Undo can't re-find it.
+    auto label = std::make_unique<Label>("Old");
+    label->set_bounds({20, 20, 120, 30});
+    auto* label_ptr = label.get();
+    root.add_child(std::move(label));
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_tool(InspectorOverlay::Tool::text);
+
+    REQUIRE(overlay.begin_text_edit(label_ptr));
+    KeyEvent bs; bs.key = KeyCode::backspace; bs.is_down = true;
+    for (int i = 0; i < 3; ++i) overlay.handle_key_event(bs);
+    TextInputEvent ti; ti.text = "New";
+    overlay.handle_text_input(ti);
+    KeyEvent enter; enter.key = KeyCode::enter; enter.is_down = true;
+    overlay.handle_key_event(enter);
+    REQUIRE(history.undo_count() == 1);
+
+    // Free the un-anchored label without replacing it (subtree shrank).
+    {
+        auto removed = root.remove_child(label_ptr);  // frees it here
+        (void)removed;
+    }
+
+    // The rebuild seam (paint → rebuild_flat_tree) detects the tracked raw view
+    // is gone and clears the whole history BEFORE its closures can deref it.
+    pulp::canvas::RecordingCanvas canvas;
+    REQUIRE_NOTHROW(overlay.paint(canvas));
+    REQUIRE_FALSE(history.can_undo());
+
+    // Any later undo is a safe no-op (nothing to deref).
+    REQUIRE_NOTHROW(history.undo());
+}
+
+TEST_CASE("WYSIWYG sweep P1: anchored reparent undo no-ops after the moved view "
+          "is freed by a subtree rebuild",
+          "[inspect][overlay][wysiwyg][undo][uaf][reparent][issue-1737]") {
+    View root;
+    root.set_bounds({0, 0, 600, 300});
+    root.flex().direction = FlexDirection::row;
+
+    auto left = std::make_unique<View>();
+    left->set_anchor_id("anchor-left");
+    left->flex().direction = FlexDirection::column;
+    left->flex().preferred_width = 300;
+    left->flex().preferred_height = 300;
+
+    auto moving = std::make_unique<View>();
+    moving->set_anchor_id("anchor-moving");
+    moving->flex().preferred_width = 80;
+    moving->flex().preferred_height = 40;
+    auto* moving_ptr = moving.get();
+    left->add_child(std::move(moving));
+    root.add_child(std::move(left));
+
+    auto right = std::make_unique<View>();
+    right->set_anchor_id("anchor-right");
+    right->flex().direction = FlexDirection::column;
+    right->flex().preferred_width = 300;
+    right->flex().preferred_height = 300;
+    auto* right_ptr = right.get();
+    root.add_child(std::move(right));
+    root.layout_children();
+
+    TweakStore store;
+    pulp::state::EditHistory history;
+    history.set_coalesce(false);
+    InspectorOverlay overlay(root);
+    overlay.set_active(true);
+    overlay.set_tweak_store(&store);
+    overlay.set_edit_history(&history);
+    overlay.set_dragging_enabled(true);
+    overlay.set_selected_view(moving_ptr);
+
+    // Drive the reflow reparent (mirrors the P2c reparent test).
+    const Rect mb = moving_ptr->bounds();
+    MouseEvent press; press.position = {mb.x + 10, mb.y + 10}; press.is_down = true;
+    REQUIRE(overlay.handle_mouse_event(press));
+    const Rect rb = right_ptr->bounds();
+    MouseEvent drag;
+    drag.position = {rb.x + rb.width * 0.5f, rb.y + rb.height * 0.5f};
+    drag.is_down = false;
+    REQUIRE(overlay.handle_mouse_event(drag));
+    MouseEvent release; release.position = drag.position; release.is_down = true;
+    overlay.handle_mouse_event(release);
+    REQUIRE(moving_ptr->parent() == right_ptr);
+    REQUIRE(history.undo_count() == 1);
+
+    // Subtree rebuild frees the moved view (no replacement with that anchor).
+    {
+        auto removed = right_ptr->remove_child(moving_ptr);  // frees it here
+        (void)removed;
+    }
+
+    // Paint runs the rebuild seam. The moved child WAS anchored, so the history
+    // is NOT cleared (anchored captures self-heal). Undo re-finds the child by
+    // anchor; it no longer resolves, so the closure is a graceful no-op — no
+    // deref of the freed view.
+    pulp::canvas::RecordingCanvas canvas;
+    REQUIRE_NOTHROW(overlay.paint(canvas));
+    REQUIRE_NOTHROW(history.undo());
+    // The freed child stays gone; the live tree is coherent (right empty,
+    // left still present).
+    REQUIRE(right_ptr->child_count() == 0);
+}
+
 TEST_CASE("InspectorWindow refreshes console performance and state tabs", "[inspect][window][issue-641]") {
     View inspected_root;
     inspected_root.set_id("root");

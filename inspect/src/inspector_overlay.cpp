@@ -386,6 +386,44 @@ void InspectorOverlay::clear_text_edit_state() {
     text_sel_anchor_ = 0;
 }
 
+// WYSIWYG sweep P1 — re-find a live view by stable anchor id (or nullptr).
+// EditHistory closures call this at undo/redo time so an anchored target that
+// survived a subtree rebuild resolves to the CURRENT live view rather than a
+// dangling raw pointer captured at gesture time.
+View* InspectorOverlay::resolve_anchor(const std::string& anchor) const {
+    if (anchor.empty()) return nullptr;
+    return ViewInspector::find_by_anchor(root_, anchor);
+}
+
+// WYSIWYG sweep P1 — register a raw View* that an EditHistory closure captured
+// because the view has NO anchor to re-find it by. De-duplicates so the list
+// stays small across coalesced gestures.
+void InspectorOverlay::track_raw_history_view(View* v) {
+    if (!v) return;
+    for (View* existing : raw_history_views_)
+        if (existing == v) return;
+    raw_history_views_.push_back(v);
+}
+
+// WYSIWYG sweep P1 — true if any tracked raw-pointer view has left the tree
+// (so its captured closures would deref freed memory). Pointer-compare only —
+// never dereferences a tracked pointer.
+bool InspectorOverlay::any_raw_history_view_dangling() const {
+    if (raw_history_views_.empty()) return false;
+    auto in_tree = [&](const View* target) {
+        std::function<bool(const View*)> contains = [&](const View* v) -> bool {
+            if (v == target) return true;
+            for (std::size_t i = 0; i < v->child_count(); ++i)
+                if (contains(v->child_at(i))) return true;
+            return false;
+        };
+        return contains(&root_);
+    };
+    for (View* v : raw_history_views_)
+        if (!in_tree(v)) return true;
+    return false;
+}
+
 bool InspectorOverlay::begin_text_edit(View* v) {
     if (!view_has_editable_text(v)) return false;
     // Selecting the edit target keeps the selection box + props panel on
@@ -627,9 +665,19 @@ bool InspectorOverlay::commit_text_edit() {
         }
         if (edit_history_) {
             auto* self = this;
+            // WYSIWYG sweep P1 — for ANCHORED targets the closures re-find the
+            // live view by anchor at replay time (resolve_anchor → nullptr no-op
+            // if a subtree rebuild freed it), so Cmd+Z after a live React rebuild
+            // never derefs a dangling raw pointer. For UN-anchored targets there
+            // is no anchor to re-find by, so we keep the raw `tgt` capture but
+            // TRACK it; rebuild_flat_tree() clears the history if that view ever
+            // leaves the tree, before these closures can run against freed memory.
+            if (!anchored) track_raw_history_view(tgt);
             edit_history_->perform(
                 [self, tgt, anchor, path, new_text, anchored]() {
-                    set_editable_text_of(tgt, new_text);
+                    View* live = anchored ? self->resolve_anchor(anchor) : tgt;
+                    if (!live) return;  // freed/un-resolvable → graceful no-op
+                    set_editable_text_of(live, new_text);
                     if (anchored && self->tweak_store_)
                         self->tweak_store_->apply_tweak(
                             anchor, path,
@@ -637,7 +685,8 @@ bool InspectorOverlay::commit_text_edit() {
                             "inspector-text-edit");
                 },
                 [self, tgt, anchor, path, old_text, prior_val, anchored]() {
-                    set_editable_text_of(tgt, old_text);
+                    View* live = anchored ? self->resolve_anchor(anchor) : tgt;
+                    if (live) set_editable_text_of(live, old_text);
                     if (!(anchored && self->tweak_store_)) return;
                     if (prior_val.has_value())
                         self->tweak_store_->apply_tweak(
@@ -1347,6 +1396,20 @@ void InspectorOverlay::rebuild_flat_tree() {
     // in_tree() never dereferences the target.
     if (text_edit_target_ && !in_tree(text_edit_target_))
         clear_text_edit_state();
+
+    // WYSIWYG sweep P1 — un-anchored EditHistory fallback. Anchored undo/redo
+    // closures self-heal via resolve_anchor() at replay time, but closures that
+    // captured a raw View* for an UN-anchored target (no anchor to re-find it
+    // by) would deref freed memory if that view left the tree in this rebuild.
+    // clear_edit_history() only fires at ROOT replacement; a live SUBTREE
+    // rebuild does not trigger it. So if any tracked raw view is now gone, drop
+    // the WHOLE history here (before the freed views' closures can run) and the
+    // tracking list with it. Anchored captures are never tracked, so this is a
+    // no-op on the common path. Pointer-compare only — never derefs a freed view.
+    if (any_raw_history_view_dangling()) {
+        if (edit_history_) edit_history_->clear();
+        raw_history_views_.clear();
+    }
 }
 
 // ── Input handling ──────────────────────────────────────────────────────────
@@ -2063,27 +2126,54 @@ bool InspectorOverlay::handle_mouse_event(const MouseEvent& event) {
                         !new_parent_anchor.empty() &&
                         !old_parent_anchor.empty();
                     auto* self = this;
+                    // WYSIWYG sweep P1 — the reparent undo/redo closures must not
+                    // capture raw View* that dangle after a live React SUBTREE
+                    // rebuild (clear_edit_history only fires at ROOT replacement).
+                    // Resolve each participant by its stable anchor at replay time
+                    // when anchored; fall back to the raw pointer (TRACKED, so
+                    // rebuild_flat_tree clears the history if it leaves the tree)
+                    // when a participant carries no anchor. A child that can't be
+                    // resolved → graceful no-op.
+                    const bool child_anchored = !child_anchor.empty();
+                    const bool new_parent_anchored = !new_parent_anchor.empty();
+                    const bool old_parent_anchored = !old_parent_anchor.empty();
+                    if (!child_anchored) track_raw_history_view(tgt);
+                    if (!new_parent_anchored) track_raw_history_view(after_parent);
+                    if (!old_parent_anchored) track_raw_history_view(before_parent);
                     // do_fn re-applies the AFTER tree state; undo_fn restores
                     // BEFORE. reparent_to is the structural primitive (no-op
                     // when parent unchanged), order is rewritten directly.
                     edit_history_->perform(
                         [self, tgt, after_parent, after_index, after_order,
-                         emit_source_reparent, child_anchor, new_parent_anchor]() {
-                            self->reparent_view(tgt, after_parent, after_index);
-                            tgt->flex().order = after_order;
-                            if (after_parent) after_parent->invalidate_layout();
-                            tgt->invalidate_layout();
+                         emit_source_reparent, child_anchor, new_parent_anchor,
+                         child_anchored, new_parent_anchored]() {
+                            View* child = child_anchored
+                                ? self->resolve_anchor(child_anchor) : tgt;
+                            if (!child) return;  // freed → graceful no-op
+                            View* np = new_parent_anchored
+                                ? self->resolve_anchor(new_parent_anchor)
+                                : after_parent;
+                            self->reparent_view(child, np, after_index);
+                            child->flex().order = after_order;
+                            if (np) np->invalidate_layout();
+                            child->invalidate_layout();
                             if (emit_source_reparent && self->reparent_source_sink_)
                                 self->reparent_source_sink_(
                                     {child_anchor, new_parent_anchor});
                         },
                         [self, tgt, before_parent, before_index, before_order,
-                         emit_source_reparent, child_anchor, old_parent_anchor]() {
-                            self->reparent_view(tgt, before_parent,
-                                                before_index);
-                            tgt->flex().order = before_order;
-                            if (before_parent) before_parent->invalidate_layout();
-                            tgt->invalidate_layout();
+                         emit_source_reparent, child_anchor, old_parent_anchor,
+                         child_anchored, old_parent_anchored]() {
+                            View* child = child_anchored
+                                ? self->resolve_anchor(child_anchor) : tgt;
+                            if (!child) return;  // freed → graceful no-op
+                            View* op = old_parent_anchored
+                                ? self->resolve_anchor(old_parent_anchor)
+                                : before_parent;
+                            self->reparent_view(child, op, before_index);
+                            child->flex().order = before_order;
+                            if (op) op->invalidate_layout();
+                            child->invalidate_layout();
                             if (emit_source_reparent && self->reparent_source_sink_)
                                 self->reparent_source_sink_(
                                     {child_anchor, old_parent_anchor});
