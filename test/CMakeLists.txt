@@ -865,6 +865,29 @@ pulp_add_test_suite(pulp-test-view-size-aspect LIBRARIES pulp::format)
 # fixed-design content into the current window.
 pulp_add_test_suite(pulp-test-view-design-viewport LIBRARIES pulp::view)
 
+# PluginViewHost design-viewport wiring (mac CPU + GPU). The pure
+# math is already pinned by `pulp-test-view-design-viewport`; this
+# target covers the new PluginViewHost virtuals (set_design_viewport,
+# set_fixed_aspect_ratio, window_to_root_point) and that the mac CPU
+# host inverse-maps mouse coords before hit_test. GPU section soft-
+# skips without Dawn / a window server. Foundation for CLAP
+# gui_get_resize_hints + VST3 checkSizeConstraint resize negotiation.
+if(APPLE AND NOT PULP_IOS)
+    add_executable(pulp-test-plugin-view-host-design-viewport
+        test_plugin_view_host_design_viewport.mm)
+    target_link_libraries(pulp-test-plugin-view-host-design-viewport PRIVATE
+        pulp::view pulp::canvas Catch2::Catch2WithMain "-framework AppKit")
+    if(PULP_HAS_SKIA)
+        target_link_libraries(pulp-test-plugin-view-host-design-viewport
+            PRIVATE pulp::render skia::skia)
+        target_compile_definitions(pulp-test-plugin-view-host-design-viewport
+            PRIVATE PULP_HAS_SKIA=1)
+        target_include_directories(pulp-test-plugin-view-host-design-viewport
+            PRIVATE ${SKIA_INCLUDE_DIRS})
+    endif()
+    catch_discover_tests(pulp-test-plugin-view-host-design-viewport)
+endif()
+
 # pulp-internal #70 — design-tool viewport resolver probe-layout
 # pattern. Locks in the yoga-measured-height path that the design-tool
 # example uses to auto-size its window for grid + row trees where
