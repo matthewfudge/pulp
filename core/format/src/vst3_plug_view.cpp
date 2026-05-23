@@ -7,6 +7,8 @@
 #include <pulp/format/vst3_plug_view.hpp>
 #include <pulp/format/gpu_host_select.hpp>
 #include <pulp/runtime/log.hpp>
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace pulp::format::vst3 {
@@ -69,6 +71,23 @@ tresult PLUGIN_API PulpPlugView::attached(void* parent, FIDString type) {
         return result;
     }
 
+    // Design viewport: pin root at the editor's preferred size so DAW
+    // resizes scale content proportionally. Paired with canResize/
+    // checkSizeConstraint below so VST3 hosts (Reaper, Bitwig, Live, …)
+    // enforce the aspect during user drag. Set AFTER attach succeeds so
+    // a failed attach doesn't install the pointTransform block on a
+    // host that's about to be destroyed (the dtor clears it, but
+    // keeping the lifecycle ordering clean is cheaper than relying on
+    // teardown).
+    if (hints.preferred_width > 0 && hints.preferred_height > 0) {
+        editor_host_->set_design_viewport(
+            static_cast<float>(hints.preferred_width),
+            static_cast<float>(hints.preferred_height));
+        editor_host_->set_fixed_aspect_ratio(
+            static_cast<float>(hints.preferred_width) /
+            static_cast<float>(hints.preferred_height));
+    }
+
     // Attach succeeded — now fire Processor::on_view_opened.
     bridge_.notify_attached();
 
@@ -96,6 +115,67 @@ tresult PLUGIN_API PulpPlugView::getSize(ViewRect* size) {
     size->top = 0;
     size->right = static_cast<int32>(hints.preferred_width);
     size->bottom = static_cast<int32>(hints.preferred_height);
+    return kResultTrue;
+}
+
+tresult PLUGIN_API PulpPlugView::canResize() {
+    // Proportional + aspect-locked editor resize, enforced by the host via
+    // checkSizeConstraint() during user drag. The PluginViewHost's design
+    // viewport handles content fitting.
+    return kResultTrue;
+}
+
+tresult PLUGIN_API PulpPlugView::checkSizeConstraint(ViewRect* rect) {
+    if (!rect) return kInvalidArgument;
+    const auto& hints = bridge_.size_hints();
+    if (hints.preferred_width == 0 || hints.preferred_height == 0) {
+        return kResultFalse;
+    }
+    int32 w = rect->getWidth();
+    int32 h = rect->getHeight();
+    if (w <= 0 || h <= 0) return kResultFalse;
+
+    // Snap to the design aspect ratio — pick the largest box at the
+    // design aspect that fits within the requested rectangle. Same
+    // shape the CLAP gui_adjust_size path lands on, mirroring the
+    // standalone host's drag-to-resize behavior.
+    const double design_aspect =
+        static_cast<double>(hints.preferred_width) /
+        static_cast<double>(hints.preferred_height);
+    const double req_aspect =
+        static_cast<double>(w) / static_cast<double>(h);
+    if (req_aspect > design_aspect) {
+        w = static_cast<int32>(static_cast<double>(h) * design_aspect + 0.5);
+    } else if (req_aspect < design_aspect) {
+        h = static_cast<int32>(static_cast<double>(w) / design_aspect + 0.5);
+    }
+
+    // Respect plugin min/max constraints when defined (zeros pass through).
+    // A naive clamp after the aspect snap would re-introduce off-aspect
+    // rects (design 2:1, request (500,1000) snaps to (500,250); a
+    // min_height=400 clamp gives (500,400) — no longer 2:1). After any
+    // clamp, re-snap by EXPANDING the other dimension to restore the
+    // design aspect. Matches the CLAP gui_adjust_size shape.
+    auto clamp = [](int32 v, uint32_t lo, uint32_t hi) {
+        if (lo > 0 && v < static_cast<int32>(lo)) v = static_cast<int32>(lo);
+        if (hi > 0 && v > static_cast<int32>(hi)) v = static_cast<int32>(hi);
+        return v;
+    };
+    auto resnap = [&]() {
+        const double aspect_now = static_cast<double>(w) / static_cast<double>(h);
+        if (aspect_now > design_aspect) {
+            h = static_cast<int32>(static_cast<double>(w) / design_aspect + 0.5);
+        } else if (aspect_now < design_aspect) {
+            w = static_cast<int32>(static_cast<double>(h) * design_aspect + 0.5);
+        }
+    };
+    const int32 w_clamped = clamp(w, hints.min_width, hints.max_width);
+    if (w_clamped != w) { w = w_clamped; resnap(); }
+    const int32 h_clamped = clamp(h, hints.min_height, hints.max_height);
+    if (h_clamped != h) { h = h_clamped; resnap(); }
+
+    rect->right = rect->left + w;
+    rect->bottom = rect->top + h;
     return kResultTrue;
 }
 
