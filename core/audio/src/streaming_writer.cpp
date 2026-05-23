@@ -93,7 +93,11 @@ int StreamingWriter::write_frames(const float* interleaved_data, int num_frames)
                              static_cast<uint8_t>((v >> 16) & 0xFF)};
             file_.write(reinterpret_cast<char*>(b), 3);
         } else if (bits_per_sample_ == 32) {
-            int32_t v = static_cast<int32_t>(sample * 2147483647.0f);
+            double scaled = static_cast<double>(sample) * 2147483648.0;
+            scaled = std::clamp(scaled,
+                                static_cast<double>(std::numeric_limits<int32_t>::min()),
+                                static_cast<double>(std::numeric_limits<int32_t>::max()));
+            int32_t v = static_cast<int32_t>(scaled);
             uint8_t b[4] = {static_cast<uint8_t>(v & 0xFF), static_cast<uint8_t>((v >> 8) & 0xFF),
                              static_cast<uint8_t>((v >> 16) & 0xFF), static_cast<uint8_t>((v >> 24) & 0xFF)};
             file_.write(reinterpret_cast<char*>(b), 4);

@@ -1223,6 +1223,120 @@ TEST_CASE("StreamingWriter writes 32-bit PCM and destructor finalizes header",
     std::filesystem::remove(path);
 }
 
+TEST_CASE("StreamingWriter finalizes empty files with zero data size",
+          "[audio][file][streaming][coverage][phase3]") {
+    auto path = unique_temp_audio_path("_stream_empty.wav");
+    std::filesystem::remove(path);
+
+    StreamingWriter writer;
+    REQUIRE(writer.open(path.string(), 22050, 2, 16));
+    REQUIRE(writer.is_open());
+    REQUIRE(writer.frames_written() == 0);
+
+    writer.close();
+    REQUIRE_FALSE(writer.is_open());
+    REQUIRE(writer.frames_written() == 0);
+
+    auto bytes = read_binary_file(path);
+    require_wav_header(bytes, 2, 22050, 16, 0);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("StreamingWriter accumulates multiple interleaved writes before close",
+          "[audio][file][streaming][coverage][phase3]") {
+    auto path = unique_temp_audio_path("_stream_multi_write.wav");
+    std::filesystem::remove(path);
+
+    StreamingWriter writer;
+    REQUIRE(writer.open(path.string(), 48000, 1, 16));
+
+    const float first[] = {-0.5f, 0.0f};
+    const float second[] = {0.25f, 0.75f, 1.0f};
+    REQUIRE(writer.write_frames(first, 2) == 2);
+    REQUIRE(writer.frames_written() == 2);
+    REQUIRE(writer.write_frames(second, 3) == 3);
+    REQUIRE(writer.frames_written() == 5);
+
+    writer.close();
+    auto bytes = read_binary_file(path);
+    require_wav_header(bytes, 1, 48000, 16, 10);
+
+    REQUIRE(static_cast<int16_t>(read_le16(bytes, 44)) == -16383);
+    REQUIRE(static_cast<int16_t>(read_le16(bytes, 46)) == 0);
+    REQUIRE(static_cast<int16_t>(read_le16(bytes, 48)) == 8191);
+    REQUIRE(static_cast<int16_t>(read_le16(bytes, 50)) == 24575);
+    REQUIRE(static_cast<int16_t>(read_le16(bytes, 52)) == 32767);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("StreamingWriter successful reopen finalizes prior file and resets state",
+          "[audio][file][streaming][coverage][phase3]") {
+    auto first_path = unique_temp_audio_path("_stream_reopen_first.wav");
+    auto second_path = unique_temp_audio_path("_stream_reopen_second.wav");
+    std::filesystem::remove(first_path);
+    std::filesystem::remove(second_path);
+
+    StreamingWriter writer;
+    REQUIRE(writer.open(first_path.string(), 44100, 1, 16));
+    const float first_frames[] = {-1.0f, 1.0f};
+    REQUIRE(writer.write_frames(first_frames, 2) == 2);
+    REQUIRE(writer.frames_written() == 2);
+
+    REQUIRE(writer.open(second_path.string(), 32000, 2, 24));
+    REQUIRE(writer.is_open());
+    REQUIRE(writer.frames_written() == 0);
+
+    const float second_frames[] = {
+        -0.25f, 0.25f,
+         0.5f, -0.5f,
+    };
+    REQUIRE(writer.write_frames(second_frames, 2) == 2);
+    REQUIRE(writer.frames_written() == 2);
+    writer.close();
+
+    auto first_bytes = read_binary_file(first_path);
+    require_wav_header(first_bytes, 1, 44100, 16, 4);
+    REQUIRE(static_cast<int16_t>(read_le16(first_bytes, 44)) == -32767);
+    REQUIRE(static_cast<int16_t>(read_le16(first_bytes, 46)) == 32767);
+
+    auto second_bytes = read_binary_file(second_path);
+    require_wav_header(second_bytes, 2, 32000, 24, 12);
+    REQUIRE(read_le24_signed(second_bytes, 44) == -2097151);
+    REQUIRE(read_le24_signed(second_bytes, 47) == 2097151);
+    REQUIRE(read_le24_signed(second_bytes, 50) == 4194303);
+    REQUIRE(read_le24_signed(second_bytes, 53) == -4194303);
+
+    std::filesystem::remove(first_path);
+    std::filesystem::remove(second_path);
+}
+
+TEST_CASE("StreamingWriter writes deinterleaved mono through channel dispatch",
+          "[audio][file][streaming][coverage][phase3]") {
+    auto path = unique_temp_audio_path("_stream_deinterleaved_mono.wav");
+    std::filesystem::remove(path);
+
+    StreamingWriter writer;
+    REQUIRE(writer.open(path.string(), 96000, 1, 32));
+
+    const float mono[] = {-1.0f, -0.25f, 0.0f, 0.25f, 1.0f};
+    const float* channels[] = {mono};
+    REQUIRE(writer.write_frames(channels, 1, 5) == 5);
+    REQUIRE(writer.frames_written() == 5);
+    writer.close();
+
+    auto bytes = read_binary_file(path);
+    require_wav_header(bytes, 1, 96000, 32, 20);
+    REQUIRE(read_le32_signed(bytes, 44) == std::numeric_limits<int32_t>::min());
+    REQUIRE(read_le32_signed(bytes, 48) == -536870912);
+    REQUIRE(read_le32_signed(bytes, 52) == 0);
+    REQUIRE(read_le32_signed(bytes, 56) == 536870912);
+    REQUIRE(read_le32_signed(bytes, 60) == std::numeric_limits<int32_t>::max());
+
+    std::filesystem::remove(path);
+}
+
 // ── Format registry dispatch ─────────────────────────────────────────────────
 
 TEST_CASE("FormatRegistry exposes built-in audio codecs", "[audio][file][registry]") {
