@@ -8,6 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02050"></a>
+## [0.205.0] - 2026-05-23
+
+- test(render): cover atlas introspection edge cases ([#2782](https://github.com/danielraffel/pulp/pull/2782))
+- test(audio): cover streaming writer lifecycle contracts ([#2776](https://github.com/danielraffel/pulp/pull/2776))
+- Phase 3.5: macOS AU v3 editor support (framework + stub appex + container app) ([#2779](https://github.com/danielraffel/pulp/pull/2779))
+- test(host): cover scanner metadata edge cases ([#2781](https://github.com/danielraffel/pulp/pull/2781))
+- test(platform): cover child process reuse contracts ([#2775](https://github.com/danielraffel/pulp/pull/2775))
+- test(runtime): cover signed license contracts ([#2772](https://github.com/danielraffel/pulp/pull/2772))
+- test(runtime): cover zip inflater edge contracts ([#2771](https://github.com/danielraffel/pulp/pull/2771))
+- test(audio): cover compressed registry reader contracts ([#2767](https://github.com/danielraffel/pulp/pull/2767))
+- test(host): cover CLAP scanner slot contracts ([#2770](https://github.com/danielraffel/pulp/pull/2770))
+- docs: codify Release as the default build type for Pulp ([#2769](https://github.com/danielraffel/pulp/pull/2769))
+
 <a id="v02040"></a>
 ## [0.204.0] - 2026-05-22
 
@@ -2650,6 +2664,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.205.0]: https://github.com/danielraffel/pulp/releases/tag/v0.205.0
 [0.204.0]: https://github.com/danielraffel/pulp/releases/tag/v0.204.0
 [0.203.0]: https://github.com/danielraffel/pulp/releases/tag/v0.203.0
 [0.202.0]: https://github.com/danielraffel/pulp/releases/tag/v0.202.0
