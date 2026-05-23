@@ -298,3 +298,60 @@ TEST_CASE("HostType feature heuristics default permissive for modern hosts",
         REQUIRE(host_supports_sidechain(host));
     }
 }
+
+TEST_CASE("HostType process-name classifier covers DAW executable aliases",
+          "[format][host-type][coverage][phase3]") {
+    REQUIRE(host_type_from_process_name("/Applications/Logic Pro.app/Contents/MacOS/Logic Pro") == HostType::LogicPro);
+    REQUIRE(host_type_from_process_name("GARAGEBAND") == HostType::GarageBand);
+    REQUIRE(host_type_from_process_name("/Applications/Ableton Live 12 Suite.app/Live") == HostType::AbletonLive);
+    REQUIRE(host_type_from_process_name("reaper_host_x86_64") == HostType::Reaper);
+    REQUIRE(host_type_from_process_name("/Applications/Pro Tools.app/Contents/MacOS/Pro Tools") == HostType::ProTools);
+    REQUIRE(host_type_from_process_name("protools") == HostType::ProTools);
+    REQUIRE(host_type_from_process_name("Cubase 14") == HostType::Cubase);
+    REQUIRE(host_type_from_process_name("Nuendo") == HostType::Nuendo);
+    REQUIRE(host_type_from_process_name("Studio One") == HostType::StudioOne);
+    REQUIRE(host_type_from_process_name("studioone") == HostType::StudioOne);
+    REQUIRE(host_type_from_process_name("FL Studio") == HostType::FLStudio);
+    REQUIRE(host_type_from_process_name("flstudio") == HostType::FLStudio);
+    REQUIRE(host_type_from_process_name("fl64.exe") == HostType::FLStudio);
+    REQUIRE(host_type_from_process_name("Bitwig Studio") == HostType::Bitwig);
+    REQUIRE(host_type_from_process_name("Maschine 3") == HostType::Maschine);
+    REQUIRE(host_type_from_process_name("Audacity") == HostType::AudacityTenacity);
+    REQUIRE(host_type_from_process_name("Tenacity") == HostType::AudacityTenacity);
+    REQUIRE(host_type_from_process_name("ardour8") == HostType::Ardour);
+    REQUIRE(host_type_from_process_name("pulp-standalone") == HostType::Standalone);
+    REQUIRE(host_type_from_process_name("UnknownHost") == HostType::Unknown);
+}
+
+TEST_CASE("HostType process-name classifier is substring ordered",
+          "[format][host-type][coverage][phase3]") {
+    REQUIRE(host_type_from_process_name("logic-live-helper") == HostType::LogicPro);
+    REQUIRE(host_type_from_process_name("garageband-live-helper") == HostType::GarageBand);
+    REQUIRE(host_type_from_process_name("ableton-reaper-bridge") == HostType::AbletonLive);
+    REQUIRE(host_type_from_process_name("live-reaper-bridge") == HostType::AbletonLive);
+    REQUIRE(host_type_from_process_name("pro tools cubase bridge") == HostType::ProTools);
+    REQUIRE(host_type_from_process_name("cubase nuendo bridge") == HostType::Cubase);
+    REQUIRE(host_type_from_process_name("studio one fl studio bridge") == HostType::StudioOne);
+    REQUIRE(host_type_from_process_name("flstudio bitwig bridge") == HostType::FLStudio);
+}
+
+TEST_CASE("HostType process-name classifier handles empty and path-like unknown names",
+          "[format][host-type][coverage][phase3]") {
+    REQUIRE(host_type_from_process_name("") == HostType::Unknown);
+    REQUIRE(host_type_from_process_name("/usr/bin/pluginval") == HostType::Unknown);
+    REQUIRE(host_type_from_process_name("/tmp/not-a-daw") == HostType::Unknown);
+    REQUIRE(host_type_from_process_name("AudioPluginHost") == HostType::Unknown);
+}
+
+TEST_CASE("HostType process-name classifier feeds the feature policy",
+          "[format][host-type][coverage][phase3]") {
+    REQUIRE_FALSE(host_supports_resize(host_type_from_process_name("Pro Tools")));
+    REQUIRE_FALSE(host_supports_resize(host_type_from_process_name("GarageBand")));
+    REQUIRE_FALSE(host_supports_sidechain(host_type_from_process_name("Tenacity")));
+    REQUIRE(host_supports_sidechain(host_type_from_process_name("Logic Pro")));
+}
+
+TEST_CASE("HostType process detection delegates through the classifier",
+          "[format][host-type][coverage][phase3]") {
+    REQUIRE_FALSE(host_type_name(detect_host_type()).empty());
+}

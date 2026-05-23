@@ -1,6 +1,7 @@
 #include <pulp/format/host_type.hpp>
 #include <algorithm>
 #include <cctype>
+#include <string_view>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -32,14 +33,15 @@ static std::string get_process_name() {
 #endif
 }
 
-static std::string to_lower(std::string s) {
+static std::string to_lower(std::string_view value) {
+    std::string s(value);
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     return s;
 }
 
-HostType detect_host_type() {
-    std::string name = to_lower(get_process_name());
+HostType host_type_from_process_name(std::string_view process_name) {
+    std::string name = to_lower(process_name);
 
     if (name.find("logic") != std::string::npos) return HostType::LogicPro;
     if (name.find("garageband") != std::string::npos) return HostType::GarageBand;
@@ -57,6 +59,10 @@ HostType detect_host_type() {
     if (name.find("pulp") != std::string::npos) return HostType::Standalone;
 
     return HostType::Unknown;
+}
+
+HostType detect_host_type() {
+    return host_type_from_process_name(get_process_name());
 }
 
 std::string host_type_name(HostType type) {
