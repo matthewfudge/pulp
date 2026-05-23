@@ -163,6 +163,11 @@ predictable output, no MIDI.
   configure.
 - CLAP bundles on macOS: don't `dlopen` the `.clap` directory; resolve to
   the executable inside `Contents/MacOS/` first.
+- LV2 manifest URI extraction must only use subject-position `<URI>` tokens.
+  A manifest stanza like `<plugin> rdfs:seeAlso <plugin.ttl> ; a lv2:Plugin`
+  should identify `<plugin>`, not the `seeAlso` object. Keep parser coverage
+  in `test/test_plugin_info_metadata.cpp` or `test/test_lv2_host_discovery.cpp`
+  when changing `core/host/src/scanner.cpp`.
 
 ## Phase 0 contracts (PR #153)
 

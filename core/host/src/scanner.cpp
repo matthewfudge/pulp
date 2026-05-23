@@ -8,6 +8,7 @@
 #include <pulp/runtime/system.hpp>
 #include <filesystem>
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <regex>
 #include <string>
@@ -40,13 +41,52 @@ std::string parse_lv2_plugin_uri(const std::string& bundle_dir) {
     std::string content((std::istreambuf_iterator<char>(f)),
                         std::istreambuf_iterator<char>());
 
-    // Match `<URI>` followed (possibly across whitespace/newlines) by an
-    // `a` predicate that names lv2:Plugin (directly or via an alias).
-    std::regex re(R"(<([^>]+)>\s*(?:[^;.]*?;\s*)?a\s+(?:[A-Za-z_][\w-]*:)?(?:[A-Za-z_][\w-]*\s*,\s*)*lv2:Plugin)",
-                  std::regex::ECMAScript);
-    std::smatch m;
-    if (std::regex_search(content, m, re)) {
-        return m[1].str();
+    // Match only subject-position `<URI>` tokens. A single broad regex can
+    // accidentally capture an object URI from predicates such as
+    // `rdfs:seeAlso <plugin.ttl> ; a lv2:Plugin`, which is not the plugin ID.
+    const std::regex type_re(
+        R"((^|[;\s])a\s+(?:[A-Za-z_][\w-]*:[A-Za-z_][\w-]*\s*,\s*)*lv2:Plugin)",
+        std::regex::ECMAScript);
+    std::size_t pos = 0;
+    while ((pos = content.find('<', pos)) != std::string::npos) {
+        const auto line_start = content.rfind('\n', pos);
+        const auto token_start = line_start == std::string::npos ? 0 : line_start + 1;
+        bool first_token_on_line = true;
+        for (std::size_t i = token_start; i < pos; ++i) {
+            if (!std::isspace(static_cast<unsigned char>(content[i]))) {
+                first_token_on_line = false;
+                break;
+            }
+        }
+        if (!first_token_on_line) {
+            ++pos;
+            continue;
+        }
+
+        const auto uri_end = content.find('>', pos + 1);
+        if (uri_end == std::string::npos) break;
+
+        const auto next_line = content.find('\n', uri_end + 1);
+        auto statement_end = std::string::npos;
+        std::size_t scan_line = next_line;
+        while (scan_line != std::string::npos) {
+            const auto next_token = content.find_first_not_of(" \t\r\n", scan_line);
+            if (next_token == std::string::npos) break;
+            if (content[next_token] == '<') {
+                statement_end = next_token;
+                break;
+            }
+            scan_line = content.find('\n', next_token);
+        }
+        const auto body_begin = uri_end + 1;
+        const auto body_len = statement_end == std::string::npos
+                            ? std::string::npos
+                            : statement_end - body_begin;
+        const auto body = content.substr(body_begin, body_len);
+        if (std::regex_search(body, type_re)) {
+            return content.substr(pos + 1, uri_end - pos - 1);
+        }
+        pos = uri_end + 1;
     }
     return {};
 }
