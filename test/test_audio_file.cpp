@@ -5,6 +5,7 @@
 #include <pulp/audio/mmap_reader.hpp>
 #include <pulp/audio/offline_processor.hpp>
 #include <pulp/audio/streaming_writer.hpp>
+#include <pulp/runtime/base64.hpp>
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -251,6 +252,18 @@ private:
     std::string extension_;
     std::string name_;
 };
+
+static void write_base64_audio_fixture(const std::filesystem::path& path,
+                                       std::string_view encoded) {
+    auto decoded = pulp::runtime::base64_decode(encoded);
+    REQUIRE(decoded.has_value());
+
+    std::ofstream file(path, std::ios::binary);
+    REQUIRE(file.good());
+    file.write(reinterpret_cast<const char*>(decoded->data()),
+               static_cast<std::streamsize>(decoded->size()));
+    REQUIRE(file.good());
+}
 
 }  // namespace
 
@@ -1319,6 +1332,86 @@ TEST_CASE("FormatRegistry rejects malformed compressed files through built-in re
     REQUIRE_FALSE(registry.read(mp3_path.string()).has_value());
 
     std::filesystem::remove(flac_path);
+    std::filesystem::remove(mp3_path);
+}
+
+TEST_CASE("FormatRegistry reads a valid MP3 fixture through the built-in reader",
+          "[audio][file][registry][codecov]") {
+    auto mp3_path = unique_temp_audio_path("_valid.MP3");
+    write_base64_audio_fixture(
+        mp3_path,
+        "SUQzBAAAAAAAIlRTU0UAAAAOAAADTGF2ZjYxLjcuMTAwAAAAAAAAAAAAAAD/40jAAAAAAAAAAAAA"
+        "SW5mbwAAAA8AAAADAAAEgACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDAwMDAwMDA"
+        "wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD/////////////////////////////////////////"
+        "//8AAAAATGF2YzYxLjE5AAAAAAAAAAAAAAAAJAOQAAAAAAAABIBXuUwoAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/40jEAAAAA0gA"
+        "AAAATEFNRTMuMTAwVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/40jEAAAA"
+        "A0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/40jE"
+        "AAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+        "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=");
+
+    auto& registry = FormatRegistry::instance();
+    auto* wav_reader = registry.find_reader(".wav");
+    auto* wav_writer = registry.find_writer(".wave");
+    auto* flac_reader = registry.find_reader("flac");
+    auto* mp3_reader = registry.find_reader(".MP3");
+
+    REQUIRE(wav_reader != nullptr);
+    REQUIRE(wav_writer != nullptr);
+    REQUIRE(flac_reader != nullptr);
+    REQUIRE(mp3_reader != nullptr);
+    REQUIRE(wav_reader->format_name() == "WAV");
+    REQUIRE(wav_writer->format_name() == "WAV");
+    REQUIRE(flac_reader->format_name() == "FLAC");
+    REQUIRE(mp3_reader->format_name() == "MP3");
+    REQUIRE(wav_reader->supports_extension(".wav"));
+    REQUIRE(wav_reader->supports_extension(".wave"));
+    REQUIRE_FALSE(wav_reader->supports_extension(".mp3"));
+    REQUIRE(flac_reader->supports_extension(".flac"));
+    REQUIRE_FALSE(flac_reader->supports_extension(".FLAC"));
+    REQUIRE_FALSE(flac_reader->supports_extension(".wav"));
+    REQUIRE(mp3_reader->supports_extension(".mp3"));
+    REQUIRE_FALSE(mp3_reader->supports_extension(".MP3"));
+    REQUIRE_FALSE(mp3_reader->supports_extension(".wav"));
+
+    auto read_extensions = registry.supported_read_extensions();
+    REQUIRE(contains_extension(read_extensions, ".mp3"));
+    REQUIRE(contains_extension(read_extensions, ".flac"));
+
+    auto info = mp3_reader->read_info(mp3_path.string());
+    REQUIRE(info.has_value());
+    REQUIRE(info->sample_rate == 8000);
+    REQUIRE(info->num_channels == 1);
+    REQUIRE(info->num_frames > 0);
+    REQUIRE(info->bits_per_sample == 16);
+    REQUIRE(info->format == "MP3");
+    REQUIRE(info->duration_seconds > 0.0);
+
+    auto registry_info = registry.read_info(mp3_path.string());
+    REQUIRE(registry_info.has_value());
+    REQUIRE(registry_info->format == "MP3");
+    REQUIRE(registry_info->num_channels == 1);
+
+    auto data = registry.read(mp3_path.string());
+    REQUIRE(data.has_value());
+    REQUIRE(data->sample_rate == 8000);
+    REQUIRE(data->num_channels() == 1);
+    REQUIRE(data->num_frames() > 0);
+    REQUIRE(data->num_frames() == info->num_frames);
+    REQUIRE(data->channels.front().size() == data->num_frames());
+
     std::filesystem::remove(mp3_path);
 }
 
