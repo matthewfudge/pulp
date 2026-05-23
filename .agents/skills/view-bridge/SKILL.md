@@ -336,6 +336,26 @@ fresh lib instead of segfaulting at first paint.
    `core/render/platform/android/gpu_surface_android.cpp::android_render_frame()`
    does the same pair on Android. Tests live under `[issue-1412]` in
    `test/test_widget_bridge.cpp`.
+7. **Design-viewport pointTransform block holds raw `this` — clear it
+   in the host dtor.** Both `MacPluginViewHost::~` and
+   `MacGpuPluginViewHost::~` MUST run `view_.pointTransform = nil` /
+   `metal_view_.pointTransform = nil` inside an `@autoreleasepool`
+   BEFORE the C++ host frees itself. DAWs routinely retain the
+   returned NSView after disposal (attach_to_parent hands it to the
+   DAW's view hierarchy); a later `mouseDown:` would otherwise invoke
+   the block on freed memory. Same shape as the #2502 deferred-click
+   teardown token. Test: `pulp-test-plugin-view-host-design-viewport`
+   has the dtor-clears-pointTransform regression case.
+8. **`paint_overlays` MUST run inside the design-viewport transform.**
+   ComboBox dropdowns, claimed overlays, and the inspector layer all
+   draw in root-view coordinates, and mouse input inverse-maps
+   window→root through `pointTransform` before `hit_test`. Painting
+   overlays outside the transform puts them at root coords in window
+   space → visually misaligned + non-clickable at any host size that
+   isn't exactly the design size. Mac plugin host paint paths (CPU
+   `drawRect:` and GPU `paint_scene`) call `View::paint_overlays`
+   INSIDE the save/translate/scale block, matching the standalone
+   `MacGpuWindowHost::paint_scene` overlay-inside-transform rule.
 
 ## Tests
 
