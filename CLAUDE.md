@@ -10,9 +10,42 @@ Pulp is a cross-platform audio plugin and application framework. MIT-licensed. C
 
 ## Build & Test Commands
 
+### Build type — Release is the default
+
+**Always build Release unless you're actively investigating a bug.** A
+Debug build of a JS-scripted GPU UI is dramatically slower than its
+Release equivalent (no -O3, no NDEBUG, asserts live, no inlining of
+canvas / Skia / Yoga / QuickJS) — slow enough that a UX-perceived
+regression in a Debug build is almost always the build type, not the
+code. The Codify-Release work made `pulp build` default to Release;
+match that convention when reaching for raw `cmake` too.
+
+Rules of thumb:
+- **Default**: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`. Use
+  `pulp build` (the CLI) when possible — it pins Release for you and
+  refuses to silently flip.
+- **Flip to Debug only when**: stepping in a debugger, capturing fresh
+  `runtime::log_info` traces, repro'ing a sanitizer hit, or running
+  `validate-build.sh` for a clean detached reconfigure pass. Restore
+  Release immediately when the investigation ends.
+- **Reconfigure gotcha**: a bare `cmake -S . -B build` (no build-type
+  flag) usually preserves the cache value, BUT something in the
+  shipyard / pre-push gate / rebase paths can silently reset the cache
+  to Debug. Pass `-DCMAKE_BUILD_TYPE=Release` every reconfigure, or
+  use `pulp build`.
+- **Verify before reporting a build is Release**: BOTH
+  `grep '^CMAKE_BUILD_TYPE' build/CMakeCache.txt` (should print
+  `Release`) AND `grep '^CXX_FLAGS '
+  build/<dir>/CMakeFiles/<target>.dir/flags.make` (should contain
+  `-O3 -DNDEBUG`) must check out. Checking only the cache field is
+  necessary-but-not-sufficient — it has been wrong by itself.
+
 ```bash
 # Configure (first time or after CMakeLists.txt changes)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+# Or preferred for repo + example builds:
+./build/pulp build
 
 # Build everything
 cmake --build build -j$(sysctl -n hw.ncpu)
