@@ -127,6 +127,41 @@ TEST_CASE("PluginViewHost (mac CPU) — set_design_viewport + inverse hit-test",
     }
 }
 
+TEST_CASE("PluginViewHost (mac CPU) — dtor clears pointTransform (UAF guard)",
+          "[plugin-view-host][design-viewport][mac][cpu][uaf]") {
+    // Regression for the pointTransform-UAF: the block stored on the NSView
+    // captures `this` by raw pointer; if the DAW retains the NSView after
+    // host disposal, a later mouseDown: would call the block on freed memory.
+    // The host dtor MUST clear pointTransform before returning. Capture a
+    // strong NSView reference, destroy the host, then assert pointTransform
+    // is nil — proves the dtor ran the cleanup.
+    @autoreleasepool {
+        View root;
+        PluginViewHost::Options opts;
+        opts.size = {1800u, 1040u};
+        opts.use_gpu = false;
+        auto host = PluginViewHost::create(root, opts);
+        REQUIRE(host != nullptr);
+
+        host->set_design_viewport(900.0f, 520.0f);
+        NSView* view = (__bridge NSView*)host->native_handle();
+        REQUIRE(view != nil);
+        // Set: pointTransform is non-nil after set_design_viewport.
+        // (Use KVC so we can introspect without exposing the ObjC interface.)
+        REQUIRE([view valueForKey:@"pointTransform"] != nil);
+
+        // Strong-ref the view past the host so we can probe after teardown.
+        NSView* live_view = view;
+        host.reset();
+
+        // After dtor: pointTransform must be nil so any subsequent mouseDown:
+        // is a no-op (identity transform) rather than a UAF call into freed
+        // memory. live_view is still alive because the test holds a ref.
+        REQUIRE([live_view valueForKey:@"pointTransform"] == nil);
+        live_view = nil;
+    }
+}
+
 #if defined(PULP_HAS_SKIA)
 
 TEST_CASE("PluginViewHost (mac GPU) — set_design_viewport renders + inverse-maps",

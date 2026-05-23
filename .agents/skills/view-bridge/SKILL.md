@@ -336,6 +336,26 @@ fresh lib instead of segfaulting at first paint.
    `core/render/platform/android/gpu_surface_android.cpp::android_render_frame()`
    does the same pair on Android. Tests live under `[issue-1412]` in
    `test/test_widget_bridge.cpp`.
+7. **Design-viewport pointTransform block holds raw `this` — clear it
+   in the host dtor.** Both `MacPluginViewHost::~` and
+   `MacGpuPluginViewHost::~` MUST run `view_.pointTransform = nil` /
+   `metal_view_.pointTransform = nil` inside an `@autoreleasepool`
+   BEFORE the C++ host frees itself. DAWs routinely retain the
+   returned NSView after disposal (attach_to_parent hands it to the
+   DAW's view hierarchy); a later `mouseDown:` would otherwise invoke
+   the block on freed memory. Same shape as the #2502 deferred-click
+   teardown token. Test: `pulp-test-plugin-view-host-design-viewport`
+   has the dtor-clears-pointTransform regression case.
+8. **`paint_overlays` MUST run inside the design-viewport transform.**
+   ComboBox dropdowns, claimed overlays, and the inspector layer all
+   draw in root-view coordinates, and mouse input inverse-maps
+   window→root through `pointTransform` before `hit_test`. Painting
+   overlays outside the transform puts them at root coords in window
+   space → visually misaligned + non-clickable at any host size that
+   isn't exactly the design size. Mac plugin host paint paths (CPU
+   `drawRect:` and GPU `paint_scene`) call `View::paint_overlays`
+   INSIDE the save/translate/scale block, matching the standalone
+   `MacGpuWindowHost::paint_scene` overlay-inside-transform rule.
 
 ## Tests
 
@@ -625,6 +645,43 @@ Rules when touching an adapter's editor-attach path:
   see the `auv2` skill's "AU v2 MUST advertise its Cocoa view" gotcha.
 
 See `planning/2026-05-22-gpu-view-host-in-plugins.md` and its `qa/` doc.
+
+## Proportional resize with aspect lock — design viewport (2026-05)
+
+`PluginViewHost` now mirrors `WindowHost`'s design-viewport contract
+so DAW-embedded editors can corner-drag
+proportionally without re-laying out. Three new virtuals on the host
+(no-op defaults; full impl on the mac CPU + GPU hosts today):
+
+- `set_design_viewport(design_w, design_h)` — pin root at design size;
+  paint applies an aspect-correct scale + letterbox translate to fit
+  the current host bounds.
+- `set_fixed_aspect_ratio(ratio)` — API parity only; the host doesn't
+  own the OS window, so DAWs enforce the aspect via per-format hints.
+- `window_to_root_point(pt)` — inverse-map a host-space point into
+  root coords; called by native event handlers (mouse hit-test on
+  resized windows) AND tests.
+
+Per-format wiring:
+
+- **CLAP** — `gui_can_resize=true`; `gui_get_resize_hints` sets
+  `preserve_aspect_ratio=true` and `aspect_ratio_{w,h}=design_{w,h}`;
+  `gui_adjust_size` snaps to the design aspect, then clamps to
+  plugin min/max; `gui_create` calls `host->set_design_viewport(...)`
+  + `host->set_fixed_aspect_ratio(...)`.
+- **VST3** — `canResize=kResultTrue`; `checkSizeConstraint` snaps to
+  the design aspect; `onSize`'s existing `host->set_size(...)` path
+  resizes surfaces; `attached()` (or first `onSize`) calls
+  `host->set_design_viewport(...)`.
+- **AU v2** — cannot offer this; the DAW resizes the returned NSView
+  directly with no host-side resize-hint analogue.
+
+Pitfall to remember: when wiring `gui_set_size` / `onSize`, do NOT
+re-layout the view at the host window size when a design viewport is
+active — the host's paint already applies the design transform, and a
+window-sized layout would briefly flash before the next paint reset.
+
+See `test_plugin_view_host_design_viewport.mm` for the wiring proof.
 
 ## References
 

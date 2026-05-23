@@ -32,6 +32,12 @@ public:
     Steinberg::tresult PLUGIN_API removed() override;
     Steinberg::tresult PLUGIN_API getSize(Steinberg::ViewRect* size) override;
     Steinberg::tresult PLUGIN_API onSize(Steinberg::ViewRect* newSize) override;
+    // Resize negotiation (proportional + aspect-locked). The host calls
+    // checkSizeConstraint() during a user drag to snap the candidate
+    // rect to the editor's design aspect; onSize() then applies it. The
+    // PluginViewHost scales content to fit via its design viewport.
+    Steinberg::tresult PLUGIN_API canResize() override;
+    Steinberg::tresult PLUGIN_API checkSizeConstraint(Steinberg::ViewRect* rect) override;
 
 private:
     Processor& processor_;
