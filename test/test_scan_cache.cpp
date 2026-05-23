@@ -610,3 +610,85 @@ TEST_CASE("ScanCache save_to creates nested parent directories",
     std::error_code ec;
     fs::remove_all(root, ec);
 }
+
+TEST_CASE("ScanCache from_json loads entries without optional metadata",
+          "[scan_cache][codecov][phase3]") {
+    HostScanCache cache;
+    REQUIRE(cache.from_json(R"({
+        "schema_version": 1,
+        "entries": [{
+            "path": "/tmp/minimal.lv2",
+            "mtime": 11,
+            "size": 22,
+            "name": "Minimal",
+            "manufacturer": "Pulp",
+            "version": "1.0",
+            "plugin_path": "/tmp/minimal.lv2",
+            "unique_id": "http://example.com/minimal",
+            "format": "lv2"
+        }]
+    })"));
+
+    REQUIRE(cache.size() == 1);
+    const auto& entry = cache.entries().at("/tmp/minimal.lv2");
+    REQUIRE(entry.mtime == 11);
+    REQUIRE(entry.size == 22);
+    REQUIRE(entry.info.name == "Minimal");
+    REQUIRE(entry.info.format == PluginFormat::LV2);
+    REQUIRE(entry.info.is_effect);
+    REQUIRE_FALSE(entry.info.is_instrument);
+    REQUIRE(entry.info.num_inputs == 2);
+    REQUIRE(entry.info.num_outputs == 2);
+    REQUIRE(entry.info.category.empty());
+    REQUIRE(entry.info.features.empty());
+}
+
+TEST_CASE("ScanCache from_json keeps valid siblings around malformed records",
+          "[scan_cache][codecov][phase3]") {
+    HostScanCache cache;
+    REQUIRE(cache.from_json(R"({
+        "schema_version": 1,
+        "entries": [
+            {
+                "path": "/tmp/first.vst3",
+                "mtime": 1,
+                "size": 2,
+                "name": "First",
+                "manufacturer": "Pulp",
+                "version": "1.0",
+                "plugin_path": "/tmp/first.vst3",
+                "unique_id": "first-id",
+                "format": "vst3"
+            },
+            {
+                "path": "/tmp/bad-format.clap",
+                "mtime": 3,
+                "size": 4,
+                "name": "Bad",
+                "manufacturer": "Pulp",
+                "version": "1.0",
+                "plugin_path": "/tmp/bad-format.clap",
+                "unique_id": "bad-id",
+                "format": "unknown-format"
+            },
+            {
+                "path": "/tmp/second.clap",
+                "mtime": 5,
+                "size": 6,
+                "name": "Second",
+                "manufacturer": "Pulp",
+                "version": "1.0",
+                "plugin_path": "/tmp/second.clap",
+                "unique_id": "second-id",
+                "format": "clap"
+            }
+        ]
+    })"));
+
+    REQUIRE(cache.size() == 2);
+    REQUIRE(cache.entries().count("/tmp/first.vst3") == 1);
+    REQUIRE(cache.entries().count("/tmp/bad-format.clap") == 0);
+    REQUIRE(cache.entries().count("/tmp/second.clap") == 1);
+    REQUIRE(cache.entries().at("/tmp/first.vst3").info.format == PluginFormat::VST3);
+    REQUIRE(cache.entries().at("/tmp/second.clap").info.format == PluginFormat::CLAP);
+}

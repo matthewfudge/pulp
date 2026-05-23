@@ -6,7 +6,48 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/host/scanner.hpp>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
 using namespace pulp::host;
+namespace fs = std::filesystem;
+
+namespace {
+
+struct ScannerScratchDir {
+    fs::path path;
+
+    explicit ScannerScratchDir(const char* stem) {
+        path = fs::temp_directory_path()
+             / (std::string("pulp-scanner-metadata-") + stem + "-"
+                + std::to_string(std::chrono::steady_clock::now()
+                                     .time_since_epoch()
+                                     .count()));
+        std::error_code ec;
+        fs::remove_all(path, ec);
+        fs::create_directories(path);
+    }
+
+    ~ScannerScratchDir() {
+        std::error_code ec;
+        fs::remove_all(path, ec);
+    }
+
+    ScannerScratchDir(const ScannerScratchDir&) = delete;
+    ScannerScratchDir& operator=(const ScannerScratchDir&) = delete;
+};
+
+void write_text(const fs::path& path, const std::string& text) {
+    fs::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::binary);
+    REQUIRE(out.good());
+    out << text;
+}
+
+} // namespace
 
 TEST_CASE("PluginInfo default-constructs with empty metadata",
           "[host][plugin-info]") {
@@ -202,4 +243,116 @@ TEST_CASE("PluginScanner identifies bundle suffixes for each host format",
                                                   PluginFormat::CLAP));
     REQUIRE_FALSE(PluginScanner::is_plugin_bundle("/tmp/Test.clap",
                                                   PluginFormat::LV2));
+}
+
+TEST_CASE("PluginScanner honors disabled format flags without progress callbacks",
+          "[host][scanner][coverage][phase3]") {
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_vst3 = false;
+    opts.scan_au = false;
+    opts.scan_clap = false;
+    opts.scan_lv2 = false;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back("/tmp/pulp-disabled-scan-should-not-be-read");
+
+    int progress_calls = 0;
+    opts.on_progress = [&](const std::string&, int, int) {
+        ++progress_calls;
+    };
+
+    const auto plugins = scanner.scan(opts);
+    REQUIRE(plugins.empty());
+    REQUIRE(progress_calls == 0);
+}
+
+TEST_CASE("PluginScanner only_extra_paths reports each enabled format path",
+          "[host][scanner][coverage][phase3]") {
+    ScannerScratchDir scratch("empty-extra-paths");
+
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_vst3 = true;
+    opts.scan_au = false;
+    opts.scan_clap = true;
+    opts.scan_lv2 = true;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back(scratch.path.string());
+
+    std::vector<std::string> paths;
+    std::vector<int> scanned;
+    opts.on_progress = [&](const std::string& current, int scanned_count, int) {
+        paths.push_back(current);
+        scanned.push_back(scanned_count);
+    };
+
+    const auto plugins = scanner.scan(opts);
+    REQUIRE(plugins.empty());
+    REQUIRE(paths.size() == 3);
+    REQUIRE(paths[0] == scratch.path.string());
+    REQUIRE(paths[1] == scratch.path.string());
+    REQUIRE(paths[2] == scratch.path.string());
+    REQUIRE(scanned == std::vector<int>{0, 1, 2});
+}
+
+TEST_CASE("PluginScanner scans only supplied hermetic VST3 and LV2 directories",
+          "[host][scanner][coverage][phase3]") {
+    ScannerScratchDir scratch("synthetic-bundles");
+    fs::create_directories(scratch.path / "BetaSynth.vst3" / "Contents" / "Resources");
+    fs::create_directories(scratch.path / "AlphaVerb.lv2");
+    fs::create_directories(scratch.path / "Ignored.clap");
+    fs::create_directories(scratch.path / "NotAPlugin");
+    write_text(scratch.path / "AlphaVerb.lv2" / "manifest.ttl",
+               "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n"
+               "<http://example.com/pulp/AlphaVerb> a lv2:Plugin .\n");
+
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_vst3 = true;
+    opts.scan_au = false;
+    opts.scan_clap = false;
+    opts.scan_lv2 = true;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back(scratch.path.string());
+
+    const auto plugins = scanner.scan(opts);
+    REQUIRE(plugins.size() == 2);
+    REQUIRE(plugins[0].name == "AlphaVerb");
+    REQUIRE(plugins[0].format == PluginFormat::LV2);
+    REQUIRE(plugins[0].path == (scratch.path / "AlphaVerb.lv2").string());
+    REQUIRE(plugins[0].unique_id == "http://example.com/pulp/AlphaVerb");
+    REQUIRE(plugins[1].name == "BetaSynth");
+    REQUIRE(plugins[1].format == PluginFormat::VST3);
+    REQUIRE(plugins[1].path == (scratch.path / "BetaSynth.vst3").string());
+    REQUIRE(plugins[1].unique_id == "BetaSynth");
+}
+
+TEST_CASE("PluginScanner skips missing and non-directory extra paths",
+          "[host][scanner][coverage][phase3]") {
+    ScannerScratchDir scratch("bad-extra-paths");
+    const auto plain_file = scratch.path / "plain-file.vst3";
+    write_text(plain_file, "not a directory");
+
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_vst3 = true;
+    opts.scan_au = false;
+    opts.scan_clap = false;
+    opts.scan_lv2 = false;
+    opts.only_extra_paths = true;
+    opts.extra_paths = {
+        (scratch.path / "missing").string(),
+        plain_file.string(),
+    };
+
+    std::vector<std::string> progressed;
+    opts.on_progress = [&](const std::string& current, int, int) {
+        progressed.push_back(current);
+    };
+
+    const auto plugins = scanner.scan(opts);
+    REQUIRE(plugins.empty());
+    REQUIRE(progressed.size() == 2);
+    REQUIRE(progressed[0] == (scratch.path / "missing").string());
+    REQUIRE(progressed[1] == plain_file.string());
 }
