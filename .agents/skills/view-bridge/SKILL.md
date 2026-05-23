@@ -646,6 +646,43 @@ Rules when touching an adapter's editor-attach path:
 
 See `planning/2026-05-22-gpu-view-host-in-plugins.md` and its `qa/` doc.
 
+## Proportional resize with aspect lock — design viewport (2026-05)
+
+`PluginViewHost` now mirrors `WindowHost`'s design-viewport contract
+(pulp #59/#63/#64/#65) so DAW-embedded editors can corner-drag
+proportionally without re-laying out. Three new virtuals on the host
+(no-op defaults; full impl on the mac CPU + GPU hosts today):
+
+- `set_design_viewport(design_w, design_h)` — pin root at design size;
+  paint applies an aspect-correct scale + letterbox translate to fit
+  the current host bounds.
+- `set_fixed_aspect_ratio(ratio)` — API parity only; the host doesn't
+  own the OS window, so DAWs enforce the aspect via per-format hints.
+- `window_to_root_point(pt)` — inverse-map a host-space point into
+  root coords; called by native event handlers (mouse hit-test on
+  resized windows) AND tests.
+
+Per-format wiring:
+
+- **CLAP** — `gui_can_resize=true`; `gui_get_resize_hints` sets
+  `preserve_aspect_ratio=true` and `aspect_ratio_{w,h}=design_{w,h}`;
+  `gui_adjust_size` snaps to the design aspect, then clamps to
+  plugin min/max; `gui_create` calls `host->set_design_viewport(...)`
+  + `host->set_fixed_aspect_ratio(...)`.
+- **VST3** — `canResize=kResultTrue`; `checkSizeConstraint` snaps to
+  the design aspect; `onSize`'s existing `host->set_size(...)` path
+  resizes surfaces; `attached()` (or first `onSize`) calls
+  `host->set_design_viewport(...)`.
+- **AU v2** — cannot offer this; the DAW resizes the returned NSView
+  directly with no host-side resize-hint analogue.
+
+Pitfall to remember: when wiring `gui_set_size` / `onSize`, do NOT
+re-layout the view at the host window size when a design viewport is
+active — the host's paint already applies the design transform, and a
+window-sized layout would briefly flash before the next paint reset.
+
+See `test_plugin_view_host_design_viewport.mm` for the wiring proof.
+
 ## References
 
 - `core/format/include/pulp/format/view_bridge.hpp` — public API

@@ -210,8 +210,27 @@ reference implementation for the "open, then notify_attached after
 host has attached" protocol.
 
 Window API negotiation is compile-time platform-switched to Cocoa /
-Win32 / X11. `gui_can_resize` returns false today — resize negotiation
-has not been wired.
+Win32 / X11.
+
+### Proportional resize with aspect lock (2026-05)
+
+`gui_can_resize` returns `true`. `gui_get_resize_hints` advertises
+`preserve_aspect_ratio=true` with `aspect_ratio_{width,height}` set to
+the editor's preferred design size, so DAWs (Bitwig, Reaper, Live, …)
+lock the corner-drag to the design aspect. `gui_adjust_size` snaps the
+requested rectangle to the design aspect (largest box at the design
+aspect that fits within the request), then clamps to plugin min/max
+constraints.
+
+`gui_create` calls `host->set_design_viewport(design_w, design_h)` so
+the host scales content to fit the resized window via a paint-time
+canvas transform — the JS/Yoga tree still thinks it's at design size,
+and the existing `gui_set_size` → `host->set_size(...)` path resizes
+the surfaces without re-laying out. This is the proportional+locked
+behavior the standalone host already had (pulp #59/#63/#64/#65); AU v2
+cannot offer it because the DAW resizes the returned NSView directly
+with no host-side `gui_can_resize` analogue. Cross-format design lives
+in the `view-bridge` skill.
 
 `gui_create` no longer hardcodes `Options::use_gpu`; it calls
 `pulp::format::decide_gpu_host(*bridge)` so a Skia/Dawn/scripted editor

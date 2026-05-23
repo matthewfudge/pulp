@@ -325,6 +325,20 @@ inline bool gui_create(const clap_plugin_t* plugin, const char*, bool) {
         warn_if_unexpected_cpu_fallback(gpu, p->editor_host.get());
         // Pump the scripted UI session (async results, timers, rAF) per vsync.
         p->editor_host->set_idle_callback(make_scripted_idle_pump(*p->bridge));
+        // Design viewport: pin root at the editor's preferred size so that
+        // host-driven resizes scale content proportionally instead of
+        // re-laying out. Paired with the can_resize/get_resize_hints/
+        // adjust_size path below so DAWs (Reaper, Bitwig, Live, …) enforce
+        // the aspect during user drag — the host applies a letterbox-bar
+        // backstop only while the DAW briefly diverges from the aspect.
+        if (hints.preferred_width > 0 && hints.preferred_height > 0) {
+            p->editor_host->set_design_viewport(
+                static_cast<float>(hints.preferred_width),
+                static_cast<float>(hints.preferred_height));
+            p->editor_host->set_fixed_aspect_ratio(
+                static_cast<float>(hints.preferred_width) /
+                static_cast<float>(hints.preferred_height));
+        }
         runtime::log_info("CLAP editor: created ({}x{}, mode={}, gpu={})",
                           hints.preferred_width, hints.preferred_height,
                           gpu.mode, p->editor_host->is_gpu_backed());
@@ -365,14 +379,93 @@ inline bool gui_get_size(const clap_plugin_t* plugin, uint32_t* width, uint32_t*
     return true;
 }
 
-inline bool gui_can_resize(const clap_plugin_t*) { return false; }
+// Editor resize negotiation (Phase 3): the plugin advertises proportional
+// resize locked to the editor's design aspect. The host's design viewport
+// (set in gui_create) scales content to fit the host window without
+// re-layout — so any (w, h) the DAW lands on still looks correct.
+inline bool gui_can_resize(const clap_plugin_t*) { return true; }
 
-inline bool gui_get_resize_hints(const clap_plugin_t*, clap_gui_resize_hints_t*) {
-    return false;
+inline bool gui_get_resize_hints(const clap_plugin_t* plugin,
+                                 clap_gui_resize_hints_t* hints) {
+    if (!hints) return false;
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!p->bridge) return false;
+    const auto& size_hints = p->bridge->size_hints();
+    if (size_hints.preferred_width == 0 || size_hints.preferred_height == 0) {
+        return false;
+    }
+    hints->can_resize_horizontally = true;
+    hints->can_resize_vertically = true;
+    hints->preserve_aspect_ratio = true;
+    hints->aspect_ratio_width = size_hints.preferred_width;
+    hints->aspect_ratio_height = size_hints.preferred_height;
+    return true;
 }
 
-inline bool gui_adjust_size(const clap_plugin_t*, uint32_t*, uint32_t*) {
-    return false;
+inline bool gui_adjust_size(const clap_plugin_t* plugin,
+                            uint32_t* width, uint32_t* height) {
+    if (!width || !height || *width == 0 || *height == 0) return false;
+    auto* p = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
+    if (!p->bridge) return false;
+    const auto& size_hints = p->bridge->size_hints();
+    if (size_hints.preferred_width == 0 || size_hints.preferred_height == 0) {
+        return false;
+    }
+    // Snap to the design aspect ratio — pick the largest box with the
+    // design aspect that fits within the requested rectangle. Same shape
+    // the standalone host's drag-to-resize lands on.
+    const double design_aspect =
+        static_cast<double>(size_hints.preferred_width) /
+        static_cast<double>(size_hints.preferred_height);
+    const double req_aspect =
+        static_cast<double>(*width) /
+        static_cast<double>(*height);
+    if (req_aspect > design_aspect) {
+        // Requested rect is too wide → shrink width to height * aspect.
+        *width = static_cast<uint32_t>(
+            static_cast<double>(*height) * design_aspect + 0.5);
+    } else if (req_aspect < design_aspect) {
+        // Requested rect is too tall → shrink height to width / aspect.
+        *height = static_cast<uint32_t>(
+            static_cast<double>(*width) / design_aspect + 0.5);
+    }
+    // Respect plugin min/max constraints when defined. A naive clamp
+    // after the aspect snap would re-introduce off-aspect rects (e.g.
+    // design 2:1, request (500,1000) snaps to (500,250); if min_height
+    // is 400, a naive clamp gives (500,400) — no longer 2:1). After
+    // any clamp, re-snap by EXPANDING the other dimension to restore
+    // the design aspect. The advertised preserve_aspect_ratio=true
+    // contract MUST hold.
+    auto resnap = [&]() {
+        // Use whichever dimension expanded by the clamp; expand the
+        // other to match the design aspect.
+        const double aspect_now =
+            static_cast<double>(*width) / static_cast<double>(*height);
+        if (aspect_now > design_aspect) {
+            *height = static_cast<uint32_t>(
+                static_cast<double>(*width) / design_aspect + 0.5);
+        } else if (aspect_now < design_aspect) {
+            *width = static_cast<uint32_t>(
+                static_cast<double>(*height) * design_aspect + 0.5);
+        }
+    };
+    if (size_hints.min_width > 0 && *width < size_hints.min_width) {
+        *width = size_hints.min_width;
+        resnap();
+    }
+    if (size_hints.min_height > 0 && *height < size_hints.min_height) {
+        *height = size_hints.min_height;
+        resnap();
+    }
+    if (size_hints.max_width > 0 && *width > size_hints.max_width) {
+        *width = size_hints.max_width;
+        resnap();
+    }
+    if (size_hints.max_height > 0 && *height > size_hints.max_height) {
+        *height = size_hints.max_height;
+        resnap();
+    }
+    return true;
 }
 
 inline bool gui_set_size(const clap_plugin_t* plugin, uint32_t width, uint32_t height) {
