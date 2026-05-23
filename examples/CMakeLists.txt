@@ -100,8 +100,3 @@ endif()
 if(NOT ANDROID AND NOT IOS)
     add_subdirectory(ara-pitch-tracker)
 endif()
-
-# ChainerSynth (LOCAL diagnostic — not for main): GPU/JS scripted-UI plugin.
-if(NOT ANDROID AND NOT IOS)
-    add_subdirectory(chainer-synth)
-endif()
