@@ -4,6 +4,7 @@
 // scanner tests.
 
 #include <catch2/catch_test_macros.hpp>
+#include <pulp/host/scan_blacklist.hpp>
 #include <pulp/host/scanner.hpp>
 
 #include <chrono>
@@ -14,6 +15,10 @@
 
 using namespace pulp::host;
 namespace fs = std::filesystem;
+
+namespace pulp::host {
+std::string read_vst3_bundle_fuid(const std::string& path);
+} // namespace pulp::host
 
 namespace {
 
@@ -45,6 +50,10 @@ void write_text(const fs::path& path, const std::string& text) {
     std::ofstream out(path, std::ios::binary);
     REQUIRE(out.good());
     out << text;
+}
+
+void write_vst3_moduleinfo(const fs::path& bundle, const std::string& json) {
+    write_text(bundle / "Contents" / "Resources" / "moduleinfo.json", json);
 }
 
 } // namespace
@@ -355,4 +364,121 @@ TEST_CASE("PluginScanner skips missing and non-directory extra paths",
     REQUIRE(progressed.size() == 2);
     REQUIRE(progressed[0] == (scratch.path / "missing").string());
     REQUIRE(progressed[1] == plain_file.string());
+}
+
+TEST_CASE("VST3 moduleinfo FUID reader normalizes valid CIDs and rejects malformed metadata",
+          "[host][scanner][vst3][coverage][phase3]") {
+    ScannerScratchDir scratch("vst3-moduleinfo");
+    const auto bundle = scratch.path / "ModuleCase.vst3";
+
+    REQUIRE(read_vst3_bundle_fuid((scratch.path / "missing.vst3").string()).empty());
+
+    fs::create_directories(bundle);
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle, "{ not valid json");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle, R"({"Classes":"not an array"})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle, R"({"Classes":[42,{"CID":"0123456789abcdef0123456789abcdef"}]})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle, R"({"Classes":[{"Category":"Controller Class","CID":"0123456789abcdef0123456789abcdef"}]})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle, R"({"Classes":[{"Category":"Audio Module Class"}]})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle, R"({"Classes":[{"Category":"Audio Module Class","CID":"not-a-valid-cid"}]})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()).empty());
+
+    write_vst3_moduleinfo(bundle,
+                          R"({"Classes":[{"Category":"Audio Module Class","CID":"ABCDEF0123456789ABCDEF0123456789"}]})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()) == "abcdef0123456789abcdef0123456789");
+
+    write_vst3_moduleinfo(bundle,
+                          R"({"Classes":[{"Category":"Audio Module Class","CID":"ABCDEFGHIJKLMNOP"}]})");
+    REQUIRE(read_vst3_bundle_fuid(bundle.string()) == "4142434445464748494a4b4c4d4e4f50");
+}
+
+TEST_CASE("PluginScanner uses VST3 moduleinfo IDs while preserving blacklist short-circuiting",
+          "[host][scanner][vst3][blacklist][coverage][phase3]") {
+    ScannerScratchDir scratch("vst3-scan-blacklist");
+    const auto blocked = scratch.path / "BlockedSynth.vst3";
+    const auto allowed = scratch.path / "AllowedFx.vst3";
+    fs::create_directories(blocked);
+    fs::create_directories(allowed);
+    write_vst3_moduleinfo(blocked,
+                          R"({"Classes":[{"Category":"Audio Module Class","CID":"11111111111111111111111111111111"}]})");
+    write_vst3_moduleinfo(allowed,
+                          R"({"Classes":[{"Category":"Audio Module Class","CID":"22222222222222222222222222222222"}]})");
+
+    ScanBlacklist blacklist;
+    blacklist.blacklist(blocked.string(), "previous scanner crash");
+    REQUIRE(blacklist.is_blacklisted(blocked.string()));
+    REQUIRE_FALSE(blacklist.is_blacklisted(allowed.string()));
+
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_vst3 = true;
+    opts.scan_au = false;
+    opts.scan_clap = false;
+    opts.scan_lv2 = false;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back(scratch.path.string());
+    opts.blacklist = &blacklist;
+
+    const auto plugins = scanner.scan(opts);
+    REQUIRE(plugins.size() == 1);
+    REQUIRE(plugins[0].name == "AllowedFx");
+    REQUIRE(plugins[0].format == PluginFormat::VST3);
+    REQUIRE(plugins[0].path == allowed.string());
+    REQUIRE(plugins[0].unique_id == "22222222222222222222222222222222");
+}
+
+TEST_CASE("PluginScanner LV2 URI extraction handles manifest variants and safe fallbacks",
+          "[host][scanner][lv2][coverage][phase3]") {
+    ScannerScratchDir scratch("lv2-manifest-variants");
+    const auto canonical = scratch.path / "Canonical.lv2";
+    const auto compound = scratch.path / "Compound.lv2";
+    const auto fallback = scratch.path / "Fallback.lv2";
+    fs::create_directories(canonical);
+    fs::create_directories(compound);
+    fs::create_directories(fallback);
+
+    write_text(canonical / "manifest.ttl",
+               "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n"
+               "<http://example.com/pulp/canonical> a lv2:Plugin .\n");
+    write_text(compound / "manifest.ttl",
+               "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n"
+               "<http://example.com/pulp/compound>\n"
+               "    rdfs:seeAlso <plugin.ttl> ;\n"
+               "    a utility:Thing, lv2:Plugin .\n");
+    write_text(fallback / "manifest.ttl",
+               "@prefix lv2: <http://lv2plug.in/ns/lv2core#> .\n"
+               "<http://example.com/pulp/not-a-plugin> a utility:Thing .\n");
+
+    PluginScanner scanner;
+    ScanOptions opts;
+    opts.scan_vst3 = false;
+    opts.scan_au = false;
+    opts.scan_clap = false;
+    opts.scan_lv2 = true;
+    opts.only_extra_paths = true;
+    opts.extra_paths.push_back(scratch.path.string());
+
+    const auto plugins = scanner.scan(opts);
+    REQUIRE(plugins.size() == 3);
+    REQUIRE(plugins[0].name == "Canonical");
+    REQUIRE(plugins[0].unique_id == "http://example.com/pulp/canonical");
+    REQUIRE(plugins[1].name == "Compound");
+    REQUIRE(plugins[1].unique_id == "http://example.com/pulp/compound");
+    REQUIRE(plugins[2].name == "Fallback");
+    REQUIRE(plugins[2].unique_id == "Fallback");
+    for (const auto& plugin : plugins) {
+        REQUIRE(plugin.format == PluginFormat::LV2);
+        REQUIRE(plugin.path.find(scratch.path.string()) == 0);
+    }
 }
