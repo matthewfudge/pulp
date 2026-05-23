@@ -8,6 +8,7 @@
 
 #include <array>
 #include <chrono>
+#include <ctime>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -149,6 +150,45 @@ LoopbackHttpExchange serve_loopback_http_status(int status_code, std::string res
     });
     return exchange;
 }
+
+constexpr std::string_view kTestPrivateKey = R"(-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCgdbcZcNBK3USz
+adfoZl1bhUq37Oo4nv0TnDzI/Qg4oT8eg2okmogsjmFaDv3MO6PopmiH7MEwgBv3
+MBzlTKm35jMYxZRXAGK+xu9p2uXwNxMwL7lNwwBVRWoX0zL+tVq4krolCBxKX1s8
+30SZHafWQG0uPita/EuDNnLP/3+r/5l9vFMMcjUboV+uHUN9YDGUsN+XR9ht70v+
+9boySpS39Qf744qDaVf4O5Nuut76GVsYEpIMeHgcdDnsPNuBfGhEr6WKKzp/F36P
+BCH6bjinPQpR/ZBaTrKwbOcC/6qbU5fKPo/LxsvyDG4hvXGDZ6bLfWvAcXR4xVCc
+E3S3qRrhAgMBAAECggEAMv5mA5hGIdyi9i+ndYx+k9TO85e/seHZBM/sw2UipTid
+YhmadGqF5z8Scjf8cVjs1MV5x+S2Wq8D9DEepcKQ10g5qeA0rdeKCh4XvPjbhVVD
+bFdmWO+lXfQS7OJqPOcunyTGMnma4Ang6X39A3oYui68Y+tPBPnUF62InFCS5vpx
+dDVa7HehBS22vlOV2K/G6A+j4DKYzcRJ8KObQIxcbLzzrqiJD294xiCcpYK6JKKE
+67CyYQaznYQMC5yFzHKpJR/7NLt/UaX1uNuuSuvIVMQkWpUhUpPAvcdlCKF3HxwK
+YZCPLmb32GFvMcxgCHxXYeHUszBYsVpVVFrK92+DpwKBgQDVTHakuM+OHT+HsL/Z
+4DrmH1QdlM6kwXCCJLBvQPZsQiZ/6RFsbBcIs0m+v8lgSidg0VSSCIY3lB4UUsVJ
+fhnKRax9hg7TqfiSU4qi8FeyL0ygsRQsbCcSceX+1OpFw08dwqUBlU8lm3YMkGzW
+bFg/eHzcWbXOvMHGQ1tys5//OwKBgQDAlUPyPTV/kj09oh8ZVclEgOQhYxjIGDqG
+gjn8Z5VT3b6lVPoOTyrTs8WXLO0P2dUcSlLd8/2zJ1rj/4QT+JNNbBdXR7lCH1CN
+EwAEoLAds6ne3I/vNU2I9S0W7I7S+WYoKUdzqem0hK1JCYY5IQYgDK+2UmiVUqnf
+QnnVdNvkkwKBgDaUhF+OMv5ImbMdFVqpOCkepyWSqHYcUa/bt5Iga240Vymv+Bdo
+aVR+nEZFSUBseTsbFarwp3edXT0SGQ2/SNYrkgHkxfJ/se2vlvAu1CHyXIdaCLF9
+U1oy7wmQbgo/+gTBg/utuz0CVOjOJCuSOdqz+C9ifVVTk7oqDkKBmFV1AoGBALIy
+K6Hcs0Dsrw/1kDMgJtDlNrISAN89VAIcQ81ih1EH0J0pCQvugyFKqd1da6mMFV5N
+A2puluSL2NU5HBximOI9z0cqjag6U42F9DFUAkIpeVhG3EQqHSlKO8OHdgyPStCE
+iaHjqeUoEzOOxYzdGs7TDk9052KsD5UO7K7vp3xTAoGBAKjA2g1umyp4DeVUW2id
+eMr4+ZWnusgqXZk7g+7bfWfbSygFqbK7jMu7FTEbG1zJqxB6ZfcgeiPwoMuU6oSi
+m9dK3zogwSFa6HommLGcIaVlG7b/bYyQHi/Prtrn9svqcpofWUcGTVKY/lMGnwRg
+dQWvWxSNQzzjPizB/TBexRyq
+-----END PRIVATE KEY-----)";
+
+constexpr std::string_view kTestPublicKey = R"(-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoHW3GXDQSt1Es2nX6GZd
+W4VKt+zqOJ79E5w8yP0IOKE/HoNqJJqILI5hWg79zDuj6KZoh+zBMIAb9zAc5Uyp
+t+YzGMWUVwBivsbvadrl8DcTMC+5TcMAVUVqF9My/rVauJK6JQgcSl9bPN9EmR2n
+1kBtLj4rWvxLgzZyz/9/q/+ZfbxTDHI1G6Ffrh1DfWAxlLDfl0fYbe9L/vW6MkqU
+t/UH++OKg2lX+DuTbrre+hlbGBKSDHh4HHQ57DzbgXxoRK+liis6fxd+jwQh+m44
+pz0KUf2QWk6ysGznAv+qm1OXyj6Py8bL8gxuIb1xg2emy31rwHF0eMVQnBN0t6ka
+4QIDAQAB
+-----END PUBLIC KEY-----)";
 
 }  // namespace
 
@@ -699,6 +739,148 @@ TEST_CASE("LicenseGenerator emits nullopt for empty private key with complete in
 
     LicenseGenerator generator;
     REQUIRE_FALSE(generator.generate(info));
+}
+
+TEST_CASE("LicenseGenerator signs complete licenses that validate on this machine",
+          "[crypto][license][coverage]") {
+    LicenseInfo info;
+    info.product_id = "PulpSynth";
+    info.user_email = "user@example.com";
+    info.machine_id = std::string(machine_id());
+    info.edition = "pro";
+    info.issued_timestamp = 1700000000;
+    info.expiry_timestamp = static_cast<int64_t>(std::time(nullptr)) + 3600;
+
+    LicenseGenerator generator;
+    generator.set_private_key(kTestPrivateKey);
+    auto key = generator.generate(info);
+    REQUIRE(key.has_value());
+    REQUIRE(key->find('.') != std::string::npos);
+    auto dot = key->find('.');
+    auto payload_bytes = base64_decode(std::string_view(*key).substr(0, dot));
+    REQUIRE(payload_bytes.has_value());
+    std::string payload(payload_bytes->begin(), payload_bytes->end());
+    REQUIRE(payload.find(R"("product_id":"PulpSynth")") != std::string::npos);
+    REQUIRE(payload.find(R"("email":"user@example.com")") != std::string::npos);
+    REQUIRE(payload.find(R"("machine_id":)") != std::string::npos);
+    REQUIRE(payload.find(R"("edition":"pro")") != std::string::npos);
+    REQUIRE(payload.find(R"("expiry":)") != std::string::npos);
+
+    LicenseValidator validator;
+    validator.set_public_key(kTestPublicKey);
+    REQUIRE(validator.validate(*key) == LicenseStatus::Valid);
+
+    auto parsed = validator.validate_and_parse(*key);
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->product_id == info.product_id);
+    REQUIRE(parsed->user_email == info.user_email);
+    REQUIRE(parsed->machine_id == info.machine_id);
+    REQUIRE(parsed->edition == info.edition);
+    REQUIRE(parsed->issued_timestamp == info.issued_timestamp);
+    REQUIRE(parsed->expiry_timestamp == info.expiry_timestamp);
+}
+
+TEST_CASE("LicenseValidator reports signed expiry and machine mismatch statuses",
+          "[crypto][license][coverage]") {
+    LicenseGenerator generator;
+    generator.set_private_key(kTestPrivateKey);
+
+    LicenseValidator validator;
+    validator.set_public_key(kTestPublicKey);
+
+    LicenseInfo expired;
+    expired.product_id = "PulpExpired";
+    expired.issued_timestamp = 1;
+    expired.expiry_timestamp = 1;
+    auto expired_key = generator.generate(expired);
+    REQUIRE(expired_key.has_value());
+    REQUIRE(validator.validate(*expired_key) == LicenseStatus::Expired);
+
+    LicenseInfo wrong_machine;
+    wrong_machine.product_id = "PulpMachine";
+    wrong_machine.machine_id = "not-this-machine";
+    wrong_machine.issued_timestamp = 1700000000;
+    wrong_machine.expiry_timestamp = static_cast<int64_t>(std::time(nullptr)) + 3600;
+    auto wrong_machine_key = generator.generate(wrong_machine);
+    REQUIRE(wrong_machine_key.has_value());
+    REQUIRE(validator.validate(*wrong_machine_key) == LicenseStatus::MachineIdMismatch);
+}
+
+TEST_CASE("LicenseGenerator signs minimal licenses without optional fields",
+          "[crypto][license][coverage]") {
+    LicenseInfo info;
+    info.product_id = "PulpMiniSigned";
+    info.issued_timestamp = 1700000000;
+
+    LicenseGenerator generator;
+    generator.set_private_key(kTestPrivateKey);
+    auto key = generator.generate(info);
+    REQUIRE(key.has_value());
+
+    LicenseValidator validator;
+    validator.set_public_key(kTestPublicKey);
+    REQUIRE(validator.validate(*key) == LicenseStatus::Valid);
+
+    auto parsed = validator.validate_and_parse(*key);
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->product_id == "PulpMiniSigned");
+    REQUIRE(parsed->user_email.empty());
+    REQUIRE(parsed->machine_id.empty());
+    REQUIRE(parsed->edition.empty());
+    REQUIRE(parsed->expiry_timestamp == 0);
+}
+
+TEST_CASE("LicenseValidator rejects tampered signed payloads",
+          "[crypto][license][coverage]") {
+    LicenseInfo info;
+    info.product_id = "PulpTamper";
+    info.issued_timestamp = 1700000000;
+
+    LicenseGenerator generator;
+    generator.set_private_key(kTestPrivateKey);
+    auto key = generator.generate(info);
+    REQUIRE(key.has_value());
+
+    auto dot = key->find('.');
+    REQUIRE(dot != std::string::npos);
+
+    auto payload = base64_decode(std::string_view(*key).substr(0, dot));
+    REQUIRE(payload.has_value());
+    std::string tampered_payload(payload->begin(), payload->end());
+    tampered_payload.replace(tampered_payload.find("PulpTamper"),
+                             std::string{"PulpTamper"}.size(), "PulpChanged");
+    std::string tampered_key =
+        base64_encode(tampered_payload) + "." + key->substr(dot + 1);
+
+    LicenseValidator validator;
+    validator.set_public_key(kTestPublicKey);
+    REQUIRE(validator.validate(tampered_key) == LicenseStatus::InvalidSignature);
+    auto parsed_tampered = validator.validate_and_parse(tampered_key);
+    REQUIRE(parsed_tampered.has_value());
+    REQUIRE(parsed_tampered->product_id == "PulpChanged");
+}
+
+TEST_CASE("LicenseValidator validate_file accepts signed keys with trailing CRLF",
+          "[crypto][license][coverage]") {
+    LicenseInfo info;
+    info.product_id = "PulpFileSigned";
+    info.issued_timestamp = 1700000000;
+
+    LicenseGenerator generator;
+    generator.set_private_key(kTestPrivateKey);
+    auto key = generator.generate(info);
+    REQUIRE(key.has_value());
+
+    TemporaryFile tmp(".license");
+    {
+        std::ofstream out(tmp.path());
+        REQUIRE(out.good());
+        out << *key << "\r\n";
+    }
+
+    LicenseValidator validator;
+    validator.set_public_key(kTestPublicKey);
+    REQUIRE(validator.validate_file(tmp.path_string()) == LicenseStatus::Valid);
 }
 
 TEST_CASE("OnlineActivation treats empty server URL as failed request",
