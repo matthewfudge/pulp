@@ -126,8 +126,8 @@ TEST_CASE("MidiMessageCollector deferred-future event stays in pending slot (Cod
 
     // First drain finds the event too late for this block. Old impl
     // re-pushed into the SPSC queue (consumer-side write → SPSC
-    // violation). New impl stashes it in a consumer-owned `pending_`
-    // slot and leaves the queue empty.
+    // violation). New impl stashes it in the consumer-owned pending
+    // ring and leaves the queue empty.
     MidiBuffer b1;
     REQUIRE(collector.drain_into(b1, /*start=*/0.000,
                                        /*samples=*/512, /*sr=*/48000.0) == 0);
@@ -147,6 +147,78 @@ TEST_CASE("MidiMessageCollector deferred-future event stays in pending slot (Cod
                                        /*samples=*/2048, /*sr=*/48000.0) == 1);
     REQUIRE(b3.size() == 1);
     REQUIRE(b3[0].sample_offset == 48); // (1.000 - 0.999) * 48000
+}
+
+TEST_CASE("MidiMessageCollector drains queue even when pending holds a far-future event (Codex #2845 P1)",
+          "[midi][collector][regression]") {
+    MidiMessageCollector<32> collector;
+
+    // Push a far-future event first; it will land in pending after
+    // the first drain.
+    REQUIRE(collector.push_now(note_on(0, 60, 100), /*ts=*/10.000));
+    MidiBuffer b1;
+    REQUIRE(collector.drain_into(b1, /*start=*/0.000,
+                                       /*samples=*/256, /*sr=*/48000.0) == 0);
+    REQUIRE(collector.size_approx() == 0); // future event is in pending ring
+
+    // Producer now pushes an event whose timestamp fits the next block.
+    // Old impl: early-return on pending → queue NOT scanned → event lost.
+    // New impl: pending is in the future, but the queue is still drained;
+    // the in-block event must be delivered.
+    REQUIRE(collector.push_now(note_on(0, 64, 90), /*ts=*/0.002));
+    MidiBuffer b2;
+    auto drained = collector.drain_into(b2, /*start=*/0.001,
+                                              /*samples=*/256, /*sr=*/48000.0);
+    REQUIRE(drained == 1);
+    REQUIRE(b2.size() == 1);
+    REQUIRE(b2[0].sample_offset == 48); // (0.002 - 0.001) * 48000
+    REQUIRE(b2[0].message.getChannel0to15() == 0);
+    REQUIRE(b2[0].message.getNoteNumber() == 64);
+
+    // Far-future event still pending.
+    MidiBuffer b3;
+    REQUIRE(collector.drain_into(b3, /*start=*/0.5,
+                                       /*samples=*/256, /*sr=*/48000.0) == 0);
+
+    // Eventually crossing 10.000 s delivers it.
+    MidiBuffer b4;
+    REQUIRE(collector.drain_into(b4, /*start=*/9.999,
+                                       /*samples=*/4800, /*sr=*/48000.0) == 1);
+    REQUIRE(b4.size() == 1);
+    REQUIRE(b4[0].message.getNoteNumber() == 60);
+}
+
+TEST_CASE("MidiMessageCollector pending ring handles multiple out-of-order future events",
+          "[midi][collector][regression]") {
+    MidiMessageCollector<32> collector;
+    // Producer pushes 3 future events out of order.
+    REQUIRE(collector.push_now(note_on(0, 60, 100), /*ts=*/5.000));
+    REQUIRE(collector.push_now(note_on(0, 64, 100), /*ts=*/3.000));
+    REQUIRE(collector.push_now(note_on(0, 67, 100), /*ts=*/4.000));
+
+    // First drain at t=0: nothing fits, all three end up in pending ring.
+    MidiBuffer b1;
+    REQUIRE(collector.drain_into(b1, /*start=*/0.0,
+                                       /*samples=*/256, /*sr=*/48000.0) == 0);
+    REQUIRE(collector.dropped_overflow() == 0);
+
+    // Drain at t=3.0: only the ts=3.0 event fits.
+    MidiBuffer b2;
+    REQUIRE(collector.drain_into(b2, /*start=*/3.0,
+                                       /*samples=*/256, /*sr=*/48000.0) == 1);
+    REQUIRE(b2[0].message.getNoteNumber() == 64);
+
+    // Drain at t=4.0: ts=4.0 event fits.
+    MidiBuffer b3;
+    REQUIRE(collector.drain_into(b3, /*start=*/4.0,
+                                       /*samples=*/256, /*sr=*/48000.0) == 1);
+    REQUIRE(b3[0].message.getNoteNumber() == 67);
+
+    // Drain at t=5.0: ts=5.0 event fits.
+    MidiBuffer b4;
+    REQUIRE(collector.drain_into(b4, /*start=*/5.0,
+                                       /*samples=*/256, /*sr=*/48000.0) == 1);
+    REQUIRE(b4[0].message.getNoteNumber() == 60);
 }
 
 TEST_CASE("MidiMessageCollector returns false when queue is full",
