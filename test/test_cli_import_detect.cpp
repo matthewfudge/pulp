@@ -440,6 +440,179 @@ TEST_CASE("snapshot_input prefers index html when code html is absent",
     fs::remove_all(dir);
 }
 
+TEST_CASE("snapshot_input scrapes script attributes without case or prefix traps",
+          "[cli][import-detect][coverage]") {
+    auto dir = fs::temp_directory_path() / "pulp-import-detect-script-attrs";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    {
+        std::ofstream f(dir / "code.html");
+        f << "<SCRIPT DATA-SRC=\"ignored.js\" SRC='https://cdn.example/app.js' "
+          << "TYPE=\" Module \"></SCRIPT>\n"
+          << "<script data-type=\"ignored/module\" type=__bundler/template></script>\n"
+          << "<scripture src=\"not-a-script.js\"></scripture>\n"
+          << "<script src=https://cdn.example/extra.js></script>\n";
+    }
+
+    auto snap = det::snapshot_input(dir);
+    CHECK(snap.is_directory);
+    CHECK_FALSE(snap.html_text.empty());
+    CHECK(snap.directory_basenames == std::vector<std::string>{"code.html"});
+    REQUIRE(snap.script_srcs.size() == 2);
+    CHECK(snap.script_srcs[0] == "https://cdn.example/app.js");
+    CHECK(snap.script_srcs[1] == "https://cdn.example/extra.js");
+    REQUIRE(snap.script_types.size() == 2);
+    CHECK(snap.script_types[0] == " Module ");
+    CHECK(snap.script_types[1] == "__bundler/template");
+
+    det::FingerprintClause src;
+    src.kind = det::FingerprintClause::Kind::html_script_src;
+    src.regex = R"(cdn\.example/app\.js)";
+    CHECK(det::match_clause(src, snap));
+    src.regex = "ignored\\.js";
+    CHECK_FALSE(det::match_clause(src, snap));
+    src.regex = "not-a-script";
+    CHECK_FALSE(det::match_clause(src, snap));
+
+    det::FingerprintClause type;
+    type.kind = det::FingerprintClause::Kind::html_script_type;
+    type.value = "module";
+    CHECK(det::match_clause(type, snap));
+    type.value = "__BUNDLER/TEMPLATE";
+    CHECK(det::match_clause(type, snap));
+    type.value = "ignored/module";
+    CHECK_FALSE(det::match_clause(type, snap));
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("snapshot_input accepts script tag and attribute whitespace boundaries",
+          "[cli][import-detect][coverage]") {
+    auto dir = fs::temp_directory_path() / "pulp-import-detect-script-boundaries";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    {
+        std::ofstream f(dir / "code.html");
+        f << "<script></script>\n"
+          << "<script/>\n"
+          << "<script\tsrc=\"tab.js\"></script>\n"
+          << "<script\rsrc=\"cr.js\"></script>\n"
+          << "<script\nsrc=\"nl.js\"></script>\n"
+          << "<script data-src=\"ignored.js\" src=\"space.js\"></script>\n"
+          << "<script data-type=\"ignored/module\" type=\"space/module\"></script>\n"
+          << "<script\ttype=\"tab/module\"></script>\n"
+          << "<script\rtype=\"cr/module\"></script>\n"
+          << "<script\ntype=\"nl/module\"></script>\n"
+          << "<scripture src=\"not-a-script.js\"></scripture>\n";
+    }
+
+    auto snap = det::snapshot_input(dir);
+    REQUIRE(snap.script_srcs.size() == 4);
+    CHECK(snap.script_srcs[0] == "tab.js");
+    CHECK(snap.script_srcs[1] == "cr.js");
+    CHECK(snap.script_srcs[2] == "nl.js");
+    CHECK(snap.script_srcs[3] == "space.js");
+    CHECK(std::find(snap.script_srcs.begin(), snap.script_srcs.end(), "ignored.js") ==
+          snap.script_srcs.end());
+    CHECK(std::find(snap.script_srcs.begin(), snap.script_srcs.end(), "not-a-script.js") ==
+          snap.script_srcs.end());
+
+    REQUIRE(snap.script_types.size() == 4);
+    CHECK(snap.script_types[0] == "space/module");
+    CHECK(snap.script_types[1] == "tab/module");
+    CHECK(snap.script_types[2] == "cr/module");
+    CHECK(snap.script_types[3] == "nl/module");
+    CHECK(std::find(snap.script_types.begin(), snap.script_types.end(), "ignored/module") ==
+          snap.script_types.end());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("snapshot_input falls back to sorted html candidates with attribute forms",
+          "[cli][import-detect][coverage]") {
+    auto dir = fs::temp_directory_path() / "pulp-import-detect-script-fallback";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    {
+        std::ofstream f(dir / "b-last.HTML");
+        f << "<script src=\"https://cdn.example/last.js\"></script>";
+    }
+    {
+        std::ofstream f(dir / "a-first.htm");
+        f << "<ScRiPt type='application/json' src=/first.js></ScRiPt>";
+    }
+
+    auto snap = det::snapshot_input(dir);
+    CHECK(snap.is_directory);
+    CHECK(snap.directory_basenames == std::vector<std::string>{"a-first.htm", "b-last.HTML"});
+    REQUIRE(snap.script_srcs.size() == 1);
+    CHECK(snap.script_srcs[0] == "/first.js");
+    REQUIRE(snap.script_types.size() == 1);
+    CHECK(snap.script_types[0] == "application/json");
+
+    auto file_snap = det::snapshot_input(dir / "b-last.HTML");
+    CHECK_FALSE(file_snap.is_directory);
+    CHECK(file_snap.filename == "b-last.HTML");
+    CHECK(file_snap.directory_basenames == std::vector<std::string>{"b-last.HTML"});
+    REQUIRE(file_snap.script_srcs.size() == 1);
+    CHECK(file_snap.script_srcs[0] == "https://cdn.example/last.js");
+    CHECK(file_snap.script_types.empty());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("new-format reports cap unknown tailwind tokens and keep fallbacks stable",
+          "[cli][import-detect][coverage]") {
+    det::ImportsManifest manifest;
+    det::SourceEntry source;
+    source.source = "stitch";
+    source.parser_version = "1.0";
+
+    det::FormatEntry fmt;
+    fmt.format_version = "2026.05";
+    fmt.parser_version = source.parser_version;
+    det::FingerprintClause token;
+    token.kind = det::FingerprintClause::Kind::tailwind_config_token;
+    token.any_of = {"known-token"};
+    fmt.fingerprint.push_back(token);
+    source.formats.push_back(fmt);
+    manifest.sources.push_back(source);
+
+    det::DetectionResult closest;
+    closest.source = "stitch";
+    closest.format_version = "2026.05";
+
+    det::InputSnapshot snap;
+    snap.tailwind_tokens.push_back("known-token");
+    for (int i = 0; i < 25; ++i)
+        snap.tailwind_tokens.push_back("unknown-" + std::to_string(i));
+
+    auto report = det::build_new_format_report(manifest, snap, closest);
+    CHECK(report.candidate_source == "stitch");
+    CHECK(report.candidate_format_version == "2026.05+next");
+    CHECK(report.based_on_source == "stitch");
+    CHECK(report.based_on_format_version == "2026.05");
+    REQUIRE(report.additions.size() == 20);
+    CHECK(report.additions.front() == "unknown-0");
+    CHECK(report.additions.back() == "unknown-19");
+    CHECK(std::find(report.additions.begin(), report.additions.end(), "known-token") ==
+          report.additions.end());
+
+    auto json = det::render_new_format_json(report);
+    CHECK(json.find("\"candidate-source\": \"stitch\"") != std::string::npos);
+    CHECK(json.find("\"candidate-format-version\": \"2026.05+next\"") != std::string::npos);
+    CHECK(json.find("unknown-19") != std::string::npos);
+    CHECK(json.find("unknown-20") == std::string::npos);
+
+    det::DetectionResult none;
+    auto fallback = det::build_new_format_report(manifest, {}, none);
+    CHECK(fallback.candidate_format_version == "TODO-set-version");
+    CHECK(fallback.additions.empty());
+}
+
 TEST_CASE("detect picks the highest-confidence format", "[cli][import-detect][issue-1031]") {
     auto compat = locate_compat_json();
     REQUIRE_FALSE(compat.empty());
