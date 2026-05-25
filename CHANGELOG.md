@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02170"></a>
+## [0.217.0] - 2026-05-25
+
+- fix(midi): MidiMessageCollector — always drain queue + multi-slot pending ring (Codex P1 on #2845) ([#2853](https://github.com/danielraffel/pulp/pull/2853))
+- test(audio): cover audio tool edge contracts ([#2842](https://github.com/danielraffel/pulp/pull/2842))
+
 <a id="v02160"></a>
 ## [0.216.0] - 2026-05-25
 
@@ -2757,6 +2763,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.217.0]: https://github.com/danielraffel/pulp/releases/tag/v0.217.0
 [0.216.0]: https://github.com/danielraffel/pulp/releases/tag/v0.216.0
 [0.215.0]: https://github.com/danielraffel/pulp/releases/tag/v0.215.0
 [0.214.0]: https://github.com/danielraffel/pulp/releases/tag/v0.214.0
