@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02140"></a>
+## [0.214.0] - 2026-05-25
+
+- feat(macos-plan): Batch C (partial) — MidiMessageCollector SPSC UI→audio hub (item 1.9) ([#2843](https://github.com/danielraffel/pulp/pull/2843))
+- test(python): cover binding API contracts ([#2837](https://github.com/danielraffel/pulp/pull/2837))
+
 <a id="v02130"></a>
 ## [0.213.0] - 2026-05-25
 
@@ -2741,6 +2747,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.214.0]: https://github.com/danielraffel/pulp/releases/tag/v0.214.0
 [0.213.0]: https://github.com/danielraffel/pulp/releases/tag/v0.213.0
 [0.212.0]: https://github.com/danielraffel/pulp/releases/tag/v0.212.0
 [0.211.0]: https://github.com/danielraffel/pulp/releases/tag/v0.211.0
