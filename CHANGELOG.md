@@ -8,6 +8,24 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02080"></a>
+## [0.208.0] - 2026-05-25
+
+- feat(platform): consolidate child process lifecycle ([#2815](https://github.com/danielraffel/pulp/pull/2815))
+- test(import-design): cover script detector contracts ([#2816](https://github.com/danielraffel/pulp/pull/2816))
+- fix(runtime): serialize high-resolution timer stop ownership ([#2817](https://github.com/danielraffel/pulp/pull/2817))
+- test(signal): cover noise gate guard contracts ([#2813](https://github.com/danielraffel/pulp/pull/2813))
+- test(signal): cover chorus edge contracts ([#2812](https://github.com/danielraffel/pulp/pull/2812))
+- test(signal): cover processor duplicator edge contracts ([#2811](https://github.com/danielraffel/pulp/pull/2811))
+- test(signal): cover multi-channel meter edges ([#2809](https://github.com/danielraffel/pulp/pull/2809))
+- test(midi): cover MIDI file edge cases ([#2807](https://github.com/danielraffel/pulp/pull/2807))
+- test(format): cover remote view session branches ([#2806](https://github.com/danielraffel/pulp/pull/2806))
+- test(state): cover undo transaction history edges ([#2805](https://github.com/danielraffel/pulp/pull/2805))
+- test(canvas): cover canvas widget dispatch edges ([#2804](https://github.com/danielraffel/pulp/pull/2804))
+- test(view): cover button component branches ([#2803](https://github.com/danielraffel/pulp/pull/2803))
+- test(format): cover screenshot capture edge cases ([#2802](https://github.com/danielraffel/pulp/pull/2802))
+- test(view): cover text overflow continuation gaps ([#2800](https://github.com/danielraffel/pulp/pull/2800))
+
 <a id="v02070"></a>
 ## [0.207.0] - 2026-05-24
 
@@ -2685,6 +2703,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.208.0]: https://github.com/danielraffel/pulp/releases/tag/v0.208.0
 [0.207.0]: https://github.com/danielraffel/pulp/releases/tag/v0.207.0
 [0.206.0]: https://github.com/danielraffel/pulp/releases/tag/v0.206.0
 [0.205.0]: https://github.com/danielraffel/pulp/releases/tag/v0.205.0
