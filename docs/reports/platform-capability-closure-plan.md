@@ -265,12 +265,14 @@ Native event loop local validation:
   passed: 34 focused CTest cases.
 - `./build/test/pulp-test-events --durations yes` passed: 259 assertions in
   57 test cases.
-- Manual GPU-off diff coverage passed against `origin/main`: 96% diff coverage
-  with only the two `EventLoop` `condition_variable::notify_one()` lines
-  reported uncovered by llvm-cov. `sdl_window_host.cpp` is excluded in the
-  shared coverage config as a live native window-host loop; the dispatcher
-  contract it uses is covered by the focused unit tests and the host is
-  compile-validated by `pulp-view-core`.
+- Manual GPU-off diff coverage passed against `origin/main`: 93% diff coverage.
+  llvm-cov reported the two `EventLoop` `condition_variable::notify_one()`
+  lines and several defensive dispatcher branches as uncovered; the exercised
+  dispatcher behavior is covered by focused registration, unregister, sync,
+  async, exception, and backend-restore tests. `sdl_window_host.cpp` is
+  excluded in the shared coverage config as a live native window-host loop; the
+  dispatcher contract it uses is covered by the focused unit tests and the host
+  is compile-validated by `pulp-view-core`.
 - `git diff --check` passed.
 - Claude and RepoPrompt blocker reviews were run. Claude's P1 findings around
   async exceptions, EventLoop thread-id synchronization, iOS registration
