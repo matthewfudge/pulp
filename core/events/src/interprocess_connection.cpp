@@ -435,21 +435,12 @@ void InterprocessConnectionServer::stop() {
     const bool was_running = running_.exchange(false);
     if (was_running && server_impl_->transport == IpcTransport::Socket &&
         server_impl_->listen_socket.is_open()) {
-        // Wake the accept() blocked in the accept thread by making a
-        // dummy connection to ourselves. The "0.0.0.0" bind address
-        // isn't connectable directly — fall back to loopback.
-        auto endpoint = parse_socket_endpoint(std::string_view(server_impl_->name));
-        if (endpoint) {
-            std::string host = (endpoint->host.empty() || endpoint->host == "0.0.0.0")
-                                   ? std::string{"127.0.0.1"}
-                                   : endpoint->host;
-            Socket wake;
-            if (wake.create(SocketType::TCP)) {
-                (void)wake.connect(host, endpoint->port);
-            }
-        }
+        // Close before join so accept() cannot keep the accept thread blocked
+        // on a listener that is no longer meant to serve clients.
+        server_impl_->listen_socket.close();
     }
     if (accept_thread_.joinable()) accept_thread_.join();
+    // Idempotent; keeps non-socket and partially started server cleanup simple.
     server_impl_->listen_socket.close();
     clients_.clear();
 }

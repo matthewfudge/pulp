@@ -26,7 +26,7 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open, ready for review; rebased onto `origin/main` at `0939e9b19`; focused dispatcher/IPC/OSC-bind validation passing; SDK version is `0.218.0` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open, ready for review; rebased onto `origin/main` at `0939e9b19`; GitHub base later advanced to `8d0aa3b44`; focused dispatcher/IPC/OSC-bind validation passing; SDK version is `0.218.0` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
 | OSC | `feature/platform-osc` | `pulp-platform-osc` | PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open, ready for review; rebased onto current `main`; local OSC suite and manual GPU-off diff coverage passing | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
 | Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
@@ -335,6 +335,16 @@ Native event loop local validation:
   "EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess|OscChannel|OSC
   Receiver rejects binding"` 67/67. This explicitly re-ran the two OSC
   bind-collision cases that failed on the stale hosted Linux merge.
+- A fresh PR review sweep on the rebased head found one P1 in
+  `InterprocessConnectionServer::stop()`: the accept thread was joined before
+  the listening socket closed, leaving shutdown dependent on a best-effort
+  self-connect wake. The fix closes the listener before join, and focused
+  regression coverage verifies that a stopped socket server releases its port
+  for immediate reuse. Validation after the fix:
+  `cmake --build build --target pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'` passed
+  54/54.
 - Claude and RepoPrompt blocker reviews were run. Claude's P1 findings around
   async exceptions, EventLoop thread-id synchronization, iOS registration
   order, unbounded sync retry, and SDL drain starvation were fixed; the final

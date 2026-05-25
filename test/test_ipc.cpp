@@ -944,6 +944,23 @@ TEST_CASE("IPC socket server stops while waiting for a client",
     REQUIRE_FALSE(server.is_running());
 }
 
+TEST_CASE("IPC socket server stop releases listener for immediate reuse",
+          "[events][ipc][socket][lifecycle][codecov]") {
+    InterprocessConnectionServer first;
+    auto port = start_socket_server_on_loopback(first);
+    REQUIRE(port.has_value());
+    REQUIRE(first.is_running());
+
+    first.stop();
+    REQUIRE_FALSE(first.is_running());
+
+    InterprocessConnectionServer second;
+    REQUIRE(second.start("127.0.0.1:" + std::to_string(*port), IpcTransport::Socket));
+    REQUIRE(second.is_running());
+    second.stop();
+    REQUIRE_FALSE(second.is_running());
+}
+
 TEST_CASE("IPC socket server default callback owns accepted clients",
           "[events][ipc][socket][codecov][phase3]") {
     InterprocessConnectionServer server;
