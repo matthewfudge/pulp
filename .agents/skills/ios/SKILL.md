@@ -333,6 +333,24 @@ The fix is two pieces:
 
 CPU iOS host (`IOSWindowHost`) has the same gap but no display link; `repaint()` just calls `[root_view_ setNeedsDisplay]` and UIKit drives `drawRect:` only on user interaction. A separate CADisplayLink-on-CPU-path fix is owed; not blocking AUv3 use cases since AUv3 host apps go through the GPU path.
 
+### iOS window hosts register the main-thread dispatcher while visible
+
+`window_host_ios.mm` registers `pulp::events::MainThreadDispatcher` backends
+from both standalone window hosts so worker code can marshal work to UIKit
+without depending on platform APIs. Keep these invariants:
+
+- **Register after UIKit objects are ready, before any CADisplayLink tick can
+  run.** The GPU host registers immediately after `makeKeyAndVisible` and
+  before `start_display_link()` so the first idle/rAF callback sees a live
+  dispatcher.
+- **Unregister before clearing UIKit callbacks.** Destructors set the host
+  liveness token false, unregister the dispatcher token, then nil `onResize`,
+  display-link targets, root views, and window/controller references. That order
+  prevents queued resize/display callbacks from reaching freed host state.
+- **Do not treat `run_event_loop()` like macOS.** On iOS it returns after
+  handing ownership to UIKit, so the dispatcher token must stay on the host and
+  be released in teardown instead of on method exit.
+
 ### Embeddable iOS GPU *plugin* host (`IOSGpuPluginViewHost`) — distinct from the window host
 
 `core/view/platform/ios/plugin_view_host_ios.mm` is the AUv3 plugin embed
