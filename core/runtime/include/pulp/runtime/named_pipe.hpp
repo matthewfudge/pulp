@@ -2,6 +2,7 @@
 
 // Named pipe for IPC — POSIX mkfifo / Windows CreateNamedPipe.
 
+#include <atomic>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -15,8 +16,9 @@ public:
     NamedPipe() = default;
     ~NamedPipe();
 
-    /// Create and open a pipe as server (creates the pipe).
-    /// On POSIX, name is a filesystem path. On Windows, it's a pipe name.
+/// Create and open a pipe as server (creates the pipe).
+/// On POSIX, name is a filesystem path and the implementation owns a paired
+/// reply FIFO beside it. On Windows, it's a pipe name.
     bool create_server(std::string_view name);
 
     /// Connect to an existing pipe as client.
@@ -49,8 +51,13 @@ private:
     bool is_server_ = false;
 #ifdef _WIN32
     void* handle_ = nullptr;
+    std::atomic<bool> closing_{false};
+    std::atomic<bool> connecting_{false};
 #else
-    int fd_ = -1;
+    std::string write_name_;
+    int read_fd_ = -1;
+    int write_fd_ = -1;
+    std::atomic<bool> closing_{false};
 #endif
 };
 

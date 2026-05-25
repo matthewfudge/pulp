@@ -3,8 +3,8 @@
 // ConnectedChildProcess — launch a child process with an IPC channel.
 // ChildProcessManager — manage a pool of child processes (for plugin scanning etc.)
 
-#include <pulp/runtime/child_process.hpp>
 #include <pulp/events/interprocess_connection.hpp>
+#include <pulp/platform/child_process.hpp>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,6 +13,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 
 namespace pulp::events {
 
@@ -57,10 +58,19 @@ public:
     ConnectedChildProcess& operator=(const ConnectedChildProcess&) = delete;
 
 private:
+    bool join_monitor_thread(bool detach_current_thread);
+
     InterprocessConnection connection_;
+    pulp::platform::ChildProcess process_;
     std::string pipe_name_;
     int pid_ = -1;
     std::atomic<bool> running_{false};
+    bool cancel_requested_ = false;
+    bool exit_ready_ = false;
+    int exit_code_ = -1;
+    std::mutex state_mutex_;
+    std::condition_variable exit_cv_;
+    std::mutex monitor_mutex_;
     std::thread monitor_thread_;
 };
 
@@ -97,7 +107,7 @@ public:
     ChildProcessManager& operator=(const ChildProcessManager&) = delete;
 
 private:
-    std::vector<std::unique_ptr<ConnectedChildProcess>> children_;
+    std::vector<std::shared_ptr<ConnectedChildProcess>> children_;
     mutable std::mutex mutex_;
 };
 
