@@ -8,6 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02210"></a>
+## [0.221.0] - 2026-05-25
+
+- feat(midi): MpeVoiceTracker consumes UMP per-note management + assignable PNC (item 8.5b) ([#2860](https://github.com/danielraffel/pulp/pull/2860))
+
+<a id="v02200"></a>
+## [0.220.0] - 2026-05-25
+
+- feat(audio): BufferOps SIMD-backed helpers — apply_gain / ramp / clip / min-max / magnitude (item 1.6) ([#2864](https://github.com/danielraffel/pulp/pull/2864))
+
 <a id="v02190"></a>
 ## [0.219.0] - 2026-05-25
 
@@ -2775,6 +2785,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.221.0]: https://github.com/danielraffel/pulp/releases/tag/v0.221.0
+[0.220.0]: https://github.com/danielraffel/pulp/releases/tag/v0.220.0
 [0.219.0]: https://github.com/danielraffel/pulp/releases/tag/v0.219.0
 [0.218.0]: https://github.com/danielraffel/pulp/releases/tag/v0.218.0
 [0.217.0]: https://github.com/danielraffel/pulp/releases/tag/v0.217.0
