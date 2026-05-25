@@ -521,7 +521,17 @@ PR2 implementation scope:
 - Address-pattern validation now fails closed for trailing empty alternatives
   such as `{foo,}` and `{foo,bar,}`.
 
-PR2 local validation so far:
+PR2 validation and PR state:
+- Draft PR #2822: https://github.com/danielraffel/pulp/pull/2822
+- Initial PR review-comment and issue-comment sweep found no comments to
+  address. The first CI failure was the version-bump commit-shape guard; it was
+  fixed by splitting the `0.209.0` API bump into the canonical
+  `chore: bump versions` commit. The refreshed version/skill check is passing.
+- At the latest sweep, docs, source pollution, header self-containment,
+  version/skill, dependency audit, Linux release-path, macOS build/test, and
+  advisory include-what-you-use checks were passing. Longer GitHub-hosted
+  platform, sanitizer, install-smoke, Android, and macOS release-path checks
+  were still queued or running; no refreshed check failure was present.
 - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
 - `cmake --build build --target pulp-test-osc pulp-test-osc-bundle
   pulp-test-osc-channel`
