@@ -135,6 +135,18 @@ TEST_CASE("audio model registry resolves known models and checkpoint URLs",
     REQUIRE(resolve_checkpoint_url("file:///tmp/model.pt").empty());
 }
 
+TEST_CASE("audio model registry preserves direct URLs and rejects incomplete refs",
+          "[audio][tools][codecov]") {
+    REQUIRE(resolve_checkpoint_url("https://cdn.example.test/models/clap.pt?download=1")
+            == "https://cdn.example.test/models/clap.pt?download=1");
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/checkpoints/music.pt")
+            == "https://huggingface.co/org/repo/resolve/main/checkpoints/music.pt");
+    REQUIRE(resolve_checkpoint_url("").empty());
+    REQUIRE(resolve_checkpoint_url("HF://org/repo/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("ftp://example.test/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo").empty());
+}
+
 TEST_CASE("audio model store reads legacy metadata and malformed records fail closed",
           "[audio][tools][issue-643]") {
     TempDir temp;
@@ -724,6 +736,68 @@ TEST_CASE("excerpt bundle reader fills defaults from model and ranked result fil
     REQUIRE(json.find("\"source_file\": \"/tmp/source.wav\"") != std::string::npos);
 }
 
+TEST_CASE("excerpt bundle reader honors manifest file overrides and numeric fallbacks",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto bundle = temp.path / "bundle";
+    fs::create_directories(bundle / "metadata");
+
+    write_text(bundle / "manifest.json", R"JSON({
+  "tool": "custom excerpt bundle",
+  "bundle_version": 7,
+  "model_file": "metadata/model-info.json",
+  "ranked_results_file": "metadata/results.json",
+  "requested_model_id": "manifest-request",
+  "result_count": 9
+}
+)JSON");
+
+    write_text(bundle / "metadata" / "model-info.json", R"JSON({
+  "model_id": "model-fallback",
+  "loaded_model_id": "loaded-from-model",
+  "backend": "null"
+}
+)JSON");
+
+    write_text(bundle / "metadata" / "results.json", R"JSON({
+  "results": [
+    {
+      "score": "not-a-number",
+      "source_path": "/tmp/a.wav",
+      "source_duration_ms": 1500,
+      "start_ms": 250,
+      "end_ms": 750
+    },
+    {
+      "rank": 4,
+      "score": 0.91,
+      "source_file": "/tmp/b.wav",
+      "excerpt_file": "excerpts/rank-04.wav"
+    }
+  ]
+}
+)JSON");
+
+    auto result = read_excerpt_bundle(bundle);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.tool == "custom excerpt bundle");
+    REQUIRE(result.bundle_version == 7);
+    REQUIRE(result.ranked_results_path == bundle / "metadata" / "results.json");
+    REQUIRE(result.requested_model_id == "manifest-request");
+    REQUIRE(result.loaded_model_id == "loaded-from-model");
+    REQUIRE(result.result_count == 9);
+    REQUIRE(result.results.size() == 2);
+    REQUIRE(result.results[0].rank == 1);
+    REQUIRE(result.results[0].score == Catch::Approx(0.0));
+    REQUIRE(result.results[0].source_file == "/tmp/a.wav");
+    REQUIRE(result.results[0].source_duration_ms == Catch::Approx(1500.0));
+    REQUIRE(result.results[0].start_ms == Catch::Approx(250.0));
+    REQUIRE(result.results[0].end_ms == Catch::Approx(750.0));
+    REQUIRE(result.results[1].rank == 4);
+    REQUIRE(result.results[1].excerpt_file == "excerpts/rank-04.wav");
+}
+
 TEST_CASE("excerpt bundle reader reports empty and missing ranked inputs",
           "[audio][tools][codecov]") {
     auto empty = read_excerpt_bundle({});
@@ -823,6 +897,72 @@ TEST_CASE("excerpt find writes a deterministic WAV-first bundle", "[audio][tools
     REQUIRE(bundle.ok);
     REQUIRE(bundle.backend == "null");
     REQUIRE(bundle.results.size() == result.results.size());
+}
+
+TEST_CASE("excerpt find materializes bundle metadata, skipped inputs, and excerpt WAVs",
+          "[audio][tools][codecov]") {
+    TempDir temp;
+    auto checkpoint = temp.path / "models" / "clap.pt";
+    write_text(checkpoint, "stub");
+    write_installed_model_metadata(temp.path, checkpoint);
+
+    auto input = temp.path / "Alpha Loop!.WAV";
+    REQUIRE(pulp::audio::write_wav_file(input.string(), make_audio(48000, 48000)));
+    write_text(temp.path / "ignore.aiff", "unsupported");
+
+    ExcerptFindRequest request;
+    request.text = "Bright Kick ++";
+    request.input_path = temp.path;
+    request.model_id = "clap_music_audioset_v1";
+    request.bundle_out = temp.path / "bundles";
+    request.top_k = 1;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 1;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.query == "Bright Kick ++");
+    REQUIRE(result.requested_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.loaded_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.backend == "null");
+    REQUIRE(result.resolved_checkpoint_path == checkpoint);
+    REQUIRE(result.scanned_file_count == 1);
+    REQUIRE(result.skipped_files.size() == 1);
+    REQUIRE(result.skipped_files[0].find("ignore.aiff") != std::string::npos);
+    REQUIRE(result.results.size() == 1);
+    REQUIRE(result.results[0].rank == 1);
+    REQUIRE(result.results[0].source_file == input.string());
+    REQUIRE(result.results[0].start_ms == Catch::Approx(0.0));
+    REQUIRE(result.results[0].excerpt_file.find("alpha-loop") != std::string::npos);
+    REQUIRE(fs::exists(result.bundle_path / result.results[0].excerpt_file));
+
+    auto excerpt = pulp::audio::read_audio_file((result.bundle_path / result.results[0].excerpt_file).string());
+    REQUIRE(excerpt.has_value());
+    REQUIRE(excerpt->sample_rate == 48000);
+    REQUIRE(excerpt->num_frames() == 48000);
+
+    auto manifest = read_excerpt_bundle(result.bundle_path);
+    REQUIRE(manifest.ok);
+    REQUIRE(manifest.result_count == 1);
+    REQUIRE(manifest.results.size() == 1);
+    REQUIRE(manifest.results[0].excerpt_file == result.results[0].excerpt_file);
+
+    std::ifstream query_file(result.bundle_path / "query.json");
+    std::stringstream query_text;
+    query_text << query_file.rdbuf();
+    REQUIRE(query_text.str().find("\"text\": \"Bright Kick ++\"") != std::string::npos);
+
+    std::ifstream inputs_file(result.bundle_path / "inputs.json");
+    std::stringstream inputs_text;
+    inputs_text << inputs_file.rdbuf();
+    REQUIRE(inputs_text.str().find("ignore.aiff (unsupported; WAV only)") != std::string::npos);
+
+    std::ifstream log_file(result.bundle_path / "logs" / "runtime.log");
+    std::stringstream log_text;
+    log_text << log_file.rdbuf();
+    REQUIRE(log_text.str().find("backend=null") != std::string::npos);
 }
 
 TEST_CASE("excerpt find validates required request fields before model loading",
