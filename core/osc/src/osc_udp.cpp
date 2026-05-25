@@ -198,6 +198,9 @@ bool Receiver::listen(uint16_t port, MessageHandler handler) {
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(port);
 
+    // Keep receivers exclusive. Linux permits multiple UDP binds when all
+    // participants opt into SO_REUSEADDR, which makes packet delivery
+    // ambiguous for this one-handler Receiver API.
     if (bind(impl_->sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         close_socket(impl_->sock);
         impl_->sock = kInvalidSocket;
