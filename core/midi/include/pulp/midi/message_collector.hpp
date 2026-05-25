@@ -31,6 +31,7 @@
 #include <pulp/runtime/spsc_queue.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <optional>
@@ -100,48 +101,101 @@ public:
             out.add(event);
         };
 
-        // Consume the previously-deferred event first if it now fits.
-        // Pending storage lives outside the SPSC queue so the consumer
-        // thread never writes to the queue (Codex P1 on #2843).
-        if (pending_.has_value()) {
-            if (pending_->timestamp_seconds >= block_end_seconds) {
-                // Still in the future — leave it pending.
-                return 0;
+        // Walk the consumer-owned `pending_` ring first: any deferred-
+        // future entry whose timestamp now fits the current block is
+        // delivered. Entries that are still in the future stay put so
+        // a later block can consume them. (Pulled out of the queue so
+        // the consumer thread never writes back to the SPSC FIFO —
+        // Codex P1 on #2843.)
+        for (auto& slot : pending_) {
+            if (slot.has_value() && slot->timestamp_seconds < block_end_seconds) {
+                deliver(*slot);
+                slot.reset();
+                ++drained;
             }
-            deliver(*pending_);
-            pending_.reset();
-            ++drained;
         }
 
+        // Always drain the queue regardless of whether pending events
+        // remain in the future — the queue may hold *earlier-than-pending*
+        // events when the producer pushes out of timestamp order, and
+        // those must not be starved (Codex P1 on #2845).
         while (true) {
             auto popped = queue_.try_pop();
             if (!popped) break;
             const auto& entry = *popped;
-            if (entry.timestamp_seconds >= block_end_seconds) {
-                // Future event — stash in the pending slot for the next
-                // call. The SPSC queue is left untouched by the consumer.
-                pending_ = entry;
-                break;
+            if (entry.timestamp_seconds < block_end_seconds) {
+                deliver(entry);
+                ++drained;
+                continue;
             }
-            deliver(entry);
-            ++drained;
+            // Future event: stash in the consumer-owned pending ring.
+            if (!stash_pending(entry)) {
+                // Ring overflow — record + drop. Producer should slow
+                // down or grow the pending ring.
+                ++dropped_overflow_;
+            }
         }
         return drained;
     }
 
-    /// Approximate number of events currently queued (does not count the
-    /// deferred-future event in `pending_`).
+    /// Approximate number of events currently queued (does NOT count
+    /// the deferred-future entries in the pending ring).
     std::size_t size_approx() const { return queue_.size_approx(); }
 
-    /// Compile-time capacity.
+    /// Number of future events the consumer has dropped because the
+    /// pending ring overflowed. Monotonically increasing; useful as
+    /// a diagnostic counter. Reset to 0 only by `reset_dropped_overflow()`.
+    std::size_t dropped_overflow() const { return dropped_overflow_; }
+    void reset_dropped_overflow() { dropped_overflow_ = 0; }
+
+    /// Compile-time capacity of the producer queue.
     static constexpr std::size_t capacity() { return Capacity; }
 
+    /// Compile-time size of the consumer-owned pending ring. Large
+    /// enough to absorb out-of-order producer bursts in practical
+    /// usage (UI + scripting timing). If a workload routinely overflows,
+    /// pick a larger value at instantiation.
+    static constexpr std::size_t pending_capacity() { return kPendingSlots; }
+
 private:
+    static constexpr std::size_t kPendingSlots = 8;
+
     pulp::runtime::SpscQueue<TimestampedShortMessage, Capacity> queue_;
-    /// One-slot lookahead for a popped-but-deferred future event.
-    /// Owned and accessed exclusively by the consumer (audio) thread,
-    /// so writing here doesn't violate the SPSC contract of `queue_`.
-    std::optional<TimestampedShortMessage> pending_;
+    /// Consumer-owned pending ring for popped-but-future events.
+    /// Linear scan; N=8 keeps the per-drain overhead negligible.
+    std::array<std::optional<TimestampedShortMessage>, kPendingSlots> pending_{};
+    std::size_t dropped_overflow_ = 0;
+
+    /// Place @p entry in an empty pending slot. If all slots are
+    /// occupied, evict the slot with the LARGEST timestamp (latest
+    /// future event) so the ring keeps the soonest-due events. Returns
+    /// true if @p entry was stored; false if the ring already held
+    /// only earlier-due events and @p entry was rejected.
+    bool stash_pending(const TimestampedShortMessage& entry) {
+        // First pass: empty slot.
+        for (auto& slot : pending_) {
+            if (!slot.has_value()) {
+                slot = entry;
+                return true;
+            }
+        }
+        // All occupied — find the latest-due slot.
+        std::size_t latest_idx = 0;
+        double latest_ts = pending_[0]->timestamp_seconds;
+        for (std::size_t i = 1; i < pending_.size(); ++i) {
+            if (pending_[i]->timestamp_seconds > latest_ts) {
+                latest_ts = pending_[i]->timestamp_seconds;
+                latest_idx = i;
+            }
+        }
+        // If the new entry is sooner than the latest pending, evict.
+        if (entry.timestamp_seconds < latest_ts) {
+            pending_[latest_idx] = entry;
+            // The evicted (later) entry is the one we lose.
+            return false; // signals an overflow drop
+        }
+        return false; // new entry rejected entirely (it's the latest)
+    }
 };
 
 } // namespace pulp::midi
