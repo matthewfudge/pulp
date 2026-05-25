@@ -190,14 +190,15 @@ bool Sender::is_connected() const { return impl_->connected; }
 // ── Receiver ─────────────────────────────────────────────────────────────────
 
 struct Receiver::Impl {
-    SocketHandle sock = kInvalidSocket;
+    std::atomic<SocketHandle> sock{kInvalidSocket};
     std::thread thread;
     std::atomic<bool> running{false};
     ReceiverOptions options;
     std::atomic<uint16_t> local_port{0};
 
     ~Impl() {
-        if (sock != kInvalidSocket) close_socket(sock);
+        const auto old_sock = sock.exchange(kInvalidSocket, std::memory_order_acq_rel);
+        if (old_sock != kInvalidSocket) close_socket(old_sock);
     }
 
     bool is_running() const {
@@ -267,8 +268,8 @@ bool Receiver::listen_with_options(uint16_t port, ReceiverOptions options) {
         stop();
     }
     impl->local_port.store(0, std::memory_order_relaxed);
-    impl->sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (impl->sock == kInvalidSocket) return false;
+    auto sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == kInvalidSocket) return false;
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -280,27 +281,24 @@ bool Receiver::listen_with_options(uint16_t port, ReceiverOptions options) {
     // ambiguous for this one-handler Receiver API.
 #if defined(_WIN32)
     BOOL exclusive_addr = TRUE;
-    if (setsockopt(impl->sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+    if (setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
                    reinterpret_cast<const char*>(&exclusive_addr),
                    sizeof(exclusive_addr)) < 0) {
-        close_socket(impl->sock);
-        impl->sock = kInvalidSocket;
+        close_socket(sock);
         return false;
     }
 #endif
-    if (bind(impl->sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        close_socket(impl->sock);
-        impl->sock = kInvalidSocket;
+    if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        close_socket(sock);
         return false;
     }
 
     sockaddr_in bound_addr{};
     SockLen bound_len = static_cast<SockLen>(sizeof(bound_addr));
-    if (getsockname(impl->sock,
+    if (getsockname(sock,
                     reinterpret_cast<sockaddr*>(&bound_addr),
                     &bound_len) < 0) {
-        close_socket(impl->sock);
-        impl->sock = kInvalidSocket;
+        close_socket(sock);
         return false;
     }
     impl->local_port.store(ntohs(bound_addr.sin_port), std::memory_order_relaxed);
@@ -308,31 +306,33 @@ bool Receiver::listen_with_options(uint16_t port, ReceiverOptions options) {
     // Set receive timeout so we can check running_ flag
 #if defined(_WIN32)
     DWORD timeout_ms = 100;
-    if (setsockopt(impl->sock, SOL_SOCKET, SO_RCVTIMEO,
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
                    reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms)) < 0) {
-        close_socket(impl->sock);
-        impl->sock = kInvalidSocket;
+        close_socket(sock);
         impl->local_port.store(0, std::memory_order_relaxed);
         return false;
     }
 #else
     timeval tv{0, 100000}; // 100ms
-    if (setsockopt(impl->sock, SOL_SOCKET, SO_RCVTIMEO,
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
                    reinterpret_cast<const char*>(&tv), sizeof(tv)) < 0) {
-        close_socket(impl->sock);
-        impl->sock = kInvalidSocket;
+        close_socket(sock);
         impl->local_port.store(0, std::memory_order_relaxed);
         return false;
     }
 #endif
 
     impl->options = std::move(options);
+    impl->sock.store(sock, std::memory_order_release);
     impl->running = true;
 
     impl->thread = std::thread([impl] {
         std::vector<uint8_t> buf(kMaxUdpDatagramSize);
         while (impl->running) {
-            auto n = recv(impl->sock,
+            const auto sock = impl->sock.load(std::memory_order_acquire);
+            if (sock == kInvalidSocket)
+                break;
+            auto n = recv(sock,
                           reinterpret_cast<char*>(buf.data()),
                           static_cast<int>(buf.size()),
                           0);
@@ -396,9 +396,10 @@ void Receiver::stop_impl(bool destroying) {
     //      valid, so there's no race window.
     //   3. Join the thread — guaranteed to see running=false and exit.
     //   4. Only then close the FD. No one else holds it anymore.
-    // If a callback calls stop() on the receiver thread itself, requesting
-    // shutdown is enough. The next outside stop()/destructor call owns join
-    // and close; joining here would self-join and terminate.
+    // If a callback calls stop() on the receiver thread itself, close the
+    // socket now so the port is released immediately, but leave thread join to
+    // the next outside stop()/destructor call. Joining here would self-join and
+    // terminate.
     auto impl = impl_;
     if (!impl) return;
 
@@ -407,23 +408,22 @@ void Receiver::stop_impl(bool destroying) {
         && impl->thread.get_id() == std::this_thread::get_id();
 
     impl->running = false;
-    if (impl->sock != kInvalidSocket) {
+    const auto sock = impl->sock.exchange(kInvalidSocket, std::memory_order_acq_rel);
+    if (sock != kInvalidSocket) {
 #if defined(_WIN32)
-        ::shutdown(impl->sock, SD_BOTH);
+        ::shutdown(sock, SD_BOTH);
 #else
-        ::shutdown(impl->sock, SHUT_RDWR);
+        ::shutdown(sock, SHUT_RDWR);
 #endif
     }
     if (called_from_receiver_thread) {
         impl->local_port.store(0, std::memory_order_relaxed);
+        if (sock != kInvalidSocket) close_socket(sock);
         if (destroying && impl->thread.joinable()) impl->thread.detach();
         return;
     }
     if (impl->thread.joinable()) impl->thread.join();
-    if (impl->sock != kInvalidSocket) {
-        close_socket(impl->sock);
-        impl->sock = kInvalidSocket;
-    }
+    if (sock != kInvalidSocket) close_socket(sock);
     impl->local_port.store(0, std::memory_order_relaxed);
     impl->options = {};
 }

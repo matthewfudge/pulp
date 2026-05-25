@@ -980,6 +980,7 @@ TEST_CASE("OSC Receiver callbacks can request stop without self-joining",
           "[osc][udp][receiver][lifecycle][codecov]") {
     {
         std::atomic<int> errors{0};
+        std::atomic<bool> stop_returned{false};
         std::atomic<int> restarted_messages{0};
         Receiver rx;
 
@@ -987,6 +988,7 @@ TEST_CASE("OSC Receiver callbacks can request stop without self-joining",
         options.on_error = [&](std::string_view) {
             errors.fetch_add(1, std::memory_order_release);
             rx.stop();
+            stop_returned.store(true, std::memory_order_release);
         };
 
         REQUIRE(rx.listen_with_options(0, std::move(options)));
@@ -997,13 +999,18 @@ TEST_CASE("OSC Receiver callbacks can request stop without self-joining",
         REQUIRE(tx.connect("127.0.0.1", port));
 
         const uint8_t bad_message[] = {0x00, 0x01, 0x02};
-        for (int i = 0; i < 100 && errors.load(std::memory_order_acquire) == 0; ++i) {
+        for (int i = 0; i < 100 && !stop_returned.load(std::memory_order_acquire); ++i) {
             REQUIRE(tx.send_raw(bad_message, sizeof(bad_message)));
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
 
         REQUIRE(errors.load(std::memory_order_acquire) > 0);
+        REQUIRE(stop_returned.load(std::memory_order_acquire));
         tx.disconnect();
+
+        Receiver rebound;
+        REQUIRE(rebound.listen(port, [](const Message&) {}));
+        rebound.stop();
 
         REQUIRE(rx.listen(0, [&](const Message& msg) {
             if (msg.address == "/callback/restart" && msg.get_int(0) == 17)

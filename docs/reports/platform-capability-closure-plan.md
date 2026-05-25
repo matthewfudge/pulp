@@ -554,6 +554,23 @@ PR2 validation and PR state:
   Bundle transport coverage includes disconnect/reconnect sends and empty bundle
   receive. A fresh focused release run after the rebase passed
   `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'` 100/100.
+- After the `0939e9b19` rebase, focused Release/GPU-off validation passed:
+  `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`,
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel -j8`,
+  and `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'`
+  100/100.
+- A fresh PR review sweep on the rebased head found one P1 around callback-
+  thread `Receiver::stop()` leaving the UDP socket bound until a later owner
+  stop/destructor. The fix now closes the UDP socket immediately on the
+  receiver thread while still deferring thread join to an outside stop. A
+  Claude follow-up review found a stale-FD race from adding a receiver-thread
+  socket writer; the socket handle now uses an atomic claim/exchange handoff so
+  exactly one stop path owns shutdown/close. Focused coverage now rebinds
+  another receiver to the same port after callback-thread `stop()` returns and
+  before the original owner joins the receive thread. Validation after the fix:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel -j8` and
+  `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'` passed
+  100/100.
 - `tools/scripts/local_diff_cover.sh` hits the local GPU/Skia configure gate in
   this worktree, so the same coverage pipeline was run manually in
   `build-cov` with `PULP_ENABLE_COVERAGE=ON`, `PULP_ENABLE_GPU=OFF`, the OSC
