@@ -1,7 +1,7 @@
 # Platform Capability Closure Plan
 
-**Date:** 2026-05-25  
-**Status:** Planning  
+**Date:** 2026-05-25
+**Status:** Planning
 **Scope:** Runtime, events, audio I/O, audio formats, window embedding, OSC
 
 ## Summary
