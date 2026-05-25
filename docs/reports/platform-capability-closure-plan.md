@@ -1,7 +1,7 @@
 # Platform Capability Closure Plan
 
 **Date:** 2026-05-25
-**Status:** Planning
+**Status:** Active closure pass
 **Scope:** Runtime, events, audio I/O, audio formats, window embedding, OSC
 
 ## Summary
@@ -24,8 +24,8 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
-| Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | PR #2815 open; fixing review/CI findings | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Queued | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Locally validated; ready for PR submission | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
 | OSC | `feature/platform-osc-bundles-routing` | `pulp-platform-osc-bundles-routing` | Queued | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
 | Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
@@ -220,6 +220,66 @@ Recommended work:
   assigned inside the worker thread today, so a concurrent `is_current_thread()`
   call during construction can observe the default id.
 - Add tests that prove worker-thread calls can safely marshal to the UI thread.
+
+Native event loop local implementation status:
+- Added `pulp::events::MainThreadDispatcher` as the process-wide native
+  main-thread dispatch surface. The dispatcher supports `call_async`,
+  `call_sync`, `is_main_thread`, backend presence checks, token-based
+  registration, and stacked backend restoration when nested owners unregister.
+- Hardened backend lifetime semantics. Dispatcher calls lease the selected
+  backend while invoking `post` or `is_main_thread`; `unregister_backend()`
+  removes the token immediately, waits for other in-flight callbacks, and
+  handles self-unregister from backend callbacks without deadlocking.
+- Made `call_sync()` revalidate backend liveness before inline execution or
+  posting. If a backend unregisters during `is_main_thread()`, the dispatcher
+  reacquires the restored active backend instead of using a stale callback set.
+- Wrapped `call_async()` tasks before handing them to native backends so user
+  exceptions cannot escape into AppKit/UIKit/SDL queues. `call_sync()` still
+  propagates task exceptions to the caller and now has a bounded backend-retry
+  loop if registrations churn during dispatch.
+- Kept `EventLoop` as a worker-loop primitive while fixing lifecycle hazards:
+  thread id publication and reads are synchronized under the loop mutex,
+  mutable loop state is held by shared state so self-thread destruction can
+  complete, post-stop enqueues are rejected under the loop mutex, and a
+  self-stop prevents later tasks in the drained batch from running.
+- Registered native backends in platform hosts:
+  - macOS Cocoa hosts dispatch through `dispatch_get_main_queue()` while their
+    application loop is running, reject new work once app shutdown begins, and
+    defer `[NSApp stop:nil]` so already accepted main-queue work can drain.
+  - iOS UIKit hosts dispatch through `dispatch_get_main_queue()` and retain
+    registration tokens across the non-blocking iOS run-loop handoff.
+  - SDL hosts register a loop-thread queue that drains inside the SDL event
+    loop, rejects new work during shutdown, and drains one task snapshot per
+    loop tick so self-reposting tasks cannot starve SDL polling.
+- While wiring the platform hosts, fixed adjacent teardown hazards found during
+  review: macOS CPU idle timers are invalidated on host destruction, queued
+  macOS GPU render blocks carry a liveness token, macOS/iOS GPU idle and resize
+  callbacks re-check liveness after user callbacks, and iOS CPU/GPU window
+  teardown disconnects retained UIKit callbacks before host-owned state is
+  cleared.
+
+Native event loop local validation:
+- `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
+- `cmake --build build --target pulp-test-events pulp-view-core -j$(sysctl -n hw.ncpu)`
+- `ctest --test-dir build --output-on-failure -R 'MainThreadDispatcher|EventLoop'`
+  passed: 34 focused CTest cases.
+- `./build/test/pulp-test-events --durations yes` passed: 259 assertions in
+  57 test cases.
+- Manual GPU-off diff coverage passed against `origin/main`: 96% diff coverage
+  with only the two `EventLoop` `condition_variable::notify_one()` lines
+  reported uncovered by llvm-cov. `sdl_window_host.cpp` is excluded in the
+  shared coverage config as a live native window-host loop; the dispatcher
+  contract it uses is covered by the focused unit tests and the host is
+  compile-validated by `pulp-view-core`.
+- `git diff --check` passed.
+- Claude and RepoPrompt blocker reviews were run. Claude's P1 findings around
+  async exceptions, EventLoop thread-id synchronization, iOS registration
+  order, unbounded sync retry, and SDL drain starvation were fixed; the final
+  RepoPrompt review reported no remaining P0/P1 findings after the macOS
+  shutdown liveness fix.
+- SSH-backed Windows/Ubuntu targets are intentionally out of scope for this
+  focused validation pass; use GitHub-hosted platform checks and local/macOS
+  evidence instead.
 
 ### 3. Audio Format Completion
 

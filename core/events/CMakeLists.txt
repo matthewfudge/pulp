@@ -9,6 +9,7 @@ target_include_directories(pulp-events
 
 target_sources(pulp-events PRIVATE
     src/event_loop.cpp
+    src/main_thread_dispatcher.cpp
     src/timer.cpp
     src/async_updater.cpp
     src/interprocess_connection.cpp
