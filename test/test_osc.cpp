@@ -470,6 +470,48 @@ TEST_CASE("OSC Sender failed reconnect preserves the existing destination",
     rx.stop();
 }
 
+TEST_CASE("OSC Sender successful reconnect replaces the existing destination",
+          "[osc][udp][sender][codecov]") {
+    std::atomic<int> first_receiver{0};
+    std::atomic<int> second_receiver{0};
+
+    Receiver rx1;
+    REQUIRE(rx1.listen(0, [&](const Message& msg) {
+        if (msg.address == "/sender/reconnect-success/first")
+            first_receiver.fetch_add(1, std::memory_order_release);
+    }));
+
+    Receiver rx2;
+    REQUIRE(rx2.listen(0, [&](const Message& msg) {
+        if (msg.address == "/sender/reconnect-success/second" && msg.get_int(0) == 22)
+            second_receiver.fetch_add(1, std::memory_order_release);
+    }));
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", rx1.local_port()));
+    REQUIRE(tx.connect("127.0.0.1", rx2.local_port()));
+    REQUIRE(tx.is_connected());
+
+    Message first("/sender/reconnect-success/first");
+    first.add(11);
+    Message second("/sender/reconnect-success/second");
+    second.add(22);
+
+    for (int i = 0; i < 100
+         && second_receiver.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(tx.send(first));
+        REQUIRE(tx.send(second));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(second_receiver.load(std::memory_order_acquire) > 0);
+    REQUIRE(first_receiver.load(std::memory_order_acquire) == 0);
+
+    tx.disconnect();
+    rx1.stop();
+    rx2.stop();
+}
+
 TEST_CASE("OSC Sender sends caller-owned raw packets over loopback",
           "[osc][udp][sender][coverage]") {
     std::atomic<int> handled{0};
@@ -523,6 +565,7 @@ TEST_CASE("OSC Receiver routes direct messages through address-pattern listeners
         if (msg.address == "/mix/gain")
             mix_messages.fetch_add(msg.get_int(0), std::memory_order_release);
     }});
+    options.routes.push_back({"/mix/*", {}});
     options.routes.push_back({"/note/[0-9]", [&](const Message&) {
         note_messages.fetch_add(1, std::memory_order_release);
     }});
@@ -979,6 +1022,40 @@ TEST_CASE("OSC Receiver callbacks can request stop without self-joining",
         }
 
         REQUIRE(restarted_messages.load(std::memory_order_acquire) > 0);
+        tx.disconnect();
+        rx.stop();
+        REQUIRE_FALSE(rx.is_listening());
+    }
+
+    {
+        std::atomic<int> errors{0};
+        std::atomic<int> self_listen_rejected{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_error = [&](std::string_view) {
+            errors.fetch_add(1, std::memory_order_release);
+            rx.stop();
+            if (!rx.listen(0, [](const Message&) {}))
+                self_listen_rejected.fetch_add(1, std::memory_order_release);
+        };
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        const uint8_t bad_message[] = {0x00, 0x01, 0x02};
+        for (int i = 0; i < 100
+             && self_listen_rejected.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send_raw(bad_message, sizeof(bad_message)));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(errors.load(std::memory_order_acquire) > 0);
+        REQUIRE(self_listen_rejected.load(std::memory_order_acquire) > 0);
         tx.disconnect();
         rx.stop();
         REQUIRE_FALSE(rx.is_listening());

@@ -527,17 +527,20 @@ PR2 validation and PR state:
   address. The first CI failure was the version-bump commit-shape guard; it was
   fixed by splitting the `0.209.0` API bump into the canonical
   `chore: bump versions` commit. The refreshed version/skill check is passing.
-- At the latest sweep, docs, source pollution, header self-containment,
-  version/skill, dependency audit, Linux release-path, macOS build/test, and
-  advisory include-what-you-use checks were passing. Longer GitHub-hosted
-  platform, sanitizer, install-smoke, Android, and macOS release-path checks
-  were still queued or running; no refreshed check failure was present.
+- A later PR sweep found no human review threads. The stale pre-rebase hosted
+  matrix had unrelated Linux inspector failures and Windows process/IPC/
+  inspector/import-design failures; no SSH Windows/Ubuntu validation is part of
+  this focused pass. The stale Codecov bot report had patch coverage below the
+  advisory 75% target, so this branch was rebased onto current `main` and the
+  OSC coverage tests were tightened before pushing a refreshed head.
 - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
 - `cmake --build build --target pulp-test-osc pulp-test-osc-bundle
   pulp-test-osc-channel`
 - Focused CTest coverage for route matching, typed bundle send/receive,
   malformed message/bundle callbacks, exclusive receiver binding, receiver
-  restart rejection, and occupied local-port channel failure passed.
+  restart rejection, occupied local-port channel failure, successful sender
+  reconnect over an existing socket, empty route handlers, and receiver-thread
+  listen rejection after callback-requested stop passed.
 - `ctest --test-dir build --output-on-failure -j4 --timeout 120 -R
   'OSC|OscChannel|osc|Bundle::deserialize rejects null data with bundle-sized
   length'` passed 100/100 after the final unconnected bundle-send,
@@ -549,13 +552,22 @@ PR2 validation and PR state:
   covered as a lifecycle regression. Malformed-input coverage includes real
   zero-length UDP datagrams and trailing-empty address-pattern alternatives.
   Bundle transport coverage includes disconnect/reconnect sends and empty bundle
-  receive.
+  receive. A fresh focused release run after the rebase passed
+  `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'` 100/100.
 - `tools/scripts/local_diff_cover.sh` hits the local GPU/Skia configure gate in
   this worktree, so the same coverage pipeline was run manually in
-  `build-cov-osc` with `PULP_ENABLE_GPU=OFF`, the OSC targets, and the same
-  75% diff-coverage floor. Result: 94% total diff coverage
-  (`core/osc/src/bundle.cpp` 100%, `core/osc/src/osc_udp.cpp` 94.3%). GitHub
-  Codecov remains the authoritative PR-side coverage result.
+  `build-cov` with `PULP_ENABLE_COVERAGE=ON`, `PULP_ENABLE_GPU=OFF`, the OSC
+  targets, `LLVM_PROFILE_FILE`, and the same 75% diff-coverage floor. The
+  focused coverage CTest run passed 100/100. Result: 94% total diff coverage
+  (`core/osc/src/bundle.cpp` 100%, `core/osc/src/osc_udp.cpp` 94.3%). The
+  remaining uncovered diff lines are defensive socket cleanup paths for
+  unresolved addrinfo, `getsockname()` failure, and receive-timeout
+  `setsockopt()` failure that are not deterministic to force through the public
+  API; GitHub Codecov remains the authoritative PR-side coverage result after
+  the refreshed push.
+- Final RepoPrompt and Claude blocker reviews after the rebase and coverage
+  sweep found no P0/P1 correctness issues in the branch implementation or the
+  pending OSC test/docs updates.
 
 ## Suggested Order
 
