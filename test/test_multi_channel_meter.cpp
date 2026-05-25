@@ -302,3 +302,143 @@ TEST_CASE("MultiChannelMeter treats non-finite samples as silence (no NaN poison
     // The valid 0.5 samples should register a real RMS, not 0/NaN.
     REQUIRE(snap.channels[0].rms > 0.0f);
 }
+
+TEST_CASE("MultiChannelMeter accumulates short blocks until the emit threshold",
+          "[signal][meter][coverage][phase3]") {
+    MultiChannelMeter meter;
+    meter.prepare(1000.0f, 1);  // 10-sample snapshot block
+
+    float first_half[] = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f};
+    const float* first_channels[] = {first_half};
+    meter.process(first_channels, 1, 5);
+
+    REQUIRE_THAT(meter.snapshot().channels[0].peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(meter.snapshot().channels[0].rms, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_FALSE(meter.snapshot().channels[0].clipped);
+
+    float second_half[] = {-0.25f, -0.5f, 0.75f, -1.25f, 0.0f};
+    const float* second_channels[] = {second_half};
+    meter.process(second_channels, 1, 5);
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 1);
+    REQUIRE_THAT(snap.channels[0].peak, WithinAbs(1.25f, 1e-6f));
+    REQUIRE(snap.channels[0].clipped);
+    REQUIRE(snap.channels[0].rms > 0.5f);
+    REQUIRE(std::isfinite(snap.channels[0].lufs_momentary));
+}
+
+TEST_CASE("MultiChannelMeter first null channel clears stale stereo state",
+          "[signal][meter][coverage][phase3]") {
+    MultiChannelMeter meter;
+    meter.prepare(100.0f, 2);
+
+    float left[] = {0.5f};
+    float right[] = {0.5f};
+    const float* stereo[] = {left, right};
+    meter.process(stereo, 2, 1);
+
+    REQUIRE(meter.snapshot().num_channels == 2);
+    REQUIRE_THAT(meter.snapshot().channels[0].peak, WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(meter.snapshot().channels[1].peak, WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(meter.snapshot().correlation, WithinAbs(1.0f, 1e-6f));
+
+    const float* first_null[] = {nullptr, right};
+    meter.process(first_null, 2, 1);
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 0);
+    REQUIRE_THAT(snap.channels[0].peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(snap.channels[1].peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_FALSE(snap.channels[0].clipped);
+    REQUIRE_FALSE(snap.channels[1].clipped);
+    REQUIRE_THAT(snap.correlation, WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("MultiChannelMeter sanitizes non-finite stereo correlation samples",
+          "[signal][meter][coverage][phase3]") {
+    MultiChannelMeter meter;
+    meter.prepare(100.0f, 2);
+
+    float left[] = {
+        std::numeric_limits<float>::quiet_NaN(),
+        0.25f
+    };
+    float right[] = {
+        std::numeric_limits<float>::infinity(),
+        -0.25f
+    };
+    const float* channels[] = {left, right};
+    meter.process(channels, 2, 2);
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 2);
+    REQUIRE_THAT(snap.channels[0].peak, WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(snap.channels[1].peak, WithinAbs(0.25f, 1e-6f));
+    REQUIRE_FALSE(snap.channels[0].clipped);
+    REQUIRE_FALSE(snap.channels[1].clipped);
+    REQUIRE(std::isfinite(snap.correlation));
+    REQUIRE_THAT(snap.correlation, WithinAbs(-1.0f, 1e-6f));
+    REQUIRE(std::isfinite(snap.channels[0].rms));
+    REQUIRE(std::isfinite(snap.channels[1].rms));
+}
+
+TEST_CASE("MultiChannelMeter zero sample rate still emits finite one-sample snapshots",
+          "[signal][meter][coverage][phase3]") {
+    MultiChannelMeter meter;
+    meter.prepare(0.0f, 1);
+
+    float sample[] = {0.5f};
+    const float* channels[] = {sample};
+    meter.process(channels, 1, 1);
+
+    const auto& snap = meter.snapshot();
+    REQUIRE(snap.num_channels == 1);
+    REQUIRE_THAT(snap.channels[0].peak, WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(snap.channels[0].rms, WithinAbs(0.5f, 1e-6f));
+    REQUIRE(std::isfinite(snap.channels[0].lufs_momentary));
+    REQUIRE(std::isfinite(snap.lufs_integrated));
+}
+
+TEST_CASE("MultiChannelBallistics releases peaks RMS and clip holds independently",
+          "[signal][meter][coverage][phase3]") {
+    MultiChannelBallistics ballistics;
+    ballistics.attack_time = 0.01f;
+    ballistics.release_time = 0.01f;
+    ballistics.peak_hold_time = 0.02f;
+    ballistics.clip_hold_time = 0.03f;
+
+    MultiChannelMeterData data;
+    data.num_channels = 2;
+    data.channels[0].peak = 0.8f;
+    data.channels[0].rms = 0.4f;
+    data.channels[0].clipped = true;
+    data.channels[1].peak = 0.2f;
+    data.channels[1].rms = 0.1f;
+    ballistics.update(data, 0.01f);
+
+    REQUIRE(ballistics.num_channels == 2);
+    REQUIRE(ballistics.channels[0].display_peak > ballistics.channels[1].display_peak);
+    REQUIRE(ballistics.channels[0].display_rms > ballistics.channels[1].display_rms);
+    REQUIRE_THAT(ballistics.channels[0].held_peak, WithinAbs(0.8f, 1e-6f));
+    REQUIRE_THAT(ballistics.channels[1].held_peak, WithinAbs(0.2f, 1e-6f));
+    REQUIRE(ballistics.channels[0].clip_indicator);
+    REQUIRE_FALSE(ballistics.channels[1].clip_indicator);
+
+    data.channels[0].peak = 0.0f;
+    data.channels[0].rms = 0.0f;
+    data.channels[0].clipped = false;
+    data.channels[1].peak = 0.0f;
+    data.channels[1].rms = 0.0f;
+    ballistics.update(data, 0.2f);
+
+    REQUIRE_FALSE(ballistics.channels[0].clip_indicator);
+    REQUIRE(ballistics.channels[0].held_peak < 0.02f);
+    REQUIRE(ballistics.channels[1].held_peak < 0.02f);
+    REQUIRE_THAT(ballistics.channels[0].display_peak, WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(ballistics.channels[1].display_rms, WithinAbs(0.0f, 1e-6f));
+
+    data.num_channels = -4;
+    ballistics.update(data, 0.01f);
+    REQUIRE(ballistics.num_channels == 0);
+}
