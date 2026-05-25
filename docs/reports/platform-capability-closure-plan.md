@@ -25,7 +25,7 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Locally validated; ready for PR submission | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Draft PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open; check/comment sweep pending | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
 | OSC | `feature/platform-osc-bundles-routing` | `pulp-platform-osc-bundles-routing` | Queued | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
 | Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
