@@ -11,6 +11,7 @@ namespace pulp::runtime {
 
 struct HighResolutionTimer::TimerState {
     std::atomic<bool> running{false};
+    std::atomic<bool> thread_ready{false};
     std::function<void()> callback;
 };
 
@@ -28,6 +29,11 @@ void HighResolutionTimer::start(std::chrono::microseconds interval,
     running_.store(true, std::memory_order_release);
 
     thread_ = std::thread([state, interval]() {
+        while (!state->thread_ready.load(std::memory_order_acquire) &&
+               state->running.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
         // Set thread priority high for timing accuracy
 #ifdef __APPLE__
         pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
@@ -59,6 +65,7 @@ void HighResolutionTimer::start(std::chrono::microseconds interval,
             next += interval;
         }
     });
+    state->thread_ready.store(true, std::memory_order_release);
 }
 
 void HighResolutionTimer::stop() {
