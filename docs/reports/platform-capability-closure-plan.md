@@ -473,8 +473,8 @@ Closure slice:
   public docs do not imply first-party non-Apple embedding exists today.
 
 Native-window local validation:
-- Rebased onto `origin/main` at `65b48dfa6` and refreshed the required SDK
-  minor bump to `0.217.0`.
+- Rebased onto `origin/main` at `0939e9b19` and refreshed the required SDK
+  minor bump to `0.218.0`.
 - Configured Release with WebView enabled and GPU off:
   `cmake -S . -B build-native-window -DCMAKE_BUILD_TYPE=Release
   -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_TESTS=ON -DPULP_BUILD_EXAMPLES=ON
@@ -500,7 +500,7 @@ Native-window local validation:
 - `tools/scripts/gates.sh origin/main` passed skill-sync, version-bump,
   compat-sync, node-ABI, and deps-audit gates.
 - `version_bump_check.py --base origin/main --head HEAD --mode apply` applied
-  the required SDK minor bump to `0.217.0` after the inspector host-factory
+  the required SDK minor bump to `0.218.0` after the inspector host-factory
   override made the patch a public header/API change.
 - Coverage note: the stock `tools/scripts/local_diff_cover.sh` wrapper still
   configures the GPU examples path and fails locally without Skia. The same
