@@ -29,10 +29,7 @@ void HighResolutionTimer::start(std::chrono::microseconds interval,
     running_.store(true, std::memory_order_release);
 
     thread_ = std::thread([state, interval]() {
-        while (!state->thread_ready.load(std::memory_order_acquire) &&
-               state->running.load(std::memory_order_acquire)) {
-            std::this_thread::yield();
-        }
+        state->thread_ready.wait(false, std::memory_order_acquire);
 
         // Set thread priority high for timing accuracy
 #ifdef __APPLE__
@@ -66,6 +63,7 @@ void HighResolutionTimer::start(std::chrono::microseconds interval,
         }
     });
     state->thread_ready.store(true, std::memory_order_release);
+    state->thread_ready.notify_one();
 }
 
 void HighResolutionTimer::stop() {
