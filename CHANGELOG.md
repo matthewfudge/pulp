@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02120"></a>
+## [0.212.0] - 2026-05-25
+
+- feat(macos-plan): Batch E (UMP per-note + JR Clock) + Sqrt4_5dB midpoint fix ([#2836](https://github.com/danielraffel/pulp/pull/2836))
+- test(apple): cover PulpBridge edge contracts ([#2835](https://github.com/danielraffel/pulp/pull/2835))
+- test(host): cover scan worker output contracts ([#2831](https://github.com/danielraffel/pulp/pull/2831))
+
 <a id="v02110"></a>
 ## [0.211.0] - 2026-05-25
 
@@ -2729,6 +2736,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.212.0]: https://github.com/danielraffel/pulp/releases/tag/v0.212.0
 [0.211.0]: https://github.com/danielraffel/pulp/releases/tag/v0.211.0
 [0.210.0]: https://github.com/danielraffel/pulp/releases/tag/v0.210.0
 [0.209.0]: https://github.com/danielraffel/pulp/releases/tag/v0.209.0
