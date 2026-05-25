@@ -26,9 +26,9 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open; rebased onto current `origin/main` at `66428b24`; focused dispatcher/IPC/OSC, inspector, and design-debug validation passing; shared hosted CI portability fixes added for inspector/design-debug/OSC Linux failures found during the PR sweep; SDK version is `0.236.0` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
-| OSC | `feature/platform-osc` | `pulp-platform-osc` | PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open, ready for review; rebased onto current `main`; local OSC suite and manual GPU-off diff coverage passing | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
-| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Merged via PR [#2825](https://github.com/danielraffel/pulp/pull/2825) as `9c96f3dfa` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| OSC | `feature/platform-osc` | `pulp-platform-osc` | PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open; rebasing onto current `origin/main` after #2825 merge; local post-rebase validation pending | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, exclusive UDP receiver binding, focused UDP and pure parser tests |
+| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | PR [#2844](https://github.com/danielraffel/pulp/pull/2844) open; rebase/validation pending after #2822 | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
 Validation expectations for each PR:
 - Add or update focused unit tests for every new public behavior.
@@ -39,9 +39,10 @@ Validation expectations for each PR:
 - Sweep the full local diff for correctness, lifecycle, cross-platform, and
   docs issues before opening the PR; use Claude as an independent review pass
   and fix actionable findings before submitting.
-- Use the normal Shipyard PR flow so required checks and Codecov comments are
-  recorded before merge. For this focused pass, do not run SSH Windows/Ubuntu
-  validation lanes; use local/macOS evidence and GitHub-hosted checks.
+- Use the normal Shipyard/GitHub PR flow so required checks and Codecov
+  comments are recorded before merge. For this focused pass, do not run SSH
+  Windows/Ubuntu validation lanes; use local/macOS evidence and GitHub-hosted
+  checks.
 - After each PR opens, sweep Shipyard/GitHub review and CI comments, address
   actionable feedback on the same branch, and re-run focused validation before
   moving to the next feature.
@@ -57,7 +58,7 @@ Validation expectations for each PR:
 | Audio file formats | Partially implemented | `core/audio/src/format_registry.cpp`, `core/audio/src/audio_file.cpp`, `core/audio/src/aiff_reader.cpp`, `core/audio/src/ogg_reader.cpp`, `core/audio/src/flac_writer.cpp`, `core/audio/src/mp3_writer.cpp`, `core/audio/CMakeLists.txt` |
 | Audio devices and multichannel audio | Partially implemented | `core/audio/include/pulp/audio/device.hpp`, `core/audio/include/pulp/audio/channel_set.hpp`, `core/audio/platform/mac/coreaudio_device.mm`, `core/audio/platform/win/wasapi_device.cpp`, `core/audio/platform/linux/alsa_device.cpp`, `core/audio/platform/linux/jack_device.cpp` |
 | Native window embedding | Partially implemented | `core/view/include/pulp/view/window_host.hpp`, `core/view/include/pulp/view/plugin_view_host.hpp`, `core/view/src/window_host_stub.cpp`, `core/view/src/plugin_view_host_stub.cpp`, `core/host/include/pulp/host/plugin_slot.hpp` |
-| OSC | Partially implemented | `core/osc/include/pulp/osc/osc.hpp`, `core/osc/include/pulp/osc/bundle.hpp`, `core/osc/src/osc.cpp`, `core/osc/src/osc_udp.cpp`, `core/osc/src/bundle.cpp`, `core/osc/src/osc_channel.cpp`, `test/test_osc_channel.cpp` |
+| OSC | In closure | `core/osc/include/pulp/osc/osc.hpp`, `core/osc/include/pulp/osc/bundle.hpp`, `core/osc/src/osc.cpp`, `core/osc/src/osc_udp.cpp`, `core/osc/src/bundle.cpp`, `core/osc/src/osc_channel.cpp`, `test/test_osc.cpp`, `test/test_osc_channel.cpp` |
 
 ## Gaps Worth Closing
 
@@ -205,11 +206,11 @@ PR1 submit and review sweep:
   translation unit without UBSan instrumentation while keeping Pulp's script and
   view code instrumented. The previously failing Figma, Stitch, Pencil, and
   baked-native materialization cases now pass locally under UBSan.
-- GitHub-hosted Linux CI surfaced a latent OSC UDP portability gap: `Receiver`
-  enabled `SO_REUSEADDR`, which lets Linux bind multiple receivers to the same
-  UDP port and breaks the existing exclusive-listener contract. `Receiver` now
-  binds exclusively; the public API can add an explicit shared-port mode later
-  if a real use case needs it.
+- PR #2815 was squash-merged into `main` on 2026-05-25.
+- GitHub-hosted Linux CI surfaced a latent OSC UDP portability gap after PR1:
+  `Receiver` enabled `SO_REUSEADDR`, which lets Linux bind multiple receivers
+  to the same UDP port and breaks the existing exclusive-listener contract. That
+  fix is carried in PR2 because PR1 had already merged.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 
@@ -477,15 +478,85 @@ Recommended work:
 - Extend tests to cover nested bundles, bundle receive paths, address filtering,
   and invalid-packet handling.
 
+PR2 implementation scope:
+- `Sender::send(const Bundle&)` serializes typed bundles through the existing UDP
+  datagram primitive and preserves the existing connected-state rejection path.
+  Reconnect behavior is covered for bundle sends after `disconnect()` and a new
+  target `connect()`.
+- `Receiver::listen_with_options()` adds a non-ambiguous options-based API while
+  preserving the existing `listen(port, handler)` source contract, including
+  `listen(port, {})`.
+- `ReceiverOptions` exposes top-level `on_bundle`, `on_message`, `on_error`, and
+  address-pattern `ReceiverRoute` callbacks. Direct messages and messages inside
+  nested bundles are routed through the existing `address_matches()` matcher.
+- The receiver detects `#bundle` datagrams, deserializes typed bundles, reports
+  malformed bundles through `on_error`, and reports malformed message datagrams
+  through `on_error` instead of silently dropping them when rich receiver options
+  are used, including valid zero-length UDP datagrams that are malformed OSC
+  packets. Empty bundles dispatch through `on_bundle` without synthetic message
+  callbacks.
+- The UDP receive path now sizes its packet buffer for full UDP datagrams, so
+  valid bundles larger than the old 4 KiB stack buffer are delivered instead of
+  being parsed as truncated malformed packets.
+- UDP receivers now bind exclusively so the one-receiver-per-port contract is
+  consistent on Linux and macOS; an explicit shared-port mode can be added later
+  if a real API need appears. The Windows path sets `SO_EXCLUSIVEADDRUSE`
+  before `bind()` to preserve the same contract against sockets that opt into
+  shared address use.
+- `Receiver::listen_with_options()` now treats receive-timeout setup failure as
+  a listen failure instead of starting a receiver that may not stop promptly.
+- Receiver callbacks can request `stop()` from the receiver thread without
+  self-joining; cleanup is completed by the next outside `stop()` or
+  destructor call, the receiver can be reused without requiring a manual cleanup
+  call first, and callback fanout for the current datagram stops immediately
+  once shutdown has been requested. Receiver worker state is ref-counted so
+  destroying a receiver-owned object from inside a callback cannot free the
+  socket/thread state before the receive thread unwinds.
+- `Sender::connect()` now commits a new UDP socket and destination only after
+  host resolution succeeds, so a failed reconnect cannot leak the previous
+  socket or leave the sender disconnected from its existing destination.
+- `Bundle::deserialize()` now rejects null data even when the caller provides a
+  bundle-sized length, matching the rest of the malformed-packet rejection
+  behavior.
+- Address-pattern validation now fails closed for trailing empty alternatives
+  such as `{foo,}` and `{foo,bar,}`.
+
+PR2 local validation so far:
+- `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
+- `cmake --build build --target pulp-test-osc pulp-test-osc-bundle
+  pulp-test-osc-channel`
+- Focused CTest coverage for route matching, typed bundle send/receive,
+  malformed message/bundle callbacks, exclusive receiver binding, receiver
+  restart rejection, and occupied local-port channel failure passed.
+- `ctest --test-dir build --output-on-failure -j4 --timeout 120 -R
+  'OSC|OscChannel|osc|Bundle::deserialize rejects null data with bundle-sized
+  length'` passed 100/100 after the final unconnected bundle-send,
+  failed-reconnect, large-bundle receive, callback self-stop, and null
+  bundle-deserialize assertions were added. The callback self-stop coverage also
+  verifies that a receiver can restart after the callback-requested stop and
+  that stop short-circuits bundle, message, route, and nested bundle callback
+  fanout for the current datagram. Callback-time receiver-owner destruction is
+  covered as a lifecycle regression. Malformed-input coverage includes real
+  zero-length UDP datagrams and trailing-empty address-pattern alternatives.
+  Bundle transport coverage includes disconnect/reconnect sends and empty bundle
+  receive.
+- `tools/scripts/local_diff_cover.sh` hits the local GPU/Skia configure gate in
+  this worktree, so the same coverage pipeline was run manually in
+  `build-cov-osc` with `PULP_ENABLE_GPU=OFF`, the OSC targets, and the same
+  75% diff-coverage floor. Result: 94% total diff coverage
+  (`core/osc/src/bundle.cpp` 100%, `core/osc/src/osc_udp.cpp` 94.3%). GitHub
+  Codecov remains the authoritative PR-side coverage result.
+
 ## Suggested Order
 
-1. JACK `DeviceInfo` reconciliation and AIFC compression whitelist.
-2. Audio format capability reporting and tests.
-3. OSC bundle-aware send/receive and format-error callbacks.
-4. Process API cleanup, including the `ConnectedChildProcess` layering decision.
-5. Audio device manager MVP.
-6. Main-thread dispatcher.
-7. Non-Apple native embedding implementations.
+1. Threads/processes closure in PR #2815. Complete.
+2. OSC bundle-aware send/receive, listener filtering, and format-error
+   callbacks. Active.
+3. Main-thread dispatcher.
+4. Non-Apple native embedding implementations or explicit supported-platform
+   contracts.
+5. Larger follow-up audit for audio formats, audio device management, and any
+   remaining platform capability claims.
 
 The first three are relatively contained and can turn partial support into
 clear, testable guarantees. The latter work touches broader platform contracts

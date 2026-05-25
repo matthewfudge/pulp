@@ -39,10 +39,6 @@ static void write_bytes(std::vector<uint8_t>& buf, const void* data, size_t n) {
     buf.insert(buf.end(), p, p + n);
 }
 
-static void pad_to_4(std::vector<uint8_t>& buf) {
-    while (buf.size() % 4 != 0) buf.push_back(0);
-}
-
 std::vector<uint8_t> Bundle::serialize() const {
     std::vector<uint8_t> buf;
 
@@ -75,6 +71,7 @@ std::vector<uint8_t> Bundle::serialize() const {
 }
 
 std::optional<Bundle> Bundle::deserialize(const uint8_t* data, size_t size) {
+    if (data == nullptr) return std::nullopt;
     if (size < 16) return std::nullopt;  // minimum: header(8) + timetag(8)
 
     // Verify "#bundle\0" header
@@ -143,9 +140,11 @@ bool address_matches(std::string_view pattern, std::string_view address) {
                 ++pi;
                 bool negate = pi < pattern.size() && pattern[pi] == '!';
                 if (negate) ++pi;
+                bool saw_member = false;
                 bool matched = false;
                 bool closed = false;
                 while (pi < pattern.size() && pattern[pi] != ']') {
+                    saw_member = true;
                     if (pi + 2 < pattern.size() && pattern[pi + 1] == '-') {
                         if (address[ai] >= pattern[pi] && address[ai] <= pattern[pi + 2])
                             matched = true;
@@ -160,6 +159,7 @@ bool address_matches(std::string_view pattern, std::string_view address) {
                     ++pi;  // skip ']'
                 }
                 if (!closed) return false;
+                if (!saw_member) return false;
                 if (matched == negate) return false;
                 ++ai;
             } else if (pc == '{') {
@@ -169,12 +169,17 @@ bool address_matches(std::string_view pattern, std::string_view address) {
                 while (close < pattern.size() && pattern[close] != '}') ++close;
                 if (close == pattern.size()) return false;
 
+                if (pi == close) return false;
+
                 size_t scan = pi;
                 while (scan < close) {
                     size_t start = scan;
                     while (scan < close && pattern[scan] != ',') ++scan;
                     if (scan == start) return false;
-                    if (scan < close && pattern[scan] == ',') ++scan;
+                    if (scan < close && pattern[scan] == ',') {
+                        ++scan;
+                        if (scan == close) return false;
+                    }
                 }
 
                 while (pi < pattern.size() && pattern[pi] != '}') {
