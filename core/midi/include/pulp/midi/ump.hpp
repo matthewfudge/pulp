@@ -204,7 +204,106 @@ struct UmpPacket {
                     | uint32_t(velocity & 0x7F);
         return p;
     }
+
+    // MIDI 2.0 Assignable Per-Note Controller (status 0x10). Byte 2 is
+    // the note number, byte 3 is the user-assigned controller index.
+    // Distinct from `registered_per_note_cc` (status 0x00) which uses
+    // standard registered controller IDs.
+    static UmpPacket assignable_per_note_cc(uint8_t group, uint8_t channel,
+                                             uint8_t note, uint8_t cc_index,
+                                             uint32_t value) {
+        UmpPacket p;
+        p.word_count = 2;
+        p.words[0] = (0x4u << 28) | (uint32_t(group & 0x0F) << 24)
+                    | (uint32_t(0x10 | (channel & 0x0F)) << 16)
+                    | (uint32_t(note & 0x7F) << 8)
+                    | uint32_t(cc_index & 0x7F);
+        p.words[1] = value;
+        return p;
+    }
+
+    // MIDI 2.0 Per-Note Management (status 0xF0). Byte 2 is the note
+    // number; byte 3 carries flags (bit 0 = reset per-note controllers
+    // to default, bit 1 = detach previously-held controllers from the
+    // note so they stop tracking it). Word 1 is reserved by the spec.
+    static UmpPacket per_note_management(uint8_t group, uint8_t channel,
+                                          uint8_t note, uint8_t flags) {
+        UmpPacket p;
+        p.word_count = 2;
+        p.words[0] = (0x4u << 28) | (uint32_t(group & 0x0F) << 24)
+                    | (uint32_t(0xF0 | (channel & 0x0F)) << 16)
+                    | (uint32_t(note & 0x7F) << 8)
+                    | uint32_t(flags);
+        p.words[1] = 0;
+        return p;
+    }
+
+    // Per-Note Management flags (UMP spec):
+    static constexpr uint8_t kPerNoteResetControllers = 0x01;
+    static constexpr uint8_t kPerNoteDetachControllers = 0x02;
 };
+
+// ── Utility messages (UMP type 0x0) ──────────────────────────────────────
+
+/// Utility message status codes (bits 20-23 of word 0 for type 0x0).
+///
+/// JR Clock / JR Timestamp carry a 16-bit value in bits 0-15 of word 0
+/// measured in 1/31250-second units (~32 µs resolution). They let hosts
+/// schedule UMP events with sub-block timing accuracy. JR Clock is the
+/// "current time" reference; JR Timestamp is "this packet's event
+/// happens at this offset". See the MIDI 2.0 UMP spec § Utility.
+enum class UtilityStatus : uint8_t {
+    Noop          = 0x0,
+    JrClock       = 0x1,
+    JrTimestamp   = 0x2,
+    DeltaClockstampTicksPerQuarter = 0x3,
+    DeltaClockstamp = 0x4,
+};
+
+/// Extract the utility status nibble from a type-0 UMP packet (bits 20-23 of word 0).
+inline UtilityStatus utility_status(const UmpPacket& p) {
+    return static_cast<UtilityStatus>((p.words[0] >> 20) & 0x0F);
+}
+
+/// Extract the 16-bit JR Clock / JR Timestamp value from a type-0 UMP
+/// packet (bits 0-15 of word 0). Caller must check `utility_status()`
+/// first to know which kind of value this is. Returns 0 for non-JR
+/// utility messages.
+inline uint16_t jr_value_16(const UmpPacket& p) {
+    return static_cast<uint16_t>(p.words[0] & 0xFFFF);
+}
+
+/// One JR Clock tick is 1/31250 of a second (~32 microseconds).
+/// Convenience accessors convert a 16-bit JR value to a time delta.
+constexpr double kJrTicksPerSecond = 31250.0;
+
+inline double jr_value_seconds(uint16_t value) {
+    return static_cast<double>(value) / kJrTicksPerSecond;
+}
+
+inline double jr_value_microseconds(uint16_t value) {
+    return static_cast<double>(value) * (1'000'000.0 / kJrTicksPerSecond);
+}
+
+/// Build a JR Clock utility packet (status 0x1).
+inline UmpPacket make_jr_clock(uint8_t group, uint16_t value) {
+    UmpPacket p;
+    p.word_count = 1;
+    p.words[0] = (0x0u << 28) | (uint32_t(group & 0x0F) << 24)
+                | (uint32_t(0x1) << 20)
+                | uint32_t(value);
+    return p;
+}
+
+/// Build a JR Timestamp utility packet (status 0x2).
+inline UmpPacket make_jr_timestamp(uint8_t group, uint16_t value) {
+    UmpPacket p;
+    p.word_count = 1;
+    p.words[0] = (0x0u << 28) | (uint32_t(group & 0x0F) << 24)
+                | (uint32_t(0x2) << 20)
+                | uint32_t(value);
+    return p;
+}
 
 // ── MPE (MIDI Polyphonic Expression) ────────────────────────────────────
 
