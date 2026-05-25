@@ -1,6 +1,8 @@
 #include <pulp/events/child_process_manager.hpp>
 #include <pulp/runtime/assert.hpp>
+#include <pulp/runtime/scope_guard.hpp>
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <random>
 #include <chrono>
@@ -73,11 +75,43 @@ bool ConnectedChildProcess::join_monitor_thread(bool detach_current_thread) {
     return true;
 }
 
+bool ConnectedChildProcess::begin_message_callback() {
+    std::lock_guard lock(message_callback_mutex_);
+    if (!accepting_message_callbacks_)
+        return false;
+    ++active_message_callbacks_;
+    return true;
+}
+
+void ConnectedChildProcess::end_message_callback() {
+    {
+        std::lock_guard lock(message_callback_mutex_);
+        PULP_ASSERT(active_message_callbacks_ > 0,
+                    "ConnectedChildProcess message callback counter underflow");
+        --active_message_callbacks_;
+    }
+    message_callback_cv_.notify_all();
+}
+
+void ConnectedChildProcess::stop_accepting_message_callbacks() {
+    std::lock_guard lock(message_callback_mutex_);
+    accepting_message_callbacks_ = false;
+}
+
+void ConnectedChildProcess::wait_for_message_callbacks() {
+    std::unique_lock lock(message_callback_mutex_);
+    message_callback_cv_.wait(lock, [this] {
+        return active_message_callbacks_ == 0;
+    });
+}
+
 ConnectedChildProcess::~ConnectedChildProcess() {
-    PULP_ASSERT(current_message_callback_child != this,
-                "ConnectedChildProcess must outlive its message callback");
+    if (current_message_callback_child == this)
+        std::terminate();
+    stop_accepting_message_callbacks();
     kill();
     join_monitor_thread(true);
+    wait_for_message_callbacks();
 }
 
 bool ConnectedChildProcess::launch(std::string_view executable,
@@ -121,6 +155,11 @@ bool ConnectedChildProcess::launch(std::string_view executable,
     std::atomic<bool> server_ok{false};
     std::thread server_thread([this, &server_done, &server_ok]() {
         connection_.on_text_message = [this](std::string_view msg) {
+            if (!begin_message_callback())
+                return;
+            auto callback_done = pulp::runtime::make_scope_guard([this] {
+                end_message_callback();
+            });
             MessageCallbackScope callback_scope(this);
             if (on_message) on_message(msg);
         };

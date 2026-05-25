@@ -45,7 +45,8 @@ public:
     int wait_for_exit(int timeout_ms = 0);
 
     /// Called when a message is received from the child.
-    /// The ConnectedChildProcess object must outlive this callback.
+    /// The ConnectedChildProcess object must outlive this callback; destroying
+    /// the object from inside the callback is unsupported.
     std::function<void(std::string_view)> on_message;
 
     /// Called when the child process exits.
@@ -60,6 +61,10 @@ public:
 
 private:
     bool join_monitor_thread(bool detach_current_thread);
+    bool begin_message_callback();
+    void end_message_callback();
+    void stop_accepting_message_callbacks();
+    void wait_for_message_callbacks();
 
     InterprocessConnection connection_;
     pulp::platform::ChildProcess process_;
@@ -77,6 +82,11 @@ private:
     bool monitor_join_in_progress_ = false;
     std::thread::id monitor_thread_id_;
     std::thread monitor_thread_;
+    std::mutex message_callback_mutex_;
+    std::condition_variable message_callback_cv_;
+    int active_message_callbacks_ = 0;
+    // Closed only by the destructor; normal kill/relaunch keeps callbacks armed.
+    bool accepting_message_callbacks_ = true;
 };
 
 /// Manages a pool of child processes.

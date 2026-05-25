@@ -120,7 +120,7 @@ PR1 local validation:
 - `./build/test/pulp-test-child-process` — 186 assertions in 44 test cases
 - `./build/test/pulp-test-runtime-utils` — 708 assertions in 152 test cases
 - `./build/test/pulp-test-stream` — 410 assertions in 51 test cases
-- `./build/test/pulp-test-ipc` — 150 assertions in 30 test cases
+- `./build/test/pulp-test-ipc` — 170 assertions in 33 test cases
 - Claude review pass found no remaining correctness blockers after fixes; low
   notes for oversize IPC frames and Windows std-handle fallback were fixed in
   this branch.
@@ -139,7 +139,8 @@ PR1 local validation:
   platform `ChildProcess` state with recursive mutexes.
 - Final review notes for Windows overlapped pipe cleanup and
   `read_available_output()` locking were addressed; the final RepoPrompt pass
-  reported no remaining correctness blockers or high-confidence bugs.
+  and callback-drain follow-up review reported no remaining correctness
+  blockers or high-confidence bugs.
 - `tools/check-docs.sh` passed with existing repository warnings.
 - Manual diff coverage was run with the same coverage pipeline and
   `PULP_ENABLE_GPU=OFF` because `tools/scripts/local_diff_cover.sh` re-enables
@@ -181,9 +182,12 @@ PR1 submit and review sweep:
   join/detach, uses atomic PID publication for callback-time reads, notifies
   exit waiters before IPC read-thread disconnect joins, joins the monitor
   outside the monitor mutex to avoid reentrant callback deadlocks, documents
-  and asserts that the object must outlive message callbacks, and covers both
-  exit callback wait and message callback kill/wait regressions under normal,
-  ASan, UBSan, and TSan runs.
+  and enforces that the object must outlive message callbacks by stopping new
+  callback entry during destruction and waiting for active callbacks to drain.
+  The focused coverage now includes exit callback wait, message callback
+  kill/wait plus callback-time PID reads, concurrent `wait_for_exit()` callers,
+  relaunch after callback-driven kill, and active-callback destruction under
+  normal, ASan, UBSan, and TSan runs.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 

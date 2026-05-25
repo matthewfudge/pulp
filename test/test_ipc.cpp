@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -620,14 +621,17 @@ TEST_CASE("ConnectedChildProcess wait_for_exit is safe from message callback kil
     std::condition_variable cv;
     bool callback_done = false;
     bool running_after_callback_wait = true;
+    int callback_pid = -1;
 
     child.on_message = [&](std::string_view msg) {
         if (msg != "ready") return;
 
+        const int observed_pid = child.pid();
         child.kill();
         (void)child.wait_for_exit(5000);
 
         std::lock_guard<std::mutex> lock(mutex);
+        callback_pid = observed_pid;
         running_after_callback_wait = child.is_running();
         callback_done = true;
         cv.notify_all();
@@ -642,7 +646,135 @@ TEST_CASE("ConnectedChildProcess wait_for_exit is safe from message callback kil
     }
 
     REQUIRE_FALSE(running_after_callback_wait);
+    REQUIRE(callback_pid > 0);
     REQUIRE_FALSE(child.is_running());
+}
+
+TEST_CASE("ConnectedChildProcess wait_for_exit supports concurrent waiters",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    ConnectedChildProcess child;
+    REQUIRE(child.launch(fixture, {"--exit-code", "33", "--hold-ms", "75"}));
+
+    int first_code = -1;
+    int second_code = -1;
+    std::thread first_waiter([&] {
+        first_code = child.wait_for_exit(0);
+    });
+    std::thread second_waiter([&] {
+        second_code = child.wait_for_exit(0);
+    });
+
+    first_waiter.join();
+    second_waiter.join();
+
+    REQUIRE(first_code == 33);
+    REQUIRE(second_code == 33);
+    REQUIRE_FALSE(child.is_running());
+}
+
+TEST_CASE("ConnectedChildProcess can relaunch after message callback kill",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    ConnectedChildProcess child;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callback_done = false;
+
+    child.on_message = [&](std::string_view msg) {
+        if (msg != "ready") return;
+
+        child.kill();
+        (void)child.wait_for_exit(5000);
+
+        std::lock_guard<std::mutex> lock(mutex);
+        callback_done = true;
+        cv.notify_all();
+    };
+
+    REQUIRE(child.launch(fixture, {"--hold-ms", "5000"}));
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+            return callback_done;
+        }));
+    }
+    REQUIRE_FALSE(child.is_running());
+
+    child.on_message = nullptr;
+    REQUIRE(child.launch(fixture, {"--exit-code", "36"}));
+    REQUIRE(child.wait_for_exit(0) == 36);
+    REQUIRE_FALSE(child.is_running());
+}
+
+TEST_CASE("ConnectedChildProcess destructor waits for active message callback",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    auto child = std::make_unique<ConnectedChildProcess>();
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callback_entered = false;
+    bool release_callback = false;
+    bool callback_finished = false;
+    bool destructor_started = false;
+    bool destructor_finished = false;
+
+    child->on_message = [&](std::string_view msg) {
+        if (msg != "ready") return;
+
+        std::unique_lock<std::mutex> lock(mutex);
+        callback_entered = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return release_callback; });
+        callback_finished = true;
+        cv.notify_all();
+    };
+
+    REQUIRE(child->launch(fixture, {"--hold-ms", "5000"}));
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+            return callback_entered;
+        }));
+    }
+
+    std::thread destroyer([&] {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            destructor_started = true;
+        }
+        cv.notify_all();
+
+        child.reset();
+
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            destructor_finished = true;
+        }
+        cv.notify_all();
+    });
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+            return destructor_started;
+        }));
+        REQUIRE_FALSE(cv.wait_for(lock, std::chrono::milliseconds(100), [&] {
+            return destructor_finished;
+        }));
+        release_callback = true;
+    }
+    cv.notify_all();
+
+    destroyer.join();
+    REQUIRE(callback_finished);
+    REQUIRE(destructor_finished);
 }
 
 TEST_CASE("ChildProcessManager cleanup keeps live children",
