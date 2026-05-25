@@ -926,6 +926,28 @@ TEST_CASE("run_process captures stdout and stderr from one child",
     REQUIRE(result->stderr_output.find("err-line") != std::string::npos);
 }
 
+TEST_CASE("run_process preserves output beyond the platform child default cap",
+          "[runtime][child_process][coverage][phase3]") {
+    constexpr auto expected_size = (1u << 20) + 4096u;
+
+#ifdef _WIN32
+    auto result = run_process("powershell",
+        {"-NoProfile", "-Command",
+         std::string("$n = ") + std::to_string(expected_size) +
+             "; [Console]::Out.Write(('x' * $n)); [Console]::Error.Write(('y' * $n))"});
+#else
+    auto result = run_process("/bin/sh",
+        {"-c",
+         std::string("yes x | head -c ") + std::to_string(expected_size) +
+             "; yes y | head -c " + std::to_string(expected_size) + " >&2"});
+#endif
+
+    REQUIRE(result.has_value());
+    REQUIRE(result->exit_code == 0);
+    REQUIRE(result->stdout_output.size() == expected_size);
+    REQUIRE(result->stderr_output.size() == expected_size);
+}
+
 TEST_CASE("run_process honors working directory and preserves spaced arguments",
           "[runtime][child_process][coverage][phase3]") {
     TemporaryFile marker(".cwd");

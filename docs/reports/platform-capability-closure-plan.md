@@ -24,7 +24,7 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
-| Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Ready for PR submission | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
+| Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | PR #2815 open; fixing review/CI findings | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
 | Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Queued | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
 | OSC | `feature/platform-osc-bundles-routing` | `pulp-platform-osc-bundles-routing` | Queued | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
 | Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
@@ -146,8 +146,18 @@ PR1 local validation:
   GPU and fails locally without Skia. Result: 78% diff coverage against the
   75% floor.
 
-PR1 pending before submit:
-- Shipyard PR, then review/CI comment sweep.
+PR1 submit and review sweep:
+- PR: https://github.com/danielraffel/pulp/pull/2815
+- Initial Shipyard submission opened the PR and ran local macOS validation.
+  SSH-backed Windows/Ubuntu targets are not part of this focused validation
+  pass; use GitHub-hosted platform checks and local/macOS evidence instead.
+- Codex review P2 found that the runtime `run_process()` wrapper inherited the
+  canonical platform child-process output cap. The compatibility wrapper now
+  preserves prior unbounded stdout/stderr capture, covered by a >1 MiB
+  stdout/stderr regression test.
+- CI found that `test_stream.cpp` temp paths were deterministic per CTest
+  process, allowing concurrently filtered FIFO tests to collide on the same
+  path. Test helper paths now include process id and an atomic counter.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 

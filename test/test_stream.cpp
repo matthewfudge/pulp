@@ -16,7 +16,9 @@
 #include <string>
 #include <thread>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -36,8 +38,17 @@ using pulp::runtime::TcpStream;
 namespace {
 
 std::filesystem::path make_temp_path(const char* stem) {
+    static std::atomic<unsigned long long> counter{0};
+#ifdef _WIN32
+    const auto process_id = _getpid();
+#else
+    const auto process_id = getpid();
+#endif
+
     auto dir = std::filesystem::temp_directory_path();
-    auto name = std::string(stem) + "_" + std::to_string(std::rand()) + ".bin";
+    auto name = std::string(stem) + "_" + std::to_string(process_id) + "_" +
+                std::to_string(counter.fetch_add(1, std::memory_order_relaxed)) +
+                "_" + std::to_string(std::rand()) + ".bin";
     return dir / name;
 }
 
