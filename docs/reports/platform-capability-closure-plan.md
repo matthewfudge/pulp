@@ -188,6 +188,21 @@ PR1 submit and review sweep:
   kill/wait plus callback-time PID reads, concurrent `wait_for_exit()` callers,
   relaunch after callback-driven kill, and active-callback destruction under
   normal, ASan, UBSan, and TSan runs.
+- macOS ThreadSanitizer CI also exposed a `HighResolutionTimer` self-stop race:
+  a fast callback could call `stop()` while `start()` was still assigning the
+  worker `std::thread` member. PR1 now serializes timer thread-handle access,
+  blocks callbacks until the handle is published, and keeps self-stop and
+  callback-owned destruction TSan-clean.
+- macOS AddressSanitizer CI exposed an unrelated parallel-test collision in
+  `test_mcp_server.cpp` temp homes. The test helper now includes process id and
+  an atomic sequence in temp paths; the failing MCP status case passes locally
+  under ASan, including with adjacent MCP tests running in parallel.
+- macOS UndefinedBehaviorSanitizer CI also surfaced the known CHOC/QuickJS
+  runtime-shim failure tracked as #1987 in additional design-import fixtures.
+  Rather than skip more assertions, PR1 now compiles only the QuickJS backend
+  translation unit without UBSan instrumentation while keeping Pulp's script and
+  view code instrumented. The previously failing Figma, Stitch, Pencil, and
+  baked-native materialization cases now pass locally under UBSan.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 
