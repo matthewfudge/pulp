@@ -10,9 +10,31 @@
 
 namespace pulp::signal {
 
+/// Crossfade curve between dry (mix=0) and wet (mix=1).
+///
+/// Conventional crossfade taxonomy. `Sin3dB` is an alias of
+/// `EqualPower` kept for explicit naming. Each curve hits dry=1/wet=0
+/// at mix=0 and dry=0/wet=1 at mix=1; they differ in the midpoint
+/// behavior:
+/// - `Linear`:     -6 dB notch at midpoint, constant amplitude sum.
+/// - `EqualPower`: -3 dB notch, constant power sum (sin/cos).
+/// - `Balanced`:   dry stays at 1 until mix=0.5 then linearly drops
+///                 to 0; wet inverse — useful for "include dry until
+///                 midway" balance behavior.
+/// - `Sin3dB`:     alias of EqualPower.
+/// - `Sin4_5dB`:   sin/cos law shaped by exponent 1.5 → -4.5 dB notch.
+/// - `Sin6dB`:     sin/cos law squared → -6 dB notch.
+/// - `Sqrt3dB`:    sqrt law → -3 dB notch.
+/// - `Sqrt4_5dB`:  sqrt with offset → -4.5 dB notch.
 enum class MixCurve {
-    Linear,      // Simple linear crossfade
-    EqualPower   // Constant-power crossfade (sqrt curve)
+    Linear,
+    EqualPower,
+    Balanced,
+    Sin3dB,
+    Sin4_5dB,
+    Sin6dB,
+    Sqrt3dB,
+    Sqrt4_5dB,
 };
 
 class DryWetMixer {
@@ -120,14 +142,41 @@ private:
     std::vector<std::vector<float>> dry_buffer_;
 
     void compute_gains(float& dry, float& wet) const {
+        constexpr float kHalfPi = 1.57079632679489661923f;
+        const float theta = mix_ * kHalfPi;
         switch (curve_) {
             case MixCurve::Linear:
                 dry = 1.0f - mix_;
                 wet = mix_;
                 break;
             case MixCurve::EqualPower:
-                dry = std::cos(mix_ * 1.5707963f);  // pi/2
-                wet = std::sin(mix_ * 1.5707963f);
+            case MixCurve::Sin3dB:
+                dry = std::cos(theta);
+                wet = std::sin(theta);
+                break;
+            case MixCurve::Balanced:
+                dry = mix_ <= 0.5f ? 1.0f : (1.0f - mix_) * 2.0f;
+                wet = mix_ >= 0.5f ? 1.0f : mix_ * 2.0f;
+                break;
+            case MixCurve::Sin4_5dB: {
+                // Clamp before pow to guard against tiny negative residue.
+                const float c = std::max(0.0f, std::cos(theta));
+                const float s = std::max(0.0f, std::sin(theta));
+                dry = std::pow(c, 1.5f);
+                wet = std::pow(s, 1.5f);
+                break;
+            }
+            case MixCurve::Sin6dB:
+                dry = std::cos(theta) * std::cos(theta);
+                wet = std::sin(theta) * std::sin(theta);
+                break;
+            case MixCurve::Sqrt3dB:
+                dry = std::sqrt(1.0f - mix_);
+                wet = std::sqrt(mix_);
+                break;
+            case MixCurve::Sqrt4_5dB:
+                dry = std::sqrt(1.0f - mix_) * (1.0f - mix_ * 0.5f);
+                wet = std::sqrt(mix_) * (0.5f + mix_ * 0.5f);
                 break;
         }
     }
