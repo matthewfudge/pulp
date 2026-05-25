@@ -259,3 +259,57 @@ TEST_CASE("EditHistory coalesced replacement controls undo and redo values",
     REQUIRE(history.redo());
     REQUIRE(v == 5);
 }
+
+TEST_CASE("EditHistory time-window coalescing merges rapid distinct-description actions",
+          "[state][undo][time-coalesce]") {
+    EditHistory history;
+    history.set_coalesce_window(std::chrono::milliseconds(200));
+    int v = 0;
+    history.perform([&] { v = 1; }, [&] { v = 0; }, "Move");
+    history.perform([&] { v = 2; }, [&] { v = 1; }, "Resize");
+    REQUIRE(v == 2);
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo());
+    REQUIRE(v == 1);
+}
+
+TEST_CASE("EditHistory time-window expiry keeps actions separate",
+          "[state][undo][time-coalesce]") {
+    EditHistory history;
+    history.set_coalesce_window(std::chrono::milliseconds(10));
+    int v = 0;
+    history.perform([&] { v = 1; }, [&] { v = 0; }, "First");
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    history.perform([&] { v = 2; }, [&] { v = 1; }, "Second");
+    REQUIRE(history.undo_count() == 2);
+}
+
+TEST_CASE("EditHistory window=0 disables time-window coalescing",
+          "[state][undo][time-coalesce]") {
+    EditHistory history;
+    history.set_coalesce(false); // disable description coalescing too
+    history.set_coalesce_window(std::chrono::milliseconds(0));
+    int v = 0;
+    history.perform([&] { v = 1; }, [&] { v = 0; }, "A");
+    history.perform([&] { v = 2; }, [&] { v = 1; }, "B");
+    REQUIRE(history.undo_count() == 2);
+}
+
+TEST_CASE("EditHistory undo resets coalesce window timestamp (Codex P1 regression)",
+          "[state][undo][time-coalesce][regression]") {
+    EditHistory history;
+    history.set_coalesce(false); // ensure only window coalescing matters
+    history.set_coalesce_window(std::chrono::milliseconds(200));
+    int v = 0;
+    history.perform([&] { v = 1; }, [&] { v = 0; }, "A");
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE(history.undo());
+    REQUIRE(history.undo_count() == 0);
+    REQUIRE(history.can_redo());
+    // A new edit right after undo must NOT coalesce into the popped older
+    // entry — it should start its own undo entry. Also: a new edit
+    // invalidates redo history.
+    history.perform([&] { v = 2; }, [&] { v = 1; }, "B");
+    REQUIRE(history.undo_count() == 1);
+    REQUIRE_FALSE(history.can_redo());
+}

@@ -98,6 +98,9 @@ public:
         undo_stack_.pop_back();
         action->undo();
         redo_stack_.push_back(std::move(action));
+        // Reset coalesce timestamp so a new edit right after undo doesn't
+        // merge into the now-older `undo_stack_.back()` entry.
+        last_perform_time_ = Clock::time_point{};
         return true;
     }
 
@@ -108,6 +111,7 @@ public:
         redo_stack_.pop_back();
         action->redo();
         undo_stack_.push_back(std::move(action));
+        last_perform_time_ = Clock::time_point{};
         return true;
     }
 
