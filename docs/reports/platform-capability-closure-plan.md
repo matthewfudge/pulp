@@ -118,8 +118,8 @@ PR1 local validation:
 - `cmake --build build --target pulp-test-child-process pulp-test-runtime-utils
   pulp-test-stream pulp-test-ipc pulp-connected-child-process-fixture`
 - `./build/test/pulp-test-child-process` — 186 assertions in 44 test cases
-- `./build/test/pulp-test-runtime-utils` — 704 assertions in 151 test cases
-- `./build/test/pulp-test-stream` — 400 assertions in 50 test cases
+- `./build/test/pulp-test-runtime-utils` — 708 assertions in 152 test cases
+- `./build/test/pulp-test-stream` — 410 assertions in 51 test cases
 - `./build/test/pulp-test-ipc` — 126 assertions in 26 test cases
 - Claude review pass found no remaining correctness blockers after fixes; low
   notes for oversize IPC frames and Windows std-handle fallback were fixed in
@@ -158,6 +158,15 @@ PR1 submit and review sweep:
 - CI found that `test_stream.cpp` temp paths were deterministic per CTest
   process, allowing concurrently filtered FIFO tests to collide on the same
   path. Test helper paths now include process id and an atomic counter.
+- macOS sanitizer CI exposed a POSIX reply-FIFO attach race where the client
+  read thread could observe initial EOF before the server opened the reply
+  writer, disconnecting before the first send. `NamedPipe::read()` now waits
+  through that initial EOF window until data arrives or the peer is confirmed
+  closed; a focused FIFO regression test covers the race. Local ASan and UBSan
+  builds pass the original failing IPC exchange and the new regression test.
+- Final Claude review of the reply-FIFO attach fix reported no blocking
+  correctness bugs; the only follow-up was naming the bounded initial EOF
+  window for auditability.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 

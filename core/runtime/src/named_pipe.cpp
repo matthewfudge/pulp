@@ -30,6 +30,7 @@ NamedPipe::NamedPipe(NamedPipe&& other) noexcept
     , read_fd_(other.read_fd_)
     , write_fd_(other.write_fd_)
     , closing_(other.closing_.load())
+    , read_peer_confirmed_(other.read_peer_confirmed_.load())
 #endif
 {
 #ifdef _WIN32
@@ -40,6 +41,7 @@ NamedPipe::NamedPipe(NamedPipe&& other) noexcept
     other.read_fd_ = -1;
     other.write_fd_ = -1;
     other.closing_.store(true);
+    other.read_peer_confirmed_.store(false);
 #endif
     other.is_server_ = false;
 }
@@ -61,9 +63,11 @@ NamedPipe& NamedPipe::operator=(NamedPipe&& other) noexcept {
         read_fd_ = other.read_fd_;
         write_fd_ = other.write_fd_;
         closing_.store(other.closing_.load());
+        read_peer_confirmed_.store(other.read_peer_confirmed_.load());
         other.read_fd_ = -1;
         other.write_fd_ = -1;
         other.closing_.store(true);
+        other.read_peer_confirmed_.store(false);
 #endif
         other.is_server_ = false;
     }
@@ -199,6 +203,9 @@ bool NamedPipe::is_open() const { return handle_ != nullptr; }
 #else  // POSIX
 
 namespace {
+
+// Bound the client-side grace period for POSIX reply FIFO writer attachment.
+constexpr auto kInitialReplyAttachWindow = std::chrono::seconds{2};
 
 std::string reply_fifo_name(std::string_view name) {
     return std::string(name) + ".reply";
@@ -340,6 +347,7 @@ bool NamedPipe::create_server(std::string_view name) {
         close();
         return false;
     }
+    read_peer_confirmed_.store(true);
     return true;
 }
 
@@ -362,6 +370,7 @@ bool NamedPipe::connect_client(std::string_view name) {
         close();
         return false;
     }
+    read_peer_confirmed_.store(false);
     return true;
 }
 
@@ -387,6 +396,26 @@ int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
     if (read_fd_ < 0) return -1;
     if (buffer_size == 0) return 0;
 
+    // A POSIX client can open the reply FIFO before the server's writer has
+    // attached; the first EOF in that window is not a peer close yet.
+    const auto initial_eof_deadline = std::chrono::steady_clock::now() +
+                                      kInitialReplyAttachWindow;
+    auto wait_through_initial_eof = [&] {
+        if (read_peer_confirmed_.load())
+            return false;
+        if (std::chrono::steady_clock::now() >= initial_eof_deadline)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return true;
+    };
+    auto finish_read = [&](ssize_t bytes) {
+        if (bytes > 0)
+            read_peer_confirmed_.store(true);
+        if (bytes == 0 && wait_through_initial_eof())
+            return -2;
+        return static_cast<int>(bytes);
+    };
+
     while (!closing_.load()) {
         pollfd pfd{read_fd_, POLLIN | POLLHUP | POLLERR, 0};
         const int ready = ::poll(&pfd, 1, 50);
@@ -397,28 +426,40 @@ int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
         }
         if (ready == 0) {
             const ssize_t bytes = ::read(read_fd_, buffer, buffer_size);
-            if (bytes >= 0)
-                return static_cast<int>(bytes);
+            if (bytes >= 0) {
+                const int result = finish_read(bytes);
+                if (result != -2)
+                    return result;
+                continue;
+            }
             if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
                 continue;
             return -1;
         }
         if ((pfd.revents & POLLIN) != 0) {
             const ssize_t bytes = ::read(read_fd_, buffer, buffer_size);
-            if (bytes >= 0)
-                return static_cast<int>(bytes);
+            if (bytes >= 0) {
+                const int result = finish_read(bytes);
+                if (result != -2)
+                    return result;
+                continue;
+            }
             if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
                 continue;
             return -1;
         }
-        if ((pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0)
+        if ((pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
+            if (wait_through_initial_eof())
+                continue;
             return 0;
+        }
     }
     return -1;
 }
 
 void NamedPipe::close() {
     closing_.store(true);
+    read_peer_confirmed_.store(false);
     close_fd(read_fd_);
     close_fd(write_fd_);
     if (is_server_ && !name_.empty()) {

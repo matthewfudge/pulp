@@ -58,6 +58,7 @@ private:
     int read_fd_ = -1;
     int write_fd_ = -1;
     std::atomic<bool> closing_{false};
+    std::atomic<bool> read_peer_confirmed_{false};
 #endif
 };
 

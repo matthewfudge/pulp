@@ -996,6 +996,67 @@ TEST_CASE("NamedPipe POSIX read observes peer close",
     pair.server->close();
 }
 
+TEST_CASE("NamedPipe POSIX client read waits through initial reply EOF",
+          "[stream][named_pipe]") {
+    auto path = make_temp_path("pulp_named_pipe_reply_handshake");
+    auto reply = std::filesystem::path(path.string() + ".reply");
+    std::filesystem::remove(path);
+    std::filesystem::remove(reply);
+
+    REQUIRE(::mkfifo(path.c_str(), 0666) == 0);
+    REQUIRE(::mkfifo(reply.c_str(), 0666) == 0);
+
+    int public_reader = ::open(path.c_str(), O_RDONLY | O_NONBLOCK);
+    REQUIRE(public_reader >= 0);
+
+    NamedPipe client;
+    REQUIRE(client.connect_client(path.string()));
+    REQUIRE(client.is_open());
+
+    std::atomic<bool> read_done{false};
+    int read_result = -1;
+    std::uint8_t received = 0;
+    std::thread read_thread([&] {
+        read_result = client.read(&received, 1);
+        read_done.store(true);
+    });
+
+    const auto early_deadline = std::chrono::steady_clock::now() +
+                                std::chrono::milliseconds(50);
+    while (!read_done.load() && std::chrono::steady_clock::now() < early_deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const bool returned_before_reply_writer = read_done.load();
+
+    int reply_writer = -1;
+    const auto writer_deadline = std::chrono::steady_clock::now() +
+                                 std::chrono::seconds(2);
+    while (reply_writer < 0 && std::chrono::steady_clock::now() < writer_deadline) {
+        reply_writer = ::open(reply.c_str(), O_WRONLY | O_NONBLOCK);
+        if (reply_writer < 0 && errno == ENXIO)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        else
+            break;
+    }
+    std::uint8_t payload = 'r';
+    const ssize_t write_result =
+        reply_writer >= 0 ? ::write(reply_writer, &payload, 1) : -1;
+    if (write_result != 1)
+        client.close();
+
+    read_thread.join();
+    REQUIRE(reply_writer >= 0);
+    REQUIRE(write_result == 1);
+    CHECK_FALSE(returned_before_reply_writer);
+    REQUIRE(read_result == 1);
+    REQUIRE(received == payload);
+
+    client.close();
+    ::close(reply_writer);
+    ::close(public_reader);
+    std::filesystem::remove(path);
+    std::filesystem::remove(reply);
+}
+
 TEST_CASE("PipeStream forwards reads and writes over a connected POSIX FIFO",
           "[stream][pipe][coverage][phase3]") {
     auto path = make_temp_path("pulp_pipe_stream_roundtrip");
