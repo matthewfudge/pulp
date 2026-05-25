@@ -8,6 +8,22 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02090"></a>
+## [0.209.0] - 2026-05-25
+
+- feat(macos-plan): Batch A — Foundations (DcBlocker, denormal snap, NormalisableRange, ADSR buffer-apply, SmoothedValue audit, time-window undo, HighResolutionTimer OS-queue) ([#2832](https://github.com/danielraffel/pulp/pull/2832))
+- test(cli): cover run parser edge contracts ([#2830](https://github.com/danielraffel/pulp/pull/2830))
+- test(apple): cover motion probe contracts ([#2829](https://github.com/danielraffel/pulp/pull/2829))
+- test(import-design): cover benchmark helper contracts ([#2828](https://github.com/danielraffel/pulp/pull/2828))
+- test(screenshot): cover cli helper contracts ([#2827](https://github.com/danielraffel/pulp/pull/2827))
+- test(design): cover debug helper contracts ([#2826](https://github.com/danielraffel/pulp/pull/2826))
+- test(ship): cover linux packaging contracts ([#2824](https://github.com/danielraffel/pulp/pull/2824))
+- test(ship): cover mac codesign failure contracts ([#2823](https://github.com/danielraffel/pulp/pull/2823))
+- test(cli): cover common parser contracts ([#2821](https://github.com/danielraffel/pulp/pull/2821))
+- test(inspect): cover protocol JSON contracts ([#2820](https://github.com/danielraffel/pulp/pull/2820))
+- test(inspect): cover inspector server contracts ([#2819](https://github.com/danielraffel/pulp/pull/2819))
+- test(signal): cover biquad response contracts ([#2814](https://github.com/danielraffel/pulp/pull/2814))
+
 <a id="v02080"></a>
 ## [0.208.0] - 2026-05-25
 
@@ -2703,6 +2719,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.209.0]: https://github.com/danielraffel/pulp/releases/tag/v0.209.0
 [0.208.0]: https://github.com/danielraffel/pulp/releases/tag/v0.208.0
 [0.207.0]: https://github.com/danielraffel/pulp/releases/tag/v0.207.0
 [0.206.0]: https://github.com/danielraffel/pulp/releases/tag/v0.206.0
