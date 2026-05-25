@@ -25,8 +25,8 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Draft PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open; check/comment sweep pending | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
-| OSC | `feature/platform-osc-bundles-routing` | `pulp-platform-osc-bundles-routing` | Queued | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Draft PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open; local rebase and coverage-gate alignment validated, push/check sweep pending | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| OSC | `feature/platform-osc` | `pulp-platform-osc` | Draft PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open; hosted Linux/Codecov check sweep pending | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
 | Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
 Validation expectations for each PR:
@@ -260,19 +260,37 @@ Native event loop local implementation status:
 
 Native event loop local validation:
 - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
-- `cmake --build build --target pulp-test-events pulp-view-core -j$(sysctl -n hw.ncpu)`
-- `ctest --test-dir build --output-on-failure -R 'MainThreadDispatcher|EventLoop'`
-  passed: 34 focused CTest cases.
+- `cmake --build build --target pulp-test-events pulp-view-core
+  -j$(sysctl -n hw.ncpu)`
+- `./build/test/pulp-test-events
+  "[events][main_thread_dispatcher],[events][event_loop]"` passed: 168
+  assertions in 34 focused test cases.
 - `./build/test/pulp-test-events --durations yes` passed: 259 assertions in
   57 test cases.
-- Manual GPU-off diff coverage passed against `origin/main`: 93% diff coverage.
-  llvm-cov reported the two `EventLoop` `condition_variable::notify_one()`
-  lines and several defensive dispatcher branches as uncovered; the exercised
-  dispatcher behavior is covered by focused registration, unregister, sync,
-  async, exception, and backend-restore tests. `sdl_window_host.cpp` is
-  excluded in the shared coverage config as a live native window-host loop; the
-  dispatcher contract it uses is covered by the focused unit tests and the host
-  is compile-validated by `pulp-view-core`.
+- Manual GPU-off coverage build:
+  `cmake -S . -B build-cov -DCMAKE_BUILD_TYPE=Debug
+  -DPULP_ENABLE_COVERAGE=ON -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF
+  -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++`,
+  `cmake --build build-cov --target pulp-test-events -j8`, then
+  `LLVM_PROFILE_FILE="$PWD/build-cov/profraw/pulp-%p-%m.profraw"
+  ./build-cov/test/pulp-test-events
+  "[events][main_thread_dispatcher],[events][event_loop]"` passed: 168
+  assertions in 34 focused test cases.
+- Manual diff coverage passed against `origin/main`: 93% diff coverage. The
+  per-tier gate also passes after wiring it to the same shared diff-cover
+  exclusion set: audio-critical no touched lines, user-facing no counted touched
+  lines, infrastructure 53.8% against the 50% floor. llvm-cov reported the two
+  `EventLoop` `condition_variable::notify_one()` lines and several defensive
+  dispatcher branches as uncovered; the exercised dispatcher behavior is covered
+  by focused registration, unregister, sync, async, exception, and
+  backend-restore tests. `window_host_mac.mm`, `window_host_ios.mm`, and
+  `sdl_window_host.cpp` are excluded in the shared coverage config as live
+  native window-host loops; the dispatcher contract they use is covered by the
+  focused unit tests.
+- Coverage-tooling regressions are covered by:
+  `python3 tools/scripts/test_coverage_tier_check.py` — 46 tests,
+  `python3 tools/scripts/test_codecov_config.py` — 17 tests, and
+  `python3 tools/scripts/test_local_diff_cover.py` — 17 tests.
 - `git diff --check` passed.
 - Claude and RepoPrompt blocker reviews were run. Claude's P1 findings around
   async exceptions, EventLoop thread-id synchronization, iOS registration

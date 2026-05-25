@@ -132,6 +132,8 @@ ignore:
   - "**/pulp_import_design.cpp"
   - "**/cg_canvas.mm"
   - "**/window_host_mac.mm"
+  - "**/window_host_ios.mm"
+  - "**/sdl_window_host.cpp"
   - "**/scanner_clap.cpp"
   - "**/cmd_projects.cpp"
   - "**/canvas.hpp"

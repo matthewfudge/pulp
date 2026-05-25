@@ -178,7 +178,7 @@ find "${PROFRAW_DIR}" -name '*.profraw' -print0 \
 # that touched code outside the test-linked set.
 #
 # Fix per Codex Q5: expose the full first-party surface by also passing
-# every libpulp-*.a static archive plus any non-test executables
+# every first-party static archive plus any non-test executables
 # (tools/cli/pulp, standalone hosts, inspect tools). LLVM docs confirm
 # llvm-cov -object accepts .a archives directly:
 #   https://llvm.org/docs/CommandGuide/llvm-cov.html
