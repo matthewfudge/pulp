@@ -76,11 +76,27 @@ std::string lower_trim(std::string s) {
 // Hand-rolled to avoid pulling a full HTML parser into the CLI build.
 std::vector<std::string> scrape_script_attr(const std::string& html, const std::string& attr) {
     std::vector<std::string> out;
+    std::string html_lower = html;
+    for (auto& c : html_lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string needle = attr;
+    for (auto& c : needle)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
     size_t i = 0;
     while (i < html.size()) {
         // Find next "<script" (case-insensitive) opening.
-        auto open = html.find("<script", i);
+        auto open = html_lower.find("<script", i);
         if (open == std::string::npos) break;
+        const auto tag_name_end = open + 7;
+        if (tag_name_end < html_lower.size()) {
+            const char next = html_lower[tag_name_end];
+            if (!(next == '>' || next == '/' || next == ' ' ||
+                  next == '\t' || next == '\r' || next == '\n')) {
+                i = tag_name_end;
+                continue;
+            }
+        }
         // Find the closing '>' of this open tag.
         auto close = html.find('>', open);
         if (close == std::string::npos) break;
@@ -89,11 +105,16 @@ std::vector<std::string> scrape_script_attr(const std::string& html, const std::
         std::string tag_lower = tag;
         for (auto& c : tag_lower)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        std::string needle = attr;
-        for (auto& c : needle)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        auto a = tag_lower.find(needle + "=");
-        if (a != std::string::npos) {
+        size_t a = 0;
+        while ((a = tag_lower.find(needle + "=", a)) != std::string::npos) {
+            if (a > 0) {
+                const char before = tag_lower[a - 1];
+                if (!(before == ' ' || before == '\t' ||
+                      before == '\r' || before == '\n')) {
+                    a += needle.size() + 1;
+                    continue;
+                }
+            }
             // Skip past `attr=`.
             auto v = a + needle.size() + 1;
             if (v < tag.size() && (tag[v] == '"' || tag[v] == '\'')) {
@@ -106,6 +127,7 @@ std::vector<std::string> scrape_script_attr(const std::string& html, const std::
                 if (end == std::string::npos) end = tag.size();
                 out.push_back(tag.substr(v, end - v));
             }
+            break;
         }
         i = close + 1;
     }
