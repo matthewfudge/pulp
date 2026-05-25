@@ -86,10 +86,10 @@ TEST_CASE("Companion-factory accessor returns nullptr without SDK",
     DummyController c;
     const void* factory = ara_companion_factory_for(&c);
 #ifdef PULP_HAS_ARA
-    // With the SDK linked in, a real factory should be returned (or
-    // nullptr if the controller doesn't advertise an ARA-aware role —
-    // implementation choice; this test loosens to "either is valid").
-    (void) factory;
+    // With the SDK linked in, ara_factory.cpp builds and returns a
+    // real ARAFactory struct — never nullptr (Codex P2 on #2854 noted
+    // the prior assertion was a no-op).
+    REQUIRE(factory != nullptr);
 #else
     // Without the SDK, no factory can exist.
     REQUIRE(factory == nullptr);
