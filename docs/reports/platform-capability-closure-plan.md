@@ -120,7 +120,7 @@ PR1 local validation:
 - `./build/test/pulp-test-child-process` — 186 assertions in 44 test cases
 - `./build/test/pulp-test-runtime-utils` — 708 assertions in 152 test cases
 - `./build/test/pulp-test-stream` — 410 assertions in 51 test cases
-- `./build/test/pulp-test-ipc` — 126 assertions in 26 test cases
+- `./build/test/pulp-test-ipc` — 150 assertions in 30 test cases
 - Claude review pass found no remaining correctness blockers after fixes; low
   notes for oversize IPC frames and Windows std-handle fallback were fixed in
   this branch.
@@ -172,6 +172,18 @@ PR1 submit and review sweep:
   joining active IPC children. The POSIX descriptor slots and server flag are
   now atomic, setup publishes descriptors only after both directions are fully
   configured, and local TSan IPC/manager coverage passes the affected cases.
+- A follow-up TSan sweep of the new wait/manager coverage exposed a
+  `ConnectedChildProcess` monitor-thread publication race: a fast-exiting child
+  could invoke `on_exit`, call `wait_for_exit()`, and inspect `monitor_thread_`
+  while `launch()` was still assigning the thread object. RepoPrompt review
+  also identified the same launch-time window for message callbacks. PR1 now
+  publishes and awaits the monitor thread under the same mutex used by
+  join/detach, uses atomic PID publication for callback-time reads, notifies
+  exit waiters before IPC read-thread disconnect joins, joins the monitor
+  outside the monitor mutex to avoid reentrant callback deadlocks, documents
+  and asserts that the object must outlive message callbacks, and covers both
+  exit callback wait and message callback kill/wait regressions under normal,
+  ASan, UBSan, and TSan runs.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 

@@ -33,7 +33,7 @@ public:
     bool is_running() const { return running_.load(); }
 
     /// Get the child's PID.
-    int pid() const { return pid_; }
+    int pid() const { return pid_.load(); }
 
     /// Send a message to the child.
     bool send_message(std::string_view message);
@@ -45,6 +45,7 @@ public:
     int wait_for_exit(int timeout_ms = 0);
 
     /// Called when a message is received from the child.
+    /// The ConnectedChildProcess object must outlive this callback.
     std::function<void(std::string_view)> on_message;
 
     /// Called when the child process exits.
@@ -63,7 +64,7 @@ private:
     InterprocessConnection connection_;
     pulp::platform::ChildProcess process_;
     std::string pipe_name_;
-    int pid_ = -1;
+    std::atomic<int> pid_{-1};
     std::atomic<bool> running_{false};
     bool cancel_requested_ = false;
     bool exit_ready_ = false;
@@ -71,6 +72,10 @@ private:
     std::mutex state_mutex_;
     std::condition_variable exit_cv_;
     std::mutex monitor_mutex_;
+    std::condition_variable monitor_cv_;
+    bool monitor_launch_pending_ = false;
+    bool monitor_join_in_progress_ = false;
+    std::thread::id monitor_thread_id_;
     std::thread monitor_thread_;
 };
 

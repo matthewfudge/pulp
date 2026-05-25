@@ -566,6 +566,85 @@ TEST_CASE("ConnectedChildProcess can relaunch after async completion",
     REQUIRE(last_exit_code == 6);
 }
 
+TEST_CASE("ConnectedChildProcess wait_for_exit handles timeout then blocking wait",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    ConnectedChildProcess child;
+    REQUIRE(child.launch(fixture, {"--exit-code", "31", "--hold-ms", "150"}));
+
+    REQUIRE(child.wait_for_exit(1) == -1);
+    REQUIRE(child.wait_for_exit(0) == 31);
+    REQUIRE_FALSE(child.is_running());
+}
+
+TEST_CASE("ConnectedChildProcess wait_for_exit is safe from exit callback",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    ConnectedChildProcess child;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callback_done = false;
+    int callback_wait_code = -1;
+
+    child.on_exit = [&](int) {
+        const int waited = child.wait_for_exit(0);
+        std::lock_guard<std::mutex> lock(mutex);
+        callback_wait_code = waited;
+        callback_done = true;
+        cv.notify_all();
+    };
+
+    REQUIRE(child.launch(fixture, {"--exit-code", "32"}));
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+            return callback_done;
+        }));
+    }
+
+    REQUIRE(callback_wait_code == 32);
+    REQUIRE_FALSE(child.is_running());
+}
+
+TEST_CASE("ConnectedChildProcess wait_for_exit is safe from message callback kill",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    ConnectedChildProcess child;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callback_done = false;
+    bool running_after_callback_wait = true;
+
+    child.on_message = [&](std::string_view msg) {
+        if (msg != "ready") return;
+
+        child.kill();
+        (void)child.wait_for_exit(5000);
+
+        std::lock_guard<std::mutex> lock(mutex);
+        running_after_callback_wait = child.is_running();
+        callback_done = true;
+        cv.notify_all();
+    };
+
+    REQUIRE(child.launch(fixture, {"--hold-ms", "5000"}));
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+            return callback_done;
+        }));
+    }
+
+    REQUIRE_FALSE(running_after_callback_wait);
+    REQUIRE_FALSE(child.is_running());
+}
+
 TEST_CASE("ChildProcessManager cleanup keeps live children",
           "[events][child-process][ipc]") {
     const auto fixture = connected_child_fixture_path();
@@ -581,6 +660,45 @@ TEST_CASE("ChildProcessManager cleanup keeps live children",
 
     manager.kill_all();
     REQUIRE_FALSE(child->is_running());
+}
+
+TEST_CASE("ChildProcessManager wait_all waits for active connected children",
+          "[events][child-process][ipc]") {
+    const auto fixture = connected_child_fixture_path();
+    REQUIRE_FALSE(fixture.empty());
+
+    ChildProcessManager manager;
+    std::mutex mutex;
+    int callback_count = 0;
+    bool saw_first = false;
+    bool saw_second = false;
+    manager.on_child_exit = [&](ConnectedChildProcess*, int code) {
+        if (code == 34)
+            manager.cleanup();
+
+        std::lock_guard<std::mutex> lock(mutex);
+        ++callback_count;
+        saw_first = saw_first || code == 34;
+        saw_second = saw_second || code == 35;
+    };
+
+    auto* first = manager.launch(fixture, {"--exit-code", "34", "--hold-ms", "75"});
+    REQUIRE(first != nullptr);
+    auto* second = manager.launch(fixture, {"--exit-code", "35", "--hold-ms", "150"});
+    REQUIRE(second != nullptr);
+    REQUIRE(manager.active_count() == 2);
+
+    manager.wait_all(5000);
+    REQUIRE_FALSE(second->is_running());
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        REQUIRE(callback_count == 2);
+        REQUIRE(saw_first);
+        REQUIRE(saw_second);
+    }
+
+    manager.cleanup();
+    REQUIRE(manager.active_count() == 0);
 }
 
 TEST_CASE("ChildProcessManager cleanup is safe from exit callback",

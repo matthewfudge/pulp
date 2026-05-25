@@ -1,4 +1,5 @@
 #include <pulp/events/child_process_manager.hpp>
+#include <pulp/runtime/assert.hpp>
 #include <algorithm>
 #include <filesystem>
 #include <random>
@@ -10,25 +11,71 @@ namespace {
 
 constexpr auto kChildIpcConnectTimeout = std::chrono::seconds(5);
 
+thread_local const ConnectedChildProcess* current_message_callback_child = nullptr;
+
+struct MessageCallbackScope {
+    explicit MessageCallbackScope(const ConnectedChildProcess* child)
+        : previous(current_message_callback_child) {
+        current_message_callback_child = child;
+    }
+
+    ~MessageCallbackScope() {
+        current_message_callback_child = previous;
+    }
+
+    const ConnectedChildProcess* previous;
+};
+
 }  // namespace
 
 // ── ConnectedChildProcess ───────────────────────────────────────────────
 
 bool ConnectedChildProcess::join_monitor_thread(bool detach_current_thread) {
-    std::lock_guard lock(monitor_mutex_);
-    if (!monitor_thread_.joinable())
-        return true;
-    if (monitor_thread_.get_id() == std::this_thread::get_id()) {
-        if (!detach_current_thread)
-            return false;
-        monitor_thread_.detach();
-        return true;
+    std::thread thread_to_join;
+    {
+        std::unique_lock lock(monitor_mutex_);
+        monitor_cv_.wait(lock, [this] {
+            return !monitor_launch_pending_ ||
+                   monitor_thread_.joinable() ||
+                   monitor_join_in_progress_;
+        });
+
+        while (monitor_join_in_progress_) {
+            if (monitor_thread_id_ == std::this_thread::get_id())
+                return true;
+            monitor_cv_.wait(lock, [this] { return !monitor_join_in_progress_; });
+        }
+
+        if (!monitor_thread_.joinable())
+            return true;
+        if (monitor_thread_.get_id() == std::this_thread::get_id()) {
+            if (!detach_current_thread)
+                return false;
+            monitor_thread_.detach();
+            monitor_thread_id_ = {};
+            monitor_cv_.notify_all();
+            return true;
+        }
+
+        monitor_join_in_progress_ = true;
+        monitor_thread_id_ = monitor_thread_.get_id();
+        thread_to_join = std::move(monitor_thread_);
     }
-    monitor_thread_.join();
+
+    thread_to_join.join();
+
+    {
+        std::lock_guard lock(monitor_mutex_);
+        monitor_join_in_progress_ = false;
+        monitor_thread_id_ = {};
+    }
+    monitor_cv_.notify_all();
     return true;
 }
 
 ConnectedChildProcess::~ConnectedChildProcess() {
+    PULP_ASSERT(current_message_callback_child != this,
+                "ConnectedChildProcess must outlive its message callback");
     kill();
     join_monitor_thread(true);
 }
@@ -38,6 +85,10 @@ bool ConnectedChildProcess::launch(std::string_view executable,
     if (running_.load()) kill();
     if (!join_monitor_thread(false))
         return false;
+    {
+        std::lock_guard lock(monitor_mutex_);
+        monitor_launch_pending_ = false;
+    }
 
     {
         std::lock_guard lock(state_mutex_);
@@ -45,7 +96,7 @@ bool ConnectedChildProcess::launch(std::string_view executable,
         exit_ready_ = false;
         exit_code_ = -1;
     }
-    pid_ = -1;
+    pid_.store(-1);
 
     // Generate unique pipe name
     std::random_device rd;
@@ -70,6 +121,7 @@ bool ConnectedChildProcess::launch(std::string_view executable,
     std::atomic<bool> server_ok{false};
     std::thread server_thread([this, &server_done, &server_ok]() {
         connection_.on_text_message = [this](std::string_view msg) {
+            MessageCallbackScope callback_scope(this);
             if (on_message) on_message(msg);
         };
         server_ok.store(connection_.create_server(pipe_name_, IpcTransport::NamedPipe));
@@ -112,7 +164,11 @@ bool ConnectedChildProcess::launch(std::string_view executable,
         return false;
     }
 
-    pid_ = process_.process_id();
+    {
+        std::lock_guard lock(monitor_mutex_);
+        monitor_launch_pending_ = true;
+    }
+    pid_.store(process_.process_id());
     const auto connect_started = std::chrono::steady_clock::now();
     while (!server_done.load()) {
         if (!process_.is_running()) {
@@ -136,50 +192,64 @@ bool ConnectedChildProcess::launch(std::string_view executable,
             process_.cancel();
         else
             (void)process_.wait();
-        pid_ = -1;
+        {
+            std::lock_guard lock(monitor_mutex_);
+            monitor_launch_pending_ = false;
+        }
+        monitor_cv_.notify_all();
+        pid_.store(-1);
         return false;
     }
 
     running_.store(true);
 
-    // Monitor thread — watches for child exit
-    monitor_thread_ = std::thread([this]() {
-        while (true) {
-            {
-                std::unique_lock lock(state_mutex_);
-                if (cancel_requested_) break;
-                exit_cv_.wait_for(lock, std::chrono::milliseconds(50), [this] {
-                    return cancel_requested_;
-                });
-                if (cancel_requested_) break;
+    // Monitor thread — watches for child exit.
+    {
+        std::lock_guard lock(monitor_mutex_);
+        monitor_thread_ = std::thread([this]() {
+            while (true) {
+                {
+                    std::unique_lock lock(state_mutex_);
+                    if (cancel_requested_) break;
+                    exit_cv_.wait_for(lock, std::chrono::milliseconds(50), [this] {
+                        return cancel_requested_;
+                    });
+                    if (cancel_requested_) break;
+                }
+
+                if (!process_.is_running()) break;
             }
 
-            if (!process_.is_running()) break;
-        }
+            bool should_cancel = false;
+            {
+                std::lock_guard lock(state_mutex_);
+                should_cancel = cancel_requested_;
+            }
+            if (should_cancel && process_.is_running())
+                process_.cancel();
 
-        bool should_cancel = false;
-        {
-            std::lock_guard lock(state_mutex_);
-            should_cancel = cancel_requested_;
-        }
-        if (should_cancel && process_.is_running())
-            process_.cancel();
+            auto result = process_.wait();
 
-        auto result = process_.wait();
-        connection_.disconnect();
+            std::function<void(int)> exit_callback;
+            {
+                std::lock_guard lock(state_mutex_);
+                exit_code_ = result.exit_code;
+                exit_ready_ = true;
+                running_.store(false);
+                exit_callback = on_exit;
+            }
+            exit_cv_.notify_all();
 
-        std::function<void(int)> exit_callback;
-        {
-            std::lock_guard lock(state_mutex_);
-            exit_code_ = result.exit_code;
-            exit_ready_ = true;
-            running_.store(false);
-            exit_callback = on_exit;
-        }
-        exit_cv_.notify_all();
+            // Wake wait_for_exit() before disconnect joins the IPC read thread;
+            // a message callback may be waiting for this monitor thread.
+            connection_.disconnect();
 
-        if (exit_callback) exit_callback(result.exit_code);
-    });
+            if (exit_callback) exit_callback(result.exit_code);
+        });
+        monitor_thread_id_ = monitor_thread_.get_id();
+        monitor_launch_pending_ = false;
+    }
+    monitor_cv_.notify_all();
 
     return true;
 }
@@ -189,7 +259,7 @@ bool ConnectedChildProcess::send_message(std::string_view message) {
 }
 
 void ConnectedChildProcess::kill() {
-    if (pid_ < 0) return;
+    if (pid_.load() < 0) return;
 
     {
         std::lock_guard lock(state_mutex_);
@@ -199,11 +269,12 @@ void ConnectedChildProcess::kill() {
 
     exit_cv_.notify_all();
 
-    join_monitor_thread(true);
+    if (current_message_callback_child != this)
+        join_monitor_thread(true);
 }
 
 int ConnectedChildProcess::wait_for_exit(int timeout_ms) {
-    if (pid_ < 0) return -1;
+    if (pid_.load() < 0) return -1;
 
     int code = -1;
     {
@@ -222,7 +293,8 @@ int ConnectedChildProcess::wait_for_exit(int timeout_ms) {
         code = exit_code_;
     }
 
-    join_monitor_thread(true);
+    if (current_message_callback_child != this)
+        join_monitor_thread(true);
 
     return code;
 }
