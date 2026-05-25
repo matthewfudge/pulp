@@ -2138,6 +2138,13 @@ pulp_add_test_suite(pulp-test-sprite-strip LIBRARIES pulp::view)
 # Edit history (global undo) tests
 pulp_add_test_suite(pulp-test-edit-history LIBRARIES pulp::state)
 
+# macOS plan Batch A — Foundations
+pulp_add_test_suite(pulp-test-dc-blocker LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-denormal LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-normalisable-range LIBRARIES pulp::state)
+pulp_add_test_suite(pulp-test-adsr LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-high-resolution-timer LIBRARIES pulp::runtime)
+
 # Platform maturity tests (cursor, focus, IME, context menu, accessibility)
 pulp_add_test_suite(pulp-test-platform-maturity LIBRARIES pulp::view)
 
