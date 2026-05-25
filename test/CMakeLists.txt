@@ -2154,6 +2154,9 @@ pulp_add_test_suite(pulp-test-hmac-aead LIBRARIES pulp::runtime)
 # macOS plan Batch C (partial) — MidiMessageCollector (UI→audio MIDI hub)
 pulp_add_test_suite(pulp-test-midi-message-collector LIBRARIES pulp::midi)
 
+# macOS plan Batch G (partial) — Compressor sidechain HPF + lookahead
+pulp_add_test_suite(pulp-test-compressor-sidechain LIBRARIES pulp::signal)
+
 # macOS plan Batch A — Foundations
 pulp_add_test_suite(pulp-test-dc-blocker LIBRARIES pulp::signal)
 pulp_add_test_suite(pulp-test-denormal LIBRARIES pulp::signal)
