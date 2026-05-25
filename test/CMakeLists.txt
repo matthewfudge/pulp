@@ -2142,6 +2142,9 @@ pulp_add_test_suite(pulp-test-edit-history LIBRARIES pulp::state)
 pulp_add_test_suite(pulp-test-host-version LIBRARIES pulp::format)
 pulp_add_test_suite(pulp-test-host-quirks LIBRARIES pulp::format)
 
+# macOS plan Batch B (partial: mixers) — DryWetMixer + Panner pan laws
+pulp_add_test_suite(pulp-test-pan-mix-laws LIBRARIES pulp::signal)
+
 # macOS plan Batch A — Foundations
 pulp_add_test_suite(pulp-test-dc-blocker LIBRARIES pulp::signal)
 pulp_add_test_suite(pulp-test-denormal LIBRARIES pulp::signal)
