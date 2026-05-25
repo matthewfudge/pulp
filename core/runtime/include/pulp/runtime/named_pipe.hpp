@@ -3,6 +3,7 @@
 // Named pipe for IPC — POSIX mkfifo / Windows CreateNamedPipe.
 
 #include <atomic>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -48,15 +49,17 @@ public:
 
 private:
     std::string name_;
-    bool is_server_ = false;
+    std::atomic<bool> is_server_{false};
 #ifdef _WIN32
     void* handle_ = nullptr;
     std::atomic<bool> closing_{false};
     std::atomic<bool> connecting_{false};
 #else
     std::string write_name_;
-    int read_fd_ = -1;
-    int write_fd_ = -1;
+    std::atomic<int> read_fd_{-1};
+    std::atomic<int> write_fd_{-1};
+    mutable std::mutex read_fd_mutex_;
+    mutable std::mutex write_fd_mutex_;
     std::atomic<bool> closing_{false};
     std::atomic<bool> read_peer_confirmed_{false};
 #endif

@@ -1,6 +1,7 @@
 #include <pulp/runtime/named_pipe.hpp>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <thread>
 
 #ifdef _WIN32
@@ -20,15 +21,15 @@ namespace pulp::runtime {
 NamedPipe::~NamedPipe() { close(); }
 
 NamedPipe::NamedPipe(NamedPipe&& other) noexcept
-    : name_(std::move(other.name_)), is_server_(other.is_server_)
+    : name_(std::move(other.name_)), is_server_(other.is_server_.exchange(false))
 #ifdef _WIN32
     , handle_(other.handle_)
     , closing_(other.closing_.load())
     , connecting_(false)
 #else
     , write_name_(std::move(other.write_name_))
-    , read_fd_(other.read_fd_)
-    , write_fd_(other.write_fd_)
+    , read_fd_(other.read_fd_.exchange(-1))
+    , write_fd_(other.write_fd_.exchange(-1))
     , closing_(other.closing_.load())
     , read_peer_confirmed_(other.read_peer_confirmed_.load())
 #endif
@@ -38,19 +39,16 @@ NamedPipe::NamedPipe(NamedPipe&& other) noexcept
     other.closing_.store(true);
     other.connecting_.store(false);
 #else
-    other.read_fd_ = -1;
-    other.write_fd_ = -1;
     other.closing_.store(true);
     other.read_peer_confirmed_.store(false);
 #endif
-    other.is_server_ = false;
 }
 
 NamedPipe& NamedPipe::operator=(NamedPipe&& other) noexcept {
     if (this != &other) {
         close();
         name_ = std::move(other.name_);
-        is_server_ = other.is_server_;
+        is_server_.store(other.is_server_.exchange(false));
 #ifdef _WIN32
         handle_ = other.handle_;
         closing_.store(other.closing_.load());
@@ -60,16 +58,13 @@ NamedPipe& NamedPipe::operator=(NamedPipe&& other) noexcept {
         other.connecting_.store(false);
 #else
         write_name_ = std::move(other.write_name_);
-        read_fd_ = other.read_fd_;
-        write_fd_ = other.write_fd_;
+        read_fd_.store(other.read_fd_.exchange(-1));
+        write_fd_.store(other.write_fd_.exchange(-1));
         closing_.store(other.closing_.load());
         read_peer_confirmed_.store(other.read_peer_confirmed_.load());
-        other.read_fd_ = -1;
-        other.write_fd_ = -1;
         other.closing_.store(true);
         other.read_peer_confirmed_.store(false);
 #endif
-        other.is_server_ = false;
     }
     return *this;
 }
@@ -80,7 +75,7 @@ bool NamedPipe::create_server(std::string_view name) {
     close();
     closing_.store(false);
     name_ = "\\\\.\\pipe\\" + std::string(name);
-    is_server_ = true;
+    is_server_.store(true);
 
     handle_ = CreateNamedPipeA(name_.c_str(),
         PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
@@ -90,7 +85,7 @@ bool NamedPipe::create_server(std::string_view name) {
     if (handle_ == INVALID_HANDLE_VALUE) {
         handle_ = nullptr;
         closing_.store(true);
-        is_server_ = false;
+        is_server_.store(false);
         return false;
     }
 
@@ -100,7 +95,7 @@ bool NamedPipe::create_server(std::string_view name) {
         CloseHandle(handle_);
         handle_ = nullptr;
         closing_.store(true);
-        is_server_ = false;
+        is_server_.store(false);
         return false;
     }
 
@@ -114,7 +109,7 @@ bool NamedPipe::create_server(std::string_view name) {
                 handle_ = nullptr;
             }
             closing_.store(true);
-            is_server_ = false;
+            is_server_.store(false);
             return false;
         }
         return true;
@@ -156,7 +151,7 @@ bool NamedPipe::connect_client(std::string_view name) {
     close();
     closing_.store(false);
     name_ = "\\\\.\\pipe\\" + std::string(name);
-    is_server_ = false;
+    is_server_.store(false);
 
     handle_ = CreateFileA(name_.c_str(), GENERIC_READ | GENERIC_WRITE,
         0, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -192,7 +187,8 @@ void NamedPipe::close() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         if (!handle_)
             return;
-        if (is_server_) DisconnectNamedPipe(handle_);
+        const bool was_server = is_server_.exchange(false);
+        if (was_server) DisconnectNamedPipe(handle_);
         CloseHandle(handle_);
         handle_ = nullptr;
     }
@@ -211,10 +207,9 @@ std::string reply_fifo_name(std::string_view name) {
     return std::string(name) + ".reply";
 }
 
-void close_fd(int& fd) {
+void close_fd(int fd) {
     if (fd >= 0) {
         ::close(fd);
-        fd = -1;
     }
 }
 
@@ -257,6 +252,7 @@ bool wait_for_fifo_writer(int& fd, const std::string& path,
             if (set_no_sigpipe(fd))
                 return true;
             close_fd(fd);
+            fd = -1;
             return false;
         }
         if (errno == EINTR)
@@ -310,43 +306,70 @@ ssize_t write_no_sigpipe(int fd, const uint8_t* data, size_t length) {
 bool NamedPipe::create_server(std::string_view name) {
     close();
     closing_.store(false);
-    name_ = std::string(name);
-    write_name_ = reply_fifo_name(name_);
-    is_server_ = true;
+    {
+        std::scoped_lock fd_lock(read_fd_mutex_, write_fd_mutex_);
+        name_ = std::string(name);
+        write_name_ = reply_fifo_name(name_);
+        is_server_.store(true);
+    }
 
     // POSIX FIFOs are one-way. Use a pair under one public name:
     // name_ carries client -> server; write_name_ carries server -> client.
+    bool public_fifo_created = false;
+    bool reply_fifo_created = false;
+    auto cleanup_created_fifos = [&] {
+        if (reply_fifo_created)
+            unlink_existing_fifo(write_name_);
+        if (public_fifo_created)
+            unlink_existing_fifo(name_);
+    };
     if (!unlink_existing_fifo(name_) || !unlink_existing_fifo(write_name_)) {
         closing_.store(true);
-        is_server_ = false;
+        is_server_.store(false);
         return false;
     }
 
     if (mkfifo(name_.c_str(), 0666) != 0) {
         closing_.store(true);
-        is_server_ = false;
+        is_server_.store(false);
         return false;
     }
+    public_fifo_created = true;
     if (mkfifo(write_name_.c_str(), 0666) != 0) {
         unlink_existing_fifo(name_);
         closing_.store(true);
-        is_server_ = false;
+        is_server_.store(false);
         return false;
     }
+    reply_fifo_created = true;
 
     // Keep steady-state descriptors directional so peer shutdown is visible:
     // server reads the public FIFO and writes the reply FIFO; the client uses
     // the opposite direction. The reply writer is opened with retries so
     // create_server() blocks until a client has opened its read side, while
     // close() can still cancel the wait.
-    read_fd_ = ::open(name_.c_str(), O_RDONLY | O_NONBLOCK);
-    if (read_fd_ < 0 || !set_close_on_exec(read_fd_) ||
-        !wait_for_fifo_writer(write_fd_, write_name_, closing_) ||
-        !set_close_on_exec(write_fd_) ||
-        !set_nonblocking(read_fd_) || !set_nonblocking(write_fd_)) {
+    int read_fd = ::open(name_.c_str(), O_RDONLY | O_NONBLOCK);
+    int write_fd = -1;
+    if (read_fd < 0 || !set_close_on_exec(read_fd) ||
+        !wait_for_fifo_writer(write_fd, write_name_, closing_) ||
+        !set_close_on_exec(write_fd) ||
+        !set_nonblocking(read_fd) || !set_nonblocking(write_fd)) {
+        close_fd(read_fd);
+        close_fd(write_fd);
+        cleanup_created_fifos();
         close();
         return false;
     }
+    std::scoped_lock fd_lock(read_fd_mutex_, write_fd_mutex_);
+    if (closing_.load()) {
+        close_fd(read_fd);
+        close_fd(write_fd);
+        cleanup_created_fifos();
+        is_server_.store(false);
+        return false;
+    }
+    read_fd_.store(read_fd);
+    write_fd_.store(write_fd);
     read_peer_confirmed_.store(true);
     return true;
 }
@@ -354,36 +377,52 @@ bool NamedPipe::create_server(std::string_view name) {
 bool NamedPipe::connect_client(std::string_view name) {
     close();
     closing_.store(false);
-    name_ = std::string(name);
-    write_name_ = reply_fifo_name(name_);
-    is_server_ = false;
+    {
+        std::scoped_lock fd_lock(read_fd_mutex_, write_fd_mutex_);
+        name_ = std::string(name);
+        write_name_ = reply_fifo_name(name_);
+        is_server_.store(false);
+    }
 
-    if (!wait_for_fifo_writer(write_fd_, name_, closing_, std::chrono::seconds(2))) {
+    int write_fd = -1;
+    if (!wait_for_fifo_writer(write_fd, name_, closing_, std::chrono::seconds(2))) {
         close();
         return false;
     }
-    read_fd_ = ::open(write_name_.c_str(), O_RDONLY | O_NONBLOCK);
-    if (read_fd_ < 0 || write_fd_ < 0 ||
-        !set_close_on_exec(read_fd_) || !set_close_on_exec(write_fd_) ||
-        !set_no_sigpipe(write_fd_) ||
-        !set_nonblocking(read_fd_) || !set_nonblocking(write_fd_)) {
+    int read_fd = ::open(write_name_.c_str(), O_RDONLY | O_NONBLOCK);
+    if (read_fd < 0 || write_fd < 0 ||
+        !set_close_on_exec(read_fd) || !set_close_on_exec(write_fd) ||
+        !set_no_sigpipe(write_fd) ||
+        !set_nonblocking(read_fd) || !set_nonblocking(write_fd)) {
+        close_fd(read_fd);
+        close_fd(write_fd);
         close();
         return false;
     }
+    std::scoped_lock fd_lock(read_fd_mutex_, write_fd_mutex_);
+    if (closing_.load()) {
+        close_fd(read_fd);
+        close_fd(write_fd);
+        return false;
+    }
+    read_fd_.store(read_fd);
+    write_fd_.store(write_fd);
     read_peer_confirmed_.store(false);
     return true;
 }
 
 int NamedPipe::write(const uint8_t* data, size_t length) {
-    if (write_fd_ < 0) return -1;
+    std::lock_guard fd_lock(write_fd_mutex_);
+    const int write_fd = write_fd_.load();
+    if (write_fd < 0) return -1;
     while (!closing_.load()) {
-        const ssize_t written = write_no_sigpipe(write_fd_, data, length);
+        const ssize_t written = write_no_sigpipe(write_fd, data, length);
         if (written >= 0)
             return static_cast<int>(written);
         if (errno == EINTR)
             continue;
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            pollfd pfd{write_fd_, POLLOUT, 0};
+            pollfd pfd{write_fd, POLLOUT, 0};
             (void)::poll(&pfd, 1, 50);
             continue;
         }
@@ -393,7 +432,9 @@ int NamedPipe::write(const uint8_t* data, size_t length) {
 }
 
 int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
-    if (read_fd_ < 0) return -1;
+    std::lock_guard fd_lock(read_fd_mutex_);
+    const int read_fd = read_fd_.load();
+    if (read_fd < 0) return -1;
     if (buffer_size == 0) return 0;
 
     // A POSIX client can open the reply FIFO before the server's writer has
@@ -417,7 +458,7 @@ int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
     };
 
     while (!closing_.load()) {
-        pollfd pfd{read_fd_, POLLIN | POLLHUP | POLLERR, 0};
+        pollfd pfd{read_fd, POLLIN | POLLHUP | POLLERR, 0};
         const int ready = ::poll(&pfd, 1, 50);
         if (ready < 0) {
             if (errno == EINTR)
@@ -425,7 +466,7 @@ int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
             return -1;
         }
         if (ready == 0) {
-            const ssize_t bytes = ::read(read_fd_, buffer, buffer_size);
+            const ssize_t bytes = ::read(read_fd, buffer, buffer_size);
             if (bytes >= 0) {
                 const int result = finish_read(bytes);
                 if (result != -2)
@@ -437,7 +478,7 @@ int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
             return -1;
         }
         if ((pfd.revents & POLLIN) != 0) {
-            const ssize_t bytes = ::read(read_fd_, buffer, buffer_size);
+            const ssize_t bytes = ::read(read_fd, buffer, buffer_size);
             if (bytes >= 0) {
                 const int result = finish_read(bytes);
                 if (result != -2)
@@ -460,17 +501,20 @@ int NamedPipe::read(uint8_t* buffer, size_t buffer_size) {
 void NamedPipe::close() {
     closing_.store(true);
     read_peer_confirmed_.store(false);
-    close_fd(read_fd_);
-    close_fd(write_fd_);
-    if (is_server_ && !name_.empty()) {
+    std::scoped_lock fd_lock(read_fd_mutex_, write_fd_mutex_);
+    close_fd(read_fd_.exchange(-1));
+    close_fd(write_fd_.exchange(-1));
+    const bool was_server = is_server_.exchange(false);
+    if (was_server && !name_.empty()) {
         unlink_existing_fifo(name_);
         if (!write_name_.empty())
             unlink_existing_fifo(write_name_);
-        is_server_ = false;
     }
 }
 
-bool NamedPipe::is_open() const { return read_fd_ >= 0 && write_fd_ >= 0; }
+bool NamedPipe::is_open() const {
+    return read_fd_.load() >= 0 && write_fd_.load() >= 0;
+}
 
 #endif
 

@@ -143,7 +143,7 @@ PR1 local validation:
 - `tools/check-docs.sh` passed with existing repository warnings.
 - Manual diff coverage was run with the same coverage pipeline and
   `PULP_ENABLE_GPU=OFF` because `tools/scripts/local_diff_cover.sh` re-enables
-  GPU and fails locally without Skia. Result: 78% diff coverage against the
+  GPU and fails locally without Skia. Result: 79% diff coverage against the
   75% floor.
 
 PR1 submit and review sweep:
@@ -167,6 +167,11 @@ PR1 submit and review sweep:
 - Final Claude review of the reply-FIFO attach fix reported no blocking
   correctness bugs; the only follow-up was naming the bounded initial EOF
   window for auditability.
+- macOS ThreadSanitizer CI then exposed POSIX named-pipe teardown races on file
+  descriptor ownership and server unlink state while manager cleanup was
+  joining active IPC children. The POSIX descriptor slots and server flag are
+  now atomic, setup publishes descriptors only after both directions are fully
+  configured, and local TSan IPC/manager coverage passes the affected cases.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 
