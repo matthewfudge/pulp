@@ -212,3 +212,33 @@ TEST_CASE("make_quirks_for Bitwig leaves Cubase / Live / FL flags off",
     REQUIRE(q.fl_studio_setactive_process_mutex == false);
     REQUIRE(q.logic_au_channel_probe_cap == 64);
 }
+
+// ── macOS plan item 5.7 — FL Studio dispatch (DAW-quirks rows 13 + 14).
+//    Factory at `core/format/include/pulp/format/host_quirks/fl_studio.hpp`. ──
+
+TEST_CASE("make_quirks_for FL Studio fires mutex + state-reader-skip flags",
+          "[format][host-quirks][fl-studio]") {
+    auto q = make_quirks_for(HostType::FLStudio, HostVersion{21, 0});
+    REQUIRE(q.fl_studio_setactive_process_mutex == true);
+    REQUIRE(q.fl_studio_state_reader_skip == true);
+}
+
+TEST_CASE("make_quirks_for FL Studio unknown version still fires both flags",
+          "[format][host-quirks][fl-studio]") {
+    // Both rows are version-invariant.
+    auto q = make_quirks_for(HostType::FLStudio, HostVersion{});
+    REQUIRE(q.fl_studio_setactive_process_mutex == true);
+    REQUIRE(q.fl_studio_state_reader_skip == true);
+}
+
+TEST_CASE("make_quirks_for FL Studio leaves other hosts' flags off",
+          "[format][host-quirks][fl-studio][isolation]") {
+    auto q = make_quirks_for(HostType::FLStudio, HostVersion{20, 9});
+    REQUIRE(q.fl_studio_setactive_process_mutex == true);
+    REQUIRE(q.cubase10_async_view_resize_queue == false);
+    REQUIRE(q.live_vst3_canresize_ignore == false);
+    REQUIRE(q.wavelab_state_blob_fallback == false);
+    REQUIRE(q.bitwig_vst3_linux_repaint_after_resize == false);
+    REQUIRE(q.logic_au_channel_probe_cap == 64);
+    REQUIRE(q.au_v3_bypass_dual_tracking == false);
+}

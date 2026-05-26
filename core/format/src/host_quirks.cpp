@@ -3,6 +3,7 @@
 #include <pulp/format/host_quirks/ableton_live.hpp>
 #include <pulp/format/host_quirks/bitwig.hpp>
 #include <pulp/format/host_quirks/cubase.hpp>
+#include <pulp/format/host_quirks/fl_studio.hpp>
 #include <pulp/format/host_quirks/wavelab.hpp>
 #include <pulp/format/host_version.hpp>
 
@@ -50,12 +51,13 @@ HostQuirks make_quirks_for(HostType type, HostVersion version) {
         case HostType::AbletonLive:   host_quirks::apply_ableton_live(q, version); break;
         case HostType::Wavelab:       host_quirks::apply_wavelab(q, version); break;
         case HostType::Bitwig:        host_quirks::apply_bitwig(q, version); break;
+        case HostType::FLStudio:      host_quirks::apply_fl_studio(q, version); break;
         case HostType::Reaper:        apply_reaper_quirks(q, version); break;
         case HostType::LogicPro:
         case HostType::GarageBand:    apply_logic_pro_quirks(q, version); break;
         case HostType::ProTools:      apply_pro_tools_quirks(q, version); break;
-        // FL Studio / StudioOne / DigitalPerformer / etc. land their
-        // flags here when the per-host fixes ship in batches L/N.
+        // StudioOne / DigitalPerformer / etc. land their flags here
+        // when the per-host fixes ship in later batches.
         default: break;
     }
     return q;
