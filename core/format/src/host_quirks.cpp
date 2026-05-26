@@ -38,7 +38,110 @@ void apply_pro_tools_quirks(HostQuirks& q, HostVersion /*v*/) {
     q.pro_tools_aax_mono_second_bus = true;
 }
 
+// Tier filtering. A single helper reduces a (status-tag, current value)
+// pair to either the current value or the field's "off" value,
+// depending on `filter`. Bool fields go to `false` when filtered out
+// (so `kQuirkFilterOff` zeroes everything including cheap defenses).
+// Numeric fields fall back to their default-constructed value (so the
+// Logic channel-probe cap reverts to the cross-host 64, not to 0).
+constexpr bool keep(QuirkStatus status, QuirkFilter filter) noexcept {
+    switch (status) {
+        case QuirkStatus::Validated:   return filter.allow_validated;
+        case QuirkStatus::Speculative: return filter.allow_speculative;
+        case QuirkStatus::LessonOnly:  return filter.allow_lesson_only;
+    }
+    return false;
+}
+
+constexpr void reset_if_filtered(bool& field, bool /*default_value*/,
+                                 QuirkStatus status, QuirkFilter filter) noexcept {
+    if (!keep(status, filter)) field = false;
+}
+
+constexpr void reset_if_filtered(int& field, int default_value,
+                                 QuirkStatus status, QuirkFilter filter) noexcept {
+    if (!keep(status, filter)) field = default_value;
+}
+
+// Compile-time default sentinel — used by reset_if_filtered to restore
+// numeric fields to the value `HostQuirks{}` would yield (e.g. the
+// Logic channel-probe cap to its cross-host default of 64). Keeping
+// it as a constexpr instance (rather than building a fresh one per
+// call) makes apply_filter() noexcept + cheap.
+constexpr HostQuirks kDefaultHostQuirks{};
+
+// Compile-time policy selection for `detect_quirks()`. The build-time
+// option `PULP_HOST_QUIRKS_DEFAULT_POLICY` toggles `_VALIDATED_ONLY`
+// or `_OFF`; default is "all quirks fire" (matches pre-tier behavior).
+constexpr QuirkFilter default_policy_filter() noexcept {
+#if defined(PULP_HOST_QUIRKS_DEFAULT_POLICY_OFF)
+    return kQuirkFilterOff;
+#elif defined(PULP_HOST_QUIRKS_DEFAULT_POLICY_VALIDATED_ONLY)
+    return kQuirkFilterValidatedOnly;
+#else
+    return QuirkFilter{}; // all tiers allowed
+#endif
+}
+
 } // namespace
+
+void apply_filter(HostQuirks& q, QuirkFilter filter) {
+    constexpr auto& m = kHostQuirksMeta;
+    constexpr auto& d = kDefaultHostQuirks;
+
+#define PULP_QUIRK_FILTER_FIELD(name) \
+    reset_if_filtered(q.name, d.name, m.name, filter)
+
+    // Cheap defenses (Validated)
+    PULP_QUIRK_FILTER_FIELD(synthesize_bypass_parameter);
+    PULP_QUIRK_FILTER_FIELD(clamp_latency_to_nonneg);
+    PULP_QUIRK_FILTER_FIELD(silence_unsupported_bus_arrangements);
+
+    // Cubase
+    PULP_QUIRK_FILTER_FIELD(cubase10_async_view_resize_queue);
+    PULP_QUIRK_FILTER_FIELD(cubase10_param_gesture_ordering);
+    PULP_QUIRK_FILTER_FIELD(cubase10_fractional_scale_correction);
+    PULP_QUIRK_FILTER_FIELD(cubase9_state_blob_size_validation);
+
+    // Ableton Live
+    PULP_QUIRK_FILTER_FIELD(live_vst3_canresize_ignore);
+    PULP_QUIRK_FILTER_FIELD(live_vst3_windows_dpi_defer);
+
+    // Bitwig
+    PULP_QUIRK_FILTER_FIELD(bitwig_vst3_linux_repaint_after_resize);
+    PULP_QUIRK_FILTER_FIELD(bitwig_vst3_setbusarrangements_while_active);
+
+    // Wavelab
+    PULP_QUIRK_FILTER_FIELD(wavelab_vst3_defer_activation);
+    PULP_QUIRK_FILTER_FIELD(wavelab_state_blob_fallback);
+
+    // FL Studio
+    PULP_QUIRK_FILTER_FIELD(fl_studio_setactive_process_mutex);
+    PULP_QUIRK_FILTER_FIELD(fl_studio_state_reader_skip);
+
+    // Reaper
+    PULP_QUIRK_FILTER_FIELD(reaper_vst3_gesture_ordering);
+    PULP_QUIRK_FILTER_FIELD(reaper_process_while_bypassed);
+    PULP_QUIRK_FILTER_FIELD(reaper_keyboard_passthrough);
+    PULP_QUIRK_FILTER_FIELD(reaper_permissive_bus_arrangements);
+    PULP_QUIRK_FILTER_FIELD(reaper_anticipative_fx_buffer_variability);
+    PULP_QUIRK_FILTER_FIELD(reaper_midsession_setstate);
+
+    // Pro Tools
+    PULP_QUIRK_FILTER_FIELD(pro_tools_aax_sidechain_negotiation);
+    PULP_QUIRK_FILTER_FIELD(pro_tools_aax_latency_callback_push);
+    PULP_QUIRK_FILTER_FIELD(pro_tools_aax_mono_second_bus);
+
+    // Logic Pro AU (one int field — same machinery)
+    PULP_QUIRK_FILTER_FIELD(logic_au_channel_probe_cap);
+    PULP_QUIRK_FILTER_FIELD(logic_au_tail_time_conversion);
+
+    // AU v3 cross-host
+    PULP_QUIRK_FILTER_FIELD(au_v3_bypass_dual_tracking);
+    PULP_QUIRK_FILTER_FIELD(au_v3_host_id_from_wrapper);
+
+#undef PULP_QUIRK_FILTER_FIELD
+}
 
 HostQuirks make_quirks_for(HostType type, HostVersion version) {
     HostQuirks q; // cheap defenses on by default
@@ -68,9 +171,17 @@ HostQuirks make_quirks_for(HostType type, HostVersion version) {
     return q;
 }
 
+HostQuirks make_quirks_for_validated_only(HostType type, HostVersion version) {
+    auto q = make_quirks_for(type, version);
+    apply_filter(q, kQuirkFilterValidatedOnly);
+    return q;
+}
+
 HostQuirks detect_quirks() {
     const auto info = detect_host_info();
-    return make_quirks_for(info.type, info.version);
+    auto q = make_quirks_for(info.type, info.version);
+    apply_filter(q, default_policy_filter());
+    return q;
 }
 
 }  // namespace pulp::format

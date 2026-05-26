@@ -375,11 +375,16 @@ TEST_CASE("cross-format defensive defaults survive detect_quirks()",
           "[format][host-quirks][defaults]") {
     // detect_quirks() shells through detect_host_info() → the same
     // make_quirks_for() pipeline. Cheap defenses must be on no matter
-    // which host (or no host) the runtime detects.
+    // which host (or no host) the runtime detects. NOTE: this invariant
+    // assumes the default PULP_HOST_QUIRKS_DEFAULT_POLICY=all; the
+    // separate "detect_quirks respects PULP_HOST_QUIRKS_DEFAULT_POLICY"
+    // case below covers the validated_only / off policies explicitly.
+#if !defined(PULP_HOST_QUIRKS_DEFAULT_POLICY_OFF)
     auto q = detect_quirks();
     REQUIRE(q.synthesize_bypass_parameter == true);
     REQUIRE(q.clamp_latency_to_nonneg == true);
     REQUIRE(q.silence_unsupported_bus_arrangements == true);
+#endif
 }
 
 TEST_CASE("cross-format defensive defaults are the only flags on for Unknown host",
@@ -417,4 +422,213 @@ TEST_CASE("cross-format defensive defaults are the only flags on for Unknown hos
     REQUIRE(q.logic_au_tail_time_conversion == false);
     REQUIRE(q.au_v3_bypass_dual_tracking == false);
     REQUIRE(q.au_v3_host_id_from_wrapper == false);
+}
+
+// ── Validation-tier API (2026-05-25, item 5.15) ──
+//
+// Per-quirk validation tiers + the filter + the validated-only factory
+// + the default-policy compile-time switch. The intent is that plugin
+// authors can dial in exactly the accommodations they trust, without
+// having to hand-zero individual fields.
+
+TEST_CASE("kHostQuirksMeta tags cheap defenses as Validated",
+          "[format][host-quirks][tiers]") {
+    // Cheap defenses (rows 23–28) have been on the test bench since
+    // item 5.1 — they're the founding assumption + are covered by the
+    // "cross-format defensive defaults are on for every host" case
+    // above.
+    STATIC_REQUIRE(kHostQuirksMeta.synthesize_bypass_parameter
+                   == QuirkStatus::Validated);
+    STATIC_REQUIRE(kHostQuirksMeta.clamp_latency_to_nonneg
+                   == QuirkStatus::Validated);
+    STATIC_REQUIRE(kHostQuirksMeta.silence_unsupported_bus_arrangements
+                   == QuirkStatus::Validated);
+}
+
+TEST_CASE("kHostQuirksMeta tags every host-gated row as Speculative",
+          "[format][host-quirks][tiers]") {
+    // Every per-host row currently has dispatch-table coverage + an
+    // optional per-host header, but none has been bench-confirmed
+    // against the real DAW. They start at Speculative; promote to
+    // Validated as bench rows ship.
+    STATIC_REQUIRE(kHostQuirksMeta.cubase10_async_view_resize_queue
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.cubase9_state_blob_size_validation
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.live_vst3_canresize_ignore
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.wavelab_state_blob_fallback
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.bitwig_vst3_setbusarrangements_while_active
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.fl_studio_setactive_process_mutex
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.logic_au_channel_probe_cap
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.logic_au_tail_time_conversion
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.au_v3_bypass_dual_tracking
+                   == QuirkStatus::Speculative);
+    STATIC_REQUIRE(kHostQuirksMeta.au_v3_host_id_from_wrapper
+                   == QuirkStatus::Speculative);
+}
+
+TEST_CASE("kHostQuirksMeta tags Reaper / Pro Tools rows as LessonOnly",
+          "[format][host-quirks][tiers]") {
+    // Reaper + Pro Tools live in the dispatch table but have no
+    // per-host header yet (see host_quirks.cpp). They're catalog
+    // entries Pulp uses as lessons until the headers + bench evidence
+    // ship.
+    STATIC_REQUIRE(kHostQuirksMeta.reaper_process_while_bypassed
+                   == QuirkStatus::LessonOnly);
+    STATIC_REQUIRE(kHostQuirksMeta.reaper_vst3_gesture_ordering
+                   == QuirkStatus::LessonOnly);
+    STATIC_REQUIRE(kHostQuirksMeta.pro_tools_aax_sidechain_negotiation
+                   == QuirkStatus::LessonOnly);
+    STATIC_REQUIRE(kHostQuirksMeta.pro_tools_aax_mono_second_bus
+                   == QuirkStatus::LessonOnly);
+}
+
+TEST_CASE("apply_filter validated-only strips Speculative + LessonOnly flags",
+          "[format][host-quirks][tiers]") {
+    // Build a Cubase 10 quirks bundle — all 3 Cubase 10 flags are
+    // Speculative, the cheap defenses are Validated.
+    auto q = make_quirks_for(HostType::Cubase, HostVersion{12, 0});
+    REQUIRE(q.cubase10_async_view_resize_queue == true);
+    REQUIRE(q.synthesize_bypass_parameter == true);
+
+    apply_filter(q, kQuirkFilterValidatedOnly);
+
+    // Cheap defenses survive (Validated).
+    REQUIRE(q.synthesize_bypass_parameter == true);
+    REQUIRE(q.clamp_latency_to_nonneg == true);
+    REQUIRE(q.silence_unsupported_bus_arrangements == true);
+    // Cubase 10 speculative flags zeroed.
+    REQUIRE(q.cubase10_async_view_resize_queue == false);
+    REQUIRE(q.cubase10_param_gesture_ordering == false);
+    REQUIRE(q.cubase10_fractional_scale_correction == false);
+}
+
+TEST_CASE("apply_filter validated-only resets logic_au_channel_probe_cap",
+          "[format][host-quirks][tiers]") {
+    // Numeric field (Speculative) should reset to the cross-host
+    // default cap (64) when filtered out, not stay at the
+    // Logic-specific 8.
+    auto q = make_quirks_for(HostType::LogicPro, HostVersion{11, 0});
+    REQUIRE(q.logic_au_channel_probe_cap == 8);
+
+    apply_filter(q, kQuirkFilterValidatedOnly);
+    REQUIRE(q.logic_au_channel_probe_cap == 64);
+    REQUIRE(q.logic_au_tail_time_conversion == false);
+}
+
+TEST_CASE("apply_filter kQuirkFilterOff zeros every field including cheap defenses",
+          "[format][host-quirks][tiers]") {
+    auto q = make_quirks_for(HostType::Cubase, HostVersion{12, 0});
+    apply_filter(q, kQuirkFilterOff);
+
+    REQUIRE(q.synthesize_bypass_parameter == false);
+    REQUIRE(q.clamp_latency_to_nonneg == false);
+    REQUIRE(q.silence_unsupported_bus_arrangements == false);
+    REQUIRE(q.cubase10_async_view_resize_queue == false);
+    REQUIRE(q.logic_au_channel_probe_cap == 64); // numeric default
+}
+
+TEST_CASE("apply_filter is idempotent",
+          "[format][host-quirks][tiers]") {
+    auto q = make_quirks_for(HostType::Reaper, HostVersion{7, 20});
+    apply_filter(q, kQuirkFilterValidatedOnly);
+    auto snapshot = q;
+    apply_filter(q, kQuirkFilterValidatedOnly);
+    // Same struct after a second filter call — no oscillation.
+    REQUIRE(q.synthesize_bypass_parameter == snapshot.synthesize_bypass_parameter);
+    REQUIRE(q.reaper_process_while_bypassed == snapshot.reaper_process_while_bypassed);
+    REQUIRE(q.logic_au_channel_probe_cap == snapshot.logic_au_channel_probe_cap);
+}
+
+TEST_CASE("apply_filter custom: allow only LessonOnly keeps Reaper / Pro Tools flags",
+          "[format][host-quirks][tiers]") {
+    // LessonOnly-only filter: lets the (currently un-bench-validated)
+    // Reaper rows ride while suppressing the validated cheap defenses
+    // and the speculative per-host rows.
+    auto q = make_quirks_for(HostType::Reaper, HostVersion{7, 20});
+    QuirkFilter only_lesson{
+        .allow_validated = false,
+        .allow_speculative = false,
+        .allow_lesson_only = true,
+    };
+    apply_filter(q, only_lesson);
+    REQUIRE(q.reaper_process_while_bypassed == true);
+    REQUIRE(q.reaper_midsession_setstate == true);
+    // Validated cheap defenses zeroed.
+    REQUIRE(q.synthesize_bypass_parameter == false);
+}
+
+TEST_CASE("make_quirks_for_validated_only matches make_quirks_for + filter",
+          "[format][host-quirks][tiers]") {
+    const auto v = HostVersion{12, 0};
+    auto direct = make_quirks_for(HostType::Cubase, v);
+    apply_filter(direct, kQuirkFilterValidatedOnly);
+    auto factory = make_quirks_for_validated_only(HostType::Cubase, v);
+
+    // Field-for-field equality on the subset we care about.
+    REQUIRE(direct.synthesize_bypass_parameter == factory.synthesize_bypass_parameter);
+    REQUIRE(direct.clamp_latency_to_nonneg == factory.clamp_latency_to_nonneg);
+    REQUIRE(direct.cubase10_async_view_resize_queue
+            == factory.cubase10_async_view_resize_queue);
+    REQUIRE(direct.cubase10_param_gesture_ordering
+            == factory.cubase10_param_gesture_ordering);
+    REQUIRE(direct.cubase10_fractional_scale_correction
+            == factory.cubase10_fractional_scale_correction);
+    REQUIRE(direct.logic_au_channel_probe_cap == factory.logic_au_channel_probe_cap);
+}
+
+TEST_CASE("make_quirks_for_validated_only on Reaper leaves only cheap defenses",
+          "[format][host-quirks][tiers]") {
+    auto q = make_quirks_for_validated_only(HostType::Reaper, HostVersion{7, 20});
+    REQUIRE(q.synthesize_bypass_parameter == true);
+    REQUIRE(q.clamp_latency_to_nonneg == true);
+    REQUIRE(q.silence_unsupported_bus_arrangements == true);
+    // Every Reaper row (currently LessonOnly) zeroed.
+    REQUIRE(q.reaper_process_while_bypassed == false);
+    REQUIRE(q.reaper_vst3_gesture_ordering == false);
+    REQUIRE(q.reaper_keyboard_passthrough == false);
+    REQUIRE(q.reaper_permissive_bus_arrangements == false);
+    REQUIRE(q.reaper_anticipative_fx_buffer_variability == false);
+    REQUIRE(q.reaper_midsession_setstate == false);
+}
+
+TEST_CASE("detect_quirks respects PULP_HOST_QUIRKS_DEFAULT_POLICY compile-time policy",
+          "[format][host-quirks][tiers]") {
+    // The runtime-detected `detect_quirks()` always returns at least
+    // a valid struct; what we can assert here without knowing the
+    // calling DAW is that the build-time policy invariant holds:
+    //
+    //   policy=off            -> cheap defenses are OFF on the returned struct
+    //   policy=validated_only -> cheap defenses are ON, but no LessonOnly fires
+    //   policy=all (default)  -> cheap defenses are ON; whatever else fires fires
+    //
+    // We can only check the policy that this binary was built with —
+    // the macros are mutually exclusive and define-or-undefined.
+    auto q = detect_quirks();
+#if defined(PULP_HOST_QUIRKS_DEFAULT_POLICY_OFF)
+    REQUIRE(q.synthesize_bypass_parameter == false);
+    REQUIRE(q.clamp_latency_to_nonneg == false);
+    REQUIRE(q.silence_unsupported_bus_arrangements == false);
+    REQUIRE(q.logic_au_channel_probe_cap == 64);
+#elif defined(PULP_HOST_QUIRKS_DEFAULT_POLICY_VALIDATED_ONLY)
+    REQUIRE(q.synthesize_bypass_parameter == true);
+    REQUIRE(q.clamp_latency_to_nonneg == true);
+    REQUIRE(q.silence_unsupported_bus_arrangements == true);
+    // Every currently-LessonOnly field MUST be at its default.
+    REQUIRE(q.reaper_process_while_bypassed == false);
+    REQUIRE(q.pro_tools_aax_sidechain_negotiation == false);
+#else
+    // Default ("all") — cheap defenses survive; speculative/lesson rows
+    // depend on the detected host so we can only assert the invariants
+    // that must always hold.
+    REQUIRE(q.synthesize_bypass_parameter == true);
+    REQUIRE(q.clamp_latency_to_nonneg == true);
+    REQUIRE(q.silence_unsupported_bus_arrangements == true);
+#endif
 }
