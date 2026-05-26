@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02340"></a>
+## [0.234.0] - 2026-05-25
+
+- feat(host): ExtensionsVisitor + SignalGraph automation slew + sidechain (items 4.5/4.6/4.7) ([#2892](https://github.com/danielraffel/pulp/pull/2892))
+- feat(midi): extract shared UmpSysex7Reassembler from AUv3 + CoreMIDI (item 8.2) ([#2891](https://github.com/danielraffel/pulp/pull/2891))
+- fix(signal): ConvolverIrSwapper retired ring keeps frees off audio thread (Codex P1 on #2881) ([#2890](https://github.com/danielraffel/pulp/pull/2890))
+- feat(format): extend ProcessContext with AudioPlayHead transport surface (item 1.3 struct-only slice) ([#2883](https://github.com/danielraffel/pulp/pull/2883))
+
 <a id="v02300"></a>
 ## [0.230.0] - 2026-05-25
 
@@ -2834,6 +2842,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.234.0]: https://github.com/danielraffel/pulp/releases/tag/v0.234.0
 [0.230.0]: https://github.com/danielraffel/pulp/releases/tag/v0.230.0
 [0.228.0]: https://github.com/danielraffel/pulp/releases/tag/v0.228.0
 [0.226.0]: https://github.com/danielraffel/pulp/releases/tag/v0.226.0
