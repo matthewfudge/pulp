@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02470"></a>
+## [0.247.0] - 2026-05-26
+
+- feat(format): AU v3 + VST3 adapter bypass hardening (items 3.1 + 3.2) ([#2937](https://github.com/danielraffel/pulp/pull/2937))
+- feat(audio): AudioDeviceManager persistence + MIDI hub (item 1.2a) ([#2936](https://github.com/danielraffel/pulp/pull/2936))
+
 <a id="v02460"></a>
 ## [0.246.0] - 2026-05-26
 
@@ -2905,6 +2911,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.247.0]: https://github.com/danielraffel/pulp/releases/tag/v0.247.0
 [0.246.0]: https://github.com/danielraffel/pulp/releases/tag/v0.246.0
 [0.245.0]: https://github.com/danielraffel/pulp/releases/tag/v0.245.0
 [0.244.0]: https://github.com/danielraffel/pulp/releases/tag/v0.244.0
