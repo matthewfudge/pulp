@@ -1198,3 +1198,49 @@ Notes for CLI maintenance:
 - Companion runtime signal: `decide_gpu_host` (core/format/gpu_host_select.hpp)
   logs `build=debug|release` on the `[plugin-gpu-host]` adapter line and warns
   once on Debug, so a host log immediately shows which build was loaded.
+
+## `pulp identity` — committed plugin identity lockfile
+
+Track 3.12 (macOS plugin-authoring plan) introduced a Rust-side surface
+for managing `.pulp/identity.lock`, the committed pin of each plugin's
+host-visible identity (AU 4CC + manufacturer code, AAX product code,
+optional VST3 FUID, optional CLAP id, version). Lives in
+`experimental/pulp-rs/src/cmd/identity.rs`; schema doc at
+`docs/reference/identity-lock.md`.
+
+Surface:
+
+- `pulp identity record [--allow-identity-change] [--dry-run]` —
+  refresh the lockfile. Refuses to overwrite drifted entries without
+  `--allow-identity-change` (the audit-trail flag a reviewer can grep
+  in the commit message).
+- `pulp identity check [--allow-identity-change]` — pure read; exit
+  1 on drift, 0 with `--allow-identity-change`. CI-friendly.
+- `pulp build --check-identity [--allow-identity-change]` — runs the
+  check before the configure step so a drifted PR fails the whole
+  build, not just a downstream gate. Wired in
+  `cmd::orchestrate::build_with`.
+
+Gotchas (lessons from the slice):
+
+- **Empty recorded fields are NOT drift.** `vst3_fuid` and
+  `clap_plugin_id` are optional today because the recorder doesn't yet
+  scrape `Steinberg::FUID(...)` literals out of source files. The diff
+  treats `recorded == ""` as "not yet pinned" — only non-empty
+  recorded values that no longer match the current source trigger a
+  failure. A future slice can teach `parse_plugins_from_text` to walk
+  source-side identity declarations once the regex shape is locked in.
+- **Single-file CMake scan.** `parse_plugins_from_cmake` reads the
+  project's top-level `CMakeLists.txt`. Nested `pulp_add_plugin(...)`
+  invocations under `add_subdirectory(...)` are out of scope today —
+  add a CMake-tree-walker if real projects start hiding plugin
+  declarations in nested files.
+- **Lock file is reviewable.** TOML output is sorted by `target` and
+  uses `to_string_pretty`, so `git diff .pulp/identity.lock` is
+  always linear. Don't switch to `to_string` (compact) — the on-disk
+  layout being readable is the whole point.
+- **Two flag sites, same semantics.** `--allow-identity-change` works
+  on both `pulp identity {record,check}` and `pulp build
+  --check-identity`. Keep them in lockstep — the orchestrate path
+  re-uses `cmd::identity::run(Check)` rather than re-implementing the
+  comparison.
