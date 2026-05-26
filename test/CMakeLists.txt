@@ -1440,6 +1440,10 @@ catch_discover_tests(pulp-test-events-timer-helpers PROPERTIES LABELS slow)
 # Audio file I/O tests
 pulp_add_test_suite(pulp-test-audio-file LIBRARIES pulp::audio)
 
+# AudioThumbnail + AudioThumbnailCache (item 6.12).
+# Links pulp::view so the WaveformView integration smoke compiles.
+pulp_add_test_suite(pulp-test-audio-thumbnail LIBRARIES pulp::audio pulp::view)
+
 pulp_add_test_suite(pulp-test-offline-processor-edges LIBRARIES pulp::audio)
 
 pulp_add_test_suite(pulp-test-ogg-reader LIBRARIES pulp::audio)
