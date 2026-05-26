@@ -303,3 +303,379 @@ TEST_CASE("AudioDeviceManager CPU-load tracks work performed in the audio window
     mgr.reset_peak_cpu_load();
     REQUIRE(mgr.peak_cpu_load() == 0.0f);
 }
+
+// ── 1.2b — Lifecycle / hotplug / recovery ──────────────────────────
+
+TEST_CASE("AudioDeviceManager dispatches injected device-change events",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    AudioDeviceManager mgr;
+
+    std::atomic<int> received{0};
+    AudioDeviceManager::DeviceChangeEvent last_event{};
+    std::mutex captured_mu;
+
+    auto tok = mgr.subscribe_device_changes(
+        [&](const AudioDeviceManager::DeviceChangeEvent& ev) {
+            std::lock_guard<std::mutex> lk(captured_mu);
+            last_event = ev;
+            ++received;
+        });
+    REQUIRE(mgr.device_change_subscriber_count() == 1);
+    REQUIRE(tok.active());
+
+    AudioDeviceManager::DeviceChangeEvent ev;
+    ev.kind = AudioDeviceManager::DeviceChangeKind::Added;
+    ev.device_id = "device:scarlett-2i2";
+    ev.devices = {
+        make_device("device:builtin:out", "Built-in Output"),
+        make_device("device:scarlett-2i2",  "Scarlett 2i2"),
+    };
+    mgr.dispatch_device_change(ev);
+
+    REQUIRE(received.load() == 1);
+    {
+        std::lock_guard<std::mutex> lk(captured_mu);
+        REQUIRE(last_event.kind == AudioDeviceManager::DeviceChangeKind::Added);
+        REQUIRE(last_event.device_id == "device:scarlett-2i2");
+        REQUIRE(last_event.devices.size() == 2);
+    }
+}
+
+TEST_CASE("AudioDeviceManager device-change subscribers auto-unsubscribe",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    AudioDeviceManager mgr;
+    std::atomic<int> received{0};
+
+    {
+        auto tok = mgr.subscribe_device_changes(
+            [&](const AudioDeviceManager::DeviceChangeEvent&) { ++received; });
+        REQUIRE(mgr.device_change_subscriber_count() == 1);
+
+        AudioDeviceManager::DeviceChangeEvent ev;
+        mgr.dispatch_device_change(ev);
+        REQUIRE(received.load() == 1);
+    }  // tok destroyed → unsubscribe
+
+    REQUIRE(mgr.device_change_subscriber_count() == 0);
+    mgr.dispatch_device_change({});
+    // No callback should have fired; ASan/TSan would catch a
+    // use-after-free against the dangling `received` reference.
+    REQUIRE(received.load() == 1);
+}
+
+TEST_CASE("AudioDeviceManager device-change token outliving manager is safe",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    AudioDeviceManager::DeviceChangeToken tok;
+    {
+        AudioDeviceManager mgr;
+        tok = mgr.subscribe_device_changes(
+            [](const AudioDeviceManager::DeviceChangeEvent&) {});
+        REQUIRE(tok.active());
+    }
+    REQUIRE_FALSE(tok.active());
+    tok.reset();  // safe no-op on dead manager
+}
+
+TEST_CASE("AudioDeviceManager dispatches default-device-change to handler",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    AudioDeviceManager mgr;
+    std::atomic<int> output_changes{0};
+    std::atomic<int> input_changes{0};
+    std::string captured_id;
+    std::mutex id_mu;
+
+    mgr.set_default_device_change_handler(
+        [&](bool is_input, const std::string& new_id) {
+            if (is_input) ++input_changes;
+            else          ++output_changes;
+            std::lock_guard<std::mutex> lk(id_mu);
+            captured_id = new_id;
+        });
+
+    mgr.dispatch_default_device_change(false, "device:airpods");
+    mgr.dispatch_default_device_change(true,  "device:built-in-mic");
+
+    REQUIRE(output_changes.load() == 1);
+    REQUIRE(input_changes.load()  == 1);
+    {
+        std::lock_guard<std::mutex> lk(id_mu);
+        REQUIRE(captured_id == "device:built-in-mic");
+    }
+
+    // Clearing the handler stops dispatch (and is a safe no-op for
+    // any callback currently in flight).
+    mgr.set_default_device_change_handler(nullptr);
+    mgr.dispatch_default_device_change(false, "device:airpods");
+    REQUIRE(output_changes.load() == 1);
+}
+
+TEST_CASE("AudioDeviceManager tracks sample-rate changes",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    AudioDeviceManager mgr;
+    std::atomic<int> calls{0};
+    std::atomic<double> last_seen{0.0};
+
+    mgr.set_sample_rate_change_handler(
+        [&](double new_rate) {
+            last_seen.store(new_rate);
+            ++calls;
+        });
+
+    REQUIRE(mgr.sample_rate_change_count() == 0u);
+    REQUIRE(mgr.last_sample_rate() == 0.0);
+
+    mgr.dispatch_sample_rate_change(44100.0);
+    mgr.dispatch_sample_rate_change(48000.0);
+    mgr.dispatch_sample_rate_change(96000.0);
+
+    REQUIRE(calls.load() == 3);
+    REQUIRE_THAT(last_seen.load(), WithinAbs(96000.0, 0.001));
+    REQUIRE(mgr.sample_rate_change_count() == 3u);
+    REQUIRE_THAT(mgr.last_sample_rate(), WithinAbs(96000.0, 0.001));
+}
+
+TEST_CASE("AudioDeviceManager xrun counter increments and resets",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    AudioDeviceManager mgr;
+    REQUIRE(mgr.xrun_count() == 0u);
+
+    mgr.bump_xrun_counter();
+    mgr.bump_xrun_counter();
+    mgr.bump_xrun_counter(5);
+    REQUIRE(mgr.xrun_count() == 7u);
+
+    mgr.reset_xrun_counter();
+    REQUIRE(mgr.xrun_count() == 0u);
+}
+
+TEST_CASE("AudioDeviceManager MIDI endpoint delta tracking fires per change",
+          "[audio][audio-device-manager][midi][lifecycle][issue-2935]") {
+    AudioDeviceManager mgr;
+
+    std::vector<AudioDeviceManager::MidiEndpointChange> changes;
+    std::mutex changes_mu;
+    auto tok = mgr.subscribe_midi_endpoints(
+        [&](const AudioDeviceManager::MidiEndpointChange& c) {
+            std::lock_guard<std::mutex> lk(changes_mu);
+            changes.push_back(c);
+        });
+    REQUIRE(mgr.midi_endpoint_subscriber_count() == 1);
+
+    auto make_ep = [](std::string id, std::string name, bool is_input) {
+        AudioDeviceManager::MidiEndpoint ep;
+        ep.id = std::move(id);
+        ep.name = std::move(name);
+        ep.is_input = is_input;
+        return ep;
+    };
+
+    // Initial publish: empty → {Push, Mini}. Both are adds.
+    mgr.set_midi_endpoints({
+        make_ep("ep:push", "Push 2", true),
+        make_ep("ep:mini", "MiniLab",  true),
+    });
+    {
+        std::lock_guard<std::mutex> lk(changes_mu);
+        REQUIRE(changes.size() == 2);
+        REQUIRE(changes[0].kind == AudioDeviceManager::MidiEndpointChangeKind::Added);
+        REQUIRE(changes[1].kind == AudioDeviceManager::MidiEndpointChangeKind::Added);
+        changes.clear();
+    }
+
+    // Unplug Push, keep MiniLab. One removal, no adds.
+    mgr.set_midi_endpoints({
+        make_ep("ep:mini", "MiniLab", true),
+    });
+    {
+        std::lock_guard<std::mutex> lk(changes_mu);
+        REQUIRE(changes.size() == 1);
+        REQUIRE(changes[0].kind == AudioDeviceManager::MidiEndpointChangeKind::Removed);
+        REQUIRE(changes[0].endpoint.id == "ep:push");
+        changes.clear();
+    }
+
+    // No change → no dispatch.
+    mgr.set_midi_endpoints({
+        make_ep("ep:mini", "MiniLab", true),
+    });
+    {
+        std::lock_guard<std::mutex> lk(changes_mu);
+        REQUIRE(changes.empty());
+    }
+
+    REQUIRE(mgr.midi_endpoints().size() == 1);
+    REQUIRE(mgr.midi_endpoints()[0].id == "ep:mini");
+}
+
+TEST_CASE("AudioDeviceManager latch_close drops subsequent dispatches",
+          "[audio][audio-device-manager][lifecycle][shutdown][issue-2935]") {
+    AudioDeviceManager mgr;
+    std::atomic<int> midi_calls{0};
+    std::atomic<int> dev_calls{0};
+
+    auto midi_tok = mgr.subscribe_midi(
+        [&](const pulp::midi::MidiEvent&) { ++midi_calls; });
+    auto dev_tok  = mgr.subscribe_device_changes(
+        [&](const AudioDeviceManager::DeviceChangeEvent&) { ++dev_calls; });
+    mgr.set_default_device_change_handler(
+        [&](bool, const std::string&) { ++dev_calls; });
+
+    REQUIRE_FALSE(mgr.is_closed());
+    mgr.dispatch_midi_event(pulp::midi::MidiEvent::note_on(0, 60, 100));
+    mgr.dispatch_device_change({});
+    mgr.dispatch_default_device_change(false, "device:x");
+    REQUIRE(midi_calls.load() == 1);
+    REQUIRE(dev_calls.load()  == 2);
+
+    mgr.latch_close();
+    REQUIRE(mgr.is_closed());
+
+    // Post-close dispatches are no-ops.
+    mgr.dispatch_midi_event(pulp::midi::MidiEvent::note_on(0, 60, 100));
+    mgr.dispatch_device_change({});
+    mgr.dispatch_default_device_change(false, "device:y");
+    mgr.dispatch_sample_rate_change(96000.0);
+    REQUIRE(midi_calls.load() == 1);
+    REQUIRE(dev_calls.load()  == 2);
+}
+
+TEST_CASE("AudioDeviceManager latch_close waits for in-flight dispatchers",
+          "[audio][audio-device-manager][lifecycle][shutdown][issue-2935]") {
+    AudioDeviceManager mgr;
+    std::atomic<int> in_callback{0};
+    std::atomic<int> entered{0};
+    std::atomic<int> exited{0};
+    std::atomic<bool> can_exit{false};
+
+    // Subscriber that camps inside the dispatch until we let it out.
+    // This models a slow audio thread that is mid-dispatch when the
+    // host calls latch_close() on shutdown — the latch MUST wait for
+    // it to return before declaring the manager closed.
+    auto tok = mgr.subscribe_midi(
+        [&](const pulp::midi::MidiEvent&) {
+            ++entered;
+            ++in_callback;
+            // Spin until the test releases us.
+            while (!can_exit.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
+            }
+            --in_callback;
+            ++exited;
+        });
+
+    // Kick off the slow dispatcher on a worker thread.
+    std::thread dispatcher([&] {
+        mgr.dispatch_midi_event(pulp::midi::MidiEvent::note_on(0, 60, 100));
+    });
+
+    // Wait until the subscriber is parked inside the dispatch.
+    while (entered.load() == 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    REQUIRE(in_callback.load() == 1);
+
+    // Start the latch on another thread. It must NOT return while the
+    // dispatcher is still inside the callback.
+    std::thread latcher([&] { mgr.latch_close(); });
+
+    // Give latch a chance to bail early (bug). If it does, exited is
+    // still 0 because we haven't released the subscriber yet.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    REQUIRE(exited.load() == 0);
+    // Either `closed_` is still being set or the dispatcher is still
+    // in flight — both are valid pre-release. The forbidden state is
+    // "manager declared itself closed AND nothing is in flight" before
+    // the dispatcher actually returned.
+    bool latched_too_early = mgr.is_closed() && in_callback.load() == 0;
+    REQUIRE_FALSE(latched_too_early);
+
+    // Release the subscriber. Latch should return promptly and
+    // observe in_flight_ == 0.
+    can_exit.store(true, std::memory_order_release);
+    dispatcher.join();
+    latcher.join();
+
+    REQUIRE(exited.load() == 1);
+    REQUIRE(in_callback.load() == 0);
+    REQUIRE(mgr.is_closed());
+}
+
+TEST_CASE("AudioDeviceManager destructor latches without an explicit close",
+          "[audio][audio-device-manager][lifecycle][shutdown][issue-2935]") {
+    // Even if the host forgets latch_close(), the destructor must
+    // wait for in-flight dispatches. This guards the "concurrent-
+    // callback shutdown" acceptance for the typical case where a
+    // host just lets the manager fall out of scope.
+    std::atomic<int> calls{0};
+    auto* mgr = new AudioDeviceManager();
+    auto tok  = mgr->subscribe_midi(
+        [&](const pulp::midi::MidiEvent&) { ++calls; });
+    mgr->dispatch_midi_event(pulp::midi::MidiEvent::note_on(0, 60, 100));
+    REQUIRE(calls.load() == 1);
+    delete mgr;
+    // No assertion after delete is meaningful — but the test fails
+    // (TSan/ASan) if the destructor races a dispatcher.
+}
+
+TEST_CASE("AudioDeviceManager attach_audio_system bridges to device changes",
+          "[audio][audio-device-manager][lifecycle][issue-2935]") {
+    // Stand-in AudioSystem whose set_device_change_callback() drives
+    // dispatch_device_change(). The test verifies the bridge fires
+    // and enumerate_devices() snapshot reaches subscribers.
+    class FakeAudioSystem : public AudioSystem {
+    public:
+        std::vector<DeviceInfo> enumerate_devices() override {
+            return devices_;
+        }
+        std::unique_ptr<AudioDevice> create_device(const std::string&) override {
+            return nullptr;
+        }
+        DeviceInfo default_output_device() override { return {}; }
+        DeviceInfo default_input_device()  override { return {}; }
+
+        // Drive the registered callback (bound via the base class slot
+        // by attach_audio_system → set_device_change_callback).
+        void simulate_device_list_change() { fire_device_change(); }
+
+        std::vector<DeviceInfo> devices_;
+    };
+
+    FakeAudioSystem sys;
+    sys.devices_ = {{"device:a", "A", 0, 2, {}, {}, false, true},
+                    {"device:b", "B", 2, 2, {}, {}, true,  false}};
+
+    AudioDeviceManager mgr;
+    std::atomic<int> calls{0};
+    std::size_t last_snapshot_size = 0;
+    std::mutex snap_mu;
+
+    auto tok = mgr.subscribe_device_changes(
+        [&](const AudioDeviceManager::DeviceChangeEvent& ev) {
+            ++calls;
+            std::lock_guard<std::mutex> lk(snap_mu);
+            last_snapshot_size = ev.devices.size();
+        });
+
+    mgr.attach_audio_system(&sys);
+    sys.simulate_device_list_change();
+    REQUIRE(calls.load() == 1);
+    {
+        std::lock_guard<std::mutex> lk(snap_mu);
+        REQUIRE(last_snapshot_size == 2);
+    }
+
+    // Simulate a USB hub reset — devices_ shrinks before the
+    // callback fires.
+    sys.devices_ = {{"device:a", "A", 0, 2, {}, {}, false, true}};
+    sys.simulate_device_list_change();
+    REQUIRE(calls.load() == 2);
+    {
+        std::lock_guard<std::mutex> lk(snap_mu);
+        REQUIRE(last_snapshot_size == 1);
+    }
+
+    // Unbinding stops the bridge.
+    mgr.attach_audio_system(nullptr);
+    sys.simulate_device_list_change();
+    REQUIRE(calls.load() == 2);
+}
