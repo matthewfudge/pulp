@@ -3,6 +3,7 @@
 #include <AudioUnitSDK/MusicDeviceBase.h>
 
 #include <pulp/format/processor.hpp>
+#include <pulp/format/detail/playhead_diff.hpp>
 
 #include <memory>
 #include <mutex>
@@ -60,6 +61,11 @@ private:
     std::vector<float*> output_ptrs_;
     std::mutex midi_mutex_;
     midi::MidiBuffer pending_midi_;
+
+    // Item 1.3 — previous-block transport snapshot used to derive the
+    // change flags on `ProcessContext`. Default-constructed so the
+    // first Render() call after Initialize() reports no changes.
+    detail::PlayheadSnapshot playhead_prev_{};
 };
 
 } // namespace pulp::format::au
