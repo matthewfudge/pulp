@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- iOS Simulator AUv3 .appex entitlements. The Simulator does NOT enforce
+     app-sandbox the way device builds do, but for iOS device entitlements the
+     `application-groups` entitlement is what lets the .appex share preset
+     storage with its containing app. We keep the entitlement here so a single
+     entitlement plist works for the dev-loop (Simulator) and the eventual
+     device build identically — Apple promotes the Simulator-vs-device skew
+     as a build-time decision (xcconfig flag), not a separate entitlement
+     file. Catalyst is deliberately excluded per the macOS plugin authoring
+     plan (item 3.10 — "Mac Catalyst is deferred post-MVP"). -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.@PLUGIN_BUNDLE_ID@</string>
+    </array>
+</dict>
+</plist>

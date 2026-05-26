@@ -740,6 +740,47 @@ AUHost sample app (available from Apple's developer portal) or inside
 AUM / Cubasis to smoke-test instantiation + render. See the `ios`
 skill for device deploy.
 
+## Packaging — macOS appex + iOS device + Simulator (item 3.10)
+
+The AU v3 packaging shape is **three distinct targets**, dispatched by
+`_pulp_add_auv3` in `tools/cmake/PulpAuv3.cmake`:
+
+1. **macOS** — framework-inside-containing-app:
+   `${target}_AUv3Framework` (SHARED FRAMEWORK with the AU code),
+   `${target}_AUv3` (stub `.appex` linking the framework via
+   `AudioComponentBundle`), `${target}_AUv3Host` (containing `.app`
+   with both embedded under `Contents/Frameworks` + `Contents/PlugIns`).
+2. **iOS device** — single monolithic `.appex` produced by
+   `_pulp_add_auv3_ios`; signed with the
+   `templates/auv3/iOS-Device-Entitlements.plist.template` entitlements
+   (application-groups).
+3. **iOS Simulator** — same `_pulp_add_auv3_ios` path, but configure
+   picks `iOS-Simulator-Entitlements.plist.template` instead. CMake
+   detects the Simulator via `CMAKE_OSX_SYSROOT` matching
+   `Simulator|iphonesimulator`. Mac Catalyst is **deliberately
+   excluded** (macOS plan 3.10 — "Catalyst is deferred post-MVP").
+
+### Install + cache-clear gotcha
+
+`pulp-install-${target}` for AUv3 copies the **containing `.app`** to
+`~/Applications/<name>.app`, then runs:
+
+```
+/usr/bin/pluginkit -a "<app>/Contents/PlugIns/<name>.appex"
+/usr/bin/killall -9 AudioComponentRegistrar  # may be a no-op if it isn't running
+```
+
+The `pluginkit -a` registration is what makes Launch Services + the AU
+host's `AVAudioUnitComponentManager` discover the extension on next
+relaunch. The `killall` step flushes the AudioComponent cache so the
+DAW sees the new component without a full logout. Both steps are
+documented in `pulp doctor --au-cache`; the install target wires them
+automatically.
+
+`~/Library/Audio/Plug-Ins/Components/` is **AU v2 only** — AU v3 hosts
+discover extensions through PlugInKit, not the v2 component directory.
+Don't try to install an AU v3 `.appex` there.
+
 ## Cross-references
 
 - `.agents/skills/ios/SKILL.md` — iOS extension wiring, simulator

@@ -342,6 +342,33 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
         )
     endif()
 
+    # Item 3.10 (macOS plan) — pick the right entitlements template
+    # for the active iOS SDK. The Simulator and a real device both use
+    # the application-groups entitlement to share preset storage with
+    # the containing app, but signing requirements differ enough that
+    # we keep two distinct template files so a teams that ships through
+    # the App Store can adjust the device variant without affecting the
+    # local Simulator dev loop. Mac Catalyst is deliberately excluded
+    # per the macOS plan ("3.10 ... Mac Catalyst is deferred post-MVP").
+    if(CMAKE_OSX_SYSROOT MATCHES "Simulator" OR
+       CMAKE_OSX_SYSROOT MATCHES "iphonesimulator")
+        set(_auv3_ios_entitlements_src
+            "${_PULP_AUV3_TEMPLATE_DIR}/iOS-Simulator-Entitlements.plist.template")
+    else()
+        set(_auv3_ios_entitlements_src
+            "${_PULP_AUV3_TEMPLATE_DIR}/iOS-Device-Entitlements.plist.template")
+    endif()
+    if(EXISTS "${_auv3_ios_entitlements_src}")
+        configure_file(
+            "${_auv3_ios_entitlements_src}"
+            "${CMAKE_BINARY_DIR}/AUv3/${target}.entitlements"
+            @ONLY
+        )
+        set_target_properties(${target}_AUv3 PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS
+                "${CMAKE_BINARY_DIR}/AUv3/${target}.entitlements")
+    endif()
+
     set_target_properties(${target}_AUv3 PROPERTIES
         BUNDLE TRUE
         BUNDLE_EXTENSION "appex"
