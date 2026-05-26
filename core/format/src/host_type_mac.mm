@@ -51,12 +51,21 @@ std::string current_auv3_wrapper_identifier() {
         // (2) Process / bundle inspection. The bundle id of the main
         // bundle is the AU v3 extension's own id when we are running
         // sandboxed; in that case we cannot derive the host id from it.
-        // Detect the extension case by looking for the `.appex` suffix
-        // and skip (2).
+        //
+        // Detect the extension case by inspecting the main bundle PATH
+        // (which is the on-disk bundle, e.g. `…/MyPlugin.appex`), not
+        // the bundle IDENTIFIER (which is a reverse-DNS string like
+        // `com.vendor.pluginAUv3` and never carries a `.appex` suffix).
+        // The previous identifier-suffix check was always false in real
+        // AUv3 extension processes, so this function leaked the
+        // extension's own bundle id as if it were the host id, breaking
+        // downstream host classification. (Codex #2967 / 3305508749.)
         NSBundle* main = [NSBundle mainBundle];
         NSString* main_id = main ? [main bundleIdentifier] : nil;
+        NSString* main_path = main ? [main bundlePath] : nil;
         const bool main_is_extension =
-            main_id != nil && [main_id hasSuffix:@".appex"];
+            main_path != nil &&
+            [[main_path pathExtension] isEqualToString:@"appex"];
 
         NSProcessInfo* info = [NSProcessInfo processInfo];
         NSString* process_name = info ? [info processName] : nil;

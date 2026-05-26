@@ -53,12 +53,19 @@ std::size_t CiDiscovery::notify(std::string_view resource,
                                 std::string_view header_json,
                                 const std::vector<uint8_t>& payload) {
     auto subscribers = subscription_manager().subscribers_of(resource);
-    if (on_pe_notify) {
-        for (const auto& sub : subscribers) {
-            on_pe_notify(sub.subscriber, resource, header_json, payload);
-        }
+    // Document contract: returns the number of subscribers actually
+    // notified. If `on_pe_notify` is not installed, NO notifications
+    // are emitted — return 0, not `subscribers.size()`. Callers using
+    // the return for delivery accounting / retry would otherwise be
+    // told everything succeeded when in fact nothing was sent.
+    // Regression: #2959 / Codex comment 3305288220.
+    if (!on_pe_notify) return 0;
+    std::size_t delivered = 0;
+    for (const auto& sub : subscribers) {
+        on_pe_notify(sub.subscriber, resource, header_json, payload);
+        ++delivered;
     }
-    return subscribers.size();
+    return delivered;
 }
 
 std::vector<uint8_t> CiDiscovery::create_discovery_inquiry() const {

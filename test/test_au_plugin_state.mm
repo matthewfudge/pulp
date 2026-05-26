@@ -931,6 +931,38 @@ TEST_CASE("current_auv3_wrapper_identifier — Apple bundle inspection",
     REQUIRE((id.empty() || !id.empty()));  // tautology — pins no-throw.
 }
 
+// Regression: #2967 / Codex comment 3305508749 — main_is_extension used to
+// test `[bundleIdentifier hasSuffix:@".appex"]`, but bundle IDENTIFIERS are
+// reverse-DNS strings and never carry `.appex`. The check was always false
+// inside real AUv3 extension processes, so detect_host_type() leaked the
+// extension's own bundle id as the host id, breaking host classification.
+// The fix moved the check to the bundle PATH (`bundlePath`, the on-disk
+// path that DOES end in `.appex` for an extension bundle).
+//
+// We can't fake NSBundle in a unit test, but we can pin the preferred
+// AU_HOST_BUNDLE_ID env-var channel always wins regardless of bundle
+// state — that protects the documented override contract that downstream
+// hosts rely on.
+TEST_CASE("current_auv3_wrapper_identifier — AU_HOST_BUNDLE_ID env wins (#2967)",
+          "[au][auv3][host-detection][issue-2967]") {
+    const char* prior = std::getenv("AU_HOST_BUNDLE_ID");
+    setenv("AU_HOST_BUNDLE_ID", "com.test.fake-host-2967", /*overwrite=*/1);
+    REQUIRE(pulp::format::current_auv3_wrapper_identifier() ==
+            "com.test.fake-host-2967");
+    if (prior) {
+        setenv("AU_HOST_BUNDLE_ID", prior, /*overwrite=*/1);
+    } else {
+        unsetenv("AU_HOST_BUNDLE_ID");
+    }
+
+    // When no env var is set and the test binary is NOT an .appex
+    // bundle, the function may legitimately return the binary's own
+    // bundle id (in-process load path). The previous bug was that an
+    // ACTUAL .appex extension would also wrongly fall into this branch.
+    // The bundle-path-based fix can be verified by inspection; this
+    // test confirms the env-var override the fix preserves.
+}
+
 TEST_CASE("detect_host_type — wrapper id wins when wrapper is recognised",
           "[au][auv3][host-detection][item-3.1]") {
     // `detect_host_type()` consults `current_auv3_wrapper_identifier()`
