@@ -526,6 +526,25 @@
       ]
     },
     {
+      "name": "SheenBidi",
+      "category": "canvas",
+      "license": "Apache-2.0",
+      "version": "v3.0.0",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/Tehreer/SheenBidi.git",
+      "upstream": { "kind": "git-tag", "ref": "v3.0.0" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Unicode Bidirectional Algorithm engine backing core/canvas::BidiAnalyzer. Pulp-owned bidi pass for Arabic / Hebrew / mixed-direction text that does not depend on system ICU; consumed by TextRunPlanner as the canonical fallback for iOS / Android / headless / minimal-toolchain hosts. Item 6.8 of the 2026-05-24 macOS plugin-authoring plan.",
+      "source_files": [
+        "tools/cmake/PulpDependencies.cmake",
+        "core/canvas/CMakeLists.txt",
+        "core/canvas/include/pulp/canvas/bidi.hpp",
+        "core/canvas/src/bidi.cpp",
+        "core/canvas/src/text_run_planner.cpp"
+      ]
+    },
+    {
       "name": "Skia",
       "category": "canvas",
       "license": "BSD-3-Clause",
