@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02410"></a>
+## [0.241.0] - 2026-05-25
+
+- feat(audio): WAV metadata round-trip (BWAV/iXML/ASWG/ACID) — item 6.11 ([#2901](https://github.com/danielraffel/pulp/pull/2901))
+- test(view+render): multi-window rendering acceptance proof (item 6.6) ([#2915](https://github.com/danielraffel/pulp/pull/2915))
+
 <a id="v02400"></a>
 ## [0.240.0] - 2026-05-25
 
@@ -2871,6 +2877,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.241.0]: https://github.com/danielraffel/pulp/releases/tag/v0.241.0
 [0.240.0]: https://github.com/danielraffel/pulp/releases/tag/v0.240.0
 [0.239.0]: https://github.com/danielraffel/pulp/releases/tag/v0.239.0
 [0.238.0]: https://github.com/danielraffel/pulp/releases/tag/v0.238.0
