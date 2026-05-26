@@ -3342,6 +3342,18 @@ if(PULP_REAL_PLUGIN_TESTS)
     catch_discover_tests(pulp-test-real-plugins)
 endif()
 
+# Item 4.2 follow-up — fixture-resolver unit test. Always built (no real
+# plugin binaries required, no pulp::host link), exercises the
+# pinned-vs-developer-supplied lane logic that
+# `pulp-test-real-plugins` shares via integration/real_plugin_fixture.hpp.
+add_executable(pulp-test-real-plugin-runner-cache
+    integration/test_real_plugin_fixture.cpp)
+target_link_libraries(pulp-test-real-plugin-runner-cache
+    PRIVATE Catch2::Catch2WithMain)
+target_compile_definitions(pulp-test-real-plugin-runner-cache PRIVATE
+    PULP_REAL_PLUGINS_TOML="${CMAKE_CURRENT_SOURCE_DIR}/integration/real_plugins.toml")
+catch_discover_tests(pulp-test-real-plugin-runner-cache)
+
 # Host regression coverage (#52) — end-to-end scan / load / process /
 # unload lifecycle, scanner failure modes (moduleinfo.json + manifest.ttl),
 # state round-trip, and hot-reload race-cleanliness. Separate binary so a
