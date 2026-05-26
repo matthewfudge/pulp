@@ -322,6 +322,92 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(audio.touched_lines, 0)
         self.assertEqual(audio.files, [])
 
+    def test_excluded_instrumented_source_does_not_tank_tier(self) -> None:
+        tiers = [
+            ctc.Tier(
+                name="user-facing",
+                line_target=70,
+                paths=("core/view/**",),
+            ),
+        ]
+        results = ctc.aggregate(
+            tiers,
+            ["core/view/platform/mac/window_host_mac.mm"],
+            {},
+            lines_getter=lambda _p: {10, 11, 12, 13, 14},
+            exclude_patterns=("**/window_host_mac.mm",),
+        )
+        user_facing = next(r for r in results if r.tier.name == "user-facing")
+        self.assertEqual(user_facing.touched_lines, 0)
+        self.assertTrue(user_facing.passed)
+
+
+class DiffCoverExcludeTests(unittest.TestCase):
+
+    def test_load_diff_cover_excludes_reads_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = pathlib.Path(td) / "coverage_config.json"
+            path.write_text(
+                '{"diff_cover_excludes": ["cmd_loop.cpp", "**/window_host_mac.mm"]}',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                ctc.load_diff_cover_excludes(path),
+                ("cmd_loop.cpp", "**/window_host_mac.mm"),
+            )
+
+    def test_load_diff_cover_excludes_tolerates_missing_config(self) -> None:
+        self.assertEqual(
+            ctc.load_diff_cover_excludes(pathlib.Path("/tmp/pulp-missing-config.json")),
+            (),
+        )
+
+    def test_load_diff_cover_excludes_tolerates_missing_key(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = pathlib.Path(td) / "coverage_config.json"
+            path.write_text("{}", encoding="utf-8")
+
+            self.assertEqual(ctc.load_diff_cover_excludes(path), ())
+
+    def test_load_diff_cover_excludes_rejects_bad_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = pathlib.Path(td) / "coverage_config.json"
+            path.write_text('{"diff_cover_excludes": "cmd_loop.cpp"}', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "list of strings"):
+                ctc.load_diff_cover_excludes(path)
+
+    def test_exclude_matches_basename_and_glob(self) -> None:
+        self.assertTrue(
+            ctc.is_excluded_path(
+                "tools/cli/cmd_loop.cpp",
+                ("cmd_loop.cpp",),
+                repo_root=REPO_ROOT,
+            )
+        )
+        self.assertTrue(
+            ctc.is_excluded_path(
+                "core/view/platform/mac/window_host_mac.mm",
+                ("**/window_host_mac.mm",),
+                repo_root=REPO_ROOT,
+            )
+        )
+        self.assertFalse(
+            ctc.is_excluded_path(
+                "core/events/src/event_loop.cpp",
+                ("**/window_host_mac.mm",),
+                repo_root=REPO_ROOT,
+            )
+        )
+        self.assertFalse(
+            ctc.is_excluded_path(
+                "tools/cli/cmd_loop.cpp",
+                ("tools/cli/cmd_loop.cpp",),
+                repo_root=REPO_ROOT,
+            )
+        )
+
 
 class InstrumentedSourceTests(unittest.TestCase):
 
@@ -542,7 +628,8 @@ class MainEntrypointTests(unittest.TestCase):
              mock.patch.object(ctc, "load_targets", return_value=tiers), \
              mock.patch.object(ctc, "parse_cobertura", return_value=coverage), \
              mock.patch.object(ctc, "diff_files", return_value=["core/audio/src/foo.cpp"]), \
-             mock.patch.object(ctc, "diff_lines", return_value={10, 11}):
+             mock.patch.object(ctc, "diff_lines", return_value={10, 11}), \
+             mock.patch.object(ctc, "load_diff_cover_excludes", return_value=()):
             root = pathlib.Path(td)
             cobertura = root / "coverage.xml"
             cobertura.write_text("<coverage />", encoding="utf-8")
@@ -571,7 +658,8 @@ class MainEntrypointTests(unittest.TestCase):
              mock.patch.object(ctc, "load_targets", return_value=tiers), \
              mock.patch.object(ctc, "parse_cobertura", return_value=coverage), \
              mock.patch.object(ctc, "diff_files", return_value=["core/audio/src/foo.cpp"]), \
-             mock.patch.object(ctc, "diff_lines", return_value={10, 11}):
+             mock.patch.object(ctc, "diff_lines", return_value={10, 11}), \
+             mock.patch.object(ctc, "load_diff_cover_excludes", return_value=()):
             root = pathlib.Path(td)
             cobertura = root / "coverage.xml"
             cobertura.write_text("<coverage />", encoding="utf-8")
@@ -586,6 +674,38 @@ class MainEntrypointTests(unittest.TestCase):
 
             self.assertEqual(rc, 1)
             self.assertIn("Per-tier gate failed", report.read_text(encoding="utf-8"))
+
+    def test_main_applies_diff_cover_excludes(self) -> None:
+        tiers = [ctc.Tier("user-facing", 70, ("core/view/**",))]
+
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(ctc, "load_targets", return_value=tiers), \
+             mock.patch.object(ctc, "parse_cobertura", return_value={}), \
+             mock.patch.object(
+                 ctc,
+                 "diff_files",
+                 return_value=["core/view/platform/mac/window_host_mac.mm"],
+             ), \
+             mock.patch.object(ctc, "diff_lines", return_value={10, 11}), \
+             mock.patch.object(
+                 ctc,
+                 "load_diff_cover_excludes",
+                 return_value=("**/window_host_mac.mm",),
+             ):
+            root = pathlib.Path(td)
+            cobertura = root / "coverage.xml"
+            cobertura.write_text("<coverage />", encoding="utf-8")
+            report = root / "tier-report.md"
+
+            rc = ctc.main([
+                "--cobertura", str(cobertura),
+                "--targets", str(root / "targets.yaml"),
+                "--compare-branch", "origin/main",
+                "--markdown-report", str(report),
+            ])
+
+            self.assertEqual(rc, 0)
+            self.assertIn("no touched lines", report.read_text(encoding="utf-8"))
 
     def test_script_entrypoint_exits_with_main_status(self) -> None:
         with tempfile.TemporaryDirectory() as td:

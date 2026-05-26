@@ -30,12 +30,16 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import pathlib
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+DEFAULT_COVERAGE_CONFIG = pathlib.Path(__file__).resolve().parent / "coverage_config.json"
 
 
 # ── Config loading ─────────────────────────────────────────────────────────
@@ -99,6 +103,49 @@ def classify_file(relpath: str, tiers: list[Tier]) -> Optional[Tier]:
             if fnmatch.fnmatch(relpath, pat):
                 return tier
     return None
+
+
+def load_diff_cover_excludes(path: pathlib.Path) -> tuple[str, ...]:
+    """Load diff-cover exclusions from coverage_config.json.
+
+    The per-tier gate layers on top of the global diff-cover gate, so it
+    must count the same file set. If the config is absent, keep the gate
+    usable for focused unit tests and ad-hoc invocations by treating the
+    exclude set as empty.
+    """
+    if not path.exists():
+        return ()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    excludes = data.get("diff_cover_excludes", [])
+    if not isinstance(excludes, list) or not all(isinstance(p, str) for p in excludes):
+        raise ValueError(f"{path}: expected 'diff_cover_excludes' to be a list of strings")
+    return tuple(excludes)
+
+
+def is_excluded_path(
+    relpath: str,
+    exclude_patterns: tuple[str, ...],
+    repo_root: Optional[pathlib.Path] = None,
+) -> bool:
+    """Return whether ``relpath`` is excluded from diff coverage.
+
+    Mirrors the documented local diff-cover contract: patterns match the
+    basename, repo-relative path, or absolute path via fnmatch semantics.
+    """
+    if not exclude_patterns:
+        return False
+    path = pathlib.PurePosixPath(relpath)
+    basename = path.name
+    candidates = [basename]
+    if repo_root is not None:
+        candidates.append(str((repo_root / relpath).resolve()))
+    else:
+        candidates.append(str((pathlib.Path.cwd() / relpath).resolve()))
+    return any(
+        fnmatch.fnmatch(candidate, pattern)
+        for pattern in exclude_patterns
+        for candidate in candidates
+    )
 
 
 # ── Diff discovery ─────────────────────────────────────────────────────────
@@ -304,6 +351,7 @@ def aggregate(
     changed_files: list[str],
     coverage: dict[str, FileCoverage],
     lines_getter,
+    exclude_patterns: tuple[str, ...] = (),
 ) -> list[TierResult]:
     """Compute per-tier diff coverage.
 
@@ -312,6 +360,8 @@ def aggregate(
     """
     results: dict[str, TierResult] = {t.name: TierResult(tier=t) for t in tiers}
     for relpath in changed_files:
+        if is_excluded_path(relpath, exclude_patterns):
+            continue
         tier = classify_file(relpath, tiers)
         if tier is None:
             continue
@@ -387,6 +437,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--targets", required=True, type=pathlib.Path)
     parser.add_argument("--compare-branch", required=True)
     parser.add_argument("--markdown-report", required=True, type=pathlib.Path)
+    parser.add_argument(
+        "--coverage-config",
+        default=DEFAULT_COVERAGE_CONFIG,
+        type=pathlib.Path,
+        help="coverage_config.json containing diff_cover_excludes",
+    )
     args = parser.parse_args(argv)
 
     if not args.cobertura.exists():
@@ -404,11 +460,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     tiers = load_targets(args.targets)
     coverage = parse_cobertura(args.cobertura)
     changed = diff_files(args.compare_branch)
+    exclude_patterns = load_diff_cover_excludes(args.coverage_config)
 
     def lines_getter(relpath: str) -> set[int]:
         return diff_lines(args.compare_branch, relpath)
 
-    results = aggregate(tiers, changed, coverage, lines_getter)
+    results = aggregate(tiers, changed, coverage, lines_getter, exclude_patterns)
     report = render(results)
     args.markdown_report.write_text(report, encoding="utf-8")
     print(report)

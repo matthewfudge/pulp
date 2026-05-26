@@ -1,7 +1,7 @@
 # Platform Capability Closure Plan
 
 **Date:** 2026-05-25
-**Status:** Planning
+**Status:** Active closure pass
 **Scope:** Runtime, events, audio I/O, audio formats, window embedding, OSC
 
 ## Summary
@@ -9,9 +9,10 @@
 Pulp already has real implementation in each audited capability area, but the
 support is uneven. The strongest foundations are child-process launching,
 thread-backed task dispatch, platform audio I/O backends, WAV/AIFF/FLAC/MP3/Ogg
-read paths, and OSC message transport. The main gaps are higher-level manager
-APIs, native main-thread dispatch, complete read/write coverage, concrete
-non-Apple native embedding, and bundle-aware OSC routing.
+read paths, and OSC message transport. The current closure pass is intentionally
+limited to threads/processes, native main-thread dispatch, OSC, and native window
+embedding; audio format and device-manager gaps remain documented here for the
+larger follow-up audit.
 
 This plan is code-grounded. It treats existing implementation files as the
 source of truth and avoids making product claims based only on planning docs.
@@ -24,9 +25,9 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
-| Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | PR #2815 open; fixing review/CI findings | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Queued | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
-| OSC | `feature/platform-osc-bundles-routing` | `pulp-platform-osc-bundles-routing` | Queued | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
+| Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open; rebased onto current `origin/main` at `66428b24`; focused dispatcher/IPC/OSC, inspector, and design-debug validation passing; shared hosted CI portability fixes added for inspector/design-debug/OSC Linux failures found during the PR sweep; SDK version is `0.236.0` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| OSC | `feature/platform-osc` | `pulp-platform-osc` | PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open, ready for review; rebased onto current `main`; local OSC suite and manual GPU-off diff coverage passing | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
 | Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
 Validation expectations for each PR:
@@ -39,7 +40,8 @@ Validation expectations for each PR:
   docs issues before opening the PR; use Claude as an independent review pass
   and fix actionable findings before submitting.
 - Use the normal Shipyard PR flow so required checks and Codecov comments are
-  recorded before merge.
+  recorded before merge. For this focused pass, do not run SSH Windows/Ubuntu
+  validation lanes; use local/macOS evidence and GitHub-hosted checks.
 - After each PR opens, sweep Shipyard/GitHub review and CI comments, address
   actionable feedback on the same branch, and re-run focused validation before
   moving to the next feature.
@@ -220,6 +222,170 @@ Recommended work:
   assigned inside the worker thread today, so a concurrent `is_current_thread()`
   call during construction can observe the default id.
 - Add tests that prove worker-thread calls can safely marshal to the UI thread.
+
+Native event loop local implementation status:
+- Added `pulp::events::MainThreadDispatcher` as the process-wide native
+  main-thread dispatch surface. The dispatcher supports `call_async`,
+  `call_sync`, `is_main_thread`, backend presence checks, token-based
+  registration, and stacked backend restoration when nested owners unregister.
+- Hardened backend lifetime semantics. Dispatcher calls lease the selected
+  backend while invoking `post` or `is_main_thread`; `unregister_backend()`
+  removes the token immediately, waits for other in-flight callbacks, and
+  handles self-unregister from backend callbacks without deadlocking.
+- Made `call_sync()` revalidate backend liveness before inline execution or
+  posting. If a backend unregisters during `is_main_thread()`, the dispatcher
+  reacquires the restored active backend instead of using a stale callback set.
+- Wrapped `call_async()` tasks before handing them to native backends so user
+  exceptions cannot escape into AppKit/UIKit/SDL queues. `call_sync()` still
+  propagates task exceptions to the caller and now has a bounded backend-retry
+  loop if registrations churn during dispatch.
+- Kept `EventLoop` as a worker-loop primitive while fixing lifecycle hazards:
+  thread id publication and reads are synchronized under the loop mutex,
+  mutable loop state is held by shared state so self-thread destruction can
+  complete, post-stop enqueues are rejected under the loop mutex, and a
+  self-stop prevents later tasks in the drained batch from running.
+- Registered native backends in platform hosts:
+  - macOS Cocoa hosts dispatch through `dispatch_get_main_queue()` while their
+    application loop is running, reject new work once app shutdown begins, and
+    defer `[NSApp stop:nil]` so already accepted main-queue work can drain.
+  - iOS UIKit hosts dispatch through `dispatch_get_main_queue()` and retain
+    registration tokens across the non-blocking iOS run-loop handoff.
+  - SDL hosts register a loop-thread queue that drains inside the SDL event
+    loop, rejects new work during shutdown, and drains one task snapshot per
+    loop tick so self-reposting tasks cannot starve SDL polling.
+- While wiring the platform hosts, fixed adjacent teardown hazards found during
+  review: macOS CPU idle timers are invalidated on host destruction, queued
+  macOS GPU render blocks carry a liveness token, macOS/iOS GPU idle and resize
+  callbacks re-check liveness after user callbacks, and iOS CPU/GPU window
+  teardown disconnects retained UIKit callbacks before host-owned state is
+  cleared.
+- Hosted TSan then exposed an IPC timing assumption outside the dispatcher
+  surface: `ChildProcessManager wait_all waits for active connected children`
+  relied on 75/150 ms child-process sleeps, which is not stable once process
+  launch is sanitizer-instrumented. The connected-child fixture now supports an
+  explicit parent-driven `exit` message so the test proves cleanup/wait behavior
+  without wall-clock races.
+- The same local TSan sweep found two real IPC socket races that would have
+  become the next sanitizer failures: server stop closed the listening socket
+  before the accept thread joined, and connection disconnect closed a socket
+  while the read thread was still blocked in `receive()`. Server stop now wakes
+  accept before joining and closes after join; connection disconnect now
+  interrupts blocking socket reads with `Socket::shutdown()`, joins the read
+  thread, then closes the handle.
+- Accepted socket connections can publish lambda callbacks through synchronized
+  setter methods before active read-thread callbacks observe them. Direct public
+  callback field assignment remains valid before a connection starts; connected
+  instances should use the setters.
+
+Native event loop local validation:
+- `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
+- `cmake --build build --target pulp-test-events pulp-view-core
+  -j$(sysctl -n hw.ncpu)`
+- `./build/test/pulp-test-events
+  "[events][main_thread_dispatcher],[events][event_loop]"` passed: 168
+  assertions in 34 focused test cases.
+- `./build/test/pulp-test-events --durations yes` passed: 259 assertions in
+  57 test cases.
+- `./build/test/pulp-test-ipc` passed: 173 assertions in 33 test cases.
+- TSan validation:
+  `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug
+  -DCMAKE_CXX_FLAGS="-fsanitize=thread" -DCMAKE_C_FLAGS="-fsanitize=thread"
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" -DPULP_BUILD_TESTS=ON
+  -DPULP_BUILD_EXAMPLES=OFF -DPULP_ENABLE_GPU=OFF`,
+  `cmake --build build-tsan --target pulp-test-ipc pulp-test-events -j8`,
+  `TSAN_OPTIONS="halt_on_error=1:suppressions=$PWD/test/tsan.supp"
+  ./build-tsan/test/pulp-test-ipc` passed: 173 assertions in 33 test cases,
+  `TSAN_OPTIONS="halt_on_error=1:suppressions=$PWD/test/tsan.supp"
+  ./build-tsan/test/pulp-test-events` passed: 259 assertions in 57 test cases,
+  and the focused dispatcher/event-loop CTest subset passed 34/34.
+- Manual GPU-off coverage build:
+  `cmake -S . -B build-cov-dispatch -DCMAKE_BUILD_TYPE=Debug
+  -DPULP_ENABLE_COVERAGE=ON -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_EXAMPLES=OFF
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`,
+  `cmake --build build-cov-dispatch --target pulp-test-events
+  pulp-test-ipc -j8`, then
+  `LLVM_PROFILE_FILE="$PWD/build-cov-dispatch/profraw/pulp-%p-%m.profraw"
+  ctest --test-dir build-cov-dispatch --output-on-failure
+  -R 'IPC|ChildProcess|ConnectedChildProcess|MainThread|EventLoop|event
+  loop|dispatcher|Dispatcher'` passed 68/68 tests.
+- Manual diff coverage passed against `origin/main`: 93% diff coverage. The
+  per-tier gate also passes after wiring it to the same shared diff-cover
+  exclusion set: audio-critical no touched lines, user-facing no counted touched
+  lines, infrastructure 53.8% against the 50% floor. llvm-cov reported the two
+  `EventLoop` `condition_variable::notify_one()` lines and several defensive
+  dispatcher branches as uncovered; the exercised dispatcher behavior is covered
+  by focused registration, unregister, sync, async, exception, and
+  backend-restore tests. `window_host_mac.mm`, `window_host_ios.mm`, and
+  `sdl_window_host.cpp` are excluded in the shared coverage config as live
+  native window-host loops; the dispatcher contract they use is covered by the
+  focused unit tests.
+- Coverage-tooling regressions are covered by:
+  `python3 tools/scripts/test_coverage_tier_check.py` — 46 tests,
+  `python3 tools/scripts/test_codecov_config.py` — 17 tests, and
+  `python3 tools/scripts/test_local_diff_cover.py` — 17 tests.
+- `git diff --check` passed.
+- After the branch was rebased onto `origin/main` at `0939e9b19`, the stale
+  `0.209.0` version bump remained dropped. After `main` advanced through
+  `0.235.0`, this branch now carries a fresh required SDK bump to `0.236.0`.
+  Focused Release/GPU-off validation passed:
+  `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`,
+  `cmake --build build --target pulp-test-events pulp-test-ipc pulp-test-osc
+  pulp-test-osc-channel -j8`, and
+  `ctest --test-dir build --output-on-failure -R
+  "EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess|OscChannel|OSC
+  Receiver rejects binding"` 67/67. This explicitly re-ran the two OSC
+  bind-collision cases that failed on the stale hosted Linux merge.
+- A fresh PR review sweep on the rebased head found one P1 in
+  `InterprocessConnectionServer::stop()`: the accept thread was joined before
+  the listening socket closed, leaving shutdown dependent on a best-effort
+  self-connect wake. The fix closes the listener before join, and focused
+  regression coverage verifies that a stopped socket server releases its port
+  for immediate reuse. Validation after the fix:
+  `cmake --build build --target pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'` passed
+  54/54.
+- Hosted GitHub checks on the open platform PR stack then exposed shared
+  portability issues outside the dispatcher implementation: the design-debug
+  helper used POSIX `popen`/`pclose` names that MSVC does not provide, the
+  inspector stale-selection regression could be defeated by allocator address
+  reuse on Linux, and the text-edit paste test used the macOS command modifier
+  instead of the platform-primary modifier. The dispatcher branch carries these
+  small shared fixes so #2822 and the native-window lane can rebase onto one
+  green base. Validation after the fix: `git diff --check`;
+  `cmake --build build --target pulp-test-events pulp-test-ipc -j8`;
+  `ctest --test-dir build --output-on-failure -R
+  'EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'` passed
+  54/54; `cmake -S . -B build-inspector-focus -DCMAKE_BUILD_TYPE=Release
+  -DPULP_ENABLE_GPU=ON -DPULP_BUILD_EXAMPLES=OFF -DPULP_BUILD_TESTS=ON`;
+  `cmake --build build-inspector-focus --target pulp-test-inspector
+  pulp-test-design-debug-contracts -j8`; direct focused inspector cases for
+  stale selection and platform-primary paste passed; and
+  `ctest --test-dir build-inspector-focus --output-on-failure -R
+  design-debug` passed 5/5.
+- The next hosted Linux sweep exposed three more shared Linux assumptions:
+  OSC receiver sockets enabled UDP address reuse, allowing a second listener to
+  bind the same port on Linux; and the inspector paste test required a native
+  clipboard even on hosted Linux images with no clipboard tool. The OSC
+  receiver now keeps listener binds exclusive, and the inspector test follows
+  the existing clipboard contract by skipping the paste half only when the
+  platform reports an honest unsupported clipboard. Local validation after the
+  fix: `cmake --build build --target pulp-test-osc pulp-test-osc-channel -j8`;
+  direct focused OSC receiver and OscChannel occupied-port cases passed;
+  `cmake --build build-inspector-focus --target pulp-test-inspector -j8`;
+  direct focused platform-primary paste case passed; `ctest --test-dir build
+  --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  passed 122/122; `ctest --test-dir build-inspector-focus --output-on-failure
+  -R design-debug` passed 5/5; and `git diff --check` passed.
+- Claude and RepoPrompt blocker reviews were run. Claude's P1 findings around
+  async exceptions, EventLoop thread-id synchronization, iOS registration
+  order, unbounded sync retry, and SDL drain starvation were fixed; the final
+  RepoPrompt review reported no remaining P0/P1 findings after the macOS
+  shutdown liveness fix.
+- SSH-backed Windows/Ubuntu targets are intentionally out of scope for this
+  focused validation pass; use GitHub-hosted platform checks and local/macOS
+  evidence instead.
 
 ### 3. Audio Format Completion
 

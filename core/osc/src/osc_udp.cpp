@@ -193,11 +193,6 @@ bool Receiver::listen(uint16_t port, MessageHandler handler) {
     impl_->sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (impl_->sock == kInvalidSocket) return false;
 
-    // Allow address reuse
-    int opt = 1;
-    setsockopt(impl_->sock, SOL_SOCKET, SO_REUSEADDR,
-               reinterpret_cast<const char*>(&opt), sizeof(opt));
-
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;

@@ -2,19 +2,39 @@
 // Mirrors window_host_mac.mm but uses UIKit instead of AppKit.
 
 #include <pulp/view/window_host.hpp>
+#include <pulp/events/main_thread_dispatcher.hpp>
 
 #if TARGET_OS_IOS
 
 #include <pulp/canvas/cg_canvas.hpp>
 #import <UIKit/UIKit.h>
 #include <atomic>
+#include <memory>
 #include <unordered_map>
+#include <utility>
 
 // ── PulpRootView: UIView subclass that paints the View tree ─────────────────
 
 // Forward declaration from accessibility_ios.mm
 namespace pulp::view {
 NSArray<UIAccessibilityElement *>* create_accessibility_elements(View& root, UIView* container);
+}
+
+static pulp::events::MainThreadDispatcher::Backend make_uikit_main_thread_backend() {
+    return {
+        [](pulp::events::Task task) -> bool {
+            if (!task) return false;
+            auto* heap_task = new pulp::events::Task(std::move(task));
+            dispatch_async(dispatch_get_main_queue(), ^{
+                std::unique_ptr<pulp::events::Task> owned(heap_task);
+                if (*owned) (*owned)();
+            });
+            return true;
+        },
+        [] {
+            return [NSThread isMainThread];
+        },
+    };
 }
 
 @interface PulpRootView : UIView {
@@ -234,6 +254,21 @@ public:
     }
 
     ~IOSWindowHost() override {
+        if (host_liveness_)
+            host_liveness_->store(false, std::memory_order_release);
+        pulp::events::MainThreadDispatcher::unregister_backend(dispatcher_token_);
+        @autoreleasepool {
+            if (root_view_) {
+                root_view_.onResize = nil;
+                root_view_.rootView = nullptr;
+                root_view_ = nil;
+            }
+            if (window_) {
+                [window_ setHidden:YES];
+                window_.rootViewController = nil;
+                window_ = nil;
+            }
+        }
         root_.set_window_host(nullptr);
     }
 
@@ -270,9 +305,13 @@ public:
     void set_resize_callback(ResizeCallback cb) override {
         resize_callback_ = std::move(cb);
         if (root_view_) {
+            auto alive_token = host_liveness_;
+            auto* host = this;
             root_view_.onResize = ^(float w, float h) {
-                if (resize_callback_) {
-                    resize_callback_(
+                if (!alive_token || !alive_token->load(std::memory_order_acquire))
+                    return;
+                if (host->resize_callback_) {
+                    host->resize_callback_(
                         static_cast<uint32_t>(w > 0 ? w : 0),
                         static_cast<uint32_t>(h > 0 ? h : 0));
                 }
@@ -282,6 +321,9 @@ public:
 
     void run_event_loop() override {
         @autoreleasepool {
+            pulp::events::MainThreadDispatcher::unregister_backend(dispatcher_token_);
+            dispatcher_token_ = 0;
+
             // Create a full-screen window
             UIWindowScene *scene = nil;
             for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
@@ -300,9 +342,13 @@ public:
             root_view_ = [[PulpRootView alloc] initWithFrame:window_.bounds];
             root_view_.rootView = &root_;
             root_view_.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            auto alive_token = host_liveness_;
+            auto* host = this;
             root_view_.onResize = ^(float w, float h) {
-                if (resize_callback_) {
-                    resize_callback_(
+                if (!alive_token || !alive_token->load(std::memory_order_acquire))
+                    return;
+                if (host->resize_callback_) {
+                    host->resize_callback_(
                         static_cast<uint32_t>(w > 0 ? w : 0),
                         static_cast<uint32_t>(h > 0 ? h : 0));
                 }
@@ -312,6 +358,8 @@ public:
             vc.view = root_view_;
             window_.rootViewController = vc;
             [window_ makeKeyAndVisible];
+            dispatcher_token_ = pulp::events::MainThreadDispatcher::register_backend(
+                make_uikit_main_thread_backend());
 
             // On iOS, the run loop is managed by UIApplicationMain.
             // This method returns immediately — the caller should not
@@ -325,6 +373,9 @@ private:
     PulpRootView* root_view_ = nil;
     std::function<void()> close_callback_;
     ResizeCallback resize_callback_;
+    std::shared_ptr<std::atomic<bool>> host_liveness_ =
+        std::make_shared<std::atomic<bool>>(true);
+    pulp::events::MainThreadDispatcher::Token dispatcher_token_ = 0;
 };
 
 // ── IOSGpuWindowHost (GPU rendering via Dawn/Skia Graphite) ─────────────
@@ -373,6 +424,13 @@ public:
     }
 
     ~IOSGpuWindowHost() override {
+        if (host_liveness_)
+            host_liveness_->store(false, std::memory_order_release);
+        pulp::events::MainThreadDispatcher::unregister_backend(dispatcher_token_);
+        if (metal_view_)
+            metal_view_.onResize = nil;
+        if (display_link_target_)
+            display_link_target_.host = nullptr;
         stop_display_link();
         skia_surface_.reset();
         gpu_surface_.reset();
@@ -402,8 +460,11 @@ public:
         // forever and only fire when an unrelated touch event triggers
         // a poll. Run the idle callback first so any request_repaint
         // it triggers arms needs_repaint_ for the same vsync tick.
+        auto alive_token = host_liveness_;
         if (idle_callback_) {
             idle_callback_();
+            if (!alive_token || !alive_token->load(std::memory_order_acquire))
+                return;
         }
         if (needs_repaint_.exchange(false, std::memory_order_relaxed)) {
             render_frame();
@@ -427,14 +488,21 @@ public:
     void set_resize_callback(ResizeCallback cb) override {
         resize_callback_ = std::move(cb);
         if (metal_view_) {
+            auto alive_token = host_liveness_;
+            auto* host = this;
             metal_view_.onResize = ^(float w, float h) {
-                handle_resize(w, h);
+                if (!alive_token || !alive_token->load(std::memory_order_acquire))
+                    return;
+                host->handle_resize(w, h);
             };
         }
     }
 
     void run_event_loop() override {
         @autoreleasepool {
+            pulp::events::MainThreadDispatcher::unregister_backend(dispatcher_token_);
+            dispatcher_token_ = 0;
+
             UIWindowScene *scene = nil;
             for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
                 if ([s isKindOfClass:[UIWindowScene class]]) {
@@ -453,8 +521,12 @@ public:
             metal_view_ = [[PulpMetalWindowView alloc] initWithFrame:window_.bounds];
             metal_view_.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
             metal_view_.multipleTouchEnabled = YES;
+            auto alive_token = host_liveness_;
+            auto* host = this;
             metal_view_.onResize = ^(float w, float h) {
-                handle_resize(w, h);
+                if (!alive_token || !alive_token->load(std::memory_order_acquire))
+                    return;
+                host->handle_resize(w, h);
             };
 
             CGFloat scale = UIScreen.mainScreen.scale;
@@ -494,6 +566,8 @@ public:
             window_.rootViewController = vc;
             [window_ makeKeyAndVisible];
 
+            dispatcher_token_ = pulp::events::MainThreadDispatcher::register_backend(
+                make_uikit_main_thread_backend());
             start_display_link();
             needs_repaint_.store(true, std::memory_order_relaxed);
 
@@ -513,9 +587,12 @@ private:
     // run loop in NSRunLoopCommonModes), so no atomic is needed.
     std::function<void()> idle_callback_;
     std::atomic<bool> needs_repaint_{false};
+    std::shared_ptr<std::atomic<bool>> host_liveness_ =
+        std::make_shared<std::atomic<bool>>(true);
     CADisplayLink* display_link_ = nil;
     PulpIOSDisplayLinkTarget* display_link_target_ = nil;
     ResizeCallback resize_callback_;
+    pulp::events::MainThreadDispatcher::Token dispatcher_token_ = 0;
 
     void start_display_link() {
         if (display_link_) return;
@@ -581,7 +658,10 @@ private:
             skia_surface_->resize(logical_w, logical_h, static_cast<float>(scale));
         }
         if (resize_callback_) {
+            auto alive_token = host_liveness_;
             resize_callback_(logical_w, logical_h);
+            if (!alive_token || !alive_token->load(std::memory_order_acquire))
+                return;
         }
         needs_repaint_.store(true, std::memory_order_relaxed);
     }

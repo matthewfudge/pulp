@@ -3,11 +3,17 @@
 #include <pulp/events/async_updater.hpp>
 #include <pulp/events/child_process_manager.hpp>
 #include <pulp/events/interprocess_connection.hpp>
+#include <pulp/events/main_thread_dispatcher.hpp>
 #include <pulp/events/volume_detector.hpp>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <memory>
+#include <mutex>
+#include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace pulp::events;
@@ -37,7 +43,639 @@ struct RecordingMultiTimer : MultiTimer {
     std::vector<int> callbacks;
 };
 
+class ScopedTestMainThreadBackend {
+public:
+    ScopedTestMainThreadBackend()
+        : owner_(std::this_thread::get_id()) {
+        token_ = MainThreadDispatcher::register_backend({
+            [this](Task task) {
+                if (!task)
+                    return false;
+                std::lock_guard lock(mutex_);
+                tasks_.push_back(std::move(task));
+                return true;
+            },
+            [this] {
+                return std::this_thread::get_id() == owner_;
+            },
+        });
+    }
+
+    ~ScopedTestMainThreadBackend() {
+        MainThreadDispatcher::unregister_backend(token_);
+    }
+
+    MainThreadDispatcher::Token token() const { return token_; }
+
+    size_t queued_count() const {
+        std::lock_guard lock(mutex_);
+        return tasks_.size();
+    }
+
+    size_t drain_all() {
+        std::deque<Task> tasks;
+        {
+            std::lock_guard lock(mutex_);
+            tasks.swap(tasks_);
+        }
+
+        auto count = tasks.size();
+        while (!tasks.empty()) {
+            auto task = std::move(tasks.front());
+            tasks.pop_front();
+            if (task)
+                task();
+        }
+        return count;
+    }
+
+private:
+    std::thread::id owner_;
+    MainThreadDispatcher::Token token_ = 0;
+    mutable std::mutex mutex_;
+    std::deque<Task> tasks_;
+};
+
 } // namespace
+
+TEST_CASE("MainThreadDispatcher reports no backend before registration",
+          "[events][main_thread_dispatcher]") {
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+    REQUIRE_FALSE(MainThreadDispatcher::is_main_thread());
+
+    std::atomic<int> calls{0};
+    REQUIRE_FALSE(MainThreadDispatcher::call_async([&] { calls.fetch_add(1); }));
+    REQUIRE_FALSE(MainThreadDispatcher::call_sync([&] { calls.fetch_add(1); }));
+    REQUIRE(calls.load() == 0);
+}
+
+TEST_CASE("MainThreadDispatcher registers and queues async work",
+          "[events][main_thread_dispatcher]") {
+    ScopedTestMainThreadBackend backend;
+    REQUIRE(backend.token() != 0);
+    REQUIRE(MainThreadDispatcher::has_backend());
+    REQUIRE(MainThreadDispatcher::is_main_thread());
+
+    std::atomic<int> calls{0};
+    REQUIRE(MainThreadDispatcher::call_async([&] { calls.fetch_add(1); }));
+    REQUIRE(calls.load() == 0);
+    REQUIRE(backend.queued_count() == 1);
+    REQUIRE(backend.drain_all() == 1);
+    REQUIRE(calls.load() == 1);
+}
+
+TEST_CASE("MainThreadDispatcher call_async catches task exceptions",
+          "[events][main_thread_dispatcher]") {
+    std::atomic<int> posts{0};
+    auto token = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            posts.fetch_add(1);
+            if (task)
+                task();
+            return true;
+        },
+        [] { return true; },
+    });
+
+    REQUIRE(token != 0);
+    REQUIRE_NOTHROW(MainThreadDispatcher::call_async([] {
+        throw std::runtime_error("async task failed");
+    }));
+    REQUIRE(posts.load() == 1);
+    REQUIRE(MainThreadDispatcher::unregister_backend(token));
+}
+
+TEST_CASE("MainThreadDispatcher marshals async work from a worker thread",
+          "[events][main_thread_dispatcher]") {
+    ScopedTestMainThreadBackend backend;
+    std::atomic<bool> posted{false};
+    std::atomic<bool> ran{false};
+    std::atomic<bool> ran_on_main{false};
+
+    std::thread worker([&] {
+        posted.store(MainThreadDispatcher::call_async([&] {
+            ran_on_main.store(MainThreadDispatcher::is_main_thread());
+            ran.store(true);
+        }));
+    });
+    worker.join();
+
+    REQUIRE(posted.load());
+    REQUIRE_FALSE(ran.load());
+    REQUIRE(backend.queued_count() == 1);
+    backend.drain_all();
+    REQUIRE(ran.load());
+    REQUIRE(ran_on_main.load());
+}
+
+TEST_CASE("MainThreadDispatcher call_sync blocks worker until main drain",
+          "[events][main_thread_dispatcher]") {
+    ScopedTestMainThreadBackend backend;
+    std::atomic<bool> returned{false};
+    std::atomic<bool> ran{false};
+    std::atomic<bool> ran_on_main{false};
+    bool result = false;
+
+    std::thread worker([&] {
+        result = MainThreadDispatcher::call_sync([&] {
+            ran_on_main.store(MainThreadDispatcher::is_main_thread());
+            ran.store(true);
+        });
+        returned.store(true);
+    });
+
+    auto queued = wait_until([&] { return backend.queued_count() == 1; }, 2000ms);
+    if (!queued) {
+        worker.detach();
+        FAIL("call_sync did not queue work on the registered main-thread backend");
+    }
+
+    REQUIRE_FALSE(returned.load());
+    backend.drain_all();
+    worker.join();
+
+    REQUIRE(result);
+    REQUIRE(returned.load());
+    REQUIRE(ran.load());
+    REQUIRE(ran_on_main.load());
+}
+
+TEST_CASE("MainThreadDispatcher call_sync runs inline on main thread",
+          "[events][main_thread_dispatcher]") {
+    ScopedTestMainThreadBackend backend;
+    std::atomic<int> calls{0};
+
+    REQUIRE(MainThreadDispatcher::call_sync([&] { calls.fetch_add(1); }));
+    REQUIRE(calls.load() == 1);
+    REQUIRE(backend.queued_count() == 0);
+}
+
+TEST_CASE("MainThreadDispatcher unregister removes inactive tokens without replacing active backend",
+          "[events][main_thread_dispatcher]") {
+    std::mutex mutex;
+    std::deque<Task> a;
+    std::deque<Task> b;
+
+    auto token_a = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            std::lock_guard lock(mutex);
+            a.push_back(std::move(task));
+            return true;
+        },
+        [] { return false; },
+    });
+    REQUIRE(token_a != 0);
+
+    auto token_b = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            std::lock_guard lock(mutex);
+            b.push_back(std::move(task));
+            return true;
+        },
+        [] { return true; },
+    });
+    REQUIRE(token_b != 0);
+
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_a));
+    REQUIRE(MainThreadDispatcher::is_main_thread());
+    REQUIRE(MainThreadDispatcher::call_async([] {}));
+    {
+        std::lock_guard lock(mutex);
+        REQUIRE(a.empty());
+        REQUIRE(b.size() == 1);
+    }
+
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_b));
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher restores previous backend when active token unregisters",
+          "[events][main_thread_dispatcher]") {
+    std::mutex mutex;
+    std::deque<Task> a;
+    std::deque<Task> b;
+
+    auto token_a = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            std::lock_guard lock(mutex);
+            a.push_back(std::move(task));
+            return true;
+        },
+        [] {
+            return true;
+        },
+    });
+    REQUIRE(token_a != 0);
+
+    auto token_b = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            std::lock_guard lock(mutex);
+            b.push_back(std::move(task));
+            return true;
+        },
+        [] {
+            return false;
+        },
+    });
+    REQUIRE(token_b != 0);
+
+    REQUIRE_FALSE(MainThreadDispatcher::is_main_thread());
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_b));
+    REQUIRE(MainThreadDispatcher::is_main_thread());
+    REQUIRE(MainThreadDispatcher::call_async([] {}));
+    {
+        std::lock_guard lock(mutex);
+        REQUIRE(a.size() == 1);
+        REQUIRE(b.empty());
+    }
+
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_a));
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher restores deeper backend stacks in order",
+          "[events][main_thread_dispatcher]") {
+    std::atomic<int> calls_a{0};
+    std::atomic<int> calls_b{0};
+    std::atomic<int> calls_c{0};
+
+    auto token_a = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            calls_a.fetch_add(1);
+            if (task)
+                task();
+            return true;
+        },
+        [] { return true; },
+    });
+    auto token_b = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            calls_b.fetch_add(1);
+            if (task)
+                task();
+            return true;
+        },
+        [] { return true; },
+    });
+    auto token_c = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            calls_c.fetch_add(1);
+            if (task)
+                task();
+            return true;
+        },
+        [] { return true; },
+    });
+
+    REQUIRE(token_a != 0);
+    REQUIRE(token_b != 0);
+    REQUIRE(token_c != 0);
+
+    REQUIRE(MainThreadDispatcher::call_async([] {}));
+    REQUIRE(calls_a.load() == 0);
+    REQUIRE(calls_b.load() == 0);
+    REQUIRE(calls_c.load() == 1);
+
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_c));
+    REQUIRE(MainThreadDispatcher::call_async([] {}));
+    REQUIRE(calls_a.load() == 0);
+    REQUIRE(calls_b.load() == 1);
+    REQUIRE(calls_c.load() == 1);
+
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_b));
+    REQUIRE(MainThreadDispatcher::call_async([] {}));
+    REQUIRE(calls_a.load() == 1);
+    REQUIRE(calls_b.load() == 1);
+    REQUIRE(calls_c.load() == 1);
+
+    REQUIRE(MainThreadDispatcher::unregister_backend(token_a));
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher rejects invalid backends and empty tasks",
+          "[events][main_thread_dispatcher]") {
+    REQUIRE(MainThreadDispatcher::register_backend({{}, [] { return true; }}) == 0);
+    REQUIRE(MainThreadDispatcher::register_backend({[](Task) { return true; }, {}}) == 0);
+    REQUIRE_FALSE(MainThreadDispatcher::unregister_backend(0));
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+
+    ScopedTestMainThreadBackend backend;
+    REQUIRE_FALSE(MainThreadDispatcher::call_async({}));
+    REQUIRE_FALSE(MainThreadDispatcher::call_sync({}));
+    REQUIRE(backend.queued_count() == 0);
+}
+
+TEST_CASE("MainThreadDispatcher reports post failures without blocking",
+          "[events][main_thread_dispatcher]") {
+    auto token = MainThreadDispatcher::register_backend({
+        [](Task) {
+            return false;
+        },
+        [] {
+            return false;
+        },
+    });
+    REQUIRE(token != 0);
+
+    REQUIRE_FALSE(MainThreadDispatcher::call_async([] {}));
+    REQUIRE_FALSE(MainThreadDispatcher::call_sync([] {}));
+    REQUIRE(MainThreadDispatcher::unregister_backend(token));
+}
+
+TEST_CASE("MainThreadDispatcher unregister waits for in-flight backend callbacks",
+          "[events][main_thread_dispatcher]") {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool post_entered = false;
+    bool release_post = false;
+    std::atomic<bool> call_returned{false};
+    std::atomic<bool> unregister_result{false};
+    std::atomic<bool> unregister_returned{false};
+
+    auto token = MainThreadDispatcher::register_backend({
+        [&](Task) {
+            std::unique_lock lock(mutex);
+            post_entered = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return release_post; });
+            return true;
+        },
+        [] {
+            return false;
+        },
+    });
+    REQUIRE(token != 0);
+
+    std::thread caller([&] {
+        call_returned.store(MainThreadDispatcher::call_async([] {}));
+    });
+
+    {
+        std::unique_lock lock(mutex);
+        REQUIRE(cv.wait_for(lock, 2000ms, [&] { return post_entered; }));
+    }
+
+    std::thread unregisterer([&] {
+        unregister_result.store(MainThreadDispatcher::unregister_backend(token));
+        unregister_returned.store(true);
+    });
+
+    std::this_thread::sleep_for(20ms);
+    REQUIRE_FALSE(unregister_returned.load());
+
+    {
+        std::lock_guard lock(mutex);
+        release_post = true;
+    }
+    cv.notify_all();
+
+    caller.join();
+    unregisterer.join();
+
+    REQUIRE(call_returned.load());
+    REQUIRE(unregister_result.load());
+    REQUIRE(unregister_returned.load());
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher allows a backend to unregister from post callback",
+          "[events][main_thread_dispatcher]") {
+    MainThreadDispatcher::Token token = 0;
+    std::atomic<bool> unregister_result{false};
+
+    token = MainThreadDispatcher::register_backend({
+        [&](Task) {
+            unregister_result.store(MainThreadDispatcher::unregister_backend(token));
+            return true;
+        },
+        [] {
+            return false;
+        },
+    });
+    REQUIRE(token != 0);
+
+    REQUIRE(MainThreadDispatcher::call_async([] {}));
+    REQUIRE(unregister_result.load());
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher self-unregister waits for other in-flight callbacks",
+          "[events][main_thread_dispatcher]") {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool first_post_entered = false;
+    bool release_first_post = false;
+    std::atomic<int> post_count{0};
+    std::atomic<bool> first_call_returned{false};
+    std::atomic<bool> second_call_returned{false};
+    std::atomic<bool> unregister_result{false};
+    std::atomic<bool> unregister_returned{false};
+    MainThreadDispatcher::Token token = 0;
+
+    token = MainThreadDispatcher::register_backend({
+        [&](Task) {
+            auto post_index = post_count.fetch_add(1);
+            if (post_index == 0) {
+                std::unique_lock lock(mutex);
+                first_post_entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&] { return release_first_post; });
+                return true;
+            }
+
+            unregister_result.store(MainThreadDispatcher::unregister_backend(token));
+            unregister_returned.store(true);
+            return true;
+        },
+        [] {
+            return false;
+        },
+    });
+    REQUIRE(token != 0);
+
+    std::thread first_caller([&] {
+        first_call_returned.store(MainThreadDispatcher::call_async([] {}));
+    });
+
+    {
+        std::unique_lock lock(mutex);
+        REQUIRE(cv.wait_for(lock, 2000ms, [&] { return first_post_entered; }));
+    }
+
+    std::thread unregistering_caller([&] {
+        second_call_returned.store(MainThreadDispatcher::call_async([] {}));
+    });
+
+    std::this_thread::sleep_for(20ms);
+    REQUIRE_FALSE(unregister_returned.load());
+
+    {
+        std::lock_guard lock(mutex);
+        release_first_post = true;
+    }
+    cv.notify_all();
+
+    first_caller.join();
+    unregistering_caller.join();
+
+    REQUIRE(first_call_returned.load());
+    REQUIRE(second_call_returned.load());
+    REQUIRE(unregister_result.load());
+    REQUIRE(unregister_returned.load());
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher allows a backend to unregister from main-thread callback",
+          "[events][main_thread_dispatcher]") {
+    MainThreadDispatcher::Token token = 0;
+    std::atomic<bool> unregister_result{false};
+
+    token = MainThreadDispatcher::register_backend({
+        [](Task) {
+            return false;
+        },
+        [&] {
+            unregister_result.store(MainThreadDispatcher::unregister_backend(token));
+            return true;
+        },
+    });
+    REQUIRE(token != 0);
+
+    REQUIRE(MainThreadDispatcher::is_main_thread());
+    REQUIRE(unregister_result.load());
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher call_sync does not post after main-thread callback unregisters",
+          "[events][main_thread_dispatcher]") {
+    MainThreadDispatcher::Token token = 0;
+    std::atomic<bool> unregister_result{false};
+    std::atomic<int> post_calls{0};
+
+    token = MainThreadDispatcher::register_backend({
+        [&](Task) {
+            post_calls.fetch_add(1);
+            return true;
+        },
+        [&] {
+            unregister_result.store(MainThreadDispatcher::unregister_backend(token));
+            return false;
+        },
+    });
+    REQUIRE(token != 0);
+
+    REQUIRE_FALSE(MainThreadDispatcher::call_sync([] {}));
+    REQUIRE(unregister_result.load());
+    REQUIRE(post_calls.load() == 0);
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher call_sync rechecks restored backend before posting",
+          "[events][main_thread_dispatcher]") {
+    std::atomic<int> inline_calls{0};
+    std::atomic<int> restored_post_calls{0};
+    std::atomic<int> removed_post_calls{0};
+    MainThreadDispatcher::Token restored_token = 0;
+    MainThreadDispatcher::Token removed_token = 0;
+
+    restored_token = MainThreadDispatcher::register_backend({
+        [&](Task) {
+            restored_post_calls.fetch_add(1);
+            return true;
+        },
+        [] {
+            return true;
+        },
+    });
+    REQUIRE(restored_token != 0);
+
+    removed_token = MainThreadDispatcher::register_backend({
+        [&](Task) {
+            removed_post_calls.fetch_add(1);
+            return true;
+        },
+        [&] {
+            REQUIRE(MainThreadDispatcher::unregister_backend(removed_token));
+            return false;
+        },
+    });
+    REQUIRE(removed_token != 0);
+
+    REQUIRE(MainThreadDispatcher::call_sync([&] { inline_calls.fetch_add(1); }));
+    REQUIRE(inline_calls.load() == 1);
+    REQUIRE(restored_post_calls.load() == 0);
+    REQUIRE(removed_post_calls.load() == 0);
+    REQUIRE(MainThreadDispatcher::unregister_backend(restored_token));
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher call_sync rechecks restored backend before inline execution",
+          "[events][main_thread_dispatcher]") {
+    std::atomic<int> task_calls{0};
+    std::atomic<int> restored_post_calls{0};
+    MainThreadDispatcher::Token restored_token = 0;
+    MainThreadDispatcher::Token removed_token = 0;
+
+    restored_token = MainThreadDispatcher::register_backend({
+        [&](Task task) {
+            restored_post_calls.fetch_add(1);
+            if (task)
+                task();
+            return true;
+        },
+        [] {
+            return false;
+        },
+    });
+    REQUIRE(restored_token != 0);
+
+    removed_token = MainThreadDispatcher::register_backend({
+        [](Task) {
+            return false;
+        },
+        [&] {
+            REQUIRE(MainThreadDispatcher::unregister_backend(removed_token));
+            return true;
+        },
+    });
+    REQUIRE(removed_token != 0);
+
+    REQUIRE(MainThreadDispatcher::call_sync([&] { task_calls.fetch_add(1); }));
+    REQUIRE(task_calls.load() == 1);
+    REQUIRE(restored_post_calls.load() == 1);
+    REQUIRE(MainThreadDispatcher::unregister_backend(restored_token));
+    REQUIRE_FALSE(MainThreadDispatcher::has_backend());
+}
+
+TEST_CASE("MainThreadDispatcher call_sync propagates task exceptions",
+          "[events][main_thread_dispatcher]") {
+    ScopedTestMainThreadBackend backend;
+    std::atomic<bool> caught{false};
+    std::atomic<bool> returned{false};
+
+    std::thread worker([&] {
+        try {
+            (void)MainThreadDispatcher::call_sync([] {
+                throw std::runtime_error("dispatcher task failed");
+            });
+        } catch (const std::runtime_error&) {
+            caught.store(true);
+        }
+        returned.store(true);
+    });
+
+    auto queued = wait_until([&] { return backend.queued_count() == 1; }, 2000ms);
+    if (!queued) {
+        worker.detach();
+        FAIL("throwing call_sync task did not queue on the registered backend");
+    }
+
+    backend.drain_all();
+    worker.join();
+
+    REQUIRE(caught.load());
+    REQUIRE(returned.load());
+}
 
 TEST_CASE("EventLoop dispatch", "[events][event_loop]") {
     EventLoop loop;
@@ -118,11 +756,17 @@ TEST_CASE("EventLoop reports thread identity and stop state",
     EventLoop loop;
 
     REQUIRE(loop.running());
+    REQUIRE(loop.thread_id() != std::thread::id{});
     REQUIRE_FALSE(loop.is_current_thread());
 
     std::atomic<bool> ran_on_loop{false};
-    loop.dispatch([&] { ran_on_loop.store(loop.is_current_thread()); });
+    std::atomic<bool> matched_thread_id{false};
+    loop.dispatch([&] {
+        matched_thread_id.store(std::this_thread::get_id() == loop.thread_id());
+        ran_on_loop.store(loop.is_current_thread());
+    });
     REQUIRE(wait_until([&] { return ran_on_loop.load(); }, 2000ms));
+    REQUIRE(matched_thread_id.load());
 
     loop.stop();
     REQUIRE_FALSE(loop.running());
@@ -218,6 +862,55 @@ TEST_CASE("EventLoop ignores new dispatches after stop",
     std::this_thread::sleep_for(20ms);
 
     REQUIRE(calls.load() == 0);
+}
+
+TEST_CASE("EventLoop stops before continuing a pending task batch",
+          "[events][event_loop][codecov]") {
+    EventLoop loop;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool release = false;
+    std::atomic<bool> first_started{false};
+    std::atomic<bool> first_finished{false};
+    std::atomic<int> second_calls{0};
+
+    loop.dispatch([&] {
+        first_started.store(true);
+        std::unique_lock lock(mutex);
+        cv.wait(lock, [&] { return release; });
+        loop.stop();
+        first_finished.store(true);
+    });
+
+    REQUIRE(wait_until([&] { return first_started.load(); }, 2000ms));
+    loop.dispatch([&] { second_calls.fetch_add(1); });
+
+    {
+        std::lock_guard lock(mutex);
+        release = true;
+    }
+    cv.notify_one();
+
+    REQUIRE(wait_until([&] { return first_finished.load(); }, 2000ms));
+    std::this_thread::sleep_for(20ms);
+    REQUIRE(second_calls.load() == 0);
+    REQUIRE_FALSE(loop.running());
+}
+
+TEST_CASE("EventLoop can be released from its own thread",
+          "[events][event_loop][lifecycle]") {
+    auto loop = std::make_shared<EventLoop>();
+    auto weak = std::weak_ptr<EventLoop>(loop);
+    std::atomic<bool> task_finished{false};
+
+    loop->dispatch([held = std::move(loop), &task_finished]() mutable {
+        held->stop();
+        held.reset();
+        task_finished.store(true);
+    });
+
+    REQUIRE(wait_until([&] { return task_finished.load(); }, 2000ms));
+    REQUIRE(wait_until([&] { return weak.expired(); }, 2000ms));
 }
 
 TEST_CASE("EventLoop runs tasks dispatched from the loop thread",
