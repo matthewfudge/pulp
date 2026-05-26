@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02300"></a>
+## [0.230.0] - 2026-05-25
+
+- feat(signal): polyphase IIR half-band filter for 2x oversampling (item 2.2) ([#2885](https://github.com/danielraffel/pulp/pull/2885))
+- feat(view): FileChooser builder wraps native FileDialog (macOS plan 6.2) ([#2884](https://github.com/danielraffel/pulp/pull/2884))
+
 <a id="v02280"></a>
 ## [0.228.0] - 2026-05-25
 
@@ -2828,6 +2834,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.230.0]: https://github.com/danielraffel/pulp/releases/tag/v0.230.0
 [0.228.0]: https://github.com/danielraffel/pulp/releases/tag/v0.228.0
 [0.226.0]: https://github.com/danielraffel/pulp/releases/tag/v0.226.0
 [0.225.0]: https://github.com/danielraffel/pulp/releases/tag/v0.225.0
