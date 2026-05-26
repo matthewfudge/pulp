@@ -37,6 +37,12 @@ include("${CMAKE_CURRENT_LIST_DIR}/PulpPlatformConfig.cmake")
 # Linux PkgConfig::* IMPORTED target recreation. No-op on non-Linux.
 include("${CMAKE_CURRENT_LIST_DIR}/PulpPkgConfigImports.cmake")
 
+# Pulp::canvas is a static SDK target and its build exports retain
+# LINK_ONLY references to private static dependencies. SheenBidi installs its
+# own package into the same SDK prefix, so load it before PulpTargets.cmake
+# validates referenced imported targets.
+find_dependency(SheenBidi CONFIG)
+
 # The Pulp SDK is built and installed in the Release configuration only.
 # When a downstream plugin is built in Debug / MinSizeRel / RelWithDebInfo
 # (or the Visual Studio multi-config generator picks those configs), CMake

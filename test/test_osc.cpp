@@ -1,5 +1,22 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include <pulp/osc/bundle.hpp>
 #include <pulp/osc/osc.hpp>
 #include <thread>
@@ -9,6 +26,7 @@
 #include <cstring>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string_view>
 #include <variant>
@@ -21,11 +39,75 @@ namespace {
 
 constexpr uint16_t kOscHostnameTestPort = 29876;
 
+#if defined(_WIN32)
+using TestSocketHandle = SOCKET;
+using TestSockLen = int;
+constexpr TestSocketHandle kInvalidTestSocket = INVALID_SOCKET;
+
+struct TestWinsockInit {
+    bool ok = false;
+
+    TestWinsockInit() {
+        WSADATA wsa{};
+        ok = WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
+    }
+
+    ~TestWinsockInit() {
+        if (ok) WSACleanup();
+    }
+};
+
+bool ensure_test_winsock() {
+    static TestWinsockInit init;
+    return init.ok;
+}
+
+void close_test_socket(TestSocketHandle sock) {
+    closesocket(sock);
+}
+#else
+using TestSocketHandle = int;
+using TestSockLen = socklen_t;
+constexpr TestSocketHandle kInvalidTestSocket = -1;
+
+bool ensure_test_winsock() {
+    return true;
+}
+
+void close_test_socket(TestSocketHandle sock) {
+    close(sock);
+}
+#endif
+
 void append_osc_string(std::vector<uint8_t>& data, std::string_view text) {
     data.insert(data.end(), text.begin(), text.end());
     data.push_back(0);
     while (data.size() % 4 != 0)
         data.push_back(0);
+}
+
+bool send_empty_udp_datagram(uint16_t port) {
+    if (!ensure_test_winsock()) return false;
+    auto sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock == kInvalidTestSocket) return false;
+
+    sockaddr_in dest{};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(port);
+    if (inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr) != 1) {
+        close_test_socket(sock);
+        return false;
+    }
+
+    const char payload[] = "";
+    const auto sent = sendto(sock,
+                             payload,
+                             0,
+                             0,
+                             reinterpret_cast<sockaddr*>(&dest),
+                             static_cast<TestSockLen>(sizeof(dest)));
+    close_test_socket(sock);
+    return sent == 0;
 }
 
 } // namespace
@@ -357,6 +439,79 @@ TEST_CASE("OSC Sender rejects invalid hostnames", "[osc][udp][sender]") {
     REQUIRE_FALSE(tx.is_connected());
 }
 
+TEST_CASE("OSC Sender failed reconnect preserves the existing destination",
+          "[osc][udp][sender][codecov]") {
+    std::atomic<int> handled{0};
+
+    Receiver rx;
+    REQUIRE(rx.listen(0, [&](const Message& msg) {
+        if (msg.address == "/sender/reconnect-fail" && msg.get_int(0) == 9) {
+            handled.fetch_add(1, std::memory_order_release);
+        }
+    }));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+    REQUIRE(tx.is_connected());
+    REQUIRE_FALSE(tx.connect("999.999.999.999", kOscHostnameTestPort));
+    REQUIRE(tx.is_connected());
+
+    Message msg("/sender/reconnect-fail");
+    msg.add(9);
+    for (int i = 0; i < 100 && handled.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(tx.send(msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(handled.load(std::memory_order_acquire) > 0);
+    tx.disconnect();
+    rx.stop();
+}
+
+TEST_CASE("OSC Sender successful reconnect replaces the existing destination",
+          "[osc][udp][sender][codecov]") {
+    std::atomic<int> first_receiver{0};
+    std::atomic<int> second_receiver{0};
+
+    Receiver rx1;
+    REQUIRE(rx1.listen(0, [&](const Message& msg) {
+        if (msg.address == "/sender/reconnect-success/first")
+            first_receiver.fetch_add(1, std::memory_order_release);
+    }));
+
+    Receiver rx2;
+    REQUIRE(rx2.listen(0, [&](const Message& msg) {
+        if (msg.address == "/sender/reconnect-success/second" && msg.get_int(0) == 22)
+            second_receiver.fetch_add(1, std::memory_order_release);
+    }));
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", rx1.local_port()));
+    REQUIRE(tx.connect("127.0.0.1", rx2.local_port()));
+    REQUIRE(tx.is_connected());
+
+    Message first("/sender/reconnect-success/first");
+    first.add(11);
+    Message second("/sender/reconnect-success/second");
+    second.add(22);
+
+    for (int i = 0; i < 100
+         && second_receiver.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(tx.send(first));
+        REQUIRE(tx.send(second));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(second_receiver.load(std::memory_order_acquire) > 0);
+    REQUIRE(first_receiver.load(std::memory_order_acquire) == 0);
+
+    tx.disconnect();
+    rx1.stop();
+    rx2.stop();
+}
+
 TEST_CASE("OSC Sender sends caller-owned raw packets over loopback",
           "[osc][udp][sender][coverage]") {
     std::atomic<int> handled{0};
@@ -393,6 +548,281 @@ TEST_CASE("OSC Sender sends caller-owned raw packets over loopback",
     rx.stop();
     REQUIRE_FALSE(tx.is_connected());
     REQUIRE_FALSE(rx.is_listening());
+}
+
+TEST_CASE("OSC Receiver routes direct messages through address-pattern listeners",
+          "[osc][udp][receiver][pattern][codecov]") {
+    std::atomic<int> all_messages{0};
+    std::atomic<int> mix_messages{0};
+    std::atomic<int> note_messages{0};
+    std::atomic<int> miss_messages{0};
+
+    ReceiverOptions options;
+    options.on_message = [&](const Message&) {
+        all_messages.fetch_add(1, std::memory_order_release);
+    };
+    options.routes.push_back({"/mix/*", [&](const Message& msg) {
+        if (msg.address == "/mix/gain")
+            mix_messages.fetch_add(msg.get_int(0), std::memory_order_release);
+    }});
+    options.routes.push_back({"/mix/*", {}});
+    options.routes.push_back({"/note/[0-9]", [&](const Message&) {
+        note_messages.fetch_add(1, std::memory_order_release);
+    }});
+    options.routes.push_back({"/unmatched/*", [&](const Message&) {
+        miss_messages.fetch_add(1, std::memory_order_release);
+    }});
+
+    Receiver rx;
+    REQUIRE(rx.listen_with_options(0, std::move(options)));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+
+    Message gain("/mix/gain");
+    gain.add(7);
+    Message note("/note/4");
+    note.add(64);
+    Message bypass("/other/path");
+    bypass.add(1);
+
+    for (int i = 0; i < 100
+         && (mix_messages.load(std::memory_order_acquire) == 0
+             || note_messages.load(std::memory_order_acquire) == 0
+             || all_messages.load(std::memory_order_acquire) < 3); ++i) {
+        REQUIRE(tx.send(gain));
+        REQUIRE(tx.send(note));
+        REQUIRE(tx.send(bypass));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(mix_messages.load(std::memory_order_acquire) >= 7);
+    REQUIRE(note_messages.load(std::memory_order_acquire) > 0);
+    REQUIRE(all_messages.load(std::memory_order_acquire) >= 3);
+    REQUIRE(miss_messages.load(std::memory_order_acquire) == 0);
+
+    tx.disconnect();
+    rx.stop();
+}
+
+TEST_CASE("OSC Sender sends typed bundles and Receiver dispatches bundle callbacks",
+          "[osc][udp][bundle][receiver][codecov]") {
+    std::atomic<int> bundle_callbacks{0};
+    std::atomic<int> nested_bundle_callbacks{0};
+    std::atomic<int> bundle_element_count{0};
+    std::atomic<int> message_callbacks{0};
+    std::atomic<int> synth_route_sum{0};
+    std::atomic<int> nested_route_sum{0};
+    std::atomic<int> miss_callbacks{0};
+
+    ReceiverOptions options;
+    options.on_bundle = [&](const Bundle& bundle) {
+        const auto element_count = static_cast<int>(bundle.elements.size());
+        bundle_element_count.store(element_count, std::memory_order_release);
+        if (element_count == 1)
+            nested_bundle_callbacks.fetch_add(1, std::memory_order_release);
+        bundle_callbacks.fetch_add(1, std::memory_order_release);
+    };
+    options.on_message = [&](const Message&) {
+        message_callbacks.fetch_add(1, std::memory_order_release);
+    };
+    options.routes.push_back({"/synth/*", [&](const Message& msg) {
+        synth_route_sum.fetch_add(msg.get_int(0), std::memory_order_release);
+    }});
+    options.routes.push_back({"/nested/{lead,bass}", [&](const Message& msg) {
+        nested_route_sum.fetch_add(msg.get_int(0), std::memory_order_release);
+    }});
+    options.routes.push_back({"/no/match", [&](const Message&) {
+        miss_callbacks.fetch_add(1, std::memory_order_release);
+    }});
+
+    Receiver rx;
+    REQUIRE(rx.listen_with_options(0, std::move(options)));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+
+    Bundle nested;
+    Message nested_msg("/nested/lead");
+    nested_msg.add(5);
+    nested.add(std::move(nested_msg));
+
+    Bundle bundle;
+    Message synth_msg("/synth/gain");
+    synth_msg.add(11);
+    bundle.add(std::move(synth_msg));
+    Message unrelated("/drum/kick");
+    unrelated.add(1);
+    bundle.add(std::move(unrelated));
+    bundle.add(std::move(nested));
+
+    for (int i = 0; i < 100
+         && (bundle_callbacks.load(std::memory_order_acquire) == 0
+             || synth_route_sum.load(std::memory_order_acquire) == 0
+             || nested_route_sum.load(std::memory_order_acquire) == 0
+             || message_callbacks.load(std::memory_order_acquire) < 3); ++i) {
+        REQUIRE(tx.send(bundle));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(bundle_callbacks.load(std::memory_order_acquire) > 0);
+    REQUIRE(nested_bundle_callbacks.load(std::memory_order_acquire) == 0);
+    REQUIRE(bundle_element_count.load(std::memory_order_acquire) == 3);
+    REQUIRE(message_callbacks.load(std::memory_order_acquire) >= 3);
+    REQUIRE(synth_route_sum.load(std::memory_order_acquire) >= 11);
+    REQUIRE(nested_route_sum.load(std::memory_order_acquire) >= 5);
+    REQUIRE(miss_callbacks.load(std::memory_order_acquire) == 0);
+
+    tx.disconnect();
+    rx.stop();
+}
+
+TEST_CASE("OSC Sender sends bundles after disconnect and reconnect",
+          "[osc][udp][bundle][sender][codecov]") {
+    std::atomic<int> first_receiver{0};
+    std::atomic<int> second_receiver{0};
+
+    Receiver rx1;
+    REQUIRE(rx1.listen(0, [&](const Message& msg) {
+        if (msg.address == "/bundle/reconnect/first" && msg.get_int(0) == 1)
+            first_receiver.fetch_add(1, std::memory_order_release);
+    }));
+
+    Receiver rx2;
+    REQUIRE(rx2.listen(0, [&](const Message& msg) {
+        if (msg.address == "/bundle/reconnect/second" && msg.get_int(0) == 2)
+            second_receiver.fetch_add(1, std::memory_order_release);
+    }));
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", rx1.local_port()));
+
+    Bundle first_bundle;
+    Message first_msg("/bundle/reconnect/first");
+    first_msg.add(1);
+    first_bundle.add(std::move(first_msg));
+
+    for (int i = 0; i < 100
+         && first_receiver.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(tx.send(first_bundle));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    REQUIRE(first_receiver.load(std::memory_order_acquire) > 0);
+
+    tx.disconnect();
+    REQUIRE(tx.connect("127.0.0.1", rx2.local_port()));
+
+    Bundle second_bundle;
+    Message second_msg("/bundle/reconnect/second");
+    second_msg.add(2);
+    second_bundle.add(std::move(second_msg));
+
+    for (int i = 0; i < 100
+         && second_receiver.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(tx.send(second_bundle));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(second_receiver.load(std::memory_order_acquire) > 0);
+    tx.disconnect();
+    rx1.stop();
+    rx2.stop();
+}
+
+TEST_CASE("OSC Receiver dispatches empty bundles without message callbacks",
+          "[osc][udp][bundle][receiver][codecov]") {
+    std::atomic<int> empty_bundles{0};
+    std::atomic<int> messages{0};
+
+    ReceiverOptions options;
+    options.on_bundle = [&](const Bundle& bundle) {
+        if (bundle.elements.empty())
+            empty_bundles.fetch_add(1, std::memory_order_release);
+    };
+    options.on_message = [&](const Message&) {
+        messages.fetch_add(1, std::memory_order_release);
+    };
+
+    Receiver rx;
+    REQUIRE(rx.listen_with_options(0, std::move(options)));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+
+    Bundle bundle;
+    for (int i = 0; i < 100
+         && empty_bundles.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(tx.send(bundle));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(empty_bundles.load(std::memory_order_acquire) > 0);
+    REQUIRE(messages.load(std::memory_order_acquire) == 0);
+    tx.disconnect();
+    rx.stop();
+}
+
+TEST_CASE("OSC Receiver accepts bundle datagrams larger than four kilobytes",
+          "[osc][udp][bundle][receiver][codecov]") {
+    std::atomic<int> bundle_callbacks{0};
+    std::atomic<int> blob_size{0};
+    std::atomic<int> blob_front{0};
+    std::atomic<int> blob_back{0};
+
+    ReceiverOptions options;
+    options.on_bundle = [&](const Bundle& bundle) {
+        if (bundle.elements.size() == 1)
+            bundle_callbacks.fetch_add(1, std::memory_order_release);
+    };
+    options.on_message = [&](const Message& msg) {
+        if (msg.address != "/bundle/large" || msg.args.empty()) return;
+        const auto* blob = std::get_if<std::vector<uint8_t>>(&msg.args[0]);
+        if (blob == nullptr || blob->empty()) return;
+        blob_size.store(static_cast<int>(blob->size()), std::memory_order_release);
+        blob_front.store(static_cast<int>(blob->front()), std::memory_order_release);
+        blob_back.store(static_cast<int>(blob->back()), std::memory_order_release);
+    };
+
+    Receiver rx;
+    REQUIRE(rx.listen_with_options(0, std::move(options)));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+
+    std::vector<uint8_t> payload(5000);
+    for (size_t i = 0; i < payload.size(); ++i)
+        payload[i] = static_cast<uint8_t>(i & 0xFF);
+
+    Bundle bundle;
+    Message msg("/bundle/large");
+    msg.add(payload);
+    bundle.add(std::move(msg));
+
+    for (int i = 0; i < 100
+         && (bundle_callbacks.load(std::memory_order_acquire) == 0
+             || blob_size.load(std::memory_order_acquire) == 0); ++i) {
+        REQUIRE(tx.send(bundle));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(bundle_callbacks.load(std::memory_order_acquire) > 0);
+    REQUIRE(blob_size.load(std::memory_order_acquire)
+            == static_cast<int>(payload.size()));
+    REQUIRE(blob_front.load(std::memory_order_acquire)
+            == static_cast<int>(payload.front()));
+    REQUIRE(blob_back.load(std::memory_order_acquire)
+            == static_cast<int>(payload.back()));
+
+    tx.disconnect();
+    rx.stop();
 }
 
 TEST_CASE("OSC Sender disconnects idempotently and reconnects to loopback",
@@ -461,6 +891,406 @@ TEST_CASE("OSC Receiver drops invalid datagrams without invoking handler", "[osc
     REQUIRE_FALSE(rx.is_listening());
 }
 
+TEST_CASE("OSC Receiver reports malformed message and bundle packets",
+          "[osc][udp][receiver][error][codecov]") {
+    std::atomic<int> errors{0};
+    std::atomic<int> malformed_messages{0};
+    std::atomic<int> malformed_bundles{0};
+    std::atomic<int> handled_messages{0};
+    std::atomic<int> handled_bundles{0};
+
+    ReceiverOptions options;
+    options.on_message = [&](const Message&) {
+        handled_messages.fetch_add(1, std::memory_order_release);
+    };
+    options.on_bundle = [&](const Bundle&) {
+        handled_bundles.fetch_add(1, std::memory_order_release);
+    };
+    options.on_error = [&](std::string_view reason) {
+        errors.fetch_add(1, std::memory_order_release);
+        if (reason == "malformed OSC message")
+            malformed_messages.fetch_add(1, std::memory_order_release);
+        if (reason == "malformed OSC bundle")
+            malformed_bundles.fetch_add(1, std::memory_order_release);
+    };
+
+    Receiver rx;
+    REQUIRE(rx.listen_with_options(0, std::move(options)));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+
+    const uint8_t bad_message[] = {0x00, 0x01, 0x02};
+    const uint8_t bad_bundle[] = {
+        '#', 'b', 'u', 'n', 'd', 'l', 'e', 0,
+        0, 0, 0, 0, 0, 0, 0, 1,
+        0x12
+    };
+
+    for (int i = 0; i < 100
+         && (malformed_messages.load(std::memory_order_acquire) == 0
+             || malformed_bundles.load(std::memory_order_acquire) == 0); ++i) {
+        REQUIRE(tx.send_raw(bad_message, sizeof(bad_message)));
+        REQUIRE(tx.send_raw(bad_bundle, sizeof(bad_bundle)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(errors.load(std::memory_order_acquire) >= 2);
+    REQUIRE(malformed_messages.load(std::memory_order_acquire) > 0);
+    REQUIRE(malformed_bundles.load(std::memory_order_acquire) > 0);
+    REQUIRE(handled_messages.load(std::memory_order_acquire) == 0);
+    REQUIRE(handled_bundles.load(std::memory_order_acquire) == 0);
+
+    tx.disconnect();
+    rx.stop();
+}
+
+TEST_CASE("OSC Receiver reports empty UDP datagrams as malformed messages",
+          "[osc][udp][receiver][error][codecov]") {
+    std::atomic<int> errors{0};
+    std::atomic<int> handled_messages{0};
+
+    ReceiverOptions options;
+    options.on_message = [&](const Message&) {
+        handled_messages.fetch_add(1, std::memory_order_release);
+    };
+    options.on_error = [&](std::string_view reason) {
+        if (reason == "malformed OSC message")
+            errors.fetch_add(1, std::memory_order_release);
+    };
+
+    Receiver rx;
+    REQUIRE(rx.listen_with_options(0, std::move(options)));
+    const auto port = rx.local_port();
+    REQUIRE(port != 0);
+
+    for (int i = 0; i < 100 && errors.load(std::memory_order_acquire) == 0; ++i) {
+        REQUIRE(send_empty_udp_datagram(port));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(errors.load(std::memory_order_acquire) > 0);
+    REQUIRE(handled_messages.load(std::memory_order_acquire) == 0);
+    rx.stop();
+}
+
+TEST_CASE("OSC Receiver callbacks can request stop without self-joining",
+          "[osc][udp][receiver][lifecycle][codecov]") {
+    {
+        std::atomic<int> errors{0};
+        std::atomic<bool> stop_returned{false};
+        std::atomic<int> restarted_messages{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_error = [&](std::string_view) {
+            errors.fetch_add(1, std::memory_order_release);
+            rx.stop();
+            stop_returned.store(true, std::memory_order_release);
+        };
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        const uint8_t bad_message[] = {0x00, 0x01, 0x02};
+        for (int i = 0; i < 100 && !stop_returned.load(std::memory_order_acquire); ++i) {
+            REQUIRE(tx.send_raw(bad_message, sizeof(bad_message)));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(errors.load(std::memory_order_acquire) > 0);
+        REQUIRE(stop_returned.load(std::memory_order_acquire));
+        tx.disconnect();
+
+        Receiver rebound;
+        REQUIRE(rebound.listen(port, [](const Message&) {}));
+        rebound.stop();
+
+        REQUIRE(rx.listen(0, [&](const Message& msg) {
+            if (msg.address == "/callback/restart" && msg.get_int(0) == 17)
+                restarted_messages.fetch_add(1, std::memory_order_release);
+        }));
+        REQUIRE(rx.is_listening());
+        REQUIRE(rx.local_port() != 0);
+
+        REQUIRE(tx.connect("127.0.0.1", rx.local_port()));
+        Message restart_msg("/callback/restart");
+        restart_msg.add(17);
+        for (int i = 0; i < 100
+             && restarted_messages.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send(restart_msg));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(restarted_messages.load(std::memory_order_acquire) > 0);
+        tx.disconnect();
+        rx.stop();
+        REQUIRE_FALSE(rx.is_listening());
+    }
+
+    {
+        std::atomic<int> errors{0};
+        std::atomic<int> self_listen_rejected{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_error = [&](std::string_view) {
+            errors.fetch_add(1, std::memory_order_release);
+            rx.stop();
+            if (!rx.listen(0, [](const Message&) {}))
+                self_listen_rejected.fetch_add(1, std::memory_order_release);
+        };
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        const uint8_t bad_message[] = {0x00, 0x01, 0x02};
+        for (int i = 0; i < 100
+             && self_listen_rejected.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send_raw(bad_message, sizeof(bad_message)));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(errors.load(std::memory_order_acquire) > 0);
+        REQUIRE(self_listen_rejected.load(std::memory_order_acquire) > 0);
+        tx.disconnect();
+        rx.stop();
+        REQUIRE_FALSE(rx.is_listening());
+    }
+
+    {
+        std::atomic<int> bundles{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_bundle = [&](const Bundle&) {
+            bundles.fetch_add(1, std::memory_order_release);
+            rx.stop();
+        };
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        Bundle bundle;
+        Message msg("/callback/stop");
+        msg.add(1);
+        bundle.add(std::move(msg));
+
+        for (int i = 0; i < 100 && bundles.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send(bundle));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(bundles.load(std::memory_order_acquire) > 0);
+        tx.disconnect();
+        rx.stop();
+        REQUIRE_FALSE(rx.is_listening());
+    }
+}
+
+TEST_CASE("OSC Receiver stop short-circuits current datagram callback fanout",
+          "[osc][udp][receiver][lifecycle][codecov]") {
+    {
+        std::atomic<int> bundles{0};
+        std::atomic<int> messages{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_bundle = [&](const Bundle&) {
+            bundles.fetch_add(1, std::memory_order_release);
+            rx.stop();
+        };
+        options.on_message = [&](const Message&) {
+            messages.fetch_add(1, std::memory_order_release);
+        };
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        Bundle bundle;
+        Message msg("/fanout/bundle");
+        msg.add(1);
+        bundle.add(std::move(msg));
+
+        for (int i = 0; i < 100 && bundles.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send(bundle));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(bundles.load(std::memory_order_acquire) > 0);
+        REQUIRE(messages.load(std::memory_order_acquire) == 0);
+        tx.disconnect();
+        rx.stop();
+    }
+
+    {
+        std::atomic<int> messages{0};
+        std::atomic<int> routes{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_message = [&](const Message&) {
+            messages.fetch_add(1, std::memory_order_release);
+            rx.stop();
+        };
+        options.routes.push_back({"", [&](const Message&) {
+            routes.fetch_add(1, std::memory_order_release);
+        }});
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        Message msg("/fanout/message");
+        msg.add(2);
+        for (int i = 0; i < 100 && messages.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send(msg));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(messages.load(std::memory_order_acquire) > 0);
+        REQUIRE(routes.load(std::memory_order_acquire) == 0);
+        tx.disconnect();
+        rx.stop();
+    }
+
+    {
+        std::atomic<int> first_route{0};
+        std::atomic<int> second_route{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.routes.push_back({"", [&](const Message&) {
+            first_route.fetch_add(1, std::memory_order_release);
+            rx.stop();
+        }});
+        options.routes.push_back({"", [&](const Message&) {
+            second_route.fetch_add(1, std::memory_order_release);
+        }});
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        Message msg("/fanout/route");
+        msg.add(3);
+        for (int i = 0; i < 100
+             && first_route.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send(msg));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(first_route.load(std::memory_order_acquire) > 0);
+        REQUIRE(second_route.load(std::memory_order_acquire) == 0);
+        tx.disconnect();
+        rx.stop();
+    }
+
+    {
+        std::atomic<int> first_message{0};
+        std::atomic<int> second_message{0};
+        Receiver rx;
+
+        ReceiverOptions options;
+        options.on_message = [&](const Message& msg) {
+            if (msg.address == "/fanout/first") {
+                first_message.fetch_add(1, std::memory_order_release);
+                rx.stop();
+            } else if (msg.address == "/fanout/second") {
+                second_message.fetch_add(1, std::memory_order_release);
+            }
+        };
+
+        REQUIRE(rx.listen_with_options(0, std::move(options)));
+        const auto port = rx.local_port();
+        REQUIRE(port != 0);
+
+        Sender tx;
+        REQUIRE(tx.connect("127.0.0.1", port));
+
+        Bundle bundle;
+        Message first("/fanout/first");
+        first.add(4);
+        bundle.add(std::move(first));
+        Message second("/fanout/second");
+        second.add(5);
+        bundle.add(std::move(second));
+
+        for (int i = 0; i < 100
+             && first_message.load(std::memory_order_acquire) == 0; ++i) {
+            REQUIRE(tx.send(bundle));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        REQUIRE(first_message.load(std::memory_order_acquire) > 0);
+        REQUIRE(second_message.load(std::memory_order_acquire) == 0);
+        tx.disconnect();
+        rx.stop();
+    }
+}
+
+TEST_CASE("OSC Receiver can be destroyed from a receiver callback",
+          "[osc][udp][receiver][lifecycle][codecov]") {
+    struct Owner {
+        Receiver rx;
+    };
+
+    std::unique_ptr<Owner> owner = std::make_unique<Owner>();
+    std::atomic<int> callbacks{0};
+    std::atomic<bool> destroyed{false};
+
+    ReceiverOptions options;
+    options.on_message = [&](const Message& msg) {
+        if (msg.address != "/callback/destroy") return;
+        callbacks.fetch_add(1, std::memory_order_release);
+        owner.reset();
+        destroyed.store(true, std::memory_order_release);
+    };
+
+    REQUIRE(owner->rx.listen_with_options(0, std::move(options)));
+    const auto port = owner->rx.local_port();
+    REQUIRE(port != 0);
+
+    Sender tx;
+    REQUIRE(tx.connect("127.0.0.1", port));
+
+    Message msg("/callback/destroy");
+    msg.add(99);
+    for (int i = 0; i < 100 && !destroyed.load(std::memory_order_acquire); ++i) {
+        REQUIRE(tx.send(msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    REQUIRE(callbacks.load(std::memory_order_acquire) > 0);
+    REQUIRE(destroyed.load(std::memory_order_acquire));
+    tx.disconnect();
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+}
+
 TEST_CASE("OSC Receiver with empty handler accepts datagrams until stopped",
           "[osc][udp][receiver][codecov]") {
     Receiver rx;
@@ -495,6 +1325,7 @@ TEST_CASE("OSC Receiver stop is idempotent", "[osc][udp][receiver]") {
     REQUIRE(rx.listen(0, [](const Message&) {}));
     REQUIRE(rx.is_listening());
     REQUIRE(rx.local_port() != 0);
+    REQUIRE_FALSE(rx.listen(0, [](const Message&) {}));
     rx.stop();
     rx.stop();
     REQUIRE_FALSE(rx.is_listening());
@@ -744,6 +1575,19 @@ TEST_CASE("OSC Sender::send without connect is rejected", "[osc][udp][sender]") 
     Message msg("/x");
     msg.add(1);
     REQUIRE_FALSE(tx.send(msg));
+}
+
+TEST_CASE("OSC Sender::send bundle without connect is rejected",
+          "[osc][udp][sender][bundle][codecov]") {
+    Sender tx;
+    REQUIRE_FALSE(tx.is_connected());
+
+    Bundle bundle;
+    Message msg("/bundle/unconnected");
+    msg.add(1);
+    bundle.add(std::move(msg));
+
+    REQUIRE_FALSE(tx.send(bundle));
 }
 
 TEST_CASE("OSC decode preserves empty strings and padded string arguments", "[osc][codec][issue-644]") {

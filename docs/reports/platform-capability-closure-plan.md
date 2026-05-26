@@ -26,9 +26,9 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Track | Branch target | Worktree target | Status | Done means |
 | --- | --- | --- | --- | --- |
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
-| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | PR [#2825](https://github.com/danielraffel/pulp/pull/2825) open; rebased onto current `origin/main` at `66428b24`; focused dispatcher/IPC/OSC, inspector, and design-debug validation passing; shared hosted CI portability fixes added for inspector/design-debug/OSC Linux failures found during the PR sweep; SDK version is `0.236.0` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
-| OSC | `feature/platform-osc` | `pulp-platform-osc` | PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open, ready for review; rebased onto current `main`; local OSC suite and manual GPU-off diff coverage passing | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, focused UDP and pure parser tests |
-| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | Queued | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
+| Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Merged via PR [#2825](https://github.com/danielraffel/pulp/pull/2825) as `9c96f3dfa` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
+| OSC | `feature/platform-osc` | `pulp-platform-osc` | PR [#2822](https://github.com/danielraffel/pulp/pull/2822) open; rebased and locally validated on `origin/main` `b2a5b3f78` after #2970 consumed SDK `0.252.0` and #2939 upstreamed the audit allowlist; SDK version is now `0.253.0`; hosted Ubuntu install-consumer smoke passed on the SheenBidi install fix | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, exclusive UDP receiver binding, focused UDP and pure parser tests |
+| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | PR [#2844](https://github.com/danielraffel/pulp/pull/2844) open; locally rebased/validated; final SDK bump and push pending after #2822 | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
 Validation expectations for each PR:
 - Add or update focused unit tests for every new public behavior.
@@ -39,9 +39,10 @@ Validation expectations for each PR:
 - Sweep the full local diff for correctness, lifecycle, cross-platform, and
   docs issues before opening the PR; use Claude as an independent review pass
   and fix actionable findings before submitting.
-- Use the normal Shipyard PR flow so required checks and Codecov comments are
-  recorded before merge. For this focused pass, do not run SSH Windows/Ubuntu
-  validation lanes; use local/macOS evidence and GitHub-hosted checks.
+- Use the normal Shipyard/GitHub PR flow so required checks and Codecov
+  comments are recorded before merge. For this focused pass, do not run SSH
+  Windows/Ubuntu validation lanes; use local/macOS evidence and GitHub-hosted
+  checks.
 - After each PR opens, sweep Shipyard/GitHub review and CI comments, address
   actionable feedback on the same branch, and re-run focused validation before
   moving to the next feature.
@@ -57,7 +58,7 @@ Validation expectations for each PR:
 | Audio file formats | Partially implemented | `core/audio/src/format_registry.cpp`, `core/audio/src/audio_file.cpp`, `core/audio/src/aiff_reader.cpp`, `core/audio/src/ogg_reader.cpp`, `core/audio/src/flac_writer.cpp`, `core/audio/src/mp3_writer.cpp`, `core/audio/CMakeLists.txt` |
 | Audio devices and multichannel audio | Partially implemented | `core/audio/include/pulp/audio/device.hpp`, `core/audio/include/pulp/audio/channel_set.hpp`, `core/audio/platform/mac/coreaudio_device.mm`, `core/audio/platform/win/wasapi_device.cpp`, `core/audio/platform/linux/alsa_device.cpp`, `core/audio/platform/linux/jack_device.cpp` |
 | Native window embedding | Partially implemented | `core/view/include/pulp/view/window_host.hpp`, `core/view/include/pulp/view/plugin_view_host.hpp`, `core/view/src/window_host_stub.cpp`, `core/view/src/plugin_view_host_stub.cpp`, `core/host/include/pulp/host/plugin_slot.hpp` |
-| OSC | Partially implemented | `core/osc/include/pulp/osc/osc.hpp`, `core/osc/include/pulp/osc/bundle.hpp`, `core/osc/src/osc.cpp`, `core/osc/src/osc_udp.cpp`, `core/osc/src/bundle.cpp`, `core/osc/src/osc_channel.cpp`, `test/test_osc_channel.cpp` |
+| OSC | In closure | `core/osc/include/pulp/osc/osc.hpp`, `core/osc/include/pulp/osc/bundle.hpp`, `core/osc/src/osc.cpp`, `core/osc/src/osc_udp.cpp`, `core/osc/src/bundle.cpp`, `core/osc/src/osc_channel.cpp`, `test/test_osc.cpp`, `test/test_osc_channel.cpp` |
 
 ## Gaps Worth Closing
 
@@ -205,6 +206,11 @@ PR1 submit and review sweep:
   translation unit without UBSan instrumentation while keeping Pulp's script and
   view code instrumented. The previously failing Figma, Stitch, Pencil, and
   baked-native materialization cases now pass locally under UBSan.
+- PR #2815 was squash-merged into `main` on 2026-05-25.
+- GitHub-hosted Linux CI surfaced a latent OSC UDP portability gap after PR1:
+  `Receiver` enabled `SO_REUSEADDR`, which lets Linux bind multiple receivers
+  to the same UDP port and breaks the existing exclusive-listener contract. That
+  fix is carried in PR2 because PR1 had already merged.
 
 ### 2. Main-Thread Dispatch and Native Event Loop
 
@@ -472,15 +478,379 @@ Recommended work:
 - Extend tests to cover nested bundles, bundle receive paths, address filtering,
   and invalid-packet handling.
 
+PR2 implementation scope:
+- `Sender::send(const Bundle&)` serializes typed bundles through the existing UDP
+  datagram primitive and preserves the existing connected-state rejection path.
+  Reconnect behavior is covered for bundle sends after `disconnect()` and a new
+  target `connect()`.
+- `Receiver::listen_with_options()` adds a non-ambiguous options-based API while
+  preserving the existing `listen(port, handler)` source contract, including
+  `listen(port, {})`.
+- `ReceiverOptions` exposes top-level `on_bundle`, `on_message`, `on_error`, and
+  address-pattern `ReceiverRoute` callbacks. Direct messages and messages inside
+  nested bundles are routed through the existing `address_matches()` matcher.
+- The receiver detects `#bundle` datagrams, deserializes typed bundles, reports
+  malformed bundles through `on_error`, and reports malformed message datagrams
+  through `on_error` instead of silently dropping them when rich receiver options
+  are used, including valid zero-length UDP datagrams that are malformed OSC
+  packets. Empty bundles dispatch through `on_bundle` without synthetic message
+  callbacks.
+- The UDP receive path now sizes its packet buffer for full UDP datagrams, so
+  valid bundles larger than the old 4 KiB stack buffer are delivered instead of
+  being parsed as truncated malformed packets.
+- UDP receivers now bind exclusively so the one-receiver-per-port contract is
+  consistent on Linux and macOS; an explicit shared-port mode can be added later
+  if a real API need appears. The Windows path sets `SO_EXCLUSIVEADDRUSE`
+  before `bind()` to preserve the same contract against sockets that opt into
+  shared address use.
+- `Receiver::listen_with_options()` now treats receive-timeout setup failure as
+  a listen failure instead of starting a receiver that may not stop promptly.
+- Receiver callbacks can request `stop()` from the receiver thread without
+  self-joining; cleanup is completed by the next outside `stop()` or
+  destructor call, the receiver can be reused without requiring a manual cleanup
+  call first, and callback fanout for the current datagram stops immediately
+  once shutdown has been requested. Receiver worker state is ref-counted so
+  destroying a receiver-owned object from inside a callback cannot free the
+  socket/thread state before the receive thread unwinds.
+- `Sender::connect()` now commits a new UDP socket and destination only after
+  host resolution succeeds, so a failed reconnect cannot leak the previous
+  socket or leave the sender disconnected from its existing destination.
+- `Bundle::deserialize()` now rejects null data even when the caller provides a
+  bundle-sized length, matching the rest of the malformed-packet rejection
+  behavior.
+- Address-pattern validation now fails closed for trailing empty alternatives
+  such as `{foo,}` and `{foo,bar,}`.
+
+PR2 validation and PR state:
+- PR #2822: https://github.com/danielraffel/pulp/pull/2822
+- The branch is rebased onto `origin/main` at `ad72d830` after #2825, #2905,
+  #2900, #2909, #2906, #2914, #2908, #2898, #2913, the regenerated v0.238.0
+  changelog, #2901, and #2902 landed. The fresh required SDK bump is
+  `0.242.0`.
+- Initial PR review-comment and issue-comment sweep found no comments to
+  address. The first CI failure was the version-bump commit-shape guard; it was
+  fixed by splitting the `0.209.0` API bump into the canonical
+  `chore: bump versions` commit. The refreshed version/skill check is passing.
+- A later PR sweep found no human review threads. The stale pre-rebase hosted
+  matrix had unrelated Linux inspector failures and Windows process/IPC/
+  inspector/import-design failures; no SSH Windows/Ubuntu validation is part of
+  this focused pass. The stale Codecov bot report had patch coverage below the
+  advisory 75% target, so this branch was rebased onto current `main` and the
+  OSC coverage tests were tightened before pushing a refreshed head.
+- `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`
+- `cmake --build build --target pulp-test-osc pulp-test-osc-bundle
+  pulp-test-osc-channel`
+- Focused CTest coverage for route matching, typed bundle send/receive,
+  malformed message/bundle callbacks, exclusive receiver binding, receiver
+  restart rejection, occupied local-port channel failure, successful sender
+  reconnect over an existing socket, empty route handlers, and receiver-thread
+  listen rejection after callback-requested stop passed.
+- `ctest --test-dir build --output-on-failure -j4 --timeout 120 -R
+  'OSC|OscChannel|osc|Bundle::deserialize rejects null data with bundle-sized
+  length'` passed 100/100 after the final unconnected bundle-send,
+  failed-reconnect, large-bundle receive, callback self-stop, and null
+  bundle-deserialize assertions were added. The callback self-stop coverage also
+  verifies that a receiver can restart after the callback-requested stop and
+  that stop short-circuits bundle, message, route, and nested bundle callback
+  fanout for the current datagram. Callback-time receiver-owner destruction is
+  covered as a lifecycle regression. Malformed-input coverage includes real
+  zero-length UDP datagrams and trailing-empty address-pattern alternatives.
+  Bundle transport coverage includes disconnect/reconnect sends and empty bundle
+  receive. A fresh focused release run after the rebase passed
+  `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'` 100/100.
+- After the `0939e9b19` rebase, focused Release/GPU-off validation passed:
+  `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF`,
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel -j8`,
+  and `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'`
+  100/100.
+- A fresh PR review sweep on the rebased head found one P1 around callback-
+  thread `Receiver::stop()` leaving the UDP socket bound until a later owner
+  stop/destructor. The fix now closes the UDP socket immediately on the
+  receiver thread while still deferring thread join to an outside stop. A
+  Claude follow-up review found a stale-FD race from adding a receiver-thread
+  socket writer; the socket handle now uses an atomic claim/exchange handoff so
+  exactly one stop path owns shutdown/close. Focused coverage now rebinds
+  another receiver to the same port after callback-thread `stop()` returns and
+  before the original owner joins the receive thread. Validation after the fix:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel -j8` and
+  `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'` passed
+  100/100.
+- After the `6125c235a` rebase, local post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8`,
+  `ctest --test-dir build --output-on-failure -R 'OSC|OscChannel'` 100/100,
+  and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --mode=report
+  --accept-intent-trailers` passes for SDK `0.240.0`, and `git diff --check`
+  passes.
+- After the `2d8f004a` rebase, local post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.241.0`, and `git diff --check` passes.
+- After the `0d934d4c` rebase, local post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.241.0`, and `git diff --check` passes.
+- After the `4cd4bdb` rebase, local post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.241.0`, `tools/check-docs.sh` passes with 76 existing warnings, and
+  `git diff --check` passes.
+- After the `90a21146f` rebase, local post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.242.0`, `tools/check-docs.sh` passes with 76 existing warnings, and
+  `git diff --check` passes.
+- After the `ad72d830` rebase, local post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.242.0`, `tools/check-docs.sh` passes with 76 existing warnings, and
+  `git diff --check` passes.
+- After `main` advanced to `24f1eba` through #2929 and consumed SDK
+  `0.243.0`, the stale `0.242.0` bump commit was skipped during rebase and a
+  fresh required SDK bump to `0.244.0` was applied. Local post-rebase
+  validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.244.0`, `tools/check-docs.sh` passes with 76 existing warnings, and
+  `git diff --check` passes.
+- After `main` advanced again to `95d8532` through #2931 and consumed SDK
+  `0.244.0`, Git dropped the stale `0.244.0` bump as already upstream during
+  rebase and a fresh required SDK bump to `0.245.0` was applied. Local
+  post-rebase validation passed:
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8` and
+  `ctest --test-dir build --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  154/154. `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` passes for SDK
+  `0.245.0`, `tools/check-docs.sh` passes with 76 existing warnings, and
+  `git diff --check` passes.
+- Hosted CI then surfaced a repo-audit false positive after `main` introduced
+  the first-party host-quirk header `core/format/include/pulp/format/host_quirks/pro_tools.hpp`.
+  The audit scanner still correctly blocks vendor-shaped files elsewhere, but
+  now allowlists that Pulp-owned header. The branch was rebased again onto
+  `origin/main` at `acf025a` after #2932, clearing the skill-sync range race.
+  Local validation passed: `python3 tools/scripts/test_audit_top_level.py` 10/10,
+  `python3 tools/audit.py --`, `cmake --build build --target pulp-test-osc
+  pulp-test-osc-channel pulp-test-events pulp-test-ipc -j8`, `ctest --test-dir
+  build -R '^(OscChannel|OSC|IPC|EventLoop)' --output-on-failure` 132/132,
+  version-bump report for SDK `0.245.0`, `tools/check-docs.sh` with 76 existing
+  warnings, and `git diff --check`.
+- `main` advanced again to `ebf75ab` through #2934 and consumed SDK `0.245.0`
+  while #2822 hosted checks were starting. The stale bump was dropped during
+  rebase and a fresh required SDK bump to `0.246.0` was applied. Local
+  validation passed again: `python3 tools/scripts/test_audit_top_level.py`
+  10/10, `python3 tools/audit.py --`, `cmake --build build --target
+  pulp-test-osc pulp-test-osc-channel pulp-test-events pulp-test-ipc -j8`,
+  `ctest --test-dir build -R '^(OscChannel|OSC|IPC|EventLoop)'
+  --output-on-failure` 132/132, version-bump report for SDK `0.246.0`,
+  `tools/check-docs.sh` with 76 existing warnings, and `git diff --check`.
+- Hosted CI on the `7e5c401a3` head then failed `Enforce version & skill sync`
+  because `main` advanced through #2935, #2936, #2937, and the v0.245.0
+  changelog while the checks were running. The resulting PR comparison included
+  unrelated main-side audio/format adapter paths, so the skill-sync failure was
+  a stale-base range race rather than an OSC implementation failure. The branch
+  was rebased onto `origin/main` at `1a11c516`; the stale `0.246.0` bump was
+  skipped as already upstream, and a fresh required SDK bump to `0.247.0` was
+  applied. Local validation passed again: `python3
+  tools/scripts/test_audit_top_level.py` 10/10, `python3 tools/audit.py --`,
+  `python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD
+  --mode report`, `python3 tools/scripts/version_bump_check.py --base
+  origin/main --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` for SDK `0.247.0`,
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8`, `ctest --test-dir build -R
+  '^(OscChannel|OSC|IPC|EventLoop)' --output-on-failure` 132/132, and
+  `tools/check-docs.sh` with 76 existing warnings.
+- `main` advanced again to `7be39f4a` while hosted checks for `0c99e2cd2`
+  were queued, consuming SDK `0.247.0` in the item 3.4/3.5/3.10 bundle. The
+  stale `0.247.0` bump was dropped during rebase, and a fresh required SDK bump
+  to `0.248.0` was applied. Local validation passed again: `python3
+  tools/scripts/test_audit_top_level.py` 10/10, `python3 tools/audit.py --`,
+  `python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD
+  --mode report`, `python3 tools/scripts/version_bump_check.py --base
+  origin/main --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` for SDK `0.248.0`,
+  `cmake --build build --target pulp-test-osc pulp-test-osc-channel
+  pulp-test-events pulp-test-ipc -j8`, `ctest --test-dir build -R
+  '^(OscChannel|OSC|IPC|EventLoop)' --output-on-failure` 132/132,
+  `tools/check-docs.sh` with 76 existing warnings, and `git diff --check`.
+- Hosted install-consumer smoke then exposed an installed-SDK packaging gap:
+  `PulpConfig.cmake` loaded `PulpTargets.cmake` before defining the private
+  static dependency target `SheenBidi::SheenBidi`, so downstream
+  `find_package(Pulp)` consumers failed while validating exported targets. The
+  branch now loads SheenBidi through `find_dependency(SheenBidi CONFIG)` before
+  `PulpTargets.cmake`. Local validation rebuilt and installed a clean
+  Release/GPU-off SDK to `/tmp/pulp-install-check`, verified the installed
+  SheenBidi package files are present, and configured a downstream
+  `find_package(Pulp)` + `pulp_add_plugin(... FORMATS CLAP ...)` consumer that
+  explicitly checks `TARGET SheenBidi::SheenBidi`.
+- The refreshed hosted Ubuntu install-consumer smoke then passed on the
+  SheenBidi fix, covering the downstream `find_package(Pulp)` + install-prefix
+  path in CI. The same hosted check wave hit GitHub Actions infrastructure
+  failures unrelated to branch code: multiple jobs failed before checkout with
+  `remote: Your account is suspended`/HTTP 403, coverage failed while
+  downloading actions from `codeload.github.com`, and rescue/rerun left several
+  workflows queued without jobs or cancelled before steps ran. An empty
+  `chore: retrigger OSC CI` commit was pushed at `8a8ddd3ad`, followed by this
+  living-doc update, to force a clean PR check set without changing OSC code.
+- GitHub resolved the Actions/Pages incident at 2026-05-26 13:18 UTC and
+  Actions returned to operational status. The branch was then rebased cleanly
+  onto `origin/main` at `bae205c3` after `main` advanced through the coverage
+  PR stack without consuming SDK `0.248.0`. Post-rebase local validation
+  passed: `python3 tools/scripts/test_audit_top_level.py` 10/10,
+  `python3 tools/audit.py --`, `python3 tools/scripts/skill_sync_check.py
+  --base origin/main --head HEAD --mode report`,
+  `python3 tools/scripts/version_bump_check.py --base origin/main --config
+  tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat
+  --accept-intent-trailers` for SDK `0.248.0`, Release/GPU-off configure and
+  build of `pulp-test-osc`, `pulp-test-osc-channel`, `pulp-test-events`, and
+  `pulp-test-ipc`, `ctest --test-dir build -R '^(OscChannel|OSC|IPC|EventLoop)'
+  --output-on-failure` 132/132, Release flag verification for
+  `pulp-test-osc`, `tools/check-docs.sh` with the existing 76 warnings, and
+  diff hygiene.
+- While the refreshed `c77a22d79` checks were running, `main` advanced through
+  #2958/#2959, regenerated the v0.248.0 changelog, and consumed SDK
+  `0.248.0`. The branch was rebased again onto `origin/main` at `e7cc41b0`;
+  the now-upstream `0.248.0` bump was dropped during rebase, and a fresh SDK
+  bump to `0.249.0` was applied. Local validation passed again: `python3
+  tools/scripts/test_audit_top_level.py` 10/10, `python3 tools/audit.py --`,
+  `python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD
+  --mode report`, `python3 tools/scripts/version_bump_check.py --base
+  origin/main --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` for SDK `0.249.0`,
+  Release/GPU-off configure and build of `pulp-test-osc`,
+  `pulp-test-osc-channel`, `pulp-test-events`, and `pulp-test-ipc`,
+  `ctest --test-dir build -R '^(OscChannel|OSC|IPC|EventLoop)'
+  --output-on-failure` 132/132, Release flag verification for
+  `pulp-test-osc`, `tools/check-docs.sh` with the existing 76 warnings, and
+  diff hygiene.
+- While the refreshed `0bae9c202` checks were running, `main` advanced through
+  #2963, regenerated the v0.249.0 changelog, and consumed SDK `0.249.0`. The
+  branch was rebased again onto `origin/main` at `e68b1cbd`; the now-upstream
+  `0.249.0` bump was dropped during rebase, and a fresh SDK bump to `0.250.0`
+  was applied. Local validation passed again: `python3
+  tools/scripts/test_audit_top_level.py` 10/10, `python3 tools/audit.py --`,
+  `python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD
+  --mode report`, `python3 tools/scripts/version_bump_check.py --base
+  origin/main --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` for SDK `0.250.0`,
+  Release/GPU-off configure and build of `pulp-test-osc`,
+  `pulp-test-osc-channel`, `pulp-test-events`, and `pulp-test-ipc`,
+  `ctest --test-dir build -R '^(OscChannel|OSC|IPC|EventLoop)'
+  --output-on-failure` 132/132, Release flag verification for
+  `pulp-test-osc`, `tools/check-docs.sh` with the existing 76 warnings, and
+  diff hygiene.
+- While the refreshed `27bacda5c` checks were running, `main` advanced through
+  #2966/#2967 and consumed SDK `0.250.0`. The branch was rebased again onto
+  `origin/main` at `a7e223f8`; the now-upstream `0.250.0` bump was dropped
+  during rebase, and a fresh SDK bump to `0.251.0` was applied. Local
+  validation passed again: `python3 tools/scripts/test_audit_top_level.py`
+  10/10, `python3 tools/audit.py --`, `python3
+  tools/scripts/skill_sync_check.py --base origin/main --head HEAD --mode
+  report`, `python3 tools/scripts/version_bump_check.py --base origin/main
+  --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` for SDK `0.251.0`,
+  Release/GPU-off configure and build of `pulp-test-osc`,
+  `pulp-test-osc-channel`, `pulp-test-events`, and `pulp-test-ipc`,
+  `ctest --test-dir build -R '^(OscChannel|OSC|IPC|EventLoop)'
+  --output-on-failure` 132/132, Release flag verification for
+  `pulp-test-osc`, `tools/check-docs.sh` with the existing 76 warnings, and
+  diff hygiene.
+- While the refreshed `777253846` checks were running, hosted
+  `Versioning & Skill-Sync` failed because GitHub compared the PR against a
+  newer `origin/main` that included unrelated CLI/ship changes from #2969.
+  The branch was rebased again onto `origin/main` at `df0c82622`; no additional
+  SDK bump was needed because `0.251.0` was still unconsumed. Local validation
+  passed again: `python3 tools/scripts/test_audit_top_level.py` 10/10,
+  `python3 tools/audit.py --`, `python3 tools/scripts/skill_sync_check.py
+  --base origin/main --head HEAD --mode report`, `python3
+  tools/scripts/version_bump_check.py --base origin/main --config
+  tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat
+  --accept-intent-trailers` for SDK `0.251.0`, Release/GPU-off configure and
+  build of `pulp-test-osc`, `pulp-test-osc-channel`, `pulp-test-events`, and
+  `pulp-test-ipc`, `ctest --test-dir build -R
+  '^(OscChannel|OSC|IPC|EventLoop)' --output-on-failure` 132/132, Release flag
+  verification for `pulp-test-osc`, `tools/check-docs.sh` with the existing 76
+  warnings, and diff hygiene.
+- While the refreshed `da604cf7c` checks were running, `main` advanced through
+  #2970 and consumed SDK `0.252.0`, then #2939 upstreamed the Pro Tools audit
+  allowlist. The branch was rebased again onto `origin/main` at `b2a5b3f78`;
+  the now-upstream audit allowlist commit and stale `0.251.0` bump were skipped
+  during rebase, and a fresh SDK bump to `0.253.0` was applied. Local
+  validation passed again: `python3
+  tools/scripts/test_audit_top_level.py` 11/11, `python3 tools/audit.py --`,
+  `python3 tools/scripts/skill_sync_check.py --base origin/main --head HEAD
+  --mode report`, `python3 tools/scripts/version_bump_check.py --base
+  origin/main --config tools/scripts/versioning.json --mode=report
+  --require-bump-for-fix-feat --accept-intent-trailers` for SDK `0.253.0`,
+  Release/GPU-off configure and build of `pulp-test-osc`,
+  `pulp-test-osc-channel`, `pulp-test-events`, and `pulp-test-ipc`, and
+  `ctest --test-dir build -R '^(OscChannel|OSC|IPC|EventLoop)'
+  --output-on-failure` 132/132.
+- `tools/scripts/local_diff_cover.sh` hits the local GPU/Skia configure gate in
+  this worktree, so the same coverage pipeline was run manually in
+  `build-cov` with `PULP_ENABLE_COVERAGE=ON`, `PULP_ENABLE_GPU=OFF`, the OSC
+  targets, `LLVM_PROFILE_FILE`, and the same 75% diff-coverage floor. The
+  focused coverage CTest run passed 100/100. Result: 94% total diff coverage
+  (`core/osc/src/bundle.cpp` 100%, `core/osc/src/osc_udp.cpp` 94.3%). The
+  remaining uncovered diff lines are defensive socket cleanup paths for
+  unresolved addrinfo, `getsockname()` failure, and receive-timeout
+  `setsockopt()` failure that are not deterministic to force through the public
+  API; GitHub Codecov remains the authoritative PR-side coverage result after
+  the refreshed push.
+- A fresh attempt to run the stock target-limited local diff-cover wrapper
+  failed before coverage collection at the same local GPU/Skia design-tool
+  configure gate. The focused local test coverage above is green; the
+  refreshed GitHub Codecov result remains the merge gate.
+- Final RepoPrompt and Claude blocker reviews after the rebase and coverage
+  sweep found no P0/P1 correctness issues in the branch implementation or the
+  pending OSC test/docs updates.
+
 ## Suggested Order
 
-1. JACK `DeviceInfo` reconciliation and AIFC compression whitelist.
-2. Audio format capability reporting and tests.
-3. OSC bundle-aware send/receive and format-error callbacks.
-4. Process API cleanup, including the `ConnectedChildProcess` layering decision.
-5. Audio device manager MVP.
-6. Main-thread dispatcher.
-7. Non-Apple native embedding implementations.
+1. Threads/processes closure in PR #2815. Complete.
+2. Main-thread dispatcher in PR #2825. Complete.
+3. OSC bundle-aware send/receive, listener filtering, and format-error
+   callbacks. Active.
+4. Non-Apple native embedding implementations or explicit supported-platform
+   contracts.
+5. Larger follow-up audit for audio formats, audio device management, and any
+   remaining platform capability claims.
 
 The first three are relatively contained and can turn partial support into
 clear, testable guarantees. The latter work touches broader platform contracts

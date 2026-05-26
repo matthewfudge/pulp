@@ -279,6 +279,11 @@ TEST_CASE("Bundle::deserialize rejects data shorter than 16 bytes",
     REQUIRE_FALSE(Bundle::deserialize(tiny, sizeof(tiny)).has_value());
 }
 
+TEST_CASE("Bundle::deserialize rejects null data with bundle-sized length",
+          "[osc][bundle][deserialize-edge][codecov]") {
+    REQUIRE_FALSE(Bundle::deserialize(nullptr, 16).has_value());
+}
+
 TEST_CASE("Bundle::deserialize rejects non-#bundle header",
           "[osc][bundle][deserialize-edge]") {
     // 16 bytes, valid size, but first 8 bytes aren't "#bundle\0".
@@ -532,6 +537,7 @@ TEST_CASE("Malformed address patterns fail closed",
           "[osc][bundle][pattern]") {
     REQUIRE_FALSE(address_matches("/note/[ab", "/note/a"));
     REQUIRE_FALSE(address_matches("/note/[!0-9", "/note/a"));
+    REQUIRE_FALSE(address_matches("/note/[!]", "/note/a"));
     REQUIRE_FALSE(address_matches("/{foo,bar/gain", "/foo/gain"));
 }
 
@@ -540,6 +546,8 @@ TEST_CASE("Address pattern alternatives reject empty branches",
     REQUIRE_FALSE(address_matches("/prefix{,Suffix}", "/prefix"));
     REQUIRE_FALSE(address_matches("/prefix{,Suffix}", "/prefixSuffix"));
     REQUIRE_FALSE(address_matches("/prefix{,Suffix}", "/prefixOther"));
+    REQUIRE_FALSE(address_matches("/{foo,}/gain", "/foo/gain"));
+    REQUIRE_FALSE(address_matches("/{foo,bar,}/gain", "/bar/gain"));
 }
 
 TEST_CASE("Address pattern alternatives support first and later branches",
