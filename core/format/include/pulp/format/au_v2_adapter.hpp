@@ -3,6 +3,7 @@
 #include <AudioUnitSDK/AUMIDIEffectBase.h>
 
 #include <pulp/format/processor.hpp>
+#include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
 
@@ -141,6 +142,13 @@ private:
     // Pre-process snapshot of parameter values; used to diff plugin-side
     // changes back to the host's parameter system (workstream 01 slice 1.3).
     std::vector<float> param_snapshot_;
+
+    // Item 1.3 — previous-block transport snapshot used to derive the
+    // change flags (tempo_changed / time_sig_changed /
+    // transport_changed) on `ProcessContext`. Default-constructed (no
+    // previous block) so the first process() call after init reports
+    // no changes.
+    detail::PlayheadSnapshot playhead_prev_{};
 
     // MIDI input path — AU v2 effects that declare accepts_midi are
     // packaged as aumf (kAudioUnitType_MusicEffect). The host then
