@@ -8,6 +8,21 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02480"></a>
+## [0.248.0] - 2026-05-26
+
+- feat(signal): elliptic/Jacobi special functions for filter design ([#2958](https://github.com/danielraffel/pulp/pull/2958))
+- test(screenshot): cover cli option contracts ([#2956](https://github.com/danielraffel/pulp/pull/2956))
+- test(ship): cover linux packaging edge contracts ([#2955](https://github.com/danielraffel/pulp/pull/2955))
+- test(apple): cover bridge edge contracts ([#2954](https://github.com/danielraffel/pulp/pull/2954))
+- test(inspect): cover inspector window edge contracts ([#2953](https://github.com/danielraffel/pulp/pull/2953))
+- test(ship): cover mac codesign parser contracts ([#2950](https://github.com/danielraffel/pulp/pull/2950))
+- test(mcp): cover import-design default status contracts ([#2855](https://github.com/danielraffel/pulp/pull/2855))
+- test(audio): cover model registry edge contracts ([#2949](https://github.com/danielraffel/pulp/pull/2949))
+- test(import-design): cover benchmark helper contracts ([#2948](https://github.com/danielraffel/pulp/pull/2948))
+- test(audio): cover excerpt service edge contracts ([#2947](https://github.com/danielraffel/pulp/pull/2947))
+- test(inspect): cover inspector server edge contracts ([#2946](https://github.com/danielraffel/pulp/pull/2946))
+
 <a id="v02470"></a>
 ## [0.247.0] - 2026-05-26
 
@@ -2911,6 +2926,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.248.0]: https://github.com/danielraffel/pulp/releases/tag/v0.248.0
 [0.247.0]: https://github.com/danielraffel/pulp/releases/tag/v0.247.0
 [0.246.0]: https://github.com/danielraffel/pulp/releases/tag/v0.246.0
 [0.245.0]: https://github.com/danielraffel/pulp/releases/tag/v0.245.0
