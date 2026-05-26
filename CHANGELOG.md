@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02241"></a>
+## [0.224.1] - 2026-05-25
+
+- fix(midi): SynthesiserVoice::on_note_off syncs note_.releasing (Codex P2 on #2870) ([#2873](https://github.com/danielraffel/pulp/pull/2873))
+
 <a id="v02240"></a>
 ## [0.224.0] - 2026-05-25
 
@@ -2806,6 +2811,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.224.1]: https://github.com/danielraffel/pulp/releases/tag/v0.224.1
 [0.224.0]: https://github.com/danielraffel/pulp/releases/tag/v0.224.0
 [0.223.0]: https://github.com/danielraffel/pulp/releases/tag/v0.223.0
 [0.222.1]: https://github.com/danielraffel/pulp/releases/tag/v0.222.1
