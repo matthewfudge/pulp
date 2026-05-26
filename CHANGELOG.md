@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02500"></a>
+## [0.250.0] - 2026-05-26
+
+- feat(audio,midi): close 6.12 thumbnail disk-persist + 8.4 MIDI CI RT-safety annotations ([#2966](https://github.com/danielraffel/pulp/pull/2966))
+- test(cli): cover ship command edge contracts ([#2962](https://github.com/danielraffel/pulp/pull/2962))
+- feat(signal): elliptic IIR + non-uniform partitioned convolver (closes deferred 2.1 + 2.3 Slice B) ([#2964](https://github.com/danielraffel/pulp/pull/2964))
+
 <a id="v02490"></a>
 ## [0.249.0] - 2026-05-26
 
@@ -2933,6 +2940,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.250.0]: https://github.com/danielraffel/pulp/releases/tag/v0.250.0
 [0.249.0]: https://github.com/danielraffel/pulp/releases/tag/v0.249.0
 [0.248.0]: https://github.com/danielraffel/pulp/releases/tag/v0.248.0
 [0.247.0]: https://github.com/danielraffel/pulp/releases/tag/v0.247.0
