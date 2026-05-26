@@ -363,6 +363,21 @@ Native event loop local validation:
   stale selection and platform-primary paste passed; and
   `ctest --test-dir build-inspector-focus --output-on-failure -R
   design-debug` passed 5/5.
+- The next hosted Linux sweep exposed three more shared Linux assumptions:
+  OSC receiver sockets enabled UDP address reuse, allowing a second listener to
+  bind the same port on Linux; and the inspector paste test required a native
+  clipboard even on hosted Linux images with no clipboard tool. The OSC
+  receiver now keeps listener binds exclusive, and the inspector test follows
+  the existing clipboard contract by skipping the paste half only when the
+  platform reports an honest unsupported clipboard. Local validation after the
+  fix: `cmake --build build --target pulp-test-osc pulp-test-osc-channel -j8`;
+  direct focused OSC receiver and OscChannel occupied-port cases passed;
+  `cmake --build build-inspector-focus --target pulp-test-inspector -j8`;
+  direct focused platform-primary paste case passed; `ctest --test-dir build
+  --output-on-failure -R
+  'OSC|OscChannel|EventLoop|MainThread|main-thread|dispatcher|IPC|Interprocess'`
+  passed 122/122; `ctest --test-dir build-inspector-focus --output-on-failure
+  -R design-debug` passed 5/5; and `git diff --check` passed.
 - Claude and RepoPrompt blocker reviews were run. Claude's P1 findings around
   async exceptions, EventLoop thread-id synchronization, iOS registration
   order, unbounded sync retry, and SDL drain starvation were fixed; the final
