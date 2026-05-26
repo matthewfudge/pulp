@@ -1083,6 +1083,14 @@ target_link_libraries(pulp-test-wasapi-input PRIVATE pulp::audio Catch2::Catch2W
 target_include_directories(pulp-test-wasapi-input PRIVATE ${CMAKE_SOURCE_DIR})
 catch_discover_tests(pulp-test-wasapi-input)
 
+# WASAPI share-mode coverage contract (gap-doc Phase 0 audit, #302).
+# Pins "shared-mode only" surface; static_asserts fire on every platform
+# so a Windows-only DeviceConfig extension still trips this on macOS/Linux CI.
+add_executable(pulp-test-wasapi-share-modes test_wasapi_share_modes.cpp)
+target_link_libraries(pulp-test-wasapi-share-modes PRIVATE pulp::audio Catch2::Catch2WithMain)
+target_include_directories(pulp-test-wasapi-share-modes PRIVATE ${CMAKE_SOURCE_DIR})
+catch_discover_tests(pulp-test-wasapi-share-modes)
+
 # ALSA capture + real device metadata (#20 / #215). Linux-only;
 # cross-platform stub keeps CI green elsewhere. Skips at runtime on
 # hosts without an ALSA-routable default device.
