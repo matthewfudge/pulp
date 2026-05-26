@@ -32,6 +32,13 @@ class StateStore;
 - (pulp::format::Processor *)pulpProcessor;
 - (pulp::state::StateStore *)pulpStore;
 
+// Bypass-wiring diagnostic. Returns the StateStore ParamID the adapter
+// chose to route the AUv3 `shouldBypassEffect` surface to, or 0 when no
+// plugin-declared "Bypass" parameter matched (in which case the
+// AUAudioUnit's bypass AUValue is tracked in an internal atomic).
+// Used by tests that pin item 3.1 (AU v3 hardening: dual-tracked bypass).
+- (uint32_t)pulpBypassParameterId;
+
 // Parameter-event introspection. Used by `test_au_plugin_state.mm` to
 // assert ramp-event payload survives the AUParameterTree → ParameterEventQueue
 // translation in `au_adapter.mm`.

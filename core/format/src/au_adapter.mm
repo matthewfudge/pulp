@@ -15,12 +15,22 @@
 #include <cmath>
 #include <memory>
 #include <array>
+#include <atomic>
 #include <limits>
 
 namespace pulp::format::au {
 
 static constexpr int kMaxChannels = 8;
 
+// AU v3 row 21 (DAW quirks) — the bypass parameter has to be tracked on
+// two surfaces: AUAudioUnit's `shouldBypassEffect` AUValue **and** the
+// plugin-provided `Bypass` parameter when present. We scan the
+// descriptor's parameter list at init for a parameter named "Bypass"
+// (boolean, 0..1, step==1) and route both surfaces to it. Hosts that
+// observe one but not the other (Logic vs MainStage) then see a
+// consistent value. When no such parameter exists, we still track the
+// bypass flag in a bridge-local atomic so the host's
+// `setShouldBypassEffect:` request is honoured at the audio thread.
 struct AUBridge {
     std::unique_ptr<Processor> processor;
     state::StateStore store;
@@ -32,6 +42,15 @@ struct AUBridge {
     // descriptor has no second input bus — the render block then skips
     // the sidechain pull + calls Processor::set_sidechain(nullptr).
     int sidechain_channels = 0;
+    // Item 3.1 — dual-tracked bypass.
+    //   * `bypass_param_id != 0` means the plugin declared a "Bypass"
+    //     parameter; the AUAudioUnit's `shouldBypassEffect` reads/writes
+    //     it through StateStore.
+    //   * Otherwise, `bypass_flag` is the only authority. The render
+    //     block consults whichever path is live and short-circuits the
+    //     processor with a pass-through (or silence for instruments).
+    state::ParamID bypass_param_id = 0;
+    std::atomic<bool> bypass_flag{false};
 
     // Pre-allocated — no heap allocation on audio thread
     float* output_ptrs[kMaxChannels] = {};
@@ -111,6 +130,12 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 /// otherwise NULL. Issue #252.
 @property (nonatomic, readonly, nullable) void *audioUnitARAFactory;
 
+/// Item 3.1 — diagnostic accessor for the bypass-param wiring decision
+/// the adapter made at init. Returns 0 when no plugin-declared bypass
+/// parameter matched (the synthesized-AUValue path is in use); otherwise
+/// the StateStore parameter ID that proxies the bypass surface.
+- (uint32_t)pulpBypassParameterId;
+
 - (NSUInteger)pulpLastParameterEventCount;
 - (uint32_t)pulpLastParameterEventParamIDAtIndex:(NSUInteger)index;
 - (int32_t)pulpLastParameterEventSampleOffsetAtIndex:(NSUInteger)index;
@@ -150,6 +175,20 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
     }
     _bridge.processor->set_state_store(&_bridge.store);
     _bridge.processor->define_parameters(_bridge.store);
+
+    // Item 3.1 — auto-detect a plugin-declared Bypass parameter so the
+    // host's `shouldBypassEffect` AUValue and the plugin's
+    // automatable parameter stay in lockstep. Match the same heuristic
+    // VST3 uses for `kIsBypass`: name == "Bypass", boolean range 0..1
+    // with step >= 1. When found, the AUv3 surface mirrors it.
+    for (const auto& p : _bridge.store.all_params()) {
+        if (p.name == "Bypass" &&
+            p.range.min == 0.0f && p.range.max == 1.0f &&
+            p.range.step >= 1.0f) {
+            _bridge.bypass_param_id = p.id;
+            break;
+        }
+    }
 
     auto desc = _bridge.processor->descriptor();
     _bridge.input_channels = desc.default_input_channels();
@@ -298,8 +337,38 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
     return tree;
 }
 
-- (BOOL)shouldBypassEffect { return NO; }
-- (void)setShouldBypassEffect:(BOOL)bypass { (void)bypass; }
+// Item 3.1 — dual-tracked bypass.
+//
+// Hosts read these to render the bypass button in their channel-strip UI
+// (Logic) or treat them as the source of truth for the bypass automation
+// lane (MainStage). Without dual tracking, one surface goes stale.
+//
+// Strategy: when the plugin exposes a parameter named "Bypass" (boolean,
+// 0..1, step==1) we treat that StateStore parameter as authoritative
+// — write to it via the RT-safe path so a host setShouldBypassEffect:
+// call propagates to the plugin's parameter lane (and any UI bindings
+// observing it) without allocating on the audio thread. When the plugin
+// has no Bypass param, we keep the request in a bridge-local atomic so
+// the AUAudioUnit contract still works (the render block then handles
+// pass-through itself; see internalRenderBlock).
+- (BOOL)shouldBypassEffect {
+    if (_bridge.bypass_param_id != 0) {
+        return _bridge.store.get_value(_bridge.bypass_param_id) >= 0.5f
+            ? YES : NO;
+    }
+    return _bridge.bypass_flag.load(std::memory_order_acquire) ? YES : NO;
+}
+
+- (void)setShouldBypassEffect:(BOOL)bypass {
+    if (_bridge.bypass_param_id != 0) {
+        // RT-safe — the AU v3 host may call this from a high-priority
+        // thread that touches the render path; never allocate.
+        _bridge.store.set_value_rt(_bridge.bypass_param_id,
+                                   bypass ? 1.0f : 0.0f);
+    }
+    _bridge.bypass_flag.store(bypass ? true : false,
+                              std::memory_order_release);
+}
 
 // ── Render resources ───────────────────────────────────────────────────────
 
@@ -543,6 +612,34 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
         }
         bridge->param_events.sort();
 
+        // Item 3.1 — bypass short-circuit. Consult the plugin's Bypass
+        // parameter when it has one; otherwise the bridge-local atomic
+        // the host wrote via setShouldBypassEffect:. When bypassed we
+        // skip `processor_->process()` entirely and emit pass-through:
+        //   * effects (input_channels > 0): copy input → output per
+        //     channel, padding extra outputs with silence;
+        //   * instruments / generators: zero-fill (no input to copy).
+        // MIDI output is intentionally empty when bypassed — matches
+        // every DAW's expectation that a bypassed effect does not emit
+        // arpeggiator notes or MIDI FX into the host's bus.
+        const bool bypassed = (bridge->bypass_param_id != 0)
+            ? (bridge->store.get_value(bridge->bypass_param_id) >= 0.5f)
+            : bridge->bypass_flag.load(std::memory_order_acquire);
+        if (bypassed) {
+            const UInt32 inCount = static_cast<UInt32>(bridge->input_channels);
+            for (UInt32 i = 0; i < outChans; ++i) {
+                if (i < inCount && bridge->input_ptrs[i]) {
+                    std::memcpy(bridge->output_ptrs[i],
+                                bridge->input_ptrs[i],
+                                frameCount * sizeof(float));
+                } else {
+                    std::memset(bridge->output_ptrs[i], 0,
+                                frameCount * sizeof(float));
+                }
+            }
+            return noErr;
+        }
+
         // Process
         pulp::format::ProcessContext ctx;
         ctx.sample_rate = bridge->sample_rate;
@@ -644,6 +741,10 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 
 - (pulp::state::StateStore *)pulpStore {
     return &_bridge.store;
+}
+
+- (uint32_t)pulpBypassParameterId {
+    return static_cast<uint32_t>(_bridge.bypass_param_id);
 }
 
 - (NSUInteger)pulpLastParameterEventCount {
