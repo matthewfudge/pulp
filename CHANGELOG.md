@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02550"></a>
+## [0.255.0] - 2026-05-26
+
+- feat(events): Bonjour backend + TXT records + RAII NSD wrappers (gap-doc #NSD) ([#2990](https://github.com/danielraffel/pulp/pull/2990))
+- fix: bundle 5 P1 Codex findings from #2976 (host quirks, audit, midi-ci, elliptic, thumbnail) ([#2984](https://github.com/danielraffel/pulp/pull/2984))
+
 <a id="v02541"></a>
 ## [0.254.1] - 2026-05-26
 
@@ -2967,6 +2973,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.255.0]: https://github.com/danielraffel/pulp/releases/tag/v0.255.0
 [0.254.1]: https://github.com/danielraffel/pulp/releases/tag/v0.254.1
 [0.254.0]: https://github.com/danielraffel/pulp/releases/tag/v0.254.0
 [0.253.0]: https://github.com/danielraffel/pulp/releases/tag/v0.253.0
