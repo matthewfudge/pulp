@@ -293,6 +293,32 @@ bool SignalGraph::connect_midi(NodeId source, NodeId dest) {
     return true;
 }
 
+bool SignalGraph::connect_sidechain(NodeId source, PortIndex source_port,
+                                    NodeId dest, PortIndex dest_sidechain_port) {
+    // Sidechain connections only make sense to Plugin nodes; everything
+    // else (Gain, Custom, AudioOutput, ...) has no notion of a sidechain
+    // bus. We reject other destinations early so callers fail loudly
+    // instead of silently routing into a regular audio port.
+    const GraphNode* src_n = node(source);
+    const GraphNode* dst_n = node(dest);
+    if (!src_n || !dst_n) return false;
+    if (dst_n->type != NodeType::Plugin) return false;
+    if ((int)source_port >= src_n->num_output_ports) return false;
+    if ((int)dest_sidechain_port >= dst_n->num_input_ports) return false;
+    if (would_create_cycle(source, dest)) return false;
+
+    Connection conn{};
+    conn.source_node = source;
+    conn.source_port = source_port;
+    conn.dest_node = dest;
+    conn.dest_port = dest_sidechain_port;
+    conn.sidechain = true;
+    for (auto& c : connections_) if (c == conn) return false;
+    connections_.push_back(conn);
+    invalidate_live_();
+    return true;
+}
+
 bool SignalGraph::connect_automation(NodeId src, PortIndex src_audio_port,
                                      NodeId dest, uint32_t dest_param_id,
                                      float range_lo, float range_hi,
@@ -579,9 +605,10 @@ void SignalGraph::compute_latencies_for_(CompiledGraph& cg,
 }
 
 std::shared_ptr<SignalGraph::CompiledGraph>
-SignalGraph::compile_(double /*sample_rate*/, int max_block_size) {
+SignalGraph::compile_(double sample_rate, int max_block_size) {
     auto cg = std::make_shared<CompiledGraph>();
     cg->max_block_size = max_block_size;
+    cg->sample_rate = sample_rate;
     cg->connections = connections_;
     cg->order = processing_order();
 
@@ -871,7 +898,8 @@ void SignalGraph::process(audio::BufferView<float>& output,
                     };
                     std::unordered_map<uint32_t, Accum> acc;
                     const int last = num_samples - 1;
-                    for (const auto& c : cg->connections) {
+                    for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+                        const auto& c = cg->connections[ci];
                         if (!c.automation || c.dest_node != id) continue;
                         auto src_it = cg->runtime.find(c.source_node);
                         if (src_it == cg->runtime.end()) continue;
@@ -880,10 +908,69 @@ void SignalGraph::process(audio::BufferView<float>& output,
                         const float* src = src_it->second.output_ptrs[sport];
                         const float s0 = std::clamp(src[0], 0.0f, 1.0f);
                         const float sN = std::clamp(src[last < 0 ? 0 : last], 0.0f, 1.0f);
-                        const float m0 = c.automation_range_lo
+                        float m0 = c.automation_range_lo
                             + s0 * (c.automation_range_hi - c.automation_range_lo);
-                        const float mN = c.automation_range_lo
+                        float mN = c.automation_range_lo
                             + sN * (c.automation_range_hi - c.automation_range_lo);
+
+                        // Item 4.6 — per-source linear slew. The user
+                        // declares automation_smoothing_ms; we limit how
+                        // far the delivered value can move per sample at
+                        // that ramp speed. State (last_value/primed)
+                        // lives on the parallel ConnectionDelay so it
+                        // survives the next block.
+                        if (c.automation_smoothing_ms > 0.0f
+                            && cg->sample_rate > 0.0
+                            && ci < cg->connection_delays.size()) {
+                            auto& dl = cg->connection_delays[ci];
+                            const float range = std::abs(
+                                c.automation_range_hi - c.automation_range_lo);
+                            const double slew_samples =
+                                (double)c.automation_smoothing_ms * 0.001
+                                * cg->sample_rate;
+                            // max move per sample, in the plugin's plain
+                            // parameter domain. We use the connection's
+                            // mapped range as the "full sweep" scale so
+                            // smoothing_ms behaves like "ms to traverse
+                            // the entire declared range".
+                            const float max_step = slew_samples > 0.0
+                                ? (range / (float)slew_samples)
+                                : range;
+                            if (!dl.slew_primed) {
+                                // First block — snap so we don't glide
+                                // up from 0.
+                                dl.slew_last_value = m0;
+                                dl.slew_primed = true;
+                            }
+                            auto ramp_to = [max_step](float from, float target) {
+                                const float delta = target - from;
+                                if (delta > max_step) return from + max_step;
+                                if (delta < -max_step) return from - max_step;
+                                return target;
+                            };
+                            // v0 lands at sample 0; vN lands at sample
+                            // `last`. Slew from the previous block's
+                            // post-slew value to m0 in one step, then
+                            // from there to mN over `last` steps.
+                            const float new_v0 = ramp_to(dl.slew_last_value, m0);
+                            float new_vN = new_v0;
+                            if (last > 0) {
+                                const float max_block_step =
+                                    max_step * (float)last;
+                                const float delta = mN - new_v0;
+                                if (delta > max_block_step) {
+                                    new_vN = new_v0 + max_block_step;
+                                } else if (delta < -max_block_step) {
+                                    new_vN = new_v0 - max_block_step;
+                                } else {
+                                    new_vN = mN;
+                                }
+                            }
+                            dl.slew_last_value = new_vN;
+                            m0 = new_v0;
+                            mN = new_vN;
+                        }
+
                         auto& a = acc[c.automation_param_id];
                         const auto bounds = bounds_for_param(c.automation_param_id,
                                                              c.automation_range_lo,

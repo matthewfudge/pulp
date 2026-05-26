@@ -75,13 +75,18 @@ struct Connection {
     bool automation = false;  // automation-edge: source audio drives a param on
                               // the dest plugin.
     bool audio_rate_modulation = false; // dense CV edge into an AudioRate param.
+    bool sidechain = false;   // sidechain-edge: like a normal audio edge, but
+                              // routes into one of the destination plugin's
+                              // sidechain-bus input ports (item 4.7). The
+                              // topological-sort + PDC treat sidechain as a
+                              // hard edge — it is not a back-edge.
 
     // Parameter-modulation fields (valid when automation or
     // audio_rate_modulation is true).
     uint32_t automation_param_id  = 0;
     float automation_range_lo     = 0.0f;  // plain param domain
     float automation_range_hi     = 1.0f;  // plain param domain
-    float automation_smoothing_ms = 0.0f;  // per-source pre-mix slew
+    float automation_smoothing_ms = 0.0f;  // per-source pre-mix slew (item 4.6)
     AutomationMix automation_mix  = AutomationMix::Replace;
 
     bool operator==(const Connection& o) const {
@@ -89,6 +94,7 @@ struct Connection {
             && dest_node == o.dest_node && dest_port == o.dest_port
             && automation == o.automation
             && audio_rate_modulation == o.audio_rate_modulation
+            && sidechain == o.sidechain
             && ((automation || audio_rate_modulation)
                 ? automation_param_id == o.automation_param_id : true);
     }
@@ -186,6 +192,23 @@ public:
     // Participates in cycle detection and topological sort the same way as
     // audio connections.
     bool connect_midi(NodeId source, NodeId dest);
+
+    // Sidechain connection (item 4.7): routes a source's audio output port
+    // into the destination plugin's sidechain bus port. The destination
+    // port is `dest_sidechain_port` — the caller supplies the absolute
+    // port index on the destination node (the host knows how many main
+    // input ports a plugin exposes via PluginInfo::num_inputs; sidechain
+    // ports follow main inputs). The flag does NOT change topological
+    // ordering — sidechain participates in cycle detection and PDC the
+    // same as a normal audio edge — but it is tagged so UIs, serializers,
+    // and per-format adapters can recognise the role.
+    //
+    // Tagging is metadata: the actual routing still uses (source, source
+    // port) → (dest, dest sidechain port). Calling this is equivalent to
+    // connect() with an extra flag, plus a guard that the destination is
+    // a Plugin node (sidechain only makes sense on plugins).
+    bool connect_sidechain(NodeId source, PortIndex source_port,
+                           NodeId dest, PortIndex dest_sidechain_port);
 
     // Automation connection: the audio samples on `src`'s output port drive
     // `dest`'s parameter `dest_param_id`. Two control points per block (first
@@ -328,6 +351,15 @@ private:
         // Feedback edges hold the previous block's source-port audio so the
         // destination can read it before the source writes the current block.
         std::vector<float> feedback_prev;  // size = max_block_size_
+
+        // Item 4.6 — per-source automation slew state. Holds the value
+        // we last delivered to the destination (post-slew, post range-
+        // map) so the next block can resume ramping toward a new target
+        // instead of snapping. `primed` tracks whether `last_value` has
+        // been seeded yet; on the first block of a freshly-prepared graph
+        // we snap to the source value to avoid a glide from zero.
+        float slew_last_value = 0.0f;
+        bool slew_primed = false;
     };
 
     // CompiledGraph — immutable audio-thread-safe snapshot of the graph
@@ -360,6 +392,8 @@ private:
         };
         std::unordered_map<NodeId, NodeShape> shapes;
         int max_block_size = 0;
+        double sample_rate = 0.0;  // item 4.6 — needed to convert
+                                   // automation_smoothing_ms into samples.
         int64_t total_latency_samples = 0;
     };
 
