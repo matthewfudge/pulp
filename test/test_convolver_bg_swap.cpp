@@ -120,7 +120,7 @@ TEST_CASE("PartitionedConvolver::try_swap_ir picks up a staged IR",
 
     // The retired slot now holds the previously-loaded identity IR.
     REQUIRE(swapper.has_retired());
-    auto reclaimed = swapper.drain_old();
+    auto reclaimed = swapper.drain_old_one();
     REQUIRE(reclaimed != nullptr);
     REQUIRE_FALSE(swapper.has_retired());
 }
@@ -157,7 +157,7 @@ TEST_CASE("PartitionedConvolver swap changes processing output without xrun",
         REQUIRE_THAT(out_half[i], WithinAbs(input[i] * 0.5f, 1e-3f));
 
     // Worker thread drains the retired IR.
-    auto reclaimed = swapper.drain_old();
+    auto reclaimed = swapper.drain_old_one();
     REQUIRE(reclaimed != nullptr);
 }
 
@@ -231,4 +231,52 @@ TEST_CASE("PartitionedConvolver: try_swap_ir on an unloaded convolver",
     REQUIRE(conv.is_loaded());
     // Nothing to retire — convolver was empty before the swap.
     REQUIRE_FALSE(swapper.has_retired());
+}
+
+TEST_CASE("PartitionedConvolver: rapid swaps without drain refuse cleanly (Codex #2881 P1)",
+          "[signal][convolver][bg-swap][regression]") {
+    // The earlier impl used a single-slot retired_ atomic. Two swaps
+    // between drain_old() calls meant the displaced IR fell back to
+    // an inline delete on the audio thread — soft RT violation.
+    // The fix:
+    //   1. retired_ is now a fixed-size SPSC ring (kRetireRingCapacity).
+    //   2. try_swap_ir gates on has_retire_capacity() BEFORE consuming
+    //      pending. If the ring is full, the swap refuses cleanly;
+    //      pending IR stays in the swapper for the next attempt; the
+    //      in-flight IR continues; no audio-thread free, no leak.
+    constexpr std::size_t block = 64;
+    PartitionedConvolver conv;
+    const auto first = make_identity_ir(block);
+    conv.load_ir(first.data(), first.size(), block);
+
+    ConvolverIrSwapper swapper;
+    const std::size_t cap = ConvolverIrSwapper::retire_capacity();
+    REQUIRE(cap >= 2);
+
+    // Fire `cap` back-to-back swaps without draining; each must
+    // succeed and park its displaced IR.
+    for (std::size_t i = 0; i < cap; ++i) {
+        const auto ir = make_identity_ir(block);
+        REQUIRE(swapper.stage_ir(ir.data(), ir.size(), block));
+        REQUIRE(conv.try_swap_ir(swapper));
+    }
+    // Ring should now be full.
+    REQUIRE_FALSE(swapper.has_retire_capacity());
+
+    // One more swap MUST refuse. Pending stays staged, in-flight IR
+    // unchanged.
+    const auto extra = make_identity_ir(block);
+    REQUIRE(swapper.stage_ir(extra.data(), extra.size(), block));
+    REQUIRE_FALSE(conv.try_swap_ir(swapper));
+    REQUIRE(swapper.has_pending()); // pending still there for retry
+    REQUIRE_FALSE(swapper.has_retire_capacity());
+
+    // Worker drains; capacity returns.
+    const std::size_t freed = swapper.drain_old();
+    REQUIRE(freed == cap);
+    REQUIRE(swapper.has_retire_capacity());
+
+    // Retry the refused swap — now it succeeds.
+    REQUIRE(conv.try_swap_ir(swapper));
+    REQUIRE_FALSE(swapper.has_pending());
 }

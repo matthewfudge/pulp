@@ -64,28 +64,36 @@ public:
     /// Must be called at a block boundary (between `process()` calls)
     /// so the in-flight overlap buffers don't pick up midway through.
     bool try_swap_ir(ConvolverIrSwapper& swapper) {
+        // Gate the swap on retire-ring capacity FIRST so the audio
+        // thread never has to free the displaced IR inline if the
+        // ring is saturated (Codex P1 on #2881 — single-slot retired_
+        // would let the audio thread deallocate when 2+ swaps
+        // happened between drain_old() calls). Refusing the swap
+        // when the ring is full is RT-safe: pending stays in the
+        // swapper for the next try_swap_ir attempt; in-flight state_
+        // continues uninterrupted; worker thread catches up on its
+        // next drain tick.
+        if (state_ && !swapper.has_retire_capacity()) {
+            return false;
+        }
+
         auto next = swapper.try_consume();
         if (!next)
             return false;
 
-        // Hand off the displaced IR to the swapper for off-thread
-        // teardown. If the swapper's retired slot was already full,
-        // the swapper returns the previous occupant so we can fall
-        // back to in-line deletion — this should be vanishingly rare
-        // in practice (UI thread drains faster than IRs swap), but
-        // the fallback prevents a leak.
         auto previous = std::move(state_);
         state_ = std::move(next);
         partition_index_ = 0;
 
         if (previous) {
-            auto bumped = swapper.retire(std::move(previous));
-            // bumped is freed here (off audio thread? no — but only
-            // ever in the pathological "swap faster than drain" case;
-            // free counts as a soft RT violation we accept over a
-            // leak). drain_old() on the worker thread keeps this
-            // bumped pointer null in normal operation.
-            (void)bumped;
+            // We pre-checked capacity above (single-producer ring +
+            // single audio-thread consumer here, so no race between
+            // the check and this push). The unreachable false branch
+            // is defence-in-depth — leaks `previous` rather than
+            // freeing on RT.
+            const bool ok = swapper.retire(previous);
+            (void)ok;
+            (void)previous.release(); // ownership transferred on ok==true
         }
         return true;
     }
