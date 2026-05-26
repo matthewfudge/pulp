@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02370"></a>
+## [0.237.0] - 2026-05-25
+
+- feat(midi): MIDI-CI Property Exchange spec compliance (item 8.4) ([#2905](https://github.com/danielraffel/pulp/pull/2905))
+- feat(events): add native main-thread dispatcher ([#2825](https://github.com/danielraffel/pulp/pull/2825))
+
 <a id="v02350"></a>
 ## [0.235.0] - 2026-05-25
 
@@ -2847,6 +2853,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.237.0]: https://github.com/danielraffel/pulp/releases/tag/v0.237.0
 [0.235.0]: https://github.com/danielraffel/pulp/releases/tag/v0.235.0
 [0.234.0]: https://github.com/danielraffel/pulp/releases/tag/v0.234.0
 [0.230.0]: https://github.com/danielraffel/pulp/releases/tag/v0.230.0
