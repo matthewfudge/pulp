@@ -31,10 +31,43 @@ if(NOT SKIA_DIR)
     return()
 endif()
 
-# Determine platform library directory
+# Determine platform library directory.
+#
+# iOS layout (skia-builder chrome/m149+): a single `build/ios-gpu/lib/Release/`
+# directory contains three arch subdirs — `device-arm64/`, `simulator-arm64/`,
+# and `simulator-x86_64/`. Unlike the mac slice, these CANNOT be flattened
+# together (they'd collide on identical library names with different arch
+# slices). FindSkia.cmake selects the right arch via `_skia_ios_arch`:
+#   - iphoneos SDK            → device-arm64
+#   - iphonesimulator SDK on arm64 host → simulator-arm64
+#   - iphonesimulator SDK on x86_64 host → simulator-x86_64
+# Phase iOS-D gate (planning/2026-05-24-auv3-ios-validation.md).
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(_skia_platform "ios")
+        # Pick the right per-arch subdir under build/ios-gpu/lib/Release/.
+        # CMAKE_OSX_SYSROOT names the active SDK; CMAKE_OSX_ARCHITECTURES
+        # names the slice. Both are set by ios.toolchain.cmake.
+        set(_skia_ios_arch "")
+        if(CMAKE_OSX_SYSROOT MATCHES "iphonesimulator|Simulator")
+            if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+                set(_skia_ios_arch "simulator-arm64")
+            elseif(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+                set(_skia_ios_arch "simulator-x86_64")
+            else()
+                # Default to the host arch when CMAKE_OSX_ARCHITECTURES
+                # wasn't pinned (some toolchains leave it empty for
+                # auto-detect). Honor CMAKE_HOST_SYSTEM_PROCESSOR.
+                if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+                    set(_skia_ios_arch "simulator-arm64")
+                else()
+                    set(_skia_ios_arch "simulator-x86_64")
+                endif()
+            endif()
+        else()
+            # Device build: arm64 only.
+            set(_skia_ios_arch "device-arm64")
+        endif()
     else()
         set(_skia_platform "mac")
     endif()
@@ -57,13 +90,23 @@ else()
     return()
 endif()
 
-# Support both flat layout (mac/lib/) and skia-builder layout (build/mac-gpu/lib/Release/)
+# Support both flat layout (mac/lib/) and skia-builder layout
+# (build/<plat>-gpu/lib/Release/). The iOS slice keeps a per-arch subdir
+# under Release/ (device-arm64 / simulator-arm64 / simulator-x86_64) so
+# the device and simulator zips can be unpacked into the same tree
+# without colliding; FindSkia descends into that arch dir when set.
 if(EXISTS "${SKIA_DIR}/build/${_skia_platform}-gpu/lib/Release")
     set(_skia_lib_dir "${SKIA_DIR}/build/${_skia_platform}-gpu/lib/Release")
     set(_skia_include_dir "${SKIA_DIR}/build/include")
+    if(_skia_ios_arch AND EXISTS "${_skia_lib_dir}/${_skia_ios_arch}")
+        set(_skia_lib_dir "${_skia_lib_dir}/${_skia_ios_arch}")
+    endif()
 elseif(EXISTS "${SKIA_DIR}/${_skia_platform}-gpu/lib/Release")
     set(_skia_lib_dir "${SKIA_DIR}/${_skia_platform}-gpu/lib/Release")
     set(_skia_include_dir "${SKIA_DIR}/include")
+    if(_skia_ios_arch AND EXISTS "${_skia_lib_dir}/${_skia_ios_arch}")
+        set(_skia_lib_dir "${_skia_lib_dir}/${_skia_ios_arch}")
+    endif()
 elseif(EXISTS "${SKIA_DIR}/${_skia_platform}/lib")
     set(_skia_lib_dir "${SKIA_DIR}/${_skia_platform}/lib")
     set(_skia_include_dir "${SKIA_DIR}/include")
