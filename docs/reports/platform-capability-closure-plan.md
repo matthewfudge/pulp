@@ -506,13 +506,14 @@ Native-window local validation:
   configures the GPU examples path and fails locally without Skia. The same
   coverage pipeline was run manually with `PULP_ENABLE_COVERAGE=ON` and
   `PULP_ENABLE_GPU=OFF` in `build-cov-native-window`; focused coverage CTest
-  passed the three native-window contract tests and diff-cover reports 100%
-  for `core/view/src/inspector_window.cpp` against `origin/main` (12 changed
-  production lines, 0 missing). The behavior-bearing production change is the
-  `InspectorWindow::show()` null-host guard, covered locally through the
-  inspector host-factory override and on hosted non-Apple checks through the
-  no-factory regression test. Other production header changes are contract
-  comments, and examples/docs are excluded by the repo coverage filters.
+  passed the three native-window contract tests after the `2d8f004a` rebase
+  and diff-cover reports 85% total diff coverage against `origin/main`
+  (`core/view/src/inspector_window.cpp` 100%;
+  `core/view/platform/mac/window_host_mac.mm` has 2 defensive teardown lines
+  not covered by the focused local coverage path). The behavior-bearing
+  `InspectorWindow::show()` null-host guard is covered locally through the
+  inspector host-factory override; hosted Codecov remains the final PR-side
+  coverage gate after the final push.
 - Claude review reported no correctness blockers. RepoPrompt review found a
   null-host crash in `InspectorWindow::show()`, an overstrict live WebView
   attach assertion, and a silent plugin-example WebView-backend failure path;
