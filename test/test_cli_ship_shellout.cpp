@@ -417,6 +417,26 @@ TEST_CASE_METHOD(ShipShelloutFixture,
     fs::remove_all(root);
 }
 
+// Item 7.5 (macos-plugin-authoring-plan): per-artifact .pkg / .dmg
+// selection. The parser-level checks belong here next to the other
+// `ship package` arg cases; real codesign + pkgbuild integration
+// runs on the self-hosted Mac runner.
+TEST_CASE_METHOD(ShipShelloutFixture,
+                 "pulp ship package rejects mutually-exclusive --pkg + --dmg",
+                 "[cli][shellout][ship][package][macos-7.5]") {
+    if (!binary_exists()) { SUCCEED("pulp binary not built"); return; }
+    auto root = make_fake_project("pkg-vs-dmg", true);
+
+    auto r = run_pulp_in(root,
+        {"ship", "package", "--version", "1.0.0", "--pkg", "--dmg"});
+    REQUIRE_FALSE(r.timed_out);
+    REQUIRE(r.exit_code != 0);
+    auto combined = r.stdout_output + r.stderr_output;
+    REQUIRE(contains(combined, "mutually exclusive"));
+
+    fs::remove_all(root);
+}
+
 // Item 7.4b (macos-plugin-authoring-plan): `pulp build --install` exists
 // and rejects invalid flag combinations before touching the filesystem.
 // The end-to-end install path is unit-tested via install_paths_mac;

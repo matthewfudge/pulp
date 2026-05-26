@@ -192,6 +192,12 @@ int cmd_ship(const std::vector<std::string>& args) {
 
         std::string version, target, keystore_path, key_alias, store_pass, key_pass, abi_arg;
         bool per_user = false, apk_only = false, aab_only = false;
+        // Item 7.5: per-artifact packaging on macOS. When the user
+        // passes neither flag we use the historical default — `.pkg`
+        // for every plugin bundle, which is right for AU/VST3/CLAP
+        // under `~/Library/Audio/Plug-Ins/`. `--dmg` flips standalone
+        // apps to disk images. `--pkg` is explicit form of the default.
+        bool want_pkg = false, want_dmg = false;
 
         // Read version from CMakeLists.txt project(VERSION), falling back to SDK version
         auto cmake_ver = read_project_cmake_version(root);
@@ -216,11 +222,18 @@ int cmd_ship(const std::vector<std::string>& args) {
             else if (args[i] == "--apk-only") apk_only = true;
             else if (args[i] == "--aab-only") aab_only = true;
             else if (args[i] == "--per-user") per_user = true;
+            else if (args[i] == "--pkg") want_pkg = true;
+            else if (args[i] == "--dmg") want_dmg = true;
             else return unknown_ship_arg(sub, args[i]);
         }
 
         if (apk_only && aab_only) {
             std::cerr << "Error: --apk-only and --aab-only are mutually exclusive.\n";
+            return 1;
+        }
+        if (want_pkg && want_dmg) {
+            std::cerr << "Error: --pkg and --dmg are mutually exclusive — pass one per "
+                         "invocation (item 7.5 picks per artifact, not both at once).\n";
             return 1;
         }
 
@@ -329,8 +342,35 @@ int cmd_ship(const std::vector<std::string>& args) {
         }
         return 0;
 #else
-        // macOS/Linux: use pkgbuild (macOS) or deb (Linux)
-        int pkg_count = 0;
+        // macOS / Linux. On macOS we honour the item 7.5 per-artifact
+        // selection: `.pkg` for AU/VST3/CLAP plugin bundles, `.dmg`
+        // for `.app` standalones. `--pkg` and `--dmg` flags override
+        // the per-artifact default for the entire run (e.g. `--dmg`
+        // wraps even plugin bundles in a disk image when that's
+        // explicitly requested, useful for the "drag to Plug-Ins"
+        // distribution pattern).
+        int pkg_count = 0, dmg_count = 0;
+
+#ifdef __APPLE__
+        // Standalone `.app` bundles → `.dmg` by default (or when --dmg).
+        auto standalone_dir = build_dir / "Standalone";
+        if (fs::exists(standalone_dir)) {
+            for (auto& entry : fs::directory_iterator(standalone_dir)) {
+                if (entry.path().extension().string() != ".app") continue;
+                auto name = entry.path().stem().string();
+                auto dmg_name = name + "-" + version + ".dmg";
+                auto dmg_path = artifacts / dmg_name;
+                std::cout << "Packaging " << name << " (Standalone .app → .dmg)...\n";
+                if (pulp::ship::create_dmg(entry.path().string(),
+                                           dmg_path.string(), name)) {
+                    ++dmg_count;
+                } else {
+                    std::cerr << "  FAILED to create .dmg for " << name << "\n";
+                }
+            }
+        }
+#endif
+
         for (auto dir_name : {"VST3", "CLAP", "AU"}) {
             auto dir = build_dir / dir_name;
             if (!fs::exists(dir)) continue;
@@ -339,29 +379,50 @@ int cmd_ship(const std::vector<std::string>& args) {
 
             for (auto& entry : fs::directory_iterator(dir)) {
                 auto ext = entry.path().extension().string();
-                if (ext == ".vst3" || ext == ".clap" || ext == ".component") {
-                    auto name = entry.path().stem().string();
-                    auto pkg_name = name + "-" + dir_name + "-" + version + ".pkg";
-                    auto pkg_path = artifacts / pkg_name;
+                if (ext != ".vst3" && ext != ".clap" && ext != ".component") continue;
 
-                    std::string install_loc = "/Library/Audio/Plug-Ins/";
-                    if (ext == ".vst3") install_loc += "VST3/";
-                    else if (ext == ".clap") install_loc += "CLAP/";
-                    else install_loc = pulp::runtime::get_env("HOME").value_or("~")
-                                     + "/Library/Audio/Plug-Ins/Components/";
+                auto name = entry.path().stem().string();
 
-                    std::cout << "Packaging " << name << " (" << dir_name << ")...\n";
-                    std::string cmd = "pkgbuild --component \"" + entry.path().string() + "\""
-                        + " --identifier \"com.pulp." + name + "." + format_lower + "\""
-                        + " --version \"" + version + "\""
-                        + " --install-location \"" + install_loc + "\""
-                        + " \"" + pkg_path.string() + "\" 2>/dev/null";
-                    if (run(cmd) == 0) ++pkg_count;
-                    else std::cerr << "  FAILED\n";
+#ifdef __APPLE__
+                // Plugin bundle → .dmg ONLY when the user explicitly
+                // asked. Default + --pkg both produce .pkg.
+                if (want_dmg) {
+                    auto dmg_name = name + "-" + dir_name + "-" + version + ".dmg";
+                    auto dmg_path = artifacts / dmg_name;
+                    std::cout << "Packaging " << name << " (" << dir_name
+                              << " → .dmg)...\n";
+                    if (pulp::ship::create_dmg(entry.path().string(),
+                                               dmg_path.string(),
+                                               name + " " + dir_name)) {
+                        ++dmg_count;
+                    } else {
+                        std::cerr << "  FAILED to create .dmg\n";
+                    }
+                    continue;
                 }
+#endif
+
+                auto pkg_name = name + "-" + dir_name + "-" + version + ".pkg";
+                auto pkg_path = artifacts / pkg_name;
+
+                std::string install_loc = "/Library/Audio/Plug-Ins/";
+                if (ext == ".vst3") install_loc += "VST3/";
+                else if (ext == ".clap") install_loc += "CLAP/";
+                else install_loc = pulp::runtime::get_env("HOME").value_or("~")
+                                 + "/Library/Audio/Plug-Ins/Components/";
+
+                std::cout << "Packaging " << name << " (" << dir_name << " → .pkg)...\n";
+                std::string cmd = "pkgbuild --component \"" + entry.path().string() + "\""
+                    + " --identifier \"com.pulp." + name + "." + format_lower + "\""
+                    + " --version \"" + version + "\""
+                    + " --install-location \"" + install_loc + "\""
+                    + " \"" + pkg_path.string() + "\" 2>/dev/null";
+                if (run(cmd) == 0) ++pkg_count;
+                else std::cerr << "  FAILED\n";
             }
         }
-        std::cout << "Created " << pkg_count << " packages in " << artifacts.string() << "\n";
+        std::cout << "Created " << pkg_count << " .pkg and " << dmg_count
+                  << " .dmg artifacts in " << artifacts.string() << "\n";
         return 0;
 #endif
     }
@@ -616,6 +677,7 @@ int cmd_ship(const std::vector<std::string>& args) {
     std::cout << "             --staple  (staple only, skip submission)\n";
     std::cout << "  package    Create installers for the target platform\n";
     std::cout << "             --version 1.0.0\n";
+    std::cout << "             --pkg | --dmg  (item 7.5: per-artifact macOS packaging)\n";
     std::cout << "             --target android --keystore key.jks --abi arm64-v8a|x86_64|all\n";
     std::cout << "  appcast    Generate Sparkle-compatible update feed\n";
     std::cout << "             --url https://... --version 1.0.0 --notes \"...\"\n";
