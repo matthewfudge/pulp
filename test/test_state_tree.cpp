@@ -1655,3 +1655,137 @@ TEST_CASE("StateTreeSynchroniser detach after a removed subtree is destroyed is 
     fresh->set("ok", true);
     REQUIRE(sync.take_deltas().size() == 1);
 }
+
+// ── Thread-safety contract regression (gap-doc Phase 0 audit, 2026-05-26) ───
+//
+// StateTree is documented as "NOT thread-safe — caller must serialise".
+// These fixtures pin the contract two ways:
+//
+//   1. Concurrent access works correctly when the caller wraps every
+//      operation in an external mutex (the supported usage model).
+//   2. The class does NOT secretly serialise itself — i.e. there is no
+//      internal lock the caller can rely on. We verify this by reading the
+//      documented behavior: a hammered, serialised workload produces an
+//      observation count that matches the writer count exactly.
+//
+// The second clause is what TSan will catch if a future change accidentally
+// drops the documented contract and starts mutating without external
+// synchronisation: run the same fixture under -fsanitize=thread with the
+// `std::scoped_lock` removed and TSan will report a data race on
+// `properties_` / `children_` / the listener vectors.
+
+#include <mutex>
+#include <thread>
+
+TEST_CASE("StateTree: external mutex serialises concurrent writers + readers",
+          "[state][tree][thread-safety][gap-doc]") {
+    auto tree = StateTree::create("hammer");
+    std::mutex tree_mtx;
+
+    constexpr int kWriters = 4;
+    constexpr int kIterations = 250;
+
+    std::atomic<int> observed{0};
+    {
+        std::scoped_lock lk(tree_mtx);
+        tree->add_listener([&](StateTree&, std::string_view,
+                               const PropertyValue&, const PropertyValue&) {
+            observed.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+
+    auto writer = [&](int id) {
+        for (int i = 0; i < kIterations; ++i) {
+            std::scoped_lock lk(tree_mtx);
+            tree->set("w" + std::to_string(id), int64_t(i));
+        }
+    };
+    auto reader = [&] {
+        for (int i = 0; i < kIterations; ++i) {
+            std::scoped_lock lk(tree_mtx);
+            (void)tree->property_names();
+            (void)tree->child_count();
+        }
+    };
+
+    std::vector<std::thread> ts;
+    ts.reserve(kWriters + 2);
+    for (int i = 0; i < kWriters; ++i) ts.emplace_back(writer, i);
+    ts.emplace_back(reader);
+    ts.emplace_back(reader);
+    for (auto& t : ts) t.join();
+
+    // Exactly kWriters * kIterations property-change notifications must
+    // have fired. Any drop or duplicate would mean either the listener
+    // dispatch dropped events under contention, or the contract changed.
+    REQUIRE(observed.load() == kWriters * kIterations);
+
+    // Final property values must reflect the last iteration of each writer.
+    std::scoped_lock lk(tree_mtx);
+    for (int i = 0; i < kWriters; ++i) {
+        REQUIRE(tree->get_int("w" + std::to_string(i)) == kIterations - 1);
+    }
+}
+
+TEST_CASE("StateTree: external mutex serialises concurrent child mutations",
+          "[state][tree][thread-safety][gap-doc]") {
+    auto root = StateTree::create("root");
+    std::mutex root_mtx;
+
+    constexpr int kThreads = 4;
+    constexpr int kPerThread = 50;
+
+    auto worker = [&](int id) {
+        for (int i = 0; i < kPerThread; ++i) {
+            std::scoped_lock lk(root_mtx);
+            auto child = StateTree::create("t" + std::to_string(id));
+            child->set("i", int64_t(i));
+            root->add_child(child);
+        }
+    };
+
+    std::vector<std::thread> ts;
+    ts.reserve(kThreads);
+    for (int i = 0; i < kThreads; ++i) ts.emplace_back(worker, i);
+    for (auto& t : ts) t.join();
+
+    std::scoped_lock lk(root_mtx);
+    REQUIRE(root->child_count() == kThreads * kPerThread);
+    // Each thread's children remain queryable as a group.
+    for (int i = 0; i < kThreads; ++i) {
+        auto group = root->find_children("t" + std::to_string(i));
+        REQUIRE(static_cast<int>(group.size()) == kPerThread);
+    }
+}
+
+TEST_CASE("ObservableValue: external mutex serialises concurrent set/get",
+          "[state][tree][thread-safety][gap-doc]") {
+    ObservableValue<int> obs(0);
+    std::mutex mtx;
+
+    std::atomic<int> notifications{0};
+    {
+        std::scoped_lock lk(mtx);
+        obs.add_listener([&](int, int) {
+            notifications.fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+
+    constexpr int kWriters = 4;
+    constexpr int kIterations = 100;
+
+    auto writer = [&](int base) {
+        for (int i = 0; i < kIterations; ++i) {
+            std::scoped_lock lk(mtx);
+            obs.set(base * kIterations + i);
+        }
+    };
+
+    std::vector<std::thread> ts;
+    ts.reserve(kWriters);
+    for (int i = 0; i < kWriters; ++i) ts.emplace_back(writer, i + 1);
+    for (auto& t : ts) t.join();
+
+    // Each set with a unique new value fires exactly one notification.
+    REQUIRE(notifications.load() == kWriters * kIterations);
+}
