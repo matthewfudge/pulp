@@ -558,6 +558,28 @@ TEST_CASE("CiDiscovery.notify with no subscribers is a no-op",
     REQUIRE(fires == 0);
 }
 
+// Regression: #2959 / Codex comment 3305288220 — notify() documented its
+// return as "number of subscribers notified", but returned
+// `subscribers.size()` even when `on_pe_notify` was unset (nothing
+// emitted). Callers using the return for delivery accounting / retry
+// were told everything succeeded when zero were sent. Fix: return the
+// actual callback-invocation count, which is 0 when no callback is set.
+TEST_CASE("CiDiscovery.notify returns 0 when on_pe_notify is unset (#2959)",
+          "[midi][ci][pe][notify][issue-2959]") {
+    CiDiscovery server;
+    CiDeviceInfo srv_info;
+    srv_info.muid = {0xABCDE};
+    server.set_device_info(srv_info);
+
+    // Register two subscribers so the OLD code path would have returned 2.
+    server.subscription_manager().subscribe("/State", {0x10001});
+    server.subscription_manager().subscribe("/State", {0x10002});
+
+    // No on_pe_notify callback installed → nothing can be delivered.
+    std::size_t n = server.notify("/State", "{}", {});
+    REQUIRE(n == 0);
+}
+
 // Regression: #2959 / Codex comment 3305288207 — handle_notify() used to
 // forward every parsed PropertyNotify without checking the destination MUID.
 // On a multi-device MIDI-CI bus, that meant notifications addressed to other
