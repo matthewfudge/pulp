@@ -5,10 +5,12 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudioKit/CoreAudioKit.h>
+#import <mach/mach_time.h>
 #include <pulp/format/processor.hpp>
 #include <pulp/format/plugin_state_io.hpp>
 #include <pulp/format/registry.hpp>
 #include <pulp/format/ara.hpp>
+#include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/midi/ump_sysex7_reassembler.hpp>
 #include <pulp/runtime/log.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
@@ -73,6 +75,12 @@ struct AUBridge {
     // (sized at init to match max_frames * kMaxChannels).
     std::vector<float> sidechain_storage;
     state::ParameterEventQueue param_events;
+
+    // Item 1.3 — previous-block transport snapshot used to derive the
+    // change flags on `ProcessContext`. Default-constructed (no
+    // previous block) so the first render-block invocation reports no
+    // changes.
+    detail::PlayheadSnapshot playhead_prev;
 };
 
 static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
@@ -402,6 +410,16 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 - (AUInternalRenderBlock)internalRenderBlock {
     auto* bridge = &_bridge;
 
+    // Item 1.3 — capture the host's musical-context and transport-state
+    // blocks at render-block construction time, per Apple's render-block
+    // contract. AUAudioUnit::musicalContextBlock and transportStateBlock
+    // are KVO-able read/write properties the host installs (often only
+    // after `allocateRenderResources`). They are safe to invoke from
+    // the render thread; the block we hand back to the host captures
+    // them via `__block` so the call sites below stay self-contained.
+    AUHostMusicalContextBlock musicalContextBlock = self.musicalContextBlock;
+    AUHostTransportStateBlock transportStateBlock = self.transportStateBlock;
+
     AUInternalRenderBlock renderBlock = ^AUAudioUnitStatus(
         AudioUnitRenderActionFlags *actionFlags,
         const AudioTimeStamp *timestamp,
@@ -644,6 +662,77 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
         pulp::format::ProcessContext ctx;
         ctx.sample_rate = bridge->sample_rate;
         ctx.num_samples = static_cast<int>(frameCount);
+
+        // Item 1.3 — populate transport fields from the host blocks the
+        // AUv3 host installed via the KVO-able properties on
+        // AUAudioUnit. The blocks may legitimately be nil (hosts that
+        // don't expose transport state, AUv2-bridged hosts, render
+        // tests). In that case the fields stay at their documented
+        // defaults so the plugin's process() sees the same
+        // pre-extension behaviour.
+        if (musicalContextBlock) {
+            double tempo_bpm = 0.0;
+            double time_sig_numerator = 0.0;
+            NSInteger time_sig_denominator = 0;
+            double current_beat_position = 0.0;
+            NSInteger sample_offset_to_next_beat = 0;
+            double current_measure_downbeat_position = 0.0;
+            const BOOL ok = musicalContextBlock(
+                &tempo_bpm,
+                &time_sig_numerator,
+                &time_sig_denominator,
+                &current_beat_position,
+                &sample_offset_to_next_beat,
+                &current_measure_downbeat_position);
+            if (ok) {
+                if (tempo_bpm > 0.0) ctx.tempo_bpm = tempo_bpm;
+                if (time_sig_numerator > 0.0) {
+                    ctx.time_sig_numerator = static_cast<int>(time_sig_numerator);
+                }
+                if (time_sig_denominator > 0) {
+                    ctx.time_sig_denominator = static_cast<int>(time_sig_denominator);
+                }
+                ctx.position_beats = current_beat_position;
+            }
+        }
+        if (transportStateBlock) {
+            AUHostTransportStateFlags transport_flags = 0;
+            double current_sample_position = 0.0;
+            double cycle_start_beat_position = 0.0;
+            double cycle_end_beat_position = 0.0;
+            const BOOL ok = transportStateBlock(
+                &transport_flags,
+                &current_sample_position,
+                &cycle_start_beat_position,
+                &cycle_end_beat_position);
+            if (ok) {
+                ctx.is_playing =
+                    (transport_flags & AUHostTransportStateMoving) != 0;
+                ctx.is_recording =
+                    (transport_flags & AUHostTransportStateRecording) != 0;
+                ctx.is_looping =
+                    (transport_flags & AUHostTransportStateCycling) != 0;
+                ctx.position_samples =
+                    static_cast<int64_t>(current_sample_position);
+                if (ctx.is_looping) {
+                    ctx.loop_start_beats = cycle_start_beat_position;
+                    ctx.loop_end_beats = cycle_end_beat_position;
+                }
+            }
+        }
+        if (timestamp && (timestamp->mFlags & kAudioTimeStampHostTimeValid) != 0) {
+            static mach_timebase_info_data_t timebase = {0, 0};
+            if (timebase.denom == 0) mach_timebase_info(&timebase);
+            if (timebase.denom != 0) {
+                ctx.host_time_ns = static_cast<int64_t>(
+                    (timestamp->mHostTime * timebase.numer) / timebase.denom);
+            }
+        }
+        // AUv3 has no host-supplied frame-rate; `ctx.frame_rate` stays
+        // `FrameRate::unknown` per the documented sentinel.
+        pulp::format::detail::derive_bar_from_beats(ctx);
+        pulp::format::detail::compute_playhead_changes(ctx, bridge->playhead_prev);
+
         bridge->processor->set_param_events(&bridge->param_events);
         bridge->processor->process(output_view, input_view, midi_in, midi_out, ctx);
 
