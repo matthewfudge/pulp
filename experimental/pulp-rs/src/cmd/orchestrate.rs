@@ -68,6 +68,14 @@ pub struct BuildArgs {
     /// `--validate` — run plugin validators after a successful build
     /// (also deferred; needs `cmd::validate` port).
     pub validate: bool,
+    /// `--check-identity` — verify `.pulp/identity.lock` matches the
+    /// current plugin identity before configuring. Implements Track
+    /// 3.12 of the macOS plugin-authoring plan.
+    pub check_identity: bool,
+    /// `--allow-identity-change` — paired with `--check-identity`,
+    /// treats drift as a soft warning instead of failing the build.
+    /// Mirrors `pulp identity check --allow-identity-change`.
+    pub allow_identity_change: bool,
 }
 
 /// Parse `pulp-rs build` flags.
@@ -79,6 +87,8 @@ pub fn parse_build_args(args: &[String]) -> BuildArgs {
             "--watch" | "-w" => out.watch = true,
             "--test" | "-t" => out.test = true,
             "--validate" => out.validate = true,
+            "--check-identity" => out.check_identity = true,
+            "--allow-identity-change" => out.allow_identity_change = true,
             _ if a.starts_with("--js-engine=") => {
                 out.js_engine = Some(a.trim_start_matches("--js-engine=").to_owned());
             }
@@ -120,6 +130,21 @@ pub fn build_with<S: Spawner>(
     spawner: &S,
     out: &mut impl Write,
 ) -> Result<i32> {
+    if args.check_identity {
+        // Track 3.12: refuse to configure / build when the project's
+        // current plugin identity has drifted from `.pulp/identity.lock`
+        // without `--allow-identity-change`. Runs early so a doomed
+        // build doesn't waste a configure step.
+        let cmake = proj.root.join("CMakeLists.txt");
+        let sub = crate::cmd::identity::IdentityCmd::Check {
+            allow_change: args.allow_identity_change,
+        };
+        let rc = crate::cmd::identity::run(&proj.root, &cmake, &sub, out)?;
+        if rc != 0 {
+            return Ok(rc);
+        }
+    }
+
     if args.watch {
         // Phase 7: route --watch through the C++ binary if it's on
         // PATH, otherwise fall back to the "not ported" stub so
@@ -1055,13 +1080,44 @@ mod tests {
             "--watch".to_owned(),
             "--test".to_owned(),
             "--validate".to_owned(),
+            "--check-identity".to_owned(),
+            "--allow-identity-change".to_owned(),
             "--js-engine=v8".to_owned(),
             "--target".to_owned(),
             "pulp-gain".to_owned(),
         ]);
         assert!(a.watch && a.test && a.validate);
+        assert!(a.check_identity && a.allow_identity_change);
         assert_eq!(a.js_engine.as_deref(), Some("v8"));
         assert_eq!(a.passthrough, vec!["--target", "pulp-gain"]);
+    }
+
+    #[test]
+    fn build_check_identity_blocks_when_lock_missing() {
+        let td = tempfile::tempdir().unwrap();
+        let proj = standalone_project(td.path());
+        std::fs::write(
+            proj.root.join("CMakeLists.txt"),
+            r#"pulp_add_plugin(X PLUGIN_NAME "X" BUNDLE_ID "com.x.x" MANUFACTURER "X" VERSION "1.0.0" PLUGIN_CODE "Xxxx" MANUFACTURER_CODE "Xxxx")"#,
+        )
+        .unwrap();
+        let spawner = RecordingSpawner::ok();
+        let mut out = Vec::new();
+        let rc = build_with(
+            &proj,
+            &BuildArgs {
+                check_identity: true,
+                ..Default::default()
+            },
+            &spawner,
+            &mut out,
+        )
+        .unwrap();
+        // Lock missing → exit 1, no cmake invocations made.
+        assert_eq!(rc, 1);
+        assert!(spawner.calls.borrow().is_empty());
+        let report = String::from_utf8(out).unwrap();
+        assert!(report.contains("identity"), "{report}");
     }
 
     #[test]

@@ -15,6 +15,7 @@ pub mod dev;
 pub mod docs;
 pub mod doctor;
 pub mod help;
+pub mod identity;
 pub mod motion;
 pub mod orchestrate;
 pub mod pkg;

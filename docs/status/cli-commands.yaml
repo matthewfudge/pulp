@@ -12,6 +12,12 @@ commands:
       - name: --allow-unsupported-sdk
         kind: flag
         description: Bypass the CLI-vs-project SDK compatibility guard and continue anyway (unsupported)
+      - name: --check-identity
+        kind: flag
+        description: Verify `.pulp/identity.lock` matches the current plugin identity before configuring. Aborts the build on drift. See `docs/reference/identity-lock.md`.
+      - name: --allow-identity-change
+        kind: flag
+        description: Paired with `--check-identity`, treats drift as a warning instead of a build break.
       - name: extra_args
         kind: passthrough
         description: Passed through to cmake --build (e.g., --target, -j)
@@ -1084,6 +1090,24 @@ commands:
         kind: flag
         description: Verify package license compatibility
     docs: reference/cli.md#audit-package-extensions
+
+  - name: identity
+    status: experimental
+    summary: Manage `.pulp/identity.lock` — the committed pin of each plugin's AU 4CC, manufacturer code, AAX product code, optional VST3 FUID, and optional CLAP plugin id. Implements Track 3.12 of the macOS plugin-authoring plan.
+    args:
+      - name: record
+        kind: subcommand
+        description: Refresh `.pulp/identity.lock` from the project's current `pulp_add_plugin(...)` declarations. Refuses to overwrite drifted entries without `--allow-identity-change`.
+      - name: check
+        kind: subcommand
+        description: Compare `.pulp/identity.lock` against the project's current state. Exit 1 on drift, 0 with `--allow-identity-change`.
+      - name: --allow-identity-change
+        kind: flag
+        description: Treat identity drift as success (still prints the diff). Pairs with `record` and `check`.
+      - name: --dry-run
+        kind: flag
+        description: With `record`, print the would-be lock without touching disk.
+    docs: reference/identity-lock.md
 
   - name: help
     status: usable
