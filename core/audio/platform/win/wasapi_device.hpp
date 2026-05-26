@@ -28,6 +28,30 @@ namespace pulp::audio::win {
 // open() / start() take. Duplex callers open two devices and
 // synchronise externally — same model as the rest of the AudioSystem
 // interface, which is direction-agnostic at the device level.
+//
+// ── WASAPI mode coverage (gap-doc Phase 0 audit, 2026-05-26) ─────────────
+//
+// `IAudioClient::Initialize` is invoked with `AUDCLNT_SHAREMODE_SHARED`
+// + `AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST`
+// at the device's native mix format. This is the default mode the
+// Windows audio engine mixes; buffer size is requested in REFERENCE_TIME
+// units and rounded up to the engine's period.
+//
+// Modes **not** implemented today (intentionally deferred — see
+// planning/2026-05-24-reference-framework-gap-analysis.md row #302):
+//
+//   * `AUDCLNT_SHAREMODE_SHARED` low-latency variant
+//       (RATEADJUST + small periodicity via `IAudioClient3::InitializeSharedAudioStream`
+//        or AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM + AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY).
+//   * `AUDCLNT_SHAREMODE_EXCLUSIVE`
+//       (bypasses the engine; requires explicit format negotiation, lower
+//        latency, but conflicts with other applications and DAW workflows).
+//
+// Adding either mode means new public API surface
+// (`DeviceConfig::share_mode`, `DeviceConfig::exclusive`, etc.) and is
+// out of scope for the gap-doc audit slice. The fixture below pins the
+// current contract so a future "we added exclusive" change is forced to
+// update both code and tests in lockstep.
 class WasapiDevice : public AudioDevice {
 public:
     explicit WasapiDevice(IMMDevice* device, EDataFlow flow = eRender);
