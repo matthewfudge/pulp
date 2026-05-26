@@ -1,0 +1,124 @@
+# DAW host-quirks policy
+
+Pulp's format adapters consult a `pulp::format::HostQuirks` struct at
+init time to switch between defensive defaults (always-on) and
+host-gated behaviors (only when a specific DAW + version is detected).
+
+The full catalog of accommodations + the per-host headers under
+`core/format/include/pulp/format/host_quirks/<host>.hpp` are the
+authoritative source. This page is the plugin-author surface — how to
+dial in exactly the accommodations you trust.
+
+## Three validation tiers
+
+Pulp tags every individual quirk flag with a `pulp::format::QuirkStatus`
+tier so plugin authors can opt out of accommodations that haven't been
+bench-confirmed in the named DAW yet:
+
+| Tier            | Meaning                                                                                              | Example fields                                                  |
+|-----------------|------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
+| `Validated`     | Exercised by a Pulp regression test under the named DAW.                                             | `synthesize_bypass_parameter`, `clamp_latency_to_nonneg`, `silence_unsupported_bus_arrangements` |
+| `Speculative`   | Implemented per host docs + reproducer report; not yet bench-confirmed.                              | `cubase10_async_view_resize_queue`, `live_vst3_canresize_ignore`, `wavelab_state_blob_fallback` |
+| `LessonOnly`    | Catalog entry only; carried so the enum stays in lock-step with the catalog. No fix wired yet.       | `reaper_process_while_bypassed`, `pro_tools_aax_*`, `au_v3_bypass_dual_tracking` |
+
+The authoritative current tier of every flag lives in the constexpr
+`pulp::format::kHostQuirksMeta` instance. When a quirk graduates from
+`Speculative` to `Validated`, update `kHostQuirksMeta` and the row in
+`planning/host-quirks-log.md` together (the log records the
+in-DAW evidence + the regression test that validates it).
+
+## Default policy (build-time)
+
+The CMake cache variable `PULP_HOST_QUIRKS_DEFAULT_POLICY` selects what
+`pulp::format::detect_quirks()` returns by default:
+
+```bash
+# Apply every detected quirk, regardless of tier (current Pulp default).
+cmake -S . -B build -DPULP_HOST_QUIRKS_DEFAULT_POLICY=all
+
+# Only Validated accommodations fire — Speculative + LessonOnly stay default.
+cmake -S . -B build -DPULP_HOST_QUIRKS_DEFAULT_POLICY=validated_only
+
+# Diagnostic build: no accommodations at all (including cheap defenses).
+cmake -S . -B build -DPULP_HOST_QUIRKS_DEFAULT_POLICY=off
+```
+
+The policy is compiled into the `pulp::format` library. Plugins built
+against that library inherit whichever policy was chosen at configure
+time, with **no runtime overhead** beyond a single field reset.
+
+## Runtime opt-in / opt-out
+
+A plugin author can ignore the build-time default entirely by
+constructing a `HostQuirks` themselves and feeding it to the adapter
+init:
+
+```cpp
+#include <pulp/format/host_quirks.hpp>
+
+using namespace pulp::format;
+
+// Detect the DAW + apply only Validated accommodations.
+auto quirks = make_quirks_for_validated_only(detect_host_info().type,
+                                             detect_host_info().version);
+
+// Or build a custom filter — e.g. "Validated + Speculative, no Lessons":
+auto q = make_quirks_for(host_type, host_version);
+apply_filter(q, QuirkFilter{
+    .allow_validated   = true,
+    .allow_speculative = true,
+    .allow_lesson_only = false,
+});
+
+// Or hand-edit a single field after the factory ran.
+auto q2 = make_quirks_for(host_type, host_version);
+q2.reaper_process_while_bypassed = false; // override one row
+```
+
+`apply_filter()` resets each field whose tier is not allowed back to
+its `HostQuirks{}` default — including the numeric
+`logic_au_channel_probe_cap`, which reverts to the cross-host cap of
+64. Cheap defenses (currently `Validated`) survive the
+`kQuirkFilterValidatedOnly` shortcut; if you also want to drop the
+cheap defenses, pass `kQuirkFilterOff`.
+
+`apply_filter()` is idempotent — applying the same filter twice is a
+no-op on the second call.
+
+## Filing a new quirk
+
+When a Pulp plugin breaks in a DAW you should follow the discovery
+workflow documented in `planning/host-quirks-log.md` (Pulp's private
+planning submodule):
+
+1. Reproduce the bug + file a Pulp issue with the host, version, OS,
+   format, and reproducer.
+2. Read the host's documentation. Do **not** open the reference
+   framework to copy.
+3. Design a clean-room fix using only host docs + reproducer.
+4. Add a new field to `HostQuirks` (and the matching `HostQuirksMeta`
+   field tagged `Speculative` if you haven't bench-confirmed it yet,
+   or `Validated` once you have a regression test) in
+   `core/format/include/pulp/format/host_quirks.hpp`.
+5. Wire it in the relevant per-host header (`apply_<host>()`) and the
+   adapter that consumes it.
+6. Add a Catch2 regression test alongside the existing
+   `test/test_host_quirks.cpp` cases. Promote the meta tier from
+   `Speculative` to `Validated` once you've added the in-DAW evidence
+   row to `planning/host-quirks-log.md`.
+7. Commit with the trailer:
+
+   ```
+   Reference-Lineage: cleanroom reproducer=#NNNN docs=<url>
+   ```
+
+## When to flip the build-time default
+
+| Audience                                                                 | Suggested policy        |
+|--------------------------------------------------------------------------|-------------------------|
+| Plugin authors who trust Pulp's curated catalog (most users).            | `all` (default)         |
+| Plugin authors who want strict in-DAW evidence before applying a fix.    | `validated_only`        |
+| Compliance / diagnostic builds investigating whether a host or a Pulp accommodation is misbehaving. | `off` |
+
+The default stays `all` so existing builds keep their current behavior
+after upgrading to a tier-aware Pulp.

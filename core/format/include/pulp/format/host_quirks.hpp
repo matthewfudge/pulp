@@ -19,11 +19,39 @@
 /// trailer `Reference-Lineage: cleanroom reproducer=#NNNN docs=<url>`
 /// is required (advisory pre-push warning hint will catch missing
 /// trailers on commits touching `core/format/host_quirks/`).
+///
+/// ## Per-quirk validation tiers (2026-05-25)
+///
+/// Not every quirk has been bench-validated against a real DAW. We tag
+/// each flag with one of three `QuirkStatus` tiers so plugin authors
+/// can dial in exactly the accommodations they trust:
+///
+///   * `Validated` — exercised against the named DAW under a Pulp
+///     regression test that observed the symptom + the fix.
+///   * `Speculative` — implemented per host docs + reproducer report
+///     but not yet confirmed in-DAW from a Pulp test bench. Default
+///     ON when the host is detected, but a plugin author can opt out
+///     via `QuirkFilter{ .allow_speculative = false }`.
+///   * `LessonOnly` — the quirk row exists in the catalog as a
+///     historical lesson; no Pulp fix is wired yet. Carried so the
+///     enum + meta stay consistent with the catalog (the field's
+///     default in `HostQuirks` is the safe value).
+///
+/// See `docs/reference/host-quirks-policy.md` for the full opt-in /
+/// opt-out story (plugin-author surface) and
+/// `planning/host-quirks-log.md` for the discovery log.
 
 #include <pulp/format/host_type.hpp>
 #include <pulp/format/host_version.hpp>
 
 namespace pulp::format {
+
+/// Validation tier for an individual host-quirk flag. See file header.
+enum class QuirkStatus : unsigned char {
+    Validated,   ///< Exercised by a Pulp regression test under the named DAW.
+    Speculative, ///< Implemented per docs + reproducer; not yet bench-confirmed.
+    LessonOnly,  ///< Catalog entry only; no Pulp fix wired (kept for record).
+};
 
 /// Always-on / host-gated defensive behaviors that the adapters consult.
 ///
@@ -91,6 +119,115 @@ struct HostQuirks {
     bool au_v3_host_id_from_wrapper = false;           ///< row 22
 };
 
+/// Per-quirk validation status, parallel to `HostQuirks`.
+///
+/// Field names match `HostQuirks` exactly. The constexpr
+/// `kHostQuirksMeta` instance documents the current tier of every
+/// flag; update the meta + the field's row in
+/// `planning/host-quirks-log.md` together when a quirk graduates from
+/// `Speculative` to `Validated` (or down to `LessonOnly`).
+///
+/// Cheap-defense fields (`synthesize_bypass_parameter`,
+/// `clamp_latency_to_nonneg`, `silence_unsupported_bus_arrangements`)
+/// are tagged `Validated` — they were the founding assumptions and
+/// have ridden the test bench since item 5.1.
+///
+/// The Logic channel-probe cap is a numeric field (not a bool) but
+/// carries a status tag like everything else; the filter helper resets
+/// it back to the default cap (64) when its tier is filtered out.
+struct HostQuirksMeta {
+    QuirkStatus synthesize_bypass_parameter = QuirkStatus::Validated;
+    QuirkStatus clamp_latency_to_nonneg = QuirkStatus::Validated;
+    QuirkStatus silence_unsupported_bus_arrangements = QuirkStatus::Validated;
+
+    QuirkStatus cubase10_async_view_resize_queue = QuirkStatus::Speculative;
+    QuirkStatus cubase10_param_gesture_ordering = QuirkStatus::Speculative;
+    QuirkStatus cubase10_fractional_scale_correction = QuirkStatus::Speculative;
+
+    QuirkStatus cubase9_state_blob_size_validation = QuirkStatus::Speculative;
+
+    QuirkStatus live_vst3_canresize_ignore = QuirkStatus::Speculative;
+    QuirkStatus live_vst3_windows_dpi_defer = QuirkStatus::Speculative;
+
+    // Bitwig + FL Studio + Logic + AU v3 cross-host all have per-host
+    // headers under `host_quirks/<host>.hpp` (items 5.5 / 5.7 / 5.10 /
+    // 5.11), reproducer docs in the catalog, and isolation tests.
+    // Bench evidence under the real DAW is still pending → Speculative.
+    QuirkStatus bitwig_vst3_linux_repaint_after_resize = QuirkStatus::Speculative;
+    QuirkStatus bitwig_vst3_setbusarrangements_while_active = QuirkStatus::Speculative;
+
+    QuirkStatus wavelab_vst3_defer_activation = QuirkStatus::Speculative;
+    QuirkStatus wavelab_state_blob_fallback = QuirkStatus::Speculative;
+
+    QuirkStatus fl_studio_setactive_process_mutex = QuirkStatus::Speculative;
+    QuirkStatus fl_studio_state_reader_skip = QuirkStatus::Speculative;
+
+    // Reaper rows live in the dispatch table (host_quirks.cpp) but
+    // have NO per-host header yet and no isolation tests. LessonOnly
+    // until item 5.8 lands the header + per-symptom regression tests.
+    QuirkStatus reaper_vst3_gesture_ordering = QuirkStatus::LessonOnly;
+    QuirkStatus reaper_process_while_bypassed = QuirkStatus::LessonOnly;
+    QuirkStatus reaper_keyboard_passthrough = QuirkStatus::LessonOnly;
+    QuirkStatus reaper_permissive_bus_arrangements = QuirkStatus::LessonOnly;
+    QuirkStatus reaper_anticipative_fx_buffer_variability = QuirkStatus::LessonOnly;
+    QuirkStatus reaper_midsession_setstate = QuirkStatus::LessonOnly;
+
+    // Pro Tools AAX rows are gated on the developer-supplied Avid SDK
+    // (item 5.9). Catalog entries until the AAX lane lands a header.
+    QuirkStatus pro_tools_aax_sidechain_negotiation = QuirkStatus::LessonOnly;
+    QuirkStatus pro_tools_aax_latency_callback_push = QuirkStatus::LessonOnly;
+    QuirkStatus pro_tools_aax_mono_second_bus = QuirkStatus::LessonOnly;
+
+    QuirkStatus logic_au_channel_probe_cap = QuirkStatus::Speculative;
+    QuirkStatus logic_au_tail_time_conversion = QuirkStatus::Speculative;
+
+    QuirkStatus au_v3_bypass_dual_tracking = QuirkStatus::Speculative;
+    QuirkStatus au_v3_host_id_from_wrapper = QuirkStatus::Speculative;
+};
+
+/// Authoritative meta for the in-tree `HostQuirks`. Plugin authors and
+/// tests should consult this rather than re-deriving the tier from
+/// the field name. Edited in lock-step with the file header summary
+/// and the row in `planning/host-quirks-log.md` for each promotion.
+inline constexpr HostQuirksMeta kHostQuirksMeta{};
+
+/// Selection of validation tiers a `HostQuirks` instance may keep.
+///
+/// Plugin authors who want to opt out of speculative accommodations
+/// pass a filter to `apply_filter()` (or use the
+/// `make_quirks_for_validated_only()` shortcut). Anything not allowed
+/// is reset to its default-constructed value.
+struct QuirkFilter {
+    bool allow_validated = true;
+    bool allow_speculative = true;
+    bool allow_lesson_only = true;
+};
+
+/// Filter constant: keep only `Validated` tier accommodations.
+inline constexpr QuirkFilter kQuirkFilterValidatedOnly{
+    .allow_validated = true,
+    .allow_speculative = false,
+    .allow_lesson_only = false,
+};
+
+/// Filter constant: drop every accommodation (including cheap
+/// defenses). Intended for diagnostic / fully-spec-compliant builds
+/// — use with care.
+inline constexpr QuirkFilter kQuirkFilterOff{
+    .allow_validated = false,
+    .allow_speculative = false,
+    .allow_lesson_only = false,
+};
+
+/// In-place: zero out (reset to default) every field in `q` whose
+/// meta tier is not allowed by `filter`. Numeric fields are reset to
+/// their default-constructed value (`logic_au_channel_probe_cap` →
+/// 64). Cheap defenses are not special-cased here — when their
+/// `Validated` tier is filtered out, they too are reset.
+///
+/// Idempotent + safe to call multiple times.
+void apply_filter(HostQuirks& q, QuirkFilter filter);
+
 /// Build a `HostQuirks` populated for the given host + version.
 ///
 /// Default-constructed `HostQuirks` already turns on the cheap
@@ -99,7 +236,26 @@ struct HostQuirks {
 /// version-keyed).
 HostQuirks make_quirks_for(HostType type, HostVersion version);
 
+/// Same as `make_quirks_for(...)` followed by
+/// `apply_filter(..., kQuirkFilterValidatedOnly)`. Convenience for
+/// plugin authors who want to opt out of every accommodation that
+/// hasn't been bench-validated yet — they get cheap defenses
+/// (currently `Validated`) and any future `Validated` host quirks,
+/// but no `Speculative` or `LessonOnly` rows.
+HostQuirks make_quirks_for_validated_only(HostType type, HostVersion version);
+
 /// Convenience: detect host + version, return the corresponding quirks.
+///
+/// Applies the default policy chosen at build time (CMake option
+/// `PULP_HOST_QUIRKS_DEFAULT_POLICY`):
+///
+///   * `all` (default) — every detected quirk fires regardless of tier.
+///   * `validated_only` — only `Validated` accommodations fire.
+///   * `off` — no accommodations fire (returns a filtered-empty struct).
+///
+/// Plugin authors can still override at runtime by ignoring this
+/// helper and constructing their own `HostQuirks` via
+/// `make_quirks_for(...)` + `apply_filter(...)`.
 HostQuirks detect_quirks();
 
 }  // namespace pulp::format
