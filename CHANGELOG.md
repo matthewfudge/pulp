@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02540"></a>
+## [0.254.0] - 2026-05-26
+
+- feat: DAW-bench harness package for graduating quirk tiers ([#2971](https://github.com/danielraffel/pulp/pull/2971))
+
 <a id="v02530"></a>
 ## [0.253.0] - 2026-05-26
 
@@ -2954,6 +2959,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.254.0]: https://github.com/danielraffel/pulp/releases/tag/v0.254.0
 [0.253.0]: https://github.com/danielraffel/pulp/releases/tag/v0.253.0
 [0.252.0]: https://github.com/danielraffel/pulp/releases/tag/v0.252.0
 [0.250.0]: https://github.com/danielraffel/pulp/releases/tag/v0.250.0
