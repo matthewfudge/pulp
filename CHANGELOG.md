@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02440"></a>
+## [0.244.0] - 2026-05-26
+
+- feat(cli): macOS notarize e2e + build --install gate + .pkg/.dmg orchestration (items 7.4 + 7.4b + 7.5) ([#2932](https://github.com/danielraffel/pulp/pull/2932))
+- feat(canvas): Bidi text shaping via SheenBidi (item 6.8) ([#2931](https://github.com/danielraffel/pulp/pull/2931))
+- feat(format/host-quirks): extract REAPER + Pro Tools per-host headers (items 5.8 + 5.9) ([#2930](https://github.com/danielraffel/pulp/pull/2930))
+
 <a id="v02430"></a>
 ## [0.243.0] - 2026-05-26
 
@@ -2888,6 +2895,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.244.0]: https://github.com/danielraffel/pulp/releases/tag/v0.244.0
 [0.243.0]: https://github.com/danielraffel/pulp/releases/tag/v0.243.0
 [0.242.0]: https://github.com/danielraffel/pulp/releases/tag/v0.242.0
 [0.241.0]: https://github.com/danielraffel/pulp/releases/tag/v0.241.0
