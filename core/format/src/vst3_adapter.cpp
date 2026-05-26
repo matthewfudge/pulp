@@ -109,6 +109,10 @@ tresult PLUGIN_API PulpVst3Processor::initialize(FUnknown* context) {
             step_count = 1;
             if (param.name == "Bypass") {
                 flags |= ParameterInfo::kIsBypass;
+                // Item 3.2 — remember which ParamID carries kIsBypass so
+                // process() can short-circuit to pass-through audio
+                // without invoking the Processor when the host sets it.
+                bypass_param_id_ = param.id;
             }
         }
 
@@ -377,6 +381,28 @@ tresult PLUGIN_API PulpVst3Processor::process(ProcessData& data) {
         const_cast<const float* const*>(sidechain_ptrs_.data()),
         sc_channels, num_samples);
     processor_->set_sidechain(sc_channels > 0 ? &sidechain_view : nullptr);
+
+    // Item 3.2 — VST3 `processBlockBypassed` behaviour. When the plugin
+    // declared a Bypass parameter (kIsBypass) and the current normalized
+    // value is >= 0.5, the adapter does the pass-through itself instead
+    // of asking the Processor. Effects copy main input → main output;
+    // instruments / generators zero-fill. MIDI output stays empty so a
+    // bypassed MIDI FX does not leak notes into the host bus. Matches
+    // every shipping DAW's expectation that a bypassed plugin is a wire.
+    if (bypass_param_id_ != 0 &&
+        store_.get_value(bypass_param_id_) >= 0.5f) {
+        for (int ch = 0; ch < out_channels; ++ch) {
+            if (ch < in_channels && input_ptrs_[ch] != nullptr) {
+                std::memcpy(output_ptrs_[ch], input_ptrs_[ch],
+                            sizeof(float) * num_samples);
+            } else {
+                std::memset(output_ptrs_[ch], 0,
+                            sizeof(float) * num_samples);
+            }
+        }
+        processor_->set_sidechain(nullptr);
+        return kResultOk;
+    }
 
     // Build MIDI buffers from VST3 events
     midi::MidiBuffer midi_in, midi_out;

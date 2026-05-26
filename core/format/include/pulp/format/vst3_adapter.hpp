@@ -63,6 +63,15 @@ public:
         return param_events_;
     }
 
+    /// Item 3.2 — bypass-wiring diagnostic. Returns the StateStore
+    /// ParamID the adapter routes VST3's `kIsBypass` parameter to
+    /// (`process()` short-circuits to pass-through when this parameter's
+    /// value is >= 0.5). Returns 0 when the plugin did not declare a
+    /// "Bypass" parameter; in that case the VST3 adapter does not
+    /// synthesize one (VST3 hosts that need a bypass automation lane
+    /// rely on the plugin declaring it). Used by item 3.2 tests.
+    state::ParamID bypass_parameter_id() const { return bypass_param_id_; }
+
     // IComponent (state)
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) override;
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) override;
@@ -85,6 +94,11 @@ private:
     // Parameter output: snapshot values before process to detect plugin-side changes
     std::vector<float> param_snapshot_;
     state::ParameterEventQueue param_events_;
+
+    // Item 3.2 — Cached parameter ID of the plugin-declared "Bypass"
+    // parameter (the one we tag with kIsBypass in initialize()). 0 when
+    // none — process() then never short-circuits.
+    state::ParamID bypass_param_id_ = 0;
 };
 
 } // namespace pulp::format::vst3

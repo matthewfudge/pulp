@@ -542,3 +542,243 @@ TEST_CASE("AU v3 setFullState ignores invalid plugin payload",
         [unit release];
     }
 }
+
+// ── Item 3.1 — AU v3 dual-tracked bypass ───────────────────────────────────
+//
+// Pins three contract points:
+//   * AUv3 init auto-detects a "Bypass" parameter and routes
+//     `shouldBypassEffect` / `setShouldBypassEffect:` to it.
+//   * `setShouldBypassEffect:` writes the plugin's StateStore param.
+//   * The render block short-circuits to pass-through audio when
+//     bypassed (in→out for effects), and never calls Processor::process.
+namespace {
+
+class TestAUBypassProcessor : public pulp::format::Processor {
+public:
+    TestAUBypassProcessor() { g_last = this; }
+
+    pulp::format::PluginDescriptor descriptor() const override {
+        return {
+            .name = "AUBypassEffectTest",
+            .manufacturer = "PulpTest",
+            .bundle_id = "com.pulp.test.au-bypass",
+            .version = "1.0.0",
+            .category = pulp::format::PluginCategory::Effect,
+            .input_buses = {{"Audio In", 2}},
+            .output_buses = {{"Audio Out", 2}},
+        };
+    }
+
+    void define_parameters(pulp::state::StateStore& store) override {
+        store.add_parameter({
+            .id = 7,
+            .name = "Gain",
+            .unit = "dB",
+            .range = {-60.0f, 24.0f, 0.0f, 0.1f},
+        });
+        store.add_parameter({
+            .id = 9,
+            .name = "Bypass",
+            .range = {0.0f, 1.0f, 0.0f, 1.0f},
+        });
+    }
+
+    void prepare(const pulp::format::PrepareContext&) override {}
+
+    void process(pulp::audio::BufferView<float>& out,
+                 const pulp::audio::BufferView<const float>& in,
+                 pulp::midi::MidiBuffer&,
+                 pulp::midi::MidiBuffer&,
+                 const pulp::format::ProcessContext&) override {
+        ++process_count;
+        // Fill output with a sentinel value so a buggy bypass path
+        // (one that called process() anyway) would be observable.
+        for (std::size_t ch = 0; ch < out.num_channels(); ++ch) {
+            float* dst = out.channel_ptr(ch);
+            for (std::size_t i = 0; i < out.num_samples(); ++i) {
+                dst[i] = -99.0f;
+            }
+        }
+        (void)in;
+    }
+
+    int process_count = 0;
+    static TestAUBypassProcessor* g_last;
+};
+
+TestAUBypassProcessor* TestAUBypassProcessor::g_last = nullptr;
+
+std::unique_ptr<pulp::format::Processor> create_bypass_processor() {
+    return std::make_unique<TestAUBypassProcessor>();
+}
+
+} // namespace
+
+TEST_CASE("AU v3 auto-detects plugin-declared Bypass parameter",
+          "[au][auv3][bypass][item-3.1]") {
+    @autoreleasepool {
+        AudioComponentDescription desc{};
+        desc.componentType = kAudioUnitType_Effect;
+        desc.componentSubType = 'TBpE';
+        desc.componentManufacturer = 'Plup';
+
+        ScopedFactoryRegistration registration(create_bypass_processor);
+
+        NSError* err = nil;
+        PulpAudioUnit* unit =
+            [[PulpAudioUnit alloc] initWithComponentDescription:desc
+                                                       options:0
+                                                         error:&err];
+        REQUIRE(unit != nil);
+        REQUIRE(err == nil);
+
+        // The Bypass parameter was registered with id 9 — assert the
+        // adapter routed shouldBypassEffect to it instead of falling
+        // back to the bridge-local atomic.
+        REQUIRE([unit pulpBypassParameterId] == 9u);
+        REQUIRE([unit shouldBypassEffect] == NO);
+
+        // Host writes through the AU surface — the StateStore parameter
+        // must update so plugin-side UI bindings stay coherent.
+        [unit setShouldBypassEffect:YES];
+        auto* processor = TestAUBypassProcessor::g_last;
+        REQUIRE(processor != nullptr);
+        REQUIRE_THAT(processor->state().get_value(9), WithinAbs(1.0f, 1e-6f));
+        REQUIRE([unit shouldBypassEffect] == YES);
+
+        // Plugin-side write reflects back to the AU surface.
+        processor->state().set_value(9, 0.0f);
+        REQUIRE([unit shouldBypassEffect] == NO);
+
+        [unit release];
+    }
+}
+
+TEST_CASE("AU v3 render block short-circuits to pass-through when bypassed",
+          "[au][auv3][bypass][item-3.1]") {
+    @autoreleasepool {
+        AudioComponentDescription desc{};
+        desc.componentType = kAudioUnitType_Effect;
+        desc.componentSubType = 'TBpE';
+        desc.componentManufacturer = 'Plup';
+
+        ScopedFactoryRegistration registration(create_bypass_processor);
+
+        NSError* err = nil;
+        PulpAudioUnit* unit =
+            [[PulpAudioUnit alloc] initWithComponentDescription:desc
+                                                       options:0
+                                                         error:&err];
+        REQUIRE(unit != nil);
+        REQUIRE(err == nil);
+
+        auto* processor = TestAUBypassProcessor::g_last;
+        REQUIRE(processor != nullptr);
+
+        NSError* allocate_error = nil;
+        REQUIRE([unit allocateRenderResourcesAndReturnError:&allocate_error]);
+        REQUIRE(allocate_error == nil);
+
+        constexpr UInt32 kFrames = 4;
+        float left[kFrames] = {1.0f, 2.0f, 3.0f, 4.0f};
+        float right[kFrames] = {5.0f, 6.0f, 7.0f, 8.0f};
+        struct StereoBufferList {
+            AudioBufferList list;
+            AudioBuffer extra[1];
+        } output{};
+        output.list.mNumberBuffers = 2;
+        output.list.mBuffers[0].mNumberChannels = 1;
+        output.list.mBuffers[0].mDataByteSize = kFrames * sizeof(float);
+        output.list.mBuffers[0].mData = left;
+        output.list.mBuffers[1].mNumberChannels = 1;
+        output.list.mBuffers[1].mDataByteSize = kFrames * sizeof(float);
+        output.list.mBuffers[1].mData = right;
+
+        // Pull block returns simple input so the bypass copy has
+        // something concrete to assert against.
+        AURenderPullInputBlock pull = ^AUAudioUnitStatus(
+            AudioUnitRenderActionFlags* /*pullFlags*/,
+            const AudioTimeStamp* /*ts*/,
+            AUAudioFrameCount /*nframes*/,
+            NSInteger /*busNumber*/,
+            AudioBufferList* inputData) {
+            // Fill each pulled channel with a per-channel sentinel.
+            for (UInt32 b = 0; b < inputData->mNumberBuffers; ++b) {
+                float* ptr = static_cast<float*>(inputData->mBuffers[b].mData);
+                const UInt32 n = inputData->mBuffers[b].mDataByteSize / sizeof(float);
+                for (UInt32 i = 0; i < n; ++i) {
+                    ptr[i] = static_cast<float>(10 + b);
+                }
+            }
+            return noErr;
+        };
+
+        AudioUnitRenderActionFlags flags = 0;
+        AudioTimeStamp timestamp{};
+        timestamp.mFlags = kAudioTimeStampSampleTimeValid;
+        timestamp.mSampleTime = 0;
+
+        AUInternalRenderBlock block = [unit internalRenderBlock];
+        REQUIRE(block != nil);
+
+        // Bypass on.
+        [unit setShouldBypassEffect:YES];
+        const int before = processor->process_count;
+        auto status = block(&flags, &timestamp, kFrames, 0,
+                            &output.list, nullptr, pull);
+        REQUIRE(status == noErr);
+        // Processor::process must NOT have been called when bypassed.
+        REQUIRE(processor->process_count == before);
+        // Output channels must hold the pulled input verbatim (10.0 on
+        // channel 0, 11.0 on channel 1) — confirms in→out pass-through,
+        // not the -99.0 sentinel the processor would have written.
+        for (UInt32 i = 0; i < kFrames; ++i) {
+            REQUIRE_THAT(left[i],  WithinAbs(10.0f, 1e-6f));
+            REQUIRE_THAT(right[i], WithinAbs(11.0f, 1e-6f));
+        }
+
+        // Bypass off — the processor must run and stamp its sentinel.
+        [unit setShouldBypassEffect:NO];
+        status = block(&flags, &timestamp, kFrames, 0,
+                       &output.list, nullptr, pull);
+        REQUIRE(status == noErr);
+        REQUIRE(processor->process_count == before + 1);
+        REQUIRE_THAT(left[0],  WithinAbs(-99.0f, 1e-6f));
+        REQUIRE_THAT(right[0], WithinAbs(-99.0f, 1e-6f));
+
+        [unit deallocateRenderResources];
+        [unit release];
+    }
+}
+
+TEST_CASE("AU v3 without a Bypass parameter still honours setShouldBypassEffect",
+          "[au][auv3][bypass][item-3.1]") {
+    @autoreleasepool {
+        AudioComponentDescription desc{};
+        desc.componentType = kAudioUnitType_Effect;
+        desc.componentSubType = 'TstE';
+        desc.componentManufacturer = 'Plup';
+
+        // Use the existing effect processor — it has no Bypass param.
+        ScopedFactoryRegistration registration(create_effect_processor);
+
+        NSError* err = nil;
+        PulpAudioUnit* unit =
+            [[PulpAudioUnit alloc] initWithComponentDescription:desc
+                                                       options:0
+                                                         error:&err];
+        REQUIRE(unit != nil);
+        REQUIRE(err == nil);
+
+        // No Bypass parameter — the bridge falls back to its atomic.
+        REQUIRE([unit pulpBypassParameterId] == 0u);
+        REQUIRE([unit shouldBypassEffect] == NO);
+
+        [unit setShouldBypassEffect:YES];
+        REQUIRE([unit shouldBypassEffect] == YES);
+        [unit setShouldBypassEffect:NO];
+        REQUIRE([unit shouldBypassEffect] == NO);
+
+        [unit release];
+    }
+}

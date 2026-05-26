@@ -689,3 +689,121 @@ TEST_CASE("VST3 getState/setState fail cleanly without a live processor",
         REQUIRE(processor.setState(&in_stream) == Steinberg::kResultFalse);
     }
 }
+
+// ── Item 3.2 — VST3 processBlockBypassed pass-through ──────────────────────
+//
+// Pins three contract points:
+//   * initialize() caches the StateStore ParamID of the "Bypass"
+//     parameter (visible via bypass_parameter_id()).
+//   * When the host sets that parameter to >= 0.5 (denormalized) before
+//     process(), the adapter short-circuits to in→out copy and does NOT
+//     call Processor::process().
+//   * Plugins without a Bypass parameter never see the short-circuit
+//     (the adapter doesn't synthesize one — that's a per-plugin opt-in).
+
+TEST_CASE("VST3 processBlockBypassed copies input to output without calling Processor::process",
+          "[vst3][bypass][item-3.2]") {
+    TestVst3Config config;
+    config.add_bypass_param = true;
+    reset_test_processor(config);
+
+    HostApp host_app;
+    pulp::format::vst3::PulpVst3Processor processor(create_test_processor);
+    REQUIRE(processor.initialize(&host_app) == Steinberg::kResultOk);
+    auto* test_processor = TestVst3Processor::g_last_processor;
+    REQUIRE(test_processor != nullptr);
+
+    // The adapter should have noticed the Bypass parameter and routed
+    // its kIsBypass surface to it.
+    REQUIRE(processor.bypass_parameter_id() == kBypassParamId);
+
+    Steinberg::Vst::SpeakerArrangement inputs[1]  = {SpeakerArr::kStereo};
+    Steinberg::Vst::SpeakerArrangement outputs[1] = {SpeakerArr::kStereo};
+    REQUIRE(processor.setBusArrangements(inputs, 1, outputs, 1) ==
+            Steinberg::kResultTrue);
+
+    Steinberg::Vst::ProcessSetup setup{};
+    setup.processMode = Steinberg::Vst::kRealtime;
+    setup.symbolicSampleSize = Steinberg::Vst::kSample32;
+    setup.maxSamplesPerBlock = 4;
+    setup.sampleRate = 48000.0;
+    REQUIRE(processor.setupProcessing(setup) == Steinberg::kResultOk);
+
+    constexpr int kFrames = 4;
+    std::array<float, kFrames> in_l{{0.1f, 0.2f, 0.3f, 0.4f}};
+    std::array<float, kFrames> in_r{{-0.1f, -0.2f, -0.3f, -0.4f}};
+    std::array<float, kFrames> out_l{};
+    std::array<float, kFrames> out_r{};
+    out_l.fill(99.0f); // sentinel — must be overwritten by pass-through copy
+    out_r.fill(99.0f);
+
+    float* main_inputs[2]  = {in_l.data(), in_r.data()};
+    float* main_outputs[2] = {out_l.data(), out_r.data()};
+
+    Steinberg::Vst::AudioBusBuffers audio_inputs[1]{};
+    audio_inputs[0].numChannels = 2;
+    audio_inputs[0].channelBuffers32 = main_inputs;
+    Steinberg::Vst::AudioBusBuffers audio_outputs[1]{};
+    audio_outputs[0].numChannels = 2;
+    audio_outputs[0].channelBuffers32 = main_outputs;
+
+    // Engage bypass via an input parameter change at sample 0.
+    // VST3 hosts deliver bypass via the kIsBypass parameter on the
+    // normalized lane (0..1).
+    Steinberg::Vst::ParameterChanges input_params(1);
+    Steinberg::int32 q_index = 0;
+    auto* bypass_queue = input_params.addParameterData(kBypassParamId, q_index);
+    REQUIRE(bypass_queue != nullptr);
+    Steinberg::int32 pt_index = 0;
+    REQUIRE(bypass_queue->addPoint(0, 1.0, pt_index) == Steinberg::kResultTrue);
+
+    Steinberg::Vst::ProcessData data{};
+    data.numSamples = kFrames;
+    data.numInputs = 1;
+    data.numOutputs = 1;
+    data.inputs = audio_inputs;
+    data.outputs = audio_outputs;
+    data.inputParameterChanges = &input_params;
+
+    const int before = test_processor->process_count;
+    REQUIRE(processor.process(data) == Steinberg::kResultOk);
+
+    // Pass-through must have copied input → output verbatim.
+    for (int i = 0; i < kFrames; ++i) {
+        REQUIRE_THAT(out_l[i], WithinAbs(in_l[i], 1e-6f));
+        REQUIRE_THAT(out_r[i], WithinAbs(in_r[i], 1e-6f));
+    }
+    // The Processor must NOT have been called.
+    REQUIRE(test_processor->process_count == before);
+
+    // Releasing bypass restores the normal process() path. Reset
+    // outputs and run again with bypass = 0.
+    out_l.fill(99.0f);
+    out_r.fill(99.0f);
+    Steinberg::Vst::ParameterChanges release_params(1);
+    auto* release_queue = release_params.addParameterData(kBypassParamId, q_index);
+    REQUIRE(release_queue != nullptr);
+    pt_index = 0;
+    REQUIRE(release_queue->addPoint(0, 0.0, pt_index) == Steinberg::kResultTrue);
+    data.inputParameterChanges = &release_params;
+
+    REQUIRE(processor.process(data) == Steinberg::kResultOk);
+    REQUIRE(test_processor->process_count == before + 1);
+    // TestVst3Processor::process copies input → output, so out should
+    // also match in — but importantly, the Processor::process counter
+    // moved.
+}
+
+TEST_CASE("VST3 adapter without a Bypass parameter never short-circuits",
+          "[vst3][bypass][item-3.2]") {
+    TestVst3Config config; // add_bypass_param defaults to false
+    reset_test_processor(config);
+
+    HostApp host_app;
+    pulp::format::vst3::PulpVst3Processor processor(create_test_processor);
+    REQUIRE(processor.initialize(&host_app) == Steinberg::kResultOk);
+
+    // No "Bypass" parameter declared by the plugin — the adapter should
+    // report the no-op sentinel ID 0 so process() never short-circuits.
+    REQUIRE(processor.bypass_parameter_id() == 0u);
+}
