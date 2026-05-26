@@ -357,6 +357,28 @@ FetchContent_MakeAvailable(mbedtls)
 set(PULP_HAS_MBEDTLS TRUE)
 message(STATUS "Pulp: Mbed TLS crypto library enabled")
 
+# SheenBidi (Apache-2.0) — Unicode Bidirectional Algorithm implementation.
+# Item 6.8 of the 2026-05-24 macOS plugin-authoring plan. Adds a Pulp-owned
+# bidi engine independent of system ICU; consumed by
+# core/canvas::BidiAnalyzer to derive paragraph-level bidi runs for
+# Arabic / Hebrew shaping in non-Skia / non-ICU builds (iOS, headless,
+# minimal-toolchain hosts). The Skia-linked path in text_run_planner.cpp
+# continues to prefer SkShaper's ICU iterators when available; SheenBidi
+# is the canonical fallback and the always-available unit-test surface.
+pulp_register_fetchcontent_source(SheenBidi REF v3.0.0)
+set(SB_CONFIG_UNITY ON CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BUILD_GENERATOR OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    SheenBidi
+    GIT_REPOSITORY https://github.com/Tehreer/SheenBidi.git
+    GIT_TAG c0aa79da5b5ff44bd2cbd9ce92963f81e4de6b1e  # v3.0.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(SheenBidi)
+set(PULP_HAS_SHEENBIDI TRUE)
+message(STATUS "Pulp: SheenBidi bidi engine enabled (v3.0.0)")
+
 # yaml-cpp (MIT license) — YAML parser used by the DESIGN.md import pipeline
 # Note: yaml-cpp 0.8.0's CMakeLists declares cmake_minimum_required(3.4),
 # which CMake 4.x refuses. Set CMAKE_POLICY_VERSION_MINIMUM in the

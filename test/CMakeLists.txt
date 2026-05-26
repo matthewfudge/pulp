@@ -1035,6 +1035,14 @@ pulp_add_test_suite(pulp-test-parameter-event-queue LIBRARIES pulp::host)
 # TextShaper (PreText-style measure-once-reflow-forever)
 pulp_add_test_suite(pulp-test-text-shaper LIBRARIES pulp::canvas)
 
+# Item 6.8 / 2026-05-24 macOS plugin-authoring plan — SheenBidi-backed
+# BidiAnalyzer + TextRunPlanner non-ICU fallback. Exercises pure-Arabic,
+# pure-Hebrew, and mixed Latin+Arabic/Hebrew strings. Each TEST_CASE
+# gates RTL-specific assertions on BidiAnalyzer::has_sheenbidi() so the
+# suite still passes on reduced-deps configs that compile the
+# pass-through stub.
+pulp_add_test_suite(pulp-test-bidi-text LIBRARIES pulp::canvas)
+
 # pulp #2163 / font v2 Slice 2.7 — FontScope memory-budget eviction.
 pulp_add_test_suite(pulp-test-font-scope-budget LIBRARIES pulp::canvas)
 
