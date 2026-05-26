@@ -77,9 +77,8 @@ public:
     const EmbeddedBounds& bounds() const { return bounds_; }
 
 private:
-    inline static int window_sentinel_;
-    inline static int content_sentinel_;
-
+    int window_sentinel_ = 0;
+    int content_sentinel_ = 0;
     void* window_handle_ = &window_sentinel_;
     void* content_handle_ = &content_sentinel_;
     void* child_ = nullptr;
@@ -133,8 +132,7 @@ public:
     const EmbeddedBounds& bounds() const { return bounds_; }
 
 private:
-    inline static int host_sentinel_;
-
+    int host_sentinel_ = 0;
     NativeViewHandle host_handle_ = &host_sentinel_;
     NativeViewHandle parent_ = nullptr;
     NativeViewHandle child_ = nullptr;

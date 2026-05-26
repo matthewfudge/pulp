@@ -772,9 +772,10 @@ static void install_app_menu(NSString* appName) {
                     // Do not capture or dereference `self` from this block:
                     // this file is compiled MRC, and hidden test windows can be
                     // torn down before AppKit drains every main-queue callback.
-                    // The copied handlers have their own WidgetBridge /
-                    // ScriptEngine liveness guards, and mouseUp already marks
-                    // the view dirty immediately after scheduling the block.
+                    // The copied handlers must keep their own WidgetBridge /
+                    // ScriptEngine liveness guards; this block intentionally
+                    // owns only the teardown token, and mouseUp already marks
+                    // the view dirty immediately after scheduling it.
                     std::shared_ptr<std::atomic<bool>> aliveToken = _deferredClickAlive;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         // Defused after teardown: do not invoke handlers whose

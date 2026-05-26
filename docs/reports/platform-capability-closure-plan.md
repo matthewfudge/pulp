@@ -514,10 +514,15 @@ Native-window local validation:
   `InspectorWindow::show()` null-host guard is covered locally through the
   inspector host-factory override; hosted Codecov remains the final PR-side
   coverage gate after the final push.
-- Claude review reported no correctness blockers. RepoPrompt review found a
-  null-host crash in `InspectorWindow::show()`, an overstrict live WebView
-  attach assertion, and a silent plugin-example WebView-backend failure path;
-  all three were fixed and the focused build/test/docs checks were rerun.
+- Claude review on the `2d8f004a` rebase reported no P0/P1/P2 correctness
+  blockers. Two non-blocking hardening notes were addressed before final push:
+  the mac deferred-click handler invariant is documented in code, and native
+  child test fake handles are per-instance instead of static sentinels. Focused
+  `pulp-test-view-host-bridge` build and direct test reran after those changes.
+  Earlier RepoPrompt review found a null-host crash in
+  `InspectorWindow::show()`, an overstrict live WebView attach assertion, and a
+  silent plugin-example WebView-backend failure path; all three were fixed and
+  the focused build/test/docs checks were rerun.
 - SSH-backed Windows/Ubuntu testing is intentionally out of scope for this
   focused closure pass; rely on GitHub-hosted platform checks after PR
   submission.
