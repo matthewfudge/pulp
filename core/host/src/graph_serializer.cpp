@@ -388,6 +388,8 @@ std::string GraphSerializer::to_json(
         co.addMember("midi",        c.midi);
         co.addMember("automation",  c.automation);
         co.addMember("audio_rate_modulation", c.audio_rate_modulation);
+        // Item 4.7 — sidechain flag is additive; absent in older blobs.
+        co.addMember("sidechain",   c.sidechain);
         if (c.automation || c.audio_rate_modulation) {
             co.addMember("auto_param_id",  (int64_t)c.automation_param_id);
             co.addMember("auto_range_lo",  (double)c.automation_range_lo);
@@ -543,6 +545,9 @@ GraphSerializer::LoadResult GraphSerializer::from_json(SignalGraph& graph, const
             const bool ar   = cv.hasObjectMember("audio_rate_modulation")
                 ? cv["audio_rate_modulation"].getBool()
                 : false;
+            const bool sc   = cv.hasObjectMember("sidechain")
+                ? cv["sidechain"].getBool()
+                : false;
             if (ar) {
                 graph.connect_audio_rate_modulation(
                     src, sp, dst,
@@ -563,6 +568,8 @@ GraphSerializer::LoadResult GraphSerializer::from_json(SignalGraph& graph, const
                 graph.connect_feedback(src, sp, dst, dp);
             } else if (md) {
                 graph.connect_midi(src, dst);
+            } else if (sc) {
+                graph.connect_sidechain(src, sp, dst, dp);
             } else {
                 graph.connect(src, sp, dst, dp);
             }

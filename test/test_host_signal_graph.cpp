@@ -1568,4 +1568,294 @@ TEST_CASE("SignalGraph audio-rate modulation fails closed when event capacity is
                                 static_cast<int>(ParameterEventQueue::kCapacity + 1)));
 }
 
+// ── Item 4.6 automation smoothing ──────────────────────────────────────
+
+TEST_CASE("SignalGraph automation smoothing slews step input over the declared time",
+          "[host][graph][automation][smoothing]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto slot = std::make_unique<MockAutomatable>();
+    auto* slot_ptr = slot.get();
+    auto plug = graph.add_plugin_node(std::move(slot), 0, 1, "auto");
+
+    // 100 ms slew across a [0, 1] range at 48 kHz = 4800 samples to
+    // traverse the full range. A 32-sample block can move at most
+    // 32 / 4800 = 0.00667 per block, so a step from 0 → 1 takes many
+    // blocks to land.
+    const double sr = 48000.0;
+    const int block = 32;
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f,
+        100.0f /*ms*/, AutomationMix::Replace));
+    REQUIRE(graph.prepare(sr, block));
+
+    std::vector<float> in_buf(block, 1.0f);  // step to 1 immediately
+    std::vector<float> out_buf(block, 0.0f);
+    const float* in_ptrs[1] = {in_buf.data()};
+    float* out_ptrs[1] = {out_buf.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 1, block);
+    pulp::audio::BufferView<float> ov(out_ptrs, 1, block);
+
+    // Block 0: first block primes to source value (snap on first
+    // encounter), so v0 = 1.0 here. We assert that on the SECOND
+    // block — which represents a *new* step away from the previous
+    // post-slew value — the slew limits how far we can move.
+    graph.process(ov, iv, block);
+    REQUIRE(slot_ptr->received().size() == 2);
+
+    // Now step the source back to 0.0. The slew rate caps the per-
+    // sample delta at ~1/4800 ≈ 0.000208, so over `last = 31` samples
+    // we can only move ~0.00646 from the previous 1.0 — meaning vN
+    // should sit near 0.9935, NOT 0.0.
+    std::fill(in_buf.begin(), in_buf.end(), 0.0f);
+    graph.process(ov, iv, block);
+
+    const auto& events = slot_ptr->received();
+    REQUIRE(events.size() == 4);
+    // Event indexes 2 (v0) and 3 (vN) come from block 1.
+    // v0 was forced down by one sample of slew from 1.0 (≈ 0.999792).
+    REQUIRE(events[2].sample_offset == 0);
+    REQUIRE(events[2].value < 1.0f);  // moved down
+    REQUIRE(events[2].value > 0.95f); // but only by one sample's slew
+
+    // vN should still be near 1.0 (we can only move 31 samples-worth
+    // toward 0 in this block — far short of reaching it).
+    REQUIRE(events[3].sample_offset == block - 1);
+    REQUIRE(events[3].value > 0.99f);  // still far from 0
+    REQUIRE(events[3].value < events[2].value); // monotonically decreasing
+}
+
+TEST_CASE("SignalGraph automation smoothing is bypassed when smoothing_ms == 0",
+          "[host][graph][automation][smoothing]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto slot = std::make_unique<MockAutomatable>();
+    auto* slot_ptr = slot.get();
+    auto plug = graph.add_plugin_node(std::move(slot), 0, 1, "auto");
+
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f,
+        0.0f, AutomationMix::Replace));
+    REQUIRE(graph.prepare(48000.0, 8));
+
+    // Step from 0 to 1 in one block — without smoothing, vN should
+    // land at exactly 1.0.
+    std::vector<float> in_buf(8, 0.0f);
+    in_buf[0] = 0.0f;
+    in_buf[7] = 1.0f;
+    std::vector<float> out_buf(8, 0.0f);
+    const float* in_ptrs[1] = {in_buf.data()};
+    float* out_ptrs[1] = {out_buf.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 1, 8);
+    pulp::audio::BufferView<float> ov(out_ptrs, 1, 8);
+
+    graph.process(ov, iv, 8);
+
+    const auto& events = slot_ptr->received();
+    REQUIRE(events.size() == 2);
+    REQUIRE(events[0].value == 0.0f);
+    REQUIRE(events[1].value == 1.0f);  // step delivered with no slew
+}
+
+TEST_CASE("SignalGraph automation smoothing eventually reaches the target",
+          "[host][graph][automation][smoothing]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto slot = std::make_unique<MockAutomatable>();
+    auto* slot_ptr = slot.get();
+    auto plug = graph.add_plugin_node(std::move(slot), 0, 1, "auto");
+
+    // 10 ms slew over [0,1] at 48 kHz = 480 samples. With a 64-sample
+    // block, the source rises by ~0.133 per block. ~8 blocks to land.
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, MockAutomatable::kParamId, 0.0f, 1.0f,
+        10.0f, AutomationMix::Replace));
+    REQUIRE(graph.prepare(48000.0, 64));
+
+    std::vector<float> in_buf(64, 1.0f);
+    std::vector<float> out_buf(64, 0.0f);
+    const float* in_ptrs[1] = {in_buf.data()};
+    float* out_ptrs[1] = {out_buf.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 1, 64);
+    pulp::audio::BufferView<float> ov(out_ptrs, 1, 64);
+
+    // Block 0 primes to source value (snap) per the documented contract.
+    // After that, every step from 0 → 1 has to slew — but here the
+    // source is held at 1.0 continuously, so we should reach the target
+    // exactly in block 0 (snap-on-prime).
+    graph.process(ov, iv, 64);
+    REQUIRE_THAT(slot_ptr->received().back().value, WithinAbs(1.0f, 1e-6f));
+
+    // Now step the source back to 0 and watch the slew take ~8 blocks
+    // to reach it. We assert the value monotonically decreases and
+    // eventually crosses below epsilon.
+    std::fill(in_buf.begin(), in_buf.end(), 0.0f);
+    float last_value = 1.0f;
+    bool reached = false;
+    for (int b = 0; b < 32; ++b) {
+        graph.process(ov, iv, 64);
+        const float v = slot_ptr->received().back().value;
+        REQUIRE(v <= last_value + 1e-6f);  // non-increasing
+        last_value = v;
+        if (v < 1e-3f) { reached = true; break; }
+    }
+    REQUIRE(reached);
+}
+
+// ── Item 4.7 sidechain routing ────────────────────────────────────────
+
+namespace {
+// A simple "compressor": passes main input through unchanged, but copies
+// the average of its sidechain inputs into a public field so the test
+// can observe what arrived on the sidechain bus.
+class SidechainCompressor final : public PluginSlot {
+public:
+    int main_inputs = 2;
+    float last_sidechain_value = 0.0f;
+    int last_sidechain_count = 0;
+
+    const PluginInfo& info() const override { return info_; }
+    bool is_loaded() const override { return true; }
+    bool prepare(double, int) override { return true; }
+    void release() override {}
+    void process(pulp::audio::BufferView<float>& out,
+                 const pulp::audio::BufferView<const float>& in,
+                 const pulp::midi::MidiBuffer&, pulp::midi::MidiBuffer&,
+                 const pulp::host::ParameterEventQueue&,
+                 int n) override {
+        const int nc_in = static_cast<int>(in.num_channels());
+        const int nc_out = static_cast<int>(out.num_channels());
+
+        // Main input → main output (port-for-port).
+        for (int c = 0; c < std::min(main_inputs, nc_out); ++c) {
+            const float* s = c < nc_in ? in.channel_ptr(c) : nullptr;
+            float* d = out.channel_ptr(c);
+            for (int i = 0; i < n; ++i) d[i] = s ? s[i] : 0.f;
+        }
+
+        // Average everything beyond the main bus and stash it.
+        float accum = 0.f;
+        int count = 0;
+        for (int c = main_inputs; c < nc_in; ++c) {
+            const float* s = in.channel_ptr(c);
+            for (int i = 0; i < n; ++i) {
+                accum += s[i];
+                ++count;
+            }
+        }
+        last_sidechain_value = count > 0 ? accum / (float)count : 0.f;
+        last_sidechain_count = count;
+    }
+    std::vector<HostParamInfo> parameters() const override { return {}; }
+    float get_parameter(uint32_t) const override { return 0.f; }
+    void set_parameter(uint32_t, float) override {}
+    void set_bypass(bool) override {}
+    bool is_bypassed() const override { return false; }
+    std::vector<uint8_t> save_state() const override { return {}; }
+    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    bool has_editor() const override { return false; }
+    void* create_editor_view() override { return nullptr; }
+    void destroy_editor_view() override {}
+    int latency_samples() const override { return 0; }
+    int tail_samples() const override { return 0; }
+private:
+    PluginInfo info_ = make_plugin_info("Compressor", 4, 2);
+};
+} // namespace
+
+TEST_CASE("SignalGraph connect_sidechain tags the edge and routes to the named port",
+          "[host][graph][sidechain]") {
+    // Layout: kick (2 channels) — port 0 drives the compressor's main
+    // input, port 1 drives the compressor's sidechain. The compressor
+    // declares 2 input ports: 0 = main, 1 = sidechain.
+    //
+    // We use a single 2-channel AudioInput node because the graph
+    // dispatches `input[c]` into each AudioInput node's port `c`; using
+    // two 1-port AudioInput nodes would make both nodes see input[0],
+    // which collapses the test signal.
+    SignalGraph graph;
+    auto src = graph.add_input_node(2, "src");
+    auto comp_slot = std::make_unique<SidechainCompressor>();
+    comp_slot->main_inputs = 1;  // port 0 = main; port 1 = sidechain
+    auto* comp_ptr = comp_slot.get();
+    auto comp = graph.add_plugin_node(std::move(comp_slot), 2, 2, "compressor");
+    auto out = graph.add_output_node(2, "out");
+
+    REQUIRE(graph.connect(src, 0, comp, 0));            // main from input[0]
+    REQUIRE(graph.connect_sidechain(src, 1, comp, 1));  // sidechain from input[1]
+    REQUIRE(graph.connect(comp, 0, out, 0));
+    REQUIRE(graph.connect(comp, 1, out, 1));
+
+    // The sidechain edge should be present and tagged.
+    int sidechain_edges = 0;
+    for (const auto& c : graph.connections()) {
+        if (c.sidechain) ++sidechain_edges;
+    }
+    REQUIRE(sidechain_edges == 1);
+
+    REQUIRE(graph.prepare(48000.0, 16));
+
+    // input[0] = main signal (0.2), input[1] = kick (0.8).
+    std::vector<float> in_sig(16, 0.2f);
+    std::vector<float> in_kick(16, 0.8f);
+    std::vector<float> out_l(16, 0.f), out_r(16, 0.f);
+    const float* in_ptrs[2] = {in_sig.data(), in_kick.data()};
+    float* out_ptrs[2] = {out_l.data(), out_r.data()};
+    pulp::audio::BufferView<const float> iv(in_ptrs, 2, 16);
+    pulp::audio::BufferView<float> ov(out_ptrs, 2, 16);
+
+    graph.process(ov, iv, 16);
+
+    // Sidechain saw 16 frames of 0.8 → mean 0.8.
+    REQUIRE_THAT(comp_ptr->last_sidechain_value, WithinAbs(0.8f, 1e-6f));
+    REQUIRE(comp_ptr->last_sidechain_count == 16);
+
+    // Main signal pass-through delivered 0.2 to out[0]; out[1] stays at
+    // zero (plugin's port-2 output was untouched by the test fixture).
+    for (int i = 0; i < 16; ++i) {
+        REQUIRE_THAT(out_l[i], WithinAbs(0.2f, 1e-6f));
+        REQUIRE_THAT(out_r[i], WithinAbs(0.0f, 1e-6f));
+    }
+    graph.release();
+}
+
+TEST_CASE("SignalGraph connect_sidechain rejects non-Plugin destinations and bad ports",
+          "[host][graph][sidechain]") {
+    SignalGraph graph;
+    auto kick = graph.add_input_node(1, "kick");
+    auto gain = graph.add_gain_node("gain");
+    auto comp = graph.add_plugin_node(std::make_unique<SidechainCompressor>(),
+                                      4, 2, "comp");
+
+    // Non-Plugin destination: reject.
+    REQUIRE_FALSE(graph.connect_sidechain(kick, 0, gain, 0));
+    // Source port out of range: reject.
+    REQUIRE_FALSE(graph.connect_sidechain(kick, 4, comp, 2));
+    // Dest port out of range: reject.
+    REQUIRE_FALSE(graph.connect_sidechain(kick, 0, comp, 99));
+    // Unknown nodes: reject.
+    REQUIRE_FALSE(graph.connect_sidechain(999, 0, comp, 2));
+    REQUIRE_FALSE(graph.connect_sidechain(kick, 0, 999, 2));
+    REQUIRE(graph.connections().empty());
+
+    // Valid edge accepted; duplicate then rejected.
+    REQUIRE(graph.connect_sidechain(kick, 0, comp, 2));
+    REQUIRE_FALSE(graph.connect_sidechain(kick, 0, comp, 2));
+    REQUIRE(graph.connections().size() == 1);
+}
+
+TEST_CASE("SignalGraph sidechain edges participate in cycle detection",
+          "[host][graph][sidechain]") {
+    // comp -> follow (audio), follow -> comp.sidechain would close a cycle.
+    SignalGraph graph;
+    auto comp = graph.add_plugin_node(std::make_unique<SidechainCompressor>(),
+                                      3, 2, "comp");  // ports 0=main, 1,2=sidechain
+    auto follow = graph.add_plugin_node(std::make_unique<SidechainCompressor>(),
+                                        2, 2, "follow");
+
+    REQUIRE(graph.connect(comp, 0, follow, 0));
+    // Back-edge via sidechain would cycle — must be rejected.
+    REQUIRE_FALSE(graph.connect_sidechain(follow, 0, comp, 1));
+}
+
 // ── Phase 3 GraphSerializer round-trip ──────────────────────────────────

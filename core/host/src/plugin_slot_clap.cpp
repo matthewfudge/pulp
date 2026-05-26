@@ -393,6 +393,21 @@ public:
         return (int)ext->get(plugin_);
     }
 
+    // Item 4.5 — typed plugin introspection. Surface the underlying
+    // `const clap_plugin_t*` and host struct so callers can reach into
+    // CLAP-specific extensions without round-tripping through `void*`.
+    void accept(ExtensionsVisitor& visitor) const override {
+        ClapExtension ext;
+        ext.plugin = const_cast<clap_plugin_t*>(plugin_);
+        ext.host = const_cast<clap_host_t*>(&host_);
+        if (plugin_ && plugin_->desc && plugin_->desc->id) {
+            ext.plugin_id = plugin_->desc->id;
+        } else {
+            ext.plugin_id = info_.unique_id;
+        }
+        visitor.visit_clap(*this, ext);
+    }
+
 private:
     static const void* CLAP_ABI host_get_extension(const clap_host_t*, const char*) { return nullptr; }
     static void CLAP_ABI host_request_noop(const clap_host_t*) {}
