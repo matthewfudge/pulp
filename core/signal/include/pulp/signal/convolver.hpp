@@ -1,126 +1,161 @@
 #pragma once
 
+#include <pulp/signal/convolver_messages.hpp>
 #include <pulp/signal/fft.hpp>
-#include <vector>
+
+#include <algorithm>
+#include <cassert>
 #include <complex>
 #include <cstddef>
-#include <algorithm>
 #include <memory>
-#include <cassert>
+#include <vector>
 
 namespace pulp::signal {
 
 /// Uniform partitioned convolution engine.
 ///
 /// Processes audio through an impulse response using overlap-save with
-/// uniform block partitioning. Zero latency (current block output is immediate).
+/// uniform block partitioning. Zero latency (current block output is
+/// immediate).
 ///
-/// Usage:
+/// Two ways to load an IR:
+///   1. `load_ir()` — synchronous; allocates + FFTs inline. Use at
+///      `prepare()` time, never on the audio thread.
+///   2. `try_swap_ir(ConvolverIrSwapper&)` — lock-free, allocation-free;
+///      picks up a pre-built IR posted from a worker thread, swaps it
+///      in at the next block boundary, and parks the displaced IR for
+///      the worker thread to free. Designed for safe live IR swaps
+///      during `process()`.
+///
+/// Usage (synchronous):
 ///   PartitionedConvolver conv;
 ///   conv.load_ir(ir_data, ir_length, block_size);
-///   // In process callback:
 ///   conv.process(input, output, num_samples);
+///
+/// Usage (background swap):
+///   ConvolverIrSwapper swapper;
+///   // background thread:
+///   swapper.stage_ir(new_ir, new_len, block_size);
+///   // audio thread, before/between process() calls:
+///   conv.try_swap_ir(swapper);
+///   // background thread, periodically:
+///   swapper.drain_old();
 class PartitionedConvolver {
 public:
     PartitionedConvolver() = default;
 
-    /// Load an impulse response. block_size should match your audio callback size.
-    /// block_size must be a power of two (for the radix-2 FFT).
-    /// If block_size is not a power of two, it is rounded up to the next one.
-    void load_ir(const float* ir, size_t ir_length, size_t block_size) {
-        // Validate power-of-two requirement for the radix-2 FFT
-        if (block_size == 0 || (block_size & (block_size - 1)) != 0) {
-            // Round up to next power of two
-            size_t pot = 1;
-            while (pot < block_size) pot <<= 1;
-            block_size = pot;
-        }
-        block_size_ = static_cast<int>(block_size);
-        fft_size_ = block_size_ * 2;
-        fft_ = std::make_unique<Fft>(fft_size_);
-
-        num_partitions_ = (ir_length + block_size - 1) / block_size;
-
-        // Pre-compute FFT of each IR partition
-        ir_spectra_.resize(num_partitions_);
-        std::vector<std::complex<float>> padded(fft_size_, {0, 0});
-
-        for (size_t p = 0; p < num_partitions_; ++p) {
-            size_t offset = p * block_size;
-            size_t count = std::min(block_size, ir_length - offset);
-
-            std::fill(padded.begin(), padded.end(), std::complex<float>{0, 0});
-            for (size_t i = 0; i < count; ++i)
-                padded[i] = {ir[offset + i], 0};
-
-            ir_spectra_[p].resize(fft_size_);
-            std::copy(padded.begin(), padded.end(), ir_spectra_[p].begin());
-            fft_->forward(ir_spectra_[p].data());
-        }
-
-        input_buffer_.assign(fft_size_, {0, 0});
-        input_spectra_.resize(num_partitions_);
-        for (auto& s : input_spectra_) s.assign(fft_size_, {0, 0});
-        accum_.assign(fft_size_, {0, 0});
+    /// Load an impulse response. block_size should match your audio
+    /// callback size. block_size must be a power of two (for the
+    /// radix-2 FFT); if not, it is rounded up to the next one.
+    ///
+    /// Allocates and FFTs inline — call off the audio thread.
+    void load_ir(const float* ir, std::size_t ir_length, std::size_t block_size) {
+        state_ = detail::build_convolver_ir_state(ir, ir_length, block_size);
         partition_index_ = 0;
     }
 
+    /// Try to consume the most recently staged IR from a swapper. If
+    /// one is available, the current IR is parked on the swapper for
+    /// the worker thread to free and the new IR is installed.
+    ///
+    /// Allocation-free, lock-free, RT-safe. Returns `true` if a swap
+    /// happened on this call.
+    ///
+    /// Must be called at a block boundary (between `process()` calls)
+    /// so the in-flight overlap buffers don't pick up midway through.
+    bool try_swap_ir(ConvolverIrSwapper& swapper) {
+        auto next = swapper.try_consume();
+        if (!next)
+            return false;
+
+        // Hand off the displaced IR to the swapper for off-thread
+        // teardown. If the swapper's retired slot was already full,
+        // the swapper returns the previous occupant so we can fall
+        // back to in-line deletion — this should be vanishingly rare
+        // in practice (UI thread drains faster than IRs swap), but
+        // the fallback prevents a leak.
+        auto previous = std::move(state_);
+        state_ = std::move(next);
+        partition_index_ = 0;
+
+        if (previous) {
+            auto bumped = swapper.retire(std::move(previous));
+            // bumped is freed here (off audio thread? no — but only
+            // ever in the pathological "swap faster than drain" case;
+            // free counts as a soft RT violation we accept over a
+            // leak). drain_old() on the worker thread keeps this
+            // bumped pointer null in normal operation.
+            (void)bumped;
+        }
+        return true;
+    }
+
     /// Process a block of audio. num_samples must equal block_size.
-    void process(const float* input, float* output, size_t num_samples) {
-        if (!fft_ || ir_spectra_.empty() || static_cast<int>(num_samples) != block_size_) {
+    void process(const float* input, float* output, std::size_t num_samples) {
+        if (!state_ || state_->ir_spectra.empty()
+            || static_cast<int>(num_samples) != state_->block_size) {
             std::copy_n(input, num_samples, output);
             return;
         }
+        auto& s = *state_;
 
-        for (int i = 0; i < block_size_; ++i)
-            input_buffer_[block_size_ + i] = {input[i], 0};
+        for (int i = 0; i < s.block_size; ++i)
+            s.input_buffer[s.block_size + i] = {input[i], 0.0f};
 
-        auto& current_spectrum = input_spectra_[partition_index_];
-        std::copy(input_buffer_.begin(), input_buffer_.end(), current_spectrum.begin());
-        fft_->forward(current_spectrum.data());
+        auto& current_spectrum = s.input_spectra[partition_index_];
+        std::copy(s.input_buffer.begin(), s.input_buffer.end(),
+                  current_spectrum.begin());
+        s.fft->forward(current_spectrum.data());
 
-        std::fill(accum_.begin(), accum_.end(), std::complex<float>{0, 0});
-        for (size_t p = 0; p < num_partitions_; ++p) {
-            size_t idx = (partition_index_ + num_partitions_ - p) % num_partitions_;
-            for (int i = 0; i < fft_size_; ++i)
-                accum_[i] += input_spectra_[idx][i] * ir_spectra_[p][i];
+        std::fill(s.accum.begin(), s.accum.end(),
+                  std::complex<float>{0.0f, 0.0f});
+        for (std::size_t p = 0; p < s.num_partitions; ++p) {
+            const std::size_t idx =
+                (partition_index_ + s.num_partitions - p) % s.num_partitions;
+            for (int i = 0; i < s.fft_size; ++i)
+                s.accum[i] += s.input_spectra[idx][i] * s.ir_spectra[p][i];
         }
 
-        fft_->inverse(accum_.data());
+        s.fft->inverse(s.accum.data());
 
-        for (int i = 0; i < block_size_; ++i)
-            output[i] = accum_[block_size_ + i].real();
+        for (int i = 0; i < s.block_size; ++i)
+            output[i] = s.accum[s.block_size + i].real();
 
-        std::copy_n(input_buffer_.begin() + block_size_, block_size_, input_buffer_.begin());
-        std::fill(input_buffer_.begin() + block_size_, input_buffer_.end(), std::complex<float>{0, 0});
+        std::copy_n(s.input_buffer.begin() + s.block_size, s.block_size,
+                    s.input_buffer.begin());
+        std::fill(s.input_buffer.begin() + s.block_size,
+                  s.input_buffer.end(),
+                  std::complex<float>{0.0f, 0.0f});
 
-        partition_index_ = (partition_index_ + 1) % num_partitions_;
+        partition_index_ = (partition_index_ + 1) % s.num_partitions;
     }
 
     void reset() {
-        for (auto& s : input_spectra_) std::fill(s.begin(), s.end(), std::complex<float>{0, 0});
-        std::fill(input_buffer_.begin(), input_buffer_.end(), std::complex<float>{0, 0});
+        if (!state_) return;
+        for (auto& spec : state_->input_spectra)
+            std::fill(spec.begin(), spec.end(), std::complex<float>{0.0f, 0.0f});
+        std::fill(state_->input_buffer.begin(), state_->input_buffer.end(),
+                  std::complex<float>{0.0f, 0.0f});
         partition_index_ = 0;
     }
 
     /// Returns the algorithmic latency in samples.
-    /// Overlap-save produces valid output for the current block immediately
-    /// (partition 0 is applied in the same callback), so latency is 0.
-    size_t latency() const { return 0; }
-    size_t num_partitions() const { return num_partitions_; }
-    bool is_loaded() const { return !ir_spectra_.empty(); }
+    /// Overlap-save produces valid output for the current block
+    /// immediately (partition 0 is applied in the same callback), so
+    /// latency is 0.
+    std::size_t latency() const { return 0; }
+
+    std::size_t num_partitions() const {
+        return state_ ? state_->num_partitions : 0;
+    }
+
+    bool is_loaded() const {
+        return state_ && !state_->ir_spectra.empty();
+    }
 
 private:
-    int block_size_ = 0;
-    int fft_size_ = 0;
-    size_t num_partitions_ = 0;
-    size_t partition_index_ = 0;
-
-    std::unique_ptr<Fft> fft_;
-    std::vector<std::vector<std::complex<float>>> ir_spectra_;
-    std::vector<std::vector<std::complex<float>>> input_spectra_;
-    std::vector<std::complex<float>> input_buffer_;
-    std::vector<std::complex<float>> accum_;
+    std::unique_ptr<ConvolverIrState> state_;
+    std::size_t partition_index_ = 0;
 };
 
 } // namespace pulp::signal

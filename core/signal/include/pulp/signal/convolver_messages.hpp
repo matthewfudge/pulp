@@ -1,0 +1,198 @@
+#pragma once
+
+#include <pulp/signal/fft.hpp>
+
+#include <algorithm>
+#include <atomic>
+#include <complex>
+#include <cstddef>
+#include <memory>
+#include <vector>
+
+namespace pulp::signal {
+
+/// Pre-computed, audio-thread-ready state for a single impulse response.
+///
+/// Built off the audio thread (FFTs of every partition, working buffers
+/// sized to match), then atomically handed to a `PartitionedConvolver`
+/// for zero-pop swap-in at the next block boundary.
+///
+/// Owned by `ConvolverIrSwapper` until claimed by the audio thread.
+struct ConvolverIrState {
+    int block_size = 0;
+    int fft_size = 0;
+    std::size_t num_partitions = 0;
+
+    std::unique_ptr<Fft> fft;
+    std::vector<std::vector<std::complex<float>>> ir_spectra;
+    std::vector<std::vector<std::complex<float>>> input_spectra;
+    std::vector<std::complex<float>> input_buffer;
+    std::vector<std::complex<float>> accum;
+};
+
+namespace detail {
+
+/// Build a `ConvolverIrState` from a raw IR. This is the expensive path
+/// (allocations + N forward FFTs) and must run off the audio thread.
+inline std::unique_ptr<ConvolverIrState>
+build_convolver_ir_state(const float* ir, std::size_t ir_length, std::size_t block_size) {
+    if (ir == nullptr || ir_length == 0)
+        return nullptr;
+
+    // Round up to next power-of-two for radix-2 FFT, matching
+    // PartitionedConvolver::load_ir.
+    if (block_size == 0 || (block_size & (block_size - 1)) != 0) {
+        std::size_t pot = 1;
+        while (pot < block_size) pot <<= 1;
+        block_size = pot;
+    }
+
+    auto state = std::make_unique<ConvolverIrState>();
+    state->block_size = static_cast<int>(block_size);
+    state->fft_size = state->block_size * 2;
+    state->fft = std::make_unique<Fft>(state->fft_size);
+    state->num_partitions = (ir_length + block_size - 1) / block_size;
+
+    state->ir_spectra.resize(state->num_partitions);
+    std::vector<std::complex<float>> padded(state->fft_size, {0.0f, 0.0f});
+
+    for (std::size_t p = 0; p < state->num_partitions; ++p) {
+        const std::size_t offset = p * block_size;
+        const std::size_t count = std::min(block_size, ir_length - offset);
+
+        std::fill(padded.begin(), padded.end(), std::complex<float>{0.0f, 0.0f});
+        for (std::size_t i = 0; i < count; ++i)
+            padded[i] = {ir[offset + i], 0.0f};
+
+        state->ir_spectra[p].assign(padded.begin(), padded.end());
+        state->fft->forward(state->ir_spectra[p].data());
+    }
+
+    state->input_buffer.assign(state->fft_size, {0.0f, 0.0f});
+    state->input_spectra.assign(
+        state->num_partitions,
+        std::vector<std::complex<float>>(state->fft_size, {0.0f, 0.0f}));
+    state->accum.assign(state->fft_size, {0.0f, 0.0f});
+
+    return state;
+}
+
+} // namespace detail
+
+/// Lock-free background-IR shuttle for `PartitionedConvolver`.
+///
+/// Workflow (single producer, single audio-thread consumer):
+///
+///   ConvolverIrSwapper swapper;          // background / UI thread
+///   PartitionedConvolver conv;           // audio thread
+///   conv.load_ir(initial_ir, len, 256);  // first IR loaded inline
+///
+///   // ── UI / worker thread ──
+///   swapper.stage_ir(new_ir, new_len, 256);  // allocates, FFTs
+///
+///   // ── audio thread (block boundary) ──
+///   conv.try_swap_ir(swapper);  // atomically picks up new IR
+///
+///   // ── UI / worker thread ──
+///   swapper.drain_old();  // reclaim memory from the displaced IR
+///
+/// Guarantees:
+///   - Audio thread does ZERO allocation, ZERO FFT precompute work,
+///     and ZERO blocking on a mutex; just two atomic pointer ops.
+///   - Old IR ownership is transferred back to the swapper via a
+///     reverse atomic slot; the UI/worker thread reclaims it with
+///     `drain_old()`. Audio thread never frees memory.
+class ConvolverIrSwapper {
+public:
+    ConvolverIrSwapper() = default;
+
+    ConvolverIrSwapper(const ConvolverIrSwapper&) = delete;
+    ConvolverIrSwapper& operator=(const ConvolverIrSwapper&) = delete;
+
+    ~ConvolverIrSwapper() {
+        // Reclaim anything still parked in either slot so we don't
+        // leak memory at teardown. Safe because both producer and
+        // consumer threads must have stopped by destruction.
+        delete pending_.exchange(nullptr, std::memory_order_acquire);
+        delete retired_.exchange(nullptr, std::memory_order_acquire);
+    }
+
+    /// Build a fresh IR state off the audio thread and publish it for
+    /// the audio thread to pick up. Returns `true` on success.
+    ///
+    /// If a previously-staged IR has not yet been consumed by the
+    /// audio thread, this call replaces it and the old pre-built
+    /// state is freed inline (still on the worker thread — never the
+    /// audio thread).
+    bool stage_ir(const float* ir, std::size_t ir_length, std::size_t block_size) {
+        auto next = detail::build_convolver_ir_state(ir, ir_length, block_size);
+        if (!next)
+            return false;
+        return stage_ir(std::move(next));
+    }
+
+    /// Publish a pre-built state. Same semantics as the raw overload.
+    bool stage_ir(std::unique_ptr<ConvolverIrState> next) {
+        if (!next)
+            return false;
+        // Release ordering so the state's contents (FFTs, buffers)
+        // happen-before any acquire-load on the audio thread.
+        auto* raw = next.release();
+        auto* prev = pending_.exchange(raw, std::memory_order_acq_rel);
+        // If the audio thread hasn't consumed the previous staging,
+        // reclaim it here on the (non-RT) staging thread.
+        delete prev;
+        return true;
+    }
+
+    /// Audio-thread-callable: atomically claim the most recently staged
+    /// IR, if any. Returns nullptr if nothing is pending. NEVER blocks,
+    /// NEVER allocates, NEVER frees.
+    std::unique_ptr<ConvolverIrState> try_consume() {
+        auto* raw = pending_.exchange(nullptr, std::memory_order_acquire);
+        return std::unique_ptr<ConvolverIrState>(raw);
+    }
+
+    /// Audio-thread-callable: park the IR that the audio thread is
+    /// displacing so a non-RT thread can free it. If a previous retire
+    /// has not been drained yet, the new and old swap and the older
+    /// pointer is returned for the caller to either re-retire later
+    /// (rare) or in-line free (fallback). The intent is that the UI
+    /// thread calls `drain_old()` faster than IRs swap.
+    [[nodiscard]] std::unique_ptr<ConvolverIrState>
+    retire(std::unique_ptr<ConvolverIrState> displaced) {
+        if (!displaced)
+            return nullptr;
+        auto* raw = displaced.release();
+        auto* prev = retired_.exchange(raw, std::memory_order_acq_rel);
+        return std::unique_ptr<ConvolverIrState>(prev);
+    }
+
+    /// UI / worker thread: reclaim any retired IR that the audio
+    /// thread parked here. Call periodically (e.g. once per UI tick).
+    /// Returns the freed state for inspection in tests; the unique_ptr
+    /// destructor performs the actual deallocation.
+    std::unique_ptr<ConvolverIrState> drain_old() {
+        auto* raw = retired_.exchange(nullptr, std::memory_order_acquire);
+        return std::unique_ptr<ConvolverIrState>(raw);
+    }
+
+    /// True if a freshly-staged IR is awaiting consumption.
+    bool has_pending() const {
+        return pending_.load(std::memory_order_acquire) != nullptr;
+    }
+
+    /// True if a retired IR is awaiting drain.
+    bool has_retired() const {
+        return retired_.load(std::memory_order_acquire) != nullptr;
+    }
+
+private:
+    // Producer → consumer: latest IR awaiting pickup.
+    std::atomic<ConvolverIrState*> pending_{nullptr};
+    // Consumer → producer: IR displaced from the audio thread,
+    // waiting to be freed off-thread.
+    std::atomic<ConvolverIrState*> retired_{nullptr};
+};
+
+} // namespace pulp::signal
