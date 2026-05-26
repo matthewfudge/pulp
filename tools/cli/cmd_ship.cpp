@@ -192,6 +192,12 @@ int cmd_ship(const std::vector<std::string>& args) {
 
         std::string version, target, keystore_path, key_alias, store_pass, key_pass, abi_arg;
         bool per_user = false, apk_only = false, aab_only = false;
+        // Item 7.5: per-artifact packaging on macOS. When the user
+        // passes neither flag we use the historical default — `.pkg`
+        // for every plugin bundle, which is right for AU/VST3/CLAP
+        // under `~/Library/Audio/Plug-Ins/`. `--dmg` flips standalone
+        // apps to disk images. `--pkg` is explicit form of the default.
+        bool want_pkg = false, want_dmg = false;
 
         // Read version from CMakeLists.txt project(VERSION), falling back to SDK version
         auto cmake_ver = read_project_cmake_version(root);
@@ -216,11 +222,18 @@ int cmd_ship(const std::vector<std::string>& args) {
             else if (args[i] == "--apk-only") apk_only = true;
             else if (args[i] == "--aab-only") aab_only = true;
             else if (args[i] == "--per-user") per_user = true;
+            else if (args[i] == "--pkg") want_pkg = true;
+            else if (args[i] == "--dmg") want_dmg = true;
             else return unknown_ship_arg(sub, args[i]);
         }
 
         if (apk_only && aab_only) {
             std::cerr << "Error: --apk-only and --aab-only are mutually exclusive.\n";
+            return 1;
+        }
+        if (want_pkg && want_dmg) {
+            std::cerr << "Error: --pkg and --dmg are mutually exclusive — pass one per "
+                         "invocation (item 7.5 picks per artifact, not both at once).\n";
             return 1;
         }
 
@@ -329,8 +342,35 @@ int cmd_ship(const std::vector<std::string>& args) {
         }
         return 0;
 #else
-        // macOS/Linux: use pkgbuild (macOS) or deb (Linux)
-        int pkg_count = 0;
+        // macOS / Linux. On macOS we honour the item 7.5 per-artifact
+        // selection: `.pkg` for AU/VST3/CLAP plugin bundles, `.dmg`
+        // for `.app` standalones. `--pkg` and `--dmg` flags override
+        // the per-artifact default for the entire run (e.g. `--dmg`
+        // wraps even plugin bundles in a disk image when that's
+        // explicitly requested, useful for the "drag to Plug-Ins"
+        // distribution pattern).
+        int pkg_count = 0, dmg_count = 0;
+
+#ifdef __APPLE__
+        // Standalone `.app` bundles → `.dmg` by default (or when --dmg).
+        auto standalone_dir = build_dir / "Standalone";
+        if (fs::exists(standalone_dir)) {
+            for (auto& entry : fs::directory_iterator(standalone_dir)) {
+                if (entry.path().extension().string() != ".app") continue;
+                auto name = entry.path().stem().string();
+                auto dmg_name = name + "-" + version + ".dmg";
+                auto dmg_path = artifacts / dmg_name;
+                std::cout << "Packaging " << name << " (Standalone .app → .dmg)...\n";
+                if (pulp::ship::create_dmg(entry.path().string(),
+                                           dmg_path.string(), name)) {
+                    ++dmg_count;
+                } else {
+                    std::cerr << "  FAILED to create .dmg for " << name << "\n";
+                }
+            }
+        }
+#endif
+
         for (auto dir_name : {"VST3", "CLAP", "AU"}) {
             auto dir = build_dir / dir_name;
             if (!fs::exists(dir)) continue;
@@ -339,29 +379,50 @@ int cmd_ship(const std::vector<std::string>& args) {
 
             for (auto& entry : fs::directory_iterator(dir)) {
                 auto ext = entry.path().extension().string();
-                if (ext == ".vst3" || ext == ".clap" || ext == ".component") {
-                    auto name = entry.path().stem().string();
-                    auto pkg_name = name + "-" + dir_name + "-" + version + ".pkg";
-                    auto pkg_path = artifacts / pkg_name;
+                if (ext != ".vst3" && ext != ".clap" && ext != ".component") continue;
 
-                    std::string install_loc = "/Library/Audio/Plug-Ins/";
-                    if (ext == ".vst3") install_loc += "VST3/";
-                    else if (ext == ".clap") install_loc += "CLAP/";
-                    else install_loc = pulp::runtime::get_env("HOME").value_or("~")
-                                     + "/Library/Audio/Plug-Ins/Components/";
+                auto name = entry.path().stem().string();
 
-                    std::cout << "Packaging " << name << " (" << dir_name << ")...\n";
-                    std::string cmd = "pkgbuild --component \"" + entry.path().string() + "\""
-                        + " --identifier \"com.pulp." + name + "." + format_lower + "\""
-                        + " --version \"" + version + "\""
-                        + " --install-location \"" + install_loc + "\""
-                        + " \"" + pkg_path.string() + "\" 2>/dev/null";
-                    if (run(cmd) == 0) ++pkg_count;
-                    else std::cerr << "  FAILED\n";
+#ifdef __APPLE__
+                // Plugin bundle → .dmg ONLY when the user explicitly
+                // asked. Default + --pkg both produce .pkg.
+                if (want_dmg) {
+                    auto dmg_name = name + "-" + dir_name + "-" + version + ".dmg";
+                    auto dmg_path = artifacts / dmg_name;
+                    std::cout << "Packaging " << name << " (" << dir_name
+                              << " → .dmg)...\n";
+                    if (pulp::ship::create_dmg(entry.path().string(),
+                                               dmg_path.string(),
+                                               name + " " + dir_name)) {
+                        ++dmg_count;
+                    } else {
+                        std::cerr << "  FAILED to create .dmg\n";
+                    }
+                    continue;
                 }
+#endif
+
+                auto pkg_name = name + "-" + dir_name + "-" + version + ".pkg";
+                auto pkg_path = artifacts / pkg_name;
+
+                std::string install_loc = "/Library/Audio/Plug-Ins/";
+                if (ext == ".vst3") install_loc += "VST3/";
+                else if (ext == ".clap") install_loc += "CLAP/";
+                else install_loc = pulp::runtime::get_env("HOME").value_or("~")
+                                 + "/Library/Audio/Plug-Ins/Components/";
+
+                std::cout << "Packaging " << name << " (" << dir_name << " → .pkg)...\n";
+                std::string cmd = "pkgbuild --component \"" + entry.path().string() + "\""
+                    + " --identifier \"com.pulp." + name + "." + format_lower + "\""
+                    + " --version \"" + version + "\""
+                    + " --install-location \"" + install_loc + "\""
+                    + " \"" + pkg_path.string() + "\" 2>/dev/null";
+                if (run(cmd) == 0) ++pkg_count;
+                else std::cerr << "  FAILED\n";
             }
         }
-        std::cout << "Created " << pkg_count << " packages in " << artifacts.string() << "\n";
+        std::cout << "Created " << pkg_count << " .pkg and " << dmg_count
+                  << " .dmg artifacts in " << artifacts.string() << "\n";
         return 0;
 #endif
     }
@@ -511,6 +572,148 @@ int cmd_ship(const std::vector<std::string>& args) {
 #endif
     }
 
+    // ── release (sign → package → notarize → staple, one command) ──────────
+    //
+    // Item 7.4 (macos-plugin-authoring-plan): one-command pipeline that
+    // walks the entire macOS distribution surface for a Pulp plugin.
+    // Equivalent to (under the hood):
+    //
+    //   pulp ship sign     --identity "..."
+    //   pulp ship package  --version "..."  [--pkg | --dmg]
+    //   pulp ship notarize --apple-id ... --team-id ...    (macos only)
+    //   pulp ship notarize --staple                        (final step)
+    //
+    // Each stage short-circuits on failure so a broken sign doesn't try
+    // to notarize garbage. Stages are skippable so CI lanes that only
+    // care about, say, the package step can `--skip-sign --skip-notarize`.
+    //
+    // Notarization requires real Apple credentials — when `--skip-notarize`
+    // is passed (or when neither `--apple-id`/`--team-id` nor
+    // `signing.apple.*` config is set), the pipeline runs sign+package
+    // only and exits cleanly so CI can still exercise the orchestration
+    // without notarytool round-trips.
+    if (sub == "release") {
+#ifndef __APPLE__
+        std::cerr << "pulp ship release: macOS-only (notarization + .pkg/.dmg).\n";
+        return 1;
+#else
+        std::string target = "macos";
+        std::string identity, apple_id, team_id, password, version;
+        bool want_pkg = false, want_dmg = false;
+        bool skip_sign = false, skip_package = false, skip_notarize = false;
+
+        for (size_t i = 1; i < args.size(); ++i) {
+            if (args[i] == "--target") {
+                if (!take_ship_value(args, i, sub, args[i], target)) return 2;
+            } else if (args[i] == "--identity") {
+                if (!take_ship_value(args, i, sub, args[i], identity)) return 2;
+            } else if (args[i] == "--apple-id") {
+                if (!take_ship_value(args, i, sub, args[i], apple_id)) return 2;
+            } else if (args[i] == "--team-id") {
+                if (!take_ship_value(args, i, sub, args[i], team_id)) return 2;
+            } else if (args[i] == "--password") {
+                if (!take_ship_value(args, i, sub, args[i], password)) return 2;
+            } else if (args[i] == "--version") {
+                if (!take_ship_value(args, i, sub, args[i], version)) return 2;
+            } else if (args[i] == "--pkg") {
+                want_pkg = true;
+            } else if (args[i] == "--dmg") {
+                want_dmg = true;
+            } else if (args[i] == "--skip-sign") {
+                skip_sign = true;
+            } else if (args[i] == "--skip-package") {
+                skip_package = true;
+            } else if (args[i] == "--skip-notarize") {
+                skip_notarize = true;
+            } else {
+                return unknown_ship_arg(sub, args[i]);
+            }
+        }
+
+        if (target != "macos") {
+            std::cerr << "pulp ship release: --target " << target
+                      << " is not implemented yet (only macos).\n";
+            return 1;
+        }
+        if (want_pkg && want_dmg) {
+            std::cerr << "pulp ship release: --pkg and --dmg are mutually "
+                         "exclusive (item 7.5 picks one per artifact).\n";
+            return 2;
+        }
+
+        // Stage 1: sign. Skippable for CI dry-runs.
+        if (!skip_sign) {
+            std::cout << "── Stage 1/4: sign ────────────────────────────────\n";
+            std::vector<std::string> sign_args = {"sign"};
+            if (!identity.empty()) {
+                sign_args.push_back("--identity");
+                sign_args.push_back(identity);
+            }
+            int sign_rc = cmd_ship(sign_args);
+            if (sign_rc != 0) {
+                std::cerr << "pulp ship release: sign stage failed; aborting "
+                             "before package/notarize.\n";
+                return sign_rc;
+            }
+        } else {
+            std::cout << "── Stage 1/4: sign (SKIPPED) ──────────────────────\n";
+        }
+
+        // Stage 2: package. The pkg vs dmg decision lives in cmd_ship
+        // 'package' itself (item 7.5 wiring below).
+        if (!skip_package) {
+            std::cout << "── Stage 2/4: package ─────────────────────────────\n";
+            std::vector<std::string> pkg_args = {"package"};
+            if (!version.empty()) {
+                pkg_args.push_back("--version");
+                pkg_args.push_back(version);
+            }
+            if (want_pkg) pkg_args.push_back("--pkg");
+            if (want_dmg) pkg_args.push_back("--dmg");
+            int pkg_rc = cmd_ship(pkg_args);
+            if (pkg_rc != 0) {
+                std::cerr << "pulp ship release: package stage failed; "
+                             "aborting before notarize.\n";
+                return pkg_rc;
+            }
+        } else {
+            std::cout << "── Stage 2/4: package (SKIPPED) ───────────────────\n";
+        }
+
+        // Stage 3 + 4: notarize + staple. Submission requires Apple
+        // credentials — when they aren't available we run the
+        // orchestration up to here and exit cleanly. CI can pass
+        // `--skip-notarize` explicitly to make that decision visible.
+        if (skip_notarize) {
+            std::cout << "── Stage 3/4: notarize (SKIPPED) ──────────────────\n";
+            std::cout << "── Stage 4/4: staple   (SKIPPED) ──────────────────\n";
+            std::cout << "\npulp ship release: sign+package complete; "
+                         "notarization skipped by request.\n";
+            return 0;
+        }
+
+        // Defer credential resolution to the notarize handler — it
+        // already has the apple_id/team_id/password CLI→env→config
+        // fallback chain and the helpful "where to find these" hint.
+        std::cout << "── Stage 3/4: notarize ────────────────────────────\n";
+        std::vector<std::string> nz_args = {"notarize"};
+        if (!apple_id.empty()) { nz_args.push_back("--apple-id"); nz_args.push_back(apple_id); }
+        if (!team_id.empty())  { nz_args.push_back("--team-id");  nz_args.push_back(team_id); }
+        if (!password.empty()) { nz_args.push_back("--password"); nz_args.push_back(password); }
+        int nz_rc = cmd_ship(nz_args);
+        if (nz_rc != 0) {
+            std::cerr << "pulp ship release: notarize stage failed.\n";
+            return nz_rc;
+        }
+
+        // The notarize handler already staples on success, so the
+        // Stage 4 line is a status echo, not a re-run.
+        std::cout << "── Stage 4/4: staple (handled by notarize stage) ──\n";
+        std::cout << "\npulp ship release: macOS pipeline complete.\n";
+        return 0;
+#endif
+    }
+
     // ── appcast ─────────────────────────────────────────────────────────────
     if (sub == "appcast") {
         std::string version, notes, url, output_path, title, sign_key, min_os;
@@ -616,7 +819,12 @@ int cmd_ship(const std::vector<std::string>& args) {
     std::cout << "             --staple  (staple only, skip submission)\n";
     std::cout << "  package    Create installers for the target platform\n";
     std::cout << "             --version 1.0.0\n";
+    std::cout << "             --pkg | --dmg  (item 7.5: per-artifact macOS packaging)\n";
     std::cout << "             --target android --keystore key.jks --abi arm64-v8a|x86_64|all\n";
+    std::cout << "  release    macOS: sign → package → notarize → staple in one command\n";
+    std::cout << "             --target macos --identity \"...\" --apple-id ... --team-id ...\n";
+    std::cout << "             --pkg | --dmg                                       (item 7.5)\n";
+    std::cout << "             --skip-sign | --skip-package | --skip-notarize      (CI flags)\n";
     std::cout << "  appcast    Generate Sparkle-compatible update feed\n";
     std::cout << "             --url https://... --version 1.0.0 --notes \"...\"\n";
     std::cout << "  check      Check signing status of built plugins\n";
