@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pulp/runtime/spsc_queue.hpp>
 #include <pulp/signal/fft.hpp>
 
 #include <algorithm>
@@ -110,11 +111,11 @@ public:
     ConvolverIrSwapper& operator=(const ConvolverIrSwapper&) = delete;
 
     ~ConvolverIrSwapper() {
-        // Reclaim anything still parked in either slot so we don't
-        // leak memory at teardown. Safe because both producer and
-        // consumer threads must have stopped by destruction.
+        // Reclaim anything still parked so we don't leak memory at
+        // teardown. Safe because both producer and consumer threads
+        // must have stopped by destruction.
         delete pending_.exchange(nullptr, std::memory_order_acquire);
-        delete retired_.exchange(nullptr, std::memory_order_acquire);
+        while (auto* p = pop_retired_raw()) delete p;
     }
 
     /// Build a fresh IR state off the audio thread and publish it for
@@ -154,26 +155,50 @@ public:
     }
 
     /// Audio-thread-callable: park the IR that the audio thread is
-    /// displacing so a non-RT thread can free it. If a previous retire
-    /// has not been drained yet, the new and old swap and the older
-    /// pointer is returned for the caller to either re-retire later
-    /// (rare) or in-line free (fallback). The intent is that the UI
-    /// thread calls `drain_old()` faster than IRs swap.
-    [[nodiscard]] std::unique_ptr<ConvolverIrState>
-    retire(std::unique_ptr<ConvolverIrState> displaced) {
-        if (!displaced)
-            return nullptr;
-        auto* raw = displaced.release();
-        auto* prev = retired_.exchange(raw, std::memory_order_acq_rel);
-        return std::unique_ptr<ConvolverIrState>(prev);
+    /// displacing so a non-RT thread can free it. Returns `true` if
+    /// the IR was queued for drain; `false` if the retire ring is
+    /// already full. On `false` the displaced state is returned to
+    /// the caller via the moved-in `unique_ptr` being LEFT INTACT
+    /// (caller still owns it). The audio-thread caller (see
+    /// `PartitionedConvolver::try_swap_ir`) should gate the swap on
+    /// `has_retire_capacity()` first so this path is never hit in
+    /// well-paced operation.
+    ///
+    /// RT contract: never allocates, never blocks, never frees.
+    [[nodiscard]] bool retire(std::unique_ptr<ConvolverIrState>& displaced) {
+        if (!displaced) return true; // nothing to park
+        auto* raw = displaced.get();
+        if (!retired_queue_.try_push(raw)) return false;
+        (void)displaced.release(); // ownership transferred to queue
+        return true;
     }
 
-    /// UI / worker thread: reclaim any retired IR that the audio
-    /// thread parked here. Call periodically (e.g. once per UI tick).
-    /// Returns the freed state for inspection in tests; the unique_ptr
-    /// destructor performs the actual deallocation.
-    std::unique_ptr<ConvolverIrState> drain_old() {
-        auto* raw = retired_.exchange(nullptr, std::memory_order_acquire);
+    /// True if there's room in the retire ring for one more displaced
+    /// IR. Audio thread checks this before consuming pending so a
+    /// swap never strands a displaced IR without an off-thread free
+    /// path (Codex P1 on #2881).
+    bool has_retire_capacity() const {
+        return retired_queue_.size_approx() < kRetireRingCapacity;
+    }
+
+    /// UI / worker thread: reclaim ALL retired IRs the audio thread
+    /// has parked. Returns the count freed; the actual deallocation
+    /// runs through `unique_ptr` destructors in this scope (off-RT).
+    /// Test callers can use the single-pop overload below if they
+    /// want to inspect each freed state.
+    std::size_t drain_old() {
+        std::size_t freed = 0;
+        while (auto* raw = pop_retired_raw()) {
+            std::unique_ptr<ConvolverIrState> state(raw);
+            ++freed;
+        }
+        return freed;
+    }
+
+    /// UI / worker thread: pop ONE retired IR for test inspection.
+    /// Returns nullptr if none queued.
+    std::unique_ptr<ConvolverIrState> drain_old_one() {
+        auto* raw = pop_retired_raw();
         return std::unique_ptr<ConvolverIrState>(raw);
     }
 
@@ -182,17 +207,33 @@ public:
         return pending_.load(std::memory_order_acquire) != nullptr;
     }
 
-    /// True if a retired IR is awaiting drain.
+    /// True if any retired IR is awaiting drain.
     bool has_retired() const {
-        return retired_.load(std::memory_order_acquire) != nullptr;
+        return retired_queue_.size_approx() > 0;
+    }
+
+    /// Compile-time capacity of the retired-IR ring. Sized so a few
+    /// back-to-back swaps survive a single missed drain tick — past
+    /// this point, swaps refuse until a drain runs.
+    static constexpr std::size_t retire_capacity() {
+        return kRetireRingCapacity;
     }
 
 private:
+    static constexpr std::size_t kRetireRingCapacity = 8;
+
     // Producer → consumer: latest IR awaiting pickup.
     std::atomic<ConvolverIrState*> pending_{nullptr};
-    // Consumer → producer: IR displaced from the audio thread,
-    // waiting to be freed off-thread.
-    std::atomic<ConvolverIrState*> retired_{nullptr};
+    // Consumer → producer: ring of displaced IRs awaiting off-thread
+    // deletion. Replaces the single-slot atomic the original impl used
+    // (Codex P1 #2881 — single slot starved on rapid IR automation,
+    // forcing audio-thread frees when the slot was full).
+    pulp::runtime::SpscQueue<ConvolverIrState*, kRetireRingCapacity> retired_queue_;
+
+    ConvolverIrState* pop_retired_raw() {
+        auto popped = retired_queue_.try_pop();
+        return popped ? *popped : nullptr;
+    }
 };
 
 } // namespace pulp::signal
