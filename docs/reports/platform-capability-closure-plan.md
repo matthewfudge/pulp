@@ -28,7 +28,7 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
 | Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Merged via PR [#2825](https://github.com/danielraffel/pulp/pull/2825) as `9c96f3dfa` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
 | OSC | `feature/platform-osc` | `pulp-platform-osc` | Merged via PR [#2822](https://github.com/danielraffel/pulp/pull/2822) as `bbc1506ed` | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, exclusive UDP receiver binding, focused UDP and pure parser tests |
-| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | PR [#2844](https://github.com/danielraffel/pulp/pull/2844) open; local rebase/validation in progress after #2822 merge | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
+| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | PR [#2844](https://github.com/danielraffel/pulp/pull/2844) open; locally rebased and validated on `origin/main` `c72ad330b` after #2822 merged; SDK `0.254.0`; Claude plugin `0.122.0` | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
 Validation expectations for each PR:
 - Add or update focused unit tests for every new public behavior.
@@ -473,56 +473,46 @@ Closure slice:
   public docs do not imply first-party non-Apple embedding exists today.
 
 Native-window local validation:
-- Rebased onto `origin/main` at `0939e9b19` and refreshed the required SDK
-  minor bump to `0.218.0`.
+- Rebased onto `origin/main` at `c72ad330b` after #2822 merged and the v0.253.0
+  changelog landed. Historical status-only report commits were dropped during
+  rebase; this section is the current source of validation truth for #2844.
+- `version_bump_check.py --base origin/main --config
+  tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat
+  --accept-intent-trailers` passes with SDK `0.254.0` and Claude plugin
+  `0.122.0`.
+- `skill_sync_check.py --base origin/main --head HEAD --mode report` passes
+  with the `webview-ui` skill update.
+- `python3 tools/scripts/test_audit_top_level.py` passed 11/11 and
+  `python3 tools/audit.py --` passed.
 - Configured Release with WebView enabled and GPU off:
   `cmake -S . -B build-native-window -DCMAKE_BUILD_TYPE=Release
-  -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_TESTS=ON -DPULP_BUILD_EXAMPLES=ON
-  -DPULP_BUILD_WEBVIEW=ON`.
+  -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_WEBVIEW=ON -DPULP_BUILD_TESTS=ON
+  -DPULP_BUILD_EXAMPLES=ON`.
 - Built the focused targets: `pulp-test-view-host-bridge`,
   `pulp-test-webview`, `pulp-webview-palette`, and
   `PulpWebViewPlugin_Standalone`.
-- A rebase sweep exposed an intermittent macOS deferred-click crash in the
-  view-host bridge tests. The queued click block no longer captures/derefs the
-  MRC `PulpView` object after teardown, and the early-teardown regression test
-  now uses a hidden host like the neighboring headless event tests.
 - `./build-native-window/test/pulp-test-view-host-bridge --reporter compact`
-  passed 81/81 assertions across 9 cases; a stress sweep passed 30/30 repeated
-  runs after the deferred-click hardening.
+  passed 81/81 assertions across 9 cases.
 - `./build-native-window/test/pulp-test-webview --reporter compact` passed
   5/7 test cases, with 2 local WebView readiness skips where the host
   environment never reached callback-ready state, and 84/84 assertions passed.
 - Focused CTest over WebView/native-child attach cases passed 7/7 after
   excluding generated `_NOT_BUILT` placeholders; 2 live WebView readiness cases
   skipped in this local environment.
-- `tools/check-docs.sh` passed with existing repository warnings.
-- `git diff --check` passed.
-- `tools/scripts/gates.sh origin/main` passed skill-sync, version-bump,
-  compat-sync, node-ABI, and deps-audit gates.
-- `version_bump_check.py --base origin/main --head HEAD --mode apply` applied
-  the required SDK minor bump to `0.218.0` after the inspector host-factory
-  override made the patch a public header/API change.
-- Coverage note: the stock `tools/scripts/local_diff_cover.sh` wrapper still
-  configures the GPU examples path and fails locally without Skia. The same
-  coverage pipeline was run manually with `PULP_ENABLE_COVERAGE=ON` and
-  `PULP_ENABLE_GPU=OFF` in `build-cov-native-window`; focused coverage CTest
-  passed the three native-window contract tests after the `2d8f004a` rebase
-  and diff-cover reports 85% total diff coverage against `origin/main`
-  (`core/view/src/inspector_window.cpp` 100%;
-  `core/view/platform/mac/window_host_mac.mm` has 2 defensive teardown lines
-  not covered by the focused local coverage path). The behavior-bearing
-  `InspectorWindow::show()` null-host guard is covered locally through the
-  inspector host-factory override; hosted Codecov remains the final PR-side
-  coverage gate after the final push.
-- Claude review on the `2d8f004a` rebase reported no P0/P1/P2 correctness
+- A prior coverage refresh on this branch used the same coverage pipeline with
+  `PULP_ENABLE_COVERAGE=ON` and `PULP_ENABLE_GPU=OFF` in
+  `build-cov-native-window`; focused coverage CTest passed the native-window
+  contract tests and diff-cover reported 85% total diff coverage. The stock
+  local wrapper still enters broad GPU/example coverage paths that are not
+  reliable in this checkout; hosted Codecov remains the PR-side coverage gate.
+- Claude review on the earlier rebased branch reported no P0/P1/P2 correctness
   blockers. Two non-blocking hardening notes were addressed before final push:
   the mac deferred-click handler invariant is documented in code, and native
-  child test fake handles are per-instance instead of static sentinels. Focused
-  `pulp-test-view-host-bridge` build and direct test reran after those changes.
-  Earlier RepoPrompt review found a null-host crash in
-  `InspectorWindow::show()`, an overstrict live WebView attach assertion, and a
-  silent plugin-example WebView-backend failure path; all three were fixed and
-  the focused build/test/docs checks were rerun.
+  child test fake handles are per-instance instead of static sentinels. Earlier
+  RepoPrompt review found a null-host crash in `InspectorWindow::show()`, an
+  overstrict live WebView attach assertion, and a silent plugin-example
+  WebView-backend failure path; all three were fixed and the focused
+  build/test/docs checks were rerun.
 - SSH-backed Windows/Ubuntu testing is intentionally out of scope for this
   focused closure pass; rely on GitHub-hosted platform checks after PR
   submission.
