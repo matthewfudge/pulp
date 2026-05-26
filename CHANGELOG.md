@@ -8,6 +8,19 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02390"></a>
+## [0.239.0] - 2026-05-25
+
+- feat(format): 6 iPlug2-audit host-quirks lessons (Ardour/Mixbus, Wavelab IBStream, Live 10.1.13, Reaper kb, Pro Tools AAX) ([#2908](https://github.com/danielraffel/pulp/pull/2908))
+- feat(render): HeadlessSurface CI wrapper for offscreen Dawn/Skia (item 6.7) ([#2914](https://github.com/danielraffel/pulp/pull/2914))
+- feat(host): crash-isolated plugin scanner (item 4.1) ([#2906](https://github.com/danielraffel/pulp/pull/2906))
+
+<a id="v02380"></a>
+## [0.238.0] - 2026-05-25
+
+- feat(format): per-quirk validation tiers + opt-in/opt-out filter (item 5.15) ([#2909](https://github.com/danielraffel/pulp/pull/2909))
+- feat(view): standalone ScrollBar widget + slide-in SidePanel (item 6.3) ([#2900](https://github.com/danielraffel/pulp/pull/2900))
+
 <a id="v02370"></a>
 ## [0.237.0] - 2026-05-25
 
@@ -2853,6 +2866,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.239.0]: https://github.com/danielraffel/pulp/releases/tag/v0.239.0
+[0.238.0]: https://github.com/danielraffel/pulp/releases/tag/v0.238.0
 [0.237.0]: https://github.com/danielraffel/pulp/releases/tag/v0.237.0
 [0.235.0]: https://github.com/danielraffel/pulp/releases/tag/v0.235.0
 [0.234.0]: https://github.com/danielraffel/pulp/releases/tag/v0.234.0
