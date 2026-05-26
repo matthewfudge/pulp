@@ -130,6 +130,17 @@ device, iOS simulator, visionOS device, visionOS simulator, mac-x86_64,
 and `Skia.xcframework` slices upstream does not. While upstream stays on
 m144, this fork is the active dependency; revisit when upstream catches up.
 
+iOS-specific layout gotcha (PR #3011): unlike the mac / linux / windows
+slices, the iOS zips ship libs under a per-arch subdir
+(`build/ios-gpu/lib/Release/{device-arm64,simulator-arm64,simulator-x86_64}/libskia.a`)
+because the device and fat-simulator zips would otherwise collide on
+identical lib names when unpacked into one tree. `FindSkia.cmake` picks
+the right subdir based on `CMAKE_OSX_SYSROOT` + `CMAKE_OSX_ARCHITECTURES`;
+`tools/scripts/fetch_skia_for_release.py` keeps the subdir intact for
+`ios-device-arm64` and `ios-simulator-arm64-x86_64` matrix slices via
+`_IOS_PRESERVE_ARCH_SUBDIR`. Do not extend the flatten step to iOS, and
+do not register a single combined iOS slice without per-arch handling.
+
 ## Bundled Fonts (and similar opt-in compile-time assets)
 
 Bundled fonts under `external/fonts/*.ttf` (`Inter`, `JetBrains Mono`,
