@@ -1340,6 +1340,11 @@ catch_discover_tests(pulp-test-dsl-processor)
 # Convolution engine tests
 pulp_add_test_suite(pulp-test-convolver LIBRARIES pulp::signal)
 
+# Background-IR-swap tests for PartitionedConvolver (macOS plugin authoring
+# plan item 2.3, Slice A). Lock-free pointer-shuttle hand-off from worker
+# thread → audio thread, including a concurrent stage/swap hammer test.
+pulp_add_test_suite(pulp-test-convolver-bg-swap LIBRARIES pulp::signal)
+
 # Test signal source (sine tone, file playback)
 pulp_add_test_suite(pulp-test-test-signal LIBRARIES pulp::standalone)
 
