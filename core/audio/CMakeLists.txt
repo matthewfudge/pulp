@@ -22,6 +22,7 @@ target_sources(pulp-audio PRIVATE
     src/streaming_writer.cpp
     src/mmap_reader.cpp
     src/buffer_ops.cpp
+    src/audio_thumbnail.cpp
 )
 
 # CoreAudioFormat reader (macOS only — AAC, ALAC, CAF via ExtAudioFile)
