@@ -189,6 +189,27 @@ tresult PLUGIN_API PulpVst3Processor::setBusArrangements(
     for (int32 i = 0; i < numIns;  ++i) if (!supported(inputs[i]))  return kResultFalse;
     for (int32 i = 0; i < numOuts; ++i) if (!supported(outputs[i])) return kResultFalse;
 
+    // Item 3.7 — let the Processor reject the layout before we mutate
+    // anything. Translate VST3 SpeakerArrangement masks to channel
+    // counts (1 = mono, 2 = stereo today; the mono/stereo guard above
+    // already filtered out other arrangements).
+    auto channel_count = [](SpeakerArrangement a) -> int {
+        if (a == SpeakerArr::kMono)   return 1;
+        if (a == SpeakerArr::kStereo) return 2;
+        return 0;
+    };
+    Processor::BusesLayout proposal;
+    proposal.inputs.reserve(static_cast<std::size_t>(numIns));
+    proposal.outputs.reserve(static_cast<std::size_t>(numOuts));
+    for (int32 i = 0; i < numIns;  ++i) proposal.inputs.push_back(channel_count(inputs[i]));
+    for (int32 i = 0; i < numOuts; ++i) proposal.outputs.push_back(channel_count(outputs[i]));
+    if (!processor_->is_bus_layout_supported(proposal)) {
+        runtime::log_info(
+            "VST3 setBusArrangements: processor rejected proposed layout "
+            "({} in / {} out buses)", numIns, numOuts);
+        return kResultFalse;
+    }
+
     // Apply channel counts to the AudioBus objects the parent registered
     // from descriptor() during initialize(). setArrangement is the VST3
     // SDK's canonical in-place mutator for a bus's channel layout.

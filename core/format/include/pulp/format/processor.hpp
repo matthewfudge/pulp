@@ -477,6 +477,52 @@ public:
     /// linear-phase EQs). Hosts use this for delay compensation.
     virtual int latency_samples() const { return 0; }
 
+    /// Proposed bus layout passed to is_bus_layout_supported().
+    ///
+    /// Each entry's index matches the descriptor's input_buses /
+    /// output_buses index, and each value is the number of channels the
+    /// host is proposing for that bus. Sidechain buses appear at index 1
+    /// (input side) when the descriptor declared one. Empty per-side
+    /// vectors mean "the host did not propose buses on that side"
+    /// (rare; treat as 'no opinion').
+    ///
+    /// Workstream 03 item 3.7. Format adapters call this on the host
+    /// thread before applying the layout. Returning false rejects the
+    /// proposal and the adapter is expected to refuse the host's
+    /// `setBusArrangements` / equivalent call.
+    struct BusesLayout {
+        std::vector<int> inputs;
+        std::vector<int> outputs;
+    };
+
+    /// Validate a proposed bus layout. Default acceptance policy:
+    ///
+    ///   * Per-side bus count matches the descriptor.
+    ///   * Each proposed channel count is in {1, 2} (mono / stereo).
+    ///
+    /// Override for plugins that need a tighter contract (e.g. an
+    /// instrument that only renders stereo out, a sidechain compressor
+    /// that requires sidechain channels == main channels, surround
+    /// processors that accept >2 channels). The format adapter MUST
+    /// call this on the host thread — never from process().
+    ///
+    /// Adapters fall back to the descriptor's declared bus count + the
+    /// mono/stereo policy when a plugin doesn't override this hook,
+    /// which preserves the pre-item-3.7 behaviour exactly.
+    virtual bool is_bus_layout_supported(const BusesLayout& layout) const {
+        const auto desc = descriptor();
+        if (!layout.inputs.empty() &&
+            layout.inputs.size() != desc.input_buses.size())
+            return false;
+        if (!layout.outputs.empty() &&
+            layout.outputs.size() != desc.output_buses.size())
+            return false;
+        auto channels_ok = [](int n) { return n == 1 || n == 2; };
+        for (int n : layout.inputs)  if (!channels_ok(n)) return false;
+        for (int n : layout.outputs) if (!channels_ok(n)) return false;
+        return true;
+    }
+
     /// Process one buffer of audio. Called on the real-time audio thread.
     ///
     /// @param audio_output  Output buffer to fill (main bus)
