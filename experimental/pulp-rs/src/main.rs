@@ -139,6 +139,13 @@ enum Command {
     /// (PULP_MOTION_SERVER=1).
     #[command(name = "motion")]
     Motion(PkgTailArgs),
+
+    /// Manage `.pulp/identity.lock` — the committed pin of each
+    /// plugin's AU 4CC, manufacturer code, AAX product code,
+    /// optional VST3 FUID, and optional CLAP plugin id. See
+    /// `docs/reference/identity-lock.md` and Track 3.12 of the
+    /// macOS plugin-authoring plan.
+    Identity(PkgTailArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -613,6 +620,25 @@ fn real_main() -> Result<(), ExitCode> {
             })?;
             let spawner = pulp_rs::proc::SystemSpawner;
             map_exit(cmd::tool::run(&sub, &spawner, &mut out))
+        }
+        Command::Identity(args) => {
+            let parsed = cmd::identity::parse(&args.tail).map_err(|e| match e {
+                CliError::BadUsage(msg) => {
+                    eprintln!("{msg}");
+                    ExitCode::from(2)
+                }
+                other => {
+                    eprintln!("pulp identity: {other}");
+                    ExitCode::from(2)
+                }
+            })?;
+            let cwd = read_cwd()?;
+            let Some(root) = pulp_rs::project::resolve(&cwd).map(|p| p.root) else {
+                eprintln!("pulp identity: not in a Pulp project directory");
+                return Err(ExitCode::from(1));
+            };
+            let cmake = root.join("CMakeLists.txt");
+            map_exit(cmd::identity::run(&root, &cmake, &parsed, &mut out))
         }
         Command::Motion(args) => {
             let (sub, flags) = cmd::motion::parse(&args.tail).map_err(|e| match e {

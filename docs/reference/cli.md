@@ -89,9 +89,13 @@ pulp build -j8                # Parallel jobs
 pulp build --watch            # Build and watch for changes
 pulp build --watch --test     # Build, watch, run tests on change
 pulp build --allow-unsupported-sdk # Bypass the CLI-vs-project SDK guard (unsupported)
+pulp build --check-identity    # Verify .pulp/identity.lock before configure (Track 3.12)
+pulp build --check-identity --allow-identity-change  # Treat identity drift as a warning
 ```
 
 Extra arguments are passed through to `cmake --build`.
+
+`--check-identity` runs the same comparison as `pulp identity check` before the configure step, so a PR that changes an AU 4CC / VST3 FUID / CLAP id / AAX product code without re-recording the lock fails the build with a per-field diff. See `docs/reference/identity-lock.md`.
 
 The `--watch` flag enters a file-watching loop after the initial build. It polls source files every 500ms and rebuilds on changes. Combine with `--test` to run tests after each successful rebuild and `--validate` to run quick dlopen checks.
 
@@ -1204,6 +1208,22 @@ Flags:
 | `--id <unique-id>` | Select a specific plug-in descriptor by URI / unique-id (used for LV2 and multi-plugin CLAP bundles) |
 
 Prints plug-in metadata (name, vendor, version, format, parameter count) and the peak output level from a 256-sample synthetic block at 48 kHz. Exit code 0 on success, 1 if the bundle could not be loaded, 2 if `prepare()` failed.
+
+### identity
+
+**Status**: experimental
+
+Manage `.pulp/identity.lock` — the committed pin of each plugin's AU 4CC, manufacturer code, AAX product code, optional VST3 FUID, and optional CLAP plugin id. The lock is the audit trail that "this plugin's host-visible identity has not silently changed". See [docs/reference/identity-lock.md](identity-lock.md) for the schema and Track 3.12 of the macOS plugin-authoring plan for the rationale.
+
+```bash
+pulp identity record                              # Write/refresh .pulp/identity.lock
+pulp identity record --allow-identity-change      # Accept drift and overwrite the lock
+pulp identity record --dry-run                    # Print what would be written
+pulp identity check                               # Compare lock vs project, exit 1 on drift
+pulp identity check --allow-identity-change       # Treat drift as success
+```
+
+The same check is wired into `pulp build --check-identity` so CI can fail any PR that changes a host-visible identity field without an explicit `pulp identity record --allow-identity-change` step.
 
 ### tool
 
