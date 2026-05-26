@@ -709,6 +709,16 @@ PR2 validation and PR state:
   pulp-test-events pulp-test-ipc -j8`, `ctest --test-dir build -R
   '^(OscChannel|OSC|IPC|EventLoop)' --output-on-failure` 132/132,
   `tools/check-docs.sh` with 76 existing warnings, and `git diff --check`.
+- Hosted install-consumer smoke then exposed an installed-SDK packaging gap:
+  `PulpConfig.cmake` loaded `PulpTargets.cmake` before defining the private
+  static dependency target `SheenBidi::SheenBidi`, so downstream
+  `find_package(Pulp)` consumers failed while validating exported targets. The
+  branch now loads SheenBidi through `find_dependency(SheenBidi CONFIG)` before
+  `PulpTargets.cmake`. Local validation rebuilt and installed a clean
+  Release/GPU-off SDK to `/tmp/pulp-install-check`, verified the installed
+  SheenBidi package files are present, and configured a downstream
+  `find_package(Pulp)` + `pulp_add_plugin(... FORMATS CLAP ...)` consumer that
+  explicitly checks `TARGET SheenBidi::SheenBidi`.
 - `tools/scripts/local_diff_cover.sh` hits the local GPU/Skia configure gate in
   this worktree, so the same coverage pipeline was run manually in
   `build-cov` with `PULP_ENABLE_COVERAGE=ON`, `PULP_ENABLE_GPU=OFF`, the OSC
