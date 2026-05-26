@@ -1,5 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/format/host_quirks.hpp>
+#include <pulp/format/host_type.hpp>
+
+#include <array>
+#include <utility>
 
 using namespace pulp::format;
 
@@ -323,4 +327,94 @@ TEST_CASE("AU v3 cross-host flags stay off for non-AU-v3 hosts",
     auto fl = make_quirks_for(HostType::FLStudio, HostVersion{21, 0});
     REQUIRE(fl.au_v3_bypass_dual_tracking == false);
     REQUIRE(fl.au_v3_host_id_from_wrapper == false);
+}
+
+// ── macOS plan item 5.12 — Cross-format defensive defaults (DAW-quirks
+//    rows 23-30). The cheap always-on defenses are seeded by the
+//    default-constructed `HostQuirks`; this group of tests pins that
+//    every host dispatch path (including the unknown / default lane)
+//    leaves them on, and that `detect_quirks()` preserves them too. ──
+
+TEST_CASE("cross-format defensive defaults are on for every host",
+          "[format][host-quirks][defaults]") {
+    // Sample one host per category — Cubase / Nuendo (version-keyed),
+    // Live + Wavelab (version-invariant), Bitwig (legacy with
+    // workaround), FL Studio (just-shipped lane), Logic + GarageBand
+    // (Apple AU lane with AU v3 layering), Reaper (workaround-heavy),
+    // Pro Tools (AAX lane), and Unknown / Standalone / Other (default
+    // lane). Every entry must keep the cheap defenses on.
+    const auto cases = std::array{
+        std::pair{HostType::Cubase,      HostVersion{12, 0}},
+        std::pair{HostType::Nuendo,      HostVersion{13, 0}},
+        std::pair{HostType::AbletonLive, HostVersion{11, 0}},
+        std::pair{HostType::Wavelab,     HostVersion{11, 1}},
+        std::pair{HostType::Bitwig,      HostVersion{5, 2}},
+        std::pair{HostType::FLStudio,    HostVersion{21, 0}},
+        std::pair{HostType::LogicPro,    HostVersion{11, 0}},
+        std::pair{HostType::GarageBand,  HostVersion{10, 4}},
+        std::pair{HostType::Reaper,      HostVersion{7, 20}},
+        std::pair{HostType::ProTools,    HostVersion{2024, 6}},
+        std::pair{HostType::Unknown,     HostVersion{}},
+        std::pair{HostType::Standalone,  HostVersion{}},
+        std::pair{HostType::Other,       HostVersion{}},
+    };
+    for (auto [host, version] : cases) {
+        auto q = make_quirks_for(host, version);
+        INFO("host=" << host_type_name(host)
+             << " version=" << version.major << "." << version.minor);
+        // Row 23 — bypass synthesis.
+        REQUIRE(q.synthesize_bypass_parameter == true);
+        // Row 24 — latency clamp to non-negative.
+        REQUIRE(q.clamp_latency_to_nonneg == true);
+        // Rows 25-26 — silence unsupported bus arrangements.
+        REQUIRE(q.silence_unsupported_bus_arrangements == true);
+    }
+}
+
+TEST_CASE("cross-format defensive defaults survive detect_quirks()",
+          "[format][host-quirks][defaults]") {
+    // detect_quirks() shells through detect_host_info() → the same
+    // make_quirks_for() pipeline. Cheap defenses must be on no matter
+    // which host (or no host) the runtime detects.
+    auto q = detect_quirks();
+    REQUIRE(q.synthesize_bypass_parameter == true);
+    REQUIRE(q.clamp_latency_to_nonneg == true);
+    REQUIRE(q.silence_unsupported_bus_arrangements == true);
+}
+
+TEST_CASE("cross-format defensive defaults are the only flags on for Unknown host",
+          "[format][host-quirks][defaults]") {
+    // The default lane must not flip any host-gated flag — only the
+    // cheap defenses should be on.
+    auto q = make_quirks_for(HostType::Unknown, HostVersion{});
+    // Cheap defenses on.
+    REQUIRE(q.synthesize_bypass_parameter == true);
+    REQUIRE(q.clamp_latency_to_nonneg == true);
+    REQUIRE(q.silence_unsupported_bus_arrangements == true);
+    // Every host-gated flag stays off.
+    REQUIRE(q.cubase10_async_view_resize_queue == false);
+    REQUIRE(q.cubase10_param_gesture_ordering == false);
+    REQUIRE(q.cubase10_fractional_scale_correction == false);
+    REQUIRE(q.cubase9_state_blob_size_validation == false);
+    REQUIRE(q.live_vst3_canresize_ignore == false);
+    REQUIRE(q.live_vst3_windows_dpi_defer == false);
+    REQUIRE(q.bitwig_vst3_linux_repaint_after_resize == false);
+    REQUIRE(q.bitwig_vst3_setbusarrangements_while_active == false);
+    REQUIRE(q.wavelab_vst3_defer_activation == false);
+    REQUIRE(q.wavelab_state_blob_fallback == false);
+    REQUIRE(q.fl_studio_setactive_process_mutex == false);
+    REQUIRE(q.fl_studio_state_reader_skip == false);
+    REQUIRE(q.reaper_vst3_gesture_ordering == false);
+    REQUIRE(q.reaper_process_while_bypassed == false);
+    REQUIRE(q.reaper_keyboard_passthrough == false);
+    REQUIRE(q.reaper_permissive_bus_arrangements == false);
+    REQUIRE(q.reaper_anticipative_fx_buffer_variability == false);
+    REQUIRE(q.reaper_midsession_setstate == false);
+    REQUIRE(q.pro_tools_aax_sidechain_negotiation == false);
+    REQUIRE(q.pro_tools_aax_latency_callback_push == false);
+    REQUIRE(q.pro_tools_aax_mono_second_bus == false);
+    REQUIRE(q.logic_au_channel_probe_cap == 64); // Default cap, not Logic's 8.
+    REQUIRE(q.logic_au_tail_time_conversion == false);
+    REQUIRE(q.au_v3_bypass_dual_tracking == false);
+    REQUIRE(q.au_v3_host_id_from_wrapper == false);
 }
