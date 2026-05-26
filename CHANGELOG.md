@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02400"></a>
+## [0.240.0] - 2026-05-25
+
+- feat(audio): AudioThumbnail + cache wired into WaveformView (item 6.12) ([#2898](https://github.com/danielraffel/pulp/pull/2898))
+
 <a id="v02390"></a>
 ## [0.239.0] - 2026-05-25
 
@@ -2866,6 +2871,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.240.0]: https://github.com/danielraffel/pulp/releases/tag/v0.240.0
 [0.239.0]: https://github.com/danielraffel/pulp/releases/tag/v0.239.0
 [0.238.0]: https://github.com/danielraffel/pulp/releases/tag/v0.238.0
 [0.237.0]: https://github.com/danielraffel/pulp/releases/tag/v0.237.0
