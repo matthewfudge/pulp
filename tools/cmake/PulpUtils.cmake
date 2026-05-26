@@ -362,6 +362,33 @@ function(pulp_add_plugin target)
                 "${_aax_dir}/${PLUGIN_PLUGIN_NAME}.aaxplugin")
     endif()
 
+    # ── AUv3 install (item 3.10 macOS plan) ──────────────────────────────
+    # The AU v3 packaging shape on macOS is a containing .app that holds
+    # the .appex + its framework. macOS discovers AU v3 extensions via
+    # Launch Services + PlugInKit, so the .app belongs in /Applications
+    # (or ~/Applications); the system folder under ~/Library/Audio/...
+    # is AU v2 only.
+    #
+    # After copying, we register the extension with `pluginkit -a` and
+    # flush the AudioComponent cache so DAWs see the new component on
+    # next relaunch without a full logout. `pulp doctor --au-cache`
+    # documents the same `killall -9 AudioComponentRegistrar` step.
+    if(TARGET ${target}_AUv3Host AND APPLE AND NOT PULP_IOS)
+        set(_auv3_install_dir "$ENV{HOME}/Applications")
+        list(APPEND _install_commands
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_auv3_install_dir}"
+            COMMAND ${CMAKE_COMMAND} -E rm -rf
+                "${_auv3_install_dir}/${PLUGIN_PLUGIN_NAME}.app"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "$<TARGET_BUNDLE_DIR:${target}_AUv3Host>"
+                "${_auv3_install_dir}/${PLUGIN_PLUGIN_NAME}.app"
+            COMMAND /usr/bin/pluginkit -a
+                "${_auv3_install_dir}/${PLUGIN_PLUGIN_NAME}.app/Contents/PlugIns/${PLUGIN_PLUGIN_NAME}.appex"
+            COMMAND /usr/bin/killall -9 AudioComponentRegistrar
+                || ${CMAKE_COMMAND} -E echo "AudioComponentRegistrar not running (will be reaped on next AU host launch)"
+        )
+    endif()
+
     if(_install_commands)
         add_custom_target(pulp-install-${target}
             ${_install_commands}

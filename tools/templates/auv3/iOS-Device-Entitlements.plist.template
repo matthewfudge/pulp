@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- iOS device AUv3 .appex entitlements. Differs from the Simulator variant
+     only in that device builds usually carry a paid-developer-team-id-scoped
+     application-group identifier when distributed through TestFlight or the
+     App Store. The bundle-id-scoped group below is what `pulp create` ships
+     as a sane default; teams that ship through the App Store should adjust
+     it to match their App Group ID in App Store Connect. The macOS plan
+     defers Mac Catalyst to post-MVP, so this template is iOS-device-only. -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.@PLUGIN_BUNDLE_ID@</string>
+    </array>
+</dict>
+</plist>
