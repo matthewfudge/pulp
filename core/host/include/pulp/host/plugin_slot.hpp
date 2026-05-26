@@ -12,6 +12,7 @@
 
 #include <pulp/host/scanner.hpp>
 #include <pulp/host/parameter_event_queue.hpp>
+#include <pulp/host/extensions_visitor.hpp>
 #include <pulp/runtime/node_abi.hpp>
 #include <pulp/state/parameter.hpp>
 #include <pulp/audio/buffer.hpp>
@@ -152,6 +153,20 @@ public:
     // Latency
     virtual int latency_samples() const = 0;
     virtual int tail_samples() const = 0;
+
+    // ── Extensions visitor (item 4.5) ───────────────────────────────────
+    //
+    // Typed plugin introspection: subclass ExtensionsVisitor, override
+    // the visit_* methods you care about, then call
+    //   slot.accept(visitor)
+    // The slot dispatches to the matching visit_* overload (visit_clap,
+    // visit_vst3, ...) with a populated handle struct. The default
+    // implementation here calls visit_unknown so placeholder/unresolved
+    // slots and slots whose format adapter was not compiled in degrade
+    // gracefully without leaking a stale handle.
+    virtual void accept(ExtensionsVisitor& visitor) const {
+        visitor.visit_unknown(*this, ExtensionFormat::Unknown);
+    }
 };
 
 } // namespace pulp::host

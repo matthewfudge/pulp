@@ -437,6 +437,18 @@ public:
         return (int)processor_->getTailSamples();
     }
 
+    // Item 4.5 — typed plugin introspection. Surface the IComponent and
+    // related VST3 interfaces so callers that link against the SDK can
+    // reach into vendor extensions without round-tripping through `void*`.
+    void accept(ExtensionsVisitor& visitor) const override {
+        Vst3Extension ext;
+        ext.component = component_;
+        ext.audio_processor = processor_;
+        ext.edit_controller = controller_;
+        ext.class_id = info_.unique_id;
+        visitor.visit_vst3(*this, ext);
+    }
+
     static HostApp& host_app() {
         static HostApp app;
         return app;

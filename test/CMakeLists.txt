@@ -3076,6 +3076,12 @@ add_executable(pulp-test-host-signal-graph test_host_signal_graph.cpp)
 target_link_libraries(pulp-test-host-signal-graph PRIVATE pulp::host Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-host-signal-graph)
 
+# Item 4.5 — ExtensionsVisitor. Pure-header pattern test, no plugin
+# loading required; uses lightweight mock slots to exercise dispatch.
+add_executable(pulp-test-extensions-visitor test_extensions_visitor.cpp)
+target_link_libraries(pulp-test-extensions-visitor PRIVATE pulp::host Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-extensions-visitor)
+
 # Host regression coverage (#52) — end-to-end scan / load / process /
 # unload lifecycle, scanner failure modes (moduleinfo.json + manifest.ttl),
 # state round-trip, and hot-reload race-cleanliness. Separate binary so a

@@ -306,6 +306,23 @@ public:
         return 0;
     }
 
+    // Item 4.5 — typed plugin introspection. Surface the AudioUnit
+    // instance and its component description so callers can talk directly
+    // to AudioToolbox / use vendor-specific properties.
+    void accept(ExtensionsVisitor& visitor) const override {
+        AudioUnitExtension ext;
+        ext.component_instance = au_;
+        // Re-parse the 'TYPE:SUBT:MANU' triplet we stored at load time.
+        // parse_4cc_triplet lives in this file's anonymous namespace.
+        OSType t = 0, s = 0, m = 0;
+        if (parse_4cc_triplet(info_.unique_id, t, s, m)) {
+            ext.type = static_cast<unsigned int>(t);
+            ext.subtype = static_cast<unsigned int>(s);
+            ext.manufacturer = static_cast<unsigned int>(m);
+        }
+        visitor.visit_audio_unit(*this, ext);
+    }
+
 private:
     static OSStatus render_callback(
         void* refcon,

@@ -287,6 +287,15 @@ public:
     int latency_samples() const override { return 0; }
     int tail_samples() const override { return 0; }
 
+    // Item 4.5 — typed plugin introspection. Surface the LV2 instance
+    // handle and URI so callers can reach into LV2 vendor extensions.
+    void accept(ExtensionsVisitor& visitor) const override {
+        Lv2Extension ext;
+        ext.instance = reinterpret_cast<void*>(instance_);
+        ext.uri = info_.unique_id;
+        visitor.visit_lv2(*this, ext);
+    }
+
 private:
     PluginInfo info_;
     void* handle_ = nullptr;
