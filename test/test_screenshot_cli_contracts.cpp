@@ -198,8 +198,14 @@ TEST_CASE("pulp-screenshot option parser handles aliases and last value wins",
     REQUIRE(options.backend_name == "cg");
 }
 
-TEST_CASE("pulp-screenshot help option stops parsing later malformed flags",
+TEST_CASE("pulp-screenshot help option short-circuits parsing entirely",
           "[tools][screenshot][coverage]") {
+    // After #2956's pre-scan fix, `--help` anywhere in argv short-circuits
+    // BEFORE the option loop runs — including BEFORE flags that come
+    // earlier in argv. This is the documented help-path contract: any
+    // command containing `--help` prints usage and exits cleanly, even
+    // when the rest of the command line is garbage. Callers that need
+    // their other flags applied must omit `--help`.
     ScreenshotCliOptions options;
     REQUIRE_NOTHROW(options = parse_args({
         "--script", "before-help.js",
@@ -209,10 +215,47 @@ TEST_CASE("pulp-screenshot help option stops parsing later malformed flags",
     }));
 
     REQUIRE(options.help);
-    REQUIRE(options.script_path == "before-help.js");
+    // Pre-help flags are intentionally NOT applied — help short-circuits
+    // the whole option loop. Defaults remain.
+    REQUIRE(options.script_path.empty());
     REQUIRE(options.width == 400);
     REQUIRE(options.height == 300);
     REQUIRE(options.backend_was_defaulted);
+}
+
+// Regression: #2956 / Codex comment 3304939247 — the previous fix
+// (#2957) set `options.help = true` and continued the parse loop, so
+// malformed numeric options ANYWHERE in argv (including BEFORE `--help`)
+// still ran std::stoi / std::stof and threw, surfacing an error instead
+// of clean help output. This pins help-path robustness in the order
+// the user is most likely to hit it: a typo first, `--help` later.
+TEST_CASE("pulp-screenshot --help short-circuits malformed args before it (#2956)",
+          "[tools][screenshot][coverage][issue-2956]") {
+    // Malformed --width / --height BEFORE --help must not blow up.
+    ScreenshotCliOptions options;
+    REQUIRE_NOTHROW(options = parse_args({
+        "--width", "not-a-number",
+        "--height", "also-bad",
+        "--scale", "definitely-not-a-float",
+        "--help",
+    }));
+    REQUIRE(options.help);
+    // The values keep their defaults — the option loop never ran.
+    REQUIRE(options.width == 400);
+    REQUIRE(options.height == 300);
+    REQUIRE(options.scale == 2.0f);
+
+    // -h short flag also short-circuits.
+    REQUIRE_NOTHROW(options = parse_args({"--width", "BAD", "-h"}));
+    REQUIRE(options.help);
+
+    // Help anywhere in the middle of malformed args still works.
+    REQUIRE_NOTHROW(options = parse_args({
+        "--width", "x",
+        "--help",
+        "--height", "y",
+    }));
+    REQUIRE(options.help);
 }
 
 TEST_CASE("pulp-screenshot backend normalization rejects unavailable explicit Skia",

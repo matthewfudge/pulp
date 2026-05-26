@@ -102,6 +102,22 @@ struct ScreenshotCliOptions {
 
 static ScreenshotCliOptions parse_options(int argc, char* argv[]) {
     ScreenshotCliOptions options;
+    // Short-circuit on --help / -h BEFORE running the option loop. The
+    // option loop calls std::stoi / std::stof on `--width`, `--height`,
+    // `--scale` arguments, which throw on malformed input. Without this
+    // pre-scan, a command like `pulp-screenshot --width foo --help`
+    // would throw before reaching the help check and exit non-zero
+    // instead of printing usage with exit code 0. Regression:
+    // #2956 / Codex comment 3304939247 (resurfaced after #2957's
+    // partial fix moved the flag-set into the loop without breaking
+    // out of it).
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            options.help = true;
+            return options;
+        }
+    }
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--script" && i + 1 < argc) options.script_path = argv[++i];
@@ -116,10 +132,6 @@ static ScreenshotCliOptions parse_options(int argc, char* argv[]) {
         }
         else if (arg == "--base64") options.output_base64 = true;
         else if (arg == "--demo") options.demo = true;
-        else if (arg == "--help" || arg == "-h") {
-            options.help = true;
-            return options;
-        }
     }
     return options;
 }
