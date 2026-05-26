@@ -28,7 +28,7 @@ implementation notes, tests, coverage proof, and PR link before shipping.
 | Threads and processes | `feature/platform-threads-processes` | `pulp-platform-threads-processes` | Merged via PR #2815 | Canonical platform process surface, runtime blocking wrapper, tested launch/wait/cancel/output/IPC behavior, no unneeded current-process or timer additions |
 | Native event loop | `feature/platform-main-thread-dispatch` | `pulp-platform-main-thread-dispatch` | Merged via PR [#2825](https://github.com/danielraffel/pulp/pull/2825) as `9c96f3dfa` | Cross-platform main-thread dispatcher contract, platform registrations where available, sync/async dispatch tests, EventLoop thread-id race fixed |
 | OSC | `feature/platform-osc` | `pulp-platform-osc` | Merged via PR [#2822](https://github.com/danielraffel/pulp/pull/2822) as `bbc1506ed` | Typed bundle send/receive, listener filtering using existing address matching, invalid-packet error callback, exclusive UDP receiver binding, focused UDP and pure parser tests |
-| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | PR [#2844](https://github.com/danielraffel/pulp/pull/2844) open; locally rebased and validated on `origin/main` `c72ad330b` after #2822 merged; SDK `0.254.0`; Claude plugin `0.122.0` | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
+| Native windows | `feature/platform-native-window-embedding` | `pulp-platform-native-window-embedding` | PR [#2844](https://github.com/danielraffel/pulp/pull/2844) open; locally rebased and validated on `origin/main` `f10a6e32e` after #2822 and #2971 merged; SDK `0.254.0`; Claude plugin `0.122.0` | First-party non-Apple host/plugin embedding path or explicit supported-platform contract, child attach/bounds/detach tests, docs updated to avoid overclaiming |
 
 Validation expectations for each PR:
 - Add or update focused unit tests for every new public behavior.
@@ -473,9 +473,10 @@ Closure slice:
   public docs do not imply first-party non-Apple embedding exists today.
 
 Native-window local validation:
-- Rebased onto `origin/main` at `c72ad330b` after #2822 merged and the v0.253.0
-  changelog landed. Historical status-only report commits were dropped during
-  rebase; this section is the current source of validation truth for #2844.
+- Rebased onto `origin/main` at `f10a6e32e` after #2822 merged, the v0.253.0
+  changelog landed, and #2971 added the DAW-bench harness package. Historical
+  status-only report commits were dropped during rebase; this section is the
+  current source of validation truth for #2844.
 - `version_bump_check.py --base origin/main --config
   tools/scripts/versioning.json --mode=report --require-bump-for-fix-feat
   --accept-intent-trailers` passes with SDK `0.254.0` and Claude plugin
