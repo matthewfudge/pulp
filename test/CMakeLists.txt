@@ -776,6 +776,9 @@ catch_discover_tests(pulp-test-sync PROPERTIES LABELS slow)
 # License and BigInteger tests
 pulp_add_test_suite(pulp-test-license LIBRARIES pulp::runtime)
 
+# License v1 -> v2 migration (macOS plan item 7.2)
+pulp_add_test_suite(pulp-test-license-migration LIBRARIES pulp::runtime)
+
 # MIDI CI tests
 pulp_add_test_suite(pulp-test-midi-ci LIBRARIES pulp::midi)
 
