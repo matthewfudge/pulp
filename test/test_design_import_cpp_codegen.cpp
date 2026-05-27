@@ -276,10 +276,27 @@ std::string style_token_string(choc::value::ValueView route) {
     return out;
 }
 
-DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
-                                                choc::value::ValueView route) {
+std::string color_for_style_tokens(std::string_view tokens) {
+    if (tokens.find("C.orange") != std::string_view::npos) return "#ff6b35";
+    if (tokens.find("C.blue") != std::string_view::npos) return "#5b8af0";
+    if (tokens.find("C.purple") != std::string_view::npos) return "#9b59ff";
+    if (tokens.find("C.green") != std::string_view::npos) return "#3ddc84";
+    if (tokens.find("C.amber") != std::string_view::npos) return "#f0a030";
+    return "#ff6b35";
+}
+
+void add_chainer_token_colors(DesignIR& ir) {
+    ir.tokens.colors["chainer.orange"] = "#ff6b35";
+    ir.tokens.colors["chainer.blue"] = "#5b8af0";
+    ir.tokens.colors["chainer.purple"] = "#9b59ff";
+    ir.tokens.colors["chainer.green"] = "#3ddc84";
+    ir.tokens.colors["chainer.amber"] = "#f0a030";
+}
+
+IRNode lower_chainer_knob_route_to_node(IRNode& materialized_root,
+                                        choc::value::ValueView route) {
     const auto materialized_path = json_string(route["materialized_ir_path"]);
-    auto* materialized_node = node_at_ir_path(materialized_ir.root, materialized_path);
+    auto* materialized_node = node_at_ir_path(materialized_root, materialized_path);
     REQUIRE(materialized_node != nullptr);
     REQUIRE(materialized_node->stable_anchor_id.has_value());
     REQUIRE(*materialized_node->stable_anchor_id == json_string(route["materialized_ir_anchor"]));
@@ -289,14 +306,7 @@ DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
     const auto value = json_float(route["value"]);
     const auto default_value = json_float_or(route["default_value"], value);
     const auto label = json_string(route["label"]);
-
-    DesignIR ir;
-    ir.source = DesignSource::jsx;
-    ir.capture_method = "phase-c-chainer-one-knob-route-overlay";
-    ir.source_adapter = "native-cpp-import-execution-validation";
-    ir.source_version = "phase-c";
-    ir.tokens.colors["chainer.orange"] = "#ff6b35";
-    ir.root = frame_node("phase-c-root", "Chainer One Knob", size + 28.0f, size + 38.0f, LayoutDirection::column);
+    const auto style_tokens = style_token_string(route);
 
     auto knob = *materialized_node;
     knob.children.clear();
@@ -304,7 +314,7 @@ DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
     knob.text_content.clear();
     knob.style.width = size;
     knob.style.height = size;
-    knob.style.border_color = "#ff6b35";
+    knob.style.border_color = color_for_style_tokens(style_tokens);
     knob.audio_widget = AudioWidgetType::knob;
     knob.audio_label = label;
     knob.audio_min = 0.0f;
@@ -320,10 +330,45 @@ DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
     knob.attributes["pulpBindingParam"] = json_string(binding["param"]);
     knob.attributes["pulpEventContract"] = event_contract_string(route);
     knob.attributes["pulpGestureContract"] = gesture_contract_string(route);
-    knob.attributes["pulpStyleTokens"] = style_token_string(route);
+    knob.attributes["pulpStyleTokens"] = style_tokens;
     knob.attributes["pulpDefaultValueSource"] =
         route["default_value"].isVoid() ? "phase_c_initial_value_fallback" : "source_default";
-    ir.root.children.push_back(std::move(knob));
+    return knob;
+}
+
+DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
+                                                choc::value::ValueView route) {
+    const auto size = json_float(route["size"]);
+
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-c-chainer-one-knob-route-overlay";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-c";
+    add_chainer_token_colors(ir);
+    ir.root = frame_node("phase-c-root", "Chainer One Knob", size + 28.0f, size + 38.0f, LayoutDirection::column);
+    ir.root.children.push_back(lower_chainer_knob_route_to_node(materialized_ir.root, route));
+    return ir;
+}
+
+DesignIR lower_chainer_knob_routes_to_phase_d_ir(DesignIR materialized_ir,
+                                                 choc::value::ValueView route_rows) {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-d-chainer-all-knobs-route-overlay";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-d";
+    add_chainer_token_colors(ir);
+    ir.root = frame_node("phase-d-root", "Chainer All Knobs", 520.0f, 96.0f, LayoutDirection::row);
+    ir.root.layout.gap = 12.0f;
+
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        if (json_string(route["source_component_family"]) != "Knob")
+            continue;
+        ir.root.children.push_back(lower_chainer_knob_route_to_node(materialized_ir.root, route));
+    }
+    REQUIRE(ir.root.children.size() == 8);
 
     return ir;
 }
@@ -536,6 +581,96 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     const auto header = tmp.path / "phase_c_chainer_one_knob.hpp";
     const auto source = tmp.path / "phase_c_chainer_one_knob.cpp";
     const auto object = tmp.path / "phase_c_chainer_one_knob.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
+}
+
+TEST_CASE("Chainer route overlay can lower all knobs to typed C++ with binding sidecar",
+          "[view][import][cpp-codegen][native-cpp-phase-d]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    REQUIRE(fs::exists(manifest_path));
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["knob_routes"].getInt64() == 8);
+
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(chainer_ir_path));
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+
+    const auto ir = lower_chainer_knob_routes_to_phase_d_ir(std::move(materialized_ir), route_rows);
+    CppExportOptions opts;
+    opts.header_filename = "phase_d_chainer_all_knobs.hpp";
+    opts.namespace_name = "pulp::test::phase_d";
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, opts);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Knob>()") == 8);
+    REQUIRE(result.source.find("tokens::kChainerOrange") != std::string::npos);
+    REQUIRE(result.source.find("tokens::kChainerBlue") != std::string::npos);
+    REQUIRE(result.source.find("tokens::kChainerPurple") != std::string::npos);
+    REQUIRE(result.source.find("tokens::kChainerAmber") != std::string::npos);
+    REQUIRE(result.source.find("tokens::kChainerGreen") != std::string::npos);
+
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
+    REQUIRE(binding_manifest["entries"].size() == 8);
+
+    struct ExpectedKnob {
+        const char* id;
+        const char* anchor;
+        const char* label;
+        const char* param_key;
+        const char* binding_module;
+        const char* binding_param;
+        const char* style_tokens;
+    };
+    const std::vector<ExpectedKnob> expected = {
+        {"chainer.knob.0.osc_freq", "pr_2c", "freq", "osc_freq", "OSC", "freq", "C.orange"},
+        {"chainer.knob.1.osc_detune", "pr_2l", "detune", "osc_detune", "OSC", "detune", "C.blue"},
+        {"chainer.knob.2.osc_shape", "pr_2u", "shape", "osc_shape", "OSC", "shape", "C.purple"},
+        {"chainer.knob.3.xover_lo", "pr_49", "lo", "xover_lo", "XOVER", "lo_freq", "C.amber"},
+        {"chainer.knob.4.xover_hi", "pr_4i", "hi", "xover_hi", "XOVER", "hi_freq", "C.amber"},
+        {"chainer.knob.5.ms_mid_width", "pr_4y", "mid wid", "ms_mid_width", "MS", "mid_width", "C.green"},
+        {"chainer.knob.6.ms_side_width", "pr_57", "side wid", "ms_side_width", "MS", "side_width", "C.green"},
+        {"chainer.knob.7.master_out", "pr_6p", "output", "master_out", "LIMIT", "output_gain", "C.green"},
+    };
+
+    for (const auto& knob : expected) {
+        REQUIRE(result.source.find(std::string("->set_anchor_id(\"") + knob.anchor + "\");") != std::string::npos);
+        REQUIRE(result.source.find(std::string("->set_label(\"") + knob.label + "\");") != std::string::npos);
+
+        bool found = false;
+        for (uint32_t i = 0; i < binding_manifest["entries"].size(); ++i) {
+            const auto entry = binding_manifest["entries"][i];
+            if (entry["id"].getString() != std::string(knob.id))
+                continue;
+            found = true;
+            REQUIRE(entry["anchor_id"].getString() == std::string(knob.anchor));
+            REQUIRE(entry["native_primitive"].getString() == std::string("knob"));
+            REQUIRE(entry["route_type"].getString() == std::string("native_cpp"));
+            REQUIRE(entry["source_family"].getString() == std::string("Knob"));
+            REQUIRE(entry["param_key"].getString() == std::string(knob.param_key));
+            REQUIRE(entry["binding_module"].getString() == std::string(knob.binding_module));
+            REQUIRE(entry["binding_param"].getString() == std::string(knob.binding_param));
+            REQUIRE(entry["event_contract"].getString() == std::string("onChange:set_param:") + knob.param_key);
+            REQUIRE(entry["gesture_contract"].getString() == std::string("rotary_drag:begin/update/end"));
+            REQUIRE(entry["style_tokens"].getString() == std::string(knob.style_tokens));
+            REQUIRE(entry["default_value_source"].getString() == std::string("phase_c_initial_value_fallback"));
+            break;
+        }
+        REQUIRE(found);
+    }
+
+    TempDir tmp("pulp-phase-d-chainer-all-knobs-cpp-codegen");
+    const auto header = tmp.path / "phase_d_chainer_all_knobs.hpp";
+    const auto source = tmp.path / "phase_d_chainer_all_knobs.cpp";
+    const auto object = tmp.path / "phase_d_chainer_all_knobs.o";
     write_text(header, result.header);
     write_text(source, result.source);
 
