@@ -54,6 +54,8 @@ static void print_usage() {
     std::cerr << "  --scale <factor>     Scale factor (default: 2.0)\n";
     std::cerr << "  --theme <name>       Theme: dark, light, pro_audio (default: dark)\n";
     std::cerr << "  --backend <name>     Render backend: skia, coregraphics (default: skia)\n";
+    std::cerr << "  --runtime-trace <file.json>\n";
+    std::cerr << "                       Dump JS listener/callback trace after settle\n";
     std::cerr << "  --base64             Output base64-encoded PNG to stdout\n";
     std::cerr << "  --demo               Render a demo UI (no script needed)\n";
 }
@@ -62,6 +64,13 @@ static std::string read_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) return {};
     return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+static bool write_text_file(const std::string& path, const std::string& text) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) return false;
+    f << text;
+    return f.good();
 }
 
 static std::string base64_encode(const std::vector<uint8_t>& data) {
@@ -94,6 +103,7 @@ struct ScreenshotCliOptions {
 #else
     std::string backend_name = "coregraphics";
 #endif
+    std::string runtime_trace_path;
     bool backend_was_defaulted = true;
     bool output_base64 = false;
     bool demo = false;
@@ -130,6 +140,7 @@ static ScreenshotCliOptions parse_options(int argc, char* argv[]) {
             options.backend_name = argv[++i];
             options.backend_was_defaulted = false;
         }
+        else if (arg == "--runtime-trace" && i + 1 < argc) options.runtime_trace_path = argv[++i];
         else if (arg == "--base64") options.output_base64 = true;
         else if (arg == "--demo") options.demo = true;
     }
@@ -163,6 +174,65 @@ static bool normalize_backend(ScreenshotCliOptions& options) {
         return false;
     }
     return true;
+}
+
+static const char* runtime_trace_script() {
+    return R"JS(
+(function () {
+    function keys(obj) {
+        return obj ? Object.keys(obj).sort() : [];
+    }
+    function listenerSummary(target) {
+        if (!target || !target._listeners) return [];
+        return keys(target._listeners).map(function (type) {
+            var list = target._listeners[type] || [];
+            return { type: type, count: list.length };
+        });
+    }
+    function callbackSummary() {
+        if (typeof __callbacks__ === 'undefined') return [];
+        return keys(__callbacks__).map(function (key) {
+            var idx = key.lastIndexOf(':');
+            return {
+                key: key,
+                id: idx >= 0 ? key.slice(0, idx) : key,
+                type: idx >= 0 ? key.slice(idx + 1) : ''
+            };
+        });
+    }
+    function nativeRegistrationSummary() {
+        if (typeof __nativeRegistered__ === 'undefined') return [];
+        return keys(__nativeRegistered__).map(function (key) {
+            var idx = key.lastIndexOf(':');
+            return {
+                key: key,
+                id: idx >= 0 ? key.slice(0, idx) : key,
+                group: idx >= 0 ? key.slice(idx + 1) : ''
+            };
+        });
+    }
+    var addEventLog = Array.isArray(globalThis.__pulpAddELLog__)
+        ? globalThis.__pulpAddELLog__.map(function (entry) {
+            return { op: String(entry.op || ''), type: String(entry.type || ''), fn: String(entry.fn || '') };
+          })
+        : [];
+    var callbacks = callbackSummary();
+    var nativeRegistered = nativeRegistrationSummary();
+    return JSON.stringify({
+        schema: 'pulp-screenshot-runtime-trace-v1',
+        callback_count: callbacks.length,
+        callbacks: callbacks,
+        native_registered_count: nativeRegistered.length,
+        native_registered: nativeRegistered,
+        window_listeners: listenerSummary(globalThis.window),
+        document_listeners: listenerSummary(globalThis.document),
+        add_event_listener_log_count: addEventLog.length,
+        add_event_listener_log: addEventLog,
+        dispatch_hits: globalThis.__pulpDispatchHits__ || null,
+        native_element_count: (typeof __nativeElements__ !== 'undefined') ? keys(__nativeElements__).length : 0
+    }, null, 2);
+})()
+)JS";
 }
 
 int main(int argc, char* argv[]) {
@@ -286,6 +356,19 @@ int main(int argc, char* argv[]) {
     // explicitly. __pulpRuntimeSettle__ is registered by WidgetBridge
     // exactly for this case (see widget_bridge.cpp:1144).
     bridge.load_script("if (typeof __pulpRuntimeSettle__ === 'function') __pulpRuntimeSettle__(64);");
+
+    if (!options.runtime_trace_path.empty()) {
+        try {
+            auto trace = engine.evaluate(runtime_trace_script()).toString();
+            if (!write_text_file(options.runtime_trace_path, trace + "\n")) {
+                std::cerr << "Error: could not write runtime trace " << options.runtime_trace_path << "\n";
+                return 1;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error: runtime trace failed: " << e.what() << "\n";
+            return 1;
+        }
+    }
 
     // Render
     if (options.output_base64) {
