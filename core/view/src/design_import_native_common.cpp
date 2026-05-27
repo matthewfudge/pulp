@@ -124,6 +124,8 @@ std::optional<NativeWidgetKind> kind_from_type(const IRNode& node,
         return NativeWidgetKind::label;
     if (type == "button" || type == "text_button")
         return NativeWidgetKind::text_button;
+    if (type == "toggle_button")
+        return NativeWidgetKind::toggle_button;
     if (type == "textarea" || type == "text_editor")
         return NativeWidgetKind::text_editor;
     if (type == "checkbox")
@@ -757,6 +759,12 @@ std::unique_ptr<View> make_widget(const IRNode& node,
             checkbox->set_checked(attr_bool(node, "checked"));
             return checkbox;
         }
+        case NativeWidgetKind::toggle_button: {
+            auto button = std::make_unique<ToggleButton>();
+            if (!text.empty()) button->set_label(text);
+            button->set_on(attr_bool(node, "checked") || attr_bool(node, "value"));
+            return button;
+        }
         case NativeWidgetKind::knob: {
             auto knob = std::make_unique<Knob>();
             if (!text.empty()) knob->set_label(text);
@@ -916,6 +924,7 @@ const char* native_widget_kind_name(NativeWidgetKind kind) {
         case NativeWidgetKind::text_button: return "text_button";
         case NativeWidgetKind::text_editor: return "text_editor";
         case NativeWidgetKind::checkbox: return "checkbox";
+        case NativeWidgetKind::toggle_button: return "toggle_button";
         case NativeWidgetKind::knob: return "knob";
         case NativeWidgetKind::fader: return "fader";
         case NativeWidgetKind::meter: return "meter";

@@ -823,6 +823,8 @@ std::string widget_make_expr(const IRNode& node,
             return "std::make_unique<pulp::view::TextEditor>()";
         case NativeWidgetKind::checkbox:
             return "std::make_unique<pulp::view::Checkbox>()";
+        case NativeWidgetKind::toggle_button:
+            return "std::make_unique<pulp::view::ToggleButton>()";
         case NativeWidgetKind::knob:
             return "std::make_unique<pulp::view::Knob>()";
         case NativeWidgetKind::fader:
@@ -872,6 +874,12 @@ void emit_widget_specific(std::ostringstream& out,
         case NativeWidgetKind::checkbox:
             if (attr_bool(node, "checked"))
                 emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_checked(true);");
+            break;
+        case NativeWidgetKind::toggle_button:
+            if (!text.empty())
+                emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_label(" + cpp_string_literal(text) + ");");
+            if (attr_bool(node, "checked") || attr_bool(node, "value"))
+                emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_on(true);");
             break;
         case NativeWidgetKind::knob: {
             if (!text.empty())
@@ -1344,6 +1352,7 @@ void emit_binding_context_helpers(std::ostringstream& out,
     for (const auto& route : routes) {
         if (route.kind != NativeWidgetKind::knob &&
             route.kind != NativeWidgetKind::fader &&
+            route.kind != NativeWidgetKind::toggle_button &&
             route.kind != NativeWidgetKind::xy_pad)
             continue;
         emit_line(out, 1, opts.indent_spaces,
@@ -1360,6 +1369,15 @@ void emit_binding_context_helpers(std::ostringstream& out,
                           "if (auto* pad = dynamic_cast<pulp::view::XYPad*>(view)) {");
                 emit_line(out, 3, opts.indent_spaces, "ctx.bind_xy_pad(*pad,");
                 emit_xy_descriptor(route, 3);
+                emit_line(out, 2, opts.indent_spaces, "}");
+                emit_line(out, 1, opts.indent_spaces, "}");
+                continue;
+            }
+            if (route.kind == NativeWidgetKind::toggle_button) {
+                emit_line(out, 2, opts.indent_spaces,
+                          "if (auto* button = dynamic_cast<pulp::view::ToggleButton*>(view)) {");
+                emit_line(out, 3, opts.indent_spaces, "ctx.bind_toggle_button(*button,");
+                emit_descriptor(route, 3);
                 emit_line(out, 2, opts.indent_spaces, "}");
                 emit_line(out, 1, opts.indent_spaces, "}");
                 continue;

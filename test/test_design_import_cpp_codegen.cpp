@@ -47,6 +47,8 @@ std::unique_ptr<pulp::view::View> build_imported_fader_ui();
 void bind_imported_fader_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
 std::unique_ptr<pulp::view::View> build_imported_xy_pad_ui();
 void bind_imported_xy_pad_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
+std::unique_ptr<pulp::view::View> build_imported_toggle_buttons_ui();
+void bind_imported_toggle_buttons_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
 
 namespace {
 
@@ -274,6 +276,29 @@ public:
         pad.on_gesture_end = [this, x_id, y_id] {
             store_.end_gesture(x_id);
             store_.end_gesture(y_id);
+        };
+    }
+
+    void bind_toggle_button(ToggleButton& button, const NativeImportBindingDescriptor& descriptor) override {
+        const auto param_key = std::string(descriptor.param_key);
+        const auto route_id = std::string(descriptor.route_id);
+
+        auto id = static_cast<pulp::state::ParamID>(param_ids_.size() + 1u);
+        pulp::state::ParamInfo info;
+        info.id = id;
+        info.name = param_key;
+        info.range = {0.0f, 1.0f, button.is_on() ? 1.0f : 0.0f};
+        store_.add_parameter(info);
+        store_.set_normalized(id, button.is_on() ? 1.0f : 0.0f);
+
+        param_ids_[param_key] = id;
+        param_keys_by_id_[id] = param_key;
+        route_ids_[param_key] = route_id;
+        bound_params_.push_back(param_key);
+        button.on_toggle = [this, id, param_key](bool on) {
+            const float normalized = on ? 1.0f : 0.0f;
+            store_.set_normalized(id, normalized);
+            events_.push_back({param_key, normalized});
         };
     }
 
@@ -1084,6 +1109,46 @@ IRNode lower_chainer_xy_pad_route_to_node(IRNode& materialized_root,
     return wrapper;
 }
 
+IRNode lower_chainer_toggle_button_route_to_node(IRNode& materialized_root,
+                                                 choc::value::ValueView route) {
+    const auto materialized_path = json_string(route["materialized_ir_path"]);
+    auto* materialized_node = node_at_ir_path(materialized_root, materialized_path);
+    REQUIRE(materialized_node != nullptr);
+    REQUIRE(materialized_node->stable_anchor_id.has_value());
+    REQUIRE(*materialized_node->stable_anchor_id == json_string(route["materialized_ir_anchor"]));
+
+    const auto binding = route["parameter_bindings"][0];
+    const auto label = json_string(route["label"]);
+    const auto style_tokens = style_token_string(route);
+    const bool active = route["value"].getBool();
+
+    auto button = *materialized_node;
+    button.children.clear();
+    button.type = "toggle_button";
+    button.name = label + " toggle";
+    button.text_content = label;
+    button.style.width = 40.0f;
+    button.style.height = 18.0f;
+    button.style.border_color = color_for_style_tokens(style_tokens);
+    button.layout.flex_shrink = 0.0f;
+    button.audio_widget = AudioWidgetType::none;
+    button.audio_label.clear();
+    button.attributes["checked"] = active ? "true" : "false";
+    button.attributes["value"] = active ? "true" : "false";
+    button.attributes["pulpRouteId"] = json_string(route["id"]);
+    button.attributes["pulpRouteType"] = json_string(route["route_type"]);
+    button.attributes["pulpSourceFamily"] = json_string(route["source_component_family"]);
+    button.attributes["pulpSourcePath"] = json_string(route["stable_source_path"]);
+    button.attributes["pulpParamKey"] = json_string(binding["param_key"]);
+    button.attributes["pulpEventContract"] = event_contract_string(route);
+    button.attributes["pulpGestureContract"] = gesture_contract_string(route);
+    button.attributes["pulpStyleTokens"] = style_tokens;
+    button.attributes["pulpDefaultValueSource"] = json_string(route["default_value_source"]);
+    button.stable_anchor_id = json_string(route["materialized_ir_anchor"]);
+    button.anchor_strategy = "adapter";
+    return button;
+}
+
 DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
                                                 choc::value::ValueView route,
                                                 const ChainerKnobSourceFormula& formula) {
@@ -1119,6 +1184,28 @@ DesignIR lower_chainer_knob_routes_to_phase_d_ir(DesignIR materialized_ir,
         ir.root.children.push_back(lower_chainer_knob_route_to_node(materialized_ir.root, route, formula));
     }
     REQUIRE(ir.root.children.size() == 8);
+
+    return ir;
+}
+
+DesignIR lower_chainer_toggle_button_routes_to_phase_e_ir(DesignIR materialized_ir,
+                                                          choc::value::ValueView route_rows) {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-e-chainer-toggle-buttons-route-overlay";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-e";
+    add_chainer_token_colors(ir);
+    ir.root = frame_node("phase-e-toggle-buttons-root", "Chainer Toggle Buttons", 96.0f, 18.0f, LayoutDirection::row);
+    ir.root.layout.gap = 4.0f;
+
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        if (json_string(route["source_component_family"]) != "LEDButton")
+            continue;
+        ir.root.children.push_back(lower_chainer_toggle_button_route_to_node(materialized_ir.root, route));
+    }
+    REQUIRE(ir.root.children.size() == 2);
 
     return ir;
 }
@@ -1207,6 +1294,27 @@ DesignIR lower_chainer_xy_pad_routes_to_phase_e_original_layout_ir(DesignIR mate
         ++lowered;
     }
     REQUIRE(lowered == 1);
+    return materialized_ir;
+}
+
+DesignIR lower_chainer_toggle_button_routes_to_phase_e_original_layout_ir(DesignIR materialized_ir,
+                                                                          choc::value::ValueView route_rows) {
+    materialized_ir.capture_method = "phase-e-chainer-original-layout-hybrid-toggle-button-route-overlay";
+    materialized_ir.source_adapter = "native-cpp-import-execution-validation";
+    materialized_ir.source_version = "phase-e-original-layout-hybrid";
+    add_chainer_token_colors(materialized_ir);
+
+    std::size_t lowered = 0;
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        if (json_string(route["source_component_family"]) != "LEDButton")
+            continue;
+        const auto materialized_path = json_string(route["materialized_ir_path"]);
+        auto button = lower_chainer_toggle_button_route_to_node(materialized_ir.root, route);
+        *node_at_ir_path(materialized_ir.root, materialized_path) = std::move(button);
+        ++lowered;
+    }
+    REQUIRE(lowered == 2);
     return materialized_ir;
 }
 
@@ -1321,6 +1429,16 @@ struct PhaseEXYPadLayoutCase {
     std::string source_visual_ir_path;
     std::string x_param_key;
     std::string y_param_key;
+    float expected_width = 0.0f;
+    float expected_height = 0.0f;
+};
+
+struct PhaseEToggleButtonLayoutCase {
+    std::string id;
+    std::string anchor;
+    std::string param_key;
+    std::string label;
+    bool initial_value = false;
     float expected_width = 0.0f;
     float expected_height = 0.0f;
 };
@@ -1457,6 +1575,38 @@ std::vector<PhaseEXYPadLayoutCase> chainer_xy_pad_layout_cases(IRNode& materiali
         cases.push_back(std::move(item));
     }
     REQUIRE(cases.size() == 1);
+    return cases;
+}
+
+std::vector<PhaseEToggleButtonLayoutCase> chainer_toggle_button_layout_cases(IRNode& materialized_root,
+                                                                             choc::value::ValueView route_rows) {
+    std::vector<PhaseEToggleButtonLayoutCase> cases;
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        if (json_string(route["source_component_family"]) != "LEDButton")
+            continue;
+        const auto materialized_path = json_string(route["materialized_ir_path"]);
+        auto* source_visual = node_at_ir_path(materialized_root, materialized_path);
+        REQUIRE(source_visual != nullptr);
+        REQUIRE(source_visual->stable_anchor_id.has_value());
+
+        const auto binding = route["parameter_bindings"][0];
+        PhaseEToggleButtonLayoutCase item;
+        item.id = json_string(route["id"]);
+        item.anchor = json_string(route["materialized_ir_anchor"]);
+        item.param_key = json_string(binding["param_key"]);
+        item.label = json_string(route["label"]);
+        item.initial_value = route["value"].getBool();
+        item.expected_width = 40.0f;
+        item.expected_height = 18.0f;
+
+        REQUIRE(source_visual->style.width.has_value());
+        REQUIRE(source_visual->style.height.has_value());
+        REQUIRE(*source_visual->style.width == Catch::Approx(item.expected_width));
+        REQUIRE(*source_visual->style.height == Catch::Approx(item.expected_height));
+        cases.push_back(std::move(item));
+    }
+    REQUIRE(cases.size() == 2);
     return cases;
 }
 
@@ -2016,6 +2166,79 @@ TEST_CASE("Chainer route overlay can lower XY pad to typed C++ with paired bindi
     REQUIRE(compiled);
 }
 
+TEST_CASE("Chainer route overlay can lower toggle buttons to typed C++ with click binding sidecars",
+          "[view][import][cpp-codegen][native-cpp-phase-e]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(manifest_path));
+    REQUIRE(fs::exists(chainer_ir_path));
+
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+    auto toggle_ir = lower_chainer_toggle_button_routes_to_phase_e_ir(std::move(materialized_ir), route_rows);
+
+    CppExportOptions opts;
+    opts.header_filename = "phase_e_chainer_toggle_buttons.hpp";
+    const auto result = generate_pulp_cpp(toggle_ir, toggle_ir.asset_manifest, opts);
+
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::ToggleButton>()") == 2);
+    REQUIRE(result.source.find("->set_anchor_id(\"pr_5b\")") != std::string::npos);
+    REQUIRE(result.source.find("->set_anchor_id(\"pr_5f\")") != std::string::npos);
+    REQUIRE(result.source.find("->set_label(\"MID\");") != std::string::npos);
+    REQUIRE(result.source.find("->set_label(\"SIDE\");") != std::string::npos);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_toggle_button(") == 2);
+
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["entries"].size() == 2);
+
+    struct ExpectedToggleButton {
+        const char* id;
+        const char* anchor;
+        const char* param_key;
+        const char* event_contract;
+        const char* style_tokens;
+    };
+    const std::vector<ExpectedToggleButton> expected = {
+        {"chainer.toggle_button.0.mid_bypass", "pr_5b", "mid_bypass", "onClick:toggle_param:mid_bypass", "C.green"},
+        {"chainer.toggle_button.1.side_bypass", "pr_5f", "side_bypass", "onClick:toggle_param:side_bypass", "C.purple"},
+    };
+
+    for (const auto& button : expected) {
+        bool found = false;
+        for (uint32_t i = 0; i < binding_manifest["entries"].size(); ++i) {
+            const auto entry = binding_manifest["entries"][i];
+            if (json_string(entry["id"]) != button.id)
+                continue;
+            found = true;
+            REQUIRE(json_string(entry["anchor_id"]) == button.anchor);
+            REQUIRE(json_string(entry["native_primitive"]) == "toggle_button");
+            REQUIRE(json_string(entry["source_family"]) == "LEDButton");
+            REQUIRE(json_string(entry["param_key"]) == button.param_key);
+            REQUIRE(json_string(entry["event_contract"]) == button.event_contract);
+            REQUIRE(json_string(entry["gesture_contract"]) == "click_toggle:click");
+            REQUIRE(json_string(entry["style_tokens"]) == button.style_tokens);
+            REQUIRE(json_string(entry["default_value_source"]) == "source_state_default");
+            break;
+        }
+        REQUIRE(found);
+    }
+
+    TempDir tmp("pulp-phase-e-chainer-toggle-buttons-cpp-codegen");
+    const auto header = tmp.path / "phase_e_chainer_toggle_buttons.hpp";
+    const auto source = tmp.path / "phase_e_chainer_toggle_buttons.cpp";
+    const auto object = tmp.path / "phase_e_chainer_toggle_buttons.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
+}
+
 TEST_CASE("generated Chainer fader C++ can bind and drag every fader",
           "[view][import][cpp-codegen][native-cpp-phase-e][behavior]") {
     auto root = ::build_imported_fader_ui();
@@ -2209,6 +2432,98 @@ TEST_CASE("generated Chainer XY pad C++ can bind and drag both axes",
                << "  ]\n"
                << "}\n";
         write_text(dir / "reports" / "chainer-phase-e-xy-pad-behavior-report.json", report.str());
+    }
+}
+
+TEST_CASE("generated Chainer toggle button C++ can bind and click both toggle controls",
+          "[view][import][cpp-codegen][native-cpp-phase-e][behavior]") {
+    auto root = ::build_imported_toggle_buttons_ui();
+    REQUIRE(root != nullptr);
+
+    PhaseDKnobBindingContext ctx;
+    ::bind_imported_toggle_buttons_ui(*root, ctx);
+    REQUIRE(ctx.bound_params().size() == 2);
+
+    root->set_bounds({0.0f, 0.0f, 96.0f, 18.0f});
+    root->layout_children();
+
+    struct ExpectedToggleButton {
+        const char* anchor;
+        const char* param_key;
+        bool initial;
+    };
+    const std::vector<ExpectedToggleButton> expected = {
+        {"pr_5b", "mid_bypass", true},
+        {"pr_5f", "side_bypass", false},
+    };
+
+    auto before_png = render_to_png(*root, 96, 18, 1.0f);
+    std::map<std::string, bool> before_values;
+    std::map<std::string, bool> after_values;
+
+    for (const auto& item : expected) {
+        auto* view = find_anchor(*root, item.anchor);
+        REQUIRE(view != nullptr);
+        auto* button = dynamic_cast<ToggleButton*>(view);
+        REQUIRE(button != nullptr);
+        REQUIRE(button->is_on() == item.initial);
+
+        const auto bounds = absolute_bounds(*button);
+        REQUIRE(bounds.width > 0.0f);
+        REQUIRE(bounds.height > 0.0f);
+
+        before_values[item.param_key] = button->is_on();
+        root->simulate_click({bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f});
+        after_values[item.param_key] = button->is_on();
+
+        REQUIRE(after_values[item.param_key] != before_values[item.param_key]);
+        REQUIRE(ctx.normalized(item.param_key) == Catch::Approx(after_values[item.param_key] ? 1.0f : 0.0f));
+        REQUIRE(ctx.change_count(item.param_key) == 1);
+    }
+
+    auto after_png = render_to_png(*root, 96, 18, 1.0f);
+    bool visual_smoke_valid = false;
+    CompareResult visual_smoke;
+    if (!before_png.empty() && !after_png.empty()) {
+        visual_smoke = compare_screenshots(before_png, after_png, 8);
+        REQUIRE(visual_smoke.valid);
+        REQUIRE(visual_smoke.similarity < 0.999f);
+        visual_smoke_valid = true;
+    }
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        if (!before_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-e-toggle-buttons-before.png", before_png);
+        if (!after_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-e-toggle-buttons-after.png", after_png);
+
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-e-toggle-button-behavior-v1\",\n"
+               << "  \"fixture\": \"chainer-phase-e-toggle-buttons\",\n"
+               << "  \"scope\": \"generated-native-cpp-toggle-button-widget-and-binding-helper\",\n"
+               << "  \"click_tests\": " << expected.size() << ",\n"
+               << "  \"bound_toggle_buttons\": " << ctx.bound_params().size() << ",\n"
+               << "  \"parameter_updates\": " << ctx.events().size() << ",\n"
+               << "  \"visual_smoke_valid\": " << (visual_smoke_valid ? "true" : "false") << ",\n"
+               << "  \"visual_smoke_similarity\": " << std::setprecision(7) << visual_smoke.similarity << ",\n"
+               << "  \"toggles\": [";
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            if (i != 0)
+                report << ",";
+            const auto& item = expected[i];
+            report << "\n    {"
+                   << "\"anchor\": \"" << item.anchor << "\", "
+                   << "\"param_key\": \"" << item.param_key << "\", "
+                   << "\"before\": " << (before_values[item.param_key] ? "true" : "false") << ", "
+                   << "\"after\": " << (after_values[item.param_key] ? "true" : "false") << ", "
+                   << "\"change_count\": " << ctx.change_count(item.param_key)
+                   << "}";
+        }
+        report << "\n  ]\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-e-toggle-button-behavior-report.json", report.str());
     }
 }
 
@@ -2720,6 +3035,193 @@ TEST_CASE("Chainer original-layout hybrid classifies XY pad replacement bounds a
                << "  ]\n"
                << "}\n";
         write_text(dir / "reports" / "chainer-phase-e-xy-pad-layout-report.json", report.str());
+    }
+}
+
+TEST_CASE("Chainer original-layout hybrid classifies toggle button replacement bounds against live source buttons",
+          "[view][import][cpp-codegen][native-cpp-phase-e][layout]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    const fs::path runtime_trace_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/traces/chainer-live-runtime-trace.json";
+    REQUIRE(fs::exists(manifest_path));
+    REQUIRE(fs::exists(chainer_ir_path));
+    REQUIRE(fs::exists(runtime_trace_path));
+
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+    const auto live_native_bounds = read_runtime_native_bounds(runtime_trace_path);
+    const auto cases = chainer_toggle_button_layout_cases(materialized_ir.root, route_rows);
+
+    std::vector<ImportDiagnostic> source_diagnostics;
+    auto source_view = build_native_view_tree(
+        materialized_ir, materialized_ir.asset_manifest, {.diagnostics_out = &source_diagnostics});
+    REQUIRE(source_view != nullptr);
+
+    auto hybrid_ir = lower_chainer_toggle_button_routes_to_phase_e_original_layout_ir(
+        std::move(materialized_ir), route_rows);
+    std::vector<ImportDiagnostic> hybrid_diagnostics;
+    auto hybrid_view = build_native_view_tree(
+        hybrid_ir, hybrid_ir.asset_manifest, {.diagnostics_out = &hybrid_diagnostics});
+    REQUIRE(hybrid_view != nullptr);
+
+    constexpr float kWidth = 1280.0f;
+    constexpr float kHeight = 800.0f;
+    source_view->set_bounds({0.0f, 0.0f, kWidth, kHeight});
+    hybrid_view->set_bounds({0.0f, 0.0f, kWidth, kHeight});
+    source_view->layout_children();
+    hybrid_view->layout_children();
+
+    struct LayoutComparison {
+        const PhaseEToggleButtonLayoutCase* item = nullptr;
+        Rect source_bounds;
+        Rect live_bounds;
+        Rect native_bounds;
+        float center_delta_px = 0.0f;
+        float size_delta_px = 0.0f;
+        float live_center_delta_px = 0.0f;
+        float live_size_delta_px = 0.0f;
+        float source_expected_width_delta_px = 0.0f;
+        float source_expected_height_delta_px = 0.0f;
+        float live_expected_width_delta_px = 0.0f;
+        float live_expected_height_delta_px = 0.0f;
+        float native_expected_width_delta_px = 0.0f;
+        float native_expected_height_delta_px = 0.0f;
+    };
+
+    std::vector<LayoutComparison> comparisons;
+    comparisons.reserve(cases.size());
+    float max_center_delta = 0.0f;
+    float max_size_delta = 0.0f;
+    float max_live_center_delta = 0.0f;
+    float max_live_size_delta = 0.0f;
+    float max_source_expected_width_delta = 0.0f;
+    float max_source_expected_height_delta = 0.0f;
+    float max_live_expected_width_delta = 0.0f;
+    float max_live_expected_height_delta = 0.0f;
+    float max_native_expected_width_delta = 0.0f;
+    float max_native_expected_height_delta = 0.0f;
+    constexpr float kBoundsTolerancePx = 0.5f;
+
+    for (const auto& item : cases) {
+        auto* source_button = find_anchor(*source_view, item.anchor);
+        auto* native_button = find_anchor(*hybrid_view, item.anchor);
+        REQUIRE(source_button != nullptr);
+        REQUIRE(native_button != nullptr);
+        REQUIRE(dynamic_cast<ToggleButton*>(native_button) != nullptr);
+
+        const auto live_source_it = live_native_bounds.find(item.anchor);
+        REQUIRE(live_source_it != live_native_bounds.end());
+
+        LayoutComparison row;
+        row.item = &item;
+        row.source_bounds = absolute_bounds(*source_button);
+        row.live_bounds = live_source_it->second.bounds;
+        row.native_bounds = absolute_bounds(*native_button);
+        row.center_delta_px = center_delta_px(row.source_bounds, row.native_bounds);
+        row.size_delta_px = size_delta_px(row.source_bounds, row.native_bounds);
+        row.live_center_delta_px = center_delta_px(row.live_bounds, row.native_bounds);
+        row.live_size_delta_px = size_delta_px(row.live_bounds, row.native_bounds);
+        row.source_expected_width_delta_px = std::abs(row.source_bounds.width - item.expected_width);
+        row.source_expected_height_delta_px = std::abs(row.source_bounds.height - item.expected_height);
+        row.live_expected_width_delta_px = std::abs(row.live_bounds.width - item.expected_width);
+        row.live_expected_height_delta_px = std::abs(row.live_bounds.height - item.expected_height);
+        row.native_expected_width_delta_px = std::abs(row.native_bounds.width - item.expected_width);
+        row.native_expected_height_delta_px = std::abs(row.native_bounds.height - item.expected_height);
+
+        max_center_delta = std::max(max_center_delta, row.center_delta_px);
+        max_size_delta = std::max(max_size_delta, row.size_delta_px);
+        max_live_center_delta = std::max(max_live_center_delta, row.live_center_delta_px);
+        max_live_size_delta = std::max(max_live_size_delta, row.live_size_delta_px);
+        max_source_expected_width_delta = std::max(max_source_expected_width_delta, row.source_expected_width_delta_px);
+        max_source_expected_height_delta = std::max(max_source_expected_height_delta, row.source_expected_height_delta_px);
+        max_live_expected_width_delta = std::max(max_live_expected_width_delta, row.live_expected_width_delta_px);
+        max_live_expected_height_delta = std::max(max_live_expected_height_delta, row.live_expected_height_delta_px);
+        max_native_expected_width_delta = std::max(max_native_expected_width_delta, row.native_expected_width_delta_px);
+        max_native_expected_height_delta = std::max(max_native_expected_height_delta, row.native_expected_height_delta_px);
+        comparisons.push_back(row);
+    }
+
+    const bool within_threshold = max_center_delta <= kBoundsTolerancePx &&
+        max_size_delta <= kBoundsTolerancePx &&
+        max_source_expected_width_delta <= kBoundsTolerancePx &&
+        max_source_expected_height_delta <= kBoundsTolerancePx &&
+        max_native_expected_width_delta <= kBoundsTolerancePx &&
+        max_native_expected_height_delta <= kBoundsTolerancePx;
+    const bool live_runtime_within_threshold = max_live_center_delta <= kBoundsTolerancePx &&
+        max_live_size_delta <= kBoundsTolerancePx &&
+        max_live_expected_width_delta <= kBoundsTolerancePx &&
+        max_live_expected_height_delta <= kBoundsTolerancePx &&
+        max_native_expected_width_delta <= kBoundsTolerancePx &&
+        max_native_expected_height_delta <= kBoundsTolerancePx;
+    REQUIRE(live_runtime_within_threshold);
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-e-toggle-button-layout-bounds-v1\",\n"
+               << "  \"fixture\": \"chainer-original-layout-hybrid-toggle-buttons\",\n"
+               << "  \"scope\": \"source-toggle-button-surface-vs-native-replacement-bounds\",\n"
+               << "  \"source_bounds_basis\": \"materialized-ir-toggle-button-surface\",\n"
+               << "  \"live_bounds_basis\": \"runtime-trace-toggle-button-surface\",\n"
+               << "  \"native_bounds_basis\": \"original-layout-hybrid-native-toggle-button\",\n"
+               << "  \"threshold_px\": " << kBoundsTolerancePx << ",\n"
+               << "  \"classification\": \"" << (within_threshold ? "within_threshold" : "failed_bounds_threshold") << "\",\n"
+               << "  \"live_runtime_classification\": \""
+               << (live_runtime_within_threshold ? "within_threshold" : "failed_bounds_threshold") << "\",\n"
+               << "  \"within_threshold\": " << (within_threshold ? "true" : "false") << ",\n"
+               << "  \"live_runtime_within_threshold\": "
+               << (live_runtime_within_threshold ? "true" : "false") << ",\n"
+               << "  \"toggle_button_count\": " << comparisons.size() << ",\n"
+               << "  \"live_runtime_matched_toggle_button_count\": " << comparisons.size() << ",\n"
+               << "  \"live_runtime_bounds_count\": " << live_native_bounds.size() << ",\n"
+               << "  \"max_center_delta_px\": " << std::setprecision(7) << max_center_delta << ",\n"
+               << "  \"max_size_delta_px\": " << max_size_delta << ",\n"
+               << "  \"max_live_center_delta_px\": " << max_live_center_delta << ",\n"
+               << "  \"max_live_size_delta_px\": " << max_live_size_delta << ",\n"
+               << "  \"max_source_expected_width_delta_px\": " << max_source_expected_width_delta << ",\n"
+               << "  \"max_source_expected_height_delta_px\": " << max_source_expected_height_delta << ",\n"
+               << "  \"max_live_expected_width_delta_px\": " << max_live_expected_width_delta << ",\n"
+               << "  \"max_live_expected_height_delta_px\": " << max_live_expected_height_delta << ",\n"
+               << "  \"max_native_expected_width_delta_px\": " << max_native_expected_width_delta << ",\n"
+               << "  \"max_native_expected_height_delta_px\": " << max_native_expected_height_delta << ",\n"
+               << "  \"toggle_buttons\": [";
+        for (std::size_t i = 0; i < comparisons.size(); ++i) {
+            if (i != 0)
+                report << ",";
+            const auto& row = comparisons[i];
+            report << "\n    {"
+                   << "\"id\": \"" << json_escape(row.item->id) << "\", "
+                   << "\"anchor\": \"" << json_escape(row.item->anchor) << "\", "
+                   << "\"param_key\": \"" << json_escape(row.item->param_key) << "\", "
+                   << "\"label\": \"" << json_escape(row.item->label) << "\", "
+                   << "\"expected_width\": " << row.item->expected_width << ", "
+                   << "\"expected_height\": " << row.item->expected_height << ", "
+                   << "\"source_bounds\": ";
+            append_rect_json(report, row.source_bounds);
+            report << ", \"live_bounds\": ";
+            append_rect_json(report, row.live_bounds);
+            report << ", \"native_bounds\": ";
+            append_rect_json(report, row.native_bounds);
+            report << ", \"center_delta_px\": " << row.center_delta_px
+                   << ", \"size_delta_px\": " << row.size_delta_px
+                   << ", \"live_center_delta_px\": " << row.live_center_delta_px
+                   << ", \"live_size_delta_px\": " << row.live_size_delta_px
+                   << ", \"source_expected_width_delta_px\": " << row.source_expected_width_delta_px
+                   << ", \"source_expected_height_delta_px\": " << row.source_expected_height_delta_px
+                   << ", \"live_expected_width_delta_px\": " << row.live_expected_width_delta_px
+                   << ", \"live_expected_height_delta_px\": " << row.live_expected_height_delta_px
+                   << ", \"native_expected_width_delta_px\": " << row.native_expected_width_delta_px
+                   << ", \"native_expected_height_delta_px\": " << row.native_expected_height_delta_px
+                   << "}";
+        }
+        report << "\n  ]\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-e-toggle-button-layout-report.json", report.str());
     }
 }
 

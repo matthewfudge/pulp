@@ -837,7 +837,7 @@ void ToggleButton::paint(canvas::Canvas& canvas) {
 }
 
 void ToggleButton::on_mouse_down(Point) {
-    on_ = !on_;
+    set_on(!on_);
     if (on_toggle) on_toggle(on_);
 }
 

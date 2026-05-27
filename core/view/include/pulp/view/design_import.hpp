@@ -23,6 +23,7 @@ namespace pulp::view {
 class View;
 class Knob;
 class Fader;
+class ToggleButton;
 class XYPad;
 
 // ── Design source types ─────────────────────────────────────────────────
@@ -390,6 +391,10 @@ public:
     }
     virtual void bind_fader(Fader& fader, const NativeImportBindingDescriptor& descriptor) {
         (void)fader;
+        (void)descriptor;
+    }
+    virtual void bind_toggle_button(ToggleButton& button, const NativeImportBindingDescriptor& descriptor) {
+        (void)button;
         (void)descriptor;
     }
     virtual void bind_xy_pad(XYPad& pad, const NativeImportXYPadBindingDescriptor& descriptor) {

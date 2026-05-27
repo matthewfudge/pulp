@@ -15,6 +15,7 @@ enum class NativeWidgetKind {
     text_button,
     text_editor,
     checkbox,
+    toggle_button,
     knob,
     fader,
     meter,
