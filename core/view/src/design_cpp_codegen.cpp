@@ -880,6 +880,10 @@ void emit_widget_specific(std::ostringstream& out,
             const auto default_value = float_expr(ctx, normalized_audio_default(node));
             emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_value(/* TODO: bind to param */ " + value + ");");
             emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_default_value(" + default_value + ");");
+            if (auto schema = attr(node, "pulpWidgetSchema"); schema && !schema->empty())
+                emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_widget_schema(" + cpp_string_literal(*schema) + ");");
+            if (auto show_label = attr(node, "pulpShowInternalLabel"); show_label && lower_copy(*show_label) == "false")
+                emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_show_label(false);");
             break;
         }
         case NativeWidgetKind::fader: {

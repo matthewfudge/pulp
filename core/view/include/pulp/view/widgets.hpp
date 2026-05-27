@@ -312,6 +312,13 @@ public:
     }
     const std::string& label() const { return label_; }
 
+    void set_show_label(bool show) {
+        if (show_label_ == show) return;
+        show_label_ = show;
+        request_repaint();
+    }
+    bool show_label() const { return show_label_; }
+
     // Display format: called with normalized value to produce display text.
     // No equality check (std::function doesn't compare) — formatters are
     // set at construction or theme-change time, not in tight sync loops.
@@ -362,6 +369,7 @@ private:
     float drag_start_y_ = 0;
     float drag_start_value_ = 0;
     bool gesture_active_ = false;
+    bool show_label_ = true;
     std::string custom_sksl_;     // SkSL source for GPU shader body
     std::string widget_schema_;   // JSON declarative schema
     std::string lottie_json_;     // Lottie animation JSON

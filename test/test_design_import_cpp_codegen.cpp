@@ -475,12 +475,33 @@ std::string color_for_style_tokens(std::string_view tokens) {
     return "#ff6b35";
 }
 
+std::string chainer_knob_schema_for_style_tokens(std::string_view tokens) {
+    const auto color = color_for_style_tokens(tokens);
+    const auto fill_color = color + "73";
+    std::ostringstream out;
+    out << "{\"elements\":["
+        << "{\"type\":\"arc\",\"color\":\"#2a2a34\",\"radius\":\"81%\",\"startAngle\":135,\"sweepAngle\":270,\"width\":1.5},"
+        << "{\"type\":\"arc\",\"color\":\"" << fill_color << "\",\"radius\":\"81%\",\"startAngle\":135,\"sweepAngle\":{\"bind\":\"value\",\"range\":[0,270]},\"width\":1.5},"
+        << "{\"type\":\"circle\",\"color\":\"#14141a\",\"radius\":\"73%\",\"strokeColor\":\"#2a2a34\",\"strokeWidth\":0.5},"
+        << "{\"type\":\"line\",\"color\":\"" << color << "\",\"angle\":{\"bind\":\"value\",\"range\":[135,405]},\"innerRadius\":\"0%\",\"outerRadius\":\"62%\",\"width\":1.5},"
+        << "{\"type\":\"circle\",\"color\":\"" << color << "\",\"radius\":\"8%\"}"
+        << "]}";
+    return out.str();
+}
+
 void add_chainer_token_colors(DesignIR& ir) {
+    ir.tokens.colors["chainer.bgMod"] = "#14141a";
+    ir.tokens.colors["chainer.borderMid"] = "#2a2a34";
     ir.tokens.colors["chainer.orange"] = "#ff6b35";
+    ir.tokens.colors["chainer.orange.fill"] = "#ff6b3573";
     ir.tokens.colors["chainer.blue"] = "#5b8af0";
+    ir.tokens.colors["chainer.blue.fill"] = "#5b8af073";
     ir.tokens.colors["chainer.purple"] = "#9b59ff";
+    ir.tokens.colors["chainer.purple.fill"] = "#9b59ff73";
     ir.tokens.colors["chainer.green"] = "#3ddc84";
+    ir.tokens.colors["chainer.green.fill"] = "#3ddc8473";
     ir.tokens.colors["chainer.amber"] = "#f0a030";
+    ir.tokens.colors["chainer.amber.fill"] = "#f0a03073";
 }
 
 IRNode lower_chainer_knob_route_to_node(IRNode& materialized_root,
@@ -498,8 +519,18 @@ IRNode lower_chainer_knob_route_to_node(IRNode& materialized_root,
     const auto label = json_string(route["label"]);
     const auto style_tokens = style_token_string(route);
 
-    auto knob = *materialized_node;
+    auto wrapper = *materialized_node;
+    REQUIRE_FALSE(wrapper.children.empty());
+    wrapper.name = label + " wrapper";
+    wrapper.audio_widget = AudioWidgetType::none;
+    wrapper.audio_label.clear();
+    wrapper.attributes.clear();
+    wrapper.stable_anchor_id.reset();
+    wrapper.anchor_strategy.reset();
+
+    auto knob = wrapper.children.front();
     knob.children.clear();
+    knob.type = "knob";
     knob.name = label;
     knob.text_content.clear();
     knob.style.width = size;
@@ -523,7 +554,13 @@ IRNode lower_chainer_knob_route_to_node(IRNode& materialized_root,
     knob.attributes["pulpStyleTokens"] = style_tokens;
     knob.attributes["pulpDefaultValueSource"] =
         route["default_value"].isVoid() ? "phase_c_initial_value_fallback" : "source_default";
-    return knob;
+    knob.attributes["pulpWidgetSchema"] = chainer_knob_schema_for_style_tokens(style_tokens);
+    knob.attributes["pulpShowInternalLabel"] = "false";
+    knob.stable_anchor_id = json_string(route["materialized_ir_anchor"]);
+    knob.anchor_strategy = "adapter";
+
+    wrapper.children.front() = std::move(knob);
+    return wrapper;
 }
 
 DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
@@ -763,6 +800,8 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(result.source.find("->set_label(\"freq\");") != std::string::npos);
     REQUIRE(result.source.find("->set_value(/* TODO: bind to param */ 0.35f);") != std::string::npos);
     REQUIRE(result.source.find("->set_default_value(0.35f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_widget_schema(") != std::string::npos);
+    REQUIRE(result.source.find("->set_show_label(false);") != std::string::npos);
     REQUIRE(result.source.find("kChainerOrange = pulp::view::Color::rgba8(255, 107, 53, 255)") != std::string::npos);
     REQUIRE(result.source.find("tokens::kChainerOrange") != std::string::npos);
 
@@ -784,7 +823,7 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(binding_manifest["entries"].size() == 1);
     const auto& entry = binding_manifest["entries"][0];
     REQUIRE(entry["id"].getString() == std::string("chainer.knob.0.osc_freq"));
-    REQUIRE(entry["ir_path"].getString() == std::string("root/0"));
+    REQUIRE(entry["ir_path"].getString() == std::string("root/0/0"));
     REQUIRE(entry["native_primitive"].getString() == std::string("knob"));
     REQUIRE(entry["param_key"].getString() == std::string("osc_freq"));
     REQUIRE(entry["style_tokens"].getString() == std::string("C.orange"));
@@ -831,6 +870,8 @@ TEST_CASE("Chainer route overlay can lower all knobs to typed C++ with binding s
     REQUIRE(result.source.find("tokens::kChainerPurple") != std::string::npos);
     REQUIRE(result.source.find("tokens::kChainerAmber") != std::string::npos);
     REQUIRE(result.source.find("tokens::kChainerGreen") != std::string::npos);
+    REQUIRE(count_occurrences(result.source, "->set_widget_schema(") == 8);
+    REQUIRE(count_occurrences(result.source, "->set_show_label(false);") == 8);
 
     auto binding_manifest = choc::json::parse(result.binding_manifest);
     REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
@@ -932,7 +973,7 @@ TEST_CASE("generated Chainer all-knob C++ can bind and drag every knob",
         auto* knob = dynamic_cast<Knob*>(view);
         REQUIRE(knob != nullptr);
 
-        const auto bounds = knob->bounds();
+        const auto bounds = absolute_bounds(*knob);
         REQUIRE(bounds.width > 0.0f);
         REQUIRE(bounds.height > 0.0f);
 
@@ -1071,7 +1112,7 @@ TEST_CASE("Chainer original-layout hybrid classifies knob region visual diff",
     const char* classification = within_threshold ? "within_threshold" : "classified_difference";
     const char* reason = within_threshold
         ? "native_hybrid_knob_region_matches_live_runtime_threshold"
-        : "standard_native_knob_style_differs_from_source_svg_region";
+        : "native_hybrid_layout_and_paint_still_differs_from_live_runtime_region";
 
     if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
         const fs::path dir(artifact_dir);

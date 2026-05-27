@@ -762,6 +762,12 @@ std::unique_ptr<View> make_widget(const IRNode& node,
             if (!text.empty()) knob->set_label(text);
             knob->set_value(normalized_audio_value(node));
             knob->set_default_value(normalized_audio_default(node));
+            if (auto schema = attr(node, "pulpWidgetSchema"); schema && !schema->empty())
+                knob->set_widget_schema(*schema);
+            if (auto show_label = attr(node, "pulpShowInternalLabel");
+                show_label && lower_copy(*show_label) == "false") {
+                knob->set_show_label(false);
+            }
             if (options.preview_mode) knob->set_render_style(WidgetRenderStyle::minimal);
             return knob;
         }

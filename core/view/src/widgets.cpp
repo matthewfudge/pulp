@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <optional>
 #include <string>
 
 namespace pulp::view {
@@ -28,6 +29,32 @@ static bool parse_schema_float_token(const std::string& token, float& out) {
     }
     out = value;
     return true;
+}
+
+static int parse_schema_hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static std::optional<canvas::Color> parse_schema_hex_color(std::string_view value) {
+    if (value.empty() || value.front() != '#') return std::nullopt;
+    auto pair = [](char high, char low) -> std::optional<uint8_t> {
+        const int h = parse_schema_hex_digit(high);
+        const int l = parse_schema_hex_digit(low);
+        if (h < 0 || l < 0) return std::nullopt;
+        return static_cast<uint8_t>((h << 4) | l);
+    };
+    if (value.size() == 7 || value.size() == 9) {
+        auto r = pair(value[1], value[2]);
+        auto g = pair(value[3], value[4]);
+        auto b = pair(value[5], value[6]);
+        auto a = value.size() == 9 ? pair(value[7], value[8]) : std::optional<uint8_t>(255);
+        if (!r || !g || !b || !a) return std::nullopt;
+        return canvas::Color::rgba8(*r, *g, *b, *a);
+    }
+    return std::nullopt;
 }
 
 static void render_schema(canvas::Canvas& canvas, const std::string& json,
@@ -48,6 +75,8 @@ static void render_schema(canvas::Canvas& canvas, const std::string& json,
             auto resolveColor = [&](const std::string& key, canvas::Color fallback) -> canvas::Color {
                 if (!el.hasObjectMember(key)) return fallback;
                 auto tok = el[key].getWithDefault(std::string(""));
+                if (auto color = parse_schema_hex_color(tok))
+                    return *color;
                 return view.resolve_color(tok, fallback);
             };
 
@@ -108,6 +137,14 @@ static void render_schema(canvas::Canvas& canvas, const std::string& json,
                 auto radius = resolveDim("radius", r * 0.3f);
                 canvas.set_fill_color(color);
                 canvas.fill_circle(cx, cy, radius);
+                if (el.hasObjectMember("strokeColor")) {
+                    auto stroke = resolveColor("strokeColor", {60, 60, 80, 255});
+                    auto stroke_width = static_cast<float>(el.hasObjectMember("strokeWidth")
+                        ? el["strokeWidth"].getWithDefault(1.0) : 1.0);
+                    canvas.set_stroke_color(stroke);
+                    canvas.set_line_width(stroke_width);
+                    canvas.stroke_circle(cx, cy, radius);
+                }
             } else if (type == "line") {
                 auto color = resolveColor("color", {220, 220, 220, 255});
                 // Line from inner to outer at value angle
@@ -117,6 +154,7 @@ static void render_schema(canvas::Canvas& canvas, const std::string& json,
                 float outerR = resolveDim("outerRadius", r);
                 canvas.set_stroke_color(color);
                 canvas.set_line_width(lineW);
+                canvas.set_line_cap(canvas::LineCap::round);
                 canvas.stroke_line(cx + innerR * std::cos(angleRad), cy + innerR * std::sin(angleRad),
                                    cx + outerR * std::cos(angleRad), cy + outerR * std::sin(angleRad));
             } else if (type == "rect") {
@@ -390,7 +428,7 @@ void Knob::paint(canvas::Canvas& canvas) {
     }
 
     // Label below (always drawn, even with shader)
-    if (!label_.empty()) {
+    if (show_label_ && !label_.empty()) {
         auto text_color = resolve_color("text.secondary", canvas::Color::rgba8(150, 150, 150));
         canvas.set_fill_color({text_color.r, text_color.g, text_color.b, text_color.a});
         canvas.set_font("Inter", 10.0f);
