@@ -64,6 +64,37 @@ std::string cpp_string_literal(std::string_view input) {
     return "\"" + cpp_string_escape(input) + "\"";
 }
 
+std::string json_string_escape(std::string_view input) {
+    std::string out;
+    out.reserve(input.size() + 8);
+    for (unsigned char c : input) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if (c < 0x20) {
+                    static constexpr char kHex[] = "0123456789abcdef";
+                    out += "\\u00";
+                    out += kHex[(c >> 4) & 0xf];
+                    out += kHex[c & 0xf];
+                } else {
+                    out += static_cast<char>(c);
+                }
+                break;
+        }
+    }
+    return out;
+}
+
+std::string json_string_literal(std::string_view input) {
+    return "\"" + json_string_escape(input) + "\"";
+}
+
 std::string format_float(float value) {
     std::ostringstream out;
     out << std::setprecision(7) << value;
@@ -1092,6 +1123,98 @@ void emit_manifest(std::ostringstream& out, const IRAssetManifest& manifest, con
     out << "}\n\n";
 }
 
+void append_json_field(std::ostringstream& out,
+                       bool& first,
+                       std::string_view key,
+                       std::string_view value) {
+    if (!first)
+        out << ",";
+    out << "\n      " << json_string_literal(key) << ": " << json_string_literal(value);
+    first = false;
+}
+
+void append_json_field_if_present(std::ostringstream& out,
+                                  bool& first,
+                                  std::string_view key,
+                                  const std::optional<std::string>& value) {
+    if (value && !value->empty())
+        append_json_field(out, first, key, *value);
+}
+
+bool has_binding_manifest_metadata(const IRNode& node) {
+    for (std::string_view key : {
+             "pulpRouteType",
+             "pulpSourceFamily",
+             "pulpSourcePath",
+             "pulpParamKey",
+             "pulpBindingModule",
+             "pulpBindingParam",
+             "pulpEventContract",
+             "pulpGestureContract",
+             "pulpHostAction",
+         }) {
+        if (auto value = attr(node, key); value && !value->empty())
+            return true;
+    }
+    return false;
+}
+
+void collect_binding_manifest_entries(std::ostringstream& out,
+                                      const IRNode& node,
+                                      const ResolvedNativeNode& resolved,
+                                      std::string_view ir_path,
+                                      bool& first_entry) {
+    if (has_binding_manifest_metadata(node)) {
+        if (!first_entry)
+            out << ",";
+        out << "\n    {";
+        bool first_field = true;
+        if (auto route_id = attr(node, "pulpRouteId"); route_id && !route_id->empty()) {
+            append_json_field(out, first_field, "id", *route_id);
+        } else if (node.stable_anchor_id && !node.stable_anchor_id->empty()) {
+            append_json_field(out, first_field, "id", *node.stable_anchor_id);
+        } else if (!node.name.empty()) {
+            append_json_field(out, first_field, "id", node.name);
+        }
+        append_json_field(out, first_field, "ir_path", ir_path);
+        if (node.stable_anchor_id && !node.stable_anchor_id->empty())
+            append_json_field(out, first_field, "anchor_id", *node.stable_anchor_id);
+        append_json_field(out, first_field, "native_primitive", native_widget_kind_name(resolved.kind));
+        append_json_field_if_present(out, first_field, "route_type", attr(node, "pulpRouteType"));
+        append_json_field_if_present(out, first_field, "source_family", attr(node, "pulpSourceFamily"));
+        append_json_field_if_present(out, first_field, "source_path", attr(node, "pulpSourcePath"));
+        append_json_field_if_present(out, first_field, "param_key", attr(node, "pulpParamKey"));
+        append_json_field_if_present(out, first_field, "binding_module", attr(node, "pulpBindingModule"));
+        append_json_field_if_present(out, first_field, "binding_param", attr(node, "pulpBindingParam"));
+        append_json_field_if_present(out, first_field, "event_contract", attr(node, "pulpEventContract"));
+        append_json_field_if_present(out, first_field, "gesture_contract", attr(node, "pulpGestureContract"));
+        append_json_field_if_present(out, first_field, "host_action", attr(node, "pulpHostAction"));
+        append_json_field_if_present(out, first_field, "fallback_reason", attr(node, "pulpFallbackReason"));
+        out << "\n    }";
+        first_entry = false;
+    }
+
+    const auto count = std::min(node.children.size(), resolved.children.size());
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto child_path = std::string(ir_path) + "/" + std::to_string(i);
+        collect_binding_manifest_entries(out, node.children[i], resolved.children[i], child_path, first_entry);
+    }
+}
+
+std::string build_binding_manifest_json(const DesignIR& ir, const ResolvedNativeNode& resolved) {
+    std::ostringstream out;
+    out << "{\n"
+        << "  \"schema\": \"pulp-native-cpp-binding-manifest-v1\",\n"
+        << "  \"entries\": [";
+    bool first_entry = true;
+    collect_binding_manifest_entries(out, ir.root, resolved, "root", first_entry);
+    if (!first_entry)
+        out << "\n  ";
+    out << "]\n"
+        << "}\n";
+    return out.str();
+}
+
 }  // namespace
 
 CppExportResult generate_pulp_cpp(const DesignIR& ir,
@@ -1170,6 +1293,7 @@ CppExportResult generate_pulp_cpp(const DesignIR& ir,
     emit_function(source, ctx, opts.function_name, ir.root, resolved, std::nullopt);
     emit_namespace_close(source, opts.namespace_name);
     result.source = source.str();
+    result.binding_manifest = build_binding_manifest_json(ir, resolved);
     return result;
 }
 

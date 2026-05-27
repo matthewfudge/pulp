@@ -897,6 +897,7 @@ struct CppExportOptions {
 struct CppExportResult {
     std::string header;
     std::string source;
+    std::string binding_manifest;
 };
 
 /// Generate an ownable baked-C++ view artifact from a DesignIR. The result

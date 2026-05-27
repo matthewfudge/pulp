@@ -1,6 +1,7 @@
 #include "fixtures/design_import_generated_cpp_fixture.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <choc/text/choc_JSON.h>
 #include <pulp/platform/child_process.hpp>
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/layout_snapshot.hpp>
@@ -49,6 +50,15 @@ void write_text(const fs::path& path, const std::string& text) {
     REQUIRE(out.is_open());
     out << text;
     REQUIRE(out.good());
+}
+
+std::string read_text(const fs::path& path) {
+    std::ifstream in(path);
+    REQUIRE(in.is_open());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    REQUIRE((in.good() || in.eof()));
+    return ss.str();
 }
 
 IRNode label_node(std::string id,
@@ -194,6 +204,36 @@ DesignIR build_untyped_named_control_ir() {
     return ir;
 }
 
+DesignIR build_phase_c_chainer_one_knob_ir() {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-c-chainer-one-knob";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-c";
+    ir.root = frame_node("phase-c-root", "Chainer One Knob", 80.0f, 90.0f, LayoutDirection::column);
+
+    auto freq = frame_node("pr_2c", "freq", 52.0f, 79.0f, LayoutDirection::column);
+    freq.audio_widget = AudioWidgetType::knob;
+    freq.audio_label = "freq";
+    freq.audio_min = 0.0f;
+    freq.audio_max = 1.0f;
+    freq.audio_default = 0.35f;
+    freq.attributes["value"] = "0.35";
+    freq.attributes["pulpRouteId"] = "chainer.knob.0.osc_freq";
+    freq.attributes["pulpRouteType"] = "native_cpp";
+    freq.attributes["pulpSourceFamily"] = "Knob";
+    freq.attributes["pulpSourcePath"] =
+        "planning/artifacts/native-ui/nv0/chainer-fixture/ChainerInstrument.jsx:550:Knob[0]";
+    freq.attributes["pulpParamKey"] = "osc_freq";
+    freq.attributes["pulpBindingModule"] = "OSC";
+    freq.attributes["pulpBindingParam"] = "freq";
+    freq.attributes["pulpEventContract"] = "onChange:set_param:osc_freq";
+    freq.attributes["pulpGestureContract"] = "rotary_drag:begin/update/end";
+    ir.root.children.push_back(std::move(freq));
+
+    return ir;
+}
+
 std::string diff_messages(const LayoutTreeDiff& diff) {
     std::ostringstream out;
     for (const auto& message : diff.messages)
@@ -308,6 +348,61 @@ TEST_CASE("untyped named control-looking IR remains generic baked C++",
     REQUIRE(result.source.find("std::make_unique<pulp::view::Meter>()") == std::string::npos);
     REQUIRE(result.source.find("std::make_unique<pulp::view::XYPad>()") == std::string::npos);
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::View>()") >= 2);
+}
+
+TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding sidecar",
+          "[view][import][cpp-codegen][native-cpp-phase-c]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    REQUIRE(fs::exists(manifest_path));
+    const auto overlay = read_text(manifest_path);
+    REQUIRE(overlay.find("\"schema\": \"pulp-native-ui-route-overlay-v1\"") != std::string::npos);
+    REQUIRE(overlay.find("\"id\": \"chainer.knob.0.osc_freq\"") != std::string::npos);
+    REQUIRE(overlay.find("\"materialized_ir_path\": \"root/1/2/0/1/0\"") != std::string::npos);
+    REQUIRE(overlay.find("\"unique_knob_ir_paths\": 8") != std::string::npos);
+
+    const auto ir = build_phase_c_chainer_one_knob_ir();
+    CppExportOptions opts;
+    opts.header_filename = "phase_c_chainer_one_knob.hpp";
+    opts.namespace_name = "pulp::test::phase_c";
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, opts);
+
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Knob>()") == 1);
+    REQUIRE(result.source.find("->set_anchor_id(\"pr_2c\");") != std::string::npos);
+    REQUIRE(result.source.find("->set_label(\"freq\");") != std::string::npos);
+    REQUIRE(result.source.find("->set_value(/* TODO: bind to param */ 0.35f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_default_value(0.35f);") != std::string::npos);
+
+    REQUIRE(result.binding_manifest.find("\"schema\": \"pulp-native-cpp-binding-manifest-v1\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"id\": \"chainer.knob.0.osc_freq\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"native_primitive\": \"knob\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"source_family\": \"Knob\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"param_key\": \"osc_freq\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"binding_module\": \"OSC\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"binding_param\": \"freq\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"event_contract\": \"onChange:set_param:osc_freq\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"gesture_contract\": \"rotary_drag:begin/update/end\"") != std::string::npos);
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
+    REQUIRE(binding_manifest["entries"].size() == 1);
+    const auto& entry = binding_manifest["entries"][0];
+    REQUIRE(entry["id"].getString() == std::string("chainer.knob.0.osc_freq"));
+    REQUIRE(entry["ir_path"].getString() == std::string("root/0"));
+    REQUIRE(entry["native_primitive"].getString() == std::string("knob"));
+    REQUIRE(entry["param_key"].getString() == std::string("osc_freq"));
+
+    TempDir tmp("pulp-phase-c-chainer-one-knob-cpp-codegen");
+    const auto header = tmp.path / "phase_c_chainer_one_knob.hpp";
+    const auto source = tmp.path / "phase_c_chainer_one_knob.cpp";
+    const auto object = tmp.path / "phase_c_chainer_one_knob.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
 }
 
 TEST_CASE("baked C++ exporter emits ownable C++ source artifacts",
