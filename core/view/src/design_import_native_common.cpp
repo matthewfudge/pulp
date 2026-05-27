@@ -783,6 +783,8 @@ std::unique_ptr<View> make_widget(const IRNode& node,
             } else if (node.style.width && node.style.height && *node.style.width >= *node.style.height) {
                 fader->set_orientation(Fader::Orientation::horizontal);
             }
+            if (auto schema = attr(node, "pulpWidgetSchema"); schema && !schema->empty())
+                fader->set_widget_schema(*schema);
             if (options.preview_mode) fader->set_render_style(WidgetRenderStyle::minimal);
             return fader;
         }

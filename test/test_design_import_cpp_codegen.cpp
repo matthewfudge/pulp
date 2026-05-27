@@ -877,6 +877,66 @@ IRNode lower_chainer_knob_route_to_node(IRNode& materialized_root,
     return wrapper;
 }
 
+IRNode lower_chainer_fader_route_to_node(IRNode& materialized_root,
+                                         choc::value::ValueView route) {
+    const auto materialized_path = json_string(route["materialized_ir_path"]);
+    auto* materialized_node = node_at_ir_path(materialized_root, materialized_path);
+    REQUIRE(materialized_node != nullptr);
+    REQUIRE(materialized_node->stable_anchor_id.has_value());
+    REQUIRE(*materialized_node->stable_anchor_id == json_string(route["materialized_ir_anchor"]));
+
+    const auto binding = route["parameter_bindings"][0];
+    const auto height = json_float(route["height"]);
+    const auto value = json_float(route["value"]);
+    const auto default_value = json_float_or(route["default_value"], value);
+    const auto label = json_string(route["label"]);
+    const auto style_tokens = style_token_string(route);
+
+    auto wrapper = *materialized_node;
+    REQUIRE_FALSE(wrapper.children.empty());
+    wrapper.name = label + " wrapper";
+    wrapper.audio_widget = AudioWidgetType::none;
+    wrapper.audio_label.clear();
+    wrapper.layout.flex_shrink = 0.0f;
+    wrapper.attributes.clear();
+    wrapper.stable_anchor_id.reset();
+    wrapper.anchor_strategy.reset();
+
+    auto fader = wrapper.children.front();
+    fader.children.clear();
+    fader.type = "fader";
+    fader.name = label;
+    fader.text_content.clear();
+    fader.style.width = 17.0f;
+    fader.style.height = height;
+    fader.style.border_color = color_for_style_tokens(style_tokens);
+    fader.layout.flex_shrink = 0.0f;
+    fader.audio_widget = AudioWidgetType::fader;
+    fader.audio_label.clear();
+    fader.audio_min = 0.0f;
+    fader.audio_max = 1.0f;
+    fader.audio_default = default_value;
+    fader.attributes["value"] = float_attr(value);
+    fader.attributes["orientation"] = "vertical";
+    fader.attributes["pulpRouteId"] = json_string(route["id"]);
+    fader.attributes["pulpRouteType"] = json_string(route["route_type"]);
+    fader.attributes["pulpSourceFamily"] = json_string(route["source_component_family"]);
+    fader.attributes["pulpSourcePath"] = json_string(route["stable_source_path"]);
+    fader.attributes["pulpParamKey"] = json_string(binding["param_key"]);
+    fader.attributes["pulpBindingModule"] = json_string(binding["module"]);
+    fader.attributes["pulpBindingParam"] = json_string(binding["param"]);
+    fader.attributes["pulpEventContract"] = event_contract_string(route);
+    fader.attributes["pulpGestureContract"] = gesture_contract_string(route);
+    fader.attributes["pulpStyleTokens"] = style_tokens;
+    fader.attributes["pulpDefaultValueSource"] =
+        route["default_value"].isVoid() ? "phase_c_initial_value_fallback" : "source_default";
+    fader.stable_anchor_id = json_string(route["materialized_ir_anchor"]);
+    fader.anchor_strategy = "adapter";
+
+    wrapper.children.front() = std::move(fader);
+    return wrapper;
+}
+
 DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
                                                 choc::value::ValueView route,
                                                 const ChainerKnobSourceFormula& formula) {
@@ -912,6 +972,29 @@ DesignIR lower_chainer_knob_routes_to_phase_d_ir(DesignIR materialized_ir,
         ir.root.children.push_back(lower_chainer_knob_route_to_node(materialized_ir.root, route, formula));
     }
     REQUIRE(ir.root.children.size() == 8);
+
+    return ir;
+}
+
+DesignIR lower_chainer_fader_routes_to_phase_e_ir(DesignIR materialized_ir,
+                                                  choc::value::ValueView route_rows) {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-e-chainer-faders-route-overlay";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-e";
+    add_chainer_token_colors(ir);
+    ir.root = frame_node("phase-e-root", "Chainer Faders", 260.0f, 116.0f, LayoutDirection::row);
+    ir.root.layout.gap = 12.0f;
+    ir.root.layout.align = LayoutAlign::flex_end;
+
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        if (json_string(route["source_component_family"]) != "Fader")
+            continue;
+        ir.root.children.push_back(lower_chainer_fader_route_to_node(materialized_ir.root, route));
+    }
+    REQUIRE(ir.root.children.size() == 6);
 
     return ir;
 }
@@ -1468,6 +1551,92 @@ TEST_CASE("Chainer route overlay can lower all knobs to typed C++ with binding s
     const auto header = tmp.path / "phase_d_chainer_all_knobs.hpp";
     const auto source = tmp.path / "phase_d_chainer_all_knobs.cpp";
     const auto object = tmp.path / "phase_d_chainer_all_knobs.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
+}
+
+TEST_CASE("Chainer route overlay can lower all faders to typed C++ with binding sidecar",
+          "[view][import][cpp-codegen][native-cpp-phase-e]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    REQUIRE(fs::exists(manifest_path));
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["fader_routes"].getInt64() == 6);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["fader_routes_mapped_to_ir"].getInt64() == 6);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["unique_fader_ir_paths"].getInt64() == 6);
+
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(chainer_ir_path));
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+
+    const auto ir = lower_chainer_fader_routes_to_phase_e_ir(
+        std::move(materialized_ir), route_rows);
+    CppExportOptions opts;
+    opts.header_filename = "phase_e_chainer_faders.hpp";
+    opts.namespace_name = "pulp::test::phase_e";
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, opts);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Fader>()") == 6);
+    REQUIRE(result.header.find("bind_imported_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx)") != std::string::npos);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_fader(") == 6);
+
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
+    REQUIRE(binding_manifest["entries"].size() == 6);
+
+    struct ExpectedFader {
+        const char* id;
+        const char* anchor;
+        const char* param_key;
+        const char* binding_module;
+        const char* binding_param;
+        const char* style_tokens;
+    };
+    const std::vector<ExpectedFader> expected = {
+        {"chainer.fader.0.env_a", "pr_3e", "env_a", "ENV", "attack", "C.blue"},
+        {"chainer.fader.1.env_d", "pr_3k", "env_d", "ENV", "decay", "C.blue"},
+        {"chainer.fader.2.env_s", "pr_3q", "env_s", "ENV", "sustain", "C.blue"},
+        {"chainer.fader.3.env_r", "pr_3w", "env_r", "ENV", "release", "C.blue"},
+        {"chainer.fader.4.send_level", "pr_64", "send_level", "SEND", "level", "C.purple"},
+        {"chainer.fader.5.return_level", "pr_6a", "return_level", "SEND", "return", "C.purple"},
+    };
+
+    for (const auto& fader : expected) {
+        REQUIRE(result.source.find(std::string("->set_anchor_id(\"") + fader.anchor + "\");") != std::string::npos);
+
+        bool found = false;
+        for (uint32_t i = 0; i < binding_manifest["entries"].size(); ++i) {
+            const auto entry = binding_manifest["entries"][i];
+            if (entry["id"].getString() != std::string(fader.id))
+                continue;
+            found = true;
+            REQUIRE(entry["anchor_id"].getString() == std::string(fader.anchor));
+            REQUIRE(entry["native_primitive"].getString() == std::string("fader"));
+            REQUIRE(entry["route_type"].getString() == std::string("native_cpp"));
+            REQUIRE(entry["source_family"].getString() == std::string("Fader"));
+            REQUIRE(entry["param_key"].getString() == std::string(fader.param_key));
+            REQUIRE(entry["binding_module"].getString() == std::string(fader.binding_module));
+            REQUIRE(entry["binding_param"].getString() == std::string(fader.binding_param));
+            REQUIRE(entry["event_contract"].getString() == std::string("onChange:set_param:") + fader.param_key);
+            REQUIRE(entry["gesture_contract"].getString() == std::string("vertical_drag:begin/update/end"));
+            REQUIRE(entry["style_tokens"].getString() == std::string(fader.style_tokens));
+            REQUIRE(entry["default_value_source"].getString() == std::string("phase_c_initial_value_fallback"));
+            break;
+        }
+        REQUIRE(found);
+    }
+
+    TempDir tmp("pulp-phase-e-chainer-faders-cpp-codegen");
+    const auto header = tmp.path / "phase_e_chainer_faders.hpp";
+    const auto source = tmp.path / "phase_e_chainer_faders.cpp";
+    const auto object = tmp.path / "phase_e_chainer_faders.o";
     write_text(header, result.header);
     write_text(source, result.source);
 

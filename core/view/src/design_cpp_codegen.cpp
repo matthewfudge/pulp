@@ -894,6 +894,8 @@ void emit_widget_specific(std::ostringstream& out,
                           float_expr(ctx, normalized_audio_value(node)) + ");");
             if (is_horizontal(node))
                 emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_orientation(pulp::view::Fader::Orientation::horizontal);");
+            if (auto schema = attr(node, "pulpWidgetSchema"); schema && !schema->empty())
+                emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_widget_schema(" + cpp_string_literal(*schema) + ");");
             break;
         }
         case NativeWidgetKind::meter: {
@@ -1280,31 +1282,42 @@ void emit_binding_context_helpers(std::ostringstream& out,
     if (routes.empty()) {
         emit_line(out, 1, opts.indent_spaces, "(void)root;");
         emit_line(out, 1, opts.indent_spaces, "(void)ctx;");
-        out << "}\n\n";
+        out << "}\n";
         return;
     }
 
+    auto emit_descriptor = [&](const BindingHelperRoute& route, int depth) {
+        emit_line(out, depth, opts.indent_spaces, "pulp::view::NativeImportBindingDescriptor{");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.route_id) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.param_key) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.binding_module) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.binding_param) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.event_contract) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.gesture_contract));
+        emit_line(out, depth, opts.indent_spaces, "});");
+    };
+
     for (const auto& route : routes) {
-        if (route.kind != NativeWidgetKind::knob)
+        if (route.kind != NativeWidgetKind::knob && route.kind != NativeWidgetKind::fader)
             continue;
         emit_line(out, 1, opts.indent_spaces,
                   "if (auto* view = find_imported_view_by_anchor(root, " +
                       cpp_string_literal(route.anchor_id) + ")) {");
-        emit_line(out, 2, opts.indent_spaces,
-                  "if (auto* knob = dynamic_cast<pulp::view::Knob*>(view)) {");
-        emit_line(out, 3, opts.indent_spaces,
-                  "ctx.bind_knob(*knob, pulp::view::NativeImportBindingDescriptor{");
-        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.route_id) + ",");
-        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.param_key) + ",");
-        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.binding_module) + ",");
-        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.binding_param) + ",");
-        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.event_contract) + ",");
-        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.gesture_contract));
-        emit_line(out, 3, opts.indent_spaces, "});");
+        if (route.kind == NativeWidgetKind::knob) {
+            emit_line(out, 2, opts.indent_spaces,
+                      "if (auto* knob = dynamic_cast<pulp::view::Knob*>(view)) {");
+            emit_line(out, 3, opts.indent_spaces, "ctx.bind_knob(*knob,");
+            emit_descriptor(route, 3);
+        } else {
+            emit_line(out, 2, opts.indent_spaces,
+                      "if (auto* fader = dynamic_cast<pulp::view::Fader*>(view)) {");
+            emit_line(out, 3, opts.indent_spaces, "ctx.bind_fader(*fader,");
+            emit_descriptor(route, 3);
+        }
         emit_line(out, 2, opts.indent_spaces, "}");
         emit_line(out, 1, opts.indent_spaces, "}");
     }
-    out << "}\n\n";
+    out << "}\n";
 }
 
 }  // namespace

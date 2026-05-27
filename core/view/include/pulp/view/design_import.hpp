@@ -22,6 +22,7 @@ namespace pulp::view {
 
 class View;
 class Knob;
+class Fader;
 
 // ── Design source types ─────────────────────────────────────────────────
 
@@ -372,6 +373,10 @@ public:
     virtual ~NativeImportBindingContext() = default;
     virtual void bind_knob(Knob& knob, const NativeImportBindingDescriptor& descriptor) {
         (void)knob;
+        (void)descriptor;
+    }
+    virtual void bind_fader(Fader& fader, const NativeImportBindingDescriptor& descriptor) {
+        (void)fader;
         (void)descriptor;
     }
 };
