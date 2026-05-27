@@ -715,3 +715,206 @@ TEST_CASE("CiDiscovery profile reply encodes multi-byte profile counts",
     REQUIRE(reply[disabled_count_offset + 1] == 1);
     REQUIRE(reply.back() == 0xF7);
 }
+
+// ── Function Block + Profile Details + Profile Specific Data (CI 1.2 §7) ─
+
+TEST_CASE("Function Block: add + find + broadcast", "[midi][ci][function-block]") {
+    CiDiscovery ci;
+    REQUIRE(ci.function_blocks().empty());
+
+    FunctionBlockInfo fb1;
+    fb1.id.value = 0x00;
+    fb1.name = "Piano";
+    fb1.first_group = 0;
+    fb1.group_count = 4;
+    ci.add_function_block(fb1);
+
+    FunctionBlockInfo fb2;
+    fb2.id.value = 0x01;
+    fb2.name = "Drums";
+    fb2.first_group = 4;
+    fb2.group_count = 4;
+    ci.add_function_block(fb2);
+
+    REQUIRE(ci.function_blocks().size() == 2);
+    auto* found = ci.find_function_block(FunctionBlockId{0x01});
+    REQUIRE(found != nullptr);
+    REQUIRE(found->name == "Drums");
+    REQUIRE(found->first_group == 4);
+
+    REQUIRE(ci.find_function_block(FunctionBlockId{0x05}) == nullptr);
+    REQUIRE(FunctionBlockId::broadcast().is_broadcast());
+}
+
+TEST_CASE("Profile Added Report: encodes profile id and routes to destination",
+          "[midi][ci][profile-added]") {
+    CiDiscovery ci;
+    ProfileId id{0x7E, 0x10, 0x01, 0x00, 0x00};
+    auto msg = ci.create_profile_added_report(MUID{0x00012345}, id);
+    REQUIRE(msg.front() == 0xF0);
+    REQUIRE(msg.back() == 0xF7);
+    REQUIRE(msg[4] == static_cast<uint8_t>(CiMessageType::ProfileEnable));
+    // envelope is 14 bytes (F0 7E 7F 0D sub-id ver src(4) dst(4)) +
+    // 5 profile-id bytes + F7
+    REQUIRE(msg.size() == 14 + 5 + 1);
+    REQUIRE(msg[14] == 0x7E);
+    REQUIRE(msg[15] == 0x10);
+}
+
+TEST_CASE("Profile Removed Report: round-trips through dispatcher",
+          "[midi][ci][profile-removed]") {
+    CiDiscovery sender;
+    CiDiscovery receiver;
+
+    bool removed_fired = false;
+    ProfileId observed{};
+    receiver.on_profile_removed = [&](MUID, const ProfileId& id) {
+        removed_fired = true;
+        observed = id;
+    };
+
+    ProfileId id{0x7E, 0x20, 0x02, 0x01, 0x00};
+    auto msg = sender.create_profile_removed_report(receiver.local_muid(), id);
+    auto reply = receiver.process_message(msg.data(), msg.size());
+    REQUIRE(reply.empty());  // Add/Remove are one-shot reports
+    REQUIRE(removed_fired);
+    REQUIRE(observed == id);
+}
+
+TEST_CASE("Profile Details: responder answers inquiry from local store",
+          "[midi][ci][profile-details]") {
+    CiDiscovery responder;
+    ProfileId id{0x7E, 0x10, 0x01, 0x00, 0x00};
+    std::vector<uint8_t> payload{0x10, 0x20, 0x30, 0x40, 0x55};
+    responder.set_profile_details(id, /*target=*/0x01, payload);
+
+    CiDiscovery inquirer;
+    auto inquiry = inquirer.create_profile_details_inquiry(
+        responder.local_muid(), id, 0x01);
+    auto reply = responder.process_message(inquiry.data(), inquiry.size());
+    REQUIRE(!reply.empty());
+    REQUIRE(reply.front() == 0xF0);
+    REQUIRE(reply.back() == 0xF7);
+    REQUIRE(reply[4] == static_cast<uint8_t>(CiMessageType::ProfileDetailsReply));
+
+    // Inquirer now ingests the reply
+    bool details_fired = false;
+    ProfileDetails observed{};
+    MUID observed_source{};
+    inquirer.on_profile_details = [&](MUID source, const ProfileDetails& d) {
+        details_fired = true;
+        observed = d;
+        observed_source = source;
+    };
+    auto follow = inquirer.process_message(reply.data(), reply.size());
+    REQUIRE(follow.empty());
+    REQUIRE(details_fired);
+    REQUIRE(observed.id == id);
+    REQUIRE(observed.target == 0x01);
+    REQUIRE(observed.data == payload);
+    REQUIRE(observed_source == responder.local_muid());
+    REQUIRE(inquirer.discovered_profile_details().size() == 1);
+}
+
+TEST_CASE("Profile Details: unknown (id, target) returns empty reply",
+          "[midi][ci][profile-details]") {
+    CiDiscovery responder;
+    ProfileId id{0x7E, 0x10, 0x01, 0x00, 0x00};
+    // Nothing in the local store — inquiry should be silently dropped.
+
+    CiDiscovery inquirer;
+    auto inquiry = inquirer.create_profile_details_inquiry(
+        responder.local_muid(), id, 0x77);
+    auto reply = responder.process_message(inquiry.data(), inquiry.size());
+    REQUIRE(reply.empty());
+}
+
+TEST_CASE("Profile Details: multiple targets per profile id",
+          "[midi][ci][profile-details]") {
+    CiDiscovery responder;
+    ProfileId id{0x7E, 0x10, 0x01, 0x00, 0x00};
+    responder.set_profile_details(id, 0x00, {0x01});
+    responder.set_profile_details(id, 0x01, {0x02, 0x03});
+    responder.set_profile_details(id, 0x02, {0x04, 0x05, 0x06});
+
+    auto all = responder.profile_details_for(id);
+    REQUIRE(all.size() == 3);
+}
+
+TEST_CASE("Profile Details: set_profile_details overwrites in place",
+          "[midi][ci][profile-details]") {
+    CiDiscovery responder;
+    ProfileId id{0x7E, 0x10, 0x01, 0x00, 0x00};
+    responder.set_profile_details(id, 0x00, {0x01, 0x02});
+    responder.set_profile_details(id, 0x00, {0xFF});
+    auto all = responder.profile_details_for(id);
+    REQUIRE(all.size() == 1);
+    REQUIRE(all[0].data == std::vector<uint8_t>{0xFF});
+}
+
+TEST_CASE("Profile-Specific Data: round-trips through dispatcher",
+          "[midi][ci][profile-specific-data]") {
+    CiDiscovery sender;
+    CiDiscovery receiver;
+
+    ProfileId id{0x7E, 0x30, 0x01, 0x00, 0x00};
+    std::vector<uint8_t> payload{0xDE, 0xAD, 0xBE, 0xEF, 0x55, 0x66, 0x77};
+
+    bool fired = false;
+    ProfileId observed_id{};
+    std::vector<uint8_t> observed_data;
+    MUID observed_source{};
+    receiver.on_profile_specific_data = [&](MUID src, const ProfileId& pid,
+                                            const std::vector<uint8_t>& data) {
+        fired = true;
+        observed_source = src;
+        observed_id = pid;
+        observed_data = data;
+    };
+
+    auto msg = sender.create_profile_specific_data(receiver.local_muid(),
+                                                   id, payload);
+    auto reply = receiver.process_message(msg.data(), msg.size());
+    REQUIRE(reply.empty());
+    REQUIRE(fired);
+    REQUIRE(observed_id == id);
+    REQUIRE(observed_data == payload);
+    REQUIRE(observed_source == sender.local_muid());
+}
+
+TEST_CASE("Profile-Specific Data: ignores messages addressed to another MUID",
+          "[midi][ci][profile-specific-data]") {
+    CiDiscovery sender;
+    CiDiscovery receiver;
+
+    bool fired = false;
+    receiver.on_profile_specific_data = [&](MUID, const ProfileId&,
+                                            const std::vector<uint8_t>&) {
+        fired = true;
+    };
+
+    ProfileId id{0x7E, 0x30, 0x01, 0x00, 0x00};
+    auto msg = sender.create_profile_specific_data(MUID{0x0BADBEE}, id,
+                                                   std::vector<uint8_t>{0x01, 0x02});
+    receiver.process_message(msg.data(), msg.size());
+    REQUIRE_FALSE(fired);
+}
+
+TEST_CASE("Profile-Specific Data: zero-length payload is legal",
+          "[midi][ci][profile-specific-data]") {
+    CiDiscovery sender;
+    CiDiscovery receiver;
+
+    bool fired = false;
+    receiver.on_profile_specific_data = [&](MUID, const ProfileId&,
+                                            const std::vector<uint8_t>& data) {
+        fired = true;
+        REQUIRE(data.empty());
+    };
+
+    ProfileId id{0x7E, 0x30, 0x01, 0x00, 0x00};
+    auto msg = sender.create_profile_specific_data(receiver.local_muid(),
+                                                   id, nullptr, 0);
+    receiver.process_message(msg.data(), msg.size());
+    REQUIRE(fired);
+}
