@@ -141,8 +141,10 @@
         "core/view/platform/ios/**",
         "core/format/src/au_view_controller_ios.mm",
         "tools/cmake/ios.toolchain.cmake",
+        "tools/cmake/PulpIosHostApp.cmake",
         "templates/ios-auv3/**",
-        "examples/ios-auv3-*/**"
+        "examples/ios-auv3-*/**",
+        "docs/getting-started/ios-deployment.md"
       ]
     },
     "import-design": {

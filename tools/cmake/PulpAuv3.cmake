@@ -378,6 +378,20 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
         SUFFIX ".appex"
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
         XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "16.0"
+        # Stash the AudioComponentDescription on the target so
+        # pulp_add_ios_host_app(...) can read them back without
+        # re-deriving from the Info.plist on disk. This is the
+        # single source of truth for HostApp/Extension descriptor
+        # parity — drift between them silently breaks
+        # AVAudioUnitComponentManager.components(matching:).
+        PULP_AUV3_PLUGIN_NAME       "${name}"
+        PULP_AUV3_MANUFACTURER_NAME "${manufacturer}"
+        PULP_AUV3_MANUFACTURER_CODE "${manufacturer_code}"
+        PULP_AUV3_SUBTYPE_CODE      "${plugin_code}"
+        PULP_AUV3_AU_TYPE           "${au_type}"
+        PULP_AUV3_AU_TAG            "${au_tag}"
+        PULP_AUV3_VERSION_INT       "${au_version_int}"
+        PULP_AUV3_BUNDLE_ID         "${bundle_id}"
     )
 
     if(COMMAND target_copy_webgpu_binaries)

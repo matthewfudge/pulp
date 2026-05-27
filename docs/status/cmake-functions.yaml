@@ -65,3 +65,38 @@ functions:
     optional:
       - NAMESPACE
     docs: reference/cmake.md#pulp_add_binary_data
+
+  - name: pulp_add_ios_auv3
+    status: usable
+    summary: Build an iOS AUv3 .appex extension bundle from a Pulp processor.
+    required:
+      - NAME
+      - BUNDLE_ID
+      - MANUFACTURER
+      - MANUFACTURER_CODE
+      - SUBTYPE_CODE
+      - VERSION
+    optional:
+      - AU_TYPE
+      - ACCEPTS_MIDI
+      - SOURCES
+    creates:
+      - ${target}_Core
+      - ${target}_AUv3
+    docs: getting-started/ios-deployment.md
+
+  - name: pulp_add_ios_host_app
+    status: usable
+    summary: Build a SwiftUI HostApp .app bundle that embeds a Pulp AUv3 .appex so it can be installed on iOS Simulator or a physical iPad.
+    required:
+      - AUV3_EXTENSION
+      - BUNDLE_ID
+    optional:
+      - NAME
+      - VERSION
+      - DEPLOYMENT_TARGET
+      - SOURCES
+    creates:
+      - ${target}
+      - ${target}_Embed
+    docs: getting-started/ios-deployment.md
