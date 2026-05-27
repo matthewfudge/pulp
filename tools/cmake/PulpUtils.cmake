@@ -418,4 +418,5 @@ endfunction()
 # get the full surface via a single include.
 include("${CMAKE_CURRENT_LIST_DIR}/PulpPluginFormats.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/PulpAuv3.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/PulpIosHostApp.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/PulpAppTargets.cmake")

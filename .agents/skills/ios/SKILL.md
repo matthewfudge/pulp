@@ -294,12 +294,70 @@ pulp_add_ios_auv3(
 )
 ```
 
-Builds the `.appex` only. The App Store container host-app target is authored separately — `templates/ios-auv3/HostApp/` has a SwiftUI host you can copy into Xcode. Auto-generating the host target is follow-on work.
+Builds the `.appex` only. iOS App-Store policy requires the `.appex` to ship inside a containing HostApp `.app` — pair the call above with `pulp_add_ios_host_app(...)` below to get an installable Simulator / device bundle.
+
+## `pulp_add_ios_host_app()` helper (Phase iOS-B)
+
+`pulp_add_ios_host_app(...)` (in `tools/cmake/PulpIosHostApp.cmake`) builds a SwiftUI HostApp `.app` and embeds the AUv3 `.appex` into `${target}.app/PlugIns/`.
+
+```cmake
+pulp_add_ios_host_app(PulpSineSynth_HostApp
+    AUV3_EXTENSION    PulpSineSynth_AUv3        # must exist; pulp_add_ios_auv3 sets up
+    BUNDLE_ID         com.pulp.examples.sinesynth.host
+    NAME              "PulpSineSynth"           # display name (defaults to target)
+    VERSION           0.1.0                       # defaults to "1.0.0"
+    DEPLOYMENT_TARGET 16.4                        # defaults to 16.0
+    # SOURCES ...                                 # optional override; default is the
+                                                  # shipped HostApp/ SwiftUI template
+)
+```
+
+### How the helper works
+
+1. **Reads the AudioComponentDescription off the `.appex` target.** `_pulp_add_auv3_ios(...)` stashes `PULP_AUV3_MANUFACTURER_CODE` / `_SUBTYPE_CODE` / `_AU_TYPE` / `_VERSION_INT` / `_PLUGIN_NAME` / `_MANUFACTURER_NAME` as target properties when it creates the `.appex` target. The HostApp helper reads them back so the HostApp's `Info.plist AudioComponents` entry matches the extension exactly. **Descriptor drift between the HostApp and the extension silently breaks `AVAudioUnitComponentManager.components(matching:)`** — the helper enforces parity by reading from one source of truth.
+2. **Generates the HostApp `Info.plist`** from `templates/ios-auv3/HostApp/Info.plist.in` — declares `LSRequiresIPhoneOS`, the audio background mode, supported orientations, `NSMicrophoneUsageDescription`, and the mirrored `AudioComponents` block.
+3. **Embeds via a sentinel target.** `${target}_Embed` is an `ALL`-dep custom target whose sentinel depends on the `.appex` bundle output, so a `.appex`-only rebuild forces a re-embed even when the HostApp itself didn't relink. The macOS framework + appex container does the same thing for the same reason (see `PulpAuv3.cmake` comments).
+
+### Deploy recipe
+
+See `docs/getting-started/ios-deployment.md` for the full end-to-end: Simulator install + launch via `xcrun simctl install` / `launch`, physical-iPad install via `xcrun devicectl device install app` (Xcode 15+), GarageBand iOS validation checklist for Phase iOS-C.
+
+### Quick reference — exact commands
+
+```bash
+# Simulator
+cmake -S . -B build-ios-sim -G Xcode \
+  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
+  -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_TESTS=OFF
+cmake --build build-ios-sim --target PulpSineSynth_HostApp --config Release -- -sdk iphonesimulator
+xcrun simctl boot "iPad Pro 13-inch (M5)"
+xcrun simctl install booted build-ios-sim/AUv3/Release-iphonesimulator/PulpSineSynth.app
+xcrun simctl launch --console booted com.pulp.examples.sinesynth.host
+
+# Physical iPad (signed)
+source ~/.config/pulp/secrets/notary.env
+cmake -S . -B build-ios-device -G Xcode \
+  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
+  -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="Apple Development" \
+  -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="${PULP_TEAM_ID}" \
+  -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE="Automatic"
+cmake --build build-ios-device --target PulpSineSynth_HostApp --config Release -- -sdk iphoneos
+xcrun devicectl device install app --device <DEVICE_UDID> \
+  build-ios-device/AUv3/Release-iphoneos/PulpSineSynth.app
+```
+
+### Smoke test coverage
+
+`test/cmake/test_ios_auv3_configure.sh` exercises both helpers:
+- Configure-only (default fast lane): asserts the `PulpSineSynth_HostApp` Xcode target is emitted and the `pulp_add_ios_host_app()` status line fires.
+- `PULP_IOS_AUV3_SMOKE_BUILD=1` (nightly-full-build lane): builds the HostApp `.app`, confirms the `.appex` is embedded under `PlugIns/`, and validates the HostApp `Info.plist` carries the matching `AudioComponents.subtype`.
 
 ## Follow-ups / Known Gaps
 
 - Full `pulp-view` iOS build requires gating `hot_reload.hpp`.
-- `pulp_add_ios_auv3()` ships the `.appex`; host-app target generation (consuming `templates/ios-auv3/HostApp/`) is follow-on.
+- ~~`pulp_add_ios_auv3()` ships the `.appex`; host-app target generation~~ Done in Phase iOS-B via `pulp_add_ios_host_app()`.
 - Device-target code signing is documented but not scripted.
 - Visual regression for iOS UIs not wired up yet (see #330, #249).
 

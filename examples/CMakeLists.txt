@@ -55,8 +55,15 @@ add_subdirectory(gpu-demo)
 # SDF Text Demo: Resolution-independent text with bloom post-effect
 add_subdirectory(sdf-text-demo)
 
-# Feature 5 Phase 1: plugin hosting validation — loads a real CLAP plugin
-add_subdirectory(plugin-host-demo)
+# Feature 5 Phase 1: plugin hosting validation — loads a real CLAP plugin.
+# iOS App Store policy disallows dlopen of arbitrary third-party plugins,
+# so `pulp::host` is intentionally omitted from iOS builds (root
+# CMakeLists.txt gates `add_subdirectory(core/host)` with NOT IOS).
+# Mirror that gate here so iOS Simulator / device configures don't
+# fail Generate on a missing `pulp::host` target.
+if(NOT IOS)
+    add_subdirectory(plugin-host-demo)
+endif()
 
 # AI Style Designer: JS-defined design tool with hot reload
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/design-tool/CMakeLists.txt)

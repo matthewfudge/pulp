@@ -130,6 +130,7 @@ nav:
       - Building: guides/build.md
       - Testing: guides/testing.md
       - Docs Maintenance: guides/docs-maintenance.md
+      - iOS Deployment: getting-started/ios-deployment.md
   - Support:
       - Capabilities: reference/capabilities.md
   - Modules:
