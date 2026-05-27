@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02580"></a>
+## [0.258.0] - 2026-05-26
+
+- feat: BLE MIDI (CoreBluetooth) + GIF/TIFF image codecs ([#3017](https://github.com/danielraffel/pulp/pull/3017))
+
 <a id="v02570"></a>
 ## [0.257.0] - 2026-05-26
 
@@ -3008,6 +3013,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.258.0]: https://github.com/danielraffel/pulp/releases/tag/v0.258.0
 [0.257.0]: https://github.com/danielraffel/pulp/releases/tag/v0.257.0
 [0.256.0]: https://github.com/danielraffel/pulp/releases/tag/v0.256.0
 [0.255.3]: https://github.com/danielraffel/pulp/releases/tag/v0.255.3
