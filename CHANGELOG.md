@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02701"></a>
+## [0.270.1] - 2026-05-26
+
+- feat(format): 4 iPlug2-audit DAW quirks (REAPER AUv3, Studio One, DP, Cubase 13+) ([#3053](https://github.com/danielraffel/pulp/pull/3053))
+- test(import-design): cover detector edge contracts ([#3063](https://github.com/danielraffel/pulp/pull/3063))
+- test(cli): cover audio command contracts ([#3048](https://github.com/danielraffel/pulp/pull/3048))
+
 <a id="v02700"></a>
 ## [0.270.0] - 2026-05-26
 
@@ -3078,6 +3085,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.270.1]: https://github.com/danielraffel/pulp/releases/tag/v0.270.1
 [0.270.0]: https://github.com/danielraffel/pulp/releases/tag/v0.270.0
 [0.269.1]: https://github.com/danielraffel/pulp/releases/tag/v0.269.1
 [0.268.1]: https://github.com/danielraffel/pulp/releases/tag/v0.268.1
