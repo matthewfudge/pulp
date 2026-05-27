@@ -1343,6 +1343,7 @@ struct BindingHelperRoute {
     std::string meter_source;
     std::string meter_channel;
     std::string meter_value_key;
+    std::string waveform_shape;
     std::string event_contract;
     std::string gesture_contract;
 };
@@ -1357,7 +1358,13 @@ void collect_binding_helper_routes(std::vector<BindingHelperRoute>& routes,
     auto meter_source = attr(node, "pulpMeterSource");
     auto meter_channel = attr(node, "pulpMeterChannel");
     auto choice_value = attr(node, "pulpChoiceValue");
+    auto waveform_shape = attr(node, "pulpWaveformShape");
     const bool has_single_param = param_key && !param_key->empty();
+    const bool has_scalar_param_control =
+        (resolved.kind == NativeWidgetKind::knob ||
+         resolved.kind == NativeWidgetKind::fader ||
+         resolved.kind == NativeWidgetKind::toggle_button) &&
+        has_single_param;
     const bool has_choice_param = resolved.kind == NativeWidgetKind::toggle_button &&
         has_single_param && choice_value && !choice_value->empty();
     const bool has_xy_params = resolved.kind == NativeWidgetKind::xy_pad &&
@@ -1366,8 +1373,10 @@ void collect_binding_helper_routes(std::vector<BindingHelperRoute>& routes,
     const bool has_meter_input = resolved.kind == NativeWidgetKind::meter &&
         meter_source && !meter_source->empty() &&
         meter_channel && !meter_channel->empty();
+    const bool has_waveform_input = resolved.kind == NativeWidgetKind::waveform &&
+        has_single_param && waveform_shape && !waveform_shape->empty();
     if (route_id && !route_id->empty() &&
-        (has_single_param || has_choice_param || has_xy_params || has_meter_input) &&
+        (has_scalar_param_control || has_choice_param || has_xy_params || has_meter_input || has_waveform_input) &&
         node.stable_anchor_id && !node.stable_anchor_id->empty()) {
         routes.push_back(BindingHelperRoute{
             .kind = resolved.kind,
@@ -1387,6 +1396,7 @@ void collect_binding_helper_routes(std::vector<BindingHelperRoute>& routes,
             .meter_source = meter_source.value_or(std::string{}),
             .meter_channel = meter_channel.value_or(std::string{}),
             .meter_value_key = attr(node, "pulpMeterValueKey").value_or(std::string{}),
+            .waveform_shape = waveform_shape.value_or(std::string{}),
             .event_contract = attr(node, "pulpEventContract").value_or(std::string{}),
             .gesture_contract = attr(node, "pulpGestureContract").value_or(std::string{}),
         });
@@ -1465,12 +1475,22 @@ void emit_binding_context_helpers(std::ostringstream& out,
         emit_line(out, depth, opts.indent_spaces, "});");
     };
 
+    auto emit_waveform_descriptor = [&](const BindingHelperRoute& route, int depth) {
+        emit_line(out, depth, opts.indent_spaces, "pulp::view::NativeImportWaveformBindingDescriptor{");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.route_id) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.param_key) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.waveform_shape) + ",");
+        emit_line(out, depth + 1, opts.indent_spaces, cpp_string_literal(route.event_contract));
+        emit_line(out, depth, opts.indent_spaces, "});");
+    };
+
     for (const auto& route : routes) {
         if (route.kind != NativeWidgetKind::knob &&
             route.kind != NativeWidgetKind::fader &&
             route.kind != NativeWidgetKind::meter &&
             route.kind != NativeWidgetKind::toggle_button &&
-            route.kind != NativeWidgetKind::xy_pad)
+            route.kind != NativeWidgetKind::xy_pad &&
+            route.kind != NativeWidgetKind::waveform)
             continue;
         emit_line(out, 1, opts.indent_spaces,
                   "if (auto* view = find_imported_view_by_anchor(root, " +
@@ -1495,6 +1515,15 @@ void emit_binding_context_helpers(std::ostringstream& out,
                           "if (auto* meter = dynamic_cast<pulp::view::Meter*>(view)) {");
                 emit_line(out, 3, opts.indent_spaces, "ctx.bind_meter(*meter,");
                 emit_meter_descriptor(route, 3);
+                emit_line(out, 2, opts.indent_spaces, "}");
+                emit_line(out, 1, opts.indent_spaces, "}");
+                continue;
+            }
+            if (route.kind == NativeWidgetKind::waveform) {
+                emit_line(out, 2, opts.indent_spaces,
+                          "if (auto* waveform = dynamic_cast<pulp::view::WaveformView*>(view)) {");
+                emit_line(out, 3, opts.indent_spaces, "ctx.bind_waveform_display(*waveform,");
+                emit_waveform_descriptor(route, 3);
                 emit_line(out, 2, opts.indent_spaces, "}");
                 emit_line(out, 1, opts.indent_spaces, "}");
                 continue;

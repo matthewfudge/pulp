@@ -26,6 +26,7 @@ class Fader;
 class Meter;
 class ToggleButton;
 class XYPad;
+class WaveformView;
 
 // ── Design source types ─────────────────────────────────────────────────
 
@@ -400,6 +401,13 @@ struct NativeImportChoiceBindingDescriptor {
     std::string_view gesture_contract;
 };
 
+struct NativeImportWaveformBindingDescriptor {
+    std::string_view route_id;
+    std::string_view param_key;
+    std::string_view shape;
+    std::string_view event_contract;
+};
+
 class NativeImportBindingContext {
 public:
     virtual ~NativeImportBindingContext() = default;
@@ -425,6 +433,11 @@ public:
     }
     virtual void bind_xy_pad(XYPad& pad, const NativeImportXYPadBindingDescriptor& descriptor) {
         (void)pad;
+        (void)descriptor;
+    }
+    virtual void bind_waveform_display(WaveformView& waveform,
+                                       const NativeImportWaveformBindingDescriptor& descriptor) {
+        (void)waveform;
         (void)descriptor;
     }
 };

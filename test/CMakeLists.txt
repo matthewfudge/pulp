@@ -2913,6 +2913,11 @@ set(CHAINER_PHASE_E_WAVEFORM_CHOICES_CPP
 set_source_files_properties(${CHAINER_PHASE_E_WAVEFORM_CHOICES_CPP} PROPERTIES
     COMPILE_DEFINITIONS "build_imported_ui=build_imported_waveform_choices_ui;bake_asset_manifest=bake_waveform_choices_asset_manifest;bind_imported_ui=bind_imported_waveform_choices_ui")
 
+set(CHAINER_PHASE_E_WAVEFORM_DISPLAY_CHOICES_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-waveform-display-choices.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_WAVEFORM_DISPLAY_CHOICES_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_waveform_display_choices_ui;bake_asset_manifest=bake_waveform_display_choices_asset_manifest;bind_imported_ui=bind_imported_waveform_display_choices_ui")
+
 set(CHAINER_PHASE_E_METER_CPP
     ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-meter.cpp)
 set_source_files_properties(${CHAINER_PHASE_E_METER_CPP} PROPERTIES
@@ -2926,6 +2931,7 @@ add_executable(pulp-test-design-import-cpp-codegen
     ${CHAINER_PHASE_E_XY_PAD_CPP}
     ${CHAINER_PHASE_E_TOGGLE_BUTTONS_CPP}
     ${CHAINER_PHASE_E_WAVEFORM_CHOICES_CPP}
+    ${CHAINER_PHASE_E_WAVEFORM_DISPLAY_CHOICES_CPP}
     ${CHAINER_PHASE_E_METER_CPP})
 target_link_libraries(pulp-test-design-import-cpp-codegen
     PRIVATE pulp::view pulp::platform Catch2::Catch2WithMain)

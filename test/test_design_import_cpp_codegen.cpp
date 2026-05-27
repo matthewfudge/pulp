@@ -51,6 +51,9 @@ std::unique_ptr<pulp::view::View> build_imported_toggle_buttons_ui();
 void bind_imported_toggle_buttons_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
 std::unique_ptr<pulp::view::View> build_imported_waveform_choices_ui();
 void bind_imported_waveform_choices_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
+std::unique_ptr<pulp::view::View> build_imported_waveform_display_choices_ui();
+void bind_imported_waveform_display_choices_ui(pulp::view::View& root,
+                                               pulp::view::NativeImportBindingContext& ctx);
 std::unique_ptr<pulp::view::View> build_imported_meter_ui();
 void bind_imported_meter_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
 
@@ -190,6 +193,11 @@ struct PhaseDMeterEvent {
 struct PhaseDChoiceEvent {
     std::string param_key;
     std::string choice_value;
+};
+
+struct PhaseDWaveformDisplayEvent {
+    std::string param_key;
+    std::string shape;
 };
 
 class PhaseDKnobBindingContext final : public NativeImportBindingContext {
@@ -349,6 +357,16 @@ public:
         });
     }
 
+    void bind_waveform_display(WaveformView& waveform,
+                               const NativeImportWaveformBindingDescriptor& descriptor) override {
+        bound_waveform_displays_.push_back({
+            std::string(descriptor.route_id),
+            std::string(descriptor.param_key),
+            std::string(descriptor.shape),
+            &waveform,
+        });
+    }
+
     void set_meter_level(std::string_view meter_source,
                          std::string_view channel,
                          float rms,
@@ -391,6 +409,9 @@ public:
     };
     const std::vector<BoundChoice>& bound_choices() const { return bound_choices_; }
     const std::vector<PhaseDChoiceEvent>& choice_events() const { return choice_events_; }
+    const std::vector<PhaseDWaveformDisplayEvent>& waveform_display_events() const {
+        return waveform_display_events_;
+    }
     std::string choice_value(std::string_view param_key) const {
         auto found = choice_values_.find(std::string(param_key));
         REQUIRE(found != choice_values_.end());
@@ -413,6 +434,15 @@ public:
     };
     const std::vector<BoundMeter>& bound_meters() const { return bound_meters_; }
     const std::vector<PhaseDMeterEvent>& meter_events() const { return meter_events_; }
+    struct BoundWaveformDisplay {
+        std::string route_id;
+        std::string param_key;
+        std::string shape;
+        WaveformView* waveform = nullptr;
+    };
+    const std::vector<BoundWaveformDisplay>& bound_waveform_displays() const {
+        return bound_waveform_displays_;
+    }
 
     bool has_ordered_gesture(std::string_view param_key) const {
         bool saw_begin = false;
@@ -437,6 +467,14 @@ private:
         }
         choice_values_[std::string(param_key)] = std::string(choice_value);
         choice_events_.push_back({std::string(param_key), std::string(choice_value)});
+        for (auto& display : bound_waveform_displays_) {
+            if (display.param_key != param_key)
+                continue;
+            REQUIRE(display.waveform != nullptr);
+            display.waveform->set_preview_shape(choice_value);
+            display.shape = std::string(choice_value);
+            waveform_display_events_.push_back({std::string(param_key), std::string(choice_value)});
+        }
     }
 
     void record_gesture(pulp::state::ParamID id, std::string phase) {
@@ -457,6 +495,8 @@ private:
     std::vector<PhaseDChoiceEvent> choice_events_;
     std::vector<BoundMeter> bound_meters_;
     std::vector<PhaseDMeterEvent> meter_events_;
+    std::vector<BoundWaveformDisplay> bound_waveform_displays_;
+    std::vector<PhaseDWaveformDisplayEvent> waveform_display_events_;
 };
 
 IRNode label_node(std::string id,
@@ -1553,6 +1593,44 @@ DesignIR lower_chainer_waveform_display_routes_to_phase_e_ir(DesignIR materializ
             continue;
         ir.root.children.push_back(lower_chainer_waveform_display_route_to_node(materialized_ir.root, route));
     }
+    return ir;
+}
+
+DesignIR lower_chainer_waveform_display_choice_routes_to_phase_e_ir(DesignIR materialized_ir,
+                                                                    choc::value::ValueView route_rows) {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-e-chainer-waveform-display-choice-route-overlay";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-e";
+    add_chainer_token_colors(ir);
+    ir.root = frame_node("phase-e-waveform-display-choice-root",
+                         "Chainer Waveform Display Choices",
+                         93.0f,
+                         58.0f,
+                         LayoutDirection::column);
+    ir.root.layout.gap = 3.0f;
+
+    auto row = frame_node("phase-e-waveform-choice-row",
+                          "Chainer Choices",
+                          93.0f,
+                          13.0f,
+                          LayoutDirection::row);
+    row.layout.gap = 3.0f;
+
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        const auto family = json_string(route["source_component_family"]);
+        if (family == "WaveformDisplay") {
+            ir.root.children.push_back(lower_chainer_waveform_display_route_to_node(materialized_ir.root, route));
+        } else if (family == "WaveformChoice") {
+            row.children.push_back(lower_chainer_waveform_choice_route_to_node(materialized_ir.root, route));
+        }
+    }
+
+    REQUIRE(ir.root.children.size() == 1);
+    REQUIRE(row.children.size() == 4);
+    ir.root.children.push_back(std::move(row));
     return ir;
 }
 
@@ -2822,6 +2900,7 @@ TEST_CASE("Chainer route overlay can lower waveform display to native preview pa
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::WaveformView>()") == 1);
     REQUIRE(result.source.find("->set_anchor_id(\"pr_2x\");") != std::string::npos);
     REQUIRE(result.source.find("->set_preview_shape(\"saw\");") != std::string::npos);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_waveform_display(") == 1);
 
     auto binding_manifest = choc::json::parse(result.binding_manifest);
     REQUIRE(binding_manifest["entries"].size() == 1);
@@ -2840,6 +2919,68 @@ TEST_CASE("Chainer route overlay can lower waveform display to native preview pa
     const auto header = tmp.path / "phase_e_chainer_waveform_display.hpp";
     const auto source = tmp.path / "phase_e_chainer_waveform_display.cpp";
     const auto object = tmp.path / "phase_e_chainer_waveform_display.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
+}
+
+TEST_CASE("Chainer route overlay can lower waveform display and choices to linked native bindings",
+          "[view][import][cpp-codegen][native-cpp-phase-e]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(manifest_path));
+    REQUIRE(fs::exists(chainer_ir_path));
+
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+    auto waveform_ir =
+        lower_chainer_waveform_display_choice_routes_to_phase_e_ir(std::move(materialized_ir), route_rows);
+
+    CppExportOptions opts;
+    opts.header_filename = "phase_e_chainer_waveform_display_choices.hpp";
+    const auto result = generate_pulp_cpp(waveform_ir, waveform_ir.asset_manifest, opts);
+
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::WaveformView>()") == 1);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::ToggleButton>()") == 4);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_waveform_display(") == 1);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_choice_button(") == 4);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_toggle_button(") == 0);
+
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["entries"].size() == 5);
+
+    int waveform_entries = 0;
+    int choice_entries = 0;
+    for (uint32_t i = 0; i < binding_manifest["entries"].size(); ++i) {
+        const auto entry = binding_manifest["entries"][i];
+        if (json_string(entry["native_primitive"]) == "waveform") {
+            ++waveform_entries;
+            REQUIRE(json_string(entry["id"]) == "chainer.waveform_display.0.osc_waveform");
+            REQUIRE(json_string(entry["anchor_id"]) == "pr_2x");
+            REQUIRE(json_string(entry["param_key"]) == "osc_waveform");
+            REQUIRE(json_string(entry["waveform_shape"]) == "saw");
+            REQUIRE(json_string(entry["event_contract"]) == "paramInput:set_waveform_shape:osc_waveform");
+        } else if (json_string(entry["native_primitive"]) == "toggle_button") {
+            ++choice_entries;
+            REQUIRE(json_string(entry["param_key"]) == "osc_waveform");
+            REQUIRE_FALSE(json_string(entry["choice_value"]).empty());
+            REQUIRE_FALSE(json_string(entry["choice_label"]).empty());
+        }
+    }
+    REQUIRE(waveform_entries == 1);
+    REQUIRE(choice_entries == 4);
+
+    TempDir tmp("pulp-phase-e-chainer-waveform-display-choices-cpp-codegen");
+    const auto header = tmp.path / "phase_e_chainer_waveform_display_choices.hpp";
+    const auto source = tmp.path / "phase_e_chainer_waveform_display_choices.cpp";
+    const auto object = tmp.path / "phase_e_chainer_waveform_display_choices.o";
     write_text(header, result.header);
     write_text(source, result.source);
 
@@ -3325,6 +3466,111 @@ TEST_CASE("generated Chainer waveform choice C++ can bind and select every choic
         report << "\n  ]\n"
                << "}\n";
         write_text(dir / "reports" / "chainer-phase-e-waveform-choice-behavior-report.json", report.str());
+    }
+}
+
+TEST_CASE("generated Chainer waveform display and choices C++ keeps preview shape coupled to choice state",
+          "[view][import][cpp-codegen][native-cpp-phase-e][behavior]") {
+    auto root = ::build_imported_waveform_display_choices_ui();
+    REQUIRE(root != nullptr);
+
+    PhaseDKnobBindingContext ctx;
+    ::bind_imported_waveform_display_choices_ui(*root, ctx);
+    REQUIRE(ctx.bound_waveform_displays().size() == 1);
+    REQUIRE(ctx.bound_choices().size() == 4);
+    REQUIRE(ctx.choice_value("osc_waveform") == "saw");
+
+    auto* display_view = find_anchor(*root, "pr_2x");
+    REQUIRE(display_view != nullptr);
+    auto* waveform = dynamic_cast<WaveformView*>(display_view);
+    REQUIRE(waveform != nullptr);
+    REQUIRE(waveform->preview_shape() == WaveformView::PreviewShape::saw);
+
+    root->set_bounds({0.0f, 0.0f, 93.0f, 58.0f});
+    root->layout_children();
+
+    struct ExpectedChoice {
+        const char* anchor;
+        const char* label;
+        const char* value;
+        WaveformView::PreviewShape shape;
+    };
+    const std::vector<ExpectedChoice> expected = {
+        {"pr_2z", "SAW", "saw", WaveformView::PreviewShape::saw},
+        {"pr_30", "SIN", "sine", WaveformView::PreviewShape::sine},
+        {"pr_31", "SQU", "square", WaveformView::PreviewShape::square},
+        {"pr_32", "TRI", "tri", WaveformView::PreviewShape::triangle},
+    };
+
+    auto before_png = render_to_png(*root, 93, 58, 1.0f);
+    std::map<std::string, std::string> observed_shapes;
+
+    for (const auto& item : expected) {
+        auto* view = find_anchor(*root, item.anchor);
+        REQUIRE(view != nullptr);
+        auto* button = dynamic_cast<ToggleButton*>(view);
+        REQUIRE(button != nullptr);
+        REQUIRE(button->label() == item.label);
+
+        const auto bounds = absolute_bounds(*button);
+        root->simulate_click({bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f});
+
+        REQUIRE(ctx.choice_value("osc_waveform") == item.value);
+        REQUIRE(waveform->preview_shape() == item.shape);
+        REQUIRE(ctx.bound_waveform_displays()[0].shape == item.value);
+        observed_shapes[item.value] = ctx.bound_waveform_displays()[0].shape;
+    }
+
+    REQUIRE(ctx.choice_events().size() == expected.size());
+    REQUIRE(ctx.waveform_display_events().size() == expected.size());
+    REQUIRE(ctx.choice_change_count("osc_waveform") == expected.size());
+
+    auto after_png = render_to_png(*root, 93, 58, 1.0f);
+    bool visual_smoke_valid = false;
+    CompareResult visual_smoke;
+    if (!before_png.empty() && !after_png.empty()) {
+        visual_smoke = compare_screenshots(before_png, after_png, 8);
+        REQUIRE(visual_smoke.valid);
+        REQUIRE(visual_smoke.similarity < 0.999f);
+        visual_smoke_valid = true;
+    }
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        if (!before_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-e-waveform-display-choices-before.png", before_png);
+        if (!after_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-e-waveform-display-choices-after.png", after_png);
+
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-e-waveform-display-choice-behavior-v1\",\n"
+               << "  \"fixture\": \"chainer-phase-e-waveform-display-choices\",\n"
+               << "  \"scope\": \"generated-native-cpp-waveform-display-choice-binding-helper\",\n"
+               << "  \"choice_selection_tests\": " << expected.size() << ",\n"
+               << "  \"bound_waveform_displays\": " << ctx.bound_waveform_displays().size() << ",\n"
+               << "  \"bound_choices\": " << ctx.bound_choices().size() << ",\n"
+               << "  \"choice_updates\": " << ctx.choice_events().size() << ",\n"
+               << "  \"waveform_display_updates\": " << ctx.waveform_display_events().size() << ",\n"
+               << "  \"final_choice\": \"" << json_escape(ctx.choice_value("osc_waveform")) << "\",\n"
+               << "  \"final_preview_shape\": \"" << json_escape(ctx.bound_waveform_displays()[0].shape) << "\",\n"
+               << "  \"visual_smoke_valid\": " << (visual_smoke_valid ? "true" : "false") << ",\n"
+               << "  \"visual_smoke_similarity\": " << std::setprecision(7) << visual_smoke.similarity << ",\n"
+               << "  \"choices\": [";
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            if (i != 0)
+                report << ",";
+            const auto& item = expected[i];
+            report << "\n    {"
+                   << "\"anchor\": \"" << item.anchor << "\", "
+                   << "\"label\": \"" << item.label << "\", "
+                   << "\"choice_value\": \"" << item.value << "\", "
+                   << "\"display_shape\": \"" << json_escape(observed_shapes[item.value]) << "\""
+                   << "}";
+        }
+        report << "\n  ]\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-e-waveform-display-choice-behavior-report.json", report.str());
     }
 }
 
