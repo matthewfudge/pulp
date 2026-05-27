@@ -401,6 +401,8 @@ std::string json_string(choc::value::ValueView value) {
     return std::string(value.getString());
 }
 
+std::string json_escape(std::string_view text);
+
 float json_float(choc::value::ValueView value) {
     if (value.isFloat64()) return static_cast<float>(value.getFloat64());
     if (value.isFloat32()) return value.getFloat32();
@@ -414,14 +416,24 @@ float json_float_or(choc::value::ValueView value, float fallback) {
     return json_float(value);
 }
 
-std::unordered_map<std::string, Rect> read_runtime_native_bounds(const fs::path& path) {
+struct RuntimeAncestorBounds {
+    std::string id;
+    Rect bounds;
+};
+
+struct RuntimeNativeBoundsEntry {
+    Rect bounds;
+    std::vector<RuntimeAncestorBounds> ancestor_chain;
+};
+
+std::unordered_map<std::string, RuntimeNativeBoundsEntry> read_runtime_native_bounds(const fs::path& path) {
     REQUIRE(fs::exists(path));
     auto trace = choc::json::parse(read_text(path));
     REQUIRE(trace.isObject());
     const auto entries = trace["native_bounds"];
     REQUIRE(entries.isArray());
 
-    std::unordered_map<std::string, Rect> out;
+    std::unordered_map<std::string, RuntimeNativeBoundsEntry> out;
     for (uint32_t i = 0; i < entries.size(); ++i) {
         const auto entry = entries[i];
         if (!entry.isObject())
@@ -430,14 +442,143 @@ std::unordered_map<std::string, Rect> read_runtime_native_bounds(const fs::path&
         const auto bounds = entry["bounds"];
         if (id.empty() || !bounds.isObject())
             continue;
-        out[id] = Rect{
+        RuntimeNativeBoundsEntry parsed;
+        parsed.bounds = Rect{
             json_float(bounds["x"]),
             json_float(bounds["y"]),
             json_float(bounds["width"]),
             json_float(bounds["height"])
         };
+        const auto chain = entry["ancestor_chain"];
+        if (chain.isArray()) {
+            for (uint32_t j = 0; j < chain.size(); ++j) {
+                const auto ancestor = chain[j];
+                const auto ancestor_bounds = ancestor["bounds"];
+                if (!ancestor.isObject() || !ancestor_bounds.isObject())
+                    continue;
+                const auto ancestor_id = json_string(ancestor["id"]);
+                if (ancestor_id.empty())
+                    continue;
+                parsed.ancestor_chain.push_back({
+                    ancestor_id,
+                    Rect{
+                        json_float(ancestor_bounds["x"]),
+                        json_float(ancestor_bounds["y"]),
+                        json_float(ancestor_bounds["width"]),
+                        json_float(ancestor_bounds["height"])
+                    }
+                });
+            }
+        }
+        out[id] = std::move(parsed);
     }
     return out;
+}
+
+std::string trace_id_for_view(const View& view) {
+    if (!view.anchor_id().empty())
+        return view.anchor_id();
+    if (!view.id().empty())
+        return view.id();
+    return {};
+}
+
+std::vector<RuntimeAncestorBounds> view_ancestor_chain(const View& view) {
+    std::vector<RuntimeAncestorBounds> reversed;
+    for (auto* current = &view; current != nullptr; current = current->parent()) {
+        const auto id = trace_id_for_view(*current);
+        if (!id.empty())
+            reversed.push_back({id, absolute_bounds(*current)});
+    }
+    std::reverse(reversed.begin(), reversed.end());
+    return reversed;
+}
+
+struct ChainDelta {
+    bool valid = false;
+    std::string id;
+    Rect expected_bounds;
+    Rect actual_bounds;
+    float center_delta_px = 0.0f;
+    float size_delta_px = 0.0f;
+};
+
+float center_delta_px(Rect a, Rect b) {
+    const auto ax = a.x + a.width * 0.5f;
+    const auto ay = a.y + a.height * 0.5f;
+    const auto bx = b.x + b.width * 0.5f;
+    const auto by = b.y + b.height * 0.5f;
+    return std::max(std::abs(ax - bx), std::abs(ay - by));
+}
+
+float size_delta_px(Rect a, Rect b) {
+    return std::max(std::abs(a.width - b.width), std::abs(a.height - b.height));
+}
+
+ChainDelta first_chain_delta(const std::vector<RuntimeAncestorBounds>& expected,
+                             const std::vector<RuntimeAncestorBounds>& actual,
+                             float threshold_px) {
+    std::unordered_map<std::string, Rect> actual_by_id;
+    for (const auto& entry : actual)
+        actual_by_id[entry.id] = entry.bounds;
+
+    for (const auto& entry : expected) {
+        const auto found = actual_by_id.find(entry.id);
+        if (found == actual_by_id.end())
+            continue;
+        const auto center_delta = center_delta_px(entry.bounds, found->second);
+        const auto size_delta = size_delta_px(entry.bounds, found->second);
+        if (center_delta > threshold_px || size_delta > threshold_px)
+            return {true, entry.id, entry.bounds, found->second, center_delta, size_delta};
+    }
+    return {};
+}
+
+std::size_t common_chain_id_count(const std::vector<RuntimeAncestorBounds>& a,
+                                  const std::vector<RuntimeAncestorBounds>& b) {
+    std::unordered_map<std::string, bool> ids;
+    for (const auto& entry : a)
+        ids[entry.id] = true;
+    std::size_t count = 0;
+    for (const auto& entry : b) {
+        if (ids.find(entry.id) != ids.end())
+            ++count;
+    }
+    return count;
+}
+
+void append_rect_json(std::ostringstream& out, Rect rect) {
+    out << "{\"x\": " << rect.x << ", "
+        << "\"y\": " << rect.y << ", "
+        << "\"width\": " << rect.width << ", "
+        << "\"height\": " << rect.height << "}";
+}
+
+void append_chain_json(std::ostringstream& out, const std::vector<RuntimeAncestorBounds>& chain) {
+    out << "[";
+    for (std::size_t i = 0; i < chain.size(); ++i) {
+        if (i != 0)
+            out << ", ";
+        out << "{\"id\": \"" << json_escape(chain[i].id) << "\", \"bounds\": ";
+        append_rect_json(out, chain[i].bounds);
+        out << "}";
+    }
+    out << "]";
+}
+
+void append_chain_delta_json(std::ostringstream& out, const ChainDelta& delta) {
+    if (!delta.valid) {
+        out << "null";
+        return;
+    }
+    out << "{\"id\": \"" << json_escape(delta.id) << "\", "
+        << "\"expected_bounds\": ";
+    append_rect_json(out, delta.expected_bounds);
+    out << ", \"actual_bounds\": ";
+    append_rect_json(out, delta.actual_bounds);
+    out << ", \"center_delta_px\": " << delta.center_delta_px
+        << ", \"size_delta_px\": " << delta.size_delta_px
+        << "}";
 }
 
 std::string float_attr(float value) {
@@ -1661,6 +1802,13 @@ TEST_CASE("Chainer original-layout hybrid classifies knob replacement bounds aga
         Rect source_bounds;
         Rect live_source_bounds;
         Rect native_bounds;
+        std::vector<RuntimeAncestorBounds> source_chain;
+        std::vector<RuntimeAncestorBounds> live_source_chain;
+        std::vector<RuntimeAncestorBounds> native_chain;
+        std::size_t source_live_common_ancestor_count = 0;
+        std::size_t live_native_common_ancestor_count = 0;
+        ChainDelta source_live_first_chain_delta;
+        ChainDelta live_native_first_chain_delta;
         float center_delta_px = 0.0f;
         float size_delta_px = 0.0f;
         float source_expected_size_delta_px = 0.0f;
@@ -1679,6 +1827,11 @@ TEST_CASE("Chainer original-layout hybrid classifies knob replacement bounds aga
     float max_live_size_delta = 0.0f;
     float max_live_expected_size_delta = 0.0f;
     float max_native_expected_size_delta = 0.0f;
+    float max_source_live_chain_center_delta = 0.0f;
+    float max_source_live_chain_size_delta = 0.0f;
+    float max_live_native_chain_center_delta = 0.0f;
+    float max_live_native_chain_size_delta = 0.0f;
+    std::string max_live_native_chain_delta_id;
     constexpr float kBoundsTolerancePx = 0.5f;
 
     for (const auto& item : cases) {
@@ -1691,8 +1844,17 @@ TEST_CASE("Chainer original-layout hybrid classifies knob replacement bounds aga
         REQUIRE(live_it != live_native_bounds.end());
 
         const auto source_bounds = absolute_bounds(*source_visual);
-        const auto live_source_bounds = live_it->second;
+        const auto live_source_bounds = live_it->second.bounds;
         const auto native_bounds = absolute_bounds(*native_knob);
+        const auto source_chain = view_ancestor_chain(*source_visual);
+        const auto live_source_chain = live_it->second.ancestor_chain;
+        const auto native_chain = view_ancestor_chain(*native_knob);
+        const auto source_live_first_chain_delta = first_chain_delta(
+            live_source_chain, source_chain, kBoundsTolerancePx);
+        const auto live_native_first_chain_delta = first_chain_delta(
+            live_source_chain, native_chain, kBoundsTolerancePx);
+        const auto source_live_common_ancestor_count = common_chain_id_count(live_source_chain, source_chain);
+        const auto live_native_common_ancestor_count = common_chain_id_count(live_source_chain, native_chain);
 
         const auto source_cx = source_bounds.x + source_bounds.width * 0.5f;
         const auto source_cy = source_bounds.y + source_bounds.height * 0.5f;
@@ -1720,10 +1882,33 @@ TEST_CASE("Chainer original-layout hybrid classifies knob replacement bounds aga
         max_live_size_delta = std::max(max_live_size_delta, live_size_delta);
         max_live_expected_size_delta = std::max(max_live_expected_size_delta, live_expected_size_delta);
         max_native_expected_size_delta = std::max(max_native_expected_size_delta, native_expected_size_delta);
+        if (source_live_first_chain_delta.valid) {
+            max_source_live_chain_center_delta = std::max(
+                max_source_live_chain_center_delta, source_live_first_chain_delta.center_delta_px);
+            max_source_live_chain_size_delta = std::max(
+                max_source_live_chain_size_delta, source_live_first_chain_delta.size_delta_px);
+        }
+        if (live_native_first_chain_delta.valid) {
+            if (live_native_first_chain_delta.center_delta_px > max_live_native_chain_center_delta ||
+                live_native_first_chain_delta.size_delta_px > max_live_native_chain_size_delta) {
+                max_live_native_chain_delta_id = live_native_first_chain_delta.id;
+            }
+            max_live_native_chain_center_delta = std::max(
+                max_live_native_chain_center_delta, live_native_first_chain_delta.center_delta_px);
+            max_live_native_chain_size_delta = std::max(
+                max_live_native_chain_size_delta, live_native_first_chain_delta.size_delta_px);
+        }
         comparisons.push_back({&item,
                                source_bounds,
                                live_source_bounds,
                                native_bounds,
+                               source_chain,
+                               live_source_chain,
+                               native_chain,
+                               source_live_common_ancestor_count,
+                               live_native_common_ancestor_count,
+                               source_live_first_chain_delta,
+                               live_native_first_chain_delta,
                                center_delta,
                                size_delta,
                                source_expected_size_delta,
@@ -1780,6 +1965,11 @@ TEST_CASE("Chainer original-layout hybrid classifies knob replacement bounds aga
                << "  \"max_live_size_delta_px\": " << max_live_size_delta << ",\n"
                << "  \"max_live_expected_size_delta_px\": " << max_live_expected_size_delta << ",\n"
                << "  \"max_native_expected_size_delta_px\": " << max_native_expected_size_delta << ",\n"
+               << "  \"max_source_live_chain_center_delta_px\": " << max_source_live_chain_center_delta << ",\n"
+               << "  \"max_source_live_chain_size_delta_px\": " << max_source_live_chain_size_delta << ",\n"
+               << "  \"max_live_native_chain_center_delta_px\": " << max_live_native_chain_center_delta << ",\n"
+               << "  \"max_live_native_chain_size_delta_px\": " << max_live_native_chain_size_delta << ",\n"
+               << "  \"max_live_native_chain_delta_id\": \"" << json_escape(max_live_native_chain_delta_id) << "\",\n"
                << "  \"knobs\": [";
         for (std::size_t i = 0; i < comparisons.size(); ++i) {
             if (i != 0)
@@ -1813,8 +2003,20 @@ TEST_CASE("Chainer original-layout hybrid classifies knob replacement bounds aga
                    << "\"live_center_delta_px\": " << row.live_center_delta_px << ", "
                    << "\"live_size_delta_px\": " << row.live_size_delta_px << ", "
                    << "\"live_expected_size_delta_px\": " << row.live_expected_size_delta_px << ", "
-                   << "\"native_expected_size_delta_px\": " << row.native_expected_size_delta_px
-                   << "}";
+                   << "\"native_expected_size_delta_px\": " << row.native_expected_size_delta_px << ", "
+                   << "\"source_live_common_ancestor_count\": " << row.source_live_common_ancestor_count << ", "
+                   << "\"live_native_common_ancestor_count\": " << row.live_native_common_ancestor_count << ", "
+                   << "\"source_live_first_chain_delta\": ";
+            append_chain_delta_json(report, row.source_live_first_chain_delta);
+            report << ", \"live_native_first_chain_delta\": ";
+            append_chain_delta_json(report, row.live_native_first_chain_delta);
+            report << ", \"source_ancestor_chain\": ";
+            append_chain_json(report, row.source_chain);
+            report << ", \"live_source_ancestor_chain\": ";
+            append_chain_json(report, row.live_source_chain);
+            report << ", \"native_ancestor_chain\": ";
+            append_chain_json(report, row.native_chain);
+            report << "}";
         }
         report << "\n  ]\n"
                << "}\n";

@@ -243,8 +243,63 @@ static const char* runtime_trace_script() {
             return null;
         }
     }
+    function ancestorChainFor(el) {
+        if (el && el._nativeCreated && typeof getLayoutAncestorRects === 'function') {
+            try {
+                var nativeChain = getLayoutAncestorRects(el._id);
+                if (nativeChain && typeof nativeChain.length === 'number') {
+                    var normalized = [];
+                    for (var i = 0; i < nativeChain.length; i++) {
+                        var entry = nativeChain[i] || {};
+                        var bounds = entry.bounds || null;
+                        normalized.push({
+                            id: String(entry.id || ''),
+                            tag: '',
+                            bounds_source: bounds ? 'getLayoutAncestorRects' : 'none',
+                            bounds: bounds ? {
+                                x: Number(bounds.x || 0),
+                                y: Number(bounds.y || 0),
+                                width: Number(bounds.width || 0),
+                                height: Number(bounds.height || 0),
+                                top: Number(bounds.top || 0),
+                                right: Number(bounds.right || 0),
+                                bottom: Number(bounds.bottom || 0),
+                                left: Number(bounds.left || 0)
+                            } : null
+                        });
+                    }
+                    if (normalized.length) return normalized;
+                }
+            } catch (e) {
+                // Fall back to the JS-side parent chain below.
+            }
+        }
+        var chain = [];
+        var seen = {};
+        var cur = el || null;
+        while (cur && cur._id && !seen[cur._id] && chain.length < 128) {
+            seen[cur._id] = true;
+            var bounds = rectFor(cur);
+            chain.unshift({
+                id: String(cur._id || ''),
+                tag: cur.tagName ? String(cur.tagName).toLowerCase() : '',
+                bounds_source: bounds ? 'getLayoutRect' : 'none',
+                bounds: bounds
+            });
+            cur = cur._parentElement || null;
+        }
+        return chain;
+    }
     function nativeBoundsSummary() {
         if (typeof __nativeElements__ === 'undefined') return [];
+        var ancestorTraceIds = {};
+        if (typeof __nativeRegistered__ !== 'undefined') {
+            keys(__nativeRegistered__).forEach(function (key) {
+                var idx = key.lastIndexOf(':');
+                var id = idx >= 0 ? key.slice(0, idx) : key;
+                if (id) ancestorTraceIds[id] = true;
+            });
+        }
         return keys(__nativeElements__).map(function (id) {
             var el = __nativeElements__[id];
             var attrs = cloneObject(el && el._attributes);
@@ -258,7 +313,8 @@ static const char* runtime_trace_script() {
                 native_created: !!(el && el._nativeCreated),
                 attributes: attrs,
                 bounds_source: bounds ? 'getLayoutRect' : 'none',
-                bounds: bounds
+                bounds: bounds,
+                ancestor_chain: ancestorTraceIds[id] ? ancestorChainFor(el) : []
             };
         });
     }

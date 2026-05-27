@@ -128,6 +128,8 @@ TEST_CASE("pulp-screenshot runtime trace script records live native bounds",
     REQUIRE(script.find("native_bounds") != std::string::npos);
     REQUIRE(script.find("getLayoutRect") != std::string::npos);
     REQUIRE(script.find("bounds_source") != std::string::npos);
+    REQUIRE(script.find("ancestor_chain") != std::string::npos);
+    REQUIRE(script.find("getLayoutAncestorRects") != std::string::npos);
     REQUIRE(script.find("reference_frame") != std::string::npos);
     REQUIRE(script.find("root-view-css-points") != std::string::npos);
 }
