@@ -1789,3 +1789,165 @@ TEST_CASE("ObservableValue: external mutex serialises concurrent set/get",
     // Each set with a unique new value fires exactly one notification.
     REQUIRE(notifications.load() == kWriters * kIterations);
 }
+
+// ── Synchronized clone (single-process) ──────────────────────────────
+// Closes the gap-doc Phase 3 row: "Single-process StateTree deep clone
+// w/ listener wiring (currently IPC-only StateTreeSynchroniser)".
+
+TEST_CASE("SyncedClone: deep copy reflects starting state",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    src->set("name", std::string("alpha"));
+    src->set("level", int64_t(2));
+    auto child = StateTree::create("child");
+    child->set("v", 0.5);
+    src->add_child(child);
+
+    auto sync = src->clone_synced();
+    auto clone = sync.clone();
+    REQUIRE(clone->type_name() == "root");
+    REQUIRE(clone->get_string("name") == "alpha");
+    REQUIRE(clone->get_int("level") == 2);
+    REQUIRE(clone->child_count() == 1);
+    REQUIRE(clone->child(0)->type_name() == "child");
+    // The clone is a distinct shared_ptr.
+    REQUIRE(clone.get() != src.get());
+    REQUIRE(clone->child(0).get() != child.get());
+}
+
+TEST_CASE("SyncedClone mirrors set / remove on original",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    src->set("a", int64_t(1));
+    auto sync = src->clone_synced();
+    auto clone = sync.clone();
+
+    src->set("a", int64_t(99));
+    REQUIRE(clone->get_int("a") == 99);
+
+    src->set("b", std::string("new"));
+    REQUIRE(clone->get_string("b") == "new");
+
+    src->remove("a");
+    REQUIRE_FALSE(clone->has("a"));
+}
+
+TEST_CASE("SyncedClone mirrors add_child / remove_child on original",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    auto sync = src->clone_synced();
+    auto clone = sync.clone();
+    REQUIRE(clone->child_count() == 0);
+
+    auto added = StateTree::create("added");
+    added->set("k", int64_t(7));
+    src->add_child(added);
+    REQUIRE(clone->child_count() == 1);
+    REQUIRE(clone->child(0)->type_name() == "added");
+    REQUIRE(clone->child(0)->get_int("k") == 7);
+
+    // Mutate the newly added subtree on the source side — wiring should
+    // recurse into added children, so the clone's matching subtree
+    // observes the change too.
+    src->child(0)->set("k", int64_t(42));
+    REQUIRE(clone->child(0)->get_int("k") == 42);
+
+    src->remove_child(0);
+    REQUIRE(clone->child_count() == 0);
+}
+
+TEST_CASE("SyncedClone observer fires on the clone tree",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    auto sync = src->clone_synced();
+    auto clone = sync.clone();
+
+    int seen = 0;
+    PropertyValue last_new;
+    clone->add_listener([&](StateTree& /*node*/, std::string_view /*prop*/,
+                            const PropertyValue& /*old_v*/,
+                            const PropertyValue& new_v) {
+        ++seen;
+        last_new = new_v;
+    });
+
+    src->set("trigger", int64_t(123));
+    REQUIRE(seen == 1);
+    REQUIRE(std::holds_alternative<int64_t>(last_new));
+    REQUIRE(std::get<int64_t>(last_new) == 123);
+}
+
+TEST_CASE("SyncedClone detach stops mirroring further mutations",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    auto sync = src->clone_synced();
+    auto clone = sync.clone();
+
+    src->set("a", int64_t(1));
+    REQUIRE(clone->get_int("a") == 1);
+    REQUIRE(sync.is_attached());
+
+    sync.detach();
+    REQUIRE_FALSE(sync.is_attached());
+
+    src->set("a", int64_t(2));
+    REQUIRE(clone->get_int("a") == 1);  // detached → no mirror
+
+    // Idempotent: a second detach is a no-op.
+    sync.detach();
+    REQUIRE_FALSE(sync.is_attached());
+}
+
+TEST_CASE("SyncedClone is move-only and survives the move",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    auto sync1 = src->clone_synced();
+    auto sync2 = std::move(sync1);
+    REQUIRE_FALSE(sync1.is_attached());
+    REQUIRE(sync2.is_attached());
+
+    src->set("k", int64_t(5));
+    REQUIRE(sync2.clone()->get_int("k") == 5);
+}
+
+TEST_CASE("SyncedClone destructor detaches listeners",
+          "[state][tree][synced-clone]") {
+    auto src = StateTree::create("root");
+    StateTree::Ptr captured_clone;
+    {
+        auto sync = src->clone_synced();
+        captured_clone = sync.clone();
+        src->set("x", int64_t(1));
+        REQUIRE(captured_clone->get_int("x") == 1);
+    }
+    // sync destructor ran — clone is still alive but no longer mirrors.
+    src->set("x", int64_t(2));
+    REQUIRE(captured_clone->get_int("x") == 1);
+}
+
+// Regression for the Codex P1 review comment "Keep synced-clone wiring
+// from dangling after child removal" — when the synced source subtree
+// is removed and no other shared_ptr keeps it alive, the wiring vector
+// must skip listener-removal on the dead node instead of dereferencing
+// a dangling raw pointer.
+TEST_CASE("SyncedClone detach survives removed-and-dropped child subtree",
+          "[state][tree][synced-clone][codex-p1]") {
+    auto src = StateTree::create("root");
+    auto child = StateTree::create("child");
+    child->set("k", int64_t(7));
+    src->add_child(child);
+    auto sync = src->clone_synced();
+
+    // Drop the local shared_ptr to `child` first, then remove it from
+    // its parent — once the parent releases its slot the StateTree's
+    // refcount hits zero and the node is destroyed. The wiring vector
+    // still holds an entry for the dead node.
+    child.reset();
+    src->remove_child(0);
+
+    // Detach must not crash on the now-dead wiring entry. Before the
+    // fix this dereferenced a dangling raw pointer; after the fix the
+    // weak_ptr lock returns null and the entry is skipped.
+    REQUIRE_NOTHROW(sync.detach());
+    REQUIRE_FALSE(sync.is_attached());
+}

@@ -1466,6 +1466,16 @@ pulp_add_test_suite(pulp-test-animator-set LIBRARIES pulp::view)
 # Runtime utility tests (mmap, temp file, dynlib, base64, range, child process)
 pulp_add_test_suite(pulp-test-runtime-utils LIBRARIES pulp::runtime)
 
+# MAC address parser/formatter (gap-doc Runtime row "MACAddress")
+pulp_add_test_suite(pulp-test-mac-address LIBRARIES pulp::runtime)
+
+# URL parser + percent-encoding + query helpers
+# (gap-doc Runtime row "URL parser class")
+pulp_add_test_suite(pulp-test-url LIBRARIES pulp::runtime)
+
+# Result<T,E> header-only utility (gap-doc Runtime row "Result")
+pulp_add_test_suite(pulp-test-runtime-result LIBRARIES pulp::runtime)
+
 # XML and ZIP/GZIP compression tests
 pulp_add_test_suite(pulp-test-xml-zip LIBRARIES pulp::runtime)
 
