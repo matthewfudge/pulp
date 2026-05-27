@@ -17,12 +17,26 @@ obvious the manifest needs filling in. **Never** writes anything to the
 system plugin folders — the cache root is intentionally separate so
 running this script doesn't pollute a developer's DAW scan path.
 
+Two lanes are supported (see docs/validation/real-plugins-developer-lane.md):
+
+  * Pinned-download — sha256 in the manifest, fetched + verified here.
+  * Developer-supplied — for auth/EULA-gated plugins (Vital, OB-Xd, …)
+    that can't be fetched by a plain downloader. The developer drops the
+    bundle at `$PULP_REAL_PLUGIN_CACHE/<id>/<bundle>` themselves. The
+    runner accepts the bundle without a hash check. Use `--validate-cache`
+    to confirm the developer-supplied bundles are in place and have the
+    right shape.
+
 Usage:
-    python3 tools/scripts/fetch_real_plugins.py            # all entries
-    python3 tools/scripts/fetch_real_plugins.py surge-xt   # one entry
-    python3 tools/scripts/fetch_real_plugins.py --check    # don't fetch,
-                                                           # just report
-                                                           # cache status
+    python3 tools/scripts/fetch_real_plugins.py                  # all entries
+    python3 tools/scripts/fetch_real_plugins.py surge-xt         # one entry
+    python3 tools/scripts/fetch_real_plugins.py --check          # don't fetch,
+                                                                 # just report
+                                                                 # cache status
+    python3 tools/scripts/fetch_real_plugins.py --validate-cache # confirm
+                                                                 # developer-
+                                                                 # supplied
+                                                                 # bundles
 
 This script is a SCAFFOLD: the `_unpack_*` helpers cover .zip / .tar.gz
 / raw archives. .dmg unpack on macOS uses `hdiutil`, but Linux/Windows
@@ -161,7 +175,57 @@ def unpack(archive: Path, kind: str, target: Path, dest_name: str) -> None:
         raise RuntimeError(f"unsupported archive_kind={kind!r}")
 
 
-def process_entry(entry: dict, check_only: bool) -> int:
+def _has_valid_bundle_shape(bundle_path: Path, bundle_relpath: str) -> tuple[bool, str]:
+    """Return (ok, reason). A developer-supplied bundle is accepted when:
+    - the path exists, AND
+    - its shape matches the format hinted by the suffix:
+        .vst3 / .component / .clap on macOS are usually directory bundles
+        on Linux/Windows they're typically single files
+      We accept either (host-side scanner is the source of truth on shape).
+    Empty regular files are rejected — a developer's typo creating an empty
+    placeholder shouldn't masquerade as a real bundle.
+    """
+    if not bundle_path.exists():
+        return False, f"missing at {bundle_path}"
+    if bundle_path.is_dir():
+        # Directory bundle (the common macOS shape). Must be non-empty.
+        try:
+            has_anything = any(bundle_path.iterdir())
+        except OSError as e:
+            return False, f"unreadable directory: {e}"
+        if not has_anything:
+            return False, "directory bundle is empty"
+        return True, "directory bundle"
+    if bundle_path.is_file():
+        if bundle_path.stat().st_size == 0:
+            return False, "file bundle is empty (zero bytes)"
+        return True, "file bundle"
+    return False, "neither file nor directory"
+
+
+def _developer_supplied_status(entry: dict) -> int:
+    """Print a status line for a TBD entry under the developer-supplied lane.
+    Returns a non-zero rc when the developer cache override is set but the
+    expected bundle is missing or malformed — surfaces typos before the
+    runner hits the same condition.
+    """
+    plugin_id = entry["id"]
+    override = os.environ.get("PULP_REAL_PLUGIN_CACHE")
+    if not override:
+        print(f"[{plugin_id}] sha256 placeholder + PULP_REAL_PLUGIN_CACHE not set "
+              "— developer-supplied lane inactive")
+        return 0
+
+    bundle_path = cache_root() / plugin_id / entry["bundle_relpath"]
+    ok, reason = _has_valid_bundle_shape(bundle_path, entry["bundle_relpath"])
+    if ok:
+        print(f"[{plugin_id}] developer-supplied OK ({reason}) → {bundle_path}")
+        return 0
+    print(f"[{plugin_id}] developer-supplied INVALID: {reason}", file=sys.stderr)
+    return 1
+
+
+def process_entry(entry: dict, check_only: bool, validate_cache: bool = False) -> int:
     plugin_id = entry["id"]
     platforms = entry.get("platforms", {})
     plat = platforms.get(host_os())
@@ -171,7 +235,10 @@ def process_entry(entry: dict, check_only: bool) -> int:
 
     sha = plat.get("sha256", "")
     if sha in ("", "TBD"):
-        print(f"[{plugin_id}] sha256 placeholder — fixture not pinned yet")
+        if validate_cache:
+            return _developer_supplied_status(entry)
+        print(f"[{plugin_id}] sha256 placeholder — fixture not pinned yet "
+              "(use --validate-cache to check the developer-supplied lane)")
         return 0
 
     target_dir = cache_root() / plugin_id
@@ -183,6 +250,15 @@ def process_entry(entry: dict, check_only: bool) -> int:
 
     if check_only:
         print(f"[{plugin_id}] MISSING — would fetch {plat['url']}")
+        return 0
+
+    # --validate-cache never reaches the network. A pinned entry whose
+    # bundle is not in the developer cache is reported but not fetched —
+    # use the default (no flag) invocation when you actually want to
+    # populate the cache.
+    if validate_cache:
+        print(f"[{plugin_id}] pinned-download lane — bundle absent from "
+              f"$PULP_REAL_PLUGIN_CACHE (run without --validate-cache to fetch)")
         return 0
 
     print(f"[{plugin_id}] downloading…")
@@ -230,9 +306,18 @@ def main() -> int:
                     help="Plugin ids to fetch (default: all in manifest).")
     ap.add_argument("--check", action="store_true",
                     help="Report cache status without downloading.")
+    ap.add_argument("--validate-cache", action="store_true",
+                    help="Validate developer-supplied bundles under "
+                         "$PULP_REAL_PLUGIN_CACHE (no network).")
     ap.add_argument("--manifest", type=Path, default=MANIFEST,
                     help=f"Manifest path (default: {MANIFEST}).")
     args = ap.parse_args()
+
+    if args.validate_cache and not os.environ.get("PULP_REAL_PLUGIN_CACHE"):
+        print("--validate-cache requires PULP_REAL_PLUGIN_CACHE to be set "
+              "(see docs/validation/real-plugins-developer-lane.md)",
+              file=sys.stderr)
+        return 2
 
     if not args.manifest.exists():
         print(f"manifest not found: {args.manifest}", file=sys.stderr)
@@ -252,7 +337,8 @@ def main() -> int:
 
     rc = 0
     for e in entries:
-        rc |= process_entry(e, check_only=args.check)
+        rc |= process_entry(e, check_only=args.check,
+                            validate_cache=args.validate_cache)
     return rc
 
 
