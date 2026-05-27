@@ -797,6 +797,8 @@ std::unique_ptr<View> make_widget(const IRNode& node,
                 const auto lower = lower_copy(*shape);
                 if (lower == "rectangle" || lower == "rect" || lower == "rounded_rect")
                     fader->set_thumb_shape(Fader::ThumbShape::rectangle);
+                else if (lower == "circle" || lower == "round" || lower == "dot")
+                    fader->set_thumb_shape(Fader::ThumbShape::circle);
             }
             if (auto width = attr_float(node, "pulpThumbWidth")) {
                 fader->set_thumb_size(*width, attr_float(node, "pulpThumbHeight").value_or(0.0f));

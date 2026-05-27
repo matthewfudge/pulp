@@ -908,6 +908,8 @@ void emit_widget_specific(std::ostringstream& out,
                 const auto lower = lower_copy(*shape);
                 if (lower == "rectangle" || lower == "rect" || lower == "rounded_rect")
                     emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_thumb_shape(pulp::view::Fader::ThumbShape::rectangle);");
+                else if (lower == "circle" || lower == "round" || lower == "dot")
+                    emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_thumb_shape(pulp::view::Fader::ThumbShape::circle);");
             }
             const auto thumb_width = attr_float(node, "pulpThumbWidth");
             const auto thumb_height = attr_float(node, "pulpThumbHeight");

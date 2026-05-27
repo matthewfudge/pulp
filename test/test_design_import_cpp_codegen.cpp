@@ -501,7 +501,20 @@ DesignIR build_phase_a_typed_control_ir() {
     mix.audio_max = 1.0f;
     mix.audio_default = 0.5f;
     mix.attributes["value"] = "0.25";
+    mix.attributes["pulpThumbShape"] = "rectangle";
+    mix.attributes["pulpThumbWidth"] = "17";
+    mix.attributes["pulpThumbHeight"] = "5";
+    mix.attributes["pulpThumbCornerRadius"] = "1";
     ir.root.children.push_back(std::move(mix));
+
+    auto trim = frame_node("trim", "Trim", 48.0f, 96.0f, LayoutDirection::column);
+    trim.audio_widget = AudioWidgetType::fader;
+    trim.audio_label = "Trim";
+    trim.attributes["value"] = "0.55";
+    trim.attributes["pulpThumbShape"] = "circle";
+    trim.attributes["pulpThumbWidth"] = "12";
+    trim.attributes["pulpThumbHeight"] = "12";
+    ir.root.children.push_back(std::move(trim));
 
     auto level = frame_node("level", "Level", 96.0f, 24.0f, LayoutDirection::column);
     level.audio_widget = AudioWidgetType::meter;
@@ -2010,7 +2023,7 @@ TEST_CASE("typed DesignIR smoke emits typed baked C++ controls",
     const auto result = generate_pulp_cpp(ir, ir.asset_manifest, opts);
 
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Knob>()") == 1);
-    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Fader>()") == 1);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Fader>()") == 2);
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Meter>()") == 1);
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::XYPad>()") == 1);
     REQUIRE(result.source.find("std::make_unique<pulp::view::View>()") != std::string::npos);
@@ -2020,6 +2033,13 @@ TEST_CASE("typed DesignIR smoke emits typed baked C++ controls",
     REQUIRE(result.source.find("->set_default_value(0.4f);") != std::string::npos);
     REQUIRE(result.source.find("->set_label(\"Mix\");") != std::string::npos);
     REQUIRE(result.source.find("->set_value(/* TODO: bind to param */ 0.25f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_thumb_shape(pulp::view::Fader::ThumbShape::rectangle);") != std::string::npos);
+    REQUIRE(result.source.find("->set_thumb_size(17.0f, 5.0f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_thumb_corner_radius(1.0f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_label(\"Trim\");") != std::string::npos);
+    REQUIRE(result.source.find("->set_value(/* TODO: bind to param */ 0.55f);") != std::string::npos);
+    REQUIRE(result.source.find("->set_thumb_shape(pulp::view::Fader::ThumbShape::circle);") != std::string::npos);
+    REQUIRE(result.source.find("->set_thumb_size(12.0f, 12.0f);") != std::string::npos);
     REQUIRE(result.source.find("->set_level(/* TODO: bind to meter */ 0.62f, 0.62f);") != std::string::npos);
     REQUIRE(result.source.find("->set_orientation(pulp::view::Meter::Orientation::horizontal);") != std::string::npos);
     REQUIRE(result.source.find("->set_x(0.3f);") != std::string::npos);

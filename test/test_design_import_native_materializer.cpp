@@ -430,6 +430,18 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     fader_node.audio_label = "Mix";
     fader_node.attributes["value"] = "0.33";
     fader_node.attributes["orientation"] = "horizontal";
+    fader_node.attributes["pulpThumbShape"] = "rectangle";
+    fader_node.attributes["pulpThumbWidth"] = "17";
+    fader_node.attributes["pulpThumbHeight"] = "5";
+    fader_node.attributes["pulpThumbCornerRadius"] = "1";
+
+    auto circle_fader_node = frame("trim", 32.0f, 96.0f, LayoutDirection::column);
+    circle_fader_node.audio_widget = AudioWidgetType::fader;
+    circle_fader_node.audio_label = "Trim";
+    circle_fader_node.attributes["value"] = "0.5";
+    circle_fader_node.attributes["pulpThumbShape"] = "circle";
+    circle_fader_node.attributes["pulpThumbWidth"] = "12";
+    circle_fader_node.attributes["pulpThumbHeight"] = "12";
 
     auto meter_node = frame("level", 96.0f, 24.0f, LayoutDirection::column);
     meter_node.audio_widget = AudioWidgetType::meter;
@@ -443,12 +455,13 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
 
     ir.root.children.push_back(std::move(knob_node));
     ir.root.children.push_back(std::move(fader_node));
+    ir.root.children.push_back(std::move(circle_fader_node));
     ir.root.children.push_back(std::move(meter_node));
     ir.root.children.push_back(std::move(xy_node));
 
     auto root = build_native_view_tree(ir, {}, {.preview_mode = true});
     REQUIRE(root != nullptr);
-    REQUIRE(root->child_count() == 4);
+    REQUIRE(root->child_count() == 5);
 
     auto* knob = dynamic_cast<Knob*>(root->child_at(0));
     REQUIRE(knob != nullptr);
@@ -462,16 +475,27 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     REQUIRE(fader->label() == "Mix");
     REQUIRE(fader->value() == 0.33f);
     REQUIRE(fader->orientation() == Fader::Orientation::horizontal);
+    REQUIRE(fader->thumb_shape() == Fader::ThumbShape::rectangle);
+    REQUIRE(fader->thumb_width() == 17.0f);
+    REQUIRE(fader->thumb_height() == 5.0f);
+    REQUIRE(fader->thumb_corner_radius() == 1.0f);
     REQUIRE(fader->render_style() == WidgetRenderStyle::minimal);
 
-    auto* meter = dynamic_cast<Meter*>(root->child_at(2));
+    auto* circle_fader = dynamic_cast<Fader*>(root->child_at(2));
+    REQUIRE(circle_fader != nullptr);
+    REQUIRE(circle_fader->label() == "Trim");
+    REQUIRE(circle_fader->thumb_shape() == Fader::ThumbShape::circle);
+    REQUIRE(circle_fader->thumb_width() == 12.0f);
+    REQUIRE(circle_fader->thumb_height() == 12.0f);
+
+    auto* meter = dynamic_cast<Meter*>(root->child_at(3));
     REQUIRE(meter != nullptr);
     REQUIRE(meter->display_rms() == 0.25f);
     REQUIRE(meter->display_peak() == 0.25f);
     REQUIRE(meter->orientation() == Meter::Orientation::horizontal);
     REQUIRE(meter->render_style() == WidgetRenderStyle::minimal);
 
-    auto* xy = dynamic_cast<XYPad*>(root->child_at(3));
+    auto* xy = dynamic_cast<XYPad*>(root->child_at(4));
     REQUIRE(xy != nullptr);
     REQUIRE(xy->x_value() == 0.2f);
     REQUIRE(xy->y_value() == 0.8f);
