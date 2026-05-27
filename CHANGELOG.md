@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02681"></a>
+## [0.268.1] - 2026-05-26
+
+- fix(skia): correct linux-arm64 Skia SHA-256 (#3036 follow-up) ([#3041](https://github.com/danielraffel/pulp/pull/3041))
+- docs: surface community help-wanted issues in README + CONTRIBUTING ([#3043](https://github.com/danielraffel/pulp/pull/3043))
+- ci(skia): backfill real SHA-256 for linux-arm64 Skia asset ([#3036](https://github.com/danielraffel/pulp/pull/3036))
+
 <a id="v02680"></a>
 ## [0.268.0] - 2026-05-26
 
@@ -3061,6 +3068,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.268.1]: https://github.com/danielraffel/pulp/releases/tag/v0.268.1
 [0.268.0]: https://github.com/danielraffel/pulp/releases/tag/v0.268.0
 [0.266.0]: https://github.com/danielraffel/pulp/releases/tag/v0.266.0
 [0.264.1]: https://github.com/danielraffel/pulp/releases/tag/v0.264.1
