@@ -2895,7 +2895,8 @@ endif()
 
 add_executable(pulp-test-design-import-cpp-codegen
     test_design_import_cpp_codegen.cpp
-    fixtures/design_import_generated_cpp_fixture.cpp)
+    fixtures/design_import_generated_cpp_fixture.cpp
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-d-all-knobs.cpp)
 target_link_libraries(pulp-test-design-import-cpp-codegen
     PRIVATE pulp::view pulp::platform Catch2::Catch2WithMain)
 target_compile_definitions(pulp-test-design-import-cpp-codegen PRIVATE

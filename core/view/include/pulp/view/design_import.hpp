@@ -21,6 +21,7 @@
 namespace pulp::view {
 
 class View;
+class Knob;
 
 // ── Design source types ─────────────────────────────────────────────────
 
@@ -355,6 +356,24 @@ struct NativeMaterializeOptions {
     bool apply_token_theme = true;
     bool preview_mode = false;
     std::vector<ImportDiagnostic>* diagnostics_out = nullptr;
+};
+
+struct NativeImportBindingDescriptor {
+    std::string_view route_id;
+    std::string_view param_key;
+    std::string_view binding_module;
+    std::string_view binding_param;
+    std::string_view event_contract;
+    std::string_view gesture_contract;
+};
+
+class NativeImportBindingContext {
+public:
+    virtual ~NativeImportBindingContext() = default;
+    virtual void bind_knob(Knob& knob, const NativeImportBindingDescriptor& descriptor) {
+        (void)knob;
+        (void)descriptor;
+    }
 };
 
 std::unique_ptr<View> build_native_view_tree(
@@ -887,10 +906,12 @@ struct CppExportOptions {
     std::string function_name = "build_imported_ui";
     std::string namespace_name;
     std::string header_filename = "imported_ui.hpp";
+    std::string binding_function_name = "bind_imported_ui";
     bool include_comments = true;
     bool emit_named_tokens = true;
     bool emit_asset_constants = true;
     bool extract_named_components = true;
+    bool emit_binding_context_helpers = true;
     int indent_spaces = 4;
 };
 

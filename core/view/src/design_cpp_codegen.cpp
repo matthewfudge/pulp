@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace pulp::view {
 namespace {
@@ -1221,6 +1222,87 @@ std::string build_binding_manifest_json(const DesignIR& ir, const ResolvedNative
     return out.str();
 }
 
+struct BindingHelperRoute {
+    NativeWidgetKind kind = NativeWidgetKind::view;
+    std::string anchor_id;
+    std::string route_id;
+    std::string param_key;
+    std::string binding_module;
+    std::string binding_param;
+    std::string event_contract;
+    std::string gesture_contract;
+};
+
+void collect_binding_helper_routes(std::vector<BindingHelperRoute>& routes,
+                                   const IRNode& node,
+                                   const ResolvedNativeNode& resolved) {
+    auto route_id = attr(node, "pulpRouteId");
+    auto param_key = attr(node, "pulpParamKey");
+    if (route_id && !route_id->empty() &&
+        param_key && !param_key->empty() &&
+        node.stable_anchor_id && !node.stable_anchor_id->empty()) {
+        routes.push_back(BindingHelperRoute{
+            .kind = resolved.kind,
+            .anchor_id = *node.stable_anchor_id,
+            .route_id = *route_id,
+            .param_key = *param_key,
+            .binding_module = attr(node, "pulpBindingModule").value_or(std::string{}),
+            .binding_param = attr(node, "pulpBindingParam").value_or(std::string{}),
+            .event_contract = attr(node, "pulpEventContract").value_or(std::string{}),
+            .gesture_contract = attr(node, "pulpGestureContract").value_or(std::string{}),
+        });
+    }
+
+    const auto count = std::min(node.children.size(), resolved.children.size());
+    for (std::size_t i = 0; i < count; ++i)
+        collect_binding_helper_routes(routes, node.children[i], resolved.children[i]);
+}
+
+void emit_binding_context_helpers(std::ostringstream& out,
+                                  const CppExportOptions& opts,
+                                  const std::vector<BindingHelperRoute>& routes) {
+    out << "namespace {\n"
+        << "pulp::view::View* find_imported_view_by_anchor(pulp::view::View& root, std::string_view anchor) {\n"
+        << "    if (root.anchor_id() == anchor) return &root;\n"
+        << "    for (std::size_t i = 0; i < root.child_count(); ++i) {\n"
+        << "        if (auto* found = find_imported_view_by_anchor(*root.child_at(i), anchor)) return found;\n"
+        << "    }\n"
+        << "    return nullptr;\n"
+        << "}\n"
+        << "}  // namespace\n\n";
+
+    out << "void " << opts.binding_function_name
+        << "(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx) {\n";
+    if (routes.empty()) {
+        emit_line(out, 1, opts.indent_spaces, "(void)root;");
+        emit_line(out, 1, opts.indent_spaces, "(void)ctx;");
+        out << "}\n\n";
+        return;
+    }
+
+    for (const auto& route : routes) {
+        if (route.kind != NativeWidgetKind::knob)
+            continue;
+        emit_line(out, 1, opts.indent_spaces,
+                  "if (auto* view = find_imported_view_by_anchor(root, " +
+                      cpp_string_literal(route.anchor_id) + ")) {");
+        emit_line(out, 2, opts.indent_spaces,
+                  "if (auto* knob = dynamic_cast<pulp::view::Knob*>(view)) {");
+        emit_line(out, 3, opts.indent_spaces,
+                  "ctx.bind_knob(*knob, pulp::view::NativeImportBindingDescriptor{");
+        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.route_id) + ",");
+        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.param_key) + ",");
+        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.binding_module) + ",");
+        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.binding_param) + ",");
+        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.event_contract) + ",");
+        emit_line(out, 4, opts.indent_spaces, cpp_string_literal(route.gesture_contract));
+        emit_line(out, 3, opts.indent_spaces, "});");
+        emit_line(out, 2, opts.indent_spaces, "}");
+        emit_line(out, 1, opts.indent_spaces, "}");
+    }
+    out << "}\n\n";
+}
+
 }  // namespace
 
 CppExportResult generate_pulp_cpp(const DesignIR& ir,
@@ -1238,6 +1320,10 @@ CppExportResult generate_pulp_cpp(const DesignIR& ir,
         ? ir.asset_manifest
         : manifest;
     auto resolved = resolve_design_ir_native(ir, effective_manifest);
+    std::vector<BindingHelperRoute> binding_helper_routes;
+    if (opts.emit_binding_context_helpers)
+        collect_binding_helper_routes(binding_helper_routes, ir.root, resolved);
+    const bool emit_binding_helpers = !binding_helper_routes.empty();
 
     EmitContext ctx{
         .opts = opts,
@@ -1258,6 +1344,10 @@ CppExportResult generate_pulp_cpp(const DesignIR& ir,
         emit_namespace_open(header, opts.namespace_name);
         header << "std::unique_ptr<pulp::view::View> " << opts.function_name << "();\n"
                << "pulp::view::IRAssetManifest bake_asset_manifest();\n";
+        if (emit_binding_helpers) {
+            header << "void " << opts.binding_function_name
+                   << "(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);\n";
+        }
         emit_namespace_close(header, opts.namespace_name);
         result.header = header.str();
     }
@@ -1268,6 +1358,7 @@ CppExportResult generate_pulp_cpp(const DesignIR& ir,
     source << "#include " << cpp_string_literal(opts.header_filename) << "\n\n"
            << "#include <algorithm>\n"
            << "#include <memory>\n"
+           << "#include <string_view>\n"
            << "#include <utility>\n"
            << "#include <pulp/view/buttons.hpp>\n"
            << "#include <pulp/view/canvas_widget.hpp>\n"
@@ -1297,6 +1388,8 @@ CppExportResult generate_pulp_cpp(const DesignIR& ir,
                       component.rule_comment);
 
     emit_function(source, ctx, opts.function_name, ir.root, resolved, std::nullopt);
+    if (emit_binding_helpers)
+        emit_binding_context_helpers(source, opts, binding_helper_routes);
     emit_namespace_close(source, opts.namespace_name);
     result.source = source.str();
     result.binding_manifest = build_binding_manifest_json(ir, resolved);

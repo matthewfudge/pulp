@@ -1,19 +1,28 @@
 #include "fixtures/design_import_generated_cpp_fixture.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <choc/text/choc_JSON.h>
 #include <pulp/platform/child_process.hpp>
+#include <pulp/state/store.hpp>
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/layout_snapshot.hpp>
+#include <pulp/view/screenshot.hpp>
+#include <pulp/view/screenshot_compare.hpp>
 #include <pulp/view/view.hpp>
+#include <pulp/view/widgets.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 using namespace pulp::view;
@@ -26,6 +35,9 @@ namespace fs = std::filesystem;
 #ifndef PULP_REPO_ROOT
 #define PULP_REPO_ROOT ""
 #endif
+
+std::unique_ptr<pulp::view::View> build_imported_ui();
+void bind_imported_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
 
 namespace {
 
@@ -53,6 +65,14 @@ void write_text(const fs::path& path, const std::string& text) {
     REQUIRE(out.good());
 }
 
+void write_bytes(const fs::path& path, const std::vector<uint8_t>& bytes) {
+    fs::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::binary);
+    REQUIRE(out.is_open());
+    out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    REQUIRE(out.good());
+}
+
 std::string read_text(const fs::path& path) {
     std::ifstream in(path);
     REQUIRE(in.is_open());
@@ -61,6 +81,70 @@ std::string read_text(const fs::path& path) {
     REQUIRE((in.good() || in.eof()));
     return ss.str();
 }
+
+View* find_anchor(View& root, std::string_view anchor) {
+    if (root.anchor_id() == anchor)
+        return &root;
+    for (std::size_t i = 0; i < root.child_count(); ++i) {
+        if (auto* found = find_anchor(*root.child_at(i), anchor))
+            return found;
+    }
+    return nullptr;
+}
+
+struct PhaseDParamEvent {
+    std::string param_key;
+    float value = 0.0f;
+};
+
+class PhaseDKnobBindingContext final : public NativeImportBindingContext {
+public:
+    void bind_knob(Knob& knob, const NativeImportBindingDescriptor& descriptor) override {
+        const auto param_key = std::string(descriptor.param_key);
+        const auto route_id = std::string(descriptor.route_id);
+
+        auto id = static_cast<pulp::state::ParamID>(param_ids_.size() + 1u);
+        pulp::state::ParamInfo info;
+        info.id = id;
+        info.name = param_key;
+        info.range = {0.0f, 1.0f, knob.value()};
+        store_.add_parameter(info);
+        store_.set_normalized(id, knob.value());
+
+        param_ids_[param_key] = id;
+        route_ids_[param_key] = route_id;
+        bound_params_.push_back(param_key);
+        knob.on_change = [this, id, param_key](float normalized) {
+            store_.set_normalized(id, normalized);
+            events_.push_back({param_key, normalized});
+        };
+    }
+
+    float normalized(std::string_view param_key) const {
+        auto found = param_ids_.find(std::string(param_key));
+        REQUIRE(found != param_ids_.end());
+        return store_.get_normalized(found->second);
+    }
+
+    std::size_t change_count(std::string_view param_key) const {
+        std::size_t count = 0;
+        for (const auto& event : events_) {
+            if (event.param_key == param_key)
+                ++count;
+        }
+        return count;
+    }
+
+    const std::vector<std::string>& bound_params() const { return bound_params_; }
+    const std::vector<PhaseDParamEvent>& events() const { return events_; }
+
+private:
+    pulp::state::StateStore store_;
+    std::unordered_map<std::string, pulp::state::ParamID> param_ids_;
+    std::unordered_map<std::string, std::string> route_ids_;
+    std::vector<std::string> bound_params_;
+    std::vector<PhaseDParamEvent> events_;
+};
 
 IRNode label_node(std::string id,
                   std::string text,
@@ -566,6 +650,8 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(result.binding_manifest.find("\"gesture_contract\": \"rotary_drag:begin/update/end\"") != std::string::npos);
     REQUIRE(result.binding_manifest.find("\"style_tokens\": \"C.orange\"") != std::string::npos);
     REQUIRE(result.binding_manifest.find("\"default_value_source\": \"phase_c_initial_value_fallback\"") != std::string::npos);
+    REQUIRE(result.header.find("bind_imported_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx)") != std::string::npos);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_knob(") == 1);
     auto binding_manifest = choc::json::parse(result.binding_manifest);
     REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
     REQUIRE(binding_manifest["entries"].size() == 1);
@@ -611,6 +697,8 @@ TEST_CASE("Chainer route overlay can lower all knobs to typed C++ with binding s
 
     const auto result = generate_pulp_cpp(ir, ir.asset_manifest, opts);
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Knob>()") == 8);
+    REQUIRE(result.header.find("bind_imported_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx)") != std::string::npos);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_knob(") == 8);
     REQUIRE(result.source.find("tokens::kChainerOrange") != std::string::npos);
     REQUIRE(result.source.find("tokens::kChainerBlue") != std::string::npos);
     REQUIRE(result.source.find("tokens::kChainerPurple") != std::string::npos);
@@ -678,6 +766,106 @@ TEST_CASE("Chainer route overlay can lower all knobs to typed C++ with binding s
     const bool compiled = compile_generated_source(source, object, &diagnostics);
     INFO(diagnostics);
     REQUIRE(compiled);
+}
+
+TEST_CASE("generated Chainer all-knob C++ can bind and drag every knob",
+          "[view][import][cpp-codegen][native-cpp-phase-d][behavior]") {
+    auto root = ::build_imported_ui();
+    REQUIRE(root != nullptr);
+
+    PhaseDKnobBindingContext ctx;
+    ::bind_imported_ui(*root, ctx);
+    REQUIRE(ctx.bound_params().size() == 8);
+
+    root->set_bounds({0.0f, 0.0f, 520.0f, 96.0f});
+    root->layout_children();
+
+    struct ExpectedKnob {
+        const char* anchor;
+        const char* param_key;
+    };
+    const std::vector<ExpectedKnob> expected = {
+        {"pr_2c", "osc_freq"},
+        {"pr_2l", "osc_detune"},
+        {"pr_2u", "osc_shape"},
+        {"pr_49", "xover_lo"},
+        {"pr_4i", "xover_hi"},
+        {"pr_4y", "ms_mid_width"},
+        {"pr_57", "ms_side_width"},
+        {"pr_6p", "master_out"},
+    };
+
+    auto before_png = render_to_png(*root, 520, 96, 1.0f);
+    std::map<std::string, float> before_values;
+    std::map<std::string, float> after_values;
+
+    for (const auto& item : expected) {
+        auto* view = find_anchor(*root, item.anchor);
+        REQUIRE(view != nullptr);
+        auto* knob = dynamic_cast<Knob*>(view);
+        REQUIRE(knob != nullptr);
+
+        const auto bounds = knob->bounds();
+        REQUIRE(bounds.width > 0.0f);
+        REQUIRE(bounds.height > 0.0f);
+
+        const auto before = knob->value();
+        before_values[item.param_key] = before;
+        const Point start{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
+        const Point end{start.x, start.y - 48.0f};
+        root->simulate_drag(start, end, 6);
+
+        const auto after = knob->value();
+        after_values[item.param_key] = after;
+        REQUIRE(after > before);
+        REQUIRE(ctx.normalized(item.param_key) == Catch::Approx(after));
+        REQUIRE(ctx.change_count(item.param_key) > 0);
+    }
+
+    auto after_png = render_to_png(*root, 520, 96, 1.0f);
+    bool visual_smoke_valid = false;
+    CompareResult visual_smoke;
+    if (!before_png.empty() && !after_png.empty()) {
+        visual_smoke = compare_screenshots(before_png, after_png, 8);
+        REQUIRE(visual_smoke.valid);
+        REQUIRE(visual_smoke.similarity < 0.999f);
+        visual_smoke_valid = true;
+    }
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        if (!before_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-d-all-knobs-before.png", before_png);
+        if (!after_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-d-all-knobs-after.png", after_png);
+
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-d-behavior-v1\",\n"
+               << "  \"fixture\": \"chainer-phase-d-all-knobs\",\n"
+               << "  \"scope\": \"generated-native-cpp-widget-and-binding-helper\",\n"
+               << "  \"headless_drag_tests\": " << expected.size() << ",\n"
+               << "  \"bound_knobs\": " << ctx.bound_params().size() << ",\n"
+               << "  \"parameter_updates\": " << ctx.events().size() << ",\n"
+               << "  \"visual_smoke_valid\": " << (visual_smoke_valid ? "true" : "false") << ",\n"
+               << "  \"visual_smoke_similarity\": " << std::setprecision(7) << visual_smoke.similarity << ",\n"
+               << "  \"knobs\": [";
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            if (i != 0)
+                report << ",";
+            const auto& item = expected[i];
+            report << "\n    {"
+                   << "\"anchor\": \"" << item.anchor << "\", "
+                   << "\"param_key\": \"" << item.param_key << "\", "
+                   << "\"before\": " << before_values[item.param_key] << ", "
+                   << "\"after\": " << after_values[item.param_key] << ", "
+                   << "\"change_count\": " << ctx.change_count(item.param_key)
+                   << "}";
+        }
+        report << "\n  ]\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-d-behavior-report.json", report.str());
+    }
 }
 
 TEST_CASE("baked C++ exporter emits ownable C++ source artifacts",
