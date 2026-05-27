@@ -2867,6 +2867,16 @@ target_link_libraries(pulp-test-view-core-link PRIVATE pulp::view-core Catch2::C
 catch_discover_tests(pulp-test-view-core-link
     PROPERTIES LABELS "parser-import")
 
+# RelativePoint expression layout (parser + evaluator + serializer).
+# Lives under pulp::view-core so the test binary doesn't transitively
+# need the JS engine. See planning/2026-05-24-reference-framework-
+# gap-analysis.md "Relative coordinates" row.
+add_executable(pulp-test-relative-point test_relative_point.cpp)
+target_link_libraries(pulp-test-relative-point
+    PRIVATE pulp::view-core Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-relative-point
+    PROPERTIES LABELS "view")
+
 if(APPLE AND NOT PULP_IOS)
     add_executable(pulp-test-view-core-window-host-link
         test_view_core_window_host_link.mm)

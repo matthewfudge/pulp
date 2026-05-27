@@ -299,6 +299,7 @@ target_sources(pulp-view-core PRIVATE
     src/ui_components.cpp
     src/scroll_bar.cpp
     src/anchor_strategy.cpp
+    src/relative_point.cpp
     src/design_export.cpp
     src/design_import.cpp
     src/design_import_native_common.cpp
