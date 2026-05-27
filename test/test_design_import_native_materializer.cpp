@@ -1,3 +1,4 @@
+#include <pulp/canvas/canvas.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/layout_snapshot.hpp>
@@ -17,6 +18,14 @@
 using namespace pulp::view;
 
 namespace {
+
+const pulp::canvas::DrawCommand* first_meter_fill_rect(const pulp::canvas::RecordingCanvas& canvas) {
+    for (const auto& command : canvas.commands()) {
+        if (command.type == pulp::canvas::DrawCommand::Type::fill_rect)
+            return &command;
+    }
+    return nullptr;
+}
 
 std::string minimal_live_react_shim() {
     return R"JS(
@@ -383,6 +392,47 @@ TEST_CASE("baked native materializer applies token theme only to the detached ro
     REQUIRE(root->theme().colors.count("accent.primary") == 1);
     REQUIRE(root->child_count() == 1);
     REQUIRE(root->child_at(0)->theme().colors.empty());
+}
+
+TEST_CASE("standard meter snaps fill edge and suppresses duplicate peak line",
+          "[view][meter][import][native-materializer]") {
+    Meter meter;
+    meter.set_bounds({0.0f, 0.0f, 8.0f, 56.0f});
+    meter.set_level(0.72f, 0.72f);
+
+    pulp::canvas::RecordingCanvas same_edge_canvas;
+    meter.paint(same_edge_canvas);
+
+    const auto* fill = first_meter_fill_rect(same_edge_canvas);
+    REQUIRE(fill != nullptr);
+    REQUIRE(fill->f[0] == 1.0f);
+    REQUIRE(fill->f[1] == 16.0f);
+    REQUIRE(fill->f[2] == 6.0f);
+    REQUIRE(fill->f[3] == 40.0f);
+    REQUIRE(same_edge_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) == 0);
+
+    meter.set_level(0.50f, 0.75f);
+    pulp::canvas::RecordingCanvas separate_peak_canvas;
+    meter.paint(separate_peak_canvas);
+
+    fill = first_meter_fill_rect(separate_peak_canvas);
+    REQUIRE(fill != nullptr);
+    REQUIRE(fill->f[1] == 28.0f);
+    REQUIRE(fill->f[3] == 28.0f);
+    REQUIRE(separate_peak_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) == 1);
+
+    const pulp::canvas::DrawCommand* peak_line = nullptr;
+    for (const auto& command : separate_peak_canvas.commands()) {
+        if (command.type == pulp::canvas::DrawCommand::Type::stroke_line) {
+            peak_line = &command;
+            break;
+        }
+    }
+    REQUIRE(peak_line != nullptr);
+    REQUIRE(peak_line->f[0] == 1.0f);
+    REQUIRE(peak_line->f[1] == 14.0f);
+    REQUIRE(peak_line->f[2] == 7.0f);
+    REQUIRE(peak_line->f[3] == 14.0f);
 }
 
 TEST_CASE("baked native materializer maps fill sizing by parent axis",

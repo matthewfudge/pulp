@@ -311,6 +311,11 @@ void Meter::paint(canvas::Canvas& canvas) {
     canvas.fill_rounded_rect(0, 0, b.width, b.height, 2.0f);
 
     float meter_length = vert ? b.height : b.width;
+    auto level_to_pixels = [meter_length](float level) {
+        return std::clamp(std::round(std::clamp(level, 0.0f, 1.0f) * meter_length),
+                          0.0f,
+                          meter_length);
+    };
 
     // RMS fill (main body)
     auto rms_color = resolve_color("accent.success", canvas::Color::rgba8(80, 200, 80));
@@ -323,27 +328,31 @@ void Meter::paint(canvas::Canvas& canvas) {
         rms_color = resolve_color("accent.warning", canvas::Color::rgba8(240, 180, 60));
 
     canvas.set_fill_color(rms_color);
-    float fill = rms_level * meter_length;
+    float fill = level_to_pixels(rms_level);
 
     if (vert) {
-        canvas.fill_rect(1, b.height - fill, b.width - 2, fill);
+        if (fill > 0.0f)
+            canvas.fill_rect(1, b.height - fill, b.width - 2, fill);
     } else {
-        canvas.fill_rect(0, 1, fill, b.height - 2);
+        if (fill > 0.0f)
+            canvas.fill_rect(0, 1, fill, b.height - 2);
     }
 
     // Peak indicator line
     float peak_level = ballistics_.display_peak;
     if (peak_level > 0.01f) {
-        auto peak_color = resolve_color("control.thumb", canvas::Color::rgba8(255, 255, 255));
-        canvas.set_stroke_color(peak_color);
-        canvas.set_line_width(1.0f);
+        float peak_pos = level_to_pixels(peak_level);
+        if (peak_pos != fill) {
+            auto peak_color = resolve_color("control.thumb", canvas::Color::rgba8(255, 255, 255));
+            canvas.set_stroke_color(peak_color);
+            canvas.set_line_width(1.0f);
 
-        float peak_pos = peak_level * meter_length;
-        if (vert) {
-            float y = b.height - peak_pos;
-            canvas.stroke_line(1, y, b.width - 1, y);
-        } else {
-            canvas.stroke_line(peak_pos, 1, peak_pos, b.height - 1);
+            if (vert) {
+                float y = b.height - peak_pos;
+                canvas.stroke_line(1, y, b.width - 1, y);
+            } else {
+                canvas.stroke_line(peak_pos, 1, peak_pos, b.height - 1);
+            }
         }
     }
 
@@ -357,7 +366,7 @@ void Meter::paint(canvas::Canvas& canvas) {
         canvas.set_stroke_color(held_color);
         canvas.set_line_width(2.0f);
 
-        float held_pos = held * meter_length;
+        float held_pos = level_to_pixels(held);
         if (vert) {
             float y = b.height - held_pos;
             canvas.stroke_line(0, y, b.width, y);
