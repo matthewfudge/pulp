@@ -483,6 +483,17 @@ AudioWidgetType detect_audio_widget(const std::string& name) {
     return AudioWidgetType::none;
 }
 
+AudioWidgetType audio_widget_from_id(const std::string& id) {
+    const auto lower = to_lower(id);
+    if (lower == "knob") return AudioWidgetType::knob;
+    if (lower == "fader") return AudioWidgetType::fader;
+    if (lower == "meter") return AudioWidgetType::meter;
+    if (lower == "xy_pad" || lower == "xypad" || lower == "xy-pad") return AudioWidgetType::xy_pad;
+    if (lower == "waveform") return AudioWidgetType::waveform;
+    if (lower == "spectrum") return AudioWidgetType::spectrum;
+    return AudioWidgetType::none;
+}
+
 // ── JSON parsing helpers ────────────────────────────────────────────────
 
 static std::string get_string(const choc::value::ValueView& obj, const char* key, const char* def = "") {
@@ -750,6 +761,14 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
     // Audio widget detection is deferred until after children are parsed
     // (see below) — containers with child frames shouldn't be widgets
 
+    bool explicit_audio_widget = false;
+    if (obj.hasObjectMember("audioWidget") && obj["audioWidget"].isString()) {
+        node.audio_widget = audio_widget_from_id(get_string(obj, "audioWidget"));
+        explicit_audio_widget = node.audio_widget != AudioWidgetType::none;
+    } else if (obj.hasObjectMember("audio_widget") && obj["audio_widget"].isString()) {
+        node.audio_widget = audio_widget_from_id(get_string(obj, "audio_widget"));
+        explicit_audio_widget = node.audio_widget != AudioWidgetType::none;
+    }
     if (obj.hasObjectMember("label"))
         node.audio_label = get_string(obj, "label");
     if (obj.hasObjectMember("min"))
@@ -886,8 +905,8 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
     //   A node with only shape children (ellipse/rectangle) + text is a widget.
     //   A node with child frames (like "KnobRow" containing 4 knob frames) is a container.
     {
-        auto detected = detect_audio_widget(node.name);
-        if (detected == AudioWidgetType::none && !node.type.empty())
+        auto detected = explicit_audio_widget ? AudioWidgetType::none : detect_audio_widget(node.name);
+        if (detected == AudioWidgetType::none && !node.type.empty() && !explicit_audio_widget)
             detected = detect_audio_widget(node.type);
 
         if (detected != AudioWidgetType::none) {

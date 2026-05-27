@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -204,32 +205,125 @@ DesignIR build_untyped_named_control_ir() {
     return ir;
 }
 
-DesignIR build_phase_c_chainer_one_knob_ir() {
+std::string json_string(choc::value::ValueView value) {
+    return std::string(value.getString());
+}
+
+float json_float(choc::value::ValueView value) {
+    if (value.isFloat64()) return static_cast<float>(value.getFloat64());
+    if (value.isFloat32()) return value.getFloat32();
+    if (value.isInt64()) return static_cast<float>(value.getInt64());
+    FAIL("expected numeric JSON value");
+    return 0.0f;
+}
+
+float json_float_or(choc::value::ValueView value, float fallback) {
+    if (value.isVoid()) return fallback;
+    return json_float(value);
+}
+
+std::string float_attr(float value) {
+    std::ostringstream out;
+    out << std::setprecision(7) << value;
+    return out.str();
+}
+
+IRNode* node_at_ir_path(IRNode& root, std::string_view path) {
+    const std::string text(path);
+    REQUIRE(text.rfind("root", 0) == 0);
+    IRNode* node = &root;
+    std::size_t pos = 4;
+    while (pos < text.size()) {
+        REQUIRE(text[pos] == '/');
+        ++pos;
+        const auto slash = text.find('/', pos);
+        const auto part = text.substr(pos, slash == std::string::npos ? std::string::npos : slash - pos);
+        REQUIRE_FALSE(part.empty());
+        const auto index = static_cast<std::size_t>(std::stoul(part));
+        REQUIRE(index < node->children.size());
+        node = &node->children[index];
+        pos = slash == std::string::npos ? text.size() : slash;
+    }
+    return node;
+}
+
+std::string event_contract_string(choc::value::ValueView route) {
+    const auto event = route["event_contracts"][0];
+    return json_string(event["prop"]) + ":" + json_string(event["kind"]) + ":" +
+           json_string(event["param_key"]);
+}
+
+std::string gesture_contract_string(choc::value::ValueView route) {
+    const auto gesture = route["gesture_contracts"][0];
+    std::string out = json_string(gesture["kind"]) + ":";
+    const auto boundaries = gesture["boundaries"];
+    for (uint32_t i = 0; i < boundaries.size(); ++i) {
+        if (i != 0) out += "/";
+        out += json_string(boundaries[i]);
+    }
+    return out;
+}
+
+std::string style_token_string(choc::value::ValueView route) {
+    const auto tokens = route["style_token_references"];
+    if (!tokens.isArray() || tokens.size() == 0)
+        return {};
+    std::string out;
+    for (uint32_t i = 0; i < tokens.size(); ++i) {
+        if (i != 0) out += ",";
+        out += json_string(tokens[i]);
+    }
+    return out;
+}
+
+DesignIR lower_chainer_knob_route_to_phase_c_ir(DesignIR materialized_ir,
+                                                choc::value::ValueView route) {
+    const auto materialized_path = json_string(route["materialized_ir_path"]);
+    auto* materialized_node = node_at_ir_path(materialized_ir.root, materialized_path);
+    REQUIRE(materialized_node != nullptr);
+    REQUIRE(materialized_node->stable_anchor_id.has_value());
+    REQUIRE(*materialized_node->stable_anchor_id == json_string(route["materialized_ir_anchor"]));
+
+    const auto binding = route["parameter_bindings"][0];
+    const auto size = json_float(route["size"]);
+    const auto value = json_float(route["value"]);
+    const auto default_value = json_float_or(route["default_value"], value);
+    const auto label = json_string(route["label"]);
+
     DesignIR ir;
     ir.source = DesignSource::jsx;
-    ir.capture_method = "phase-c-chainer-one-knob";
+    ir.capture_method = "phase-c-chainer-one-knob-route-overlay";
     ir.source_adapter = "native-cpp-import-execution-validation";
     ir.source_version = "phase-c";
-    ir.root = frame_node("phase-c-root", "Chainer One Knob", 80.0f, 90.0f, LayoutDirection::column);
+    ir.tokens.colors["chainer.orange"] = "#ff6b35";
+    ir.root = frame_node("phase-c-root", "Chainer One Knob", size + 28.0f, size + 38.0f, LayoutDirection::column);
 
-    auto freq = frame_node("pr_2c", "freq", 52.0f, 79.0f, LayoutDirection::column);
-    freq.audio_widget = AudioWidgetType::knob;
-    freq.audio_label = "freq";
-    freq.audio_min = 0.0f;
-    freq.audio_max = 1.0f;
-    freq.audio_default = 0.35f;
-    freq.attributes["value"] = "0.35";
-    freq.attributes["pulpRouteId"] = "chainer.knob.0.osc_freq";
-    freq.attributes["pulpRouteType"] = "native_cpp";
-    freq.attributes["pulpSourceFamily"] = "Knob";
-    freq.attributes["pulpSourcePath"] =
-        "planning/artifacts/native-ui/nv0/chainer-fixture/ChainerInstrument.jsx:550:Knob[0]";
-    freq.attributes["pulpParamKey"] = "osc_freq";
-    freq.attributes["pulpBindingModule"] = "OSC";
-    freq.attributes["pulpBindingParam"] = "freq";
-    freq.attributes["pulpEventContract"] = "onChange:set_param:osc_freq";
-    freq.attributes["pulpGestureContract"] = "rotary_drag:begin/update/end";
-    ir.root.children.push_back(std::move(freq));
+    auto knob = *materialized_node;
+    knob.children.clear();
+    knob.name = label;
+    knob.text_content.clear();
+    knob.style.width = size;
+    knob.style.height = size;
+    knob.style.border_color = "#ff6b35";
+    knob.audio_widget = AudioWidgetType::knob;
+    knob.audio_label = label;
+    knob.audio_min = 0.0f;
+    knob.audio_max = 1.0f;
+    knob.audio_default = default_value;
+    knob.attributes["value"] = float_attr(value);
+    knob.attributes["pulpRouteId"] = json_string(route["id"]);
+    knob.attributes["pulpRouteType"] = json_string(route["route_type"]);
+    knob.attributes["pulpSourceFamily"] = json_string(route["source_component_family"]);
+    knob.attributes["pulpSourcePath"] = json_string(route["stable_source_path"]);
+    knob.attributes["pulpParamKey"] = json_string(binding["param_key"]);
+    knob.attributes["pulpBindingModule"] = json_string(binding["module"]);
+    knob.attributes["pulpBindingParam"] = json_string(binding["param"]);
+    knob.attributes["pulpEventContract"] = event_contract_string(route);
+    knob.attributes["pulpGestureContract"] = gesture_contract_string(route);
+    knob.attributes["pulpStyleTokens"] = style_token_string(route);
+    knob.attributes["pulpDefaultValueSource"] =
+        route["default_value"].isVoid() ? "phase_c_initial_value_fallback" : "source_default";
+    ir.root.children.push_back(std::move(knob));
 
     return ir;
 }
@@ -350,6 +444,25 @@ TEST_CASE("untyped named control-looking IR remains generic baked C++",
     REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::View>()") >= 2);
 }
 
+TEST_CASE("binding manifest preserves fallback-only route diagnostics",
+          "[view][import][cpp-codegen][native-cpp-phase-c]") {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.root = frame_node("fallback-root", "Fallback Root", 120.0f, 80.0f, LayoutDirection::column);
+    auto control = frame_node("fallback-control", "Unavailable Control", 48.0f, 48.0f, LayoutDirection::column);
+    control.attributes["pulpRouteId"] = "chainer.unmatched.0";
+    control.attributes["pulpFallbackReason"] = "Missing native event contract.";
+    ir.root.children.push_back(std::move(control));
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, {});
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["entries"].size() == 1);
+    const auto& entry = binding_manifest["entries"][0];
+    REQUIRE(entry["id"].getString() == std::string("chainer.unmatched.0"));
+    REQUIRE(entry["native_primitive"].getString() == std::string("view"));
+    REQUIRE(entry["fallback_reason"].getString() == std::string("Missing native event contract."));
+}
+
 TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding sidecar",
           "[view][import][cpp-codegen][native-cpp-phase-c]") {
     const fs::path manifest_path =
@@ -360,8 +473,29 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(overlay.find("\"id\": \"chainer.knob.0.osc_freq\"") != std::string::npos);
     REQUIRE(overlay.find("\"materialized_ir_path\": \"root/1/2/0/1/0\"") != std::string::npos);
     REQUIRE(overlay.find("\"unique_knob_ir_paths\": 8") != std::string::npos);
+    auto route_manifest = choc::json::parse(overlay);
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    uint32_t route_index = route_rows.size();
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        if (route_rows[i]["id"].getString() == std::string("chainer.knob.0.osc_freq")) {
+            route_index = i;
+            break;
+        }
+    }
+    REQUIRE(route_index < route_rows.size());
+    const auto route = route_rows[route_index];
+    REQUIRE(route["id"].getString() == std::string("chainer.knob.0.osc_freq"));
+    REQUIRE(route["materialized_ir_path"].getString() == std::string("root/1/2/0/1/0"));
+    REQUIRE(json_float(route["value"]) == 0.35f);
+    REQUIRE(route["default_value"].isVoid());
+    REQUIRE(route["default_value_source"].getString() == std::string("not_captured"));
 
-    const auto ir = build_phase_c_chainer_one_knob_ir();
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(chainer_ir_path));
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+
+    const auto ir = lower_chainer_knob_route_to_phase_c_ir(std::move(materialized_ir), route);
     CppExportOptions opts;
     opts.header_filename = "phase_c_chainer_one_knob.hpp";
     opts.namespace_name = "pulp::test::phase_c";
@@ -373,6 +507,8 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(result.source.find("->set_label(\"freq\");") != std::string::npos);
     REQUIRE(result.source.find("->set_value(/* TODO: bind to param */ 0.35f);") != std::string::npos);
     REQUIRE(result.source.find("->set_default_value(0.35f);") != std::string::npos);
+    REQUIRE(result.source.find("kChainerOrange = pulp::view::Color::rgba8(255, 107, 53, 255)") != std::string::npos);
+    REQUIRE(result.source.find("tokens::kChainerOrange") != std::string::npos);
 
     REQUIRE(result.binding_manifest.find("\"schema\": \"pulp-native-cpp-binding-manifest-v1\"") != std::string::npos);
     REQUIRE(result.binding_manifest.find("\"id\": \"chainer.knob.0.osc_freq\"") != std::string::npos);
@@ -383,6 +519,8 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(result.binding_manifest.find("\"binding_param\": \"freq\"") != std::string::npos);
     REQUIRE(result.binding_manifest.find("\"event_contract\": \"onChange:set_param:osc_freq\"") != std::string::npos);
     REQUIRE(result.binding_manifest.find("\"gesture_contract\": \"rotary_drag:begin/update/end\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"style_tokens\": \"C.orange\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"default_value_source\": \"phase_c_initial_value_fallback\"") != std::string::npos);
     auto binding_manifest = choc::json::parse(result.binding_manifest);
     REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
     REQUIRE(binding_manifest["entries"].size() == 1);
@@ -391,6 +529,8 @@ TEST_CASE("Chainer route overlay can lower one knob to typed C++ with binding si
     REQUIRE(entry["ir_path"].getString() == std::string("root/0"));
     REQUIRE(entry["native_primitive"].getString() == std::string("knob"));
     REQUIRE(entry["param_key"].getString() == std::string("osc_freq"));
+    REQUIRE(entry["style_tokens"].getString() == std::string("C.orange"));
+    REQUIRE(entry["default_value_source"].getString() == std::string("phase_c_initial_value_fallback"));
 
     TempDir tmp("pulp-phase-c-chainer-one-knob-cpp-codegen");
     const auto header = tmp.path / "phase_c_chainer_one_knob.hpp";

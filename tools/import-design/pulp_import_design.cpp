@@ -76,6 +76,14 @@ std::string trim_copy(const std::string& s) {
     return s.substr(b, e - b + 1);
 }
 
+bool looks_like_serialized_design_ir(const std::string& content) {
+    const auto trimmed = trim_copy(content);
+    return !trimmed.empty()
+        && trimmed.front() == '{'
+        && trimmed.find("\"version\"") != std::string::npos
+        && trimmed.find("\"root\"") != std::string::npos;
+}
+
 std::string strip_quotes_copy(const std::string& s) {
     if (s.size() >= 2
         && ((s.front() == '"' && s.back() == '"')
@@ -520,6 +528,7 @@ DesignIrAssetOptions make_asset_options(const std::string& input_file,
 struct CppOutputPaths {
     fs::path source;
     fs::path header;
+    fs::path binding_manifest;
     std::string include_name;
 };
 
@@ -541,6 +550,8 @@ CppOutputPaths resolve_cpp_output_paths(const std::string& output_file) {
         paths.header = requested;
         paths.header.replace_extension(".hpp");
     }
+    paths.binding_manifest = paths.source;
+    paths.binding_manifest.replace_extension(".bindings.json");
     paths.include_name = paths.header.filename().string();
     return paths;
 }
@@ -1119,59 +1130,66 @@ int main(int argc, char* argv[]) {
 
     // Parse based on source
     DesignIR ir;
+    bool parsed_serialized_design_ir = false;
     std::string runtime_error;  // captures --execute-bundle fallback reason
     try {
-        switch (*source) {
-            case DesignSource::figma:  ir = parse_figma_json(content); break;
-            case DesignSource::stitch: ir = parse_stitch_html(content); break;
-            case DesignSource::v0:     ir = parse_v0_tsx(content); break;
-            case DesignSource::pencil: ir = parse_pencil_json(content); break;
-            case DesignSource::claude:
-                if (execute_bundle) {
-                    ClaudeRuntimeOptions ropts;
-                    ropts.error_out = &runtime_error;
-                    // Allow up to 16 MB for the largest realistic Claude
-                    // exports (3.1 MB Spectr app + 1.1 MB react-dom +
-                    // 0.1 MB react with growth headroom).
-                    ropts.max_total_js_bytes = 16 * 1024 * 1024;
-                    ir = parse_claude_html_with_runtime(content, ropts);
-                } else {
-                    ir = parse_claude_html(content);
-                }
-                break;
-            case DesignSource::designmd: {
-                // DESIGN.md is a system spec, not a screen — parse the
-                // frontmatter into tokens and walk the body for section
-                // ordering. No UI tree is scaffolded; the dispatch below
-                // suppresses the ui.js write for this source.
-                auto pr = parse_designmd(content);
-                ir = std::move(pr.ir);
-                // Hard fail on any error-severity diagnostic (e.g. duplicate
-                // section heading, malformed YAML). Exit code 3 reserved
-                // for parse errors per the integration plan.
-                for (const auto& d : pr.diagnostics) {
-                    if (d.severity == DesignMdSeverity::error) {
-                        print_designmd_diagnostics(pr.diagnostics);
-                        return 3;
+        if (runtime_mode == RuntimeMode::baked &&
+            (artifact_emit == ArtifactEmit::ir_json || artifact_emit == ArtifactEmit::cpp) &&
+            looks_like_serialized_design_ir(content)) {
+            ir = parse_design_ir_json(content);
+            parsed_serialized_design_ir = true;
+        } else {
+            switch (*source) {
+                case DesignSource::figma:  ir = parse_figma_json(content); break;
+                case DesignSource::stitch: ir = parse_stitch_html(content); break;
+                case DesignSource::v0:     ir = parse_v0_tsx(content); break;
+                case DesignSource::pencil: ir = parse_pencil_json(content); break;
+                case DesignSource::claude:
+                    if (execute_bundle) {
+                        ClaudeRuntimeOptions ropts;
+                        ropts.error_out = &runtime_error;
+                        // Allow up to 16 MB for the largest realistic Claude
+                        // exports (3.1 MB Spectr app + 1.1 MB react-dom +
+                        // 0.1 MB react with growth headroom).
+                        ropts.max_total_js_bytes = 16 * 1024 * 1024;
+                        ir = parse_claude_html_with_runtime(content, ropts);
+                    } else {
+                        ir = parse_claude_html(content);
                     }
+                    break;
+                case DesignSource::designmd: {
+                    // DESIGN.md is a system spec, not a screen — parse the
+                    // frontmatter into tokens and walk the body for section
+                    // ordering. No UI tree is scaffolded; the dispatch below
+                    // suppresses the ui.js write for this source.
+                    auto pr = parse_designmd(content);
+                    ir = std::move(pr.ir);
+                    // Hard fail on any error-severity diagnostic (e.g. duplicate
+                    // section heading, malformed YAML). Exit code 3 reserved
+                    // for parse errors per the integration plan.
+                    for (const auto& d : pr.diagnostics) {
+                        if (d.severity == DesignMdSeverity::error) {
+                            print_designmd_diagnostics(pr.diagnostics);
+                            return 3;
+                        }
+                    }
+                    break;
                 }
-                break;
-            }
-            case DesignSource::jsx:
-                if (runtime_mode != RuntimeMode::baked ||
-                    (artifact_emit != ArtifactEmit::ir_json && artifact_emit != ArtifactEmit::cpp)) {
-                    std::cerr << "Error: --from jsx is currently wired only for"
-                                 " --mode baked --emit ir-json or --emit cpp\n";
-                    return 2;
-                } else {
-                    const auto dynamic_scan = detect_jsx_snapshot_dynamic_apis(content);
-                    if (dynamic_scan.has_dynamic_apis()
-                        && snapshot_semantics == SnapshotSemantics::fail) {
-                        std::cerr << "Error: JSX baked snapshot uses dynamic APIs ("
-                                  << join_tokens(dynamic_scan.tokens) << "). "
-                                  << "Rerun with --snapshot-semantics warn or accept to proceed.\n";
+                case DesignSource::jsx:
+                    if (runtime_mode != RuntimeMode::baked ||
+                        (artifact_emit != ArtifactEmit::ir_json && artifact_emit != ArtifactEmit::cpp)) {
+                        std::cerr << "Error: --from jsx is currently wired only for"
+                                     " --mode baked --emit ir-json or --emit cpp\n";
                         return 2;
-                    }
+                    } else {
+                        const auto dynamic_scan = detect_jsx_snapshot_dynamic_apis(content);
+                        if (dynamic_scan.has_dynamic_apis()
+                            && snapshot_semantics == SnapshotSemantics::fail) {
+                            std::cerr << "Error: JSX baked snapshot uses dynamic APIs ("
+                                      << join_tokens(dynamic_scan.tokens) << "). "
+                                      << "Rerun with --snapshot-semantics warn or accept to proceed.\n";
+                            return 2;
+                        }
 
                     auto bundle = parse_jsx_react(content, fs::path(input_file).stem().string());
                     if (!bundle) {
@@ -1226,6 +1244,7 @@ int main(int argc, char* argv[]) {
                 }
                 break;
         }
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error parsing " << design_source_name(*source) << " input: " << e.what() << "\n";
         return 1;
@@ -1239,7 +1258,8 @@ int main(int argc, char* argv[]) {
         std::cout << "[execute-bundle] runtime path produced the IR (no fallback)\n";
     }
 
-    ir.source = *source;
+    if (!parsed_serialized_design_ir)
+        ir.source = *source;
     ir.source_file = input_url.empty() ? input_file : input_url;
     if (ir.imported_at.empty()) ir.imported_at = current_utc_timestamp();
     if (ir.capture_method.empty()) ir.capture_method = "adapter_parse";
@@ -1302,11 +1322,14 @@ int main(int argc, char* argv[]) {
             std::cout << cpp.header;
             std::cout << "\n=== Generated Pulp C++ source (" << paths.source.string() << ") ===\n\n";
             std::cout << cpp.source;
+            std::cout << "\n=== Generated Pulp C++ binding manifest (" << paths.binding_manifest.string() << ") ===\n\n";
+            std::cout << cpp.binding_manifest;
             return 0;
         }
 
         if (!write_file(paths.header.string(), cpp.header)) return 1;
         if (!write_file(paths.source.string(), cpp.source)) return 1;
+        if (!write_file(paths.binding_manifest.string(), cpp.binding_manifest)) return 1;
 
         size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
         std::function<void(const IRNode&)> count_nodes = [&](const IRNode& n) {
@@ -1318,8 +1341,9 @@ int main(int argc, char* argv[]) {
         };
         count_nodes(ir.root);
 
-        std::cout << "Wrote " << paths.source.string() << " and "
-                  << paths.header.string() << " (" << node_count << " elements: "
+        std::cout << "Wrote " << paths.source.string() << ", "
+                  << paths.header.string() << ", and "
+                  << paths.binding_manifest.string() << " (" << node_count << " elements: "
                   << container_count << " containers, " << widget_count << " widgets, "
                   << text_count << " labels, " << ir.asset_manifest.assets.size() << " asset"
                   << (ir.asset_manifest.assets.size() == 1 ? "" : "s") << ")\n";

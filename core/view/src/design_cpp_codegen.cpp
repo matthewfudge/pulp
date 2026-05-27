@@ -1143,6 +1143,7 @@ void append_json_field_if_present(std::ostringstream& out,
 
 bool has_binding_manifest_metadata(const IRNode& node) {
     for (std::string_view key : {
+             "pulpRouteId",
              "pulpRouteType",
              "pulpSourceFamily",
              "pulpSourcePath",
@@ -1152,6 +1153,9 @@ bool has_binding_manifest_metadata(const IRNode& node) {
              "pulpEventContract",
              "pulpGestureContract",
              "pulpHostAction",
+             "pulpStyleTokens",
+             "pulpDefaultValueSource",
+             "pulpFallbackReason",
          }) {
         if (auto value = attr(node, key); value && !value->empty())
             return true;
@@ -1189,6 +1193,8 @@ void collect_binding_manifest_entries(std::ostringstream& out,
         append_json_field_if_present(out, first_field, "event_contract", attr(node, "pulpEventContract"));
         append_json_field_if_present(out, first_field, "gesture_contract", attr(node, "pulpGestureContract"));
         append_json_field_if_present(out, first_field, "host_action", attr(node, "pulpHostAction"));
+        append_json_field_if_present(out, first_field, "style_tokens", attr(node, "pulpStyleTokens"));
+        append_json_field_if_present(out, first_field, "default_value_source", attr(node, "pulpDefaultValueSource"));
         append_json_field_if_present(out, first_field, "fallback_reason", attr(node, "pulpFallbackReason"));
         out << "\n    }";
         first_entry = false;
