@@ -1147,6 +1147,11 @@ pulp_add_test_suite(pulp-test-parameter-event-queue LIBRARIES pulp::host)
 # TextShaper (PreText-style measure-once-reflow-forever)
 pulp_add_test_suite(pulp-test-text-shaper LIBRARIES pulp::canvas)
 
+# planning/2026-05-24 gap-doc row "PNG / JPEG / GIF codecs" —
+# GIF89a encoder/decoder + Baseline TIFF 6.0 encoder/decoder
+# round-trip suite. Skia-free, runs on every config.
+pulp_add_test_suite(pulp-test-image-codecs-extended LIBRARIES pulp::canvas)
+
 # Item 6.8 / 2026-05-24 macOS plugin-authoring plan — SheenBidi-backed
 # BidiAnalyzer + TextRunPlanner non-ICU fallback. Exercises pure-Arabic,
 # pure-Hebrew, and mixed Latin+Arabic/Hebrew strings. Each TEST_CASE
