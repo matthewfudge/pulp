@@ -345,6 +345,7 @@ target_sources(pulp-view-core PRIVATE
     src/command_registry.cpp
     src/key_mapping_editor.cpp
     src/window_classes.cpp
+    src/bubble_message.cpp
 )
 
 target_sources(pulp-view-script PRIVATE

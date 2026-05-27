@@ -2843,6 +2843,10 @@ pulp_add_test_suite(pulp-test-component-dragger LIBRARIES pulp::view)
 # TooltipWindow — transient floating tooltip near cursor (gap-doc P2)
 pulp_add_test_suite(pulp-test-tooltip-window LIBRARIES pulp::view)
 
+# BubbleMessageComponent — floating message bubble anchored to a source
+# view with auto-dismiss (gap-doc Phase 3 sister of TooltipWindow)
+pulp_add_test_suite(pulp-test-bubble-message LIBRARIES pulp::view)
+
 # PreferencesPanel — sidebar-of-pages container (gap-doc P3)
 pulp_add_test_suite(pulp-test-preferences-panel LIBRARIES pulp::view)
 
