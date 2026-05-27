@@ -783,6 +783,13 @@ pulp_add_test_suite(pulp-test-frame-fill LIBRARIES pulp::audio)
 # machine shared by Android/ALSA/Windows/iOS MIDI backends. Header-only.
 pulp_add_test_suite(pulp-test-sysex-accumulator LIBRARIES pulp::midi)
 
+# planning/2026-05-24 gap-doc row "BLE MIDI" — BLE-MIDI 1.0 packet
+# codec + cross-platform BleMidiCentral factory contract. The
+# CoreBluetooth backend's live discovery / pairing path is exercised
+# manually (requires a real adapter + a paired peripheral); these
+# tests pin the deterministic codec + the stub central behaviour.
+pulp_add_test_suite(pulp-test-ble-midi LIBRARIES pulp::midi)
+
 # macOS plan 8.2: UmpSysex7Reassembler — shared UMP type-0x3 reassembler
 # extracted from the inline AUv3 / CoreMIDI state machines. Header-only.
 pulp_add_test_suite(pulp-test-ump-sysex7-reassembler LIBRARIES pulp::midi)
