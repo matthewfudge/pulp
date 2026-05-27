@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02600"></a>
+## [0.260.0] - 2026-05-26
+
+- feat: WebView2/WebKitGTK runtime probes + PushNotifications local-only scaffold ([#3016](https://github.com/danielraffel/pulp/pull/3016))
+
+<a id="v02590"></a>
+## [0.259.0] - 2026-05-26
+
+- feat(ios): wire iOS Skia release assets for Phase iOS-D scaffold ([#3011](https://github.com/danielraffel/pulp/pull/3011))
+- test(cli): cover ship command contracts ([#3018](https://github.com/danielraffel/pulp/pull/3018))
+- test(host): developer-supplied lane for auth-gated real-plugin fixtures (item 4.2) ([#3015](https://github.com/danielraffel/pulp/pull/3015))
+
 <a id="v02580"></a>
 ## [0.258.0] - 2026-05-26
 
@@ -3013,6 +3025,8 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.260.0]: https://github.com/danielraffel/pulp/releases/tag/v0.260.0
+[0.259.0]: https://github.com/danielraffel/pulp/releases/tag/v0.259.0
 [0.258.0]: https://github.com/danielraffel/pulp/releases/tag/v0.258.0
 [0.257.0]: https://github.com/danielraffel/pulp/releases/tag/v0.257.0
 [0.256.0]: https://github.com/danielraffel/pulp/releases/tag/v0.256.0
