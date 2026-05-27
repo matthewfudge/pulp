@@ -142,6 +142,18 @@ std::vector<uint8_t> CiDiscovery::process_message(const uint8_t* data, size_t si
     switch (type) {
         case CiMessageType::DiscoveryInquiry:
             return handle_discovery(data, size);
+        case CiMessageType::ProfileEnable:
+            return handle_profile_added(data, size);
+        case CiMessageType::ProfileDisable:
+            return handle_profile_removed(data, size);
+        case CiMessageType::ProfileDetailsInquiry:
+            return handle_profile_details_inquiry(data, size);
+        case CiMessageType::ProfileDetailsReply:
+            handle_profile_details_reply(data, size);
+            return {};
+        case CiMessageType::ProfileSpecificData:
+            handle_profile_specific_data(data, size);
+            return {};
         case CiMessageType::DiscoveryReply: {
             // Store discovered device
             if (size >= 30) {
@@ -395,6 +407,196 @@ void CiDiscovery::handle_notify(const uint8_t* data, size_t size) {
     // Source MUID identifies who emitted the notification — pass that
     // up so the application can disambiguate multi-publisher topics.
     on_pe_notify(source, resource, chunk->header_json, chunk->payload);
+}
+
+// ── Profile Added / Removed / Details / Specific Data (CI 1.2 §7) ──────
+
+static std::vector<uint8_t> ci_envelope(CiMessageType type,
+                                        uint8_t ci_version,
+                                        MUID source,
+                                        MUID destination) {
+    std::vector<uint8_t> msg;
+    msg.push_back(0xF0);
+    msg.push_back(0x7E);
+    msg.push_back(0x7F);
+    msg.push_back(0x0D);
+    msg.push_back(static_cast<uint8_t>(type));
+    msg.push_back(ci_version);
+    write_muid(msg, source);
+    write_muid(msg, destination);
+    return msg;
+}
+
+static void append_profile_id(std::vector<uint8_t>& msg, const ProfileId& id) {
+    msg.push_back(id.bank);
+    msg.push_back(id.number);
+    msg.push_back(id.version);
+    msg.push_back(id.level);
+    msg.push_back(id.reserved);
+}
+
+static bool read_profile_id(const uint8_t* data, size_t size,
+                            size_t offset, ProfileId* out) {
+    if (size < offset + 5) return false;
+    out->bank     = data[offset + 0];
+    out->number   = data[offset + 1];
+    out->version  = data[offset + 2];
+    out->level    = data[offset + 3];
+    out->reserved = data[offset + 4];
+    return true;
+}
+
+std::vector<uint8_t> CiDiscovery::create_profile_added_report(MUID destination,
+                                                              const ProfileId& id) {
+    auto msg = ci_envelope(CiMessageType::ProfileEnable, local_info_.ci_version,
+                           local_info_.muid, destination);
+    append_profile_id(msg, id);
+    msg.push_back(0xF7);
+    return msg;
+}
+
+std::vector<uint8_t> CiDiscovery::create_profile_removed_report(MUID destination,
+                                                                const ProfileId& id) {
+    auto msg = ci_envelope(CiMessageType::ProfileDisable, local_info_.ci_version,
+                           local_info_.muid, destination);
+    append_profile_id(msg, id);
+    msg.push_back(0xF7);
+    return msg;
+}
+
+void CiDiscovery::set_profile_details(const ProfileId& id, uint8_t target,
+                                      const std::vector<uint8_t>& data) {
+    for (auto& d : local_details_) {
+        if (d.id == id && d.target == target) {
+            d.data = data;
+            return;
+        }
+    }
+    local_details_.push_back({id, target, data});
+}
+
+std::vector<ProfileDetails> CiDiscovery::profile_details_for(const ProfileId& id) const {
+    std::vector<ProfileDetails> out;
+    for (auto& d : local_details_) {
+        if (d.id == id) out.push_back(d);
+    }
+    return out;
+}
+
+std::vector<uint8_t> CiDiscovery::create_profile_details_inquiry(MUID destination,
+                                                                 const ProfileId& id,
+                                                                 uint8_t target) const {
+    auto msg = ci_envelope(CiMessageType::ProfileDetailsInquiry,
+                           local_info_.ci_version, local_info_.muid, destination);
+    append_profile_id(msg, id);
+    msg.push_back(target);
+    msg.push_back(0xF7);
+    return msg;
+}
+
+std::vector<uint8_t> CiDiscovery::create_profile_specific_data(MUID destination,
+                                                               const ProfileId& id,
+                                                               const uint8_t* data,
+                                                               std::size_t size) const {
+    auto msg = ci_envelope(CiMessageType::ProfileSpecificData,
+                           local_info_.ci_version, local_info_.muid, destination);
+    append_profile_id(msg, id);
+    // Length: 2-byte 7-bit LE
+    msg.push_back(static_cast<uint8_t>(size & 0x7F));
+    msg.push_back(static_cast<uint8_t>((size >> 7) & 0x7F));
+    if (data && size > 0) {
+        msg.insert(msg.end(), data, data + size);
+    }
+    msg.push_back(0xF7);
+    return msg;
+}
+
+std::vector<uint8_t> CiDiscovery::handle_profile_added(const uint8_t* data, size_t size) {
+    if (size < 14 + 5 + 1) return {};
+    MUID source = read_muid(data + 6);
+    MUID dest = read_muid(data + 10);
+    if (!dest.is_broadcast() && !(dest == local_info_.muid)) return {};
+    ProfileId id;
+    if (!read_profile_id(data, size, 14, &id)) return {};
+    if (on_profile_added) on_profile_added(source, id);
+    return {};
+}
+
+std::vector<uint8_t> CiDiscovery::handle_profile_removed(const uint8_t* data, size_t size) {
+    if (size < 14 + 5 + 1) return {};
+    MUID source = read_muid(data + 6);
+    MUID dest = read_muid(data + 10);
+    if (!dest.is_broadcast() && !(dest == local_info_.muid)) return {};
+    ProfileId id;
+    if (!read_profile_id(data, size, 14, &id)) return {};
+    if (on_profile_removed) on_profile_removed(source, id);
+    return {};
+}
+
+std::vector<uint8_t> CiDiscovery::handle_profile_details_inquiry(const uint8_t* data,
+                                                                 size_t size) {
+    // Layout: envelope(14) profile_id(5) target(1) F7
+    if (size < 14 + 5 + 1 + 1) return {};
+    MUID source = read_muid(data + 6);
+    MUID dest = read_muid(data + 10);
+    if (!dest.is_broadcast() && !(dest == local_info_.muid)) return {};
+    ProfileId id;
+    if (!read_profile_id(data, size, 14, &id)) return {};
+    uint8_t target = data[19];
+
+    // Look up our local store for a matching (id, target).
+    const ProfileDetails* found = nullptr;
+    for (auto& d : local_details_) {
+        if (d.id == id && d.target == target) { found = &d; break; }
+    }
+    if (!found) return {};
+
+    auto reply = ci_envelope(CiMessageType::ProfileDetailsReply,
+                             local_info_.ci_version, local_info_.muid, source);
+    append_profile_id(reply, id);
+    reply.push_back(target);
+    // 2-byte 7-bit LE length
+    uint16_t len = static_cast<uint16_t>(found->data.size());
+    reply.push_back(static_cast<uint8_t>(len & 0x7F));
+    reply.push_back(static_cast<uint8_t>((len >> 7) & 0x7F));
+    reply.insert(reply.end(), found->data.begin(), found->data.end());
+    reply.push_back(0xF7);
+    return reply;
+}
+
+void CiDiscovery::handle_profile_details_reply(const uint8_t* data, size_t size) {
+    if (size < 14 + 5 + 1 + 2 + 1) return;
+    MUID source = read_muid(data + 6);
+    MUID dest = read_muid(data + 10);
+    if (!dest.is_broadcast() && !(dest == local_info_.muid)) return;
+    ProfileId id;
+    if (!read_profile_id(data, size, 14, &id)) return;
+    uint8_t target = data[19];
+    uint16_t len = static_cast<uint16_t>(data[20])
+                 | (static_cast<uint16_t>(data[21]) << 7);
+    if (size < 14 + 5 + 1 + 2 + len + 1) return;
+
+    ProfileDetails d;
+    d.id = id;
+    d.target = target;
+    d.data.assign(data + 22, data + 22 + len);
+    discovered_details_.push_back(d);
+    if (on_profile_details) on_profile_details(source, d);
+}
+
+void CiDiscovery::handle_profile_specific_data(const uint8_t* data, size_t size) {
+    if (size < 14 + 5 + 2 + 1) return;
+    MUID source = read_muid(data + 6);
+    MUID dest = read_muid(data + 10);
+    if (!dest.is_broadcast() && !(dest == local_info_.muid)) return;
+    ProfileId id;
+    if (!read_profile_id(data, size, 14, &id)) return;
+    uint16_t len = static_cast<uint16_t>(data[19])
+                 | (static_cast<uint16_t>(data[20]) << 7);
+    if (size < 14 + 5 + 2 + len + 1) return;
+
+    std::vector<uint8_t> payload(data + 21, data + 21 + len);
+    if (on_profile_specific_data) on_profile_specific_data(source, id, payload);
 }
 
 }  // namespace pulp::midi
