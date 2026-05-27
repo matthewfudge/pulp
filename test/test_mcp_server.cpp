@@ -1371,4 +1371,10 @@ TEST_CASE("parse_pulp_toml_sdk_version extracts the top-level scalar",
     // When both are present, the top-level wins.
     REQUIRE(pulp_mcp::parse_pulp_toml_sdk_version(
         "min_sdk_version = \"0.50.0\"\nsdk_version = \"0.99.0\"\n") == "0.99.0");
+    // The compat gate is intentionally pinned to the top-level SDK
+    // scalar; section-local sdk_version keys describe something else.
+    REQUIRE(pulp_mcp::parse_pulp_toml_sdk_version(
+        "[dependency]\nsdk_version = \"9.9.9\"\n").empty());
+    REQUIRE(pulp_mcp::parse_pulp_toml_sdk_version(
+        "sdk_version = \"1.2.3\"\n[dependency]\nsdk_version = \"9.9.9\"\n") == "1.2.3");
 }
