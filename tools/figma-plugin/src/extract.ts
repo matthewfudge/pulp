@@ -17,6 +17,8 @@ import type {
   ExtractedLayout,
   ExtractedDiagnostic,
 } from "./extract-model";
+import { AssetCache } from "./assets";
+import { extractTokens, type ExtractedTokens } from "./tokens";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public entry point
@@ -36,6 +38,10 @@ export interface ExtractResult {
   nodeCount: number;
   /// True if maxNodes was hit and the result is incomplete.
   truncated: boolean;
+  /// Captured assets (slice 2). Empty when no fills/vectors were exported.
+  assets: AssetCache;
+  /// Captured design tokens from Figma variables.
+  tokens: ExtractedTokens;
 }
 
 /// Walk the given Figma scene nodes into a Pulp-shaped tree.
@@ -49,12 +55,16 @@ export async function extractScene(
     maxNodes: opts.maxNodes ?? 5000,
   };
   const diagnostics: ExtractedDiagnostic[] = [];
+  const assets = new AssetCache();
+  const tokens = await extractTokens(diagnostics);
   const ctx: WalkCtx = {
     cfg,
     diagnostics,
     nodeCount: 0,
     truncated: false,
     pathStack: [],
+    assets,
+    tokens,
   };
 
   const roots: ExtractedFigmaNode[] = [];
@@ -72,6 +82,8 @@ export async function extractScene(
     diagnostics: ctx.diagnostics,
     nodeCount: ctx.nodeCount,
     truncated: ctx.truncated,
+    assets,
+    tokens,
   };
 }
 
@@ -84,6 +96,8 @@ interface WalkCtx {
   nodeCount: number;
   truncated: boolean;
   pathStack: string[];
+  assets: AssetCache;
+  tokens: ExtractedTokens;
 }
 
 async function walk(
@@ -132,6 +146,41 @@ async function walk(
   if (node.type === "TEXT") {
     ex.content = (node as TextNode).characters;
     extractTextStyle(node as TextNode, ex.style, ctx);
+  }
+
+  // INSTANCE: capture component metadata so Phase 3 can recognize Pulp library widgets.
+  if (node.type === "INSTANCE") {
+    await captureInstanceMetadata(node as InstanceNode, ex, ctx);
+  }
+
+  // Resolve any pending image fills now that we're async.
+  if (ex.style.background_image && ex.style.background_image.startsWith("pending:")) {
+    const imgHash = ex.style.background_image.substring("pending:".length);
+    const assetId = await ctx.assets.captureImageFill(imgHash);
+    if (assetId) {
+      ex.style.background_image = undefined;
+      ex.asset_ref = assetId;
+      ex.type = "image";
+    } else {
+      ex.style.background_image = undefined;
+      pushDiag(ctx, "warning", "image-fill-unresolved", "unresolved_asset",
+        `Image fill with hash ${imgHash} could not be fetched.`);
+    }
+  }
+
+  // Vector-like nodes → SVG asset export (Phase 2a slice 2).
+  if (
+    node.type === "VECTOR" ||
+    node.type === "BOOLEAN_OPERATION" ||
+    node.type === "STAR" ||
+    node.type === "POLYGON" ||
+    node.type === "LINE"
+  ) {
+    const assetId = await ctx.assets.captureExportedNode(node, "SVG_STRING");
+    if (assetId) {
+      ex.asset_ref = assetId;
+      ex.type = "image"; // type=image makes the importer route this through asset rendering
+    }
   }
 
   // Recurse for container nodes that have children.
@@ -230,10 +279,16 @@ function extractStyle(n: SceneNode, ctx: WalkCtx): ExtractedStyle {
       } else if (first.type === "GRADIENT_LINEAR") {
         s.background_gradient = gradientToCss(first as GradientPaint);
       } else if (first.type === "IMAGE") {
-        // image fill — Phase 2a slice 2 handles asset export; record marker now
-        s.background_image = "image-fill"; // placeholder; slice 2 fills in asset_ref
-        pushDiag(ctx, "info", "image-fill-deferred", "capture_partial",
-          "Image fill present; asset export not implemented yet (slice 2).");
+        // Slice 2: extract image fill bytes via Figma's imageHash, cache by sha256.
+        const imgHash = (first as ImagePaint).imageHash;
+        if (imgHash) {
+          // Schedule asset capture; rejoined via a microtask so we don't block this synchronous walk.
+          // Note: extractStyle is synchronous; the caller will retroactively call
+          // captureImageFill via the deferred path. For slice 2, we mark with a placeholder
+          // and use a side-channel — but the simpler thing is to make extractStyle async-aware.
+          // SEE: image fills are wired via captureImageFillsForNode after style extraction.
+          s.background_image = `pending:${imgHash}`;
+        }
       } else if (first.type === "GRADIENT_RADIAL" || first.type === "GRADIENT_ANGULAR" || first.type === "GRADIENT_DIAMOND") {
         pushDiag(ctx, "warning", "complex-gradient", "unsupported_property",
           `${first.type} not supported; emitting flat first color fallback.`);
@@ -455,4 +510,63 @@ function pushDiag(
 
 function pathOf(ctx: WalkCtx): string {
   return ctx.pathStack.join("");
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Instance metadata capture (Phase 2a slice 2)
+
+async function captureInstanceMetadata(
+  inst: InstanceNode,
+  ex: ExtractedFigmaNode,
+  ctx: WalkCtx,
+): Promise<void> {
+  let main: ComponentNode | null = null;
+  try {
+    main = await inst.getMainComponentAsync();
+  } catch {
+    return;
+  }
+  if (!main) return;
+
+  ex.main_component_id = main.id;
+  ex.main_component_name = main.name;
+  ex.remote_library = main.remote === true;
+
+  // ComponentSet (variant) parent — for grouped components like Pulp / Knob
+  const parent = main.parent;
+  if (parent && parent.type === "COMPONENT_SET") {
+    ex.component_set_name = parent.name;
+    if ("key" in parent && typeof parent.key === "string") {
+      ex.component_key = parent.key;
+    }
+  } else {
+    if ("key" in main && typeof main.key === "string") {
+      ex.component_key = main.key;
+    }
+  }
+
+  // Instance prop values (the actual values the designer typed in)
+  try {
+    const props = inst.componentProperties;
+    if (props) {
+      const out: Record<string, { type: string; value: string | number | boolean }> = {};
+      for (const key of Object.keys(props)) {
+        const p = props[key];
+        out[key] = { type: p.type, value: p.value as string | number | boolean };
+      }
+      ex.component_properties = out;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Variant axis selections (e.g. size=sm, state=default)
+  try {
+    const variants = inst.variantProperties;
+    if (variants) {
+      ex.variant_properties = { ...variants };
+    }
+  } catch {
+    // ignore
+  }
 }

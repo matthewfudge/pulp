@@ -32,6 +32,7 @@ export interface ExtractedFigmaNode {
 
   // Image / vector — populated in slice 2
   exported_asset?: { content_hash: string; mime: string; bytes_size: number };
+  asset_ref?: string;       // reference into AssetCache; serialized as node.asset_ref
 
   // Component / instance metadata — populated when walking INSTANCE nodes (slice 2)
   component_key?: string;

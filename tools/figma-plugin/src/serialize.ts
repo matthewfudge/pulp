@@ -6,12 +6,16 @@
 // to drop noise.
 
 import type { ExtractedFigmaNode, ExtractedDiagnostic } from "./extract-model";
+import type { AssetCache } from "./assets";
+import type { ExtractedTokens } from "./tokens";
 
 export interface SerializeContext {
   fileKey: string;
   rootNodeId: string;
   pluginVersion: string;
   libraryManifest?: LibraryManifestSnapshot;
+  assets: AssetCache;
+  tokens: ExtractedTokens;
 }
 
 export interface LibraryManifestSnapshot {
@@ -49,11 +53,38 @@ export function serializeExport(
       exported_at: new Date().toISOString(),
     },
     library_manifest: ctx.libraryManifest ?? null,
-    tokens: { colors: {}, dimensions: {}, strings: {} }, // slice 2 wires real variables
-    asset_manifest: { version: 1, assets: [] },           // slice 2 wires real assets
+    tokens: {
+      colors: ctx.tokens.colors,
+      dimensions: ctx.tokens.dimensions,
+      strings: ctx.tokens.strings,
+    },
+    asset_manifest: {
+      version: 1,
+      assets: ctx.assets.entries().map((a) => ({
+        asset_id: a.asset_id,
+        original_uri: a.original_uri,
+        original_uri_aliases: a.original_uri_aliases,
+        local_path: `assets/${a.content_hash}.${extOf(a.mime)}`,
+        content_hash: a.content_hash,
+        mime: a.mime,
+        width: a.width,
+        height: a.height,
+      })),
+    },
     diagnostics: diagnostics.map(toEnvelopeDiagnostic),
     root,
   };
+}
+
+function extOf(mime: string): string {
+  switch (mime) {
+    case "image/png": return "png";
+    case "image/jpeg": return "jpg";
+    case "image/gif": return "gif";
+    case "image/webp": return "webp";
+    case "image/svg+xml": return "svg";
+    default: return "bin";
+  }
 }
 
 function toEnvelopeNode(n: ExtractedFigmaNode): unknown {
@@ -63,6 +94,7 @@ function toEnvelopeNode(n: ExtractedFigmaNode): unknown {
     figma_node_id: n.figma_node_id,
   };
   if (n.content !== undefined) out.content = n.content;
+  if (n.asset_ref) out.asset_ref = n.asset_ref;
 
   // Style: pass through truthy fields only (envelope schema says additionalProperties:false)
   const styleEntries = Object.entries(n.style).filter(([, v]) => v !== undefined && v !== null && v !== "");

@@ -1,8 +1,4 @@
 // Pulp Figma Plugin — sandbox main code (runs in Figma's JS sandbox).
-//
-// Phase 2a slice 1 scope: extract selection → in-memory model → serialize to
-// JSON envelope → post to UI for download. Tokens, assets, component
-// recognition all defer to slice 2 / Phase 3.
 
 import { extractScene } from "./extract";
 import { serializeExport, type LibraryManifestSnapshot } from "./serialize";
@@ -10,9 +6,6 @@ import type { PulpFigmaUIMessage, PulpSandboxMessage } from "./types";
 
 const PLUGIN_VERSION = "0.1.0";
 
-// library-manifest.json is embedded into the bundle by esbuild's import-attribute
-// path. For now we hand-author the snapshot here; a follow-up build-step
-// improvement reads tools/figma-plugin/library-manifest.json directly.
 const LIBRARY_MANIFEST: LibraryManifestSnapshot = {
   library_version: "0.1.0",
   required_plugin_version: ">=0.1.0",
@@ -21,7 +14,9 @@ const LIBRARY_MANIFEST: LibraryManifestSnapshot = {
   },
 };
 
-figma.showUI(__html__, { width: 360, height: 520, themeColors: true });
+let knownFileKey: string | null = null;
+
+figma.showUI(__html__, { width: 360, height: 540, themeColors: true });
 
 figma.ui.onmessage = async (msg: PulpFigmaUIMessage) => {
   try {
@@ -33,6 +28,10 @@ figma.ui.onmessage = async (msg: PulpFigmaUIMessage) => {
           editorType: figma.editorType,
           documentName: figma.root.name,
         });
+        break;
+
+      case "report-file-key":
+        if (msg.fileKey) knownFileKey = msg.fileKey;
         break;
 
       case "get-selection-summary":
@@ -70,32 +69,56 @@ async function handleExport(): Promise<void> {
   }
 
   reply({ type: "progress", stage: "extracting", message: `Walking ${sel.length} root(s)…` });
-
   const result = await extractScene(sel);
 
   reply({
     type: "progress",
     stage: "serializing",
-    message: `Walked ${result.nodeCount} nodes; serializing…`,
+    message: `Walked ${result.nodeCount} nodes, ${result.assets.size()} asset(s); serializing…`,
   });
 
+  // Resolve file key: published plugins get figma.fileKey; local dev installs
+  // get null. The UI iframe parses window.location and posts back via
+  // 'report-file-key'. Fall back to the document name encoded as a URN.
+  const fileKey =
+    figma.fileKey ??
+    knownFileKey ??
+    `local-${encodeURIComponent(figma.root.name).slice(0, 32)}`;
+
   const envelope = serializeExport(result.roots, result.diagnostics, {
-    fileKey: figma.fileKey ?? "unknown",
+    fileKey,
     rootNodeId: sel[0].id,
     pluginVersion: PLUGIN_VERSION,
     libraryManifest: LIBRARY_MANIFEST,
+    assets: result.assets,
+    tokens: result.tokens,
   });
 
   const json = JSON.stringify(envelope, null, 2);
-  const suggestedName = `${sanitizeFilename(sel[0].name) || "pulp-export"}.pulp.json`;
+  const suggestedName = `${sanitizeFilename(sel[0].name) || "pulp-export"}`;
+
+  // Hand the assets to the UI as { content_hash, mime, bytes } records.
+  // Bytes are transferred as plain arrays to keep postMessage compatibility;
+  // the UI converts back to Uint8Array for the zip writer.
+  const assetBundles = result.assets.entries().map((a) => ({
+    content_hash: a.content_hash,
+    mime: a.mime,
+    bytes: Array.from(a.bytes), // postMessage-safe; ~1.5x size overhead vs raw buffer
+  }));
 
   reply({
     type: "export-result",
     nodeCount: result.nodeCount,
     diagnosticCount: result.diagnostics.length,
+    assetCount: result.assets.size(),
+    tokenCount:
+      Object.keys(result.tokens.colors).length +
+      Object.keys(result.tokens.dimensions).length +
+      Object.keys(result.tokens.strings).length,
     truncated: result.truncated,
     suggestedName,
     json,
+    assets: assetBundles,
   });
 }
 
@@ -107,5 +130,4 @@ function reply(msg: PulpSandboxMessage): void {
   figma.ui.postMessage(msg);
 }
 
-// Boot — let the UI know we're alive.
 reply({ type: "ready", pluginVersion: PLUGIN_VERSION });
