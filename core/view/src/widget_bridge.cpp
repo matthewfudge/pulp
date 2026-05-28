@@ -6815,14 +6815,14 @@ void WidgetBridge::register_api() {
     engine_.register_function("getLayoutRect", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
         root_.layout_children();
-        auto* v = widget(id);
+        auto* v = id.empty() ? &root_ : widget(id);
         return make_layout_rect_value(v);
     });
 
     engine_.register_function("getLayoutAncestorRects", [this](choc::javascript::ArgumentList args) {
         auto id = args.get<std::string>(0, "");
         root_.layout_children();
-        auto* v = widget(id);
+        auto* v = id.empty() ? &root_ : widget(id);
         return make_layout_ancestor_chain_value(v);
     });
 

@@ -985,7 +985,7 @@ void emit_widget_specific(std::ostringstream& out,
             const auto peak = float_expr(ctx, attr_float(node, "peak").value_or(normalized_audio_value(node)));
             emit_line(out, depth, opts.indent_spaces,
                       std::string(var) + "->set_level(/* TODO: bind to meter */ " + value + ", " + peak + ");");
-            if (auto orientation = attr(node, "orientation"); orientation && *orientation == "horizontal")
+            if (auto orientation = attr(node, "orientation"); orientation && lower_copy(*orientation) == "horizontal")
                 emit_line(out, depth, opts.indent_spaces, std::string(var) + "->set_orientation(pulp::view::Meter::Orientation::horizontal);");
             break;
         }

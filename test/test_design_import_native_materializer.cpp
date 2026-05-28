@@ -3,6 +3,7 @@
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/layout_snapshot.hpp>
 #include <pulp/view/script_engine.hpp>
+#include <pulp/view/text_editor.hpp>
 #include <pulp/view/view.hpp>
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/widgets.hpp>
@@ -545,16 +546,23 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     choice_node.attributes["pulpCornerRadius"] = "2";
     choice_node.attributes["pulpFontSize"] = "7";
 
+    auto editor_node = frame("preset-name", 96.0f, 24.0f, LayoutDirection::column);
+    editor_node.type = "input";
+    editor_node.attributes["type"] = "text";
+    editor_node.attributes["pulpPlaceholder"] = "Preset";
+    editor_node.attributes["pulpInitialValue"] = "Init";
+
     ir.root.children.push_back(std::move(knob_node));
     ir.root.children.push_back(std::move(fader_node));
     ir.root.children.push_back(std::move(circle_fader_node));
     ir.root.children.push_back(std::move(meter_node));
     ir.root.children.push_back(std::move(xy_node));
     ir.root.children.push_back(std::move(choice_node));
+    ir.root.children.push_back(std::move(editor_node));
 
     auto root = build_native_view_tree(ir, {}, {.preview_mode = true});
     REQUIRE(root != nullptr);
-    REQUIRE(root->child_count() == 6);
+    REQUIRE(root->child_count() == 7);
 
     auto* knob = dynamic_cast<Knob*>(root->child_at(0));
     REQUIRE(knob != nullptr);
@@ -613,4 +621,9 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     REQUIRE(choice->off_border_color_override()->r8() == 0x1e);
     REQUIRE(choice->corner_radius_override() == 2.0f);
     REQUIRE(choice->font_size_override() == 7.0f);
+
+    auto* editor = dynamic_cast<TextEditor*>(root->child_at(6));
+    REQUIRE(editor != nullptr);
+    REQUIRE(editor->placeholder == "Preset");
+    REQUIRE(editor->text() == "Init");
 }

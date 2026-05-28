@@ -759,7 +759,14 @@ std::unique_ptr<View> make_widget(const IRNode& node,
             return std::make_unique<TextButton>(text);
         case NativeWidgetKind::text_editor: {
             auto editor = std::make_unique<TextEditor>();
-            if (!text.empty()) editor->set_text(text);
+            if (auto placeholder = attr(node, "pulpPlaceholder"); placeholder && !placeholder->empty())
+                editor->placeholder = *placeholder;
+            if (auto initial_value = attr(node, "pulpInitialValue"); initial_value && !initial_value->empty())
+                editor->set_text(*initial_value);
+            else if (auto value = attr(node, "value"); value && !value->empty())
+                editor->set_text(*value);
+            else if (!text.empty())
+                editor->set_text(text);
             return editor;
         }
         case NativeWidgetKind::checkbox: {
