@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02710"></a>
+## [0.271.0] - 2026-05-28
+
+- test(inspect): cover inspector public contracts ([#3094](https://github.com/danielraffel/pulp/pull/3094))
+- test(coverage): cover requested tool contracts ([#3093](https://github.com/danielraffel/pulp/pull/3093))
+- test(coverage): cover requested Swift and Python binding gaps ([#3092](https://github.com/danielraffel/pulp/pull/3092))
+- test(coverage): cover requested tool and platform edges ([#3084](https://github.com/danielraffel/pulp/pull/3084))
+
 <a id="v02704"></a>
 ## [0.270.4] - 2026-05-27
 
@@ -3101,6 +3109,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.271.0]: https://github.com/danielraffel/pulp/releases/tag/v0.271.0
 [0.270.4]: https://github.com/danielraffel/pulp/releases/tag/v0.270.4
 [0.270.2]: https://github.com/danielraffel/pulp/releases/tag/v0.270.2
 [0.270.1]: https://github.com/danielraffel/pulp/releases/tag/v0.270.1
