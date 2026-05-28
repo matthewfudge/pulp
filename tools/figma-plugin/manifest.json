@@ -1,6 +1,6 @@
 {
   "name": "Design for Pulp",
-  "id": "TBD-figma-assigns-on-publish",
+  "id": "design-for-pulp-dev",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "dist/ui.html",
@@ -16,6 +16,5 @@
     { "name": "Export to Pulp", "command": "export" },
     { "separator": true },
     { "name": "About", "command": "about" }
-  ],
-  "_note": "id field gets assigned by Figma on first Community publish. For local development install via 'Plugins → Development → Import plugin from manifest', the id can stay 'TBD-...'."
+  ]
 }

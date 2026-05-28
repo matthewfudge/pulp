@@ -1,6 +1,9 @@
-# Testing the plugin against the ELYSIUM Community frame
+# Testing the plugin against an ELYSIUM-shaped frame
 
 End-to-end smoke for Phase 2a slice 1.
+
+**Recommended test file (Pro plan, allows local plugin install):**
+`https://www.figma.com/design/KCKIyZoWXjde6qVNCm4qPa/Untitled?node-id=3-42` — same VST Style frame as the original ELYSIUM community file, just duplicated into a Pro workspace where local-development plugins are allowed. The original community file at `OnM7qmsi77W7ieIEvTOHQq` rejects local-development plugins.
 
 ---
 
@@ -36,12 +39,12 @@ What it does **not** validate yet (deferred to slice 2 / Phase 3 / Phase 4):
    - Pick `/Users/danielraffel/Code/pulp-figma-plugin/tools/figma-plugin/manifest.json`.
    - The plugin appears under **Plugins → Development → Design for Pulp**.
 
-3. **Open ELYSIUM**:
+3. **Open the test file**:
 
-   - Open `https://www.figma.com/design/OnM7qmsi77W7ieIEvTOHQq/Synthesizer-VSTi---Plugin-Interface-Mockup--Community-?node-id=3-207`
-   - Optionally duplicate to your own workspace so you have a stable test bed.
+   - Open `https://www.figma.com/design/KCKIyZoWXjde6qVNCm4qPa/Untitled?node-id=3-42`
+   - (Or any other Pro-plan file you own — community files don't allow local plugin installs.)
 
-4. **Select frame `3:207`** (the "VST Style" outer frame, 1000×600).
+4. **Select frame `3:42`** (the "VST Style" outer frame, 1000×600).
 
 5. **Run the plugin**: **Plugins → Development → Design for Pulp**.
 
@@ -61,7 +64,7 @@ What it does **not** validate yet (deferred to slice 2 / Phase 3 / Phase 4):
 
    ```
    "2026.05-figma-plugin-v1"
-   "figma://OnM7qmsi77W7ieIEvTOHQq/3:207"
+   "figma://KCKIyZoWXjde6qVNCm4qPa/3:42"
    "VST Style"
    "frame"
    <some-number-around-12-to-20>
