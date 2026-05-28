@@ -2649,66 +2649,6 @@ DesignIR parse_stitch_html(const std::string& html) {
     return ir;
 }
 
-DesignIR parse_v0_tsx(const std::string& tsx) {
-    DesignIR ir;
-    ir.source = DesignSource::v0;
-    ir.capture_method = "adapter_parse";
-    ir.source_adapter = "v0-tsx";
-    ir.source_version = "1";
-
-    // Try parsing as JSON IR first (pre-processed by AI pipeline)
-    try {
-        auto root = choc::json::parse(tsx);
-        ir.root = parse_ir_node(root);
-        if (root.hasObjectMember("tokens"))
-            ir.tokens = parse_ir_tokens(root["tokens"]);
-        ir.root.provenance = IRProvenance{"v0-tsx", "1", {}};
-        ir.root.confidence = IRConfidence::pass;
-        promote_interactive_frames(ir.root);
-        assign_anchors(ir.root, AnchorStrategy::content_hash);
-        return ir;
-    } catch (...) {
-        // Not JSON — TSX source
-    }
-
-    // TSX → IR: extract JSX elements and Tailwind classes
-    // Full translation requires AI; this provides structural extraction
-    ir.root.type = "frame";
-    ir.root.name = "V0Import";
-    ir.root.layout.direction = LayoutDirection::column;
-
-    // Extract className strings for Tailwind analysis
-    std::regex class_re("className=\"([^\"]+)\"");
-    auto begin = std::sregex_iterator(tsx.begin(), tsx.end(), class_re);
-    auto end = std::sregex_iterator();
-
-    for (auto it = begin; it != end; ++it) {
-        std::string classes = (*it)[1].str();
-        IRNode child;
-        child.type = "frame";
-        child.name = classes;  // Store Tailwind classes as name for AI processing
-        // Parse common Tailwind patterns
-        if (classes.find("flex-row") != std::string::npos)
-            child.layout.direction = LayoutDirection::row;
-        if (classes.find("flex-col") != std::string::npos)
-            child.layout.direction = LayoutDirection::column;
-        ir.root.children.push_back(std::move(child));
-    }
-
-    // Phase 0a: anchor the regex-extracted Tailwind tree.
-    ir.root.provenance = IRProvenance{"v0-tsx", "1", {}};
-    ir.root.confidence = IRConfidence::diverge;  // regex extraction is lossy
-    ir.fallback_reason = "input was not JSON; used regex TSX class extraction";
-    ir.diagnostics.push_back(make_import_diagnostic(
-        ImportDiagnosticSeverity::warning,
-        "fallback-used",
-        "<root>",
-        ir.fallback_reason,
-        ImportDiagnosticKind::fallback_used));
-    promote_interactive_frames(ir.root);
-    assign_anchors(ir.root, AnchorStrategy::content_hash);
-    return ir;
-}
 
 DesignIR parse_pencil_json(const std::string& json) {
     DesignIR ir;

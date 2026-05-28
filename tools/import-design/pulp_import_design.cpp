@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -112,6 +113,48 @@ std::optional<RuntimeMode> parse_runtime_mode_pref(const std::string& raw) {
     if (value == "live") return RuntimeMode::live;
     if (value == "baked") return RuntimeMode::baked;
     return std::nullopt;
+}
+
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool is_native_widget_node(const IRNode& node) {
+    if (node.audio_widget != AudioWidgetType::none) return true;
+    const auto type = lower_copy(node.type);
+    return type == "button" || type == "text_button" || type == "toggle_button" ||
+           type == "input" || type == "slider" || type == "range" ||
+           type == "knob" || type == "fader" || type == "meter" ||
+           type == "xy_pad" || type == "xypad" || type == "waveform" ||
+           type == "spectrum" || type == "textarea" || type == "text_editor" ||
+           type == "checkbox" || type == "canvas" || type == "image" ||
+           type == "img" || type == "path" || type == "svg_path" ||
+           type == "rect" || type == "svg_rect" || type == "line" ||
+           type == "svg_line";
+}
+
+struct ElementCounts {
+    size_t nodes = 0;
+    size_t text = 0;
+    size_t containers = 0;
+    size_t widgets = 0;
+};
+
+ElementCounts count_design_ir_elements(const IRNode& root) {
+    ElementCounts counts;
+    std::function<void(const IRNode&)> visit = [&](const IRNode& node) {
+        counts.nodes++;
+        const auto type = lower_copy(node.type);
+        if (is_native_widget_node(node)) counts.widgets++;
+        else if (type == "text" || type == "label" || type == "span" || type == "p") counts.text++;
+        else if (!node.children.empty() || type == "frame" || type == "view" ||
+                 type == "div" || type == "section") counts.containers++;
+        for (const auto& child : node.children) visit(child);
+    };
+    visit(root);
+    return counts;
 }
 
 fs::path pulp_home_path() {
@@ -1252,6 +1295,10 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) {
         std::cerr << "Error parsing " << design_source_name(*source) << " input: " << e.what() << "\n";
         return 1;
+    } catch (...) {
+        std::cerr << "Error parsing " << design_source_name(*source)
+                  << " input: parser threw an unknown exception\n";
+        return 1;
     }
 
     if (execute_bundle && !runtime_error.empty()) {
@@ -1335,21 +1382,13 @@ int main(int argc, char* argv[]) {
         if (!write_file(paths.source.string(), cpp.source)) return 1;
         if (!write_file(paths.binding_manifest.string(), cpp.binding_manifest)) return 1;
 
-        size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
-        std::function<void(const IRNode&)> count_nodes = [&](const IRNode& n) {
-            node_count++;
-            if (n.audio_widget != AudioWidgetType::none) widget_count++;
-            else if (n.type == "text" || n.type == "label") text_count++;
-            else if (!n.children.empty() || n.type == "frame") container_count++;
-            for (auto& c : n.children) count_nodes(c);
-        };
-        count_nodes(ir.root);
+        const auto counts = count_design_ir_elements(ir.root);
 
         std::cout << "Wrote " << paths.source.string() << ", "
                   << paths.header.string() << ", and "
-                  << paths.binding_manifest.string() << " (" << node_count << " elements: "
-                  << container_count << " containers, " << widget_count << " widgets, "
-                  << text_count << " labels, " << ir.asset_manifest.assets.size() << " asset"
+                  << paths.binding_manifest.string() << " (" << counts.nodes << " elements: "
+                  << counts.containers << " containers, " << counts.widgets << " widgets, "
+                  << counts.text << " labels, " << ir.asset_manifest.assets.size() << " asset"
                   << (ir.asset_manifest.assets.size() == 1 ? "" : "s") << ")\n";
         return 0;
     }
@@ -1440,23 +1479,15 @@ int main(int argc, char* argv[]) {
     }
 
     // Count elements by type
-    size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
-    std::function<void(const IRNode&)> count_nodes = [&](const IRNode& n) {
-        node_count++;
-        if (n.audio_widget != AudioWidgetType::none) widget_count++;
-        else if (n.type == "text" || n.type == "label") text_count++;
-        else if (!n.children.empty() || n.type == "frame") container_count++;
-        for (auto& c : n.children) count_nodes(c);
-    };
-    count_nodes(ir.root);
+    const auto counts = count_design_ir_elements(ir.root);
 
     auto t_write = std::chrono::steady_clock::now();
     if (*source == DesignSource::designmd) {
         std::cout << "DESIGN.md → tokens only (no ui.js; system spec, not screen)";
     } else {
-        std::cout << "Wrote " << output_file << " (" << node_count << " elements: "
-                  << container_count << " containers, " << widget_count << " widgets, "
-                  << text_count << " labels";
+        std::cout << "Wrote " << output_file << " (" << counts.nodes << " elements: "
+                  << counts.containers << " containers, " << counts.widgets << " widgets, "
+                  << counts.text << " labels";
     }
 
     // Write tokens (W3C DTCG by default; --format json-tailwind /
@@ -1567,14 +1598,14 @@ int main(int argc, char* argv[]) {
     // parser produces only a handful of elements AND the HTML looks
     // like a JS-bundler entry, the user almost certainly wanted to run
     // the bundle directly. Soft warning — we still wrote ui.js.
-    if (*source == DesignSource::claude && node_count <= 12 &&
+    if (*source == DesignSource::claude && counts.nodes <= 12 &&
         looks_like_bundler_entry(content)) {
         std::cerr << "\n"
                   << "Note: this HTML looks like a JS-bundler entry "
                   << "(mount-point + script tag). The static parser "
                   << "only captured the placeholder chrome ("
-                  << node_count << " element"
-                  << (node_count == 1 ? "" : "s")
+                  << counts.nodes << " element"
+                  << (counts.nodes == 1 ? "" : "s")
                   << ").\n"
                   << "      For native-react / @pulp/react bundles, run "
                   << "the bundle directly:\n"
@@ -1679,10 +1710,10 @@ int main(int argc, char* argv[]) {
         dbg << "  \"output_file\": \"" << output_file << "\",\n";
         dbg << "  \"mode\": \"" << (use_web_compat ? "web_compat" : "bridge_native_js") << "\",\n";
         dbg << "  \"elements\": {\n";
-        dbg << "    \"total\": " << node_count << ",\n";
-        dbg << "    \"containers\": " << container_count << ",\n";
-        dbg << "    \"widgets\": " << widget_count << ",\n";
-        dbg << "    \"labels\": " << text_count << "\n";
+        dbg << "    \"total\": " << counts.nodes << ",\n";
+        dbg << "    \"containers\": " << counts.containers << ",\n";
+        dbg << "    \"widgets\": " << counts.widgets << ",\n";
+        dbg << "    \"labels\": " << counts.text << "\n";
         dbg << "  },\n";
         dbg << "  \"tokens\": {\n";
         dbg << "    \"colors\": " << ir.tokens.colors.size() << ",\n";
@@ -1717,7 +1748,8 @@ int main(int argc, char* argv[]) {
             // Shapes that aren't audio widgets (not translated to Pulp widgets)
             if ((n.type == "ellipse" || n.type == "rectangle" || n.type == "path" ||
                  n.type == "polygon" || n.type == "line") &&
-                n.audio_widget == AudioWidgetType::none) {
+                n.audio_widget == AudioWidgetType::none &&
+                !is_native_widget_node(n)) {
                 if (!first_gap) dbg << ",\n";
                 first_gap = false;
                 dbg << "    {\"type\": \"" << n.type << "\", \"name\": \"" << n.name

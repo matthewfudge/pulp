@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -136,6 +137,15 @@ bool has_import_diagnostic(const std::vector<ImportDiagnostic>& diagnostics,
         if (diagnostic.code == code) return true;
     }
     return false;
+}
+
+const IRNode* find_descendant(const IRNode& node,
+                              const std::function<bool(const IRNode&)>& pred) {
+    if (pred(node)) return &node;
+    for (const auto& child : node.children) {
+        if (const auto* found = find_descendant(child, pred)) return found;
+    }
+    return nullptr;
 }
 
 const char* minimal_host_react_dom_shim() {
@@ -973,7 +983,7 @@ TEST_CASE("DesignIR diagnostic kinds parse and serialize every normalized bucket
     REQUIRE(json.find("\"severity\":\"error\"") != std::string::npos);
 }
 
-TEST_CASE("parse_v0_tsx normalizes JSON and regex fallback diagnostics",
+TEST_CASE("parse_v0_tsx normalizes JSON and unsupported-source fallback diagnostics",
           "[view][import][diagnostics]") {
     auto json_ir = parse_v0_tsx(R"json({
         "type": "frame",
@@ -988,20 +998,99 @@ TEST_CASE("parse_v0_tsx normalizes JSON and regex fallback diagnostics",
     REQUIRE(json_ir.root.confidence == IRConfidence::pass);
     REQUIRE(json_ir.root.stable_anchor_id.has_value());
 
-    auto fallback_ir = parse_v0_tsx(
-        "<div className=\"flex flex-row gap-2 bg-slate-900\">"
-        "<span className=\"text-sm\">Gain</span>"
-        "</div>");
+    auto fallback_ir = parse_v0_tsx("const gain = 0.5;");
 
     REQUIRE(fallback_ir.source == DesignSource::v0);
     REQUIRE(fallback_ir.capture_method == "adapter_parse");
     REQUIRE(fallback_ir.source_adapter == "v0-tsx");
     REQUIRE(fallback_ir.source_version == "1");
     REQUIRE(fallback_ir.root.confidence == IRConfidence::diverge);
-    REQUIRE(fallback_ir.fallback_reason.find("regex TSX class extraction") != std::string::npos);
+    REQUIRE(fallback_ir.fallback_reason.find("no supported host JSX tags") != std::string::npos);
     REQUIRE(has_import_diagnostic(fallback_ir.diagnostics, "fallback-used"));
     REQUIRE(fallback_ir.diagnostics[0].kind == ImportDiagnosticKind::fallback_used);
     REQUIRE(fallback_ir.root.stable_anchor_id.has_value());
+}
+
+TEST_CASE("parse_v0_tsx preserves inline-style host controls for baked C++",
+          "[view][import][cpp-codegen]") {
+    auto ir = parse_v0_tsx(R"tsx(
+        export default function ControlStrip() {
+            return (
+                <section style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    gap: 12,
+                    padding: 16,
+                    backgroundColor: "#101216",
+                    width: 320,
+                    height: 120
+                }}>
+                    <button
+                        aria-label="Bypass"
+                        onClick={() => setBypassed(!bypassed)}
+                        style={{ borderRadius: 6, color: "#ffffff" }}>
+                        BYP
+                    </button>
+                    <label style={{ fontSize: 11, color: "#8aa2ff" }}>GAIN</label>
+                    <input
+                        type="range"
+                        aria-label="Gain"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={0.65}
+                        style={{ width: 96, height: 18 }} />
+                    <svg width={24} height={24}>
+                        <path d="M 2 12 L 22 12" stroke="#8aa2ff" strokeWidth={2} />
+                    </svg>
+                </section>
+            );
+        }
+    )tsx");
+
+    REQUIRE(ir.source == DesignSource::v0);
+    REQUIRE(ir.root.type == "frame");
+    REQUIRE(ir.root.confidence == IRConfidence::diverge);
+    REQUIRE(has_import_diagnostic(ir.diagnostics, "capture-partial"));
+    REQUIRE_FALSE(has_import_diagnostic(ir.diagnostics, "fallback-used"));
+    REQUIRE(ir.root.name == "section");
+    REQUIRE(ir.root.layout.direction == LayoutDirection::row);
+    REQUIRE(ir.root.style.background_color.has_value());
+    REQUIRE(*ir.root.style.background_color == "#101216");
+    REQUIRE(ir.root.stable_anchor_id.has_value());
+
+    const auto* button = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "button" && node.text_content == "BYP";
+    });
+    REQUIRE(button != nullptr);
+    REQUIRE(button->style.border_radius.has_value());
+    REQUIRE(*button->style.border_radius == 6.0f);
+
+    const auto* range = find_descendant(ir.root, [](const IRNode& node) {
+        auto type = node.attributes.find("type");
+        return node.type == "input" && type != node.attributes.end() && type->second == "range";
+    });
+    REQUIRE(range != nullptr);
+    REQUIRE(range->style.width.has_value());
+    REQUIRE(*range->style.width == 96.0f);
+
+    const auto* label = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "text" && node.text_content == "GAIN";
+    });
+    REQUIRE(label != nullptr);
+    REQUIRE(label->style.font_size.has_value());
+    REQUIRE(*label->style.font_size == 11.0f);
+
+    const auto* path = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "path" && node.attributes.count("d") != 0;
+    });
+    REQUIRE(path != nullptr);
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, {});
+    REQUIRE(result.source.find("std::make_unique<pulp::view::TextButton>") != std::string::npos);
+    REQUIRE(result.source.find("std::make_unique<pulp::view::Fader>") != std::string::npos);
+    REQUIRE(result.source.find("std::make_unique<pulp::view::Label>") != std::string::npos);
+    REQUIRE(result.source.find("std::make_unique<pulp::view::SvgPathWidget>") != std::string::npos);
 }
 
 TEST_CASE("JSX snapshot dynamic API scanner detects non-deterministic APIs",

@@ -110,7 +110,7 @@ DESIGN_IMPORT_TEST="$(find_test_exe pulp-test-design-import)"
 DESIGN_IMPORT_REACT_RUNTIME_TEST="$(find_test_exe pulp-test-design-import-react-runtime)"
 WIDGET_BRIDGE_TEST="$(find_test_exe pulp-test-widget-bridge-runtime-import)"
 
-"$DESIGN_IMPORT_TEST" '[phase-6.6.6]'
+"$DESIGN_IMPORT_TEST" 'parse_pencil_json*'
 "$DESIGN_IMPORT_REACT_RUNTIME_TEST" '[phase-6.6.6]'
 "$WIDGET_BRIDGE_TEST" '[phase-6.6.6]'
 
@@ -136,7 +136,7 @@ SCREENSHOT_BIN="$(find_tool_exe tools/screenshot/pulp-screenshot)"
 TMP_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/pulp-pencil-runtime.XXXXXX.js")"
 trap 'rm -f "$TMP_SCRIPT"' EXIT
 PULP_PENCIL_RUNTIME_JS_OUT="$TMP_SCRIPT" \
-  "$DESIGN_IMPORT_TEST" 'parse_pencil_react runtime bundle materializes with host React shim'
+  "$DESIGN_IMPORT_REACT_RUNTIME_TEST" 'parse_pencil_react runtime bundle materializes with host React shim'
 
 mkdir -p "$(dirname "$OUT")"
 "$SCREENSHOT_BIN" \
