@@ -173,8 +173,17 @@ if [[ "${PULP_IOS_AUV3_SMOKE_BUILD:-1}" == "1" ]]; then
     # docs/getting-started/ios-deployment.md.
     hostapp_log="${build_dir}/hostapp_build.log"
     set +e
+    # Build the HostApp ALL group instead of just the bare HostApp
+    # target — `pulp_add_ios_host_app()` registers a sibling
+    # `<HostApp>_Embed` custom target via `add_custom_target(...
+    # ALL DEPENDS sentinel)` that copies the .appex into
+    # `<HostApp>.app/PlugIns/`. Driving only `--target PulpSineSynth_HostApp`
+    # skips the embed step and leaves a HostApp .app without an embedded
+    # AUv3 extension (the user can't deploy that to their iPad). Build
+    # both targets so the bundle is complete.
     "${timeout_cmd[@]}" cmake --build "${build_dir}/build" \
         --target PulpSineSynth_HostApp \
+        --target PulpSineSynth_HostApp_Embed \
         --config Release \
         -- -sdk iphonesimulator \
         >"${hostapp_log}" 2>&1
