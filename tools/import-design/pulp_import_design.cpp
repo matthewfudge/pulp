@@ -1122,7 +1122,8 @@ int main(int argc, char* argv[]) {
     std::string runtime_error;  // captures --execute-bundle fallback reason
     try {
         switch (*source) {
-            case DesignSource::figma:  ir = parse_figma_json(content); break;
+            case DesignSource::figma:        ir = parse_figma_json(content); break;
+            case DesignSource::figma_plugin: ir = parse_figma_plugin_json(content); break;
             case DesignSource::stitch: ir = parse_stitch_html(content); break;
             case DesignSource::v0:     ir = parse_v0_tsx(content); break;
             case DesignSource::pencil: ir = parse_pencil_json(content); break;

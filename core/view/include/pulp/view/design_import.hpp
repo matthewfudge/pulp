@@ -29,9 +29,10 @@ enum class DesignSource {
     stitch,
     v0,
     pencil,
-    claude,   // Anthropic Claude Design — manual HTML/zip export, no Anthropic API
-    designmd, // Google DESIGN.md (Apache-2.0) — YAML frontmatter + Markdown body
-    jsx       // Single-file React JSX instrument — compiled via esbuild + bundled React/ReactDOM
+    claude,       // Anthropic Claude Design — manual HTML/zip export, no Anthropic API
+    designmd,     // Google DESIGN.md (Apache-2.0) — YAML frontmatter + Markdown body
+    jsx,          // Single-file React JSX instrument — compiled via esbuild + bundled React/ReactDOM
+    figma_plugin  // Pulp's "Design for Pulp" Figma plugin export envelope (planning/2026-05-28-pulp-figma-plugin-strategy.md)
 };
 
 /// Convert string to DesignSource, returns nullopt for unknown sources.
@@ -376,6 +377,13 @@ SnapshotDynamicApiScan detect_jsx_snapshot_dynamic_apis(std::string_view source)
 
 /// Parse a Figma export JSON into a DesignIR.
 DesignIR parse_figma_json(const std::string& json);
+
+/// Parse the v1 envelope emitted by the "Design for Pulp" Figma plugin
+/// (tools/figma-plugin/schema/figma-plugin-export-v1.json). Unwraps the
+/// envelope-level metadata (provenance, format_version) and delegates the
+/// node tree to parse_ir_node, which already accepts both snake_case and
+/// camelCase aliases.
+DesignIR parse_figma_plugin_json(const std::string& json);
 
 /// Parse Stitch HTML export into a DesignIR.
 DesignIR parse_stitch_html(const std::string& html);

@@ -39,6 +39,7 @@ std::optional<DesignSource> parse_design_source(const std::string& name) {
     if (name == "claude")   return DesignSource::claude;
     if (name == "designmd") return DesignSource::designmd;
     if (name == "jsx")      return DesignSource::jsx;
+    if (name == "figma-plugin" || name == "figma_plugin") return DesignSource::figma_plugin;
     return std::nullopt;
 }
 
@@ -50,7 +51,8 @@ const char* design_source_name(DesignSource source) {
         case DesignSource::pencil:   return "Pencil";
         case DesignSource::claude:   return "Claude Design";
         case DesignSource::designmd: return "DESIGN.md";
-        case DesignSource::jsx:      return "JSX instrument";
+        case DesignSource::jsx:          return "JSX instrument";
+        case DesignSource::figma_plugin: return "Figma plugin export";
     }
     return "unknown";
 }
@@ -665,7 +667,7 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
     // ID under one of these field names; first non-empty wins. Sources
     // without native IDs (Stitch HTML, v0 TSX, Claude HTML) leave this
     // empty and fall through to the content-hash strategy.
-    for (const char* k : {"id", "nodeId", "node_id", "source_node_id", "sourceNodeId"}) {
+    for (const char* k : {"id", "nodeId", "node_id", "source_node_id", "sourceNodeId", "figma_node_id", "figmaNodeId"}) {
         if (!obj.hasObjectMember(k)) continue;
         auto v = obj[k];
         if (!v.isString()) continue;
@@ -2532,6 +2534,59 @@ void refresh_design_ir_asset_manifest(DesignIR& ir,
 }
 
 // ── Source adapters ─────────────────────────────────────────────────────
+
+DesignIR parse_figma_plugin_json(const std::string& json) {
+    // Envelope shape (planning/2026-05-28-pulp-figma-plugin-strategy.md §7.2):
+    //   { format_version, parser_version, compat_schema_version,
+    //     provenance: {adapter, version, source_uri, exported_at},
+    //     library_manifest?: {...},
+    //     tokens?: {colors,dimensions,strings},
+    //     asset_manifest?: {version, assets[]},
+    //     diagnostics?: [...],
+    //     root: <IRNode-shaped> }
+    DesignIR ir;
+    ir.source = DesignSource::figma_plugin;
+    ir.capture_method = "adapter_parse";
+    ir.source_adapter = "figma-plugin";
+
+    auto parsed = choc::json::parse(json);
+
+    if (parsed.hasObjectMember("parser_version") && parsed["parser_version"].isString()) {
+        ir.source_version = std::string(parsed["parser_version"].toString());
+    } else {
+        ir.source_version = "0.1.0";
+    }
+
+    if (parsed.hasObjectMember("root")) {
+        ir.root = parse_ir_node(parsed["root"]);
+    } else {
+        // Defensive fallback — treat the whole document as the root.
+        ir.root = parse_ir_node(parsed);
+    }
+
+    if (parsed.hasObjectMember("tokens"))
+        ir.tokens = parse_ir_tokens(parsed["tokens"]);
+
+    IRProvenance provenance{"figma-plugin", ir.source_version, {}};
+    if (parsed.hasObjectMember("provenance") && parsed["provenance"].isObject()) {
+        auto pr = parsed["provenance"];
+        if (pr.hasObjectMember("adapter") && pr["adapter"].isString())
+            provenance.adapter = std::string(pr["adapter"].toString());
+        if (pr.hasObjectMember("version") && pr["version"].isString())
+            provenance.version = std::string(pr["version"].toString());
+        if (pr.hasObjectMember("source_uri") && pr["source_uri"].isString())
+            provenance.source_uri = std::string(pr["source_uri"].toString());
+        else if (pr.hasObjectMember("sourceUri") && pr["sourceUri"].isString())
+            provenance.source_uri = std::string(pr["sourceUri"].toString());
+    }
+    ir.root.provenance = std::move(provenance);
+    ir.root.confidence = IRConfidence::pass;
+
+    promote_interactive_frames(ir.root);
+    assign_anchors(ir.root, AnchorStrategy::adapter, "figma-plugin");
+
+    return ir;
+}
 
 DesignIR parse_figma_json(const std::string& json) {
     DesignIR ir;
