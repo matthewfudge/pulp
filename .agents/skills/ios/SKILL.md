@@ -402,6 +402,57 @@ absent, the iOS HostApp link smoke
 (`test/cmake/test_ios_hostapp_links.sh`) is the canonical local
 reproducer.
 
+### `add_compile_options(-Wall ...)` must be gated to C/C++/ObjC languages
+
+The Swift driver rejects clang's `-Wall` / `-Wextra` / `-Wpedantic`
+flags with `Driver threw unknown argument: '-Wall' without emitting
+errors`. The root `CMakeLists.txt` adds these via `add_compile_options`,
+which (without a language genex) attaches them to **every** language in
+the build — including any Swift target like the iOS HostApp's
+`PulpHostApp.swift`. Always wrap with
+`$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wall>` etc. so Swift sees
+only the flags it understands.
+
+### iOS deployment target must be ≥ 16.3 for `std::format`
+
+The iPhoneSimulator26.x SDK's libc++ marks `std::to_chars` for floating-
+point types as `introduced in iOS 16.3 simulator`. `std::format`
+unconditionally instantiates `to_chars` for `float` / `double` / `long
+double` as part of its formatter type list, so any TU that includes
+`<pulp/runtime/log.hpp>` (which uses `std::format`) fails to compile if
+the active `IPHONEOS_DEPLOYMENT_TARGET` is below 16.3 — even when the
+caller passes only strings. `pulp_add_ios_auv3()` and
+`pulp_add_ios_host_app()` both default to the user-supplied
+`CMAKE_OSX_DEPLOYMENT_TARGET` when present, otherwise pin to `16.3`.
+Don't lower either floor below 16.3 unless `std::format` is removed
+from `core/runtime/log.hpp` first.
+
+### iOS link line: don't link `CoreAudioTypes` standalone
+
+On macOS, `CoreAudioTypes` ships as
+`/System/Library/Frameworks/CoreAudioTypes.framework`. On iOS it
+**does not exist as a top-level framework** — the same headers ship
+inside `AudioToolbox.framework`. Linking it standalone fails with
+`framework 'CoreAudioTypes' not found` on `iphonesimulator26.x`.
+Link `AudioToolbox` only; the `AudioComponentDescription` /
+`AVAudioUnitComponent` types resolve through that.
+
+### `FileDialog` / `PopupMenu` stubs must compile on iOS
+
+`core/platform/src/file_dialog_stub.cpp` defines
+`FileDialog::open_file` / `save_file` / `choose_folder` under
+`#if !defined(__APPLE__)` and `core/platform/src/popup_menu_stub.cpp`
+defines `PopupMenu::show` / `show_at_view` under the same guard.
+macOS has native impls in `file_dialog_mac.mm` / `popup_menu_mac.mm`;
+iOS has neither (UIDocumentPicker + UIMenu wiring are
+follow-ups). Without an explicit iOS branch the link step fails on
+`Undefined symbols` for any iOS bundle that pulls `pulp-view-core`
+(WidgetBridge wires both into the JS bridge). The fix is to widen the
+`#if` to also include iOS:
+`#if !defined(__APPLE__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)`.
+Callers see `nullopt` / empty results — honest "unsupported" signaling
+— until the native UIDocumentPicker impl lands.
+
 ### `PulpAUViewController::dealloc` — never call `_bridge->close()` explicitly
 
 Touched here because `core/format/src/au_view_controller_ios.mm` is dual-owned by `ios` + `auv3` + `view-bridge`. The view controller's ivars are declared `_bridge`, `_fallbackView`, `_viewHost` (the GPU-plugin-view-host work reordered them — see below) and destroyed in REVERSE declaration order, so `_viewHost` is destroyed FIRST. That makes `root_.set_plugin_view_host(nullptr)` / `set_frame_clock(nullptr)` in `~PluginViewHost` safe on BOTH paths (the bridge's view and the `_fallbackView` are still alive). Calling `_bridge->close()` explicitly in `dealloc` reverses that order, frees the View first, and the host's destructor then dereferences a dangling reference — crashes AUv3 editor close. Full rationale lives in the `auv3` skill under "PulpAUViewController::dealloc — never call `_bridge->close()` explicitly".
