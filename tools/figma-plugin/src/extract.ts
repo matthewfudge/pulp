@@ -72,7 +72,7 @@ export async function extractScene(
     const n = nodes[i];
     if (ctx.truncated) break;
     ctx.pathStack.push(`/root[${i}]`);
-    const extracted = await walk(n, null, i, ctx);
+    const extracted = await walk(n, null, i, ctx, null);
     ctx.pathStack.pop();
     if (extracted) roots.push(extracted);
   }
@@ -100,11 +100,23 @@ interface WalkCtx {
   tokens: ExtractedTokens;
 }
 
+/// Whether the parent uses auto-layout (flex). When false, children need
+/// position:absolute + top/left to reproduce the Figma layout.
+function parentIsAutoLayout(parent: SceneNode | null): boolean {
+  if (!parent) return false;
+  if (parent.type !== "FRAME" && parent.type !== "COMPONENT" && parent.type !== "INSTANCE" && parent.type !== "COMPONENT_SET") {
+    return false;
+  }
+  const mode = (parent as FrameNode).layoutMode;
+  return mode === "HORIZONTAL" || mode === "VERTICAL";
+}
+
 async function walk(
   node: SceneNode,
   parentId: string | null,
   zOrder: number,
   ctx: WalkCtx,
+  parent: SceneNode | null = null,
 ): Promise<ExtractedFigmaNode | null> {
   if (ctx.truncated) return null;
   if (!ctx.cfg.includeHidden && "visible" in node && node.visible === false) {
@@ -141,6 +153,14 @@ async function walk(
     layout: extractLayout(node, ctx),
     children: [],
   };
+
+  // Position: if parent has no auto-layout, child needs absolute positioning.
+  // Figma's x/y are relative to the parent's coordinate space.
+  if (!parentIsAutoLayout(parent) && "x" in node && "y" in node && parent !== null) {
+    ex.style.position = "absolute";
+    ex.style.left = node.x;
+    ex.style.top = node.y;
+  }
 
   // Text content + dominant style
   if (node.type === "TEXT") {
@@ -222,7 +242,7 @@ async function walk(
     const children = (node as ChildrenMixin).children;
     for (let i = 0; i < children.length; i++) {
       ctx.pathStack.push(`/children[${i}]`);
-      const child = await walk(children[i], node.id, i, ctx);
+      const child = await walk(children[i], node.id, i, ctx, node);
       ctx.pathStack.pop();
       if (child) ex.children.push(child);
     }
