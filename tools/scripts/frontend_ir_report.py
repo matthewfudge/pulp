@@ -17,6 +17,7 @@ ROUTE_HYBRID = "hybrid"
 ROUTE_UNSUPPORTED = "unsupported"
 ROUTES = {ROUTE_LIVE_JS, "native_html", ROUTE_NATIVE_CPP, "recorded_paint", ROUTE_HYBRID, ROUTE_UNSUPPORTED}
 NATIVE_ROUTES = {"native_html", ROUTE_NATIVE_CPP, "recorded_paint"}
+SOURCE_TRUTHS = {"archived_fixture", "local_file", "mcp_payload", "generated", "runtime_capture"}
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
 
@@ -57,6 +58,15 @@ def validate_artifact_ref(value: Any, field: str) -> None:
     validate_sha(value.get("sha256"), f"{field}.sha256")
 
 
+def validate_source_span(value: Any, field: str) -> None:
+    expect(isinstance(value, dict), f"{field} must be an object")
+    expect(isinstance(value.get("node_id"), str) and bool(value["node_id"]), f"{field}.node_id must be a string")
+    expect(isinstance(value.get("path"), str) and bool(value["path"]), f"{field}.path must be a string")
+    for key in ("line", "column", "end_line", "end_column"):
+        if key in value:
+            expect(is_positive_int(value[key]), f"{field}.{key} must be a positive integer")
+
+
 def validate_frontend_ir(report: dict[str, Any]) -> None:
     expect(report.get("schema") == "pulp-frontend-ir-v0", "schema must be pulp-frontend-ir-v0")
     for key in ("source", "design_ir", "nodes", "routes", "validation"):
@@ -66,10 +76,13 @@ def validate_frontend_ir(report: dict[str, Any]) -> None:
     expect(isinstance(source, dict), "source must be an object")
     expect(source.get("kind") in {"jsx", "html", "design_json", "runtime_snapshot", "pulp_js"}, "source.kind is invalid")
     expect(isinstance(source.get("path"), str), "source.path must be a string")
-    expect(source.get("source_of_truth") in {"archived_fixture", "local_file", "mcp_payload", "generated", "runtime_capture"},
-           "source.source_of_truth is invalid")
+    expect(source.get("source_of_truth") in SOURCE_TRUTHS, "source.source_of_truth is invalid")
     validate_sha(source.get("sha256"), "source.sha256")
     validate_count_map(source.get("counts"), "source.counts")
+    if "spans" in source:
+        expect(isinstance(source["spans"], list), "source.spans must be an array")
+        for index, span in enumerate(source["spans"]):
+            validate_source_span(span, f"source.spans[{index}]")
 
     validate_artifact_ref(report["design_ir"], "design_ir")
     if "route_manifest" in report:
@@ -83,6 +96,8 @@ def validate_frontend_ir(report: dict[str, Any]) -> None:
                f"nodes[{index}].semantic_role is required")
         expect(isinstance(node.get("style"), dict), f"nodes[{index}].style must be an object")
         expect(isinstance(node.get("state"), dict), f"nodes[{index}].state must be an object")
+        if "source_span" in node:
+            validate_source_span(node["source_span"], f"nodes[{index}].source_span")
 
     expect(isinstance(report["routes"], list), "routes must be an array")
     for index, route in enumerate(report["routes"]):
@@ -135,6 +150,8 @@ def route_name(value: str | None) -> str:
         return ROUTE_NATIVE_CPP
     if normalized in {ROUTE_LIVE_JS, "live", "runtime_js"}:
         return ROUTE_LIVE_JS
+    if normalized in {"native_html", "native_layout", "native_tree", "native_element"}:
+        return "native_html"
     if normalized == ROUTE_HYBRID:
         return ROUTE_HYBRID
     if normalized in {"recorded", "recorded_paint", "native_custom_paint"}:
@@ -153,7 +170,43 @@ def source_kind(path: str) -> str:
     return "pulp_js"
 
 
-def count_map(source_audit: dict[str, Any]) -> dict[str, int]:
+def normalize_source_of_truth(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        return "local_file"
+    if value in SOURCE_TRUTHS:
+        return value
+    if value in {"archived_corpus_fixture", "archived_fixture_file"}:
+        return "archived_fixture"
+    return "local_file"
+
+
+def route_rows(route_manifest: dict[str, Any]) -> list[Any]:
+    overlay = route_manifest.get("source_contract_overlay", {})
+    if not isinstance(overlay, dict):
+        return []
+    rows = overlay.get("node_route_rows")
+    if isinstance(rows, list) and rows:
+        return rows
+    fallback_rows = overlay.get("route_rows")
+    if isinstance(fallback_rows, list):
+        return fallback_rows
+    return rows if isinstance(rows, list) else []
+
+
+def row_node_id(row: dict[str, Any], index: int) -> str:
+    value = row.get("id")
+    if isinstance(value, str) and value:
+        return value
+    stable = row.get("stable_source_path")
+    if isinstance(stable, str) and stable:
+        return stable
+    family = semantic_role(row)
+    line = row.get("source_line")
+    suffix = f"{family}.{line}" if is_positive_int(line) else family
+    return f"row.{index}.{suffix}"
+
+
+def count_map(source_audit: dict[str, Any], rows: list[Any] | None = None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for key in ("lines", "bytes"):
         value = source_audit.get(key)
@@ -176,6 +229,39 @@ def count_map(source_audit: dict[str, Any]) -> dict[str, int]:
     if isinstance(component_props, dict):
         counts["component_prop_names"] = sum(
             len(value) for value in component_props.values() if isinstance(value, list)
+        )
+
+    list_count_keys = {
+        "componentInvocationProps": "component_invocation_rows",
+        "bindings": "binding_rows",
+        "styleKeys": "style_keys",
+        "parameterStateKeys": "parameter_state_keys",
+    }
+    for source_key, count_key in list_count_keys.items():
+        value = source_audit.get(source_key)
+        if isinstance(value, list):
+            counts[count_key] = len(value)
+
+    for dict_key, prefix in (
+        ("expandedRuntimeSurface", "runtime_surface"),
+        ("expandedSvgEstimate", "expanded_svg"),
+    ):
+        values = source_audit.get(dict_key, {})
+        if isinstance(values, dict):
+            for key, value in values.items():
+                if isinstance(key, str) and is_non_negative_int(value):
+                    counts[f"{prefix}_{key}"] = value
+
+    if rows is not None:
+        contract_rows = [row for row in rows if isinstance(row, dict)]
+        counts["source_contract_rows"] = len(contract_rows)
+        counts["source_contract_rows_with_source_span"] = sum(
+            1 for row in contract_rows if isinstance(row.get("stable_source_path"), str) and row["stable_source_path"]
+        )
+        counts["source_contract_state_contracts"] = sum(
+            len(row.get("state_contracts", []))
+            for row in contract_rows
+            if isinstance(row.get("state_contracts"), list)
         )
 
     return counts
@@ -222,6 +308,8 @@ def primitive_counts(rows: list[Any]) -> dict[str, int]:
             counts["with_event_contracts"] = counts.get("with_event_contracts", 0) + 1
         if row.get("gesture_contracts"):
             counts["with_gesture_contracts"] = counts.get("with_gesture_contracts", 0) + 1
+        if row.get("state_contracts"):
+            counts["with_state_contracts"] = counts.get("with_state_contracts", 0) + 1
         if row.get("style_token_references"):
             counts["with_style_token_references"] = counts.get("with_style_token_references", 0) + 1
     return counts
@@ -242,18 +330,55 @@ def dynamic_risks(counts: dict[str, int]) -> list[str]:
     return risks
 
 
-def source_span(row: dict[str, Any]) -> dict[str, Any] | None:
+def source_span(row: dict[str, Any], node_id: str | None = None) -> dict[str, Any] | None:
     path = row.get("stable_source_path")
     if not isinstance(path, str) or not path:
         return None
     span: dict[str, Any] = {
-        "node_id": str(row.get("id", "")),
+        "node_id": node_id or str(row.get("id", "")),
         "path": path,
     }
     line = row.get("source_line")
     if is_positive_int(line):
         span["line"] = line
     return span
+
+
+def source_spans(source_audit: dict[str, Any], rows: list[Any], source_path: str) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        span = source_span(row, row_node_id(row, index))
+        if span:
+            spans.append(span)
+
+    for source_key, prefix in (
+        ("componentInvocationProps", "component"),
+        ("bindings", "binding"),
+    ):
+        if not source_path:
+            break
+        entries = source_audit.get(source_key, [])
+        if not isinstance(entries, list):
+            continue
+        for index, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            line = entry.get("line")
+            if not is_positive_int(line):
+                continue
+            label = entry.get("name") or entry.get("param") or prefix
+            if not isinstance(label, str):
+                label = prefix
+            spans.append({
+                "node_id": f"{prefix}.{index}.{label}",
+                "path": source_path,
+                "line": line,
+                "label": label,
+            })
+
+    return spans
 
 
 def support_for_route(route: str) -> dict[str, str]:
@@ -326,10 +451,20 @@ def state_for_row(row: dict[str, Any]) -> dict[str, Any]:
     if isinstance(label, str) and label:
         derived["label"] = label
 
+    local_ui = {}
+    for contract in row.get("state_contracts", []) or []:
+        if not isinstance(contract, dict):
+            continue
+        state_key = contract.get("state_key")
+        if not isinstance(state_key, str) or not state_key:
+            continue
+        kind = contract.get("kind")
+        local_ui[state_key] = kind if isinstance(kind, str) and kind else "state"
+
     return {
         "parameters": parameters,
         "meters": [],
-        "local_ui": {},
+        "local_ui": local_ui,
         "derived": derived,
         "dynamic_risk": [],
     }
@@ -347,12 +482,10 @@ def semantic_role(row: dict[str, Any]) -> str:
 
 def nodes_from_rows(rows: list[Any]) -> list[dict[str, Any]]:
     nodes = []
-    for row in rows:
+    for index, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        node_id = row.get("id")
-        if not isinstance(node_id, str) or not node_id:
-            continue
+        node_id = row_node_id(row, index)
         node: dict[str, Any] = {
             "id": node_id,
             "semantic_role": semantic_role(row),
@@ -360,7 +493,7 @@ def nodes_from_rows(rows: list[Any]) -> list[dict[str, Any]]:
             "state": state_for_row(row),
             "resources": [],
         }
-        span = source_span(row)
+        span = source_span(row, node_id)
         if span:
             node["source_span"] = span
         nodes.append(node)
@@ -369,12 +502,10 @@ def nodes_from_rows(rows: list[Any]) -> list[dict[str, Any]]:
 
 def routes_from_rows(rows: list[Any]) -> list[dict[str, Any]]:
     routes = []
-    for row in rows:
+    for index, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        node_id = row.get("id")
-        if not isinstance(node_id, str) or not node_id:
-            continue
+        node_id = row_node_id(row, index)
         chosen = route_name(row.get("route_type"))
         fallback = row.get("fallback_reason")
         route: dict[str, Any] = {
@@ -447,9 +578,7 @@ def build_frontend_ir(
     overlay = route_manifest.get("source_contract_overlay", {})
     if not isinstance(overlay, dict):
         overlay = {}
-    rows = overlay.get("node_route_rows", [])
-    if not isinstance(rows, list):
-        rows = []
+    rows = route_rows(route_manifest)
 
     source_jsx = route_manifest.get("inputs", {}).get("sourceJsx", {})
     if not isinstance(source_jsx, dict):
@@ -458,17 +587,21 @@ def build_frontend_ir(
     if not isinstance(source_path, str):
         source_path = ""
 
-    counts = count_map(source_audit)
+    counts = count_map(source_audit, rows)
     nodes = nodes_from_rows(rows)
     source_of_truth = overlay.get("source", {}).get("source_of_truth")
-    if not isinstance(source_of_truth, str) or not source_of_truth:
-        source_of_truth = "local_file"
+    source_of_truth = normalize_source_of_truth(source_of_truth)
 
     design_ref = artifact_ref_from_manifest(route_manifest, "ir", "design_ir") or {
         "path": "",
         "kind": "design_ir",
     }
     design_ref.setdefault("schema", "pulp-design-ir-v1")
+    notes = [
+        "frontend-ir v0 wraps existing import evidence; compile and binary audits must be supplied by route validators before production gating."
+    ]
+    if not design_ref.get("path"):
+        notes.append("route manifest did not provide a DesignIR artifact; this report covers source and route evidence only.")
 
     report: dict[str, Any] = {
         "schema": "pulp-frontend-ir-v0",
@@ -479,6 +612,7 @@ def build_frontend_ir(
             "source_of_truth": source_of_truth,
             "counts": counts,
             "dynamic_risks": dynamic_risks(counts),
+            "spans": source_spans(source_audit, rows, source_path),
         },
         "design_ir": design_ref,
         "route_manifest": {
@@ -511,9 +645,7 @@ def build_frontend_ir(
                 "js_engine_present": bool(route_manifest.get("route_metrics", {}).get("js_engine_initialized", False)),
             },
             "screenshots": [],
-            "notes": [
-                "frontend-ir v0 wraps existing import evidence; compile and binary audits must be supplied by route validators before production gating."
-            ],
+            "notes": notes,
         },
     }
     sha = source_jsx.get("sha256")
@@ -525,13 +657,13 @@ def build_frontend_ir(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--route-manifest", required=True, type=pathlib.Path)
-    parser.add_argument("--source-audit", required=True, type=pathlib.Path)
+    parser.add_argument("--source-audit", type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path.cwd())
     args = parser.parse_args(argv)
 
     route_manifest = load_json(args.route_manifest)
-    source_audit = load_json(args.source_audit)
+    source_audit = load_json(args.source_audit) if args.source_audit else {}
     report = build_frontend_ir(route_manifest, source_audit, args.route_manifest, args.repo_root)
     validate_frontend_ir(report)
     write_json(args.output, report)

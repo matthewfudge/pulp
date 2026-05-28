@@ -99,9 +99,17 @@ class FrontendIrReportTests(unittest.TestCase):
             "componentInvocationTemplates": {
                 "Knob": 1,
             },
+            "componentInvocationProps": [
+                {
+                    "name": "Knob",
+                    "line": 10,
+                    "props": ["value", "onChange"],
+                }
+            ],
             "componentProps": {
                 "Knob": ["value", "onChange"],
             },
+            "styleKeys": ["width", "background"],
         }
 
         report = fir.build_frontend_ir(
@@ -123,11 +131,15 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertEqual(report["nodes"][0]["id"], "knob.1")
         self.assertEqual(report["nodes"][0]["semantic_role"], "knob")
         self.assertEqual(report["nodes"][0]["source_span"]["line"], 10)
+        self.assertEqual(report["source"]["spans"][0]["node_id"], "knob.1")
         self.assertEqual(report["nodes"][0]["state"]["parameters"][0]["id"], "gain")
         self.assertEqual(report["routes"][0]["chosen_route"], "native_cpp")
         self.assertFalse(report["routes"][0]["requires_js_engine"])
         self.assertIn("validation_refs", report["routes"][0])
         self.assertEqual(report["validation"]["source_counts"]["component_invocations"], 1)
+        self.assertEqual(report["validation"]["source_counts"]["component_invocation_rows"], 1)
+        self.assertEqual(report["validation"]["source_counts"]["style_keys"], 2)
+        self.assertEqual(report["validation"]["source_counts"]["source_contract_rows"], 1)
         self.assertEqual(report["validation"]["style_counts"]["supported"], 2)
         self.assertEqual(report["validation"]["route_counts"]["nodes_total"], 9)
         self.assertEqual(report["validation"]["route_counts"]["route_rows_total"], 1)
@@ -140,6 +152,68 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertEqual(report["validation"]["primitive_counts"]["with_parameter_bindings"], 1)
         self.assertEqual(report["validation"]["primitive_counts"]["with_event_contracts"], 1)
         self.assertTrue(report["validation"]["binary_dependencies"]["js_engine_present"])
+        fir.validate_frontend_ir(report)
+
+    def test_builds_report_from_corpus_route_rows_without_explicit_node_ids(self) -> None:
+        route_manifest = {
+            "schema": "pulp-native-ui-source-node-route-manifest-v1",
+            "fixture": "fixture-corpus",
+            "inputs": {
+                "sourceJsx": {
+                    "path": "fixtures/Compressor.tsx",
+                    "sha256": "c" * 64,
+                },
+            },
+            "source_contract_overlay": {
+                "source": {
+                    "source_of_truth": "archived_corpus_fixture",
+                },
+                "route_rows": [
+                    {
+                        "stable_source_path": "fixtures/Compressor.tsx:24:section[0]",
+                        "source_component_family": "section",
+                        "source_component_name": "section",
+                        "source_line": 24,
+                        "route_type": "native_layout",
+                        "required_native_primitive": "layout",
+                        "confidence": 0.75,
+                    },
+                    {
+                        "stable_source_path": "fixtures/Compressor.tsx:48:input[0]",
+                        "source_component_family": "input[type=range]",
+                        "source_component_name": "input",
+                        "source_line": 48,
+                        "route_type": "native_cpp",
+                        "required_native_primitive": "fader",
+                        "state_contracts": [
+                            {
+                                "kind": "set_state_from_event_value",
+                                "state_key": "threshold",
+                            }
+                        ],
+                        "confidence": 0.85,
+                    },
+                ],
+            },
+        }
+
+        report = fir.build_frontend_ir(
+            route_manifest,
+            {},
+            pathlib.Path("/repo/reports/route.json"),
+            pathlib.Path("/repo"),
+        )
+
+        self.assertEqual(report["source"]["source_of_truth"], "archived_fixture")
+        self.assertEqual(report["nodes"][0]["id"], "fixtures/Compressor.tsx:24:section[0]")
+        self.assertEqual(report["routes"][0]["chosen_route"], "native_html")
+        self.assertEqual(report["routes"][1]["chosen_route"], "native_cpp")
+        self.assertEqual(report["nodes"][1]["state"]["local_ui"]["threshold"], "set_state_from_event_value")
+        self.assertEqual(report["validation"]["source_counts"]["source_contract_rows"], 2)
+        self.assertEqual(report["validation"]["route_counts"]["route_rows_native_html"], 1)
+        self.assertEqual(report["validation"]["primitive_counts"]["primitive_layout"], 1)
+        self.assertEqual(report["validation"]["primitive_counts"]["with_state_contracts"], 1)
+        self.assertIn("did not provide a DesignIR", " ".join(report["validation"]["notes"]))
         fir.validate_frontend_ir(report)
 
     def test_boolean_values_are_not_numeric_evidence(self) -> None:
@@ -196,12 +270,12 @@ class FrontendIrReportTests(unittest.TestCase):
     def test_route_name_normalizes_native_host_and_custom_paint_routes(self) -> None:
         self.assertEqual(fir.route_name("native_host_service"), "native_cpp")
         self.assertEqual(fir.route_name("native_custom_paint"), "recorded_paint")
+        self.assertEqual(fir.route_name("native_layout"), "native_html")
 
     def test_cli_writes_deterministic_json(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             route_manifest_path = root / "reports/route.json"
-            source_audit_path = root / "reports/source.json"
             output_path = root / "reports/frontend-ir.json"
             write_json(
                 route_manifest_path,
@@ -217,18 +291,10 @@ class FrontendIrReportTests(unittest.TestCase):
                     },
                 },
             )
-            write_json(
-                source_audit_path,
-                {
-                    "sourceTemplateCounts": {},
-                },
-            )
 
             rc = fir.main([
                 "--route-manifest",
                 str(route_manifest_path),
-                "--source-audit",
-                str(source_audit_path),
                 "--output",
                 str(output_path),
                 "--repo-root",
