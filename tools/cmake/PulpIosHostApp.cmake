@@ -222,7 +222,11 @@ function(pulp_add_ios_host_app target)
         "-framework SwiftUI"
         "-framework AVFoundation"
         "-framework AudioToolbox"
-        "-framework CoreAudioTypes"
+        # CoreAudioTypes is NOT a separate framework on iOS — the symbols
+        # come from CoreAudio (auto-pulled by AudioToolbox + AVFoundation).
+        # Listing `-framework CoreAudioTypes` on iOS fails the link with
+        # `ld: framework 'CoreAudioTypes' not found`. On macOS it exists
+        # as an umbrella header but AudioToolbox is sufficient there too.
     )
 
     # ── Embed the .appex into Contents/PlugIns ──────────────────────────
