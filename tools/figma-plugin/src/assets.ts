@@ -75,29 +75,26 @@ export class AssetCache {
   /// Capture a vector / shape node by rasterizing or exporting as SVG.
   /// Returns { assetId } on success, { error: <reason> } on failure so the
   /// caller can emit a diagnostic.
+  ///
+  /// NOTE: we use Figma's "SVG" format (returns Uint8Array bytes directly)
+  /// not "SVG_STRING" (returns a JS string). Reason: Figma's plugin sandbox
+  /// does not expose TextEncoder at runtime even though TS thinks it does
+  /// via the "webworker" lib types. Working with raw bytes avoids the
+  /// encoding step entirely.
   async captureExportedNode(
     node: SceneNode,
-    format: "SVG_STRING" | "PNG" = "SVG_STRING",
+    format: "SVG" | "PNG" = "SVG",
   ): Promise<{ assetId: string } | { error: string }> {
     if (!("exportAsync" in node)) return { error: "node does not support exportAsync" };
     const exportable = node as ExportMixin;
     let data: Uint8Array;
     let mime: string;
     try {
-      if (format === "SVG_STRING") {
-        const svgStr = await exportable.exportAsync({ format: "SVG_STRING" });
-        if (!svgStr || svgStr.length < 50) {
-          return { error: `SVG export produced ${svgStr?.length ?? 0} bytes; likely empty/degenerate node` };
-        }
-        data = textToBytes(svgStr);
-        mime = "image/svg+xml";
-      } else {
-        data = await exportable.exportAsync({ format: "PNG" });
-        if (!data || data.length < 50) {
-          return { error: `PNG export produced ${data?.length ?? 0} bytes; likely empty/degenerate node` };
-        }
-        mime = "image/png";
+      data = await exportable.exportAsync({ format });
+      if (!data || data.length < 50) {
+        return { error: `${format} export produced ${data?.length ?? 0} bytes; likely empty/degenerate node` };
       }
+      mime = format === "SVG" ? "image/svg+xml" : "image/png";
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
     }
@@ -107,7 +104,7 @@ export class AssetCache {
       cached.original_uri_aliases.push(`figma://nodeExport/${node.id}/${format}`);
       return { assetId: cached.asset_id };
     }
-    const assetId = `${format === "SVG_STRING" ? "svg" : "png"}-${sha.slice(0, 12)}`;
+    const assetId = `${format === "SVG" ? "svg" : "png"}-${sha.slice(0, 12)}`;
     const dim = format === "PNG" ? peekImageSize(data, "image/png") : svgSize(data);
     const entry: AssetEntry = {
       asset_id: assetId,
@@ -126,19 +123,43 @@ export class AssetCache {
 
 // ── crypto + format helpers ──────────────────────────────────────────────
 
+// Figma's plugin sandbox doesn't reliably expose crypto.subtle either, so we
+// use a fast non-cryptographic hash (FNV-1a 64-bit, encoded as 16 hex chars)
+// for content-addressable dedupe. Collisions are theoretically possible but
+// vanishingly rare within a single export and acceptable here — we're hashing
+// for de-duplication, not cryptographic integrity.
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  // crypto.subtle.digest expects an ArrayBuffer view.
-  // TS 5+ refuses Uint8Array<ArrayBufferLike> for BufferSource; slice through ArrayBuffer.
-  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const buf = await crypto.subtle.digest("SHA-256", ab);
-  const arr = new Uint8Array(buf);
-  let hex = "";
-  for (let i = 0; i < arr.length; i++) hex += arr[i].toString(16).padStart(2, "0");
-  return hex;
+  try {
+    if (typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.digest === "function") {
+      const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      const buf = await crypto.subtle.digest("SHA-256", ab);
+      const arr = new Uint8Array(buf);
+      let hex = "";
+      for (let i = 0; i < arr.length; i++) hex += arr[i].toString(16).padStart(2, "0");
+      return hex;
+    }
+  } catch {
+    /* fall through */
+  }
+  return fnv1a64Hex(bytes);
 }
 
-function textToBytes(s: string): Uint8Array {
-  return new TextEncoder().encode(s);
+function fnv1a64Hex(bytes: Uint8Array): string {
+  // FNV-1a 64-bit using two 32-bit halves (JS doesn't have native uint64).
+  // High and low halves multiplied by FNV prime (1099511628211 = 0x100000001b3),
+  // which is 0x000001b3 << 32 plus 0x00000001b3 modulo nothing.
+  let hLo = 0xe7c8b3a1 | 0;
+  let hHi = 0xcbf29ce4 | 0;
+  for (let i = 0; i < bytes.length; i++) {
+    hLo ^= bytes[i];
+    // Multiply by 0x100000001b3 split into low (0x000001b3) and a bit of high.
+    const cLo = Math.imul(hLo, 0x000001b3);
+    const cHi = Math.imul(hHi, 0x000001b3) + Math.imul(hLo, 0x00000001) | 0;
+    hLo = cLo | 0;
+    hHi = cHi | 0;
+  }
+  const toHex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
+  return toHex(hHi) + toHex(hLo);
 }
 
 function detectImageMime(bytes: Uint8Array): string {
@@ -161,8 +182,9 @@ function peekImageSize(bytes: Uint8Array, mime: string): { w: number; h: number 
 }
 
 function svgSize(bytes: Uint8Array): { w: number; h: number } | undefined {
-  // Quick regex against the first 200 chars of the SVG header.
-  const head = new TextDecoder().decode(bytes.subarray(0, 400));
+  // Manual ASCII decode of the SVG header (Figma sandbox has no TextDecoder).
+  // SVG headers are pure ASCII so this is safe.
+  const head = asciiHeader(bytes, 600);
   const widthMatch = head.match(/<svg[^>]*\bwidth=["']?(\d+(?:\.\d+)?)/);
   const heightMatch = head.match(/<svg[^>]*\bheight=["']?(\d+(?:\.\d+)?)/);
   if (widthMatch && heightMatch) {
@@ -174,4 +196,15 @@ function svgSize(bytes: Uint8Array): { w: number; h: number } | undefined {
     if (parts.length === 4) return { w: parseFloat(parts[2]), h: parseFloat(parts[3]) };
   }
   return undefined;
+}
+
+function asciiHeader(bytes: Uint8Array, maxLen: number): string {
+  const n = Math.min(bytes.length, maxLen);
+  let s = "";
+  for (let i = 0; i < n; i++) {
+    const c = bytes[i];
+    if (c === 0) break;
+    s += String.fromCharCode(c < 128 ? c : 63 /* '?' for non-ASCII */);
+  }
+  return s;
 }

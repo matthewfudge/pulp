@@ -179,7 +179,7 @@ async function walk(
     const bounds = ex.absolute_bounds;
     const tiny = bounds.w < 1 && bounds.h < 1;
     if (!tiny) {
-      const res = await ctx.assets.captureExportedNode(node, "SVG_STRING");
+      const res = await ctx.assets.captureExportedNode(node, "SVG");
       if ("assetId" in res) {
         ex.asset_ref = res.assetId;
         ex.type = "image";
@@ -203,7 +203,7 @@ async function walk(
     (node as ChildrenMixin).children.length > 0 &&
     isPureVectorIllustration(node)
   ) {
-    const res = await ctx.assets.captureExportedNode(node, "SVG_STRING");
+    const res = await ctx.assets.captureExportedNode(node, "SVG");
     if ("assetId" in res) {
       ex.asset_ref = res.assetId;
       ex.type = "image";
