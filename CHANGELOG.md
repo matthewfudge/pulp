@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02721"></a>
+## [0.272.1] - 2026-05-28
+
+- fix(auv3): open fixed-design editors at design size ([#3109](https://github.com/danielraffel/pulp/pull/3109))
+- test(scan-worker): cover path normalization contracts ([#3110](https://github.com/danielraffel/pulp/pull/3110))
+- test(audio): cover excerpt bundle edge contracts ([#3111](https://github.com/danielraffel/pulp/pull/3111))
+- test(cli): cover sdk status contracts ([#3108](https://github.com/danielraffel/pulp/pull/3108))
+- test(tools): cover inspect mcp screenshot design contracts ([#3107](https://github.com/danielraffel/pulp/pull/3107))
+- test(tools): cover audio linux package contracts ([#3105](https://github.com/danielraffel/pulp/pull/3105))
+- test(platform): cover bridge signing contracts ([#3104](https://github.com/danielraffel/pulp/pull/3104))
+- test(tools): cover import scan contracts ([#3103](https://github.com/danielraffel/pulp/pull/3103))
+
 <a id="v02720"></a>
 ## [0.272.0] - 2026-05-28
 
@@ -3118,6 +3130,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.272.1]: https://github.com/danielraffel/pulp/releases/tag/v0.272.1
 [0.272.0]: https://github.com/danielraffel/pulp/releases/tag/v0.272.0
 [0.271.0]: https://github.com/danielraffel/pulp/releases/tag/v0.271.0
 [0.270.4]: https://github.com/danielraffel/pulp/releases/tag/v0.270.4
