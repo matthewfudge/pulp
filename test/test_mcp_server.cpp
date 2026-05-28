@@ -1098,6 +1098,107 @@ TEST_CASE("MCP pulp_audio_model_list returns the structured tool-payload envelop
     REQUIRE(response.find(R"JSON("code":-32601)JSON") == std::string::npos);
 }
 
+TEST_CASE("MCP audio tools return structured diagnostics without a project root",
+          "[mcp][tools][audio][coverage][requested]") {
+    TempDir home;
+    ScopedEnvVar pulp_home("PULP_HOME", home.path.string());
+    TempDir cwd_dir;
+    ScopedCurrentPath cwd(cwd_dir.path);
+
+    auto status = handle_request(tool_call("61", "pulp_audio_model_status"));
+    require_contains(status, R"JSON("id":61)JSON");
+    require_contains(status, R"JSON("structuredContent")JSON");
+    require_contains(status, R"JSON("state_file_found": false)JSON");
+    require_contains(status, R"JSON("loadable": false)JSON");
+    require_contains(status, "no configured audio model");
+    REQUIRE(status.find(R"JSON("code":-32601)JSON") == std::string::npos);
+
+    auto list = handle_request(tool_call("62", "pulp_audio_model_list"));
+    require_contains(list, R"JSON("id":62)JSON");
+    require_contains(list, R"JSON("structuredContent")JSON");
+    require_contains(list, R"JSON("active_model_id": "")JSON");
+    require_contains(list, R"JSON("status": "not_installed")JSON");
+    require_contains(list, "clap_music_audioset_v1");
+    REQUIRE(list.find(R"JSON("code":-32601)JSON") == std::string::npos);
+
+    auto activate = handle_request(tool_call(
+        "63", "pulp_audio_model_activate",
+        R"JSON({"model_id":"definitely_missing_model"})JSON"));
+    require_contains(activate, R"JSON("id":63)JSON");
+    require_contains(activate, R"JSON("structuredContent")JSON");
+    require_contains(activate, R"JSON("ok": false)JSON");
+    require_contains(activate, "unknown model_id: definitely_missing_model");
+}
+
+TEST_CASE("MCP audio excerpt-find validates request fields through the handler",
+          "[mcp][tools][audio][coverage][requested]") {
+    TempDir home;
+    ScopedEnvVar pulp_home("PULP_HOME", home.path.string());
+    TempDir temp;
+    ScopedCurrentPath cwd(temp.path);
+    auto input = temp.path / "input.wav";
+    {
+        std::ofstream file(input);
+        file << "not needed for pre-audio validation";
+    }
+
+    auto only_text = handle_request(tool_call(
+        "64", "pulp_audio_excerpt_find",
+        R"JSON({"text":"texture"})JSON"));
+    require_contains(only_text, R"JSON("id":64)JSON");
+    require_contains(only_text, "Error: text and input_path are required");
+    REQUIRE(only_text.find(R"JSON("structuredContent")JSON") == std::string::npos);
+
+    auto only_input = handle_request(tool_call(
+        "65", "pulp_audio_excerpt_find",
+        std::string(R"JSON({"input_path":")JSON") + input.string() + R"JSON("})JSON"));
+    require_contains(only_input, R"JSON("id":65)JSON");
+    require_contains(only_input, "Error: text and input_path are required");
+
+    auto bad_top = handle_request(tool_call(
+        "66", "pulp_audio_excerpt_find",
+        std::string(R"JSON({"text":"texture","input_path":")JSON") + input.string()
+            + R"JSON(","top":0})JSON"));
+    require_contains(bad_top, R"JSON("id":66)JSON");
+    require_contains(bad_top, R"JSON("structuredContent")JSON");
+    require_contains(bad_top, R"JSON("ok": false)JSON");
+    require_contains(bad_top, "top and max_candidates_per_file must be >= 1");
+
+    auto bad_window = handle_request(tool_call(
+        "67", "pulp_audio_excerpt_find",
+        std::string(R"JSON({"text":"texture","input_path":")JSON") + input.string()
+            + R"JSON(","window_ms":0})JSON"));
+    require_contains(bad_window, R"JSON("id":67)JSON");
+    require_contains(bad_window, "window_ms and hop_ms must be >= 1");
+
+    auto unknown_model = handle_request(tool_call(
+        "68", "pulp_audio_excerpt_find",
+        std::string(R"JSON({"text":"texture","input_path":")JSON") + input.string()
+            + R"JSON(","model_id":"missing_model"})JSON"));
+    require_contains(unknown_model, R"JSON("id":68)JSON");
+    require_contains(unknown_model, R"JSON("query": "texture")JSON");
+    require_contains(unknown_model, "unknown model_id: missing_model");
+    REQUIRE(unknown_model.find(R"JSON("code":-32601)JSON") == std::string::npos);
+}
+
+TEST_CASE("MCP audio read-bundle reports missing bundles as structured content",
+          "[mcp][tools][audio][coverage][requested]") {
+    TempDir home;
+    ScopedEnvVar pulp_home("PULP_HOME", home.path.string());
+    TempDir temp;
+
+    auto response = handle_request(tool_call(
+        "69", "pulp_audio_read_bundle",
+        std::string(R"JSON({"bundle_path":")JSON")
+            + (temp.path / "missing-bundle").string() + R"JSON("})JSON"));
+
+    require_contains(response, R"JSON("id":69)JSON");
+    require_contains(response, R"JSON("structuredContent")JSON");
+    require_contains(response, R"JSON("ok": false)JSON");
+    require_contains(response, "bundle path does not exist");
+    REQUIRE(response.find(R"JSON("code":-32601)JSON") == std::string::npos);
+}
+
 // pulp #1997 — gap 1: the 5 inspector tools each map to a distinct
 // inspector protocol method in pulp_mcp.cpp. Code-shape check: the
 // switch table must mention every method string. If a future refactor
