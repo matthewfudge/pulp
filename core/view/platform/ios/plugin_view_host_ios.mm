@@ -637,9 +637,9 @@ private:
 }
 @end
 
-namespace pulp::view {
-
 #endif // PULP_HAS_SKIA
+
+namespace pulp::view {
 
 // Factory functions
 std::unique_ptr<PluginViewHost> PluginViewHost::create(View& root, Size size) {

@@ -697,9 +697,9 @@ private:
 }
 @end
 
-namespace pulp::view {
-
 #endif // PULP_HAS_SKIA
+
+namespace pulp::view {
 
 std::unique_ptr<WindowHost> WindowHost::create(View& root, const WindowOptions& options) {
 #ifdef PULP_HAS_SKIA
