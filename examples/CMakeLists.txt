@@ -49,6 +49,11 @@ add_subdirectory(faust-tremolo)
 # ViewBridge demo: custom create_view() + secondary-view attach
 add_subdirectory(view-bridge-demo)
 
+# Experimental native import preview: generated C++ view tree, no scripted UI.
+if(APPLE AND NOT PULP_IOS AND EXISTS "${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-f-hybrid.cpp")
+    add_subdirectory(native-ui-phase-f-preview)
+endif()
+
 # GPU Validation Demo: Modulation Matrix with animated cables
 add_subdirectory(gpu-demo)
 
