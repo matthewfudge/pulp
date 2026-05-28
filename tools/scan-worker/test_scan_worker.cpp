@@ -92,6 +92,21 @@ TEST_CASE("pulp-scan-worker reports usage when bundle path is missing",
     REQUIRE(result.stdout_output.empty());
 }
 
+TEST_CASE("pulp-scan-worker rejects extra positional arguments",
+          "[host][scan-worker][coverage][requested]") {
+    ScratchDir scratch("extra-args");
+    auto bundle = scratch.path / "Extra.vst3";
+    auto ignored = scratch.path / "Ignored.vst3";
+    fs::create_directories(bundle / "Contents" / "Resources");
+    fs::create_directories(ignored / "Contents" / "Resources");
+
+    auto result = run_worker({bundle.string(), ignored.string()});
+    REQUIRE(result.exit_code == 2);
+    REQUIRE_THAT(result.stderr_output, ContainsSubstring("usage: pulp-scan-worker"));
+    REQUIRE(result.stderr_output.find("unsupported bundle extension") == std::string::npos);
+    REQUIRE(result.stdout_output.empty());
+}
+
 TEST_CASE("pulp-scan-worker rejects unsupported bundle extensions",
           "[host][scan-worker][issue-493]") {
     ScratchDir scratch("unsupported");

@@ -22,6 +22,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -37,6 +38,36 @@ std::string slurp(const fs::path& p) {
     std::ostringstream ss;
     ss << f.rdbuf();
     return ss.str();
+}
+
+struct ScratchDir {
+    fs::path path;
+
+    explicit ScratchDir(const char* stem) {
+        const auto counter =
+            std::chrono::steady_clock::now().time_since_epoch().count();
+        path = fs::temp_directory_path()
+             / ("pulp-import-detect-" + std::string(stem) + "-"
+                + std::to_string(counter));
+        std::error_code ec;
+        fs::remove_all(path, ec);
+        fs::create_directories(path);
+    }
+
+    ~ScratchDir() {
+        std::error_code ec;
+        fs::remove_all(path, ec);
+    }
+
+    ScratchDir(const ScratchDir&) = delete;
+    ScratchDir& operator=(const ScratchDir&) = delete;
+};
+
+void write_text(const fs::path& p, const std::string& text) {
+    fs::create_directories(p.parent_path());
+    std::ofstream out(p, std::ios::binary);
+    REQUIRE(out.good());
+    out << text;
 }
 
 // `compat.json` lives at the repo root; tests run with cwd inside the
@@ -1103,6 +1134,81 @@ TEST_CASE("snapshot_input handles file and directory inputs", "[cli][import-dete
         CHECK(snap.html_text.empty());
         CHECK(snap.directory_basenames.empty());
     }
+}
+
+TEST_CASE("snapshot_input chooses deterministic directory HTML candidates",
+          "[cli][import-detect][coverage][requested]") {
+    ScratchDir scratch("html-priority");
+    write_text(scratch.path / "z-last.html",
+               R"(<html><script src="/fallback.js"></script></html>)");
+    write_text(scratch.path / "index.html",
+               R"(<html><script src="/index.js"></script></html>)");
+    write_text(scratch.path / "code.html",
+               R"(<html><script src="/code.js"></script><script type="module"></script></html>)");
+    write_text(scratch.path / "notes.txt", "not html");
+
+    auto snap = det::snapshot_input(scratch.path);
+    REQUIRE(snap.is_directory);
+    REQUIRE(snap.directory_basenames.size() == 4);
+    CHECK(snap.directory_basenames
+          == std::vector<std::string>{"code.html", "index.html", "notes.txt", "z-last.html"});
+    REQUIRE(snap.html_text.find("/code.js") != std::string::npos);
+    CHECK(snap.html_text.find("/index.js") == std::string::npos);
+    CHECK(snap.html_text.find("/fallback.js") == std::string::npos);
+    REQUIRE(snap.script_srcs == std::vector<std::string>{"/code.js"});
+    REQUIRE(snap.script_types == std::vector<std::string>{"module"});
+}
+
+TEST_CASE("snapshot_input falls back to the sorted first HTML candidate",
+          "[cli][import-detect][coverage][requested]") {
+    ScratchDir scratch("html-fallback");
+    write_text(scratch.path / "b-page.htm",
+               R"(<html><script src="/b.js"></script></html>)");
+    write_text(scratch.path / "a-page.html",
+               R"(<html><script src="/a.js"></script></html>)");
+
+    auto snap = det::snapshot_input(scratch.path);
+    REQUIRE(snap.is_directory);
+    REQUIRE(snap.html_text.find("/a.js") != std::string::npos);
+    CHECK(snap.html_text.find("/b.js") == std::string::npos);
+    REQUIRE(snap.script_srcs == std::vector<std::string>{"/a.js"});
+}
+
+TEST_CASE("snapshot_input frontmatter probe records only top-level valid keys",
+          "[cli][import-detect][coverage][requested]") {
+    ScratchDir scratch("frontmatter-keys");
+    const auto path = scratch.path / "DESIGN.md";
+    write_text(path,
+               "---\r\n"
+               "name: Demo\r\n"
+               "_private: yes\r\n"
+               "token-group: yes\r\n"
+               " nested: ignored\r\n"
+               "# comment: ignored\r\n"
+               "9bad: ignored\r\n"
+               "---   \r\n"
+               "# Body\n");
+
+    auto snap = det::snapshot_input(path);
+    REQUIRE_FALSE(snap.is_directory);
+    CHECK(snap.filename == "DESIGN.md");
+    REQUIRE(snap.has_frontmatter_fence);
+    CHECK(snap.frontmatter_keys
+          == std::vector<std::string>{"name", "_private", "token-group"});
+
+    det::FingerprintClause required_name;
+    required_name.kind = det::FingerprintClause::Kind::frontmatter_key;
+    required_name.required = "name";
+    CHECK(det::match_clause(required_name, snap));
+
+    det::FingerprintClause nested_key = required_name;
+    nested_key.required = "nested";
+    CHECK_FALSE(det::match_clause(nested_key, snap));
+
+    det::FingerprintClause any_token;
+    any_token.kind = det::FingerprintClause::Kind::frontmatter_key;
+    any_token.any_of = {"spacing", "token-group"};
+    CHECK(det::match_clause(any_token, snap));
 }
 
 // ── Fixture-driven gate ────────────────────────────────────────────────
