@@ -56,6 +56,9 @@ void bind_imported_waveform_display_choices_ui(pulp::view::View& root,
                                                pulp::view::NativeImportBindingContext& ctx);
 std::unique_ptr<pulp::view::View> build_imported_meter_ui();
 void bind_imported_meter_ui(pulp::view::View& root, pulp::view::NativeImportBindingContext& ctx);
+std::unique_ptr<pulp::view::View> build_imported_chain_selection_ui();
+void bind_imported_chain_selection_ui(pulp::view::View& root,
+                                      pulp::view::NativeImportBindingContext& ctx);
 
 namespace {
 
@@ -1376,6 +1379,65 @@ IRNode lower_chainer_waveform_choice_route_to_node(IRNode& materialized_root,
     return button;
 }
 
+void disable_descendant_hit_testing(IRNode& node) {
+    for (auto& child : node.children) {
+        child.attributes["pulpHitTestable"] = "false";
+        disable_descendant_hit_testing(child);
+    }
+}
+
+IRNode lower_chainer_chain_selection_route_to_node(IRNode& materialized_root,
+                                                   choc::value::ValueView route) {
+    const auto materialized_path = json_string(route["materialized_ir_path"]);
+    auto* materialized_node = node_at_ir_path(materialized_root, materialized_path);
+    REQUIRE(materialized_node != nullptr);
+    REQUIRE(materialized_node->stable_anchor_id.has_value());
+    REQUIRE(*materialized_node->stable_anchor_id == json_string(route["materialized_ir_anchor"]));
+
+    const auto binding = route["parameter_bindings"][0];
+    const auto label = json_string(route["choice_label"]);
+    const auto style_tokens = style_token_string(route);
+    const auto style = route["style"];
+    const bool selected = route["selected"].getBool();
+
+    auto button = *materialized_node;
+    button.type = "toggle_button";
+    button.name = label + " selection";
+    button.text_content.clear();
+    button.layout.flex_shrink = 0.0f;
+    button.audio_widget = AudioWidgetType::none;
+    button.audio_label.clear();
+    button.attributes["checked"] = selected ? "true" : "false";
+    button.attributes["value"] = selected ? "true" : "false";
+    button.attributes["pulpRouteId"] = json_string(route["id"]);
+    button.attributes["pulpRouteType"] = json_string(route["route_type"]);
+    button.attributes["pulpSourceFamily"] = json_string(route["source_component_family"]);
+    button.attributes["pulpSourcePath"] = json_string(route["stable_source_path"]);
+    button.attributes["pulpParamKey"] = json_string(binding["param_key"]);
+    button.attributes["pulpChoiceValue"] = json_string(route["choice_value"]);
+    button.attributes["pulpChoiceLabel"] = label;
+    button.attributes["pulpEventContract"] = event_contract_string(route);
+    button.attributes["pulpGestureContract"] = gesture_contract_string(route);
+    button.attributes["pulpStyleTokens"] = style_tokens;
+    button.attributes["pulpDefaultValueSource"] = json_string(route["default_value_source"]);
+    button.attributes["pulpOnBackgroundColor"] = json_string(style["on_background_color"]);
+    button.attributes["pulpOffBackgroundColor"] = json_string(style["off_background_color"]);
+    button.attributes["pulpOnTextColor"] = json_string(style["on_text_color"]);
+    button.attributes["pulpOffTextColor"] = json_string(style["off_text_color"]);
+    button.attributes["pulpOnBorderColor"] = json_string(style["on_border_color"]);
+    button.attributes["pulpOffBorderColor"] = json_string(style["off_border_color"]);
+    button.attributes["pulpCornerRadius"] = float_attr(json_float_or(style["corner_radius"], 3.0f));
+    button.attributes["pulpFontSize"] = float_attr(json_float_or(style["font_size"], 10.0f));
+    if (!route["type_label"].isVoid())
+        button.attributes["pulpTypeLabel"] = json_string(route["type_label"]);
+    if (!route["description"].isVoid())
+        button.attributes["pulpDescription"] = json_string(route["description"]);
+    button.stable_anchor_id = json_string(route["materialized_ir_anchor"]);
+    button.anchor_strategy = "adapter";
+    disable_descendant_hit_testing(button);
+    return button;
+}
+
 IRNode lower_chainer_waveform_display_route_to_node(IRNode& materialized_root,
                                                     choc::value::ValueView route) {
     auto* source = node_at_ir_path(materialized_root, json_string(route["materialized_ir_path"]));
@@ -1631,6 +1693,55 @@ DesignIR lower_chainer_waveform_display_choice_routes_to_phase_e_ir(DesignIR mat
     REQUIRE(ir.root.children.size() == 1);
     REQUIRE(row.children.size() == 4);
     ir.root.children.push_back(std::move(row));
+    return ir;
+}
+
+DesignIR lower_chainer_chain_selection_routes_to_phase_e_ir(DesignIR materialized_ir,
+                                                            choc::value::ValueView route_rows) {
+    DesignIR ir;
+    ir.source = DesignSource::jsx;
+    ir.capture_method = "phase-e-chainer-chain-selection-route-overlay";
+    ir.source_adapter = "native-cpp-import-execution-validation";
+    ir.source_version = "phase-e";
+    add_chainer_token_colors(ir);
+    ir.tokens.colors["chainer.textDim"] = "#666666";
+    ir.root = frame_node("phase-e-chain-selection-root",
+                         "Chainer Chain Selection",
+                         540.0f,
+                         230.0f,
+                         LayoutDirection::column);
+    ir.root.layout.gap = 12.0f;
+    ir.root.layout.align = LayoutAlign::flex_start;
+    ir.root.style.background_color = "#050508";
+
+    auto module_row = frame_node("phase-e-chain-module-row",
+                                 "Chainer Chain Modules",
+                                 538.0f,
+                                 42.0f,
+                                 LayoutDirection::row);
+    module_row.layout.gap = 4.0f;
+
+    auto info_column = frame_node("phase-e-chain-info-column",
+                                  "Chainer Chain Info Rows",
+                                  176.0f,
+                                  179.0f,
+                                  LayoutDirection::column);
+    info_column.layout.gap = 5.0f;
+
+    for (uint32_t i = 0; i < route_rows.size(); ++i) {
+        const auto route = route_rows[i];
+        const auto family = json_string(route["source_component_family"]);
+        if (family == "ChainModule") {
+            module_row.children.push_back(lower_chainer_chain_selection_route_to_node(materialized_ir.root, route));
+        } else if (family == "ChainInfoRow") {
+            info_column.children.push_back(lower_chainer_chain_selection_route_to_node(materialized_ir.root, route));
+        }
+    }
+
+    REQUIRE(module_row.children.size() == 9);
+    REQUIRE(info_column.children.size() == 8);
+    ir.root.children.push_back(std::move(module_row));
+    ir.root.children.push_back(std::move(info_column));
     return ir;
 }
 
@@ -2990,6 +3101,134 @@ TEST_CASE("Chainer route overlay can lower waveform display and choices to linke
     REQUIRE(compiled);
 }
 
+TEST_CASE("Chainer route overlay can lower chain selection rows to linked native choice bindings",
+          "[view][import][cpp-codegen][native-cpp-phase-e]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(manifest_path));
+    REQUIRE(fs::exists(chainer_ir_path));
+
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["chain_visualizer_module_routes"].getInt64() == 9);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["chain_visualizer_module_routes_mapped_to_ir"].getInt64() == 9);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["unique_chain_visualizer_module_ir_paths"].getInt64() == 9);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["chain_info_row_routes"].getInt64() == 8);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["chain_info_row_routes_mapped_to_ir"].getInt64() == 8);
+    REQUIRE(route_manifest["source_contract_overlay"]["validation"]["actual"]["unique_chain_info_row_ir_paths"].getInt64() == 8);
+
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+    auto chain_ir = lower_chainer_chain_selection_routes_to_phase_e_ir(std::move(materialized_ir), route_rows);
+
+    CppExportOptions opts;
+    opts.header_filename = "phase_e_chainer_chain_selection.hpp";
+    const auto result = generate_pulp_cpp(chain_ir, chain_ir.asset_manifest, opts);
+
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::ToggleButton>()") == 17);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Label>(") == 34);
+    REQUIRE(count_occurrences(result.source, "->set_hit_testable(false);") == 42);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_choice_button(") == 17);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_toggle_button(") == 0);
+    REQUIRE(count_occurrences(result.source, "->set_on_background_color(") == 17);
+    REQUIRE(count_occurrences(result.source, "->set_off_background_color(") == 17);
+    REQUIRE(count_occurrences(result.source, "->set_on_border_color(") == 17);
+    REQUIRE(count_occurrences(result.source, "->set_off_border_color(") == 17);
+    REQUIRE(result.source.find("->set_anchor_id(\"pr_b\");") != std::string::npos);
+    REQUIRE(result.source.find("->set_anchor_id(\"pr_7b\");") != std::string::npos);
+
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["entries"].size() == 17);
+
+    struct ExpectedChoice {
+        const char* id;
+        const char* anchor;
+        const char* family;
+        const char* choice_value;
+        const char* choice_label;
+        const char* type_label;
+        const char* description;
+        bool selected;
+    };
+    const std::vector<ExpectedChoice> expected = {
+        {"chainer.chain_module.0.osc", "pr_b", "ChainModule", "OSC", "OSC", "GEN", "", true},
+        {"chainer.chain_module.1.env", "pr_i", "ChainModule", "ENV", "ENV", "SHAPE", "", false},
+        {"chainer.chain_module.2.xover", "pr_p", "ChainModule", "XOVER", "X-OVER", "SPLIT", "", false},
+        {"chainer.chain_module.3.filt", "pr_w", "ChainModule", "FILT", "FILT", "LO", "", false},
+        {"chainer.chain_module.4.dist", "pr_13", "ChainModule", "DIST", "DIST", "MID", "", false},
+        {"chainer.chain_module.5.ms", "pr_1a", "ChainModule", "MS", "M/S", "HI", "", false},
+        {"chainer.chain_module.6.sum", "pr_1h", "ChainModule", "SUM", "SUM", "MERGE", "", false},
+        {"chainer.chain_module.7.limit", "pr_1o", "ChainModule", "LIMIT", "LIMIT", "MASTER", "", false},
+        {"chainer.chain_module.8.out", "pr_1v", "ChainModule", "OUT", "OUT", "OUTPUT", "", false},
+        {"chainer.chain_info_row.0.osc", "pr_7b", "ChainInfoRow", "OSC", "OSC", "", "polywave generator", true},
+        {"chainer.chain_info_row.1.env", "pr_7f", "ChainInfoRow", "ENV", "ENV", "", "ADSR shaper", false},
+        {"chainer.chain_info_row.2.xover", "pr_7j", "ChainInfoRow", "XOVER", "XOVER", "", "239hz / 2514hz", false},
+        {"chainer.chain_info_row.3.filt", "pr_7n", "ChainInfoRow", "FILT", "FILT", "", "lo band LP filter", false},
+        {"chainer.chain_info_row.4.dist", "pr_7r", "ChainInfoRow", "DIST", "DIST", "", "mid band saturation", false},
+        {"chainer.chain_info_row.5.m_s", "pr_7v", "ChainInfoRow", "M/S", "M/S", "", "hi band mid/side split", false},
+        {"chainer.chain_info_row.6.sum", "pr_7z", "ChainInfoRow", "SUM", "SUM", "", "3-band merge", false},
+        {"chainer.chain_info_row.7.limit", "pr_83", "ChainInfoRow", "LIMIT", "LIMIT", "", "master brick limiter", false},
+    };
+
+    int module_entries = 0;
+    int info_entries = 0;
+    int type_label_entries = 0;
+    int description_entries = 0;
+    for (const auto& choice : expected) {
+        bool found = false;
+        for (uint32_t i = 0; i < binding_manifest["entries"].size(); ++i) {
+            const auto entry = binding_manifest["entries"][i];
+            if (json_string(entry["id"]) != choice.id)
+                continue;
+            found = true;
+            REQUIRE(json_string(entry["anchor_id"]) == choice.anchor);
+            REQUIRE(json_string(entry["native_primitive"]) == "toggle_button");
+            REQUIRE(json_string(entry["route_type"]) == "native_cpp");
+            REQUIRE(json_string(entry["source_family"]) == choice.family);
+            REQUIRE(json_string(entry["param_key"]) == "selected_mod");
+            REQUIRE(json_string(entry["choice_value"]) == choice.choice_value);
+            REQUIRE(json_string(entry["choice_label"]) == choice.choice_label);
+            REQUIRE(json_string(entry["event_contract"]) == std::string("onClick:set_choice:selected_mod:") + choice.choice_value);
+            REQUIRE(json_string(entry["gesture_contract"]) == "click_select:click");
+            REQUIRE(json_string(entry["default_value_source"]) == "source_state_default");
+            REQUIRE_FALSE(json_string(entry["on_background_color"]).empty());
+            REQUIRE_FALSE(json_string(entry["off_background_color"]).empty());
+            REQUIRE_FALSE(json_string(entry["on_border_color"]).empty());
+            REQUIRE_FALSE(json_string(entry["off_border_color"]).empty());
+            if (std::string(choice.family) == "ChainModule") {
+                ++module_entries;
+                REQUIRE(json_string(entry["component_type_label"]) == choice.type_label);
+                ++type_label_entries;
+            } else {
+                ++info_entries;
+                REQUIRE(json_string(entry["description"]) == choice.description);
+                ++description_entries;
+            }
+            break;
+        }
+        REQUIRE(found);
+        if (choice.selected)
+            REQUIRE(result.source.find(std::string("->set_anchor_id(\"") + choice.anchor + "\");") != std::string::npos);
+    }
+    REQUIRE(module_entries == 9);
+    REQUIRE(info_entries == 8);
+    REQUIRE(type_label_entries == 9);
+    REQUIRE(description_entries == 8);
+
+    TempDir tmp("pulp-phase-e-chainer-chain-selection-cpp-codegen");
+    const auto header = tmp.path / "phase_e_chainer_chain_selection.hpp";
+    const auto source = tmp.path / "phase_e_chainer_chain_selection.cpp";
+    const auto object = tmp.path / "phase_e_chainer_chain_selection.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
+}
+
 TEST_CASE("Chainer route overlay can lower meter bars to typed C++ with meter input sidecars",
           "[view][import][cpp-codegen][native-cpp-phase-e]") {
     const fs::path manifest_path =
@@ -3571,6 +3810,124 @@ TEST_CASE("generated Chainer waveform display and choices C++ keeps preview shap
         report << "\n  ]\n"
                << "}\n";
         write_text(dir / "reports" / "chainer-phase-e-waveform-display-choice-behavior-report.json", report.str());
+    }
+}
+
+TEST_CASE("generated Chainer chain selection C++ keeps module tiles and info rows coupled by source choice values",
+          "[view][import][cpp-codegen][native-cpp-phase-e][behavior]") {
+    auto root = ::build_imported_chain_selection_ui();
+    REQUIRE(root != nullptr);
+
+    PhaseDKnobBindingContext ctx;
+    ::bind_imported_chain_selection_ui(*root, ctx);
+    REQUIRE(ctx.bound_choices().size() == 17);
+    REQUIRE(ctx.choice_value("selected_mod") == "OSC");
+
+    root->set_bounds({0.0f, 0.0f, 540.0f, 230.0f});
+    root->layout_children();
+
+    auto choice_on = [&](std::string_view anchor) {
+        auto* view = find_anchor(*root, anchor);
+        REQUIRE(view != nullptr);
+        auto* button = dynamic_cast<ToggleButton*>(view);
+        REQUIRE(button != nullptr);
+        return button->is_on();
+    };
+    auto click_choice = [&](std::string_view anchor) {
+        auto* view = find_anchor(*root, anchor);
+        REQUIRE(view != nullptr);
+        auto* button = dynamic_cast<ToggleButton*>(view);
+        REQUIRE(button != nullptr);
+        const auto bounds = absolute_bounds(*button);
+        REQUIRE(bounds.width > 0.0f);
+        REQUIRE(bounds.height > 0.0f);
+        root->simulate_click({bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f});
+    };
+
+    REQUIRE(choice_on("pr_b"));
+    REQUIRE(choice_on("pr_7b"));
+
+    auto before_png = render_to_png(*root, 540, 230, 1.0f);
+
+    int matching_sync_checks = 0;
+    int source_mismatch_checks = 0;
+
+    click_choice("pr_1o");
+    REQUIRE(ctx.choice_value("selected_mod") == "LIMIT");
+    REQUIRE(choice_on("pr_1o"));
+    REQUIRE(choice_on("pr_83"));
+    REQUIRE_FALSE(choice_on("pr_b"));
+    REQUIRE_FALSE(choice_on("pr_7b"));
+    ++matching_sync_checks;
+
+    click_choice("pr_7f");
+    REQUIRE(ctx.choice_value("selected_mod") == "ENV");
+    REQUIRE(choice_on("pr_i"));
+    REQUIRE(choice_on("pr_7f"));
+    REQUIRE_FALSE(choice_on("pr_1o"));
+    REQUIRE_FALSE(choice_on("pr_83"));
+    ++matching_sync_checks;
+
+    click_choice("pr_1v");
+    REQUIRE(ctx.choice_value("selected_mod") == "OUT");
+    REQUIRE(choice_on("pr_1v"));
+    REQUIRE_FALSE(choice_on("pr_83"));
+    REQUIRE_FALSE(choice_on("pr_7f"));
+    ++source_mismatch_checks;
+
+    click_choice("pr_1a");
+    REQUIRE(ctx.choice_value("selected_mod") == "MS");
+    REQUIRE(choice_on("pr_1a"));
+    REQUIRE_FALSE(choice_on("pr_7v"));
+    ++source_mismatch_checks;
+
+    click_choice("pr_7v");
+    REQUIRE(ctx.choice_value("selected_mod") == "M/S");
+    REQUIRE(choice_on("pr_7v"));
+    REQUIRE_FALSE(choice_on("pr_1a"));
+    ++source_mismatch_checks;
+
+    REQUIRE(ctx.choice_events().size() == 5);
+    REQUIRE(ctx.choice_change_count("selected_mod") == 5);
+
+    auto after_png = render_to_png(*root, 540, 230, 1.0f);
+    bool visual_smoke_valid = false;
+    CompareResult visual_smoke;
+    if (!before_png.empty() && !after_png.empty()) {
+        visual_smoke = compare_screenshots(before_png, after_png, 8);
+        REQUIRE(visual_smoke.valid);
+        REQUIRE(visual_smoke.similarity < 0.999f);
+        visual_smoke_valid = true;
+    }
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        if (!before_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-e-chain-selection-before.png", before_png);
+        if (!after_png.empty())
+            write_bytes(dir / "reports" / "screenshots" / "chainer-phase-e-chain-selection-after.png", after_png);
+
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-e-chain-selection-behavior-v1\",\n"
+               << "  \"fixture\": \"chainer-phase-e-chain-selection\",\n"
+               << "  \"scope\": \"generated-native-cpp-chain-selection-choice-binding-helper\",\n"
+               << "  \"click_tests\": 5,\n"
+               << "  \"bound_choices\": " << ctx.bound_choices().size() << ",\n"
+               << "  \"chain_module_choices\": 9,\n"
+               << "  \"chain_info_row_choices\": 8,\n"
+               << "  \"matching_choice_values\": 7,\n"
+               << "  \"matching_sync_checks\": " << matching_sync_checks << ",\n"
+               << "  \"source_mismatch_checks\": " << source_mismatch_checks << ",\n"
+               << "  \"choice_updates\": " << ctx.choice_events().size() << ",\n"
+               << "  \"final_choice\": \"" << json_escape(ctx.choice_value("selected_mod")) << "\",\n"
+               << "  \"ms_module_value\": \"MS\",\n"
+               << "  \"ms_info_row_value\": \"M/S\",\n"
+               << "  \"out_has_info_row\": false,\n"
+               << "  \"visual_smoke_valid\": " << (visual_smoke_valid ? "true" : "false") << ",\n"
+               << "  \"visual_smoke_similarity\": " << std::setprecision(7) << visual_smoke.similarity << "\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-e-chain-selection-behavior-report.json", report.str());
     }
 }
 
