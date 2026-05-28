@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import pathlib
 import re
 from typing import Any
@@ -47,7 +48,7 @@ def validate_count_map(value: Any, field: str) -> None:
     expect(isinstance(value, dict), f"{field} must be an object")
     for key, count in value.items():
         expect(isinstance(key, str) and bool(key), f"{field} keys must be non-empty strings")
-        expect(isinstance(count, int) and count >= 0, f"{field}.{key} must be a non-negative integer")
+        expect(is_non_negative_int(count), f"{field}.{key} must be a non-negative integer")
 
 
 def validate_artifact_ref(value: Any, field: str) -> None:
@@ -103,6 +104,10 @@ def validate_frontend_ir(report: dict[str, Any]) -> None:
     expect(isinstance(validation, dict), "validation must be an object")
     validate_count_map(validation.get("source_counts"), "validation.source_counts")
     validate_count_map(validation.get("style_counts"), "validation.style_counts")
+    if "route_counts" in validation:
+        validate_count_map(validation.get("route_counts"), "validation.route_counts")
+    if "primitive_counts" in validation:
+        validate_count_map(validation.get("primitive_counts"), "validation.primitive_counts")
 
 
 def repo_relative(path: pathlib.Path, repo_root: pathlib.Path) -> str:
@@ -112,15 +117,27 @@ def repo_relative(path: pathlib.Path, repo_root: pathlib.Path) -> str:
         return path.as_posix()
 
 
+def is_non_negative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def is_positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
 def route_name(value: str | None) -> str:
     normalized = (value or "").strip().lower().replace("-", "_")
-    if normalized in {ROUTE_NATIVE_CPP, "native", "cpp"}:
+    if normalized in {ROUTE_NATIVE_CPP, "native", "cpp", "native_host_service"}:
         return ROUTE_NATIVE_CPP
     if normalized in {ROUTE_LIVE_JS, "live", "runtime_js"}:
         return ROUTE_LIVE_JS
     if normalized == ROUTE_HYBRID:
         return ROUTE_HYBRID
-    if normalized in {"recorded", "recorded_paint"}:
+    if normalized in {"recorded", "recorded_paint", "native_custom_paint"}:
         return "recorded_paint"
     return ROUTE_UNSUPPORTED
 
@@ -140,19 +157,19 @@ def count_map(source_audit: dict[str, Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for key in ("lines", "bytes"):
         value = source_audit.get(key)
-        if isinstance(value, int) and value >= 0:
+        if is_non_negative_int(value):
             counts[key] = value
 
     template_counts = source_audit.get("sourceTemplateCounts", {})
     if isinstance(template_counts, dict):
         for key, value in template_counts.items():
-            if isinstance(key, str) and isinstance(value, int) and value >= 0:
+            if isinstance(key, str) and is_non_negative_int(value):
                 counts[key] = value
 
     component_invocations = source_audit.get("componentInvocationTemplates", {})
     if isinstance(component_invocations, dict):
         counts["component_invocations"] = sum(
-            value for value in component_invocations.values() if isinstance(value, int) and value >= 0
+            value for value in component_invocations.values() if is_non_negative_int(value)
         )
 
     component_props = source_audit.get("componentProps", {})
@@ -161,6 +178,52 @@ def count_map(source_audit: dict[str, Any]) -> dict[str, int]:
             len(value) for value in component_props.values() if isinstance(value, list)
         )
 
+    return counts
+
+
+def route_counts(route_manifest: dict[str, Any], rows: list[Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    metrics = route_manifest.get("route_metrics", {})
+    if isinstance(metrics, dict):
+        for key, value in metrics.items():
+            if is_non_negative_int(value):
+                counts[key] = value
+
+    coverage = route_manifest.get("component_family_coverage", {})
+    if isinstance(coverage, dict):
+        for key, value in coverage.items():
+            if is_non_negative_int(value):
+                counts[f"component_family_{key}"] = value
+
+    counts["route_rows_total"] = sum(1 for row in rows if isinstance(row, dict))
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        route = route_name(row.get("route_type"))
+        counts[f"route_rows_{route}"] = counts.get(f"route_rows_{route}", 0) + 1
+        if row.get("fallback_reason"):
+            counts["route_rows_with_fallback_reason"] = counts.get("route_rows_with_fallback_reason", 0) + 1
+        if row.get("recorder_eligibility") == "candidate":
+            counts["route_rows_recorder_candidate"] = counts.get("route_rows_recorder_candidate", 0) + 1
+
+    return counts
+
+
+def primitive_counts(rows: list[Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        role = semantic_role(row)
+        counts[f"primitive_{role}"] = counts.get(f"primitive_{role}", 0) + 1
+        if row.get("parameter_bindings"):
+            counts["with_parameter_bindings"] = counts.get("with_parameter_bindings", 0) + 1
+        if row.get("event_contracts"):
+            counts["with_event_contracts"] = counts.get("with_event_contracts", 0) + 1
+        if row.get("gesture_contracts"):
+            counts["with_gesture_contracts"] = counts.get("with_gesture_contracts", 0) + 1
+        if row.get("style_token_references"):
+            counts["with_style_token_references"] = counts.get("with_style_token_references", 0) + 1
     return counts
 
 
@@ -188,7 +251,7 @@ def source_span(row: dict[str, Any]) -> dict[str, Any] | None:
         "path": path,
     }
     line = row.get("source_line")
-    if isinstance(line, int) and line > 0:
+    if is_positive_int(line):
         span["line"] = line
     return span
 
@@ -208,7 +271,7 @@ def support_for_route(route: str) -> dict[str, str]:
 
 def style_for_row(row: dict[str, Any]) -> dict[str, Any]:
     layout: dict[str, Any] = {}
-    if isinstance(row.get("size"), (int, float)):
+    if is_finite_number(row.get("size")):
         layout["size"] = {
             "value": row["size"],
             "unit": "px",
@@ -321,7 +384,7 @@ def routes_from_rows(rows: list[Any]) -> list[dict[str, Any]]:
             "candidate_routes": [{
                 "route": chosen,
                 "support": "present",
-                "confidence": row.get("confidence", 0.0) if isinstance(row.get("confidence"), (int, float)) else 0.0,
+                "confidence": row.get("confidence", 0.0) if is_finite_number(row.get("confidence")) else 0.0,
             }],
             "reason": f"source contract maps to {semantic_role(row)}",
             "requires_js_engine": chosen in {ROUTE_LIVE_JS, ROUTE_HYBRID},
@@ -439,6 +502,8 @@ def build_frontend_ir(
         "validation": {
             "source_counts": counts,
             "style_counts": style_counts(nodes),
+            "route_counts": route_counts(route_manifest, rows),
+            "primitive_counts": primitive_counts(rows),
             "compile": {
                 "status": "not_run",
             },

@@ -40,7 +40,16 @@ class FrontendIrReportTests(unittest.TestCase):
                 },
             },
             "route_metrics": {
+                "nodes_total": 9,
+                "interactive_controls_total": 1,
+                "native_cpp_candidate_node_routes": 1,
                 "js_engine_initialized": True,
+                "requires_runtime_js": True,
+                "behavior_pass": False,
+            },
+            "component_family_coverage": {
+                "source_component_names_total": 1,
+                "source_component_names_classified": 1,
             },
             "source_contract_overlay": {
                 "source": {
@@ -57,10 +66,17 @@ class FrontendIrReportTests(unittest.TestCase):
                         "size": 48,
                         "label": "gain",
                         "confidence": 0.9,
+                        "recorder_eligibility": "candidate",
                         "parameter_bindings": [
                             {
                                 "param_key": "gain",
                                 "binding_contract_id": "binding.gain",
+                            }
+                        ],
+                        "event_contracts": [
+                            {
+                                "kind": "set_param",
+                                "param_key": "gain",
                             }
                         ],
                         "gesture_contracts": [
@@ -113,8 +129,39 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertIn("validation_refs", report["routes"][0])
         self.assertEqual(report["validation"]["source_counts"]["component_invocations"], 1)
         self.assertEqual(report["validation"]["style_counts"]["supported"], 2)
+        self.assertEqual(report["validation"]["route_counts"]["nodes_total"], 9)
+        self.assertEqual(report["validation"]["route_counts"]["route_rows_total"], 1)
+        self.assertEqual(report["validation"]["route_counts"]["route_rows_native_cpp"], 1)
+        self.assertEqual(report["validation"]["route_counts"]["route_rows_recorder_candidate"], 1)
+        self.assertNotIn("js_engine_initialized", report["validation"]["route_counts"])
+        self.assertNotIn("requires_runtime_js", report["validation"]["route_counts"])
+        self.assertNotIn("behavior_pass", report["validation"]["route_counts"])
+        self.assertEqual(report["validation"]["primitive_counts"]["primitive_knob"], 1)
+        self.assertEqual(report["validation"]["primitive_counts"]["with_parameter_bindings"], 1)
+        self.assertEqual(report["validation"]["primitive_counts"]["with_event_contracts"], 1)
         self.assertTrue(report["validation"]["binary_dependencies"]["js_engine_present"])
         fir.validate_frontend_ir(report)
+
+    def test_boolean_values_are_not_numeric_evidence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "validation.route_counts.bad"):
+            fir.validate_count_map({"bad": True}, "validation.route_counts")
+
+        row = {
+            "id": "node.bool",
+            "stable_source_path": "fixtures/UI.jsx:1:Widget[0]",
+            "source_line": True,
+            "required_native_primitive": "control",
+            "route_type": "native_cpp",
+            "size": True,
+            "confidence": True,
+        }
+
+        nodes = fir.nodes_from_rows([row])
+        routes = fir.routes_from_rows([row])
+
+        self.assertNotIn("line", nodes[0]["source_span"])
+        self.assertNotIn("size", nodes[0]["style"]["layout"])
+        self.assertEqual(routes[0]["candidate_routes"][0]["confidence"], 0.0)
 
     def test_validator_rejects_native_route_without_validation_refs(self) -> None:
         report = {
@@ -145,6 +192,10 @@ class FrontendIrReportTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "validation_refs"):
             fir.validate_frontend_ir(report)
+
+    def test_route_name_normalizes_native_host_and_custom_paint_routes(self) -> None:
+        self.assertEqual(fir.route_name("native_host_service"), "native_cpp")
+        self.assertEqual(fir.route_name("native_custom_paint"), "recorded_paint")
 
     def test_cli_writes_deterministic_json(self) -> None:
         with tempfile.TemporaryDirectory() as td:
