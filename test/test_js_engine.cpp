@@ -3,6 +3,7 @@
 #include <pulp/view/js_engine.hpp>
 #include <pulp/view/js_engine_recommend.hpp>
 #include <pulp/view/script_engine.hpp>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,53 @@ TEST_CASE("JsEngine register native function (string return)", "[js_engine]") {
         });
         auto result = engine->evaluate("greet('pulp')");
         REQUIRE(result.toString() == "hello pulp");
+    END_FOR_EACH_ENGINE
+}
+
+TEST_CASE("JsEngine rejects duplicate native global registrations",
+          "[js_engine][api-contract]") {
+    FOR_EACH_ENGINE(engine)
+        engine->register_function("dup", [](const choc::value::Value*, size_t) {
+            return choc::value::createInt32(1);
+        });
+
+        REQUIRE_THROWS_AS(engine->register_function("dup", [](const choc::value::Value*, size_t) {
+            return choc::value::createInt32(2);
+        }), std::runtime_error);
+
+        REQUIRE(engine->evaluate("dup()").getWithDefault<int>(0) == 1);
+    END_FOR_EACH_ENGINE
+}
+
+TEST_CASE("JsEngine reserves native global names across registration kinds",
+          "[js_engine][api-contract]") {
+    FOR_EACH_ENGINE(engine)
+        HostObjectDescriptor host;
+        host.class_name = "NativeThing";
+        engine->register_host_object("nativeThing", std::move(host));
+
+        REQUIRE_THROWS_AS(engine->register_function("nativeThing",
+            [](const choc::value::Value*, size_t) {
+                return choc::value::Value();
+            }), std::runtime_error);
+
+        engine->register_function("nativeFn", [](const choc::value::Value*, size_t) {
+            return choc::value::Value();
+        });
+
+        HostObjectDescriptor duplicate_host;
+        duplicate_host.class_name = "DuplicateThing";
+        REQUIRE_THROWS_AS(engine->register_host_object("nativeFn", std::move(duplicate_host)),
+                          std::runtime_error);
+
+        engine->register_promise_function("nativePromise", [](const choc::value::Value*, size_t) {
+            return choc::value::createInt32(3);
+        });
+
+        REQUIRE_THROWS_AS(engine->register_function("nativePromise",
+            [](const choc::value::Value*, size_t) {
+                return choc::value::Value();
+            }), std::runtime_error);
     END_FOR_EACH_ENGINE
 }
 

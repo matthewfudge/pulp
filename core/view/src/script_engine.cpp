@@ -3,7 +3,6 @@
 // the original API that WidgetBridge and all existing callers depend on.
 
 #include <pulp/view/script_engine.hpp>
-#include <stdexcept>
 
 namespace pulp::view {
 
@@ -33,13 +32,11 @@ void ScriptEngine::run_module(const std::string& code,
 }
 
 void ScriptEngine::register_function(const std::string& name, NativeFunction fn) {
-    claim_native_symbol(name);
     engine_->register_function(name, std::move(fn));
 }
 
 void ScriptEngine::register_function(const std::string& name,
                                      choc::javascript::Context::NativeFunction fn) {
-    claim_native_symbol(name);
     // Adapt CHOC's ArgumentList-based signature to Pulp's NativeFunction
     engine_->register_function(name,
         [fn = std::move(fn)](const choc::value::Value* args, size_t num_args) -> choc::value::Value {
@@ -51,12 +48,10 @@ void ScriptEngine::register_function(const std::string& name,
 }
 
 void ScriptEngine::register_host_object(const std::string& name, HostObjectDescriptor descriptor) {
-    claim_native_symbol(name);
     engine_->register_host_object(name, std::move(descriptor));
 }
 
 void ScriptEngine::register_promise_function(const std::string& name, NativePromiseFunction fn) {
-    claim_native_symbol(name);
     engine_->register_promise_function(name, std::move(fn));
 }
 
@@ -86,11 +81,6 @@ JsEngine& ScriptEngine::engine() {
 
 const JsEngine& ScriptEngine::engine() const {
     return *engine_;
-}
-
-void ScriptEngine::claim_native_symbol(const std::string& name) {
-    if (!registered_native_symbols_.insert(name).second)
-        throw std::runtime_error("ScriptEngine native symbol already registered: " + name);
 }
 
 } // namespace pulp::view
