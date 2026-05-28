@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import mimetypes
 import pathlib
 import re
 from typing import Any
@@ -326,16 +328,56 @@ def route_usage_for_input(key: str, rows: list[Any]) -> list[str]:
     return routes_present(rows)
 
 
-def path_byte_size(path: str, repo_root: pathlib.Path) -> int | None:
+def local_resource_path(path: str, repo_root: pathlib.Path) -> pathlib.Path | None:
     candidate = pathlib.Path(path)
     if not candidate.is_absolute():
         candidate = repo_root / candidate
     try:
         if candidate.is_file():
-            return candidate.stat().st_size
+            return candidate
     except OSError:
         return None
     return None
+
+
+def path_byte_size(path: str, repo_root: pathlib.Path) -> int | None:
+    candidate = local_resource_path(path, repo_root)
+    if candidate is None:
+        return None
+    try:
+        return candidate.stat().st_size
+    except OSError:
+        return None
+
+
+def path_sha256(path: str, repo_root: pathlib.Path) -> str | None:
+    candidate = local_resource_path(path, repo_root)
+    if candidate is None:
+        return None
+    digest = hashlib.sha256()
+    try:
+        with candidate.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def mime_for_path(path: str) -> str | None:
+    suffix = pathlib.Path(path).suffix.lower()
+    custom = {
+        ".jsx": "text/jsx",
+        ".tsx": "text/tsx",
+        ".mjs": "text/javascript",
+        ".js": "text/javascript",
+        ".json": "application/json",
+        ".svg": "image/svg+xml",
+    }
+    if suffix in custom:
+        return custom[suffix]
+    mime, _ = mimetypes.guess_type(path)
+    return mime
 
 
 def input_resource(key: str, value: Any, rows: list[Any], repo_root: pathlib.Path,
@@ -366,9 +408,16 @@ def input_resource(key: str, value: Any, rows: list[Any], repo_root: pathlib.Pat
     }
     if sha:
         resource["sha256"] = sha
+    else:
+        computed_sha = path_sha256(path_value, repo_root)
+        if computed_sha:
+            resource["sha256"] = computed_sha
     byte_size = path_byte_size(path_value, repo_root)
     if byte_size is not None:
         resource["byte_size"] = byte_size
+    mime = mime_for_path(path_value)
+    if mime:
+        resource["mime"] = mime
     return resource
 
 

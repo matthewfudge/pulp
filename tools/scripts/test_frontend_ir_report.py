@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import pathlib
 import sys
@@ -458,7 +459,13 @@ class FrontendIrReportTests(unittest.TestCase):
             self.assertEqual(report["source"]["counts"]["materiality_event_contracts"], 2)
             self.assertIn("runtime_array_maps", report["source"]["dynamic_risks"])
             self.assertEqual(report["validation"]["resource_counts"]["with_byte_size"], 2)
+            self.assertEqual(report["validation"]["resource_counts"]["with_sha256"], 2)
             self.assertEqual(report["resources"][0]["byte_size"], len("export default function UI() { return null; }\n"))
+            self.assertEqual(report["resources"][0]["sha256"],
+                             hashlib.sha256(b"export default function UI() { return null; }\n").hexdigest())
+            self.assertEqual(report["resources"][0]["mime"], "text/jsx")
+            self.assertEqual(report["resources"][1]["sha256"], hashlib.sha256(b"{}\n").hexdigest())
+            self.assertEqual(report["resources"][1]["mime"], "application/json")
             self.assertEqual(report["routes"], [])
 
 
