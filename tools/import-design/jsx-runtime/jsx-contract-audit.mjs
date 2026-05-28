@@ -24,6 +24,49 @@ const COMPONENT_PRIMITIVES = new Map([
     ['WaveformDisplay', 'waveform_view'],
 ]);
 
+const SOURCE_COMPONENT_PRIMITIVES = new Map([
+    ['react-native:View', 'layout'],
+    ['react-native:Text', 'label'],
+    ['react-native:Pressable', 'button'],
+    ['react-native:TextInput', 'text_input'],
+    ['react-native:Image', 'image'],
+    ['primitives:Button', 'button'],
+    ['primitives:ButtonDanger', 'button'],
+    ['primitives:ButtonGroup', 'layout'],
+    ['primitives:CheckboxField', 'toggle_button'],
+    ['primitives:CheckboxGroup', 'layout'],
+    ['primitives:Dialog', 'dialog'],
+    ['primitives:DialogBody', 'label'],
+    ['primitives:DialogClose', 'button'],
+    ['primitives:DialogModal', 'dialog'],
+    ['primitives:DialogTitle', 'label'],
+    ['primitives:Image', 'image'],
+    ['primitives:Input', 'text_input'],
+    ['primitives:InputField', 'text_input'],
+    ['primitives:Navigation', 'layout'],
+    ['primitives:NavigationButton', 'button'],
+    ['primitives:NavigationPill', 'button'],
+    ['primitives:RadioField', 'radio_button'],
+    ['primitives:RadioGroup', 'layout'],
+    ['primitives:Search', 'text_input'],
+    ['primitives:Select', 'select'],
+    ['primitives:SelectField', 'select'],
+    ['primitives:SelectItem', 'option'],
+    ['primitives:SliderField', 'fader'],
+    ['primitives:SwitchField', 'toggle_button'],
+    ['primitives:Tab', 'button'],
+    ['primitives:TabList', 'layout'],
+    ['primitives:TabPanel', 'layout'],
+    ['primitives:Tabs', 'layout'],
+    ['primitives:Text', 'label'],
+    ['primitives:Textarea', 'text_area'],
+    ['primitives:TextareaField', 'text_area'],
+    ['primitives:TextHeading', 'label'],
+    ['layout:Flex', 'layout'],
+    ['layout:FlexItem', 'layout'],
+    ['layout:Section', 'layout'],
+]);
+
 const SVG_ELEMENTS = new Set([
     'svg', 'path', 'circle', 'line', 'rect', 'ellipse', 'polygon', 'polyline',
 ]);
@@ -256,6 +299,23 @@ function bindingObject(node) {
         if (value.kind === 'string') out[name] = value.value;
     }
     return out.module && out.param ? out : null;
+}
+
+function collectSourceComponentImports(ast) {
+    const imports = new Map();
+    visit(ast, (node) => {
+        if (node.type !== 'ImportDeclaration') return;
+        const source = node.source?.value || '';
+        for (const specifier of node.specifiers || []) {
+            if (specifier.type !== 'ImportSpecifier') continue;
+            const imported = keyName(specifier.imported);
+            const local = keyName(specifier.local);
+            if (!local || !imported) continue;
+            const primitive = SOURCE_COMPONENT_PRIMITIVES.get(`${source}:${imported}`) || null;
+            imports.set(local, { source, imported, local, primitive });
+        }
+    });
+    return imports;
 }
 
 function visit(node, fn, parent = null) {
@@ -636,6 +696,7 @@ export function auditJsxContract(source, options = {}) {
     const setParamCalls = [];
     const styleContracts = [];
     const stateSetters = new Map();
+    const sourceComponentImports = collectSourceComponentImports(ast);
 
     visit(ast, (node) => {
         const setter = reactUseStateSetter(node);
@@ -670,13 +731,19 @@ export function auditJsxContract(source, options = {}) {
         }
         if (node.type === 'JSXElement') {
             const name = jsxName(node.openingElement.name);
+            const sourceImport = sourceComponentImports.get(name) || null;
+            const primitiveCandidate = COMPONENT_PRIMITIVES.get(name) || sourceImport?.primitive || null;
             const attrs = (node.openingElement.attributes || [])
                 .map((attr) => jsxAttributeContract(attr, source, stateSetters))
                 .filter(Boolean);
             const component = {
                 name,
                 kind: /^[a-z]/.test(name) ? 'host' : 'component',
-                primitive_candidate: COMPONENT_PRIMITIVES.get(name) || null,
+                primitive_candidate: primitiveCandidate,
+                source_import: sourceImport
+                    ? { source: sourceImport.source, imported: sourceImport.imported, local: sourceImport.local }
+                    : null,
+                standard_source_component: Boolean(sourceImport?.primitive),
                 attributes: attrs,
                 children: childTextContract(node.children, source),
                 ...lineCol(node.openingElement),
@@ -700,6 +767,12 @@ export function auditJsxContract(source, options = {}) {
     const componentCounts = {};
     for (const component of components) {
         componentCounts[component.name] = (componentCounts[component.name] || 0) + 1;
+    }
+    const sourceComponentCounts = {};
+    for (const component of components) {
+        if (!component.standard_source_component || !component.source_import) continue;
+        const key = `${component.source_import.source}:${component.source_import.imported}`;
+        sourceComponentCounts[key] = (sourceComponentCounts[key] || 0) + 1;
     }
 
     const nativeCandidates = components
@@ -755,6 +828,7 @@ export function auditJsxContract(source, options = {}) {
     const materiality = {
         parser_source_locations: components.filter((component) => component.line !== null).length,
         native_candidate_components: nativeCandidates.length,
+        standard_source_component_instances: components.filter((component) => component.standard_source_component).length,
         host_native_control_candidates: hostNativeControlCandidates.length,
         expanded_native_candidate_instances: expandedNativeCandidates.length,
         expanded_choice_instances: expandedNativeCandidates.filter((candidate) => candidate.choice_value !== undefined).length,
@@ -813,12 +887,17 @@ export function auditJsxContract(source, options = {}) {
             css_values_invalid: cssValueRows.filter((row) => !row.css_valid).length,
             svg_vector_nodes: svg.length,
             native_candidate_components: nativeCandidates.length,
+            standard_source_component_instances: materiality.standard_source_component_instances,
             expanded_native_candidate_instances: expandedNativeCandidates.length,
             expanded_choice_instances: materiality.expanded_choice_instances,
         },
         materiality,
         proof,
         jsx_nodes: components,
+        source_component_imports: Object.fromEntries([...sourceComponentImports.entries()]
+            .filter(([, imported]) => imported.primitive)
+            .map(([local, imported]) => [local, imported])),
+        source_component_counts: sourceComponentCounts,
         native_candidates: nativeCandidates,
         expanded_native_candidates: expandedNativeCandidates,
         event_contracts: eventContracts,
