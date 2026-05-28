@@ -60,6 +60,12 @@ std::unique_ptr<pulp::view::View> build_imported_chain_selection_ui();
 void bind_imported_chain_selection_ui(pulp::view::View& root,
                                       pulp::view::NativeImportBindingContext& ctx);
 
+namespace pulp::test::phase_f_chainer_hybrid {
+std::unique_ptr<pulp::view::View> build_chainer_phase_f_hybrid_ui();
+void bind_chainer_phase_f_hybrid_ui(pulp::view::View& root,
+                                    pulp::view::NativeImportBindingContext& ctx);
+}  // namespace pulp::test::phase_f_chainer_hybrid
+
 namespace {
 
 class TempDir {
@@ -6391,6 +6397,330 @@ TEST_CASE("Chainer Phase F original-layout hybrid classifies full routed-control
                << "  ]\n"
                << "}\n";
         write_text(dir / "reports" / "chainer-phase-f-hybrid-visual-report.json", report.str());
+    }
+}
+
+TEST_CASE("Chainer Phase F original-layout hybrid exports and compiles generated C++",
+          "[view][import][cpp-codegen][native-cpp-phase-f]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    const fs::path chainer_ir_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/generated/chainer-ir.json";
+    REQUIRE(fs::exists(manifest_path));
+    REQUIRE(fs::exists(chainer_ir_path));
+
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto source_formula = read_chainer_knob_source_formula(
+        source_jsx_path_from_route_manifest(route_manifest));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    const auto route_summary = summarize_phase_f_route_rows(route_rows);
+    auto materialized_ir = parse_design_ir_json(read_text(chainer_ir_path));
+    auto hybrid_ir = lower_chainer_routes_to_phase_f_original_layout_ir(
+        std::move(materialized_ir), route_rows, source_formula);
+
+    CppExportOptions opts;
+    opts.header_filename = "chainer-phase-f-hybrid.hpp";
+    opts.namespace_name = "pulp::test::phase_f_chainer_hybrid";
+    opts.function_name = "build_chainer_phase_f_hybrid_ui";
+    opts.binding_function_name = "bind_chainer_phase_f_hybrid_ui";
+
+    const auto result = generate_pulp_cpp(hybrid_ir, hybrid_ir.asset_manifest, opts);
+
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Knob>()") == route_summary.knobs);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Fader>()") == route_summary.faders);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::XYPad>()") == route_summary.xy_pads);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::WaveformView>()") ==
+            route_summary.waveform_displays);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::Meter>()") == route_summary.meter_bars);
+    REQUIRE(count_occurrences(result.source, "std::make_unique<pulp::view::ToggleButton>()") ==
+            route_summary.led_buttons + route_summary.waveform_choices +
+                route_summary.chain_modules + route_summary.chain_info_rows);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_knob(") == route_summary.knobs);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_fader(") == route_summary.faders);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_xy_pad(") == route_summary.xy_pads);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_toggle_button(") == route_summary.led_buttons);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_choice_button(") ==
+            route_summary.waveform_choices + route_summary.chain_modules + route_summary.chain_info_rows);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_meter(") == route_summary.meter_bars);
+    REQUIRE(count_occurrences(result.source, "ctx.bind_waveform_display(") == route_summary.waveform_displays);
+    REQUIRE(result.source.find("build_native_view_tree") == std::string::npos);
+    REQUIRE(result.source.find("serialize_design_ir") == std::string::npos);
+    REQUIRE(result.source.find("ScriptEngine") == std::string::npos);
+
+    auto binding_manifest = choc::json::parse(result.binding_manifest);
+    REQUIRE(binding_manifest["schema"].getString() == std::string("pulp-native-cpp-binding-manifest-v1"));
+    REQUIRE(binding_manifest["entries"].size() == route_summary.native_control_count());
+
+    std::map<std::string, int> primitive_counts;
+    int route_type_count = 0;
+    int source_family_count = 0;
+    int event_contract_count = 0;
+    int param_key_count = 0;
+    int meter_source_count = 0;
+    int xy_axis_count = 0;
+    for (uint32_t i = 0; i < binding_manifest["entries"].size(); ++i) {
+        const auto entry = binding_manifest["entries"][i];
+        ++primitive_counts[json_string(entry["native_primitive"])];
+        if (!entry["route_type"].isVoid() && !json_string(entry["route_type"]).empty())
+            ++route_type_count;
+        if (!entry["source_family"].isVoid() && !json_string(entry["source_family"]).empty())
+            ++source_family_count;
+        if (!entry["event_contract"].isVoid() && !json_string(entry["event_contract"]).empty())
+            ++event_contract_count;
+        if (!entry["param_key"].isVoid() && !json_string(entry["param_key"]).empty())
+            ++param_key_count;
+        if (!entry["meter_source"].isVoid() && !json_string(entry["meter_source"]).empty())
+            ++meter_source_count;
+        if (!entry["x_param_key"].isVoid() && !entry["y_param_key"].isVoid())
+            xy_axis_count += 2;
+    }
+
+    REQUIRE(primitive_counts["knob"] == static_cast<int>(route_summary.knobs));
+    REQUIRE(primitive_counts["fader"] == static_cast<int>(route_summary.faders));
+    REQUIRE(primitive_counts["xy_pad"] == static_cast<int>(route_summary.xy_pads));
+    REQUIRE(primitive_counts["toggle_button"] ==
+            static_cast<int>(route_summary.led_buttons + route_summary.waveform_choices +
+                             route_summary.chain_modules + route_summary.chain_info_rows));
+    REQUIRE(primitive_counts["waveform"] == static_cast<int>(route_summary.waveform_displays));
+    REQUIRE(primitive_counts["meter"] == static_cast<int>(route_summary.meter_bars));
+    REQUIRE(route_type_count == static_cast<int>(route_summary.native_control_count()));
+    REQUIRE(source_family_count == static_cast<int>(route_summary.native_control_count()));
+    REQUIRE(event_contract_count == static_cast<int>(route_summary.native_control_count()));
+    REQUIRE(param_key_count == static_cast<int>(route_summary.knobs + route_summary.faders +
+                                                route_summary.led_buttons + route_summary.waveform_choices +
+                                                route_summary.waveform_displays +
+                                                route_summary.chain_modules + route_summary.chain_info_rows));
+    REQUIRE(meter_source_count == static_cast<int>(route_summary.meter_bars));
+    REQUIRE(xy_axis_count == 2);
+
+    TempDir tmp("pulp-phase-f-chainer-hybrid-cpp-codegen");
+    const auto header = tmp.path / "chainer-phase-f-hybrid.hpp";
+    const auto source = tmp.path / "chainer-phase-f-hybrid.cpp";
+    const auto object = tmp.path / "chainer-phase-f-hybrid.o";
+    write_text(header, result.header);
+    write_text(source, result.source);
+
+    std::string diagnostics;
+    const bool compiled = compile_generated_source(source, object, &diagnostics);
+    INFO(diagnostics);
+    REQUIRE(compiled);
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        write_text(dir / "reports" / "generated" / "chainer-phase-f-hybrid-ir.json",
+                   serialize_design_ir(hybrid_ir));
+        write_text(dir / "reports" / "generated" / "chainer-phase-f-hybrid.hpp", result.header);
+        write_text(dir / "reports" / "generated" / "chainer-phase-f-hybrid.cpp", result.source);
+        write_text(dir / "reports" / "generated" / "chainer-phase-f-hybrid.bindings.json",
+                   result.binding_manifest);
+
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-f-hybrid-cpp-export-v1\",\n"
+               << "  \"fixture\": \"chainer-phase-f-original-layout-hybrid\",\n"
+               << "  \"scope\": \"generated-cpp-export-from-phase-f-hybrid-ir\",\n"
+               << "  \"comparison_mode\": \"hybrid-ir-exported-to-cpp-and-compiled\",\n"
+               << "  \"compiled\": " << (compiled ? "true" : "false") << ",\n"
+               << "  \"object_file_created\": " << (fs::exists(object) ? "true" : "false") << ",\n"
+               << "  \"source_has_build_native_view_tree\": "
+               << (result.source.find("build_native_view_tree") == std::string::npos ? "false" : "true") << ",\n"
+               << "  \"source_has_serialize_design_ir\": "
+               << (result.source.find("serialize_design_ir") == std::string::npos ? "false" : "true") << ",\n"
+               << "  \"source_has_script_engine\": "
+               << (result.source.find("ScriptEngine") == std::string::npos ? "false" : "true") << ",\n"
+               << "  \"lowered_route_row_count\": " << route_summary.route_rows() << ",\n"
+               << "  \"lowered_native_control_count\": " << route_summary.native_control_count() << ",\n"
+               << "  \"typed_constructor_counts\": {\n"
+               << "    \"knob\": " << route_summary.knobs << ",\n"
+               << "    \"fader\": " << route_summary.faders << ",\n"
+               << "    \"xy_pad\": " << route_summary.xy_pads << ",\n"
+               << "    \"toggle_button\": "
+               << route_summary.led_buttons + route_summary.waveform_choices +
+                      route_summary.chain_modules + route_summary.chain_info_rows << ",\n"
+               << "    \"waveform\": " << route_summary.waveform_displays << ",\n"
+               << "    \"meter\": " << route_summary.meter_bars << "\n"
+               << "  },\n"
+               << "  \"binding_helper_counts\": {\n"
+               << "    \"knob\": " << count_occurrences(result.source, "ctx.bind_knob(") << ",\n"
+               << "    \"fader\": " << count_occurrences(result.source, "ctx.bind_fader(") << ",\n"
+               << "    \"xy_pad\": " << count_occurrences(result.source, "ctx.bind_xy_pad(") << ",\n"
+               << "    \"toggle_button\": " << count_occurrences(result.source, "ctx.bind_toggle_button(") << ",\n"
+               << "    \"choice_button\": " << count_occurrences(result.source, "ctx.bind_choice_button(") << ",\n"
+               << "    \"waveform\": " << count_occurrences(result.source, "ctx.bind_waveform_display(") << ",\n"
+               << "    \"meter\": " << count_occurrences(result.source, "ctx.bind_meter(") << "\n"
+               << "  },\n"
+               << "  \"binding_manifest_entry_count\": " << binding_manifest["entries"].size() << ",\n"
+               << "  \"binding_primitive_counts\": {\n"
+               << "    \"knob\": " << primitive_counts["knob"] << ",\n"
+               << "    \"fader\": " << primitive_counts["fader"] << ",\n"
+               << "    \"xy_pad\": " << primitive_counts["xy_pad"] << ",\n"
+               << "    \"toggle_button\": " << primitive_counts["toggle_button"] << ",\n"
+               << "    \"waveform\": " << primitive_counts["waveform"] << ",\n"
+               << "    \"meter\": " << primitive_counts["meter"] << "\n"
+               << "  },\n"
+               << "  \"binding_route_type_entries\": " << route_type_count << ",\n"
+               << "  \"binding_source_family_entries\": " << source_family_count << ",\n"
+               << "  \"binding_event_contract_entries\": " << event_contract_count << ",\n"
+               << "  \"binding_param_key_entries\": " << param_key_count << ",\n"
+               << "  \"binding_meter_source_entries\": " << meter_source_count << ",\n"
+               << "  \"binding_xy_axis_entries\": " << xy_axis_count << ",\n"
+               << "  \"scope_boundaries\": [\n"
+               << "    \"proves the Phase F hybrid IR exports to C++ and compiles as an object file\",\n"
+               << "    \"does not prove this generated source has been linked into a runnable binary\",\n"
+               << "    \"does not prove cpp-only runtime JS isolation or cost gates\"\n"
+               << "  ]\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-f-hybrid-cpp-report.json", report.str());
+    }
+}
+
+TEST_CASE("linked Chainer Phase F generated C++ builds and classifies visual diff",
+          "[view][import][cpp-codegen][native-cpp-phase-f][visual]") {
+    const fs::path manifest_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/chainer-route-manifest.json";
+    const fs::path live_png_path =
+        fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/screenshots/chainer-live-coregraphics-1280x800.png";
+    REQUIRE(fs::exists(manifest_path));
+    REQUIRE(fs::exists(live_png_path));
+
+    auto route_manifest = choc::json::parse(read_text(manifest_path));
+    const auto route_rows = route_manifest["source_contract_overlay"]["node_route_rows"];
+    const auto route_summary = summarize_phase_f_route_rows(route_rows);
+
+    auto root = pulp::test::phase_f_chainer_hybrid::build_chainer_phase_f_hybrid_ui();
+    REQUIRE(root != nullptr);
+
+    PhaseDKnobBindingContext ctx;
+    pulp::test::phase_f_chainer_hybrid::bind_chainer_phase_f_hybrid_ui(*root, ctx);
+    REQUIRE(ctx.bound_params().size() ==
+            route_summary.knobs + route_summary.faders + route_summary.xy_pads * 2 + route_summary.led_buttons);
+    REQUIRE(ctx.bound_choices().size() ==
+            route_summary.waveform_choices + route_summary.chain_modules + route_summary.chain_info_rows);
+    REQUIRE(ctx.bound_meters().size() == route_summary.meter_bars);
+    REQUIRE(ctx.bound_waveform_displays().size() == route_summary.waveform_displays);
+
+    constexpr uint32_t kWidth = 1280;
+    constexpr uint32_t kHeight = 800;
+    root->set_bounds({0.0f, 0.0f, static_cast<float>(kWidth), static_cast<float>(kHeight)});
+    root->layout_children();
+
+    std::vector<Rect> routed_bounds;
+    std::vector<std::string> missing_crop_anchors;
+    for (const auto& anchor : route_summary.crop_anchors) {
+        auto* view = find_anchor(*root, anchor);
+        if (view == nullptr) {
+            missing_crop_anchors.push_back(anchor);
+            continue;
+        }
+        const auto bounds = absolute_bounds(*view);
+        if (bounds.width > 0.0f && bounds.height > 0.0f)
+            routed_bounds.push_back(bounds);
+    }
+    INFO("missing linked Phase F crop anchors: " << missing_crop_anchors.size());
+    REQUIRE(missing_crop_anchors.empty());
+    REQUIRE_FALSE(routed_bounds.empty());
+
+    auto linked_png = render_to_png(*root, kWidth, kHeight, 1.0f);
+    if (linked_png.empty())
+        SKIP("native screenshot renderer unavailable for linked Phase F C++ visual gate");
+    const auto live_png = read_bytes(live_png_path);
+    REQUIRE_FALSE(live_png.empty());
+
+    auto full_result = compare_screenshots(live_png, linked_png, 32);
+    REQUIRE(full_result.valid);
+    auto full_changed = diff_bounds(live_png, linked_png, 32);
+    auto full_diff = generate_diff_image(live_png, linked_png, 32);
+    REQUIRE_FALSE(full_diff.empty());
+
+    const auto crop_rect = expanded_crop(union_bounds(routed_bounds), 18.0f, kWidth, kHeight);
+    const bool full_diff_overlaps_crop = crop_intersects_diff(crop_rect, full_changed);
+    auto live_crop = crop_png(live_png, crop_rect.x, crop_rect.y, crop_rect.width, crop_rect.height);
+    auto linked_crop = crop_png(linked_png, crop_rect.x, crop_rect.y, crop_rect.width, crop_rect.height);
+    REQUIRE_FALSE(live_crop.empty());
+    REQUIRE_FALSE(linked_crop.empty());
+
+    auto routed_result = compare_screenshots(live_crop, linked_crop, 32);
+    REQUIRE(routed_result.valid);
+    auto routed_diff = generate_diff_image(live_crop, linked_crop, 32);
+    REQUIRE_FALSE(routed_diff.empty());
+    auto routed_changed = diff_bounds(live_crop, linked_crop, 32);
+
+    constexpr float kHybridThreshold = 0.90f;
+    const bool routed_region_within_threshold = routed_result.passes(kHybridThreshold);
+    const bool full_within_threshold = full_result.passes(kHybridThreshold);
+    const char* classification = routed_region_within_threshold ? "within_threshold" : "classified_difference";
+    const char* classification_reason = routed_region_within_threshold
+        ? "linked_generated_cpp_routed_regions_match_live_runtime_threshold"
+        : "linked_generated_cpp_routed_regions_still_differ_from_live_runtime";
+
+    if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const fs::path dir(artifact_dir);
+        write_bytes(dir / "reports" / "screenshots" / "chainer-phase-f-linked-cpp.png", linked_png);
+        write_bytes(dir / "reports" / "screenshots" / "chainer-phase-f-linked-cpp-full-diff.png",
+                    full_diff);
+        write_bytes(dir / "reports" / "screenshots" / "chainer-phase-f-linked-cpp-routed-region.png",
+                    linked_crop);
+        write_bytes(dir / "reports" / "screenshots" / "chainer-phase-f-linked-cpp-routed-region-diff.png",
+                    routed_diff);
+
+        std::ostringstream report;
+        report << "{\n"
+               << "  \"schema\": \"pulp-native-ui-phase-f-linked-cpp-visual-v1\",\n"
+               << "  \"fixture\": \"chainer-phase-f-original-layout-hybrid\",\n"
+               << "  \"scope\": \"cmake-linked-generated-cpp-vs-live-runtime\",\n"
+               << "  \"comparison_mode\": \"linked-generated-cpp-output-vs-live-runtime\",\n"
+               << "  \"compiled_into_test_binary\": true,\n"
+               << "  \"build_function_resolved\": true,\n"
+               << "  \"binding_function_resolved\": true,\n"
+               << "  \"threshold\": " << kHybridThreshold << ",\n"
+               << "  \"classification\": \"" << classification << "\",\n"
+               << "  \"classification_reason\": \"" << classification_reason << "\",\n"
+               << "  \"within_threshold\": " << (routed_region_within_threshold ? "true" : "false") << ",\n"
+               << "  \"full_within_threshold\": " << (full_within_threshold ? "true" : "false") << ",\n"
+               << "  \"full_similarity\": " << std::setprecision(7) << full_result.similarity << ",\n"
+               << "  \"full_mean_error\": " << full_result.mean_error << ",\n"
+               << "  \"full_diff_pixels\": " << full_result.diff_pixels << ",\n"
+               << "  \"full_total_pixels\": " << full_result.total_pixels << ",\n"
+               << "  \"routed_region_similarity\": " << routed_result.similarity << ",\n"
+               << "  \"routed_region_mean_error\": " << routed_result.mean_error << ",\n"
+               << "  \"routed_region_diff_pixels\": " << routed_result.diff_pixels << ",\n"
+               << "  \"routed_region_total_pixels\": " << routed_result.total_pixels << ",\n"
+               << "  \"routed_region_within_threshold\": "
+               << (routed_region_within_threshold ? "true" : "false") << ",\n"
+               << "  \"crop_rect\": {"
+               << "\"x\": " << crop_rect.x << ", "
+               << "\"y\": " << crop_rect.y << ", "
+               << "\"width\": " << crop_rect.width << ", "
+               << "\"height\": " << crop_rect.height << "},\n"
+               << "  \"full_diff_bounds\": {"
+               << "\"valid\": " << (full_changed.valid ? "true" : "false") << ", "
+               << "\"x\": " << full_changed.x << ", "
+               << "\"y\": " << full_changed.y << ", "
+               << "\"width\": " << full_changed.width << ", "
+               << "\"height\": " << full_changed.height << ", "
+               << "\"diff_pixels\": " << full_changed.diff_pixels << "},\n"
+               << "  \"full_diff_overlaps_crop\": " << (full_diff_overlaps_crop ? "true" : "false") << ",\n"
+               << "  \"routed_diff_bounds\": {"
+               << "\"valid\": " << (routed_changed.valid ? "true" : "false") << ", "
+               << "\"x\": " << routed_changed.x << ", "
+               << "\"y\": " << routed_changed.y << ", "
+               << "\"width\": " << routed_changed.width << ", "
+               << "\"height\": " << routed_changed.height << ", "
+               << "\"diff_pixels\": " << routed_changed.diff_pixels << "},\n"
+               << "  \"bound_params\": " << ctx.bound_params().size() << ",\n"
+               << "  \"bound_choices\": " << ctx.bound_choices().size() << ",\n"
+               << "  \"bound_meters\": " << ctx.bound_meters().size() << ",\n"
+               << "  \"bound_waveform_displays\": " << ctx.bound_waveform_displays().size() << ",\n"
+               << "  \"lowered_native_control_count\": " << route_summary.native_control_count() << ",\n"
+               << "  \"routed_crop_anchor_count\": " << route_summary.crop_anchors.size() << ",\n"
+               << "  \"missing_crop_anchors\": [],\n"
+               << "  \"scope_boundaries\": [\n"
+               << "    \"proves the checked-in generated Phase F C++ source is linked into this test binary and can build a native view tree\",\n"
+               << "    \"links through the normal view test target, so this is not a cpp-only no-JS-runtime proof\",\n"
+               << "    \"does not replace the live runtime fallback for unsupported imports\"\n"
+               << "  ]\n"
+               << "}\n";
+        write_text(dir / "reports" / "chainer-phase-f-linked-cpp-visual-report.json", report.str());
     }
 }
 
