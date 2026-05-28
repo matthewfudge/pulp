@@ -136,14 +136,15 @@ if [[ "${PULP_IOS_AUV3_SMOKE_BUILD:-0}" == "1" ]]; then
         echo "FAIL: Info.plist missing from built .appex"
         exit 1
     fi
-    if ! /usr/bin/plutil -p "${appex_path}/Info.plist" | grep -q 'com.apple.AudioUnit-UI'; then
+    plist_text=$(/usr/bin/plutil -p "${appex_path}/Info.plist")
+    if ! grep -q 'com.apple.AudioUnit-UI' <<<"${plist_text}"; then
         echo "FAIL: Info.plist NSExtension does not declare com.apple.AudioUnit-UI"
-        /usr/bin/plutil -p "${appex_path}/Info.plist" >&2
+        printf '%s\n' "${plist_text}" >&2
         exit 1
     fi
-    if ! /usr/bin/plutil -p "${appex_path}/Info.plist" | grep -q 'PulpAUViewController'; then
+    if ! grep -q 'PulpAUViewController' <<<"${plist_text}"; then
         echo "FAIL: Info.plist does not name PulpAUViewController as principal class"
-        /usr/bin/plutil -p "${appex_path}/Info.plist" >&2
+        printf '%s\n' "${plist_text}" >&2
         exit 1
     fi
 
