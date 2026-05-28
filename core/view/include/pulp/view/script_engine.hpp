@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <memory>
+#include <unordered_set>
 #include <choc/javascript/choc_javascript.h>
 
 namespace pulp::view {
@@ -77,6 +78,7 @@ public:
 
 private:
     std::unique_ptr<JsEngine> engine_;
+    std::unordered_set<std::string> registered_native_symbols_;
 
     // For QuickJS backward compatibility: WidgetBridge uses CHOC's Context directly
     // for the stack size hack and pimpl access. We keep a reference to the CHOC
@@ -84,6 +86,7 @@ private:
     choc::javascript::Context* choc_context_ = nullptr;
 
     void init_choc_compat();
+    void claim_native_symbol(const std::string& name);
 };
 
 // ── Template implementations ────────────────────────────────────────────────

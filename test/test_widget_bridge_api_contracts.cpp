@@ -29,7 +29,7 @@ std::string read_text(const std::filesystem::path& path) {
 
 std::vector<RegistrationSite> widget_bridge_registrations(const std::string& source) {
     std::vector<RegistrationSite> out;
-    const std::regex pattern("engine_\\.register_function\\(\"([^\"]+)\"");
+    const std::regex pattern("engine_\\.register_(?:function|host_object|promise_function)\\(\"([^\"]+)\"");
     std::istringstream lines(source);
     std::string line_text;
     int line = 1;
