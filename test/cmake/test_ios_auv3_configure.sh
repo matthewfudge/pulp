@@ -173,8 +173,19 @@ if [[ "${PULP_IOS_AUV3_SMOKE_BUILD:-1}" == "1" ]]; then
     # docs/getting-started/ios-deployment.md.
     hostapp_log="${build_dir}/hostapp_build.log"
     set +e
+    # Build the HostApp + the sibling `_Embed` custom target.
+    # `pulp_add_ios_host_app()` registers an `add_custom_target(...
+    # ALL DEPENDS sentinel)` named `<HostApp>_Embed` whose command
+    # copies the `.appex` from `build/AUv3/.../<plugin>.appex` into
+    # `<HostApp>.app/PlugIns/<plugin>.appex`. Driving only
+    # `--target PulpSineSynth_HostApp` produces the .app shell but
+    # skips the embed step, so the bundle ships without an embedded
+    # AUv3 — the user installs the HostApp on iPad and GarageBand /
+    # AUM never see the plugin in the Audio Unit picker. Build both
+    # so the bundle is complete.
     "${timeout_cmd[@]}" cmake --build "${build_dir}/build" \
         --target PulpSineSynth_HostApp \
+        --target PulpSineSynth_HostApp_Embed \
         --config Release \
         -- -sdk iphonesimulator \
         >"${hostapp_log}" 2>&1

@@ -97,17 +97,23 @@ if [[ ${status} -ne 0 ]]; then
     exit 1
 fi
 
-# Build the HostApp (this also builds the .appex it embeds).
+# Build the HostApp + the sibling `_Embed` custom target — the latter
+# copies the `.appex` into `<HostApp>.app/PlugIns/`. Just building
+# `PulpSineSynth_HostApp` produces the .app shell but skips the embed
+# step (the embed lives on `PulpSineSynth_HostApp_Embed`), so the
+# bundle ships without an embedded AUv3 extension.
 set +e
 if [[ ${#timeout_cmd[@]} -gt 0 ]]; then
     "${timeout_cmd[@]}" 1500 cmake --build "${build_dir}/build" \
         --target PulpSineSynth_HostApp \
+        --target PulpSineSynth_HostApp_Embed \
         --config Release \
         -- -sdk iphonesimulator \
         >"${build_log}" 2>&1
 else
     cmake --build "${build_dir}/build" \
         --target PulpSineSynth_HostApp \
+        --target PulpSineSynth_HostApp_Embed \
         --config Release \
         -- -sdk iphonesimulator \
         >"${build_log}" 2>&1
