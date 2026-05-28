@@ -3,6 +3,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <pulp/canvas/canvas.hpp>
 #include <pulp/view/buttons.hpp>
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/screenshot.hpp>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -37,6 +39,71 @@ using namespace pulp::view;
 namespace fs = std::filesystem;
 
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+struct PhaseCostMetrics {
+    int samples = 0;
+    double frame_ms_median = 0.0;
+    double frame_ms_p99 = 0.0;
+    double frame_ms_max = 0.0;
+    std::uint64_t paint_commands_last = 0;
+};
+
+struct StartupCostMetrics {
+    double build_ms = 0.0;
+    double bind_ms = 0.0;
+    double layout_ms = 0.0;
+    double first_frame_ms = 0.0;
+    double first_frame_render_ms = 0.0;
+    std::uint64_t first_frame_paint_commands = 0;
+};
+
+double elapsed_ms(Clock::time_point start, Clock::time_point end = Clock::now()) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+double percentile(std::vector<double> values, double pct) {
+    if (values.empty())
+        return 0.0;
+    std::sort(values.begin(), values.end());
+    const double rank = (pct / 100.0) * static_cast<double>(values.size() - 1);
+    const auto lo = static_cast<std::size_t>(std::floor(rank));
+    const auto hi = static_cast<std::size_t>(std::ceil(rank));
+    if (lo == hi)
+        return values[lo];
+    const double weight = rank - static_cast<double>(lo);
+    return values[lo] * (1.0 - weight) + values[hi] * weight;
+}
+
+std::uint64_t render_recording_frame(View& root) {
+    root.layout_children();
+    pulp::canvas::RecordingCanvas canvas;
+    root.paint_all(canvas);
+    return static_cast<std::uint64_t>(canvas.command_count());
+}
+
+template <typename Step>
+PhaseCostMetrics run_cost_phase(View& root, int samples, Step&& step) {
+    PhaseCostMetrics metrics;
+    metrics.samples = std::max(0, samples);
+    std::vector<double> frame_ms;
+    frame_ms.reserve(static_cast<std::size_t>(metrics.samples));
+
+    for (int frame = 0; frame < metrics.samples; ++frame) {
+        step(frame);
+        const auto frame_start = Clock::now();
+        metrics.paint_commands_last = render_recording_frame(root);
+        frame_ms.push_back(elapsed_ms(frame_start));
+    }
+
+    if (!frame_ms.empty()) {
+        metrics.frame_ms_median = percentile(frame_ms, 50.0);
+        metrics.frame_ms_p99 = percentile(frame_ms, 99.0);
+        metrics.frame_ms_max = *std::max_element(frame_ms.begin(), frame_ms.end());
+    }
+    return metrics;
+}
 
 void write_text(const fs::path& path, const std::string& text) {
     fs::create_directories(path.parent_path());
@@ -506,6 +573,39 @@ int exercise_behavior(View& root, CppOnlyBindingContext& ctx) {
     return interactions;
 }
 
+void step_cost_interaction(CppOnlyBindingContext& ctx, int frame) {
+    const float t = static_cast<float>(frame) / 60.0f;
+    auto normalized = [](float value) {
+        return std::clamp(value, 0.0f, 1.0f);
+    };
+
+    int index = 0;
+    for (const auto& row : ctx.knobs()) {
+        REQUIRE(row.widget != nullptr);
+        row.widget->set_value(normalized(0.5f + 0.42f * std::sin(t * (1.1f + 0.13f * index))));
+        ++index;
+    }
+
+    index = 0;
+    for (const auto& row : ctx.faders()) {
+        REQUIRE(row.widget != nullptr);
+        row.widget->set_value(normalized(0.5f + 0.45f * std::cos(t * (0.9f + 0.11f * index))));
+        ++index;
+    }
+
+    for (const auto& row : ctx.xy_pads()) {
+        REQUIRE(row.widget != nullptr);
+        row.widget->set_x(normalized(0.5f + 0.44f * std::sin(t * 0.7f)));
+        row.widget->set_y(normalized(0.5f + 0.44f * std::cos(t * 0.8f)));
+    }
+
+    for (const auto& row : ctx.meters()) {
+        REQUIRE(row.widget != nullptr);
+        const float rms = normalized(0.6f + 0.35f * std::sin(t * 1.3f));
+        row.widget->set_level(rms, normalized(rms + 0.08f));
+    }
+}
+
 }  // namespace
 
 TEST_CASE("Chainer generated C++ runs as a cpp-only eligible fixture",
@@ -518,11 +618,16 @@ TEST_CASE("Chainer generated C++ runs as a cpp-only eligible fixture",
         fs::path(PULP_REPO_ROOT) / "planning/artifacts/native-ui/nv0/reports/screenshots/chainer-live-coregraphics-1280x800.png";
     REQUIRE(fs::exists(live_png_path));
 
+    const auto test_start = Clock::now();
+    const auto build_start = Clock::now();
     auto root = pulp::test::phase_f_chainer_hybrid::build_chainer_phase_f_hybrid_ui();
+    const auto build_end = Clock::now();
     REQUIRE(root != nullptr);
 
     CppOnlyBindingContext ctx;
+    const auto bind_start = Clock::now();
     pulp::test::phase_f_chainer_hybrid::bind_chainer_phase_f_hybrid_ui(*root, ctx);
+    const auto bind_end = Clock::now();
 
     REQUIRE(ctx.knobs().size() == 8);
     REQUIRE(ctx.faders().size() == 6);
@@ -537,8 +642,24 @@ TEST_CASE("Chainer generated C++ runs as a cpp-only eligible fixture",
     for (const auto* key : required_param_keys())
         REQUIRE(ctx.bound_params().count(key) == 1);
 
+    const auto layout_start = Clock::now();
     root->set_bounds({0.0f, 0.0f, static_cast<float>(kWidth), static_cast<float>(kHeight)});
     root->layout_children();
+    const auto layout_end = Clock::now();
+
+    const auto first_render_start = Clock::now();
+    const auto first_commands = render_recording_frame(*root);
+    const auto first_render_end = Clock::now();
+
+    StartupCostMetrics startup_cost;
+    startup_cost.build_ms = elapsed_ms(build_start, build_end);
+    startup_cost.bind_ms = elapsed_ms(bind_start, bind_end);
+    startup_cost.layout_ms = elapsed_ms(layout_start, layout_end);
+    startup_cost.first_frame_ms = elapsed_ms(test_start, first_render_end);
+    startup_cost.first_frame_render_ms = elapsed_ms(first_render_start, first_render_end);
+    startup_cost.first_frame_paint_commands = first_commands;
+
+    const auto idle_cost = run_cost_phase(*root, 60, [](int) {});
 
     const auto live_png = read_bytes(live_png_path);
     auto cpp_only_png = render_to_png(*root, kWidth, kHeight, 1.0f);
@@ -572,6 +693,10 @@ TEST_CASE("Chainer generated C++ runs as a cpp-only eligible fixture",
     REQUIRE(ctx.parameter_event_count() > 0);
 
     if (const char* artifact_dir = std::getenv("PULP_NATIVE_UI_PHASE_D_ARTIFACT_DIR")) {
+        const auto interactive_cost = run_cost_phase(*root, 60, [&ctx](int frame) {
+            step_cost_interaction(ctx, frame);
+        });
+
         const fs::path dir(artifact_dir);
         write_bytes(dir / "reports" / "screenshots" / "chainer-phase-g-cpp-only.png", cpp_only_png);
         write_bytes(dir / "reports" / "screenshots" / "chainer-phase-g-cpp-only-full-diff.png", diff_png);
@@ -621,8 +746,31 @@ TEST_CASE("Chainer generated C++ runs as a cpp-only eligible fixture",
                << "\"meter_update_count\": " << ctx.meter_update_count() << ", "
                << "\"text_change_count\": " << ctx.text_change_count() << ", "
                << "\"host_action_event_count\": " << ctx.host_action_event_count() << "},\n"
+               << "  \"cost_metrics\": {\n"
+               << "    \"schema\": \"pulp-native-ui-cpp-only-fixture-cost-v1\",\n"
+               << "    \"startup\": {"
+               << "\"build_ms\": " << startup_cost.build_ms << ", "
+               << "\"bind_ms\": " << startup_cost.bind_ms << ", "
+               << "\"layout_ms\": " << startup_cost.layout_ms << ", "
+               << "\"first_frame_ms\": " << startup_cost.first_frame_ms << ", "
+               << "\"first_frame_render_ms\": " << startup_cost.first_frame_render_ms << ", "
+               << "\"first_frame_paint_commands\": " << startup_cost.first_frame_paint_commands << "},\n"
+               << "    \"idle\": {"
+               << "\"samples\": " << idle_cost.samples << ", "
+               << "\"frame_ms_median\": " << idle_cost.frame_ms_median << ", "
+               << "\"frame_ms_p99\": " << idle_cost.frame_ms_p99 << ", "
+               << "\"frame_ms_max\": " << idle_cost.frame_ms_max << ", "
+               << "\"paint_commands_last\": " << idle_cost.paint_commands_last << "},\n"
+               << "    \"interactive\": {"
+               << "\"samples\": " << interactive_cost.samples << ", "
+               << "\"frame_ms_median\": " << interactive_cost.frame_ms_median << ", "
+               << "\"frame_ms_p99\": " << interactive_cost.frame_ms_p99 << ", "
+               << "\"frame_ms_max\": " << interactive_cost.frame_ms_max << ", "
+               << "\"paint_commands_last\": " << interactive_cost.paint_commands_last << "}\n"
+               << "  },\n"
                << "  \"scope_boundaries\": [\n"
                << "    \"proves the checked-in generated C++ view tree can build, render, and handle routed interactions through a view-core-only target\",\n"
+               << "    \"cost metrics are fixture-specific in-process view construction, layout, and paint timings; they are not a launched app startup benchmark\",\n"
                << "    \"does not claim arbitrary imported designs are cpp-only eligible\",\n"
                << "    \"does not remove the live runtime safety net for unsupported imports\"\n"
                << "  ]\n"
